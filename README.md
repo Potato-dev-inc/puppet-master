@@ -8,21 +8,21 @@ Multi-agent terminal orchestrator. Spawn multiple AI coding agents — **Claude 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────────────────┐
 │ Tauri desktop app  (React + Vite + xterm.js + Rust PTY manager)    │
-│  ┌───────────────────────────┐  ┌──────────────────────────────────┐│
-│  │  scrollable 2-col grid    │  │  Puppet Master chat (LLM)        ││
+│  ┌───────────────────────────┐  ┌─────────────────────────────────┐│
+│  │  scrollable 2-col grid    │  │  Puppet Master chat (LLM)       ││
 │  │  ┌─────┐ ┌─────┐         │  │  - Claude / OpenAI               ││
 │  │  │ P1  │ │ P2  │         │  │  - MCP log feed                  ││
 │  │  └─────┘ └─────┘         │  └──────────────────────────────────┘│
-│  └───────────────────────────┘                                      │
+│  └───────────────────────────┘                                     │
 │         │ Tauri events / commands                                  │
 │  ┌──────▼──────────────────┐                                       │
 │  │ Rust PaneRegistry       │ ← portable-pty (Windows ConPTY)       │
 │  │  spawn / write / read   │                                       │
 │  │  / kill / resize        │                                       │
 │  └─────────────────────────┘                                       │
-└─────────┬───────────────────────────────────────────────────────────┘
+└─────────┬──────────────────────────────────────────────────────────┘
           │ spawns on startup
 ┌─────────▼──────────────┐
 │ Local HTTP bridge      │  http://127.0.0.1:17321–17399
