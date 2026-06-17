@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --pm-bg: 10 10 10;
+  --pm-panel: 18 18 18;
+  --pm-raised: 25 25 25;
+  --pm-border: 45 45 45;
+  --pm-accent: 245 245 245;
+  --pm-text: 232 232 232;
+  --pm-muted: 150 150 150;
+  --pm-ok: 214 214 214;
+  --pm-warn: 180 180 180;
+  --pm-err: 255 255 255;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --pm-bg: 250 250 250;
+  --pm-panel: 242 242 242;
+  --pm-raised: 255 255 255;
+  --pm-border: 212 212 212;
+  --pm-accent: 12 12 12;
+  --pm-text: 18 18 18;
+  --pm-muted: 96 96 96;
+  --pm-ok: 56 56 56;
+  --pm-warn: 86 86 86;
+  --pm-err: 0 0 0;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: rgb(var(--pm-bg));
+  color: rgb(var(--pm-text));
+}
+
+.terminal-host {
+  contain: strict;
+  height: 100%;
+  width: 100%;
+  background: rgb(var(--pm-bg));
+  cursor: text;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+  width: 100%;
+  padding: 8px 10px;
+}
+
+.terminal-host .xterm-viewport,
+.terminal-host .xterm-screen {
+  background: rgb(var(--pm-bg)) !important;
+}
+
+.terminal-host .xterm-screen canvas {
+  image-rendering: auto;
+}
+
+.terminal-snapshot {
+  margin: 0;
+  padding: 8px 10px;
+  color: rgb(var(--pm-text));
+  font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre;
+  tab-size: 4;
+  transform: translateZ(0);
+  text-rendering: geometricPrecision;
+  user-select: text;
+}
+
+.terminal-snapshot:focus {
+  box-shadow: inset 0 0 0 1px rgb(var(--pm-accent) / 0.35);
+}
+
+.resize-both {
+  resize: both;
+}

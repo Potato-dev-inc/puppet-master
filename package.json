@@ -1,0 +1,42 @@
+{
+  "name": "puppet-master",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Puppet Master — multi-agent terminal orchestrator (Tauri + React + MCP)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Potato-dev-inc/puppet-master.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Potato-dev-inc/puppet-master/issues"
+  },
+  "homepage": "https://github.com/Potato-dev-inc/puppet-master#readme",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@puppet-master/app",
+    "tauri": "node scripts/with-cargo-path.mjs",
+    "build": "npm run build --workspaces --if-present",
+    "build:rust": "node scripts/with-cargo-path.mjs build",
+    "mcp": "npm run start --workspace=@puppet-master/mcp",
+    "build:mcp": "npm run build --workspace=@puppet-master/mcp",
+    "build:bridge": "npm run build --workspace=@puppet-master/bridge",
+    "cli": "npm run start --workspace=@puppet-master/cli",
+    "bridge": "npm run dev --workspace=@puppet-master/bridge",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean": "rimraf \"packages/*/dist\" \"packages/*/.turbo\" \"packages/app/src-tauri/target\""
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "puppet-master": "./packages/cli/dist/index.js"
+  }
+}

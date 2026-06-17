@@ -1,0 +1,41 @@
+# deps
+node_modules/
+.pnp/
+.pnp.js
+
+# build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# tauri / rust
+packages/app/src-tauri/target/
+packages/app/src-tauri/gen/
+
+# logs
+*.log
+npm-debug.log*
+
+# env
+.env
+.env.local
+.env.*.local
+
+# editor
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# runtime artifacts
+.runtime/
+*.pid
+*.sock
+puppet-master.bridge.port
+
+# local tool / editor config
+.claude/
+.cursor/
+
+# OS
+Thumbs.db

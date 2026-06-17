@@ -1,0 +1,82 @@
+import { z } from 'zod';
+
+export const ChatMessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(['user', 'assistant', 'system', 'tool']),
+  content: z.string(),
+  tool_calls: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    args: z.unknown(),
+  })).optional(),
+  tool_call_id: z.string().optional(),
+  timestamp: z.number(),
+});
+export type ChatMessage = z.infer<typeof ChatMessageSchema>;
+
+export const LlmProviderSchema = z.enum(['anthropic', 'openai', 'openrouter']);
+export type LlmProvider = z.infer<typeof LlmProviderSchema>;
+
+export const LlmModelSchema = z.object({
+  provider: LlmProviderSchema,
+  model_id: z.string().min(1),
+  label: z.string().min(1),
+});
+export type LlmModel = z.infer<typeof LlmModelSchema>;
+
+/** How the Puppet Master sidebar drives orchestration. */
+export const OrchestratorBackendSchema = z.enum([
+  'api',           // Direct LLM API + in-process MCP tool loop (current)
+  'claude_cli',    // Dedicated Claude Code pane with MCP configured
+  'codex_cli',     // Dedicated Codex CLI pane with MCP configured
+  'opencode_cli',  // Dedicated OpenCode pane with MCP configured
+]);
+export type OrchestratorBackend = z.infer<typeof OrchestratorBackendSchema>;
+
+export const ORCHESTRATOR_BACKEND_LABELS: Record<OrchestratorBackend, string> = {
+  api: 'LLM API (direct)',
+  claude_cli: 'Claude Code CLI',
+  codex_cli: 'Codex CLI',
+  opencode_cli: 'OpenCode CLI',
+};
+
+export function modelKey(model: Pick<LlmModel, 'provider' | 'model_id'>): string {
+  return `${model.provider}::${model.model_id}`;
+}
+
+export function parseModelKey(key: string): { provider: LlmProvider; model_id: string } | null {
+  const idx = key.indexOf('::');
+  if (idx <= 0) return null;
+  const provider = key.slice(0, idx);
+  const model_id = key.slice(idx + 2);
+  const parsed = LlmProviderSchema.safeParse(provider);
+  if (!parsed.success || !model_id) return null;
+  return { provider: parsed.data, model_id };
+}
+
+export const DEFAULT_LLM_MODELS: LlmModel[] = [
+  { provider: 'anthropic', model_id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { provider: 'anthropic', model_id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+  { provider: 'openai', model_id: 'gpt-4.1', label: 'GPT-4.1' },
+  { provider: 'openai', model_id: 'gpt-4.1-mini', label: 'GPT-4.1 mini' },
+  { provider: 'openrouter', model_id: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4 (OR)' },
+  { provider: 'openrouter', model_id: 'openai/gpt-4.1', label: 'GPT-4.1 (OR)' },
+  { provider: 'openrouter', model_id: 'google/gemini-2.5-flash-preview', label: 'Gemini 2.5 Flash (OR)' },
+  { provider: 'openrouter', model_id: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B (OR)' },
+];
+
+export const SettingsSchema = z.object({
+  anthropic_api_key: z.string().optional(),
+  openai_api_key: z.string().optional(),
+  openrouter_api_key: z.string().optional(),
+  default_provider: LlmProviderSchema.default('anthropic'),
+  default_model: z.string().default('claude-sonnet-4-6'),
+  /** User-defined models merged with presets in the sidebar picker. */
+  custom_models: z.array(LlmModelSchema).default([]),
+  /** Sidebar orchestration backend. API runs an in-process tool loop; CLI modes delegate to live agent panes. */
+  orchestrator_backend: OrchestratorBackendSchema.default('api'),
+  /** Stable pane id for the dedicated orchestrator CLI pane (CLI backends). */
+  orchestrator_pane_id: z.string().optional(),
+  project_path: z.string().optional(),
+});
+export type Settings = z.infer<typeof SettingsSchema>;
