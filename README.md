@@ -12,9 +12,9 @@ Multi-agent terminal orchestrator. Spawn multiple AI coding agents — **Claude 
 │ Tauri desktop app  (React + Vite + xterm.js + Rust PTY manager)    │
 │  ┌───────────────────────────┐  ┌─────────────────────────────────┐│
 │  │  scrollable 2-col grid    │  │  Puppet Master chat (LLM)       ││
-│  │  ┌─────┐ ┌─────┐         │  │  - Claude / OpenAI               ││
-│  │  │ P1  │ │ P2  │         │  │  - MCP log feed                  ││
-│  │  └─────┘ └─────┘         │  └──────────────────────────────────┘│
+│  │  ┌─────┐ ┌─────┐          │  │  - Claude / OpenAI              ││
+│  │  │ P1  │ │ P2  │          │  │  - MCP log feed                 ││
+│  │  └─────┘ └─────┘          │  └─────────────────────────────────┘│
 │  └───────────────────────────┘                                     │
 │         │ Tauri events / commands                                  │
 │  ┌──────▼──────────────────┐                                       │
@@ -30,8 +30,8 @@ Multi-agent terminal orchestrator. Spawn multiple AI coding agents — **Claude 
 │  + SSE /events         │  - /agent-contexts /panes/:id/model /health
 └─────────┬──────────────┘
           │ same pane + agent-context HTTP API
-┌─────────▼──────────────────────────────────────────────────────────┐
-│ External MCP clients (Cursor, Claude Desktop, Codex)               │
+┌─────────▼─────────────────────────────────────────────────────────┐
+│ External MCP clients (Cursor, Claude Desktop, Codex)              │
 │   via `@puppet-master/mcp` stdio package  →  HTTP  →  bridge      │
 └───────────────────────────────────────────────────────────────────┘
 ```
