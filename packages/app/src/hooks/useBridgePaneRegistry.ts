@@ -3,6 +3,7 @@ import type { PaneInfo } from '@puppet-master/shared';
 import { PaneStreamManager } from '../terminal';
 import type { BridgeClient } from '../lib/bridge';
 import { makePaneTunnelTransport } from '../lib/pane-tunnel';
+import type { TerminalTransport } from './useTerminalSession';
 
 export interface BridgePaneData {
   info: PaneInfo;
@@ -17,10 +18,7 @@ export interface BridgePaneRegistryApi {
   updatePaneStatus: (paneId: string, status: PaneInfo['status']) => void;
   updatePaneDimensions: (paneId: string, cols: number, rows: number) => void;
   setPanesFromList: (list: PaneInfo[]) => void;
-  makeTransport: (paneId: string) => {
-    resize: (cols: number, rows: number) => Promise<void>;
-    writeInput: (text: string, appendNewline?: boolean) => Promise<void>;
-  };
+  makeTransport: (paneId: string) => TerminalTransport;
 }
 
 const EMPTY: Map<string, BridgePaneData> = new Map();

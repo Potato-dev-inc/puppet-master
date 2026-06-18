@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PaneInfo } from '@puppet-master/shared';
 import type { TerminalTransport } from './useTerminalSession';
 import type { BridgeClient } from '../lib/bridge';
 import {
@@ -22,7 +21,7 @@ export interface PaneTunnelApi {
   ingestTerminalData: (paneId: string, data: number[] | Uint8Array) => void;
   updatePaneDimensions: (paneId: string, cols: number, rows: number) => void;
   /** Pane info with tunnel-tracked cols/rows merged in. */
-  mergePaneInfo: (info: PaneInfo | undefined) => PaneInfo | undefined;
+  mergePaneInfo: <T extends { cols: number; rows: number }>(info: T | undefined) => T | undefined;
 }
 
 /**
@@ -79,7 +78,7 @@ export function usePaneTunnel(
   }, [bridge, paneId]);
 
   const mergePaneInfo = useCallback(
-    (info: PaneInfo | undefined) => {
+    <T extends { cols: number; rows: number }>(info: T | undefined) => {
       if (!info) return undefined;
       return mergePaneDimensions(info, dimensions?.cols, dimensions?.rows);
     },

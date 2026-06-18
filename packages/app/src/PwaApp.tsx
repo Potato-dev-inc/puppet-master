@@ -569,8 +569,9 @@ export default function PwaApp() {
   const registryRef = useRef(registry);
   registryRef.current = registry;
 
-  const cliOrchestratorBackend = isCliOrchestratorBackend(settings.orchestrator_backend ?? 'api')
-    ? settings.orchestrator_backend
+  const orchestratorBackend = settings.orchestrator_backend ?? 'api';
+  const cliOrchestratorBackend = isCliOrchestratorBackend(orchestratorBackend)
+    ? orchestratorBackend
     : null;
   const orchestratorPaneId = useMemo(() => {
     if (!cliOrchestratorBackend) return null;

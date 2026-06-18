@@ -1,4 +1,3 @@
-import type { PaneInfo } from '@puppet-master/shared';
 import { PaneStreamManager } from '../terminal';
 import type { TerminalTransport } from '../hooks/useTerminalSession';
 import type { BridgeClient } from './bridge';
@@ -68,11 +67,11 @@ export function bindPaneTunnelSubscribe(
   };
 }
 
-export function mergePaneDimensions(
-  info: PaneInfo | undefined,
+export function mergePaneDimensions<T extends { cols: number; rows: number }>(
+  info: T | undefined,
   cols: number | undefined,
   rows: number | undefined,
-): PaneInfo | undefined {
+): T | undefined {
   if (!info || cols === undefined || rows === undefined) return info;
   if (info.cols === cols && info.rows === rows) return info;
   return { ...info, cols, rows };

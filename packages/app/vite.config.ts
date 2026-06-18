@@ -14,7 +14,7 @@ const TUNNEL_ALLOWED_HOSTS = [
   '.v7ren.xyz',
 ];
 
-export default defineConfig(async () => ({
+export default defineConfig({
   plugins: [
     react(),
     devInfoPlugin(),
@@ -68,4 +68,4 @@ export default defineConfig(async () => ({
     minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_DEBUG,
   },
-}));
+});
