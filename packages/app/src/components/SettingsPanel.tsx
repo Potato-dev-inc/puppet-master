@@ -20,6 +20,7 @@ export function SettingsPanel({ open, onClose, onSaved }: Props) {
     default_model: 'claude-sonnet-4-6',
     custom_models: [],
     orchestrator_backend: 'api',
+    mobile_input_delay_ms: 5000,
   });
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [draftCustom, setDraftCustom] = useState<LlmModel>(EMPTY_CUSTOM);
@@ -157,6 +158,25 @@ export function SettingsPanel({ open, onClose, onSaved }: Props) {
             </button>
           </div>
         </div>
+
+        <label className="block text-xs text-pm-muted mb-1">Mobile input buffer (ms)</label>
+        <input
+          type="number"
+          min={250}
+          max={10000}
+          step={50}
+          value={settings.mobile_input_delay_ms ?? 5000}
+          onChange={(e) => {
+            const value = Number(e.target.value);
+            setSettings({
+              ...settings,
+              mobile_input_delay_ms: Number.isFinite(value)
+                ? Math.min(10000, Math.max(250, Math.round(value)))
+                : 5000,
+            });
+          }}
+          className="w-full text-xs bg-pm-bg border border-pm-border rounded px-2 py-1 mb-3 font-mono"
+        />
 
         <label className="block text-xs text-pm-muted mb-1">Anthropic API key</label>
         <input

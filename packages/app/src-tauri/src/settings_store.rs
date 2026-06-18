@@ -5,13 +5,19 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::commands::AppState;
 
-const PATCHABLE_KEYS: &[&str] = &["orchestrator_backend", "default_provider", "default_model"];
+const PATCHABLE_KEYS: &[&str] = &[
+    "orchestrator_backend",
+    "default_provider",
+    "default_model",
+    "mobile_input_delay_ms",
+];
 
 pub fn default_public_settings() -> Value {
     json!({
         "orchestrator_backend": "api",
         "default_provider": "anthropic",
         "default_model": "claude-sonnet-4-6",
+        "mobile_input_delay_ms": 5000,
     })
 }
 

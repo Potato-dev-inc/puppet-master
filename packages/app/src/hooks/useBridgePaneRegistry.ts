@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PaneInfo } from '@puppet-master/shared';
 import { PaneStreamManager } from '../terminal';
 import type { BridgeClient } from '../lib/bridge';
+import { makePaneTunnelTransport } from '../lib/pane-tunnel';
 
 export interface BridgePaneData {
   info: PaneInfo;
@@ -18,7 +19,7 @@ export interface BridgePaneRegistryApi {
   setPanesFromList: (list: PaneInfo[]) => void;
   makeTransport: (paneId: string) => {
     resize: (cols: number, rows: number) => Promise<void>;
-    writeInput: (text: string) => Promise<void>;
+    writeInput: (text: string, appendNewline?: boolean) => Promise<void>;
   };
 }
 
@@ -74,16 +75,7 @@ export function useBridgePaneRegistry(bridge: BridgeClient | null): BridgePaneRe
   );
 
   const makeTransport = useCallback(
-    (paneId: string) => ({
-      resize: async (_cols: number, _rows: number) => {
-        // Bridge viewers mirror PTY size; they must not resize the shared backend.
-        void paneId;
-      },
-      writeInput: async (text: string) => {
-        if (!bridge) return;
-        await bridge.writeInput(paneId, text, false);
-      },
-    }),
+    (paneId: string) => makePaneTunnelTransport(bridge!, paneId),
     [bridge],
   );
 

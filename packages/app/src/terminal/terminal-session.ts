@@ -9,8 +9,7 @@ import {
   MobileInputGuard,
   type MobileInputDelivery,
 } from './mobile-input-guard';
-import { MirrorEchoFilter } from './mirror-echo-filter';
-import { applyMirrorLocalEcho } from './mirror-local-echo';
+import { MobileTouchScroll } from './mobile-touch-scroll';
 import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
@@ -41,6 +40,7 @@ export class TerminalSession {
   private intersectionObserver: IntersectionObserver | null = null;
   private imeObserver: MutationObserver | null = null;
   private mobileInputGuard: MobileInputGuard | null = null;
+  private mobileTouchScroll: MobileTouchScroll | null = null;
   private focusCleanup: (() => void) | null = null;
   private openFrame: number | null = null;
   private resizeFrame: number | null = null;
@@ -51,8 +51,6 @@ export class TerminalSession {
   private ptyRows: number;
   private readonly syncPTYResize: boolean;
   private readonly mirrorPTY: boolean;
-  private muteOnData = false;
-  private readonly mirrorEchoFilter = new MirrorEchoFilter();
   private generation = 0;
   private themeObserver: MutationObserver | null = null;
   private disposed = false;
@@ -94,7 +92,7 @@ export class TerminalSession {
         convertEol: false,
         allowProposedApi: true,
         allowTransparency: false,
-        scrollOnUserInput: true,
+        scrollOnUserInput: !mobileMirror,
         disableStdin: mobileMirror,
         windowsPty: isWindowsRuntime()
           ? {
@@ -118,28 +116,22 @@ export class TerminalSession {
       this.term = terminal;
       this.fitAddon = fitAddon;
       this.inputBatcher = new InputBatcher((text) => {
-        this.options.onInput(text);
+        this.options.onInput(text, false);
       }, 4);
 
       terminal.onData((data) => {
-        if (this.muteOnData) return;
-        if (mobileMirror) {
-          this.mirrorEchoFilter.noteOutbound(data);
-          applyMirrorLocalEcho(terminal, data);
+        if (!mobileMirror) {
+          this.inputBatcher?.push(data);
+          this.scrollToCursor();
+          this.scheduleRefresh();
+          return;
         }
+
+        // Hardware keyboard on a phone/tablet — forward only, no local echo.
         this.inputBatcher?.push(data);
-        this.scrollToCursor();
-        this.scheduleRefresh();
       });
 
       this.unlistenData = subscribePaneData(this.options.paneId, (data) => {
-        if (
-          this.mirrorPTY &&
-          isMobileInputDevice() &&
-          this.mirrorEchoFilter.shouldSkipInbound(data)
-        ) {
-          return;
-        }
         terminal.write(data, () => {
           this.scrollToCursor();
           this.scheduleRefresh();
@@ -191,6 +183,9 @@ export class TerminalSession {
 
     this.mobileInputGuard?.dispose();
     this.mobileInputGuard = null;
+
+    this.mobileTouchScroll?.dispose();
+    this.mobileTouchScroll = null;
 
     this.themeObserver?.disconnect();
     this.themeObserver = null;
@@ -244,12 +239,11 @@ export class TerminalSession {
   }
 
   private installFocusHandlers(container: HTMLElement): void {
+    if (this.mobileInputGuard) {
+      return;
+    }
+
     const focusTerminal = () => {
-      if (this.mobileInputGuard) {
-        this.mobileInputGuard.focus();
-        window.setTimeout(() => this.mobileInputGuard?.focus(), 0);
-        return;
-      }
       this.term?.focus();
     };
     container.addEventListener('pointerdown', focusTerminal);
@@ -260,7 +254,7 @@ export class TerminalSession {
 
   private installTextareaGuards(
     container: HTMLElement,
-    terminal: Terminal,
+    _terminal: Terminal,
     inputBatcher: InputBatcher,
   ): void {
     const textarea = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null;
@@ -295,27 +289,35 @@ export class TerminalSession {
           inputBatcher.flushNow();
         }
 
-        this.mirrorEchoFilter.noteOutbound(text);
-        this.muteOnData = true;
-        try {
-          applyMirrorLocalEcho(terminal, text);
-        } finally {
-          this.muteOnData = false;
-        }
-
+        // Remote mirror: send to the desktop PTY via the bridge; display only
+        // what comes back over the tunnel (same bytes the desktop sees).
         if (delivery === 'immediate') {
-          this.options.onInput(text);
+          this.options.onInput(text, false);
         } else {
           inputBatcher.push(text);
         }
-        this.scrollToCursor();
-        this.scheduleRefresh();
       };
 
       this.mobileInputGuard = new MobileInputGuard({
         container,
         emitInput: emitMobileInput,
-        scrollToCursor: () => this.scrollToCursor(),
+        scrollToCursor: () => {},
+        bufferDelayMs: this.options.mobileInputDelayMs,
+      });
+
+      this.mobileTouchScroll = new MobileTouchScroll({
+        container,
+        lineHeightPx: Math.round(TERMINAL_FONT_SIZE * 1.35),
+        scrollLines: (lines) => {
+          const active = this.term;
+          if (active) active.scrollLines(lines);
+        },
+        shouldIgnoreTarget: (target) =>
+          target instanceof Element &&
+          target.closest('.terminal-mobile-command-input, .terminal-mobile-command-form') != null,
+        onBackgroundTap: (target) => {
+          this.mobileInputGuard?.handleBackgroundTap(target);
+        },
       });
     }
   }
@@ -323,7 +325,19 @@ export class TerminalSession {
   private scrollToCursor(): void {
     const terminal = this.term;
     if (!terminal) return;
+    const mobileMirror = this.mirrorPTY && isMobileInputDevice();
+    if (mobileMirror && !this.isViewportAtBottom()) {
+      return;
+    }
     terminal.scrollToBottom();
+  }
+
+  private isViewportAtBottom(): boolean {
+    const terminal = this.term;
+    if (!terminal) return true;
+    const buffer = terminal.buffer.active;
+    const lastVisibleLine = buffer.baseY + buffer.viewportY + terminal.rows - 1;
+    return lastVisibleLine >= buffer.length - 1;
   }
 
   private installFileLinkProvider(terminal: Terminal): void {

@@ -5,7 +5,7 @@ import type { PaneSnapshotListener } from '../terminal';
 
 export interface TerminalTransport {
   resize: (cols: number, rows: number) => void | Promise<void>;
-  writeInput: (text: string) => void | Promise<void>;
+  writeInput: (text: string, appendNewline?: boolean) => void | Promise<void>;
 }
 
 interface UseTerminalSessionOptions {
@@ -17,6 +17,7 @@ interface UseTerminalSessionOptions {
   syncPTYResize?: boolean;
   ptyCols?: number;
   ptyRows?: number;
+  mobileInputDelayMs?: number;
 }
 
 /**
@@ -30,6 +31,7 @@ export function useTerminalSession({
   syncPTYResize = true,
   ptyCols,
   ptyRows,
+  mobileInputDelayMs,
 }: UseTerminalSessionOptions): RefObject<HTMLDivElement> {
   const containerRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<TerminalSession | null>(null);
@@ -42,8 +44,8 @@ export function useTerminalSession({
       resize: (cols: number, rows: number) => {
         void tauri.resize(paneId, cols, rows);
       },
-      writeInput: (text: string) => {
-        void tauri.writeInput(paneId, text, false);
+      writeInput: (text: string, appendNewline = false) => {
+        void tauri.writeInput(paneId, text, appendNewline);
       },
     };
     const activeTransport = transport ?? defaultTransport;
@@ -53,11 +55,12 @@ export function useTerminalSession({
       syncPTYResize,
       ptyCols,
       ptyRows,
+      mobileInputDelayMs,
       onResize: (cols, rows) => {
         void activeTransport.resize(cols, rows);
       },
-      onInput: (text) => {
-        void activeTransport.writeInput(text);
+      onInput: (text, appendNewline = false) => {
+        void activeTransport.writeInput(text, appendNewline);
       },
     });
     sessionRef.current = session;
@@ -67,7 +70,7 @@ export function useTerminalSession({
       session.dispose();
       sessionRef.current = null;
     };
-  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize]);
+  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, mobileInputDelayMs]);
 
   useEffect(() => {
     if (!syncPTYResize && ptyCols && ptyRows) {

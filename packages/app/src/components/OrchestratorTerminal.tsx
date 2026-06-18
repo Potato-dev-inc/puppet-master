@@ -18,6 +18,7 @@ interface Props {
   onRetry: () => void;
   transport?: TerminalTransport;
   syncPTYResize?: boolean;
+  mobileInputDelayMs?: number;
 }
 
 function OrchestratorTerminalLive({
@@ -26,12 +27,14 @@ function OrchestratorTerminalLive({
   subscribePaneData,
   transport,
   syncPTYResize = true,
+  mobileInputDelayMs,
 }: {
   backend: CliOrchestratorBackend;
   pane: PaneData;
   subscribePaneData: (paneId: string, cb: (data: Uint8Array) => void) => () => void;
   transport?: TerminalTransport;
   syncPTYResize?: boolean;
+  mobileInputDelayMs?: number;
 }) {
   const containerRef = useTerminalSession({
     paneId: pane.info.id,
@@ -41,6 +44,7 @@ function OrchestratorTerminalLive({
     syncPTYResize,
     ptyCols: pane.info.cols,
     ptyRows: pane.info.rows,
+    mobileInputDelayMs,
   });
   const label = BACKEND_LABEL[backend];
 
@@ -68,6 +72,7 @@ export function OrchestratorTerminal({
   onRetry,
   transport,
   syncPTYResize = true,
+  mobileInputDelayMs,
 }: Props) {
   const label = BACKEND_LABEL[backend];
 
@@ -101,6 +106,7 @@ export function OrchestratorTerminal({
       subscribePaneData={subscribePaneData}
       transport={transport}
       syncPTYResize={syncPTYResize}
+      mobileInputDelayMs={mobileInputDelayMs}
     />
   );
 }

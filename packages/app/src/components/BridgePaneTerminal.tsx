@@ -16,6 +16,7 @@ interface Props {
   transport: TerminalTransport;
   title?: string;
   syncPTYResize?: boolean;
+  mobileInputDelayMs?: number;
 }
 
 export function BridgePaneTerminal({
@@ -25,6 +26,7 @@ export function BridgePaneTerminal({
   transport,
   title,
   syncPTYResize = false,
+  mobileInputDelayMs,
 }: Props) {
   const containerRef = useTerminalSession({
     paneId: pane.id,
@@ -34,6 +36,7 @@ export function BridgePaneTerminal({
     syncPTYResize,
     ptyCols: pane.cols,
     ptyRows: pane.rows,
+    mobileInputDelayMs,
   });
 
   const label = title ?? pane.agent_type;

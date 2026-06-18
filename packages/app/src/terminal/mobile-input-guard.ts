@@ -1,13 +1,14 @@
 import type { Disposable } from './types';
+import { isReplacementInputType, normalizeSuggestionText } from './word-replacement';
 
 const BACKSPACE = '\x7f';
+const ENTER = '\r';
 
-const REPLACEMENT_INPUT_TYPES = new Set([
-  'insertReplacementText',
-  'insertFromComposition',
-  'insertFromSuggestion',
-  'insertCompositionText',
-]);
+/** Default time to hold mobile input in memory before committing to the PTY. */
+export const DEFAULT_MOBILE_BUFFER_MS = 5000;
+
+/** CSS class on the host to hide the bar later without changing input behavior. */
+export const MOBILE_INPUT_HIDDEN_CLASS = 'terminal-host--mobile-input-hidden';
 
 const CONTROL_KEYS: Record<string, string> = {
   ArrowUp: '\x1b[A',
@@ -31,36 +32,11 @@ export function isMobileInputDevice(): boolean {
   );
 }
 
-/** PTY backspaces followed by the replacement text. */
-export function buildReplacementInput(replacedLength: number, insertText: string): string | null {
-  if (replacedLength <= 0 || insertText.length === 0) return null;
-  return BACKSPACE.repeat(replacedLength) + insertText;
-}
-
-/** Longest suffix of `before` that is a prefix of `insert` (keyboard word completion). */
-export function estimateReplacedPrefix(before: string, insert: string): number {
-  const max = Math.min(before.length, insert.length);
-  for (let length = max; length > 0; length -= 1) {
-    const suffix = before.slice(-length);
-    if (insert.startsWith(suffix)) return length;
-  }
-  return 0;
-}
-
 function normalizeTerminalLineEndings(text: string): string {
-  return text.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
+  return text.replace(/\r\n/g, ENTER).replace(/\n/g, ENTER);
 }
 
-/** Keyboards occasionally append a duplicated suggestion ("much much"). */
-export function normalizeSuggestionText(insert: string): string {
-  const trimmed = insert.replace(/\s+$/, '');
-  const parts = trimmed.split(/\s+/);
-  if (parts.length === 2 && parts[0] === parts[1]) {
-    return parts[0];
-  }
-  return insert;
-}
-
+/** Translate committed vs current input text into PTY keystrokes (used only on flush). */
 export function buildInputDelta(previous: string, next: string): string {
   if (previous === next) return '';
 
@@ -78,28 +54,6 @@ export function buildInputDelta(previous: string, next: string): string {
   return BACKSPACE.repeat(deletedLength) + normalizeTerminalLineEndings(inserted);
 }
 
-function currentToken(value: string): string {
-  return value.match(/[^\s]*$/)?.[0] ?? '';
-}
-
-function isWordBoundaryInput(value: string): boolean {
-  return /\s/.test(value);
-}
-
-function isReplacementInputType(inputType: string): boolean {
-  return REPLACEMENT_INPUT_TYPES.has(inputType);
-}
-
-function shouldSendImmediately(payload: string, inputType: string): boolean {
-  return (
-    payload.includes(BACKSPACE) ||
-    payload.includes('\r') ||
-    payload.includes('\t') ||
-    payload.startsWith('\x1b') ||
-    isReplacementInputType(inputType)
-  );
-}
-
 /** Keep xterm's internal textarea out of the mobile keyboard path. */
 export function configureXtermTextareaForMobileMirror(textarea: HTMLTextAreaElement): void {
   textarea.readOnly = true;
@@ -111,222 +65,209 @@ export function configureXtermTextareaForMobileMirror(textarea: HTMLTextAreaElem
   textarea.style.height = '1px';
 }
 
-function configureMobileTextarea(textarea: HTMLTextAreaElement): void {
-  textarea.setAttribute('data-mobile-terminal-input', 'true');
-  textarea.setAttribute('aria-label', 'Terminal input');
-  textarea.setAttribute('autocomplete', 'off');
-  textarea.setAttribute('autocorrect', 'on');
-  textarea.setAttribute('autocapitalize', 'off');
-  textarea.spellcheck = true;
-  textarea.inputMode = 'text';
-  textarea.enterKeyHint = 'enter';
-  textarea.rows = 1;
-  textarea.wrap = 'off';
-  textarea.style.position = 'absolute';
-  textarea.style.left = '0';
-  textarea.style.right = '0';
-  textarea.style.bottom = '0';
-  textarea.style.width = '100%';
-  textarea.style.height = '44px';
-  textarea.style.opacity = '0.01';
-  textarea.style.color = 'transparent';
-  textarea.style.caretColor = 'transparent';
-  textarea.style.background = 'transparent';
-  textarea.style.border = 'none';
-  textarea.style.outline = 'none';
-  textarea.style.resize = 'none';
-  textarea.style.fontSize = '16px';
-  textarea.style.lineHeight = '44px';
-  textarea.style.padding = '0';
-  textarea.style.margin = '0';
-  textarea.style.zIndex = '30';
-  textarea.style.overflow = 'hidden';
-}
-
 interface MobileInputGuardOptions {
   container: HTMLElement;
   emitInput: (text: string, delivery: MobileInputDelivery) => void;
   scrollToCursor: () => void;
+  onBufferChange?: (text: string) => void;
+  /** Hold typed text in memory this long; each new keystroke resets the timer. */
+  bufferDelayMs?: number;
 }
 
 /**
- * Mobile mirror-mode input is independent from xterm's helper textarea. The
- * phone keyboard owns this textarea natively, and we send PTY deltas after its
- * value changes so autocorrect and suggestions do not fight synthesized events.
+ * Standard HTML command field (form + text input). The browser owns typing,
+ * autocorrect, and suggestions. We only forward text to the terminal after the
+ * buffer timer or when the user submits the form (Enter).
  */
 export class MobileInputGuard implements Disposable {
   private readonly container: HTMLElement;
   private readonly emitInput: (text: string, delivery: MobileInputDelivery) => void;
   private readonly scrollToCursor: () => void;
-  private readonly textarea: HTMLTextAreaElement;
-  private sentValue = '';
-  private composing = false;
-  private pendingInputType = 'insertText';
+  private readonly onBufferChange?: (text: string) => void;
+  private readonly bufferDelayMs: number;
+  private readonly scrollZone: HTMLDivElement;
+  private readonly inputZone: HTMLDivElement;
+  private readonly form: HTMLFormElement;
+  private readonly input: HTMLInputElement;
+  /** Text already written to the terminal from the current field contents. */
+  private committedText = '';
+  private flushTimer: number | null = null;
 
   constructor(options: MobileInputGuardOptions) {
     this.container = options.container;
     this.emitInput = options.emitInput;
     this.scrollToCursor = options.scrollToCursor;
-    this.textarea = document.createElement('textarea');
-    configureMobileTextarea(this.textarea);
+    this.onBufferChange = options.onBufferChange;
+    this.bufferDelayMs = options.bufferDelayMs ?? DEFAULT_MOBILE_BUFFER_MS;
 
     if (getComputedStyle(this.container).position === 'static') {
       this.container.style.position = 'relative';
     }
+    this.container.classList.add('terminal-host--mobile-input');
 
-    this.container.appendChild(this.textarea);
-    this.textarea.addEventListener('beforeinput', this.onBeforeInput);
-    this.textarea.addEventListener('input', this.onInput);
-    this.textarea.addEventListener('keydown', this.onKeyDown);
-    this.textarea.addEventListener('compositionstart', this.onCompositionStart);
-    this.textarea.addEventListener('compositionend', this.onCompositionEnd);
+    this.scrollZone = document.createElement('div');
+    this.scrollZone.className = 'terminal-mobile-scroll-zone';
+    this.scrollZone.setAttribute('data-mobile-terminal-scroll', 'true');
+
+    this.inputZone = document.createElement('div');
+    this.inputZone.className = 'terminal-mobile-input-zone';
+    this.inputZone.setAttribute('data-mobile-terminal-input-zone', 'true');
+
+    this.form = document.createElement('form');
+    this.form.className = 'terminal-mobile-command-form';
+    this.form.setAttribute('autocomplete', 'off');
+    this.form.noValidate = true;
+
+    this.input = document.createElement('input');
+    this.input.type = 'text';
+    this.input.name = 'command';
+    this.input.id = `terminal-mobile-command-${Math.random().toString(36).slice(2, 9)}`;
+    this.input.className = 'terminal-mobile-command-input';
+    this.input.setAttribute('data-mobile-terminal-input', 'true');
+    this.input.setAttribute('aria-label', 'Terminal command');
+    this.input.setAttribute('autocomplete', 'on');
+    this.input.setAttribute('autocorrect', 'on');
+    this.input.setAttribute('autocapitalize', 'off');
+    this.input.setAttribute('spellcheck', 'true');
+    this.input.setAttribute('inputmode', 'text');
+    this.input.setAttribute('enterkeyhint', 'send');
+    this.input.placeholder = 'Type a command…';
+
+    this.form.appendChild(this.input);
+    this.inputZone.appendChild(this.form);
+    this.container.appendChild(this.scrollZone);
+    this.container.appendChild(this.inputZone);
+
+    this.form.addEventListener('submit', this.onFormSubmit);
+    this.input.addEventListener('input', this.onInput);
+    this.input.addEventListener('keydown', this.onKeyDown);
+    this.notifyBufferChange();
   }
 
   dispose(): void {
-    this.textarea.removeEventListener('beforeinput', this.onBeforeInput);
-    this.textarea.removeEventListener('input', this.onInput);
-    this.textarea.removeEventListener('keydown', this.onKeyDown);
-    this.textarea.removeEventListener('compositionstart', this.onCompositionStart);
-    this.textarea.removeEventListener('compositionend', this.onCompositionEnd);
-    this.textarea.remove();
+    this.form.removeEventListener('submit', this.onFormSubmit);
+    this.input.removeEventListener('input', this.onInput);
+    this.input.removeEventListener('keydown', this.onKeyDown);
+    this.flushToTerminal();
+    this.scrollZone.remove();
+    this.inputZone.remove();
+    this.container.classList.remove('terminal-host--mobile-input');
+    this.container.classList.remove(MOBILE_INPUT_HIDDEN_CLASS);
   }
 
   focus(): void {
-    if (!this.textarea.isConnected) return;
-    this.textarea.focus({ preventScroll: true });
-    this.moveCaretToEnd();
+    if (!this.input.isConnected) return;
+    this.input.focus({ preventScroll: true });
   }
 
-  private moveCaretToEnd(): void {
-    const end = this.textarea.value.length;
-    this.textarea.setSelectionRange(end, end);
+  blur(): void {
+    this.input.blur();
   }
 
-  private setNativeValue(value: string): void {
-    this.textarea.value = value;
-    this.sentValue = value;
-    this.moveCaretToEnd();
+  /** Tap (not drag) on the terminal background — focus or blur the command field. */
+  handleBackgroundTap(target: EventTarget | null): void {
+    if (!(target instanceof Element)) return;
+    if (target.closest('[data-mobile-terminal-input]')) return;
+    if (target.closest('[data-mobile-terminal-input-zone]')) {
+      this.focus();
+      return;
+    }
+    this.blur();
   }
 
-  private resetToCurrentToken(): void {
-    const token = currentToken(this.sentValue);
-    if (token !== this.sentValue) {
-      this.setNativeValue(token);
+  getBufferText(): string {
+    return this.input.value;
+  }
+
+  private notifyBufferChange(): void {
+    this.onBufferChange?.(this.input.value);
+  }
+
+  private scheduleFlush(): void {
+    this.cancelFlush();
+    this.flushTimer = window.setTimeout(() => this.flushToTerminal(), this.bufferDelayMs);
+  }
+
+  private cancelFlush(): void {
+    if (this.flushTimer !== null) {
+      window.clearTimeout(this.flushTimer);
+      this.flushTimer = null;
     }
   }
 
-  private emit(payload: string, inputType: string): void {
+  private flushToTerminal(): void {
+    this.cancelFlush();
+
+    const value = this.input.value;
+    const payload = buildInputDelta(this.committedText, value);
+    if (payload) {
+      this.emit(payload);
+    }
+    this.committedText = value;
+    this.notifyBufferChange();
+  }
+
+  private emit(payload: string): void {
     if (!payload) return;
-    this.emitInput(payload, shouldSendImmediately(payload, inputType) ? 'immediate' : 'batched');
+    this.emitInput(payload, 'immediate');
     this.scrollToCursor();
   }
 
-  private applyNativeValue(inputType: string): void {
-    const rawValue = this.textarea.value;
-    const nextValue = isReplacementInputType(inputType)
-      ? normalizeSuggestionText(rawValue)
-      : rawValue;
+  private commitEnter(): void {
+    this.flushToTerminal();
+    this.emit(ENTER);
+    this.input.value = '';
+    this.committedText = '';
+    this.cancelFlush();
+    this.notifyBufferChange();
+  }
 
-    if (nextValue !== rawValue) {
-      this.textarea.value = nextValue;
-    }
-
-    const payload = buildInputDelta(this.sentValue, nextValue);
-    this.emit(payload, inputType);
-    this.sentValue = nextValue;
-
-    if (isWordBoundaryInput(nextValue)) {
-      this.resetToCurrentToken();
-    } else {
-      this.moveCaretToEnd();
+  private normalizeFieldValue(inputType: string): void {
+    if (!isReplacementInputType(inputType)) return;
+    const normalized = normalizeSuggestionText(this.input.value);
+    if (normalized !== this.input.value) {
+      this.input.value = normalized;
     }
   }
 
-  private deleteBackward(inputType: string): void {
-    if (this.sentValue.length === 0) {
-      this.emit(BACKSPACE, inputType);
-      return;
-    }
-
-    const deleteCount =
-      inputType === 'deleteWordBackward' ? Math.max(1, currentToken(this.sentValue).length) : 1;
-    const nextValue = this.sentValue.slice(0, Math.max(0, this.sentValue.length - deleteCount));
-    const payload = BACKSPACE.repeat(this.sentValue.length - nextValue.length);
-    this.setNativeValue(nextValue);
-    this.emit(payload, inputType);
-  }
-
-  private sendControlInput(payload: string, inputType: string): void {
-    this.emit(payload, inputType);
-    if (payload === '\r') {
-      this.setNativeValue('');
-    }
-  }
-
-  private readonly onBeforeInput = (event: InputEvent): void => {
-    this.pendingInputType = event.inputType || this.pendingInputType;
-    if (this.composing || event.isComposing) return;
-
-    if (event.inputType === 'deleteContentBackward' || event.inputType === 'deleteWordBackward') {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      this.deleteBackward(event.inputType);
-      return;
-    }
-
-    if (event.inputType === 'insertLineBreak' || event.inputType === 'insertParagraph') {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      this.sendControlInput('\r', event.inputType);
-    }
+  private readonly onFormSubmit = (event: SubmitEvent): void => {
+    event.preventDefault();
+    this.commitEnter();
   };
 
   private readonly onInput = (event: Event): void => {
     const inputEvent = event as InputEvent;
-    this.pendingInputType = inputEvent.inputType || this.pendingInputType;
-    if (this.composing || inputEvent.isComposing) return;
+    if (inputEvent.isComposing) return;
 
-    this.applyNativeValue(this.pendingInputType);
-    inputEvent.stopImmediatePropagation();
+    this.normalizeFieldValue(inputEvent.inputType || 'insertText');
+    this.notifyBufferChange();
+    this.scheduleFlush();
   };
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (this.composing || event.isComposing) return;
+    if (event.isComposing) return;
+
+    if (event.key === 'Backspace' && this.input.value.length === 0 && this.committedText.length === 0) {
+      event.preventDefault();
+      this.emit(BACKSPACE);
+      return;
+    }
 
     if ((event.ctrlKey || event.metaKey) && event.key.length === 1) {
       const code = event.key.toUpperCase().charCodeAt(0);
       if (code >= 65 && code <= 90) {
         event.preventDefault();
-        this.sendControlInput(String.fromCharCode(code - 64), 'controlKey');
+        this.flushToTerminal();
+        this.emit(String.fromCharCode(code - 64));
       }
       return;
     }
 
-    if (event.key === 'Backspace') {
-      event.preventDefault();
-      this.deleteBackward('deleteContentBackward');
-      return;
-    }
-
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      this.sendControlInput('\r', 'insertLineBreak');
-      return;
-    }
-
     const control = CONTROL_KEYS[event.key];
-    if (control) {
+    if (control && event.key !== 'Enter') {
       event.preventDefault();
-      this.sendControlInput(control, 'controlKey');
+      this.flushToTerminal();
+      this.emit(control);
     }
-  };
-
-  private readonly onCompositionStart = (): void => {
-    this.composing = true;
-  };
-
-  private readonly onCompositionEnd = (): void => {
-    this.composing = false;
-    this.applyNativeValue('insertFromComposition');
   };
 }

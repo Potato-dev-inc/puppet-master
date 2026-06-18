@@ -8,7 +8,8 @@ import {
   type OrchestratorBackend,
   type OrchestratorChatEvent,
 } from '@puppet-master/shared';
-import type { BridgeClient } from '../lib/bridge';
+import { subscribeBridgeEvents, type BridgeClient } from '../lib/bridge';
+import { routeBridgeEventToPaneTunnel } from '../lib/bridge-pane-tunnel';
 import type { ChatMessage } from '../lib/llm';
 import { runPuppetMasterLoop } from '../lib/puppet-master';
 import { runPuppetMasterCliLoop } from '../lib/puppet-master-cli';
@@ -16,6 +17,7 @@ import { makeTauriExecutor } from '../lib/mcp-tools';
 import { findModel, getApiKey, invalidateSettingsCache, listModels, loadSettings, saveSettings } from '../lib/settings';
 import { tauri } from '../lib/tauri';
 import type { PaneRegistryApi } from '../hooks/usePaneRegistry';
+import { usePaneTunnel } from '../hooks/usePaneTunnel';
 import {
   ensureOrchestratorPane,
   findOrchestratorPane,
@@ -91,6 +93,23 @@ export function PuppetMasterSidebar({
     if (!info) return undefined;
     return registry.panes.get(info.id);
   }, [cliBackend, registry.paneList, registry.panes]);
+
+  const orchestratorTunnel = usePaneTunnel(bridge, orchestratorPane?.info.id, 'desktop');
+  const orchestratorTunnelRef = useRef(orchestratorTunnel);
+  orchestratorTunnelRef.current = orchestratorTunnel;
+
+  const orchestratorPaneView = useMemo(() => {
+    if (!orchestratorPane) return undefined;
+    const info = orchestratorTunnel.mergePaneInfo(orchestratorPane.info) ?? orchestratorPane.info;
+    return { ...orchestratorPane, info };
+  }, [orchestratorPane, orchestratorTunnel.mergePaneInfo]);
+
+  useEffect(() => {
+    if (!bridge) return;
+    return subscribeBridgeEvents(bridge.baseUrl, (ev) => {
+      routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
+    });
+  }, [bridge]);
 
   const startOrchestratorPane = useCallback(async (activeBackend: CliOrchestratorBackend, cwd: string) => {
     setOrchestratorStarting(true);
@@ -595,10 +614,12 @@ export function PuppetMasterSidebar({
           projectPath ? (
             <OrchestratorTerminal
               backend={cliBackend}
-              pane={orchestratorPane}
+              pane={orchestratorPaneView}
               starting={orchestratorStarting}
               error={orchestratorError}
-              subscribePaneData={registry.subscribePaneData}
+              subscribePaneData={orchestratorTunnel.subscribePaneData}
+              transport={orchestratorTunnel.transport}
+              syncPTYResize={false}
               onRetry={() => {
                 if (projectPath) void startOrchestratorPane(cliBackend, projectPath);
               }}

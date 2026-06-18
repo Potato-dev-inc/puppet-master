@@ -92,10 +92,10 @@ export const tauri = {
     safeInvoke<void>('sync_public_settings', { settingsJson }, undefined, true),
   onOrchestratorMessage: (cb: (e: { text: string; message_id: string }) => void): Promise<UnlistenFn> =>
     safeListen<{ text: string; message_id: string }>('orchestrator://message', cb),
-  onSettingsApply: (cb: (e: { orchestrator_backend?: string; default_provider?: string; default_model?: string }) => void): Promise<UnlistenFn> =>
-    safeListen<{ orchestrator_backend?: string; default_provider?: string; default_model?: string }>('settings://apply', cb),
-  onSettingsChanged: (cb: (e: { orchestrator_backend?: string; default_provider?: string; default_model?: string }) => void): Promise<UnlistenFn> =>
-    safeListen<{ orchestrator_backend?: string; default_provider?: string; default_model?: string }>('settings://changed', cb),
+  onSettingsApply: (cb: (e: { orchestrator_backend?: string; default_provider?: string; default_model?: string; mobile_input_delay_ms?: number }) => void): Promise<UnlistenFn> =>
+    safeListen<{ orchestrator_backend?: string; default_provider?: string; default_model?: string; mobile_input_delay_ms?: number }>('settings://apply', cb),
+  onSettingsChanged: (cb: (e: { orchestrator_backend?: string; default_provider?: string; default_model?: string; mobile_input_delay_ms?: number }) => void): Promise<UnlistenFn> =>
+    safeListen<{ orchestrator_backend?: string; default_provider?: string; default_model?: string; mobile_input_delay_ms?: number }>('settings://changed', cb),
   onOrchestratorEnsure: (cb: (e: { backend: string }) => void): Promise<UnlistenFn> =>
     safeListen<{ backend: string }>('orchestrator://ensure', cb),
 

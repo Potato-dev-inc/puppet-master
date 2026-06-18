@@ -12,7 +12,9 @@ import { listPresets, type AgentType } from '@puppet-master/shared';
 import { BridgePaneTerminal, useBridgePaneTransport } from './components/BridgePaneTerminal';
 import { OrchestratorTerminal } from './components/OrchestratorTerminal';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
+import { usePaneTunnel, type PaneTunnelApi } from './hooks/usePaneTunnel';
 import { makeBridgeClient, subscribeBridgeEvents, type BridgeClient } from './lib/bridge';
+import { routeBridgeEventToPaneTunnel } from './lib/bridge-pane-tunnel';
 import { DEFAULT_PUBLIC_SETTINGS, type PublicSettings } from './lib/bridge-settings';
 import { ngrokRequestHeaders } from './lib/bridge-ngrok';
 import { LS_BRIDGE_URL, resolveBridgeBaseUrl, shouldUseSameOriginBridgeProxy } from './lib/bridge-url';
@@ -138,6 +140,7 @@ function OrchestratorTab({
   settings,
   onSettings,
   registry,
+  orchestratorTunnel,
 }: {
   bridge: BridgeClient;
   bridgeReady: boolean;
@@ -145,6 +148,7 @@ function OrchestratorTab({
   settings: PublicSettings;
   onSettings: (next: PublicSettings) => void;
   registry: ReturnType<typeof useBridgePaneRegistry>;
+  orchestratorTunnel: PaneTunnelApi;
 }) {
   const backend = settings.orchestrator_backend ?? 'api';
   const cliBackend = isCliOrchestratorBackend(backend) ? backend : null;
@@ -160,10 +164,11 @@ function OrchestratorTab({
     return registry.panes.get(info.id);
   }, [cliBackend, registry.paneList, registry.panes]);
 
-  const orchestratorTransport = useBridgePaneTransport(
-    registry.makeTransport,
-    orchestratorPane?.info.id ?? 'orchestrator-placeholder',
-  );
+  const orchestratorPaneView = useMemo(() => {
+    if (!orchestratorPane) return undefined;
+    const info = orchestratorTunnel.mergePaneInfo(orchestratorPane.info) ?? orchestratorPane.info;
+    return { ...orchestratorPane, info };
+  }, [orchestratorPane, orchestratorTunnel.mergePaneInfo]);
 
   const patchBackend = async (next: OrchestratorBackend) => {
     const updated = await bridge.patchSettings({ orchestrator_backend: next });
@@ -222,13 +227,14 @@ function OrchestratorTab({
         {cliBackend ? (
           <OrchestratorTerminal
             backend={cliBackend}
-            pane={orchestratorPane}
+            pane={orchestratorPaneView}
             starting={!orchestratorPane && bridgeReady}
             error={null}
-            subscribePaneData={registry.subscribePaneData}
+            subscribePaneData={orchestratorTunnel.subscribePaneData}
             onRetry={() => void patchBackend(cliBackend)}
-            transport={orchestratorPane ? orchestratorTransport : undefined}
+            transport={orchestratorTunnel.transport}
             syncPTYResize={false}
+            mobileInputDelayMs={settings.mobile_input_delay_ms}
           />
         ) : (
           <ChatTab bridge={bridge} chatEvents={chatEvents} bridgeReady={bridgeReady} />
@@ -395,11 +401,13 @@ function PanesTab({
   panes,
   bridgeReady,
   registry,
+  mobileInputDelayMs,
 }: {
   bridge: BridgeClient;
   panes: PaneInfo[];
   bridgeReady: boolean;
   registry: ReturnType<typeof useBridgePaneRegistry>;
+  mobileInputDelayMs?: number;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [showNewPane, setShowNewPane] = useState(false);
@@ -536,6 +544,7 @@ function PanesTab({
             subscribePaneData={registry.subscribePaneData}
             transport={selectedTransport}
             title={selectedPane.info.agent_type}
+            mobileInputDelayMs={mobileInputDelayMs}
           />
         </div>
       )}
@@ -559,6 +568,19 @@ export default function PwaApp() {
   const registry = useBridgePaneRegistry(bridge);
   const registryRef = useRef(registry);
   registryRef.current = registry;
+
+  const cliOrchestratorBackend = isCliOrchestratorBackend(settings.orchestrator_backend ?? 'api')
+    ? settings.orchestrator_backend
+    : null;
+  const orchestratorPaneId = useMemo(() => {
+    if (!cliOrchestratorBackend) return null;
+    const info = findOrchestratorPane(panes, cliOrchestratorBackend);
+    return info?.id ?? null;
+  }, [cliOrchestratorBackend, panes]);
+
+  const mobileOrchestratorTunnel = usePaneTunnel(bridge, orchestratorPaneId, 'mobile');
+  const orchestratorTunnelRef = useRef(mobileOrchestratorTunnel);
+  orchestratorTunnelRef.current = mobileOrchestratorTunnel;
 
   useEffect(() => {
     if (!bridgeUrl) return;
@@ -587,12 +609,14 @@ export default function PwaApp() {
         }
         if (ev.type === 'terminal') {
           registryRef.current.ingestTerminalData(ev.pane_id, ev.data);
+          routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
         }
         if (ev.type === 'pane-status') {
           registryRef.current.updatePaneStatus(ev.pane_id, ev.status);
         }
         if (ev.type === 'pane-resize') {
           registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows);
+          routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
         }
         if (ev.type === 'settings') {
           setSettings(ev.settings);
@@ -658,6 +682,7 @@ export default function PwaApp() {
             settings={settings}
             onSettings={setSettings}
             registry={registry}
+            orchestratorTunnel={mobileOrchestratorTunnel}
           />
         )}
         {bridge && tab === 'panes' && (
@@ -666,6 +691,7 @@ export default function PwaApp() {
             panes={panes}
             bridgeReady={bridgeReady}
             registry={registry}
+            mobileInputDelayMs={settings.mobile_input_delay_ms}
           />
         )}
         {!bridge && (

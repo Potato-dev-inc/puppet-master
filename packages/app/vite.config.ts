@@ -11,6 +11,7 @@ const TUNNEL_ALLOWED_HOSTS = [
   '.ngrok-free.app',
   '.ngrok.io',
   '.ngrok.app',
+  '.v7ren.xyz',
 ];
 
 export default defineConfig(async () => ({

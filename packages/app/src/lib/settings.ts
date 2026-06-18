@@ -31,6 +31,7 @@ const DEFAULT_SETTINGS: Settings = {
   default_model: 'claude-sonnet-4-6',
   custom_models: [],
   orchestrator_backend: 'api',
+  mobile_input_delay_ms: 5000,
 };
 
 export async function loadSettings(): Promise<Settings> {

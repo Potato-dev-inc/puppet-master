@@ -44,6 +44,7 @@ html, body, #root {
   width: 100%;
   background: rgb(var(--pm-bg));
   cursor: text;
+  position: relative;
 }
 
 .terminal-host .xterm {
@@ -68,6 +69,97 @@ html, body, #root {
 
 .terminal-host .xterm-screen canvas {
   image-rendering: auto;
+}
+
+/* Mobile mirror: normal HTML command field + bottom-half tap zone. */
+.terminal-host--mobile-input .xterm {
+  padding-bottom: 72px;
+}
+
+.terminal-host--mobile-input.terminal-host--mobile-input-hidden .xterm {
+  padding-bottom: 8px;
+}
+
+.terminal-mobile-scroll-zone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  z-index: 15;
+  touch-action: none;
+}
+
+.terminal-mobile-input-zone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 50%;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  touch-action: none;
+}
+
+.terminal-mobile-command-form {
+  margin: 0;
+  padding: 8px 10px 10px;
+  background: linear-gradient(
+    to top,
+    rgb(var(--pm-bg) / 0.98) 70%,
+    rgb(var(--pm-bg) / 0)
+  );
+}
+
+.terminal-mobile-command-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 10px;
+  background: rgb(var(--pm-bg));
+  color: rgb(var(--pm-text));
+  font: 16px/48px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  caret-color: rgb(var(--pm-accent));
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.terminal-mobile-command-input::placeholder {
+  color: rgb(var(--pm-muted));
+  opacity: 0.85;
+}
+
+.terminal-mobile-command-input:focus {
+  border-color: rgb(var(--pm-accent));
+  box-shadow: 0 0 0 2px rgb(var(--pm-accent) / 0.2);
+}
+
+.terminal-host--mobile-input-hidden .terminal-mobile-command-form {
+  padding: 0;
+  background: none;
+}
+
+.terminal-host--mobile-input-hidden .terminal-mobile-command-input {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 44px;
+  line-height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  opacity: 0.01;
+  color: transparent;
+  caret-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .terminal-snapshot {

@@ -77,6 +77,8 @@ export const SettingsSchema = z.object({
   orchestrator_backend: OrchestratorBackendSchema.default('api'),
   /** Stable pane id for the dedicated orchestrator CLI pane (CLI backends). */
   orchestrator_pane_id: z.string().optional(),
+  /** Mobile terminal text buffer delay before committing to the PTY (autocorrect settling). */
+  mobile_input_delay_ms: z.number().int().min(250).max(10000).default(5000),
   project_path: z.string().optional(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
