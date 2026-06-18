@@ -10,6 +10,8 @@ import {
   DEFAULT_BRIDGE_HOST,
   DEFAULT_BRIDGE_PORT_FILE,
   type McpLogEntry,
+  type OrchestratorChatEvent,
+  type OrchestratorUserMessage,
   type PaneInfo,
   type SpawnPaneRequest,
   type WriteInputRequest,
@@ -25,6 +27,8 @@ export interface BridgeBackend {
   setProjectPath(path: string): Promise<void>;
   onLog(cb: (entry: McpLogEntry) => void): () => void;
   onPaneChange(cb: (panes: PaneInfo[]) => void): () => void;
+  onOrchestratorMessage(cb: (msg: OrchestratorUserMessage) => void): () => void;
+  emitChatEvent(event: OrchestratorChatEvent): void;
 }
 
 /**
@@ -89,6 +93,14 @@ export class StubBackend implements BridgeBackend {
     return () => this.paneListeners.delete(cb);
   }
 
+  onOrchestratorMessage(_cb: (msg: OrchestratorUserMessage) => void): () => void {
+    return () => {};
+  }
+
+  emitChatEvent(_event: OrchestratorChatEvent): void {
+    /* noop */
+  }
+
   private emitPaneChange(): void {
     const snapshot = Array.from(this.panes.values());
     for (const cb of this.paneListeners) cb(snapshot);
@@ -107,6 +119,10 @@ export interface BridgeHandle {
   host: string;
   close(): Promise<void>;
   url: string;
+  /** Subscribe to user messages posted from the mobile PWA. Returns unlisten fn. */
+  onOrchestratorMessage(cb: (msg: OrchestratorUserMessage) => void): () => void;
+  /** Push a chat event to all SSE clients (desktop + mobile). */
+  emitChatEvent(event: OrchestratorChatEvent): void;
 }
 
 /**
@@ -211,27 +227,42 @@ export async function startBridge(opts: BridgeOptions): Promise<BridgeHandle> {
 
   const sseClients = new Set<http.ServerResponse>();
 
-  const unsubscribeLog = backend.onLog((entry) => {
-    const json = `data: ${JSON.stringify(entry)}\n\n`;
+  function pushSse(payload: string): void {
     for (const client of sseClients) {
       try {
-        client.write(json);
+        client.write(payload);
       } catch {
         sseClients.delete(client);
       }
     }
+  }
+
+  const unsubscribeLog = backend.onLog((entry) => {
+    pushSse(`data: ${JSON.stringify(entry)}\n\n`);
   });
 
   const unsubscribePane = backend.onPaneChange((panes) => {
-    const json = `event: panes\ndata: ${JSON.stringify(panes)}\n\n`;
-    for (const client of sseClients) {
-      try {
-        client.write(json);
-      } catch {
-        sseClients.delete(client);
-      }
-    }
+    pushSse(`event: panes\ndata: ${JSON.stringify(panes)}\n\n`);
   });
+
+  const orchestratorListeners = new Set<(msg: OrchestratorUserMessage) => void>();
+  const unsubscribeOrch = backend.onOrchestratorMessage((msg) => {
+    for (const cb of orchestratorListeners) cb(msg);
+  });
+
+  // Desktop app subscribes here to receive mobile-sent messages
+  function onOrchestratorMessage(cb: (msg: OrchestratorUserMessage) => void): () => void {
+    orchestratorListeners.add(cb);
+    return () => orchestratorListeners.delete(cb);
+  }
+
+  // Desktop app calls this to push chat events back to all SSE clients (mobile + itself)
+  function emitChatEventToSse(event: OrchestratorChatEvent): void {
+    pushSse(`event: chat\ndata: ${JSON.stringify(event)}\n\n`);
+  }
+
+  // Expose so the Tauri bridge backend can wire up after server starts
+  const handle_internal = { onOrchestratorMessage, emitChatEventToSse };
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -359,6 +390,18 @@ export async function startBridge(opts: BridgeOptions): Promise<BridgeHandle> {
         return;
       }
 
+      // POST /orchestrator/message — mobile PWA sends user prompt to desktop orchestrator
+      if (segs[0] === 'orchestrator' && segs[1] === 'message' && m === 'POST') {
+        const body = await readBody<OrchestratorUserMessage>(rq);
+        if (!body.text || !body.message_id) {
+          send(rs, 400, { error: 'text and message_id required' });
+          return;
+        }
+        for (const cb of orchestratorListeners) cb(body);
+        send(rs, 200, { ok: true });
+        return;
+      }
+
       send(rs, 404, { error: 'not found', path: rq.url });
     })(req, res);
   });
@@ -382,9 +425,13 @@ export async function startBridge(opts: BridgeOptions): Promise<BridgeHandle> {
     host,
     port,
     url: `http://${host}:${port}`,
+    onOrchestratorMessage: handle_internal.onOrchestratorMessage,
+    emitChatEvent: handle_internal.emitChatEventToSse,
     async close() {
       unsubscribeLog();
       unsubscribePane();
+      unsubscribeOrch();
+      orchestratorListeners.clear();
       for (const client of sseClients) {
         try { client.end(); } catch { /* ignore */ }
       }

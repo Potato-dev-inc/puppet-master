@@ -84,6 +84,21 @@ export const tauri = {
       true,
     ),
 
+  pushChatEvent: (eventJson: string) =>
+    safeInvoke<void>('push_chat_event', { eventJson }, undefined, true),
+  pushSettingsEvent: (settingsJson: string) =>
+    safeInvoke<void>('push_settings_event', { settingsJson }, undefined, true),
+  syncPublicSettings: (settingsJson: string) =>
+    safeInvoke<void>('sync_public_settings', { settingsJson }, undefined, true),
+  onOrchestratorMessage: (cb: (e: { text: string; message_id: string }) => void): Promise<UnlistenFn> =>
+    safeListen<{ text: string; message_id: string }>('orchestrator://message', cb),
+  onSettingsApply: (cb: (e: { orchestrator_backend?: string; default_provider?: string; default_model?: string }) => void): Promise<UnlistenFn> =>
+    safeListen<{ orchestrator_backend?: string; default_provider?: string; default_model?: string }>('settings://apply', cb),
+  onSettingsChanged: (cb: (e: { orchestrator_backend?: string; default_provider?: string; default_model?: string }) => void): Promise<UnlistenFn> =>
+    safeListen<{ orchestrator_backend?: string; default_provider?: string; default_model?: string }>('settings://changed', cb),
+  onOrchestratorEnsure: (cb: (e: { backend: string }) => void): Promise<UnlistenFn> =>
+    safeListen<{ backend: string }>('orchestrator://ensure', cb),
+
   onTerminalSnapshot: (cb: (e: TerminalSnapshotEvent) => void): Promise<UnlistenFn> =>
     safeListen<TerminalSnapshotEvent>('terminal-snapshot', cb),
   onTerminalData: (cb: (e: TerminalDataEvent) => void): Promise<UnlistenFn> =>

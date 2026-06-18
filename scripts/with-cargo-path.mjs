@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureWorkspaceBuilt } from './ensure-workspace-built.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cargoBin = join(homedir(), '.cargo', 'bin');
@@ -34,6 +35,12 @@ if (existsSync(cargoExe)) {
 
 const args = process.argv.slice(2);
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+
+if (args[0] === 'dev') {
+  ensureWorkspaceBuilt(repoRoot);
+  console.error('[puppet-master] starting dev stack (vite + tauri + embedded bridge)…');
+}
+
 const result = spawnSync(npm, ['run', 'tauri', '--workspace=@puppet-master/app', ...args], {
   stdio: 'inherit',
   env,

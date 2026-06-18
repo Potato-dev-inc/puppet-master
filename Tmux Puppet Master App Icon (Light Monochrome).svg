@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Background (Clean Off-White with subtle border) -->
+  <rect width="512" height="512" rx="112" fill="#FAFAFA" stroke="#E4E4E7" stroke-width="4" />
+
+  <!-- Subtle Background Grid Pattern -->
+  <g opacity="0.3" stroke="#E4E4E7" stroke-width="1.5">
+    <path d="M 64,0 L 64,512 M 128,0 L 128,512 M 192,0 L 192,512 M 256,0 L 256,512 M 320,0 L 320,512 M 384,0 L 384,512 M 448,0 L 448,512" />
+    <path d="M 0,64 L 512,64 M 0,128 L 512,128 M 0,192 L 512,192 M 0,256 L 512,256 M 0,320 L 512,320 M 0,384 L 512,384 M 0,448 L 512,448" />
+  </g>
+
+  <!-- ==================== ICON: LINE ART ==================== -->
+  <g transform="translate(0, 10)">
+    <!-- Outer Terminal Frame (tmux window boundary) -->
+    <rect x="128" y="176" width="256" height="256" fill="none" stroke="#E4E4E7" stroke-width="2" />
+    <rect x="136" y="184" width="240" height="240" fill="none" stroke="#71717A" stroke-width="3" />
+
+    <!-- Grid Splits (Internal Panes) -->
+    <!-- Vertical Split -->
+    <line x1="256" y1="184" x2="256" y2="424" stroke="#A1A1AA" stroke-width="2" />
+    <!-- Horizontal Split -->
+    <line x1="136" y1="304" x2="376" y2="304" stroke="#A1A1AA" stroke-width="2" />
+
+    <!-- Puppet Master Controller Node (The Origin) -->
+    <circle cx="256" cy="112" r="7" fill="none" stroke="#18181B" stroke-width="3" />
+    <circle cx="256" cy="112" r="2.5" fill="#18181B" />
+
+    <!-- Control Lines (Puppet Strings) -->
+    <!-- Path to Pane 1 (Top Left) -->
+    <path d="M 256,119 L 196,196 L 196,228" fill="none" stroke="#A1A1AA" stroke-width="2" stroke-dasharray="4,4" />
+    
+    <!-- Path to Pane 2 (Top Right - Active Focus) -->
+    <path d="M 256,119 L 316,196 L 316,228" fill="none" stroke="#18181B" stroke-width="2.5" />
+    <circle cx="316" cy="228" r="4" fill="#18181B" />
+
+    <!-- Path to Pane 3 (Bottom Left) -->
+    <path d="M 256,119 L 256,144 L 196,240 L 196,348" fill="none" stroke="#A1A1AA" stroke-width="2" stroke-dasharray="4,4" />
+
+    <!-- Path to Pane 4 (Bottom Right) -->
+    <path d="M 256,119 L 256,144 L 316,240 L 316,348" fill="none" stroke="#A1A1AA" stroke-width="2" stroke-dasharray="4,4" />
+
+    <!-- Minimal Terminal Indicators inside panes -->
+    <!-- Pane 1: Prompt symbol -->
+    <path d="M 152,206 L 160,212 L 152,218" fill="none" stroke="#A1A1AA" stroke-width="2" />
+    
+    <!-- Pane 2: Active Prompt symbol -->
+    <path d="M 272,206 L 280,212 L 272,218" fill="none" stroke="#18181B" stroke-width="3" />
+    
+    <!-- Pane 3: Status dot -->
+    <circle cx="156" cy="328" r="3" fill="#A1A1AA" />
+    
+    <!-- Pane 4: Status dot -->
+    <circle cx="276" cy="328" r="3" fill="#A1A1AA" />
+  </g>
+</svg>

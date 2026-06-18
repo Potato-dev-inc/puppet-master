@@ -1,4 +1,7 @@
-import type { McpLogEntry, PaneInfo } from '@puppet-master/shared';
+import type { McpLogEntry, OrchestratorChatEvent, PaneInfo } from '@puppet-master/shared';
+import type { PublicSettings } from './bridge-settings';
+import { isNgrokHost, ngrokRequestHeaders } from './bridge-ngrok';
+import { subscribeBridgeEventsViaFetch } from './bridge-sse';
 
 const DEFAULT_POLL_HOST = '127.0.0.1';
 const DEFAULT_POLL_INTERVAL_MS = 200;
@@ -32,14 +35,21 @@ export interface BridgeClient {
   }): Promise<{ pane_id: string }>;
   killPane(paneId: string): Promise<void>;
   readBuffer(paneId: string, lines: number): Promise<string>;
+  readRawBuffer(paneId: string, lines: number): Promise<number[]>;
   writeInput(paneId: string, text: string, appendNewline?: boolean): Promise<void>;
+  resize(paneId: string, cols: number, rows: number): Promise<void>;
+  getSettings(): Promise<PublicSettings>;
+  patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;
+  postOrchestratorMessage(text: string, messageId: string): Promise<void>;
 }
 
 export function makeBridgeClient(baseUrl: string): BridgeClient {
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const headers = { ...ngrokRequestHeaders(baseUrl) };
+    if (body) headers['Content-Type'] = 'application/json';
     const res = await fetch(`${baseUrl}${path}`, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) {
@@ -56,11 +66,21 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       const res = await call<{ content: string }>('GET', `/panes/${encodeURIComponent(id)}/buffer?lines=${lines}`);
       return res.content;
     },
+    readRawBuffer: async (id, lines) => {
+      const res = await call<{ data: number[] }>('GET', `/panes/${encodeURIComponent(id)}/raw?lines=${lines}`);
+      return res.data;
+    },
     writeInput: (id, text, appendNewline = true) =>
       call('POST', `/panes/${encodeURIComponent(id)}/input`, {
         text,
         append_newline: appendNewline,
       }),
+    resize: (id, cols, rows) =>
+      call('POST', `/panes/${encodeURIComponent(id)}/resize`, { cols, rows }),
+    getSettings: () => call('GET', '/settings'),
+    patchSettings: (patch) => call('PATCH', '/settings', patch),
+    postOrchestratorMessage: (text, messageId) =>
+      call('POST', '/orchestrator/message', { text, message_id: messageId }),
   };
 }
 
@@ -90,7 +110,12 @@ export async function findBridgeUrl(): Promise<string | null> {
 
 export type BridgeEvent =
   | { type: 'panes'; panes: PaneInfo[] }
-  | { type: 'log'; entry: McpLogEntry };
+  | { type: 'log'; entry: McpLogEntry }
+  | { type: 'chat'; event: OrchestratorChatEvent }
+  | { type: 'terminal'; pane_id: string; data: number[] }
+  | { type: 'pane-status'; pane_id: string; status: PaneInfo['status'] }
+  | { type: 'pane-resize'; pane_id: string; cols: number; rows: number }
+  | { type: 'settings'; settings: PublicSettings };
 
 /**
  * Subscribe to the bridge SSE stream. Returns an unlisten function.
@@ -101,6 +126,10 @@ export function subscribeBridgeEvents(
   onEvent: (e: BridgeEvent) => void,
   onError?: (err: unknown) => void,
 ): () => void {
+  if (isNgrokHost(baseUrl)) {
+    return subscribeBridgeEventsViaFetch(baseUrl, onEvent, onError);
+  }
+
   let es: EventSource | null = null;
   let cancelled = false;
   let retryDelay = 500;
@@ -120,6 +149,58 @@ export function subscribeBridgeEvents(
       try {
         const entry = JSON.parse((ev as MessageEvent).data) as McpLogEntry;
         onEvent({ type: 'log', entry });
+      } catch (err) {
+        onError?.(err);
+      }
+    });
+    es.addEventListener('chat', (ev) => {
+      try {
+        const event = JSON.parse((ev as MessageEvent).data) as OrchestratorChatEvent;
+        onEvent({ type: 'chat', event });
+      } catch (err) {
+        onError?.(err);
+      }
+    });
+    es.addEventListener('terminal', (ev) => {
+      try {
+        const payload = JSON.parse((ev as MessageEvent).data) as { pane_id: string; data: number[] };
+        onEvent({ type: 'terminal', pane_id: payload.pane_id, data: payload.data });
+      } catch (err) {
+        onError?.(err);
+      }
+    });
+    es.addEventListener('pane-status', (ev) => {
+      try {
+        const payload = JSON.parse((ev as MessageEvent).data) as {
+          pane_id: string;
+          status: PaneInfo['status'];
+        };
+        onEvent({ type: 'pane-status', pane_id: payload.pane_id, status: payload.status });
+      } catch (err) {
+        onError?.(err);
+      }
+    });
+    es.addEventListener('pane-resize', (ev) => {
+      try {
+        const payload = JSON.parse((ev as MessageEvent).data) as {
+          pane_id: string;
+          cols: number;
+          rows: number;
+        };
+        onEvent({
+          type: 'pane-resize',
+          pane_id: payload.pane_id,
+          cols: payload.cols,
+          rows: payload.rows,
+        });
+      } catch (err) {
+        onError?.(err);
+      }
+    });
+    es.addEventListener('settings', (ev) => {
+      try {
+        const settings = JSON.parse((ev as MessageEvent).data) as PublicSettings;
+        onEvent({ type: 'settings', settings });
       } catch (err) {
         onError?.(err);
       }

@@ -2,6 +2,10 @@ export interface TerminalTheme {
   background: string;
   foreground: string;
   cursor: string;
+  cursorAccent?: string;
+  selectionBackground?: string;
+  selectionForeground?: string;
+  selectionInactiveBackground?: string;
   black: string;
   red: string;
   green: string;

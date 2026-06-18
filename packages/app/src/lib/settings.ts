@@ -6,6 +6,8 @@ import {
   type LlmProvider,
   type Settings,
 } from '@puppet-master/shared';
+import { toPublicSettings } from './bridge-settings';
+import { tauri } from './tauri';
 
 const STORE_FILE = 'puppet-master.settings.json';
 const KEY = 'settings';
@@ -17,6 +19,11 @@ function store(): LazyStore {
     cached = new LazyStore(STORE_FILE, { defaults: {}, autoSave: true });
   }
   return cached;
+}
+
+/** Drop in-memory cache after the bridge writes settings on disk. */
+export function invalidateSettingsCache(): void {
+  cached = null;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -38,6 +45,17 @@ export async function loadSettings(): Promise<Settings> {
 export async function saveSettings(s: Settings): Promise<void> {
   await store().set(KEY, s);
   await store().save();
+  await syncPublicSettingsToBridge();
+  void tauri.pushSettingsEvent(JSON.stringify(toPublicSettings(s)));
+}
+
+export async function syncPublicSettingsToBridge(): Promise<void> {
+  try {
+    const s = await loadSettings();
+    await tauri.syncPublicSettings(JSON.stringify(toPublicSettings(s)));
+  } catch {
+    /* bridge sync is best-effort */
+  }
 }
 
 /** Preset + user custom models, deduped by provider+model_id (custom wins on label). */

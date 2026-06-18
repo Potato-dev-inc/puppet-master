@@ -53,10 +53,12 @@ Cursor / Codex / OpenCode / Claude Code CLIs must be on `PATH` (or in known loca
 # from the repo root
 npm install
 
-# launch the GUI (Tauri 2 dev build)
+# launch the full dev stack (shared build + vite/PWA + tauri + embedded bridge)
 npm run tauri dev
+# same as:
+npm run dev
 
-# in another shell, run the MCP stdio server for external hosts:
+# external MCP stdio server (only needed for Cursor / Claude Desktop outside the app):
 npm run mcp
 ```
 

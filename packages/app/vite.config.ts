@@ -1,9 +1,45 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'node:path';
+import { bridgeProxyConfig } from './vite-bridge-proxy';
+import { devInfoPlugin } from './vite-dev-info';
+
+/** Random tunnel subdomains — leading `.` allows any host under that domain (Vite 5.4+). */
+const TUNNEL_ALLOWED_HOSTS = [
+  '.trycloudflare.com',
+  '.ngrok-free.app',
+  '.ngrok.io',
+  '.ngrok.app',
+];
 
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [
+    react(),
+    devInfoPlugin(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['app-icon.svg', 'icon-192.png', 'icon-512.png'],
+      workbox: {
+        navigateFallbackDenylist: [/^\/bridge/, /^\/__puppet_master_dev__/],
+      },
+      manifest: {
+        name: 'Puppet Master',
+        short_name: 'PM',
+        description: 'Multi-agent terminal orchestrator',
+        display: 'standalone',
+        background_color: '#0f0f0f',
+        theme_color: '#0f0f0f',
+        icons: [
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
+      },
+      devOptions: {
+        enabled: true,
+      },
+    }),
+  ],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -13,10 +49,17 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: '127.0.0.1',
+    host: true,
+    allowedHosts: TUNNEL_ALLOWED_HOSTS,
+    proxy: bridgeProxyConfig,
     watch: {
       ignored: ['**/src-tauri/**'],
     },
+  },
+  preview: {
+    host: true,
+    allowedHosts: TUNNEL_ALLOWED_HOSTS,
+    proxy: bridgeProxyConfig,
   },
   envPrefix: ['VITE_', 'TAURI_'],
   build: {

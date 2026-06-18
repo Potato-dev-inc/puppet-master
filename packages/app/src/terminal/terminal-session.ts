@@ -4,6 +4,14 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { InputBatcher } from './input-batcher';
 import {
+  configureXtermTextareaForMobileMirror,
+  isMobileInputDevice,
+  MobileInputGuard,
+  type MobileInputDelivery,
+} from './mobile-input-guard';
+import { MirrorEchoFilter } from './mirror-echo-filter';
+import { applyMirrorLocalEcho } from './mirror-local-echo';
+import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
   TERMINAL_SCROLLBACK,
@@ -32,16 +40,36 @@ export class TerminalSession {
   private resizeObserver: ResizeObserver | null = null;
   private intersectionObserver: IntersectionObserver | null = null;
   private imeObserver: MutationObserver | null = null;
+  private mobileInputGuard: MobileInputGuard | null = null;
   private focusCleanup: (() => void) | null = null;
   private openFrame: number | null = null;
   private resizeFrame: number | null = null;
   private refreshFrame: number | null = null;
   private lastSentCols = 0;
   private lastSentRows = 0;
+  private ptyCols: number;
+  private ptyRows: number;
+  private readonly syncPTYResize: boolean;
+  private readonly mirrorPTY: boolean;
+  private muteOnData = false;
+  private readonly mirrorEchoFilter = new MirrorEchoFilter();
   private generation = 0;
+  private themeObserver: MutationObserver | null = null;
   private disposed = false;
 
-  constructor(private readonly options: TerminalSessionOptions) {}
+  constructor(private readonly options: TerminalSessionOptions) {
+    this.syncPTYResize = options.syncPTYResize ?? true;
+    this.mirrorPTY = !this.syncPTYResize;
+    this.ptyCols = options.ptyCols ?? 80;
+    this.ptyRows = options.ptyRows ?? 24;
+  }
+
+  setPtyDimensions(cols: number, rows: number): void {
+    if (cols <= 0 || rows <= 0) return;
+    this.ptyCols = cols;
+    this.ptyRows = rows;
+    this.applyPtyDimensions();
+  }
 
   mount(
     container: HTMLElement,
@@ -56,6 +84,7 @@ export class TerminalSession {
         return;
       }
 
+      const mobileMirror = this.mirrorPTY && isMobileInputDevice();
       const terminal = new Terminal({
         theme: terminalThemeFromCss(),
         fontFamily: TERMINAL_FONT_FAMILY,
@@ -64,7 +93,9 @@ export class TerminalSession {
         cursorBlink: true,
         convertEol: false,
         allowProposedApi: true,
-        allowTransparency: true,
+        allowTransparency: false,
+        scrollOnUserInput: true,
+        disableStdin: mobileMirror,
         windowsPty: isWindowsRuntime()
           ? {
               backend: 'conpty',
@@ -91,18 +122,40 @@ export class TerminalSession {
       }, 4);
 
       terminal.onData((data) => {
+        if (this.muteOnData) return;
+        if (mobileMirror) {
+          this.mirrorEchoFilter.noteOutbound(data);
+          applyMirrorLocalEcho(terminal, data);
+        }
         this.inputBatcher?.push(data);
+        this.scrollToCursor();
+        this.scheduleRefresh();
       });
 
       this.unlistenData = subscribePaneData(this.options.paneId, (data) => {
-        terminal.write(data, () => this.scheduleRefresh());
+        if (
+          this.mirrorPTY &&
+          isMobileInputDevice() &&
+          this.mirrorEchoFilter.shouldSkipInbound(data)
+        ) {
+          return;
+        }
+        terminal.write(data, () => {
+          this.scrollToCursor();
+          this.scheduleRefresh();
+        });
       });
 
       this.installFileLinkProvider(terminal);
-      this.installImePositionGuard(container);
+      this.installTextareaGuards(container, terminal, this.inputBatcher);
       this.installResizeObservers(container);
       this.installFocusHandlers(container);
-      this.fitAndNotify();
+      this.installThemeObserver(terminal);
+      if (this.syncPTYResize) {
+        this.fitAndNotify();
+      } else {
+        this.applyPtyDimensions();
+      }
       this.scheduleRefresh();
     });
   }
@@ -136,6 +189,12 @@ export class TerminalSession {
     this.imeObserver?.disconnect();
     this.imeObserver = null;
 
+    this.mobileInputGuard?.dispose();
+    this.mobileInputGuard = null;
+
+    this.themeObserver?.disconnect();
+    this.themeObserver = null;
+
     this.focusCleanup?.();
     this.focusCleanup = null;
 
@@ -157,8 +216,13 @@ export class TerminalSession {
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
           window.setTimeout(() => {
-            this.fitAndNotify();
-            this.refreshAndNudgeAltBuffer();
+            if (this.syncPTYResize) {
+              this.fitAndNotify();
+              this.refreshAndNudgeAltBuffer();
+            } else {
+              this.applyPtyDimensions();
+              this.scheduleRefresh();
+            }
           }, 50);
         }
       },
@@ -167,8 +231,25 @@ export class TerminalSession {
     this.intersectionObserver.observe(container);
   }
 
+  private installThemeObserver(terminal: Terminal): void {
+    const applyTheme = () => {
+      terminal.options.theme = terminalThemeFromCss();
+      this.scheduleRefresh();
+    };
+    this.themeObserver = new MutationObserver(applyTheme);
+    this.themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+  }
+
   private installFocusHandlers(container: HTMLElement): void {
     const focusTerminal = () => {
+      if (this.mobileInputGuard) {
+        this.mobileInputGuard.focus();
+        window.setTimeout(() => this.mobileInputGuard?.focus(), 0);
+        return;
+      }
       this.term?.focus();
     };
     container.addEventListener('pointerdown', focusTerminal);
@@ -177,10 +258,20 @@ export class TerminalSession {
     };
   }
 
-  private installImePositionGuard(container: HTMLElement): void {
+  private installTextareaGuards(
+    container: HTMLElement,
+    terminal: Terminal,
+    inputBatcher: InputBatcher,
+  ): void {
+    const textarea = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null;
+    const mobileMirror = this.mirrorPTY && isMobileInputDevice();
+
     const fixImePosition = () => {
-      const textarea = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null;
       if (!textarea) return;
+      if (mobileMirror) {
+        configureXtermTextareaForMobileMirror(textarea);
+        return;
+      }
       textarea.style.position = 'fixed';
       textarea.style.bottom = '80px';
       textarea.style.left = '220px';
@@ -191,11 +282,48 @@ export class TerminalSession {
       textarea.style.zIndex = '10';
     };
 
-    const textarea = container.querySelector('.xterm-helper-textarea');
-    if (!textarea) return;
-    this.imeObserver = new MutationObserver(fixImePosition);
-    this.imeObserver.observe(textarea, { attributes: true, attributeFilter: ['style'] });
+    if (textarea) {
+      this.imeObserver = new MutationObserver(fixImePosition);
+      this.imeObserver.observe(textarea, { attributes: true, attributeFilter: ['style'] });
+    }
     fixImePosition();
+
+    if (mobileMirror) {
+      const emitMobileInput = (text: string, delivery: MobileInputDelivery) => {
+        if (!text) return;
+        if (delivery === 'immediate') {
+          inputBatcher.flushNow();
+        }
+
+        this.mirrorEchoFilter.noteOutbound(text);
+        this.muteOnData = true;
+        try {
+          applyMirrorLocalEcho(terminal, text);
+        } finally {
+          this.muteOnData = false;
+        }
+
+        if (delivery === 'immediate') {
+          this.options.onInput(text);
+        } else {
+          inputBatcher.push(text);
+        }
+        this.scrollToCursor();
+        this.scheduleRefresh();
+      };
+
+      this.mobileInputGuard = new MobileInputGuard({
+        container,
+        emitInput: emitMobileInput,
+        scrollToCursor: () => this.scrollToCursor(),
+      });
+    }
+  }
+
+  private scrollToCursor(): void {
+    const terminal = this.term;
+    if (!terminal) return;
+    terminal.scrollToBottom();
   }
 
   private installFileLinkProvider(terminal: Terminal): void {
@@ -230,6 +358,10 @@ export class TerminalSession {
   }
 
   private scheduleFit(): void {
+    if (!this.syncPTYResize) {
+      this.applyPtyDimensions();
+      return;
+    }
     if (this.resizeFrame !== null) return;
     this.resizeFrame = requestAnimationFrame(() => {
       this.resizeFrame = null;
@@ -239,6 +371,10 @@ export class TerminalSession {
   }
 
   private fitAndNotify(): void {
+    if (!this.syncPTYResize) {
+      this.applyPtyDimensions();
+      return;
+    }
     const terminal = this.term;
     const fitAddon = this.fitAddon;
     if (!terminal || !fitAddon) return;
@@ -254,6 +390,16 @@ export class TerminalSession {
       this.lastSentCols = cols;
       this.lastSentRows = rows;
       this.options.onResize(cols, rows);
+    }
+  }
+
+  private applyPtyDimensions(): void {
+    const terminal = this.term;
+    if (!terminal) return;
+    const { ptyCols: cols, ptyRows: rows } = this;
+    if (cols > 0 && rows > 0 && (cols !== terminal.cols || rows !== terminal.rows)) {
+      terminal.resize(cols, rows);
+      this.scheduleRefresh();
     }
   }
 

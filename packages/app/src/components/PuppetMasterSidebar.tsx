@@ -6,13 +6,14 @@ import {
   type LlmModel,
   type McpLogEntry,
   type OrchestratorBackend,
+  type OrchestratorChatEvent,
 } from '@puppet-master/shared';
 import type { BridgeClient } from '../lib/bridge';
 import type { ChatMessage } from '../lib/llm';
 import { runPuppetMasterLoop } from '../lib/puppet-master';
 import { runPuppetMasterCliLoop } from '../lib/puppet-master-cli';
 import { makeTauriExecutor } from '../lib/mcp-tools';
-import { findModel, getApiKey, listModels, loadSettings, saveSettings } from '../lib/settings';
+import { findModel, getApiKey, invalidateSettingsCache, listModels, loadSettings, saveSettings } from '../lib/settings';
 import { tauri } from '../lib/tauri';
 import type { PaneRegistryApi } from '../hooks/usePaneRegistry';
 import {
@@ -134,6 +135,184 @@ export function PuppetMasterSidebar({
   useEffect(() => {
     void refreshFromSettings();
   }, [refreshFromSettings, settingsRevision]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlistenSettings: (() => void) | null = null;
+    let unlistenEnsure: (() => void) | null = null;
+
+    void (async () => {
+      unlistenSettings = await tauri.onSettingsChanged((payload) => {
+        invalidateSettingsCache();
+        if (payload.orchestrator_backend) {
+          setBackend(payload.orchestrator_backend as OrchestratorBackend);
+        }
+        void refreshFromSettings();
+      });
+      unlistenEnsure = await tauri.onOrchestratorEnsure(async (payload) => {
+        if (!isCliOrchestratorBackend(payload.backend as OrchestratorBackend)) return;
+        const cwd = projectPath ?? (await tauri.getProjectPath());
+        if (cwd) void startOrchestratorPane(payload.backend as CliOrchestratorBackend, cwd);
+      });
+      if (cancelled) {
+        unlistenSettings?.();
+        unlistenEnsure?.();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlistenSettings?.();
+      unlistenEnsure?.();
+    };
+  }, [projectPath, refreshFromSettings, startOrchestratorPane]);
+
+  // Listen for messages POSTed from the mobile PWA via the Rust bridge
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    const pushChat = (event: OrchestratorChatEvent) => {
+      void tauri.pushChatEvent(JSON.stringify(event));
+    };
+
+    const processRemoteMessage = async (msg: { text: string; message_id: string }) => {
+      if (cancelled) return;
+      const settings = await loadSettings();
+      const activeBackend = settings.orchestrator_backend ?? 'api';
+
+      const userUiMsg: UiMessage = { id: msg.message_id, role: 'user', text: msg.text };
+      setMessages((m) =>
+        m.some((entry) => entry.id === msg.message_id) ? m : [...m, userUiMsg],
+      );
+
+      if (activeBackend === 'api') {
+        const apiKey = getApiKey(settings, model.provider);
+        if (!apiKey) {
+          const errText = `No ${model.provider} API key set. Open Settings on desktop.`;
+          setMessages((prev) => [
+            ...prev,
+            { id: crypto.randomUUID(), role: 'system', text: errText },
+          ]);
+          pushChat({ type: 'error', message_id: msg.message_id, error: errText });
+          return;
+        }
+
+        const streamId = `streaming-${msg.message_id}`;
+        setMessages((m) => [...m, { id: streamId, role: 'assistant', text: '' }]);
+        setBusy(true);
+
+        const controller = new AbortController();
+        abortRef.current = controller;
+
+        await runPuppetMasterLoop(
+          model,
+          apiKey,
+          makeTauriExecutor(),
+          [],
+          msg.text,
+          {
+            onAssistantText: (t) => {
+              setMessages((m) => {
+                const last = m[m.length - 1];
+                if (last && last.role === 'assistant' && last.id === streamId) {
+                  return [...m.slice(0, -1), { ...last, text: last.text + t }];
+                }
+                return [...m, { id: streamId, role: 'assistant', text: t }];
+              });
+              pushChat({ type: 'text', message_id: msg.message_id, text: t });
+            },
+            onToolCall: (tool, args, result, error) => {
+              const entry: UiLogEntry = {
+                id: crypto.randomUUID(),
+                ts: Date.now(),
+                source: 'builtin',
+                tool,
+                args,
+                result,
+                error,
+              };
+              setLogs((prev) => [entry, ...prev].slice(0, 500));
+              pushChat({ type: 'tool', message_id: msg.message_id, tool, result, error });
+            },
+            onComplete: () => {
+              setBusy(false);
+              abortRef.current = null;
+              pushChat({ type: 'done', message_id: msg.message_id });
+            },
+            onError: (err) => {
+              setMessages((m) => [
+                ...m,
+                { id: crypto.randomUUID(), role: 'system', text: `LLM error: ${err.message}` },
+              ]);
+              setBusy(false);
+              abortRef.current = null;
+              pushChat({ type: 'error', message_id: msg.message_id, error: err.message });
+            },
+          },
+          controller.signal,
+        );
+        return;
+      }
+
+      if (isCliOrchestratorBackend(activeBackend)) {
+        setBusy(true);
+        const streamId = `streaming-${msg.message_id}`;
+        setMessages((m) => [...m, { id: streamId, role: 'assistant', text: '' }]);
+        const controller = new AbortController();
+        abortRef.current = controller;
+
+        await runPuppetMasterCliLoop(activeBackend, bridge, msg.text, {
+          onAssistantText: (t) => {
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (last && last.role === 'assistant' && last.id === streamId) {
+                return [...m.slice(0, -1), { ...last, text: last.text + t }];
+              }
+              return [...m, { id: streamId, role: 'assistant', text: t }];
+            });
+            pushChat({ type: 'text', message_id: msg.message_id, text: t });
+          },
+          onToolCall: (tool, args, result, error) => {
+            const entry: UiLogEntry = {
+              id: crypto.randomUUID(),
+              ts: Date.now(),
+              source: 'builtin',
+              tool,
+              args,
+              result,
+              error,
+            };
+            setLogs((prev) => [entry, ...prev].slice(0, 500));
+            pushChat({ type: 'tool', message_id: msg.message_id, tool, result, error });
+          },
+          onComplete: () => {
+            setBusy(false);
+            abortRef.current = null;
+            pushChat({ type: 'done', message_id: msg.message_id });
+          },
+          onError: (err) => {
+            setMessages((m) => [
+              ...m,
+              { id: crypto.randomUUID(), role: 'system', text: err.message },
+            ]);
+            setBusy(false);
+            abortRef.current = null;
+            pushChat({ type: 'error', message_id: msg.message_id, error: err.message });
+          },
+        }, controller.signal);
+      }
+    };
+
+    tauri.onOrchestratorMessage((msg) => {
+      void processRemoteMessage(msg);
+    }).then((fn) => { unlisten = fn; }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [bridge, model]);
 
   useEffect(() => {
     if (externalLogs.length === 0) return;

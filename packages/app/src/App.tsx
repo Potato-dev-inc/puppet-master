@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import type { AgentType } from '@puppet-master/shared';
+import { useCallback, useEffect, useState } from 'react';
+import type { AgentType, LlmProvider, OrchestratorBackend } from '@puppet-master/shared';
 import { WorkspaceHeader } from './components/WorkspaceHeader';
 import { TerminalGrid } from './components/TerminalGrid';
 import { PuppetMasterSidebar } from './components/PuppetMasterSidebar';
@@ -7,6 +7,8 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { usePaneRegistry } from './hooks/usePaneRegistry';
 import { useProjectPath } from './hooks/useProjectPath';
 import { useBridge } from './hooks/useBridge';
+import { loadSettings, saveSettings, syncPublicSettingsToBridge } from './lib/settings';
+import { tauri } from './lib/tauri';
 
 export default function App() {
   const registry = usePaneRegistry();
@@ -16,6 +18,36 @@ export default function App() {
   const [settingsRevision, setSettingsRevision] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(360);
   const bumpSettings = useCallback(() => setSettingsRevision((n) => n + 1), []);
+
+  useEffect(() => {
+    void syncPublicSettingsToBridge();
+    let cancelled = false;
+    let unlistenApply: (() => void) | null = null;
+
+    void (async () => {
+      unlistenApply = await tauri.onSettingsApply(async (patch) => {
+        const current = await loadSettings();
+        const merged = { ...current };
+        if (patch.orchestrator_backend) {
+          merged.orchestrator_backend = patch.orchestrator_backend as OrchestratorBackend;
+        }
+        if (patch.default_provider) {
+          merged.default_provider = patch.default_provider as LlmProvider;
+        }
+        if (patch.default_model) {
+          merged.default_model = patch.default_model;
+        }
+        await saveSettings(merged);
+        bumpSettings();
+      });
+      if (cancelled) unlistenApply?.();
+    })();
+
+    return () => {
+      cancelled = true;
+      unlistenApply?.();
+    };
+  }, [bumpSettings]);
 
   const handleClose = async (paneId: string) => {
     await registry.killPane(paneId);

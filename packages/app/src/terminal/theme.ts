@@ -5,32 +5,40 @@ function cssRgb(name: string, fallback: string): string {
   return value ? `rgb(${value})` : fallback;
 }
 
-/** Build a terminal theme from Puppet Master CSS variables. */
+/** Monochrome ANSI palette aligned with Puppet Master CSS tokens. */
 export function terminalThemeFromCss(): TerminalTheme {
   const background = cssRgb('--pm-bg', '#0a0a0a');
   const foreground = cssRgb('--pm-text', '#e8e8e8');
   const cursor = cssRgb('--pm-accent', '#f5f5f5');
+  const muted = cssRgb('--pm-muted', '#969696');
+  const raised = cssRgb('--pm-raised', '#191919');
+  const warn = cssRgb('--pm-warn', '#b4b4b4');
+  const err = cssRgb('--pm-err', '#ffffff');
 
   return {
     background,
     foreground,
     cursor,
-    black: '#000000',
-    red: '#cd3131',
-    green: '#0dbc79',
-    yellow: '#e5e510',
-    blue: '#2472c8',
-    magenta: '#bc3fbc',
-    cyan: '#11a8cd',
-    white: '#e5e5e5',
-    brightBlack: '#666666',
-    brightRed: '#f14c4c',
-    brightGreen: '#23d18b',
-    brightYellow: '#f5f543',
-    brightBlue: '#3b8eea',
-    brightMagenta: '#d670d6',
-    brightCyan: '#29b8db',
-    brightWhite: '#e5e5e5',
+    cursorAccent: background,
+    selectionBackground: raised,
+    selectionForeground: foreground,
+    selectionInactiveBackground: raised,
+    black: background,
+    red: err,
+    green: foreground,
+    yellow: warn,
+    blue: muted,
+    magenta: foreground,
+    cyan: muted,
+    white: foreground,
+    brightBlack: muted,
+    brightRed: err,
+    brightGreen: foreground,
+    brightYellow: warn,
+    brightBlue: foreground,
+    brightMagenta: foreground,
+    brightCyan: foreground,
+    brightWhite: cursor,
   };
 }
 

@@ -2,6 +2,7 @@
 
 use parking_lot::Mutex;
 use serde::Deserialize;
+use serde_json::Value;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
@@ -10,15 +11,20 @@ use crate::pty::{
     registry_read_raw_buffer, registry_read_snapshot, registry_resize, registry_set_project_path,
     registry_spawn_pane, registry_write_input, PaneInfo, PaneRegistry, SpawnPaneArgs,
 };
+use crate::settings_store;
 
 #[derive(Default)]
 pub struct AppState {
     pub registry: Arc<Mutex<PaneRegistry>>,
+    pub public_settings: Mutex<Value>,
 }
 
 impl AppState {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            registry: Arc::new(Mutex::new(PaneRegistry::new())),
+            public_settings: Mutex::new(settings_store::default_public_settings()),
+        }
     }
 }
 
@@ -107,7 +113,23 @@ pub async fn resize_pane(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    registry_resize(&state.registry, &pane_id, cols, rows)
+    registry_resize(&state.registry, &pane_id, cols, rows)?;
+    crate::bridge::push_pane_resize_sse(&pane_id, cols, rows);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sync_public_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    settings_json: String,
+) -> Result<(), String> {
+    let parsed: Value = serde_json::from_str(&settings_json)
+        .map_err(|err| format!("invalid settings json: {err}"))?;
+    let merged = settings_store::merge_public_settings(&settings_store::default_public_settings(), &parsed);
+    *state.public_settings.lock() = merged;
+    let _ = app;
+    Ok(())
 }
 
 #[tauri::command]
@@ -124,4 +146,21 @@ pub async fn get_project_path_cmd(state: State<'_, AppState>) -> Result<String, 
 #[tauri::command]
 pub async fn ensure_orchestrator_mcp(backend: String, project_path: String) -> Result<crate::mcp_install::EnsureMcpResult, String> {
     crate::mcp_install::ensure_orchestrator_mcp(&backend, std::path::Path::new(&project_path))
+}
+
+/// Push a JSON chat event to all SSE clients (mobile PWA and any desktop browser).
+/// The frontend calls this after each LLM chunk so the mobile PWA receives it.
+#[tauri::command]
+pub async fn push_chat_event(event_json: String) -> Result<(), String> {
+    let payload = format!("event: chat\ndata: {event_json}\n\n");
+    crate::bridge::push_sse(payload);
+    Ok(())
+}
+
+/// Push public settings to mobile SSE clients after desktop-side changes.
+#[tauri::command]
+pub async fn push_settings_event(settings_json: String) -> Result<(), String> {
+    let payload = format!("event: settings\ndata: {settings_json}\n\n");
+    crate::bridge::push_sse(payload);
+    Ok(())
 }

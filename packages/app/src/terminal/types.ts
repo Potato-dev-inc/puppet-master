@@ -11,6 +11,10 @@ export interface TerminalSessionOptions {
   paneId: string;
   onResize: TerminalResizeHandler;
   onInput: (text: string) => void;
+  /** When false, mirror PTY dimensions locally without resizing the backend (bridge/mobile). */
+  syncPTYResize?: boolean;
+  ptyCols?: number;
+  ptyRows?: number;
 }
 
 export interface Disposable {

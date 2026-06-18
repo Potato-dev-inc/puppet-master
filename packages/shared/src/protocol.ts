@@ -49,3 +49,20 @@ export const BRIDGE_PORT_FILE_ENV = 'PUPPET_MASTER_BRIDGE_PORT_FILE';
 export const DEFAULT_BRIDGE_PORT_FILE = 'puppet-master.bridge.port';
 export const DEFAULT_BRIDGE_HOST = '127.0.0.1';
 export const BRIDGE_HTTP_PORT_RANGE = { min: 17321, max: 17399 };
+
+// --- PWA Orchestrator messaging ---
+
+export const OrchestratorUserMessageSchema = z.object({
+  text: z.string(),
+  message_id: z.string(),
+});
+export type OrchestratorUserMessage = z.infer<typeof OrchestratorUserMessageSchema>;
+
+export const OrchestratorChatEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('user'),  message_id: z.string(), text: z.string() }),
+  z.object({ type: z.literal('text'),  message_id: z.string(), text: z.string() }),
+  z.object({ type: z.literal('tool'),  message_id: z.string(), tool: z.string(), result: z.string().optional(), error: z.string().optional() }),
+  z.object({ type: z.literal('done'),  message_id: z.string() }),
+  z.object({ type: z.literal('error'), message_id: z.string(), error: z.string() }),
+]);
+export type OrchestratorChatEvent = z.infer<typeof OrchestratorChatEventSchema>;

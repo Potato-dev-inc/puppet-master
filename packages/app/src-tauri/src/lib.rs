@@ -2,10 +2,11 @@ mod bridge;
 mod commands;
 mod mcp_install;
 mod pty;
+mod settings_store;
 
 use commands::AppState;
 use std::path::PathBuf;
-use tauri::Manager;
+use tauri::{Listener, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,6 +36,9 @@ pub fn run() {
             commands::set_project_path,
             commands::get_project_path_cmd,
             commands::ensure_orchestrator_mcp,
+            commands::push_chat_event,
+            commands::push_settings_event,
+            commands::sync_public_settings,
         ])
         .setup(|app| {
             // Resolve paths. When launched via `tauri dev` cwd is
@@ -58,6 +62,34 @@ pub fn run() {
                     tracing::warn!(%err, "embedded bridge not started — external MCP unavailable");
                 }
             }
+
+            app.handle().listen("terminal-data", move |event| {
+                let payload = event.payload();
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) {
+                    let pane_id = value.get("pane_id").and_then(|v| v.as_str()).unwrap_or("");
+                    let data = value.get("data").and_then(|v| v.as_array());
+                    if !pane_id.is_empty() {
+                        if let Some(bytes) = data {
+                            let raw: Vec<u8> = bytes
+                                .iter()
+                                .filter_map(|v| v.as_u64().map(|n| n as u8))
+                                .collect();
+                            bridge::push_terminal_sse(pane_id, &raw);
+                        }
+                    }
+                }
+            });
+
+            app.handle().listen("pty://status", |event| {
+                let payload = event.payload();
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) {
+                    let pane_id = value.get("pane_id").and_then(|v| v.as_str()).unwrap_or("");
+                    let status = value.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                    if !pane_id.is_empty() && !status.is_empty() {
+                        bridge::push_pane_status_sse(pane_id, status);
+                    }
+                }
+            });
 
             Ok(())
         })

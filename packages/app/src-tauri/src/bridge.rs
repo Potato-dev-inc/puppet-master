@@ -16,9 +16,55 @@ use std::thread;
 use tauri::{AppHandle, Emitter};
 
 use crate::pty::{
-    registry_kill_pane, registry_read_buffer, registry_resize, registry_set_project_path,
-    registry_spawn_pane, registry_write_input, PaneRegistry, SpawnPaneArgs,
+    registry_kill_pane, registry_read_buffer, registry_read_raw_buffer,
+    registry_set_project_path, registry_spawn_pane, registry_write_input, PaneRegistry,
+    SpawnPaneArgs,
 };
+use crate::settings_store;
+
+/// SSE client — each connected GET /events response gets a sender.
+type SseSender = std::sync::mpsc::SyncSender<String>;
+pub type SseClients = Arc<Mutex<Vec<SseSender>>>;
+
+/// Global SSE client registry, shared between bridge thread and Tauri commands.
+static SSE_CLIENTS: once_cell::sync::OnceCell<SseClients> = once_cell::sync::OnceCell::new();
+
+pub fn get_sse_clients() -> SseClients {
+    SSE_CLIENTS
+        .get_or_init(|| Arc::new(Mutex::new(Vec::new())))
+        .clone()
+}
+
+/// Push a raw SSE payload (e.g. "event: chat\ndata: {...}\n\n") to all connected clients.
+pub fn push_sse(payload: String) {
+    let clients = get_sse_clients();
+    let mut guard = clients.lock();
+    guard.retain(|sender| sender.try_send(payload.clone()).is_ok());
+}
+
+/// Forward live PTY bytes to mobile xterm.js clients.
+pub fn push_terminal_sse(pane_id: &str, data: &[u8]) {
+    let payload = json!({ "pane_id": pane_id, "data": data });
+    if let Ok(json) = serde_json::to_string(&payload) {
+        push_sse(format!("event: terminal\ndata: {json}\n\n"));
+    }
+}
+
+/// Forward pane status changes to mobile clients.
+pub fn push_pane_status_sse(pane_id: &str, status: &str) {
+    let payload = json!({ "pane_id": pane_id, "status": status });
+    if let Ok(json) = serde_json::to_string(&payload) {
+        push_sse(format!("event: pane-status\ndata: {json}\n\n"));
+    }
+}
+
+/// Forward PTY geometry changes so remote viewers can mirror without resizing the PTY.
+pub fn push_pane_resize_sse(pane_id: &str, cols: u16, rows: u16) {
+    let payload = json!({ "pane_id": pane_id, "cols": cols, "rows": rows });
+    if let Ok(json) = serde_json::to_string(&payload) {
+        push_sse(format!("event: pane-resize\ndata: {json}\n\n"));
+    }
+}
 
 const HOST: &str = "127.0.0.1";
 const PORT_MIN: u16 = 17321;
@@ -29,6 +75,12 @@ struct WriteInputBody {
     text: String,
     #[serde(default = "default_true")]
     append_newline: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct OrchestratorMessageBody {
+    pub text: String,
+    pub message_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,14 +221,17 @@ fn handle_connection(
 
     let (path, query) = split_target(target);
     let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
-    let result = route(method, &segments, query, body, registry, app);
+    let result = route(&mut stream, method, &segments, query, body, registry, app);
     match result {
+        Ok((0, _)) => Ok(()), // SSE handled inline — stream already consumed
         Ok((status, value)) => write_json(&mut stream, status, &value),
         Err((status, value)) => write_json(&mut stream, status, &value),
     }
 }
 
+/// Return value: None means the response was already written (e.g. SSE).
 fn route(
+    stream: &mut TcpStream,
     method: &str,
     segments: &[&str],
     query: &str,
@@ -184,6 +239,17 @@ fn route(
     registry: Arc<Mutex<PaneRegistry>>,
     app: AppHandle,
 ) -> Result<(u16, serde_json::Value), (u16, serde_json::Value)> {
+    if segments.is_empty() && method == "GET" {
+        return Ok((
+            200,
+            json!({
+                "service": "puppet-master-bridge",
+                "hint": "This is the API bridge, not the mobile UI. Tunnel the Vite app (port 1420 or 4173) and use /bridge on that origin.",
+                "health": "/health",
+            }),
+        ));
+    }
+
     if segments == ["health"] && method == "GET" {
         return Ok((
             200,
@@ -196,14 +262,22 @@ fn route(
     }
 
     if segments == ["events"] && method == "GET" {
-        return Ok((
-            200,
-            json!({ "ok": true, "note": "SSE is not implemented by the embedded bridge yet" }),
-        ));
+        handle_sse(stream, registry);
+        return Ok((0, serde_json::Value::Null));
     }
 
     if segments == ["agent-contexts"] && method == "GET" {
         return Ok((200, json!([])));
+    }
+
+    if segments == ["settings"] && method == "GET" {
+        return Ok((200, settings_store::read_public_settings(&app)));
+    }
+
+    if segments == ["settings"] && (method == "PATCH" || method == "POST") {
+        let patch: serde_json::Value = parse_json(body)?;
+        let updated = settings_store::patch_public_settings(&app, patch);
+        return Ok((200, updated));
     }
 
     if segments == ["project-path"] && method == "POST" {
@@ -222,7 +296,7 @@ fn route(
                 let req: SpawnPaneArgs = parse_json(body)?;
                 let pane_id = registry_spawn_pane(&registry, &app, req)
                     .map_err(|err| (500, json!({ "error": err })))?;
-                emit_panes_changed(&app);
+                emit_panes_changed(&registry, &app);
                 return Ok((201, json!({ "pane_id": pane_id })));
             }
             _ => {}
@@ -234,7 +308,7 @@ fn route(
         let tail = segments.get(2).copied();
         if tail.is_none() && method == "DELETE" {
             registry_kill_pane(&registry, pane_id).map_err(|err| (500, json!({ "error": err })))?;
-            emit_panes_changed(&app);
+            emit_panes_changed(&registry, &app);
             return Ok((200, json!({ "ok": true })));
         }
         if tail == Some("buffer") && method == "GET" {
@@ -245,6 +319,14 @@ fn route(
                 .map_err(|err| (404, json!({ "error": err })))?;
             return Ok((200, json!({ "content": content })));
         }
+        if tail == Some("raw") && method == "GET" {
+            let lines = query_param(query, "lines")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(10_000);
+            let raw = registry_read_raw_buffer(&registry, pane_id, lines)
+                .map_err(|err| (404, json!({ "error": err })))?;
+            return Ok((200, json!({ "data": raw })));
+        }
         if tail == Some("input") && method == "POST" {
             let req: WriteInputBody = parse_json(body)?;
             registry_write_input(&registry, pane_id, &req.text, req.append_newline)
@@ -252,11 +334,9 @@ fn route(
             return Ok((200, json!({ "ok": true })));
         }
         if tail == Some("resize") && method == "POST" {
-            let req: ResizeBody = parse_json(body)?;
-            registry_resize(&registry, pane_id, req.cols, req.rows)
-                .map_err(|err| (404, json!({ "error": err })))?;
-            emit_panes_changed(&app);
-            return Ok((200, json!({ "ok": true })));
+            // Remote bridge clients must not resize the shared PTY — only desktop does.
+            let _ = parse_json::<ResizeBody>(body)?;
+            return Ok((200, json!({ "ok": true, "ignored": true })));
         }
         if tail == Some("model") && method == "GET" {
             return Ok((
@@ -280,10 +360,69 @@ fn route(
         }
     }
 
-    Err((404, json!({ "error": "not found" })))
+    // POST /orchestrator/message — mobile PWA sends prompt to desktop orchestrator
+    if segments == ["orchestrator", "message"] && method == "POST" {
+        let req: OrchestratorMessageBody = parse_json(body)?;
+        let user_event = json!({
+            "type": "user",
+            "message_id": req.message_id,
+            "text": req.text,
+        });
+        push_sse(format!("event: chat\ndata: {user_event}\n\n"));
+        let _ = app.emit("orchestrator://message", req);
+        return Ok((200, json!({ "ok": true })));
+    }
+
+    Err((
+        404,
+        json!({
+            "error": "not found",
+            "hint": "Unknown bridge route. Mobile UI is served by Vite on port 1420/4173; API lives under /health, /events, /panes, /orchestrator/message.",
+        }),
+    ))
 }
 
-fn emit_panes_changed(app: &AppHandle) {
+fn handle_sse(stream: &mut TcpStream, registry: Arc<Mutex<PaneRegistry>>) {
+    let headers = "HTTP/1.1 200 OK\r\n\
+        Content-Type: text/event-stream\r\n\
+        Cache-Control: no-cache\r\n\
+        Connection: keep-alive\r\n\
+        Access-Control-Allow-Origin: *\r\n\
+        \r\n\
+        : connected\n\n";
+    if stream.write_all(headers.as_bytes()).is_err() {
+        return;
+    }
+
+    let panes = registry.lock().list();
+    if let Ok(json) = serde_json::to_string(&panes) {
+        let snapshot = format!("event: panes\ndata: {json}\n\n");
+        if stream.write_all(snapshot.as_bytes()).is_err() {
+            return;
+        }
+    }
+
+    let (tx, rx) = std::sync::mpsc::sync_channel::<String>(64);
+    get_sse_clients().lock().push(tx);
+
+    for payload in rx {
+        if stream.write_all(payload.as_bytes()).is_err() {
+            break;
+        }
+    }
+}
+
+pub fn push_settings_sse(settings: &serde_json::Value) {
+    if let Ok(json) = serde_json::to_string(settings) {
+        push_sse(format!("event: settings\ndata: {json}\n\n"));
+    }
+}
+
+fn emit_panes_changed(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
+    let panes = registry.lock().list();
+    if let Ok(json) = serde_json::to_string(&panes) {
+        push_sse(format!("event: panes\ndata: {json}\n\n"));
+    }
     let _ = app.emit("pty://panes-changed", json!({ "changed": true }));
 }
 
@@ -335,7 +474,7 @@ fn write_json(
          Content-Type: application/json; charset=utf-8\r\n\
          Content-Length: {}\r\n\
          Access-Control-Allow-Origin: *\r\n\
-         Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n\
+         Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS\r\n\
          Access-Control-Allow-Headers: Content-Type\r\n\
          Connection: close\r\n\
          \r\n\

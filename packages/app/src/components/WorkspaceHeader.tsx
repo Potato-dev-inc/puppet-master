@@ -1,6 +1,7 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useCallback, useState } from 'react';
 import { listPresets, type AgentType } from '@puppet-master/shared';
+import logoUrl from '../assets/branding/logo.svg';
 
 interface Props {
   projectPath: string | null;
@@ -31,7 +32,12 @@ export function WorkspaceHeader({
 
   return (
     <header className="flex items-center gap-2 px-3 py-2 border-b border-pm-border bg-pm-panel">
-      <span className="font-semibold tracking-wide mr-2">Puppet Master</span>
+      <img
+        src={logoUrl}
+        alt="Puppet Master"
+        className="h-9 w-auto shrink-0 rounded-sm"
+        draggable={false}
+      />
       <button
         onClick={pickPath}
         className="px-2 py-1 text-xs rounded border border-pm-border bg-pm-bg hover:bg-pm-border/40 truncate max-w-[40ch]"

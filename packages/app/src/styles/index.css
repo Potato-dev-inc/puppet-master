@@ -57,6 +57,15 @@ html, body, #root {
   background: rgb(var(--pm-bg)) !important;
 }
 
+.terminal-host .xterm-rows {
+  color: rgb(var(--pm-text));
+}
+
+.terminal-host .xterm-cursor {
+  background: rgb(var(--pm-accent)) !important;
+  color: rgb(var(--pm-bg)) !important;
+}
+
 .terminal-host .xterm-screen canvas {
   image-rendering: auto;
 }

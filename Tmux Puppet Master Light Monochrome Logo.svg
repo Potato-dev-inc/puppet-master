@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 250" width="100%" height="100%">
+  <!-- Background (Clean Off-White) -->
+  <rect width="800" height="250" rx="8" fill="#FAFAFA" stroke="#E4E4E7" stroke-width="1" />
+
+  <!-- Subtle Background Grid Pattern (100px blocks) -->
+  <g opacity="0.4" stroke="#E4E4E7" stroke-width="1">
+    <path d="M 100,0 L 100,250 M 200,0 L 200,250 M 300,0 L 300,250 M 400,0 L 400,250 M 500,0 L 500,250 M 600,0 L 600,250 M 700,0 L 700,250" />
+    <path d="M 0,50 L 800,50 M 0,100 L 800,100 M 0,150 L 800,150 M 0,200 L 800,200" />
+  </g>
+
+  <!-- ==================== ICON: LINE ART ==================== -->
+  <g transform="translate(40, 0)">
+    <!-- Outer Terminal Frame (tmux window boundary) -->
+    <rect x="50" y="65" width="120" height="120" fill="none" stroke="#E4E4E7" stroke-width="1" />
+    <rect x="54" y="69" width="112" height="112" fill="none" stroke="#71717A" stroke-width="1.5" />
+
+    <!-- Grid Splits (Internal Panes) -->
+    <!-- Vertical Split -->
+    <line x1="110" y1="69" x2="110" y2="181" stroke="#A1A1AA" stroke-width="1" />
+    <!-- Horizontal Split -->
+    <line x1="54" y1="125" x2="166" y2="125" stroke="#A1A1AA" stroke-width="1" />
+
+    <!-- Puppet Master Controller Node (The Origin) -->
+    <circle cx="110" cy="40" r="3" fill="none" stroke="#18181B" stroke-width="1.5" />
+    <circle cx="110" cy="40" r="1" fill="#18181B" />
+
+    <!-- Control Lines (Puppet Strings) -->
+    <!-- Path to Pane 1 (Top Left) -->
+    <path d="M 110,43 L 82,75 L 82,90" fill="none" stroke="#A1A1AA" stroke-width="1" stroke-dasharray="2,2" />
+    
+    <!-- Path to Pane 2 (Top Right - Active Focus) -->
+    <path d="M 110,43 L 138,75 L 138,90" fill="none" stroke="#18181B" stroke-width="1.2" />
+    <circle cx="138" cy="90" r="2" fill="#18181B" />
+
+    <!-- Path to Pane 3 (Bottom Left) -->
+    <path d="M 110,43 L 110,55 L 82,100 L 82,145" fill="none" stroke="#A1A1AA" stroke-width="1" stroke-dasharray="2,2" />
+
+    <!-- Path to Pane 4 (Bottom Right) -->
+    <path d="M 110,43 L 110,55 L 138,100 L 138,145" fill="none" stroke="#A1A1AA" stroke-width="1" stroke-dasharray="2,2" />
+
+    <!-- Minimal Terminal Indicators inside panes -->
+    <!-- Pane 1: Prompt symbol -->
+    <path d="M 62,80 L 66,83 L 62,86" fill="none" stroke="#A1A1AA" stroke-width="1" />
+    
+    <!-- Pane 2: Active Prompt symbol -->
+    <path d="M 118,80 L 122,83 L 118,86" fill="none" stroke="#18181B" stroke-width="1.5" />
+    
+    <!-- Pane 3: Status dot -->
+    <circle cx="64" cy="137" r="1.5" fill="#A1A1AA" />
+    
+    <!-- Pane 4: Status dot -->
+    <circle cx="120" cy="137" r="1.5" fill="#A1A1AA" />
+  </g>
+
+  <!-- ==================== TYPOGRAPHY ==================== -->
+  <!-- Brand Name (Light, Geometric, Clean Monochrome) -->
+  <text x="250" y="128" font-family="system-ui, -apple-system, sans-serif" font-weight="200" font-size="36" fill="#27272A" letter-spacing="6">
+    TMUX PUPPET <tspan font-weight="600" fill="#09090B">MASTER</tspan>
+  </text>
+
+  <!-- Active Cursor (Single Line) -->
+  <line x1="720" y1="96" x2="720" y2="132" stroke="#18181B" stroke-width="2" />
+
+  <!-- Subtitle (Monospace, Widely Spaced) -->
+  <text x="254" y="166" font-family="monospace, Courier" font-weight="normal" font-size="12" fill="#71717A" letter-spacing="6">
+    AGENTPLEX // MULTI-PTY ORCHESTRATOR
+  </text>
+</svg>

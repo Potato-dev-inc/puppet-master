@@ -25,6 +25,15 @@ export class InputBatcher implements Disposable {
     this.drain();
   }
 
+  /** Flush any debounced keystrokes immediately (e.g. before mobile word replacement). */
+  flushNow(): void {
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.drain();
+  }
+
   private drain(): void {
     this.timer = null;
     const text = this.pending;
