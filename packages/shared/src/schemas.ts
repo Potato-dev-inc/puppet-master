@@ -82,5 +82,9 @@ export const SettingsSchema = z.object({
   /** Show the mobile terminal command input bar. When false, the tap target remains invisible. */
   mobile_input_visible: z.boolean().default(true),
   project_path: z.string().optional(),
+  /** Public HTTPS origin for mobile PWA (reverse proxy target). Used in pairing QR. */
+  public_pwa_url: z.string().optional(),
+  /** Local Vite dev server port the public URL should proxy to (default 1420). */
+  dev_server_port: z.number().int().min(1024).max(65535).default(1420),
 });
 export type Settings = z.infer<typeof SettingsSchema>;

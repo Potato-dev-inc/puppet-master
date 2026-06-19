@@ -164,3 +164,27 @@ pub async fn push_settings_event(settings_json: String) -> Result<(), String> {
     crate::bridge::push_sse(payload);
     Ok(())
 }
+
+#[tauri::command]
+pub async fn create_mobile_pairing_session(bridge_url: String) -> Result<crate::mobile_pairing::PairingSession, String> {
+    let store = crate::mobile_pairing::pairing_store()
+        .ok_or_else(|| "pairing store not initialized".to_string())?;
+    let session = store.lock().create_pairing_session(bridge_url);
+    Ok(session)
+}
+
+#[tauri::command]
+pub async fn list_paired_mobile_devices() -> Result<Vec<crate::mobile_pairing::PairedDeviceInfo>, String> {
+    let store = crate::mobile_pairing::pairing_store()
+        .ok_or_else(|| "pairing store not initialized".to_string())?;
+    let devices = store.lock().list_devices();
+    Ok(devices)
+}
+
+#[tauri::command]
+pub async fn revoke_paired_mobile_device(device_id: String) -> Result<bool, String> {
+    let store = crate::mobile_pairing::pairing_store()
+        .ok_or_else(|| "pairing store not initialized".to_string())?;
+    let revoked = store.lock().revoke_device(&device_id)?;
+    Ok(revoked)
+}

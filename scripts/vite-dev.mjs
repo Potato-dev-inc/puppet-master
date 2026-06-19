@@ -99,10 +99,10 @@ void waitForVite().then(async () => {
 
   if (devInfo.tunnelUrl) {
     console.error('');
-    console.error('  📱 mobile PWA (any network, zero config):');
+    console.error('  📱 mobile PWA (any network):');
     console.error(`     ${devInfo.tunnelUrl}`);
     console.error(`     bridge: ${devInfo.bridgeProxyUrl}/health`);
-    console.error('     open on your phone → Connect (auto-uses /bridge proxy)');
+    console.error('     open on your phone → Pair (QR) then Connect');
     if (devInfo.tunnelProvider) {
       console.error(`     via ${devInfo.tunnelProvider}`);
     }

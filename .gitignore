@@ -33,6 +33,7 @@ npm-debug.log*
 *.sock
 puppet-master.bridge.port
 puppet-master.dev.json
+puppet-master.pairing.json
 
 # local tool / editor config
 .claude/

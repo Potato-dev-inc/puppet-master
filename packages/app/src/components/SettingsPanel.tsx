@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { listModels, loadSettings, saveSettings } from '../lib/settings';
 import type { LlmModel, LlmProvider, Settings } from '@puppet-master/shared';
+import { DEFAULT_DEV_SERVER_PORT, parseDevServerPort } from '../lib/public-bridge-url';
+import { MobilePairingPanel } from './MobilePairingPanel';
 
 interface Props {
   open: boolean;
@@ -22,6 +24,7 @@ export function SettingsPanel({ open, onClose, onSaved }: Props) {
     orchestrator_backend: 'api',
     mobile_input_delay_ms: 250,
     mobile_input_visible: true,
+    dev_server_port: DEFAULT_DEV_SERVER_PORT,
   });
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [draftCustom, setDraftCustom] = useState<LlmModel>(EMPTY_CUSTOM);
@@ -216,6 +219,18 @@ export function SettingsPanel({ open, onClose, onSaved }: Props) {
           onChange={(e) => setSettings({ ...settings, openrouter_api_key: e.target.value })}
           className="w-full text-xs bg-pm-bg border border-pm-border rounded px-2 py-1 mb-3 font-mono"
           placeholder="sk-or-…"
+        />
+
+        <MobilePairingPanel
+          publicPwaUrl={settings.public_pwa_url ?? ''}
+          devServerPort={parseDevServerPort(settings.dev_server_port)}
+          onPublicPwaUrlChange={(value) =>
+            setSettings({
+              ...settings,
+              public_pwa_url: value.trim() || undefined,
+            })
+          }
+          onDevServerPortChange={(port) => setSettings({ ...settings, dev_server_port: port })}
         />
 
         <div className="flex justify-end gap-2 mt-4">

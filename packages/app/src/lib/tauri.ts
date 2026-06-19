@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { PairedDeviceInfo, PairingSession } from '@puppet-master/shared';
 
 export type PaneInfo = {
   id: string;
@@ -109,4 +110,22 @@ export const tauri = {
     safeListen<PaneExitEvent>('pty://exit', cb),
   onPanesChanged: (cb: (e: PanesChangedEvent) => void): Promise<UnlistenFn> =>
     safeListen<PanesChangedEvent>('pty://panes-changed', cb),
+
+  createMobilePairingSession: (bridgeUrl: string) =>
+    safeInvoke<PairingSession>(
+      'create_mobile_pairing_session',
+      { bridgeUrl },
+      {
+        pairing_code: '',
+        expires_at: 0,
+        server_public_key: '',
+        bridge_url: bridgeUrl,
+        qr_payload: { v: 1, u: bridgeUrl, pk: '', c: '', e: 0 },
+      },
+      true,
+    ),
+  listPairedMobileDevices: () =>
+    safeInvoke<PairedDeviceInfo[]>('list_paired_mobile_devices', undefined, [], true),
+  revokePairedMobileDevice: (deviceId: string) =>
+    safeInvoke<boolean>('revoke_paired_mobile_device', { deviceId }, false, true),
 };

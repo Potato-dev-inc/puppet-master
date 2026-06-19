@@ -1,6 +1,7 @@
 mod bridge;
 mod commands;
 mod mcp_install;
+mod mobile_pairing;
 mod platform;
 mod pty;
 mod settings_store;
@@ -40,6 +41,9 @@ pub fn run() {
             commands::push_chat_event,
             commands::push_settings_event,
             commands::sync_public_settings,
+            commands::create_mobile_pairing_session,
+            commands::list_paired_mobile_devices,
+            commands::revoke_paired_mobile_device,
         ])
         .setup(|app| {
             // Resolve paths. When launched via `tauri dev` cwd is
@@ -53,9 +57,15 @@ pub fn run() {
                 .map(|p| p.to_path_buf())
                 .unwrap_or(cwd);
             let port_file = workspace_root.join("puppet-master.bridge.port");
+            let pairing_file = workspace_root.join("puppet-master.pairing.json");
 
             let registry = app.state::<AppState>().registry.clone();
-            match bridge::start_embedded_bridge(registry, app.handle().clone(), port_file) {
+            match bridge::start_embedded_bridge(
+                registry,
+                app.handle().clone(),
+                port_file,
+                pairing_file,
+            ) {
                 Ok(handle) => {
                     tracing::info!(url = %handle.url, "embedded bridge started");
                 }

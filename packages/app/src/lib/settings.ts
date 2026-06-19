@@ -7,6 +7,11 @@ import {
   type Settings,
 } from '@puppet-master/shared';
 import { clampMobileInputDelayMs, toPublicSettings } from './bridge-settings';
+import {
+  parseDevServerPort,
+  publicOriginFromBridgeUrl,
+  readStoredPublicBridgeUrl,
+} from './public-bridge-url';
 import { tauri } from './tauri';
 
 const STORE_FILE = 'puppet-master.settings.json';
@@ -33,19 +38,29 @@ const DEFAULT_SETTINGS: Settings = {
   orchestrator_backend: 'api',
   mobile_input_delay_ms: 250,
   mobile_input_visible: true,
+  dev_server_port: 1420,
 };
+
+function mergeLoadedSettings(raw: Settings | null | undefined): Settings {
+  const merged = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
+  const legacyPublic = readStoredPublicBridgeUrl();
+  return {
+    ...merged,
+    mobile_input_delay_ms: clampMobileInputDelayMs(merged.mobile_input_delay_ms),
+    mobile_input_visible: merged.mobile_input_visible ?? true,
+    dev_server_port: parseDevServerPort(merged.dev_server_port),
+    public_pwa_url:
+      merged.public_pwa_url?.trim() ||
+      (legacyPublic ? publicOriginFromBridgeUrl(legacyPublic) : undefined),
+  };
+}
 
 export async function loadSettings(): Promise<Settings> {
   try {
     const raw = await store().get<Settings>(KEY);
-    const merged = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
-    return {
-      ...merged,
-      mobile_input_delay_ms: clampMobileInputDelayMs(merged.mobile_input_delay_ms),
-      mobile_input_visible: merged.mobile_input_visible ?? true,
-    };
+    return mergeLoadedSettings(raw);
   } catch {
-    return DEFAULT_SETTINGS;
+    return mergeLoadedSettings(undefined);
   }
 }
 

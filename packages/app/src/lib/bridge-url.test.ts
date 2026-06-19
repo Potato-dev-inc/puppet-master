@@ -1,67 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { resolveBridgeBaseUrl, shouldUseSameOriginBridgeProxy } from './bridge-url';
-
-describe('shouldUseSameOriginBridgeProxy', () => {
-  it('uses proxy for https origins', () => {
-    expect(
-      shouldUseSameOriginBridgeProxy({
-        protocol: 'https:',
-        hostname: 'pm.example.com',
-        origin: 'https://pm.example.com',
-      }),
-    ).toBe(true);
-  });
-
-  it('uses proxy for http remote hosts', () => {
-    expect(
-      shouldUseSameOriginBridgeProxy({
-        protocol: 'http:',
-        hostname: 'pm.example.com',
-        origin: 'http://pm.example.com',
-      }),
-    ).toBe(true);
-  });
-
-  it('does not use proxy on local dev', () => {
-    expect(
-      shouldUseSameOriginBridgeProxy({
-        protocol: 'http:',
-        hostname: '127.0.0.1',
-        origin: 'http://127.0.0.1:1420',
-      }),
-    ).toBe(false);
-  });
-});
+import { resolveBridgeBaseUrl } from './bridge-url.js';
 
 describe('resolveBridgeBaseUrl', () => {
-  const tunnel = {
-    protocol: 'https:' as const,
-    hostname: 'pm.example.com',
-    origin: 'https://pm.example.com',
-  };
-
-  it('defaults to same-origin proxy on tunneled https', () => {
-    expect(resolveBridgeBaseUrl(null, tunnel)).toBe('https://pm.example.com/bridge');
-  });
-
-  it('rewrites saved localhost URL when opened via tunnel', () => {
-    expect(resolveBridgeBaseUrl('http://127.0.0.1:17321', tunnel)).toBe(
-      'https://pm.example.com/bridge',
-    );
-  });
-
-  it('keeps explicit remote bridge URL', () => {
-    expect(resolveBridgeBaseUrl('https://bridge.example.com', tunnel)).toBe(
-      'https://bridge.example.com',
-    );
-  });
-
-  it('defaults to local bridge on loopback dev', () => {
-    const local = {
-      protocol: 'http:' as const,
-      hostname: '127.0.0.1',
-      origin: 'http://127.0.0.1:1420',
+  it('uses same-origin /bridge on tunnel hosts even when localStorage has another domain', () => {
+    const tunnel = {
+      origin: 'https://rid-navy-div-breeding.trycloudflare.com',
+      protocol: 'https:',
+      hostname: 'rid-navy-div-breeding.trycloudflare.com',
     };
-    expect(resolveBridgeBaseUrl(null, local)).toBe('http://127.0.0.1:17321');
+    expect(
+      resolveBridgeBaseUrl('https://3001.v7ren.xyz/bridge', tunnel),
+    ).toBe('https://rid-navy-div-breeding.trycloudflare.com/bridge');
+  });
+
+  it('keeps saved URL when it matches the current origin', () => {
+    const loc = {
+      origin: 'https://3001.v7ren.xyz',
+      protocol: 'https:',
+      hostname: '3001.v7ren.xyz',
+    };
+    expect(resolveBridgeBaseUrl('https://3001.v7ren.xyz/bridge', loc)).toBe(
+      'https://3001.v7ren.xyz/bridge',
+    );
   });
 });

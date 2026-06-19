@@ -21,6 +21,7 @@ use crate::pty::{
     SpawnPaneArgs,
 };
 use crate::settings_store;
+use crate::mobile_pairing::{self, PairRequestBody};
 
 /// SSE client — each connected GET /events response gets a sender.
 type SseSender = std::sync::mpsc::SyncSender<String>;
@@ -129,7 +130,9 @@ pub fn start_embedded_bridge(
     registry: Arc<Mutex<PaneRegistry>>,
     app: AppHandle,
     port_file: PathBuf,
+    pairing_file: PathBuf,
 ) -> Result<BridgeHandle, String> {
+    mobile_pairing::init_pairing_store(pairing_file)?;
     let (listener, port) = bind_listener()?;
     let url = format!("http://{HOST}:{port}");
     fs::write(&port_file, format!("{HOST}:{port}\n"))
@@ -216,13 +219,39 @@ fn handle_connection(
     let body =
         &buf[body_start..body_start + content_length.min(buf.len().saturating_sub(body_start))];
 
+    let peer_loopback = stream
+        .peer_addr()
+        .map(|addr| addr.ip().is_loopback())
+        .unwrap_or(false);
+
     if method == "OPTIONS" {
         return write_json(&mut stream, 204, &json!({}));
     }
 
     let (path, query) = split_target(target);
     let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
-    let result = route(&mut stream, method, &segments, query, body, registry, app);
+
+    if segments == ["events"] && method == "GET" {
+        if let Err((status, value)) =
+            mobile_pairing::authorize_bridge_request(&headers_raw, peer_loopback, &segments, method)
+        {
+            return write_json(&mut stream, status, &value);
+        }
+        handle_sse(&mut stream, registry);
+        return Ok(());
+    }
+
+    let result = route(
+        &mut stream,
+        method,
+        &segments,
+        query,
+        body,
+        registry,
+        app,
+        &headers_raw,
+        peer_loopback,
+    );
     match result {
         Ok((0, _)) => Ok(()), // SSE handled inline — stream already consumed
         Ok((status, value)) => write_json(&mut stream, status, &value),
@@ -239,7 +268,14 @@ fn route(
     body: &[u8],
     registry: Arc<Mutex<PaneRegistry>>,
     app: AppHandle,
+    headers: &str,
+    peer_loopback: bool,
 ) -> Result<(u16, serde_json::Value), (u16, serde_json::Value)> {
+    if let Err(auth_err) =
+        mobile_pairing::authorize_bridge_request(headers, peer_loopback, segments, method)
+    {
+        return Err(auth_err);
+    }
     if segments.is_empty() && method == "GET" {
         return Ok((
             200,
@@ -260,6 +296,38 @@ fn route(
             })
             .unwrap(),
         ));
+    }
+
+    if segments == ["pair"] && method == "POST" {
+        let req: PairRequestBody = parse_json(body)?;
+        let store = mobile_pairing::pairing_store().ok_or_else(|| {
+            (
+                503,
+                serde_json::json!({ "error": "pairing_unavailable" }),
+            )
+        })?;
+        let response = {
+            let mut guard = store.lock();
+            guard.pair_device(req).map_err(|err| (400, json!({ "error": err })))?
+        };
+        return Ok((200, serde_json::to_value(response).unwrap()));
+    }
+
+    if segments.len() == 3 && segments[0] == "pair" && segments[1] == "session" && method == "GET" {
+        let code = segments[2];
+        let store = mobile_pairing::pairing_store().ok_or_else(|| {
+            (
+                503,
+                serde_json::json!({ "error": "pairing_unavailable" }),
+            )
+        })?;
+        let info = {
+            let guard = store.lock();
+            guard
+                .lookup_pairing_session(code)
+                .map_err(|err| (404, json!({ "error": err })))?
+        };
+        return Ok((200, serde_json::to_value(info).unwrap()));
     }
 
     if segments == ["events"] && method == "GET" {
@@ -480,7 +548,7 @@ fn write_json(
          Content-Length: {}\r\n\
          Access-Control-Allow-Origin: *\r\n\
          Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS\r\n\
-         Access-Control-Allow-Headers: Content-Type\r\n\
+         Access-Control-Allow-Headers: Content-Type, Authorization, X-PM-Proxied\r\n\
          Connection: close\r\n\
          \r\n\
          {}",

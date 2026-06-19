@@ -1,6 +1,7 @@
 import type { McpLogEntry, OrchestratorChatEvent, PaneInfo } from '@puppet-master/shared';
 import type { PublicSettings } from './bridge-settings';
 import { ngrokRequestHeaders } from './bridge-ngrok';
+import { mergeBridgeHeaders } from './mobile-pairing-auth';
 import type { BridgeEvent } from './bridge';
 
 function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: BridgeEvent) => void): void {
@@ -76,7 +77,7 @@ export function subscribeBridgeEventsViaFetch(
       abort = new AbortController();
       try {
         const res = await fetch(`${baseUrl}/events`, {
-          headers: ngrokRequestHeaders(baseUrl),
+          headers: mergeBridgeHeaders(ngrokRequestHeaders(baseUrl)),
           signal: abort.signal,
         });
         if (!res.ok || !res.body) {

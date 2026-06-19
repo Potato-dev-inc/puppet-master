@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Puppet Master — Desktop Flow Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --pm-bg: 10 10 10;
+      --pm-panel: 18 18 18;
+      --pm-raised: 25 25 25;
+      --pm-border: 45 45 45;
+      --pm-accent: 245 245 245;
+      --pm-text: 232 232 232;
+      --pm-muted: 150 150 150;
+      --pm-ok: 120 220 140;
+      --pm-warn: 220 180 80;
+      --pm-sidebar-w: 300px;
+      --pm-splash-ms: 2200;
+      --pm-font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+      --pm-font-mono: "Cascadia Code", Consolas, monospace;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    :root[data-theme='light'] {
+      color-scheme: light;
+      --pm-bg: 250 250 250;
+      --pm-panel: 242 242 242;
+      --pm-raised: 255 255 255;
+      --pm-border: 212 212 212;
+      --pm-accent: 12 12 12;
+      --pm-text: 18 18 18;
+      --pm-muted: 96 96 96;
+      --pm-ok: 40 140 70;
+      --pm-warn: 160 110 20;
+    }
+
+    :root[data-reduce-motion='true'] .screen,
+    :root[data-reduce-motion='true'] .logo-mark,
+    :root[data-reduce-motion='true'] .card,
+    :root[data-reduce-motion='true'] .progress-bar {
+      transition: none !important;
+      animation: none !important;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: var(--pm-font-ui);
+      background: rgb(var(--pm-bg));
+      color: rgb(var(--pm-text));
+      overflow: hidden;
+    }
+
+    .screen {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(12px);
+      transition: opacity 0.45s var(--ease), transform 0.45s var(--ease);
+    }
+    .screen.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+
+    #splash {
+      align-items: center;
+      justify-content: center;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 40%, rgb(var(--pm-raised) / 0.9), transparent),
+        rgb(var(--pm-bg));
+    }
+    .logo-mark {
+      width: 88px;
+      height: 88px;
+      border-radius: 22px;
+      border: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-panel));
+      display: grid;
+      place-items: center;
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      animation: pulse 2s ease-in-out infinite;
+      box-shadow: 0 0 60px rgb(var(--pm-accent) / 0.08);
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 40px rgb(var(--pm-accent) / 0.06); }
+      50% { transform: scale(1.03); box-shadow: 0 0 80px rgb(var(--pm-accent) / 0.12); }
+    }
+    .splash-title { margin-top: 1.25rem; font-size: 1.35rem; font-weight: 600; letter-spacing: -0.02em; }
+    .splash-status {
+      margin-top: 0.5rem;
+      font-size: 0.8rem;
+      color: rgb(var(--pm-muted));
+      font-family: var(--pm-font-mono);
+      min-height: 1.2em;
+    }
+    .progress-track {
+      margin-top: 2rem;
+      width: 200px;
+      height: 3px;
+      border-radius: 99px;
+      background: rgb(var(--pm-border) / 0.5);
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: rgb(var(--pm-accent));
+      border-radius: 99px;
+      transition: width 0.3s var(--ease);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-panel));
+      flex-shrink: 0;
+    }
+    .topbar .logo-sm {
+      width: 28px; height: 28px;
+      border-radius: 7px;
+      border: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-raised));
+      display: grid;
+      place-items: center;
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+    .topbar h1 { font-size: 0.9rem; font-weight: 600; }
+    .topbar .spacer { flex: 1; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: rgb(var(--pm-ok));
+      box-shadow: 0 0 8px rgb(var(--pm-ok) / 0.6);
+    }
+    .status-label { font-size: 0.7rem; color: rgb(var(--pm-muted)); }
+
+    .btn {
+      padding: 0.45rem 0.9rem;
+      border-radius: 8px;
+      border: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-raised));
+      color: rgb(var(--pm-text));
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:hover { background: rgb(var(--pm-border) / 0.5); }
+    .btn-primary {
+      border-color: rgb(var(--pm-accent) / 0.4);
+      background: rgb(var(--pm-accent) / 0.1);
+      color: rgb(var(--pm-accent));
+    }
+    .btn-primary:hover { background: rgb(var(--pm-accent) / 0.18); }
+    .btn-ghost { background: transparent; }
+    .btn-sm { padding: 0.3rem 0.55rem; font-size: 0.68rem; }
+
+    #home .content {
+      flex: 1;
+      overflow: auto;
+      padding: 2.5rem 2rem;
+      max-width: 720px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .hero { margin-bottom: 2.5rem; }
+    .hero h2 { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; }
+    .hero p { margin-top: 0.6rem; color: rgb(var(--pm-muted)); font-size: 0.95rem; max-width: 42ch; }
+    .hero-actions { margin-top: 1.25rem; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+
+    .section-title {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: rgb(var(--pm-muted));
+      margin-bottom: 0.75rem;
+    }
+
+    .card-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .card {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.85rem 1rem;
+      border-radius: 12px;
+      border: 1px solid rgb(var(--pm-border) / 0.7);
+      background: rgb(var(--pm-raised) / 0.5);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s, transform 0.15s var(--ease);
+    }
+    .card:hover {
+      border-color: rgb(var(--pm-accent) / 0.35);
+      background: rgb(var(--pm-raised));
+      transform: translateX(4px);
+    }
+    .card-icon {
+      width: 36px; height: 36px;
+      border-radius: 9px;
+      background: rgb(var(--pm-panel));
+      border: 1px solid rgb(var(--pm-border));
+      display: grid;
+      place-items: center;
+      font-size: 1rem;
+    }
+    .card-body { flex: 1; min-width: 0; }
+    .card-title { font-size: 0.9rem; font-weight: 600; }
+    .card-meta {
+      font-size: 0.72rem;
+      color: rgb(var(--pm-muted));
+      margin-top: 0.15rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .badge {
+      font-size: 0.6rem;
+      padding: 0.2rem 0.45rem;
+      border-radius: 99px;
+      border: 1px solid rgb(var(--pm-border));
+      color: rgb(var(--pm-muted));
+    }
+
+    #new-session .content {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      padding: 1.5rem 2rem;
+      overflow: auto;
+    }
+    @media (max-width: 700px) { #new-session .content { grid-template-columns: 1fr; } }
+
+    .panel {
+      border: 1px solid rgb(var(--pm-border) / 0.7);
+      border-radius: 14px;
+      background: rgb(var(--pm-raised) / 0.4);
+      padding: 1.25rem;
+    }
+    .panel h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 1rem; }
+    label, .label {
+      display: block;
+      font-size: 0.7rem;
+      color: rgb(var(--pm-muted));
+      margin-bottom: 0.35rem;
+    }
+    .hint { font-size: 0.68rem; color: rgb(var(--pm-muted)); margin-top: -0.5rem; margin-bottom: 0.85rem; }
+    .field {
+      width: 100%;
+      padding: 0.55rem 0.7rem;
+      border-radius: 8px;
+      border: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-bg));
+      color: rgb(var(--pm-text));
+      font-size: 0.8rem;
+      margin-bottom: 0.85rem;
+    }
+    select.field { cursor: pointer; }
+    textarea.field { min-height: 140px; resize: vertical; font-family: inherit; line-height: 1.45; }
+    .field-mono { font-family: var(--pm-font-mono); font-size: 0.75rem; }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.85rem; }
+    .chip {
+      padding: 0.3rem 0.6rem;
+      border-radius: 99px;
+      border: 1px solid rgb(var(--pm-border));
+      font-size: 0.72rem;
+      cursor: pointer;
+      color: rgb(var(--pm-muted));
+    }
+    .chip.selected {
+      border-color: rgb(var(--pm-accent) / 0.5);
+      color: rgb(var(--pm-accent));
+      background: rgb(var(--pm-accent) / 0.08);
+    }
+    .new-session-footer {
+      grid-column: 1 / -1;
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.6rem;
+      padding-top: 0.5rem;
+    }
+
+    /* ---- settings page ---- */
+    #settings { flex-direction: row; }
+    .settings-nav {
+      width: 200px;
+      flex-shrink: 0;
+      border-right: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-panel));
+      padding: 0.75rem 0.5rem;
+      overflow: auto;
+    }
+    .settings-nav-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 0.5rem 0.65rem;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: rgb(var(--pm-muted));
+      font-size: 0.78rem;
+      cursor: pointer;
+      margin-bottom: 0.15rem;
+    }
+    .settings-nav-item:hover { background: rgb(var(--pm-border) / 0.35); color: rgb(var(--pm-text)); }
+    .settings-nav-item.active {
+      background: rgb(var(--pm-accent) / 0.1);
+      color: rgb(var(--pm-accent));
+    }
+    .settings-main {
+      flex: 1;
+      overflow: auto;
+      padding: 1.5rem 2rem;
+      max-width: 640px;
+    }
+    .settings-section { display: none; }
+    .settings-section.active { display: block; }
+    .settings-section h2 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+    .settings-section .sub {
+      font-size: 0.78rem;
+      color: rgb(var(--pm-muted));
+      margin-bottom: 1.25rem;
+    }
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid rgb(var(--pm-border) / 0.5);
+    }
+    .setting-row:last-child { border-bottom: none; }
+    .setting-row .info { flex: 1; min-width: 0; }
+    .setting-row .info strong { display: block; font-size: 0.82rem; font-weight: 500; }
+    .setting-row .info span { font-size: 0.7rem; color: rgb(var(--pm-muted)); margin-top: 0.15rem; display: block; }
+    .setting-row .control { flex-shrink: 0; }
+    .toggle {
+      width: 40px; height: 22px;
+      border-radius: 99px;
+      background: rgb(var(--pm-border));
+      border: none;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.2s;
+    }
+    .toggle[aria-checked='true'] { background: rgb(var(--pm-accent) / 0.5); }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: rgb(var(--pm-text));
+      transition: transform 0.2s var(--ease);
+    }
+    .toggle[aria-checked='true']::after { transform: translateX(18px); }
+    .range-val {
+      font-size: 0.72rem;
+      font-family: var(--pm-font-mono);
+      color: rgb(var(--pm-muted));
+      min-width: 3.5rem;
+      text-align: right;
+    }
+    input[type='range'] { width: 140px; accent-color: rgb(var(--pm-accent)); }
+    input[type='color'] {
+      width: 36px; height: 28px;
+      border: 1px solid rgb(var(--pm-border));
+      border-radius: 6px;
+      background: transparent;
+      cursor: pointer;
+      padding: 2px;
+    }
+    .settings-footer {
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid rgb(var(--pm-border));
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .saved-toast {
+      font-size: 0.72rem;
+      color: rgb(var(--pm-ok));
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .saved-toast.show { opacity: 1; }
+    .code-block {
+      font-family: var(--pm-font-mono);
+      font-size: 0.68rem;
+      padding: 0.65rem;
+      border-radius: 8px;
+      border: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-bg));
+      color: rgb(var(--pm-muted));
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin-bottom: 0.6rem;
+    }
+
+    /* ---- workspace ---- */
+    #workspace { flex-direction: row; }
+    #workspace .main-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .workspace-header {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-panel));
+      font-size: 0.75rem;
+    }
+    .workspace-header .path {
+      padding: 0.3rem 0.55rem;
+      border-radius: 6px;
+      border: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-bg));
+      color: rgb(var(--pm-muted));
+      max-width: 28ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .grid-area {
+      flex: 1;
+      display: grid;
+      gap: 0.65rem;
+      padding: 0.65rem;
+      overflow: auto;
+      background: rgb(var(--pm-bg));
+    }
+    .grid-area.cols-1 { grid-template-columns: 1fr; }
+    .grid-area.cols-2 { grid-template-columns: 1fr 1fr; }
+    .grid-area.cols-3 { grid-template-columns: repeat(3, 1fr); }
+    .pane {
+      min-height: 160px;
+      border-radius: 10px;
+      border: 1px solid rgb(var(--pm-border) / 0.6);
+      background: rgb(var(--pm-panel));
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .pane-bar {
+      padding: 0.35rem 0.6rem;
+      font-size: 0.65rem;
+      border-bottom: 1px solid rgb(var(--pm-border) / 0.5);
+      color: rgb(var(--pm-muted));
+      display: flex;
+      justify-content: space-between;
+    }
+    .pane-body {
+      flex: 1;
+      padding: 0.6rem;
+      font-family: var(--pm-font-mono);
+      font-size: var(--pm-term-size, 0.7rem);
+      line-height: 1.4;
+      color: rgb(var(--pm-muted));
+    }
+    .pane-add {
+      border-style: dashed;
+      align-items: center;
+      justify-content: center;
+      color: rgb(var(--pm-muted));
+      font-size: 0.8rem;
+    }
+    .sidebar {
+      width: var(--pm-sidebar-w);
+      border-left: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-panel));
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      transition: width 0.25s var(--ease);
+    }
+    .sidebar-header {
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid rgb(var(--pm-border));
+      font-size: 0.75rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .chat-area {
+      flex: 1;
+      padding: 0.75rem;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .bubble {
+      max-width: 90%;
+      padding: 0.5rem 0.65rem;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      line-height: 1.4;
+    }
+    .bubble.user {
+      align-self: flex-end;
+      background: rgb(var(--pm-accent) / 0.12);
+      border: 1px solid rgb(var(--pm-accent) / 0.25);
+    }
+    .bubble.assistant {
+      align-self: flex-start;
+      background: rgb(var(--pm-raised));
+      border: 1px solid rgb(var(--pm-border));
+      color: rgb(var(--pm-muted));
+    }
+    .sidebar-input { padding: 0.6rem; border-top: 1px solid rgb(var(--pm-border)); }
+    .sidebar-input input {
+      width: 100%;
+      padding: 0.5rem 0.65rem;
+      border-radius: 8px;
+      border: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-bg));
+      color: rgb(var(--pm-text));
+      font-size: 0.75rem;
+    }
+
+    .demo-hint {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 0.4rem 0.85rem;
+      border-radius: 99px;
+      background: rgb(var(--pm-panel) / 0.95);
+      border: 1px solid rgb(var(--pm-border));
+      font-size: 0.68rem;
+      color: rgb(var(--pm-muted));
+      z-index: 100;
+      backdrop-filter: blur(8px);
+      max-width: 92vw;
+      text-align: center;
+    }
+    .demo-hint kbd {
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      border: 1px solid rgb(var(--pm-border));
+      background: rgb(var(--pm-bg));
+      font-family: inherit;
+      font-size: 0.65rem;
+    }
+  </style>
+</head>
+<body>
+
+  <section id="splash" class="screen active" data-screen="splash">
+    <div class="logo-mark">PM</div>
+    <div class="splash-title">Puppet Master</div>
+    <div class="splash-status" id="splash-status">Starting bridge…</div>
+    <div class="progress-track"><div class="progress-bar" id="progress-bar"></div></div>
+  </section>
+
+  <section id="home" class="screen" data-screen="home">
+    <header class="topbar">
+      <div class="logo-sm">PM</div>
+      <h1>Puppet Master</h1>
+      <div class="spacer"></div>
+      <span class="status-dot"></span>
+      <span class="status-label">Bridge ready</span>
+      <button class="btn btn-ghost" type="button" data-goto="settings">Settings</button>
+    </header>
+    <div class="content">
+      <div class="hero">
+        <h2>Multi-agent terminal orchestrator</h2>
+        <p>Spawn Claude, Codex, OpenCode, and shell sessions — then drive them from one place.</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary" type="button" data-goto="new-session">New session</button>
+          <button class="btn" type="button">Open folder</button>
+          <button class="btn btn-ghost" type="button" data-goto="settings">Customize</button>
+        </div>
+      </div>
+
+      <div class="section-title">Recent sessions</div>
+      <div class="card-list">
+        <div class="card" data-goto="workspace" data-project="puppet-master">
+          <div class="card-icon">📁</div>
+          <div class="card-body">
+            <div class="card-title">puppet-master</div>
+            <div class="card-meta">~/work/puppet-master · 3 panes · 2h ago</div>
+          </div>
+          <span class="badge" id="home-badge-1">API</span>
+        </div>
+        <div class="card" data-goto="workspace" data-project="side-project">
+          <div class="card-icon">📁</div>
+          <div class="card-body">
+            <div class="card-title">side-project</div>
+            <div class="card-meta">~/dev/side-project · 1 pane · yesterday</div>
+          </div>
+          <span class="badge">Claude CLI</span>
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-top: 1.75rem">Recent projects</div>
+      <div class="card-list">
+        <div class="card" data-goto="new-session">
+          <div class="card-icon">＋</div>
+          <div class="card-body">
+            <div class="card-title">~/work/api-gateway</div>
+            <div class="card-meta">Last opened 3 days ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="new-session" class="screen" data-screen="new-session">
+    <header class="topbar">
+      <button class="btn btn-ghost" type="button" data-goto="home">← Home</button>
+      <h1>New session</h1>
+      <div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm" type="button" data-goto="settings">Settings</button>
+    </header>
+    <div class="content">
+      <div class="panel">
+        <h3>Project & agent</h3>
+        <label>Project folder</label>
+        <input class="field" type="text" value="~/work/puppet-master" readonly />
+        <button class="btn" type="button" style="margin-bottom: 1rem">Browse…</button>
+
+        <label>Starting agent</label>
+        <div class="chip-row" id="agent-chips">
+          <span class="chip selected" data-agent="claude">Claude Code</span>
+          <span class="chip" data-agent="codex">Codex</span>
+          <span class="chip" data-agent="opencode">OpenCode</span>
+          <span class="chip" data-agent="bash">Bash</span>
+        </div>
+
+        <label>Layout preset</label>
+        <div class="chip-row" id="layout-chips">
+          <span class="chip" data-cols="1">Single</span>
+          <span class="chip selected" data-cols="2">2-column</span>
+          <span class="chip" data-cols="3">3-column</span>
+        </div>
+
+        <label>Orchestrator</label>
+        <select class="field" id="new-orchestrator">
+          <option value="api">LLM API (direct)</option>
+          <option value="claude_cli">Claude Code CLI</option>
+          <option value="codex_cli">Codex CLI</option>
+          <option value="opencode_cli">OpenCode CLI</option>
+        </select>
+      </div>
+
+      <div class="panel">
+        <h3>Initial prompt <span style="font-weight:400;color:rgb(var(--pm-muted))">(optional)</span></h3>
+        <textarea class="field" id="initial-prompt" placeholder="Describe what you want the orchestrator to do when the session starts…">Review the auth module and spawn a Codex pane to fix the failing tests.</textarea>
+        <p class="hint">Draft auto-saves. Toggle “Send prompt on start” in Settings → Session.</p>
+      </div>
+
+      <div class="new-session-footer">
+        <button class="btn" type="button" data-goto="home">Cancel</button>
+        <button class="btn btn-primary" type="button" data-goto="workspace" id="start-btn">Start session</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="settings" class="screen" data-screen="settings">
+    <header class="topbar">
+      <button class="btn btn-ghost" type="button" data-goto="home" id="settings-back">← Home</button>
+      <h1>Settings</h1>
+      <div class="spacer"></div>
+    </header>
+    <div style="flex:1;display:flex;min-height:0">
+      <nav class="settings-nav" id="settings-nav">
+        <button type="button" class="settings-nav-item active" data-tab="general">General</button>
+        <button type="button" class="settings-nav-item" data-tab="appearance">Appearance</button>
+        <button type="button" class="settings-nav-item" data-tab="session">Session</button>
+        <button type="button" class="settings-nav-item" data-tab="orchestrator">Orchestrator</button>
+        <button type="button" class="settings-nav-item" data-tab="api-keys">API keys</button>
+        <button type="button" class="settings-nav-item" data-tab="mcp">MCP & bridge</button>
+        <button type="button" class="settings-nav-item" data-tab="mobile">Mobile PWA</button>
+        <button type="button" class="settings-nav-item" data-tab="advanced">Advanced</button>
+      </nav>
+      <div class="settings-main">
+
+        <div class="settings-section active" data-tab="general">
+          <h2>General</h2>
+          <p class="sub">Launch behavior and defaults.</p>
+          <div class="setting-row">
+            <div class="info"><strong>Resume last session on launch</strong><span>Skip Home and open your previous workspace.</span></div>
+            <div class="control"><button type="button" class="toggle" data-key="resumeLastSession" aria-checked="false"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Skip splash screen</strong><span>Go straight to Home when the app is ready.</span></div>
+            <div class="control"><button type="button" class="toggle" data-key="skipSplash" aria-checked="false"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Splash minimum duration</strong><span>Time for logo animation (ms).</span></div>
+            <div class="control" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="range" min="0" max="4000" step="100" data-key="splashMs" id="splash-ms-range" />
+              <span class="range-val" id="splash-ms-val">2200ms</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Default project folder</strong><span>Pre-filled in New Session.</span></div>
+            <div class="control" style="width:100%;max-width:220px">
+              <input class="field" type="text" data-key="defaultProject" value="~/work/puppet-master" style="margin:0" />
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section" data-tab="appearance">
+          <h2>Appearance</h2>
+          <p class="sub">Theme, layout density, and motion. Changes apply live in this demo.</p>
+          <div class="setting-row">
+            <div class="info"><strong>Color theme</strong><span>Dark or light UI.</span></div>
+            <div class="control">
+              <select class="field" data-key="theme" style="margin:0;width:120px">
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+                <option value="system">System</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Accent color</strong><span>Highlights, buttons, cursors.</span></div>
+            <div class="control"><input type="color" data-key="accentColor" value="#f5f5f5" id="accent-picker" /></div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Sidebar width</strong><span>Orchestrator panel in workspace.</span></div>
+            <div class="control" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="range" min="260" max="480" step="10" data-key="sidebarWidth" id="sidebar-width-range" />
+              <span class="range-val" id="sidebar-width-val">300px</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Terminal font size</strong><span>Pane scrollback text.</span></div>
+            <div class="control" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="range" min="10" max="16" step="1" data-key="termFontSize" id="term-size-range" />
+              <span class="range-val" id="term-size-val">11px</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Default grid columns</strong><span>New workspace layout.</span></div>
+            <div class="control">
+              <select class="field" data-key="gridCols" style="margin:0;width:120px">
+                <option value="1">1 column</option>
+                <option value="2" selected>2 columns</option>
+                <option value="3">3 columns</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Reduce motion</strong><span>Disable splash pulse and screen transitions.</span></div>
+            <div class="control"><button type="button" class="toggle" data-key="reduceMotion" aria-checked="false"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>UI font</strong><span>Interface typeface.</span></div>
+            <div class="control">
+              <select class="field" data-key="uiFont" style="margin:0;width:160px">
+                <option value="system">System UI</option>
+                <option value="inter">Inter</option>
+                <option value="geist">Geist</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section" data-tab="session">
+          <h2>Session</h2>
+          <p class="sub">New-session flow and workspace defaults.</p>
+          <div class="setting-row">
+            <div class="info"><strong>Send initial prompt on start</strong><span>Auto-submit New Session prompt to orchestrator.</span></div>
+            <div class="control"><button type="button" class="toggle" data-key="sendPromptOnStart" aria-checked="true"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Remember session drafts</strong><span>Keep New Session form across app restarts.</span></div>
+            <div class="control"><button type="button" class="toggle" data-key="rememberDrafts" aria-checked="true"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Recent sessions limit</strong><span>How many appear on Home.</span></div>
+            <div class="control" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="range" min="3" max="20" step="1" data-key="recentLimit" id="recent-limit-range" />
+              <span class="range-val" id="recent-limit-val">12</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Confirm before Kill All</strong><span>Safety dialog when closing all panes.</span></div>
+            <div class="control"><button type="button" class="toggle" data-key="confirmKillAll" aria-checked="true"></button></div>
+          </div>
+        </div>
+
+        <div class="settings-section" data-tab="orchestrator">
+          <h2>Orchestrator</h2>
+          <p class="sub">Default LLM backend for the Puppet Master sidebar.</p>
+          <label>Default backend</label>
+          <select class="field" data-key="orchestratorBackend" id="settings-orchestrator">
+            <option value="api">LLM API (direct)</option>
+            <option value="claude_cli">Claude Code CLI</option>
+            <option value="codex_cli">Codex CLI</option>
+            <option value="opencode_cli">OpenCode CLI</option>
+          </select>
+          <label>Default provider</label>
+          <select class="field" data-key="defaultProvider">
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+            <option value="openrouter">OpenRouter</option>
+          </select>
+          <label>Default model</label>
+          <select class="field" data-key="defaultModel">
+            <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+            <option value="claude-opus-4-6">Claude Opus 4.6</option>
+            <option value="gpt-4.1">GPT-4.1</option>
+            <option value="gpt-4.1-mini">GPT-4.1 mini</option>
+          </select>
+          <label>Custom model ID (optional)</label>
+          <input class="field field-mono" type="text" data-key="customModelId" placeholder="e.g. google/gemini-2.5-pro" />
+          <p class="hint">Merged with presets in the sidebar model picker.</p>
+        </div>
+
+        <div class="settings-section" data-tab="api-keys">
+          <h2>API keys</h2>
+          <p class="sub">Stored locally via Tauri secure store in the real app.</p>
+          <label>Anthropic API key</label>
+          <input class="field field-mono" type="password" data-key="anthropicKey" placeholder="sk-ant-…" value="sk-ant-••••••••" />
+          <label>OpenAI API key</label>
+          <input class="field field-mono" type="password" data-key="openaiKey" placeholder="sk-…" />
+          <label>OpenRouter API key</label>
+          <input class="field field-mono" type="password" data-key="openrouterKey" placeholder="sk-or-…" />
+          <div class="setting-row" style="border:none;padding-top:0.5rem">
+            <div class="info"><strong>Validate keys on save</strong><span>Probe provider API with a minimal request.</span></div>
+            <div class="control"><button type="button" class="toggle" data-key="validateKeys" aria-checked="true"></button></div>
+          </div>
+        </div>
+
+        <div class="settings-section" data-tab="mcp">
+          <h2>MCP & bridge</h2>
+          <p class="sub">External agent integration (Cursor, Claude Desktop, Codex).</p>
+          <label>Bridge port</label>
+          <input class="field field-mono" type="text" data-key="bridgePort" value="17321" readonly />
+          <label>Claude Code MCP config</label>
+          <div class="code-block" id="mcp-claude">{
+  "mcpServers": {
+    "puppet-master": { "command": "npx", "args": ["@puppet-master/mcp"] }
+  }
+}</div>
+          <button type="button" class="btn btn-sm" data-copy="mcp-claude">Copy Claude config</button>
+          <label style="margin-top:1rem">Codex MCP config</label>
+          <div class="code-block" id="mcp-codex">[mcp_servers.puppet-master]
+command = "npx"
+args = ["@puppet-master/mcp"]</div>
+          <button type="button" class="btn btn-sm" data-copy="mcp-codex">Copy Codex config</button>
+          <div class="setting-row" style="margin-top:1rem;border:none">
+            <div class="info"><strong>Auto-install MCP on first CLI session</strong><span>Write config when spawning orchestrator pane.</span></div>
+            <div class="control"><button type="button" class="toggle" data-key="autoMcpInstall" aria-checked="true"></button></div>
+          </div>
+        </div>
+
+        <div class="settings-section" data-tab="mobile">
+          <h2>Mobile PWA</h2>
+          <p class="sub">Pairing, mirror mode, and remote control auth.</p>
+
+          <div class="panel" style="margin-bottom:1rem">
+            <h3>Pair phone (QR)</h3>
+            <p class="hint" style="margin-top:0">Any public HTTPS URL works — your domain, ngrok, Cloudflare, nginx. Pairing QR embeds that URL.</p>
+            <label class="label">Public PWA URL</label>
+            <input class="field field-mono" type="url" id="pairing-custom-url" data-key="publicPwaUrl" value="https://3001.v7ren.xyz" placeholder="https://your.domain.com" style="margin-bottom:0.75rem" />
+            <label class="label">Local dev server port</label>
+            <input class="field field-mono" type="number" id="pairing-dev-port" data-key="devServerPort" min="1024" max="65535" value="1420" style="margin-bottom:0.5rem" />
+            <p class="hint" style="margin-bottom:0.75rem">Proxy public URL to <code id="pairing-local-target">http://127.0.0.1:1420</code></p>
+            <div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap">
+              <img
+                id="pairing-qr-img"
+                alt="Pairing QR code"
+                width="200"
+                height="200"
+                style="border-radius:12px;border:1px solid rgb(var(--pm-border));background:#fff;padding:8px"
+              />
+              <div style="flex:1;min-width:200px;font-size:0.75rem">
+                <div class="label">Phone opens</div>
+                <code class="field field-mono" style="margin-bottom:0.5rem;display:block" id="pairing-bridge-url">https://3001.v7ren.xyz/bridge</code>
+                <div class="label">Pairing code</div>
+                <code style="font-size:1rem;color:rgb(var(--pm-accent))" id="pairing-code">PM8K2X4Q</code>
+                <div class="hint" id="pairing-expires">Expires in 10 min · server signs response</div>
+                <button type="button" class="btn btn-sm" id="refresh-pairing-qr" style="margin-top:0.6rem">Refresh QR</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="info"><strong>Paired devices</strong><span>Revoke lost phones instantly.</span></div>
+          </div>
+          <div class="card-list" style="margin-bottom:1rem">
+            <div class="card" style="cursor:default;transform:none">
+              <div class="card-icon">📱</div>
+              <div class="card-body">
+                <div class="card-title">Ren's iPhone</div>
+                <div class="card-meta">Ed25519 · paired 2h ago</div>
+              </div>
+              <button type="button" class="btn btn-sm">Revoke</button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="info"><strong>Mobile input buffer (ms)</strong><span>Autocorrect settling delay before PTY commit.</span></div>
+            <div class="control" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="range" min="0" max="1000" step="50" data-key="mobileInputDelay" id="mobile-delay-range" />
+              <span class="range-val" id="mobile-delay-val">250ms</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Show mobile input bar</strong><span>Visible command field on phone.</span></div>
+            <div class="control"><button type="button" class="toggle" data-key="mobileInputVisible" aria-checked="true"></button></div>
+          </div>
+        </div>
+
+        <div class="settings-section" data-tab="advanced">
+          <h2>Advanced</h2>
+          <p class="sub">Power-user and developer options.</p>
+          <div class="setting-row">
+            <div class="info"><strong>Developer mode</strong><span>Show bridge URL, tunnel info, dev JSON.</span></div>
+            <div class="control"><button type="button" class="toggle" data-key="devMode" aria-checked="false"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="info"><strong>Log MCP tool calls to console</strong><span>Verbose orchestrator debugging.</span></div>
+            <div class="control"><button type="button" class="toggle" data-key="logMcp" aria-checked="false"></button></div>
+          </div>
+          <label>Scrollback limit (lines per pane)</label>
+          <input class="field field-mono" type="number" data-key="scrollbackLimit" value="10000" min="1000" max="50000" step="1000" />
+          <div class="settings-footer">
+            <button type="button" class="btn" id="reset-settings">Reset all to defaults</button>
+            <button type="button" class="btn" id="export-settings">Export JSON</button>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <span class="saved-toast" id="saved-toast">Settings saved</span>
+          <div class="spacer" style="flex:1"></div>
+          <button type="button" class="btn" data-goto="home">Done</button>
+          <button type="button" class="btn btn-primary" id="save-settings">Save</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="workspace" class="screen" data-screen="workspace">
+    <div class="main-col">
+      <header class="workspace-header">
+        <button class="btn btn-ghost btn-sm" type="button" data-goto="home">← Home</button>
+        <div class="logo-sm" style="width:22px;height:22px;font-size:0.55rem">PM</div>
+        <span class="path" id="ws-path">~/work/puppet-master</span>
+        <div class="spacer" style="flex:1"></div>
+        <button class="btn btn-sm" type="button" data-goto="settings">Settings</button>
+        <button class="btn btn-sm" type="button">New pane</button>
+        <button class="btn btn-sm" type="button">Kill all</button>
+      </header>
+      <div class="grid-area cols-2" id="workspace-grid">
+        <div class="pane">
+          <div class="pane-bar"><span>claude — pane 1</span><span>●</span></div>
+          <div class="pane-body" id="pane-sample-1">$ claude
+Welcome to Claude Code…
+&gt; _</div>
+        </div>
+        <div class="pane">
+          <div class="pane-bar"><span>bash — pane 2</span><span>●</span></div>
+          <div class="pane-body" id="pane-sample-2">$ npm test
+ PASS  src/auth.test.ts
+ 2 passed</div>
+        </div>
+        <div class="pane pane-add"><span>+ New session</span></div>
+      </div>
+    </div>
+    <aside class="sidebar" id="workspace-sidebar">
+      <div class="sidebar-header">
+        <span>Puppet Master</span>
+        <span class="badge" id="ws-orchestrator-badge">API</span>
+      </div>
+      <div class="chat-area" id="chat-area">
+        <div class="bubble user" id="chat-user-bubble">Review the auth module and spawn a Codex pane to fix the failing tests.</div>
+        <div class="bubble assistant">I'll list panes and spawn Codex in ~/work/puppet-master…</div>
+      </div>
+      <div class="sidebar-input">
+        <input type="text" placeholder="Ask Puppet Master…" />
+      </div>
+    </aside>
+  </section>
+
+  <div class="demo-hint">
+    <kbd>1</kbd> splash · <kbd>2</kbd> home · <kbd>3</kbd> new · <kbd>4</kbd> workspace · <kbd>5</kbd> settings · Settings apply live
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'pm-desktop-demo-settings';
+    const ORCH_LABELS = {
+      api: 'API',
+      claude_cli: 'Claude CLI',
+      codex_cli: 'Codex CLI',
+      opencode_cli: 'OpenCode CLI',
+    };
+
+    const DEFAULTS = {
+      resumeLastSession: false,
+      skipSplash: false,
+      splashMs: 2200,
+      defaultProject: '~/work/puppet-master',
+      theme: 'dark',
+      accentColor: '#f5f5f5',
+      sidebarWidth: 300,
+      termFontSize: 11,
+      gridCols: 2,
+      reduceMotion: false,
+      uiFont: 'system',
+      sendPromptOnStart: true,
+      rememberDrafts: true,
+      recentLimit: 12,
+      confirmKillAll: true,
+      orchestratorBackend: 'api',
+      defaultProvider: 'anthropic',
+      defaultModel: 'claude-sonnet-4-6',
+      customModelId: '',
+      validateKeys: true,
+      bridgePort: '17321',
+      autoMcpInstall: true,
+      mobileInputDelay: 250,
+      mobileInputVisible: true,
+      publicPwaUrl: 'https://3001.v7ren.xyz',
+      devServerPort: 1420,
+      devMode: false,
+      logMcp: false,
+      scrollbackLimit: 10000,
+      lastScreen: 'home',
+    };
+
+    let prefs = loadPrefs();
+    let settingsReturnTo = 'home';
+    let splashDone = false;
+
+    function loadPrefs() {
+      try {
+        return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') };
+      } catch {
+        return { ...DEFAULTS };
+      }
+    }
+
+    function savePrefs() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+      applyPrefs();
+      flashSaved();
+    }
+
+    function flashSaved() {
+      const el = document.getElementById('saved-toast');
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 1800);
+    }
+
+    function hexToRgb(hex) {
+      const n = hex.replace('#', '');
+      const full = n.length === 3 ? n.split('').map((c) => c + c).join('') : n;
+      const v = parseInt(full, 16);
+      return `${(v >> 16) & 255} ${(v >> 8) & 255} ${v & 255}`;
+    }
+
+    function applyPrefs() {
+      const root = document.documentElement;
+      let theme = prefs.theme;
+      if (theme === 'system') {
+        theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+      root.dataset.theme = theme;
+      root.dataset.reduceMotion = prefs.reduceMotion ? 'true' : 'false';
+      root.style.setProperty('--pm-accent', hexToRgb(prefs.accentColor));
+      root.style.setProperty('--pm-sidebar-w', `${prefs.sidebarWidth}px`);
+      root.style.setProperty('--pm-splash-ms', `${prefs.splashMs}ms`);
+      root.style.setProperty('--pm-term-size', `${prefs.termFontSize}px`);
+
+      const fonts = {
+        system: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+        inter: 'Inter, system-ui, sans-serif',
+        geist: '"Geist", system-ui, sans-serif',
+      };
+      root.style.setProperty('--pm-font-ui', fonts[prefs.uiFont] || fonts.system);
+
+      const grid = document.getElementById('workspace-grid');
+      grid.className = `grid-area cols-${prefs.gridCols}`;
+
+      document.getElementById('home-badge-1').textContent = ORCH_LABELS[prefs.orchestratorBackend] || 'API';
+      document.getElementById('ws-orchestrator-badge').textContent = ORCH_LABELS[prefs.orchestratorBackend] || 'API';
+
+      syncFormFromPrefs();
+    }
+
+    function syncFormFromPrefs() {
+      document.querySelectorAll('[data-key]').forEach((el) => {
+        const key = el.dataset.key;
+        const val = prefs[key];
+        if (el.classList.contains('toggle')) {
+          el.setAttribute('aria-checked', val ? 'true' : 'false');
+        } else if (el.type === 'range') {
+          el.value = val;
+          updateRangeLabel(el);
+        } else if (el.tagName === 'SELECT' || el.type === 'text' || el.type === 'password' || el.type === 'number') {
+          if (val !== undefined) el.value = val;
+        } else if (el.type === 'color') {
+          el.value = prefs.accentColor;
+        }
+      });
+
+      document.getElementById('new-orchestrator').value = prefs.orchestratorBackend;
+      syncLayoutChips(prefs.gridCols);
+    }
+
+    function syncLayoutChips(cols) {
+      document.querySelectorAll('#layout-chips .chip').forEach((c) => {
+        c.classList.toggle('selected', Number(c.dataset.cols) === Number(cols));
+      });
+    }
+
+    function updateRangeLabel(el) {
+      const map = {
+        splashMs: ['splash-ms-val', (v) => `${v}ms`],
+        sidebarWidth: ['sidebar-width-val', (v) => `${v}px`],
+        termFontSize: ['term-size-val', (v) => `${v}px`],
+        recentLimit: ['recent-limit-val', (v) => v],
+        mobileInputDelay: ['mobile-delay-val', (v) => `${v}ms`],
+      };
+      const cfg = map[el.dataset.key];
+      if (cfg) document.getElementById(cfg[0]).textContent = cfg[1](el.value);
+    }
+
+    function show(name) {
+      document.querySelectorAll('.screen').forEach((el) => {
+        el.classList.toggle('active', el.dataset.screen === name);
+      });
+      if (name !== 'splash') prefs.lastScreen = name;
+    }
+
+    document.querySelectorAll('[data-goto]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const target = el.dataset.goto;
+        if (target === 'settings') {
+          settingsReturnTo = document.querySelector('.screen.active')?.dataset.screen || 'home';
+          document.getElementById('settings-back').dataset.goto = settingsReturnTo;
+        }
+        if (target === 'workspace') {
+          if (el.dataset.project) {
+            document.getElementById('ws-path').textContent =
+              el.dataset.project === 'side-project' ? '~/dev/side-project' : prefs.defaultProject;
+          } else {
+            document.getElementById('ws-path').textContent = prefs.defaultProject;
+          }
+          const prompt = document.getElementById('initial-prompt').value.trim();
+          const userBubble = document.getElementById('chat-user-bubble');
+          if (prefs.sendPromptOnStart && prompt) {
+            userBubble.textContent = prompt;
+            userBubble.style.display = '';
+          } else if (!prompt) {
+            userBubble.style.display = 'none';
+          }
+          const orch = document.getElementById('new-orchestrator').value;
+          prefs.orchestratorBackend = orch;
+          document.getElementById('ws-orchestrator-badge').textContent = ORCH_LABELS[orch] || 'API';
+        }
+        show(target);
+      });
+    });
+
+    document.getElementById('agent-chips').addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      document.querySelectorAll('#agent-chips .chip').forEach((c) => c.classList.remove('selected'));
+      chip.classList.add('selected');
+    });
+
+    document.getElementById('layout-chips').addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      prefs.gridCols = Number(chip.dataset.cols);
+      syncLayoutChips(prefs.gridCols);
+      applyPrefs();
+    });
+
+    document.getElementById('settings-nav').addEventListener('click', (e) => {
+      const btn = e.target.closest('.settings-nav-item');
+      if (!btn) return;
+      const tab = btn.dataset.tab;
+      document.querySelectorAll('.settings-nav-item').forEach((b) => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.settings-section').forEach((s) => s.classList.toggle('active', s.dataset.tab === tab));
+    });
+
+    document.querySelectorAll('.toggle').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.key;
+        prefs[key] = btn.getAttribute('aria-checked') !== 'true';
+        btn.setAttribute('aria-checked', prefs[key] ? 'true' : 'false');
+        applyPrefs();
+      });
+    });
+
+    document.querySelectorAll('input[data-key], select[data-key]').forEach((el) => {
+      el.addEventListener('input', () => {
+        const key = el.dataset.key;
+        if (el.type === 'range') {
+          prefs[key] = Number(el.value);
+          updateRangeLabel(el);
+        } else if (el.type === 'number') {
+          prefs[key] = Number(el.value);
+        } else {
+          prefs[key] = el.value;
+        }
+        applyPrefs();
+      });
+      el.addEventListener('change', () => {
+        if (el.id === 'new-orchestrator' || el.id === 'settings-orchestrator') {
+          prefs.orchestratorBackend = el.value;
+          applyPrefs();
+        }
+      });
+    });
+
+    document.getElementById('save-settings').addEventListener('click', savePrefs);
+
+    document.getElementById('reset-settings').addEventListener('click', () => {
+      prefs = { ...DEFAULTS };
+      localStorage.removeItem(STORAGE_KEY);
+      applyPrefs();
+      flashSaved();
+    });
+
+    document.getElementById('export-settings').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(prefs, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'puppet-master-settings-demo.json';
+      a.click();
+    });
+
+    document.querySelectorAll('[data-copy]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const text = document.getElementById(btn.dataset.copy).textContent;
+        navigator.clipboard.writeText(text).then(() => {
+          btn.textContent = 'Copied!';
+          setTimeout(() => { btn.textContent = btn.dataset.copy === 'mcp-claude' ? 'Copy Claude config' : 'Copy Codex config'; }, 1200);
+        });
+      });
+    });
+
+    function renderDemoPairingQr() {
+      const port = Number(prefs.devServerPort) || 1420;
+      document.getElementById('pairing-local-target').textContent = `http://127.0.0.1:${port}`;
+      let raw = document.getElementById('pairing-custom-url')?.value?.trim() || prefs.publicPwaUrl || `http://127.0.0.1:${port}`;
+      raw = raw.replace(/\/+$/, '');
+      const pwaOrigin = raw.endsWith('/bridge') ? raw.replace(/\/bridge\/?$/, '') : raw;
+      const bridgeUrl = pwaOrigin.endsWith('/bridge') ? pwaOrigin : `${pwaOrigin}/bridge`;
+      const code = 'PM' + Math.random().toString(36).slice(2, 8).toUpperCase();
+      const expires = Math.floor(Date.now() / 1000) + 600;
+      const inviteUrl = `${pwaOrigin}/pair/${code}`;
+      const img = document.getElementById('pairing-qr-img');
+      img.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(inviteUrl)}`;
+      document.getElementById('pairing-bridge-url').textContent = inviteUrl;
+      document.getElementById('pairing-code').textContent = code;
+      document.getElementById('pairing-expires').textContent = `Expires ${new Date(expires * 1000).toLocaleTimeString()} · Ed25519 signed response`;
+    }
+    renderDemoPairingQr();
+    document.getElementById('refresh-pairing-qr').addEventListener('click', renderDemoPairingQr);
+    document.getElementById('pairing-custom-url').addEventListener('change', () => { savePrefs(); renderDemoPairingQr(); });
+    document.getElementById('pairing-dev-port').addEventListener('change', () => { savePrefs(); renderDemoPairingQr(); });
+
+    const splashSteps = [
+      { text: 'Starting bridge…', pct: 25 },
+      { text: 'Loading settings…', pct: 55 },
+      { text: 'Ready', pct: 100 },
+    ];
+
+    (async function runSplash() {
+      applyPrefs();
+
+      if (prefs.skipSplash) {
+        const dest = prefs.resumeLastSession && prefs.lastScreen === 'workspace' ? 'workspace' : 'home';
+        show(dest);
+        splashDone = true;
+        return;
+      }
+
+      const status = document.getElementById('splash-status');
+      const bar = document.getElementById('progress-bar');
+      const start = Date.now();
+      const minMs = prefs.splashMs;
+
+      for (const step of splashSteps) {
+        status.textContent = step.text;
+        bar.style.width = step.pct + '%';
+        await new Promise((r) => setTimeout(r, Math.max(200, minMs / splashSteps.length / 2)));
+      }
+
+      const elapsed = Date.now() - start;
+      if (elapsed < minMs) await new Promise((r) => setTimeout(r, minMs - elapsed));
+
+      splashDone = true;
+      const dest = prefs.resumeLastSession && prefs.lastScreen === 'workspace' ? 'workspace' : 'home';
+      show(dest);
+    })();
+
+    document.addEventListener('keydown', (e) => {
+      const map = { '1': 'splash', '2': 'home', '3': 'new-session', '4': 'workspace', '5': 'settings' };
+      if (map[e.key] && !e.metaKey && !e.ctrlKey) show(map[e.key]);
+    });
+  </script>
+</body>
+</html>

@@ -16,6 +16,13 @@ import { makeBridgeClient, subscribeBridgeEvents, type BridgeClient } from './li
 import { routeBridgeEventToPaneTunnel } from './lib/bridge-pane-tunnel';
 import { DEFAULT_PUBLIC_SETTINGS, type PublicSettings } from './lib/bridge-settings';
 import { ngrokRequestHeaders } from './lib/bridge-ngrok';
+import { mergeBridgeHeaders } from './lib/mobile-pairing-auth';
+import {
+  clearMobilePairingCredentials,
+  loadMobilePairingCredentials,
+  pairFromInviteCode,
+  pairFromQrJson,
+} from './lib/mobile-pairing';
 import { LS_BRIDGE_URL, resolveBridgeBaseUrl, shouldUseSameOriginBridgeProxy } from './lib/bridge-url';
 import {
   applyOrchestratorChatEvent,
@@ -28,6 +35,11 @@ import {
   isCliOrchestratorBackend,
   isOrchestratorPaneId,
 } from './lib/orchestrator-panes';
+import {
+  PairInviteScreen,
+  readPairingInviteCode,
+  clearPairingInviteFromUrl,
+} from './components/PairInviteScreen';
 
 
 async function syncBridgePanes(
@@ -48,10 +60,22 @@ interface DevInfo {
 // ---- Connection setup screen ----
 
 function SetupScreen({ onConnect }: { onConnect: (url: string) => void }) {
+  const [mode, setMode] = useState<'pair' | 'manual'>('pair');
   const [url, setUrl] = useState(() => resolveBridgeBaseUrl(localStorage.getItem(LS_BRIDGE_URL), window.location));
   const [testing, setTesting] = useState(false);
+  const [pairing, setPairing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [devInfo, setDevInfo] = useState<DevInfo | null>(null);
+  const [qrJson, setQrJson] = useState('');
+  const [manualCode, setManualCode] = useState('');
+  const [deviceName, setDeviceName] = useState(() => {
+    const ua = navigator.userAgent;
+    if (/iPhone/i.test(ua)) return 'iPhone';
+    if (/iPad/i.test(ua)) return 'iPad';
+    if (/Android/i.test(ua)) return 'Android';
+    return 'Mobile device';
+  });
+  const existingCreds = loadMobilePairingCredentials();
 
   useEffect(() => {
     fetch('/__puppet_master_dev__.json', { cache: 'no-store' })
@@ -63,14 +87,14 @@ function SetupScreen({ onConnect }: { onConnect: (url: string) => void }) {
       .catch(() => {});
   }, []);
 
-  const handleConnect = async () => {
+  const handleConnect = async (targetUrl?: string) => {
     setTesting(true);
     setErr(null);
-    const base = url.replace(/\/$/, '');
+    const base = (targetUrl ?? url).replace(/\/$/, '');
     try {
       const res = await fetch(`${base}/health`, {
         signal: AbortSignal.timeout(4000),
-        headers: ngrokRequestHeaders(base),
+        headers: mergeBridgeHeaders(ngrokRequestHeaders(base)),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       localStorage.setItem(LS_BRIDGE_URL, base);
@@ -79,6 +103,42 @@ function SetupScreen({ onConnect }: { onConnect: (url: string) => void }) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setTesting(false);
+    }
+  };
+
+  const handlePairFromInvite = async (pairingCode: string) => {
+    setPairing(true);
+    setErr(null);
+    try {
+      const creds = await pairFromInviteCode(
+        pairingCode,
+        deviceName.trim() || 'Mobile device',
+        window.location,
+        localStorage.getItem(LS_BRIDGE_URL),
+      );
+      setUrl(creds.bridgeUrl);
+      await handleConnect(creds.bridgeUrl);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPairing(false);
+    }
+  };
+
+  const handlePair = async (payload?: string) => {
+    const json = (payload ?? qrJson).trim();
+    if (!json) return;
+    setPairing(true);
+    setErr(null);
+    try {
+      const creds = await pairFromQrJson(json, deviceName.trim() || 'Mobile device');
+      setUrl(creds.bridgeUrl);
+      setQrJson(json);
+      await handleConnect(creds.bridgeUrl);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPairing(false);
     }
   };
 
@@ -93,8 +153,8 @@ function SetupScreen({ onConnect }: { onConnect: (url: string) => void }) {
       <h1 className="text-lg font-semibold">Puppet Master</h1>
       <p className="text-pm-muted text-center text-xs max-w-xs">
         {shouldUseSameOriginBridgeProxy(window.location)
-          ? 'Remote access — bridge uses this page\'s /bridge proxy. Keep Puppet Master running on your PC.'
-          : 'Run npm run dev on your PC — a public tunnel URL prints automatically (like Expo). Open it on your phone.'}
+          ? 'On desktop: Settings → Mobile pairing. Scan the QR with your phone camera — it opens this app and signs you in.'
+          : 'Pair with the desktop QR code first. Direct localhost works without pairing on this machine.'}
       </p>
       {devInfo?.tunnelUrl && !shouldUseSameOriginBridgeProxy(window.location) && (
         <div className="w-full max-w-xs rounded border border-pm-border bg-pm-raised/40 p-3 text-xs space-y-2">
@@ -121,11 +181,111 @@ function SetupScreen({ onConnect }: { onConnect: (url: string) => void }) {
           )}
         </div>
       )}
+      <div className="flex gap-2 text-xs">
+        <button
+          type="button"
+          onClick={() => setMode('pair')}
+          className={`px-3 py-1 rounded border ${mode === 'pair' ? 'border-pm-accent text-pm-accent bg-pm-accent/10' : 'border-pm-border text-pm-muted'}`}
+        >
+          Pair
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('manual')}
+          className={`px-3 py-1 rounded border ${mode === 'manual' ? 'border-pm-accent text-pm-accent bg-pm-accent/10' : 'border-pm-border text-pm-muted'}`}
+        >
+          Manual URL
+        </button>
+      </div>
+
+      {existingCreds && (
+        <div className="w-full max-w-xs rounded border border-pm-border bg-pm-raised/40 p-3 text-xs space-y-2">
+          <div className="text-pm-muted">Paired as <span className="text-zinc-200">{existingCreds.deviceName}</span></div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void handleConnect(existingCreds.bridgeUrl)}
+              disabled={testing}
+              className="flex-1 px-3 py-1.5 rounded border border-pm-accent/50 text-pm-accent"
+            >
+              Reconnect
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                clearMobilePairingCredentials();
+                window.location.reload();
+              }}
+              className="px-3 py-1.5 rounded border border-pm-border text-pm-muted"
+            >
+              Unpair
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === 'pair' ? (
+        <div className="w-full max-w-xs space-y-2">
+          <div className="rounded border border-pm-border bg-pm-raised/30 p-3 text-xs text-pm-muted space-y-1">
+            <p>1. Open <strong className="text-zinc-200">Settings → Mobile pairing</strong> on desktop.</p>
+            <p>2. Scan the QR with your phone <strong className="text-zinc-200">Camera</strong> app.</p>
+            <p>3. Tap the link — Puppet Master opens and connects.</p>
+          </div>
+          {err && <p className="text-pm-err text-xs">{err}</p>}
+          {pairing && (
+            <p className="text-xs text-pm-muted text-center">Pairing…</p>
+          )}
+          <details className="text-xs">
+            <summary className="text-pm-muted cursor-pointer select-none">Advanced: paste code or legacy JSON</summary>
+            <div className="mt-2 space-y-2">
+              <label className="block text-[10px] text-pm-muted uppercase tracking-wide">Device name</label>
+              <input
+                value={deviceName}
+                onChange={(e) => setDeviceName(e.target.value)}
+                className="w-full bg-pm-bg border border-pm-border rounded px-3 py-2 text-xs"
+              />
+              <label className="block text-[10px] text-pm-muted uppercase tracking-wide">Pairing code</label>
+              <input
+                value={manualCode}
+                onChange={(e) => setManualCode(e.target.value.toUpperCase())}
+                placeholder="PM8K2X4Q"
+                className="w-full bg-pm-bg border border-pm-border rounded px-3 py-2 text-xs font-mono uppercase"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && manualCode.trim()) void handlePairFromInvite(manualCode.trim());
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => manualCode.trim() && void handlePairFromInvite(manualCode.trim())}
+                disabled={pairing || !manualCode.trim()}
+                className="w-full px-4 py-2 rounded border border-pm-border text-pm-muted text-xs disabled:opacity-50"
+              >
+                Pair with code
+              </button>
+              <textarea
+                value={qrJson}
+                onChange={(e) => setQrJson(e.target.value)}
+                placeholder='Legacy JSON QR payload'
+                className="w-full min-h-[56px] bg-pm-bg border border-pm-border rounded px-3 py-2 text-[10px] font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => void handlePair()}
+                disabled={pairing || !qrJson.trim()}
+                className="w-full px-4 py-2 rounded border border-pm-border text-pm-muted text-xs disabled:opacity-50"
+              >
+                Pair legacy JSON
+              </button>
+            </div>
+          </details>
+        </div>
+      ) : (
+        <>
       <input
         type="url"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
-        placeholder={shouldUseSameOriginBridgeProxy(window.location) ? 'https://your-tunnel.example.com/bridge' : 'http://127.0.0.1:17321'}
+        placeholder={shouldUseSameOriginBridgeProxy(window.location) ? 'https://your.domain.com/bridge' : 'http://127.0.0.1:17321'}
         className="w-full max-w-xs bg-pm-bg border border-pm-border rounded px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-pm-accent"
       />
       {err && <p className="text-pm-err text-xs">{err}</p>}
@@ -136,6 +296,8 @@ function SetupScreen({ onConnect }: { onConnect: (url: string) => void }) {
       >
         {testing ? 'Connecting…' : 'Connect'}
       </button>
+        </>
+      )}
     </div>
   );
 }
@@ -662,8 +824,11 @@ function FloatingMobileMenu({
 // ---- Root PWA shell ----
 
 export default function PwaApp() {
+  const [inviteCode, setInviteCode] = useState(() => readPairingInviteCode());
   const [bridgeUrl, setBridgeUrl] = useState<string | null>(() =>
-    resolveBridgeBaseUrl(localStorage.getItem(LS_BRIDGE_URL), window.location),
+    readPairingInviteCode()
+      ? null
+      : resolveBridgeBaseUrl(localStorage.getItem(LS_BRIDGE_URL), window.location),
   );
   const [bridge, setBridge] = useState<BridgeClient | null>(null);
   const [bridgeReady, setBridgeReady] = useState(false);
@@ -715,7 +880,7 @@ export default function PwaApp() {
 
     fetch(`${bridgeUrl}/health`, {
       signal: AbortSignal.timeout(3000),
-      headers: ngrokRequestHeaders(bridgeUrl),
+      headers: mergeBridgeHeaders(ngrokRequestHeaders(bridgeUrl)),
     })
       .then((r) => { if (r.ok) setBridgeReady(true); })
       .catch(() => {});
@@ -839,6 +1004,30 @@ export default function PwaApp() {
       window.clearInterval(id);
     };
   }, [bridge, bridgeReady, settingsHydrated, cliOrchestratorBackend, orchestratorReady]);
+
+  const handleInviteConnected = useCallback((url: string) => {
+    clearPairingInviteFromUrl();
+    setInviteCode(null);
+    setBridgeUrl(url);
+    setEditingUrl(false);
+  }, []);
+
+  const handleInviteGiveUp = useCallback(() => {
+    clearPairingInviteFromUrl();
+    setInviteCode(null);
+  }, []);
+
+  if (inviteCode) {
+    return (
+      <div className="pwa-shell bg-pm-bg text-zinc-100">
+        <PairInviteScreen
+          pairingCode={inviteCode}
+          onConnected={handleInviteConnected}
+          onGiveUp={handleInviteGiveUp}
+        />
+      </div>
+    );
+  }
 
   if (!bridgeUrl || editingUrl) {
     return (

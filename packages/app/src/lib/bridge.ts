@@ -1,6 +1,7 @@
 import type { McpLogEntry, OrchestratorChatEvent, PaneInfo } from '@puppet-master/shared';
 import type { PublicSettings } from './bridge-settings';
 import { isNgrokHost, ngrokRequestHeaders } from './bridge-ngrok';
+import { mergeBridgeHeaders } from './mobile-pairing-auth';
 import { subscribeBridgeEventsViaFetch } from './bridge-sse';
 
 const DEFAULT_POLL_HOST = '127.0.0.1';
@@ -46,7 +47,7 @@ export interface BridgeClient {
 
 export function makeBridgeClient(baseUrl: string): BridgeClient {
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const headers = { ...ngrokRequestHeaders(baseUrl) };
+    const headers = mergeBridgeHeaders({ ...ngrokRequestHeaders(baseUrl) });
     if (body) headers['Content-Type'] = 'application/json';
     const res = await fetch(`${baseUrl}${path}`, {
       method,

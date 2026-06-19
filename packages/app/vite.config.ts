@@ -5,13 +5,17 @@ import { resolve } from 'node:path';
 import { bridgeProxyConfig } from './vite-bridge-proxy';
 import { devInfoPlugin } from './vite-dev-info';
 
-/** Random tunnel subdomains — leading `.` allows any host under that domain (Vite 5.4+). */
+/** Tunnel / reverse-proxy host suffixes — leading `.` allows any subdomain (Vite 5.4+). */
 const TUNNEL_ALLOWED_HOSTS = [
   '.trycloudflare.com',
   '.ngrok-free.app',
   '.ngrok.io',
   '.ngrok.app',
   '.v7ren.xyz',
+  '.v7ren.com',
+  ...(process.env.PUPPET_MASTER_ALLOWED_HOSTS?.split(',')
+    .map((host) => host.trim())
+    .filter(Boolean) ?? []),
 ];
 
 export default defineConfig({
@@ -23,6 +27,12 @@ export default defineConfig({
       includeAssets: ['app-icon.svg', 'icon-192.png', 'icon-512.png'],
       workbox: {
         navigateFallbackDenylist: [/^\/bridge/, /^\/__puppet_master_dev__/],
+        runtimeCaching: [
+          {
+            urlPattern: /^\/bridge\//,
+            handler: 'NetworkOnly',
+          },
+        ],
       },
       manifest: {
         name: 'Puppet Master',

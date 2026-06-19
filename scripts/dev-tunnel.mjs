@@ -15,6 +15,13 @@ export function isTunnelEnabled() {
   return process.env.PUPPET_MASTER_TUNNEL !== '0';
 }
 
+/** Fixed public URL (your reverse proxy / custom domain). Skips cloudflared/ngrok. */
+export function customPublicUrl() {
+  const raw = process.env.PUPPET_MASTER_PUBLIC_URL?.trim();
+  if (!raw) return null;
+  return raw.replace(/\/+$/, '').replace(/\/bridge$/, '');
+}
+
 function preferNgrok() {
   return Boolean(process.env.NGROK_AUTHTOKEN?.trim());
 }
@@ -25,6 +32,15 @@ function preferNgrok() {
  */
 export async function startDevTunnel(port) {
   if (!isTunnelEnabled()) return null;
+
+  const custom = customPublicUrl();
+  if (custom) {
+    return {
+      url: custom,
+      provider: 'custom',
+      close: async () => {},
+    };
+  }
 
   const localUrl = `http://127.0.0.1:${port}`;
 

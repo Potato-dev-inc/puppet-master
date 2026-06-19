@@ -27,5 +27,10 @@ export const bridgeProxyConfig: Record<string, ProxyOptions> = {
     changeOrigin: true,
     rewrite: (path) => path.replace(/^\/bridge/, '') || '/',
     router: () => readBridgeTarget(),
+    configure: (proxy) => {
+      proxy.on('proxyReq', (proxyReq) => {
+        proxyReq.setHeader('X-PM-Proxied', '1');
+      });
+    },
   },
 };

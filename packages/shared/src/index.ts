@@ -3,3 +3,4 @@ export * from './platform.js';
 export * from './agent-contexts.js';
 export * from './protocol.js';
 export * from './schemas.js';
+export * from './mobile-pairing.js';

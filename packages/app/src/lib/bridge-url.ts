@@ -10,36 +10,37 @@ export function shouldUseSameOriginBridgeProxy(location: BridgeLocation): boolea
   return location.hostname !== '127.0.0.1' && location.hostname !== 'localhost';
 }
 
-function isLocalBridgeUrl(url: string): boolean {
-  try {
-    const { hostname } = new URL(url);
-    return hostname === '127.0.0.1' || hostname === 'localhost';
-  } catch {
-    return false;
-  }
-}
-
 function sameOriginBridgeProxyUrl(location: BridgeLocation): string {
   return `${location.origin}${BRIDGE_PROXY_PREFIX}`;
 }
 
+function urlOrigin(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Pick the bridge base URL for the mobile PWA.
- * - Saved URL wins unless it points at localhost while we're on a remote/tunneled origin.
- * - Remote/tunneled origins use the Vite `/bridge` proxy (same origin, no mixed content).
+ * - On a tunneled/public origin, always use same-origin `/bridge` (ignores stale saved hosts).
+ * - Saved URL wins on localhost dev.
  */
 export function resolveBridgeBaseUrl(
   storedUrl: string | null,
   location: BridgeLocation,
 ): string {
-  const stored = storedUrl?.replace(/\/$/, '') ?? null;
-
-  if (stored && isLocalBridgeUrl(stored) && shouldUseSameOriginBridgeProxy(location)) {
-    return sameOriginBridgeProxyUrl(location);
-  }
-  if (stored) return stored;
   if (shouldUseSameOriginBridgeProxy(location)) {
-    return sameOriginBridgeProxyUrl(location);
+    const stored = storedUrl?.replace(/\/$/, '') ?? null;
+    const storedOrigin = stored ? urlOrigin(stored) : null;
+    if (!stored || storedOrigin !== location.origin) {
+      return sameOriginBridgeProxyUrl(location);
+    }
+    return stored;
   }
+
+  const stored = storedUrl?.replace(/\/$/, '') ?? null;
+  if (stored) return stored;
   return DEFAULT_LOCAL_BRIDGE;
 }
