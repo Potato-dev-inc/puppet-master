@@ -3,11 +3,13 @@
   "mcp": {
     "puppet-master": {
       "command": [
-        "npx",
-        "-y",
-        "@puppet-master/mcp"
+        "C:/Program Files/nodejs/node.exe",
+        "C:/Users/Ren-pc/Desktop/work/tmux-puppet-master/packages/app/src-tauri/../../mcp-server/dist/index.js"
       ],
       "enabled": true,
+      "environment": {
+        "PUPPET_MASTER_BRIDGE_PORT_FILE": "C:/Users/Ren-pc/AppData/Roaming/com.puppetmaster.app/puppet-master.bridge.port"
+      },
       "type": "local"
     }
   }

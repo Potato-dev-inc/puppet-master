@@ -47,7 +47,13 @@ pub fn bridge_port_file_env_value() -> String {
 
 /// Host config files (Codex TOML, JSON) — forward slashes avoid TOML escape issues on Windows.
 pub fn path_for_host_config(path: impl AsRef<std::path::Path>) -> String {
-    path.as_ref().to_string_lossy().replace('\\', "/")
+    let mut text = path.as_ref().to_string_lossy().into_owned();
+    // canonicalize() on Windows yields \\?\ extended paths that break Node/CLI MCP launchers.
+    const WIN_EXT_PREFIX: &str = r"\\?\";
+    if text.starts_with(WIN_EXT_PREFIX) {
+        text = text[WIN_EXT_PREFIX.len()..].to_string();
+    }
+    text.replace('\\', "/")
 }
 
 #[cfg(test)]
@@ -59,5 +65,12 @@ mod tests {
         let dir = app_data_dir();
         assert!(dir.is_absolute());
         assert!(dir.to_string_lossy().contains(APP_ID));
+    }
+
+    #[test]
+    fn path_for_host_config_strips_windows_extended_prefix() {
+        let path = path_for_host_config(r"\\?\C:\Users\dev\puppet-master\mcp\index.js");
+        assert_eq!(path, "C:/Users/dev/puppet-master/mcp/index.js");
+        assert!(!path.contains("?/"));
     }
 }

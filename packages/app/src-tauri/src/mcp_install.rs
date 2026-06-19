@@ -164,14 +164,44 @@ fn enable_all_project_mcp(cwd: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
+fn claude_mcp_needs_refresh(cwd: &Path) -> bool {
+    let Some(doc) = read_json_safe(&cwd.join(".mcp.json")) else {
+        return true;
+    };
+    let Some(server) = doc.get("mcpServers").and_then(|v| v.get(MCP_SERVER_NAME)) else {
+        return true;
+    };
+    if server
+        .get("args")
+        .and_then(Value::as_array)
+        .is_some_and(|args| {
+            args.iter().any(|value| {
+                value.as_str().is_some_and(|arg| {
+                    arg.contains("//?/")
+                        || arg.contains(r"\\?\")
+                        || (crate::mcp_runtime::using_bundled_mcp()
+                            && arg.contains("@puppet-master/mcp"))
+                })
+            })
+        })
+    {
+        return true;
+    }
+    server
+        .get("env")
+        .and_then(|env| env.get(crate::app_paths::BRIDGE_PORT_FILE_ENV))
+        .is_none()
+}
+
 fn ensure_claude_mcp(cwd: &Path) -> Result<EnsureMcpResult, String> {
     let mcp_path = cwd.join(".mcp.json");
     let mut changed = false;
 
+    let needs_refresh = claude_mcp_needs_refresh(cwd);
     let mut doc = read_json_safe(&mcp_path).unwrap_or_else(|| json!({ "mcpServers": {} }));
     let before = doc.clone();
     merge_mcp_servers(&mut doc);
-    if doc != before {
+    if doc != before || needs_refresh {
         write_json_pretty(&mcp_path, &doc)?;
         changed = true;
     }
@@ -217,7 +247,10 @@ fn codex_needs_refresh(content: &str) -> bool {
     if codex_needs_port_env(content) {
         return true;
     }
-    if content.contains("@puppet-master/mcp") {
+    if content.contains("//?/") || content.contains(r"\\?\") {
+        return true;
+    }
+    if crate::mcp_runtime::using_bundled_mcp() && content.contains("@puppet-master/mcp") {
         return true;
     }
     if crate::mcp_runtime::using_bundled_mcp() && !content.contains("mcp-stdio.bundle.cjs") {
@@ -316,11 +349,43 @@ fn merge_opencode_mcp(existing: &mut Value) {
         .insert(MCP_SERVER_NAME.into(), opencode_mcp_entry());
 }
 
+fn opencode_mcp_needs_refresh(cwd: &Path) -> bool {
+    let path = cwd.join("opencode.json");
+    let Some(doc) = read_json_safe(&path) else {
+        return true;
+    };
+    let Some(entry) = doc.pointer(&format!("/mcp/{MCP_SERVER_NAME}")) else {
+        return true;
+    };
+    if entry
+        .get("command")
+        .and_then(Value::as_array)
+        .is_some_and(|command| {
+            command.iter().any(|value| {
+                value.as_str().is_some_and(|arg| {
+                    arg.contains("//?/")
+                        || arg.contains(r"\\?\")
+                        || (crate::mcp_runtime::using_bundled_mcp()
+                            && arg.contains("@puppet-master/mcp"))
+                })
+            })
+        })
+    {
+        return true;
+    }
+    entry
+        .pointer("/environment/PUPPET_MASTER_BRIDGE_PORT_FILE")
+        .is_none()
+}
+
 fn opencode_mcp_installed(cwd: &Path) -> bool {
     let path = cwd.join("opencode.json");
     let Some(doc) = read_json_safe(&path) else {
         return false;
     };
+    if opencode_mcp_needs_refresh(cwd) {
+        return false;
+    }
     doc.pointer(&format!("/mcp/{MCP_SERVER_NAME}/enabled"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
@@ -332,9 +397,10 @@ fn opencode_mcp_installed(cwd: &Path) -> bool {
 fn ensure_opencode_mcp(cwd: &Path) -> Result<EnsureMcpResult, String> {
     let path = cwd.join("opencode.json");
     let mut doc = read_json_safe(&path).unwrap_or_else(|| json!({}));
+    let needs_refresh = opencode_mcp_needs_refresh(cwd);
     let before = doc.clone();
     merge_opencode_mcp(&mut doc);
-    let changed = if doc != before {
+    let changed = if doc != before || needs_refresh {
         write_json_pretty(&path, &doc)?;
         true
     } else {

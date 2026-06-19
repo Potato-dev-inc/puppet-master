@@ -7,7 +7,10 @@ Tauri GUI is already running.
 ## Prerequisites
 
 1. Start the GUI: `npx puppet-master` (or run `npm run tauri dev` from the repo).
-2. Verify the bridge port file exists (Windows: `%TEMP%\puppet-master.bridge.port`).
+2. Verify the bridge port file exists:
+   - Windows: `%APPDATA%\com.puppetmaster.app\puppet-master.bridge.port`
+   - macOS: `~/Library/Application Support/com.puppetmaster.app/puppet-master.bridge.port`
+   - Linux: `~/.local/share/com.puppetmaster.app/puppet-master.bridge.port`
 
 ## Cursor
 
@@ -19,6 +22,23 @@ Tauri GUI is already running.
     "puppet-master": {
       "command": "npx",
       "args": ["-y", "@puppet-master/mcp"]
+    }
+  }
+}
+```
+
+**Windows note:** if Cursor shows `32000 MCP not connected`, use the full Node path and the
+AppData bridge port file (Cursor often cannot resolve bare `node` / `npx` on PATH):
+
+```json
+{
+  "mcpServers": {
+    "puppet-master": {
+      "command": "C:/Program Files/nodejs/node.exe",
+      "args": ["-y", "@puppet-master/mcp"],
+      "env": {
+        "PUPPET_MASTER_BRIDGE_PORT_FILE": "C:/Users/YOU/AppData/Roaming/com.puppetmaster.app/puppet-master.bridge.port"
+      }
     }
   }
 }

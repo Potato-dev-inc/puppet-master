@@ -64,7 +64,10 @@ pub fn run() {
             if mcp_runtime::bundled_mcp_script().is_none() {
                 let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                     .join("../../mcp-server/dist/index.js");
-                if let Ok(canon) = dev.canonicalize() {
+                // Prefer the non-canonical path: Windows canonicalize() adds \\?\ and breaks MCP configs.
+                if dev.is_file() {
+                    mcp_runtime::set_bundled_mcp_script(dev);
+                } else if let Ok(canon) = dev.canonicalize() {
                     if canon.is_file() {
                         mcp_runtime::set_bundled_mcp_script(canon);
                     }

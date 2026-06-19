@@ -1,4 +1,8 @@
 
 [mcp_servers.puppet-master]
-command = "npx"
-args = ["-y", "@puppet-master/mcp"]
+command = "C:/Program Files/nodejs/node.exe"
+args = ["C:/Users/Ren-pc/Desktop/work/tmux-puppet-master/packages/app/src-tauri/../../mcp-server/dist/index.js"]
+enabled = true
+
+[mcp_servers.puppet-master.env]
+PUPPET_MASTER_BRIDGE_PORT_FILE = "C:/Users/Ren-pc/AppData/Roaming/com.puppetmaster.app/puppet-master.bridge.port"
