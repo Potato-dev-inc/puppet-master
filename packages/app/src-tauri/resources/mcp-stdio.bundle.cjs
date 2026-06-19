@@ -18292,20 +18292,47 @@ var PairingSessionInfoSchema = external_exports.object({
 
 // ../shared/dist/bridge-port.js
 var import_promises = require("node:fs/promises");
-async function readBridgePort(filePath) {
-  const fp = filePath ?? process.env[BRIDGE_PORT_FILE_ENV] ?? DEFAULT_BRIDGE_PORT_FILE;
-  let raw;
-  try {
-    raw = await (0, import_promises.readFile)(fp, "utf-8");
-  } catch (err) {
-    throw new Error(`Puppet Master bridge port file not found at "${fp}". Start Puppet Master first (\`npx puppet-master\`).`);
+var import_node_os = require("node:os");
+var import_node_path = require("node:path");
+var APP_ID = "com.puppetmaster.app";
+function defaultAppDataBridgePortFile() {
+  const home = (0, import_node_os.homedir)();
+  switch (process.platform) {
+    case "win32":
+      return (0, import_node_path.join)(process.env.APPDATA ?? home, APP_ID, DEFAULT_BRIDGE_PORT_FILE);
+    case "darwin":
+      return (0, import_node_path.join)(home, "Library", "Application Support", APP_ID, DEFAULT_BRIDGE_PORT_FILE);
+    default:
+      return (0, import_node_path.join)(home, ".local", "share", APP_ID, DEFAULT_BRIDGE_PORT_FILE);
   }
+}
+function parseBridgePort(raw) {
   const trimmed = raw.trim();
   if (trimmed.includes(":")) {
     const [host, portStr] = trimmed.split(":");
     return { host: host || "127.0.0.1", port: Number(portStr) };
   }
   return { host: "127.0.0.1", port: Number(trimmed) };
+}
+function bridgePortCandidates(filePath) {
+  if (filePath)
+    return [filePath];
+  const envPath = process.env[BRIDGE_PORT_FILE_ENV];
+  if (envPath)
+    return [envPath];
+  return [DEFAULT_BRIDGE_PORT_FILE, defaultAppDataBridgePortFile()];
+}
+async function readBridgePort(filePath) {
+  const candidates = [...new Set(bridgePortCandidates(filePath))];
+  let lastPath = candidates[candidates.length - 1] ?? DEFAULT_BRIDGE_PORT_FILE;
+  for (const fp of candidates) {
+    lastPath = fp;
+    try {
+      return parseBridgePort(await (0, import_promises.readFile)(fp, "utf-8"));
+    } catch {
+    }
+  }
+  throw new Error(`Puppet Master bridge port file not found (tried: ${candidates.map((p) => `"${p}"`).join(", ")}). Start Puppet Master first (\`npx puppet-master\`).`);
 }
 
 // ../mcp-server/src/index.ts
