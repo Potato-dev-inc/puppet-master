@@ -20,7 +20,8 @@ export function SettingsPanel({ open, onClose, onSaved }: Props) {
     default_model: 'claude-sonnet-4-6',
     custom_models: [],
     orchestrator_backend: 'api',
-    mobile_input_delay_ms: 5000,
+    mobile_input_delay_ms: 250,
+    mobile_input_visible: true,
   });
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [draftCustom, setDraftCustom] = useState<LlmModel>(EMPTY_CUSTOM);
@@ -159,24 +160,36 @@ export function SettingsPanel({ open, onClose, onSaved }: Props) {
           </div>
         </div>
 
-        <label className="block text-xs text-pm-muted mb-1">Mobile input buffer (ms)</label>
+        <label className="block text-xs text-pm-muted mb-1">Mobile input buffer (ms, 0 disables)</label>
         <input
           type="number"
-          min={250}
-          max={10000}
+          min={0}
+          max={1000}
           step={50}
-          value={settings.mobile_input_delay_ms ?? 5000}
+          value={settings.mobile_input_delay_ms ?? 250}
           onChange={(e) => {
             const value = Number(e.target.value);
             setSettings({
               ...settings,
               mobile_input_delay_ms: Number.isFinite(value)
-                ? Math.min(10000, Math.max(250, Math.round(value)))
-                : 5000,
+                ? value <= 0
+                  ? 0
+                  : Math.min(1000, Math.max(50, Math.round(value)))
+                : 250,
             });
           }}
           className="w-full text-xs bg-pm-bg border border-pm-border rounded px-2 py-1 mb-3 font-mono"
         />
+
+        <label className="flex items-center justify-between gap-3 text-xs text-pm-muted mb-3">
+          <span>Show mobile input box</span>
+          <input
+            type="checkbox"
+            checked={settings.mobile_input_visible ?? true}
+            onChange={(e) => setSettings({ ...settings, mobile_input_visible: e.target.checked })}
+            className="h-4 w-4 accent-pm-accent"
+          />
+        </label>
 
         <label className="block text-xs text-pm-muted mb-1">Anthropic API key</label>
         <input

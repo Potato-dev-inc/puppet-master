@@ -10,6 +10,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "default_provider",
     "default_model",
     "mobile_input_delay_ms",
+    "mobile_input_visible",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -17,7 +18,8 @@ pub fn default_public_settings() -> Value {
         "orchestrator_backend": "api",
         "default_provider": "anthropic",
         "default_model": "claude-sonnet-4-6",
-        "mobile_input_delay_ms": 5000,
+        "mobile_input_delay_ms": 250,
+        "mobile_input_visible": true,
     })
 }
 

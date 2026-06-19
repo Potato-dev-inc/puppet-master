@@ -132,7 +132,7 @@ export class CanvasTerminal {
     if (nextCols !== this.cols || nextRows !== this.rows) {
       this.cols = nextCols;
       this.rows = nextRows;
-      this.resizeCanvas();
+        this.resizeCanvas();
       for (const listener of this.resizeListeners) {
         listener(this.cols, this.rows);
       }
@@ -153,6 +153,7 @@ export class CanvasTerminal {
       this.dataListeners.delete(listener);
     };
   }
+
 
   dispose(): void {
     if (this.disposed) return;
@@ -211,7 +212,7 @@ export class CanvasTerminal {
     this.ctx.font = `${this.fontSize}px ${this.fontFamily}`;
     this.ctx.textBaseline = 'top';
 
-    const lines = this.snapshot.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    const lines = this.snapshotLines();
     const visible = lines.slice(-this.rows);
 
     for (let row = 0; row < visible.length; row += 1) {
@@ -219,6 +220,11 @@ export class CanvasTerminal {
       this.ctx.fillText(line.slice(0, this.cols), 0, row * this.lineHeight + 1);
     }
   }
+
+  private snapshotLines(): string[] {
+    return this.snapshot.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  }
+
 }
 
 function keyEventToTerminalInput(event: KeyboardEvent): string | null {

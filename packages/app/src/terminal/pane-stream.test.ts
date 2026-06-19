@@ -29,7 +29,7 @@ describe('PaneStreamManager', () => {
     expect(text(received)).toEqual(['REPLAY', 'LIVE']);
   });
 
-  it('drains chunks that arrive while raw replay is loading', async () => {
+  it('discards chunks that arrive while raw replay is loading', async () => {
     const manager = new PaneStreamManager();
     const received: Uint8Array[] = [];
     let resolveReplay: (value: number[]) => void = () => {};
@@ -44,8 +44,11 @@ describe('PaneStreamManager', () => {
     resolveReplay(Array.from(bytes('REPLAY')));
 
     await vi.waitFor(() => {
-      expect(text(received)).toEqual(['REPLAY', 'DURING']);
+      expect(text(received)).toEqual(['REPLAY']);
     });
+
+    manager.ingest('pane-1', bytes('AFTER'));
+    expect(text(received)).toEqual(['REPLAY', 'AFTER']);
   });
 
   it('buffers while unsubscribed and reseeds again on remount', async () => {

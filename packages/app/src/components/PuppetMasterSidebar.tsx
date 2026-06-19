@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import {
   DEFAULT_LLM_MODELS,
   ORCHESTRATOR_BACKEND_LABELS,
@@ -8,8 +8,7 @@ import {
   type OrchestratorBackend,
   type OrchestratorChatEvent,
 } from '@puppet-master/shared';
-import { subscribeBridgeEvents, type BridgeClient } from '../lib/bridge';
-import { routeBridgeEventToPaneTunnel } from '../lib/bridge-pane-tunnel';
+import type { BridgeClient } from '../lib/bridge';
 import type { ChatMessage } from '../lib/llm';
 import { runPuppetMasterLoop } from '../lib/puppet-master';
 import { runPuppetMasterCliLoop } from '../lib/puppet-master-cli';
@@ -53,13 +52,6 @@ interface Props {
   settingsRevision?: number;
 }
 
-const PLANNED_FEATURES = [
-  'Live sidebar delegation to Codex, Claude Code, and OpenCode panes',
-  'Model-aware task routing by detected model and smartness score',
-  'Agent context reader with pane summaries and handoff notes',
-  'Resizable draggable workspace layouts with saved presets',
-];
-
 export function PuppetMasterSidebar({
   width,
   bridge,
@@ -81,6 +73,7 @@ export function PuppetMasterSidebar({
   const [orchestratorStarting, setOrchestratorStarting] = useState(false);
   const [orchestratorError, setOrchestratorError] = useState<string | null>(null);
   const [mcpStatus, setMcpStatus] = useState<string | null>(null);
+  const [mcpLogHeight, setMcpLogHeight] = useState(128);
   const abortRef = useRef<AbortController | null>(null);
 
   const cliBackend = isCliOrchestratorBackend(backend) ? backend : null;
@@ -94,22 +87,12 @@ export function PuppetMasterSidebar({
     return registry.panes.get(info.id);
   }, [cliBackend, registry.paneList, registry.panes]);
 
-  const orchestratorTunnel = usePaneTunnel(bridge, orchestratorPane?.info.id, 'desktop');
-  const orchestratorTunnelRef = useRef(orchestratorTunnel);
-  orchestratorTunnelRef.current = orchestratorTunnel;
-
-  const orchestratorPaneView = useMemo(() => {
-    if (!orchestratorPane) return undefined;
-    const info = orchestratorTunnel.mergePaneInfo(orchestratorPane.info) ?? orchestratorPane.info;
-    return { ...orchestratorPane, info };
-  }, [orchestratorPane, orchestratorTunnel.mergePaneInfo]);
-
-  useEffect(() => {
-    if (!bridge) return;
-    return subscribeBridgeEvents(bridge.baseUrl, (ev) => {
-      routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
-    });
-  }, [bridge]);
+  const orchestratorTunnel = usePaneTunnel(
+    null,
+    orchestratorPane?.info.id,
+    'desktop',
+    registry,
+  );
 
   const startOrchestratorPane = useCallback(async (activeBackend: CliOrchestratorBackend, cwd: string) => {
     setOrchestratorStarting(true);
@@ -486,6 +469,28 @@ export function PuppetMasterSidebar({
     (m) => !DEFAULT_LLM_MODELS.some((p) => p.provider === m.provider && p.model_id === m.model_id),
   );
 
+  const resizeMcpLog = (event: PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = mcpLogHeight;
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+
+    const move = (moveEvent: globalThis.PointerEvent) => {
+      const delta = startY - moveEvent.clientY;
+      setMcpLogHeight(Math.min(280, Math.max(72, startHeight + delta)));
+    };
+    const up = (upEvent: globalThis.PointerEvent) => {
+      target.releasePointerCapture(upEvent.pointerId);
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+      target.removeEventListener('pointercancel', up);
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+    target.addEventListener('pointercancel', up);
+  };
+
   return (
     <aside
       className="flex-shrink-0 border-l border-pm-border bg-pm-panel flex flex-col"
@@ -520,25 +525,6 @@ export function PuppetMasterSidebar({
         >
           ⚙
         </button>
-      </div>
-
-      <div className="px-3 py-2 border-b border-pm-border bg-pm-bg/35">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-[10px] uppercase tracking-wide text-pm-muted font-semibold">
-            Planned orchestration
-          </h2>
-          <span className="text-[10px] text-pm-muted">Sidebar roadmap</span>
-        </div>
-        <div className="mt-2 grid gap-1">
-          {PLANNED_FEATURES.map((feature) => (
-            <div
-              key={feature}
-              className="rounded border border-pm-border bg-pm-raised px-2 py-1.5 text-[11px] leading-snug text-pm-text"
-            >
-              {feature}
-            </div>
-          ))}
-        </div>
       </div>
 
       <div className="flex flex-col gap-1 px-3 py-1 border-b border-pm-border text-xs">
@@ -614,12 +600,12 @@ export function PuppetMasterSidebar({
           projectPath ? (
             <OrchestratorTerminal
               backend={cliBackend}
-              pane={orchestratorPaneView}
+              pane={orchestratorPane}
               starting={orchestratorStarting}
               error={orchestratorError}
               subscribePaneData={orchestratorTunnel.subscribePaneData}
               transport={orchestratorTunnel.transport}
-              syncPTYResize={false}
+              syncPTYResize
               onRetry={() => {
                 if (projectPath) void startOrchestratorPane(cliBackend, projectPath);
               }}
@@ -655,7 +641,18 @@ export function PuppetMasterSidebar({
           </div>
         )}
 
-        <div className="border-t border-pm-border max-h-32 overflow-auto">
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          title="Resize MCP log"
+          className="h-1 shrink-0 cursor-row-resize bg-pm-border/60 hover:bg-pm-accent transition-colors touch-none"
+          onPointerDown={resizeMcpLog}
+        />
+
+        <div
+          className="border-t border-pm-border overflow-auto shrink-0"
+          style={{ height: mcpLogHeight }}
+        >
           <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-pm-muted border-b border-pm-border bg-pm-bg/40">
             MCP log
           </div>

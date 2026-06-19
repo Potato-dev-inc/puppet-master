@@ -197,6 +197,7 @@ export function usePaneRegistry(): PaneRegistryApi {
     return streamsRef.current.subscribe(paneId, cb, tauri.readRawBuffer);
   }, []);
 
+
   const paneList = Array.from(panes.values()).sort((a, b) => a.info.created_at - b.info.created_at);
 
   return {

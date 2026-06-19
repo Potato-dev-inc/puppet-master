@@ -27,7 +27,17 @@ import {
 import {
   findOrchestratorPane,
   isCliOrchestratorBackend,
+  isOrchestratorPaneId,
 } from './lib/orchestrator-panes';
+
+
+async function syncBridgePanes(
+  client: BridgeClient,
+  apply: (panes: PaneInfo[]) => void,
+): Promise<void> {
+  const list = await client.listPanes();
+  apply(list);
+}
 
 interface DevInfo {
   tunnelUrl?: string | null;
@@ -141,9 +151,11 @@ function OrchestratorTab({
   onSettings,
   registry,
   orchestratorTunnel,
+  settingsHydrated,
 }: {
   bridge: BridgeClient;
   bridgeReady: boolean;
+  settingsHydrated: boolean;
   chatEvents: OrchestratorChatEvent[];
   settings: PublicSettings;
   onSettings: (next: PublicSettings) => void;
@@ -170,6 +182,7 @@ function OrchestratorTab({
     return { ...orchestratorPane, info };
   }, [orchestratorPane, orchestratorTunnel.mergePaneInfo]);
 
+
   const patchBackend = async (next: OrchestratorBackend) => {
     const updated = await bridge.patchSettings({ orchestrator_backend: next });
     onSettings(updated);
@@ -180,6 +193,21 @@ function OrchestratorTab({
       default_provider: model.provider,
       default_model: model.model_id,
     });
+    onSettings(updated);
+  };
+
+  const patchMobileInputVisible = async (visible: boolean) => {
+    const updated = await bridge.patchSettings({ mobile_input_visible: visible });
+    onSettings(updated);
+  };
+
+  const patchMobileInputDelay = async (value: number) => {
+    const delayMs = Number.isFinite(value)
+      ? value <= 0
+        ? 0
+        : Math.min(1000, Math.max(50, Math.round(value)))
+      : 250;
+    const updated = await bridge.patchSettings({ mobile_input_delay_ms: delayMs });
     onSettings(updated);
   };
 
@@ -221,6 +249,30 @@ function OrchestratorTab({
             </select>
           </div>
         )}
+        <label className="flex items-center justify-between gap-2 text-pm-muted">
+          <span className="shrink-0">Input box:</span>
+          <input
+            type="checkbox"
+            checked={settings.mobile_input_visible ?? true}
+            disabled={!bridgeReady}
+            onChange={(e) => void patchMobileInputVisible(e.target.checked)}
+            className="h-4 w-4 accent-pm-accent"
+          />
+        </label>
+        <label className="flex items-center gap-2 text-pm-muted">
+          <span className="shrink-0">Buffer:</span>
+          <input
+            type="number"
+            min={0}
+            max={1000}
+            step={50}
+            value={settings.mobile_input_delay_ms ?? 250}
+            disabled={!bridgeReady}
+            onChange={(e) => void patchMobileInputDelay(Number(e.target.value))}
+            className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-1 py-0.5 text-xs font-mono text-pm-text"
+          />
+          <span className="shrink-0">ms</span>
+        </label>
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col">
@@ -228,13 +280,14 @@ function OrchestratorTab({
           <OrchestratorTerminal
             backend={cliBackend}
             pane={orchestratorPaneView}
-            starting={!orchestratorPane && bridgeReady}
+            starting={!orchestratorPane && bridgeReady && settingsHydrated}
             error={null}
             subscribePaneData={orchestratorTunnel.subscribePaneData}
             onRetry={() => void patchBackend(cliBackend)}
             transport={orchestratorTunnel.transport}
             syncPTYResize={false}
             mobileInputDelayMs={settings.mobile_input_delay_ms}
+            mobileInputVisible={settings.mobile_input_visible}
           />
         ) : (
           <ChatTab bridge={bridge} chatEvents={chatEvents} bridgeReady={bridgeReady} />
@@ -402,12 +455,14 @@ function PanesTab({
   bridgeReady,
   registry,
   mobileInputDelayMs,
+  mobileInputVisible,
 }: {
   bridge: BridgeClient;
   panes: PaneInfo[];
   bridgeReady: boolean;
   registry: ReturnType<typeof useBridgePaneRegistry>;
   mobileInputDelayMs?: number;
+  mobileInputVisible?: boolean;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [showNewPane, setShowNewPane] = useState(false);
@@ -545,6 +600,7 @@ function PanesTab({
             transport={selectedTransport}
             title={selectedPane.info.agent_type}
             mobileInputDelayMs={mobileInputDelayMs}
+            mobileInputVisible={mobileInputVisible}
           />
         </div>
       )}
@@ -563,6 +619,7 @@ export default function PwaApp() {
   const [chatEvents, setChatEvents] = useState<OrchestratorChatEvent[]>([]);
   const [panes, setPanes] = useState<PaneInfo[]>([]);
   const [settings, setSettings] = useState<PublicSettings>(DEFAULT_PUBLIC_SETTINGS);
+  const [settingsHydrated, setSettingsHydrated] = useState(false);
   const [tab, setTab] = useState<'chat' | 'panes'>('chat');
   const [editingUrl, setEditingUrl] = useState(false);
   const registry = useBridgePaneRegistry(bridge);
@@ -579,6 +636,12 @@ export default function PwaApp() {
     return info?.id ?? null;
   }, [cliOrchestratorBackend, panes]);
 
+
+  const orchestratorReady = useMemo(() => {
+    if (!cliOrchestratorBackend) return true;
+    return !!findOrchestratorPane(panes, cliOrchestratorBackend);
+  }, [cliOrchestratorBackend, panes]);
+
   const mobileOrchestratorTunnel = usePaneTunnel(bridge, orchestratorPaneId, 'mobile');
   const orchestratorTunnelRef = useRef(mobileOrchestratorTunnel);
   orchestratorTunnelRef.current = mobileOrchestratorTunnel;
@@ -588,6 +651,12 @@ export default function PwaApp() {
     const c = makeBridgeClient(bridgeUrl);
     setBridge(c);
     setBridgeReady(false);
+    setSettingsHydrated(false);
+
+    const applyPanes = (list: PaneInfo[]) => {
+      setPanes(list);
+      registryRef.current.setPanesFromList(list);
+    };
 
     fetch(`${bridgeUrl}/health`, {
       signal: AbortSignal.timeout(3000),
@@ -596,7 +665,16 @@ export default function PwaApp() {
       .then((r) => { if (r.ok) setBridgeReady(true); })
       .catch(() => {});
 
-    void c.getSettings().then(setSettings).catch(() => {});
+    void c
+      .getSettings()
+      .then((next) => {
+        setSettings(next);
+        setSettingsHydrated(true);
+        return syncBridgePanes(c, applyPanes);
+      })
+      .catch(() => {
+        setSettingsHydrated(true);
+      });
 
     const unsub = subscribeBridgeEvents(
       bridgeUrl,
@@ -609,15 +687,21 @@ export default function PwaApp() {
           registryRef.current.setPanesFromList(ev.panes);
         }
         if (ev.type === 'terminal') {
-          registryRef.current.ingestTerminalData(ev.pane_id, ev.data);
-          routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
+          if (isOrchestratorPaneId(ev.pane_id)) {
+            routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
+          } else {
+            registryRef.current.ingestTerminalData(ev.pane_id, ev.data);
+          }
         }
         if (ev.type === 'pane-status') {
           registryRef.current.updatePaneStatus(ev.pane_id, ev.status);
         }
         if (ev.type === 'pane-resize') {
-          registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows);
-          routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
+          if (isOrchestratorPaneId(ev.pane_id)) {
+            routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
+          } else {
+            registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows);
+          }
         }
         if (ev.type === 'settings') {
           setSettings(ev.settings);
@@ -627,6 +711,31 @@ export default function PwaApp() {
 
     return unsub;
   }, [bridgeUrl]);
+
+
+  useEffect(() => {
+    if (!bridge || !bridgeReady || !settingsHydrated || !cliOrchestratorBackend || orchestratorReady) {
+      return;
+    }
+
+    let cancelled = false;
+    const applyPanes = (list: PaneInfo[]) => {
+      if (cancelled) return;
+      setPanes(list);
+      registryRef.current.setPanesFromList(list);
+    };
+
+    const tick = () => {
+      void syncBridgePanes(bridge, applyPanes).catch(() => {});
+    };
+
+    tick();
+    const id = window.setInterval(tick, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [bridge, bridgeReady, settingsHydrated, cliOrchestratorBackend, orchestratorReady]);
 
   if (!bridgeUrl || editingUrl) {
     return (
@@ -684,6 +793,7 @@ export default function PwaApp() {
             onSettings={setSettings}
             registry={registry}
             orchestratorTunnel={mobileOrchestratorTunnel}
+            settingsHydrated={settingsHydrated}
           />
         )}
         {bridge && tab === 'panes' && (
@@ -693,6 +803,7 @@ export default function PwaApp() {
             bridgeReady={bridgeReady}
             registry={registry}
             mobileInputDelayMs={settings.mobile_input_delay_ms}
+            mobileInputVisible={settings.mobile_input_visible}
           />
         )}
         {!bridge && (

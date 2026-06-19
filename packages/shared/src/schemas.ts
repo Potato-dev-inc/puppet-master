@@ -78,7 +78,9 @@ export const SettingsSchema = z.object({
   /** Stable pane id for the dedicated orchestrator CLI pane (CLI backends). */
   orchestrator_pane_id: z.string().optional(),
   /** Mobile terminal text buffer delay before committing to the PTY (autocorrect settling). */
-  mobile_input_delay_ms: z.number().int().min(250).max(10000).default(5000),
+  mobile_input_delay_ms: z.number().int().min(0).max(1000).default(250),
+  /** Show the mobile terminal command input bar. When false, the tap target remains invisible. */
+  mobile_input_visible: z.boolean().default(true),
   project_path: z.string().optional(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;

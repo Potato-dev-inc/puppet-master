@@ -18,7 +18,6 @@ describe('pane-tunnel', () => {
 
     await transport.resize(120, 40);
     await transport.writeInput('ls', true);
-
     expect(writeInput).toHaveBeenCalledWith('pane-1', 'ls', true);
   });
 
@@ -31,10 +30,13 @@ describe('pane-tunnel', () => {
       readRawBuffer: vi.fn().mockResolvedValue([]),
     } as unknown as Parameters<typeof subscribePaneTunnelData>[1];
 
-    subscribePaneTunnelData(state, bridge, (chunk) => received.push(chunk));
+    subscribePaneTunnelData(state, bridge, 'orch', (chunk) => received.push(chunk));
+    await vi.waitFor(() => {
+      expect(bridge.readRawBuffer).toHaveBeenCalledWith('orch', 10_000);
+    });
 
-    ingestPaneTunnelData(state, 'other', Uint8Array.from([1]));
-    ingestPaneTunnelData(state, 'orch', Uint8Array.from([2]));
+    ingestPaneTunnelData(state, 'orch', 'other', Uint8Array.from([1]));
+    ingestPaneTunnelData(state, 'orch', 'orch', Uint8Array.from([2]));
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(received).toEqual([Uint8Array.from([2])]);
@@ -49,6 +51,23 @@ describe('pane-tunnel', () => {
 
     bound('pane-a', () => {});
     expect(subscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('subscribePaneTunnelData works with explicit pane id before state bind', async () => {
+    const state = createPaneTunnelState('mobile');
+    const received: Uint8Array[] = [];
+    const bridge = {
+      readRawBuffer: vi.fn().mockResolvedValue([]),
+    } as unknown as Parameters<typeof subscribePaneTunnelData>[1];
+
+    subscribePaneTunnelData(state, bridge, 'orch', (chunk) => received.push(chunk));
+    await vi.waitFor(() => {
+      expect(bridge.readRawBuffer).toHaveBeenCalledWith('orch', 10_000);
+    });
+    ingestPaneTunnelData(state, 'orch', 'orch', Uint8Array.from([9]));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(received).toEqual([Uint8Array.from([9])]);
   });
 
   it('mergePaneDimensions overlays cols and rows', () => {

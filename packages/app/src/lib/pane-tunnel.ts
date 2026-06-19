@@ -1,6 +1,19 @@
 import { PaneStreamManager } from '../terminal';
 import type { TerminalTransport } from '../hooks/useTerminalSession';
 import type { BridgeClient } from './bridge';
+import { tauri } from './tauri';
+
+/** Local PTY owner — desktop sidebar resizes and writes through Tauri. */
+export function makeDesktopOrchestratorTransport(paneId: string): TerminalTransport {
+  return {
+    resize: (cols, rows) => {
+      void tauri.resize(paneId, cols, rows);
+    },
+    writeInput: (text, appendNewline = false) => {
+      void tauri.writeInput(paneId, text, appendNewline);
+    },
+  };
+}
 
 /** Shared bridge mirror transport — viewers must not resize the backend PTY. */
 export function makePaneTunnelTransport(bridge: BridgeClient, paneId: string): TerminalTransport {
@@ -40,20 +53,21 @@ export function setPaneTunnelPane(state: PaneTunnelState, paneId: string | null)
 
 export function ingestPaneTunnelData(
   state: PaneTunnelState,
+  boundPaneId: string | null,
   paneId: string,
   data: number[] | Uint8Array,
 ): void {
-  if (!state.paneId || paneId !== state.paneId) return;
+  if (!boundPaneId || paneId !== boundPaneId) return;
   state.streams.ingest(paneId, data);
 }
 
 export function subscribePaneTunnelData(
   state: PaneTunnelState,
   bridge: BridgeClient,
+  paneId: string,
   cb: (data: Uint8Array) => void,
 ): () => void {
-  if (!state.paneId) return () => {};
-  return state.streams.subscribe(state.paneId, cb, (id, lines) => bridge.readRawBuffer(id, lines));
+  return state.streams.subscribe(paneId, cb, (id, lines) => bridge.readRawBuffer(id, lines));
 }
 
 /** Adapter for components that expect `(paneId, cb) => unsub`. */

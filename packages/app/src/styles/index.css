@@ -71,61 +71,153 @@ html, body, #root {
   image-rendering: auto;
 }
 
-/* Mobile mirror: normal HTML command field + bottom-half tap zone. */
-.terminal-host--mobile-input .xterm {
-  padding-bottom: 72px;
+.terminal-host--mirror-grid .xterm {
+  width: max-content;
+  min-width: 100%;
 }
 
-.terminal-host--mobile-input.terminal-host--mobile-input-hidden .xterm {
-  padding-bottom: 8px;
+.terminal-host--mirror-grid .xterm-screen {
+  width: max-content !important;
+  min-width: 100%;
 }
 
-.terminal-mobile-scroll-zone {
+/* Mobile mirror: terminal and command field share one flex column (no overlay). */
+.terminal-host--mobile-input {
+  display: flex;
+  flex-direction: column;
+  contain: layout style;
+  overflow: hidden;
+  --pm-mobile-keyboard-panel-height: 42dvh;
+  --pm-mobile-input-bar-height: var(--pm-mobile-keyboard-panel-height);
+}
+
+.terminal-host--mobile-input > .xterm {
+  order: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto !important;
+  width: 100%;
+  padding-bottom: 0;
+  overflow: auto;
+}
+
+.terminal-host--mobile-input.terminal-host--mirror-grid > .xterm {
+  width: max-content;
+  min-width: 100%;
+}
+
+.terminal-host--mobile-input.terminal-host--mobile-input-hidden {
+  --pm-mobile-input-bar-height: 0px;
+}
+
+.terminal-host--mobile-input-hidden.terminal-host--mobile-input-engaged {
+  --pm-mobile-input-bar-height: var(--pm-mobile-keyboard-panel-height);
+}
+
+.terminal-host--mobile-input-hidden:not(.terminal-host--mobile-input-engaged) .terminal-mobile-input-zone {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  padding: 0;
+  flex: none;
+}
+
+.terminal-host--mobile-input-hidden.terminal-host--mobile-input-engaged .terminal-mobile-input-zone {
+  position: static;
+  flex: 0 0 auto;
+  width: 100%;
+  height: auto;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.terminal-mobile-tap-zone {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 50%;
+  bottom: var(--pm-mobile-input-bar-height);
   z-index: 15;
-  touch-action: none;
+  pointer-events: none;
 }
 
 .terminal-mobile-input-zone {
+  flex: 0 0 auto;
+  width: 100%;
+  order: 2;
+}
+
+
+.terminal-mobile-arrow-controls {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 50%;
-  z-index: 25;
+  right: 10px;
+  bottom: calc(var(--pm-mobile-input-bar-height) + 12px);
+  z-index: 40;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
-  touch-action: none;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.terminal-host--mobile-input-hidden .terminal-mobile-arrow-controls {
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+
+.terminal-mobile-arrow-button {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 10px;
+  background: rgb(var(--pm-bg) / 0.92);
+  color: rgb(var(--pm-text));
+  font-size: 20px;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.terminal-mobile-arrow-button:active {
+  background: rgb(var(--pm-accent) / 0.2);
 }
 
 .terminal-mobile-command-form {
   margin: 0;
-  padding: 8px 10px 10px;
-  background: linear-gradient(
-    to top,
-    rgb(var(--pm-bg) / 0.98) 70%,
-    rgb(var(--pm-bg) / 0)
-  );
+  box-sizing: border-box;
+  height: var(--pm-mobile-keyboard-panel-height);
+  min-height: var(--pm-mobile-keyboard-panel-height);
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  background: rgb(var(--pm-bg) / 0.98);
+  border-top: 1px solid rgb(var(--pm-border));
 }
 
 .terminal-mobile-command-input {
   display: block;
   box-sizing: border-box;
+  flex: 1;
   width: 100%;
-  height: 48px;
-  padding: 0 14px;
+  min-height: 0;
+  height: auto;
+  padding: 14px;
   border: 1px solid rgb(var(--pm-border));
-  border-radius: 10px;
+  border-radius: 12px;
   background: rgb(var(--pm-bg));
   color: rgb(var(--pm-text));
-  font: 16px/48px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font: 16px/1.45 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   caret-color: rgb(var(--pm-accent));
   outline: none;
+  resize: none;
+  overflow-y: auto;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -138,28 +230,6 @@ html, body, #root {
 .terminal-mobile-command-input:focus {
   border-color: rgb(var(--pm-accent));
   box-shadow: 0 0 0 2px rgb(var(--pm-accent) / 0.2);
-}
-
-.terminal-host--mobile-input-hidden .terminal-mobile-command-form {
-  padding: 0;
-  background: none;
-}
-
-.terminal-host--mobile-input-hidden .terminal-mobile-command-input {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 44px;
-  line-height: 44px;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  opacity: 0.01;
-  color: transparent;
-  caret-color: transparent;
-  background: transparent;
-  box-shadow: none;
 }
 
 .terminal-snapshot {

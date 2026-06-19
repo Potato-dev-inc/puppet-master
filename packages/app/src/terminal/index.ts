@@ -16,6 +16,7 @@ export type {
   Disposable,
   PaneDataListener,
   PaneSnapshotListener,
+  TerminalRenderMode,
   TerminalResizeHandler,
   TerminalSessionOptions,
 } from './types';

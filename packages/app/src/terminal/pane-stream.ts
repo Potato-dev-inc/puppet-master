@@ -59,7 +59,7 @@ export class PaneStreamManager {
       if (raw.length > 0) {
         cb(Uint8Array.from(raw));
       }
-      this.drainBacklogAndGoLive(current, cb);
+      this.discardBacklogAndGoLive(current);
     });
 
     return this.makeUnsub(paneId, cb);
@@ -91,13 +91,9 @@ export class PaneStreamManager {
     };
   }
 
-  private drainBacklogAndGoLive(stream: PaneStream, cb: PaneDataListener): void {
-    const backlog = stream.backlog;
+  private discardBacklogAndGoLive(stream: PaneStream): void {
     stream.backlog = [];
     stream.mode = 'live';
-    for (const chunk of backlog) {
-      cb(chunk);
-    }
   }
 
   private makeUnsub(paneId: string, cb: PaneDataListener): () => void {

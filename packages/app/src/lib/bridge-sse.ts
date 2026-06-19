@@ -14,6 +14,9 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
   } else if (eventName === 'terminal') {
     const payload = parsed as { pane_id: string; data: number[] };
     onEvent({ type: 'terminal', pane_id: payload.pane_id, data: payload.data });
+  } else if (eventName === 'terminal-snapshot') {
+    const payload = parsed as { pane_id: string; snapshot: string };
+    onEvent({ type: 'terminal-snapshot', pane_id: payload.pane_id, snapshot: payload.snapshot });
   } else if (eventName === 'pane-status') {
     const payload = parsed as { pane_id: string; status: PaneInfo['status'] };
     onEvent({ type: 'pane-status', pane_id: payload.pane_id, status: payload.status });

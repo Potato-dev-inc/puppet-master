@@ -1,16 +1,12 @@
 import type { BridgeEvent } from './bridge';
 import type { PaneTunnelApi } from '../hooks/usePaneTunnel';
 
-/** Feed bridge terminal SSE events into a pane tunnel (orchestrator mirror viewers). */
+/** Feed bridge terminal and resize SSE into the mobile mirror tunnel only. */
 export function routeBridgeEventToPaneTunnel(ev: BridgeEvent, tunnel: PaneTunnelApi): void {
-  switch (ev.type) {
-    case 'terminal':
-      tunnel.ingestTerminalData(ev.pane_id, ev.data);
-      break;
-    case 'pane-resize':
-      tunnel.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows);
-      break;
-    default:
-      break;
+  if (tunnel.role !== 'mobile') return;
+  if (ev.type === 'terminal') {
+    tunnel.ingestTerminalData(ev.pane_id, ev.data);
+  } else if (ev.type === 'pane-resize') {
+    tunnel.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows);
   }
 }

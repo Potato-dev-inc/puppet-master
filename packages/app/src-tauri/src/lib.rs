@@ -1,6 +1,7 @@
 mod bridge;
 mod commands;
 mod mcp_install;
+mod platform;
 mod pty;
 mod settings_store;
 
@@ -78,6 +79,12 @@ pub fn run() {
                         }
                     }
                 }
+            });
+
+
+            let registry_for_panes = app.state::<AppState>().registry.clone();
+            app.handle().listen("pty://panes-changed", move |_event| {
+                bridge::push_panes_sse(&registry_for_panes);
             });
 
             app.handle().listen("pty://status", |event| {

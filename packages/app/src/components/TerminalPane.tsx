@@ -31,7 +31,7 @@ export function TerminalPane({
     paneId: pane.info.id,
     sessionKey: pane.info.created_at,
     subscribePaneData,
-  });
+    });
 
   const agent = pane.info.agent_type as AgentType;
   const presets = listPresets();

@@ -1,7 +1,7 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { tauri } from '../lib/tauri';
 import { TerminalSession } from '../terminal';
-import type { PaneSnapshotListener } from '../terminal';
+import type { PaneSnapshotListener, TerminalRenderMode } from '../terminal';
 
 export interface TerminalTransport {
   resize: (cols: number, rows: number) => void | Promise<void>;
@@ -15,9 +15,11 @@ interface UseTerminalSessionOptions {
   subscribePaneData: (paneId: string, cb: PaneSnapshotListener) => () => void;
   transport?: TerminalTransport;
   syncPTYResize?: boolean;
+  renderMode?: TerminalRenderMode;
   ptyCols?: number;
   ptyRows?: number;
   mobileInputDelayMs?: number;
+  mobileInputVisible?: boolean;
 }
 
 /**
@@ -29,9 +31,11 @@ export function useTerminalSession({
   subscribePaneData,
   transport,
   syncPTYResize = true,
+  renderMode,
   ptyCols,
   ptyRows,
   mobileInputDelayMs,
+  mobileInputVisible,
 }: UseTerminalSessionOptions): RefObject<HTMLDivElement> {
   const containerRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<TerminalSession | null>(null);
@@ -40,7 +44,7 @@ export function useTerminalSession({
     const container = containerRef.current;
     if (!container) return;
 
-    const defaultTransport = {
+    const defaultTransport: TerminalTransport = {
       resize: (cols: number, rows: number) => {
         void tauri.resize(paneId, cols, rows);
       },
@@ -53,9 +57,11 @@ export function useTerminalSession({
     const session = new TerminalSession({
       paneId,
       syncPTYResize,
+      renderMode,
       ptyCols,
       ptyRows,
       mobileInputDelayMs,
+      mobileInputVisible,
       onResize: (cols, rows) => {
         void activeTransport.resize(cols, rows);
       },
@@ -70,12 +76,12 @@ export function useTerminalSession({
       session.dispose();
       sessionRef.current = null;
     };
-  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, mobileInputDelayMs]);
+  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, renderMode, mobileInputDelayMs, mobileInputVisible]);
 
   useEffect(() => {
-    if (!syncPTYResize && ptyCols && ptyRows) {
-      sessionRef.current?.setPtyDimensions(ptyCols, ptyRows);
-    }
+    if (syncPTYResize) return;
+    if (ptyCols === undefined || ptyRows === undefined) return;
+    sessionRef.current?.setPtyDimensions(ptyCols, ptyRows);
   }, [syncPTYResize, ptyCols, ptyRows]);
 
   return containerRef as RefObject<HTMLDivElement>;

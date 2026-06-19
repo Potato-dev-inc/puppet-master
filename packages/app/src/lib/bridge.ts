@@ -36,6 +36,7 @@ export interface BridgeClient {
   killPane(paneId: string): Promise<void>;
   readBuffer(paneId: string, lines: number): Promise<string>;
   readRawBuffer(paneId: string, lines: number): Promise<number[]>;
+  readSnapshot(paneId: string): Promise<string>;
   writeInput(paneId: string, text: string, appendNewline?: boolean): Promise<void>;
   resize(paneId: string, cols: number, rows: number): Promise<void>;
   getSettings(): Promise<PublicSettings>;
@@ -69,6 +70,10 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     readRawBuffer: async (id, lines) => {
       const res = await call<{ data: number[] }>('GET', `/panes/${encodeURIComponent(id)}/raw?lines=${lines}`);
       return res.data;
+    },
+    readSnapshot: async (id) => {
+      const res = await call<{ content: string }>('GET', `/panes/${encodeURIComponent(id)}/snapshot`);
+      return res.content;
     },
     writeInput: (id, text, appendNewline = true) =>
       call('POST', `/panes/${encodeURIComponent(id)}/input`, {
@@ -108,11 +113,22 @@ export async function findBridgeUrl(): Promise<string | null> {
   return null;
 }
 
+function shouldUseFetchBridgeSse(baseUrl: string): boolean {
+  if (isNgrokHost(baseUrl)) return true;
+  try {
+    const { hostname } = new URL(baseUrl);
+    return hostname !== '127.0.0.1' && hostname !== 'localhost';
+  } catch {
+    return false;
+  }
+}
+
 export type BridgeEvent =
   | { type: 'panes'; panes: PaneInfo[] }
   | { type: 'log'; entry: McpLogEntry }
   | { type: 'chat'; event: OrchestratorChatEvent }
   | { type: 'terminal'; pane_id: string; data: number[] }
+  | { type: 'terminal-snapshot'; pane_id: string; snapshot: string }
   | { type: 'pane-status'; pane_id: string; status: PaneInfo['status'] }
   | { type: 'pane-resize'; pane_id: string; cols: number; rows: number }
   | { type: 'settings'; settings: PublicSettings };
@@ -126,7 +142,7 @@ export function subscribeBridgeEvents(
   onEvent: (e: BridgeEvent) => void,
   onError?: (err: unknown) => void,
 ): () => void {
-  if (isNgrokHost(baseUrl)) {
+  if (shouldUseFetchBridgeSse(baseUrl)) {
     return subscribeBridgeEventsViaFetch(baseUrl, onEvent, onError);
   }
 
@@ -165,6 +181,14 @@ export function subscribeBridgeEvents(
       try {
         const payload = JSON.parse((ev as MessageEvent).data) as { pane_id: string; data: number[] };
         onEvent({ type: 'terminal', pane_id: payload.pane_id, data: payload.data });
+      } catch (err) {
+        onError?.(err);
+      }
+    });
+    es.addEventListener('terminal-snapshot', (ev) => {
+      try {
+        const payload = JSON.parse((ev as MessageEvent).data) as { pane_id: string; snapshot: string };
+        onEvent({ type: 'terminal-snapshot', pane_id: payload.pane_id, snapshot: payload.snapshot });
       } catch (err) {
         onError?.(err);
       }

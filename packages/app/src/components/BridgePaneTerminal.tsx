@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import type { PaneInfo } from '@puppet-master/shared';
 import { useTerminalSession, type TerminalTransport } from '../hooks/useTerminalSession';
+import { isMobileInputDevice } from '../terminal/mobile-input-guard';
+import type { TerminalRenderMode } from '../terminal';
 
 const STATUS_COLOR: Record<string, string> = {
   running: 'bg-pm-ok',
@@ -16,7 +18,9 @@ interface Props {
   transport: TerminalTransport;
   title?: string;
   syncPTYResize?: boolean;
+  renderMode?: TerminalRenderMode;
   mobileInputDelayMs?: number;
+  mobileInputVisible?: boolean;
 }
 
 export function BridgePaneTerminal({
@@ -26,17 +30,24 @@ export function BridgePaneTerminal({
   transport,
   title,
   syncPTYResize = false,
+  renderMode,
   mobileInputDelayMs,
+  mobileInputVisible,
 }: Props) {
+  const mobileMirror = !syncPTYResize && isMobileInputDevice();
+  const effectiveRenderMode =
+    renderMode ?? 'mirror-same-grid';
   const containerRef = useTerminalSession({
     paneId: pane.id,
     sessionKey: pane.created_at,
     subscribePaneData,
     transport,
     syncPTYResize,
+    renderMode: effectiveRenderMode,
     ptyCols: pane.cols,
     ptyRows: pane.rows,
     mobileInputDelayMs,
+    mobileInputVisible,
   });
 
   const label = title ?? pane.agent_type;
@@ -53,7 +64,10 @@ export function BridgePaneTerminal({
           {pane.cols}×{pane.rows} · pid {pane.pid}
         </span>
       </div>
-      <div ref={containerRef} className="flex-1 min-h-0 overflow-auto terminal-host" />
+      <div
+        ref={containerRef}
+        className={`flex-1 min-h-0 terminal-host ${mobileMirror ? 'overflow-auto' : 'overflow-hidden'} ${effectiveRenderMode === 'mirror-same-grid' ? 'terminal-host--mirror-grid' : ''}`}
+      />
     </div>
   );
 }

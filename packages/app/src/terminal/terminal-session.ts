@@ -6,17 +6,17 @@ import { InputBatcher } from './input-batcher';
 import {
   configureXtermTextareaForMobileMirror,
   isMobileInputDevice,
+  MOBILE_INPUT_HIDDEN_CLASS,
   MobileInputGuard,
   type MobileInputDelivery,
 } from './mobile-input-guard';
-import { MobileTouchScroll } from './mobile-touch-scroll';
 import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
   TERMINAL_SCROLLBACK,
   terminalThemeFromCss,
 } from './theme';
-import type { PaneDataListener, TerminalSessionOptions } from './types';
+import type { PaneDataListener, TerminalRenderMode, TerminalSessionOptions } from './types';
 import '@xterm/xterm/css/xterm.css';
 
 function isWindowsRuntime(): boolean {
@@ -40,7 +40,6 @@ export class TerminalSession {
   private intersectionObserver: IntersectionObserver | null = null;
   private imeObserver: MutationObserver | null = null;
   private mobileInputGuard: MobileInputGuard | null = null;
-  private mobileTouchScroll: MobileTouchScroll | null = null;
   private focusCleanup: (() => void) | null = null;
   private openFrame: number | null = null;
   private resizeFrame: number | null = null;
@@ -51,6 +50,7 @@ export class TerminalSession {
   private ptyRows: number;
   private readonly syncPTYResize: boolean;
   private readonly mirrorPTY: boolean;
+  private readonly renderMode: TerminalRenderMode;
   private generation = 0;
   private themeObserver: MutationObserver | null = null;
   private disposed = false;
@@ -58,15 +58,26 @@ export class TerminalSession {
   constructor(private readonly options: TerminalSessionOptions) {
     this.syncPTYResize = options.syncPTYResize ?? true;
     this.mirrorPTY = !this.syncPTYResize;
+    this.renderMode = options.renderMode ?? (this.syncPTYResize ? 'owner' : 'mirror-same-grid');
     this.ptyCols = options.ptyCols ?? 80;
     this.ptyRows = options.ptyRows ?? 24;
   }
 
   setPtyDimensions(cols: number, rows: number): void {
     if (cols <= 0 || rows <= 0) return;
+    if (this.mirrorPTY) {
+      this.ptyCols = cols;
+      this.ptyRows = rows;
+      this.applyMirrorDimensions();
+      return;
+    }
     this.ptyCols = cols;
     this.ptyRows = rows;
     this.applyPtyDimensions();
+  }
+
+  private isMobileMirror(): boolean {
+    return this.mirrorPTY && isMobileInputDevice();
   }
 
   mount(
@@ -93,7 +104,7 @@ export class TerminalSession {
         allowProposedApi: true,
         allowTransparency: false,
         scrollOnUserInput: !mobileMirror,
-        disableStdin: mobileMirror,
+        disableStdin: false,
         windowsPty: isWindowsRuntime()
           ? {
               backend: 'conpty',
@@ -137,7 +148,6 @@ export class TerminalSession {
           this.scheduleRefresh();
         });
       });
-
       this.installFileLinkProvider(terminal);
       this.installTextareaGuards(container, terminal, this.inputBatcher);
       this.installResizeObservers(container);
@@ -146,7 +156,7 @@ export class TerminalSession {
       if (this.syncPTYResize) {
         this.fitAndNotify();
       } else {
-        this.applyPtyDimensions();
+        this.applyMirrorDimensions();
       }
       this.scheduleRefresh();
     });
@@ -184,9 +194,6 @@ export class TerminalSession {
     this.mobileInputGuard?.dispose();
     this.mobileInputGuard = null;
 
-    this.mobileTouchScroll?.dispose();
-    this.mobileTouchScroll = null;
-
     this.themeObserver?.disconnect();
     this.themeObserver = null;
 
@@ -215,8 +222,7 @@ export class TerminalSession {
               this.fitAndNotify();
               this.refreshAndNudgeAltBuffer();
             } else {
-              this.applyPtyDimensions();
-              this.scheduleRefresh();
+              this.applyMirrorDimensions();
             }
           }, 50);
         }
@@ -301,23 +307,14 @@ export class TerminalSession {
       this.mobileInputGuard = new MobileInputGuard({
         container,
         emitInput: emitMobileInput,
-        scrollToCursor: () => {},
+        scrollToCursor: () => this.scrollToCursor(),
         bufferDelayMs: this.options.mobileInputDelayMs,
+        inputVisible: this.options.mobileInputVisible,
       });
-
-      this.mobileTouchScroll = new MobileTouchScroll({
-        container,
-        lineHeightPx: Math.round(TERMINAL_FONT_SIZE * 1.35),
-        scrollLines: (lines) => {
-          const active = this.term;
-          if (active) active.scrollLines(lines);
-        },
-        shouldIgnoreTarget: (target) =>
-          target instanceof Element &&
-          target.closest('.terminal-mobile-command-input, .terminal-mobile-command-form') != null,
-        onBackgroundTap: (target) => {
-          this.mobileInputGuard?.handleBackgroundTap(target);
-        },
+      requestAnimationFrame(() => {
+        if (this.disposed) return;
+        this.applyMirrorDimensions();
+        this.scrollToCursor();
       });
     }
   }
@@ -325,19 +322,25 @@ export class TerminalSession {
   private scrollToCursor(): void {
     const terminal = this.term;
     if (!terminal) return;
-    const mobileMirror = this.mirrorPTY && isMobileInputDevice();
-    if (mobileMirror && !this.isViewportAtBottom()) {
-      return;
-    }
-    terminal.scrollToBottom();
-  }
 
-  private isViewportAtBottom(): boolean {
-    const terminal = this.term;
-    if (!terminal) return true;
-    const buffer = terminal.buffer.active;
-    const lastVisibleLine = buffer.baseY + buffer.viewportY + terminal.rows - 1;
-    return lastVisibleLine >= buffer.length - 1;
+    terminal.scrollToBottom();
+
+    if (!this.isMobileMirror()) return;
+
+    const pinMobileScroll = (): void => {
+      const xtermEl = terminal.element;
+      if (!xtermEl) return;
+      xtermEl.scrollTop = xtermEl.scrollHeight;
+      const viewport = xtermEl.querySelector('.xterm-viewport');
+      if (viewport instanceof HTMLElement) {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
+    };
+
+    requestAnimationFrame(() => {
+      pinMobileScroll();
+      requestAnimationFrame(pinMobileScroll);
+    });
   }
 
   private installFileLinkProvider(terminal: Terminal): void {
@@ -373,7 +376,7 @@ export class TerminalSession {
 
   private scheduleFit(): void {
     if (!this.syncPTYResize) {
-      this.applyPtyDimensions();
+      this.applyMirrorDimensions();
       return;
     }
     if (this.resizeFrame !== null) return;
@@ -386,7 +389,7 @@ export class TerminalSession {
 
   private fitAndNotify(): void {
     if (!this.syncPTYResize) {
-      this.applyPtyDimensions();
+      this.applyMirrorDimensions();
       return;
     }
     const terminal = this.term;
@@ -413,8 +416,31 @@ export class TerminalSession {
     const { ptyCols: cols, ptyRows: rows } = this;
     if (cols > 0 && rows > 0 && (cols !== terminal.cols || rows !== terminal.rows)) {
       terminal.resize(cols, rows);
+      terminal.scrollToBottom();
       this.scheduleRefresh();
     }
+  }
+
+  /** Mirror viewers on mobile: fit xterm to the local viewport without resizing the PTY. */
+  private fitViewportOnly(): void {
+    const terminal = this.term;
+    const fitAddon = this.fitAddon;
+    if (!terminal || !fitAddon) return;
+    try {
+      fitAddon.fit();
+    } catch {
+      return;
+    }
+    terminal.scrollToBottom();
+    this.scheduleRefresh();
+  }
+
+  private applyMirrorDimensions(): void {
+    if (this.renderMode === 'mirror-same-grid') {
+      this.applyPtyDimensions();
+      return;
+    }
+    this.fitViewportOnly();
   }
 
   private scheduleRefresh(): void {

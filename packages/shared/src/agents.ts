@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { detectPlatform, type PuppetPlatform } from './platform.js';
 
 export const AgentTypeSchema = z.enum(['claude', 'codex', 'opencode', 'powershell', 'bash', 'cursor']);
 export type AgentType = z.infer<typeof AgentTypeSchema>;
@@ -13,68 +14,178 @@ export interface AgentPreset {
   icon: string;
 }
 
-export const AGENT_PRESETS: Record<AgentType, AgentPreset> = {
+interface AgentCommandSpec {
+  command: string;
+  baseArgs: string[];
+  description: string;
+}
+
+const AGENT_META: Record<
+  AgentType,
+  Pick<AgentPreset, 'type' | 'label' | 'isTui' | 'icon'>
+> = {
   claude: {
     type: 'claude',
     label: 'Claude Code',
-    description: 'Anthropic Claude Code CLI',
-    command: 'claude.exe',
-    baseArgs: [],
     isTui: true,
     icon: 'CC',
   },
   codex: {
     type: 'codex',
     label: 'Codex CLI',
-    description: 'OpenAI Codex CLI',
-    command: 'codex.exe',
-  // Puppet Master: workspace sandbox, skip approval UI (permissions handled by autopilot if needed)
-    baseArgs: ['--sandbox', 'workspace-write', '--ask-for-approval', 'never'],
     isTui: true,
     icon: 'CX',
   },
   opencode: {
     type: 'opencode',
     label: 'OpenCode',
-    description: 'OpenCode CLI',
-    command: 'opencode.cmd',
-    baseArgs: [],
     isTui: true,
     icon: 'OC',
   },
   powershell: {
     type: 'powershell',
     label: 'PowerShell',
-    description: 'Windows PowerShell',
-    command: 'powershell.exe',
-    baseArgs: ['-NoLogo'],
     isTui: true,
     icon: 'PS',
   },
   bash: {
     type: 'bash',
-    label: 'Bash',
-    description: 'Git Bash / WSL bash',
-    command: 'bash.exe',
-    baseArgs: ['--login'],
+    label: 'Shell',
     isTui: true,
     icon: 'Bash',
   },
   cursor: {
     type: 'cursor',
     label: 'Cursor IDE',
-    description: 'Opens project in Cursor (not an agent TUI)',
-    command: 'cursor.cmd',
-    baseArgs: [],
     isTui: false,
     icon: 'ID',
   },
 };
 
-export function getPreset(type: AgentType): AgentPreset {
-  return AGENT_PRESETS[type];
+const CODEX_ARGS = ['--sandbox', 'workspace-write', '--ask-for-approval', 'never'];
+
+const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSpec>> = {
+  windows: {
+    claude: {
+      command: 'claude.exe',
+      baseArgs: [],
+      description: 'Anthropic Claude Code CLI',
+    },
+    codex: {
+      command: 'codex.exe',
+      baseArgs: CODEX_ARGS,
+      description: 'OpenAI Codex CLI',
+    },
+    opencode: {
+      command: 'opencode.cmd',
+      baseArgs: [],
+      description: 'OpenCode CLI',
+    },
+    powershell: {
+      command: 'powershell.exe',
+      baseArgs: ['-NoLogo'],
+      description: 'Windows PowerShell',
+    },
+    bash: {
+      command: 'bash.exe',
+      baseArgs: ['--login'],
+      description: 'Git Bash / WSL bash',
+    },
+    cursor: {
+      command: 'cursor.cmd',
+      baseArgs: [],
+      description: 'Opens project in Cursor (not an agent TUI)',
+    },
+  },
+  macos: {
+    claude: {
+      command: 'claude',
+      baseArgs: [],
+      description: 'Anthropic Claude Code CLI',
+    },
+    codex: {
+      command: 'codex',
+      baseArgs: CODEX_ARGS,
+      description: 'OpenAI Codex CLI',
+    },
+    opencode: {
+      command: 'opencode',
+      baseArgs: [],
+      description: 'OpenCode CLI',
+    },
+    powershell: {
+      command: 'pwsh',
+      baseArgs: ['-NoLogo'],
+      description: 'PowerShell (pwsh)',
+    },
+    bash: {
+      command: 'zsh',
+      baseArgs: ['-l'],
+      description: 'macOS Zsh (default shell)',
+    },
+    cursor: {
+      command: 'cursor',
+      baseArgs: [],
+      description: 'Opens project in Cursor (not an agent TUI)',
+    },
+  },
+  linux: {
+    claude: {
+      command: 'claude',
+      baseArgs: [],
+      description: 'Anthropic Claude Code CLI',
+    },
+    codex: {
+      command: 'codex',
+      baseArgs: CODEX_ARGS,
+      description: 'OpenAI Codex CLI',
+    },
+    opencode: {
+      command: 'opencode',
+      baseArgs: [],
+      description: 'OpenCode CLI',
+    },
+    powershell: {
+      command: 'pwsh',
+      baseArgs: ['-NoLogo'],
+      description: 'PowerShell (pwsh)',
+    },
+    bash: {
+      command: 'bash',
+      baseArgs: ['--login'],
+      description: 'Bash shell',
+    },
+    cursor: {
+      command: 'cursor',
+      baseArgs: [],
+      description: 'Opens project in Cursor (not an agent TUI)',
+    },
+  },
+};
+
+function buildPreset(type: AgentType, platform: PuppetPlatform): AgentPreset {
+  const meta = AGENT_META[type];
+  const spec = PLATFORM_COMMANDS[platform][type];
+  return {
+    ...meta,
+    description: spec.description,
+    command: spec.command,
+    baseArgs: spec.baseArgs,
+  };
 }
 
-export function listPresets(): AgentPreset[] {
-  return Object.values(AGENT_PRESETS);
+export function getPreset(type: AgentType, platform?: PuppetPlatform): AgentPreset {
+  return buildPreset(type, platform ?? detectPlatform());
+}
+
+export function listPresets(platform?: PuppetPlatform): AgentPreset[] {
+  const resolved = platform ?? detectPlatform();
+  return AgentTypeSchema.options.map((type) => buildPreset(type, resolved));
+}
+
+export function getAgentPresets(platform?: PuppetPlatform): Record<AgentType, AgentPreset> {
+  const resolved = platform ?? detectPlatform();
+  return Object.fromEntries(
+    AgentTypeSchema.options.map((type) => [type, buildPreset(type, resolved)]),
+  ) as Record<AgentType, AgentPreset>;
 }

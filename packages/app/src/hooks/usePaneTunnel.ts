@@ -5,12 +5,14 @@ import {
   bindPaneTunnelSubscribe,
   createPaneTunnelState,
   ingestPaneTunnelData,
+  makeDesktopOrchestratorTransport,
   makePaneTunnelTransport,
   mergePaneDimensions,
   setPaneTunnelPane,
   subscribePaneTunnelData,
   type PaneTunnelRole,
 } from '../lib/pane-tunnel';
+import type { PaneRegistryApi } from './usePaneRegistry';
 
 export interface PaneTunnelApi {
   role: PaneTunnelRole;
@@ -24,70 +26,96 @@ export interface PaneTunnelApi {
   mergePaneInfo: <T extends { cols: number; rows: number }>(info: T | undefined) => T | undefined;
 }
 
+const noopUnsub = () => {};
+
 /**
- * One bridge mirror tunnel for a single pane. Desktop and mobile orchestrator
- * each get their own instance; both use the same PTY stream over SSE + bridge input.
+ * Desktop owns the PTY (Tauri stream + resize). Mobile mirrors over bridge SSE only.
  */
 export function usePaneTunnel(
   bridge: BridgeClient | null,
   paneId: string | null | undefined,
   role: PaneTunnelRole,
+  registry?: PaneRegistryApi,
 ): PaneTunnelApi {
+  const boundPaneId = paneId ?? null;
+  const isDesktop = role === 'desktop';
+
   const stateRef = useRef(createPaneTunnelState(role));
   stateRef.current.role = role;
+  setPaneTunnelPane(stateRef.current, isDesktop ? null : boundPaneId);
+
   const [dimensions, setDimensions] = useState<{ cols: number; rows: number } | null>(null);
 
   useEffect(() => {
-    setPaneTunnelPane(stateRef.current, paneId ?? null);
+    if (!isDesktop) {
+      setPaneTunnelPane(stateRef.current, boundPaneId);
+    }
     setDimensions(null);
-  }, [paneId]);
+  }, [boundPaneId, isDesktop]);
 
-  const ingestTerminalData = useCallback((id: string, data: number[] | Uint8Array) => {
-    ingestPaneTunnelData(stateRef.current, id, data);
-  }, []);
+  const desktopSubscribe = useCallback(
+    (id: string, cb: (data: Uint8Array) => void) => {
+      if (!registry || !boundPaneId || id !== boundPaneId) return noopUnsub;
+      return registry.subscribePaneData(id, cb);
+    },
+    [registry, boundPaneId],
+  );
+
+  const mobileSubscribeInner = useCallback(
+    (cb: (data: Uint8Array) => void) => {
+      if (!bridge || !boundPaneId) return noopUnsub;
+      return subscribePaneTunnelData(stateRef.current, bridge, boundPaneId, cb);
+    },
+    [bridge, boundPaneId],
+  );
+
+  const mobileSubscribePaneData = useMemo(() => {
+    if (!boundPaneId) {
+      return (_paneId: string, _cb: (data: Uint8Array) => void) => noopUnsub;
+    }
+    return bindPaneTunnelSubscribe(mobileSubscribeInner, boundPaneId);
+  }, [boundPaneId, mobileSubscribeInner]);
+
+  const subscribePaneData = isDesktop ? desktopSubscribe : mobileSubscribePaneData;
+
+
+  const transport = useMemo(() => {
+    if (!boundPaneId) return undefined;
+    if (isDesktop) return makeDesktopOrchestratorTransport(boundPaneId);
+    if (!bridge) return undefined;
+    return makePaneTunnelTransport(bridge, boundPaneId);
+  }, [boundPaneId, bridge, isDesktop]);
+
+  const ingestTerminalData = useCallback(
+    (id: string, data: number[] | Uint8Array) => {
+      if (isDesktop) return;
+      ingestPaneTunnelData(stateRef.current, boundPaneId, id, data);
+    },
+    [boundPaneId, isDesktop],
+  );
 
   const updatePaneDimensions = useCallback(
     (id: string, cols: number, rows: number) => {
-      if (!paneId || id !== paneId) return;
+      if (isDesktop || !boundPaneId || id !== boundPaneId) return;
       setDimensions((prev) => {
         if (prev?.cols === cols && prev?.rows === rows) return prev;
         return { cols, rows };
       });
     },
-    [paneId],
+    [boundPaneId, isDesktop],
   );
-
-  const subscribe = useCallback(
-    (cb: (data: Uint8Array) => void) => {
-      if (!bridge) return () => {};
-      return subscribePaneTunnelData(stateRef.current, bridge, cb);
-    },
-    [bridge],
-  );
-
-  const subscribePaneData = useMemo(() => {
-    if (!paneId) {
-      return (_paneId: string, _cb: (data: Uint8Array) => void) => () => {};
-    }
-    return bindPaneTunnelSubscribe(subscribe, paneId);
-  }, [paneId, subscribe]);
-
-  const transport = useMemo(() => {
-    if (!bridge || !paneId) return undefined;
-    return makePaneTunnelTransport(bridge, paneId);
-  }, [bridge, paneId]);
 
   const mergePaneInfo = useCallback(
     <T extends { cols: number; rows: number }>(info: T | undefined) => {
-      if (!info) return undefined;
+      if (!info || isDesktop) return info;
       return mergePaneDimensions(info, dimensions?.cols, dimensions?.rows);
     },
-    [dimensions],
+    [dimensions, isDesktop],
   );
 
   return {
     role,
-    paneId: paneId ?? null,
+    paneId: boundPaneId,
     subscribePaneData,
     transport,
     ingestTerminalData,

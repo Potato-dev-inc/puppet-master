@@ -1,0 +1,4 @@
+
+[mcp_servers.puppet-master]
+command = "npx"
+args = ["-y", "@puppet-master/mcp"]

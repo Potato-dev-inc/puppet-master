@@ -89,6 +89,7 @@ struct ResizeBody {
     rows: u16,
 }
 
+
 #[derive(Debug, Deserialize)]
 struct ProjectPathBody {
     path: String,
@@ -418,11 +419,15 @@ pub fn push_settings_sse(settings: &serde_json::Value) {
     }
 }
 
-fn emit_panes_changed(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
+pub fn push_panes_sse(registry: &Arc<Mutex<PaneRegistry>>) {
     let panes = registry.lock().list();
     if let Ok(json) = serde_json::to_string(&panes) {
         push_sse(format!("event: panes\ndata: {json}\n\n"));
     }
+}
+
+fn emit_panes_changed(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
+    push_panes_sse(registry);
     let _ = app.emit("pty://panes-changed", json!({ "changed": true }));
 }
 

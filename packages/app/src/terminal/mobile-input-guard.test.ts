@@ -3,6 +3,9 @@ import {
   buildInputDelta,
   DEFAULT_MOBILE_BUFFER_MS,
   MobileInputGuard,
+  MOBILE_INPUT_ENGAGED_CLASS,
+  MOBILE_INPUT_HIDDEN_CLASS,
+  MOBILE_LONG_PRESS_MS,
   type MobileInputDelivery,
 } from './mobile-input-guard';
 import { buildReplacementInput } from './word-replacement';
@@ -40,13 +43,25 @@ describe('buildInputDelta', () => {
 describe('MobileInputGuard', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    if (typeof PointerEvent === 'undefined') {
+      class PointerEventPolyfill extends MouseEvent {
+        readonly pointerId: number;
+        readonly pointerType: string;
+        constructor(type: string, params: PointerEventInit = {}) {
+          super(type, params);
+          this.pointerId = params.pointerId ?? 0;
+          this.pointerType = params.pointerType ?? '';
+        }
+      }
+      vi.stubGlobal('PointerEvent', PointerEventPolyfill);
+    }
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  function createGuard(bufferDelayMs = TEST_BUFFER_MS) {
+  function createGuard(bufferDelayMs = TEST_BUFFER_MS, inputVisible?: boolean) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const emitted: Array<{ text: string; delivery: MobileInputDelivery }> = [];
@@ -55,13 +70,14 @@ describe('MobileInputGuard', () => {
     const guard = new MobileInputGuard({
       container,
       bufferDelayMs,
+      inputVisible,
       emitInput: (text, delivery) => emitted.push({ text, delivery }),
       scrollToCursor,
       onBufferChange: (text) => buffer.push(text),
     });
     const input = container.querySelector(
-      'input[data-mobile-terminal-input="true"]',
-    ) as HTMLInputElement;
+      '[data-mobile-terminal-input="true"]',
+    ) as HTMLTextAreaElement;
 
     return {
       buffer,
@@ -78,7 +94,7 @@ describe('MobileInputGuard', () => {
     };
   }
 
-  function dispatchInput(input: HTMLInputElement, value: string, inputType: string): void {
+  function dispatchInput(input: HTMLTextAreaElement, value: string, inputType: string): void {
     input.value = value;
     input.dispatchEvent(
       new InputEvent('input', {
@@ -89,18 +105,28 @@ describe('MobileInputGuard', () => {
     );
   }
 
-  it('defaults to a five second memory buffer', () => {
-    expect(DEFAULT_MOBILE_BUFFER_MS).toBe(5000);
+  it('defaults to a short memory buffer', () => {
+    expect(DEFAULT_MOBILE_BUFFER_MS).toBe(250);
   });
 
-  it('uses a normal HTML text input inside a form', () => {
+  it('uses a textarea command field inside a form', () => {
     const { cleanup, form, input } = createGuard();
 
     expect(form).toBeTruthy();
-    expect(input.type).toBe('text');
+    expect(input.tagName).toBe('TEXTAREA');
     expect(input.getAttribute('autocorrect')).toBe('on');
     cleanup();
   });
+
+  it('can hide the mobile command field while keeping the input mounted', () => {
+    const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false);
+
+    expect(container.classList.contains(MOBILE_INPUT_HIDDEN_CLASS)).toBe(true);
+    expect(input.isConnected).toBe(true);
+    cleanup();
+    expect(container.classList.contains(MOBILE_INPUT_HIDDEN_CLASS)).toBe(false);
+  });
+
 
   it('holds typing in the input field until the buffer timer expires', () => {
     const { cleanup, emitted, input } = createGuard();
@@ -116,6 +142,15 @@ describe('MobileInputGuard', () => {
 
     vi.advanceTimersByTime(1);
     expect(emitted).toEqual([{ text: 'su', delivery: 'immediate' }]);
+    cleanup();
+  });
+
+  it('flushes typing immediately when the buffer is disabled', () => {
+    const { cleanup, emitted, input } = createGuard(0);
+
+    dispatchInput(input, 'l', 'insertText');
+
+    expect(emitted).toEqual([{ text: 'l', delivery: 'immediate' }]);
     cleanup();
   });
 
@@ -223,26 +258,128 @@ describe('MobileInputGuard', () => {
     cleanup();
   });
 
-  it('focuses the input when the bottom-half tap zone is tapped', () => {
-    const { cleanup, container, guard, input } = createGuard();
-    const focusSpy = vi.spyOn(input, 'focus');
-    const zone = container.querySelector('[data-mobile-terminal-input-zone]') as HTMLDivElement;
+  function dispatchPointerPress(
+    container: HTMLElement,
+    durationMs: number,
+    clientX = 50,
+    clientY = 50,
+  ): void {
+    container.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        clientX,
+        clientY,
+        pointerId: 1,
+        pointerType: 'touch',
+      }),
+    );
+    if (durationMs > 0) {
+      vi.advanceTimersByTime(durationMs);
+    }
+    container.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        clientX,
+        clientY,
+        pointerId: 1,
+        pointerType: 'touch',
+      }),
+    );
+  }
 
-    guard.handleBackgroundTap(zone);
+  function dispatchShortTap(container: HTMLElement): void {
+    dispatchPointerPress(container, MOBILE_LONG_PRESS_MS - 1);
+  }
+
+  function dispatchLongPress(container: HTMLElement): void {
+    dispatchPointerPress(container, MOBILE_LONG_PRESS_MS);
+  }
+
+  it('focuses the input after a long press on the terminal area', () => {
+    const { cleanup, container, input } = createGuard();
+    const focusSpy = vi.spyOn(input, 'focus');
+
+    dispatchLongPress(container);
 
     expect(focusSpy).toHaveBeenCalled();
     cleanup();
   });
 
-  it('blurs the input when the top-half scroll zone is tapped', () => {
-    const { cleanup, container, guard, input } = createGuard();
-    guard.focus();
-    const blurSpy = vi.spyOn(input, 'blur');
-    const zone = container.querySelector('[data-mobile-terminal-scroll]') as HTMLDivElement;
+  it('does not focus the input on a short tap', () => {
+    const { cleanup, container, input } = createGuard();
+    const focusSpy = vi.spyOn(input, 'focus');
 
-    guard.handleBackgroundTap(zone);
+    dispatchShortTap(container);
 
-    expect(blurSpy).toHaveBeenCalled();
+    expect(focusSpy).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it('reveals the hidden command bar after a long press', () => {
+    const { cleanup, container, scrollToCursor } = createGuard(TEST_BUFFER_MS, false);
+
+    dispatchLongPress(container);
+
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
+    expect(scrollToCursor).toHaveBeenCalled();
+    cleanup();
+  });
+
+  it('hides the command bar again when the input blurs in hidden mode', () => {
+    const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false);
+
+    dispatchLongPress(container);
+    input.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(false);
+    cleanup();
+  });
+
+
+  it('sends arrow-up to the terminal when the up button is tapped', () => {
+    const { cleanup, container, emitted } = createGuard();
+
+    const up = container.querySelector(
+      '.terminal-mobile-arrow-button[aria-label="Up"]',
+    ) as HTMLButtonElement;
+    up.click();
+
+    expect(emitted).toEqual([{ text: '\x1b[A', delivery: 'immediate' }]);
+    cleanup();
+  });
+
+  it('sends arrow-down to the terminal when the down button is tapped', () => {
+    const { cleanup, container, emitted } = createGuard();
+
+    const down = container.querySelector(
+      '.terminal-mobile-arrow-button[aria-label="Down"]',
+    ) as HTMLButtonElement;
+    down.click();
+
+    expect(emitted).toEqual([{ text: '\x1b[B', delivery: 'immediate' }]);
+    cleanup();
+  });
+
+  it('flushes buffered text before sending arrow keys', () => {
+    const { cleanup, container, emitted, input } = createGuard();
+
+    dispatchInput(input, 'hi', 'insertText');
+    const up = container.querySelector(
+      '.terminal-mobile-arrow-button[aria-label="Up"]',
+    ) as HTMLButtonElement;
+    up.click();
+
+    expect(emitted).toEqual([
+      { text: 'hi', delivery: 'immediate' },
+      { text: '\x1b[A', delivery: 'immediate' },
+    ]);
+    cleanup();
+  });
+
+  it('shows arrow controls in hidden input mode', () => {
+    const { cleanup, container } = createGuard(TEST_BUFFER_MS, false);
+
+    expect(container.querySelector('[data-mobile-terminal-arrows]')).toBeTruthy();
     cleanup();
   });
 

@@ -18,7 +18,7 @@ Multi-agent terminal orchestrator. Spawn multiple AI coding agents — **Claude 
 │  └───────────────────────────┘                                     │
 │         │ Tauri events / commands                                  │
 │  ┌──────▼──────────────────┐                                       │
-│  │ Rust PaneRegistry       │ ← portable-pty (Windows ConPTY)       │
+│  │ Rust PaneRegistry       │ ← portable-pty (ConPTY / POSIX PTY)   │
 │  │  spawn / write / read   │                                       │
 │  │  / kill / resize        │                                       │
 │  └─────────────────────────┘                                       │
@@ -38,14 +38,13 @@ Multi-agent terminal orchestrator. Spawn multiple AI coding agents — **Claude 
 
 ## Prerequisites
 
-| Tool | Tested | Notes |
-|------|--------|-------|
-| Node | 22.x | |
-| Rust | 1.96+ | `rustup` |
-| MSVC | 14.51+ | Visual Studio Build Tools → "Desktop development with C++" |
-| Windows SDK | 10.0.26100+ | Installed with VS Build Tools |
+| Tool | Windows | macOS | Linux |
+|------|---------|-------|-------|
+| Node | 22.x | 22.x | 22.x |
+| Rust | 1.96+ (`rustup`) | 1.96+ (`rustup`) | 1.96+ (`rustup`) |
+| Build tools | MSVC 14.51+, Windows SDK 10.0.26100+ (VS Build Tools → "Desktop development with C++") | Xcode Command Line Tools (`xcode-select --install`) | `build-essential` (or distro equivalent) |
 
-Cursor / Codex / OpenCode / Claude Code CLIs must be on `PATH` (or in known locations) for the agent presets to spawn them.
+Agent presets resolve commands automatically for your OS (e.g. `claude.exe` on Windows, `claude` on macOS/Linux). Cursor / Codex / OpenCode / Claude Code CLIs must be on `PATH` for the presets to spawn them.
 
 ## Quick start
 

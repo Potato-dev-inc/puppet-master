@@ -1,8 +1,8 @@
-import { useTerminalSession, type TerminalTransport } from '../hooks/useTerminalSession';
 import type { PaneData } from '../hooks/usePaneRegistry';
+import { useOrchestratorSnapshotMirror } from '../hooks/useOrchestratorSnapshotMirror';
+import type { TerminalTransport } from '../hooks/useTerminalSession';
+import type { BridgeClient } from '../lib/bridge';
 import { BACKEND_LABEL, type CliOrchestratorBackend } from '../lib/orchestrator-panes';
-import { isMobileInputDevice } from '../terminal/mobile-input-guard';
-import type { TerminalRenderMode } from '../terminal';
 
 const STATUS_COLOR: Record<string, string> = {
   running: 'bg-pm-ok',
@@ -16,46 +16,37 @@ interface Props {
   pane: PaneData | undefined;
   starting: boolean;
   error: string | null;
-  subscribePaneData: (paneId: string, cb: (data: Uint8Array) => void) => () => void;
+  bridge: BridgeClient;
+  subscribeSnapshots: (paneId: string, cb: (snapshot: string) => void) => () => void;
   onRetry: () => void;
   transport?: TerminalTransport;
-  syncPTYResize?: boolean;
-  renderMode?: TerminalRenderMode;
   mobileInputDelayMs?: number;
   mobileInputVisible?: boolean;
 }
 
-function OrchestratorTerminalLive({
+function OrchestratorSnapshotMirrorLive({
   backend,
   pane,
-  subscribePaneData,
+  bridge,
+  subscribeSnapshots,
   transport,
-  syncPTYResize = true,
-  renderMode,
   mobileInputDelayMs,
   mobileInputVisible,
 }: {
   backend: CliOrchestratorBackend;
   pane: PaneData;
-  subscribePaneData: (paneId: string, cb: (data: Uint8Array) => void) => () => void;
+  bridge: BridgeClient;
+  subscribeSnapshots: (paneId: string, cb: (snapshot: string) => void) => () => void;
   transport?: TerminalTransport;
-  syncPTYResize?: boolean;
-  renderMode?: TerminalRenderMode;
   mobileInputDelayMs?: number;
   mobileInputVisible?: boolean;
 }) {
-  const mobileMirror = !syncPTYResize && isMobileInputDevice();
-  const effectiveRenderMode =
-    renderMode ?? (mobileMirror ? 'mirror-same-grid' : undefined);
-  const containerRef = useTerminalSession({
+  const containerRef = useOrchestratorSnapshotMirror({
     paneId: pane.info.id,
     sessionKey: pane.info.created_at,
-    subscribePaneData,
-      transport,
-    syncPTYResize,
-    renderMode: effectiveRenderMode,
-    ptyCols: pane.info.cols,
-    ptyRows: pane.info.rows,
+    bridge,
+    transport,
+    subscribeSnapshots,
     mobileInputDelayMs,
     mobileInputVisible,
   });
@@ -71,24 +62,20 @@ function OrchestratorTerminalLive({
         <span className="font-medium">{label}</span>
         <span className="text-pm-muted truncate">orchestrator · pid {pane.info.pid}</span>
       </div>
-      <div
-        ref={containerRef}
-        className={`flex-1 min-h-0 terminal-host ${mobileMirror ? 'overflow-auto' : 'overflow-hidden'} ${effectiveRenderMode === 'mirror-same-grid' ? 'terminal-host--mirror-grid' : ''}`}
-      />
+      <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden terminal-host overflow-auto" />
     </div>
   );
 }
 
-export function OrchestratorTerminal({
+export function OrchestratorSnapshotMirror({
   backend,
   pane,
   starting,
   error,
-  subscribePaneData,
+  bridge,
+  subscribeSnapshots,
   onRetry,
   transport,
-  syncPTYResize = true,
-  renderMode,
   mobileInputDelayMs,
   mobileInputVisible,
 }: Props) {
@@ -118,13 +105,12 @@ export function OrchestratorTerminal({
   }
 
   return (
-    <OrchestratorTerminalLive
+    <OrchestratorSnapshotMirrorLive
       backend={backend}
       pane={pane}
-      subscribePaneData={subscribePaneData}
+      bridge={bridge}
+      subscribeSnapshots={subscribeSnapshots}
       transport={transport}
-      syncPTYResize={syncPTYResize}
-      renderMode={renderMode}
       mobileInputDelayMs={mobileInputDelayMs}
       mobileInputVisible={mobileInputVisible}
     />

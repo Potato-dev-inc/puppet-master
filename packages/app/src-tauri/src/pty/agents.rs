@@ -4,6 +4,7 @@
 //! evolve independently. The `agent_type` strings here are the same as the
 //! TypeScript enum.
 
+use crate::platform::{current_os, Os};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -47,6 +48,14 @@ impl AgentType {
 /// .bat wrappers (npm-installed CLIs) require special invocation through
 /// `cmd.exe /C` because CreateProcess does not execute them directly.
 pub fn resolve_command(agent: AgentType) -> (&'static str, Vec<&'static str>) {
+    match current_os() {
+        Os::Windows => resolve_windows(agent),
+        Os::MacOs => resolve_macos(agent),
+        Os::Linux => resolve_linux(agent),
+    }
+}
+
+fn resolve_windows(agent: AgentType) -> (&'static str, Vec<&'static str>) {
     match agent {
         AgentType::Claude => ("claude.exe", vec![]),
         AgentType::Codex => (
@@ -62,5 +71,43 @@ pub fn resolve_command(agent: AgentType) -> (&'static str, Vec<&'static str>) {
         AgentType::Powershell => ("powershell.exe", vec!["-NoLogo"]),
         AgentType::Bash => ("bash.exe", vec!["--login"]),
         AgentType::Cursor => ("cursor.cmd", vec![]),
+    }
+}
+
+fn resolve_macos(agent: AgentType) -> (&'static str, Vec<&'static str>) {
+    match agent {
+        AgentType::Claude => ("claude", vec![]),
+        AgentType::Codex => (
+            "codex",
+            vec![
+                "--sandbox",
+                "workspace-write",
+                "--ask-for-approval",
+                "never",
+            ],
+        ),
+        AgentType::Opencode => ("opencode", vec![]),
+        AgentType::Powershell => ("pwsh", vec!["-NoLogo"]),
+        AgentType::Bash => ("zsh", vec!["-l"]),
+        AgentType::Cursor => ("cursor", vec![]),
+    }
+}
+
+fn resolve_linux(agent: AgentType) -> (&'static str, Vec<&'static str>) {
+    match agent {
+        AgentType::Claude => ("claude", vec![]),
+        AgentType::Codex => (
+            "codex",
+            vec![
+                "--sandbox",
+                "workspace-write",
+                "--ask-for-approval",
+                "never",
+            ],
+        ),
+        AgentType::Opencode => ("opencode", vec![]),
+        AgentType::Powershell => ("pwsh", vec!["-NoLogo"]),
+        AgentType::Bash => ("bash", vec!["--login"]),
+        AgentType::Cursor => ("cursor", vec![]),
     }
 }

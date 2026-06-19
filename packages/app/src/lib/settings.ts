@@ -6,7 +6,7 @@ import {
   type LlmProvider,
   type Settings,
 } from '@puppet-master/shared';
-import { toPublicSettings } from './bridge-settings';
+import { clampMobileInputDelayMs, toPublicSettings } from './bridge-settings';
 import { tauri } from './tauri';
 
 const STORE_FILE = 'puppet-master.settings.json';
@@ -31,13 +31,19 @@ const DEFAULT_SETTINGS: Settings = {
   default_model: 'claude-sonnet-4-6',
   custom_models: [],
   orchestrator_backend: 'api',
-  mobile_input_delay_ms: 5000,
+  mobile_input_delay_ms: 250,
+  mobile_input_visible: true,
 };
 
 export async function loadSettings(): Promise<Settings> {
   try {
     const raw = await store().get<Settings>(KEY);
-    return { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
+    const merged = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
+    return {
+      ...merged,
+      mobile_input_delay_ms: clampMobileInputDelayMs(merged.mobile_input_delay_ms),
+      mobile_input_visible: merged.mobile_input_visible ?? true,
+    };
   } catch {
     return DEFAULT_SETTINGS;
   }
