@@ -1,3 +1,4 @@
+import { homeDir } from '@tauri-apps/api/path';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useCallback, useState } from 'react';
 import { listPresets, type AgentType } from '@puppet-master/shared';
@@ -24,7 +25,11 @@ export function WorkspaceHeader({
   const presets = listPresets();
 
   const pickPath = useCallback(async () => {
-    const result = await openDialog({ directory: true, multiple: false });
+    const result = await openDialog({
+      directory: true,
+      multiple: false,
+      defaultPath: (await homeDir()) ?? undefined,
+    });
     if (typeof result === 'string') {
       await onProjectPathChange(result);
     }

@@ -1,6 +1,6 @@
 {
   "name": "puppet-master",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Puppet Master — multi-agent terminal orchestrator (Tauri + React + MCP)",
   "repository": {

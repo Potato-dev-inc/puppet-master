@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { tauri } from '../lib/tauri';
 import { loadSettings, saveSettings } from '../lib/settings';
+import { isValidProjectPath } from '../lib/project-path';
+import { tauri } from '../lib/tauri';
 
 export function useProjectPath() {
   const [projectPath, setProjectPathState] = useState<string | null>(null);
@@ -12,7 +13,7 @@ export function useProjectPath() {
         const settings = await loadSettings();
         const fromRegistry = (await tauri.getProjectPath()) || null;
         const path = settings.project_path ?? fromRegistry;
-        if (path) {
+        if (isValidProjectPath(path)) {
           await tauri.setProjectPath(path);
           setProjectPathState(path);
         }

@@ -23,6 +23,7 @@ import {
   isCliOrchestratorBackend,
   type CliOrchestratorBackend,
 } from '../lib/orchestrator-panes';
+import { isValidProjectPath } from '../lib/project-path';
 import { OrchestratorTerminal } from './OrchestratorTerminal';
 
 interface UiLogEntry {
@@ -110,7 +111,7 @@ export function PuppetMasterSidebar({
   }, [registry]);
 
   useEffect(() => {
-    if (!cliBackend || !projectPath) {
+    if (!cliBackend || !isValidProjectPath(projectPath)) {
       setOrchestratorError(null);
       setOrchestratorStarting(false);
       return;
@@ -154,7 +155,7 @@ export function PuppetMasterSidebar({
       unlistenEnsure = await tauri.onOrchestratorEnsure(async (payload) => {
         if (!isCliOrchestratorBackend(payload.backend as OrchestratorBackend)) return;
         const cwd = projectPath ?? (await tauri.getProjectPath());
-        if (cwd) void startOrchestratorPane(payload.backend as CliOrchestratorBackend, cwd);
+        if (isValidProjectPath(cwd)) void startOrchestratorPane(payload.backend as CliOrchestratorBackend, cwd);
       });
       if (cancelled) {
         unlistenSettings?.();
@@ -539,7 +540,7 @@ export function PuppetMasterSidebar({
               await saveSettings({ ...s, orchestrator_backend: next });
               if (isCliOrchestratorBackend(next)) {
                 const cwd = projectPath ?? (await tauri.getProjectPath());
-                if (cwd) void startOrchestratorPane(next, cwd);
+                if (isValidProjectPath(cwd)) void startOrchestratorPane(next, cwd);
               }
             }}
             className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-1 py-0.5 text-xs"

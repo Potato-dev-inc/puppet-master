@@ -5,19 +5,6 @@ import { resolve } from 'node:path';
 import { bridgeProxyConfig } from './vite-bridge-proxy';
 import { devInfoPlugin } from './vite-dev-info';
 
-/** Tunnel / reverse-proxy host suffixes — leading `.` allows any subdomain (Vite 5.4+). */
-const TUNNEL_ALLOWED_HOSTS = [
-  '.trycloudflare.com',
-  '.ngrok-free.app',
-  '.ngrok.io',
-  '.ngrok.app',
-  '.v7ren.xyz',
-  '.v7ren.com',
-  ...(process.env.PUPPET_MASTER_ALLOWED_HOSTS?.split(',')
-    .map((host) => host.trim())
-    .filter(Boolean) ?? []),
-];
-
 export default defineConfig({
   plugins: [
     react(),
@@ -61,7 +48,7 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     host: true,
-    allowedHosts: TUNNEL_ALLOWED_HOSTS,
+    allowedHosts: true,
     proxy: bridgeProxyConfig,
     watch: {
       ignored: ['**/src-tauri/**'],
@@ -69,7 +56,7 @@ export default defineConfig({
   },
   preview: {
     host: true,
-    allowedHosts: TUNNEL_ALLOWED_HOSTS,
+    allowedHosts: true,
     proxy: bridgeProxyConfig,
   },
   envPrefix: ['VITE_', 'TAURI_'],

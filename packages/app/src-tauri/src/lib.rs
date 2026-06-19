@@ -3,8 +3,10 @@ mod commands;
 mod mcp_install;
 mod mobile_pairing;
 mod platform;
+mod project_path;
 mod pty;
 mod settings_store;
+mod shell_env;
 
 use commands::AppState;
 use std::path::PathBuf;
@@ -12,6 +14,8 @@ use tauri::{Listener, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    shell_env::apply_to_process();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {

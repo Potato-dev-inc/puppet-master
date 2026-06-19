@@ -3,7 +3,7 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub const MCP_SERVER_NAME: &str = "puppet-master";
 const MCP_COMMAND: &str = "npx";
@@ -19,13 +19,12 @@ pub struct EnsureMcpResult {
 }
 
 pub fn ensure_orchestrator_mcp(backend: &str, cwd: &Path) -> Result<EnsureMcpResult, String> {
-    if cwd.as_os_str().is_empty() {
-        return Err("project path is required to install orchestrator MCP".into());
-    }
+    // Shared guard for Claude (.mcp.json), Codex (.codex), and OpenCode (opencode.json).
+    let cwd = crate::project_path::normalize_project_path(cwd)?;
     match backend {
-        "claude_cli" => ensure_claude_mcp(cwd),
-        "codex_cli" => ensure_codex_mcp(cwd),
-        "opencode_cli" => ensure_opencode_mcp(cwd),
+        "claude_cli" => ensure_claude_mcp(&cwd),
+        "codex_cli" => ensure_codex_mcp(&cwd),
+        "opencode_cli" => ensure_opencode_mcp(&cwd),
         other => Err(format!("unsupported orchestrator backend: {other}")),
     }
 }
@@ -116,7 +115,7 @@ fn mcp_settings_approves_any(cwd: &Path, server_names: &[String]) -> bool {
         cwd.join(".claude").join("settings.json"),
         cwd.join(".claude").join("settings.local.json"),
     ];
-    if let Some(home) = home_dir() {
+    if let Some(home) = crate::project_path::home_dir() {
         sources.insert(0, home.join(".claude").join("settings.json"));
     }
     sources
@@ -286,12 +285,6 @@ fn ensure_opencode_mcp(cwd: &Path) -> Result<EnsureMcpResult, String> {
     })
 }
 
-fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,5 +336,16 @@ mod tests {
         assert!(result.installed);
         assert!(result.changed);
         assert!(opencode_mcp_installed(&cwd));
+    }
+
+    #[test]
+    fn all_cli_backends_reject_root_project_path() {
+        for backend in ["claude_cli", "codex_cli", "opencode_cli"] {
+            let err = ensure_orchestrator_mcp(backend, Path::new("/")).unwrap_err();
+            assert!(
+                err.contains("Pick a project folder"),
+                "backend {backend}: {err}"
+            );
+        }
     }
 }

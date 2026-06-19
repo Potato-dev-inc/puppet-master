@@ -23,9 +23,7 @@ const READ_CHUNK_MS: u64 = 30;
 
 /// Default project cwd used when no project path has been set.
 fn default_cwd() -> String {
-    std::env::current_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| ".".to_string())
+    crate::project_path::default_project_path()
 }
 
 /// Public, JSON-serializable pane state returned to the frontend / bridge.
@@ -166,6 +164,7 @@ fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) -> CommandB
             cmd_builder.arg(a);
         }
         cmd_builder.cwd(cwd);
+        cmd_builder.env("PATH", crate::shell_env::path_for_spawn());
         cmd_builder.env("TERM", "xterm-256color");
         cmd_builder.env("COLORTERM", "truecolor");
         return cmd_builder;
@@ -181,6 +180,7 @@ fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) -> CommandB
             cmd_builder.arg(a);
         }
         cmd_builder.cwd(cwd);
+        cmd_builder.env("PATH", crate::shell_env::path_for_spawn());
         cmd_builder.env("TERM", "xterm-256color");
         cmd_builder.env("COLORTERM", "truecolor");
         cmd_builder
@@ -209,10 +209,12 @@ pub fn spawn_pane(
     let agent = AgentType::parse(&args.agent_type)
         .ok_or_else(|| format!("unknown agent_type: {}", args.agent_type))?;
 
-    let cwd = args
-        .cwd
-        .clone()
-        .unwrap_or_else(|| registry.lock().project_path.clone());
+    let cwd = crate::project_path::resolve_spawn_cwd(
+        args.cwd.clone(),
+        registry.lock().project_path.clone(),
+    )?
+    .to_string_lossy()
+    .to_string();
 
     let cols = args.cols.unwrap_or(120);
     let rows = args.rows.unwrap_or(30);
@@ -546,11 +548,17 @@ pub fn kill_all(registry: &Mutex<PaneRegistry>) {
 
 #[allow(dead_code)]
 pub fn set_project_path(registry: &Mutex<PaneRegistry>, path: String) {
-    registry.lock().project_path = path;
+    if crate::project_path::is_valid_project_path(std::path::Path::new(&path)) {
+        registry.lock().project_path = path;
+    }
 }
 
 pub fn get_project_path(registry: &Mutex<PaneRegistry>) -> String {
-    registry.lock().project_path.clone()
+    let mut guard = registry.lock();
+    if !crate::project_path::is_valid_project_path(std::path::Path::new(&guard.project_path)) {
+        guard.project_path = default_cwd();
+    }
+    guard.project_path.clone()
 }
 
 #[derive(Debug, Clone, Serialize)]

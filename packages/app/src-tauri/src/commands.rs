@@ -134,6 +134,7 @@ pub async fn sync_public_settings(
 
 #[tauri::command]
 pub async fn set_project_path(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    crate::project_path::normalize_project_path(std::path::Path::new(&path))?;
     registry_set_project_path(&state.registry, path);
     Ok(())
 }
