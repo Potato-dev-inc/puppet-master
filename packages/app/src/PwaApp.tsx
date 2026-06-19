@@ -3,7 +3,6 @@ import {
   DEFAULT_LLM_MODELS,
   ORCHESTRATOR_BACKEND_LABELS,
   modelKey,
-  type LlmModel,
   type OrchestratorBackend,
   type OrchestratorChatEvent,
   type PaneInfo,
@@ -148,7 +147,6 @@ function OrchestratorTab({
   bridgeReady,
   chatEvents,
   settings,
-  onSettings,
   registry,
   orchestratorTunnel,
   settingsHydrated,
@@ -158,16 +156,11 @@ function OrchestratorTab({
   settingsHydrated: boolean;
   chatEvents: OrchestratorChatEvent[];
   settings: PublicSettings;
-  onSettings: (next: PublicSettings) => void;
   registry: ReturnType<typeof useBridgePaneRegistry>;
   orchestratorTunnel: PaneTunnelApi;
 }) {
   const backend = settings.orchestrator_backend ?? 'api';
   const cliBackend = isCliOrchestratorBackend(backend) ? backend : null;
-  const models = DEFAULT_LLM_MODELS;
-  const activeModel =
-    models.find((m) => m.provider === settings.default_provider && m.model_id === settings.default_model) ??
-    models[0];
 
   const orchestratorPane = useMemo(() => {
     if (!cliBackend) return undefined;
@@ -182,99 +175,12 @@ function OrchestratorTab({
     return { ...orchestratorPane, info };
   }, [orchestratorPane, orchestratorTunnel.mergePaneInfo]);
 
-
   const patchBackend = async (next: OrchestratorBackend) => {
-    const updated = await bridge.patchSettings({ orchestrator_backend: next });
-    onSettings(updated);
-  };
-
-  const patchModel = async (model: LlmModel) => {
-    const updated = await bridge.patchSettings({
-      default_provider: model.provider,
-      default_model: model.model_id,
-    });
-    onSettings(updated);
-  };
-
-  const patchMobileInputVisible = async (visible: boolean) => {
-    const updated = await bridge.patchSettings({ mobile_input_visible: visible });
-    onSettings(updated);
-  };
-
-  const patchMobileInputDelay = async (value: number) => {
-    const delayMs = Number.isFinite(value)
-      ? value <= 0
-        ? 0
-        : Math.min(1000, Math.max(50, Math.round(value)))
-      : 250;
-    const updated = await bridge.patchSettings({ mobile_input_delay_ms: delayMs });
-    onSettings(updated);
+    await bridge.patchSettings({ orchestrator_backend: next });
   };
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex flex-col gap-1 px-3 py-2 border-b border-pm-border text-xs shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-pm-muted shrink-0">Backend:</span>
-          <select
-            value={backend}
-            disabled={!bridgeReady}
-            onChange={(e) => void patchBackend(e.target.value as OrchestratorBackend)}
-            className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-1 py-0.5 text-xs"
-          >
-            {(Object.keys(ORCHESTRATOR_BACKEND_LABELS) as OrchestratorBackend[]).map((b) => (
-              <option key={b} value={b}>
-                {ORCHESTRATOR_BACKEND_LABELS[b]}
-              </option>
-            ))}
-          </select>
-        </div>
-        {backend === 'api' && (
-          <div className="flex items-center gap-2">
-            <span className="text-pm-muted shrink-0">Model:</span>
-            <select
-              value={modelKey(activeModel)}
-              disabled={!bridgeReady}
-              onChange={(e) => {
-                const found = models.find((m) => modelKey(m) === e.target.value);
-                if (found) void patchModel(found);
-              }}
-              className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-1 py-0.5 text-xs"
-            >
-              {models.map((m) => (
-                <option key={modelKey(m)} value={modelKey(m)}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-        <label className="flex items-center justify-between gap-2 text-pm-muted">
-          <span className="shrink-0">Input box:</span>
-          <input
-            type="checkbox"
-            checked={settings.mobile_input_visible ?? true}
-            disabled={!bridgeReady}
-            onChange={(e) => void patchMobileInputVisible(e.target.checked)}
-            className="h-4 w-4 accent-pm-accent"
-          />
-        </label>
-        <label className="flex items-center gap-2 text-pm-muted">
-          <span className="shrink-0">Buffer:</span>
-          <input
-            type="number"
-            min={0}
-            max={1000}
-            step={50}
-            value={settings.mobile_input_delay_ms ?? 250}
-            disabled={!bridgeReady}
-            onChange={(e) => void patchMobileInputDelay(Number(e.target.value))}
-            className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-1 py-0.5 text-xs font-mono text-pm-text"
-          />
-          <span className="shrink-0">ms</span>
-        </label>
-      </div>
-
       <div className="flex-1 min-h-0 flex flex-col">
         {cliBackend ? (
           <OrchestratorTerminal
@@ -450,120 +356,45 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 function PanesTab({
-  bridge,
   panes,
   bridgeReady,
   registry,
   mobileInputDelayMs,
   mobileInputVisible,
+  selected,
+  onSelect,
 }: {
-  bridge: BridgeClient;
   panes: PaneInfo[];
   bridgeReady: boolean;
   registry: ReturnType<typeof useBridgePaneRegistry>;
   mobileInputDelayMs?: number;
   mobileInputVisible?: boolean;
+  selected: string | null;
+  onSelect: (paneId: string | null) => void;
 }) {
-  const [selected, setSelected] = useState<string | null>(null);
-  const [showNewPane, setShowNewPane] = useState(false);
-  const [spawning, setSpawning] = useState(false);
-  const [spawnError, setSpawnError] = useState<string | null>(null);
-  const presets = listPresets();
-
-  const refresh = useCallback(async () => {
-    try {
-      const list = await bridge.listPanes();
-      registry.setPanesFromList(list);
-    } catch {
-      /* ignore */
-    }
-  }, [bridge, registry]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
   const selectedPane = selected ? registry.panes.get(selected) : undefined;
   const selectedTransport = useBridgePaneTransport(registry.makeTransport, selected ?? 'pane-placeholder');
 
-  const spawnPane = useCallback(async (agentType: AgentType) => {
-    setShowNewPane(false);
-    setSpawning(true);
-    setSpawnError(null);
-    try {
-      const { pane_id } = await bridge.spawnPane({ agent_type: agentType, cols: 120, rows: 30 });
-      await refresh();
-      setSelected(pane_id);
-    } catch (e) {
-      setSpawnError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSpawning(false);
-    }
-  }, [bridge, refresh]);
-
-  const killPane = useCallback(async (paneId: string) => {
-    try {
-      await bridge.killPane(paneId);
-      if (selected === paneId) {
-        setSelected(null);
-      }
-      await refresh();
-    } catch (e) {
-      setSpawnError(e instanceof Error ? e.message : String(e));
-    }
-  }, [bridge, refresh, selected]);
-
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-pm-border">
-        <span className="text-xs text-pm-muted">{panes.length} pane{panes.length !== 1 ? 's' : ''}</span>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowNewPane((open) => !open)}
-              disabled={!bridgeReady || spawning}
-              className="text-xs text-pm-accent px-2 py-0.5 rounded border border-pm-accent/50 bg-pm-accent/10 disabled:opacity-40"
-            >
-              {spawning ? 'Spawning…' : '+ New'}
-            </button>
-            {showNewPane && (
-              <div className="absolute top-full right-0 mt-1 z-20 w-52 max-h-64 overflow-y-auto rounded-md border border-pm-border bg-pm-panel shadow-lg">
-                {presets.map((preset) => (
-                  <button
-                    key={preset.type}
-                    type="button"
-                    onClick={() => void spawnPane(preset.type)}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-pm-border/40 border-b border-pm-border/30 last:border-b-0"
-                  >
-                    <div className="font-medium text-zinc-100">{preset.label}</div>
-                    <div className="text-[10px] text-pm-muted truncate">{preset.description}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="text-xs text-pm-muted px-2 py-0.5 rounded border border-pm-border hover:bg-pm-border/40"
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
-      {spawnError && (
-        <div className="px-3 py-1.5 text-[10px] text-pm-err border-b border-pm-border bg-pm-err/5">
-          {spawnError}
-        </div>
-      )}
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      {selected && selectedPane ? (
+        <BridgePaneTerminal
+          pane={selectedPane.info}
+          status={selectedPane.status}
+          subscribePaneData={registry.subscribePaneData}
+          transport={selectedTransport}
+          title={selectedPane.info.agent_type}
+          mobileInputDelayMs={mobileInputDelayMs}
+          mobileInputVisible={mobileInputVisible}
+        />
+      ) : (
+      <div className="flex-1 min-h-0 overflow-y-auto pt-16">
         {!bridgeReady && (
           <div className="text-xs text-pm-muted text-center py-6">Connecting to desktop…</div>
         )}
         {bridgeReady && panes.length === 0 && (
           <div className="text-xs text-pm-muted text-center py-6 px-4">
-            No panes yet. Tap <span className="text-pm-accent">+ New</span> to spawn an agent on your PC.
+            No panes yet. Open the menu to spawn an agent on your PC.
           </div>
         )}
         {panes.map((pane) => (
@@ -573,37 +404,257 @@ function PanesTab({
           >
             <button
               type="button"
-              onClick={() => setSelected(pane.id)}
+              onClick={() => onSelect(pane.id)}
               className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 text-left hover:bg-pm-raised/60 text-xs"
             >
               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLOR[pane.status] ?? 'bg-pm-muted'}`} />
               <span className="font-mono text-zinc-200 truncate flex-1">{pane.agent_type}</span>
               <span className="text-pm-muted text-[10px]">{pane.status}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => void killPane(pane.id)}
-              className="shrink-0 px-2 py-2 text-[10px] text-pm-muted hover:text-pm-err"
-              title="Close pane"
-            >
-              ✕
-            </button>
           </div>
         ))}
       </div>
-      {selected && selectedPane && (
-        <div className="border-t border-pm-border flex flex-col min-h-[40vh] max-h-[55vh]">
-          <BridgePaneTerminal
-            pane={selectedPane.info}
-            status={selectedPane.status}
-            subscribePaneData={registry.subscribePaneData}
-            transport={selectedTransport}
-            title={selectedPane.info.agent_type}
-            mobileInputDelayMs={mobileInputDelayMs}
-            mobileInputVisible={mobileInputVisible}
-          />
+      )}
+    </div>
+  );
+}
+
+function FloatingMobileMenu({
+  open,
+  onOpenChange,
+  bridgeReady,
+  tab,
+  onTabChange,
+  onEditConnection,
+  settings,
+  onPatchSettings,
+  panes,
+  selectedPaneId,
+  onSelectPane,
+  onRefreshPanes,
+  onSpawnPane,
+  onKillSelectedPane,
+  spawning,
+  spawnError,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  bridgeReady: boolean;
+  tab: 'chat' | 'panes';
+  onTabChange: (tab: 'chat' | 'panes') => void;
+  onEditConnection: () => void;
+  settings: PublicSettings;
+  onPatchSettings: (patch: Partial<PublicSettings>) => Promise<void>;
+  panes: PaneInfo[];
+  selectedPaneId: string | null;
+  onSelectPane: (paneId: string | null) => void;
+  onRefreshPanes: () => Promise<void>;
+  onSpawnPane: (agentType: AgentType) => Promise<void>;
+  onKillSelectedPane: () => Promise<void>;
+  spawning: boolean;
+  spawnError: string | null;
+}) {
+  const models = DEFAULT_LLM_MODELS;
+  const presets = listPresets();
+  const backend = settings.orchestrator_backend ?? 'api';
+  const activeModel =
+    models.find((m) => m.provider === settings.default_provider && m.model_id === settings.default_model) ??
+    models[0];
+
+  const patchMobileInputDelay = async (value: number) => {
+    const delayMs = Number.isFinite(value)
+      ? value <= 0
+        ? 0
+        : Math.min(1000, Math.max(50, Math.round(value)))
+      : 250;
+    await onPatchSettings({ mobile_input_delay_ms: delayMs });
+  };
+
+  return (
+    <div className="fixed top-[calc(10px+env(safe-area-inset-top,0px))] right-3 z-50 flex flex-col items-end gap-2">
+      {open && (
+        <div className="w-[min(calc(100vw-24px),22rem)] max-h-[calc(100dvh-92px)] overflow-y-auto rounded-lg border border-pm-border bg-pm-panel/95 p-3 text-xs shadow-2xl backdrop-blur">
+          <div className="flex items-center gap-2 pb-2 border-b border-pm-border">
+            <span
+              className={`w-2 h-2 rounded-full ${bridgeReady ? 'bg-pm-ok' : 'bg-pm-warn'}`}
+              title={bridgeReady ? 'Connected' : 'Connecting'}
+            />
+            <span className="font-semibold text-zinc-100 flex-1">Puppet Master</span>
+            <button
+              type="button"
+              onClick={onEditConnection}
+              className="rounded border border-pm-border px-2 py-1 text-pm-muted hover:bg-pm-border/40 hover:text-zinc-100"
+            >
+              Edit
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 py-3">
+            <button
+              type="button"
+              onClick={() => onTabChange('chat')}
+              className={`rounded border px-2 py-2 ${
+                tab === 'chat'
+                  ? 'border-pm-accent bg-pm-accent/15 text-pm-accent'
+                  : 'border-pm-border text-pm-muted hover:bg-pm-border/40'
+              }`}
+            >
+              Orchestrator
+            </button>
+            <button
+              type="button"
+              onClick={() => onTabChange('panes')}
+              className={`rounded border px-2 py-2 ${
+                tab === 'panes'
+                  ? 'border-pm-accent bg-pm-accent/15 text-pm-accent'
+                  : 'border-pm-border text-pm-muted hover:bg-pm-border/40'
+              }`}
+            >
+              Panes
+            </button>
+          </div>
+
+          {tab === 'chat' && (
+            <div className="space-y-2 border-t border-pm-border pt-3">
+              <label className="flex items-center gap-2 text-pm-muted">
+                <span className="w-16 shrink-0">Backend</span>
+                <select
+                  value={backend}
+                  disabled={!bridgeReady}
+                  onChange={(e) => void onPatchSettings({ orchestrator_backend: e.target.value as OrchestratorBackend })}
+                  className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-2 py-1 text-xs text-pm-text"
+                >
+                  {(Object.keys(ORCHESTRATOR_BACKEND_LABELS) as OrchestratorBackend[]).map((b) => (
+                    <option key={b} value={b}>
+                      {ORCHESTRATOR_BACKEND_LABELS[b]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {backend === 'api' && (
+                <label className="flex items-center gap-2 text-pm-muted">
+                  <span className="w-16 shrink-0">Model</span>
+                  <select
+                    value={modelKey(activeModel)}
+                    disabled={!bridgeReady}
+                    onChange={(e) => {
+                      const found = models.find((m) => modelKey(m) === e.target.value);
+                      if (found) void onPatchSettings({
+                        default_provider: found.provider,
+                        default_model: found.model_id,
+                      });
+                    }}
+                    className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-2 py-1 text-xs text-pm-text"
+                  >
+                    {models.map((m) => (
+                      <option key={modelKey(m)} value={modelKey(m)}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
+
+          {tab === 'panes' && (
+            <div className="space-y-2 border-t border-pm-border pt-3">
+              <label className="flex items-center gap-2 text-pm-muted">
+                <span className="w-16 shrink-0">Pane</span>
+                <select
+                  value={selectedPaneId ?? ''}
+                  disabled={!bridgeReady || panes.length === 0}
+                  onChange={(e) => onSelectPane(e.target.value || null)}
+                  className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-2 py-1 text-xs text-pm-text"
+                >
+                  <option value="">Pane list</option>
+                  {panes.map((pane) => (
+                    <option key={pane.id} value={pane.id}>
+                      {pane.agent_type} · {pane.status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => void onRefreshPanes()}
+                  className="rounded border border-pm-border px-2 py-2 text-pm-muted hover:bg-pm-border/40"
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedPaneId}
+                  onClick={() => void onKillSelectedPane()}
+                  className="rounded border border-pm-border px-2 py-2 text-pm-muted hover:bg-pm-border/40 disabled:opacity-40"
+                >
+                  Close
+                </button>
+              </div>
+              {spawnError && (
+                <div className="rounded border border-pm-err/40 bg-pm-err/5 p-2 text-[10px] text-pm-err">
+                  {spawnError}
+                </div>
+              )}
+              <div className="pt-1">
+                <div className="pb-1 text-[10px] uppercase tracking-wide text-pm-muted">
+                  New pane
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {presets.map((preset) => (
+                    <button
+                      key={preset.type}
+                      type="button"
+                      disabled={!bridgeReady || spawning}
+                      onClick={() => void onSpawnPane(preset.type)}
+                      className="rounded border border-pm-border px-2 py-2 text-left text-zinc-100 hover:bg-pm-border/40 disabled:opacity-40"
+                    >
+                      <span className="block truncate">{preset.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2 border-t border-pm-border mt-3 pt-3">
+            <label className="flex items-center justify-between gap-2 text-pm-muted">
+              <span>Input box</span>
+              <input
+                type="checkbox"
+                checked={settings.mobile_input_visible ?? true}
+                disabled={!bridgeReady}
+                onChange={(e) => void onPatchSettings({ mobile_input_visible: e.target.checked })}
+                className="h-4 w-4 accent-pm-accent"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-pm-muted">
+              <span className="w-16 shrink-0">Buffer</span>
+              <input
+                type="number"
+                min={0}
+                max={1000}
+                step={50}
+                value={settings.mobile_input_delay_ms ?? 250}
+                disabled={!bridgeReady}
+                onChange={(e) => void patchMobileInputDelay(Number(e.target.value))}
+                className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-2 py-1 text-xs font-mono text-pm-text"
+              />
+              <span className="shrink-0">ms</span>
+            </label>
+          </div>
         </div>
       )}
+      <button
+        type="button"
+        aria-label={open ? 'Close controls' : 'Open controls'}
+        aria-expanded={open}
+        onClick={() => onOpenChange(!open)}
+        className="flex h-12 w-12 items-center justify-center rounded-full border border-pm-border bg-pm-accent text-pm-bg text-2xl leading-none shadow-2xl"
+      >
+        {open ? '×' : '⋯'}
+      </button>
     </div>
   );
 }
@@ -622,6 +673,10 @@ export default function PwaApp() {
   const [settingsHydrated, setSettingsHydrated] = useState(false);
   const [tab, setTab] = useState<'chat' | 'panes'>('chat');
   const [editingUrl, setEditingUrl] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [selectedPaneId, setSelectedPaneId] = useState<string | null>(null);
+  const [spawning, setSpawning] = useState(false);
+  const [spawnError, setSpawnError] = useState<string | null>(null);
   const registry = useBridgePaneRegistry(bridge);
   const registryRef = useRef(registry);
   registryRef.current = registry;
@@ -712,6 +767,54 @@ export default function PwaApp() {
     return unsub;
   }, [bridgeUrl]);
 
+  useEffect(() => {
+    if (tab !== 'panes') return;
+    if (selectedPaneId && panes.some((pane) => pane.id === selectedPaneId)) return;
+    setSelectedPaneId(panes[0]?.id ?? null);
+  }, [panes, selectedPaneId, tab]);
+
+  const patchSettings = useCallback(async (patch: Partial<PublicSettings>) => {
+    if (!bridge) return;
+    const updated = await bridge.patchSettings(patch);
+    setSettings(updated);
+  }, [bridge]);
+
+  const refreshPanes = useCallback(async () => {
+    if (!bridge) return;
+    const list = await bridge.listPanes();
+    setPanes(list);
+    registryRef.current.setPanesFromList(list);
+  }, [bridge]);
+
+  const spawnPane = useCallback(async (agentType: AgentType) => {
+    if (!bridge) return;
+    setSpawning(true);
+    setSpawnError(null);
+    try {
+      const { pane_id } = await bridge.spawnPane({ agent_type: agentType, cols: 120, rows: 30 });
+      await refreshPanes();
+      setSelectedPaneId(pane_id);
+      setTab('panes');
+      setMenuOpen(false);
+    } catch (e) {
+      setSpawnError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSpawning(false);
+    }
+  }, [bridge, refreshPanes]);
+
+  const killSelectedPane = useCallback(async () => {
+    if (!bridge || !selectedPaneId) return;
+    setSpawnError(null);
+    try {
+      await bridge.killPane(selectedPaneId);
+      setSelectedPaneId(null);
+      await refreshPanes();
+    } catch (e) {
+      setSpawnError(e instanceof Error ? e.message : String(e));
+    }
+  }, [bridge, refreshPanes, selectedPaneId]);
+
 
   useEffect(() => {
     if (!bridge || !bridgeReady || !settingsHydrated || !cliOrchestratorBackend || orchestratorReady) {
@@ -739,7 +842,7 @@ export default function PwaApp() {
 
   if (!bridgeUrl || editingUrl) {
     return (
-      <div className="h-full bg-pm-bg text-zinc-100">
+      <div className="pwa-shell bg-pm-bg text-zinc-100">
         <SetupScreen
           onConnect={(url) => {
             setBridgeUrl(url);
@@ -751,67 +854,67 @@ export default function PwaApp() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-pm-bg text-zinc-100">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-pm-border bg-pm-panel">
-        <img src="/app-icon.svg" alt="" className="w-5 h-5 rounded" />
-        <span className="text-sm font-semibold flex-1">Puppet Master</span>
-        <span
-          className={`w-1.5 h-1.5 rounded-full ${bridgeReady ? 'bg-pm-ok' : 'bg-pm-warn'}`}
-          title={bridgeReady ? 'Connected' : 'Connecting…'}
-        />
-        <button
-          onClick={() => setEditingUrl(true)}
-          className="text-[10px] text-pm-muted px-1.5 py-0.5 rounded hover:bg-pm-border/40"
-        >
-          Edit
-        </button>
-      </div>
-
-      <div className="flex border-b border-pm-border bg-pm-panel">
-        {(['chat', 'panes'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`flex-1 py-2 text-xs capitalize ${
-              tab === t
-                ? 'border-b-2 border-pm-accent text-pm-accent'
-                : 'text-pm-muted hover:text-zinc-100'
-            }`}
-          >
-            {t === 'chat' ? 'orchestrator' : t}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex-1 min-h-0">
+    <div className="pwa-shell bg-pm-bg text-zinc-100">
+      <main className="pwa-main" aria-label="Puppet Master mobile workspace">
         {bridge && tab === 'chat' && (
-          <OrchestratorTab
-            bridge={bridge}
-            chatEvents={chatEvents}
-            bridgeReady={bridgeReady}
-            settings={settings}
-            onSettings={setSettings}
-            registry={registry}
-            orchestratorTunnel={mobileOrchestratorTunnel}
-            settingsHydrated={settingsHydrated}
-          />
+          <section className="pwa-stage" aria-label="Orchestrator">
+            <OrchestratorTab
+              bridge={bridge}
+              chatEvents={chatEvents}
+              bridgeReady={bridgeReady}
+              settings={settings}
+              registry={registry}
+              orchestratorTunnel={mobileOrchestratorTunnel}
+              settingsHydrated={settingsHydrated}
+            />
+          </section>
         )}
         {bridge && tab === 'panes' && (
-          <PanesTab
-            bridge={bridge}
-            panes={panes}
-            bridgeReady={bridgeReady}
-            registry={registry}
-            mobileInputDelayMs={settings.mobile_input_delay_ms}
-            mobileInputVisible={settings.mobile_input_visible}
-          />
+          <section className="pwa-stage" aria-label="Panes">
+            <PanesTab
+              panes={panes}
+              bridgeReady={bridgeReady}
+              registry={registry}
+              mobileInputDelayMs={settings.mobile_input_delay_ms}
+              mobileInputVisible={settings.mobile_input_visible}
+              selected={selectedPaneId}
+              onSelect={setSelectedPaneId}
+            />
+          </section>
         )}
         {!bridge && (
           <div className="flex items-center justify-center h-full text-xs text-pm-muted">
             Connecting…
           </div>
         )}
-      </div>
+      </main>
+      <FloatingMobileMenu
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        bridgeReady={bridgeReady}
+        tab={tab}
+        onTabChange={(next) => {
+          setTab(next);
+          setMenuOpen(false);
+        }}
+        onEditConnection={() => {
+          setEditingUrl(true);
+          setMenuOpen(false);
+        }}
+        settings={settings}
+        onPatchSettings={patchSettings}
+        panes={panes}
+        selectedPaneId={selectedPaneId}
+        onSelectPane={(paneId) => {
+          setSelectedPaneId(paneId);
+          setMenuOpen(false);
+        }}
+        onRefreshPanes={refreshPanes}
+        onSpawnPane={spawnPane}
+        onKillSelectedPane={killSelectedPane}
+        spawning={spawning}
+        spawnError={spawnError}
+      />
     </div>
   );
 }

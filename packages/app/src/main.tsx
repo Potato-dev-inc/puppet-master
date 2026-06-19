@@ -5,6 +5,7 @@ import PwaApp from './PwaApp';
 import './styles/index.css';
 
 const isMobileOrPwa =
+  new URLSearchParams(window.location.search).has('pwa') ||
   window.matchMedia('(display-mode: standalone)').matches ||
   /Android|iPhone|iPad/i.test(navigator.userAgent);
 

@@ -35,11 +35,30 @@ const CONTROL_KEYS: Record<string, string> = {
   Tab: '\t',
 };
 
+const SPECIAL_KEYS: Array<{ label: string; value: string; title: string }> = [
+  { label: 'Esc', value: CONTROL_KEYS.Escape, title: 'Escape' },
+  { label: 'Ctrl-C', value: '\x03', title: 'Interrupt / cancel current command' },
+  { label: 'Ctrl-D', value: '\x04', title: 'End of input / exit shell' },
+  { label: 'Ctrl-Z', value: '\x1a', title: 'Suspend process' },
+  { label: 'Ctrl-L', value: '\x0c', title: 'Clear screen' },
+  { label: 'Tab', value: CONTROL_KEYS.Tab, title: 'Tab completion' },
+  { label: 'Enter', value: ENTER, title: 'Enter' },
+  { label: 'Back', value: BACKSPACE, title: 'Backspace' },
+  { label: 'Del', value: CONTROL_KEYS.Delete, title: 'Delete' },
+  { label: '←', value: CONTROL_KEYS.ArrowLeft, title: 'Left arrow' },
+  { label: '↑', value: CONTROL_KEYS.ArrowUp, title: 'Up arrow' },
+  { label: '↓', value: CONTROL_KEYS.ArrowDown, title: 'Down arrow' },
+  { label: '→', value: CONTROL_KEYS.ArrowRight, title: 'Right arrow' },
+  { label: 'Home', value: CONTROL_KEYS.Home, title: 'Home' },
+  { label: 'End', value: CONTROL_KEYS.End, title: 'End' },
+];
+
 export type MobileInputDelivery = 'batched' | 'immediate';
 
 export function isMobileInputDevice(): boolean {
   if (typeof navigator === 'undefined') return false;
   return (
+    new URLSearchParams(window.location.search).has('pwa') ||
     navigator.maxTouchPoints > 0 ||
     /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
   );
@@ -47,6 +66,10 @@ export function isMobileInputDevice(): boolean {
 
 function normalizeTerminalLineEndings(text: string): string {
   return text.replace(/\r\n/g, ENTER).replace(/\n/g, ENTER);
+}
+
+function isDeletionOnlyPayload(text: string): boolean {
+  return text.length > 0 && [...text].every((ch) => ch === BACKSPACE);
 }
 
 /** Translate committed vs current input text into PTY keystrokes (used only on flush). */
@@ -105,9 +128,9 @@ export class MobileInputGuard implements Disposable {
   private readonly hiddenInput: boolean;
   private readonly tapZone: HTMLDivElement;
   private readonly inputZone: HTMLDivElement;
-  private readonly arrowControls: HTMLDivElement;
-  private readonly arrowUpButton: HTMLButtonElement;
-  private readonly arrowDownButton: HTMLButtonElement;
+  private readonly specialControls: HTMLDivElement;
+  private readonly specialToggleButton: HTMLButtonElement;
+  private readonly specialGrid: HTMLDivElement;
   private readonly form: HTMLFormElement;
   private readonly input: HTMLTextAreaElement;
   /** Text already written to the terminal from the current field contents. */
@@ -120,6 +143,8 @@ export class MobileInputGuard implements Disposable {
   private longPressTimer: number | null = null;
   private longPressTriggered = false;
   private suppressClick = false;
+  private keyboardOpen = false;
+  private hiddenInputFocusedAt = 0;
   private keyboardHeightCleanup: (() => void) | null = null;
 
   constructor(options: MobileInputGuardOptions) {
@@ -141,7 +166,9 @@ export class MobileInputGuard implements Disposable {
     this.tapZone.setAttribute('data-mobile-terminal-tap', 'true');
 
     this.inputZone = document.createElement('div');
-    this.inputZone.className = 'terminal-mobile-input-zone';
+    this.inputZone.className = this.hiddenInput
+      ? 'terminal-mobile-input-zone terminal-mobile-keyboard-sink-zone'
+      : 'terminal-mobile-input-zone';
     this.inputZone.setAttribute('data-mobile-terminal-input-zone', 'true');
 
     this.form = document.createElement('form');
@@ -165,42 +192,62 @@ export class MobileInputGuard implements Disposable {
     this.input.wrap = 'soft';
     this.input.placeholder = 'Type a command…';
 
-    this.arrowControls = document.createElement('div');
-    this.arrowControls.className = 'terminal-mobile-arrow-controls';
-    this.arrowControls.setAttribute('data-mobile-terminal-arrows', 'true');
+    this.specialControls = document.createElement('div');
+    this.specialControls.className = 'terminal-mobile-special-controls';
+    this.specialControls.setAttribute('data-mobile-terminal-arrows', 'true');
 
-    this.arrowUpButton = document.createElement('button');
-    this.arrowUpButton.type = 'button';
-    this.arrowUpButton.className = 'terminal-mobile-arrow-button';
-    this.arrowUpButton.setAttribute('aria-label', 'Up');
-    this.arrowUpButton.textContent = '↑';
+    this.specialToggleButton = document.createElement('button');
+    this.specialToggleButton.type = 'button';
+    this.specialToggleButton.className = 'terminal-mobile-special-toggle';
+    this.specialToggleButton.setAttribute('aria-label', 'Show special keys');
+    this.specialToggleButton.setAttribute('aria-expanded', 'false');
+    this.specialToggleButton.textContent = 'Keys';
 
-    this.arrowDownButton = document.createElement('button');
-    this.arrowDownButton.type = 'button';
-    this.arrowDownButton.className = 'terminal-mobile-arrow-button';
-    this.arrowDownButton.setAttribute('aria-label', 'Down');
-    this.arrowDownButton.textContent = '↓';
+    this.specialGrid = document.createElement('div');
+    this.specialGrid.className = 'terminal-mobile-special-grid';
+    this.specialGrid.setAttribute('hidden', 'true');
+    this.specialGrid.setAttribute('aria-label', 'Special terminal keys');
 
-    this.arrowControls.append(this.arrowUpButton, this.arrowDownButton);
+    for (const key of SPECIAL_KEYS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'terminal-mobile-special-key';
+      button.textContent = key.label;
+      button.title = key.title;
+      button.setAttribute('aria-label', key.title);
+      button.dataset.terminalSpecialKey = key.value;
+      this.specialGrid.appendChild(button);
+    }
+
+    this.specialControls.append(this.specialGrid, this.specialToggleButton);
 
     this.form.appendChild(this.input);
     this.inputZone.appendChild(this.form);
 
     this.container.appendChild(this.tapZone);
-    this.container.appendChild(this.arrowControls);
-    this.container.appendChild(this.inputZone);
+    this.container.appendChild(this.specialControls);
+    if (this.hiddenInput) {
+      document.body.appendChild(this.inputZone);
+    } else {
+      this.container.appendChild(this.inputZone);
+    }
 
     this.form.addEventListener('submit', this.onFormSubmit);
     this.input.addEventListener('input', this.onInput);
     this.input.addEventListener('keydown', this.onKeyDown);
     this.input.addEventListener('blur', this.onInputBlur);
-    this.arrowUpButton.addEventListener('click', this.onArrowUpClick);
-    this.arrowDownButton.addEventListener('click', this.onArrowDownClick);
+    this.specialToggleButton.addEventListener('click', this.onSpecialToggleClick);
+    this.specialGrid.addEventListener('click', this.onSpecialGridClick);
 
     this.container.addEventListener('pointerdown', this.onContainerPointerDown, { capture: true });
     this.container.addEventListener('pointermove', this.onContainerPointerMove, { capture: true });
     this.container.addEventListener('pointerup', this.onContainerPointerUp, { capture: true });
     this.container.addEventListener('pointercancel', this.onContainerPointerUp, { capture: true });
+    this.container.addEventListener('mousedown', this.onContainerMouseDown, { capture: true });
+    this.container.addEventListener('mouseup', this.onContainerMouseUp, { capture: true });
+    this.container.addEventListener('touchstart', this.onContainerTouchStart, { capture: true });
+    this.container.addEventListener('touchend', this.onContainerTouchEnd, { capture: true });
+    this.container.addEventListener('touchcancel', this.onContainerTouchEnd, { capture: true });
     this.container.addEventListener('click', this.onContainerClick, { capture: true });
     this.container.addEventListener('contextmenu', this.onContainerContextMenu, { capture: true });
 
@@ -217,10 +264,15 @@ export class MobileInputGuard implements Disposable {
     this.container.removeEventListener('pointermove', this.onContainerPointerMove, { capture: true });
     this.container.removeEventListener('pointerup', this.onContainerPointerUp, { capture: true });
     this.container.removeEventListener('pointercancel', this.onContainerPointerUp, { capture: true });
+    this.container.removeEventListener('mousedown', this.onContainerMouseDown, { capture: true });
+    this.container.removeEventListener('mouseup', this.onContainerMouseUp, { capture: true });
+    this.container.removeEventListener('touchstart', this.onContainerTouchStart, { capture: true });
+    this.container.removeEventListener('touchend', this.onContainerTouchEnd, { capture: true });
+    this.container.removeEventListener('touchcancel', this.onContainerTouchEnd, { capture: true });
     this.container.removeEventListener('click', this.onContainerClick, { capture: true });
     this.container.removeEventListener('contextmenu', this.onContainerContextMenu, { capture: true });
-    this.arrowUpButton.removeEventListener('click', this.onArrowUpClick);
-    this.arrowDownButton.removeEventListener('click', this.onArrowDownClick);
+    this.specialToggleButton.removeEventListener('click', this.onSpecialToggleClick);
+    this.specialGrid.removeEventListener('click', this.onSpecialGridClick);
     this.keyboardHeightCleanup?.();
     this.keyboardHeightCleanup = null;
     this.cancelLongPress();
@@ -228,8 +280,8 @@ export class MobileInputGuard implements Disposable {
     if (this.tapZone.isConnected) {
       this.tapZone.remove();
     }
-    if (this.arrowControls.isConnected) {
-      this.arrowControls.remove();
+    if (this.specialControls.isConnected) {
+      this.specialControls.remove();
     }
     this.inputZone.remove();
     this.container.classList.remove('terminal-host--mobile-input');
@@ -265,8 +317,16 @@ export class MobileInputGuard implements Disposable {
 
       const obscured = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
       if (obscured >= MOBILE_KEYBOARD_MIN_OBSCURED_PX) {
+        this.keyboardOpen = true;
         this.container.style.setProperty('--pm-mobile-keyboard-panel-height', `${obscured}px`);
         this.scheduleScrollToCursor();
+        return;
+      }
+
+      if (this.keyboardOpen && document.activeElement === this.input) {
+        this.keyboardOpen = false;
+        this.input.blur();
+        this.disengageInput();
         return;
       }
 
@@ -289,6 +349,7 @@ export class MobileInputGuard implements Disposable {
     const onBlur = (): void => {
       window.visualViewport?.removeEventListener('resize', updatePanelHeight);
       window.visualViewport?.removeEventListener('scroll', updatePanelHeight);
+      this.keyboardOpen = false;
       if (this.hiddenInput && !this.engaged) {
         this.container.style.removeProperty('--pm-mobile-keyboard-panel-height');
       }
@@ -314,6 +375,8 @@ export class MobileInputGuard implements Disposable {
     if (!this.hiddenInput || !this.engaged) return;
     this.engaged = false;
     this.container.classList.remove(MOBILE_INPUT_ENGAGED_CLASS);
+    this.container.style.removeProperty('--pm-mobile-keyboard-panel-height');
+    this.scheduleScrollToCursor();
   }
 
   private isLongPressTarget(target: EventTarget | null): boolean {
@@ -347,6 +410,32 @@ export class MobileInputGuard implements Disposable {
     this.onBufferChange?.(this.input.value);
   }
 
+  private captureHiddenInputGesture(event: Event): boolean {
+    if (!this.hiddenInput || !this.isLongPressTarget(event.target)) return false;
+    if (this.engaged || document.activeElement === this.input) {
+      if (Date.now() - this.hiddenInputFocusedAt < 350) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.suppressClick = true;
+        return true;
+      }
+      this.input.blur();
+      this.disengageInput();
+      event.preventDefault();
+      event.stopPropagation();
+      this.suppressClick = true;
+      return true;
+    }
+    this.engageInput();
+    this.focus();
+    this.hiddenInputFocusedAt = Date.now();
+    this.scheduleScrollToCursor();
+    event.preventDefault();
+    event.stopPropagation();
+    this.suppressClick = true;
+    return true;
+  }
+
   private scheduleFlush(): void {
     this.cancelFlush();
     if (this.bufferDelayMs <= 0) {
@@ -369,16 +458,18 @@ export class MobileInputGuard implements Disposable {
     const value = this.input.value;
     const payload = buildInputDelta(this.committedText, value);
     if (payload) {
-      this.emit(payload);
+      this.emit(payload, !isDeletionOnlyPayload(payload));
     }
     this.committedText = value;
     this.notifyBufferChange();
   }
 
-  private emit(payload: string): void {
+  private emit(payload: string, scroll = true): void {
     if (!payload) return;
     this.emitInput(payload, 'immediate');
-    this.scrollToCursor();
+    if (scroll) {
+      this.scrollToCursor();
+    }
   }
 
   private emitControlKey(key: keyof typeof CONTROL_KEYS): void {
@@ -386,8 +477,15 @@ export class MobileInputGuard implements Disposable {
     this.emit(CONTROL_KEYS[key]);
   }
 
+  private emitSpecialKey(payload: string): void {
+    this.flushToTerminal();
+    this.emit(payload, !isDeletionOnlyPayload(payload));
+  }
+
   private readonly onContainerPointerDown = (event: PointerEvent): void => {
     if (!this.isLongPressTarget(event.target)) return;
+
+    if (this.captureHiddenInputGesture(event)) return;
 
     this.cancelLongPress();
     this.longPressPointerId = event.pointerId;
@@ -402,6 +500,11 @@ export class MobileInputGuard implements Disposable {
   private readonly onContainerPointerMove = (event: PointerEvent): void => {
     if (this.longPressPointerId !== event.pointerId) return;
 
+    if (this.hiddenInput) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
     const dx = event.clientX - this.longPressStartX;
     const dy = event.clientY - this.longPressStartY;
     if (Math.hypot(dx, dy) > MOBILE_LONG_PRESS_MOVE_THRESHOLD_PX) {
@@ -411,6 +514,11 @@ export class MobileInputGuard implements Disposable {
 
   private readonly onContainerPointerUp = (event: PointerEvent): void => {
     if (this.longPressPointerId !== event.pointerId) return;
+
+    if (this.hiddenInput) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
 
     if (this.longPressTimer !== null) {
       window.clearTimeout(this.longPressTimer);
@@ -425,6 +533,26 @@ export class MobileInputGuard implements Disposable {
 
     this.longPressPointerId = null;
     this.longPressTriggered = false;
+  };
+
+  private readonly onContainerMouseDown = (event: MouseEvent): void => {
+    this.captureHiddenInputGesture(event);
+  };
+
+  private readonly onContainerMouseUp = (event: MouseEvent): void => {
+    if (!this.hiddenInput || !this.engaged) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  private readonly onContainerTouchStart = (event: TouchEvent): void => {
+    this.captureHiddenInputGesture(event);
+  };
+
+  private readonly onContainerTouchEnd = (event: TouchEvent): void => {
+    if (!this.hiddenInput || !this.engaged) return;
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   private readonly onContainerClick = (event: MouseEvent): void => {
@@ -444,16 +572,27 @@ export class MobileInputGuard implements Disposable {
     this.disengageInput();
   };
 
-  private readonly onArrowUpClick = (event: MouseEvent): void => {
+  private readonly onSpecialToggleClick = (event: MouseEvent): void => {
     event.preventDefault();
     event.stopPropagation();
-    this.emitControlKey('ArrowUp');
+    const nextOpen = this.specialGrid.hasAttribute('hidden');
+    this.specialGrid.toggleAttribute('hidden', !nextOpen);
+    this.specialControls.classList.toggle('terminal-mobile-special-controls--open', nextOpen);
+    this.specialToggleButton.setAttribute('aria-expanded', String(nextOpen));
+    this.specialToggleButton.setAttribute(
+      'aria-label',
+      nextOpen ? 'Hide special keys' : 'Show special keys',
+    );
   };
 
-  private readonly onArrowDownClick = (event: MouseEvent): void => {
+  private readonly onSpecialGridClick = (event: MouseEvent): void => {
+    const target = event.target instanceof HTMLElement
+      ? event.target.closest<HTMLButtonElement>('[data-terminal-special-key]')
+      : null;
+    if (!target?.dataset.terminalSpecialKey) return;
     event.preventDefault();
     event.stopPropagation();
-    this.emitControlKey('ArrowDown');
+    this.emitSpecialKey(target.dataset.terminalSpecialKey);
   };
 
   private commitEnter(): void {
@@ -498,7 +637,7 @@ export class MobileInputGuard implements Disposable {
 
     if (event.key === 'Backspace' && this.input.value.length === 0 && this.committedText.length === 0) {
       event.preventDefault();
-      this.emit(BACKSPACE);
+      this.emit(BACKSPACE, false);
       return;
     }
 

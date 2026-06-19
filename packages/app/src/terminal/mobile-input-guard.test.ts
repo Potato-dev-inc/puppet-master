@@ -75,9 +75,14 @@ describe('MobileInputGuard', () => {
       scrollToCursor,
       onBufferChange: (text) => buffer.push(text),
     });
-    const input = container.querySelector(
-      '[data-mobile-terminal-input="true"]',
+    const input = (
+      container.querySelector('[data-mobile-terminal-input="true"]') ??
+      document.querySelector('.terminal-mobile-keyboard-sink-zone [data-mobile-terminal-input="true"]')
     ) as HTMLTextAreaElement;
+    const form = (
+      container.querySelector('form.terminal-mobile-command-form') ??
+      document.querySelector('.terminal-mobile-keyboard-sink-zone form.terminal-mobile-command-form')
+    ) as HTMLFormElement;
 
     return {
       buffer,
@@ -87,7 +92,7 @@ describe('MobileInputGuard', () => {
       },
       container,
       emitted,
-      form: container.querySelector('form.terminal-mobile-command-form') as HTMLFormElement,
+      form,
       guard,
       input,
       scrollToCursor,
@@ -123,6 +128,8 @@ describe('MobileInputGuard', () => {
 
     expect(container.classList.contains(MOBILE_INPUT_HIDDEN_CLASS)).toBe(true);
     expect(input.isConnected).toBe(true);
+    expect(input.closest('.terminal-mobile-keyboard-sink-zone')).toBeTruthy();
+    expect(container.querySelector('[data-mobile-terminal-input="true"]')).toBeNull();
     cleanup();
     expect(container.classList.contains(MOBILE_INPUT_HIDDEN_CLASS)).toBe(false);
   });
@@ -222,23 +229,26 @@ describe('MobileInputGuard', () => {
   });
 
   it('buffers backspace edits until the timer flushes them to the terminal', () => {
-    const { cleanup, emitted, input } = createGuard();
+    const { cleanup, emitted, input, scrollToCursor } = createGuard();
     dispatchInput(input, 'abcd', 'insertText');
     vi.advanceTimersByTime(TEST_BUFFER_MS);
     expect(emitted).toEqual([{ text: 'abcd', delivery: 'immediate' }]);
+    scrollToCursor.mockClear();
 
     dispatchInput(input, 'abc', 'deleteContentBackward');
     vi.advanceTimersByTime(TEST_BUFFER_MS);
     expect(emitted.at(-1)).toEqual({ text: '\x7f', delivery: 'immediate' });
+    expect(scrollToCursor).not.toHaveBeenCalled();
     cleanup();
   });
 
   it('sends terminal backspace when the input field is already empty', () => {
-    const { cleanup, emitted, input } = createGuard();
+    const { cleanup, emitted, input, scrollToCursor } = createGuard();
 
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
 
     expect(emitted).toEqual([{ text: '\x7f', delivery: 'immediate' }]);
+    expect(scrollToCursor).not.toHaveBeenCalled();
     cleanup();
   });
 
@@ -263,10 +273,12 @@ describe('MobileInputGuard', () => {
     durationMs: number,
     clientX = 50,
     clientY = 50,
+    target: HTMLElement = container,
   ): void {
-    container.dispatchEvent(
+    target.dispatchEvent(
       new PointerEvent('pointerdown', {
         bubbles: true,
+        cancelable: true,
         clientX,
         clientY,
         pointerId: 1,
@@ -276,9 +288,10 @@ describe('MobileInputGuard', () => {
     if (durationMs > 0) {
       vi.advanceTimersByTime(durationMs);
     }
-    container.dispatchEvent(
+    target.dispatchEvent(
       new PointerEvent('pointerup', {
         bubbles: true,
+        cancelable: true,
         clientX,
         clientY,
         pointerId: 1,
@@ -325,61 +338,242 @@ describe('MobileInputGuard', () => {
     cleanup();
   });
 
-  it('hides the command bar again when the input blurs in hidden mode', () => {
+  it('focuses hidden input synchronously on pointer down so mobile keyboards can open', () => {
     const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false);
+    const focusSpy = vi.spyOn(input, 'focus');
+    const pointerDown = new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 20,
+      clientY: 20,
+      pointerId: 3,
+      pointerType: 'touch',
+    });
 
-    dispatchLongPress(container);
-    input.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+    const notCancelled = container.dispatchEvent(pointerDown);
 
+    expect(notCancelled).toBe(false);
+    expect(pointerDown.defaultPrevented).toBe(true);
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
+    expect(focusSpy).toHaveBeenCalled();
+    expect(focusSpy.mock.calls[0]?.[0]).toEqual({ preventScroll: true });
+    cleanup();
+  });
+
+  it('captures mouse taps in hidden mode before xterm can focus its helper textarea', () => {
+    const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false);
+    const focusSpy = vi.spyOn(input, 'focus');
+    const mouseDown = new MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 20,
+      clientY: 20,
+    });
+    const mouseUp = new MouseEvent('mouseup', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 20,
+      clientY: 20,
+    });
+
+    const downNotCancelled = container.dispatchEvent(mouseDown);
+    const upNotCancelled = container.dispatchEvent(mouseUp);
+
+    expect(downNotCancelled).toBe(false);
+    expect(upNotCancelled).toBe(false);
+    expect(mouseDown.defaultPrevented).toBe(true);
+    expect(mouseUp.defaultPrevented).toBe(true);
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
+    expect(focusSpy).toHaveBeenCalled();
+    cleanup();
+  });
+
+  it('dismisses hidden input when the terminal is tapped while input is active', () => {
+    const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false);
+    const blurSpy = vi.spyOn(input, 'blur');
+
+    container.dispatchEvent(
+      new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 20,
+        clientY: 20,
+      }),
+    );
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
+
+    vi.advanceTimersByTime(400);
+    const secondTap = new MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 30,
+      clientY: 30,
+    });
+    const notCancelled = container.dispatchEvent(secondTap);
+
+    expect(notCancelled).toBe(false);
+    expect(secondTap.defaultPrevented).toBe(true);
+    expect(blurSpy).toHaveBeenCalled();
     expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(false);
     cleanup();
   });
 
+  it('dismisses hidden input when visual viewport expands after keyboard close', () => {
+    const listeners = new Map<string, EventListener>();
+    const visualViewport = {
+      height: 500,
+      offsetTop: 0,
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        listeners.set(type, listener);
+      }),
+      removeEventListener: vi.fn((type: string) => {
+        listeners.delete(type);
+      }),
+    };
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: 800,
+    });
+    Object.defineProperty(window, 'visualViewport', {
+      configurable: true,
+      value: visualViewport,
+    });
 
-  it('sends arrow-up to the terminal when the up button is tapped', () => {
-    const { cleanup, container, emitted } = createGuard();
+    const { cleanup, container, input, scrollToCursor } = createGuard(TEST_BUFFER_MS, false);
+    const blurSpy = vi.spyOn(input, 'blur');
 
-    const up = container.querySelector(
-      '.terminal-mobile-arrow-button[aria-label="Up"]',
-    ) as HTMLButtonElement;
-    up.click();
+    container.dispatchEvent(
+      new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 20,
+        clientY: 20,
+      }),
+    );
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
+    expect(container.style.getPropertyValue('--pm-mobile-keyboard-panel-height')).toBe('300px');
 
-    expect(emitted).toEqual([{ text: '\x1b[A', delivery: 'immediate' }]);
+    scrollToCursor.mockClear();
+    visualViewport.height = 800;
+    listeners.get('resize')?.(new Event('resize'));
+
+    expect(blurSpy).toHaveBeenCalled();
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(false);
+    expect(container.style.getPropertyValue('--pm-mobile-keyboard-panel-height')).toBe('');
+    expect(scrollToCursor).toHaveBeenCalled();
     cleanup();
   });
 
-  it('sends arrow-down to the terminal when the down button is tapped', () => {
-    const { cleanup, container, emitted } = createGuard();
+  it('captures hidden-mode long presses from terminal children before xterm handles them', () => {
+    const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false);
+    const terminalChild = document.createElement('canvas');
+    container.prepend(terminalChild);
+    const focusSpy = vi.spyOn(input, 'focus');
+    const pointerDown = new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 20,
+      clientY: 20,
+      pointerId: 2,
+      pointerType: 'touch',
+    });
 
-    const down = container.querySelector(
-      '.terminal-mobile-arrow-button[aria-label="Down"]',
-    ) as HTMLButtonElement;
-    down.click();
+    const notCancelled = terminalChild.dispatchEvent(pointerDown);
+    vi.advanceTimersByTime(MOBILE_LONG_PRESS_MS);
+    terminalChild.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 20,
+        clientY: 20,
+        pointerId: 2,
+        pointerType: 'touch',
+      }),
+    );
 
-    expect(emitted).toEqual([{ text: '\x1b[B', delivery: 'immediate' }]);
+    expect(notCancelled).toBe(false);
+    expect(pointerDown.defaultPrevented).toBe(true);
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
+    expect(focusSpy).toHaveBeenCalled();
     cleanup();
   });
 
-  it('flushes buffered text before sending arrow keys', () => {
-    const { cleanup, container, emitted, input } = createGuard();
+  it('hides the command bar again when the input blurs in hidden mode', () => {
+    const { cleanup, container, input, scrollToCursor } = createGuard(TEST_BUFFER_MS, false);
 
-    dispatchInput(input, 'hi', 'insertText');
-    const up = container.querySelector(
-      '.terminal-mobile-arrow-button[aria-label="Up"]',
-    ) as HTMLButtonElement;
+    dispatchLongPress(container);
+    container.style.setProperty('--pm-mobile-keyboard-panel-height', '320px');
+    scrollToCursor.mockClear();
+    input.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(false);
+    expect(container.style.getPropertyValue('--pm-mobile-keyboard-panel-height')).toBe('');
+    expect(scrollToCursor).toHaveBeenCalled();
+    cleanup();
+  });
+
+
+  it('expands and collapses the special key palette', () => {
+    const { cleanup, container } = createGuard(TEST_BUFFER_MS, false);
+    const toggle = container.querySelector('.terminal-mobile-special-toggle') as HTMLButtonElement;
+    const grid = container.querySelector('.terminal-mobile-special-grid') as HTMLDivElement;
+
+    expect(toggle).toBeTruthy();
+    expect(grid).toBeTruthy();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(grid.hasAttribute('hidden')).toBe(true);
+
+    toggle.click();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(grid.hasAttribute('hidden')).toBe(false);
+
+    toggle.click();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(grid.hasAttribute('hidden')).toBe(true);
+    cleanup();
+  });
+
+  it('sends special terminal keys from the expanded palette', () => {
+    const { cleanup, container, emitted } = createGuard();
+    const toggle = container.querySelector('.terminal-mobile-special-toggle') as HTMLButtonElement;
+    toggle.click();
+
+    const up = container.querySelector('[aria-label="Up arrow"]') as HTMLButtonElement;
+    const ctrlC = container.querySelector('[aria-label="Interrupt / cancel current command"]') as HTMLButtonElement;
+    const escape = container.querySelector('[aria-label="Escape"]') as HTMLButtonElement;
     up.click();
+    ctrlC.click();
+    escape.click();
 
     expect(emitted).toEqual([
-      { text: 'hi', delivery: 'immediate' },
       { text: '\x1b[A', delivery: 'immediate' },
+      { text: '\x03', delivery: 'immediate' },
+      { text: '\x1b', delivery: 'immediate' },
     ]);
     cleanup();
   });
 
-  it('shows arrow controls in hidden input mode', () => {
+  it('flushes buffered text before sending special keys', () => {
+    const { cleanup, container, emitted, input } = createGuard();
+    const toggle = container.querySelector('.terminal-mobile-special-toggle') as HTMLButtonElement;
+    toggle.click();
+
+    dispatchInput(input, 'hi', 'insertText');
+    const tab = container.querySelector('[aria-label="Tab completion"]') as HTMLButtonElement;
+    tab.click();
+
+    expect(emitted).toEqual([
+      { text: 'hi', delivery: 'immediate' },
+      { text: '\t', delivery: 'immediate' },
+    ]);
+    cleanup();
+  });
+
+  it('shows special key controls in hidden input mode', () => {
     const { cleanup, container } = createGuard(TEST_BUFFER_MS, false);
 
     expect(container.querySelector('[data-mobile-terminal-arrows]')).toBeTruthy();
+    expect(container.querySelector('.terminal-mobile-special-toggle')).toBeTruthy();
     cleanup();
   });
 
