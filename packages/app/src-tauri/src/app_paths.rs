@@ -42,7 +42,12 @@ pub fn pairing_file() -> PathBuf {
 }
 
 pub fn bridge_port_file_env_value() -> String {
-    bridge_port_file().to_string_lossy().into_owned()
+    path_for_host_config(bridge_port_file())
+}
+
+/// Host config files (Codex TOML, JSON) — forward slashes avoid TOML escape issues on Windows.
+pub fn path_for_host_config(path: impl AsRef<std::path::Path>) -> String {
+    path.as_ref().to_string_lossy().replace('\\', "/")
 }
 
 #[cfg(test)]

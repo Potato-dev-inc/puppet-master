@@ -165,6 +165,8 @@ fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) -> CommandB
         }
         cmd_builder.cwd(cwd);
         cmd_builder.env("PATH", crate::shell_env::path_for_spawn());
+        #[cfg(windows)]
+        cmd_builder.env("Path", crate::shell_env::path_for_spawn());
         cmd_builder.env("TERM", "xterm-256color");
         cmd_builder.env("COLORTERM", "truecolor");
         return cmd_builder;
@@ -181,6 +183,8 @@ fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) -> CommandB
         }
         cmd_builder.cwd(cwd);
         cmd_builder.env("PATH", crate::shell_env::path_for_spawn());
+        #[cfg(windows)]
+        cmd_builder.env("Path", crate::shell_env::path_for_spawn());
         cmd_builder.env("TERM", "xterm-256color");
         cmd_builder.env("COLORTERM", "truecolor");
         cmd_builder

@@ -19,7 +19,10 @@ pub fn path_for_spawn() -> &'static str {
 
 /// Apply the interactive PATH to the current process (bridge, MCP helpers, etc.).
 pub fn apply_to_process() {
-    std::env::set_var("PATH", path_for_spawn());
+    let path = path_for_spawn();
+    std::env::set_var("PATH", path);
+    #[cfg(windows)]
+    std::env::set_var("Path", path);
 }
 
 fn discover_interactive_path() -> String {
@@ -51,6 +54,32 @@ fn read_login_shell_path() -> Option<String> {
 
 #[cfg(not(unix))]
 fn read_login_shell_path() -> Option<String> {
+    read_windows_path()
+}
+
+#[cfg(windows)]
+fn read_windows_path() -> Option<String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$u=[Environment]::GetEnvironmentVariable('Path','User');$m=[Environment]::GetEnvironmentVariable('Path','Machine');if($u-and$m){\"$u;$m\"}elseif($u){$u}else{$m}",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() { None } else { Some(path) }
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn read_windows_path() -> Option<String> {
     None
 }
 
@@ -69,21 +98,36 @@ fn build_fallback_path() -> String {
     segments.push("/usr/sbin".into());
     segments.push("/sbin".into());
 
-    if let Ok(home) = std::env::var("HOME") {
+    if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
         let home = PathBuf::from(home);
-        for sub in [
-            ".local/bin",
-            ".cargo/bin",
-            ".npm-global/bin",
-            "bin",
-            ".volta/bin",
-            ".fnm/current/bin",
-        ] {
-            segments.push(home.join(sub).to_string_lossy().into_owned());
+        #[cfg(windows)]
+        {
+            if let Ok(pf) = std::env::var("ProgramFiles") {
+                segments.push(format!(r"{pf}\nodejs"));
+            }
+            if let Ok(pf86) = std::env::var("ProgramFiles(x86)") {
+                segments.push(format!(r"{pf86}\nodejs"));
+            }
+            segments.push(home.join("AppData").join("Roaming").join("npm").to_string_lossy().into_owned());
+            segments.push(home.join("AppData").join("Local").join("fnm").to_string_lossy().into_owned());
+            segments.push(home.join(".cargo").join("bin").to_string_lossy().into_owned());
+        }
+        #[cfg(not(windows))]
+        {
+            for sub in [
+                ".local/bin",
+                ".cargo/bin",
+                ".npm-global/bin",
+                "bin",
+                ".volta/bin",
+                ".fnm/current/bin",
+            ] {
+                segments.push(home.join(sub).to_string_lossy().into_owned());
+            }
         }
     }
 
-    if let Ok(existing) = std::env::var("PATH") {
+    if let Ok(existing) = std::env::var("PATH").or_else(|_| std::env::var("Path")) {
         segments.push(existing);
     }
 

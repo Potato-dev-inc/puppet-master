@@ -38,6 +38,20 @@ fn puppet_master_mcp_server_json() -> Value {
     })
 }
 
+fn opencode_mcp_entry() -> Value {
+    let launch = crate::mcp_runtime::mcp_launch_spec();
+    let mut command = vec![launch.command];
+    command.extend(launch.args);
+    json!({
+        "type": "local",
+        "command": command,
+        "enabled": true,
+        "environment": {
+            crate::app_paths::BRIDGE_PORT_FILE_ENV: crate::app_paths::bridge_port_file_env_value(),
+        },
+    })
+}
+
 fn read_json_safe(path: &Path) -> Option<Value> {
     let raw = fs::read_to_string(path).ok()?;
     serde_json::from_str(&raw).ok()
@@ -203,7 +217,13 @@ fn codex_needs_refresh(content: &str) -> bool {
     if codex_needs_port_env(content) {
         return true;
     }
-    crate::mcp_runtime::using_bundled_mcp() && content.contains("@puppet-master/mcp")
+    if content.contains("@puppet-master/mcp") {
+        return true;
+    }
+    if crate::mcp_runtime::using_bundled_mcp() && !content.contains("mcp-stdio.bundle.cjs") {
+        return true;
+    }
+    false
 }
 
 fn strip_codex_puppet_master_block(content: &str) -> String {
@@ -293,22 +313,7 @@ fn merge_opencode_mcp(existing: &mut Value) {
     }
     mcp.as_object_mut()
         .expect("mcp object")
-        .insert(
-            MCP_SERVER_NAME.into(),
-            {
-                let launch = crate::mcp_runtime::mcp_launch_spec();
-                let mut command = vec![launch.command];
-                command.extend(launch.args);
-                json!({
-                    "type": "local",
-                    "command": command,
-                    "enabled": true,
-                    "environment": {
-                        crate::app_paths::BRIDGE_PORT_FILE_ENV: crate::app_paths::bridge_port_file_env_value(),
-                    },
-                })
-            },
-        );
+        .insert(MCP_SERVER_NAME.into(), opencode_mcp_entry());
 }
 
 fn opencode_mcp_installed(cwd: &Path) -> bool {

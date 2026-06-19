@@ -27,7 +27,7 @@ pub fn mcp_launch_spec() -> McpLaunchSpec {
     if let Some(script) = bundled_mcp_script() {
         return McpLaunchSpec {
             command: resolve_node_executable(),
-            args: vec![script.to_string_lossy().into_owned()],
+            args: vec![crate::app_paths::path_for_host_config(script)],
         };
     }
     McpLaunchSpec {
@@ -37,10 +37,13 @@ pub fn mcp_launch_spec() -> McpLaunchSpec {
 }
 
 fn resolve_node_executable() -> String {
-    which_node_with_login_shell().unwrap_or_else(|| "node".into())
+    which_node_executable()
+        .map(|path| crate::app_paths::path_for_host_config(Path::new(&path)))
+        .unwrap_or_else(|| "node".into())
 }
 
-fn which_node_with_login_shell() -> Option<String> {
+#[cfg(unix)]
+fn which_node_executable() -> Option<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let output = std::process::Command::new(&shell)
         .args(["-l", "-c", "command -v node"])
@@ -52,6 +55,32 @@ fn which_node_with_login_shell() -> Option<String> {
     }
     let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if path.is_empty() { None } else { Some(path) }
+}
+
+#[cfg(windows)]
+fn which_node_executable() -> Option<String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let output = std::process::Command::new("cmd.exe")
+        .args(["/C", "where node"])
+        .env("Path", crate::shell_env::path_for_spawn())
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn which_node_executable() -> Option<String> {
+    None
 }
 
 #[cfg(test)]
