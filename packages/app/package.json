@@ -6,7 +6,7 @@
   "scripts": {
     "predev": "node ../../scripts/ensure-workspace-built.mjs",
     "dev": "vite",
-    "build": "tsc -p tsconfig.json && vite build",
+    "build": "tsc -p tsconfig.json && vite build && node ../../scripts/bundle-mcp.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
@@ -34,7 +34,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
-    "autoprefixer": "^10.4.20",
+    "esbuild": "^0.25.0",
     "jsdom": "^26.1.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",

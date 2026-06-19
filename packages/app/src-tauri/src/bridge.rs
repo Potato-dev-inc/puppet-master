@@ -133,6 +133,7 @@ pub fn start_embedded_bridge(
     pairing_file: PathBuf,
 ) -> Result<BridgeHandle, String> {
     mobile_pairing::init_pairing_store(pairing_file)?;
+    let _ = crate::app_paths::ensure_app_data_dir();
     let (listener, port) = bind_listener()?;
     let url = format!("http://{HOST}:{port}");
     fs::write(&port_file, format!("{HOST}:{port}\n"))

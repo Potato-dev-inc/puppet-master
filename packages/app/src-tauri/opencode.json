@@ -3,11 +3,13 @@
   "mcp": {
     "puppet-master": {
       "command": [
-        "npx",
-        "-y",
-        "@puppet-master/mcp"
+        "/usr/local/bin/node",
+        "/Users/ren/work/puppet-master/packages/mcp-server/dist/index.js"
       ],
       "enabled": true,
+      "environment": {
+        "PUPPET_MASTER_BRIDGE_PORT_FILE": "/Users/ren/Library/Application Support/com.puppetmaster.app/puppet-master.bridge.port"
+      },
       "type": "local"
     }
   }

@@ -46,7 +46,10 @@ export async function ensureOrchestratorPane(
   backend: CliOrchestratorBackend,
   cwd: string,
 ): Promise<string> {
-  await ensureOrchestratorMcp(backend, cwd);
+  const mcp = await ensureOrchestratorMcp(backend, cwd);
+  if (!mcp.installed) {
+    throw new Error(mcp.message || 'Puppet Master MCP install incomplete');
+  }
 
   const agent = BACKEND_AGENT[backend];
   const stableId = ORCHESTRATOR_PANE_ID[backend];

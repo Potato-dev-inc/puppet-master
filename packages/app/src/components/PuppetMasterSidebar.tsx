@@ -101,7 +101,7 @@ export function PuppetMasterSidebar({
     setMcpStatus(null);
     try {
       await ensureOrchestratorPane(activeBackend, cwd);
-      setMcpStatus('Puppet Master MCP ready');
+      setMcpStatus('Puppet Master MCP configured');
       await registry.refresh();
     } catch (err) {
       setOrchestratorError(err instanceof Error ? err.message : String(err));

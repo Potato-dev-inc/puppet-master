@@ -1,6 +1,8 @@
+mod app_paths;
 mod bridge;
 mod commands;
 mod mcp_install;
+mod mcp_runtime;
 mod mobile_pairing;
 mod platform;
 mod project_path;
@@ -10,6 +12,7 @@ mod shell_env;
 
 use commands::AppState;
 use std::path::PathBuf;
+use tauri::path::BaseDirectory;
 use tauri::{Listener, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -50,18 +53,29 @@ pub fn run() {
             commands::revoke_paired_mobile_device,
         ])
         .setup(|app| {
-            // Resolve paths. When launched via `tauri dev` cwd is
-            // `packages/app/src-tauri`, so we walk three parents to reach
-            // the monorepo root.
-            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let workspace_root: PathBuf = cwd
-                .parent()
-                .and_then(|p| p.parent())
-                .and_then(|p| p.parent())
-                .map(|p| p.to_path_buf())
-                .unwrap_or(cwd);
-            let port_file = workspace_root.join("puppet-master.bridge.port");
-            let pairing_file = workspace_root.join("puppet-master.pairing.json");
+            if let Ok(resource) = app
+                .path()
+                .resolve("mcp-stdio.bundle.cjs", BaseDirectory::Resource)
+            {
+                if resource.is_file() {
+                    mcp_runtime::set_bundled_mcp_script(resource);
+                }
+            }
+            if mcp_runtime::bundled_mcp_script().is_none() {
+                let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../mcp-server/dist/index.js");
+                if let Ok(canon) = dev.canonicalize() {
+                    if canon.is_file() {
+                        mcp_runtime::set_bundled_mcp_script(canon);
+                    }
+                }
+            }
+            if let Some(script) = mcp_runtime::bundled_mcp_script() {
+                tracing::info!(path = %script.display(), "bundled MCP server");
+            }
+
+            let port_file = app_paths::bridge_port_file();
+            let pairing_file = app_paths::pairing_file();
 
             let registry = app.state::<AppState>().registry.clone();
             match bridge::start_embedded_bridge(

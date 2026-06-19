@@ -6,8 +6,6 @@ use std::fs;
 use std::path::Path;
 
 pub const MCP_SERVER_NAME: &str = "puppet-master";
-const MCP_COMMAND: &str = "npx";
-const MCP_ARGS: &[&str] = &["-y", "@puppet-master/mcp"];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,9 +28,13 @@ pub fn ensure_orchestrator_mcp(backend: &str, cwd: &Path) -> Result<EnsureMcpRes
 }
 
 fn puppet_master_mcp_server_json() -> Value {
+    let launch = crate::mcp_runtime::mcp_launch_spec();
     json!({
-        "command": MCP_COMMAND,
-        "args": MCP_ARGS,
+        "command": launch.command,
+        "args": launch.args,
+        "env": {
+            crate::app_paths::BRIDGE_PORT_FILE_ENV: crate::app_paths::bridge_port_file_env_value(),
+        },
     })
 }
 
@@ -178,10 +180,58 @@ fn ensure_claude_mcp(cwd: &Path) -> Result<EnsureMcpResult, String> {
 }
 
 fn codex_mcp_block() -> String {
+    let launch = crate::mcp_runtime::mcp_launch_spec();
+    let port_file = crate::app_paths::bridge_port_file_env_value();
     format!(
-        "\n[mcp_servers.{}]\ncommand = \"{}\"\nargs = {:?}\n",
-        MCP_SERVER_NAME, MCP_COMMAND, MCP_ARGS
+        "\n[mcp_servers.{MCP_SERVER_NAME}]\ncommand = \"{}\"\nargs = {:?}\nenabled = true\n\n[mcp_servers.{MCP_SERVER_NAME}.env]\n{} = \"{}\"\n",
+        launch.command,
+        launch.args,
+        crate::app_paths::BRIDGE_PORT_FILE_ENV,
+        port_file,
     )
+}
+
+fn codex_needs_port_env(content: &str) -> bool {
+    content.contains(&format!("[mcp_servers.{MCP_SERVER_NAME}]"))
+        && !content.contains(crate::app_paths::BRIDGE_PORT_FILE_ENV)
+}
+
+fn codex_needs_refresh(content: &str) -> bool {
+    if !codex_has_puppet_master(content) {
+        return true;
+    }
+    if codex_needs_port_env(content) {
+        return true;
+    }
+    crate::mcp_runtime::using_bundled_mcp() && content.contains("@puppet-master/mcp")
+}
+
+fn strip_codex_puppet_master_block(content: &str) -> String {
+    let mut out = Vec::new();
+    let mut skip = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("[mcp_servers.") && trimmed.contains(MCP_SERVER_NAME) {
+            skip = true;
+            continue;
+        }
+        if skip
+            && trimmed.starts_with('[')
+            && trimmed.ends_with(']')
+            && !trimmed.contains(MCP_SERVER_NAME)
+        {
+            skip = false;
+        }
+        if skip {
+            continue;
+        }
+        out.push(line);
+    }
+    let mut text = out.join("\n");
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text
 }
 
 fn codex_has_puppet_master(content: &str) -> bool {
@@ -197,8 +247,13 @@ fn ensure_codex_mcp(cwd: &Path) -> Result<EnsureMcpResult, String> {
     })?;
 
     let existing = fs::read_to_string(&path).unwrap_or_default();
-    let changed = if codex_has_puppet_master(&existing) {
+    let changed = if codex_has_puppet_master(&existing) && !codex_needs_refresh(&existing) {
         false
+    } else if codex_has_puppet_master(&existing) {
+        let mut next = strip_codex_puppet_master_block(&existing);
+        next.push_str(&codex_mcp_block());
+        fs::write(&path, next).map_err(|err| format!("could not write {}: {err}", path.display()))?;
+        true
     } else {
         let mut next = existing;
         if !next.ends_with('\n') && !next.is_empty() {
@@ -240,11 +295,19 @@ fn merge_opencode_mcp(existing: &mut Value) {
         .expect("mcp object")
         .insert(
             MCP_SERVER_NAME.into(),
-            json!({
-                "type": "local",
-                "command": [MCP_COMMAND, MCP_ARGS[0], MCP_ARGS[1]],
-                "enabled": true,
-            }),
+            {
+                let launch = crate::mcp_runtime::mcp_launch_spec();
+                let mut command = vec![launch.command];
+                command.extend(launch.args);
+                json!({
+                    "type": "local",
+                    "command": command,
+                    "enabled": true,
+                    "environment": {
+                        crate::app_paths::BRIDGE_PORT_FILE_ENV: crate::app_paths::bridge_port_file_env_value(),
+                    },
+                })
+            },
         );
 }
 
@@ -288,6 +351,7 @@ fn ensure_opencode_mcp(cwd: &Path) -> Result<EnsureMcpResult, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(name: &str) -> PathBuf {
