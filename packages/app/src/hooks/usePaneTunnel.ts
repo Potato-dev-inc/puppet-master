@@ -53,12 +53,14 @@ export function usePaneTunnel(
     setDimensions(null);
   }, [boundPaneId, isDesktop]);
 
+  const registrySubscribePaneData = registry?.subscribePaneData;
+
   const desktopSubscribe = useCallback(
     (id: string, cb: (data: Uint8Array) => void) => {
-      if (!registry || !boundPaneId || id !== boundPaneId) return noopUnsub;
-      return registry.subscribePaneData(id, cb);
+      if (!registrySubscribePaneData || !boundPaneId || id !== boundPaneId) return noopUnsub;
+      return registrySubscribePaneData(id, cb);
     },
-    [registry, boundPaneId],
+    [registrySubscribePaneData, boundPaneId],
   );
 
   const mobileSubscribeInner = useCallback(

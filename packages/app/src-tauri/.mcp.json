@@ -2,7 +2,7 @@
   "mcpServers": {
     "puppet-master": {
       "args": [
-        "/Users/ren/work/puppet-master/packages/mcp-server/dist/index.js"
+        "/Users/ren/work/puppet-master/packages/app/src-tauri/../../mcp-server/dist/index.js"
       ],
       "command": "/usr/local/bin/node",
       "env": {

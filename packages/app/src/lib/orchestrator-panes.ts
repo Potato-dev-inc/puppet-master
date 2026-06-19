@@ -1,10 +1,11 @@
 import type { AgentType, OrchestratorBackend } from '@puppet-master/shared';
+import { ORCHESTRATOR_PANE_PREFIX } from '@puppet-master/shared';
 import { ensureOrchestratorMcp } from './mcp-config';
 import { tauri, type PaneInfo } from './tauri';
 
 export type CliOrchestratorBackend = Exclude<OrchestratorBackend, 'api'>;
 
-export const ORCHESTRATOR_PANE_PREFIX = 'puppet-master-orchestrator-';
+export { ORCHESTRATOR_PANE_PREFIX };
 
 export const ORCHESTRATOR_PANE_ID: Record<CliOrchestratorBackend, string> = {
   claude_cli: `${ORCHESTRATOR_PANE_PREFIX}claude`,

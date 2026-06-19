@@ -1,5 +1,8 @@
 import {
   AgentTypeSchema,
+  assertWorkerPaneTarget,
+  findReusableWorkerPane,
+  formatPaneListForOrchestrator,
   getAgentContextProfile,
   inspectAgentModel,
   listAgentContextProfiles,
@@ -12,27 +15,14 @@ import { isTuiAgent, sleep, summarizeBuffer } from './ansi';
 import { autoApprovePermissions, typeAndSubmit } from './tui-autopilot';
 
 function formatPaneList(panes: PaneInfo[]): string {
-  if (panes.length === 0) return '(no panes)';
-  return panes
-    .map((p) => {
-      const ready = p.status === 'waiting_input' || p.status === 'idle';
-      return (
-        `${p.id} | agent=${p.agent_type} | status=${p.status} | cwd=${p.cwd}` +
-        (ready ? ' ← ready for write_terminal_input' : '')
-      );
-    })
-    .join('\n');
+  return formatPaneListForOrchestrator(panes);
 }
 
 export { formatPaneList };
 
-/** Prefer an already-open pane of the same agent (e.g. user opened it manually). */
+/** Prefer an already-open worker pane of the same agent (never the orchestrator pane). */
 function findReusablePane(panes: PaneInfo[], agentType: string): PaneInfo | undefined {
-  const matches = panes.filter((p) => p.agent_type === agentType && p.status !== 'error');
-  if (matches.length === 0) return undefined;
-  const ready = matches.find((p) => p.status === 'waiting_input' || p.status === 'idle');
-  if (ready) return ready;
-  return matches.sort((a, b) => b.created_at - a.created_at)[0];
+  return findReusableWorkerPane(panes, agentType);
 }
 
 async function waitForPaneReady(
@@ -55,7 +45,8 @@ async function waitForPaneReady(
 export const PUPPET_MASTER_TOOLS: ToolDef[] = [
   {
     name: 'list_panes',
-    description: 'List all live PTY panes. Returns id, agent type, pid, status, cwd for each.',
+    description:
+      'List all live PTY panes. Panes whose id starts with puppet-master-orchestrator- are the dedicated orchestrator (role=orchestrator) — never write_terminal_input or kill them. Only delegate to worker panes.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
@@ -93,7 +84,7 @@ export const PUPPET_MASTER_TOOLS: ToolDef[] = [
   {
     name: 'spawn_agent',
     description:
-      'Open an agent pane ONLY if none exists for that agent_type. Reuses panes the user already opened manually. Set force_new=true to always create another pane.',
+      'Open a worker agent pane ONLY if none exists for that agent_type. Reuses user-opened worker panes; never reuses puppet-master-orchestrator-* panes. Set force_new=true to always create another pane.',
     input_schema: {
       type: 'object',
       properties: {
@@ -122,7 +113,7 @@ export const PUPPET_MASTER_TOOLS: ToolDef[] = [
   {
     name: 'write_terminal_input',
     description:
-      'Type text into a pane. ALWAYS set append_newline=true when submitting a prompt to claude/codex/opencode (sends Enter).',
+      'Type text into a worker pane. Cannot target puppet-master-orchestrator-* panes. ALWAYS set append_newline=true when submitting a prompt to claude/codex/opencode (sends Enter).',
     input_schema: {
       type: 'object',
       properties: {
@@ -135,7 +126,7 @@ export const PUPPET_MASTER_TOOLS: ToolDef[] = [
   },
   {
     name: 'kill_pane_process',
-    description: 'Terminate a pane and its child process.',
+    description: 'Terminate a worker pane and its child process. Cannot kill puppet-master-orchestrator-* panes.',
     input_schema: {
       type: 'object',
       properties: { pane_id: { type: 'string' } },
@@ -246,6 +237,10 @@ export async function executeMcpTool(
         };
         const forceNew = spawnArgs.force_new === true;
 
+        if (spawnArgs.pane_id) {
+          assertWorkerPaneTarget(spawnArgs.pane_id);
+        }
+
         if (!forceNew && !spawnArgs.pane_id) {
           const existingPanes = await executor.listPanes();
           const reusable = findReusablePane(existingPanes, spawnArgs.agent_type);
@@ -286,6 +281,7 @@ export async function executeMcpTool(
       }
       case 'write_terminal_input': {
         const a = args as { pane_id: string; text: string; append_newline?: boolean };
+        assertWorkerPaneTarget(a.pane_id);
         const append = a.append_newline !== false;
         if (append) {
           await typeAndSubmit(executor, a.pane_id, a.text);
@@ -301,6 +297,7 @@ export async function executeMcpTool(
       }
       case 'kill_pane_process': {
         const a = args as { pane_id: string };
+        assertWorkerPaneTarget(a.pane_id);
         await executor.killPane(a.pane_id);
         result = 'killed';
         break;

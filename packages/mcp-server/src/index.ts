@@ -15,9 +15,13 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import {
   AgentTypeSchema,
+  assertWorkerPaneTarget,
+  findReusableWorkerPane,
+  formatPaneListForOrchestrator,
   getAgentContextProfile,
   inspectAgentModel,
   listAgentContextProfiles,
+  PaneInfoSchema,
   SpawnPaneRequestSchema,
   WriteInputRequestSchema,
 } from '@puppet-master/shared';
@@ -30,7 +34,7 @@ const log = (...args: unknown[]) => {
 const TOOLS = [
   {
     name: 'list_panes',
-    description: 'List all live PTY panes managed by Puppet Master. Orchestrators should call this before spawning or delegating so they can reuse existing agents. Returns id, agent type, pid, status, cwd, and dimensions.',
+    description: 'List all live PTY panes. Panes with id puppet-master-orchestrator-* are the dedicated orchestrator — never write_terminal_input or kill them. Delegate only to worker panes.',
     inputSchema: { type: 'object' as const, properties: {}, required: [] },
   },
   {
@@ -69,7 +73,7 @@ const TOOLS = [
   },
   {
     name: 'spawn_agent',
-    description: 'Spawn a new PTY pane running an AI agent (claude, codex, opencode) or shell (powershell, bash, cursor). Call list_panes first and only spawn if no suitable pane exists unless the user explicitly asked for another one.',
+    description: 'Spawn a worker PTY pane. Reuses existing worker panes of the same agent_type; never reuses puppet-master-orchestrator-* panes. Call list_panes first.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -96,7 +100,7 @@ const TOOLS = [
   },
   {
     name: 'write_terminal_input',
-    description: 'Send keystrokes / text to a pane as if typed. Use append_newline=true when delegating a prompt to an agent, then read_terminal_buffer once to confirm receipt.',
+    description: 'Send keystrokes to a worker pane. Cannot target puppet-master-orchestrator-* panes. Use append_newline=true when delegating a prompt.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -109,7 +113,7 @@ const TOOLS = [
   },
   {
     name: 'kill_pane_process',
-    description: 'Terminate a pane and its child process.',
+    description: 'Terminate a worker pane. Cannot kill puppet-master-orchestrator-* panes.',
     inputSchema: {
       type: 'object' as const,
       properties: { pane_id: { type: 'string' } },
@@ -193,8 +197,10 @@ async function main(): Promise<void> {
       let text = '';
       switch (name) {
         case 'list_panes': {
-          const panes = await callWithRefresh<unknown[]>(clientRef, 'GET', '/panes');
-          text = JSON.stringify(panes, null, 2);
+          const panes = PaneInfoSchema.array().parse(
+            await callWithRefresh<unknown[]>(clientRef, 'GET', '/panes'),
+          );
+          text = formatPaneListForOrchestrator(panes);
           break;
         }
         case 'bridge_health': {
@@ -262,6 +268,18 @@ async function main(): Promise<void> {
         }
         case 'spawn_agent': {
           const parsed = SpawnPaneRequestSchema.parse(args);
+          if (parsed.pane_id) {
+            assertWorkerPaneTarget(parsed.pane_id);
+          } else {
+            const panes = PaneInfoSchema.array().parse(
+              await callWithRefresh<unknown[]>(clientRef, 'GET', '/panes'),
+            );
+            const reusable = findReusableWorkerPane(panes, parsed.agent_type);
+            if (reusable) {
+              text = `reusing existing worker pane: ${reusable.id} (agent=${reusable.agent_type}, status=${reusable.status})`;
+              break;
+            }
+          }
           const result = await callWithRefresh<{ pane_id: string }>(clientRef, 'POST', '/panes', parsed);
           text = `spawned pane: ${result.pane_id}`;
           break;
@@ -280,6 +298,7 @@ async function main(): Promise<void> {
         case 'write_terminal_input': {
           const parsed = WriteInputRequestSchema.parse({ ...(args as object), pane_id: undefined });
           const a = args as { pane_id: string; text: string; append_newline?: boolean };
+          assertWorkerPaneTarget(a.pane_id);
           await callWithRefresh(clientRef, 'POST', `/panes/${encodeURIComponent(a.pane_id)}/input`, {
             text: a.text,
             append_newline: parsed.append_newline,
@@ -289,6 +308,7 @@ async function main(): Promise<void> {
         }
         case 'kill_pane_process': {
           const a = args as { pane_id: string };
+          assertWorkerPaneTarget(a.pane_id);
           await callWithRefresh(clientRef, 'DELETE', `/panes/${encodeURIComponent(a.pane_id)}`);
           text = 'killed';
           break;
