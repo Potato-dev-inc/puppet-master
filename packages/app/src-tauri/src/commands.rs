@@ -163,6 +163,11 @@ pub async fn read_agent_context(
 }
 
 #[tauri::command]
+pub async fn replay_pane_timeline() -> Result<Vec<crate::event_log::PaneTimelineEvent>, String> {
+    crate::event_log::replay_global_pane_timeline()
+}
+
+#[tauri::command]
 pub async fn resize_pane(
     state: State<'_, AppState>,
     pane_id: String,

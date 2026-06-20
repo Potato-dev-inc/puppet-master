@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::thread;
 use tauri::{AppHandle, Emitter};
 
+use crate::events::SystemEvent;
 use crate::mobile_pairing::{self, PairRequestBody};
 use crate::pty::agents::AgentType;
 use crate::pty::{
@@ -249,6 +250,11 @@ fn handle_connection(
         return Ok(());
     }
 
+    let bridge_tool = bridge_tool_name(method, &segments);
+    if let Some(tool) = &bridge_tool {
+        crate::event_log::append_bridge_event(SystemEvent::McpToolCalled { tool: tool.clone() });
+    }
+
     let result = route(
         &mut stream,
         method,
@@ -260,10 +266,33 @@ fn handle_connection(
         &headers_raw,
         peer_loopback,
     );
+    if let Some(tool) = bridge_tool {
+        let (status, ok) = match &result {
+            Ok((status, _)) => (*status, *status < 400),
+            Err((status, _)) => (*status, false),
+        };
+        crate::event_log::append_bridge_event(SystemEvent::McpToolCompleted { tool, ok, status });
+    }
     match result {
         Ok((0, _)) => Ok(()), // SSE handled inline — stream already consumed
         Ok((status, value)) => write_json(&mut stream, status, &value),
         Err((status, value)) => write_json(&mut stream, status, &value),
+    }
+}
+
+fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
+    match (method, segments) {
+        ("GET", ["health"]) => Some("bridge_health".to_string()),
+        ("GET", ["agent-contexts"]) => Some("list_agent_contexts".to_string()),
+        ("GET", ["panes"]) => Some("list_panes".to_string()),
+        ("POST", ["panes"]) => Some("spawn_agent".to_string()),
+        ("DELETE", ["panes", _]) => Some("kill_pane_process".to_string()),
+        ("GET", ["panes", _, "buffer"]) => Some("read_terminal_buffer".to_string()),
+        ("POST", ["panes", _, "input"]) => Some("write_terminal_input".to_string()),
+        ("GET", ["panes", _, "model"]) => Some("inspect_agent_model".to_string()),
+        ("GET", ["panes", _, "agent-context"]) => Some("read_agent_context".to_string()),
+        ("GET", ["events", "replay", "panes"]) => Some("replay_pane_timeline".to_string()),
+        _ => None,
     }
 }
 
@@ -335,6 +364,12 @@ fn route(
     if segments == ["events"] && method == "GET" {
         handle_sse(stream, registry, &app);
         return Ok((0, serde_json::Value::Null));
+    }
+
+    if segments == ["events", "replay", "panes"] && method == "GET" {
+        let timeline = crate::event_log::replay_global_pane_timeline()
+            .map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(timeline).unwrap()));
     }
 
     if segments == ["agent-contexts"] && method == "GET" {

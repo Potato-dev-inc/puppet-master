@@ -1,7 +1,10 @@
+mod actors;
 mod agent_contexts;
 mod app_paths;
 mod bridge;
 mod commands;
+mod event_log;
+mod events;
 mod mcp_install;
 mod mcp_runtime;
 mod mobile_pairing;
@@ -47,6 +50,7 @@ pub fn run() {
             commands::list_agent_contexts,
             commands::read_agent_context,
             commands::inspect_agent_model,
+            commands::replay_pane_timeline,
             commands::resize_pane,
             commands::set_project_path,
             commands::get_project_path_cmd,
@@ -88,6 +92,9 @@ pub fn run() {
 
             let port_file = app_paths::bridge_port_file();
             let pairing_file = app_paths::pairing_file();
+            if let Err(err) = event_log::init_global_event_log(event_log::event_log_path()) {
+                tracing::warn!(%err, "event log not initialized");
+            }
 
             let registry = app.state::<AppState>().registry.clone();
             let bridge_url = match bridge::start_embedded_bridge(

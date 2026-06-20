@@ -16,6 +16,7 @@ use super::agents::{resolve_command, AgentType};
 use super::ansi::strip_ansi;
 use super::scrollback::Scrollback;
 use super::status::{looks_like_prompt, PaneStatus};
+use crate::events::{PaneId, SystemEvent};
 
 const SCROLLBACK_CAP: usize = 10_000;
 const IDLE_AFTER: Duration = Duration::from_secs(5);
@@ -228,6 +229,9 @@ pub fn spawn_pane(
         let mut reg = registry.lock();
         if reg.panes.contains_key(&pane_id) {
             reg.kill(&pane_id);
+            crate::event_log::append_system_event(SystemEvent::PaneKilled {
+                pane_id: PaneId(pane_id.clone()),
+            });
         }
     }
 
@@ -315,6 +319,12 @@ pub fn spawn_pane(
                             break;
                         }
                         Ok(n) => {
+                            crate::event_log::append_system_event(
+                                SystemEvent::PaneOutputObserved {
+                                    pane_id: PaneId(pane_id.clone()),
+                                    byte_count: n,
+                                },
+                            );
                             // Push RAW BYTES to scrollback — never decode to
                             // String here, as from_utf8_lossy corrupts multi-byte
                             // UTF-8 at chunk boundaries.
@@ -374,6 +384,12 @@ pub fn spawn_pane(
                                         status: s.as_str().to_string(),
                                     },
                                 );
+                                crate::event_log::append_system_event(
+                                    SystemEvent::PaneStatusChanged {
+                                        pane_id: PaneId(pane_id.clone()),
+                                        status: s.as_str().to_string(),
+                                    },
+                                );
                             }
                         }
                         Err(e) => {
@@ -392,6 +408,10 @@ pub fn spawn_pane(
                 }
                 *exited.lock() = true;
                 *status.lock() = PaneStatus::Error;
+                crate::event_log::append_system_event(SystemEvent::PaneStatusChanged {
+                    pane_id: PaneId(pane_id.clone()),
+                    status: PaneStatus::Error.as_str().to_string(),
+                });
                 let _ = app.emit(
                     "pty://exit",
                     PaneExitEvent {
@@ -428,6 +448,10 @@ pub fn spawn_pane(
                                 status: PaneStatus::Idle.as_str().to_string(),
                             },
                         );
+                        crate::event_log::append_system_event(SystemEvent::PaneStatusChanged {
+                            pane_id: PaneId(pane_id.clone()),
+                            status: PaneStatus::Idle.as_str().to_string(),
+                        });
                     }
                 }
             })
@@ -437,6 +461,14 @@ pub fn spawn_pane(
     let id = pane.info.id.clone();
     registry.lock().panes.insert(pane.info.id.clone(), pane);
     let _ = app.emit("pty://panes-changed", ());
+    crate::event_log::append_system_event(SystemEvent::PaneSpawned {
+        pane_id: PaneId(id.clone()),
+        agent_type: args.agent_type.clone(),
+        pid,
+        cwd,
+        cols,
+        rows,
+    });
     info!(pane = %id, agent = %args.agent_type, pid, "pane spawned");
     Ok(id)
 }
@@ -471,6 +503,11 @@ pub fn write_input(
     if append_newline {
         write_enter_bytes(&mut pane.writer, &agent)?;
     }
+    crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
+        pane_id: PaneId(pane_id.to_string()),
+        byte_count: text.as_bytes().len() + usize::from(append_newline),
+        append_newline,
+    });
     Ok(())
 }
 
@@ -553,17 +590,25 @@ pub fn resize(
 
 pub fn kill_pane(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<(), String> {
     registry.lock().kill(pane_id);
+    crate::event_log::append_system_event(SystemEvent::PaneKilled {
+        pane_id: PaneId(pane_id.to_string()),
+    });
     Ok(())
 }
 
 pub fn kill_all(registry: &Mutex<PaneRegistry>) {
+    let ids: Vec<String> = registry.lock().panes.keys().cloned().collect();
     registry.lock().kill_all();
+    for pane_id in ids {
+        crate::event_log::append_system_event(SystemEvent::PaneKilled {
+            pane_id: PaneId(pane_id),
+        });
+    }
 }
 
 #[allow(dead_code)]
 pub fn set_project_path(registry: &Mutex<PaneRegistry>, path: String) {
-    if let Ok(normalized) =
-        crate::project_path::normalize_project_path(std::path::Path::new(&path))
+    if let Ok(normalized) = crate::project_path::normalize_project_path(std::path::Path::new(&path))
     {
         registry.lock().project_path = normalized.to_string_lossy().into_owned();
     }
