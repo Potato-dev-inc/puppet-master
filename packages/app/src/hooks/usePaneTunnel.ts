@@ -101,6 +101,7 @@ export function usePaneTunnel(
       if (isDesktop || !boundPaneId || id !== boundPaneId) return;
       setDimensions((prev) => {
         if (prev?.cols === cols && prev?.rows === rows) return prev;
+        stateRef.current.streams.reset(boundPaneId);
         return { cols, rows };
       });
     },

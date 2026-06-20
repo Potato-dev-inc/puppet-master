@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PaneStreamManager } from '../terminal';
 import {
   tauri,
@@ -82,11 +82,10 @@ export function usePaneRegistry(): PaneRegistryApi {
       });
       unsubStatus = await tauri.onPtyStatus((e: PaneStatusEvent) => {
         setPanes((prev) => {
+          const existing = prev.get(e.pane_id);
+          if (!existing || existing.status === e.status) return prev;
           const next = new Map(prev);
-          const existing = next.get(e.pane_id);
-          if (existing) {
-            next.set(e.pane_id, { ...existing, status: e.status });
-          }
+          next.set(e.pane_id, { ...existing, status: e.status });
           return next;
         });
       });
@@ -203,7 +202,10 @@ export function usePaneRegistry(): PaneRegistryApi {
   }, []);
 
 
-  const paneList = Array.from(panes.values()).sort((a, b) => a.info.created_at - b.info.created_at);
+  const paneList = useMemo(
+    () => Array.from(panes.values()).sort((a, b) => a.info.created_at - b.info.created_at),
+    [panes],
+  );
 
   return {
     panes,

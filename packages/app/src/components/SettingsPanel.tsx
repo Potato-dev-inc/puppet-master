@@ -17,6 +17,7 @@ interface Props {
   projectPath?: string | null;
   onProjectPathChange?: (path: string) => Promise<void>;
   onSidebarWidthChange?: (width: number) => void;
+  currentSidebarWidth?: number;
 }
 
 export function SettingsPanel({
@@ -26,6 +27,7 @@ export function SettingsPanel({
   projectPath = null,
   onProjectPathChange,
   onSidebarWidthChange,
+  currentSidebarWidth,
 }: Props) {
   const [tab, setTab] = useState<SettingsTabId>('general');
   const [search, setSearch] = useState('');
@@ -65,6 +67,7 @@ export function SettingsPanel({
     draftCustom,
     setDraftCustom,
     onSidebarWidthChange,
+    currentSidebarWidth,
   };
 
   if (!open) return null;

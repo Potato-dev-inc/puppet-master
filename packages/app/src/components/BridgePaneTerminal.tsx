@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import type { PaneInfo } from '@puppet-master/shared';
+import { useDebouncedMirrorLayout } from '../hooks/useDebouncedMirrorLayout';
 import { useTerminalSession, type TerminalTransport } from '../hooks/useTerminalSession';
 import { isMobileInputDevice } from '../terminal/mobile-input-guard';
+import { mirrorLayoutSessionKey } from '../terminal/mirror-layout-session';
 import type { TerminalRenderMode } from '../terminal';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -35,11 +37,16 @@ export function BridgePaneTerminal({
   mobileInputVisible,
 }: Props) {
   const mobileMirror = !syncPTYResize && isMobileInputDevice();
+  const layout = useDebouncedMirrorLayout(pane.cols, pane.rows);
   const effectiveRenderMode =
     renderMode ?? 'mirror-same-grid';
   const containerRef = useTerminalSession({
     paneId: pane.id,
-    sessionKey: pane.created_at,
+    sessionKey: mirrorLayoutSessionKey(
+      pane.created_at,
+      mobileMirror ? layout.cols : pane.cols,
+      mobileMirror ? layout.rows : pane.rows,
+    ),
     subscribePaneData,
     transport,
     syncPTYResize,

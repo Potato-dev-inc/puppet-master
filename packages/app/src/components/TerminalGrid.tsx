@@ -12,19 +12,30 @@ interface Props {
 
 export function TerminalGrid({ registry, projectPath, onClosePane }: Props) {
   const { paneList, spawnPane, replacePaneAgent } = registry;
-  const workerPanes = paneList.filter((pane) => !isOrchestratorPaneId(pane.info.id));
+  const workerPanes = useMemo(
+    () => paneList.filter((pane) => !isOrchestratorPaneId(pane.info.id)),
+    [paneList],
+  );
+  const workerPaneIds = useMemo(
+    () => workerPanes.map((pane) => pane.info.id).join('\0'),
+    [workerPanes],
+  );
   const [showAdd, setShowAdd] = useState(false);
   const [paneOrder, setPaneOrder] = useState<string[]>([]);
   const [draggingPaneId, setDraggingPaneId] = useState<string | null>(null);
 
   useEffect(() => {
+    const liveIds = workerPaneIds ? workerPaneIds.split('\0') : [];
     setPaneOrder((prev) => {
-      const liveIds = workerPanes.map((pane) => pane.info.id);
       const retained = prev.filter((id) => liveIds.includes(id));
       const added = liveIds.filter((id) => !retained.includes(id));
-      return [...retained, ...added];
+      const next = [...retained, ...added];
+      if (next.length === prev.length && next.every((id, index) => id === prev[index])) {
+        return prev;
+      }
+      return next;
     });
-  }, [workerPanes]);
+  }, [workerPaneIds]);
 
   const orderedPanes = useMemo(() => {
     const byId = new Map(workerPanes.map((pane) => [pane.info.id, pane]));

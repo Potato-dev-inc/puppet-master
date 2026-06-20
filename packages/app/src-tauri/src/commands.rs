@@ -113,8 +113,10 @@ pub async fn resize_pane(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    registry_resize(&state.registry, &pane_id, cols, rows)?;
-    crate::bridge::push_pane_resize_sse(&pane_id, cols, rows);
+    let changed = registry_resize(&state.registry, &pane_id, cols, rows)?;
+    if changed {
+        crate::bridge::push_pane_resize_sse(&pane_id, cols, rows);
+    }
     Ok(())
 }
 
@@ -134,8 +136,11 @@ pub async fn sync_public_settings(
 
 #[tauri::command]
 pub async fn set_project_path(state: State<'_, AppState>, path: String) -> Result<(), String> {
-    crate::project_path::normalize_project_path(std::path::Path::new(&path))?;
-    registry_set_project_path(&state.registry, path);
+    let normalized = crate::project_path::normalize_project_path(std::path::Path::new(&path))?;
+    registry_set_project_path(
+        &state.registry,
+        normalized.to_string_lossy().into_owned(),
+    );
     Ok(())
 }
 

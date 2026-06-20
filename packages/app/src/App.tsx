@@ -172,6 +172,7 @@ export default function App() {
         projectPath={projectPath}
         onProjectPathChange={setProjectPath}
         onSidebarWidthChange={setSidebarWidth}
+        currentSidebarWidth={sidebarWidth}
       />
     </>
   );

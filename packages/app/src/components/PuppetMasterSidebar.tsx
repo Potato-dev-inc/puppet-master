@@ -23,7 +23,7 @@ import {
   isCliOrchestratorBackend,
   type CliOrchestratorBackend,
 } from '../lib/orchestrator-panes';
-import { isValidProjectPath } from '../lib/project-path';
+import { isValidProjectPath, projectPathsEqual } from '../lib/project-path';
 import { OrchestratorTerminal } from './OrchestratorTerminal';
 
 interface UiLogEntry {
@@ -110,17 +110,37 @@ export function PuppetMasterSidebar({
     }
   }, [registry]);
 
+  const orchestratorPaneId = orchestratorPane?.info.id;
+  const orchestratorPaneCwd = orchestratorPane?.info.cwd;
+  const orchestratorPaneStatus = orchestratorPane?.status;
+
   useEffect(() => {
     if (!cliBackend || !isValidProjectPath(projectPath)) {
       setOrchestratorError(null);
       setOrchestratorStarting(false);
       return;
     }
-    if (orchestratorPane?.info.cwd === projectPath && orchestratorPane.status !== 'error') {
+    if (orchestratorStarting) return;
+    if (!orchestratorPaneId) {
+      void startOrchestratorPane(cliBackend, projectPath);
       return;
     }
-    void startOrchestratorPane(cliBackend, projectPath);
-  }, [cliBackend, projectPath, orchestratorPane?.info.cwd, orchestratorPane?.status, startOrchestratorPane]);
+    if (!orchestratorPaneCwd || !projectPathsEqual(orchestratorPaneCwd, projectPath)) {
+      void startOrchestratorPane(cliBackend, projectPath);
+      return;
+    }
+    if (orchestratorPaneStatus === 'error') {
+      return;
+    }
+  }, [
+    cliBackend,
+    projectPath,
+    orchestratorPaneId,
+    orchestratorPaneCwd,
+    orchestratorPaneStatus,
+    orchestratorStarting,
+    startOrchestratorPane,
+  ]);
 
   const refreshFromSettings = useCallback(async () => {
     const s = await loadSettings();
@@ -542,10 +562,6 @@ export function PuppetMasterSidebar({
               setBackend(next);
               const s = await loadSettings();
               await saveSettings({ ...s, orchestrator_backend: next });
-              if (isCliOrchestratorBackend(next)) {
-                const cwd = projectPath ?? (await tauri.getProjectPath());
-                if (isValidProjectPath(cwd)) void startOrchestratorPane(next, cwd);
-              }
             }}
             className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-1 py-0.5 text-xs"
           >

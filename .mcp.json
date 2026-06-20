@@ -2,11 +2,11 @@
   "mcpServers": {
     "puppet-master": {
       "args": [
-        "C:/Users/Ren-pc/Desktop/work/tmux-puppet-master/packages/app/src-tauri/../../mcp-server/dist/index.js"
+        "/Users/ren/work/puppet-master/packages/app/src-tauri/../../mcp-server/dist/index.js"
       ],
-      "command": "C:/Program Files/nodejs/node.exe",
+      "command": "/usr/local/bin/node",
       "env": {
-        "PUPPET_MASTER_BRIDGE_PORT_FILE": "C:/Users/Ren-pc/AppData/Roaming/com.puppetmaster.app/puppet-master.bridge.port"
+        "PUPPET_MASTER_BRIDGE_PORT_FILE": "/Users/ren/Library/Application Support/com.puppetmaster.app/puppet-master.bridge.port"
       }
     }
   }

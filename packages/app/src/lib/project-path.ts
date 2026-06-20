@@ -4,3 +4,8 @@ export function isValidProjectPath(path: string | null | undefined): path is str
   const normalized = path.trim().replace(/\\/g, '/');
   return normalized !== '/' && !/^[A-Za-z]:$/.test(normalized);
 }
+
+/** Compare project paths after normalizing separators. */
+export function projectPathsEqual(a: string, b: string): boolean {
+  return a.trim().replace(/\\/g, '/') === b.trim().replace(/\\/g, '/');
+}

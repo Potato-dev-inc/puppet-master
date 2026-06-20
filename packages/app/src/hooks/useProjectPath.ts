@@ -15,7 +15,11 @@ export function useProjectPath() {
         const path = settings.project_path ?? fromRegistry;
         if (isValidProjectPath(path)) {
           await tauri.setProjectPath(path);
-          setProjectPathState(path);
+          const resolved = await tauri.getProjectPath();
+          setProjectPathState(resolved);
+          if (settings.project_path !== resolved) {
+            await saveSettings({ ...settings, project_path: resolved });
+          }
         }
       } finally {
         setReady(true);
@@ -25,9 +29,10 @@ export function useProjectPath() {
 
   const setProjectPath = useCallback(async (path: string) => {
     await tauri.setProjectPath(path);
+    const resolved = await tauri.getProjectPath();
     const settings = await loadSettings();
-    await saveSettings({ ...settings, project_path: path });
-    setProjectPathState(path);
+    await saveSettings({ ...settings, project_path: resolved });
+    setProjectPathState(resolved);
   }, []);
 
   return { projectPath, setProjectPath, ready };

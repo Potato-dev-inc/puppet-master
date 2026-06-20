@@ -1,6 +1,7 @@
 import type { AgentType, OrchestratorBackend } from '@puppet-master/shared';
 import { ORCHESTRATOR_PANE_PREFIX } from '@puppet-master/shared';
 import { ensureOrchestratorMcp } from './mcp-config';
+import { projectPathsEqual } from './project-path';
 import { tauri, type PaneInfo } from './tauri';
 
 export type CliOrchestratorBackend = Exclude<OrchestratorBackend, 'api'>;
@@ -43,11 +44,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function ensureOrchestratorPane(
+const ensureOrchestratorPaneInflight = new Map<string, Promise<string>>();
+
+async function ensureOrchestratorPaneOnce(
   backend: CliOrchestratorBackend,
   cwd: string,
 ): Promise<string> {
-  const mcp = await ensureOrchestratorMcp(backend, cwd);
+  await tauri.setProjectPath(cwd);
+  const resolvedCwd = await tauri.getProjectPath();
+
+  const mcp = await ensureOrchestratorMcp(backend, resolvedCwd);
   if (!mcp.installed) {
     throw new Error(mcp.message || 'Puppet Master MCP install incomplete');
   }
@@ -56,7 +62,7 @@ export async function ensureOrchestratorPane(
   const stableId = ORCHESTRATOR_PANE_ID[backend];
   const panes = await tauri.listPanes();
   const existing = panes.find((pane) => pane.id === stableId && pane.status !== 'error');
-  if (existing?.cwd === cwd) return existing.id;
+  if (existing && projectPathsEqual(existing.cwd, resolvedCwd)) return existing.id;
   if (existing) {
     await tauri.killPane(stableId);
   }
@@ -64,12 +70,27 @@ export async function ensureOrchestratorPane(
   const paneId = await tauri.spawnPane({
     agent_type: agent,
     pane_id: stableId,
-    cwd,
+    cwd: resolvedCwd,
     cols: 100,
     rows: 40,
   });
   await sleep(1200);
   return paneId;
+}
+
+export async function ensureOrchestratorPane(
+  backend: CliOrchestratorBackend,
+  cwd: string,
+): Promise<string> {
+  const key = `${backend}:${cwd}`;
+  const inflight = ensureOrchestratorPaneInflight.get(key);
+  if (inflight) return inflight;
+
+  const promise = ensureOrchestratorPaneOnce(backend, cwd).finally(() => {
+    ensureOrchestratorPaneInflight.delete(key);
+  });
+  ensureOrchestratorPaneInflight.set(key, promise);
+  return promise;
 }
 
 export function findOrchestratorPane(

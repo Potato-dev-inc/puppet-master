@@ -29,7 +29,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis", "dmg", "app"],
+    "targets": [
+      "msi",
+      "nsis",
+      "dmg",
+      "app"
+    ],
     "resources": [
       "resources/mcp-stdio.bundle.cjs"
     ],

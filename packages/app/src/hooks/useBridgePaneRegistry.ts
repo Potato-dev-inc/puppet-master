@@ -52,14 +52,15 @@ export function useBridgePaneRegistry(bridge: BridgeClient | null): BridgePaneRe
 
   const updatePaneDimensions = useCallback((paneId: string, cols: number, rows: number) => {
     setPanes((prev) => {
+      const existing = prev.get(paneId);
+      if (!existing) return prev;
+      if (existing.info.cols === cols && existing.info.rows === rows) return prev;
+      streamsRef.current.reset(paneId);
       const next = new Map(prev);
-      const existing = next.get(paneId);
-      if (existing) {
-        next.set(paneId, {
-          ...existing,
-          info: { ...existing.info, cols, rows },
-        });
-      }
+      next.set(paneId, {
+        ...existing,
+        info: { ...existing.info, cols, rows },
+      });
       return next;
     });
   }, []);

@@ -21,8 +21,22 @@ const LEGACY_STORE_FILENAME = 'puppet-master.settings.json';
 const SETTINGS_KEY = 'settings';
 const LEGACY_SIDEBAR_WIDTH_KEY = 'pm-sidebar-width';
 
-const MIN_SIDEBAR_WIDTH = 300;
-const MAX_SIDEBAR_WIDTH = 800;
+export const MIN_SIDEBAR_WIDTH = 300;
+export const MAX_SIDEBAR_WIDTH = 800;
+export const SIDEBAR_WIDTH_PRESETS = [300, 360, 400, 480, 640] as const;
+export type SidebarWidthPreset = (typeof SIDEBAR_WIDTH_PRESETS)[number];
+
+export const SIDEBAR_WIDTH_PRESET_LABELS: Record<SidebarWidthPreset, string> = {
+  300: 'Compact',
+  360: 'Comfortable',
+  400: 'Balanced',
+  480: 'Wide',
+  640: 'Extra wide',
+};
+
+export function isSidebarWidthPreset(width: number): width is SidebarWidthPreset {
+  return (SIDEBAR_WIDTH_PRESETS as readonly number[]).includes(width);
+}
 
 let cached: LazyStore | null = null;
 let migrationDone = false;

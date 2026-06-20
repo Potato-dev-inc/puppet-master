@@ -8,6 +8,20 @@ pub fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// Expand `~` and `~/…` so paths typed in settings resolve outside `src-tauri` during dev.
+pub fn expand_user_path(path: &Path) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if raw == "~" {
+        return home_dir().unwrap_or_else(|| PathBuf::from("."));
+    }
+    if let Some(rest) = raw.strip_prefix("~/").or_else(|| raw.strip_prefix("~\\")) {
+        if let Some(home) = home_dir() {
+            return home.join(rest);
+        }
+    }
+    path.to_path_buf()
+}
+
 /// GUI macOS apps launched from a DMG often have current_dir `/` — never use that as a project root.
 pub fn is_valid_project_path(path: &Path) -> bool {
     if path.as_os_str().is_empty() {
@@ -38,13 +52,14 @@ pub fn default_project_path() -> String {
 }
 
 pub fn normalize_project_path(path: &Path) -> Result<PathBuf, String> {
-    if !is_valid_project_path(path) {
+    let expanded = expand_user_path(path);
+    if !is_valid_project_path(&expanded) {
         return Err(
             "Pick a project folder in the header before using Claude, Codex, or OpenCode orchestrators (cannot use /)"
                 .into(),
         );
     }
-    Ok(path.to_path_buf())
+    Ok(expanded)
 }
 
 /// PTY spawn cwd: explicit path when valid, otherwise registry default (also validated).
@@ -68,6 +83,15 @@ mod tests {
     fn default_is_not_root() {
         let path = default_project_path();
         assert!(is_valid_project_path(Path::new(&path)));
+    }
+
+    #[test]
+    fn expand_tilde_project_path() {
+        let Some(home) = home_dir() else {
+            return;
+        };
+        let expanded = expand_user_path(Path::new("~/work/puppet-master"));
+        assert_eq!(expanded, home.join("work/puppet-master"));
     }
 
     #[test]

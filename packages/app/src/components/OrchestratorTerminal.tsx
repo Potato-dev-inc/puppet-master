@@ -1,7 +1,9 @@
 import { useTerminalSession, type TerminalTransport } from '../hooks/useTerminalSession';
+import { useDebouncedMirrorLayout } from '../hooks/useDebouncedMirrorLayout';
 import type { PaneData } from '../hooks/usePaneRegistry';
 import { BACKEND_LABEL, type CliOrchestratorBackend } from '../lib/orchestrator-panes';
 import { isMobileInputDevice } from '../terminal/mobile-input-guard';
+import { mirrorLayoutSessionKey } from '../terminal/mirror-layout-session';
 import type { TerminalRenderMode } from '../terminal';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -45,11 +47,18 @@ function OrchestratorTerminalLive({
   mobileInputVisible?: boolean;
 }) {
   const mobileMirror = !syncPTYResize && isMobileInputDevice();
+  const layout = useDebouncedMirrorLayout(pane.info.cols, pane.info.rows);
   const effectiveRenderMode =
     renderMode ?? (mobileMirror ? 'mirror-same-grid' : undefined);
   const containerRef = useTerminalSession({
     paneId: pane.info.id,
-    sessionKey: pane.info.created_at,
+    sessionKey: syncPTYResize
+      ? pane.info.created_at
+      : mirrorLayoutSessionKey(
+          pane.info.created_at,
+          layout.cols,
+          layout.rows,
+        ),
     subscribePaneData,
       transport,
     syncPTYResize,

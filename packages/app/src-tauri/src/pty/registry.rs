@@ -224,6 +224,13 @@ pub fn spawn_pane(
     let rows = args.rows.unwrap_or(30);
     let pane_id = args.pane_id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
+    {
+        let mut reg = registry.lock();
+        if reg.panes.contains_key(&pane_id) {
+            reg.kill(&pane_id);
+        }
+    }
+
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -519,12 +526,15 @@ pub fn resize(
     pane_id: &str,
     cols: u16,
     rows: u16,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let mut reg = registry.lock();
     let pane = reg
         .panes
         .get_mut(pane_id)
         .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
+    if pane.info.cols == cols && pane.info.rows == rows {
+        return Ok(false);
+    }
     pane.master
         .resize(PtySize {
             rows,
@@ -538,7 +548,7 @@ pub fn resize(
     pane.screen.lock().screen_mut().set_size(rows, cols);
     pane.info.cols = cols;
     pane.info.rows = rows;
-    Ok(())
+    Ok(true)
 }
 
 pub fn kill_pane(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<(), String> {
@@ -552,8 +562,10 @@ pub fn kill_all(registry: &Mutex<PaneRegistry>) {
 
 #[allow(dead_code)]
 pub fn set_project_path(registry: &Mutex<PaneRegistry>, path: String) {
-    if crate::project_path::is_valid_project_path(std::path::Path::new(&path)) {
-        registry.lock().project_path = path;
+    if let Ok(normalized) =
+        crate::project_path::normalize_project_path(std::path::Path::new(&path))
+    {
+        registry.lock().project_path = normalized.to_string_lossy().into_owned();
     }
 }
 
