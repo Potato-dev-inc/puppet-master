@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::thread;
 use tauri::{AppHandle, Emitter};
 
-use crate::events::SystemEvent;
+use crate::events::{ResourceId, SystemEvent, TaskId};
 use crate::mobile_pairing::{self, PairRequestBody};
 use crate::pty::agents::AgentType;
 use crate::pty::{
@@ -101,6 +101,56 @@ struct ResizeBody {
 #[derive(Debug, Deserialize)]
 struct ProjectPathBody {
     path: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateTaskBody {
+    title: String,
+    #[serde(default)]
+    exclusive: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaimTaskBody {
+    agent_id: String,
+    lease_ms: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskStatusBody {
+    status: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CompleteTaskBody {
+    agent_id: String,
+    evidence: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BlockTaskBody {
+    agent_id: String,
+    reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AssignReviewerBody {
+    reviewer_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AcquireLockBody {
+    resource_type: String,
+    name: String,
+    owner_id: String,
+    lease_ms: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReleaseLockBody {
+    resource_type: String,
+    name: String,
+    owner_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -297,6 +347,16 @@ fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
         ("GET", ["locks"]) => Some("list_locks".to_string()),
         ("GET", ["agents", _, "inbox"]) => Some("read_agent_inbox".to_string()),
         ("GET", ["audit"]) => Some("get_audit".to_string()),
+        ("POST", ["tasks"]) => Some("create_task".to_string()),
+        ("POST", ["tasks", _, "claim"]) => Some("claim_task".to_string()),
+        ("POST", ["tasks", _, "lease"]) => Some("renew_task_lease".to_string()),
+        ("POST", ["tasks", _, "status"]) => Some("report_task_status".to_string()),
+        ("POST", ["tasks", _, "complete"]) => Some("complete_task".to_string()),
+        ("POST", ["tasks", _, "block"]) => Some("block_task".to_string()),
+        ("POST", ["tasks", _, "reviewer"]) => Some("assign_reviewer".to_string()),
+        ("POST", ["locks"]) => Some("acquire_resource_lock".to_string()),
+        ("POST", ["locks", "release"]) => Some("release_resource_lock".to_string()),
+        ("POST", ["locks", _, "expire"]) => Some("expire_resource_lock".to_string()),
         _ => None,
     }
 }
@@ -389,10 +449,130 @@ fn route(
         return Ok((200, serde_json::to_value(read_models.tasks).unwrap()));
     }
 
+    if segments == ["tasks"] && method == "POST" {
+        let req: CreateTaskBody = parse_json(body)?;
+        let task_id = TaskId::new();
+        crate::event_log::append_bridge_event(SystemEvent::TaskCreated {
+            task_id: task_id.clone(),
+            title: req.title,
+            exclusive: req.exclusive,
+        });
+        return Ok((201, json!({ "task_id": task_id.0 })));
+    }
+
+    if segments.len() == 3 && segments[0] == "tasks" && method == "POST" {
+        let task_id = TaskId(segments[1].to_string());
+        match segments[2] {
+            "claim" => {
+                let req: ClaimTaskBody = parse_json(body)?;
+                let read_models =
+                    rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+                let task = read_models
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == task_id)
+                    .ok_or_else(|| (404, json!({ "error": "unknown task" })))?;
+                if task.exclusive && task.claimed_by.is_some() && task.status == "claimed" {
+                    return Err((409, json!({ "error": "task already claimed" })));
+                }
+                crate::event_log::append_bridge_event(SystemEvent::TaskClaimed {
+                    task_id: task_id.clone(),
+                    agent_id: req.agent_id,
+                    lease_expires_at_ms: lease_expires_at(req.lease_ms),
+                });
+                return Ok((200, json!({ "task_id": task_id.0, "claimed": true })));
+            }
+            "lease" => {
+                let req: ClaimTaskBody = parse_json(body)?;
+                crate::event_log::append_bridge_event(SystemEvent::TaskLeaseRenewed {
+                    task_id: task_id.clone(),
+                    agent_id: req.agent_id,
+                    lease_expires_at_ms: lease_expires_at(req.lease_ms),
+                });
+                return Ok((200, json!({ "task_id": task_id.0, "renewed": true })));
+            }
+            "status" => {
+                let req: TaskStatusBody = parse_json(body)?;
+                crate::event_log::append_bridge_event(SystemEvent::TaskStatusUpdated {
+                    task_id: task_id.clone(),
+                    status: req.status,
+                });
+                return Ok((200, json!({ "task_id": task_id.0, "ok": true })));
+            }
+            "complete" => {
+                let req: CompleteTaskBody = parse_json(body)?;
+                crate::event_log::append_bridge_event(SystemEvent::TaskCompleted {
+                    task_id: task_id.clone(),
+                    agent_id: req.agent_id,
+                    evidence: req.evidence.unwrap_or_default(),
+                });
+                return Ok((200, json!({ "task_id": task_id.0, "completed": true })));
+            }
+            "block" => {
+                let req: BlockTaskBody = parse_json(body)?;
+                crate::event_log::append_bridge_event(SystemEvent::TaskBlocked {
+                    task_id: task_id.clone(),
+                    agent_id: req.agent_id,
+                    reason: req.reason,
+                });
+                return Ok((200, json!({ "task_id": task_id.0, "blocked": true })));
+            }
+            "reviewer" => {
+                let req: AssignReviewerBody = parse_json(body)?;
+                crate::event_log::append_bridge_event(SystemEvent::ReviewerAssigned {
+                    task_id: task_id.clone(),
+                    reviewer_id: req.reviewer_id,
+                });
+                return Ok((200, json!({ "task_id": task_id.0, "ok": true })));
+            }
+            _ => {}
+        }
+    }
+
     if segments == ["locks"] && method == "GET" {
         let read_models =
             rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
         return Ok((200, serde_json::to_value(read_models.locks).unwrap()));
+    }
+
+    if segments == ["locks"] && method == "POST" {
+        let req: AcquireLockBody = parse_json(body)?;
+        let resource_id = ResourceId::from_parts(&req.resource_type, &req.name);
+        let read_models =
+            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        if read_models
+            .locks
+            .iter()
+            .any(|lock| lock.resource_id == resource_id)
+        {
+            return Err((409, json!({ "error": "resource already locked" })));
+        }
+        crate::event_log::append_bridge_event(SystemEvent::ResourceLockAcquired {
+            resource_id: resource_id.clone(),
+            resource_type: req.resource_type,
+            owner_id: req.owner_id,
+            lease_expires_at_ms: req.lease_ms.map(|lease_ms| lease_expires_at(Some(lease_ms))),
+        });
+        return Ok((201, json!({ "resource_id": resource_id.0, "locked": true })));
+    }
+
+    if segments == ["locks", "release"] && method == "POST" {
+        let req: ReleaseLockBody = parse_json(body)?;
+        let resource_id = ResourceId::from_parts(&req.resource_type, &req.name);
+        crate::event_log::append_bridge_event(SystemEvent::ResourceLockReleased {
+            resource_id: resource_id.clone(),
+            owner_id: req.owner_id,
+        });
+        return Ok((200, json!({ "resource_id": resource_id.0, "released": true })));
+    }
+
+    if segments.len() == 3 && segments[0] == "locks" && segments[2] == "expire" && method == "POST"
+    {
+        let resource_id = ResourceId(segments[1].to_string());
+        crate::event_log::append_bridge_event(SystemEvent::ResourceLockExpired {
+            resource_id: resource_id.clone(),
+        });
+        return Ok((200, json!({ "resource_id": resource_id.0, "expired": true })));
     }
 
     if segments.len() == 3 && segments[0] == "agents" && segments[2] == "inbox" && method == "GET"
@@ -559,6 +739,10 @@ fn rebuild_read_models() -> Result<crate::projections::ReadModels, String> {
     Ok(crate::projections::build_read_models(&entries))
 }
 
+fn lease_expires_at(lease_ms: Option<i64>) -> i64 {
+    crate::event_log::now_ms() + lease_ms.unwrap_or(5 * 60 * 1000).max(1)
+}
+
 fn handle_sse(stream: &mut TcpStream, registry: Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
     let headers = "HTTP/1.1 200 OK\r\n\
         Content-Type: text/event-stream\r\n\
@@ -652,6 +836,7 @@ fn write_json(
         204 => "No Content",
         400 => "Bad Request",
         404 => "Not Found",
+        409 => "Conflict",
         500 => "Internal Server Error",
         _ => "OK",
     };

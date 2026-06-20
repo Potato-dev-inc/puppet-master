@@ -117,6 +117,88 @@ const TOOLS = [
       required: ['pane_id'],
     },
   },
+  {
+    name: 'create_task',
+    description: 'Create a coordination task in the Rust task board.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        title: { type: 'string' },
+        exclusive: { type: 'boolean', default: true },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'claim_task',
+    description: 'Claim an exclusive task lease for an agent.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        task_id: { type: 'string' },
+        agent_id: { type: 'string' },
+        lease_ms: { type: 'number' },
+      },
+      required: ['task_id', 'agent_id'],
+    },
+  },
+  {
+    name: 'report_task_status',
+    description: 'Update task status in the Rust task board.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        task_id: { type: 'string' },
+        status: { type: 'string' },
+      },
+      required: ['task_id', 'status'],
+    },
+  },
+  {
+    name: 'complete_task',
+    description: 'Complete a task with evidence.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        task_id: { type: 'string' },
+        agent_id: { type: 'string' },
+        evidence: { type: 'string' },
+      },
+      required: ['task_id', 'agent_id'],
+    },
+  },
+  {
+    name: 'list_tasks',
+    description: 'List rebuildable task board state from the Rust event log.',
+    inputSchema: { type: 'object' as const, properties: {}, required: [] },
+  },
+  {
+    name: 'acquire_resource_lock',
+    description: 'Acquire an exclusive resource lock.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        resource_type: { type: 'string', enum: ['file', 'directory', 'command', 'port', 'git branch', 'pane ownership'] },
+        name: { type: 'string' },
+        owner_id: { type: 'string' },
+        lease_ms: { type: 'number' },
+      },
+      required: ['resource_type', 'name', 'owner_id'],
+    },
+  },
+  {
+    name: 'release_resource_lock',
+    description: 'Release a resource lock owned by an agent or pane.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        resource_type: { type: 'string' },
+        name: { type: 'string' },
+        owner_id: { type: 'string' },
+      },
+      required: ['resource_type', 'name', 'owner_id'],
+    },
+  },
 ];
 
 interface BridgeClient {
@@ -279,6 +361,70 @@ async function main(): Promise<void> {
           assertWorkerPaneTarget(a.pane_id);
           await callWithRefresh(clientRef, 'DELETE', `/panes/${encodeURIComponent(a.pane_id)}`);
           text = 'killed';
+          break;
+        }
+        case 'create_task': {
+          const a = args as { title: string; exclusive?: boolean };
+          const result = await callWithRefresh<unknown>(clientRef, 'POST', '/tasks', {
+            title: a.title,
+            exclusive: a.exclusive ?? true,
+          });
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'claim_task': {
+          const a = args as { task_id: string; agent_id: string; lease_ms?: number };
+          const result = await callWithRefresh<unknown>(
+            clientRef,
+            'POST',
+            `/tasks/${encodeURIComponent(a.task_id)}/claim`,
+            { agent_id: a.agent_id, lease_ms: a.lease_ms },
+          );
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'report_task_status': {
+          const a = args as { task_id: string; status: string };
+          const result = await callWithRefresh<unknown>(
+            clientRef,
+            'POST',
+            `/tasks/${encodeURIComponent(a.task_id)}/status`,
+            { status: a.status },
+          );
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'complete_task': {
+          const a = args as { task_id: string; agent_id: string; evidence?: string };
+          const result = await callWithRefresh<unknown>(
+            clientRef,
+            'POST',
+            `/tasks/${encodeURIComponent(a.task_id)}/complete`,
+            { agent_id: a.agent_id, evidence: a.evidence },
+          );
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'list_tasks': {
+          const tasks = await callWithRefresh<unknown[]>(clientRef, 'GET', '/tasks');
+          text = JSON.stringify(tasks, null, 2);
+          break;
+        }
+        case 'acquire_resource_lock': {
+          const a = args as {
+            resource_type: string;
+            name: string;
+            owner_id: string;
+            lease_ms?: number;
+          };
+          const result = await callWithRefresh<unknown>(clientRef, 'POST', '/locks', a);
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'release_resource_lock': {
+          const a = args as { resource_type: string; name: string; owner_id: string };
+          const result = await callWithRefresh<unknown>(clientRef, 'POST', '/locks/release', a);
+          text = JSON.stringify(result, null, 2);
           break;
         }
         default:

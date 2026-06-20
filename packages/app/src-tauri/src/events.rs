@@ -37,6 +37,18 @@ impl CommandId {
     }
 }
 
+impl TaskId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4().to_string())
+    }
+}
+
+impl ResourceId {
+    pub fn from_parts(resource_type: &str, name: &str) -> Self {
+        Self(format!("{resource_type}:{name}"))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventEntry {
     pub id: EventId,
@@ -80,6 +92,52 @@ pub enum SystemEvent {
         tool: String,
         ok: bool,
         status: u16,
+    },
+    TaskCreated {
+        task_id: TaskId,
+        title: String,
+        exclusive: bool,
+    },
+    TaskClaimed {
+        task_id: TaskId,
+        agent_id: String,
+        lease_expires_at_ms: i64,
+    },
+    TaskLeaseRenewed {
+        task_id: TaskId,
+        agent_id: String,
+        lease_expires_at_ms: i64,
+    },
+    TaskStatusUpdated {
+        task_id: TaskId,
+        status: String,
+    },
+    TaskCompleted {
+        task_id: TaskId,
+        agent_id: String,
+        evidence: String,
+    },
+    TaskBlocked {
+        task_id: TaskId,
+        agent_id: String,
+        reason: String,
+    },
+    ReviewerAssigned {
+        task_id: TaskId,
+        reviewer_id: String,
+    },
+    ResourceLockAcquired {
+        resource_id: ResourceId,
+        resource_type: String,
+        owner_id: String,
+        lease_expires_at_ms: Option<i64>,
+    },
+    ResourceLockReleased {
+        resource_id: ResourceId,
+        owner_id: String,
+    },
+    ResourceLockExpired {
+        resource_id: ResourceId,
     },
 }
 

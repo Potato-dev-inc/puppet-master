@@ -164,7 +164,18 @@ pub fn replay_pane_timeline_from_entries(
                 pane_id,
                 event: "killed".to_string(),
             }),
-            SystemEvent::McpToolCalled { .. } | SystemEvent::McpToolCompleted { .. } => {}
+            SystemEvent::McpToolCalled { .. }
+            | SystemEvent::McpToolCompleted { .. }
+            | SystemEvent::TaskCreated { .. }
+            | SystemEvent::TaskClaimed { .. }
+            | SystemEvent::TaskLeaseRenewed { .. }
+            | SystemEvent::TaskStatusUpdated { .. }
+            | SystemEvent::TaskCompleted { .. }
+            | SystemEvent::TaskBlocked { .. }
+            | SystemEvent::ReviewerAssigned { .. }
+            | SystemEvent::ResourceLockAcquired { .. }
+            | SystemEvent::ResourceLockReleased { .. }
+            | SystemEvent::ResourceLockExpired { .. } => {}
         }
     }
     Ok(timeline)
