@@ -38,7 +38,7 @@ puppet-master.pairing.json
 # local tool / editor config
 .claude/
 .cursor/
-
+.codex/
 # OS
 Thumbs.db
 
