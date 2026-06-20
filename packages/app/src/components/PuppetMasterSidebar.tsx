@@ -122,15 +122,12 @@ export function PuppetMasterSidebar({
     void startOrchestratorPane(cliBackend, projectPath);
   }, [cliBackend, projectPath, orchestratorPane?.info.cwd, orchestratorPane?.status, startOrchestratorPane]);
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
-
   const refreshFromSettings = useCallback(async () => {
     const s = await loadSettings();
     const models = listModels(s);
     setAvailableModels(models);
     setBackend(s.orchestrator_backend ?? 'api');
+    setTheme(s.theme ?? 'dark');
     const found = findModel(s, s.default_provider, s.default_model) ?? models[0];
     if (found) setModel(found);
   }, []);
@@ -513,7 +510,14 @@ export function PuppetMasterSidebar({
           New chat
         </button>
         <button
-          onClick={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
+          onClick={() => {
+            void (async () => {
+              const next = theme === 'dark' ? 'light' : 'dark';
+              setTheme(next);
+              const current = await loadSettings();
+              await saveSettings({ ...current, theme: next });
+            })();
+          }}
           className="px-1.5 py-0.5 text-xs rounded text-pm-muted hover:bg-pm-border/40"
           title="Toggle monochrome light/dark theme"
         >

@@ -22,6 +22,19 @@ function urlOrigin(url: string): string | null {
   }
 }
 
+/** Ensure a bridge base URL ends with `/bridge`. */
+export function normalizeBridgeBaseUrl(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, '');
+  if (!trimmed) return trimmed;
+  if (trimmed.endsWith(BRIDGE_PROXY_PREFIX)) return trimmed;
+  try {
+    const parsed = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+    return `${parsed.origin}${BRIDGE_PROXY_PREFIX}`;
+  } catch {
+    return `${trimmed}${BRIDGE_PROXY_PREFIX}`;
+  }
+}
+
 /**
  * Pick the bridge base URL for the mobile PWA.
  * - On a tunneled/public origin, always use same-origin `/bridge` (ignores stale saved hosts).
@@ -37,10 +50,10 @@ export function resolveBridgeBaseUrl(
     if (!stored || storedOrigin !== location.origin) {
       return sameOriginBridgeProxyUrl(location);
     }
-    return stored;
+    return normalizeBridgeBaseUrl(stored);
   }
 
   const stored = storedUrl?.replace(/\/$/, '') ?? null;
-  if (stored) return stored;
+  if (stored) return normalizeBridgeBaseUrl(stored);
   return DEFAULT_LOCAL_BRIDGE;
 }

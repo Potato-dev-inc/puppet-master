@@ -23,4 +23,15 @@ describe('resolveBridgeBaseUrl', () => {
       'https://3001.v7ren.xyz/bridge',
     );
   });
+
+  it('adds /bridge when saved URL matches origin but omits the suffix', () => {
+    const loc = {
+      origin: 'https://3001.v7ren.com',
+      protocol: 'https:',
+      hostname: '3001.v7ren.com',
+    };
+    expect(resolveBridgeBaseUrl('https://3001.v7ren.com', loc)).toBe(
+      'https://3001.v7ren.com/bridge',
+    );
+  });
 });

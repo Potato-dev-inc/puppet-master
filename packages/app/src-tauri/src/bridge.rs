@@ -230,7 +230,8 @@ fn handle_connection(
     }
 
     let (path, query) = split_target(target);
-    let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    let raw_segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    let segments = mobile_pairing::normalize_bridge_segments(&raw_segments).to_vec();
 
     if segments == ["events"] && method == "GET" {
         if let Err((status, value)) =
@@ -238,7 +239,7 @@ fn handle_connection(
         {
             return write_json(&mut stream, status, &value);
         }
-        handle_sse(&mut stream, registry);
+        handle_sse(&mut stream, registry, &app);
         return Ok(());
     }
 
@@ -332,7 +333,7 @@ fn route(
     }
 
     if segments == ["events"] && method == "GET" {
-        handle_sse(stream, registry);
+        handle_sse(stream, registry, &app);
         return Ok((0, serde_json::Value::Null));
     }
 
@@ -452,7 +453,11 @@ fn route(
     ))
 }
 
-fn handle_sse(stream: &mut TcpStream, registry: Arc<Mutex<PaneRegistry>>) {
+fn handle_sse(
+    stream: &mut TcpStream,
+    registry: Arc<Mutex<PaneRegistry>>,
+    app: &AppHandle,
+) {
     let headers = "HTTP/1.1 200 OK\r\n\
         Content-Type: text/event-stream\r\n\
         Cache-Control: no-cache\r\n\
@@ -467,6 +472,16 @@ fn handle_sse(stream: &mut TcpStream, registry: Arc<Mutex<PaneRegistry>>) {
     let panes = registry.lock().list();
     if let Ok(json) = serde_json::to_string(&panes) {
         let snapshot = format!("event: panes\ndata: {json}\n\n");
+        if stream.write_all(snapshot.as_bytes()).is_err() {
+            return;
+        }
+    }
+
+    // Push the current public settings snapshot so the mobile PWA is in sync
+    // from the moment it connects (and doesn't have to race GET /settings).
+    let settings = settings_store::read_public_settings(app);
+    if let Ok(json) = serde_json::to_string(&settings) {
+        let snapshot = format!("event: settings\ndata: {json}\n\n");
         if stream.write_all(snapshot.as_bytes()).is_err() {
             return;
         }

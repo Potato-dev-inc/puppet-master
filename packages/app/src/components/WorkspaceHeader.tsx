@@ -11,6 +11,7 @@ interface Props {
   onClearBuffers: () => void;
   onRestart: () => void;
   onNewSession?: (agent: AgentType) => void | Promise<void>;
+  onGoHome?: () => void;
 }
 
 export function WorkspaceHeader({
@@ -20,6 +21,7 @@ export function WorkspaceHeader({
   onClearBuffers,
   onRestart,
   onNewSession,
+  onGoHome,
 }: Props) {
   const [showNewSession, setShowNewSession] = useState(false);
   const presets = listPresets();
@@ -43,6 +45,15 @@ export function WorkspaceHeader({
         className="h-9 w-auto shrink-0 rounded-sm"
         draggable={false}
       />
+      {onGoHome && (
+        <button
+          onClick={onGoHome}
+          className="px-2 py-1 text-xs rounded border border-pm-border bg-pm-bg hover:bg-pm-border/40"
+          title="Back to overview"
+        >
+          Overview
+        </button>
+      )}
       <button
         onClick={pickPath}
         className="px-2 py-1 text-xs rounded border border-pm-border bg-pm-bg hover:bg-pm-border/40 truncate max-w-[40ch]"
