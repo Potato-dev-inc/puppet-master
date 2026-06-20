@@ -114,6 +114,25 @@ interface BridgeOptions {
   portFile?: string;
 }
 
+/** Public settings subset exposed to mobile clients over the bridge. */
+interface PublicSettings {
+  orchestrator_backend: string;
+  default_provider: string;
+  default_model: string;
+  mobile_input_delay_ms: number;
+  mobile_input_visible: boolean;
+}
+
+const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
+  orchestrator_backend: 'api',
+  default_provider: 'anthropic',
+  default_model: 'claude-sonnet-4-6',
+  mobile_input_delay_ms: 250,
+  mobile_input_visible: true,
+};
+
+
+
 export interface BridgeHandle {
   port: number;
   host: string;
@@ -226,6 +245,42 @@ export async function startBridge(opts: BridgeOptions): Promise<BridgeHandle> {
   const backend = opts.backend;
 
   const sseClients = new Set<http.ServerResponse>();
+  let publicSettings: PublicSettings = { ...DEFAULT_PUBLIC_SETTINGS };
+
+  function pushSettingsSse(settings: PublicSettings): void {
+    pushSse(`event: settings\ndata: ${JSON.stringify(settings)}\n\n`);
+  }
+
+  function clampMobileInputDelayMs(value: unknown): number {
+    const n = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(n)) return publicSettings.mobile_input_delay_ms;
+    const rounded = Math.round(n);
+    if (rounded <= 0) return 0;
+    return Math.min(1000, Math.max(50, rounded));
+  }
+
+  function mergePublicSettings(patch: Partial<PublicSettings>): PublicSettings {
+    const next: PublicSettings = { ...publicSettings };
+    if (patch.orchestrator_backend !== undefined && typeof patch.orchestrator_backend === 'string') {
+      next.orchestrator_backend = patch.orchestrator_backend;
+    }
+    if (patch.default_provider !== undefined && typeof patch.default_provider === 'string') {
+      next.default_provider = patch.default_provider;
+    }
+    if (patch.default_model !== undefined && typeof patch.default_model === 'string') {
+      next.default_model = patch.default_model;
+    }
+    if (patch.mobile_input_delay_ms !== undefined) {
+      next.mobile_input_delay_ms = clampMobileInputDelayMs(patch.mobile_input_delay_ms);
+    }
+    if (patch.mobile_input_visible !== undefined) {
+      next.mobile_input_visible = typeof patch.mobile_input_visible === 'boolean'
+        ? patch.mobile_input_visible
+        : Boolean(patch.mobile_input_visible);
+    }
+    publicSettings = next;
+    return publicSettings;
+  }
 
   function pushSse(payload: string): void {
     for (const client of sseClients) {
@@ -284,6 +339,8 @@ export async function startBridge(opts: BridgeOptions): Promise<BridgeHandle> {
       backend.listPanes().then((panes) => {
         res.write(`event: panes\ndata: ${JSON.stringify(panes)}\n\n`);
       }).catch(() => {});
+      // initial settings snapshot so the mobile PWA is in sync from connect
+      res.write(`event: settings\ndata: ${JSON.stringify(publicSettings)}\n\n`);
       return;
     }
 
@@ -308,6 +365,21 @@ export async function startBridge(opts: BridgeOptions): Promise<BridgeHandle> {
         const agentType = AgentTypeSchema.parse(segs[1]);
         send(rs, 200, getAgentContextProfile(agentType));
         return;
+      }
+
+      // /settings — public settings exposed to the mobile PWA
+      if (segs[0] === 'settings' && segs.length === 1) {
+        if (m === 'GET') {
+          send(rs, 200, publicSettings);
+          return;
+        }
+        if (m === 'PATCH' || m === 'POST') {
+          const body = await readBody<Partial<PublicSettings>>(rq);
+          const updated = mergePublicSettings(body);
+          pushSettingsSse(updated);
+          send(rs, 200, updated);
+          return;
+        }
       }
 
       // /panes

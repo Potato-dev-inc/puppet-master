@@ -206,6 +206,19 @@ async function bridgeHealthOk(bridgeUrl: string): Promise<boolean> {
   }
 }
 
+async function bridgeTokenValid(bridgeUrl: string): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(
+      `${bridgeUrl.replace(/\/$/, '')}/settings`,
+      { headers: mergeBridgeHeaders({}) },
+      4000,
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Reuse saved credentials when invite link was already consumed (e.g. React StrictMode). */
 export async function reconnectIfAlreadyPaired(bridgeUrl: string): Promise<MobilePairingCredentials | null> {
   const creds = loadMobilePairingCredentials();
@@ -214,6 +227,7 @@ export async function reconnectIfAlreadyPaired(bridgeUrl: string): Promise<Mobil
   const saved = creds.bridgeUrl.replace(/\/$/, '');
   if (saved !== target) return null;
   if (!(await bridgeHealthOk(target))) return null;
+  if (!(await bridgeTokenValid(target))) return null;
   return creds;
 }
 

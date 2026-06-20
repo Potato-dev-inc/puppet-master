@@ -16,6 +16,8 @@ export interface PaneData {
 export interface PaneRegistryApi {
   panes: Map<string, PaneData>;
   paneList: PaneData[];
+  /** True after the first pane list fetch completes. */
+  initialReady: boolean;
   spawnPane: (args: Parameters<typeof tauri.spawnPane>[0]) => Promise<string>;
   killPane: (paneId: string) => Promise<void>;
   replacePaneAgent: (paneId: string, agentType: string, cwd?: string) => Promise<string>;
@@ -30,6 +32,7 @@ const EMPTY: Map<string, PaneData> = new Map();
 
 export function usePaneRegistry(): PaneRegistryApi {
   const [panes, setPanes] = useState<Map<string, PaneData>>(EMPTY);
+  const [initialReady, setInitialReady] = useState(false);
   const panesRef = useRef(panes);
   panesRef.current = panes;
 
@@ -47,6 +50,8 @@ export function usePaneRegistry(): PaneRegistryApi {
       setPanes(next);
     } catch (err) {
       console.error('[usePaneRegistry] refresh failed', err);
+    } finally {
+      setInitialReady(true);
     }
   }, []);
 
@@ -203,6 +208,7 @@ export function usePaneRegistry(): PaneRegistryApi {
   return {
     panes,
     paneList,
+    initialReady,
     spawnPane,
     killPane,
     replacePaneAgent,

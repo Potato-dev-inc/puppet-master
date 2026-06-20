@@ -86,5 +86,9 @@ export const SettingsSchema = z.object({
   public_pwa_url: z.string().optional(),
   /** Local Vite dev server port the public URL should proxy to (default 1420). */
   dev_server_port: z.number().int().min(1024).max(65535).default(1420),
+  /** Orchestrator sidebar width in the workspace (px). */
+  sidebar_width: z.number().int().min(300).max(800).default(360),
+  /** Desktop UI chrome theme. */
+  theme: z.enum(['dark', 'light']).default('dark'),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
