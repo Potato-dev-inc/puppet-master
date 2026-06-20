@@ -97,6 +97,13 @@ pub fn replay_global_pane_timeline() -> Result<Vec<PaneTimelineEvent>, String> {
     replay_pane_timeline_from_entries(log.read_all()?)
 }
 
+pub fn read_global_entries() -> Result<Vec<EventEntry>, String> {
+    let log = EVENT_LOG
+        .get()
+        .ok_or_else(|| "event log not initialized".to_string())?;
+    log.read_all()
+}
+
 pub fn read_entries(path: &Path) -> Result<Vec<EventEntry>, String> {
     if !path.exists() {
         return Ok(Vec::new());

@@ -11,6 +11,7 @@ mod mobile_pairing;
 mod mobile_tunnel;
 mod platform;
 mod project_path;
+mod projections;
 mod pty;
 mod pwa_server;
 mod settings_store;
@@ -51,6 +52,11 @@ pub fn run() {
             commands::read_agent_context,
             commands::inspect_agent_model,
             commands::replay_pane_timeline,
+            commands::get_workspace_state,
+            commands::list_tasks,
+            commands::list_locks,
+            commands::read_agent_inbox,
+            commands::get_audit,
             commands::resize_pane,
             commands::set_project_path,
             commands::get_project_path_cmd,

@@ -292,6 +292,11 @@ fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
         ("GET", ["panes", _, "model"]) => Some("inspect_agent_model".to_string()),
         ("GET", ["panes", _, "agent-context"]) => Some("read_agent_context".to_string()),
         ("GET", ["events", "replay", "panes"]) => Some("replay_pane_timeline".to_string()),
+        ("GET", ["workspace", "state"]) => Some("get_workspace_state".to_string()),
+        ("GET", ["tasks"]) => Some("list_tasks".to_string()),
+        ("GET", ["locks"]) => Some("list_locks".to_string()),
+        ("GET", ["agents", _, "inbox"]) => Some("read_agent_inbox".to_string()),
+        ("GET", ["audit"]) => Some("get_audit".to_string()),
         _ => None,
     }
 }
@@ -370,6 +375,36 @@ fn route(
         let timeline = crate::event_log::replay_global_pane_timeline()
             .map_err(|err| (500, json!({ "error": err })))?;
         return Ok((200, serde_json::to_value(timeline).unwrap()));
+    }
+
+    if segments == ["workspace", "state"] && method == "GET" {
+        let read_models =
+            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(read_models.workspace).unwrap()));
+    }
+
+    if segments == ["tasks"] && method == "GET" {
+        let read_models =
+            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(read_models.tasks).unwrap()));
+    }
+
+    if segments == ["locks"] && method == "GET" {
+        let read_models =
+            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(read_models.locks).unwrap()));
+    }
+
+    if segments.len() == 3 && segments[0] == "agents" && segments[2] == "inbox" && method == "GET"
+    {
+        let inbox = crate::projections::agent_inbox(segments[1].to_string());
+        return Ok((200, serde_json::to_value(inbox).unwrap()));
+    }
+
+    if segments == ["audit"] && method == "GET" {
+        let read_models =
+            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(read_models.audit).unwrap()));
     }
 
     if segments == ["agent-contexts"] && method == "GET" {
@@ -517,6 +552,11 @@ fn route(
             "hint": "Unknown bridge route. Mobile UI is served by Vite on port 1420/4173; API lives under /health, /events, /panes, /orchestrator/message, /orchestrator/viewport.",
         }),
     ))
+}
+
+fn rebuild_read_models() -> Result<crate::projections::ReadModels, String> {
+    let entries = crate::event_log::read_global_entries()?;
+    Ok(crate::projections::build_read_models(&entries))
 }
 
 fn handle_sse(stream: &mut TcpStream, registry: Arc<Mutex<PaneRegistry>>, app: &AppHandle) {

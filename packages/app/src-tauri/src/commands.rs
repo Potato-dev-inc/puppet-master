@@ -167,6 +167,38 @@ pub async fn replay_pane_timeline() -> Result<Vec<crate::event_log::PaneTimeline
     crate::event_log::replay_global_pane_timeline()
 }
 
+fn rebuild_read_models() -> Result<crate::projections::ReadModels, String> {
+    let entries = crate::event_log::read_global_entries()?;
+    Ok(crate::projections::build_read_models(&entries))
+}
+
+#[tauri::command]
+pub async fn get_workspace_state() -> Result<crate::projections::WorkspaceStateProjection, String> {
+    Ok(rebuild_read_models()?.workspace)
+}
+
+#[tauri::command]
+pub async fn list_tasks() -> Result<Vec<crate::projections::TaskProjection>, String> {
+    Ok(rebuild_read_models()?.tasks)
+}
+
+#[tauri::command]
+pub async fn list_locks() -> Result<Vec<crate::projections::LockProjection>, String> {
+    Ok(rebuild_read_models()?.locks)
+}
+
+#[tauri::command]
+pub async fn read_agent_inbox(
+    agent_id: String,
+) -> Result<crate::projections::AgentInboxProjection, String> {
+    Ok(crate::projections::agent_inbox(agent_id))
+}
+
+#[tauri::command]
+pub async fn get_audit() -> Result<Vec<crate::projections::AuditEntryProjection>, String> {
+    Ok(rebuild_read_models()?.audit)
+}
+
 #[tauri::command]
 pub async fn resize_pane(
     state: State<'_, AppState>,
