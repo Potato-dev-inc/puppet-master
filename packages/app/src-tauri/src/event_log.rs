@@ -175,7 +175,8 @@ pub fn replay_pane_timeline_from_entries(
             | SystemEvent::ReviewerAssigned { .. }
             | SystemEvent::ResourceLockAcquired { .. }
             | SystemEvent::ResourceLockReleased { .. }
-            | SystemEvent::ResourceLockExpired { .. } => {}
+            | SystemEvent::ResourceLockExpired { .. }
+            | SystemEvent::AgentObservation { .. } => {}
         }
     }
     Ok(timeline)

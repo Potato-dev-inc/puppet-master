@@ -301,6 +301,7 @@ pub fn spawn_pane(
     {
         let pane_id = pane_id.clone();
         let app = app.clone();
+        let mut adapter = crate::agent_adapters::adapter_for(&args.agent_type);
         let scrollback = scrollback.clone();
         let screen = screen.clone();
         let status = status.clone();
@@ -325,6 +326,10 @@ pub fn spawn_pane(
                                     byte_count: n,
                                 },
                             );
+                            let clean_text = strip_ansi(&String::from_utf8_lossy(&buf[..n]));
+                            for observation in adapter.observe(&pane_id, &clean_text) {
+                                crate::event_log::append_system_event(observation);
+                            }
                             // Push RAW BYTES to scrollback — never decode to
                             // String here, as from_utf8_lossy corrupts multi-byte
                             // UTF-8 at chunk boundaries.

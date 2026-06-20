@@ -139,6 +139,12 @@ pub enum SystemEvent {
     ResourceLockExpired {
         resource_id: ResourceId,
     },
+    AgentObservation {
+        pane_id: PaneId,
+        agent_type: String,
+        observation: String,
+        text: Option<String>,
+    },
 }
 
 impl EventEntry {

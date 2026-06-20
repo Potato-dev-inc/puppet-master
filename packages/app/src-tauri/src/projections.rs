@@ -216,6 +216,7 @@ pub fn build_read_models(entries: &[EventEntry]) -> ReadModels {
             | SystemEvent::ResourceLockExpired { resource_id } => {
                 locks.remove(resource_id);
             }
+            SystemEvent::AgentObservation { .. } => {}
         }
     }
 
@@ -325,6 +326,7 @@ fn event_type_name(event: &SystemEvent) -> &'static str {
         SystemEvent::ResourceLockAcquired { .. } => "ResourceLockAcquired",
         SystemEvent::ResourceLockReleased { .. } => "ResourceLockReleased",
         SystemEvent::ResourceLockExpired { .. } => "ResourceLockExpired",
+        SystemEvent::AgentObservation { .. } => "AgentObservation",
     }
 }
 

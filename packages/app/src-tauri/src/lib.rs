@@ -1,4 +1,5 @@
 mod actors;
+mod agent_adapters;
 mod agent_contexts;
 mod app_paths;
 mod bridge;
