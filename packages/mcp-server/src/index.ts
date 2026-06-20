@@ -199,6 +199,21 @@ const TOOLS = [
       required: ['resource_type', 'name', 'owner_id'],
     },
   },
+  {
+    name: 'build_context_pack',
+    description: 'Build a compact Rust-generated context pack for an assigned task.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        task_id: { type: 'string' },
+        agent_id: { type: 'string' },
+        user_constraints: { type: 'array', items: { type: 'string' } },
+        manager_instructions: { type: 'string' },
+        raw_scrollback: { type: 'string' },
+      },
+      required: [],
+    },
+  },
 ];
 
 interface BridgeClient {
@@ -424,6 +439,11 @@ async function main(): Promise<void> {
         case 'release_resource_lock': {
           const a = args as { resource_type: string; name: string; owner_id: string };
           const result = await callWithRefresh<unknown>(clientRef, 'POST', '/locks/release', a);
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'build_context_pack': {
+          const result = await callWithRefresh<unknown>(clientRef, 'POST', '/context-packs', args ?? {});
           text = JSON.stringify(result, null, 2);
           break;
         }

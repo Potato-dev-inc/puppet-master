@@ -200,6 +200,17 @@ pub async fn get_audit() -> Result<Vec<crate::projections::AuditEntryProjection>
 }
 
 #[tauri::command]
+pub async fn build_context_pack(
+    request: crate::context_pack::ContextPackRequest,
+) -> Result<crate::context_pack::ContextPack, String> {
+    let read_models = rebuild_read_models()?;
+    Ok(crate::context_pack::build_context_pack(
+        request,
+        &read_models,
+    ))
+}
+
+#[tauri::command]
 pub async fn resize_pane(
     state: State<'_, AppState>,
     pane_id: String,

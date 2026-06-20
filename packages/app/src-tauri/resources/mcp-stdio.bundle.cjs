@@ -18420,6 +18420,21 @@ var TOOLS = [
       },
       required: ["resource_type", "name", "owner_id"]
     }
+  },
+  {
+    name: "build_context_pack",
+    description: "Build a compact Rust-generated context pack for an assigned task.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string" },
+        agent_id: { type: "string" },
+        user_constraints: { type: "array", items: { type: "string" } },
+        manager_instructions: { type: "string" },
+        raw_scrollback: { type: "string" }
+      },
+      required: []
+    }
   }
 ];
 async function makeClient() {
@@ -18623,6 +18638,11 @@ async function main() {
         case "release_resource_lock": {
           const a = args;
           const result = await callWithRefresh(clientRef, "POST", "/locks/release", a);
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case "build_context_pack": {
+          const result = await callWithRefresh(clientRef, "POST", "/context-packs", args ?? {});
           text = JSON.stringify(result, null, 2);
           break;
         }

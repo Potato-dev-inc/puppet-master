@@ -347,6 +347,7 @@ fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
         ("GET", ["locks"]) => Some("list_locks".to_string()),
         ("GET", ["agents", _, "inbox"]) => Some("read_agent_inbox".to_string()),
         ("GET", ["audit"]) => Some("get_audit".to_string()),
+        ("POST", ["context-packs"]) => Some("build_context_pack".to_string()),
         ("POST", ["tasks"]) => Some("create_task".to_string()),
         ("POST", ["tasks", _, "claim"]) => Some("claim_task".to_string()),
         ("POST", ["tasks", _, "lease"]) => Some("renew_task_lease".to_string()),
@@ -585,6 +586,14 @@ fn route(
         let read_models =
             rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
         return Ok((200, serde_json::to_value(read_models.audit).unwrap()));
+    }
+
+    if segments == ["context-packs"] && method == "POST" {
+        let req: crate::context_pack::ContextPackRequest = parse_json(body)?;
+        let read_models =
+            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        let pack = crate::context_pack::build_context_pack(req, &read_models);
+        return Ok((200, serde_json::to_value(pack).unwrap()));
     }
 
     if segments == ["agent-contexts"] && method == "GET" {

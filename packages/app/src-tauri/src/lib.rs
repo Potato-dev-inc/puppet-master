@@ -4,6 +4,7 @@ mod agent_contexts;
 mod app_paths;
 mod bridge;
 mod commands;
+mod context_pack;
 mod event_log;
 mod events;
 mod mcp_install;
@@ -58,6 +59,7 @@ pub fn run() {
             commands::list_locks,
             commands::read_agent_inbox,
             commands::get_audit,
+            commands::build_context_pack,
             commands::resize_pane,
             commands::set_project_path,
             commands::get_project_path_cmd,
