@@ -6,7 +6,7 @@
   "scripts": {
     "predev": "node ../../scripts/ensure-workspace-built.mjs",
     "dev": "vite",
-    "build": "tsc -p tsconfig.json && vite build && node ../../scripts/bundle-mcp.mjs",
+    "build": "tsc -p tsconfig.json && vite build && node ../../scripts/bundle-cloudflared.mjs && node ../../scripts/stage-pwa-dist.mjs && node ../../scripts/bundle-mcp.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",

@@ -70,6 +70,7 @@ export function useOrchestratorSnapshotMirror({
 
     const emitInput = (text: string, delivery: MobileInputDelivery) => {
       if (!text || !transport) return;
+      term.applyLocalInput(text);
       void transport.writeInput(text, delivery === 'immediate');
     };
 
@@ -84,6 +85,7 @@ export function useOrchestratorSnapshotMirror({
         emitInput,
         scrollToCursor: () => {},
         bufferDelayMs: mobileInputDelayMs,
+        inputVisible: mobileInputVisible,
       });
     }
 

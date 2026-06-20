@@ -18242,7 +18242,11 @@ var SettingsSchema = external_exports.object({
   /** Public HTTPS origin for mobile PWA (reverse proxy target). Used in pairing QR. */
   public_pwa_url: external_exports.string().optional(),
   /** Local Vite dev server port the public URL should proxy to (default 1420). */
-  dev_server_port: external_exports.number().int().min(1024).max(65535).default(1420)
+  dev_server_port: external_exports.number().int().min(1024).max(65535).default(1420),
+  /** Orchestrator sidebar width in the workspace (px). */
+  sidebar_width: external_exports.number().int().min(300).max(800).default(360),
+  /** Desktop UI chrome theme. */
+  theme: external_exports.enum(["dark", "light"]).default("dark")
 });
 
 // ../shared/dist/mobile-pairing.js
@@ -18289,6 +18293,40 @@ var PairingSessionInfoSchema = external_exports.object({
   server_public_key: external_exports.string().min(1),
   bridge_url: external_exports.string().url()
 });
+
+// ../shared/dist/orchestrator-panes.js
+var ORCHESTRATOR_PANE_PREFIX = "puppet-master-orchestrator-";
+function isOrchestratorPaneId(paneId) {
+  return paneId.startsWith(ORCHESTRATOR_PANE_PREFIX);
+}
+function isWorkerPane(pane) {
+  return !isOrchestratorPaneId(pane.id);
+}
+function findReusableWorkerPane(panes, agentType) {
+  const matches = panes.filter((p) => isWorkerPane(p) && p.agent_type === agentType && p.status !== "error");
+  if (matches.length === 0)
+    return void 0;
+  const ready = matches.find((p) => p.status === "waiting_input" || p.status === "idle");
+  if (ready)
+    return ready;
+  return matches.sort((a, b) => b.created_at - a.created_at)[0];
+}
+function formatPaneListForOrchestrator(panes) {
+  if (panes.length === 0)
+    return "(no panes)";
+  return panes.map((p) => {
+    if (isOrchestratorPaneId(p.id)) {
+      return `${p.id} | agent=${p.agent_type} | role=orchestrator | status=${p.status} | DO NOT write_terminal_input, kill, or delegate work here \u2014 spawn/use worker panes`;
+    }
+    const ready = p.status === "waiting_input" || p.status === "idle";
+    return `${p.id} | agent=${p.agent_type} | role=worker | status=${p.status} | cwd=${p.cwd}` + (ready ? " \u2190 ready for write_terminal_input" : "");
+  }).join("\n");
+}
+function assertWorkerPaneTarget(paneId) {
+  if (isOrchestratorPaneId(paneId)) {
+    throw new Error(`pane ${paneId} is the dedicated orchestrator \u2014 do not control it via MCP. Spawn or reuse a worker pane (id does not start with puppet-master-orchestrator-).`);
+  }
+}
 
 // ../shared/dist/bridge-port.js
 var import_promises = require("node:fs/promises");
@@ -18343,7 +18381,7 @@ var log = (...args) => {
 var TOOLS = [
   {
     name: "list_panes",
-    description: "List all live PTY panes managed by Puppet Master. Orchestrators should call this before spawning or delegating so they can reuse existing agents. Returns id, agent type, pid, status, cwd, and dimensions.",
+    description: "List all live PTY panes. Panes with id puppet-master-orchestrator-* are the dedicated orchestrator \u2014 never write_terminal_input or kill them. Delegate only to worker panes.",
     inputSchema: { type: "object", properties: {}, required: [] }
   },
   {
@@ -18382,7 +18420,7 @@ var TOOLS = [
   },
   {
     name: "spawn_agent",
-    description: "Spawn a new PTY pane running an AI agent (claude, codex, opencode) or shell (powershell, bash, cursor). Call list_panes first and only spawn if no suitable pane exists unless the user explicitly asked for another one.",
+    description: "Spawn a worker PTY pane. Reuses existing worker panes of the same agent_type; never reuses puppet-master-orchestrator-* panes. Call list_panes first.",
     inputSchema: {
       type: "object",
       properties: {
@@ -18409,7 +18447,7 @@ var TOOLS = [
   },
   {
     name: "write_terminal_input",
-    description: "Send keystrokes / text to a pane as if typed. Use append_newline=true when delegating a prompt to an agent, then read_terminal_buffer once to confirm receipt.",
+    description: "Send keystrokes to a worker pane. Cannot target puppet-master-orchestrator-* panes. Use append_newline=true when delegating a prompt.",
     inputSchema: {
       type: "object",
       properties: {
@@ -18422,7 +18460,7 @@ var TOOLS = [
   },
   {
     name: "kill_pane_process",
-    description: "Terminate a pane and its child process.",
+    description: "Terminate a worker pane. Cannot kill puppet-master-orchestrator-* panes.",
     inputSchema: {
       type: "object",
       properties: { pane_id: { type: "string" } },
@@ -18488,8 +18526,10 @@ async function main() {
       let text = "";
       switch (name) {
         case "list_panes": {
-          const panes = await callWithRefresh(clientRef, "GET", "/panes");
-          text = JSON.stringify(panes, null, 2);
+          const panes = PaneInfoSchema.array().parse(
+            await callWithRefresh(clientRef, "GET", "/panes")
+          );
+          text = formatPaneListForOrchestrator(panes);
           break;
         }
         case "bridge_health": {
@@ -18557,6 +18597,18 @@ async function main() {
         }
         case "spawn_agent": {
           const parsed = SpawnPaneRequestSchema.parse(args);
+          if (parsed.pane_id) {
+            assertWorkerPaneTarget(parsed.pane_id);
+          } else {
+            const panes = PaneInfoSchema.array().parse(
+              await callWithRefresh(clientRef, "GET", "/panes")
+            );
+            const reusable = findReusableWorkerPane(panes, parsed.agent_type);
+            if (reusable) {
+              text = `reusing existing worker pane: ${reusable.id} (agent=${reusable.agent_type}, status=${reusable.status})`;
+              break;
+            }
+          }
           const result = await callWithRefresh(clientRef, "POST", "/panes", parsed);
           text = `spawned pane: ${result.pane_id}`;
           break;
@@ -18575,6 +18627,7 @@ async function main() {
         case "write_terminal_input": {
           const parsed = WriteInputRequestSchema.parse({ ...args, pane_id: void 0 });
           const a = args;
+          assertWorkerPaneTarget(a.pane_id);
           await callWithRefresh(clientRef, "POST", `/panes/${encodeURIComponent(a.pane_id)}/input`, {
             text: a.text,
             append_newline: parsed.append_newline
@@ -18584,6 +18637,7 @@ async function main() {
         }
         case "kill_pane_process": {
           const a = args;
+          assertWorkerPaneTarget(a.pane_id);
           await callWithRefresh(clientRef, "DELETE", `/panes/${encodeURIComponent(a.pane_id)}`);
           text = "killed";
           break;

@@ -36,7 +36,10 @@
       "app"
     ],
     "resources": [
-      "resources/mcp-stdio.bundle.cjs"
+      "resources/mcp-stdio.bundle.cjs",
+      "resources/pwa-dist/*",
+      "resources/pwa-dist/assets/*",
+      "resources/bin/*"
     ],
     "icon": [
       "icons/32x32.png",

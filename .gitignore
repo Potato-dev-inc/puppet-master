@@ -41,3 +41,8 @@ puppet-master.pairing.json
 
 # OS
 Thumbs.db
+
+packages/app/src-tauri/resources/cloudflared
+packages/app/src-tauri/resources/cloudflared.exe
+packages/app/src-tauri/resources/pwa-dist/
+packages/app/src-tauri/resources/bin/

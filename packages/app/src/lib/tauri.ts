@@ -128,4 +128,15 @@ export const tauri = {
     safeInvoke<PairedDeviceInfo[]>('list_paired_mobile_devices', undefined, [], true),
   revokePairedMobileDevice: (deviceId: string) =>
     safeInvoke<boolean>('revoke_paired_mobile_device', { deviceId }, false, true),
+
+  getMobileTunnelInfo: () =>
+    safeInvoke<{
+      localUrl: string;
+      pwaUrl: string;
+      tunnelUrl?: string | null;
+      tunnelProvider?: string | null;
+      bridgeProxyUrl: string;
+      bridgeDirectUrl?: string | null;
+      updatedAt: number;
+    } | null>('get_mobile_tunnel_info', undefined, null, true),
 };

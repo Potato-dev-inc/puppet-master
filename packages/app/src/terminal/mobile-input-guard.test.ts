@@ -38,6 +38,14 @@ describe('buildInputDelta', () => {
   it('normalizes pasted line endings for terminal input', () => {
     expect(buildInputDelta('', 'echo hi\n')).toBe('echo hi\r');
   });
+
+  it('drops IME spaces between CJK phrases', () => {
+    expect(buildInputDelta('你好', '你好 世界')).toBe('世界');
+  });
+
+  it('keeps deliberate spaces after CJK before latin text', () => {
+    expect(buildInputDelta('你好', '你好 world')).toBe(' world');
+  });
 });
 
 describe('MobileInputGuard', () => {
@@ -199,6 +207,16 @@ describe('MobileInputGuard', () => {
     cleanup();
   });
 
+  it('preserves spaces after deduped autosuggest replacements', () => {
+    const { cleanup, emitted, input } = createGuard();
+
+    dispatchInput(input, 'much much ', 'insertReplacementText');
+
+    expect(input.value).toBe('much ');
+    expect(emitted).toEqual([{ text: 'much ', delivery: 'immediate' }]);
+    cleanup();
+  });
+
   it('sends backspaces when autocorrect replaces text already committed to the terminal', () => {
     const { cleanup, emitted, input } = createGuard();
 
@@ -228,7 +246,7 @@ describe('MobileInputGuard', () => {
     cleanup();
   });
 
-  it('buffers backspace edits until the timer flushes them to the terminal', () => {
+  it('flushes backspace edits immediately to the terminal', () => {
     const { cleanup, emitted, input, scrollToCursor } = createGuard();
     dispatchInput(input, 'abcd', 'insertText');
     vi.advanceTimersByTime(TEST_BUFFER_MS);
@@ -236,7 +254,6 @@ describe('MobileInputGuard', () => {
     scrollToCursor.mockClear();
 
     dispatchInput(input, 'abc', 'deleteContentBackward');
-    vi.advanceTimersByTime(TEST_BUFFER_MS);
     expect(emitted.at(-1)).toEqual({ text: '\x7f', delivery: 'immediate' });
     expect(scrollToCursor).not.toHaveBeenCalled();
     cleanup();
@@ -265,6 +282,35 @@ describe('MobileInputGuard', () => {
       { text: 'status', delivery: 'immediate' },
     ]);
     expect(input.value).toBe('git status');
+    cleanup();
+  });
+
+  it('flushes inserted spaces immediately', () => {
+    const { cleanup, emitted, input } = createGuard();
+
+    dispatchInput(input, 'git', 'insertText');
+    vi.advanceTimersByTime(TEST_BUFFER_MS);
+    dispatchInput(input, 'git ', 'insertText');
+
+    expect(emitted).toEqual([
+      { text: 'git', delivery: 'immediate' },
+      { text: ' ', delivery: 'immediate' },
+    ]);
+    cleanup();
+  });
+
+  it('preserves and flushes a deliberate space after CJK text', () => {
+    const { cleanup, emitted, input } = createGuard();
+
+    dispatchInput(input, '你好', 'insertCompositionText');
+    vi.advanceTimersByTime(TEST_BUFFER_MS);
+    dispatchInput(input, '你好 ', 'insertText');
+
+    expect(input.value).toBe('你好 ');
+    expect(emitted).toEqual([
+      { text: '你好', delivery: 'immediate' },
+      { text: ' ', delivery: 'immediate' },
+    ]);
     cleanup();
   });
 

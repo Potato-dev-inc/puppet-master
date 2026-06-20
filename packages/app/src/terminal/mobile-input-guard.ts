@@ -1,5 +1,10 @@
 import type { Disposable } from './types';
-import { isReplacementInputType, normalizeSuggestionText } from './word-replacement';
+import {
+  isReplacementInputType,
+  normalizeSuggestionText,
+  stripCjkImeLeadingSpace,
+  stripCjkImeSpaces,
+} from './word-replacement';
 
 const BACKSPACE = '\x7f';
 const ENTER = '\r';
@@ -72,6 +77,11 @@ function isDeletionOnlyPayload(text: string): boolean {
   return text.length > 0 && [...text].every((ch) => ch === BACKSPACE);
 }
 
+function endsWithInsertedWhitespace(previous: string, next: string): boolean {
+  if (next.length <= previous.length) return false;
+  return /\s$/u.test(next.slice(previous.length));
+}
+
 /** Translate committed vs current input text into PTY keystrokes (used only on flush). */
 export function buildInputDelta(previous: string, next: string): string {
   if (previous === next) return '';
@@ -86,7 +96,10 @@ export function buildInputDelta(previous: string, next: string): string {
   }
 
   const deletedLength = previous.length - prefixLength;
-  const inserted = next.slice(prefixLength);
+  const inserted = stripCjkImeLeadingSpace(
+    previous.slice(0, prefixLength),
+    next.slice(prefixLength),
+  );
   return BACKSPACE.repeat(deletedLength) + normalizeTerminalLineEndings(inserted);
 }
 
@@ -605,8 +618,11 @@ export class MobileInputGuard implements Disposable {
   }
 
   private normalizeFieldValue(inputType: string): void {
-    if (!isReplacementInputType(inputType)) return;
-    const normalized = normalizeSuggestionText(this.input.value);
+    let normalized = this.input.value;
+    if (isReplacementInputType(inputType)) {
+      normalized = normalizeSuggestionText(normalized);
+    }
+    normalized = stripCjkImeSpaces(normalized);
     if (normalized !== this.input.value) {
       this.input.value = normalized;
     }
@@ -623,6 +639,15 @@ export class MobileInputGuard implements Disposable {
 
     this.normalizeFieldValue(inputEvent.inputType || 'insertText');
     this.notifyBufferChange();
+    const inputType = inputEvent.inputType || 'insertText';
+    if (inputType === 'deleteContentBackward' || inputType === 'deleteContentForward') {
+      this.flushToTerminal();
+      return;
+    }
+    if (endsWithInsertedWhitespace(this.committedText, this.input.value)) {
+      this.flushToTerminal();
+      return;
+    }
     this.scheduleFlush();
   };
 

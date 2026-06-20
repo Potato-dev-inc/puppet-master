@@ -48,6 +48,16 @@ export function localDevBridgeUrl(port = DEFAULT_DEV_SERVER_PORT): string {
   return `${localDevPwaUrl(port)}/bridge`;
 }
 
+/** True for localhost / loopback origins — not reachable from a phone. */
+export function isLoopbackOrigin(originOrUrl: string): boolean {
+  try {
+    const url = new URL(originOrUrl.includes('://') ? originOrUrl : `http://${originOrUrl}`);
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
 /** Desktop pairing URL: saved custom URL wins, then dev tunnel, then local Vite port. */
 export function resolvePairingBridgeUrl(
   devInfo: PublicBridgeDevInfo | null,
@@ -55,8 +65,10 @@ export function resolvePairingBridgeUrl(
   devServerPort = DEFAULT_DEV_SERVER_PORT,
 ): string {
   if (customUrl?.trim()) return normalizePublicBridgeUrl(customUrl);
-  if (devInfo?.bridgeProxyUrl) return devInfo.bridgeProxyUrl.replace(/\/$/, '');
   if (devInfo?.tunnelUrl) return `${devInfo.tunnelUrl.replace(/\/$/, '')}/bridge`;
+  if (devInfo?.bridgeProxyUrl && !isLoopbackOrigin(devInfo.bridgeProxyUrl)) {
+    return devInfo.bridgeProxyUrl.replace(/\/$/, '');
+  }
   if (devInfo?.localUrl) {
     try {
       const origin = new URL(devInfo.localUrl).origin;
@@ -95,7 +107,7 @@ export function resolvePwaOriginForQr(
   if (devInfo?.tunnelUrl) {
     return { origin: devInfo.tunnelUrl.replace(/\/+$/, ''), source: 'tunnel' };
   }
-  if (devInfo?.bridgeProxyUrl) {
+  if (devInfo?.bridgeProxyUrl && !isLoopbackOrigin(devInfo.bridgeProxyUrl)) {
     return {
       origin: publicOriginFromBridgeUrl(devInfo.bridgeProxyUrl),
       source: 'tunnel',

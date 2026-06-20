@@ -1,4 +1,4 @@
-import { isBackspaceEcho, isBackspaceKey } from './mirror-local-echo';
+import { backspaceVisualErase, isBackspaceEcho, isBackspaceKey } from './mirror-local-echo';
 
 const BACKSPACE_ECHO_PATTERNS = ['\b \b', '\x08 \x08', '\b'];
 
@@ -19,23 +19,70 @@ function countPureBackspaceEchoes(chunk: string): number {
 /** Tracks outbound keystrokes so mirror viewers can skip matching PTY echo. */
 export class MirrorEchoFilter {
   private pending = '';
+  private visibleInput = '';
   private expectedBackspaceEchoes = 0;
+  private confirmedOnPty = 0;
 
   noteOutbound(text: string): void {
     for (const ch of text) {
       if (isBackspaceKey(ch)) {
-        if (this.pending.length > 0) {
-          this.pending = this.pending.slice(0, -1);
-        }
-        this.expectedBackspaceEchoes += 1;
+        this.noteBackspaceForEcho();
+        continue;
+      }
+
+      this.notePrintable(ch);
+    }
+  }
+
+  /**
+   * Track an outbound backspace and return visual erase bytes when a local echo exists.
+   * When pending is empty, the backspace is still forwarded to the PTY but must not
+   * visually erase prompt/scrollback that only exists from remote output.
+   */
+  noteBackspaceForEcho(): string {
+    const visibleChars = Array.from(this.visibleInput);
+    const removed = visibleChars.pop();
+    if (removed) {
+      this.visibleInput = visibleChars.join('');
+      this.expectedBackspaceEchoes += 1;
+
+      const pendingChars = Array.from(this.pending);
+      if (pendingChars.length > 0) {
+        pendingChars.pop();
+        this.pending = pendingChars.join('');
+      } else if (this.confirmedOnPty > 0) {
+        this.confirmedOnPty -= 1;
+      }
+
+      return backspaceVisualErase(removed);
+    }
+
+    if (this.confirmedOnPty > 0) {
+      this.confirmedOnPty -= 1;
+    }
+
+    // No user-originated visible text remains; do not backspace into prompt output.
+    return '';
+  }
+
+  notePrintable(text: string): void {
+    if (!text) return;
+    for (const ch of text) {
+      if (ch === '\r' || ch === '\n') {
+        this.pending = '';
+        this.visibleInput = '';
+        this.confirmedOnPty = 0;
         continue;
       }
 
       this.pending += ch;
+      this.visibleInput += ch;
     }
-
     if (this.pending.length > 4096) {
       this.pending = this.pending.slice(-2048);
+    }
+    if (this.visibleInput.length > 4096) {
+      this.visibleInput = this.visibleInput.slice(-2048);
     }
   }
 
@@ -56,22 +103,30 @@ export class MirrorEchoFilter {
 
     if (this.pending.startsWith(chunk)) {
       this.pending = this.pending.slice(chunk.length);
+      this.confirmedOnPty += Array.from(chunk).length;
       return true;
     }
 
     if (chunk.startsWith(this.pending)) {
+      if (this.pending.length > 0) {
+        this.confirmedOnPty += Array.from(this.pending).length;
+      }
       this.pending = '';
       return false;
     }
 
     if (/[\r\n]/.test(chunk)) {
       this.pending = '';
+      this.visibleInput = '';
+      this.confirmedOnPty = 0;
     }
     return false;
   }
 
   reset(): void {
     this.pending = '';
+    this.visibleInput = '';
     this.expectedBackspaceEchoes = 0;
+    this.confirmedOnPty = 0;
   }
 }

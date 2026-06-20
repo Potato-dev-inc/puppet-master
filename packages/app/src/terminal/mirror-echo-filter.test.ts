@@ -30,4 +30,18 @@ describe('MirrorEchoFilter', () => {
     filter.noteOutbound('ls');
     expect(filter.shouldSkipInbound(new TextEncoder().encode('output'))).toBe(false);
   });
+
+  it('tracks backspace without pending chars for PTY echo dedupe', () => {
+    const filter = new MirrorEchoFilter();
+    expect(filter.noteBackspaceForEcho()).toBe('');
+    expect(filter.shouldSkipInbound(new TextEncoder().encode('\b \b'))).toBe(false);
+  });
+
+  it('locally erases after printable echo was deduped', () => {
+    const filter = new MirrorEchoFilter();
+    filter.noteOutbound('你');
+    expect(filter.shouldSkipInbound(new TextEncoder().encode('你'))).toBe(true);
+    expect(filter.noteBackspaceForEcho()).toBe('\b \b\b \b');
+    expect(filter.shouldSkipInbound(new TextEncoder().encode('\b \b\b \b'))).toBe(true);
+  });
 });

@@ -194,3 +194,8 @@ pub async fn revoke_paired_mobile_device(device_id: String) -> Result<bool, Stri
     let revoked = store.lock().revoke_device(&device_id)?;
     Ok(revoked)
 }
+
+#[tauri::command]
+pub fn get_mobile_tunnel_info() -> crate::pwa_server::DevInfoPayload {
+    crate::mobile_tunnel::get_mobile_tunnel_info()
+}

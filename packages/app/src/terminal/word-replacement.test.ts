@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildReplacementInput, normalizeSuggestionText } from './word-replacement';
+import {
+  buildReplacementInput,
+  normalizeSuggestionText,
+  stripCjkImeLeadingSpace,
+  stripCjkImeSpaces,
+} from './word-replacement';
 
 describe('normalizeSuggestionText', () => {
   it('dedupes duplicated mobile suggestion recovery text', () => {
@@ -7,8 +12,25 @@ describe('normalizeSuggestionText', () => {
     expect(normalizeSuggestionText('chocolate chocolate')).toBe('chocolate');
   });
 
-  it('keeps ordinary text unchanged', () => {
+  it('keeps ordinary text and suggestion separators unchanged', () => {
     expect(normalizeSuggestionText('chocolate')).toBe('chocolate');
+    expect(normalizeSuggestionText('chocolate ')).toBe('chocolate ');
+    expect(normalizeSuggestionText('much much ')).toBe('much ');
+  });
+
+  it('strips IME spaces between CJK phrases', () => {
+    expect(stripCjkImeSpaces('你好 世界')).toBe('你好世界');
+  });
+
+  it('keeps deliberate trailing and latin/CJK spaces', () => {
+    expect(stripCjkImeSpaces('你好 ')).toBe('你好 ');
+    expect(stripCjkImeSpaces('你好 world')).toBe('你好 world');
+    expect(stripCjkImeSpaces('git 状态')).toBe('git 状态');
+  });
+
+  it('drops leading IME space when appending CJK text', () => {
+    expect(stripCjkImeLeadingSpace('你好', ' 世界')).toBe('世界');
+    expect(stripCjkImeLeadingSpace('git', ' status')).toBe(' status');
   });
 });
 

@@ -5,7 +5,7 @@
  * (that package is not published to npm).
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import esbuild from 'esbuild';
@@ -22,18 +22,36 @@ function run(cmd, args) {
 }
 
 run('npm', ['run', 'build', '-w', '@puppet-master/shared']);
-run('npm', ['run', 'build', '-w', '@puppet-master/mcp']);
+
+const mcpDist = resolve(root, 'packages/mcp-server/dist/index.js');
+if (!existsSync(mcpDist)) {
+  const mcpBuild = spawnSync('npm', ['run', 'build', '-w', '@puppet-master/mcp'], {
+    cwd: root,
+    stdio: 'inherit',
+    shell: true,
+  });
+  if (mcpBuild.status !== 0) {
+    console.error('[bundle-mcp] @puppet-master/mcp build failed — bundling from source via esbuild');
+  }
+}
 
 mkdirSync(dirname(outfile), { recursive: true });
 
-await esbuild.build({
-  entryPoints: [entry],
-  bundle: true,
-  platform: 'node',
-  target: 'node22',
-  format: 'cjs',
-  outfile,
-  logLevel: 'info',
-});
-
-console.error(`[bundle-mcp] wrote ${outfile}`);
+try {
+  await esbuild.build({
+    entryPoints: [entry],
+    bundle: true,
+    platform: 'node',
+    target: 'node22',
+    format: 'cjs',
+    outfile,
+    logLevel: 'info',
+  });
+  console.error(`[bundle-mcp] wrote ${outfile}`);
+} catch (err) {
+  if (existsSync(outfile)) {
+    console.error('[bundle-mcp] esbuild failed — keeping existing mcp-stdio.bundle.cjs');
+  } else {
+    throw err;
+  }
+}

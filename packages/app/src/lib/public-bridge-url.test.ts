@@ -23,4 +23,24 @@ describe('public-bridge-url', () => {
     expect(localDevBridgeUrl(3001)).toBe('http://127.0.0.1:3001/bridge');
     expect(resolvePairingBridgeUrl(null, null, 3001)).toBe('http://127.0.0.1:3001/bridge');
   });
+
+  it('prefers cloudflare tunnel over loopback bridgeProxyUrl from desktop defaults', () => {
+    const url = resolvePairingBridgeUrl(
+      {
+        bridgeProxyUrl: 'http://127.0.0.1:1420/bridge',
+        tunnelUrl: 'https://abc.trycloudflare.com',
+      },
+      null,
+    );
+    expect(url).toBe('https://abc.trycloudflare.com/bridge');
+  });
+
+  it('ignores loopback bridgeProxyUrl when no tunnelUrl', () => {
+    const url = resolvePairingBridgeUrl(
+      { bridgeProxyUrl: 'http://127.0.0.1:1420/bridge' },
+      null,
+      3001,
+    );
+    expect(url).toBe('http://127.0.0.1:3001/bridge');
+  });
 });

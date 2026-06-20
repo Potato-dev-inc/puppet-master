@@ -10,7 +10,9 @@ import {
   resolvePairingBridgeUrl,
   resolvePwaOriginForQr,
   type PublicBridgeDevInfo,
+  isLoopbackOrigin,
 } from '../lib/public-bridge-url';
+import { watchTunnelDevInfo } from '../lib/load-tunnel-dev-info';
 
 interface Props {
   publicPwaUrl: string;
@@ -37,6 +39,7 @@ export function MobilePairingPanel({
   const localProxyTarget = localDevPwaUrl(devServerPort);
   const tunnelOrigin = devInfo?.tunnelUrl?.replace(/\/+$/, '') ?? null;
   const qrReadyRef = useRef(false);
+  const prevPwaOriginRef = useRef<string | null>(null);
 
   const refreshDevices = useCallback(async () => {
     const list = await tauri.listPairedMobileDevices();
@@ -45,10 +48,7 @@ export function MobilePairingPanel({
 
   useEffect(() => {
     void refreshDevices();
-    fetch('/__puppet_master_dev__.json', { cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() as Promise<PublicBridgeDevInfo> : null))
-      .then((info) => setDevInfo(info))
-      .catch(() => {});
+    return watchTunnelDevInfo(setDevInfo);
   }, [refreshDevices]);
 
   const refreshPairing = useCallback(async () => {
@@ -74,12 +74,19 @@ export function MobilePairingPanel({
   }, [bridgeUrl, pwaOrigin]);
 
   useEffect(() => {
-    if (qrReadyRef.current) return;
-    const ready = Boolean(publicPwaUrl.trim()) || devInfo !== null;
+    const ready = Boolean(publicPwaUrl.trim()) || Boolean(devInfo?.tunnelUrl);
     if (!ready) return;
-    qrReadyRef.current = true;
-    void refreshPairing();
-  }, [devInfo, publicPwaUrl, refreshPairing]);
+    const prev = prevPwaOriginRef.current;
+    prevPwaOriginRef.current = pwaOrigin;
+    if (!qrReadyRef.current) {
+      qrReadyRef.current = true;
+      void refreshPairing();
+      return;
+    }
+    if (prev !== pwaOrigin && !isLoopbackOrigin(pwaOrigin)) {
+      void refreshPairing();
+    }
+  }, [devInfo, publicPwaUrl, refreshPairing, pwaOrigin]);
 
   const revoke = async (deviceId: string) => {
     await tauri.revokePairedMobileDevice(deviceId);
@@ -159,7 +166,7 @@ export function MobilePairingPanel({
         </p>
         <p className="text-[10px] text-pm-muted mt-1">
           Bridge: <code className="font-mono">{bridgeUrl}</code>
-          {devInfo?.bridgeProxyUrl && !publicPwaUrl.trim() && (
+          {devInfo?.tunnelUrl && !publicPwaUrl.trim() && (
             <span> · from dev tunnel (set a custom URL above to override)</span>
           )}
         </p>

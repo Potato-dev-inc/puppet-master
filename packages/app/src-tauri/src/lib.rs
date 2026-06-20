@@ -4,9 +4,11 @@ mod commands;
 mod mcp_install;
 mod mcp_runtime;
 mod mobile_pairing;
+mod mobile_tunnel;
 mod platform;
 mod project_path;
 mod pty;
+mod pwa_server;
 mod settings_store;
 mod shell_env;
 
@@ -51,6 +53,7 @@ pub fn run() {
             commands::create_mobile_pairing_session,
             commands::list_paired_mobile_devices,
             commands::revoke_paired_mobile_device,
+            commands::get_mobile_tunnel_info,
         ])
         .setup(|app| {
             if let Ok(resource) = app
@@ -81,7 +84,7 @@ pub fn run() {
             let pairing_file = app_paths::pairing_file();
 
             let registry = app.state::<AppState>().registry.clone();
-            match bridge::start_embedded_bridge(
+            let bridge_url = match bridge::start_embedded_bridge(
                 registry,
                 app.handle().clone(),
                 port_file,
@@ -89,9 +92,20 @@ pub fn run() {
             ) {
                 Ok(handle) => {
                     tracing::info!(url = %handle.url, "embedded bridge started");
+                    Some(handle.url)
                 }
                 Err(err) => {
                     tracing::warn!(%err, "embedded bridge not started — external MCP unavailable");
+                    None
+                }
+            };
+
+            if let Some(url) = bridge_url {
+                #[cfg(not(debug_assertions))]
+                {
+                    if let Err(err) = mobile_tunnel::start_mobile_tunnel(app.handle(), url) {
+                        tracing::warn!(%err, "mobile tunnel not started");
+                    }
                 }
             }
 

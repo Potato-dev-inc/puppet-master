@@ -3,6 +3,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { InputBatcher } from './input-batcher';
+import { MirrorEchoFilter } from './mirror-echo-filter';
+import { applyMirrorLocalEcho } from './mirror-local-echo';
 import {
   configureXtermTextareaForMobileMirror,
   isMobileInputDevice,
@@ -44,6 +46,8 @@ export class TerminalSession {
   private intersectionObserver: IntersectionObserver | null = null;
   private imeObserver: MutationObserver | null = null;
   private mobileInputGuard: MobileInputGuard | null = null;
+  private muteOnData = false;
+  private readonly mirrorEchoFilter = new MirrorEchoFilter();
   private focusCleanup: (() => void) | null = null;
   private openFrame: number | null = null;
   private resizeFrame: number | null = null;
@@ -157,6 +161,7 @@ export class TerminalSession {
       }, 4);
 
       terminal.onData((data) => {
+        if (this.muteOnData) return;
         if (!mobileMirror) {
           this.inputBatcher?.push(data);
           this.scrollToCursor();
@@ -164,11 +169,21 @@ export class TerminalSession {
           return;
         }
 
-        // Hardware keyboard on a phone/tablet — forward only, no local echo.
+        // Hardware keyboard — local echo immediately; PTY echo is deduped on ingest.
+        applyMirrorLocalEcho(terminal, data, this.mirrorEchoFilter);
         this.inputBatcher?.push(data);
+        this.scrollToCursor();
+        this.scheduleRefresh();
       });
 
       this.unlistenData = subscribePaneData(this.options.paneId, (data) => {
+        if (
+          this.mirrorPTY &&
+          isMobileInputDevice() &&
+          this.mirrorEchoFilter.shouldSkipInbound(data)
+        ) {
+          return;
+        }
         terminal.write(data, () => {
           this.scrollToCursor();
           this.scheduleRefresh();
@@ -294,7 +309,7 @@ export class TerminalSession {
 
   private installTextareaGuards(
     container: HTMLElement,
-    _terminal: Terminal,
+    terminal: Terminal,
     inputBatcher: InputBatcher,
   ): void {
     const textarea = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null;
@@ -329,13 +344,21 @@ export class TerminalSession {
           inputBatcher.flushNow();
         }
 
-        // Remote mirror: send to the desktop PTY via the bridge; display only
-        // what comes back over the tunnel (same bytes the desktop sees).
+        // Local echo only erases chars we echoed; filter tracks outbound for dedupe.
+        this.muteOnData = true;
+        try {
+          applyMirrorLocalEcho(terminal, text, this.mirrorEchoFilter);
+        } finally {
+          this.muteOnData = false;
+        }
+
         if (delivery === 'immediate') {
           this.options.onInput(text, false);
         } else {
           inputBatcher.push(text);
         }
+        this.scrollToCursor();
+        this.scheduleRefresh();
       };
 
       this.mobileInputGuard = new MobileInputGuard({

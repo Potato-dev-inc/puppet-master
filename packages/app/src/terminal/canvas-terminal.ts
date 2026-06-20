@@ -33,6 +33,11 @@ export interface CanvasTerminalOptions {
   theme: TerminalTheme;
 }
 
+export interface LocalInputOverlay {
+  anchorLine: string | null;
+  text: string;
+}
+
 export const DEFAULT_THEME: TerminalTheme = {
   background: '#0a0a0a',
   foreground: '#e8e8e8',
@@ -55,6 +60,81 @@ export const DEFAULT_THEME: TerminalTheme = {
   brightWhite: '#e5e5e5',
 };
 
+const EMPTY_LOCAL_INPUT_OVERLAY: LocalInputOverlay = {
+  anchorLine: null,
+  text: '',
+};
+
+function snapshotLines(text: string): string[] {
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+}
+
+function lastSnapshotLine(snapshot: string): string {
+  return snapshotLines(snapshot).at(-1) ?? '';
+}
+
+export function updateLocalInputOverlay(
+  snapshot: string,
+  overlay: LocalInputOverlay,
+  data: string,
+): LocalInputOverlay {
+  let anchorLine = overlay.anchorLine;
+  let text = overlay.text;
+
+  const ensureAnchor = (): void => {
+    if (anchorLine === null) {
+      anchorLine = lastSnapshotLine(snapshot);
+    }
+  };
+
+  for (const ch of data) {
+    if (ch === '\r' || ch === '\n') {
+      anchorLine = null;
+      text = '';
+      continue;
+    }
+
+    if (ch === '\x7f' || ch === '\b') {
+      if (!text) continue;
+      text = Array.from(text).slice(0, -1).join('');
+      continue;
+    }
+
+    if (ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 0x7f) {
+      continue;
+    }
+
+    ensureAnchor();
+    text += ch;
+  }
+
+  if (!text) {
+    return EMPTY_LOCAL_INPUT_OVERLAY;
+  }
+
+  return { anchorLine, text };
+}
+
+export function snapshotWithLocalInputOverlay(
+  snapshot: string,
+  overlay: LocalInputOverlay,
+): string {
+  if (!overlay.text || overlay.anchorLine === null) return snapshot;
+
+  const lines = snapshotLines(snapshot);
+  if (lines.length === 0) {
+    return overlay.anchorLine + overlay.text;
+  }
+
+  const lastLine = lines.at(-1) ?? '';
+  if (!lastLine.startsWith(overlay.anchorLine)) {
+    return snapshot;
+  }
+
+  lines[lines.length - 1] = overlay.anchorLine + overlay.text;
+  return lines.join('\n');
+}
+
 /**
  * Canvas-based terminal that renders full-screen text snapshots from the
  * backend's vt100 mirror. Input is forwarded as raw keystrokes to the PTY.
@@ -70,6 +150,7 @@ export class CanvasTerminal {
   private cols: number;
   private rows: number;
   private snapshot = '';
+  private localInputOverlay: LocalInputOverlay = EMPTY_LOCAL_INPUT_OVERLAY;
   private cellWidth = 8;
   private lineHeight = 16;
   private resizeListeners = new Set<(cols: number, rows: number) => void>();
@@ -121,6 +202,15 @@ export class CanvasTerminal {
     this.setSnapshot(new TextDecoder().decode(data));
   }
 
+  applyLocalInput(data: string): void {
+    this.localInputOverlay = updateLocalInputOverlay(
+      this.snapshot,
+      this.localInputOverlay,
+      data,
+    );
+    this.render();
+  }
+
   fit(): void {
     const rect = this.container.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
@@ -132,7 +222,7 @@ export class CanvasTerminal {
     if (nextCols !== this.cols || nextRows !== this.rows) {
       this.cols = nextCols;
       this.rows = nextRows;
-        this.resizeCanvas();
+      this.resizeCanvas();
       for (const listener of this.resizeListeners) {
         listener(this.cols, this.rows);
       }
@@ -212,17 +302,15 @@ export class CanvasTerminal {
     this.ctx.font = `${this.fontSize}px ${this.fontFamily}`;
     this.ctx.textBaseline = 'top';
 
-    const lines = this.snapshotLines();
+    const lines = snapshotLines(
+      snapshotWithLocalInputOverlay(this.snapshot, this.localInputOverlay),
+    );
     const visible = lines.slice(-this.rows);
 
     for (let row = 0; row < visible.length; row += 1) {
       const line = visible[row] ?? '';
       this.ctx.fillText(line.slice(0, this.cols), 0, row * this.lineHeight + 1);
     }
-  }
-
-  private snapshotLines(): string[] {
-    return this.snapshot.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   }
 
 }
