@@ -84,6 +84,34 @@ export const tauri = {
       },
       true,
     ),
+  installNpmMcpConfigs: (projectPath: string) =>
+    safeInvoke<EnsureMcpResult[]>(
+      'install_npm_mcp_configs',
+      { projectPath },
+      [
+        {
+          installed: true,
+          changed: false,
+          backend: 'browser_preview',
+          message: 'MCP npm install skipped in browser preview',
+        },
+      ],
+      true,
+    ),
+  installGlobalNpmMcpConfigs: () =>
+    safeInvoke<EnsureMcpResult[]>(
+      'install_global_npm_mcp_configs',
+      undefined,
+      [
+        {
+          installed: true,
+          changed: false,
+          backend: 'browser_preview_global',
+          message: 'Global MCP npm install skipped in browser preview',
+        },
+      ],
+      true,
+    ),
 
   pushChatEvent: (eventJson: string) =>
     safeInvoke<void>('push_chat_event', { eventJson }, undefined, true),

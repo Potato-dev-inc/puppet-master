@@ -1,7 +1,7 @@
 
 [mcp_servers.puppet-master]
-command = "/usr/local/bin/node"
-args = ["/Users/ren/work/puppet-master/packages/app/src-tauri/../../mcp-server/dist/index.js"]
+command = "npx"
+args = ["-y", "@puppet-master/mcp"]
 enabled = true
 
 [mcp_servers.puppet-master.env]

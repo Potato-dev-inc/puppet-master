@@ -12,6 +12,26 @@ Tauri GUI is already running.
    - macOS: `~/Library/Application Support/com.puppetmaster.app/puppet-master.bridge.port`
    - Linux: `~/.local/share/com.puppetmaster.app/puppet-master.bridge.port`
 
+## Local repository config
+
+Do not commit host-specific MCP config files. `.mcp.json`, `opencode.json`,
+`.codex/`, `.claude/`, and `.cursor/` are local developer state because they
+often contain absolute paths or credentials.
+
+For repo-local development, copy `.mcp.json.example` and adjust it as needed.
+Most hosts should prefer the published package form:
+
+```json
+{
+  "mcpServers": {
+    "puppet-master": {
+      "command": "npx",
+      "args": ["-y", "@puppet-master/mcp"]
+    }
+  }
+}
+```
+
 ## Cursor
 
 **Cursor → Settings → Features → Model Context Protocol → Add new global MCP server:**

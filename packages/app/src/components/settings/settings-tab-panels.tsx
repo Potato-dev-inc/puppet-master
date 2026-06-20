@@ -13,7 +13,7 @@ import {
   SIDEBAR_WIDTH_PRESET_LABELS,
   SIDEBAR_WIDTH_PRESETS,
 } from '../../lib/settings';
-import { PUPPET_MASTER_MCP_COMMAND } from '../../lib/mcp-config';
+import { installGlobalNpmMcpConfigs, installNpmMcpConfigs, PUPPET_MASTER_MCP_COMMAND, type EnsureMcpResult } from '../../lib/mcp-config';
 import { MobilePairingPanel } from '../MobilePairingPanel';
 import { parseDevServerPort } from '../../lib/public-bridge-url';
 import {
@@ -298,11 +298,97 @@ function ApiTab({ ctx }: { ctx: SettingsTabContext }) {
 }
 
 function McpTab({ ctx }: { ctx: SettingsTabContext }) {
-  const { bridgeUrl } = ctx;
+  const { bridgeUrl, projectPath, settings } = ctx;
+  const installPath = projectPath ?? settings.project_path ?? '';
+  const [installing, setInstalling] = useState(false);
+  const [installScope, setInstallScope] = useState<'project' | 'global' | null>(null);
+  const [installResults, setInstallResults] = useState<EnsureMcpResult[] | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
+
+  const installNpmPackage = async () => {
+    if (!installPath || installing) return;
+    setInstalling(true);
+    setInstallScope('project');
+    setInstallError(null);
+    try {
+      const results = await installNpmMcpConfigs(installPath);
+      setInstallResults(results);
+    } catch (error) {
+      setInstallResults(null);
+      setInstallError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const installGlobalNpmPackage = async () => {
+    if (installing) return;
+    setInstalling(true);
+    setInstallScope('global');
+    setInstallError(null);
+    try {
+      const results = await installGlobalNpmMcpConfigs();
+      setInstallResults(results);
+    } catch (error) {
+      setInstallResults(null);
+      setInstallError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
   return (
     <SettingsSection title="MCP & bridge" description="External host integration for Cursor, Claude Desktop, Codex, and automation scripts.">
       <SettingBlock label="Bridge endpoint" implemented description="Auto-discovered local HTTP bridge (port range 17321–17399).">
         <FieldInput value={bridgeUrl ?? 'Discovering…'} readOnly className="font-mono" />
+      </SettingBlock>
+      <SettingBlock label="Install npm MCP package" implemented description="Register Claude Code, Codex, and OpenCode to use npx -y @puppet-master/mcp instead of any bundled or local script entry.">
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
+            <button
+              type="button"
+              onClick={() => void installNpmPackage()}
+              disabled={!installPath || installing}
+              className="inline-flex min-h-10 items-center justify-center rounded-lg bg-pm-accent px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {installing && installScope === 'project' ? 'Installing…' : 'Install in project'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void installGlobalNpmPackage()}
+              disabled={installing}
+              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-pm-border px-4 py-2 text-sm font-semibold transition hover:bg-pm-border/40 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {installing && installScope === 'global' ? 'Installing…' : 'Install globally'}
+            </button>
+            <span className="min-w-0 break-all font-mono text-xs text-pm-muted">
+              Project: {installPath || 'Choose a project folder in General first'}
+            </span>
+          </div>
+          {installResults && (
+            <div className="space-y-2">
+              {installResults.map((result) => (
+                <div key={result.backend} className="rounded-lg border border-pm-border bg-pm-bg px-3 py-2 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-mono text-pm-text">{result.backend}</span>
+                    <span className={result.installed ? 'text-emerald-400' : 'text-red-400'}>
+                      {result.installed ? result.changed ? 'Updated' : 'Already set' : 'Incomplete'}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-pm-muted">{result.message}</p>
+                </div>
+              ))}
+              <p className="text-xs leading-5 text-pm-muted">
+                Restart any open MCP host sessions so they disconnect the old process and launch the npm package entry.
+              </p>
+            </div>
+          )}
+          {installError && (
+            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-300">
+              {installError}
+            </p>
+          )}
+        </div>
       </SettingBlock>
       <SettingToggle label="Remote runners" description="Allow trusted remote machines to host long-running terminal panes." checked={false} onChange={() => undefined} implemented={false} />
       <CodeBlock title="Claude Desktop config" code={CLAUDE_DESKTOP_MCP} />

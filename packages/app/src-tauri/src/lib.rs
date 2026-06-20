@@ -47,6 +47,8 @@ pub fn run() {
             commands::set_project_path,
             commands::get_project_path_cmd,
             commands::ensure_orchestrator_mcp,
+            commands::install_npm_mcp_configs,
+            commands::install_global_npm_mcp_configs,
             commands::push_chat_event,
             commands::push_settings_event,
             commands::sync_public_settings,

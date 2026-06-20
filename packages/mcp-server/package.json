@@ -17,7 +17,9 @@
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0"
+  },
   "devDependencies": {
     "@types/node": "^22.10.1",
     "esbuild": "0.28.1",

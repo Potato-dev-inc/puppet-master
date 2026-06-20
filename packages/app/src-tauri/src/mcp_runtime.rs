@@ -22,6 +22,13 @@ pub struct McpLaunchSpec {
     pub args: Vec<String>,
 }
 
+pub fn npm_mcp_launch_spec() -> McpLaunchSpec {
+    McpLaunchSpec {
+        command: "npx".into(),
+        args: vec!["-y".into(), "@puppet-master/mcp".into()],
+    }
+}
+
 /// Command + args written into Claude / Codex / OpenCode MCP config.
 pub fn mcp_launch_spec() -> McpLaunchSpec {
     if let Some(script) = bundled_mcp_script() {
@@ -30,10 +37,7 @@ pub fn mcp_launch_spec() -> McpLaunchSpec {
             args: vec![crate::app_paths::path_for_host_config(script)],
         };
     }
-    McpLaunchSpec {
-        command: "npx".into(),
-        args: vec!["-y".into(), "@puppet-master/mcp".into()],
-    }
+    npm_mcp_launch_spec()
 }
 
 fn resolve_node_executable() -> String {

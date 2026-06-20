@@ -26,6 +26,8 @@
     "build:bridge": "npm run build --workspace=@puppet-master/bridge",
     "cli": "npm run start --workspace=@puppet-master/cli",
     "bridge": "npm run dev --workspace=@puppet-master/bridge",
+    "test": "npm run test --workspaces --if-present",
+    "test:mcp-package": "node scripts/test-mcp-package.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "clean": "rimraf \"packages/*/dist\" \"packages/*/.turbo\" \"packages/app/src-tauri/target\""
   },
@@ -38,8 +40,5 @@
   },
   "engines": {
     "node": ">=22"
-  },
-  "bin": {
-    "puppet-master": "./packages/cli/dist/index.js"
   }
 }

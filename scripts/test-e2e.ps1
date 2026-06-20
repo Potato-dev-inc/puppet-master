@@ -18,16 +18,12 @@ Push-Location $repo
 try { npm run build 2>&1 | Out-Null } finally { Pop-Location }
 
 Write-Host "=== 3. cargo build ==="
-Push-Location "$repo/packages/app/src-tauri"
-try {
-  cmd.exe /c "build-rust.bat build 2>&1" | Out-Null
-} finally { Pop-Location }
+Push-Location $repo
+try { node scripts/cargo-with-path.mjs build 2>&1 | Out-Null } finally { Pop-Location }
 
 Write-Host "=== 4. cargo test (scrollback) ==="
-Push-Location "$repo/packages/app/src-tauri"
-try {
-  cmd.exe /c "build-rust.bat test --lib scrollback 2>&1" | Out-Null
-} finally { Pop-Location }
+Push-Location $repo
+try { node scripts/cargo-with-path.mjs test --lib scrollback 2>&1 | Out-Null } finally { Pop-Location }
 
 Write-Host "=== 5. bridge HTTP smoke test ==="
 & "$repo/scripts/test-bridge.ps1" | Out-Null

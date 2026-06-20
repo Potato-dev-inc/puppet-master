@@ -154,6 +154,16 @@ pub async fn ensure_orchestrator_mcp(backend: String, project_path: String) -> R
     crate::mcp_install::ensure_orchestrator_mcp(&backend, std::path::Path::new(&project_path))
 }
 
+#[tauri::command]
+pub async fn install_npm_mcp_configs(project_path: String) -> Result<Vec<crate::mcp_install::EnsureMcpResult>, String> {
+    crate::mcp_install::install_npm_mcp_configs(std::path::Path::new(&project_path))
+}
+
+#[tauri::command]
+pub async fn install_global_npm_mcp_configs() -> Result<Vec<crate::mcp_install::EnsureMcpResult>, String> {
+    crate::mcp_install::install_global_npm_mcp_configs()
+}
+
 /// Push a JSON chat event to all SSE clients (mobile PWA and any desktop browser).
 /// The frontend calls this after each LLM chunk so the mobile PWA receives it.
 #[tauri::command]

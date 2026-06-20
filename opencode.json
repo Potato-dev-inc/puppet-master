@@ -3,8 +3,9 @@
   "mcp": {
     "puppet-master": {
       "command": [
-        "/usr/local/bin/node",
-        "/Users/ren/work/puppet-master/packages/app/src-tauri/../../mcp-server/dist/index.js"
+        "npx",
+        "-y",
+        "@puppet-master/mcp"
       ],
       "enabled": true,
       "environment": {

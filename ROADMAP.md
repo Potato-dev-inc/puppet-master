@@ -153,7 +153,7 @@ Move from “working shell” to “daily driver.”
 
 | Theme | Ideas |
 |-------|--------|
-| **Desktop shell** | Splash → home (sessions) → new session → workspace (`desktop-flow-demo.html` → real routes) |
+| **Desktop shell** | Splash → home (sessions) → new session → workspace (`docs/design/desktop-flow-demo.html` → real routes) |
 | **Workspace** | Clear orchestrator vs worker pane layout; drag-to-arrange grid; pane labels and roles |
 | **Orchestrator UX** | Unified chat + MCP log; backend switcher that doesn’t feel bolted on; error states that say what to fix |
 | **Mobile PWA** | Pairing polish, tunnel vs custom URL UX, orchestrator mirror on phone |

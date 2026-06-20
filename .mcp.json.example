@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "puppet-master": {
+      "command": "npx",
+      "args": ["-y", "@puppet-master/mcp"]
+    }
+  }
+}

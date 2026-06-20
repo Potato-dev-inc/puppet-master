@@ -117,6 +117,7 @@ npm run mcp
 ```
 
 Register `@puppet-master/mcp` in your host — see [MCP_HOSTS.md](MCP_HOSTS.md).
+Local agent/editor config is ignored; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -146,6 +147,7 @@ puppet-master/
 │       └── src-tauri/  # Rust PTY manager + bridge lifecycle
 ├── ROUTING.md          # Sidebar orchestration: API vs CLI backends
 ├── MCP_HOSTS.md        # Cursor / Claude Desktop / Codex setup
+├── docs/design/        # Static design prototypes
 └── scripts/            # Bridge + MCP smoke tests (PowerShell)
 ```
 

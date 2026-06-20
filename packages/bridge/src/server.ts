@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import {
   AgentTypeSchema,
   getAgentContextProfile,
@@ -526,7 +527,7 @@ export async function startBridge(opts: BridgeOptions): Promise<BridgeHandle> {
 }
 
 // Allow `node dist/server.js` for standalone dev
-if (import.meta.url === `file:///${process.argv[1]?.replace(/\\/g, '/')}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const handle = await startBridge({ backend: new StubBackend() });
   // eslint-disable-next-line no-console
   console.error(`[bridge] listening on ${handle.url}`);

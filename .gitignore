@@ -7,6 +7,7 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+packages/app/dev-dist/
 
 # tauri / rust
 packages/app/src-tauri/target/
@@ -39,6 +40,10 @@ puppet-master.pairing.json
 .claude/
 .cursor/
 .codex/
+.mcp.json
+opencode.json
+packages/app/src-tauri/.mcp.json
+packages/app/src-tauri/opencode.json
 # OS
 Thumbs.db
 

@@ -2,9 +2,10 @@
   "mcpServers": {
     "puppet-master": {
       "args": [
-        "/Users/ren/work/puppet-master/packages/app/src-tauri/../../mcp-server/dist/index.js"
+        "-y",
+        "@puppet-master/mcp"
       ],
-      "command": "/usr/local/bin/node",
+      "command": "npx",
       "env": {
         "PUPPET_MASTER_BRIDGE_PORT_FILE": "/Users/ren/Library/Application Support/com.puppetmaster.app/puppet-master.bridge.port"
       }

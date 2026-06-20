@@ -23,6 +23,14 @@ export async function ensureOrchestratorMcp(
   return tauri.ensureOrchestratorMcp(backend, projectPath);
 }
 
+export async function installNpmMcpConfigs(projectPath: string): Promise<EnsureMcpResult[]> {
+  return tauri.installNpmMcpConfigs(projectPath);
+}
+
+export async function installGlobalNpmMcpConfigs(): Promise<EnsureMcpResult[]> {
+  return tauri.installGlobalNpmMcpConfigs();
+}
+
 export function isOrchestratorMcpBackend(
   backend: OrchestratorBackend,
 ): backend is CliOrchestratorBackend {
