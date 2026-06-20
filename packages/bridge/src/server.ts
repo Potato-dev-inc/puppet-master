@@ -351,7 +351,7 @@ export async function startBridge(opts: BridgeOptions): Promise<BridgeHandle> {
 
       // GET /health
       if (segs[0] === 'health' && m === 'GET') {
-        send(rs, 200, { ok: true, version: '0.1.1' });
+        send(rs, 200, { ok: true, version: '0.1.2' });
         return;
       }
 

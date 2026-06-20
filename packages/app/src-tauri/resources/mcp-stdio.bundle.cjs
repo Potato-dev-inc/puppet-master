@@ -18514,7 +18514,7 @@ async function main() {
   }
   const clientRef = { current: client };
   const server = new Server(
-    { name: "puppet-master", version: "0.1.1" },
+    { name: "puppet-master", version: "0.1.2" },
     { capabilities: { tools: {} } }
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));

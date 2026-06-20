@@ -301,7 +301,7 @@ fn route(
             200,
             serde_json::to_value(Health {
                 ok: true,
-                version: "0.1.1",
+                version: "0.1.2",
             })
             .unwrap(),
         ));

@@ -69,8 +69,8 @@ ls packages/app/src-tauri/target/release/bundle/nsis/
 ```
 
 Output:
-- `bundle/msi/Puppet Master_0.1.1_x64_en-US.msi` (Windows Installer)
-- `bundle/nsis/Puppet Master_0.1.1_x64-setup.exe` (NSIS installer)
+- `bundle/msi/Puppet Master_0.1.2_x64_en-US.msi` (Windows Installer)
+- `bundle/nsis/Puppet Master_0.1.2_x64-setup.exe` (NSIS installer)
 
 The bundle config in `packages/app/src-tauri/tauri.conf.json` controls:
 - Product name: **Puppet Master**

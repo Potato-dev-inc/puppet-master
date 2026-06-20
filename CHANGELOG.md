@@ -1,6 +1,12 @@
 # Changelog
 
+## 0.1.2 — PWA fixes and MCP publishing
+
+- Mobile PWA bug fixes and polish
+- MCP server publishing workflow (`@puppet-master/mcp`)
+
 ## 0.1.0 — initial scaffold
+
 
 - Monorepo: `@puppet-master/{shared,cli,bridge,mcp,app}` workspaces
 - Tauri 2 + React + xterm.js desktop app

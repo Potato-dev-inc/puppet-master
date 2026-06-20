@@ -2,7 +2,7 @@
 
 Living plan for what comes after **0.1.x**. Not a commitment order — themes may ship in parallel or merge across releases.
 
-**Current baseline (0.1.1):** Tauri desktop + Rust PTY + embedded bridge, mobile PWA pairing, CLI orchestrator backends (Claude / Codex / OpenCode), bundled MCP for production installs.
+**Current baseline (0.1.2):** Tauri desktop + Rust PTY + embedded bridge, mobile PWA pairing, CLI orchestrator backends (Claude / Codex / OpenCode), bundled MCP for production installs.
 
 ---
 
