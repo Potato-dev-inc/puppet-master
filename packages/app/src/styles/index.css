@@ -102,6 +102,35 @@ html, body, #root {
   min-width: 100%;
 }
 
+.terminal-host--mirror-scale {
+  overflow: hidden;
+}
+
+.terminal-scale-viewport {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.terminal-scale-stage {
+  transform-origin: top left;
+  will-change: transform;
+}
+
+.terminal-host--mirror-scale.terminal-host--mirror-grid .xterm {
+  width: max-content;
+  min-width: 100%;
+}
+
+.terminal-host--mirror-scale.terminal-host--mirror-grid .xterm-screen {
+  width: max-content !important;
+  min-width: 100%;
+}
+
 /* Mobile mirror: terminal is the app surface; keyboard capture is independent. */
 .terminal-host--mobile-input {
   display: flex;
@@ -112,17 +141,23 @@ html, body, #root {
   --pm-mobile-input-bar-height: var(--pm-mobile-keyboard-panel-height);
 }
 
-.terminal-host--mobile-input > .xterm {
+.terminal-host--mobile-input > .xterm,
+.terminal-host--mobile-input > .terminal-scale-viewport {
   order: 1;
   flex: 1 1 auto;
   min-height: 0;
   height: auto !important;
   width: 100%;
   padding-bottom: 0;
+  overflow: hidden;
+}
+
+.terminal-host--mobile-input > .xterm {
   overflow: auto;
 }
 
-.terminal-host--mobile-input.terminal-host--mirror-grid > .xterm {
+.terminal-host--mobile-input.terminal-host--mirror-grid > .xterm,
+.terminal-host--mobile-input.terminal-host--mirror-scale > .terminal-scale-viewport .xterm {
   width: max-content;
   min-width: 100%;
 }
@@ -132,7 +167,8 @@ html, body, #root {
   --pm-mobile-input-bar-height: 0px;
 }
 
-.terminal-host--mobile-input.terminal-host--mobile-input-hidden > .xterm {
+.terminal-host--mobile-input.terminal-host--mobile-input-hidden > .xterm,
+.terminal-host--mobile-input.terminal-host--mobile-input-hidden > .terminal-scale-viewport {
   height: calc(100% - var(--pm-mobile-input-bar-height)) !important;
 }
 
@@ -144,8 +180,9 @@ html, body, #root {
   position: fixed;
   top: 0;
   left: 0;
+  right: 0;
   z-index: 0;
-  width: 100vw;
+  width: auto;
   height: 44px;
   overflow: hidden;
   opacity: 0.01;

@@ -43,6 +43,11 @@ export interface BridgeClient {
   getSettings(): Promise<PublicSettings>;
   patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;
   postOrchestratorMessage(text: string, messageId: string): Promise<void>;
+  postOrchestratorViewport(viewport: {
+    width: number;
+    height: number;
+    active: boolean;
+  }): Promise<void>;
 }
 
 export function makeBridgeClient(baseUrl: string): BridgeClient {
@@ -87,6 +92,8 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     patchSettings: (patch) => call('PATCH', '/settings', patch),
     postOrchestratorMessage: (text, messageId) =>
       call('POST', '/orchestrator/message', { text, message_id: messageId }),
+    postOrchestratorViewport: (viewport) =>
+      call<void>('POST', '/orchestrator/viewport', viewport),
   };
 }
 
@@ -132,7 +139,8 @@ export type BridgeEvent =
   | { type: 'terminal-snapshot'; pane_id: string; snapshot: string }
   | { type: 'pane-status'; pane_id: string; status: PaneInfo['status'] }
   | { type: 'pane-resize'; pane_id: string; cols: number; rows: number }
-  | { type: 'settings'; settings: PublicSettings };
+  | { type: 'settings'; settings: PublicSettings }
+  | { type: 'orchestrator-viewport'; width: number; height: number; active: boolean };
 
 /**
  * Subscribe to the bridge SSE stream. Returns an unlisten function.
@@ -226,6 +234,23 @@ export function subscribeBridgeEvents(
       try {
         const settings = JSON.parse((ev as MessageEvent).data) as PublicSettings;
         onEvent({ type: 'settings', settings });
+      } catch (err) {
+        onError?.(err);
+      }
+    });
+    es.addEventListener('orchestrator-viewport', (ev) => {
+      try {
+        const payload = JSON.parse((ev as MessageEvent).data) as {
+          width: number;
+          height: number;
+          active: boolean;
+        };
+        onEvent({
+          type: 'orchestrator-viewport',
+          width: payload.width,
+          height: payload.height,
+          active: payload.active,
+        });
       } catch (err) {
         onError?.(err);
       }

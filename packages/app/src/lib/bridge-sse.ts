@@ -31,6 +31,14 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
     });
   } else if (eventName === 'settings') {
     onEvent({ type: 'settings', settings: parsed as PublicSettings });
+  } else if (eventName === 'orchestrator-viewport') {
+    const payload = parsed as { width: number; height: number; active: boolean };
+    onEvent({
+      type: 'orchestrator-viewport',
+      width: payload.width,
+      height: payload.height,
+      active: payload.active,
+    });
   }
 }
 

@@ -474,6 +474,14 @@ export async function startBridge(opts: BridgeOptions): Promise<BridgeHandle> {
         return;
       }
 
+      // POST /orchestrator/viewport — mobile PWA reports visible viewport for PTY sizing
+      if (segs[0] === 'orchestrator' && segs[1] === 'viewport' && m === 'POST') {
+        const body = await readBody<{ width: number; height: number; active: boolean }>(rq);
+        pushSse(`event: orchestrator-viewport\ndata: ${JSON.stringify(body)}\n\n`);
+        send(rs, 200, { ok: true });
+        return;
+      }
+
       send(rs, 404, { error: 'not found', path: rq.url });
     })(req, res);
   });

@@ -11,7 +11,9 @@ import { listPresets, type AgentType } from '@puppet-master/shared';
 import { BridgePaneTerminal, useBridgePaneTransport } from './components/BridgePaneTerminal';
 import { OrchestratorTerminal } from './components/OrchestratorTerminal';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
+import { useOrchestratorViewportReporter } from './hooks/useOrchestratorViewportReporter';
 import { usePaneTunnel, type PaneTunnelApi } from './hooks/usePaneTunnel';
+import { useVisualViewportSync } from './hooks/useVisualViewport';
 import { makeBridgeClient, subscribeBridgeEvents, type BridgeClient } from './lib/bridge';
 import { routeBridgeEventToPaneTunnel } from './lib/bridge-pane-tunnel';
 import { DEFAULT_PUBLIC_SETTINGS, type PublicSettings } from './lib/bridge-settings';
@@ -865,6 +867,9 @@ export default function PwaApp() {
   const mobileOrchestratorTunnel = usePaneTunnel(bridge, orchestratorPaneId, 'mobile');
   const orchestratorTunnelRef = useRef(mobileOrchestratorTunnel);
   orchestratorTunnelRef.current = mobileOrchestratorTunnel;
+
+  useVisualViewportSync(!!bridge);
+  useOrchestratorViewportReporter(bridge, tab === 'chat' && !!cliOrchestratorBackend);
 
   useEffect(() => {
     if (!bridgeUrl) return;

@@ -5,22 +5,22 @@
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "puppet-master-mcp": "./dist/index.js"
+    "puppet-master-mcp": "dist/index.js"
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "start": "node --enable-source-maps dist/index.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js && chmod +x dist/index.js",
+    "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
-    "@puppet-master/shared": "*",
-    "zod": "^3.23.8"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^22.10.1",
+    "esbuild": "0.28.1",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   }

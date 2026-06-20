@@ -8,6 +8,14 @@ export { ResizeController } from './resize-controller';
 export { SnapshotBatcher } from './snapshot-batcher';
 export { TerminalSession } from './terminal-session';
 export {
+  TERMINAL_AUTHORITY_CHANGED_EVENT,
+  TERMINAL_SCALE_STAGE_CLASS,
+  TERMINAL_SCALE_VIEWPORT_CLASS,
+  TerminalScaleController,
+  computeContainerFitScale,
+  createTerminalScaleMount,
+} from './scaled-viewport';
+export {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
   TERMINAL_SCROLLBACK,

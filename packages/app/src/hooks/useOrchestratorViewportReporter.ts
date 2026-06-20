@@ -1,5 +1,10 @@
 import { useEffect } from 'react';
 import type { BridgeClient } from '../lib/bridge';
+import {
+  isKeyboardLikelyOpen,
+  measureLayoutWidth,
+  readStableLayoutWidthPx,
+} from '../lib/layout-viewport';
 
 /** Mobile PWA: report orchestrator viewport so desktop sizes the shared PTY. */
 export function useOrchestratorViewportReporter(
@@ -8,6 +13,7 @@ export function useOrchestratorViewportReporter(
 ): void {
   useEffect(() => {
     if (!bridge || typeof window === 'undefined') return;
+    if (typeof bridge.postOrchestratorViewport !== 'function') return;
 
     const viewport = window.visualViewport;
     if (!viewport) return;
@@ -16,8 +22,11 @@ export function useOrchestratorViewportReporter(
 
     const post = (isActive: boolean): void => {
       if (cancelled) return;
+      const width = isKeyboardLikelyOpen()
+        ? readStableLayoutWidthPx()
+        : measureLayoutWidth();
       void bridge.postOrchestratorViewport({
-        width: viewport.width,
+        width,
         height: viewport.height,
         active: isActive,
       }).catch(() => {

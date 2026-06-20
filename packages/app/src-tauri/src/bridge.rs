@@ -84,6 +84,13 @@ pub struct OrchestratorMessageBody {
     pub message_id: String,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct OrchestratorViewportBody {
+    pub width: f64,
+    pub height: f64,
+    pub active: bool,
+}
+
 #[derive(Debug, Deserialize)]
 struct ResizeBody {
     cols: u16,
@@ -444,11 +451,20 @@ fn route(
         return Ok((200, json!({ "ok": true })));
     }
 
+    // POST /orchestrator/viewport — mobile PWA reports visible viewport for PTY sizing
+    if segments == ["orchestrator", "viewport"] && method == "POST" {
+        let req: OrchestratorViewportBody = parse_json(body)?;
+        if let Ok(json) = serde_json::to_string(&req) {
+            push_sse(format!("event: orchestrator-viewport\ndata: {json}\n\n"));
+        }
+        return Ok((200, json!({ "ok": true })));
+    }
+
     Err((
         404,
         json!({
             "error": "not found",
-            "hint": "Unknown bridge route. Mobile UI is served by Vite on port 1420/4173; API lives under /health, /events, /panes, /orchestrator/message.",
+            "hint": "Unknown bridge route. Mobile UI is served by Vite on port 1420/4173; API lives under /health, /events, /panes, /orchestrator/message, /orchestrator/viewport.",
         }),
     ))
 }

@@ -16,6 +16,10 @@ import {
   TERMINAL_SCROLLBACK,
   terminalThemeFromCss,
 } from './theme';
+import {
+  createTerminalScaleMount,
+  TerminalScaleController,
+} from './scaled-viewport';
 import type { PaneDataListener, TerminalRenderMode, TerminalSessionOptions } from './types';
 import '@xterm/xterm/css/xterm.css';
 
@@ -53,6 +57,9 @@ export class TerminalSession {
   private readonly renderMode: TerminalRenderMode;
   private generation = 0;
   private themeObserver: MutationObserver | null = null;
+  private scaleController: TerminalScaleController | null = null;
+  private scaleViewport: HTMLElement | null = null;
+  private mountContainer: HTMLElement | null = null;
   private disposed = false;
 
   constructor(private readonly options: TerminalSessionOptions) {
@@ -80,12 +87,17 @@ export class TerminalSession {
     return this.mirrorPTY && isMobileInputDevice();
   }
 
+  private shouldScaleMirrorToContainer(): boolean {
+    return this.isMobileMirror() && this.renderMode === 'mirror-same-grid';
+  }
+
   mount(
     container: HTMLElement,
     subscribePaneData: (paneId: string, cb: PaneDataListener) => () => void,
   ): void {
     const gen = ++this.generation;
     this.disposed = false;
+    this.mountContainer = container;
 
     this.openFrame = requestAnimationFrame(() => {
       this.openFrame = null;
@@ -122,10 +134,24 @@ export class TerminalSession {
       terminal.loadAddon(webLinksAddon);
       terminal.loadAddon(unicode11Addon);
       terminal.unicode.activeVersion = '11';
-      terminal.open(container);
+
+      let mountTarget = container;
+      if (this.shouldScaleMirrorToContainer()) {
+        const { viewport, stage } = createTerminalScaleMount(container);
+        this.scaleViewport = viewport;
+        mountTarget = stage;
+      }
+
+      terminal.open(mountTarget);
 
       this.term = terminal;
       this.fitAddon = fitAddon;
+      if (this.scaleViewport) {
+        this.scaleController = new TerminalScaleController(
+          this.scaleViewport,
+          mountTarget,
+        );
+      }
       this.inputBatcher = new InputBatcher((text) => {
         this.options.onInput(text, false);
       }, 4);
@@ -194,6 +220,13 @@ export class TerminalSession {
     this.mobileInputGuard?.dispose();
     this.mobileInputGuard = null;
 
+    this.scaleController?.dispose();
+    this.scaleController = null;
+    this.scaleViewport?.remove();
+    this.scaleViewport = null;
+    this.mountContainer?.classList.remove('terminal-host--mirror-scale');
+    this.mountContainer = null;
+
     this.themeObserver?.disconnect();
     this.themeObserver = null;
 
@@ -209,10 +242,11 @@ export class TerminalSession {
   }
 
   private installResizeObservers(container: HTMLElement): void {
+    const observed = this.scaleViewport ?? container;
     this.resizeObserver = new ResizeObserver(() => {
       this.scheduleFit();
     });
-    this.resizeObserver.observe(container);
+    this.resizeObserver.observe(observed);
 
     this.intersectionObserver = new IntersectionObserver(
       (entries) => {
@@ -438,6 +472,7 @@ export class TerminalSession {
   private applyMirrorDimensions(): void {
     if (this.renderMode === 'mirror-same-grid') {
       this.applyPtyDimensions();
+      this.scaleController?.scheduleFit();
       return;
     }
     this.fitViewportOnly();
@@ -451,6 +486,7 @@ export class TerminalSession {
       if (!terminal) return;
       terminal.clearTextureAtlas();
       terminal.refresh(0, Math.max(0, terminal.rows - 1));
+      this.scaleController?.scheduleFit();
     });
   }
 

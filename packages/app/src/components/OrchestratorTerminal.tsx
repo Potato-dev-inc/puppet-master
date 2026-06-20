@@ -82,7 +82,7 @@ function OrchestratorTerminalLive({
       </div>
       <div
         ref={containerRef}
-        className={`flex-1 min-h-0 terminal-host ${mobileMirror ? 'overflow-auto' : 'overflow-hidden'} ${effectiveRenderMode === 'mirror-same-grid' ? 'terminal-host--mirror-grid' : ''}`}
+        className={`flex-1 min-h-0 terminal-host overflow-hidden ${effectiveRenderMode === 'mirror-same-grid' ? 'terminal-host--mirror-grid' : ''}`}
       />
     </div>
   );
@@ -128,6 +128,7 @@ export function OrchestratorTerminal({
 
   return (
     <OrchestratorTerminalLive
+      key={`${backend}:${pane.info.id}:${pane.info.created_at}`}
       backend={backend}
       pane={pane}
       subscribePaneData={subscribePaneData}
