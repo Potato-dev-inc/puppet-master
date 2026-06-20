@@ -18016,134 +18016,6 @@ var StdioServerTransport = class {
 // ../shared/dist/agents.js
 var AgentTypeSchema = external_exports.enum(["claude", "codex", "opencode", "powershell", "bash", "cursor"]);
 
-// ../shared/dist/agent-contexts.js
-var MODEL_PATTERNS = [
-  { pattern: /\b(gpt-5(?:\.[\w-]+)?|gpt-4(?:\.[\w-]+)?|o[134](?:-[\w-]+)?)\b/i },
-  { pattern: /\b(claude-(?:opus|sonnet|haiku)-[\w.-]+)\b/i },
-  { pattern: /\b((?:gemini|qwen|deepseek|llama|mistral|kimi)[\w./:-]*)\b/i },
-  {
-    pattern: /\bmodel(?:\s+is|\s*[:=])\s*([A-Za-z0-9_./:-]+)/i,
-    normalize: (match) => match[1]
-  }
-];
-var AGENT_CONTEXT_PROFILES = {
-  claude: {
-    agent_type: "claude",
-    label: "Claude Code",
-    default_model: null,
-    model_detection: "cli-banner",
-    smartness: 9,
-    strengths: ["codebase-reasoning", "implementation", "review", "debugging"],
-    context_notes: [
-      "Strong default for broad repository understanding, multi-file edits, and code review.",
-      "Usually exposes its active model in the TUI banner or startup text when configured by the CLI."
-    ],
-    best_for: ["planning complex changes", "reviewing diffs", "large refactors", "implementation with tests"],
-    planned_sidebar_actions: ["delegate task", "ask for review", "compare plan against Codex", "summarize current pane"]
-  },
-  codex: {
-    agent_type: "codex",
-    label: "Codex CLI",
-    default_model: null,
-    model_detection: "cli-banner",
-    smartness: 9,
-    strengths: ["implementation", "debugging", "terminal-ops", "codebase-reasoning"],
-    context_notes: [
-      "Good default for surgical coding, build fixes, and terminal-native verification loops.",
-      "Model may be supplied by the Codex config or surfaced in the TUI; inspect terminal buffer for the best available signal."
-    ],
-    best_for: ["coding fixes", "running tests", "debugging build failures", "iterative verification"],
-    planned_sidebar_actions: ["delegate implementation", "run verification loop", "ask for status", "handoff focused bug"]
-  },
-  opencode: {
-    agent_type: "opencode",
-    label: "OpenCode",
-    default_model: null,
-    model_detection: "configuration",
-    smartness: 7,
-    strengths: ["implementation", "terminal-ops", "debugging"],
-    context_notes: [
-      "Useful as an additional coding terminal when you want parallel exploration.",
-      "Model routing is provider-config dependent, so treat detection as advisory unless the buffer shows an explicit model."
-    ],
-    best_for: ["parallel edits", "alternative implementation passes", "lighter bug fixes"],
-    planned_sidebar_actions: ["delegate parallel attempt", "ask for alternative", "compare output"]
-  },
-  powershell: {
-    agent_type: "powershell",
-    label: "PowerShell",
-    default_model: null,
-    model_detection: "unknown",
-    smartness: 1,
-    strengths: ["terminal-ops"],
-    context_notes: ["Plain shell pane. It has no model; use it for deterministic commands and scripts."],
-    best_for: ["build commands", "file inspection", "manual scripts"],
-    planned_sidebar_actions: ["run command", "capture output", "prepare environment"]
-  },
-  bash: {
-    agent_type: "bash",
-    label: "Bash",
-    default_model: null,
-    model_detection: "unknown",
-    smartness: 1,
-    strengths: ["terminal-ops"],
-    context_notes: ["Plain shell pane. It has no model; use it for POSIX-flavored commands."],
-    best_for: ["shell commands", "cross-platform scripts", "log inspection"],
-    planned_sidebar_actions: ["run command", "capture output", "prepare environment"]
-  },
-  cursor: {
-    agent_type: "cursor",
-    label: "Cursor IDE",
-    default_model: null,
-    model_detection: "unknown",
-    smartness: 6,
-    strengths: ["ui-orchestration", "implementation"],
-    context_notes: [
-      "IDE launcher rather than a terminal TUI. Treat model information as unavailable unless a future Cursor bridge reports it."
-    ],
-    best_for: ["opening the workspace visually", "manual user-guided edits"],
-    planned_sidebar_actions: ["open project", "focus editor", "handoff manual review"]
-  }
-};
-function listAgentContextProfiles() {
-  return Object.values(AGENT_CONTEXT_PROFILES);
-}
-function getAgentContextProfile(agentType) {
-  return AGENT_CONTEXT_PROFILES[agentType];
-}
-function detectModelFromBuffer(buffer) {
-  for (const { pattern, normalize } of MODEL_PATTERNS) {
-    const match = buffer.match(pattern);
-    if (match)
-      return normalize ? normalize(match) : match[1];
-  }
-  return null;
-}
-function inspectAgentModel(paneId, agentType, buffer) {
-  const profile = getAgentContextProfile(agentType);
-  const detected = detectModelFromBuffer(buffer);
-  if (detected) {
-    return {
-      pane_id: paneId,
-      agent_type: agentType,
-      detected_model: detected,
-      source: "buffer",
-      confidence: "medium",
-      smartness: profile.smartness,
-      notes: ["Detected from recent terminal buffer text; confirm if the CLI allows runtime model switching."]
-    };
-  }
-  return {
-    pane_id: paneId,
-    agent_type: agentType,
-    detected_model: profile.default_model,
-    source: profile.default_model ? "profile" : "unknown",
-    confidence: profile.default_model ? "low" : "low",
-    smartness: profile.smartness,
-    notes: profile.default_model ? ["Using the static agent profile default because no model was visible in the buffer."] : ["No model was visible in the buffer and this agent has no static default."]
-  };
-}
-
 // ../shared/dist/protocol.js
 var PaneStatusSchema = external_exports.enum(["running", "waiting_input", "error", "idle"]);
 var PaneInfoSchema = external_exports.object({
@@ -18538,61 +18410,32 @@ async function main() {
           break;
         }
         case "list_agent_contexts": {
-          try {
-            const contexts = await callWithRefresh(clientRef, "GET", "/agent-contexts");
-            text = JSON.stringify(contexts, null, 2);
-          } catch {
-            text = JSON.stringify(listAgentContextProfiles(), null, 2);
-          }
+          const contexts = await callWithRefresh(clientRef, "GET", "/agent-contexts");
+          text = JSON.stringify(contexts, null, 2);
           break;
         }
         case "read_agent_context": {
           const a = args ?? {};
           if (a.pane_id) {
-            try {
-              const context = await callWithRefresh(clientRef, "GET", `/panes/${encodeURIComponent(a.pane_id)}/agent-context`);
-              text = JSON.stringify(context, null, 2);
-              break;
-            } catch {
-              const panes = await callWithRefresh(clientRef, "GET", "/panes");
-              const pane = panes.find((p) => p.id === a.pane_id);
-              if (!pane) throw new Error(`unknown pane: ${a.pane_id}`);
-              const agentType2 = AgentTypeSchema.parse(pane.agent_type);
-              const content = await callWithRefresh(
-                clientRef,
-                "GET",
-                `/panes/${encodeURIComponent(a.pane_id)}/buffer?lines=200`
-              );
-              text = JSON.stringify({
-                pane,
-                context: getAgentContextProfile(agentType2),
-                model: inspectAgentModel(a.pane_id, agentType2, content.content),
-                recent_buffer_preview: content.content.split(/\r?\n/).slice(-40).join("\n")
-              }, null, 2);
-              break;
-            }
+            const context2 = await callWithRefresh(clientRef, "GET", `/panes/${encodeURIComponent(a.pane_id)}/agent-context`);
+            text = JSON.stringify(context2, null, 2);
+            break;
           }
           const agentType = AgentTypeSchema.parse(a.agent_type);
-          text = JSON.stringify(getAgentContextProfile(agentType), null, 2);
+          const contexts = await callWithRefresh(clientRef, "GET", "/agent-contexts");
+          const context = contexts.find((candidate) => candidate.agent_type === agentType);
+          if (!context) throw new Error(`unknown agent_type: ${agentType}`);
+          text = JSON.stringify(context, null, 2);
           break;
         }
         case "inspect_agent_model": {
           const a = args ?? {};
-          try {
-            const model = await callWithRefresh(clientRef, "GET", `/panes/${encodeURIComponent(a.pane_id)}/model`);
-            text = JSON.stringify(model, null, 2);
-          } catch {
-            const panes = await callWithRefresh(clientRef, "GET", "/panes");
-            const pane = panes.find((p) => p.id === a.pane_id);
-            if (!pane) throw new Error(`unknown pane: ${a.pane_id}`);
-            const agentType = AgentTypeSchema.parse(pane.agent_type);
-            const content = await callWithRefresh(
-              clientRef,
-              "GET",
-              `/panes/${encodeURIComponent(a.pane_id)}/buffer?lines=${a.lines ?? 200}`
-            );
-            text = JSON.stringify(inspectAgentModel(a.pane_id, agentType, content.content), null, 2);
-          }
+          const model = await callWithRefresh(
+            clientRef,
+            "GET",
+            `/panes/${encodeURIComponent(a.pane_id)}/model?lines=${a.lines ?? 200}`
+          );
+          text = JSON.stringify(model, null, 2);
           break;
         }
         case "spawn_agent": {

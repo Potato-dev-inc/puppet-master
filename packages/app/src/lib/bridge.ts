@@ -1,4 +1,10 @@
-import type { McpLogEntry, OrchestratorChatEvent, PaneInfo } from '@puppet-master/shared';
+import type {
+  AgentContextProfile,
+  AgentModelInspection,
+  McpLogEntry,
+  OrchestratorChatEvent,
+  PaneInfo,
+} from '@puppet-master/shared';
 import type { PublicSettings } from './bridge-settings';
 import { isNgrokHost, ngrokRequestHeaders } from './bridge-ngrok';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
@@ -38,6 +44,9 @@ export interface BridgeClient {
   readBuffer(paneId: string, lines: number): Promise<string>;
   readRawBuffer(paneId: string, lines: number): Promise<number[]>;
   readSnapshot(paneId: string): Promise<string>;
+  listAgentContexts(): Promise<AgentContextProfile[]>;
+  readAgentContext(args: { agent_type?: string; pane_id?: string }): Promise<unknown>;
+  inspectAgentModel(paneId: string, lines?: number): Promise<AgentModelInspection>;
   writeInput(paneId: string, text: string, appendNewline?: boolean): Promise<void>;
   resize(paneId: string, cols: number, rows: number): Promise<void>;
   getSettings(): Promise<PublicSettings>;
@@ -81,6 +90,18 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       const res = await call<{ content: string }>('GET', `/panes/${encodeURIComponent(id)}/snapshot`);
       return res.content;
     },
+    listAgentContexts: () => call('GET', '/agent-contexts'),
+    readAgentContext: async (args) => {
+      if (args.pane_id) {
+        return call('GET', `/panes/${encodeURIComponent(args.pane_id)}/agent-context`);
+      }
+      const contexts = await call<Array<AgentContextProfile & { agent_type: string }>>('GET', '/agent-contexts');
+      const context = contexts.find((candidate) => candidate.agent_type === args.agent_type);
+      if (!context) throw new Error(`unknown agent_type: ${args.agent_type}`);
+      return context;
+    },
+    inspectAgentModel: (id, lines = 200) =>
+      call('GET', `/panes/${encodeURIComponent(id)}/model?lines=${lines}`),
     writeInput: (id, text, appendNewline = true) =>
       call('POST', `/panes/${encodeURIComponent(id)}/input`, {
         text,

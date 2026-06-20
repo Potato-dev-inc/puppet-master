@@ -1,3 +1,4 @@
+mod agent_contexts;
 mod app_paths;
 mod bridge;
 mod commands;
@@ -43,6 +44,9 @@ pub fn run() {
             commands::read_pane_buffer,
             commands::read_pane_snapshot,
             commands::read_pane_raw_buffer,
+            commands::list_agent_contexts,
+            commands::read_agent_context,
+            commands::inspect_agent_model,
             commands::resize_pane,
             commands::set_project_path,
             commands::get_project_path_cmd,
@@ -127,7 +131,6 @@ pub fn run() {
                     }
                 }
             });
-
 
             let registry_for_panes = app.state::<AppState>().registry.clone();
             app.handle().listen("pty://panes-changed", move |_event| {

@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
+use crate::pty::agents::AgentType;
 use crate::pty::{
     registry_get_project_path, registry_kill_all, registry_kill_pane, registry_read_buffer,
     registry_read_raw_buffer, registry_read_snapshot, registry_resize, registry_set_project_path,
@@ -107,6 +108,61 @@ pub async fn read_pane_raw_buffer(
 }
 
 #[tauri::command]
+pub async fn list_agent_contexts() -> Result<Vec<crate::agent_contexts::AgentContextProfile>, String>
+{
+    Ok(crate::agent_contexts::list_agent_context_profiles())
+}
+
+#[tauri::command]
+pub async fn inspect_agent_model(
+    state: State<'_, AppState>,
+    pane_id: String,
+    lines: Option<usize>,
+) -> Result<crate::agent_contexts::AgentModelInspection, String> {
+    let pane = state
+        .registry
+        .lock()
+        .list()
+        .into_iter()
+        .find(|pane| pane.id == pane_id)
+        .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
+    let agent_type = AgentType::parse(&pane.agent_type)
+        .ok_or_else(|| format!("unknown agent_type: {}", pane.agent_type))?;
+    let buffer = registry_read_buffer(&state.registry, &pane_id, lines.unwrap_or(200))?;
+    Ok(crate::agent_contexts::inspect_agent_model(
+        pane_id, agent_type, &buffer,
+    ))
+}
+
+#[tauri::command]
+pub async fn read_agent_context(
+    state: State<'_, AppState>,
+    agent_type: Option<String>,
+    pane_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if let Some(pane_id) = pane_id {
+        let pane = state
+            .registry
+            .lock()
+            .list()
+            .into_iter()
+            .find(|pane| pane.id == pane_id)
+            .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
+        let buffer = registry_read_buffer(&state.registry, &pane_id, 200)?;
+        let context = crate::agent_contexts::build_pane_agent_context(pane, &buffer)
+            .ok_or_else(|| "unknown pane agent_type".to_string())?;
+        return serde_json::to_value(context)
+            .map_err(|err| format!("serialize agent context: {err}"));
+    }
+
+    let agent_type = agent_type.ok_or_else(|| "agent_type or pane_id is required".to_string())?;
+    let agent_type =
+        AgentType::parse(&agent_type).ok_or_else(|| format!("unknown agent_type: {agent_type}"))?;
+    serde_json::to_value(crate::agent_contexts::get_agent_context_profile(agent_type))
+        .map_err(|err| format!("serialize agent context profile: {err}"))
+}
+
+#[tauri::command]
 pub async fn resize_pane(
     state: State<'_, AppState>,
     pane_id: String,
@@ -128,7 +184,8 @@ pub async fn sync_public_settings(
 ) -> Result<(), String> {
     let parsed: Value = serde_json::from_str(&settings_json)
         .map_err(|err| format!("invalid settings json: {err}"))?;
-    let merged = settings_store::merge_public_settings(&settings_store::default_public_settings(), &parsed);
+    let merged =
+        settings_store::merge_public_settings(&settings_store::default_public_settings(), &parsed);
     *state.public_settings.lock() = merged;
     let _ = app;
     Ok(())
@@ -137,10 +194,7 @@ pub async fn sync_public_settings(
 #[tauri::command]
 pub async fn set_project_path(state: State<'_, AppState>, path: String) -> Result<(), String> {
     let normalized = crate::project_path::normalize_project_path(std::path::Path::new(&path))?;
-    registry_set_project_path(
-        &state.registry,
-        normalized.to_string_lossy().into_owned(),
-    );
+    registry_set_project_path(&state.registry, normalized.to_string_lossy().into_owned());
     Ok(())
 }
 
@@ -150,17 +204,23 @@ pub async fn get_project_path_cmd(state: State<'_, AppState>) -> Result<String, 
 }
 
 #[tauri::command]
-pub async fn ensure_orchestrator_mcp(backend: String, project_path: String) -> Result<crate::mcp_install::EnsureMcpResult, String> {
+pub async fn ensure_orchestrator_mcp(
+    backend: String,
+    project_path: String,
+) -> Result<crate::mcp_install::EnsureMcpResult, String> {
     crate::mcp_install::ensure_orchestrator_mcp(&backend, std::path::Path::new(&project_path))
 }
 
 #[tauri::command]
-pub async fn install_npm_mcp_configs(project_path: String) -> Result<Vec<crate::mcp_install::EnsureMcpResult>, String> {
+pub async fn install_npm_mcp_configs(
+    project_path: String,
+) -> Result<Vec<crate::mcp_install::EnsureMcpResult>, String> {
     crate::mcp_install::install_npm_mcp_configs(std::path::Path::new(&project_path))
 }
 
 #[tauri::command]
-pub async fn install_global_npm_mcp_configs() -> Result<Vec<crate::mcp_install::EnsureMcpResult>, String> {
+pub async fn install_global_npm_mcp_configs(
+) -> Result<Vec<crate::mcp_install::EnsureMcpResult>, String> {
     crate::mcp_install::install_global_npm_mcp_configs()
 }
 
@@ -182,7 +242,9 @@ pub async fn push_settings_event(settings_json: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn create_mobile_pairing_session(bridge_url: String) -> Result<crate::mobile_pairing::PairingSession, String> {
+pub async fn create_mobile_pairing_session(
+    bridge_url: String,
+) -> Result<crate::mobile_pairing::PairingSession, String> {
     let store = crate::mobile_pairing::pairing_store()
         .ok_or_else(|| "pairing store not initialized".to_string())?;
     let session = store.lock().create_pairing_session(bridge_url);
@@ -190,7 +252,8 @@ pub async fn create_mobile_pairing_session(bridge_url: String) -> Result<crate::
 }
 
 #[tauri::command]
-pub async fn list_paired_mobile_devices() -> Result<Vec<crate::mobile_pairing::PairedDeviceInfo>, String> {
+pub async fn list_paired_mobile_devices(
+) -> Result<Vec<crate::mobile_pairing::PairedDeviceInfo>, String> {
     let store = crate::mobile_pairing::pairing_store()
         .ok_or_else(|| "pairing store not initialized".to_string())?;
     let devices = store.lock().list_devices();

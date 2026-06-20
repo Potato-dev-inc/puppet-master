@@ -3,9 +3,8 @@ import {
   assertWorkerPaneTarget,
   findReusableWorkerPane,
   formatPaneListForOrchestrator,
-  getAgentContextProfile,
-  inspectAgentModel,
-  listAgentContextProfiles,
+  type AgentContextProfile,
+  type AgentModelInspection,
   type PaneInfo,
 } from '@puppet-master/shared';
 import type { ToolDef } from './llm';
@@ -147,6 +146,9 @@ export interface McpToolExecutor {
   }): Promise<{ pane_id: string }>;
   killPane(paneId: string): Promise<void>;
   readBuffer(paneId: string, lines: number): Promise<string>;
+  listAgentContexts(): Promise<AgentContextProfile[]>;
+  readAgentContext(args: { agent_type?: string; pane_id?: string }): Promise<unknown>;
+  inspectAgentModel(paneId: string, lines?: number): Promise<AgentModelInspection>;
   writeInput(paneId: string, text: string, appendNewline?: boolean): Promise<void>;
 }
 
@@ -160,6 +162,9 @@ export function makeTauriExecutor(): McpToolExecutor {
     },
     killPane: (paneId) => tauri.killPane(paneId),
     readBuffer: (paneId, lines) => tauri.readBuffer(paneId, lines),
+    listAgentContexts: () => tauri.listAgentContexts(),
+    readAgentContext: (args) => tauri.readAgentContext(args),
+    inspectAgentModel: (paneId, lines) => tauri.inspectAgentModel(paneId, lines),
     writeInput: (paneId, text, appendNewline) => tauri.writeInput(paneId, text, appendNewline),
   };
 }
@@ -171,6 +176,9 @@ export function makeBridgeExecutor(bridge: BridgeClient): McpToolExecutor {
     spawnPane: (args) => bridge.spawnPane(args),
     killPane: (id) => bridge.killPane(id),
     readBuffer: (id, lines) => bridge.readBuffer(id, lines),
+    listAgentContexts: () => bridge.listAgentContexts(),
+    readAgentContext: (args) => bridge.readAgentContext(args),
+    inspectAgentModel: (paneId, lines) => bridge.inspectAgentModel(paneId, lines),
     writeInput: (id, text, appendNewline) => bridge.writeInput(id, text, appendNewline),
   };
 }
@@ -198,37 +206,22 @@ export async function executeMcpTool(
         break;
       }
       case 'list_agent_contexts': {
-        result = JSON.stringify(listAgentContextProfiles(), null, 2);
+        result = JSON.stringify(await executor.listAgentContexts(), null, 2);
         break;
       }
       case 'read_agent_context': {
         const a = args as { agent_type?: string; pane_id?: string };
         if (a.pane_id) {
-          const panes = await executor.listPanes();
-          const pane = panes.find((p) => p.id === a.pane_id);
-          if (!pane) throw new Error(`unknown pane: ${a.pane_id}`);
-          const agentType = AgentTypeSchema.parse(pane.agent_type);
-          const buffer = await executor.readBuffer(a.pane_id, 200);
-          result = JSON.stringify({
-            pane,
-            context: getAgentContextProfile(agentType),
-            model: inspectAgentModel(a.pane_id, agentType, buffer),
-            recent_buffer_preview: buffer.split(/\r?\n/).slice(-40).join('\n'),
-          }, null, 2);
+          result = JSON.stringify(await executor.readAgentContext({ pane_id: a.pane_id }), null, 2);
           break;
         }
         const agentType = AgentTypeSchema.parse(a.agent_type);
-        result = JSON.stringify(getAgentContextProfile(agentType), null, 2);
+        result = JSON.stringify(await executor.readAgentContext({ agent_type: agentType }), null, 2);
         break;
       }
       case 'inspect_agent_model': {
         const a = args as { pane_id: string; lines?: number };
-        const panes = await executor.listPanes();
-        const pane = panes.find((p) => p.id === a.pane_id);
-        if (!pane) throw new Error(`unknown pane: ${a.pane_id}`);
-        const agentType = AgentTypeSchema.parse(pane.agent_type);
-        const buffer = await executor.readBuffer(a.pane_id, a.lines ?? 200);
-        result = JSON.stringify(inspectAgentModel(a.pane_id, agentType, buffer), null, 2);
+        result = JSON.stringify(await executor.inspectAgentModel(a.pane_id, a.lines), null, 2);
         break;
       }
       case 'spawn_agent': {

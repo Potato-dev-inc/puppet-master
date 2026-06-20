@@ -1,6 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { PairedDeviceInfo, PairingSession } from '@puppet-master/shared';
+import type {
+  AgentContextProfile,
+  AgentModelInspection,
+  PairedDeviceInfo,
+  PairingSession,
+} from '@puppet-master/shared';
 
 export type PaneInfo = {
   id: string;
@@ -68,6 +73,12 @@ export const tauri = {
     safeInvoke<string>('read_pane_snapshot', { paneId }, '', true),
   readRawBuffer: (paneId: string, lines: number) =>
     safeInvoke<number[]>('read_pane_raw_buffer', { paneId, lines }, [], true),
+  listAgentContexts: () =>
+    safeInvoke<AgentContextProfile[]>('list_agent_contexts', undefined, [], true),
+  readAgentContext: (args: { agent_type?: string; pane_id?: string }) =>
+    safeInvoke<unknown>('read_agent_context', { agentType: args.agent_type, paneId: args.pane_id }),
+  inspectAgentModel: (paneId: string, lines?: number) =>
+    safeInvoke<AgentModelInspection>('inspect_agent_model', { paneId, lines }),
   resize: (paneId: string, cols: number, rows: number) =>
     safeInvoke<void>('resize_pane', { paneId, cols, rows }, undefined, true),
   setProjectPath: (path: string) => safeInvoke<void>('set_project_path', { path }, undefined, true),

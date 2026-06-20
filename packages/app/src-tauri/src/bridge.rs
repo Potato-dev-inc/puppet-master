@@ -15,13 +15,13 @@ use std::sync::Arc;
 use std::thread;
 use tauri::{AppHandle, Emitter};
 
+use crate::mobile_pairing::{self, PairRequestBody};
+use crate::pty::agents::AgentType;
 use crate::pty::{
-    registry_kill_pane, registry_read_buffer, registry_read_raw_buffer,
-    registry_set_project_path, registry_spawn_pane, registry_write_input, PaneRegistry,
-    SpawnPaneArgs,
+    registry_kill_pane, registry_read_buffer, registry_read_raw_buffer, registry_set_project_path,
+    registry_spawn_pane, registry_write_input, PaneRegistry, SpawnPaneArgs,
 };
 use crate::settings_store;
-use crate::mobile_pairing::{self, PairRequestBody};
 
 /// SSE client — each connected GET /events response gets a sender.
 type SseSender = std::sync::mpsc::SyncSender<String>;
@@ -96,7 +96,6 @@ struct ResizeBody {
     cols: u16,
     rows: u16,
 }
-
 
 #[derive(Debug, Deserialize)]
 struct ProjectPathBody {
@@ -309,27 +308,21 @@ fn route(
 
     if segments == ["pair"] && method == "POST" {
         let req: PairRequestBody = parse_json(body)?;
-        let store = mobile_pairing::pairing_store().ok_or_else(|| {
-            (
-                503,
-                serde_json::json!({ "error": "pairing_unavailable" }),
-            )
-        })?;
+        let store = mobile_pairing::pairing_store()
+            .ok_or_else(|| (503, serde_json::json!({ "error": "pairing_unavailable" })))?;
         let response = {
             let mut guard = store.lock();
-            guard.pair_device(req).map_err(|err| (400, json!({ "error": err })))?
+            guard
+                .pair_device(req)
+                .map_err(|err| (400, json!({ "error": err })))?
         };
         return Ok((200, serde_json::to_value(response).unwrap()));
     }
 
     if segments.len() == 3 && segments[0] == "pair" && segments[1] == "session" && method == "GET" {
         let code = segments[2];
-        let store = mobile_pairing::pairing_store().ok_or_else(|| {
-            (
-                503,
-                serde_json::json!({ "error": "pairing_unavailable" }),
-            )
-        })?;
+        let store = mobile_pairing::pairing_store()
+            .ok_or_else(|| (503, serde_json::json!({ "error": "pairing_unavailable" })))?;
         let info = {
             let guard = store.lock();
             guard
@@ -345,7 +338,10 @@ fn route(
     }
 
     if segments == ["agent-contexts"] && method == "GET" {
-        return Ok((200, json!([])));
+        return Ok((
+            200,
+            serde_json::to_value(crate::agent_contexts::list_agent_context_profiles()).unwrap(),
+        ));
     }
 
     if segments == ["settings"] && method == "GET" {
@@ -417,22 +413,41 @@ fn route(
             return Ok((200, json!({ "ok": true, "ignored": true })));
         }
         if tail == Some("model") && method == "GET" {
+            let lines = query_param(query, "lines")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(200);
+            let pane = registry
+                .lock()
+                .list()
+                .into_iter()
+                .find(|pane| pane.id == pane_id)
+                .ok_or_else(|| (404, json!({ "error": format!("unknown pane: {pane_id}") })))?;
+            let agent_type = AgentType::parse(&pane.agent_type).ok_or_else(|| {
+                (
+                    400,
+                    json!({ "error": format!("unknown agent_type: {}", pane.agent_type) }),
+                )
+            })?;
+            let buffer = registry_read_buffer(&registry, pane_id, lines)
+                .map_err(|err| (404, json!({ "error": err })))?;
             return Ok((
                 200,
-                json!({
-                    "pane_id": pane_id,
-                    "detected_model": null,
-                    "source": "unknown",
-                    "confidence": "low",
-                    "notes": ["Model detection is handled by the MCP fallback using read_terminal_buffer."]
-                }),
+                serde_json::to_value(crate::agent_contexts::inspect_agent_model(
+                    pane_id, agent_type, &buffer,
+                ))
+                .unwrap(),
             ));
         }
         if tail == Some("agent-context") && method == "GET" {
             let panes = registry.lock().list();
             let pane = panes.iter().find(|pane| pane.id == pane_id);
             if let Some(pane) = pane {
-                return Ok((200, json!({ "pane": pane })));
+                let buffer = registry_read_buffer(&registry, pane_id, 200)
+                    .map_err(|err| (404, json!({ "error": err })))?;
+                let context =
+                    crate::agent_contexts::build_pane_agent_context(pane.clone(), &buffer)
+                        .ok_or_else(|| (400, json!({ "error": "unknown pane agent_type" })))?;
+                return Ok((200, serde_json::to_value(context).unwrap()));
             }
             return Err((404, json!({ "error": format!("unknown pane: {pane_id}") })));
         }
@@ -469,11 +484,7 @@ fn route(
     ))
 }
 
-fn handle_sse(
-    stream: &mut TcpStream,
-    registry: Arc<Mutex<PaneRegistry>>,
-    app: &AppHandle,
-) {
+fn handle_sse(stream: &mut TcpStream, registry: Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
     let headers = "HTTP/1.1 200 OK\r\n\
         Content-Type: text/event-stream\r\n\
         Cache-Control: no-cache\r\n\

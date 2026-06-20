@@ -18,9 +18,6 @@ import {
   assertWorkerPaneTarget,
   findReusableWorkerPane,
   formatPaneListForOrchestrator,
-  getAgentContextProfile,
-  inspectAgentModel,
-  listAgentContextProfiles,
   PaneInfoSchema,
   SpawnPaneRequestSchema,
   WriteInputRequestSchema,
@@ -209,61 +206,32 @@ async function main(): Promise<void> {
           break;
         }
         case 'list_agent_contexts': {
-          try {
-            const contexts = await callWithRefresh<unknown[]>(clientRef, 'GET', '/agent-contexts');
-            text = JSON.stringify(contexts, null, 2);
-          } catch {
-            text = JSON.stringify(listAgentContextProfiles(), null, 2);
-          }
+          const contexts = await callWithRefresh<unknown[]>(clientRef, 'GET', '/agent-contexts');
+          text = JSON.stringify(contexts, null, 2);
           break;
         }
         case 'read_agent_context': {
           const a = (args ?? {}) as { agent_type?: string; pane_id?: string };
           if (a.pane_id) {
-            try {
-              const context = await callWithRefresh<unknown>(clientRef, 'GET', `/panes/${encodeURIComponent(a.pane_id)}/agent-context`);
-              text = JSON.stringify(context, null, 2);
-              break;
-            } catch {
-              const panes = await callWithRefresh<Array<{ id: string; agent_type: unknown }>>(clientRef, 'GET', '/panes');
-              const pane = panes.find((p) => p.id === a.pane_id);
-              if (!pane) throw new Error(`unknown pane: ${a.pane_id}`);
-              const agentType = AgentTypeSchema.parse(pane.agent_type);
-              const content = await callWithRefresh<{ content: string }>(
-                clientRef,
-                'GET',
-                `/panes/${encodeURIComponent(a.pane_id)}/buffer?lines=200`,
-              );
-              text = JSON.stringify({
-                pane,
-                context: getAgentContextProfile(agentType),
-                model: inspectAgentModel(a.pane_id, agentType, content.content),
-                recent_buffer_preview: content.content.split(/\r?\n/).slice(-40).join('\n'),
-              }, null, 2);
-              break;
-            }
+            const context = await callWithRefresh<unknown>(clientRef, 'GET', `/panes/${encodeURIComponent(a.pane_id)}/agent-context`);
+            text = JSON.stringify(context, null, 2);
+            break;
           }
           const agentType = AgentTypeSchema.parse(a.agent_type);
-          text = JSON.stringify(getAgentContextProfile(agentType), null, 2);
+          const contexts = await callWithRefresh<Array<{ agent_type: string }>>(clientRef, 'GET', '/agent-contexts');
+          const context = contexts.find((candidate) => candidate.agent_type === agentType);
+          if (!context) throw new Error(`unknown agent_type: ${agentType}`);
+          text = JSON.stringify(context, null, 2);
           break;
         }
         case 'inspect_agent_model': {
           const a = (args ?? {}) as { pane_id: string; lines?: number };
-          try {
-            const model = await callWithRefresh<unknown>(clientRef, 'GET', `/panes/${encodeURIComponent(a.pane_id)}/model`);
-            text = JSON.stringify(model, null, 2);
-          } catch {
-            const panes = await callWithRefresh<Array<{ id: string; agent_type: unknown }>>(clientRef, 'GET', '/panes');
-            const pane = panes.find((p) => p.id === a.pane_id);
-            if (!pane) throw new Error(`unknown pane: ${a.pane_id}`);
-            const agentType = AgentTypeSchema.parse(pane.agent_type);
-            const content = await callWithRefresh<{ content: string }>(
-              clientRef,
-              'GET',
-              `/panes/${encodeURIComponent(a.pane_id)}/buffer?lines=${a.lines ?? 200}`,
-            );
-            text = JSON.stringify(inspectAgentModel(a.pane_id, agentType, content.content), null, 2);
-          }
+          const model = await callWithRefresh<unknown>(
+            clientRef,
+            'GET',
+            `/panes/${encodeURIComponent(a.pane_id)}/model?lines=${a.lines ?? 200}`,
+          );
+          text = JSON.stringify(model, null, 2);
           break;
         }
         case 'spawn_agent': {
