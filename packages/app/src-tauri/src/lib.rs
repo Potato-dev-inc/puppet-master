@@ -1,6 +1,7 @@
 mod actors;
 mod agent_adapters;
 mod agent_contexts;
+mod app_lifecycle;
 mod app_paths;
 mod bridge;
 mod commands;
@@ -68,6 +69,8 @@ pub fn run() {
             commands::ensure_orchestrator_mcp,
             commands::install_npm_mcp_configs,
             commands::install_global_npm_mcp_configs,
+            commands::uninstall_npm_mcp_configs,
+            commands::uninstall_global_npm_mcp_configs,
             commands::get_mcp_status,
             commands::push_chat_event,
             commands::push_settings_event,
@@ -76,6 +79,9 @@ pub fn run() {
             commands::list_paired_mobile_devices,
             commands::revoke_paired_mobile_device,
             commands::get_mobile_tunnel_info,
+            app_lifecycle::get_app_install_info,
+            app_lifecycle::open_external_url,
+            app_lifecycle::launch_uninstall,
         ])
         .setup(|app| {
             if let Ok(resource) = app

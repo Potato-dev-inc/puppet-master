@@ -67,6 +67,15 @@ export interface CoordinationStorageInfo {
   exists: boolean;
 }
 
+export interface AppInstallInfo {
+  version: string;
+  isPackaged: boolean;
+  platform: string;
+  uninstallAvailable: boolean;
+  uninstallInstructions: string;
+  dataDir: string;
+}
+
 const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 const noopUnlisten: UnlistenFn = () => {};
 
@@ -174,6 +183,34 @@ export const tauri = {
       ],
       true,
     ),
+  uninstallNpmMcpConfigs: (projectPath: string) =>
+    safeInvoke<EnsureMcpResult[]>(
+      'uninstall_npm_mcp_configs',
+      { projectPath },
+      [
+        {
+          installed: false,
+          changed: true,
+          backend: 'browser_preview',
+          message: 'MCP uninstall skipped in browser preview',
+        },
+      ],
+      true,
+    ),
+  uninstallGlobalNpmMcpConfigs: () =>
+    safeInvoke<EnsureMcpResult[]>(
+      'uninstall_global_npm_mcp_configs',
+      undefined,
+      [
+        {
+          installed: false,
+          changed: true,
+          backend: 'browser_preview_global',
+          message: 'Global MCP uninstall skipped in browser preview',
+        },
+      ],
+      true,
+    ),
   getMcpStatus: (projectPath: string, autoRepair = false) =>
     safeInvoke<McpStatusReport>(
       'get_mcp_status',
@@ -249,4 +286,22 @@ export const tauri = {
       bridgeDirectUrl?: string | null;
       updatedAt: number;
     } | null>('get_mobile_tunnel_info', undefined, null, true),
+
+  getAppInstallInfo: () =>
+    safeInvoke<AppInstallInfo>(
+      'get_app_install_info',
+      undefined,
+      {
+        version: '0.0.0',
+        isPackaged: false,
+        platform: 'browser',
+        uninstallAvailable: false,
+        uninstallInstructions: '',
+        dataDir: '',
+      },
+      true,
+    ),
+  openExternalUrl: (url: string) =>
+    safeInvoke<void>('open_external_url', { url }, undefined, true),
+  launchUninstall: () => safeInvoke<void>('launch_uninstall', undefined, undefined, true),
 };

@@ -114,6 +114,23 @@ npm run dev          # alias for: npm run tauri dev
 
 That launches the full stack: shared build, Vite/PWA, Tauri, and the embedded bridge.
 
+### Uninstall
+
+| Install type | How to remove |
+|--------------|---------------|
+| **Windows installer** (`Puppet Master_*_x64-setup.exe`) | **Settings → Advanced → Uninstall Puppet Master**, or Windows **Settings → Apps → Installed apps → Puppet Master → Uninstall** |
+| **macOS** (`.app` in Applications) | **Settings → Advanced → Uninstall**, or drag **Puppet Master.app** to Trash |
+| **Dev build** (`npm run tauri dev`) | Stop the app and delete the repo folder — there is no system uninstaller |
+
+App data (settings, bridge port file, mobile pairing) may remain after uninstall:
+
+- Windows: `%APPDATA%\com.puppetmaster.app`
+- macOS: `~/Library/Application Support/com.puppetmaster.app`
+
+Delete that folder if you want a clean removal.
+
+On launch, the desktop app checks [GitHub Releases](https://github.com/Potato-dev-inc/puppet-master/releases) for a newer version and shows a dismissible banner when an update is available.
+
 **External MCP only** (Cursor / Claude Desktop while the GUI is running):
 
 ```bash

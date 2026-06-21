@@ -3,6 +3,7 @@ import type { LlmModel, Settings } from '@puppet-master/shared';
 import { DEFAULT_DEV_SERVER_PORT } from '../lib/public-bridge-url';
 import { findBridgeUrl } from '../lib/bridge';
 import { loadSettings, saveSettings } from '../lib/settings';
+import type { UpdateCheckResult } from '../lib/app-update';
 import { EMPTY_CUSTOM, SettingsTabPanel, type SettingsTabContext } from './settings/settings-tab-panels';
 import {
   PlannedBadge,
@@ -18,6 +19,10 @@ interface Props {
   onProjectPathChange?: (path: string) => Promise<void>;
   onSidebarWidthChange?: (width: number) => void;
   currentSidebarWidth?: number;
+  updateCheck?: UpdateCheckResult | null;
+  updateChecking?: boolean;
+  onCheckForUpdates?: () => void;
+  onOpenRelease?: () => void;
 }
 
 export function SettingsPanel({
@@ -28,6 +33,10 @@ export function SettingsPanel({
   onProjectPathChange,
   onSidebarWidthChange,
   currentSidebarWidth,
+  updateCheck,
+  updateChecking,
+  onCheckForUpdates,
+  onOpenRelease,
 }: Props) {
   const [tab, setTab] = useState<SettingsTabId>('general');
   const [search, setSearch] = useState('');
@@ -68,6 +77,10 @@ export function SettingsPanel({
     setDraftCustom,
     onSidebarWidthChange,
     currentSidebarWidth,
+    updateCheck,
+    updateChecking,
+    onCheckForUpdates,
+    onOpenRelease,
   };
 
   if (!open) return null;

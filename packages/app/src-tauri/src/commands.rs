@@ -315,6 +315,19 @@ pub async fn install_global_npm_mcp_configs(
 }
 
 #[tauri::command]
+pub async fn uninstall_npm_mcp_configs(
+    project_path: String,
+) -> Result<Vec<crate::mcp_install::EnsureMcpResult>, String> {
+    crate::mcp_install::uninstall_npm_mcp_configs(std::path::Path::new(&project_path))
+}
+
+#[tauri::command]
+pub async fn uninstall_global_npm_mcp_configs(
+) -> Result<Vec<crate::mcp_install::EnsureMcpResult>, String> {
+    crate::mcp_install::uninstall_global_npm_mcp_configs()
+}
+
+#[tauri::command]
 pub async fn get_mcp_status(
     project_path: String,
     auto_repair: bool,

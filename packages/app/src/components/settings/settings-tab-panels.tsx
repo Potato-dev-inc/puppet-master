@@ -13,10 +13,12 @@ import {
   SIDEBAR_WIDTH_PRESET_LABELS,
   SIDEBAR_WIDTH_PRESETS,
 } from '../../lib/settings';
-import { installGlobalNpmMcpConfigs, installNpmMcpConfigs, getMcpStatus, PUPPET_MASTER_MCP_COMMAND, type EnsureMcpResult, type McpStatusReport } from '../../lib/mcp-config';
+import { installGlobalNpmMcpConfigs, installNpmMcpConfigs, uninstallGlobalNpmMcpConfigs, uninstallNpmMcpConfigs, getMcpStatus, PUPPET_MASTER_MCP_COMMAND, type EnsureMcpResult, type McpStatusReport } from '../../lib/mcp-config';
+import type { UpdateCheckResult } from '../../lib/app-update';
 import { MobilePairingPanel } from '../MobilePairingPanel';
 import { parseDevServerPort } from '../../lib/public-bridge-url';
-import { tauri, type CoordinationStorageInfo } from '../../lib/tauri';
+import { tauri, type AppInstallInfo, type CoordinationStorageInfo } from '../../lib/tauri';
+import { ask } from '@tauri-apps/plugin-dialog';
 import {
   CodeBlock,
   FieldInput,
@@ -51,6 +53,10 @@ export interface SettingsTabContext {
   onSidebarWidthChange?: (width: number) => void;
   /** Live workspace sidebar width (e.g. after drag resize). */
   currentSidebarWidth?: number;
+  updateCheck?: UpdateCheckResult | null;
+  updateChecking?: boolean;
+  onCheckForUpdates?: () => void;
+  onOpenRelease?: () => void;
 }
 
 export function SettingsTabPanel({ tab, ctx }: { tab: SettingsTabId; ctx: SettingsTabContext }) {
@@ -80,9 +86,11 @@ export function SettingsTabPanel({ tab, ctx }: { tab: SettingsTabId; ctx: Settin
 }
 
 function GeneralTab({ ctx }: { ctx: SettingsTabContext }) {
-  const { settings, setSettings, projectPath, onProjectPathChange } = ctx;
+  const { settings, setSettings, projectPath, onProjectPathChange, updateCheck, updateChecking, onCheckForUpdates, onOpenRelease } = ctx;
   const [settingsPath, setSettingsPath] = useState('settings.json');
+  const [installInfo, setInstallInfo] = useState<AppInstallInfo | null>(null);
   useEffect(() => { void resolveSettingsFilePath().then(setSettingsPath); }, []);
+  useEffect(() => { void tauri.getAppInstallInfo().then(setInstallInfo); }, []);
   const pickPath = async () => {
     if (!onProjectPathChange) return;
     const result = await openDialog({ directory: true, multiple: false, defaultPath: (await homeDir()) ?? projectPath ?? undefined });
@@ -113,6 +121,44 @@ function GeneralTab({ ctx }: { ctx: SettingsTabContext }) {
       <SettingToggle label="Semantic repository index" description="Build a local index for smarter cross-pane agent context." checked onChange={() => undefined} implemented={false} />
       <SettingToggle label="Auto session summaries" description="Generate a concise summary when a session is closed or restored." checked onChange={() => undefined} implemented={false} />
       <SettingToggle label="Reduce motion" description="Disable large transitions and decorative animations." checked={false} onChange={() => undefined} implemented={false} />
+      <SettingBlock label="App version & updates" implemented description="Checks GitHub releases when the app opens. You can also check manually here.">
+        <div className="space-y-3 text-sm">
+          <p className="text-pm-muted">
+            Installed version: <span className="font-mono text-pm-text">v{installInfo?.version ?? '…'}</span>
+            {installInfo && !installInfo.isPackaged ? ' (dev build)' : ''}
+          </p>
+          {updateCheck?.updateAvailable && updateCheck.latestVersion ? (
+            <p className="text-pm-ok">
+              Update available: v{updateCheck.latestVersion}. Download the installer from GitHub releases.
+            </p>
+          ) : updateCheck?.error ? (
+            <p className="text-pm-muted">Could not check for updates: {updateCheck.error}</p>
+          ) : updateCheck?.latestVersion ? (
+            <p className="text-pm-muted">You are on the latest release (v{updateCheck.latestVersion}).</p>
+          ) : (
+            <p className="text-pm-muted">Update check runs automatically on launch.</p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onCheckForUpdates?.()}
+              disabled={updateChecking}
+              className="rounded-lg border border-pm-border px-3 py-2 text-sm hover:bg-pm-border/40 disabled:opacity-50"
+            >
+              {updateChecking ? 'Checking…' : 'Check for updates'}
+            </button>
+            {updateCheck?.updateAvailable && (
+              <button
+                type="button"
+                onClick={() => onOpenRelease?.()}
+                className="rounded-lg border border-pm-accent/50 bg-pm-accent/10 px-3 py-2 text-sm font-medium text-pm-accent hover:bg-pm-accent/20"
+              >
+                Download & install
+              </button>
+            )}
+          </div>
+        </div>
+      </SettingBlock>
     </SettingsSection>
   );
 }
@@ -318,7 +364,7 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
   const { bridgeUrl, projectPath, settings } = ctx;
   const installPath = projectPath ?? settings.project_path ?? '';
   const [installing, setInstalling] = useState(false);
-  const [installScope, setInstallScope] = useState<'project' | 'global' | null>(null);
+  const [installScope, setInstallScope] = useState<'project' | 'global' | 'uninstall-project' | 'uninstall-global' | null>(null);
   const [installResults, setInstallResults] = useState<EnsureMcpResult[] | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
   const [status, setStatus] = useState<McpStatusReport | null>(null);
@@ -347,7 +393,7 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
   };
 
   useEffect(() => {
-    void refreshStatus(true);
+    void refreshStatus(false);
   }, [installPath]);
 
   const installNpmPackage = async () => {
@@ -384,9 +430,53 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
     }
   };
 
+  const uninstallProjectMcp = async () => {
+    if (!installPath || installing) return;
+    const confirmed = await ask(
+      'Remove puppet-master from this project’s .mcp.json, .codex/config.toml, and opencode.json?',
+      { title: 'Uninstall MCP from project?', kind: 'warning', okLabel: 'Uninstall', cancelLabel: 'Cancel' },
+    );
+    if (!confirmed) return;
+    setInstalling(true);
+    setInstallScope('uninstall-project');
+    setInstallError(null);
+    try {
+      const results = await uninstallNpmMcpConfigs(installPath);
+      setInstallResults(results);
+      await refreshStatus(false);
+    } catch (error) {
+      setInstallResults(null);
+      setInstallError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const uninstallGlobalMcp = async () => {
+    if (installing) return;
+    const confirmed = await ask(
+      'Remove puppet-master from global Claude Code, Codex, and OpenCode MCP configs?',
+      { title: 'Uninstall global MCP?', kind: 'warning', okLabel: 'Uninstall', cancelLabel: 'Cancel' },
+    );
+    if (!confirmed) return;
+    setInstalling(true);
+    setInstallScope('uninstall-global');
+    setInstallError(null);
+    try {
+      const results = await uninstallGlobalNpmMcpConfigs();
+      setInstallResults(results);
+      await refreshStatus(false);
+    } catch (error) {
+      setInstallResults(null);
+      setInstallError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
   return (
     <SettingsSection title="MCP & bridge" description="External host integration for Cursor, Claude Desktop, Codex, OpenCode, and automation scripts.">
-      <SettingBlock label="Runtime status" implemented description="Checks the local bridge, npm package, and orchestrator MCP configs. Auto-repairs project configs on open.">
+      <SettingBlock label="Runtime status" implemented description="Checks the local bridge, npm package, and orchestrator MCP configs. Use Recheck & repair to fix project configs.">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -500,6 +590,33 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
               {installError}
             </p>
           )}
+        </div>
+      </SettingBlock>
+      <SettingBlock label="Uninstall MCP" implemented description="Remove puppet-master from orchestrator config files. Does not uninstall the Puppet Master app or the @puppet-master/mcp npm package. Restart MCP hosts (Cursor, Claude Code, etc.) after uninstalling.">
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
+            <button
+              type="button"
+              onClick={() => void uninstallProjectMcp()}
+              disabled={!installPath || installing}
+              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-400 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {installing && installScope === 'uninstall-project' ? 'Removing…' : 'Uninstall from project'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void uninstallGlobalMcp()}
+              disabled={installing}
+              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-red-500/40 px-4 py-2 text-sm font-semibold text-red-400 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {installing && installScope === 'uninstall-global' ? 'Removing…' : 'Uninstall globally'}
+            </button>
+          </div>
+          <p className="text-xs leading-5 text-pm-muted">
+            Project: removes <span className="font-mono">.mcp.json</span>, <span className="font-mono">.codex/config.toml</span>, and <span className="font-mono">opencode.json</span> entries.
+            Global: removes Claude Code user MCP, <span className="font-mono">~/.codex/config.toml</span>, and OpenCode global config.
+            Cursor / Claude Desktop configs are manual — edit your host&apos;s MCP settings file.
+          </p>
         </div>
       </SettingBlock>
       <SettingToggle label="Remote runners" description="Allow trusted remote machines to host long-running terminal panes." checked={false} onChange={() => undefined} implemented={false} />
@@ -741,6 +858,10 @@ function DeveloperTab({ ctx }: { ctx: SettingsTabContext }) {
 
 function AdvancedTab({ ctx }: { ctx: SettingsTabContext }) {
   const { settings } = ctx;
+  const [installInfo, setInstallInfo] = useState<AppInstallInfo | null>(null);
+  const [uninstallError, setUninstallError] = useState<string | null>(null);
+  const [uninstalling, setUninstalling] = useState(false);
+  useEffect(() => { void tauri.getAppInstallInfo().then(setInstallInfo); }, []);
   const exportSettings = () => {
     const redacted = {
       ...settings,
@@ -756,8 +877,46 @@ function AdvancedTab({ ctx }: { ctx: SettingsTabContext }) {
     anchor.click();
     URL.revokeObjectURL(url);
   };
+  const handleUninstall = async () => {
+    setUninstallError(null);
+    const confirmed = await ask(
+      'Puppet Master will close and be removed from this computer. Your app data folder may remain until you delete it manually. Continue?',
+      { title: 'Uninstall Puppet Master?', kind: 'warning', okLabel: 'Uninstall', cancelLabel: 'Cancel' },
+    );
+    if (!confirmed) return;
+    setUninstalling(true);
+    try {
+      await tauri.launchUninstall();
+    } catch (error) {
+      setUninstallError(error instanceof Error ? error.message : String(error));
+      setUninstalling(false);
+    }
+  };
   return (
     <SettingsSection title="Advanced" description="Power-user options. Change carefully.">
+      <SettingBlock label="Uninstall Puppet Master" implemented description={installInfo?.uninstallInstructions ?? 'Loading uninstall instructions…'}>
+        <div className="space-y-3">
+          {installInfo?.dataDir && (
+            <p className="text-xs leading-6 text-pm-muted">
+              App data: <span className="font-mono text-pm-text">{installInfo.dataDir}</span>
+            </p>
+          )}
+          {uninstallError && <p className="text-sm text-red-400">{uninstallError}</p>}
+          <button
+            type="button"
+            onClick={() => void handleUninstall()}
+            disabled={uninstalling || !installInfo?.uninstallAvailable}
+            className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-400 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {uninstalling ? 'Uninstalling…' : 'Uninstall Puppet Master'}
+          </button>
+          {installInfo && !installInfo.uninstallAvailable && (
+            <p className="text-xs text-pm-muted">
+              In-app uninstall is only available from an installed NSIS/dmg build. For dev builds, stop the app and delete the project folder.
+            </p>
+          )}
+        </div>
+      </SettingBlock>
       <SettingBlock label="Scrollback limit" implemented={false}><FieldInput value="10000" disabled className="font-mono" /></SettingBlock>
       <SettingBlock label="Pane spawn timeout" implemented={false}><FieldInput value="30000" disabled className="font-mono" /></SettingBlock>
       <SettingToggle label="Telemetry" description="Send anonymous product diagnostics." checked={false} implemented={false} onChange={() => undefined} />

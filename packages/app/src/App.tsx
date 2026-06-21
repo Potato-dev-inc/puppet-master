@@ -15,7 +15,9 @@ import {
 } from './lib/orchestrator-provider-sync';
 import { tauri } from './lib/tauri';
 import { LoadingScreen } from './components/LoadingScreen';
+import { UpdateAvailableBanner } from './components/UpdateAvailableBanner';
 import { useBootGate } from './hooks/useBootGate';
+import { useAppUpdateCheck } from './hooks/useAppUpdateCheck';
 
 type AppScreen = 'home' | 'workspace';
 
@@ -37,6 +39,7 @@ export default function App() {
     bridgeReady: bridgeApi.isReady,
     registryReady: registry.initialReady,
   });
+  const appUpdate = useAppUpdateCheck(!boot.showBoot);
 
   useEffect(() => {
     void syncPublicSettingsToBridge();
@@ -173,7 +176,13 @@ export default function App() {
         onProjectPathChange={setProjectPath}
         onSidebarWidthChange={setSidebarWidth}
         currentSidebarWidth={sidebarWidth}
+        onCheckForUpdates={() => void appUpdate.refresh()}
+        updateCheck={appUpdate.result}
+        updateChecking={appUpdate.checking}
+        onOpenRelease={() => void appUpdate.openRelease()}
       />
+
+      {!boot.showBoot && <UpdateAvailableBanner update={appUpdate} />}
     </>
   );
 }

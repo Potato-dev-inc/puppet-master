@@ -47,6 +47,23 @@ pub fn install_global_npm_mcp_configs() -> Result<Vec<EnsureMcpResult>, String> 
     Ok(results)
 }
 
+pub fn uninstall_npm_mcp_configs(cwd: &Path) -> Result<Vec<EnsureMcpResult>, String> {
+    let cwd = crate::project_path::normalize_project_path(cwd)?;
+    Ok(vec![
+        uninstall_claude_mcp(&cwd)?,
+        uninstall_codex_mcp(&cwd)?,
+        uninstall_opencode_mcp(&cwd)?,
+    ])
+}
+
+pub fn uninstall_global_npm_mcp_configs() -> Result<Vec<EnsureMcpResult>, String> {
+    Ok(vec![
+        uninstall_claude_user_mcp(),
+        uninstall_codex_global_mcp()?,
+        uninstall_opencode_global_mcp()?,
+    ])
+}
+
 fn ensure_orchestrator_mcp_with_source(
     backend: &str,
     cwd: &Path,
@@ -597,6 +614,191 @@ fn run_claude_mcp_command<const N: usize>(args: [&str; N]) -> Result<(), String>
     })
 }
 
+fn uninstall_claude_mcp(cwd: &Path) -> Result<EnsureMcpResult, String> {
+    let mcp_path = cwd.join(".mcp.json");
+    let Some(mut doc) = read_json_safe(&mcp_path) else {
+        return Ok(EnsureMcpResult {
+            installed: false,
+            changed: false,
+            backend: "claude_cli".into(),
+            message: "No .mcp.json — puppet-master was not registered".into(),
+        });
+    };
+    let had_entry = doc
+        .get("mcpServers")
+        .and_then(|servers| servers.get(MCP_SERVER_NAME))
+        .is_some();
+    if !had_entry {
+        return Ok(EnsureMcpResult {
+            installed: false,
+            changed: false,
+            backend: "claude_cli".into(),
+            message: "puppet-master was not in project .mcp.json".into(),
+        });
+    }
+    if let Some(servers) = doc
+        .get_mut("mcpServers")
+        .and_then(Value::as_object_mut)
+    {
+        servers.remove(MCP_SERVER_NAME);
+    }
+    if doc
+        .get("mcpServers")
+        .and_then(Value::as_object)
+        .is_some_and(|servers| servers.is_empty())
+    {
+        if let Some(root) = doc.as_object_mut() {
+            root.remove("mcpServers");
+        }
+    }
+    if doc.as_object().is_some_and(|root| root.is_empty()) {
+        fs::remove_file(&mcp_path)
+            .map_err(|err| format!("could not remove {}: {err}", mcp_path.display()))?;
+    } else {
+        write_json_pretty(&mcp_path, &doc)?;
+    }
+    Ok(EnsureMcpResult {
+        installed: false,
+        changed: true,
+        backend: "claude_cli".into(),
+        message: "Removed puppet-master from project .mcp.json".into(),
+    })
+}
+
+fn uninstall_codex_mcp(cwd: &Path) -> Result<EnsureMcpResult, String> {
+    uninstall_codex_at(&cwd.join(".codex").join("config.toml"), "codex_cli")
+}
+
+fn uninstall_codex_global_mcp() -> Result<EnsureMcpResult, String> {
+    let home = crate::project_path::home_dir()
+        .ok_or_else(|| "could not resolve home directory".to_string())?;
+    uninstall_codex_at(&home.join(".codex").join("config.toml"), "codex_cli_global")
+}
+
+fn uninstall_codex_at(path: &Path, backend: &str) -> Result<EnsureMcpResult, String> {
+    let existing = fs::read_to_string(path).unwrap_or_default();
+    if !codex_has_puppet_master(&existing) {
+        return Ok(EnsureMcpResult {
+            installed: false,
+            changed: false,
+            backend: backend.into(),
+            message: format!(
+                "puppet-master was not in {}",
+                crate::app_paths::path_for_host_config(path)
+            ),
+        });
+    }
+    let next = strip_codex_puppet_master_block(&existing);
+    if next.trim().is_empty() {
+        if path.is_file() {
+            fs::remove_file(path)
+                .map_err(|err| format!("could not remove {}: {err}", path.display()))?;
+        }
+    } else {
+        fs::write(path, next).map_err(|err| format!("could not write {}: {err}", path.display()))?;
+    }
+    Ok(EnsureMcpResult {
+        installed: false,
+        changed: true,
+        backend: backend.into(),
+        message: format!(
+            "Removed puppet-master from {}",
+            crate::app_paths::path_for_host_config(path)
+        ),
+    })
+}
+
+fn uninstall_opencode_mcp(cwd: &Path) -> Result<EnsureMcpResult, String> {
+    uninstall_opencode_at(&cwd.join("opencode.json"), "opencode_cli")
+}
+
+fn uninstall_opencode_global_mcp() -> Result<EnsureMcpResult, String> {
+    uninstall_opencode_at(&opencode_global_config_path()?, "opencode_cli_global")
+}
+
+fn uninstall_opencode_at(path: &Path, backend: &str) -> Result<EnsureMcpResult, String> {
+    let Some(mut doc) = read_json_safe(path) else {
+        return Ok(EnsureMcpResult {
+            installed: false,
+            changed: false,
+            backend: backend.into(),
+            message: format!(
+                "puppet-master was not in {}",
+                crate::app_paths::path_for_host_config(path)
+            ),
+        });
+    };
+    let had_entry = doc
+        .get("mcp")
+        .and_then(|mcp| mcp.get(MCP_SERVER_NAME))
+        .is_some();
+    if !had_entry {
+        return Ok(EnsureMcpResult {
+            installed: false,
+            changed: false,
+            backend: backend.into(),
+            message: format!(
+                "puppet-master was not in {}",
+                crate::app_paths::path_for_host_config(path)
+            ),
+        });
+    }
+    if let Some(mcp) = doc.get_mut("mcp").and_then(Value::as_object_mut) {
+        mcp.remove(MCP_SERVER_NAME);
+    }
+    if doc
+        .get("mcp")
+        .and_then(Value::as_object)
+        .is_some_and(|mcp| mcp.is_empty())
+    {
+        if let Some(root) = doc.as_object_mut() {
+            root.remove("mcp");
+        }
+    }
+    if doc.as_object().is_some_and(|root| root.is_empty()) {
+        fs::remove_file(path)
+            .map_err(|err| format!("could not remove {}: {err}", path.display()))?;
+    } else {
+        write_json_pretty(path, &doc)?;
+    }
+    Ok(EnsureMcpResult {
+        installed: false,
+        changed: true,
+        backend: backend.into(),
+        message: format!(
+            "Removed puppet-master from {}",
+            crate::app_paths::path_for_host_config(path)
+        ),
+    })
+}
+
+fn uninstall_claude_user_mcp() -> EnsureMcpResult {
+    match run_claude_mcp_command(["mcp", "remove", "--scope", "user", MCP_SERVER_NAME]) {
+        Ok(()) => EnsureMcpResult {
+            installed: false,
+            changed: true,
+            backend: "claude_cli_global".into(),
+            message: "Removed puppet-master from Claude Code user MCP".into(),
+        },
+        Err(err) if err.to_ascii_lowercase().contains("not found")
+            || err.to_ascii_lowercase().contains("does not exist") =>
+        {
+            EnsureMcpResult {
+                installed: false,
+                changed: false,
+                backend: "claude_cli_global".into(),
+                message: "puppet-master was not registered in Claude Code user MCP".into(),
+            }
+        }
+        Err(err) => EnsureMcpResult {
+            installed: true,
+            changed: false,
+            backend: "claude_cli_global".into(),
+            message: format!("Could not remove Claude Code user MCP: {err}"),
+        },
+    }
+}
+
 pub fn claude_mcp_installed_public(cwd: &Path) -> bool {
     claude_mcp_installed(cwd)
 }
@@ -747,6 +949,25 @@ mod tests {
             opencode
                 .pointer(&format!("/mcp/{MCP_SERVER_NAME}"))
                 .expect("entry")
+        ));
+    }
+
+    #[test]
+    fn uninstall_removes_all_project_backends() {
+        let cwd = temp_dir("uninstall");
+        fs::create_dir_all(&cwd).expect("cwd");
+        install_npm_mcp_configs(&cwd).expect("install");
+
+        let results = uninstall_npm_mcp_configs(&cwd).expect("uninstall");
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|result| result.changed));
+        assert!(results.iter().all(|result| !result.installed));
+        assert!(!claude_mcp_installed(&cwd));
+        let codex = fs::read_to_string(cwd.join(".codex").join("config.toml")).unwrap_or_default();
+        assert!(!codex_has_puppet_master(&codex));
+        assert!(!opencode_mcp_installed_path(
+            &cwd.join("opencode.json"),
+            McpLaunchSource::NpmPackage
         ));
     }
 

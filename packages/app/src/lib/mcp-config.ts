@@ -55,6 +55,14 @@ export async function installGlobalNpmMcpConfigs(): Promise<EnsureMcpResult[]> {
   return tauri.installGlobalNpmMcpConfigs();
 }
 
+export async function uninstallNpmMcpConfigs(projectPath: string): Promise<EnsureMcpResult[]> {
+  return tauri.uninstallNpmMcpConfigs(projectPath);
+}
+
+export async function uninstallGlobalNpmMcpConfigs(): Promise<EnsureMcpResult[]> {
+  return tauri.uninstallGlobalNpmMcpConfigs();
+}
+
 export async function getMcpStatus(
   projectPath: string,
   autoRepair = false,
