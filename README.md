@@ -32,13 +32,13 @@ One HTTP bridge. One tool surface. Every client talks to the same panes and the 
 │  │  └──────┘ └──────┘ └──────┘ │  │  • Tasks / locks / context packs     │  │
 │  └─────────────────────────────┘  └──────────────────────────────────────┘  │
 │                              │ Tauri commands / events                      │
-│  ┌───────────────────────────▼──────────────────────────────────────────┐ │
-│  │ Rust PaneRegistry + coordination event log                            │ │
-│  │   spawn · write · read · resize · kill · task/lock projections        │ │
-│  └───────────────────────────┬──────────────────────────────────────────┘ │
+│  ┌───────────────────────────▼──────────────────────────────────────────┐   │
+│  │ Rust PaneRegistry + coordination event log                           │   │
+│  │   spawn · write · read · resize · kill · task/lock projections       │   │
+│  └───────────────────────────┬──────────────────────────────────────────┘   │
 └──────────────────────────────┼──────────────────────────────────────────────┘
                                │ embedded on startup
-┌──────────────────────────────▼──────────────────────────────────────────────┐
+┌──────────────────────────────▼────────────────────────────────────────────────┐
 │ Local HTTP bridge  (Rust, stdlib TCP)          127.0.0.1:17321–17399          │
 │   GET  /health · /panes · /tasks · /locks · /audit · /agent-contexts          │
 │   POST /panes · /panes/:id/input · /tasks · /locks · /context-packs           │
@@ -51,7 +51,7 @@ One HTTP bridge. One tool surface. Every client talks to the same panes and the 
     │ (Vite, mirror mode) │         │ Cursor · Claude Desktop · Codex CLI     │
     │ same-origin /bridge │         │   └─► @puppet-master/mcp (stdio)        │
     │ proxy or tunnel URL │         │         └─► HTTP ──► bridge             │
-    └─────────────────────┘         └───────────────────────────────────────────┘
+    └─────────────────────┘         └─────────────────────────────────────────┘
 ```
 
 ### Orchestration paths
@@ -63,7 +63,7 @@ Every path hits the **same** bridge HTTP API — no duplicate logic.
                     │         HTTP bridge (:17321)        │
                     │ list · spawn · read · write · tasks │
                     │ locks · context · keypress · kill   │
-                    └────────▲───────────────▲──────────┘
+                    └────────▲───────────────▲────────────┘
                              │               │
            ┌─────────────────┘               └─────────────────┐
            │                                                   │
@@ -95,7 +95,7 @@ The PWA does not own PTY processes. It mirrors desktop panes over the bridge.
        │
        └─ local echo (mirror)     PTY output
                                          │
- SSE /events ◄──────────────────────────┘
+ SSE /events ◄───────────────────────────┘
        │
        └─► xterm display (deduped echo)
 ```
@@ -268,21 +268,6 @@ npm run mcp
 
 Or run `scripts/test-bridge.ps1` and `scripts/test-mcp.ps1`.
 
----
-
-## Publishing
-
-```bash
-# MCP package
-cd packages/mcp-server && npm version patch && npm publish --access public
-
-# CLI (spawns GUI via npx)
-cd packages/cli && npm version patch && npm publish --access public
-
-# Desktop bundle
-npm run build:rust
-# → packages/app/src-tauri/target/release/bundle/
-```
 
 ---
 
