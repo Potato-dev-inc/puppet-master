@@ -266,6 +266,18 @@ Details on sidebar routing and backend selection: [ROUTING.md](ROUTING.md).
 
 ---
 
+## Desktop release build
+
+```bash
+npm run build:rust
+```
+
+On Windows this produces NSIS (`.exe`) and WiX (`.msi`) installers; on macOS, `.dmg` files (e.g. `Puppet.Master_0.1.2_aarch64.dmg`). Artifacts live under `packages/app/src-tauri/target/release/bundle/`. After build, matching installers (filename contains `_0.1.2_` for version `0.1.2`) upload to the GitHub release tag [`0-1-2`](https://github.com/Potato-dev-inc/puppet-master/releases/tag/0-1-2). Same filenames are replaced (`gh release upload --clobber`).
+
+**Requirements:** [GitHub CLI](https://cli.github.com/) with `gh auth login`. To build without uploading: `SKIP_RELEASE_UPLOAD=1 npm run build:rust`. To upload only: `npm run publish:release-assets`.
+
+---
+
 ## Smoke testing
 
 ```bash

@@ -50,4 +50,17 @@ const result = spawnSync(npm, ['run', 'tauri', '--workspace=@puppet-master/app',
   shell: true,
 });
 
-process.exit(result.status === null ? 1 : result.status);
+const exitCode = result.status === null ? 1 : result.status;
+
+if (args[0] === 'build' && exitCode === 0) {
+  const upload = spawnSync(process.execPath, [join(repoRoot, 'scripts', 'publish-github-release-assets.mjs')], {
+    stdio: 'inherit',
+    env,
+    cwd: repoRoot,
+    shell: false,
+  });
+  const uploadCode = upload.status === null ? 1 : upload.status;
+  process.exit(uploadCode);
+}
+
+process.exit(exitCode);
