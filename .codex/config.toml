@@ -1,8 +1,0 @@
-
-[mcp_servers.puppet-master]
-command = "npx"
-args = ["-y", "@puppet-master/mcp"]
-enabled = true
-
-[mcp_servers.puppet-master.env]
-PUPPET_MASTER_BRIDGE_PORT_FILE = "/Users/ren/Library/Application Support/com.puppetmaster.app/puppet-master.bridge.port"
