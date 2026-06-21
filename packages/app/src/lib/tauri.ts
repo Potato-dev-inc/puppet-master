@@ -32,6 +32,30 @@ export interface EnsureMcpResult {
   message: string;
 }
 
+export interface McpBackendStatus {
+  backend: string;
+  label: string;
+  installed: boolean;
+  usesNpm: boolean;
+  configPath: string;
+  message: string;
+}
+
+export interface McpStatusReport {
+  bridgeReachable: boolean;
+  bridgeUrl: string | null;
+  bridgeVersion: string | null;
+  portFileExists: boolean;
+  portFilePath: string;
+  nodeAvailable: boolean;
+  npmAvailable: boolean;
+  npmPackageVersion: string | null;
+  launchCommand: string;
+  backends: McpBackendStatus[];
+  overallReady: boolean;
+  repairResults: EnsureMcpResult[];
+}
+
 export interface CoordinationStorageInfo {
   scope: 'project' | 'global_fallback' | string;
   project_path: string | null;
@@ -148,6 +172,26 @@ export const tauri = {
           message: 'Global MCP npm install skipped in browser preview',
         },
       ],
+      true,
+    ),
+  getMcpStatus: (projectPath: string, autoRepair = false) =>
+    safeInvoke<McpStatusReport>(
+      'get_mcp_status',
+      { projectPath, autoRepair },
+      {
+        bridgeReachable: false,
+        bridgeUrl: null,
+        bridgeVersion: null,
+        portFileExists: false,
+        portFilePath: '',
+        nodeAvailable: false,
+        npmAvailable: false,
+        npmPackageVersion: null,
+        launchCommand: 'npx -y @puppet-master/mcp',
+        backends: [],
+        overallReady: false,
+        repairResults: [],
+      },
       true,
     ),
 

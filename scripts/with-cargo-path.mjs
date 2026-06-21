@@ -9,6 +9,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureWorkspaceBuilt } from './ensure-workspace-built.mjs';
+import { ensureTauriResources } from './ensure-tauri-resources.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cargoBin = join(homedir(), '.cargo', 'bin');
@@ -38,6 +39,7 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 if (args[0] === 'dev') {
   ensureWorkspaceBuilt(repoRoot);
+  ensureTauriResources();
   console.error('[puppet-master] starting dev stack (vite + tauri + embedded bridge)…');
 }
 

@@ -9,6 +9,7 @@ pub const MCP_SERVER_NAME: &str = "puppet-master";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum McpLaunchSource {
+    #[allow(dead_code)]
     Auto,
     NpmPackage,
 }
@@ -23,7 +24,7 @@ pub struct EnsureMcpResult {
 }
 
 pub fn ensure_orchestrator_mcp(backend: &str, cwd: &Path) -> Result<EnsureMcpResult, String> {
-    ensure_orchestrator_mcp_with_source(backend, cwd, McpLaunchSource::Auto)
+    ensure_orchestrator_mcp_with_source(backend, cwd, McpLaunchSource::NpmPackage)
 }
 
 pub fn install_npm_mcp_configs(cwd: &Path) -> Result<Vec<EnsureMcpResult>, String> {
@@ -594,6 +595,40 @@ fn run_claude_mcp_command<const N: usize>(args: [&str; N]) -> Result<(), String>
     } else {
         detail
     })
+}
+
+pub fn claude_mcp_installed_public(cwd: &Path) -> bool {
+    claude_mcp_installed(cwd)
+}
+
+pub fn claude_mcp_uses_npm_public(cwd: &Path) -> bool {
+    let Some(doc) = read_json_safe(&cwd.join(".mcp.json")) else {
+        return false;
+    };
+    doc.get("mcpServers")
+        .and_then(|servers| servers.get(MCP_SERVER_NAME))
+        .is_some_and(json_server_uses_npm_package)
+}
+
+pub fn codex_has_puppet_master_public(content: &str) -> bool {
+    codex_has_puppet_master(content)
+}
+
+pub fn codex_needs_refresh_public(content: &str) -> bool {
+    codex_needs_refresh(content, McpLaunchSource::NpmPackage)
+}
+
+pub fn opencode_mcp_installed_public(cwd: &Path) -> bool {
+    opencode_mcp_installed_path(&cwd.join("opencode.json"), McpLaunchSource::NpmPackage)
+}
+
+pub fn opencode_mcp_uses_npm_public(cwd: &Path) -> bool {
+    let path = cwd.join("opencode.json");
+    let Some(doc) = read_json_safe(&path) else {
+        return false;
+    };
+    doc.pointer(&format!("/mcp/{MCP_SERVER_NAME}"))
+        .is_some_and(opencode_entry_uses_npm_package)
 }
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ import {
   SIDEBAR_WIDTH_PRESET_LABELS,
   SIDEBAR_WIDTH_PRESETS,
 } from '../../lib/settings';
-import { installGlobalNpmMcpConfigs, installNpmMcpConfigs, PUPPET_MASTER_MCP_COMMAND, type EnsureMcpResult } from '../../lib/mcp-config';
+import { installGlobalNpmMcpConfigs, installNpmMcpConfigs, getMcpStatus, PUPPET_MASTER_MCP_COMMAND, type EnsureMcpResult, type McpStatusReport } from '../../lib/mcp-config';
 import { MobilePairingPanel } from '../MobilePairingPanel';
 import { parseDevServerPort } from '../../lib/public-bridge-url';
 import { tauri, type CoordinationStorageInfo } from '../../lib/tauri';
@@ -298,6 +298,22 @@ function ApiTab({ ctx }: { ctx: SettingsTabContext }) {
   );
 }
 
+function statusTone(ok: boolean): string {
+  return ok ? 'text-emerald-400' : 'text-red-400';
+}
+
+function StatusRow({ label, ok, detail }: { label: string; ok: boolean; detail: string }) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-pm-border bg-pm-bg px-3 py-2 text-xs">
+      <span className="font-medium text-pm-text">{label}</span>
+      <div className="min-w-0 text-right">
+        <div className={statusTone(ok)}>{ok ? 'OK' : 'Needs attention'}</div>
+        <p className="mt-1 text-pm-muted">{detail}</p>
+      </div>
+    </div>
+  );
+}
+
 function McpTab({ ctx }: { ctx: SettingsTabContext }) {
   const { bridgeUrl, projectPath, settings } = ctx;
   const installPath = projectPath ?? settings.project_path ?? '';
@@ -305,6 +321,34 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
   const [installScope, setInstallScope] = useState<'project' | 'global' | null>(null);
   const [installResults, setInstallResults] = useState<EnsureMcpResult[] | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
+  const [status, setStatus] = useState<McpStatusReport | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const refreshStatus = async (autoRepair = false) => {
+    if (!installPath) {
+      setStatus(null);
+      return;
+    }
+    setChecking(true);
+    setStatusError(null);
+    try {
+      const report = await getMcpStatus(installPath, autoRepair);
+      setStatus(report);
+      if (report.repairResults.length > 0) {
+        setInstallResults(report.repairResults);
+      }
+    } catch (error) {
+      setStatus(null);
+      setStatusError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshStatus(true);
+  }, [installPath]);
 
   const installNpmPackage = async () => {
     if (!installPath || installing) return;
@@ -314,6 +358,7 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
     try {
       const results = await installNpmMcpConfigs(installPath);
       setInstallResults(results);
+      await refreshStatus(false);
     } catch (error) {
       setInstallResults(null);
       setInstallError(error instanceof Error ? error.message : String(error));
@@ -330,6 +375,7 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
     try {
       const results = await installGlobalNpmMcpConfigs();
       setInstallResults(results);
+      await refreshStatus(false);
     } catch (error) {
       setInstallResults(null);
       setInstallError(error instanceof Error ? error.message : String(error));
@@ -339,9 +385,74 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
   };
 
   return (
-    <SettingsSection title="MCP & bridge" description="External host integration for Cursor, Claude Desktop, Codex, and automation scripts.">
+    <SettingsSection title="MCP & bridge" description="External host integration for Cursor, Claude Desktop, Codex, OpenCode, and automation scripts.">
+      <SettingBlock label="Runtime status" implemented description="Checks the local bridge, npm package, and orchestrator MCP configs. Auto-repairs project configs on open.">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void refreshStatus(true)}
+              disabled={!installPath || checking}
+              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-pm-border px-4 py-2 text-sm font-semibold transition hover:bg-pm-border/40 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {checking ? 'Checking…' : 'Recheck & repair'}
+            </button>
+            <span className={`text-sm font-semibold ${status ? statusTone(status.overallReady) : 'text-pm-muted'}`}>
+              {status ? (status.overallReady ? 'Ready for orchestrators' : 'Not ready') : 'No project selected'}
+            </span>
+          </div>
+          {status && (
+            <div className="space-y-2">
+              <StatusRow
+                label="HTTP bridge"
+                ok={status.bridgeReachable}
+                detail={status.bridgeReachable
+                  ? `${status.bridgeUrl ?? bridgeUrl ?? 'local'}${status.bridgeVersion ? ` · v${status.bridgeVersion}` : ''}`
+                  : status.portFileExists
+                    ? `Port file exists but bridge is not responding (${status.portFilePath})`
+                    : 'Start Puppet Master and ensure the bridge port file is written'}
+              />
+              <StatusRow
+                label="npm package"
+                ok={status.npmAvailable && Boolean(status.npmPackageVersion)}
+                detail={status.npmPackageVersion
+                  ? `@puppet-master/mcp@${status.npmPackageVersion} via ${status.launchCommand}`
+                  : status.npmAvailable
+                    ? 'npm is available but @puppet-master/mcp could not be resolved'
+                    : 'Install Node.js/npm and ensure network access to the npm registry'}
+              />
+              <StatusRow
+                label="Node.js"
+                ok={status.nodeAvailable}
+                detail={status.nodeAvailable ? 'node is on PATH for MCP launchers' : 'node was not found on PATH'}
+              />
+              {status.backends.map((backend) => (
+                <div key={backend.backend} className="rounded-lg border border-pm-border bg-pm-bg px-3 py-2 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium text-pm-text">{backend.label}</span>
+                    <span className={statusTone(backend.installed && backend.usesNpm)}>
+                      {backend.installed
+                        ? backend.usesNpm
+                          ? 'Installed (npm)'
+                          : 'Installed (local script)'
+                        : 'Not installed'}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-pm-muted">{backend.message}</p>
+                  <p className="mt-1 break-all font-mono text-[10px] text-pm-muted">{backend.configPath}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {statusError && (
+            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-300">
+              {statusError}
+            </p>
+          )}
+        </div>
+      </SettingBlock>
       <SettingBlock label="Bridge endpoint" implemented description="Auto-discovered local HTTP bridge (port range 17321–17399).">
-        <FieldInput value={bridgeUrl ?? 'Discovering…'} readOnly className="font-mono" />
+        <FieldInput value={status?.bridgeUrl ?? bridgeUrl ?? 'Discovering…'} readOnly className="font-mono" />
       </SettingBlock>
       <SettingBlock label="Install npm MCP package" implemented description="Register Claude Code, Codex, and OpenCode to use npx -y @puppet-master/mcp instead of any bundled or local script entry.">
         <div className="space-y-3">

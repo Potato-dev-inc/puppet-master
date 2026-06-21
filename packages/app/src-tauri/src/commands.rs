@@ -314,6 +314,14 @@ pub async fn install_global_npm_mcp_configs(
     crate::mcp_install::install_global_npm_mcp_configs()
 }
 
+#[tauri::command]
+pub async fn get_mcp_status(
+    project_path: String,
+    auto_repair: bool,
+) -> Result<crate::mcp_status::McpStatusReport, String> {
+    crate::mcp_status::get_mcp_status(std::path::Path::new(&project_path), auto_repair)
+}
+
 /// Push a JSON chat event to all SSE clients (mobile PWA and any desktop browser).
 /// The frontend calls this after each LLM chunk so the mobile PWA receives it.
 #[tauri::command]

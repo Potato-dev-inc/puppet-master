@@ -16,6 +16,30 @@ export interface EnsureMcpResult {
   message: string;
 }
 
+export interface McpBackendStatus {
+  backend: string;
+  label: string;
+  installed: boolean;
+  usesNpm: boolean;
+  configPath: string;
+  message: string;
+}
+
+export interface McpStatusReport {
+  bridgeReachable: boolean;
+  bridgeUrl: string | null;
+  bridgeVersion: string | null;
+  portFileExists: boolean;
+  portFilePath: string;
+  nodeAvailable: boolean;
+  npmAvailable: boolean;
+  npmPackageVersion: string | null;
+  launchCommand: string;
+  backends: McpBackendStatus[];
+  overallReady: boolean;
+  repairResults: EnsureMcpResult[];
+}
+
 export async function ensureOrchestratorMcp(
   backend: CliOrchestratorBackend,
   projectPath: string,
@@ -29,6 +53,13 @@ export async function installNpmMcpConfigs(projectPath: string): Promise<EnsureM
 
 export async function installGlobalNpmMcpConfigs(): Promise<EnsureMcpResult[]> {
   return tauri.installGlobalNpmMcpConfigs();
+}
+
+export async function getMcpStatus(
+  projectPath: string,
+  autoRepair = false,
+): Promise<McpStatusReport> {
+  return tauri.getMcpStatus(projectPath, autoRepair);
 }
 
 export function isOrchestratorMcpBackend(

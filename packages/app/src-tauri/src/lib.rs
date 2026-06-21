@@ -9,6 +9,7 @@ mod event_log;
 mod events;
 mod mcp_install;
 mod mcp_runtime;
+mod mcp_status;
 mod mobile_pairing;
 mod mobile_tunnel;
 mod platform;
@@ -67,6 +68,7 @@ pub fn run() {
             commands::ensure_orchestrator_mcp,
             commands::install_npm_mcp_configs,
             commands::install_global_npm_mcp_configs,
+            commands::get_mcp_status,
             commands::push_chat_event,
             commands::push_settings_event,
             commands::sync_public_settings,
