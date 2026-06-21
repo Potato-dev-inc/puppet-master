@@ -614,7 +614,7 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
           </div>
           <p className="text-xs leading-5 text-pm-muted">
             Project: removes <span className="font-mono">.mcp.json</span>, <span className="font-mono">.codex/config.toml</span>, and <span className="font-mono">opencode.json</span> entries.
-            Global: removes Claude Code user MCP, <span className="font-mono">~/.codex/config.toml</span>, and OpenCode global config.
+            Global: removes Claude Code local and user MCP, <span className="font-mono">~/.mcp.json</span>, <span className="font-mono">~/.codex/config.toml</span>, and OpenCode global config.
             Cursor / Claude Desktop configs are manual — edit your host&apos;s MCP settings file.
           </p>
         </div>

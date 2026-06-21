@@ -57,11 +57,10 @@ pub fn uninstall_npm_mcp_configs(cwd: &Path) -> Result<Vec<EnsureMcpResult>, Str
 }
 
 pub fn uninstall_global_npm_mcp_configs() -> Result<Vec<EnsureMcpResult>, String> {
-    Ok(vec![
-        uninstall_claude_user_mcp(),
-        uninstall_codex_global_mcp()?,
-        uninstall_opencode_global_mcp()?,
-    ])
+    let mut results = uninstall_claude_global_mcp_configs();
+    results.push(uninstall_codex_global_mcp()?);
+    results.push(uninstall_opencode_global_mcp()?);
+    Ok(results)
 }
 
 fn ensure_orchestrator_mcp_with_source(
@@ -772,31 +771,59 @@ fn uninstall_opencode_at(path: &Path, backend: &str) -> Result<EnsureMcpResult, 
     })
 }
 
-fn uninstall_claude_user_mcp() -> EnsureMcpResult {
-    match run_claude_mcp_command(["mcp", "remove", "--scope", "user", MCP_SERVER_NAME]) {
+fn uninstall_claude_global_mcp_configs() -> Vec<EnsureMcpResult> {
+    let mut results = vec![
+        uninstall_claude_mcp_scope("local"),
+        uninstall_claude_mcp_scope("user"),
+    ];
+    if let Some(home) = crate::project_path::home_dir() {
+        match uninstall_claude_mcp(&home) {
+            Ok(result) => results.push(EnsureMcpResult {
+                backend: "claude_cli_global_home".into(),
+                ..result
+            }),
+            Err(err) => results.push(EnsureMcpResult {
+                installed: true,
+                changed: false,
+                backend: "claude_cli_global_home".into(),
+                message: format!("Could not remove ~/.mcp.json: {err}"),
+            }),
+        }
+    }
+    results
+}
+
+fn uninstall_claude_mcp_scope(scope: &str) -> EnsureMcpResult {
+    let backend = format!("claude_cli_global_{scope}");
+    let args = ["mcp", "remove", "--scope", scope, MCP_SERVER_NAME];
+    match run_claude_mcp_command(args) {
         Ok(()) => EnsureMcpResult {
             installed: false,
             changed: true,
-            backend: "claude_cli_global".into(),
-            message: "Removed puppet-master from Claude Code user MCP".into(),
+            backend,
+            message: format!("Removed puppet-master from Claude Code {scope} MCP"),
         },
-        Err(err) if err.to_ascii_lowercase().contains("not found")
-            || err.to_ascii_lowercase().contains("does not exist") =>
-        {
-            EnsureMcpResult {
-                installed: false,
-                changed: false,
-                backend: "claude_cli_global".into(),
-                message: "puppet-master was not registered in Claude Code user MCP".into(),
-            }
-        }
+        Err(err) if claude_mcp_remove_not_found(&err) => EnsureMcpResult {
+            installed: false,
+            changed: false,
+            backend,
+            message: format!("puppet-master was not registered in Claude Code {scope} MCP"),
+        },
         Err(err) => EnsureMcpResult {
             installed: true,
             changed: false,
-            backend: "claude_cli_global".into(),
-            message: format!("Could not remove Claude Code user MCP: {err}"),
+            backend,
+            message: format!("Could not remove Claude Code {scope} MCP: {err}"),
         },
     }
+}
+
+fn claude_mcp_remove_not_found(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("not found")
+        || lower.contains("does not exist")
+        || lower.contains("no user-scoped mcp server found")
+        || lower.contains("no project-local mcp server found")
 }
 
 pub fn claude_mcp_installed_public(cwd: &Path) -> bool {
@@ -969,6 +996,31 @@ mod tests {
             &cwd.join("opencode.json"),
             McpLaunchSource::NpmPackage
         ));
+    }
+
+    #[test]
+    fn global_uninstall_removes_home_mcp_json() {
+        let home = temp_dir("home-mcp");
+        fs::create_dir_all(&home).expect("home");
+        let mut doc = json!({ "mcpServers": {} });
+        merge_mcp_servers(&mut doc, McpLaunchSource::NpmPackage);
+        write_json_pretty(&home.join(".mcp.json"), &doc).expect("write");
+
+        let result = uninstall_claude_mcp(&home).expect("uninstall home mcp");
+        assert!(result.changed);
+        assert!(!result.installed);
+        assert!(!home.join(".mcp.json").is_file());
+    }
+
+    #[test]
+    fn claude_mcp_remove_not_found_matches_cli_errors() {
+        assert!(claude_mcp_remove_not_found(
+            "No user-scoped MCP server found with name: puppet-master"
+        ));
+        assert!(claude_mcp_remove_not_found(
+            "No project-local MCP server found with name: puppet-master"
+        ));
+        assert!(!claude_mcp_remove_not_found("could not run claude: No such file"));
     }
 
     #[test]
