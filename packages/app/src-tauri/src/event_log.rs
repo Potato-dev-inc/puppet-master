@@ -268,9 +268,15 @@ pub fn replay_pane_timeline_from_entries(
             | SystemEvent::TaskBlocked { .. }
             | SystemEvent::ReviewerAssigned { .. }
             | SystemEvent::ResourceLockAcquired { .. }
+            | SystemEvent::ResourceLockConflict { .. }
             | SystemEvent::ResourceLockReleased { .. }
             | SystemEvent::ResourceLockExpired { .. }
-            | SystemEvent::AgentObservation { .. } => {}
+            | SystemEvent::AgentObservation { .. }
+            | SystemEvent::SessionGoalUpdated { .. }
+            | SystemEvent::PaneRoleSet { .. }
+            | SystemEvent::PaneDigestUpdated { .. }
+            | SystemEvent::DelegationPrepared { .. }
+            | SystemEvent::OrchestratorStandbyPolicyUpdated { .. } => {}
         }
     }
     Ok(timeline)

@@ -90,5 +90,7 @@ export const SettingsSchema = z.object({
   sidebar_width: z.number().int().min(300).max(800).default(360),
   /** Desktop UI chrome theme. */
   theme: z.enum(['dark', 'light']).default('dark'),
+  /** Developer option: install MCP configs to launch the bundled Rust binary instead of npm. */
+  developer_use_rust_mcp: z.boolean().default(false),
 });
 export type Settings = z.infer<typeof SettingsSchema>;

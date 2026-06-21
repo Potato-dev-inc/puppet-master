@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 pub const MCP_SERVER_NAME: &str = "puppet-master";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum McpLaunchSource {
+pub enum McpLaunchSource {
     #[allow(dead_code)]
     Auto,
     NpmPackage,
@@ -23,27 +23,56 @@ pub struct EnsureMcpResult {
     pub message: String,
 }
 
-pub fn ensure_orchestrator_mcp(backend: &str, cwd: &Path) -> Result<EnsureMcpResult, String> {
-    ensure_orchestrator_mcp_with_source(backend, cwd, McpLaunchSource::NpmPackage)
+pub fn launch_source_from_developer_setting(use_rust_mcp: bool) -> McpLaunchSource {
+    if use_rust_mcp {
+        McpLaunchSource::Auto
+    } else {
+        McpLaunchSource::NpmPackage
+    }
 }
 
+pub fn ensure_orchestrator_mcp_with_preference(
+    backend: &str,
+    cwd: &Path,
+    use_rust_mcp: bool,
+) -> Result<EnsureMcpResult, String> {
+    ensure_orchestrator_mcp_with_source(
+        backend,
+        cwd,
+        launch_source_from_developer_setting(use_rust_mcp),
+    )
+}
+
+#[allow(dead_code)]
 pub fn install_npm_mcp_configs(cwd: &Path) -> Result<Vec<EnsureMcpResult>, String> {
+    install_mcp_configs_with_preference(cwd, false)
+}
+
+pub fn install_mcp_configs_with_preference(
+    cwd: &Path,
+    use_rust_mcp: bool,
+) -> Result<Vec<EnsureMcpResult>, String> {
     let mut results = Vec::new();
+    let source = launch_source_from_developer_setting(use_rust_mcp);
     for backend in ["claude_cli", "codex_cli", "opencode_cli"] {
-        results.push(ensure_orchestrator_mcp_with_source(
-            backend,
-            cwd,
-            McpLaunchSource::NpmPackage,
-        )?);
+        results.push(ensure_orchestrator_mcp_with_source(backend, cwd, source)?);
     }
     Ok(results)
 }
 
+#[allow(dead_code)]
 pub fn install_global_npm_mcp_configs() -> Result<Vec<EnsureMcpResult>, String> {
+    install_global_mcp_configs_with_preference(false)
+}
+
+pub fn install_global_mcp_configs_with_preference(
+    use_rust_mcp: bool,
+) -> Result<Vec<EnsureMcpResult>, String> {
     let mut results = Vec::new();
-    results.push(ensure_claude_user_mcp());
-    results.push(ensure_codex_global_mcp()?);
-    results.push(ensure_opencode_global_mcp()?);
+    let source = launch_source_from_developer_setting(use_rust_mcp);
+    results.push(ensure_claude_user_mcp_with_source(source));
+    results.push(ensure_codex_global_mcp_with_source(source)?);
+    results.push(ensure_opencode_global_mcp_with_source(source)?);
     Ok(results)
 }
 
@@ -338,9 +367,6 @@ fn codex_needs_refresh(content: &str, source: McpLaunchSource) -> bool {
     if crate::mcp_runtime::using_bundled_mcp() && content.contains("@puppet-master/mcp") {
         return true;
     }
-    if crate::mcp_runtime::using_bundled_mcp() && !content.contains("mcp-stdio.bundle.cjs") {
-        return true;
-    }
     false
 }
 
@@ -383,12 +409,17 @@ fn ensure_codex_mcp(cwd: &Path, source: McpLaunchSource) -> Result<EnsureMcpResu
     ensure_codex_mcp_at(&path, source, "codex_cli")
 }
 
+#[allow(dead_code)]
 fn ensure_codex_global_mcp() -> Result<EnsureMcpResult, String> {
+    ensure_codex_global_mcp_with_source(McpLaunchSource::NpmPackage)
+}
+
+fn ensure_codex_global_mcp_with_source(source: McpLaunchSource) -> Result<EnsureMcpResult, String> {
     let home = crate::project_path::home_dir()
         .ok_or_else(|| "could not resolve home directory".to_string())?;
     ensure_codex_mcp_at(
         &home.join(".codex").join("config.toml"),
-        McpLaunchSource::NpmPackage,
+        source,
         "codex_cli_global",
     )
 }
@@ -510,10 +541,17 @@ fn ensure_opencode_mcp(cwd: &Path, source: McpLaunchSource) -> Result<EnsureMcpR
     ensure_opencode_mcp_at(&cwd.join("opencode.json"), source, "opencode_cli")
 }
 
+#[allow(dead_code)]
 fn ensure_opencode_global_mcp() -> Result<EnsureMcpResult, String> {
+    ensure_opencode_global_mcp_with_source(McpLaunchSource::NpmPackage)
+}
+
+fn ensure_opencode_global_mcp_with_source(
+    source: McpLaunchSource,
+) -> Result<EnsureMcpResult, String> {
     ensure_opencode_mcp_at(
         &opencode_global_config_path()?,
-        McpLaunchSource::NpmPackage,
+        source,
         "opencode_cli_global",
     )
 }
@@ -557,26 +595,32 @@ fn ensure_opencode_mcp_at(
     })
 }
 
+#[allow(dead_code)]
 fn ensure_claude_user_mcp() -> EnsureMcpResult {
+    ensure_claude_user_mcp_with_source(McpLaunchSource::NpmPackage)
+}
+
+fn ensure_claude_user_mcp_with_source(source: McpLaunchSource) -> EnsureMcpResult {
     let env_value = format!(
         "{}={}",
         crate::app_paths::BRIDGE_PORT_FILE_ENV,
         crate::app_paths::bridge_port_file_env_value()
     );
+    let launch = launch_spec(source);
+    let mut add_args = vec![
+        "mcp".to_string(),
+        "add".to_string(),
+        "--scope".to_string(),
+        "user".to_string(),
+        MCP_SERVER_NAME.to_string(),
+        "-e".to_string(),
+        env_value,
+        "--".to_string(),
+        launch.command,
+    ];
+    add_args.extend(launch.args);
     let remove = run_claude_mcp_command(["mcp", "remove", "--scope", "user", MCP_SERVER_NAME]);
-    let add = run_claude_mcp_command([
-        "mcp",
-        "add",
-        "--scope",
-        "user",
-        MCP_SERVER_NAME,
-        "-e",
-        env_value.as_str(),
-        "--",
-        "npx",
-        "-y",
-        "@puppet-master/mcp",
-    ]);
+    let add = run_claude_mcp_command_dynamic(&add_args);
 
     match add {
         Ok(()) => EnsureMcpResult {
@@ -595,8 +639,12 @@ fn ensure_claude_user_mcp() -> EnsureMcpResult {
 }
 
 fn run_claude_mcp_command<const N: usize>(args: [&str; N]) -> Result<(), String> {
+    run_claude_mcp_command_dynamic(&args)
+}
+
+fn run_claude_mcp_command_dynamic<S: AsRef<str>>(args: &[S]) -> Result<(), String> {
     let output = std::process::Command::new("claude")
-        .args(args)
+        .args(args.iter().map(AsRef::as_ref))
         .env("PATH", crate::shell_env::path_for_spawn())
         .output()
         .map_err(|err| format!("could not run claude: {err}"))?;
@@ -635,10 +683,7 @@ fn uninstall_claude_mcp(cwd: &Path) -> Result<EnsureMcpResult, String> {
             message: "puppet-master was not in project .mcp.json".into(),
         });
     }
-    if let Some(servers) = doc
-        .get_mut("mcpServers")
-        .and_then(Value::as_object_mut)
-    {
+    if let Some(servers) = doc.get_mut("mcpServers").and_then(Value::as_object_mut) {
         servers.remove(MCP_SERVER_NAME);
     }
     if doc
@@ -694,7 +739,8 @@ fn uninstall_codex_at(path: &Path, backend: &str) -> Result<EnsureMcpResult, Str
                 .map_err(|err| format!("could not remove {}: {err}", path.display()))?;
         }
     } else {
-        fs::write(path, next).map_err(|err| format!("could not write {}: {err}", path.display()))?;
+        fs::write(path, next)
+            .map_err(|err| format!("could not write {}: {err}", path.display()))?;
     }
     Ok(EnsureMcpResult {
         installed: false,
@@ -843,12 +889,22 @@ pub fn codex_has_puppet_master_public(content: &str) -> bool {
     codex_has_puppet_master(content)
 }
 
+#[allow(dead_code)]
 pub fn codex_needs_refresh_public(content: &str) -> bool {
     codex_needs_refresh(content, McpLaunchSource::NpmPackage)
 }
 
+pub fn codex_needs_refresh_with_source_public(content: &str, source: McpLaunchSource) -> bool {
+    codex_needs_refresh(content, source)
+}
+
+#[allow(dead_code)]
 pub fn opencode_mcp_installed_public(cwd: &Path) -> bool {
     opencode_mcp_installed_path(&cwd.join("opencode.json"), McpLaunchSource::NpmPackage)
+}
+
+pub fn opencode_mcp_installed_with_source_public(cwd: &Path, source: McpLaunchSource) -> bool {
+    opencode_mcp_installed_path(&cwd.join("opencode.json"), source)
 }
 
 pub fn opencode_mcp_uses_npm_public(cwd: &Path) -> bool {
@@ -980,6 +1036,20 @@ mod tests {
     }
 
     #[test]
+    fn rust_preference_writes_auto_runtime_when_available() {
+        let cwd = temp_dir("rust-preference");
+        fs::create_dir_all(&cwd).expect("cwd");
+
+        let results = install_mcp_configs_with_preference(&cwd, true).expect("install all");
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|result| result.installed));
+
+        let codex = fs::read_to_string(cwd.join(".codex").join("config.toml")).expect("codex");
+        assert!(codex.contains("[mcp_servers.puppet-master]"));
+        assert!(codex.contains(crate::app_paths::BRIDGE_PORT_FILE_ENV));
+    }
+
+    #[test]
     fn uninstall_removes_all_project_backends() {
         let cwd = temp_dir("uninstall");
         fs::create_dir_all(&cwd).expect("cwd");
@@ -1020,13 +1090,16 @@ mod tests {
         assert!(claude_mcp_remove_not_found(
             "No project-local MCP server found with name: puppet-master"
         ));
-        assert!(!claude_mcp_remove_not_found("could not run claude: No such file"));
+        assert!(!claude_mcp_remove_not_found(
+            "could not run claude: No such file"
+        ));
     }
 
     #[test]
     fn all_cli_backends_reject_root_project_path() {
         for backend in ["claude_cli", "codex_cli", "opencode_cli"] {
-            let err = ensure_orchestrator_mcp(backend, Path::new("/")).unwrap_err();
+            let err = ensure_orchestrator_mcp_with_preference(backend, Path::new("/"), false)
+                .unwrap_err();
             assert!(
                 err.contains("Pick a project folder"),
                 "backend {backend}: {err}"

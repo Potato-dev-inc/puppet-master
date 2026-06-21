@@ -1,0 +1,5 @@
+packages/app/src-tauri/resources/mcp-stdio.bundle.cjs linguist-generated=true
+packages/app/src-tauri/resources/pwa-dist/** linguist-generated=true
+packages/app/dist/** linguist-generated=true
+packages/app/dev-dist/** linguist-generated=true
+packages/**/dist/** linguist-generated=true

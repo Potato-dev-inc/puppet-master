@@ -135,6 +135,7 @@ mod tests {
     use super::*;
     use crate::events::TaskId;
     use crate::projections::{ReadModels, WorkspaceStateProjection};
+    use crate::session_context::SessionContextProjection;
 
     #[test]
     fn context_pack_is_smaller_than_raw_scrollback() {
@@ -157,6 +158,7 @@ mod tests {
             }],
             locks: Vec::new(),
             audit: Vec::new(),
+            session: SessionContextProjection::default(),
         };
         let raw = "irrelevant terminal history\n".repeat(100);
         let pack = build_context_pack(

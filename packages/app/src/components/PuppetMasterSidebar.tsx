@@ -1028,8 +1028,7 @@ export function PuppetMasterSidebar({
         </div>
       </div>
 
-      {!cliBackend && (
-        <div className="border-t border-pm-border p-2">
+      <div className="border-t border-pm-border p-2 shrink-0">
           {busy && standbyPanes.length > 0 && (
             <div
               className="text-[10px] text-pm-muted truncate mb-1"
@@ -1038,19 +1037,29 @@ export function PuppetMasterSidebar({
               Standing by for: {standbyPanes.map((p) => p.id).join(', ')}
             </div>
           )}
+          {busy && (
+            <div className="text-[10px] text-pm-muted mb-1">
+              Orchestrator busy — you can still paste; send when idle.
+            </div>
+          )}
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
-                void send();
+                if (!busy) void send();
               }
             }}
-            rows={2}
-            placeholder="Ask the Puppet Master… (Ctrl+Enter to send)"
-            className="w-full text-xs bg-pm-bg border border-pm-border rounded p-2 resize-none"
-            disabled={busy}
+            rows={4}
+            placeholder={
+              cliBackend
+                ? 'Paste a long prompt here — Ctrl+Enter sends it to the orchestrator CLI pane'
+                : 'Ask the Puppet Master… (Ctrl+Enter to send)'
+            }
+            className="w-full min-h-[5.5rem] text-xs bg-pm-bg border border-pm-border rounded p-2 resize-y"
+            readOnly={busy}
+            aria-busy={busy}
           />
           <div className="flex justify-end gap-2 mt-1">
             {busy && (
@@ -1063,7 +1072,7 @@ export function PuppetMasterSidebar({
             )}
             <button
               onClick={() => void send()}
-              disabled={busy}
+              disabled={busy || !draft.trim()}
               className="px-2 py-1 text-xs rounded border border-pm-accent bg-pm-accent/20 text-pm-accent hover:bg-pm-accent/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {busy
@@ -1074,7 +1083,6 @@ export function PuppetMasterSidebar({
             </button>
           </div>
         </div>
-      )}
     </aside>
   );
 }

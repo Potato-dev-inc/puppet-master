@@ -73,6 +73,15 @@ fn default_true() -> bool {
     true
 }
 
+fn developer_use_rust_mcp(state: &State<'_, AppState>) -> bool {
+    state
+        .public_settings
+        .lock()
+        .get("developer_use_rust_mcp")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 #[tauri::command]
 pub async fn write_pane_input(
     state: State<'_, AppState>,
@@ -295,23 +304,33 @@ pub async fn get_project_path_cmd(state: State<'_, AppState>) -> Result<String, 
 
 #[tauri::command]
 pub async fn ensure_orchestrator_mcp(
+    state: State<'_, AppState>,
     backend: String,
     project_path: String,
 ) -> Result<crate::mcp_install::EnsureMcpResult, String> {
-    crate::mcp_install::ensure_orchestrator_mcp(&backend, std::path::Path::new(&project_path))
+    crate::mcp_install::ensure_orchestrator_mcp_with_preference(
+        &backend,
+        std::path::Path::new(&project_path),
+        developer_use_rust_mcp(&state),
+    )
 }
 
 #[tauri::command]
 pub async fn install_npm_mcp_configs(
+    state: State<'_, AppState>,
     project_path: String,
 ) -> Result<Vec<crate::mcp_install::EnsureMcpResult>, String> {
-    crate::mcp_install::install_npm_mcp_configs(std::path::Path::new(&project_path))
+    crate::mcp_install::install_mcp_configs_with_preference(
+        std::path::Path::new(&project_path),
+        developer_use_rust_mcp(&state),
+    )
 }
 
 #[tauri::command]
 pub async fn install_global_npm_mcp_configs(
+    state: State<'_, AppState>,
 ) -> Result<Vec<crate::mcp_install::EnsureMcpResult>, String> {
-    crate::mcp_install::install_global_npm_mcp_configs()
+    crate::mcp_install::install_global_mcp_configs_with_preference(developer_use_rust_mcp(&state))
 }
 
 #[tauri::command]
@@ -329,10 +348,15 @@ pub async fn uninstall_global_npm_mcp_configs(
 
 #[tauri::command]
 pub async fn get_mcp_status(
+    state: State<'_, AppState>,
     project_path: String,
     auto_repair: bool,
 ) -> Result<crate::mcp_status::McpStatusReport, String> {
-    crate::mcp_status::get_mcp_status(std::path::Path::new(&project_path), auto_repair)
+    crate::mcp_status::get_mcp_status_with_preference(
+        std::path::Path::new(&project_path),
+        auto_repair,
+        developer_use_rust_mcp(&state),
+    )
 }
 
 /// Push a JSON chat event to all SSE clients (mobile PWA and any desktop browser).

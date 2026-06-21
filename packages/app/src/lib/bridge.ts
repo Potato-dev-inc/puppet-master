@@ -18,6 +18,7 @@ export interface PaneStateProjection {
   agent_type: string | null;
   pid: number | null;
   cwd: string | null;
+  role: PaneRole | null;
   status: string;
   input_events: number;
   output_events: number;
@@ -54,6 +55,85 @@ export interface AuditEntryProjection {
   timestamp_ms: number;
   actor: string;
   event_type: string;
+}
+
+export type PaneRole = 'implementer' | 'reviewer' | 'shell' | 'orchestrator' | 'observer';
+
+export interface PaneDigest {
+  pane_id: string;
+  summary: string;
+  source: string;
+  updated_at_ms: number;
+}
+
+export interface SessionTimelineEvent {
+  timestamp_ms: number;
+  actor: string;
+  event_type: string;
+  summary: string;
+}
+
+export interface LockConflictProjection {
+  resource_id: string;
+  requested_owner_id: string;
+  existing_owner_id: string;
+  timestamp_ms: number;
+}
+
+export interface OrchestratorStateProjection {
+  standby_poll_ms: number;
+  standby_max_ms: number;
+}
+
+export interface SessionContextProjection {
+  current_goal: string | null;
+  pane_roles: Record<string, PaneRole>;
+  pane_digests: Record<string, PaneDigest>;
+  timeline: SessionTimelineEvent[];
+  lock_conflicts: LockConflictProjection[];
+  orchestrator: OrchestratorStateProjection;
+}
+
+export interface DelegateTaskRequest {
+  task_id?: string;
+  target_pane_id?: string;
+  intent: string;
+  acceptance_criteria: string[];
+  locked_resources?: string[];
+  evidence_required?: string[];
+  token_budget_hint?: number;
+  timeout_ms?: number;
+}
+
+export interface DelegateTaskResponse {
+  ok: boolean;
+  task_id?: string | null;
+  target_pane_id?: string | null;
+  prompt: string;
+}
+
+export interface McpRegistryTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  safety: 'read_only' | 'mutating' | 'destructive';
+  visibility: { sidebar: boolean; external_mcp: boolean };
+  method: string;
+  path: string;
+}
+
+export interface McpRegistryResource {
+  uri: string;
+  name: string;
+  description: string;
+  mimeType: string;
+}
+
+export interface McpRegistryPrompt {
+  name: string;
+  description: string;
+  arguments: Array<{ name: string; description: string; required: boolean }>;
 }
 
 export interface ContextPackRequest {
@@ -111,6 +191,9 @@ export interface BridgeClient {
   writeInput(paneId: string, text: string, appendNewline?: boolean): Promise<void>;
   resize(paneId: string, cols: number, rows: number): Promise<void>;
   getWorkspaceState(): Promise<WorkspaceStateProjection>;
+  listMcpTools(): Promise<McpRegistryTool[]>;
+  listMcpResources(): Promise<McpRegistryResource[]>;
+  listMcpPrompts(): Promise<McpRegistryPrompt[]>;
   listTasks(): Promise<TaskProjection[]>;
   createTask(args: { title: string; exclusive?: boolean }): Promise<{ task_id: string }>;
   claimTask(taskId: string, args: { agent_id: string; lease_ms?: number }): Promise<unknown>;
@@ -130,6 +213,14 @@ export interface BridgeClient {
     owner_id: string;
   }): Promise<unknown>;
   getAudit(): Promise<AuditEntryProjection[]>;
+  readSessionContext(): Promise<SessionContextProjection>;
+  updateSessionContext(patch: { current_goal?: string | null }): Promise<SessionContextProjection>;
+  setPaneRole(paneId: string, role: PaneRole): Promise<SessionContextProjection>;
+  readPaneDigest(paneId: string): Promise<PaneDigest>;
+  updatePaneDigest(args: { pane_id: string; summary: string; source?: string }): Promise<PaneDigest>;
+  delegateTask(args: DelegateTaskRequest): Promise<DelegateTaskResponse>;
+  readOrchestratorState(): Promise<OrchestratorStateProjection>;
+  updateOrchestratorState(patch: Partial<OrchestratorStateProjection>): Promise<OrchestratorStateProjection>;
   buildContextPack(args: ContextPackRequest): Promise<ContextPack>;
   getSettings(): Promise<PublicSettings>;
   patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;
@@ -192,6 +283,9 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     resize: (id, cols, rows) =>
       call('POST', `/panes/${encodeURIComponent(id)}/resize`, { cols, rows }),
     getWorkspaceState: () => call('GET', '/workspace/state'),
+    listMcpTools: () => call('GET', '/mcp/tools'),
+    listMcpResources: () => call('GET', '/mcp/resources'),
+    listMcpPrompts: () => call('GET', '/mcp/prompts'),
     listTasks: () => call('GET', '/tasks'),
     createTask: (args) => call('POST', '/tasks', args),
     claimTask: (taskId, args) => call('POST', `/tasks/${encodeURIComponent(taskId)}/claim`, args),
@@ -202,6 +296,17 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     acquireResourceLock: (args) => call('POST', '/locks', args),
     releaseResourceLock: (args) => call('POST', '/locks/release', args),
     getAudit: () => call('GET', '/audit'),
+    readSessionContext: () => call('GET', '/session/context'),
+    updateSessionContext: (patch) => call('PATCH', '/session/context', patch),
+    setPaneRole: (paneId, role) =>
+      call('POST', `/panes/${encodeURIComponent(paneId)}/role`, { role }),
+    readPaneDigest: (paneId) =>
+      call('GET', `/panes/${encodeURIComponent(paneId)}/digest`),
+    updatePaneDigest: (args) =>
+      call('POST', `/panes/${encodeURIComponent(args.pane_id)}/digest`, args),
+    delegateTask: (args) => call('POST', '/delegate-task', args),
+    readOrchestratorState: () => call('GET', '/orchestrator/state'),
+    updateOrchestratorState: (patch) => call('PATCH', '/orchestrator/state', patch),
     buildContextPack: (args) => call('POST', '/context-packs', args),
     getSettings: () => call('GET', '/settings'),
     patchSettings: (patch) => call('PATCH', '/settings', patch),

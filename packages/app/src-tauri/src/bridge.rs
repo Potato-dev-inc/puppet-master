@@ -154,6 +154,28 @@ struct ReleaseLockBody {
     owner_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct SessionContextPatchBody {
+    current_goal: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SetPaneRoleBody {
+    role: crate::session_context::PaneRole,
+}
+
+#[derive(Debug, Deserialize)]
+struct PaneDigestBody {
+    summary: String,
+    source: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OrchestratorStatePatchBody {
+    standby_poll_ms: Option<u64>,
+    standby_max_ms: Option<u64>,
+}
+
 #[derive(Debug, Serialize)]
 struct Health {
     ok: bool,
@@ -349,6 +371,14 @@ fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
         ("GET", ["agents", _, "inbox"]) => Some("read_agent_inbox".to_string()),
         ("GET", ["audit"]) => Some("get_audit".to_string()),
         ("POST", ["context-packs"]) => Some("build_context_pack".to_string()),
+        ("GET", ["session", "context"]) => Some("read_session_context".to_string()),
+        ("PATCH", ["session", "context"]) => Some("update_session_context".to_string()),
+        ("POST", ["panes", _, "role"]) => Some("set_pane_role".to_string()),
+        ("GET", ["panes", _, "digest"]) => Some("read_pane_digest".to_string()),
+        ("POST", ["panes", _, "digest"]) => Some("update_pane_digest".to_string()),
+        ("POST", ["delegate-task"]) => Some("delegate_task".to_string()),
+        ("GET", ["orchestrator", "state"]) => Some("read_orchestrator_state".to_string()),
+        ("PATCH", ["orchestrator", "state"]) => Some("update_orchestrator_state".to_string()),
         ("POST", ["tasks"]) => Some("create_task".to_string()),
         ("POST", ["tasks", _, "claim"]) => Some("claim_task".to_string()),
         ("POST", ["tasks", _, "lease"]) => Some("renew_task_lease".to_string()),
@@ -359,6 +389,24 @@ fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
         ("POST", ["locks"]) => Some("acquire_resource_lock".to_string()),
         ("POST", ["locks", "release"]) => Some("release_resource_lock".to_string()),
         ("POST", ["locks", _, "expire"]) => Some("expire_resource_lock".to_string()),
+        _ => None,
+    }
+}
+
+fn mcp_registry_route(method: &str, segments: &[&str]) -> Option<(u16, serde_json::Value)> {
+    match (method, segments) {
+        ("GET", ["mcp", "tools"]) => Some((
+            200,
+            serde_json::to_value(crate::tool_registry::tools()).unwrap(),
+        )),
+        ("GET", ["mcp", "resources"]) => Some((
+            200,
+            serde_json::to_value(crate::tool_registry::resources()).unwrap(),
+        )),
+        ("GET", ["mcp", "prompts"]) => Some((
+            200,
+            serde_json::to_value(crate::tool_registry::prompts()).unwrap(),
+        )),
         _ => None,
     }
 }
@@ -400,6 +448,10 @@ fn route(
             })
             .unwrap(),
         ));
+    }
+
+    if let Some(response) = mcp_registry_route(method, segments) {
+        return Ok(response);
     }
 
     if segments == ["pair"] && method == "POST" {
@@ -538,11 +590,16 @@ fn route(
         let req: AcquireLockBody = parse_json(body)?;
         let resource_id = ResourceId::from_parts(&req.resource_type, &req.name);
         let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
-        if read_models
+        if let Some(existing) = read_models
             .locks
             .iter()
-            .any(|lock| lock.resource_id == resource_id)
+            .find(|lock| lock.resource_id == resource_id)
         {
+            crate::event_log::append_bridge_event(SystemEvent::ResourceLockConflict {
+                resource_id: resource_id.clone(),
+                requested_owner_id: req.owner_id,
+                existing_owner_id: existing.owner.clone(),
+            });
             return Err((409, json!({ "error": "resource already locked" })));
         }
         crate::event_log::append_bridge_event(SystemEvent::ResourceLockAcquired {
@@ -596,6 +653,69 @@ fn route(
         let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
         let pack = crate::context_pack::build_context_pack(req, &read_models);
         return Ok((200, serde_json::to_value(pack).unwrap()));
+    }
+
+    if segments == ["session", "context"] && method == "GET" {
+        let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(read_models.session).unwrap()));
+    }
+
+    if segments == ["session", "context"] && method == "PATCH" {
+        let req: SessionContextPatchBody = parse_json(body)?;
+        crate::event_log::append_bridge_event(SystemEvent::SessionGoalUpdated {
+            current_goal: normalize_optional_string(req.current_goal),
+        });
+        let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(read_models.session).unwrap()));
+    }
+
+    if segments == ["delegate-task"] && method == "POST" {
+        let req = parse_json::<crate::session_context::DelegateTaskRequest>(body)?
+            .validated()
+            .map_err(|err| (400, json!({ "error": err })))?;
+        let prompt = crate::session_context::render_codex_delegation_prompt(&req);
+        crate::event_log::append_bridge_event(SystemEvent::DelegationPrepared {
+            task_id: req.task_id.clone().map(TaskId),
+            target_pane_id: req
+                .target_pane_id
+                .clone()
+                .map(crate::events::PaneId),
+            intent: req.intent.clone(),
+        });
+        return Ok((
+            200,
+            json!({
+                "ok": true,
+                "task_id": req.task_id,
+                "target_pane_id": req.target_pane_id,
+                "prompt": prompt,
+            }),
+        ));
+    }
+
+    if segments == ["orchestrator", "state"] && method == "GET" {
+        let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((
+            200,
+            serde_json::to_value(read_models.session.orchestrator).unwrap(),
+        ));
+    }
+
+    if segments == ["orchestrator", "state"] && method == "PATCH" {
+        let req: OrchestratorStatePatchBody = parse_json(body)?;
+        let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        let current = read_models.session.orchestrator;
+        let standby_poll_ms = req.standby_poll_ms.unwrap_or(current.standby_poll_ms).max(1);
+        let standby_max_ms = req.standby_max_ms.unwrap_or(current.standby_max_ms).max(1);
+        crate::event_log::append_bridge_event(SystemEvent::OrchestratorStandbyPolicyUpdated {
+            standby_poll_ms,
+            standby_max_ms,
+        });
+        let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((
+            200,
+            serde_json::to_value(read_models.session.orchestrator).unwrap(),
+        ));
     }
 
     if segments == ["agent-contexts"] && method == "GET" {
@@ -671,6 +791,47 @@ fn route(
             registry_write_input(&registry, pane_id, &req.text, req.append_newline)
                 .map_err(|err| (404, json!({ "error": err })))?;
             return Ok((200, json!({ "ok": true })));
+        }
+        if tail == Some("role") && method == "POST" {
+            let req: SetPaneRoleBody = parse_json(body)?;
+            crate::event_log::append_bridge_event(SystemEvent::PaneRoleSet {
+                pane_id: crate::events::PaneId(pane_id.to_string()),
+                role: req.role,
+            });
+            let read_models =
+                rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+            return Ok((200, serde_json::to_value(read_models.session).unwrap()));
+        }
+        if tail == Some("digest") && method == "GET" {
+            let read_models =
+                rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+            let digest = read_models
+                .session
+                .pane_digests
+                .get(pane_id)
+                .ok_or_else(|| (404, json!({ "error": "pane digest not found" })))?;
+            return Ok((200, serde_json::to_value(digest).unwrap()));
+        }
+        if tail == Some("digest") && method == "POST" {
+            let req: PaneDigestBody = parse_json(body)?;
+            let summary = req.summary.trim();
+            if summary.is_empty() {
+                return Err((400, json!({ "error": "summary is required" })));
+            }
+            crate::event_log::append_bridge_event(SystemEvent::PaneDigestUpdated {
+                pane_id: crate::events::PaneId(pane_id.to_string()),
+                summary: summary.to_string(),
+                source: normalize_optional_string(req.source)
+                    .unwrap_or_else(|| "manual".to_string()),
+            });
+            let read_models =
+                rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+            let digest = read_models
+                .session
+                .pane_digests
+                .get(pane_id)
+                .ok_or_else(|| (500, json!({ "error": "pane digest projection missing" })))?;
+            return Ok((200, serde_json::to_value(digest).unwrap()));
         }
         if tail == Some("resize") && method == "POST" {
             // Remote bridge clients must not resize the shared PTY — only desktop does.
@@ -821,6 +982,12 @@ fn parse_json<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, (u16, serd
         .map_err(|err| (400, json!({ "error": format!("invalid json: {err}") })))
 }
 
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn find_header_end(buf: &[u8]) -> Option<usize> {
     buf.windows(4).position(|window| window == b"\r\n\r\n")
 }
@@ -876,4 +1043,50 @@ fn write_json(
     stream
         .write_all(response.as_bytes())
         .map_err(|err| format!("write response: {err}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_resources_route_returns_session_resource() {
+        let (status, value) = mcp_registry_route("GET", &["mcp", "resources"]).unwrap();
+        assert_eq!(status, 200);
+        let resources = value.as_array().unwrap();
+        assert!(resources.iter().any(|resource| {
+            resource.get("uri").and_then(serde_json::Value::as_str)
+                == Some("puppet-master://session")
+        }));
+    }
+
+    #[test]
+    fn mcp_prompts_route_returns_status_check_prompt() {
+        let (status, value) = mcp_registry_route("GET", &["mcp", "prompts"]).unwrap();
+        assert_eq!(status, 200);
+        let prompts = value.as_array().unwrap();
+        assert!(prompts.iter().any(|prompt| {
+            prompt.get("name").and_then(serde_json::Value::as_str) == Some("status_check")
+        }));
+    }
+
+    #[test]
+    fn bridge_tool_names_include_session_context_routes() {
+        assert_eq!(
+            bridge_tool_name("GET", &["session", "context"]).as_deref(),
+            Some("read_session_context")
+        );
+        assert_eq!(
+            bridge_tool_name("PATCH", &["session", "context"]).as_deref(),
+            Some("update_session_context")
+        );
+        assert_eq!(
+            bridge_tool_name("POST", &["panes", "pane-1", "role"]).as_deref(),
+            Some("set_pane_role")
+        );
+        assert_eq!(
+            bridge_tool_name("POST", &["delegate-task"]).as_deref(),
+            Some("delegate_task")
+        );
+    }
 }

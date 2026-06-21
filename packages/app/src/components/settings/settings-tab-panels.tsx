@@ -363,6 +363,7 @@ function StatusRow({ label, ok, detail }: { label: string; ok: boolean; detail: 
 function McpTab({ ctx }: { ctx: SettingsTabContext }) {
   const { bridgeUrl, projectPath, settings } = ctx;
   const installPath = projectPath ?? settings.project_path ?? '';
+  const selectedRuntime = settings.developer_use_rust_mcp ? 'bundled Rust MCP binary' : 'npm package';
   const [installing, setInstalling] = useState(false);
   const [installScope, setInstallScope] = useState<'project' | 'global' | 'uninstall-project' | 'uninstall-global' | null>(null);
   const [installResults, setInstallResults] = useState<EnsureMcpResult[] | null>(null);
@@ -476,7 +477,7 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
 
   return (
     <SettingsSection title="MCP & bridge" description="External host integration for Cursor, Claude Desktop, Codex, OpenCode, and automation scripts.">
-      <SettingBlock label="Runtime status" implemented description="Checks the local bridge, npm package, and orchestrator MCP configs. Use Recheck & repair to fix project configs.">
+      <SettingBlock label="Runtime status" implemented description={`Checks the local bridge, ${selectedRuntime}, and orchestrator MCP configs. Use Recheck & repair to fix project configs.`}>
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -503,13 +504,15 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
                     : 'Start Puppet Master and ensure the bridge port file is written'}
               />
               <StatusRow
-                label="npm package"
-                ok={status.npmAvailable && Boolean(status.npmPackageVersion)}
-                detail={status.npmPackageVersion
-                  ? `@puppet-master/mcp@${status.npmPackageVersion} via ${status.launchCommand}`
-                  : status.npmAvailable
-                    ? 'npm is available but @puppet-master/mcp could not be resolved'
-                    : 'Install Node.js/npm and ensure network access to the npm registry'}
+                label={settings.developer_use_rust_mcp ? 'MCP runtime' : 'npm package'}
+                ok={settings.developer_use_rust_mcp || (status.npmAvailable && Boolean(status.npmPackageVersion))}
+                detail={settings.developer_use_rust_mcp
+                  ? `Using ${status.launchCommand}`
+                  : status.npmPackageVersion
+                    ? `@puppet-master/mcp@${status.npmPackageVersion} via ${status.launchCommand}`
+                    : status.npmAvailable
+                      ? 'npm is available but @puppet-master/mcp could not be resolved'
+                      : 'Install Node.js/npm and ensure network access to the npm registry'}
               />
               <StatusRow
                 label="Node.js"
@@ -520,11 +523,11 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
                 <div key={backend.backend} className="rounded-lg border border-pm-border bg-pm-bg px-3 py-2 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium text-pm-text">{backend.label}</span>
-                    <span className={statusTone(backend.installed && backend.usesNpm)}>
+                    <span className={statusTone(backend.installed && (settings.developer_use_rust_mcp || backend.usesNpm))}>
                       {backend.installed
                         ? backend.usesNpm
                           ? 'Installed (npm)'
-                          : 'Installed (local script)'
+                          : 'Installed (bundled)'
                         : 'Not installed'}
                     </span>
                   </div>
@@ -544,7 +547,7 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
       <SettingBlock label="Bridge endpoint" implemented description="Auto-discovered local HTTP bridge (port range 17321–17399).">
         <FieldInput value={status?.bridgeUrl ?? bridgeUrl ?? 'Discovering…'} readOnly className="font-mono" />
       </SettingBlock>
-      <SettingBlock label="Install npm MCP package" implemented description="Register Claude Code, Codex, and OpenCode to use npx -y @puppet-master/mcp instead of any bundled or local script entry.">
+      <SettingBlock label="Install MCP runtime" implemented description={`Register Claude Code, Codex, and OpenCode to use the selected runtime: ${selectedRuntime}.`}>
         <div className="space-y-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
             <button
@@ -581,7 +584,7 @@ function McpTab({ ctx }: { ctx: SettingsTabContext }) {
                 </div>
               ))}
               <p className="text-xs leading-5 text-pm-muted">
-                Restart any open MCP host sessions so they disconnect the old process and launch the npm package entry.
+                Restart any open MCP host sessions so they disconnect the old process and launch the selected MCP runtime.
               </p>
             </div>
           )}
@@ -842,13 +845,20 @@ function PluginsTab() {
 }
 
 function DeveloperTab({ ctx }: { ctx: SettingsTabContext }) {
-  const { bridgeUrl } = ctx;
+  const { bridgeUrl, settings, setSettings } = ctx;
   const [settingsPath, setSettingsPath] = useState<string>('…');
   useEffect(() => { void resolveSettingsFilePath().then(setSettingsPath); }, []);
   return (
     <SettingsSection title="Developer" description="Diagnostics and integration details for plugin authors.">
       <InfoCard title="Bridge endpoint" description={bridgeUrl ?? 'Bridge not discovered yet. Start the desktop app.'} />
       <InfoCard title="Settings file" description={`All desktop preferences persist to ${settingsPath} under the "settings" key.`} />
+      <SettingToggle
+        label="Use bundled Rust MCP"
+        description="When enabled, app-installed MCP configs launch the bundled puppet-master-mcp binary instead of npx."
+        checked={settings.developer_use_rust_mcp ?? false}
+        implemented
+        onChange={(value) => setSettings({ ...settings, developer_use_rust_mcp: value })}
+      />
       <SettingToggle label="Log MCP tool calls" description="Verbose bridge and orchestration debugging." checked={false} implemented={false} onChange={() => undefined} />
       <SettingToggle label="Show protocol inspector" description="Display raw SSE events and bridge payloads in workspace." checked={false} implemented={false} onChange={() => undefined} />
       <CodeBlock title="Bridge health response" code={"{\n  \"ok\": true,\n  \"version\": \"0.8.0\",\n  \"panes\": 3,\n  \"transport\": [\"http\", \"sse\"],\n  \"latency_ms\": 18,\n  \"features\": [\"guardrails\", \"routing\", \"audit_log\"]\n}"} />

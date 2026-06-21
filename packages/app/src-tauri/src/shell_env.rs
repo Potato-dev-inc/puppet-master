@@ -189,8 +189,16 @@ mod tests {
 
     #[test]
     fn dedupe_keeps_first_occurrence() {
-        let path = dedupe_path("/opt/homebrew/bin:/usr/bin:/opt/homebrew/bin");
-        assert_eq!(path, "/opt/homebrew/bin:/usr/bin");
+        let duplicate = path_separator_join(&[
+            "/opt/homebrew/bin".to_string(),
+            "/usr/bin".to_string(),
+            "/opt/homebrew/bin".to_string(),
+        ]);
+        let expected = path_separator_join(&[
+            "/opt/homebrew/bin".to_string(),
+            "/usr/bin".to_string(),
+        ]);
+        assert_eq!(dedupe_path(&duplicate), expected);
     }
 
     #[test]

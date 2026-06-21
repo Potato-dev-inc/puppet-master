@@ -5,10 +5,15 @@ description = "Puppet Master desktop app"
 authors = ["you"]
 edition = "2021"
 rust-version = "1.77"
+default-run = "puppet_master_app"
 
 [lib]
 name = "puppet_master_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "puppet-master-mcp"
+path = "src/bin/puppet-master-mcp.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

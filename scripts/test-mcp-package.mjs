@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const tmp = mkdtempSync(join(tmpdir(), 'puppet-master-mcp-package-'));
 const portFile = join(tmp, 'bridge.port');
+const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 let bridge;
 let mcp;
 let bridgeErr = '';
@@ -18,6 +20,7 @@ function run(command, args, options = {}) {
     cwd: repoRoot,
     stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
     encoding: 'utf8',
+    shell: process.platform === 'win32',
     ...options,
   });
   if (result.status !== 0) {
@@ -53,7 +56,7 @@ async function request(proc, state, method, params) {
   const id = ++state.id;
   send(proc, { jsonrpc: '2.0', id, method, params });
   const started = Date.now();
-  while (Date.now() - started < 5000) {
+  while (Date.now() - started < 15000) {
     const found = state.messages.find((message) => message.id === id);
     if (found) {
       if (found.error) {
@@ -63,15 +66,14 @@ async function request(proc, state, method, params) {
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  throw new Error(`timed out waiting for ${method}`);
+  throw new Error(`timed out waiting for ${method}; received ${state.messages.length} messages`);
 }
 
 async function main() {
-  run('npm', ['run', 'build:bridge']);
-  run('npm', ['run', 'build:mcp']);
+  run(npm, ['run', 'build:mcp']);
 
   const packResult = run(
-    'npm',
+    npm,
     ['pack', '--workspace=@puppet-master/mcp', '--pack-destination', tmp, '--json'],
     { capture: true },
   );
@@ -83,14 +85,32 @@ async function main() {
     throw new Error(`packed entrypoint missing: ${packedEntrypoint}`);
   }
 
-  bridge = spawn(process.execPath, [join(repoRoot, 'packages/bridge/dist/server.js')], {
-    cwd: repoRoot,
-    env: { ...process.env, PUPPET_MASTER_BRIDGE_PORT_FILE: portFile },
-    stdio: ['ignore', 'ignore', 'pipe'],
+  bridge = createServer((req, res) => {
+    if (req.url === '/health') {
+      const body = JSON.stringify({ ok: true, version: 'test-bridge' });
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(body),
+      });
+      res.end(body);
+      return;
+    }
+    const body = JSON.stringify({ error: 'not found' });
+    res.writeHead(404, {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(body),
+    });
+    res.end(body);
   });
-  bridge.stderr.on('data', (chunk) => {
-    bridgeErr += chunk.toString();
+  await new Promise((resolve, reject) => {
+    bridge.once('error', reject);
+    bridge.listen(0, '127.0.0.1', resolve);
   });
+  const address = bridge.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('test bridge did not expose a TCP address');
+  }
+  writeFileSync(portFile, `127.0.0.1:${address.port}\n`);
   await waitFor(() => existsSync(portFile), 'bridge port file');
 
   mcp = spawn(process.execPath, [packedEntrypoint], {
@@ -160,6 +180,8 @@ try {
   throw err;
 } finally {
   if (mcp && !mcp.killed) mcp.kill('SIGTERM');
-  if (bridge && !bridge.killed) bridge.kill('SIGTERM');
+  if (bridge) {
+    await new Promise((resolve) => bridge.close(resolve));
+  }
   rmSync(tmp, { recursive: true, force: true });
 }

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::actors::ActorId;
+use crate::session_context::PaneRole;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -132,6 +133,11 @@ pub enum SystemEvent {
         owner_id: String,
         lease_expires_at_ms: Option<i64>,
     },
+    ResourceLockConflict {
+        resource_id: ResourceId,
+        requested_owner_id: String,
+        existing_owner_id: String,
+    },
     ResourceLockReleased {
         resource_id: ResourceId,
         owner_id: String,
@@ -144,6 +150,27 @@ pub enum SystemEvent {
         agent_type: String,
         observation: String,
         text: Option<String>,
+    },
+    SessionGoalUpdated {
+        current_goal: Option<String>,
+    },
+    PaneRoleSet {
+        pane_id: PaneId,
+        role: PaneRole,
+    },
+    PaneDigestUpdated {
+        pane_id: PaneId,
+        summary: String,
+        source: String,
+    },
+    DelegationPrepared {
+        task_id: Option<TaskId>,
+        target_pane_id: Option<PaneId>,
+        intent: String,
+    },
+    OrchestratorStandbyPolicyUpdated {
+        standby_poll_ms: u64,
+        standby_max_ms: u64,
     },
 }
 

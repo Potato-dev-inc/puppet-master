@@ -69,6 +69,10 @@ function snapshotLines(text: string): string[] {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 }
 
+export function normalizeCanvasTerminalPaste(text: string): string {
+  return text.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
+}
+
 function lastSnapshotLine(snapshot: string): string {
   return snapshotLines(snapshot).at(-1) ?? '';
 }
@@ -156,6 +160,8 @@ export class CanvasTerminal {
   private resizeListeners = new Set<(cols: number, rows: number) => void>();
   private dataListeners = new Set<(data: string) => void>();
   private keyHandler: ((event: KeyboardEvent) => void) | null = null;
+  private pasteHandler: ((event: ClipboardEvent) => void) | null = null;
+  private focusHandler: (() => void) | null = null;
   private disposed = false;
 
   constructor(container: HTMLElement, options: CanvasTerminalOptions) {
@@ -252,6 +258,14 @@ export class CanvasTerminal {
       this.container.removeEventListener('keydown', this.keyHandler);
       this.keyHandler = null;
     }
+    if (this.pasteHandler) {
+      this.container.removeEventListener('paste', this.pasteHandler);
+      this.pasteHandler = null;
+    }
+    if (this.focusHandler) {
+      this.container.removeEventListener('pointerdown', this.focusHandler);
+      this.focusHandler = null;
+    }
     this.resizeListeners.clear();
     this.dataListeners.clear();
     this.canvas.remove();
@@ -269,10 +283,25 @@ export class CanvasTerminal {
         listener(data);
       }
     };
-    this.container.addEventListener('keydown', this.keyHandler);
-    this.container.addEventListener('pointerdown', () => {
+    this.pasteHandler = (event: ClipboardEvent) => {
+      if (this.disposed) return;
+
+      const text = event.clipboardData?.getData('text/plain');
+      if (!text) return;
+
+      event.preventDefault();
       this.container.focus();
-    });
+      const data = normalizeCanvasTerminalPaste(text);
+      for (const listener of this.dataListeners) {
+        listener(data);
+      }
+    };
+    this.focusHandler = () => {
+      this.container.focus();
+    };
+    this.container.addEventListener('keydown', this.keyHandler);
+    this.container.addEventListener('paste', this.pasteHandler);
+    this.container.addEventListener('pointerdown', this.focusHandler);
   }
 
   private measureMetrics(): void {

@@ -1,7 +1,7 @@
 import { isOrchestratorPaneId, type LlmModel, type PaneStatus } from '@puppet-master/shared';
 import type { ChatMessage, LlmResponse } from './llm';
 import { streamLlm } from './llm';
-import { executeMcpTool, formatPaneList, PUPPET_MASTER_TOOLS, type McpToolExecutor } from './mcp-tools';
+import { executeMcpTool, formatPaneList, loadPuppetMasterTools, type McpToolExecutor } from './mcp-tools';
 import { sleep } from './ansi';
 import { approvePermissionIfPresent } from './tui-autopilot';
 
@@ -239,6 +239,7 @@ export async function runPuppetMasterLoop(
   cb: PuppetMasterCallbacks,
   signal: AbortSignal,
 ): Promise<void> {
+  const tools = await loadPuppetMasterTools(executor);
   const livePanes = await executor.listPanes();
   const paneSnapshot =
     livePanes.length > 0
@@ -287,7 +288,7 @@ export async function runPuppetMasterLoop(
           model: model.model_id,
           system: SYSTEM_PROMPT,
           messages,
-          tools: PUPPET_MASTER_TOOLS,
+          tools,
         },
         {
           onTextDelta: (t) => cb.onAssistantText(t),

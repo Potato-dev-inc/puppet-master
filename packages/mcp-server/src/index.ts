@@ -28,196 +28,17 @@ const log = (...args: unknown[]) => {
   process.stderr.write(`[puppet-master-mcp] ${args.map(String).join(' ')}\n`);
 };
 
-const TOOLS = [
-  {
-    name: 'list_panes',
-    description: 'List all live PTY panes. Panes with id puppet-master-orchestrator-* are the dedicated orchestrator — never write_terminal_input or kill them. Delegate only to worker panes.',
-    inputSchema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'bridge_health',
-    description: 'Check whether the Puppet Master HTTP bridge is reachable and return its version metadata. Orchestrators should call this first.',
-    inputSchema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'list_agent_contexts',
-    description: 'List the static context profiles for supported agents, including strengths, smartness score, and planned sidebar orchestration actions.',
-    inputSchema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'read_agent_context',
-    description: 'Read context for an agent type or a live pane. Orchestrators should call this before delegating to a pane. If pane_id is provided, includes pane metadata, model inspection, and a recent buffer preview.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        agent_type: { type: 'string', enum: ['claude', 'codex', 'opencode', 'powershell', 'bash', 'cursor'] },
-        pane_id: { type: 'string' },
-      },
-      required: [],
-    },
-  },
-  {
-    name: 'inspect_agent_model',
-    description: 'Inspect a live terminal pane and report the best-known model signal plus an advisory smartness score. Use this when choosing which running agent should receive a task.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        pane_id: { type: 'string' },
-        lines: { type: 'number', description: 'Recent buffer lines to scan for model hints (default 200)' },
-      },
-      required: ['pane_id'],
-    },
-  },
-  {
-    name: 'spawn_agent',
-    description: 'Spawn a worker PTY pane. Reuses existing worker panes of the same agent_type; never reuses puppet-master-orchestrator-* panes. Call list_panes first.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        agent_type: { type: 'string', enum: ['claude', 'codex', 'opencode', 'powershell', 'bash', 'cursor'] },
-        cwd: { type: 'string', description: 'Working directory; defaults to current project root' },
-        cols: { type: 'number', description: 'Terminal columns (default 120)' },
-        rows: { type: 'number', description: 'Terminal rows (default 30)' },
-        pane_id: { type: 'string', description: 'Optional caller-supplied stable id' },
-      },
-      required: ['agent_type'],
-    },
-  },
-  {
-    name: 'read_terminal_buffer',
-    description: 'Read the recent scrollback of a pane as text (last N lines).',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        pane_id: { type: 'string' },
-        lines: { type: 'number', description: 'How many trailing lines to return (default 200)' },
-      },
-      required: ['pane_id'],
-    },
-  },
-  {
-    name: 'write_terminal_input',
-    description: 'Send keystrokes to a worker pane. Cannot target puppet-master-orchestrator-* panes. Use append_newline=true when delegating a prompt.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        pane_id: { type: 'string' },
-        text: { type: 'string' },
-        append_newline: { type: 'boolean', default: true },
-      },
-      required: ['pane_id', 'text'],
-    },
-  },
-  {
-    name: 'kill_pane_process',
-    description: 'Terminate a worker pane. Cannot kill puppet-master-orchestrator-* panes.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: { pane_id: { type: 'string' } },
-      required: ['pane_id'],
-    },
-  },
-  {
-    name: 'create_task',
-    description: 'Create a coordination task in the Rust task board.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        title: { type: 'string' },
-        exclusive: { type: 'boolean', default: true },
-      },
-      required: ['title'],
-    },
-  },
-  {
-    name: 'claim_task',
-    description: 'Claim an exclusive task lease for an agent.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        task_id: { type: 'string' },
-        agent_id: { type: 'string' },
-        lease_ms: { type: 'number' },
-      },
-      required: ['task_id', 'agent_id'],
-    },
-  },
-  {
-    name: 'report_task_status',
-    description: 'Update task status in the Rust task board.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        task_id: { type: 'string' },
-        status: { type: 'string' },
-      },
-      required: ['task_id', 'status'],
-    },
-  },
-  {
-    name: 'complete_task',
-    description: 'Complete a task with evidence.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        task_id: { type: 'string' },
-        agent_id: { type: 'string' },
-        evidence: { type: 'string' },
-      },
-      required: ['task_id', 'agent_id'],
-    },
-  },
-  {
-    name: 'list_tasks',
-    description: 'List rebuildable task board state from the Rust event log.',
-    inputSchema: { type: 'object' as const, properties: {}, required: [] },
-  },
-  {
-    name: 'acquire_resource_lock',
-    description: 'Acquire an exclusive resource lock.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        resource_type: { type: 'string', enum: ['file', 'directory', 'command', 'port', 'git branch', 'pane ownership'] },
-        name: { type: 'string' },
-        owner_id: { type: 'string' },
-        lease_ms: { type: 'number' },
-      },
-      required: ['resource_type', 'name', 'owner_id'],
-    },
-  },
-  {
-    name: 'release_resource_lock',
-    description: 'Release a resource lock owned by an agent or pane.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        resource_type: { type: 'string' },
-        name: { type: 'string' },
-        owner_id: { type: 'string' },
-      },
-      required: ['resource_type', 'name', 'owner_id'],
-    },
-  },
-  {
-    name: 'build_context_pack',
-    description: 'Build a compact Rust-generated context pack for an assigned task.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        task_id: { type: 'string' },
-        agent_id: { type: 'string' },
-        user_constraints: { type: 'array', items: { type: 'string' } },
-        manager_instructions: { type: 'string' },
-        raw_scrollback: { type: 'string' },
-      },
-      required: [],
-    },
-  },
-];
+const TOOLS = [] as const;
 
 interface BridgeClient {
   baseUrl: string;
+}
+
+interface RegistryTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  visibility?: { external_mcp?: boolean };
 }
 
 async function makeClient(): Promise<BridgeClient> {
@@ -262,6 +83,22 @@ async function callWithRefresh<T>(
   }
 }
 
+async function listRegistryTools(clientRef: { current: BridgeClient }) {
+  try {
+    const tools = await callWithRefresh<RegistryTool[]>(clientRef, 'GET', '/mcp/tools');
+    return tools
+      .filter((tool) => tool.visibility?.external_mcp !== false)
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      }));
+  } catch (err) {
+    log('tool registry unavailable:', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
 async function main(): Promise<void> {
   log('starting');
   let client: BridgeClient;
@@ -281,7 +118,9 @@ async function main(): Promise<void> {
     { capabilities: { tools: {} } },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: await listRegistryTools(clientRef),
+  }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
@@ -444,6 +283,63 @@ async function main(): Promise<void> {
         }
         case 'build_context_pack': {
           const result = await callWithRefresh<unknown>(clientRef, 'POST', '/context-packs', args ?? {});
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'read_session_context': {
+          const result = await callWithRefresh<unknown>(clientRef, 'GET', '/session/context');
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'update_session_context': {
+          const result = await callWithRefresh<unknown>(clientRef, 'PATCH', '/session/context', args ?? {});
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'set_pane_role': {
+          const a = args as { pane_id: string; role: string };
+          const result = await callWithRefresh<unknown>(
+            clientRef,
+            'POST',
+            `/panes/${encodeURIComponent(a.pane_id)}/role`,
+            { role: a.role },
+          );
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'read_pane_digest': {
+          const a = args as { pane_id: string };
+          const result = await callWithRefresh<unknown>(
+            clientRef,
+            'GET',
+            `/panes/${encodeURIComponent(a.pane_id)}/digest`,
+          );
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'update_pane_digest': {
+          const a = args as { pane_id: string; summary: string; source?: string };
+          const result = await callWithRefresh<unknown>(
+            clientRef,
+            'POST',
+            `/panes/${encodeURIComponent(a.pane_id)}/digest`,
+            a,
+          );
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'delegate_task': {
+          const result = await callWithRefresh<unknown>(clientRef, 'POST', '/delegate-task', args ?? {});
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'read_orchestrator_state': {
+          const result = await callWithRefresh<unknown>(clientRef, 'GET', '/orchestrator/state');
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
+        case 'update_orchestrator_state': {
+          const result = await callWithRefresh<unknown>(clientRef, 'PATCH', '/orchestrator/state', args ?? {});
           text = JSON.stringify(result, null, 2);
           break;
         }

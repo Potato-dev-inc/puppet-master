@@ -18,8 +18,10 @@ mod project_path;
 mod projections;
 mod pty;
 mod pwa_server;
+mod session_context;
 mod settings_store;
 mod shell_env;
+pub mod tool_registry;
 
 use commands::AppState;
 use std::path::PathBuf;
@@ -92,6 +94,29 @@ pub fn run() {
                     mcp_runtime::set_bundled_mcp_script(resource);
                 }
             }
+            let rust_mcp_name = if cfg!(windows) {
+                "bin/puppet-master-mcp.exe"
+            } else {
+                "bin/puppet-master-mcp"
+            };
+            if let Ok(resource) = app.path().resolve(rust_mcp_name, BaseDirectory::Resource) {
+                if resource.is_file() {
+                    mcp_runtime::set_bundled_mcp_binary(resource);
+                }
+            }
+            if mcp_runtime::bundled_mcp_binary().is_none() {
+                let binary_name = if cfg!(windows) {
+                    "puppet-master-mcp.exe"
+                } else {
+                    "puppet-master-mcp"
+                };
+                let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../mcp-server/dist")
+                    .join(binary_name);
+                if dev.is_file() {
+                    mcp_runtime::set_bundled_mcp_binary(dev);
+                }
+            }
             if mcp_runtime::bundled_mcp_script().is_none() {
                 let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                     .join("../../mcp-server/dist/index.js");
@@ -106,6 +131,9 @@ pub fn run() {
             }
             if let Some(script) = mcp_runtime::bundled_mcp_script() {
                 tracing::info!(path = %script.display(), "bundled MCP server");
+            }
+            if let Some(binary) = mcp_runtime::bundled_mcp_binary() {
+                tracing::info!(path = %binary.display(), "bundled Rust MCP server");
             }
 
             let port_file = app_paths::bridge_port_file();

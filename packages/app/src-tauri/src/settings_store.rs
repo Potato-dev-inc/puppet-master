@@ -11,6 +11,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "default_model",
     "mobile_input_delay_ms",
     "mobile_input_visible",
+    "developer_use_rust_mcp",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -20,6 +21,7 @@ pub fn default_public_settings() -> Value {
         "default_model": "claude-sonnet-4-6",
         "mobile_input_delay_ms": 250,
         "mobile_input_visible": true,
+        "developer_use_rust_mcp": false,
     })
 }
 

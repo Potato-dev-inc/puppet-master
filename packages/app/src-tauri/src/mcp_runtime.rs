@@ -4,6 +4,7 @@ use once_cell::sync::OnceCell;
 use std::path::{Path, PathBuf};
 
 static BUNDLED_MCP_SCRIPT: OnceCell<PathBuf> = OnceCell::new();
+static BUNDLED_MCP_BINARY: OnceCell<PathBuf> = OnceCell::new();
 
 pub fn set_bundled_mcp_script(path: PathBuf) {
     let _ = BUNDLED_MCP_SCRIPT.set(path);
@@ -13,8 +14,16 @@ pub fn bundled_mcp_script() -> Option<&'static Path> {
     BUNDLED_MCP_SCRIPT.get().map(|p| p.as_path())
 }
 
+pub fn set_bundled_mcp_binary(path: PathBuf) {
+    let _ = BUNDLED_MCP_BINARY.set(path);
+}
+
+pub fn bundled_mcp_binary() -> Option<&'static Path> {
+    BUNDLED_MCP_BINARY.get().map(|p| p.as_path())
+}
+
 pub fn using_bundled_mcp() -> bool {
-    bundled_mcp_script().is_some()
+    bundled_mcp_binary().is_some() || bundled_mcp_script().is_some()
 }
 
 pub struct McpLaunchSpec {
@@ -31,6 +40,12 @@ pub fn npm_mcp_launch_spec() -> McpLaunchSpec {
 
 /// Command + args written into Claude / Codex / OpenCode MCP config.
 pub fn mcp_launch_spec() -> McpLaunchSpec {
+    if let Some(binary) = bundled_mcp_binary() {
+        return McpLaunchSpec {
+            command: crate::app_paths::path_for_host_config(binary),
+            args: vec![],
+        };
+    }
     if let Some(script) = bundled_mcp_script() {
         return McpLaunchSpec {
             command: resolve_node_executable(),

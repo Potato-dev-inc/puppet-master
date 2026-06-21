@@ -202,6 +202,16 @@ Returns plain-text recent scrollback.
 { "pane_id": "uuid" }
 ```
 
+## Session and delegation tools
+
+The Rust bridge also exposes registry-backed coordination tools for longer-running orchestration:
+
+- `read_session_context` / `update_session_context` — read or update the current goal, pane roles, pane digests, timeline, lock conflicts, and standby policy.
+- `set_pane_role` — assign `implementer`, `reviewer`, `shell`, `orchestrator`, or `observer`.
+- `read_pane_digest` / `update_pane_digest` — persist a short pane summary without rereading scrollback.
+- `delegate_task` — validate structured delegation input and render a worker prompt without launching a pane.
+- `read_orchestrator_state` / `update_orchestrator_state` — inspect or tune Rust-owned standby timing.
+
 ## Architecture note
 
 ```
@@ -211,12 +221,11 @@ external MCP host (Cursor / Claude Desktop / Codex)
 @puppet-master/mcp  (this package)
         │ HTTP on 127.0.0.1
         ▼
-@puppet-master/bridge  (Node daemon spawned by the GUI)
-        │ HTTP on 127.0.0.1
+Puppet Master Desktop embedded Rust bridge
+        │
         ▼
-Tauri / Rust PaneRegistry  (owns the actual PTYs)
+Tauri / Rust PaneRegistry  (owns the actual PTYs and coordination state)
 ```
 
-All three layers live in this monorepo and are coordinated by the GUI.
-The bridge and the Rust PTY manager are spawned together when the GUI
-starts; external MCP clients only need `@puppet-master/mcp`.
+The desktop app starts the embedded Rust bridge and writes the bridge port
+file when it launches; external MCP clients only need `@puppet-master/mcp`.

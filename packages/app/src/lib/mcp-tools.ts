@@ -8,7 +8,13 @@ import {
   type PaneInfo,
 } from '@puppet-master/shared';
 import type { ToolDef } from './llm';
-import type { BridgeClient, ContextPackRequest } from './bridge';
+import type {
+  BridgeClient,
+  ContextPackRequest,
+  DelegateTaskRequest,
+  OrchestratorStateProjection,
+  PaneRole,
+} from './bridge';
 import { tauri } from './tauri';
 import { isTuiAgent, sleep, summarizeBuffer } from './ansi';
 import { autoApprovePermissions, pressKey, typeAndSubmit } from './tui-autopilot';
@@ -41,234 +47,11 @@ async function waitForPaneReady(
   return null;
 }
 
-export const PUPPET_MASTER_TOOLS: ToolDef[] = [
-  {
-    name: 'list_panes',
-    description:
-      'List all live PTY panes. Panes whose id starts with puppet-master-orchestrator- are the dedicated orchestrator (role=orchestrator) — never write_terminal_input or kill them. Only delegate to worker panes.',
-    input_schema: { type: 'object', properties: {}, required: [] },
-  },
-  {
-    name: 'list_agent_contexts',
-    description:
-      'List static context profiles for supported agents, including strengths, smartness score, best-fit task types, and planned sidebar actions.',
-    input_schema: { type: 'object', properties: {}, required: [] },
-  },
-  {
-    name: 'read_agent_context',
-    description:
-      'Read context for an agent type or a live pane. If pane_id is provided, includes pane metadata, model inspection, and recent buffer preview.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        agent_type: { type: 'string', enum: ['claude', 'codex', 'opencode', 'powershell', 'bash', 'cursor'] },
-        pane_id: { type: 'string' },
-      },
-      required: [],
-    },
-  },
-  {
-    name: 'inspect_agent_model',
-    description:
-      'Inspect a live pane and return the best-known model signal plus an advisory smartness score for task routing.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        pane_id: { type: 'string' },
-        lines: { type: 'number', default: 200 },
-      },
-      required: ['pane_id'],
-    },
-  },
-  {
-    name: 'spawn_agent',
-    description:
-      'Open a worker agent pane ONLY if none exists for that agent_type. Reuses user-opened worker panes; never reuses puppet-master-orchestrator-* panes. Set force_new=true to always create another pane.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        agent_type: { type: 'string', enum: ['claude', 'codex', 'opencode', 'powershell', 'bash', 'cursor'] },
-        cwd: { type: 'string' },
-        cols: { type: 'number' },
-        rows: { type: 'number' },
-        pane_id: { type: 'string' },
-        force_new: { type: 'boolean', default: false },
-      },
-      required: ['agent_type'],
-    },
-  },
-  {
-    name: 'read_terminal_buffer',
-    description: 'Read the recent scrollback of a pane (ANSI stripped, plain text).',
-    input_schema: {
-      type: 'object',
-      properties: {
-        pane_id: { type: 'string' },
-        lines: { type: 'number', default: 40 },
-      },
-      required: ['pane_id'],
-    },
-  },
-  {
-    name: 'write_terminal_input',
-    description:
-      'Type text into a worker pane. Cannot target puppet-master-orchestrator-* panes. ALWAYS set append_newline=true when submitting a prompt to claude/codex/opencode (sends Enter). Use append_newline=false only when sending partial input or raw escape sequences.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        pane_id: { type: 'string' },
-        text: { type: 'string' },
-        append_newline: { type: 'boolean', default: true },
-      },
-      required: ['pane_id', 'text'],
-    },
-  },
-  {
-    name: 'press_key',
-    description:
-      'Send a named key to a worker pane to navigate TUI menus and approval prompts. Cannot target puppet-master-orchestrator-* panes. Supported keys: enter, escape, tab, space, up, down, left, right, home, end, pageup, pagedown, y, n, yes, no, ctrl+c, ctrl+d, ctrl+z. Use this to select menu items (up/down + enter), answer yes/no prompts (y or n), cancel operations (escape or ctrl+c), or scroll buffers.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        pane_id: { type: 'string' },
-        key: {
-          type: 'string',
-          enum: [
-            'enter',
-            'escape',
-            'tab',
-            'space',
-            'up',
-            'down',
-            'left',
-            'right',
-            'home',
-            'end',
-            'pageup',
-            'pagedown',
-            'y',
-            'n',
-            'yes',
-            'no',
-            'ctrl+c',
-            'ctrl+d',
-            'ctrl+z',
-          ],
-        },
-      },
-      required: ['pane_id', 'key'],
-    },
-  },
-  {
-    name: 'kill_pane_process',
-    description: 'Terminate a worker pane and its child process. Cannot kill puppet-master-orchestrator-* panes.',
-    input_schema: {
-      type: 'object',
-      properties: { pane_id: { type: 'string' } },
-      required: ['pane_id'],
-    },
-  },
-  {
-    name: 'create_task',
-    description: 'Create a Rust coordination task before delegating implementation work to a worker pane.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string' },
-        exclusive: { type: 'boolean', default: true },
-      },
-      required: ['title'],
-    },
-  },
-  {
-    name: 'claim_task',
-    description: 'Claim a task lease for the orchestrator or a worker before work starts.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        task_id: { type: 'string' },
-        agent_id: { type: 'string' },
-        lease_ms: { type: 'number', default: 300000 },
-      },
-      required: ['task_id', 'agent_id'],
-    },
-  },
-  {
-    name: 'report_task_status',
-    description: 'Record task status in the Rust event log.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        task_id: { type: 'string' },
-        status: { type: 'string' },
-      },
-      required: ['task_id', 'status'],
-    },
-  },
-  {
-    name: 'complete_task',
-    description: 'Complete a task with evidence after worker-pane verification.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        task_id: { type: 'string' },
-        agent_id: { type: 'string' },
-        evidence: { type: 'string' },
-      },
-      required: ['task_id', 'agent_id'],
-    },
-  },
-  {
-    name: 'list_tasks',
-    description: 'List current task board projection from the Rust event log.',
-    input_schema: { type: 'object', properties: {}, required: [] },
-  },
-  {
-    name: 'acquire_resource_lock',
-    description: 'Acquire a resource lock before assigning work that may edit or use that resource.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        resource_type: { type: 'string', enum: ['file', 'directory', 'command', 'port', 'git branch', 'pane ownership'] },
-        name: { type: 'string' },
-        owner_id: { type: 'string' },
-        lease_ms: { type: 'number', default: 300000 },
-      },
-      required: ['resource_type', 'name', 'owner_id'],
-    },
-  },
-  {
-    name: 'release_resource_lock',
-    description: 'Release a resource lock after the worker finishes or is blocked.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        resource_type: { type: 'string' },
-        name: { type: 'string' },
-        owner_id: { type: 'string' },
-      },
-      required: ['resource_type', 'name', 'owner_id'],
-    },
-  },
-  {
-    name: 'build_context_pack',
-    description: 'Build a compact Rust context pack for a task before delegating it to a worker pane.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        task_id: { type: 'string' },
-        agent_id: { type: 'string' },
-        user_constraints: { type: 'array', items: { type: 'string' } },
-        manager_instructions: { type: 'string' },
-        raw_scrollback: { type: 'string' },
-      },
-      required: [],
-    },
-  },
-];
+export const PUPPET_MASTER_TOOLS: ToolDef[] = [];
 
 /** Executes the 5 MCP tools — via Tauri in the desktop app, or HTTP bridge externally. */
 export interface McpToolExecutor {
+  listToolDefinitions?(): Promise<ToolDef[]>;
   listPanes(): Promise<PaneInfo[]>;
   spawnPane(args: {
     agent_type: string;
@@ -300,6 +83,14 @@ export interface McpToolExecutor {
     owner_id: string;
   }): Promise<unknown>;
   buildContextPack(args: ContextPackRequest): Promise<unknown>;
+  readSessionContext(): Promise<unknown>;
+  updateSessionContext(args: { current_goal?: string | null }): Promise<unknown>;
+  setPaneRole(paneId: string, role: PaneRole): Promise<unknown>;
+  readPaneDigest(paneId: string): Promise<unknown>;
+  updatePaneDigest(args: { pane_id: string; summary: string; source?: string }): Promise<unknown>;
+  delegateTask(args: DelegateTaskRequest): Promise<unknown>;
+  readOrchestratorState(): Promise<unknown>;
+  updateOrchestratorState(args: Partial<OrchestratorStateProjection>): Promise<unknown>;
 }
 
 function bridgeRequiredTool(name: string): never {
@@ -328,12 +119,30 @@ export function makeTauriExecutor(): McpToolExecutor {
     acquireResourceLock: () => bridgeRequiredTool('acquire_resource_lock'),
     releaseResourceLock: () => bridgeRequiredTool('release_resource_lock'),
     buildContextPack: () => bridgeRequiredTool('build_context_pack'),
+    readSessionContext: () => bridgeRequiredTool('read_session_context'),
+    updateSessionContext: () => bridgeRequiredTool('update_session_context'),
+    setPaneRole: () => bridgeRequiredTool('set_pane_role'),
+    readPaneDigest: () => bridgeRequiredTool('read_pane_digest'),
+    updatePaneDigest: () => bridgeRequiredTool('update_pane_digest'),
+    delegateTask: () => bridgeRequiredTool('delegate_task'),
+    readOrchestratorState: () => bridgeRequiredTool('read_orchestrator_state'),
+    updateOrchestratorState: () => bridgeRequiredTool('update_orchestrator_state'),
   };
 }
 
 /** HTTP bridge path — for external MCP clients and optional fallback. */
 export function makeBridgeExecutor(bridge: BridgeClient): McpToolExecutor {
   return {
+    listToolDefinitions: async () => {
+      const tools = await bridge.listMcpTools();
+      return tools
+        .filter((tool) => tool.visibility.sidebar)
+        .map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          input_schema: tool.inputSchema,
+        }));
+    },
     listPanes: () => bridge.listPanes(),
     spawnPane: (args) => bridge.spawnPane(args),
     killPane: (id) => bridge.killPane(id),
@@ -350,7 +159,25 @@ export function makeBridgeExecutor(bridge: BridgeClient): McpToolExecutor {
     acquireResourceLock: (args) => bridge.acquireResourceLock(args),
     releaseResourceLock: (args) => bridge.releaseResourceLock(args),
     buildContextPack: (args) => bridge.buildContextPack(args),
+    readSessionContext: () => bridge.readSessionContext(),
+    updateSessionContext: (args) => bridge.updateSessionContext(args),
+    setPaneRole: (paneId, role) => bridge.setPaneRole(paneId, role),
+    readPaneDigest: (paneId) => bridge.readPaneDigest(paneId),
+    updatePaneDigest: (args) => bridge.updatePaneDigest(args),
+    delegateTask: (args) => bridge.delegateTask(args),
+    readOrchestratorState: () => bridge.readOrchestratorState(),
+    updateOrchestratorState: (args) => bridge.updateOrchestratorState(args),
   };
+}
+
+export async function loadPuppetMasterTools(executor: McpToolExecutor): Promise<ToolDef[]> {
+  if (!executor.listToolDefinitions) return PUPPET_MASTER_TOOLS;
+  try {
+    const tools = await executor.listToolDefinitions();
+    return tools.length > 0 ? tools : PUPPET_MASTER_TOOLS;
+  } catch {
+    return PUPPET_MASTER_TOOLS;
+  }
 }
 
 export async function executeMcpTool(
@@ -520,6 +347,52 @@ export async function executeMcpTool(
       }
       case 'build_context_pack': {
         result = JSON.stringify(await executor.buildContextPack(args as ContextPackRequest), null, 2);
+        break;
+      }
+      case 'read_session_context': {
+        result = JSON.stringify(await executor.readSessionContext(), null, 2);
+        break;
+      }
+      case 'update_session_context': {
+        result = JSON.stringify(
+          await executor.updateSessionContext(args as { current_goal?: string | null }),
+          null,
+          2,
+        );
+        break;
+      }
+      case 'set_pane_role': {
+        const a = args as { pane_id: string; role: PaneRole };
+        result = JSON.stringify(await executor.setPaneRole(a.pane_id, a.role), null, 2);
+        break;
+      }
+      case 'read_pane_digest': {
+        const a = args as { pane_id: string };
+        result = JSON.stringify(await executor.readPaneDigest(a.pane_id), null, 2);
+        break;
+      }
+      case 'update_pane_digest': {
+        result = JSON.stringify(
+          await executor.updatePaneDigest(args as { pane_id: string; summary: string; source?: string }),
+          null,
+          2,
+        );
+        break;
+      }
+      case 'delegate_task': {
+        result = JSON.stringify(await executor.delegateTask(args as unknown as DelegateTaskRequest), null, 2);
+        break;
+      }
+      case 'read_orchestrator_state': {
+        result = JSON.stringify(await executor.readOrchestratorState(), null, 2);
+        break;
+      }
+      case 'update_orchestrator_state': {
+        result = JSON.stringify(
+          await executor.updateOrchestratorState(args as Partial<OrchestratorStateProjection>),
+          null,
+          2,
+        );
         break;
       }
       default:

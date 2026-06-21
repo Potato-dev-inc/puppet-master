@@ -40,33 +40,42 @@ pub struct McpStatusReport {
     pub repair_results: Vec<EnsureMcpResult>,
 }
 
+#[allow(dead_code)]
 pub fn get_mcp_status(cwd: &Path, auto_repair: bool) -> Result<McpStatusReport, String> {
+    get_mcp_status_with_preference(cwd, auto_repair, false)
+}
+
+pub fn get_mcp_status_with_preference(
+    cwd: &Path,
+    auto_repair: bool,
+    use_rust_mcp: bool,
+) -> Result<McpStatusReport, String> {
     let cwd = crate::project_path::normalize_project_path(cwd)?;
     let port_file_path = crate::app_paths::bridge_port_file();
     let port_file_exists = port_file_path.is_file();
     let (bridge_reachable, bridge_url, bridge_version) = probe_bridge_health(&port_file_path);
     let (node_available, npm_available, npm_package_version) = probe_node_and_npm();
-    let launch = crate::mcp_runtime::npm_mcp_launch_spec();
-    let launch_command = format!(
-        "{} {}",
-        launch.command,
-        launch.args.join(" ")
-    );
+    let launch = if use_rust_mcp {
+        crate::mcp_runtime::mcp_launch_spec()
+    } else {
+        crate::mcp_runtime::npm_mcp_launch_spec()
+    };
+    let launch_command = format!("{} {}", launch.command, launch.args.join(" "));
 
     let mut repair_results = Vec::new();
     if auto_repair {
-        repair_results = mcp_install::install_npm_mcp_configs(&cwd)?;
+        repair_results = mcp_install::install_mcp_configs_with_preference(&cwd, use_rust_mcp)?;
     }
 
+    let source = mcp_install::launch_source_from_developer_setting(use_rust_mcp);
     let backends = vec![
-        inspect_claude_status(&cwd),
-        inspect_codex_status(&cwd),
-        inspect_opencode_status(&cwd),
+        inspect_claude_status(&cwd, source),
+        inspect_codex_status(&cwd, source),
+        inspect_opencode_status(&cwd, source),
     ];
 
     let orchestrators_ready = backends.iter().all(|backend| backend.installed);
-    let overall_ready =
-        bridge_reachable && npm_available && node_available && orchestrators_ready;
+    let overall_ready = bridge_reachable && npm_available && node_available && orchestrators_ready;
 
     Ok(McpStatusReport {
         bridge_reachable,
@@ -84,10 +93,11 @@ pub fn get_mcp_status(cwd: &Path, auto_repair: bool) -> Result<McpStatusReport, 
     })
 }
 
-fn inspect_claude_status(cwd: &Path) -> McpBackendStatus {
+fn inspect_claude_status(cwd: &Path, source: mcp_install::McpLaunchSource) -> McpBackendStatus {
     let config_path = cwd.join(".mcp.json");
     let installed = mcp_install::claude_mcp_installed_public(cwd);
-    let uses_npm = mcp_install::claude_mcp_uses_npm_public(cwd);
+    let uses_npm = source == mcp_install::McpLaunchSource::NpmPackage
+        && mcp_install::claude_mcp_uses_npm_public(cwd);
     McpBackendStatus {
         backend: "claude_cli".into(),
         label: "Claude Code (project)".into(),
@@ -98,7 +108,7 @@ fn inspect_claude_status(cwd: &Path) -> McpBackendStatus {
             if uses_npm {
                 "Configured via npx @puppet-master/mcp".into()
             } else {
-                "Configured with a local/bundled script — reinstall to switch to npm".into()
+                "Configured with a local/bundled MCP runtime".into()
             }
         } else {
             "Missing .mcp.json approval or puppet-master entry".into()
@@ -106,13 +116,12 @@ fn inspect_claude_status(cwd: &Path) -> McpBackendStatus {
     }
 }
 
-fn inspect_codex_status(cwd: &Path) -> McpBackendStatus {
+fn inspect_codex_status(cwd: &Path, source: mcp_install::McpLaunchSource) -> McpBackendStatus {
     let config_path = cwd.join(".codex").join("config.toml");
     let content = fs::read_to_string(&config_path).unwrap_or_default();
     let installed = mcp_install::codex_has_puppet_master_public(&content)
-        && !mcp_install::codex_needs_refresh_public(&content);
-    let uses_npm = content.contains("command = \"npx\"")
-        && content.contains(NPM_PACKAGE);
+        && !mcp_install::codex_needs_refresh_with_source_public(&content, source);
+    let uses_npm = content.contains("command = \"npx\"") && content.contains(NPM_PACKAGE);
     McpBackendStatus {
         backend: "codex_cli".into(),
         label: "Codex CLI (project)".into(),
@@ -123,7 +132,7 @@ fn inspect_codex_status(cwd: &Path) -> McpBackendStatus {
             if uses_npm {
                 "Configured via npx @puppet-master/mcp".into()
             } else {
-                "Configured with a local/bundled script — reinstall to switch to npm".into()
+                "Configured with a local/bundled MCP runtime".into()
             }
         } else {
             "Missing or outdated .codex/config.toml entry".into()
@@ -131,10 +140,11 @@ fn inspect_codex_status(cwd: &Path) -> McpBackendStatus {
     }
 }
 
-fn inspect_opencode_status(cwd: &Path) -> McpBackendStatus {
+fn inspect_opencode_status(cwd: &Path, source: mcp_install::McpLaunchSource) -> McpBackendStatus {
     let config_path = cwd.join("opencode.json");
-    let installed = mcp_install::opencode_mcp_installed_public(cwd);
-    let uses_npm = mcp_install::opencode_mcp_uses_npm_public(cwd);
+    let installed = mcp_install::opencode_mcp_installed_with_source_public(cwd, source);
+    let uses_npm = source == mcp_install::McpLaunchSource::NpmPackage
+        && mcp_install::opencode_mcp_uses_npm_public(cwd);
     McpBackendStatus {
         backend: "opencode_cli".into(),
         label: "OpenCode (project)".into(),
@@ -145,7 +155,7 @@ fn inspect_opencode_status(cwd: &Path) -> McpBackendStatus {
             if uses_npm {
                 "Configured via npx @puppet-master/mcp".into()
             } else {
-                "Configured with a local/bundled script — reinstall to switch to npm".into()
+                "Configured with a local/bundled MCP runtime".into()
             }
         } else {
             "Missing or outdated opencode.json entry".into()
@@ -172,13 +182,11 @@ fn probe_bridge_health(port_file: &Path) -> (bool, Option<String>, Option<String
                 .ok()
                 .and_then(|json| json.get("ok").and_then(Value::as_bool))
                 .unwrap_or(false);
-            let version = serde_json::from_str::<Value>(&body)
-                .ok()
-                .and_then(|json| {
-                    json.get("version")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                });
+            let version = serde_json::from_str::<Value>(&body).ok().and_then(|json| {
+                json.get("version")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            });
             (ok, Some(url), version)
         }
         Err(_) => (false, Some(url), None),
@@ -191,7 +199,9 @@ fn parse_bridge_endpoint(raw: &str) -> Option<(String, u16)> {
         let port = port_str.parse().ok()?;
         return Some((host.to_string(), port));
     }
-    raw.parse::<u16>().ok().map(|port| ("127.0.0.1".into(), port))
+    raw.parse::<u16>()
+        .ok()
+        .map(|port| ("127.0.0.1".into(), port))
 }
 
 fn http_get(url: &str) -> Result<String, String> {
@@ -209,9 +219,7 @@ fn http_get(url: &str) -> Result<String, String> {
         .set_read_timeout(Some(Duration::from_millis(1500)))
         .map_err(|err| err.to_string())?;
     let host = authority.split(':').next().unwrap_or(authority);
-    let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
-    );
+    let request = format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
     stream
         .write_all(request.as_bytes())
         .map_err(|err| err.to_string())?;
@@ -309,8 +317,15 @@ fn which_executable(name: &str) -> Option<String> {
 }
 
 fn npm_view_version() -> Option<String> {
-    run_npm_view(&["view", NPM_PACKAGE, "version"])
-        .or_else(|| run_npm_view(&["view", NPM_PACKAGE, "version", "--registry", "https://registry.npmjs.org"]))
+    run_npm_view(&["view", NPM_PACKAGE, "version"]).or_else(|| {
+        run_npm_view(&[
+            "view",
+            NPM_PACKAGE,
+            "version",
+            "--registry",
+            "https://registry.npmjs.org",
+        ])
+    })
 }
 
 fn run_npm_view(args: &[&str]) -> Option<String> {
@@ -330,7 +345,11 @@ fn run_npm_view(args: &[&str]) -> Option<String> {
             return None;
         }
         let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        return if version.is_empty() { None } else { Some(version) };
+        return if version.is_empty() {
+            None
+        } else {
+            Some(version)
+        };
     }
     #[cfg(not(windows))]
     {
@@ -361,7 +380,10 @@ mod tests {
             parse_bridge_endpoint("127.0.0.1:17321"),
             Some(("127.0.0.1".into(), 17321))
         );
-        assert_eq!(parse_bridge_endpoint("17321"), Some(("127.0.0.1".into(), 17321)));
+        assert_eq!(
+            parse_bridge_endpoint("17321"),
+            Some(("127.0.0.1".into(), 17321))
+        );
     }
 
     #[test]

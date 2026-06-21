@@ -15,6 +15,7 @@ export type PublicSettings = Pick<
   | 'default_model'
   | 'mobile_input_delay_ms'
   | 'mobile_input_visible'
+  | 'developer_use_rust_mcp'
 >;
 
 export function toPublicSettings(settings: Settings): PublicSettings {
@@ -24,6 +25,7 @@ export function toPublicSettings(settings: Settings): PublicSettings {
     default_model: settings.default_model ?? 'claude-sonnet-4-6',
     mobile_input_delay_ms: clampMobileInputDelayMs(settings.mobile_input_delay_ms),
     mobile_input_visible: settings.mobile_input_visible ?? true,
+    developer_use_rust_mcp: settings.developer_use_rust_mcp ?? false,
   };
 }
 
@@ -33,6 +35,7 @@ export const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
   default_model: 'claude-sonnet-4-6',
   mobile_input_delay_ms: 250,
   mobile_input_visible: true,
+  developer_use_rust_mcp: false,
 };
 
 export function isOrchestratorBackend(value: string): value is OrchestratorBackend {

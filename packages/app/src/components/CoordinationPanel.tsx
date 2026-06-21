@@ -4,12 +4,21 @@ import type {
   BridgeClient,
   ContextPack,
   LockProjection,
+  McpRegistryTool,
+  SessionContextProjection,
   TaskProjection,
   WorkspaceStateProjection,
 } from '../lib/bridge';
 import type { AgentContextProfile } from '@puppet-master/shared';
+import {
+  buildDelegationPreviewRequest,
+  latestTimelineItems,
+  lockConflictTitle,
+  mcpHealthLabel,
+  paneRoleLabel,
+} from './coordination-panel-model';
 
-type TabKey = 'overview' | 'tasks' | 'locks' | 'audit' | 'context' | 'agents';
+type TabKey = 'overview' | 'tasks' | 'locks' | 'audit' | 'session' | 'context' | 'agents';
 
 interface Props {
   bridge: BridgeClient | null;
@@ -22,6 +31,8 @@ interface CoordinationSnapshot {
   locks: LockProjection[];
   audit: AuditEntryProjection[];
   agents: AgentContextProfile[];
+  session: SessionContextProjection | null;
+  mcpTools: McpRegistryTool[];
 }
 
 const emptySnapshot: CoordinationSnapshot = {
@@ -30,6 +41,8 @@ const emptySnapshot: CoordinationSnapshot = {
   locks: [],
   audit: [],
   agents: [],
+  session: null,
+  mcpTools: [],
 };
 
 function shortId(id: string): string {
@@ -53,6 +66,7 @@ export function CoordinationPanel({ bridge, bridgeReady }: Props) {
   const [taskTitle, setTaskTitle] = useState('Review coordination kernel UI');
   const [lockName, setLockName] = useState('README.md');
   const [contextPack, setContextPack] = useState<ContextPack | null>(null);
+  const [delegationPreview, setDelegationPreview] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedLockId, setSelectedLockId] = useState<string | null>(null);
@@ -70,19 +84,22 @@ export function CoordinationPanel({ bridge, bridgeReady }: Props) {
     if (!bridge || !bridgeReady) {
       setSnapshot(emptySnapshot);
       setContextPack(null);
+      setDelegationPreview(null);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const [workspace, tasks, locks, audit, agents] = await Promise.all([
+      const [workspace, tasks, locks, audit, agents, session, mcpTools] = await Promise.all([
         bridge.getWorkspaceState(),
         bridge.listTasks(),
         bridge.listLocks(),
         bridge.getAudit(),
         bridge.listAgentContexts(),
+        bridge.readSessionContext(),
+        bridge.listMcpTools(),
       ]);
-      setSnapshot({ workspace, tasks, locks, audit, agents });
+      setSnapshot({ workspace, tasks, locks, audit, agents, session, mcpTools });
       setSelectedTaskId((current) => current && tasks.some((task) => task.id === current) ? current : tasks[0]?.id ?? null);
       setSelectedLockId((current) => current && locks.some((lock) => lock.resource_id === current) ? current : locks[0]?.resource_id ?? null);
     } catch (err) {
@@ -219,11 +236,48 @@ export function CoordinationPanel({ bridge, bridgeReady }: Props) {
     }
   }, [bridge, selectedTask, snapshot.audit]);
 
+  const previewDelegation = useCallback(async () => {
+    if (!bridge) return;
+    setActionBusy(true);
+    try {
+      const request = buildDelegationPreviewRequest(
+        selectedTask,
+        snapshot.locks,
+        snapshot.session?.current_goal,
+      );
+      const preview = await bridge.delegateTask(request);
+      setDelegationPreview(preview.prompt);
+      setTab('context');
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActionBusy(false);
+    }
+  }, [bridge, refresh, selectedTask, snapshot.locks, snapshot.session?.current_goal]);
+
   const deleteContextPack = useCallback(() => {
     setContextPack(null);
+    setDelegationPreview(null);
   }, []);
 
   const recentAudit = useMemo(() => snapshot.audit.slice(-8).reverse(), [snapshot.audit]);
+  const recentTimeline = useMemo(
+    () => latestTimelineItems(snapshot.session?.timeline ?? []),
+    [snapshot.session?.timeline],
+  );
+  const recentConflicts = useMemo(
+    () => latestTimelineItems(
+      (snapshot.session?.lock_conflicts ?? []).map((conflict) => ({
+        timestamp_ms: conflict.timestamp_ms,
+        actor: conflict.existing_owner_id,
+        event_type: lockConflictTitle(conflict),
+        summary: `owned by ${conflict.existing_owner_id}`,
+      })),
+      3,
+    ),
+    [snapshot.session?.lock_conflicts],
+  );
 
   return (
     <section className="pm-coordination">
@@ -240,7 +294,7 @@ export function CoordinationPanel({ bridge, bridgeReady }: Props) {
       {error && <div className="pm-coordination-error">{error}</div>}
 
       <div className="pm-coordination-tabs" role="tablist" aria-label="Coordination views">
-        {(['overview', 'tasks', 'locks', 'audit', 'context', 'agents'] as TabKey[]).map((key) => (
+        {(['overview', 'tasks', 'locks', 'audit', 'session', 'context', 'agents'] as TabKey[]).map((key) => (
           <button
             key={key}
             type="button"
@@ -254,11 +308,22 @@ export function CoordinationPanel({ bridge, bridgeReady }: Props) {
 
       <div className="pm-coordination-body">
         {tab === 'overview' && (
-          <div className="pm-coordination-overview">
-            <Metric label="Panes" value={String(snapshot.workspace?.panes.length ?? 0)} />
-            <Metric label="Tasks" value={String(snapshot.tasks.length)} />
-            <Metric label="Locks" value={String(snapshot.locks.length)} />
-            <Metric label="Events" value={String(snapshot.audit.length)} />
+          <div className="pm-coordination-stack">
+            <div className="pm-coordination-overview">
+              <Metric label="Panes" value={String(snapshot.workspace?.panes.length ?? 0)} />
+              <Metric label="Tasks" value={String(snapshot.tasks.length)} />
+              <Metric label="Locks" value={String(snapshot.locks.length)} />
+              <Metric label="Events" value={String(snapshot.audit.length)} />
+              <Metric label="MCP" value={mcpHealthLabel(bridgeReady, snapshot.mcpTools.length)} />
+            </div>
+            <DataList
+              empty="No panes projected yet."
+              items={(snapshot.workspace?.panes ?? []).map((pane) => ({
+                id: pane.pane_id,
+                title: pane.pane_id,
+                meta: `${pane.agent_type ?? 'unknown'} · ${paneRoleLabel(pane.role)} · ${pane.status}`,
+              }))}
+            />
           </div>
         )}
 
@@ -321,6 +386,16 @@ export function CoordinationPanel({ bridge, bridgeReady }: Props) {
                 Selected lock: <code>{shortId(selectedLock.resource_id)}</code> · {selectedLock.owner}
               </div>
             )}
+            {recentConflicts.length > 0 && (
+              <DataList
+                empty="No lock conflicts."
+                items={recentConflicts.map((entry) => ({
+                  id: `${entry.event_type}-${entry.timestamp_ms}`,
+                  title: entry.event_type,
+                  meta: entry.summary,
+                }))}
+              />
+            )}
             <DataList
               empty="No resource locks."
               selectedId={selectedLock?.resource_id}
@@ -345,13 +420,33 @@ export function CoordinationPanel({ bridge, bridgeReady }: Props) {
           />
         )}
 
+        {tab === 'session' && (
+          <div className="pm-coordination-stack">
+            <div className="pm-coordination-selection">
+              Goal: {snapshot.session?.current_goal ? <code>{snapshot.session.current_goal}</code> : 'unset'}
+              {' '}· standby {snapshot.session?.orchestrator.standby_poll_ms ?? 1500}ms/{snapshot.session?.orchestrator.standby_max_ms ?? 600000}ms
+            </div>
+            <DataList
+              empty="No session timeline events yet."
+              items={recentTimeline.map((entry) => ({
+                id: `${entry.event_type}-${entry.timestamp_ms}`,
+                title: entry.event_type,
+                meta: `${entry.actor} · ${entry.summary}`,
+              }))}
+            />
+          </div>
+        )}
+
         {tab === 'context' && (
           <div className="pm-coordination-stack">
             <div className="pm-coordination-inline">
               <button type="button" disabled={!bridgeReady || actionBusy} onClick={() => void buildContextPack()}>
                 Build context pack
               </button>
-              <button type="button" disabled={!contextPack || actionBusy} onClick={deleteContextPack}>
+              <button type="button" disabled={!bridgeReady || actionBusy} onClick={() => void previewDelegation()}>
+                Preview delegation
+              </button>
+              <button type="button" disabled={(!contextPack && !delegationPreview) || actionBusy} onClick={deleteContextPack}>
                 Delete
               </button>
               {contextPack && (
@@ -362,6 +457,8 @@ export function CoordinationPanel({ bridge, bridgeReady }: Props) {
             </div>
             {contextPack ? (
               <pre className="pm-coordination-pre">{contextPack.prompt}</pre>
+            ) : delegationPreview ? (
+              <pre className="pm-coordination-pre">{delegationPreview}</pre>
             ) : (
               <div className="pm-coordination-empty">No context pack built yet.</div>
             )}

@@ -12,6 +12,7 @@ import {
   MobileInputGuard,
   type MobileInputDelivery,
 } from './mobile-input-guard';
+import { configureDesktopXtermTextarea, isTerminalPasteShortcut } from './xterm-textarea';
 import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
@@ -49,6 +50,8 @@ export class TerminalSession {
   private muteOnData = false;
   private readonly mirrorEchoFilter = new MirrorEchoFilter();
   private focusCleanup: (() => void) | null = null;
+  private pasteCleanup: (() => void) | null = null;
+  private clipboardShortcutCleanup: (() => void) | null = null;
   private openFrame: number | null = null;
   private resizeFrame: number | null = null;
   private refreshFrame: number | null = null;
@@ -248,6 +251,12 @@ export class TerminalSession {
     this.focusCleanup?.();
     this.focusCleanup = null;
 
+    this.pasteCleanup?.();
+    this.pasteCleanup = null;
+
+    this.clipboardShortcutCleanup?.();
+    this.clipboardShortcutCleanup = null;
+
     this.inputBatcher?.dispose();
     this.inputBatcher = null;
 
@@ -293,6 +302,68 @@ export class TerminalSession {
     });
   }
 
+  private installPasteFallback(
+    container: HTMLElement,
+    terminal: Terminal,
+    mobileMirror: boolean,
+  ): void {
+    if (mobileMirror) return;
+
+    const onPaste = (event: ClipboardEvent) => {
+      const text = event.clipboardData?.getData('text/plain');
+      if (!text) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      terminal.focus();
+      this.inputBatcher?.flushNow();
+      terminal.paste(text);
+      this.scrollToCursor();
+      this.scheduleRefresh();
+    };
+
+    container.addEventListener('paste', onPaste, true);
+    this.pasteCleanup = () => {
+      container.removeEventListener('paste', onPaste, true);
+    };
+  }
+
+  private installClipboardShortcutFallback(
+    container: HTMLElement,
+    terminal: Terminal,
+    mobileMirror: boolean,
+  ): void {
+    if (mobileMirror) return;
+
+    const pasteFromClipboard = async (event: KeyboardEvent) => {
+      if (!isTerminalPasteShortcut(event)) return;
+      const clipboard = navigator.clipboard;
+      if (!clipboard?.readText) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      let text = '';
+      try {
+        text = await clipboard.readText();
+      } catch {
+        return;
+      }
+      if (!text || this.disposed) return;
+
+      terminal.focus();
+      this.inputBatcher?.flushNow();
+      terminal.paste(text);
+      this.scrollToCursor();
+      this.scheduleRefresh();
+    };
+
+    container.addEventListener('keydown', pasteFromClipboard, true);
+    this.clipboardShortcutCleanup = () => {
+      container.removeEventListener('keydown', pasteFromClipboard, true);
+    };
+  }
+
   private installFocusHandlers(container: HTMLElement): void {
     if (this.mobileInputGuard) {
       return;
@@ -321,14 +392,7 @@ export class TerminalSession {
         configureXtermTextareaForMobileMirror(textarea);
         return;
       }
-      textarea.style.position = 'fixed';
-      textarea.style.bottom = '80px';
-      textarea.style.left = '220px';
-      textarea.style.top = 'auto';
-      textarea.style.width = '1px';
-      textarea.style.height = '20px';
-      textarea.style.opacity = '0';
-      textarea.style.zIndex = '10';
+      configureDesktopXtermTextarea(container, textarea);
     };
 
     if (textarea) {
@@ -336,6 +400,8 @@ export class TerminalSession {
       this.imeObserver.observe(textarea, { attributes: true, attributeFilter: ['style'] });
     }
     fixImePosition();
+    this.installPasteFallback(container, terminal, mobileMirror);
+    this.installClipboardShortcutFallback(container, terminal, mobileMirror);
 
     if (mobileMirror) {
       const emitMobileInput = (text: string, delivery: MobileInputDelivery) => {
