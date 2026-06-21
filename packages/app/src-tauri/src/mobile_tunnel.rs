@@ -1,4 +1,5 @@
 //! Production mobile tunnel — bundled cloudflared + loopback PWA server.
+#![allow(dead_code)]
 
 use parking_lot::Mutex;
 use regex::Regex;
@@ -22,7 +23,7 @@ struct TunnelState {
     tunnel_url: Option<String>,
     tunnel_provider: Option<String>,
     bridge_direct_url: Option<String>,
-    cloudflared_child: Option<Child>,
+    _cloudflared_child: Option<Child>,
     _pwa_server: Option<pwa_server::PwaServerHandle>,
 }
 
@@ -32,7 +33,7 @@ impl TunnelState {
             tunnel_url: None,
             tunnel_provider: None,
             bridge_direct_url: None,
-            cloudflared_child: None,
+            _cloudflared_child: None,
             _pwa_server: None,
         }
     }
@@ -60,7 +61,7 @@ impl TunnelState {
     }
 }
 
-pub fn tunnel_state() -> Arc<Mutex<TunnelState>> {
+fn tunnel_state() -> Arc<Mutex<TunnelState>> {
     TUNNEL_STATE
         .get_or_init(|| Arc::new(Mutex::new(TunnelState::new())))
         .clone()
@@ -87,10 +88,7 @@ pub fn get_mobile_tunnel_info() -> DevInfoPayload {
     tunnel_state().lock().dev_info_payload()
 }
 
-pub fn start_mobile_tunnel(
-    app: &AppHandle,
-    bridge_direct_url: String,
-) -> Result<(), String> {
+pub fn start_mobile_tunnel(app: &AppHandle, bridge_direct_url: String) -> Result<(), String> {
     if !is_tunnel_enabled() {
         tracing::info!("mobile tunnel disabled (PUPPET_MASTER_TUNNEL=0)");
         return Ok(());
@@ -107,8 +105,7 @@ pub fn start_mobile_tunnel(
 
     let dev_info_supplier: Arc<dyn Fn() -> DevInfoPayload + Send + Sync> =
         Arc::new(|| get_mobile_tunnel_info());
-    let pwa_server =
-        pwa_server::start_pwa_server(dist_root, bridge_port_file, dev_info_supplier)?;
+    let pwa_server = pwa_server::start_pwa_server(dist_root, bridge_port_file, dev_info_supplier)?;
     {
         let mut guard = state.lock();
         guard._pwa_server = Some(pwa_server);
@@ -154,7 +151,7 @@ pub fn start_mobile_tunnel(
 
     {
         let mut guard = state.lock();
-        guard.cloudflared_child = Some(child);
+        guard._cloudflared_child = Some(child);
         guard.tunnel_provider = Some("cloudflared".into());
     }
 
@@ -177,10 +174,7 @@ fn watch_cloudflared_stream(reader: BufReader<impl std::io::Read>, state: Arc<Mu
 }
 
 fn resolve_pwa_dist_root(app: &AppHandle) -> Result<PathBuf, String> {
-    if let Ok(path) = app
-        .path()
-        .resolve("pwa-dist", BaseDirectory::Resource)
-    {
+    if let Ok(path) = app.path().resolve("pwa-dist", BaseDirectory::Resource) {
         if path.is_dir() {
             return Ok(path);
         }
@@ -226,10 +220,7 @@ mod tests {
     #[test]
     fn custom_public_url_strips_bridge_suffix() {
         std::env::set_var("PUPPET_MASTER_PUBLIC_URL", "https://example.com/bridge/");
-        assert_eq!(
-            custom_public_url().as_deref(),
-            Some("https://example.com")
-        );
+        assert_eq!(custom_public_url().as_deref(), Some("https://example.com"));
         std::env::remove_var("PUPPET_MASTER_PUBLIC_URL");
     }
 }

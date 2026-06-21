@@ -7,14 +7,17 @@ import {
   type McpLogEntry,
   type OrchestratorBackend,
   type OrchestratorChatEvent,
+  isOrchestratorPaneId,
 } from '@puppet-master/shared';
 import type { BridgeClient } from '../lib/bridge';
 import type { ChatMessage } from '../lib/llm';
 import { runPuppetMasterLoop } from '../lib/puppet-master';
 import { runPuppetMasterCliLoop } from '../lib/puppet-master-cli';
-import { makeTauriExecutor } from '../lib/mcp-tools';
+import { makeBridgeExecutor, makeTauriExecutor } from '../lib/mcp-tools';
 import { findModel, getApiKey, invalidateSettingsCache, listModels, loadSettings, saveSettings } from '../lib/settings';
 import { tauri } from '../lib/tauri';
+import { approvePermissionIfPresent } from '../lib/tui-autopilot';
+import { classifyPaneAttention, compactPaneText, hashPaneText, type PaneAttention } from '../lib/pane-attention';
 import type { PaneRegistryApi } from '../hooks/usePaneRegistry';
 import { usePaneTunnel } from '../hooks/usePaneTunnel';
 import {
@@ -25,6 +28,7 @@ import {
 } from '../lib/orchestrator-panes';
 import { isValidProjectPath, projectPathsEqual } from '../lib/project-path';
 import { OrchestratorTerminal } from './OrchestratorTerminal';
+import { CoordinationPanel } from './CoordinationPanel';
 
 interface UiLogEntry {
   id: string;
@@ -41,6 +45,18 @@ interface UiMessage {
   role: 'user' | 'assistant' | 'system';
   text: string;
 }
+
+interface AttentionState {
+  kind: PaneAttention['kind'];
+  hash: string;
+  firstSeenAt: number;
+  lastNotifiedAt: number;
+  lastActionAt: number;
+}
+
+const ATTENTION_WAKE_AFTER_MS = 30_000;
+const ATTENTION_NOTIFY_DEBOUNCE_MS = 60_000;
+const AUTO_APPROVE_DEBOUNCE_MS = 2_500;
 
 interface Props {
   width: number;
@@ -75,7 +91,28 @@ export function PuppetMasterSidebar({
   const [orchestratorError, setOrchestratorError] = useState<string | null>(null);
   const [mcpStatus, setMcpStatus] = useState<string | null>(null);
   const [mcpLogHeight, setMcpLogHeight] = useState(128);
+  const [standbyPanes, setStandbyPanes] = useState<Array<{ id: string; status: string }>>([]);
   const abortRef = useRef<AbortController | null>(null);
+  const busyRef = useRef(busy);
+  const draftRef = useRef(draft);
+  const messagesRef = useRef(messages);
+  const backendRef = useRef(backend);
+  const modelRef = useRef(model);
+  const bridgeRef = useRef(bridge);
+  const paneLookupRef = useRef(registry.panes);
+  const lastDraftChangeRef = useRef(Date.now());
+  const attentionRef = useRef<Map<string, AttentionState>>(new Map());
+  const queuedWakeRef = useRef<string | null>(null);
+  const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wakeRunnerRef = useRef<((text: string) => Promise<void>) | null>(null);
+
+  useEffect(() => { busyRef.current = busy; }, [busy]);
+  useEffect(() => { draftRef.current = draft; lastDraftChangeRef.current = Date.now(); }, [draft]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { backendRef.current = backend; }, [backend]);
+  useEffect(() => { modelRef.current = model; }, [model]);
+  useEffect(() => { bridgeRef.current = bridge; }, [bridge]);
+  useEffect(() => { paneLookupRef.current = registry.panes; }, [registry.panes]);
 
   const cliBackend = isCliOrchestratorBackend(backend) ? backend : null;
   const orchestratorPane = useMemo(() => {
@@ -109,6 +146,291 @@ export function PuppetMasterSidebar({
       setOrchestratorStarting(false);
     }
   }, [registry]);
+
+  const logAutoApprove = useCallback((paneId: string) => {
+    setLogs((prev) => {
+      const entry: UiLogEntry = {
+        id: crypto.randomUUID(),
+        ts: Date.now(),
+        source: 'builtin',
+        tool: 'auto-approve',
+        args: { pane_id: paneId },
+        result: 'permission prompt approved',
+      };
+      return [entry, ...prev].slice(0, 500);
+    });
+  }, []);
+
+  const runInternalWake = useCallback(async (text: string) => {
+    const settings = await loadSettings();
+    const activeBackend = settings.orchestrator_backend ?? backendRef.current;
+    const wakeMessage: UiMessage = {
+      id: crypto.randomUUID(),
+      role: 'system',
+      text,
+    };
+    setMessages((m) => [...m, wakeMessage]);
+
+    if (activeBackend === 'api') {
+      const activeModel = modelRef.current;
+      const apiKey = getApiKey(settings, activeModel.provider);
+      if (!apiKey) {
+        setMessages((m) => [
+          ...m,
+          { id: crypto.randomUUID(), role: 'system', text: `Worker needs attention, but no ${activeModel.provider} API key is set.` },
+        ]);
+        return;
+      }
+
+      const streamId = 'streaming-' + crypto.randomUUID();
+      setMessages((m) => [...m, { id: streamId, role: 'assistant', text: '' }]);
+      busyRef.current = true;
+      setBusy(true);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const history: ChatMessage[] = messagesRef.current
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m): ChatMessage =>
+          m.role === 'user'
+            ? { role: 'user', content: m.text }
+            : { role: 'assistant', content: [{ type: 'text', text: m.text }] },
+        );
+
+      await runPuppetMasterLoop(
+        activeModel,
+        apiKey,
+        bridgeRef.current ? makeBridgeExecutor(bridgeRef.current) : makeTauriExecutor(),
+        history,
+        text,
+        {
+          onAssistantText: (t) => {
+            setMessages((m) => {
+              const last = m[m.length - 1];
+              if (last && last.role === 'assistant' && last.id === streamId) {
+                return [...m.slice(0, -1), { ...last, text: last.text + t }];
+              }
+              return [...m, { id: streamId, role: 'assistant', text: t }];
+            });
+          },
+          onToolCall: (tool, args, result, error) => {
+            setLogs((prev) => {
+              const entry: UiLogEntry = {
+                id: crypto.randomUUID(),
+                ts: Date.now(),
+                source: 'builtin',
+                tool,
+                args,
+                result,
+                error,
+              };
+              return [entry, ...prev].slice(0, 500);
+            });
+          },
+          onComplete: () => {
+            busyRef.current = false;
+            setBusy(false);
+            setStandbyPanes([]);
+            abortRef.current = null;
+          },
+          onError: (err) => {
+            setMessages((m) => [
+              ...m,
+              { id: crypto.randomUUID(), role: 'system', text: `LLM error: ${err.message}` },
+            ]);
+            busyRef.current = false;
+            setBusy(false);
+            setStandbyPanes([]);
+            abortRef.current = null;
+          },
+          onStandby: (running) => setStandbyPanes(running),
+          onAutoApprove: logAutoApprove,
+        },
+        controller.signal,
+      );
+      return;
+    }
+
+    if (isCliOrchestratorBackend(activeBackend)) {
+      busyRef.current = true;
+      setBusy(true);
+      const streamId = 'streaming-' + crypto.randomUUID();
+      setMessages((m) => [...m, { id: streamId, role: 'assistant', text: '' }]);
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      await runPuppetMasterCliLoop(activeBackend, bridgeRef.current, text, {
+        onAssistantText: (t) => {
+          setMessages((m) => {
+            const last = m[m.length - 1];
+            if (last && last.role === 'assistant' && last.id === streamId) {
+              return [...m.slice(0, -1), { ...last, text: last.text + t }];
+            }
+            return [...m, { id: streamId, role: 'assistant', text: t }];
+          });
+        },
+        onToolCall: (tool, args, result, error) => {
+          setLogs((prev) => {
+            const entry: UiLogEntry = {
+              id: crypto.randomUUID(),
+              ts: Date.now(),
+              source: 'builtin',
+              tool,
+              args,
+              result,
+              error,
+            };
+            return [entry, ...prev].slice(0, 500);
+          });
+        },
+        onComplete: () => {
+          busyRef.current = false;
+          setBusy(false);
+          abortRef.current = null;
+        },
+        onError: (err) => {
+          setMessages((m) => [
+            ...m,
+            { id: crypto.randomUUID(), role: 'system', text: err.message },
+          ]);
+          busyRef.current = false;
+          setBusy(false);
+          abortRef.current = null;
+        },
+      }, controller.signal);
+    }
+  }, [logAutoApprove]);
+
+  useEffect(() => {
+    wakeRunnerRef.current = runInternalWake;
+  }, [runInternalWake]);
+
+  const tryRunQueuedWake = useCallback(() => {
+    if (wakeTimerRef.current) {
+      clearTimeout(wakeTimerRef.current);
+      wakeTimerRef.current = null;
+    }
+    const queued = queuedWakeRef.current;
+    if (!queued) return;
+    const userIsTyping = draftRef.current.trim().length > 0;
+    const draftIsFresh = Date.now() - lastDraftChangeRef.current < ATTENTION_WAKE_AFTER_MS;
+    if (busyRef.current || (userIsTyping && draftIsFresh)) {
+      wakeTimerRef.current = setTimeout(tryRunQueuedWake, 1000);
+      return;
+    }
+    queuedWakeRef.current = null;
+    void wakeRunnerRef.current?.(queued);
+  }, []);
+
+  const enqueueWake = useCallback((line: string) => {
+    const prefix = '[Worker pane action required]';
+    queuedWakeRef.current = queuedWakeRef.current
+      ? `${queuedWakeRef.current}\n${line}`
+      : `${prefix}\n${line}\n\nRead the affected pane buffers, then use press_key or write_terminal_input to unblock the workers. Complete or update tasks if the worker is done or failed.`;
+    tryRunQueuedWake();
+  }, [tryRunQueuedWake]);
+
+  const inspectPaneAttention = useCallback(async (paneId: string, snapshot?: string) => {
+    if (isOrchestratorPaneId(paneId)) return;
+    const paneData = paneLookupRef.current.get(paneId);
+    if (!paneData) return;
+
+    const currentSnapshot = snapshot ?? (await tauri.readSnapshot(paneId));
+    const buffer = currentSnapshot || (await tauri.readBuffer(paneId, 80));
+    const compact = compactPaneText(buffer);
+    const attention = classifyPaneAttention(compact, paneData.info);
+    const now = Date.now();
+    if (attention.kind === 'none') {
+      attentionRef.current.delete(paneId);
+      return;
+    }
+
+    const hash = hashPaneText(`${attention.kind}:${compact.slice(-3000)}`);
+    const existing = attentionRef.current.get(paneId);
+    const state: AttentionState =
+      existing && existing.kind === attention.kind && existing.hash === hash
+        ? existing
+        : {
+            kind: attention.kind,
+            hash,
+            firstSeenAt: now,
+            lastNotifiedAt: 0,
+            lastActionAt: 0,
+          };
+    attentionRef.current.set(paneId, state);
+
+    if (attention.kind === 'routine_permission') {
+      if (now - state.lastActionAt < AUTO_APPROVE_DEBOUNCE_MS) return;
+      state.lastActionAt = now;
+      const verdict = await approvePermissionIfPresent(makeTauriExecutor(), paneId);
+      if (verdict === 'approved') {
+        logAutoApprove(paneId);
+        setTimeout(() => {
+          void inspectPaneAttention(paneId);
+        }, 700);
+      }
+      return;
+    }
+
+    const paneStatus = paneData.status;
+    const stableMs = now - state.firstSeenAt;
+    const shouldWake =
+      paneStatus !== 'running' ||
+      attention.kind === 'report_ready' ||
+      stableMs >= ATTENTION_WAKE_AFTER_MS;
+    if (!shouldWake) {
+      setTimeout(() => {
+        void inspectPaneAttention(paneId);
+      }, ATTENTION_WAKE_AFTER_MS - stableMs);
+      return;
+    }
+    if (now - state.lastNotifiedAt < ATTENTION_NOTIFY_DEBOUNCE_MS) return;
+
+    state.lastNotifiedAt = now;
+    const excerpt = compact.slice(-420).replace(/\s+/g, ' ').trim();
+    enqueueWake(
+      `pane ${paneId} (${paneData.info.agent_type}, status=${paneStatus}) ${attention.reason}. Recent screen: ${excerpt}`,
+    );
+  }, [enqueueWake, logAutoApprove]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenSnapshot: (() => void) | null = null;
+    let unlistenStatus: (() => void) | null = null;
+    let unlistenPanesChanged: (() => void) | null = null;
+
+    const inspectKnownPanes = () => {
+      for (const pane of paneLookupRef.current.values()) {
+        if (!isOrchestratorPaneId(pane.info.id)) {
+          void inspectPaneAttention(pane.info.id);
+        }
+      }
+    };
+
+    void (async () => {
+      unlistenSnapshot = await tauri.onTerminalSnapshot((event) => {
+        void inspectPaneAttention(event.pane_id, event.snapshot);
+      });
+      unlistenStatus = await tauri.onPtyStatus((event) => {
+        void inspectPaneAttention(event.pane_id);
+      });
+      unlistenPanesChanged = await tauri.onPanesChanged(() => {
+        setTimeout(inspectKnownPanes, 250);
+      });
+      setTimeout(inspectKnownPanes, 250);
+      if (disposed) {
+        unlistenSnapshot?.();
+        unlistenStatus?.();
+        unlistenPanesChanged?.();
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlistenSnapshot?.();
+      unlistenStatus?.();
+      unlistenPanesChanged?.();
+    };
+  }, [inspectPaneAttention]);
 
   const orchestratorPaneId = orchestratorPane?.info.id;
   const orchestratorPaneCwd = orchestratorPane?.info.cwd;
@@ -228,7 +550,7 @@ export function PuppetMasterSidebar({
         await runPuppetMasterLoop(
           model,
           apiKey,
-          makeTauriExecutor(),
+          bridge ? makeBridgeExecutor(bridge) : makeTauriExecutor(),
           [],
           msg.text,
           {
@@ -257,6 +579,7 @@ export function PuppetMasterSidebar({
             },
             onComplete: () => {
               setBusy(false);
+              setStandbyPanes([]);
               abortRef.current = null;
               pushChat({ type: 'done', message_id: msg.message_id });
             },
@@ -266,9 +589,12 @@ export function PuppetMasterSidebar({
                 { id: crypto.randomUUID(), role: 'system', text: `LLM error: ${err.message}` },
               ]);
               setBusy(false);
+              setStandbyPanes([]);
               abortRef.current = null;
               pushChat({ type: 'error', message_id: msg.message_id, error: err.message });
             },
+            onStandby: (running) => setStandbyPanes(running),
+            onAutoApprove: logAutoApprove,
           },
           controller.signal,
         );
@@ -390,7 +716,7 @@ export function PuppetMasterSidebar({
       await runPuppetMasterLoop(
         model,
         apiKey,
-        makeTauriExecutor(),
+        bridge ? makeBridgeExecutor(bridge) : makeTauriExecutor(),
         history,
         text,
         {
@@ -419,6 +745,7 @@ export function PuppetMasterSidebar({
           },
           onComplete: () => {
             setBusy(false);
+            setStandbyPanes([]);
             abortRef.current = null;
           },
           onError: (err) => {
@@ -427,8 +754,11 @@ export function PuppetMasterSidebar({
               { id: crypto.randomUUID(), role: 'system', text: `LLM error: ${err.message}` },
             ]);
             setBusy(false);
+            setStandbyPanes([]);
             abortRef.current = null;
           },
+          onStandby: (running) => setStandbyPanes(running),
+          onAutoApprove: logAutoApprove,
         },
         controller.signal,
       );
@@ -470,11 +800,13 @@ export function PuppetMasterSidebar({
   const interrupt = useCallback(() => {
     abortRef.current?.abort();
     setBusy(false);
+    setStandbyPanes([]);
   }, []);
 
   const newChat = useCallback(() => {
     abortRef.current?.abort();
     setBusy(false);
+    setStandbyPanes([]);
     setMessages([]);
     setLogs([]);
     setDraft('');
@@ -662,6 +994,8 @@ export function PuppetMasterSidebar({
           </div>
         )}
 
+        <CoordinationPanel bridge={bridge} bridgeReady={bridgeReady} />
+
         <div
           role="separator"
           aria-orientation="horizontal"
@@ -696,6 +1030,14 @@ export function PuppetMasterSidebar({
 
       {!cliBackend && (
         <div className="border-t border-pm-border p-2">
+          {busy && standbyPanes.length > 0 && (
+            <div
+              className="text-[10px] text-pm-muted truncate mb-1"
+              title={standbyPanes.map((p) => p.id).join(', ')}
+            >
+              Standing by for: {standbyPanes.map((p) => p.id).join(', ')}
+            </div>
+          )}
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -724,7 +1066,11 @@ export function PuppetMasterSidebar({
               disabled={busy}
               className="px-2 py-1 text-xs rounded border border-pm-accent bg-pm-accent/20 text-pm-accent hover:bg-pm-accent/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {busy ? 'Working…' : 'Send'}
+              {busy
+                ? standbyPanes.length > 0
+                  ? `Waiting on ${standbyPanes.length}…`
+                  : 'Working…'
+                : 'Send'}
             </button>
           </div>
         </div>

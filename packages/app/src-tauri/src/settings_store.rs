@@ -61,15 +61,9 @@ pub fn patch_public_settings(app: &AppHandle, patch: Value) -> Value {
     let _ = app.emit("settings://changed", merged.clone());
     crate::bridge::push_settings_sse(&merged);
 
-    if let Some(backend) = merged
-        .get("orchestrator_backend")
-        .and_then(Value::as_str)
-    {
+    if let Some(backend) = merged.get("orchestrator_backend").and_then(Value::as_str) {
         if backend != "api" {
-            let _ = app.emit(
-                "orchestrator://ensure",
-                json!({ "backend": backend }),
-            );
+            let _ = app.emit("orchestrator://ensure", json!({ "backend": backend }));
         }
     }
 

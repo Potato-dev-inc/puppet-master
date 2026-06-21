@@ -100,9 +100,8 @@ fn read_json_safe(path: &Path) -> Option<Value> {
 
 fn write_json_pretty(path: &Path, value: &Value) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| {
-            format!("could not create {}: {err}", parent.display())
-        })?;
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("could not create {}: {err}", parent.display()))?;
     }
     let text = serde_json::to_string_pretty(value).map_err(|err| err.to_string())? + "\n";
     fs::write(path, text).map_err(|err| format!("could not write {}: {err}", path.display()))
@@ -113,16 +112,14 @@ fn merge_mcp_servers(existing: &mut Value, source: McpLaunchSource) {
         *existing = json!({});
     }
     let root = existing.as_object_mut().expect("object");
-    let servers = root
-        .entry("mcpServers")
-        .or_insert_with(|| json!({}));
+    let servers = root.entry("mcpServers").or_insert_with(|| json!({}));
     if !servers.is_object() {
         *servers = json!({});
     }
-    servers
-        .as_object_mut()
-        .expect("mcpServers object")
-        .insert(MCP_SERVER_NAME.into(), puppet_master_mcp_server_json(source));
+    servers.as_object_mut().expect("mcpServers object").insert(
+        MCP_SERVER_NAME.into(),
+        puppet_master_mcp_server_json(source),
+    );
 }
 
 fn claude_mcp_installed(cwd: &Path) -> bool {
@@ -183,9 +180,7 @@ fn mcp_settings_approves_any(cwd: &Path, server_names: &[String]) -> bool {
 fn enable_all_project_mcp(cwd: &Path) -> Result<bool, String> {
     let dir = cwd.join(".claude");
     let path = dir.join("settings.json");
-    fs::create_dir_all(&dir).map_err(|err| {
-        format!("could not create {}: {err}", dir.display())
-    })?;
+    fs::create_dir_all(&dir).map_err(|err| format!("could not create {}: {err}", dir.display()))?;
     let mut settings = read_json_safe(&path).unwrap_or_else(|| json!({}));
     if !settings.is_object() {
         settings = json!({});
@@ -243,7 +238,9 @@ fn json_server_uses_npm_package(server: &Value) -> bool {
             .get("args")
             .and_then(Value::as_array)
             .is_some_and(|args| {
-                args.iter().filter_map(Value::as_str).eq(["-y", "@puppet-master/mcp"])
+                args.iter()
+                    .filter_map(Value::as_str)
+                    .eq(["-y", "@puppet-master/mcp"])
             })
 }
 
@@ -370,7 +367,8 @@ fn ensure_codex_mcp(cwd: &Path, source: McpLaunchSource) -> Result<EnsureMcpResu
 }
 
 fn ensure_codex_global_mcp() -> Result<EnsureMcpResult, String> {
-    let home = crate::project_path::home_dir().ok_or_else(|| "could not resolve home directory".to_string())?;
+    let home = crate::project_path::home_dir()
+        .ok_or_else(|| "could not resolve home directory".to_string())?;
     ensure_codex_mcp_at(
         &home.join(".codex").join("config.toml"),
         McpLaunchSource::NpmPackage,
@@ -384,9 +382,8 @@ fn ensure_codex_mcp_at(
     backend: &str,
 ) -> Result<EnsureMcpResult, String> {
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|err| {
-            format!("could not create {}: {err}", dir.display())
-        })?;
+        fs::create_dir_all(dir)
+            .map_err(|err| format!("could not create {}: {err}", dir.display()))?;
     }
     let existing = fs::read_to_string(&path).unwrap_or_default();
     let changed = if codex_has_puppet_master(&existing) && !codex_needs_refresh(&existing, source) {
@@ -394,7 +391,8 @@ fn ensure_codex_mcp_at(
     } else if codex_has_puppet_master(&existing) {
         let mut next = strip_codex_puppet_master_block(&existing);
         next.push_str(&codex_mcp_block(source));
-        fs::write(&path, next).map_err(|err| format!("could not write {}: {err}", path.display()))?;
+        fs::write(&path, next)
+            .map_err(|err| format!("could not write {}: {err}", path.display()))?;
         true
     } else {
         let mut next = existing;
@@ -402,7 +400,8 @@ fn ensure_codex_mcp_at(
             next.push('\n');
         }
         next.push_str(&codex_mcp_block(source));
-        fs::write(&path, next).map_err(|err| format!("could not write {}: {err}", path.display()))?;
+        fs::write(&path, next)
+            .map_err(|err| format!("could not write {}: {err}", path.display()))?;
         true
     };
 
@@ -484,7 +483,8 @@ fn opencode_mcp_installed_path(path: &Path, source: McpLaunchSource) -> bool {
     doc.pointer(&format!("/mcp/{MCP_SERVER_NAME}/enabled"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
-        || doc.pointer(&format!("/mcp/{MCP_SERVER_NAME}/command"))
+        || doc
+            .pointer(&format!("/mcp/{MCP_SERVER_NAME}/command"))
             .and_then(Value::as_array)
             .is_some()
 }
@@ -503,9 +503,12 @@ fn ensure_opencode_global_mcp() -> Result<EnsureMcpResult, String> {
 
 fn opencode_global_config_path() -> Result<PathBuf, String> {
     if let Some(appdata) = std::env::var_os("APPDATA") {
-        return Ok(PathBuf::from(appdata).join("opencode").join("opencode.json"));
+        return Ok(PathBuf::from(appdata)
+            .join("opencode")
+            .join("opencode.json"));
     }
-    let home = crate::project_path::home_dir().ok_or_else(|| "could not resolve home directory".to_string())?;
+    let home = crate::project_path::home_dir()
+        .ok_or_else(|| "could not resolve home directory".to_string())?;
     Ok(home.join(".config").join("opencode").join("opencode.json"))
 }
 
@@ -543,13 +546,7 @@ fn ensure_claude_user_mcp() -> EnsureMcpResult {
         crate::app_paths::BRIDGE_PORT_FILE_ENV,
         crate::app_paths::bridge_port_file_env_value()
     );
-    let remove = run_claude_mcp_command([
-        "mcp",
-        "remove",
-        "--scope",
-        "user",
-        MCP_SERVER_NAME,
-    ]);
+    let remove = run_claude_mcp_command(["mcp", "remove", "--scope", "user", MCP_SERVER_NAME]);
     let add = run_claude_mcp_command([
         "mcp",
         "add",
@@ -650,7 +647,10 @@ mod tests {
         let result = ensure_opencode_mcp(&cwd, McpLaunchSource::Auto).expect("install");
         assert!(result.installed);
         assert!(result.changed);
-        assert!(opencode_mcp_installed_path(&cwd.join("opencode.json"), McpLaunchSource::Auto));
+        assert!(opencode_mcp_installed_path(
+            &cwd.join("opencode.json"),
+            McpLaunchSource::Auto
+        ));
     }
 
     #[test]
@@ -697,7 +697,9 @@ mod tests {
 
         let claude = read_json_safe(&cwd.join(".mcp.json")).expect("claude");
         assert!(json_server_uses_npm_package(
-            claude.pointer(&format!("/mcpServers/{MCP_SERVER_NAME}")).expect("server")
+            claude
+                .pointer(&format!("/mcpServers/{MCP_SERVER_NAME}"))
+                .expect("server")
         ));
 
         let codex = fs::read_to_string(cwd.join(".codex").join("config.toml")).expect("codex");
@@ -707,7 +709,9 @@ mod tests {
 
         let opencode = read_json_safe(&cwd.join("opencode.json")).expect("opencode");
         assert!(opencode_entry_uses_npm_package(
-            opencode.pointer(&format!("/mcp/{MCP_SERVER_NAME}")).expect("entry")
+            opencode
+                .pointer(&format!("/mcp/{MCP_SERVER_NAME}"))
+                .expect("entry")
         ));
     }
 

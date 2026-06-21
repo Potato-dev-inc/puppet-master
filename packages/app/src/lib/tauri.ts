@@ -32,6 +32,17 @@ export interface EnsureMcpResult {
   message: string;
 }
 
+export interface CoordinationStorageInfo {
+  scope: 'project' | 'global_fallback' | string;
+  project_path: string | null;
+  storage_dir: string;
+  event_log_path: string;
+  event_count: number;
+  task_count: number;
+  lock_count: number;
+  exists: boolean;
+}
+
 const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 const noopUnlisten: UnlistenFn = () => {};
 
@@ -83,6 +94,22 @@ export const tauri = {
     safeInvoke<void>('resize_pane', { paneId, cols, rows }, undefined, true),
   setProjectPath: (path: string) => safeInvoke<void>('set_project_path', { path }, undefined, true),
   getProjectPath: () => safeInvoke<string>('get_project_path_cmd', undefined, '', true),
+  getCoordinationStorageInfo: () =>
+    safeInvoke<CoordinationStorageInfo>(
+      'get_coordination_storage_info',
+      undefined,
+      {
+        scope: 'global_fallback',
+        project_path: null,
+        storage_dir: '.puppet-master',
+        event_log_path: '.puppet-master/events.jsonl',
+        event_count: 0,
+        task_count: 0,
+        lock_count: 0,
+        exists: false,
+      },
+      true,
+    ),
   ensureOrchestratorMcp: (backend: string, projectPath: string) =>
     safeInvoke<EnsureMcpResult>(
       'ensure_orchestrator_mcp',

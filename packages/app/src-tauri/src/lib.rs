@@ -57,6 +57,7 @@ pub fn run() {
             commands::get_workspace_state,
             commands::list_tasks,
             commands::list_locks,
+            commands::get_coordination_storage_info,
             commands::read_agent_inbox,
             commands::get_audit,
             commands::build_context_pack,
@@ -104,6 +105,11 @@ pub fn run() {
             if let Err(err) = event_log::init_global_event_log(event_log::event_log_path()) {
                 tracing::warn!(%err, "event log not initialized");
             }
+            let initial_project_path = {
+                let state = app.state::<AppState>();
+                pty::registry_get_project_path(&state.registry)
+            };
+            event_log::set_active_project_path(Some(PathBuf::from(initial_project_path)));
 
             let registry = app.state::<AppState>().registry.clone();
             let bridge_url = match bridge::start_embedded_bridge(
@@ -122,9 +128,12 @@ pub fn run() {
                 }
             };
 
-            if let Some(url) = bridge_url {
-                #[cfg(not(debug_assertions))]
-                {
+            #[cfg(debug_assertions)]
+            let _ = &bridge_url;
+
+            #[cfg(not(debug_assertions))]
+            {
+                if let Some(url) = bridge_url {
                     if let Err(err) = mobile_tunnel::start_mobile_tunnel(app.handle(), url) {
                         tracing::warn!(%err, "mobile tunnel not started");
                     }

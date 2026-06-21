@@ -31,19 +31,33 @@ impl AgentAdapter for HeuristicAdapter {
         let lower = text.to_ascii_lowercase();
         let mut observations = Vec::new();
 
-        push_if(&mut observations, pane_id, self.agent_type, "agent_ready", &lower, text, &[
-            "ready",
-            "waiting for input",
-        ]);
-        push_if(&mut observations, pane_id, self.agent_type, "agent_idle", &lower, text, &[
-            "idle",
-            "awaiting",
-        ]);
-        push_if(&mut observations, pane_id, self.agent_type, "agent_blocked", &lower, text, &[
-            "blocked",
-            "cannot continue",
-            "need clarification",
-        ]);
+        push_if(
+            &mut observations,
+            pane_id,
+            self.agent_type,
+            "agent_ready",
+            &lower,
+            text,
+            &["ready", "waiting for input"],
+        );
+        push_if(
+            &mut observations,
+            pane_id,
+            self.agent_type,
+            "agent_idle",
+            &lower,
+            text,
+            &["idle", "awaiting"],
+        );
+        push_if(
+            &mut observations,
+            pane_id,
+            self.agent_type,
+            "agent_blocked",
+            &lower,
+            text,
+            &["blocked", "cannot continue", "need clarification"],
+        );
         push_if(
             &mut observations,
             pane_id,
@@ -118,7 +132,9 @@ pub fn adapter_for(agent_type: &str) -> Box<dyn AgentAdapter + Send> {
         "codex" => Box::new(codex::CodexAdapter::default()),
         "opencode" => Box::new(opencode::OpenCodeAdapter::default()),
         "bash" | "powershell" => Box::new(bash::BashAdapter::default()),
-        other => Box::new(HeuristicAdapter::new(Box::leak(other.to_string().into_boxed_str()))),
+        other => Box::new(HeuristicAdapter::new(Box::leak(
+            other.to_string().into_boxed_str(),
+        ))),
     }
 }
 

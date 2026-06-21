@@ -11,13 +11,27 @@ use crate::actors::ActorId;
 use crate::events::{CommandId, EventEntry, PaneId, SystemEvent};
 
 const EVENT_LOG_FILE_NAME: &str = "events.jsonl";
+const PROJECT_STORAGE_DIR_NAME: &str = ".puppet-master";
 
-static EVENT_LOG: OnceCell<Arc<EventLog>> = OnceCell::new();
+static EVENT_LOG: OnceCell<Arc<EventLogManager>> = OnceCell::new();
 
 #[derive(Debug)]
 pub struct EventLog {
     path: PathBuf,
     writer: Mutex<File>,
+}
+
+#[derive(Debug)]
+struct EventLogSlot {
+    path: PathBuf,
+    log: Arc<EventLog>,
+}
+
+#[derive(Debug)]
+pub struct EventLogManager {
+    fallback_path: PathBuf,
+    active_project_path: Mutex<Option<PathBuf>>,
+    slot: Mutex<EventLogSlot>,
 }
 
 impl EventLog {
@@ -48,6 +62,7 @@ impl EventLog {
             .map_err(|err| format!("write event log {}: {err}", self.path.display()))
     }
 
+    #[allow(dead_code)]
     pub fn read_all(&self) -> Result<Vec<EventEntry>, String> {
         read_entries(&self.path)
     }
@@ -62,10 +77,89 @@ pub fn event_log_path() -> PathBuf {
     crate::app_paths::app_data_dir().join(EVENT_LOG_FILE_NAME)
 }
 
+pub fn project_storage_dir(project_path: &Path) -> PathBuf {
+    project_path.join(PROJECT_STORAGE_DIR_NAME)
+}
+
+pub fn project_event_log_path(project_path: &Path) -> PathBuf {
+    project_storage_dir(project_path).join(EVENT_LOG_FILE_NAME)
+}
+
+impl EventLogManager {
+    pub fn new(fallback_path: PathBuf) -> Result<Self, String> {
+        let log = Arc::new(EventLog::new(fallback_path.clone())?);
+        Ok(Self {
+            fallback_path: fallback_path.clone(),
+            active_project_path: Mutex::new(None),
+            slot: Mutex::new(EventLogSlot {
+                path: fallback_path,
+                log,
+            }),
+        })
+    }
+
+    pub fn set_active_project_path(&self, path: Option<PathBuf>) {
+        let normalized =
+            path.and_then(|candidate| crate::project_path::normalize_project_path(&candidate).ok());
+        *self.active_project_path.lock() = normalized;
+    }
+
+    pub fn active_project_path(&self) -> Option<PathBuf> {
+        self.active_project_path.lock().clone()
+    }
+
+    pub fn current_path(&self) -> PathBuf {
+        self.active_project_path()
+            .map(|project_path| project_event_log_path(&project_path))
+            .unwrap_or_else(|| self.fallback_path.clone())
+    }
+
+    fn current_log(&self) -> Result<Arc<EventLog>, String> {
+        let path = self.current_path();
+        let mut slot = self.slot.lock();
+        if slot.path == path {
+            return Ok(slot.log.clone());
+        }
+        let log = Arc::new(EventLog::new(path.clone())?);
+        *slot = EventLogSlot {
+            path,
+            log: log.clone(),
+        };
+        Ok(log)
+    }
+
+    pub fn append(&self, entry: &EventEntry) -> Result<(), String> {
+        self.current_log()?.append(entry)
+    }
+
+    pub fn read_all(&self) -> Result<Vec<EventEntry>, String> {
+        read_entries(&self.current_path())
+    }
+}
+
 pub fn init_global_event_log(path: PathBuf) -> Result<(), String> {
-    let log = Arc::new(EventLog::new(path)?);
+    let log = Arc::new(EventLogManager::new(path)?);
     let _ = EVENT_LOG.set(log);
     Ok(())
+}
+
+pub fn set_active_project_path(path: Option<PathBuf>) {
+    let Some(log) = EVENT_LOG.get() else {
+        tracing::debug!("event log not initialized; cannot set active project path");
+        return;
+    };
+    log.set_active_project_path(path);
+}
+
+pub fn active_project_path() -> Option<PathBuf> {
+    EVENT_LOG.get().and_then(|log| log.active_project_path())
+}
+
+pub fn current_event_log_path() -> PathBuf {
+    EVENT_LOG
+        .get()
+        .map(|log| log.current_path())
+        .unwrap_or_else(event_log_path)
 }
 
 pub fn append_system_event(payload: SystemEvent) {
@@ -201,6 +295,10 @@ mod tests {
         ))
     }
 
+    fn temp_project_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("puppet-master-{name}-{}", uuid::Uuid::new_v4()))
+    }
+
     #[test]
     fn jsonl_log_survives_reopen() {
         let path = temp_event_log_path("survives-reopen");
@@ -220,6 +318,34 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert!(matches!(entries[0].payload, SystemEvent::PaneKilled { .. }));
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn manager_writes_active_project_events_to_project_storage() {
+        let fallback_path = temp_event_log_path("project-fallback");
+        let project_dir = temp_project_dir("project-scope");
+        fs::create_dir_all(&project_dir).unwrap();
+        let manager = EventLogManager::new(fallback_path.clone()).unwrap();
+        manager.set_active_project_path(Some(project_dir.clone()));
+
+        let entry = EventEntry::new(
+            ActorId::system(),
+            CommandId::new(),
+            SystemEvent::PaneKilled {
+                pane_id: PaneId("pane-1".to_string()),
+            },
+        );
+        manager.append(&entry).unwrap();
+
+        let project_log = project_event_log_path(&project_dir);
+        assert_eq!(manager.current_path(), project_log);
+        assert_eq!(read_entries(&project_log).unwrap().len(), 1);
+        assert!(read_entries(&fallback_path).unwrap().is_empty());
+
+        let _ = fs::remove_file(project_log);
+        let _ = fs::remove_dir_all(project_storage_dir(&project_dir));
+        let _ = fs::remove_dir_all(project_dir);
+        let _ = fs::remove_file(fallback_path);
     }
 
     #[test]

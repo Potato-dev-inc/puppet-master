@@ -13,6 +13,67 @@ import { subscribeBridgeEventsViaFetch } from './bridge-sse';
 const DEFAULT_POLL_HOST = '127.0.0.1';
 const DEFAULT_POLL_INTERVAL_MS = 200;
 
+export interface PaneStateProjection {
+  pane_id: string;
+  agent_type: string | null;
+  pid: number | null;
+  cwd: string | null;
+  status: string;
+  input_events: number;
+  output_events: number;
+  killed: boolean;
+}
+
+export interface WorkspaceStateProjection {
+  panes: PaneStateProjection[];
+  task_count: number;
+  lock_count: number;
+}
+
+export interface TaskProjection {
+  id: string;
+  title: string;
+  status: string;
+  exclusive: boolean;
+  claimed_by: string | null;
+  lease_expires_at_ms: number | null;
+  reviewer_id: string | null;
+  evidence: string | null;
+  blocked_reason: string | null;
+}
+
+export interface LockProjection {
+  resource_id: string;
+  resource_type: string;
+  owner: string;
+  lease_expires_at_ms: number | null;
+}
+
+export interface AuditEntryProjection {
+  event_id: string;
+  timestamp_ms: number;
+  actor: string;
+  event_type: string;
+}
+
+export interface ContextPackRequest {
+  task_id?: string;
+  agent_id?: string;
+  user_constraints?: string[];
+  manager_instructions?: string;
+  raw_scrollback?: string;
+}
+
+export interface ContextPack {
+  prompt: string;
+  expected_report_format: string[];
+  allowed_tools: string[];
+  ownership_boundaries: string[];
+  evidence_requirements: string[];
+  estimated_raw_scrollback_bytes: number;
+  context_pack_bytes: number;
+}
+
 /**
  * Discover the bridge URL by reading the port file written by the GUI on start.
  * Returns null if the file doesn't exist yet.
@@ -49,6 +110,27 @@ export interface BridgeClient {
   inspectAgentModel(paneId: string, lines?: number): Promise<AgentModelInspection>;
   writeInput(paneId: string, text: string, appendNewline?: boolean): Promise<void>;
   resize(paneId: string, cols: number, rows: number): Promise<void>;
+  getWorkspaceState(): Promise<WorkspaceStateProjection>;
+  listTasks(): Promise<TaskProjection[]>;
+  createTask(args: { title: string; exclusive?: boolean }): Promise<{ task_id: string }>;
+  claimTask(taskId: string, args: { agent_id: string; lease_ms?: number }): Promise<unknown>;
+  patchTaskStatus(taskId: string, args: { status: string }): Promise<unknown>;
+  completeTask(taskId: string, args: { agent_id: string; evidence?: string }): Promise<unknown>;
+  blockTask(taskId: string, args: { agent_id: string; reason: string }): Promise<unknown>;
+  listLocks(): Promise<LockProjection[]>;
+  acquireResourceLock(args: {
+    resource_type: string;
+    name: string;
+    owner_id: string;
+    lease_ms?: number;
+  }): Promise<{ resource_id: string; locked: boolean }>;
+  releaseResourceLock(args: {
+    resource_type: string;
+    name: string;
+    owner_id: string;
+  }): Promise<unknown>;
+  getAudit(): Promise<AuditEntryProjection[]>;
+  buildContextPack(args: ContextPackRequest): Promise<ContextPack>;
   getSettings(): Promise<PublicSettings>;
   patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;
   postOrchestratorMessage(text: string, messageId: string): Promise<void>;
@@ -109,6 +191,18 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       }),
     resize: (id, cols, rows) =>
       call('POST', `/panes/${encodeURIComponent(id)}/resize`, { cols, rows }),
+    getWorkspaceState: () => call('GET', '/workspace/state'),
+    listTasks: () => call('GET', '/tasks'),
+    createTask: (args) => call('POST', '/tasks', args),
+    claimTask: (taskId, args) => call('POST', `/tasks/${encodeURIComponent(taskId)}/claim`, args),
+    patchTaskStatus: (taskId, args) => call('POST', `/tasks/${encodeURIComponent(taskId)}/status`, args),
+    completeTask: (taskId, args) => call('POST', `/tasks/${encodeURIComponent(taskId)}/complete`, args),
+    blockTask: (taskId, args) => call('POST', `/tasks/${encodeURIComponent(taskId)}/block`, args),
+    listLocks: () => call('GET', '/locks'),
+    acquireResourceLock: (args) => call('POST', '/locks', args),
+    releaseResourceLock: (args) => call('POST', '/locks/release', args),
+    getAudit: () => call('GET', '/audit'),
+    buildContextPack: (args) => call('POST', '/context-packs', args),
     getSettings: () => call('GET', '/settings'),
     patchSettings: (patch) => call('PATCH', '/settings', patch),
     postOrchestratorMessage: (text, messageId) =>

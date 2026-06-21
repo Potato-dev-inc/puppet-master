@@ -16,6 +16,7 @@ import {
 import { installGlobalNpmMcpConfigs, installNpmMcpConfigs, PUPPET_MASTER_MCP_COMMAND, type EnsureMcpResult } from '../../lib/mcp-config';
 import { MobilePairingPanel } from '../MobilePairingPanel';
 import { parseDevServerPort } from '../../lib/public-bridge-url';
+import { tauri, type CoordinationStorageInfo } from '../../lib/tauri';
 import {
   CodeBlock,
   FieldInput,
@@ -62,7 +63,7 @@ export function SettingsTabPanel({ tab, ctx }: { tab: SettingsTabId; ctx: Settin
     case 'mcp': return <McpTab ctx={ctx} />;
     case 'mobile': return <MobileTab ctx={ctx} />;
     case 'security': return <SecurityTab />;
-    case 'storage': return <StorageTab />;
+    case 'storage': return <StorageTab ctx={ctx} />;
     case 'notifications': return <NotificationsTab />;
     case 'backup': return <BackupTab />;
     case 'marketplace': return <MarketplaceTab />;
@@ -426,16 +427,73 @@ function SecurityTab() {
   );
 }
 
-function StorageTab() {
+function StorageTab({ ctx }: { ctx: SettingsTabContext }) {
+  const [storageInfo, setStorageInfo] = useState<CoordinationStorageInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const refresh = async () => {
+    try {
+      setError(null);
+      setStorageInfo(await tauri.getCoordinationStorageInfo());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+  useEffect(() => {
+    void refresh();
+  }, [ctx.projectPath]);
+  const scopeLabel = storageInfo?.scope === 'project' ? 'Project-local' : 'Global fallback';
   return (
-    <SettingsSection title="Storage" description="Manage pane scrollback, snapshots, caches, and session archives.">
-      <StorageBarMock label="Session history" value="1.2 GB" percent="w-2/5" />
-      <StorageBarMock label="Pane scrollback" value="684 MB" percent="w-1/3" />
-      <StorageBarMock label="Semantic index" value="514 MB" percent="w-1/3" />
-      <StorageBarMock label="Agent cache" value="312 MB" percent="w-1/4" />
-      <StorageBarMock label="MCP logs" value="88 MB" percent="w-1/6" />
-      <button type="button" disabled className="rounded-lg border border-pm-border px-3 py-2 text-sm opacity-50">Clear expired history</button>
+    <SettingsSection title="Coordination storage" description="Task board, resource locks, audit entries, and pane timeline events are scoped to the selected project folder.">
+      <SettingBlock label="Workspace session" implemented description="Coordination events are replayed from this JSONL file to rebuild tasks and locks.">
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MetricPill label="Scope" value={scopeLabel} />
+            <MetricPill label="Tasks" value={String(storageInfo?.task_count ?? 0)} />
+            <MetricPill label="Locks" value={String(storageInfo?.lock_count ?? 0)} />
+          </div>
+          <div className="rounded-lg border border-pm-border bg-pm-bg p-3">
+            <div className="text-xs font-medium uppercase tracking-wide text-pm-muted">Project</div>
+            <div className="mt-1 break-all font-mono text-xs text-pm-text">
+              {storageInfo?.project_path ?? ctx.projectPath ?? 'No project folder selected'}
+            </div>
+          </div>
+          <div className="rounded-lg border border-pm-border bg-pm-bg p-3">
+            <div className="text-xs font-medium uppercase tracking-wide text-pm-muted">Event log</div>
+            <div className="mt-1 break-all font-mono text-xs text-pm-text">
+              {storageInfo?.event_log_path ?? 'Loading...'}
+            </div>
+            <div className="mt-2 text-xs text-pm-muted">
+              {storageInfo?.event_count ?? 0} events · {storageInfo?.exists ? 'file exists' : 'created on first write'}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => void refresh()} className="rounded-lg border border-pm-border px-3 py-2 text-sm hover:bg-pm-border/40">
+              Refresh
+            </button>
+            <span className="break-all text-xs text-pm-muted">
+              Directory: {storageInfo?.storage_dir ?? 'Loading...'}
+            </span>
+          </div>
+          {error && (
+            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-300">
+              {error}
+            </p>
+          )}
+        </div>
+      </SettingBlock>
+      <SettingToggle label="Project-local tasks and locks" description="Keep coordination state inside each project's .puppet-master folder." checked implemented onChange={() => undefined} />
+      <SettingToggle label="Require locks for file edits" description="Prompt orchestrators to claim file or directory ownership before delegating edits." checked implemented={false} onChange={() => undefined} />
+      <SettingToggle label="Archive completed sessions" description="Move completed task and lock history into dated archive files." checked={false} implemented={false} onChange={() => undefined} />
     </SettingsSection>
+  );
+}
+
+function MetricPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-pm-border bg-pm-bg px-3 py-2">
+      <div className="text-xs font-medium uppercase tracking-wide text-pm-muted">{label}</div>
+      <div className="mt-1 truncate text-sm font-semibold text-pm-text">{value}</div>
+    </div>
   );
 }
 

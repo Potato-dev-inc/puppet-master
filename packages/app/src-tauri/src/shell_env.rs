@@ -75,7 +75,11 @@ fn read_windows_path() -> Option<String> {
         return None;
     }
     let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if path.is_empty() { None } else { Some(path) }
+    if path.is_empty() {
+        None
+    } else {
+        Some(path)
+    }
 }
 
 #[cfg(all(not(unix), not(windows)))]
@@ -108,9 +112,26 @@ fn build_fallback_path() -> String {
             if let Ok(pf86) = std::env::var("ProgramFiles(x86)") {
                 segments.push(format!(r"{pf86}\nodejs"));
             }
-            segments.push(home.join("AppData").join("Roaming").join("npm").to_string_lossy().into_owned());
-            segments.push(home.join("AppData").join("Local").join("fnm").to_string_lossy().into_owned());
-            segments.push(home.join(".cargo").join("bin").to_string_lossy().into_owned());
+            segments.push(
+                home.join("AppData")
+                    .join("Roaming")
+                    .join("npm")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            segments.push(
+                home.join("AppData")
+                    .join("Local")
+                    .join("fnm")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            segments.push(
+                home.join(".cargo")
+                    .join("bin")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
         }
         #[cfg(not(windows))]
         {

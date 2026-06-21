@@ -63,7 +63,10 @@ pub fn normalize_project_path(path: &Path) -> Result<PathBuf, String> {
 }
 
 /// PTY spawn cwd: explicit path when valid, otherwise registry default (also validated).
-pub fn resolve_spawn_cwd(cwd: Option<String>, registry_fallback: String) -> Result<PathBuf, String> {
+pub fn resolve_spawn_cwd(
+    cwd: Option<String>,
+    registry_fallback: String,
+) -> Result<PathBuf, String> {
     let candidate = cwd
         .filter(|value| is_valid_project_path(Path::new(value)))
         .unwrap_or(registry_fallback);

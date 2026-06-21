@@ -12,7 +12,10 @@ pub fn app_data_dir() -> PathBuf {
     let home = crate::project_path::home_dir().unwrap_or_else(|| PathBuf::from("."));
     #[cfg(target_os = "macos")]
     {
-        return home.join("Library").join("Application Support").join(APP_ID);
+        return home
+            .join("Library")
+            .join("Application Support")
+            .join(APP_ID);
     }
     #[cfg(target_os = "windows")]
     {

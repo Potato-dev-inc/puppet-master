@@ -93,6 +93,7 @@ pub struct OrchestratorViewportBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ResizeBody {
     cols: u16,
     rows: u16,
@@ -439,14 +440,12 @@ fn route(
     }
 
     if segments == ["workspace", "state"] && method == "GET" {
-        let read_models =
-            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
         return Ok((200, serde_json::to_value(read_models.workspace).unwrap()));
     }
 
     if segments == ["tasks"] && method == "GET" {
-        let read_models =
-            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
         return Ok((200, serde_json::to_value(read_models.tasks).unwrap()));
     }
 
@@ -531,16 +530,14 @@ fn route(
     }
 
     if segments == ["locks"] && method == "GET" {
-        let read_models =
-            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
         return Ok((200, serde_json::to_value(read_models.locks).unwrap()));
     }
 
     if segments == ["locks"] && method == "POST" {
         let req: AcquireLockBody = parse_json(body)?;
         let resource_id = ResourceId::from_parts(&req.resource_type, &req.name);
-        let read_models =
-            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
         if read_models
             .locks
             .iter()
@@ -552,7 +549,9 @@ fn route(
             resource_id: resource_id.clone(),
             resource_type: req.resource_type,
             owner_id: req.owner_id,
-            lease_expires_at_ms: req.lease_ms.map(|lease_ms| lease_expires_at(Some(lease_ms))),
+            lease_expires_at_ms: req
+                .lease_ms
+                .map(|lease_ms| lease_expires_at(Some(lease_ms))),
         });
         return Ok((201, json!({ "resource_id": resource_id.0, "locked": true })));
     }
@@ -564,7 +563,10 @@ fn route(
             resource_id: resource_id.clone(),
             owner_id: req.owner_id,
         });
-        return Ok((200, json!({ "resource_id": resource_id.0, "released": true })));
+        return Ok((
+            200,
+            json!({ "resource_id": resource_id.0, "released": true }),
+        ));
     }
 
     if segments.len() == 3 && segments[0] == "locks" && segments[2] == "expire" && method == "POST"
@@ -573,25 +575,25 @@ fn route(
         crate::event_log::append_bridge_event(SystemEvent::ResourceLockExpired {
             resource_id: resource_id.clone(),
         });
-        return Ok((200, json!({ "resource_id": resource_id.0, "expired": true })));
+        return Ok((
+            200,
+            json!({ "resource_id": resource_id.0, "expired": true }),
+        ));
     }
 
-    if segments.len() == 3 && segments[0] == "agents" && segments[2] == "inbox" && method == "GET"
-    {
+    if segments.len() == 3 && segments[0] == "agents" && segments[2] == "inbox" && method == "GET" {
         let inbox = crate::projections::agent_inbox(segments[1].to_string());
         return Ok((200, serde_json::to_value(inbox).unwrap()));
     }
 
     if segments == ["audit"] && method == "GET" {
-        let read_models =
-            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
         return Ok((200, serde_json::to_value(read_models.audit).unwrap()));
     }
 
     if segments == ["context-packs"] && method == "POST" {
         let req: crate::context_pack::ContextPackRequest = parse_json(body)?;
-        let read_models =
-            rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
+        let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
         let pack = crate::context_pack::build_context_pack(req, &read_models);
         return Ok((200, serde_json::to_value(pack).unwrap()));
     }
@@ -615,7 +617,11 @@ fn route(
 
     if segments == ["project-path"] && method == "POST" {
         let req: ProjectPathBody = parse_json(body)?;
-        registry_set_project_path(&registry, req.path);
+        let normalized =
+            crate::project_path::normalize_project_path(std::path::Path::new(&req.path))
+                .map_err(|err| (400, json!({ "error": err })))?;
+        registry_set_project_path(&registry, normalized.to_string_lossy().into_owned());
+        crate::event_log::set_active_project_path(Some(normalized));
         return Ok((200, json!({ "ok": true })));
     }
 

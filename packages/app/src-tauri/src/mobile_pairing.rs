@@ -1,13 +1,13 @@
 //! Mobile PWA pairing — Ed25519 server identity + device bearer tokens.
 
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
+use parking_lot::Mutex;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::PathBuf;
-use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -169,6 +169,7 @@ impl MobilePairingStore {
         fs::write(&self.path, json).map_err(|e| e.to_string())
     }
 
+    #[allow(dead_code)]
     pub fn server_public_key_b64(&self) -> &str {
         &self.server_public_b64
     }
@@ -280,10 +281,7 @@ impl MobilePairingStore {
         self.pending = None;
         self.persist()?;
 
-        let message = format!(
-            "{}|{}|{}",
-            device_id, device_token, req.device_public_key
-        );
+        let message = format!("{}|{}|{}", device_id, device_token, req.device_public_key);
         let signature = self.signing_key.sign(message.as_bytes());
 
         Ok(PairResponseBody {
@@ -390,20 +388,13 @@ pub fn authorize_bridge_request(
         )
     })?;
 
-    let store = pairing_store().ok_or_else(|| {
-        (
-            503,
-            serde_json::json!({ "error": "pairing_unavailable" }),
-        )
-    })?;
+    let store = pairing_store()
+        .ok_or_else(|| (503, serde_json::json!({ "error": "pairing_unavailable" })))?;
     let valid = store.lock().validate_bearer_token(&token);
     if valid {
         Ok(())
     } else {
-        Err((
-            401,
-            serde_json::json!({ "error": "invalid_token" }),
-        ))
+        Err((401, serde_json::json!({ "error": "invalid_token" })))
     }
 }
 

@@ -2,6 +2,7 @@
 //!
 //! Serves the staged `pwa-dist` assets on loopback, proxies `/bridge/*` to the
 //! embedded bridge, and exposes `/__puppet_master_dev__.json` for tunnel info.
+#![allow(dead_code)]
 
 use serde::Serialize;
 use std::fs;
@@ -156,13 +157,22 @@ fn looks_like_asset_path(path: &str) -> bool {
     if rel.starts_with("assets/") || rel.starts_with("@") || rel.starts_with("src/") {
         return true;
     }
-    rel.rsplit_once('.')
-        .is_some_and(|(_, ext)| {
-            matches!(
-                ext,
-                "js" | "mjs" | "ts" | "tsx" | "css" | "map" | "json" | "wasm" | "svg" | "png" | "ico" | "woff2"
-            )
-        })
+    rel.rsplit_once('.').is_some_and(|(_, ext)| {
+        matches!(
+            ext,
+            "js" | "mjs"
+                | "ts"
+                | "tsx"
+                | "css"
+                | "map"
+                | "json"
+                | "wasm"
+                | "svg"
+                | "png"
+                | "ico"
+                | "woff2"
+        )
+    })
 }
 
 fn serve_static(

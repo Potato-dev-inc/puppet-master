@@ -38,7 +38,10 @@ pub fn build_context_pack(request: ContextPackRequest, read_models: &ReadModels)
         prompt_parts.push("Task: unscoped coordination request".to_string());
     }
     if !manager_instructions.trim().is_empty() {
-        prompt_parts.push(format!("Manager instructions: {}", manager_instructions.trim()));
+        prompt_parts.push(format!(
+            "Manager instructions: {}",
+            manager_instructions.trim()
+        ));
     }
     if !constraints.is_empty() {
         prompt_parts.push(format!("User constraints: {}", constraints.join("; ")));
@@ -168,6 +171,9 @@ mod tests {
         );
         assert!(pack.context_pack_bytes < pack.estimated_raw_scrollback_bytes);
         assert!(pack.prompt.contains("task-1"));
-        assert!(pack.evidence_requirements.iter().any(|item| item.contains("test command")));
+        assert!(pack
+            .evidence_requirements
+            .iter()
+            .any(|item| item.contains("test command")));
     }
 }

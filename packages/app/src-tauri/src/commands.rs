@@ -1,8 +1,9 @@
 //! Tauri command surface — thin wrappers around the PTY registry.
 
 use parking_lot::Mutex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
@@ -172,6 +173,46 @@ fn rebuild_read_models() -> Result<crate::projections::ReadModels, String> {
     Ok(crate::projections::build_read_models(&entries))
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct CoordinationStorageInfo {
+    pub scope: String,
+    pub project_path: Option<String>,
+    pub storage_dir: String,
+    pub event_log_path: String,
+    pub event_count: usize,
+    pub task_count: usize,
+    pub lock_count: usize,
+    pub exists: bool,
+}
+
+#[tauri::command]
+pub async fn get_coordination_storage_info() -> Result<CoordinationStorageInfo, String> {
+    let event_log_path = crate::event_log::current_event_log_path();
+    let project_path = crate::event_log::active_project_path();
+    let storage_dir = project_path
+        .as_deref()
+        .map(crate::event_log::project_storage_dir)
+        .or_else(|| event_log_path.parent().map(PathBuf::from))
+        .unwrap_or_else(crate::app_paths::app_data_dir);
+    let exists = event_log_path.exists();
+    let entries = crate::event_log::read_global_entries()?;
+    let read_models = crate::projections::build_read_models(&entries);
+    Ok(CoordinationStorageInfo {
+        scope: if project_path.is_some() {
+            "project".to_string()
+        } else {
+            "global_fallback".to_string()
+        },
+        project_path: project_path.map(|path| path.to_string_lossy().into_owned()),
+        storage_dir: storage_dir.to_string_lossy().into_owned(),
+        event_log_path: event_log_path.to_string_lossy().into_owned(),
+        event_count: entries.len(),
+        task_count: read_models.tasks.len(),
+        lock_count: read_models.locks.len(),
+        exists,
+    })
+}
+
 #[tauri::command]
 pub async fn get_workspace_state() -> Result<crate::projections::WorkspaceStateProjection, String> {
     Ok(rebuild_read_models()?.workspace)
@@ -243,6 +284,7 @@ pub async fn sync_public_settings(
 pub async fn set_project_path(state: State<'_, AppState>, path: String) -> Result<(), String> {
     let normalized = crate::project_path::normalize_project_path(std::path::Path::new(&path))?;
     registry_set_project_path(&state.registry, normalized.to_string_lossy().into_owned());
+    crate::event_log::set_active_project_path(Some(normalized));
     Ok(())
 }
 

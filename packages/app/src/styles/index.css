@@ -1386,3 +1386,261 @@ html, body, #root {
   height: 100%;
   animation: pm-home-enter 0.45s ease-out both;
 }
+
+.pm-coordination {
+  flex: 0 0 252px;
+  min-height: 252px;
+  border-top: 1px solid rgb(var(--pm-border));
+  background: rgb(var(--pm-bg) / 0.32);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pm-coordination-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px 7px;
+  border-bottom: 1px solid rgb(var(--pm-border) / 0.72);
+}
+
+.pm-coordination-head h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.pm-coordination-head p {
+  margin: 2px 0 0;
+  font-size: 10px;
+  color: rgb(var(--pm-muted));
+}
+
+.pm-coordination button {
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 6px;
+  background: rgb(var(--pm-raised));
+  color: rgb(var(--pm-text));
+  font-size: 10px;
+  line-height: 1;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.pm-coordination button:hover:not(:disabled) {
+  border-color: rgb(var(--pm-accent) / 0.45);
+  background: rgb(var(--pm-border) / 0.4);
+}
+
+.pm-coordination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pm-coordination-error {
+  margin: 8px 12px 0;
+  border: 1px solid rgb(var(--pm-err) / 0.28);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: rgb(var(--pm-err));
+  font-size: 10px;
+  line-height: 1.4;
+  max-height: 52px;
+  overflow: auto;
+}
+
+.pm-coordination-tabs {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px 10px 6px;
+}
+
+.pm-coordination-tabs button {
+  padding: 6px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: capitalize;
+  color: rgb(var(--pm-muted));
+}
+
+.pm-coordination-tabs button.active {
+  border-color: rgb(var(--pm-accent) / 0.55);
+  background: rgb(var(--pm-accent) / 0.1);
+  color: rgb(var(--pm-text));
+}
+
+.pm-coordination-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 10px 10px;
+  overflow: auto;
+}
+
+.pm-coordination-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.pm-coordination-metric {
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 8px;
+  background: rgb(var(--pm-panel));
+  padding: 9px 6px;
+  min-width: 0;
+  text-align: center;
+}
+
+.pm-coordination-metric span {
+  display: block;
+  color: rgb(var(--pm-muted));
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.pm-coordination-metric strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 16px;
+  line-height: 1.1;
+}
+
+.pm-coordination-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pm-coordination-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.pm-coordination-inline input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 6px;
+  background: rgb(var(--pm-bg));
+  color: rgb(var(--pm-text));
+  font-size: 10px;
+  padding: 6px 8px;
+}
+
+.pm-coordination-byte {
+  color: rgb(var(--pm-muted));
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.pm-coordination-selection {
+  color: rgb(var(--pm-muted));
+  font-size: 10px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-coordination-selection code {
+  color: rgb(var(--pm-text));
+  font-size: 10px;
+}
+
+.pm-coordination-empty {
+  border: 1px dashed rgb(var(--pm-border));
+  border-radius: 8px;
+  padding: 16px 10px;
+  text-align: center;
+  color: rgb(var(--pm-muted));
+  font-size: 11px;
+}
+
+.pm-coordination-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pm-coordination-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 8px;
+  background: rgb(var(--pm-panel));
+  padding: 7px 8px;
+}
+
+.pm-coordination-list li.selected {
+  border-color: rgb(var(--pm-accent) / 0.55);
+  background: rgb(var(--pm-accent) / 0.08);
+}
+
+.pm-coordination-row-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0 !important;
+  background: transparent !important;
+  color: inherit !important;
+  padding: 0 !important;
+  text-align: left;
+}
+
+.pm-coordination-list-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.pm-coordination-list-main strong,
+.pm-coordination-list-main small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-coordination-list-main strong {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.pm-coordination-list-main small {
+  margin-top: 2px;
+  color: rgb(var(--pm-muted));
+  font-size: 10px;
+}
+
+.pm-coordination-list code {
+  flex: 0 0 auto;
+  color: rgb(var(--pm-muted));
+  font-size: 9px;
+}
+
+.pm-coordination-pre {
+  margin: 0;
+  max-height: 120px;
+  overflow: auto;
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 8px;
+  background: rgb(var(--pm-panel));
+  padding: 8px;
+  color: rgb(var(--pm-text));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}

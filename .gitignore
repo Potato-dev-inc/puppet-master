@@ -30,6 +30,7 @@ npm-debug.log*
 
 # runtime artifacts
 .runtime/
+.puppet-master/
 *.pid
 *.sock
 puppet-master.bridge.port
