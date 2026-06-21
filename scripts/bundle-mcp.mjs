@@ -39,7 +39,14 @@ if (!existsSync(mcpDist)) {
   }
 }
 
-run('node', ['scripts/build-rust-mcp.mjs']);
+const rustBuild = spawnSync('node', ['scripts/build-rust-mcp.mjs'], {
+  cwd: root,
+  stdio: 'inherit',
+  shell: true,
+});
+if (rustBuild.status !== 0) {
+  console.error('[bundle-mcp] Rust MCP build failed — continuing with legacy bundle');
+}
 if (existsSync(mcpDistBinary)) {
   mkdirSync(resourceBin, { recursive: true });
   copyFileSync(mcpDistBinary, resourceBinary);

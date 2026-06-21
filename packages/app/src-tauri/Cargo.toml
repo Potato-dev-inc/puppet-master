@@ -1,6 +1,6 @@
 [package]
 name = "puppet_master_app"
-version = "0.1.2"
+version = "0.1.3"
 description = "Puppet Master desktop app"
 authors = ["you"]
 edition = "2021"
