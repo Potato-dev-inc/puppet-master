@@ -20,6 +20,7 @@ export interface TerminalSessionOptions {
   ptyRows?: number;
   mobileInputDelayMs?: number;
   mobileInputVisible?: boolean;
+  disableMobileInput?: boolean;
 }
 
 export interface Disposable {

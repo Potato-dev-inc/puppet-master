@@ -84,6 +84,17 @@ export const AGENT_CONTEXT_PROFILES: Record<AgentType, AgentContextProfile> = {
     best_for: ['parallel edits', 'alternative implementation passes', 'lighter bug fixes'],
     planned_sidebar_actions: ['delegate parallel attempt', 'ask for alternative', 'compare output'],
   },
+  cmd: {
+    agent_type: 'cmd',
+    label: 'Command Prompt',
+    default_model: null,
+    model_detection: 'unknown',
+    smartness: 1,
+    strengths: ['terminal-ops'],
+    context_notes: ['Plain cmd.exe-style shell pane. It has no model; use it for deterministic Windows command workflows.'],
+    best_for: ['Windows command prompt workflows', 'batch commands', 'environment inspection'],
+    planned_sidebar_actions: ['run command', 'capture output', 'prepare environment'],
+  },
   powershell: {
     agent_type: 'powershell',
     label: 'PowerShell',

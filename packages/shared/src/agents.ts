@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { detectPlatform, type PuppetPlatform } from './platform.js';
 
-export const AgentTypeSchema = z.enum(['claude', 'codex', 'opencode', 'powershell', 'bash', 'cursor']);
+export const AgentTypeSchema = z.enum(['claude', 'codex', 'opencode', 'cmd', 'powershell', 'bash', 'cursor']);
 export type AgentType = z.infer<typeof AgentTypeSchema>;
 
 export interface AgentPreset {
@@ -42,6 +42,12 @@ const AGENT_META: Record<
     isTui: true,
     icon: 'OC',
   },
+  cmd: {
+    type: 'cmd',
+    label: 'Command Prompt',
+    isTui: true,
+    icon: 'CMD',
+  },
   powershell: {
     type: 'powershell',
     label: 'PowerShell',
@@ -63,23 +69,29 @@ const AGENT_META: Record<
 };
 
 const CODEX_ARGS = ['--sandbox', 'workspace-write', '--ask-for-approval', 'never'];
+const AGENT_LAUNCH_TYPES: AgentType[] = ['claude', 'codex', 'opencode'];
 
 const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSpec>> = {
   windows: {
     claude: {
-      command: 'claude.exe',
+      command: 'claude',
       baseArgs: [],
       description: 'Anthropic Claude Code CLI',
     },
     codex: {
-      command: 'codex.exe',
+      command: 'codex',
       baseArgs: CODEX_ARGS,
       description: 'OpenAI Codex CLI',
     },
     opencode: {
-      command: 'opencode.cmd',
+      command: 'opencode',
       baseArgs: [],
       description: 'OpenCode CLI',
+    },
+    cmd: {
+      command: 'cmd.exe',
+      baseArgs: ['/K'],
+      description: 'Windows Command Prompt',
     },
     powershell: {
       command: 'powershell.exe',
@@ -113,6 +125,11 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
       baseArgs: [],
       description: 'OpenCode CLI',
     },
+    cmd: {
+      command: 'zsh',
+      baseArgs: ['-l'],
+      description: 'Default login shell',
+    },
     powershell: {
       command: 'pwsh',
       baseArgs: ['-NoLogo'],
@@ -144,6 +161,11 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
       command: 'opencode',
       baseArgs: [],
       description: 'OpenCode CLI',
+    },
+    cmd: {
+      command: 'bash',
+      baseArgs: ['--login'],
+      description: 'Default login shell',
     },
     powershell: {
       command: 'pwsh',
@@ -181,6 +203,25 @@ export function getPreset(type: AgentType, platform?: PuppetPlatform): AgentPres
 export function listPresets(platform?: PuppetPlatform): AgentPreset[] {
   const resolved = platform ?? detectPlatform();
   return AgentTypeSchema.options.map((type) => buildPreset(type, resolved));
+}
+
+export function getDefaultTerminalAgentType(platform?: PuppetPlatform): AgentType {
+  return (platform ?? detectPlatform()) === 'windows' ? 'powershell' : 'bash';
+}
+
+export function listLaunchPresets(platform?: PuppetPlatform): AgentPreset[] {
+  const resolved = platform ?? detectPlatform();
+  const terminalType = getDefaultTerminalAgentType(resolved);
+  const terminalLabel = resolved === 'windows' ? 'Terminal (PowerShell)' : 'Terminal (Shell)';
+  return [...AGENT_LAUNCH_TYPES, terminalType].map((type) => {
+    const preset = buildPreset(type, resolved);
+    if (type !== terminalType) return preset;
+    return {
+      ...preset,
+      label: terminalLabel,
+      icon: 'TERM',
+    };
+  });
 }
 
 export function getAgentPresets(platform?: PuppetPlatform): Record<AgentType, AgentPreset> {

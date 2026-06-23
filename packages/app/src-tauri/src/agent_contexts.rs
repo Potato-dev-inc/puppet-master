@@ -93,6 +93,7 @@ pub fn list_agent_context_profiles() -> Vec<AgentContextProfile> {
         AgentType::Claude,
         AgentType::Codex,
         AgentType::Opencode,
+        AgentType::Cmd,
         AgentType::Powershell,
         AgentType::Bash,
         AgentType::Cursor,
@@ -187,6 +188,23 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
                 "ask for alternative",
                 "compare output",
             ],
+        },
+        AgentType::Cmd => AgentContextProfile {
+            agent_type,
+            label: "Command Prompt",
+            default_model: None,
+            model_detection: ModelDetection::Unknown,
+            smartness: 1,
+            strengths: &[AgentCapability::TerminalOps],
+            context_notes: &[
+                "Plain cmd.exe-style shell pane. It has no model; use it for deterministic Windows command workflows.",
+            ],
+            best_for: &[
+                "Windows command prompt workflows",
+                "batch commands",
+                "environment inspection",
+            ],
+            planned_sidebar_actions: &["run command", "capture output", "prepare environment"],
         },
         AgentType::Powershell => AgentContextProfile {
             agent_type,
@@ -307,7 +325,7 @@ mod tests {
     #[test]
     fn lists_all_agent_profiles() {
         let profiles = list_agent_context_profiles();
-        assert_eq!(profiles.len(), 6);
+        assert_eq!(profiles.len(), 7);
         assert!(profiles
             .iter()
             .any(|profile| profile.agent_type == AgentType::Codex));

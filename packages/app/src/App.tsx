@@ -18,6 +18,7 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { UpdateAvailableBanner } from './components/UpdateAvailableBanner';
 import { useBootGate } from './hooks/useBootGate';
 import { useAppUpdateCheck } from './hooks/useAppUpdateCheck';
+import { detachedWindowSizeFromGrid, openDetachedPaneWindow } from './lib/detached-pane-window';
 
 type AppScreen = 'home' | 'workspace';
 
@@ -29,7 +30,24 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsRevision, setSettingsRevision] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(360);
+  const [detachedPaneIds, setDetachedPaneIds] = useState<Set<string>>(() => new Set());
   const bumpSettings = useCallback(() => setSettingsRevision((n) => n + 1), []);
+  const markPaneDetached = useCallback((paneId: string) => {
+    setDetachedPaneIds((prev) => {
+      if (prev.has(paneId)) return prev;
+      const next = new Set(prev);
+      next.add(paneId);
+      return next;
+    });
+  }, []);
+  const markPaneAttached = useCallback((paneId: string) => {
+    setDetachedPaneIds((prev) => {
+      if (!prev.has(paneId)) return prev;
+      const next = new Set(prev);
+      next.delete(paneId);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     void loadSettings().then((loaded) => setSidebarWidth(clampSidebarWidth(loaded.sidebar_width ?? 360)));
@@ -45,8 +63,28 @@ export default function App() {
     void syncPublicSettingsToBridge();
     let cancelled = false;
     let unlistenApply: (() => void) | null = null;
+    let unlistenDetach: (() => void) | null = null;
+    let unlistenReattach: (() => void) | null = null;
 
     void (async () => {
+      unlistenDetach = await tauri.onPaneDetach((event) => {
+        void (async () => {
+          try {
+            await openDetachedPaneWindow(
+              event.pane_id,
+              event.title ?? `Pane ${event.pane_id.slice(0, 8)}`,
+              detachedWindowSizeFromGrid(event.cols, event.rows),
+            );
+            markPaneDetached(event.pane_id);
+          } catch (err) {
+            console.error('[App] failed to detach pane', err);
+          }
+        })();
+      });
+      unlistenReattach = await tauri.onPaneReattach((event) => {
+        markPaneAttached(event.pane_id);
+        setScreen('workspace');
+      });
       unlistenApply = await tauri.onSettingsApply(async (patch) => {
         const providerPatch = publicSettingsToProviderPatch(patch);
         if (providerPatch.backend || providerPatch.provider || providerPatch.model) {
@@ -72,9 +110,11 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      unlistenDetach?.();
+      unlistenReattach?.();
       unlistenApply?.();
     };
-  }, [bumpSettings]);
+  }, [bumpSettings, markPaneAttached, markPaneDetached]);
 
   const handleClose = async (paneId: string) => {
     await registry.killPane(paneId);
@@ -107,6 +147,9 @@ export default function App() {
           registry={registry}
           settingsRevision={settingsRevision}
           onOpenWorkspace={() => setScreen('workspace')}
+          onOpenTerminal={() => {
+            window.location.search = '?terminal';
+          }}
           onOpenSettings={() => setSettingsOpen(true)}
           onProjectPathChange={setProjectPath}
         />
@@ -124,7 +167,13 @@ export default function App() {
             onGoHome={() => setScreen('home')}
           />
           <div className="flex flex-1 min-h-0">
-            <TerminalGrid registry={registry} projectPath={projectPath} onClosePane={handleClose} />
+            <TerminalGrid
+              registry={registry}
+              projectPath={projectPath}
+              onClosePane={handleClose}
+              detachedPaneIds={detachedPaneIds}
+              onDetachPane={markPaneDetached}
+            />
             <div
               role="separator"
               aria-orientation="vertical"

@@ -149,6 +149,17 @@ fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) -> CommandB
 
     #[cfg(windows)]
     {
+        if matches!(agent, AgentType::Claude | AgentType::Codex | AgentType::Opencode) {
+            let mut cmd_builder = CommandBuilder::new("powershell.exe");
+            cmd_builder.arg("-NoLogo");
+            cmd_builder.arg("-NoExit");
+            cmd_builder.arg("-Command");
+            cmd_builder.arg(powershell_agent_command(cmd, &base_args, extra_args));
+            cmd_builder.cwd(cwd);
+            apply_common_pty_env(&mut cmd_builder);
+            return cmd_builder;
+        }
+
         let is_cmd_shim = cmd.ends_with(".cmd") || cmd.ends_with(".bat");
         let mut cmd_builder = if is_cmd_shim {
             let mut b = CommandBuilder::new("cmd.exe");
@@ -165,11 +176,7 @@ fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) -> CommandB
             cmd_builder.arg(a);
         }
         cmd_builder.cwd(cwd);
-        cmd_builder.env("PATH", crate::shell_env::path_for_spawn());
-        #[cfg(windows)]
-        cmd_builder.env("Path", crate::shell_env::path_for_spawn());
-        cmd_builder.env("TERM", "xterm-256color");
-        cmd_builder.env("COLORTERM", "truecolor");
+        apply_common_pty_env(&mut cmd_builder);
         return cmd_builder;
     }
 
@@ -183,13 +190,36 @@ fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) -> CommandB
             cmd_builder.arg(a);
         }
         cmd_builder.cwd(cwd);
-        cmd_builder.env("PATH", crate::shell_env::path_for_spawn());
-        #[cfg(windows)]
-        cmd_builder.env("Path", crate::shell_env::path_for_spawn());
-        cmd_builder.env("TERM", "xterm-256color");
-        cmd_builder.env("COLORTERM", "truecolor");
+        apply_common_pty_env(&mut cmd_builder);
         cmd_builder
     }
+}
+
+fn apply_common_pty_env(cmd_builder: &mut CommandBuilder) {
+    cmd_builder.env("PATH", crate::shell_env::path_for_spawn());
+    #[cfg(windows)]
+    cmd_builder.env("Path", crate::shell_env::path_for_spawn());
+    cmd_builder.env("TERM", "xterm-256color");
+    cmd_builder.env("COLORTERM", "truecolor");
+}
+
+#[cfg(windows)]
+fn powershell_agent_command(cmd: &str, base_args: &[&str], extra_args: &[String]) -> String {
+    let args = base_args
+        .iter()
+        .map(|arg| powershell_single_quote(arg))
+        .chain(extra_args.iter().map(|arg| powershell_single_quote(arg)))
+        .collect::<Vec<_>>();
+    if args.is_empty() {
+        format!("& {}", powershell_single_quote(cmd))
+    } else {
+        format!("& {} {}", powershell_single_quote(cmd), args.join(" "))
+    }
+}
+
+#[cfg(windows)]
+fn powershell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 #[derive(Debug, Clone, Deserialize)]

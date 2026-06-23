@@ -17,6 +17,7 @@ interface Props {
   registry: PaneRegistryApi;
   settingsRevision: number;
   onOpenWorkspace: () => void;
+  onOpenTerminal: () => void;
   onOpenSettings: () => void;
   onProjectPathChange: (path: string) => Promise<void>;
 }
@@ -49,6 +50,7 @@ export function HomeDashboard({
   registry,
   settingsRevision,
   onOpenWorkspace,
+  onOpenTerminal,
   onOpenSettings,
   onProjectPathChange,
 }: Props) {
@@ -96,6 +98,9 @@ export function HomeDashboard({
             </button>
             <button type="button" className="pm-home-rail-link" onClick={onOpenWorkspace}>
               Workspace
+            </button>
+            <button type="button" className="pm-home-rail-link" onClick={onOpenTerminal}>
+              Terminal
             </button>
             <button type="button" className="pm-home-rail-link" onClick={onOpenSettings}>
               Settings
@@ -204,14 +209,14 @@ export function HomeDashboard({
                   primary
                 />
                 <ActionCard
+                  title="Open terminal"
+                  description="Focused shell PTY with API input controls."
+                  onClick={onOpenTerminal}
+                />
+                <ActionCard
                   title="Pick project"
                   description="Set cwd for new panes and orchestrator tools."
                   onClick={() => void pickProject()}
-                />
-                <ActionCard
-                  title="Settings"
-                  description="Orchestrator, API keys, mobile pairing, appearance."
-                  onClick={onOpenSettings}
                 />
               </div>
             </section>

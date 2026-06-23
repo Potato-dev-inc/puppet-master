@@ -50,7 +50,7 @@ function OrchestratorTerminalLive({
   const layout = useDebouncedMirrorLayout(pane.info.cols, pane.info.rows);
   const effectiveRenderMode =
     renderMode ?? (mobileMirror ? 'mirror-same-grid' : undefined);
-  const containerRef = useTerminalSession({
+  const { containerRef } = useTerminalSession({
     paneId: pane.info.id,
     sessionKey: syncPTYResize
       ? pane.info.created_at

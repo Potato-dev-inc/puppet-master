@@ -40,7 +40,7 @@ export function BridgePaneTerminal({
   const layout = useDebouncedMirrorLayout(pane.cols, pane.rows);
   const effectiveRenderMode =
     renderMode ?? 'mirror-same-grid';
-  const containerRef = useTerminalSession({
+  const { containerRef } = useTerminalSession({
     paneId: pane.id,
     sessionKey: mirrorLayoutSessionKey(
       pane.created_at,

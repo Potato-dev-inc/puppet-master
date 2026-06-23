@@ -13,6 +13,7 @@ pub enum AgentType {
     Claude,
     Codex,
     Opencode,
+    Cmd,
     Powershell,
     Bash,
     Cursor,
@@ -25,6 +26,7 @@ impl AgentType {
             AgentType::Claude => "claude",
             AgentType::Codex => "codex",
             AgentType::Opencode => "opencode",
+            AgentType::Cmd => "cmd",
             AgentType::Powershell => "powershell",
             AgentType::Bash => "bash",
             AgentType::Cursor => "cursor",
@@ -36,6 +38,7 @@ impl AgentType {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
             "opencode" => Some(Self::Opencode),
+            "cmd" => Some(Self::Cmd),
             "powershell" => Some(Self::Powershell),
             "bash" => Some(Self::Bash),
             "cursor" => Some(Self::Cursor),
@@ -57,9 +60,9 @@ pub fn resolve_command(agent: AgentType) -> (&'static str, Vec<&'static str>) {
 
 fn resolve_windows(agent: AgentType) -> (&'static str, Vec<&'static str>) {
     match agent {
-        AgentType::Claude => ("claude.exe", vec![]),
+        AgentType::Claude => ("claude", vec![]),
         AgentType::Codex => (
-            "codex.exe",
+            "codex",
             vec![
                 "--sandbox",
                 "workspace-write",
@@ -67,7 +70,8 @@ fn resolve_windows(agent: AgentType) -> (&'static str, Vec<&'static str>) {
                 "never",
             ],
         ),
-        AgentType::Opencode => ("opencode.cmd", vec![]),
+        AgentType::Opencode => ("opencode", vec![]),
+        AgentType::Cmd => ("cmd.exe", vec!["/K"]),
         AgentType::Powershell => ("powershell.exe", vec!["-NoLogo"]),
         AgentType::Bash => ("bash.exe", vec!["--login"]),
         AgentType::Cursor => ("cursor.cmd", vec![]),
@@ -87,6 +91,7 @@ fn resolve_macos(agent: AgentType) -> (&'static str, Vec<&'static str>) {
             ],
         ),
         AgentType::Opencode => ("opencode", vec![]),
+        AgentType::Cmd => ("zsh", vec!["-l"]),
         AgentType::Powershell => ("pwsh", vec!["-NoLogo"]),
         AgentType::Bash => ("zsh", vec!["-l"]),
         AgentType::Cursor => ("cursor", vec![]),
@@ -106,6 +111,7 @@ fn resolve_linux(agent: AgentType) -> (&'static str, Vec<&'static str>) {
             ],
         ),
         AgentType::Opencode => ("opencode", vec![]),
+        AgentType::Cmd => ("bash", vec!["--login"]),
         AgentType::Powershell => ("pwsh", vec!["-NoLogo"]),
         AgentType::Bash => ("bash", vec!["--login"]),
         AgentType::Cursor => ("cursor", vec![]),

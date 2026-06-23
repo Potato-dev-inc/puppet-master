@@ -18014,7 +18014,7 @@ var StdioServerTransport = class {
 };
 
 // ../shared/dist/agents.js
-var AgentTypeSchema = external_exports.enum(["claude", "codex", "opencode", "powershell", "bash", "cursor"]);
+var AgentTypeSchema = external_exports.enum(["claude", "codex", "opencode", "cmd", "powershell", "bash", "cursor"]);
 
 // ../shared/dist/protocol.js
 var PaneStatusSchema = external_exports.enum(["running", "waiting_input", "error", "idle"]);

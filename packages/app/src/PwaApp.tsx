@@ -7,7 +7,7 @@ import {
   type OrchestratorChatEvent,
   type PaneInfo,
 } from '@puppet-master/shared';
-import { listPresets, type AgentType } from '@puppet-master/shared';
+import { listLaunchPresets, type AgentType } from '@puppet-master/shared';
 import { BridgePaneTerminal, useBridgePaneTransport } from './components/BridgePaneTerminal';
 import { OrchestratorTerminal } from './components/OrchestratorTerminal';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
@@ -619,7 +619,7 @@ function FloatingMobileMenu({
   spawnError: string | null;
 }) {
   const models = DEFAULT_LLM_MODELS;
-  const presets = listPresets();
+  const presets = listLaunchPresets();
   const backend = settings.orchestrator_backend ?? 'api';
   const activeModel =
     models.find((m) => m.provider === settings.default_provider && m.model_id === settings.default_model) ??

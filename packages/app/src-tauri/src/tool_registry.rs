@@ -104,7 +104,7 @@ pub fn tools() -> Vec<ToolDefinition> {
             description: "Read context for an agent type or a live pane. If pane_id is provided, includes pane metadata, model inspection, and a recent buffer preview.",
             input_schema: object_schema(
                 json!({
-                    "agent_type": { "type": "string", "enum": ["claude", "codex", "opencode", "powershell", "bash", "cursor"] },
+                    "agent_type": { "type": "string", "enum": ["claude", "codex", "opencode", "cmd", "powershell", "bash", "cursor"] },
                     "pane_id": { "type": "string" }
                 }),
                 vec![],
@@ -136,7 +136,7 @@ pub fn tools() -> Vec<ToolDefinition> {
             description: "Spawn a worker PTY pane. Reuse existing worker panes of the same agent_type when possible; never reuse orchestrator panes.",
             input_schema: object_schema(
                 json!({
-                    "agent_type": { "type": "string", "enum": ["claude", "codex", "opencode", "powershell", "bash", "cursor"] },
+                    "agent_type": { "type": "string", "enum": ["claude", "codex", "opencode", "cmd", "powershell", "bash", "cursor"] },
                     "cwd": { "type": "string", "description": "Working directory; defaults to current project root" },
                     "cols": { "type": "number", "description": "Terminal columns (default 120)" },
                     "rows": { "type": "number", "description": "Terminal rows (default 30)" },

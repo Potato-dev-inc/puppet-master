@@ -62,6 +62,7 @@ export class TerminalSession {
   private readonly syncPTYResize: boolean;
   private readonly mirrorPTY: boolean;
   private readonly renderMode: TerminalRenderMode;
+  private readonly mobileInputDisabled: boolean;
   private generation = 0;
   private themeObserver: MutationObserver | null = null;
   private scaleController: TerminalScaleController | null = null;
@@ -73,8 +74,27 @@ export class TerminalSession {
     this.syncPTYResize = options.syncPTYResize ?? true;
     this.mirrorPTY = !this.syncPTYResize;
     this.renderMode = options.renderMode ?? (this.syncPTYResize ? 'owner' : 'mirror-same-grid');
+    this.mobileInputDisabled = options.disableMobileInput === true;
     this.ptyCols = options.ptyCols ?? 80;
     this.ptyRows = options.ptyRows ?? 24;
+  }
+
+  /**
+   * Force a refit/repaint at the current host size. Used as a safety net when
+   * the host layout changes in a way the ResizeObserver might miss — e.g. a pane
+   * returning from a detached window. The grid also plays a visible
+   * shrink-and-restore animation on the cell (see `pm-pane-settle`), which drives
+   * the ResizeObserver every frame; this call just guarantees a final clean fit.
+   */
+  nudgeReflow(): boolean {
+    if (!this.term) return false;
+    if (this.syncPTYResize) {
+      this.fitAndNotify();
+      this.refreshAndNudgeAltBuffer();
+    } else {
+      this.applyMirrorDimensions();
+    }
+    return true;
   }
 
   setPtyDimensions(cols: number, rows: number): void {
@@ -91,7 +111,7 @@ export class TerminalSession {
   }
 
   private isMobileMirror(): boolean {
-    return this.mirrorPTY && isMobileInputDevice();
+    return !this.mobileInputDisabled && this.mirrorPTY && isMobileInputDevice();
   }
 
   private shouldScaleMirrorToContainer(): boolean {
@@ -112,7 +132,7 @@ export class TerminalSession {
         return;
       }
 
-      const mobileMirror = this.mirrorPTY && isMobileInputDevice();
+      const mobileMirror = this.isMobileMirror();
       const terminal = new Terminal({
         theme: terminalThemeFromCss(),
         fontFamily: TERMINAL_FONT_FAMILY,
@@ -199,6 +219,14 @@ export class TerminalSession {
       this.installThemeObserver(terminal);
       if (this.syncPTYResize) {
         this.fitAndNotify();
+        // A fresh owner mount (e.g. a pane reattaching from a detached window
+        // back into the grid) inherits a PTY still sized to its previous home.
+        // Fitting alone often leaves alt-buffer TUIs painted at the old grid, so
+        // nudge the layout once the new size has settled to force a clean reflow.
+        requestAnimationFrame(() => {
+          if (this.disposed || gen !== this.generation) return;
+          this.fitAndNotify();
+        });
       } else {
         this.applyMirrorDimensions();
       }
@@ -384,7 +412,7 @@ export class TerminalSession {
     inputBatcher: InputBatcher,
   ): void {
     const textarea = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null;
-    const mobileMirror = this.mirrorPTY && isMobileInputDevice();
+    const mobileMirror = this.isMobileMirror();
 
     const fixImePosition = () => {
       if (!textarea) return;
@@ -596,4 +624,5 @@ export class TerminalSession {
       this.options.onResize(cols, rows);
     });
   }
+
 }

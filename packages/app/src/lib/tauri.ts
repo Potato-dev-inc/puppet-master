@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import type {
   AgentContextProfile,
   AgentModelInspection,
@@ -24,6 +26,8 @@ export type TerminalDataEvent = { pane_id: string; data: number[] };
 export type PaneStatusEvent = { pane_id: string; status: PaneInfo['status'] };
 export type PaneExitEvent = { pane_id: string };
 export type PanesChangedEvent = { changed: boolean };
+export type PaneDetachEvent = { pane_id: string; title?: string; cols?: number; rows?: number };
+export type PaneReattachEvent = { pane_id: string };
 
 export interface EnsureMcpResult {
   installed: boolean;
@@ -95,6 +99,29 @@ async function safeInvoke<T>(
 async function safeListen<T>(event: string, cb: (e: T) => void): Promise<UnlistenFn> {
   if (!isTauriRuntime()) return noopUnlisten;
   return listen<T>(event, (payload) => cb(payload.payload));
+}
+
+async function safeEmit<T>(event: string, payload: T): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await emit(event, payload);
+}
+
+async function closeCurrentWindow(): Promise<void> {
+  if (!isTauriRuntime()) {
+    window.close();
+    return;
+  }
+  await getCurrentWebviewWindow().destroy();
+}
+
+async function resizeCurrentWindow(width: number, height: number): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await getCurrentWindow().setSize(new LogicalSize(width, height));
+}
+
+async function onCurrentWindowCloseRequested(cb: () => void | Promise<void>): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) return noopUnlisten;
+  return getCurrentWindow().onCloseRequested(cb);
 }
 
 export const tauri = {
@@ -257,6 +284,14 @@ export const tauri = {
     safeListen<PaneExitEvent>('pty://exit', cb),
   onPanesChanged: (cb: (e: PanesChangedEvent) => void): Promise<UnlistenFn> =>
     safeListen<PanesChangedEvent>('pty://panes-changed', cb),
+  onPaneDetach: (cb: (e: PaneDetachEvent) => void): Promise<UnlistenFn> =>
+    safeListen<PaneDetachEvent>('pane://detach', cb),
+  onPaneReattach: (cb: (e: PaneReattachEvent) => void): Promise<UnlistenFn> =>
+    safeListen<PaneReattachEvent>('pane://reattach', cb),
+  emitPaneReattach: (paneId: string) => safeEmit<PaneReattachEvent>('pane://reattach', { pane_id: paneId }),
+  closeCurrentWindow,
+  resizeCurrentWindow,
+  onCurrentWindowCloseRequested,
 
   createMobilePairingSession: (bridgeUrl: string) =>
     safeInvoke<PairingSession>(

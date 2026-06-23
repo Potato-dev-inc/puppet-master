@@ -19,8 +19,9 @@ use crate::events::{ResourceId, SystemEvent, TaskId};
 use crate::mobile_pairing::{self, PairRequestBody};
 use crate::pty::agents::AgentType;
 use crate::pty::{
-    registry_kill_pane, registry_read_buffer, registry_read_raw_buffer, registry_set_project_path,
-    registry_spawn_pane, registry_write_input, PaneRegistry, SpawnPaneArgs,
+    registry_kill_pane, registry_read_buffer, registry_read_raw_buffer, registry_read_snapshot,
+    registry_set_project_path, registry_spawn_pane, registry_write_input, PaneRegistry,
+    SpawnPaneArgs,
 };
 use crate::settings_store;
 
@@ -361,7 +362,9 @@ fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
         ("POST", ["panes"]) => Some("spawn_agent".to_string()),
         ("DELETE", ["panes", _]) => Some("kill_pane_process".to_string()),
         ("GET", ["panes", _, "buffer"]) => Some("read_terminal_buffer".to_string()),
+        ("GET", ["panes", _, "snapshot"]) => Some("read_terminal_snapshot".to_string()),
         ("POST", ["panes", _, "input"]) => Some("write_terminal_input".to_string()),
+        ("POST", ["panes", _, "detach"]) => Some("detach_terminal_pane".to_string()),
         ("GET", ["panes", _, "model"]) => Some("inspect_agent_model".to_string()),
         ("GET", ["panes", _, "agent-context"]) => Some("read_agent_context".to_string()),
         ("GET", ["events", "replay", "panes"]) => Some("replay_pane_timeline".to_string()),
@@ -786,10 +789,34 @@ fn route(
                 .map_err(|err| (404, json!({ "error": err })))?;
             return Ok((200, json!({ "data": raw })));
         }
+        if tail == Some("snapshot") && method == "GET" {
+            let content = registry_read_snapshot(&registry, pane_id)
+                .map_err(|err| (404, json!({ "error": err })))?;
+            return Ok((200, json!({ "content": content })));
+        }
         if tail == Some("input") && method == "POST" {
             let req: WriteInputBody = parse_json(body)?;
             registry_write_input(&registry, pane_id, &req.text, req.append_newline)
                 .map_err(|err| (404, json!({ "error": err })))?;
+            return Ok((200, json!({ "ok": true })));
+        }
+        if tail == Some("detach") && method == "POST" {
+            let pane = registry
+                .lock()
+                .list()
+                .into_iter()
+                .find(|pane| pane.id == pane_id)
+                .ok_or_else(|| (404, json!({ "error": format!("unknown pane: {pane_id}") })))?;
+            let title = format!("{} · {}", pane.agent_type, pane.id.chars().take(8).collect::<String>());
+            let _ = app.emit(
+                "pane://detach",
+                json!({
+                    "pane_id": pane.id,
+                    "title": title,
+                    "cols": pane.cols,
+                    "rows": pane.rows,
+                }),
+            );
             return Ok((200, json!({ "ok": true })));
         }
         if tail == Some("role") && method == "POST" {

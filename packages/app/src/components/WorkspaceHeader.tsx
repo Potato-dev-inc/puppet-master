@@ -1,7 +1,7 @@
 import { homeDir } from '@tauri-apps/api/path';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useCallback, useState } from 'react';
-import { listPresets, type AgentType } from '@puppet-master/shared';
+import { listLaunchPresets, type AgentType } from '@puppet-master/shared';
 import logoUrl from '../assets/branding/logo.svg';
 
 interface Props {
@@ -24,7 +24,7 @@ export function WorkspaceHeader({
   onGoHome,
 }: Props) {
   const [showNewSession, setShowNewSession] = useState(false);
-  const presets = listPresets();
+  const presets = listLaunchPresets();
 
   const pickPath = useCallback(async () => {
     const result = await openDialog({

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { tauri } from '../lib/tauri';
 import { TerminalSession } from '../terminal';
 import type { PaneSnapshotListener, TerminalRenderMode } from '../terminal';
@@ -20,6 +20,9 @@ interface UseTerminalSessionOptions {
   ptyRows?: number;
   mobileInputDelayMs?: number;
   mobileInputVisible?: boolean;
+  disableMobileInput?: boolean;
+  /** Bump to force a tiny resize/repaint (e.g. when re-entering the grid). */
+  reflowKey?: number | string;
 }
 
 /**
@@ -36,9 +39,17 @@ export function useTerminalSession({
   ptyRows,
   mobileInputDelayMs,
   mobileInputVisible,
-}: UseTerminalSessionOptions): RefObject<HTMLDivElement> {
+  disableMobileInput,
+  reflowKey,
+}: UseTerminalSessionOptions): {
+  containerRef: RefObject<HTMLDivElement>;
+  nudgeReflow: () => void;
+} {
   const containerRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<TerminalSession | null>(null);
+  const nudgeReflow = useCallback(() => {
+    sessionRef.current?.nudgeReflow();
+  }, []);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -62,6 +73,7 @@ export function useTerminalSession({
       ptyRows,
       mobileInputDelayMs,
       mobileInputVisible,
+      disableMobileInput,
       onResize: (cols, rows) => {
         void activeTransport.resize(cols, rows);
       },
@@ -76,7 +88,7 @@ export function useTerminalSession({
       session.dispose();
       sessionRef.current = null;
     };
-  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, renderMode, mobileInputDelayMs, mobileInputVisible]);
+  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, renderMode, mobileInputDelayMs, mobileInputVisible, disableMobileInput]);
 
   useEffect(() => {
     if (syncPTYResize) return;
@@ -84,5 +96,26 @@ export function useTerminalSession({
     sessionRef.current?.setPtyDimensions(ptyCols, ptyRows);
   }, [syncPTYResize, ptyCols, ptyRows]);
 
-  return containerRef as RefObject<HTMLDivElement>;
+  useEffect(() => {
+    if (reflowKey === undefined) return;
+    // Defer until xterm is open — a pane returning from a detached window remounts
+    // the session in the same tick as this effect, so a single rAF is often too early.
+    let cancelled = false;
+    let frame = 0;
+    let attempts = 0;
+    const tryNudge = () => {
+      if (cancelled) return;
+      const didNudge = sessionRef.current?.nudgeReflow() ?? false;
+      if (!didNudge && ++attempts < 10) {
+        frame = requestAnimationFrame(tryNudge);
+      }
+    };
+    frame = requestAnimationFrame(tryNudge);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [reflowKey]);
+
+  return { containerRef: containerRef as RefObject<HTMLDivElement>, nudgeReflow };
 }
