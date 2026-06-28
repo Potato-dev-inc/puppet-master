@@ -54,6 +54,8 @@ interface AttentionState {
   lastActionAt: number;
 }
 
+type SidebarTab = 'agent' | 'tools';
+
 const ATTENTION_WAKE_AFTER_MS = 30_000;
 const ATTENTION_NOTIFY_DEBOUNCE_MS = 60_000;
 const AUTO_APPROVE_DEBOUNCE_MS = 2_500;
@@ -92,6 +94,7 @@ export function PuppetMasterSidebar({
   const [mcpStatus, setMcpStatus] = useState<string | null>(null);
   const [mcpLogHeight, setMcpLogHeight] = useState(128);
   const [standbyPanes, setStandbyPanes] = useState<Array<{ id: string; status: string }>>([]);
+  const [activeTab, setActiveTab] = useState<SidebarTab>('agent');
   const abortRef = useRef<AbortController | null>(null);
   const busyRef = useRef(busy);
   const draftRef = useRef(draft);
@@ -884,9 +887,9 @@ export function PuppetMasterSidebar({
         </button>
       </div>
 
-      <div className="flex flex-col gap-1 px-3 py-1 border-b border-pm-border text-xs">
-        <div className="flex items-center gap-2">
-          <span className="text-pm-muted shrink-0">Backend:</span>
+	      <div className="flex flex-col gap-1 px-3 py-1 border-b border-pm-border text-xs">
+	        <div className="flex items-center gap-2">
+	          <span className="text-pm-muted shrink-0">Backend:</span>
           <select
             value={backend}
             onChange={async (e) => {
@@ -945,144 +948,133 @@ export function PuppetMasterSidebar({
           <div className="text-[10px] text-pm-muted truncate" title={mcpStatus}>
             {mcpStatus}
           </div>
-        )}
-      </div>
+	        )}
+	      </div>
 
-      <div className="flex-1 min-h-0 flex flex-col">
-        {cliBackend ? (
-          projectPath ? (
-            <OrchestratorTerminal
-              backend={cliBackend}
-              pane={orchestratorPane}
-              starting={orchestratorStarting}
-              error={orchestratorError}
-              subscribePaneData={orchestratorTunnel.subscribePaneData}
-              transport={orchestratorTunnel.transport}
-              syncPTYResize
-              onRetry={() => {
-                if (projectPath) void startOrchestratorPane(cliBackend, projectPath);
-              }}
-            />
-          ) : (
-            <div className="flex-1 min-h-0 flex items-center justify-center p-4 text-xs text-center text-pm-muted">
-              Pick a project folder in the header to start the orchestrator agent.
-            </div>
-          )
-        ) : (
-          <div className="flex-1 min-h-0 overflow-auto p-3 space-y-2">
-            {messages.length === 0 && (
-              <div className="text-xs text-pm-muted">
-                Ask the Puppet Master to coordinate your panes. Try &quot;spawn a claude pane and ask it to summarize the repo&quot;.
-                Add custom models in Settings.
-              </div>
-            )}
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={`text-xs whitespace-pre-wrap ${
-                  m.role === 'user'
-                    ? 'text-zinc-100'
-                    : m.role === 'assistant'
-                    ? 'text-zinc-200'
-                    : 'text-pm-warn'
-                }`}
-              >
-                <span className="text-pm-muted mr-1">[{m.role}]</span>
-                {m.text}
-              </div>
-            ))}
-          </div>
-        )}
+	      <div className="grid grid-cols-2 gap-1 p-2 border-b border-pm-border bg-pm-bg/30" role="tablist" aria-label="Sidebar views">
+	        {(['agent', 'tools'] as SidebarTab[]).map((tab) => (
+	          <button
+	            key={tab}
+	            type="button"
+	            role="tab"
+	            aria-selected={activeTab === tab}
+	            onClick={() => setActiveTab(tab)}
+	            className={`rounded px-2 py-1 text-xs capitalize border ${
+	              activeTab === tab
+	                ? 'border-pm-accent bg-pm-accent/15 text-pm-accent'
+	                : 'border-pm-border text-pm-muted hover:text-pm-text hover:bg-pm-border/30'
+	            }`}
+	          >
+	            {tab}
+	          </button>
+	        ))}
+	      </div>
 
-        <CoordinationPanel bridge={bridge} bridgeReady={bridgeReady} />
+	      <div className="flex-1 min-h-0 flex flex-col">
+	        {activeTab === 'agent' ? (
+	          <>
+	            {cliBackend ? (
+	              projectPath ? (
+	                <OrchestratorTerminal
+	                  backend={cliBackend}
+	                  pane={orchestratorPane}
+	                  starting={orchestratorStarting}
+	                  error={orchestratorError}
+	                  subscribePaneData={orchestratorTunnel.subscribePaneData}
+	                  transport={orchestratorTunnel.transport}
+	                  syncPTYResize
+	                  onRetry={() => {
+	                    if (projectPath) void startOrchestratorPane(cliBackend, projectPath);
+	                  }}
+	                />
+	              ) : (
+	                <div className="flex-1 min-h-0 flex items-center justify-center p-4 text-xs text-center text-pm-muted">
+	                  Pick a project folder in the header to start the orchestrator agent.
+	                </div>
+	              )
+	            ) : (
+	              <div className="flex-1 min-h-0 overflow-auto p-3 space-y-2">
+	                {messages.length === 0 && (
+	                  <div className="text-xs text-pm-muted">
+	                    Ask the Puppet Master to coordinate your panes. Try &quot;spawn a claude pane and ask it to summarize the repo&quot;.
+	                    Add custom models in Settings.
+	                  </div>
+	                )}
+	                {messages.map((m) => (
+	                  <div
+	                    key={m.id}
+	                    className={`text-xs whitespace-pre-wrap ${
+	                      m.role === 'user'
+	                        ? 'text-zinc-100'
+	                        : m.role === 'assistant'
+	                        ? 'text-zinc-200'
+	                        : 'text-pm-warn'
+	                    }`}
+	                  >
+	                    <span className="text-pm-muted mr-1">[{m.role}]</span>
+	                    {m.text}
+	                  </div>
+	                ))}
+	              </div>
+	            )}
+	            {busy && (
+	              <div className="border-t border-pm-border px-3 py-2 text-[10px] text-pm-muted">
+	                {standbyPanes.length > 0 ? (
+	                  <div className="truncate" title={standbyPanes.map((p) => p.id).join(', ')}>
+	                    Standing by for: {standbyPanes.map((p) => p.id).join(', ')}
+	                  </div>
+	                ) : (
+	                  <div>Orchestrator busy.</div>
+	                )}
+	                <button
+	                  type="button"
+	                  onClick={interrupt}
+	                  className="mt-1 px-2 py-1 text-xs rounded border border-pm-err/50 bg-pm-err/10 text-pm-err hover:bg-pm-err/20"
+	                >
+	                  Interrupt
+	                </button>
+	              </div>
+	            )}
+	          </>
+	        ) : (
+	          <div className="flex-1 min-h-0 flex flex-col">
+	            <div className="flex-1 min-h-0 overflow-auto">
+	              <CoordinationPanel bridge={bridge} bridgeReady={bridgeReady} />
+	            </div>
 
-        <div
-          role="separator"
-          aria-orientation="horizontal"
-          title="Resize MCP log"
-          className="h-1 shrink-0 cursor-row-resize bg-pm-border/60 hover:bg-pm-accent transition-colors touch-none"
-          onPointerDown={resizeMcpLog}
-        />
+	            <div
+	              role="separator"
+	              aria-orientation="horizontal"
+	              title="Resize MCP log"
+	              className="h-1 shrink-0 cursor-row-resize bg-pm-border/60 hover:bg-pm-accent transition-colors touch-none"
+	              onPointerDown={resizeMcpLog}
+	            />
 
-        <div
-          className="border-t border-pm-border overflow-auto shrink-0"
-          style={{ height: mcpLogHeight }}
-        >
-          <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-pm-muted border-b border-pm-border bg-pm-bg/40">
-            MCP log
-          </div>
-          {logs.length === 0 ? (
-            <div className="px-3 py-1 text-[10px] text-pm-muted">No tool calls yet.</div>
-          ) : (
-            logs.slice(0, 30).map((l) => (
-              <div key={l.id} className="px-3 py-0.5 text-[10px] font-mono">
-                <span className="text-pm-muted">[{l.source}]</span>{' '}
-                <span className={l.error ? 'text-pm-err' : 'text-pm-accent'}>{l.tool}</span>
-                {l.error && <span className="text-pm-err"> — {l.error}</span>}
-                {!l.error && l.result && (
-                  <span className="text-pm-muted"> → {l.result.slice(0, 80)}</span>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      <div className="border-t border-pm-border p-2 shrink-0">
-          {busy && standbyPanes.length > 0 && (
-            <div
-              className="text-[10px] text-pm-muted truncate mb-1"
-              title={standbyPanes.map((p) => p.id).join(', ')}
-            >
-              Standing by for: {standbyPanes.map((p) => p.id).join(', ')}
-            </div>
-          )}
-          {busy && (
-            <div className="text-[10px] text-pm-muted mb-1">
-              Orchestrator busy — you can still paste; send when idle.
-            </div>
-          )}
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                if (!busy) void send();
-              }
-            }}
-            rows={4}
-            placeholder={
-              cliBackend
-                ? 'Paste a long prompt here — Ctrl+Enter sends it to the orchestrator CLI pane'
-                : 'Ask the Puppet Master… (Ctrl+Enter to send)'
-            }
-            className="w-full min-h-[5.5rem] text-xs bg-pm-bg border border-pm-border rounded p-2 resize-y"
-            readOnly={busy}
-            aria-busy={busy}
-          />
-          <div className="flex justify-end gap-2 mt-1">
-            {busy && (
-              <button
-                onClick={interrupt}
-                className="px-2 py-1 text-xs rounded border border-pm-err/50 bg-pm-err/10 text-pm-err hover:bg-pm-err/20"
-              >
-                Interrupt
-              </button>
-            )}
-            <button
-              onClick={() => void send()}
-              disabled={busy || !draft.trim()}
-              className="px-2 py-1 text-xs rounded border border-pm-accent bg-pm-accent/20 text-pm-accent hover:bg-pm-accent/30 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {busy
-                ? standbyPanes.length > 0
-                  ? `Waiting on ${standbyPanes.length}…`
-                  : 'Working…'
-                : 'Send'}
-            </button>
-          </div>
-        </div>
-    </aside>
-  );
-}
+	            <div
+	              className="border-t border-pm-border overflow-auto shrink-0"
+	              style={{ height: mcpLogHeight }}
+	            >
+	              <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-pm-muted border-b border-pm-border bg-pm-bg/40">
+	                MCP log
+	              </div>
+	              {logs.length === 0 ? (
+	                <div className="px-3 py-1 text-[10px] text-pm-muted">No tool calls yet.</div>
+	              ) : (
+	                logs.slice(0, 30).map((l) => (
+	                  <div key={l.id} className="px-3 py-0.5 text-[10px] font-mono">
+	                    <span className="text-pm-muted">[{l.source}]</span>{' '}
+	                    <span className={l.error ? 'text-pm-err' : 'text-pm-accent'}>{l.tool}</span>
+	                    {l.error && <span className="text-pm-err"> — {l.error}</span>}
+	                    {!l.error && l.result && (
+	                      <span className="text-pm-muted"> → {l.result.slice(0, 80)}</span>
+	                    )}
+	                  </div>
+	                ))
+	              )}
+	            </div>
+	          </div>
+	        )}
+	      </div>
+	    </aside>
+	  );
+	}

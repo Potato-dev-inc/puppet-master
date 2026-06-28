@@ -54,18 +54,23 @@ function TerminalViewport({
   registry,
   chrome = true,
   disableMobileInput = false,
+  onReattach,
+  reflowKey,
 }: {
   pane: PaneData;
   registry: ReturnType<typeof usePaneRegistry>;
   chrome?: boolean;
   disableMobileInput?: boolean;
+  onReattach?: () => void;
+  reflowKey?: number | string;
 }) {
-  const { containerRef } = useTerminalSession({
+  const { containerRef, nudgeReflow } = useTerminalSession({
     paneId: pane.info.id,
     sessionKey: pane.info.created_at,
     subscribePaneData: registry.subscribePaneData,
     syncPTYResize: true,
     disableMobileInput,
+    reflowKey,
   });
 
   return (
@@ -82,6 +87,28 @@ function TerminalViewport({
         </div>
       )}
       <div ref={containerRef} className="terminal-host pm-terminal-host" />
+      {!chrome && onReattach && (
+        <div className="pm-terminal-floating-controls">
+          <button
+            type="button"
+            className="pm-terminal-control-button"
+            title="Move pane back to app"
+            aria-label="Move pane back to app"
+            onClick={onReattach}
+          >
+            ↙
+          </button>
+          <button
+            type="button"
+            className="pm-terminal-control-button"
+            title="Nudge layout reflow"
+            aria-label="Nudge layout reflow"
+            onClick={nudgeReflow}
+          >
+            ↻
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -311,17 +338,6 @@ export default function TerminalApp() {
 
   return (
     <div className="pm-terminal-app">
-      {detached && selectedPane && (
-        <button
-          type="button"
-          className="pm-terminal-reattach-button"
-          title="Move pane back to app"
-          aria-label="Move pane back to app"
-          onClick={() => void reattachSelected()}
-        >
-          ↙
-        </button>
-      )}
       <main className={detached ? 'pm-terminal-shell pm-terminal-shell--detached' : 'pm-terminal-shell'}>
         <section className="pm-terminal-main">
           {selectedPane && detached ? (
@@ -331,6 +347,8 @@ export default function TerminalApp() {
                 registry={registry}
                 chrome={false}
                 disableMobileInput
+                onReattach={() => void reattachSelected()}
+                reflowKey={`detached:${selectedPane.info.id}:${selectedPane.info.cols}:${selectedPane.info.rows}`}
               />
             ) : (
               <div className="pm-terminal-detached-preflight" aria-hidden />

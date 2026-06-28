@@ -147,9 +147,6 @@ export default function App() {
           registry={registry}
           settingsRevision={settingsRevision}
           onOpenWorkspace={() => setScreen('workspace')}
-          onOpenTerminal={() => {
-            window.location.search = '?terminal';
-          }}
           onOpenSettings={() => setSettingsOpen(true)}
           onProjectPathChange={setProjectPath}
         />

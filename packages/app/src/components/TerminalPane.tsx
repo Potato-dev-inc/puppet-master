@@ -118,6 +118,15 @@ export function TerminalPane({
           ↗
         </button>
         <button
+          type="button"
+          className="px-1.5 py-0.5 rounded text-pm-muted hover:text-pm-text hover:bg-pm-border/40"
+          title="Nudge layout reflow"
+          aria-label="Nudge layout reflow"
+          onClick={nudgeReflow}
+        >
+          ↻
+        </button>
+        <button
           className="px-1.5 py-0.5 rounded text-pm-muted hover:text-pm-err hover:bg-pm-err/10"
           title="Kill pane"
           onClick={() => onClose(pane.info.id)}
@@ -127,15 +136,6 @@ export function TerminalPane({
       </div>
       <div className="relative flex-1 min-h-0">
         <div ref={containerRef} className="h-full overflow-hidden terminal-host" />
-        <button
-          type="button"
-          className="pm-pane-nudge-button"
-          title="Nudge layout reflow"
-          aria-label="Nudge layout reflow"
-          onClick={nudgeReflow}
-        >
-          ↻
-        </button>
       </div>
     </div>
   );

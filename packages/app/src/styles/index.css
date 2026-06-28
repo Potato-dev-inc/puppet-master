@@ -890,6 +890,7 @@ html, body, #root {
 .pm-home-main {
   min-width: 0;
   min-height: 0;
+  height: 100%;
   overflow: auto;
   padding: clamp(18px, 2.5vw, 32px) clamp(18px, 3vw, 40px) 40px;
   display: flex;
@@ -1417,32 +1418,6 @@ html, body, #root {
   }
 }
 
-.pm-pane-nudge-button {
-  position: absolute;
-  right: 5px;
-  bottom: 4px;
-  z-index: 5;
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgb(var(--pm-border));
-  border-radius: 4px;
-  background: rgb(var(--pm-panel) / 0.72);
-  color: rgb(var(--pm-muted));
-  font-size: 11px;
-  line-height: 1;
-  opacity: 0.45;
-  pointer-events: auto;
-}
-
-.pm-pane-nudge-button:hover,
-.pm-pane-nudge-button:focus-visible {
-  opacity: 1;
-  color: rgb(var(--pm-text));
-  background: rgb(var(--pm-panel));
-}
-
 /* ── Standalone terminal app ─────────────────────────────────────── */
 
 .pm-terminal-app {
@@ -1468,11 +1443,17 @@ html, body, #root {
   padding: 0;
 }
 
-.pm-terminal-reattach-button {
+.pm-terminal-floating-controls {
   position: fixed;
-  top: 4px;
   right: 5px;
+  bottom: 4px;
   z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pm-terminal-control-button {
   width: 18px;
   height: 18px;
   display: grid;
@@ -1486,8 +1467,8 @@ html, body, #root {
   opacity: 0.45;
 }
 
-.pm-terminal-reattach-button:hover,
-.pm-terminal-reattach-button:focus-visible {
+.pm-terminal-control-button:hover,
+.pm-terminal-control-button:focus-visible {
   opacity: 1;
   color: rgb(var(--pm-text));
   background: rgb(var(--pm-panel));
