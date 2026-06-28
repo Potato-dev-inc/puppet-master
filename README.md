@@ -1,3 +1,4 @@
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Potato-dev-inc/puppet-master)
 # Puppet Master
 
 **Multi-agent terminal orchestrator.** Spawn real PTY sessions for Claude Code, Codex CLI, OpenCode, Cursor, PowerShell, and Bash — then drive them from a Tauri desktop app, a mobile PWA, or any external MCP host (Cursor, Claude Desktop, Codex).
