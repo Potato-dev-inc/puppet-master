@@ -1,11 +1,15 @@
 //! Long-poll worker pane wait — avoids orchestrator MCP polling loops.
 
-use crate::opencode::status::{self, OpenCodeWaitSnapshot};
-use crate::pty::registry::PaneRegistry;
+use crate::opencode::status;
+use crate::opencode::quota::{self, KeySwapEvent, KEY_ROTATED, KEY_SWAP_REQUIRED};
+use crate::pane_wait_notify;
+use crate::pty::{registry_read_buffer, PaneRegistry};
+use crate::pty::status::looks_like_opencode_tui_menu;
 use parking_lot::Mutex;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +20,17 @@ pub enum WaitUntil {
     Gone,
     Permission,
     Unhealthy,
+    KeySwapRequired,
+    KeyRotated,
+    ModelReady,
+    TuiReady,
+    TaskCompleted,
+    TaskBlocked,
+    OutputMatch,
+    /// Worker stopped: idle, waiting_input, permission, tui menu, or error.
+    Settled,
+    /// OpenCode TUI yes/no or numbered menu visible in scrollback.
+    TuiPrompt,
 }
 
 impl WaitUntil {
@@ -34,6 +49,15 @@ impl WaitUntil {
             "gone" | "exit" | "exited" => Ok(Self::Gone),
             "permission" | "permissions" => Ok(Self::Permission),
             "unhealthy" | "health" => Ok(Self::Unhealthy),
+            "key_swap_required" | "key_swap" => Ok(Self::KeySwapRequired),
+            "key_rotated" | "rate_limited" => Ok(Self::KeyRotated),
+            "model_ready" | "model" => Ok(Self::ModelReady),
+            "tui_ready" | "tui_attached" | "attached" => Ok(Self::TuiReady),
+            "task_completed" | "task_done" => Ok(Self::TaskCompleted),
+            "task_blocked" | "blocked" => Ok(Self::TaskBlocked),
+            "output_match" | "buffer_match" => Ok(Self::OutputMatch),
+            "settled" | "worker_settled" | "stopped" | "done" => Ok(Self::Settled),
+            "tui_prompt" | "tui_menu" | "confirmation" => Ok(Self::TuiPrompt),
             other => Err(format!("unsupported wait trigger '{other}'")),
         }
     }
@@ -47,7 +71,17 @@ fn default_until() -> Vec<WaitUntil> {
         WaitUntil::Gone,
         WaitUntil::Permission,
         WaitUntil::Unhealthy,
+        WaitUntil::KeySwapRequired,
+        WaitUntil::KeyRotated,
     ]
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct WaitModelMatch {
+    #[serde(rename = "provider_id", alias = "providerID")]
+    pub provider_id: Option<String>,
+    #[serde(rename = "model_id", alias = "modelID", alias = "id")]
+    pub model_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -57,6 +91,12 @@ pub struct WaitForPanesRequest {
     pub until: Vec<String>,
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub output_regex: Option<String>,
+    #[serde(default, rename = "match")]
+    pub model_match: Option<WaitModelMatch>,
 }
 
 fn default_timeout_ms() -> u64 {
@@ -68,7 +108,19 @@ pub struct WaitForPanesResult {
     pub reason: String,
     pub pane_id: String,
     pub status: Option<String>,
-    pub opencode: Option<OpenCodeWaitSnapshot>,
+    pub opencode: Option<status::OpenCodeWaitSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_hint: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buffer_tail: Option<String>,
 }
 
 pub fn wait_for_panes(
@@ -81,11 +133,29 @@ pub fn wait_for_panes(
     let until = WaitUntil::parse_all(&req.until)?;
     let timeout = Duration::from_millis(req.timeout_ms.clamp(1_000, 300_000));
     let deadline = Instant::now() + timeout;
-    let poll = Duration::from_millis(400);
+    let output_regex = req
+        .output_regex
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(Regex::new)
+        .transpose()
+        .map_err(|err| format!("invalid output_regex: {err}"))?;
+    let model_provider = req.model_match.as_ref().and_then(|m| m.provider_id.clone());
+    let model_id = req.model_match.as_ref().and_then(|m| m.model_id.clone());
+    let mut wake_generation = 0_u64;
 
     loop {
         for pane_id in &req.pane_ids {
-            if let Some(result) = check_pane(registry, pane_id, &until) {
+            if let Some(result) = check_pane(
+                registry,
+                pane_id,
+                &until,
+                model_provider.as_deref(),
+                model_id.as_deref(),
+                req.task_id.as_deref(),
+                output_regex.as_ref(),
+            ) {
                 return Ok(result);
             }
         }
@@ -94,84 +164,530 @@ pub fn wait_for_panes(
             let pane_id = req.pane_ids[0].clone();
             let status = status::pane_info(registry, &pane_id).map(|info| info.status);
             let opencode = status::wait_snapshot(registry, &pane_id).ok().flatten();
+            let buffer_tail = registry_read_buffer(registry, &pane_id, 40).ok();
             return Ok(WaitForPanesResult {
                 reason: "timeout".into(),
                 pane_id,
                 status,
-                opencode,
+                opencode: opencode.clone(),
+                from_profile: None,
+                to_profile: None,
+                task_id: req.task_id.clone(),
+                task_status: task_status(req.task_id.as_deref()),
+                agent_hint: agent_hint_for_reason("timeout", opencode.as_ref()),
+                buffer_tail,
             });
         }
-        thread::sleep(poll);
+        pane_wait_notify::wait_for_change(deadline, &mut wake_generation);
     }
+}
+
+fn task_status(task_id: Option<&str>) -> Option<String> {
+    let task_id = task_id?;
+    let read_models = crate::event_log::rebuild_read_models().ok()?;
+    read_models
+        .tasks
+        .iter()
+        .find(|task| task.id.0 == task_id)
+        .map(|task| task.status.clone())
 }
 
 fn check_pane(
     registry: &Arc<Mutex<PaneRegistry>>,
     pane_id: &str,
     until: &[WaitUntil],
+    model_provider: Option<&str>,
+    model_id: Option<&str>,
+    task_id: Option<&str>,
+    output_regex: Option<&Regex>,
 ) -> Option<WaitForPanesResult> {
     let info = match status::pane_info(registry, pane_id) {
         Some(info) => info,
         None if until.contains(&WaitUntil::Gone) => {
-            return Some(wait_result("gone", pane_id, "error".into(), None));
+            return Some(wait_result(
+                "gone",
+                pane_id,
+                "error".into(),
+                None,
+                None,
+                None,
+                task_id.map(str::to_string),
+                None,
+                None,
+            ));
         }
         None => return None,
     };
     let opencode = status::wait_snapshot(registry, pane_id).ok().flatten();
 
+    if until.contains(&WaitUntil::Settled) || until.contains(&WaitUntil::TuiPrompt) {
+        if let Some(reason) = worker_settled_reason(registry, pane_id, &info.status, opencode.as_ref(), until) {
+            let buffer_tail = if reason == "tui_prompt" {
+                registry_read_buffer(registry, pane_id, 40).ok()
+            } else {
+                None
+            };
+            return Some(wait_result(
+                reason,
+                pane_id,
+                info.status.clone(),
+                opencode,
+                None,
+                None,
+                task_id.map(str::to_string),
+                task_status(task_id),
+                buffer_tail,
+            ));
+        }
+    }
+
+    if let Some(result) = try_key_swap_wait(registry, pane_id, until, &info.status, opencode.clone(), task_id) {
+        return Some(result);
+    }
+
+    if until.contains(&WaitUntil::TaskCompleted) || until.contains(&WaitUntil::TaskBlocked) {
+        if let Some(task_id) = task_id {
+            if let Ok(read_models) = crate::event_log::rebuild_read_models() {
+                if let Some(task) = read_models.tasks.iter().find(|task| task.id.0 == task_id) {
+                    if until.contains(&WaitUntil::TaskCompleted) && task.status == "completed" {
+                        return Some(wait_result(
+                            "task_completed",
+                            pane_id,
+                            info.status.clone(),
+                            opencode.clone(),
+                            None,
+                            None,
+                            Some(task_id.to_string()),
+                            Some(task.status.clone()),
+                            None,
+                        ));
+                    }
+                    if until.contains(&WaitUntil::TaskBlocked) && task.status == "blocked" {
+                        return Some(wait_result(
+                            "task_blocked",
+                            pane_id,
+                            info.status.clone(),
+                            opencode.clone(),
+                            None,
+                            None,
+                            Some(task_id.to_string()),
+                            Some(task.status.clone()),
+                            None,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    if until.contains(&WaitUntil::OutputMatch) {
+        if let Some(regex) = output_regex {
+            if let Ok(buffer) = crate::pty::registry_read_buffer(registry, pane_id, 400) {
+                if regex.is_match(&buffer) {
+                    return Some(wait_result(
+                        "output_match",
+                        pane_id,
+                        info.status.clone(),
+                        opencode.clone(),
+                        None,
+                        None,
+                        task_id.map(str::to_string),
+                        task_status(task_id),
+                        None,
+                    ));
+                }
+            }
+        }
+    }
+
+    if until.contains(&WaitUntil::ModelReady) {
+        if status::is_model_ready(registry, pane_id, model_provider, model_id).unwrap_or(false) {
+            clear_pending_model(registry, pane_id);
+            return Some(wait_result(
+                "model_ready",
+                pane_id,
+                info.status.clone(),
+                opencode.clone(),
+                None,
+                None,
+                task_id.map(str::to_string),
+                task_status(task_id),
+                None,
+            ));
+        }
+    }
+
+    if until.contains(&WaitUntil::TuiReady) {
+        if status::is_tui_ready(registry, pane_id).unwrap_or(false) {
+            return Some(wait_result(
+                "tui_ready",
+                pane_id,
+                info.status.clone(),
+                opencode.clone(),
+                None,
+                None,
+                task_id.map(str::to_string),
+                task_status(task_id),
+                None,
+            ));
+        }
+    }
+
     if let Some(snapshot) = opencode.as_ref() {
         if until.contains(&WaitUntil::Unhealthy) && !snapshot.serve_healthy {
-            return Some(wait_result("unhealthy", pane_id, info.status, opencode));
+            return Some(wait_result(
+                "unhealthy",
+                pane_id,
+                info.status.clone(),
+                opencode,
+                None,
+                None,
+                task_id.map(str::to_string),
+                task_status(task_id),
+                None,
+            ));
         }
         if until.contains(&WaitUntil::Permission) && snapshot.pending_permission_count > 0 {
-            return Some(wait_result("permission", pane_id, info.status, opencode));
+            return Some(wait_result(
+                "permission",
+                pane_id,
+                info.status.clone(),
+                opencode,
+                None,
+                None,
+                task_id.map(str::to_string),
+                task_status(task_id),
+                None,
+            ));
         }
     }
 
     if until.contains(&WaitUntil::Idle) && info.status == "idle" {
-        return Some(wait_result("status_changed", pane_id, info.status, opencode));
+        return Some(wait_result(
+            "status_changed",
+            pane_id,
+            info.status,
+            opencode,
+            None,
+            None,
+            task_id.map(str::to_string),
+            task_status(task_id),
+            None,
+        ));
     }
     if until.contains(&WaitUntil::WaitingInput) && info.status == "waiting_input" {
-        return Some(wait_result("status_changed", pane_id, info.status, opencode));
+        return Some(wait_result(
+            "status_changed",
+            pane_id,
+            info.status,
+            opencode,
+            None,
+            None,
+            task_id.map(str::to_string),
+            task_status(task_id),
+            None,
+        ));
     }
     if until.contains(&WaitUntil::Error) && info.status == "error" {
-        return Some(wait_result("status_changed", pane_id, info.status, opencode));
+        return Some(wait_result(
+            "status_changed",
+            pane_id,
+            info.status,
+            opencode,
+            None,
+            None,
+            task_id.map(str::to_string),
+            task_status(task_id),
+            None,
+        ));
     }
     if until.contains(&WaitUntil::Gone) && info.status == "error" {
-        return Some(wait_result("gone", pane_id, info.status, opencode));
+        return Some(wait_result(
+            "gone",
+            pane_id,
+            info.status,
+            opencode,
+            None,
+            None,
+            task_id.map(str::to_string),
+            task_status(task_id),
+            None,
+        ));
     }
 
     None
+}
+
+fn worker_settled_reason(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    pane_status: &str,
+    opencode: Option<&status::OpenCodeWaitSnapshot>,
+    until: &[WaitUntil],
+) -> Option<&'static str> {
+    let check_settled = until.contains(&WaitUntil::Settled);
+    let check_tui = until.contains(&WaitUntil::TuiPrompt);
+    if !check_settled && !check_tui {
+        return None;
+    }
+    if check_settled {
+        match pane_status {
+            "idle" => return Some("idle"),
+            "waiting_input" => return Some("waiting_input"),
+            "error" => return Some("error"),
+            _ => {}
+        }
+        if opencode.is_some_and(|snap| snap.pending_permission_count > 0) {
+            return Some("permission");
+        }
+    }
+    if check_settled || check_tui {
+        if crate::opencode::messages::pending_question_for_pane(registry, pane_id).is_some() {
+            return Some("tui_prompt");
+        }
+        if let Ok(buffer) = registry_read_buffer(registry, pane_id, 80) {
+            if looks_like_opencode_tui_menu(&buffer) && !buffer.contains("You selected") {
+                return Some("tui_prompt");
+            }
+        }
+    }
+    None
+}
+
+fn agent_hint_for_reason(
+    reason: &str,
+    opencode: Option<&status::OpenCodeWaitSnapshot>,
+) -> Option<Value> {
+    match reason {
+        "tui_prompt" | "waiting_input" => Some(json!({
+            "action": "reply_opencode_question",
+            "tools": ["reply_opencode_question", "read_opencode_messages"],
+            "detail": "Answer via reply_opencode_question (option label Yes/No). Do not use press_key — API prompts are not in the TUI input box."
+        })),
+        "permission" => {
+            let request_id = opencode?.pending_permission_ids.first()?;
+            Some(json!({
+                "action": "reply_opencode_permission",
+                "request_id": request_id,
+                "detail": "OpenCode API permission pending — reply once, always, or deny."
+            }))
+        }
+        "idle" => Some(json!({
+            "action": "read_opencode_messages",
+            "tools": ["read_opencode_messages", "read_terminal_buffer"],
+            "detail": "Worker settled idle — read_opencode_messages for model output (opencode_native), or read_terminal_buffer once for raw TUI evidence."
+        })),
+        "timeout" => Some(json!({
+            "action": "read_opencode_worker_status",
+            "detail": "Wait timed out — check read_opencode_worker_status and read_terminal_buffer once; worker may still be thinking."
+        })),
+        _ => None,
+    }
+}
+
+fn clear_pending_model(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) {
+    let mut reg = registry.lock();
+    if let Some(pane) = reg.panes.get_mut(pane_id) {
+        if let Some(link) = pane.opencode.as_ref() {
+            *link.pending_model().lock() = None;
+        }
+    }
+}
+
+fn try_key_swap_wait(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    until: &[WaitUntil],
+    pane_status: &str,
+    opencode: Option<status::OpenCodeWaitSnapshot>,
+    task_id: Option<&str>,
+) -> Option<WaitForPanesResult> {
+    let want_swap = until.contains(&WaitUntil::KeySwapRequired);
+    let want_rotated = until.contains(&WaitUntil::KeyRotated);
+    if !want_swap && !want_rotated {
+        return None;
+    }
+
+    let event = quota::pending_key_event(registry, pane_id)?;
+    let reason = match_key_event_to_reason(&event, want_swap, want_rotated)?;
+    let taken = quota::take_pending_key_event(registry, pane_id)?;
+    Some(wait_result(
+        reason,
+        pane_id,
+        pane_status.to_string(),
+        opencode,
+        Some(taken.from_profile),
+        taken.to_profile,
+        task_id.map(str::to_string),
+        task_status(task_id),
+        None,
+    ))
+}
+
+pub(crate) fn match_key_event_to_reason(
+    event: &KeySwapEvent,
+    want_swap: bool,
+    want_rotated: bool,
+) -> Option<&'static str> {
+    match event.kind.as_str() {
+        KEY_ROTATED if want_rotated => Some("key_rotated"),
+        KEY_SWAP_REQUIRED if want_swap => Some("key_swap_required"),
+        KEY_ROTATED | KEY_SWAP_REQUIRED => None,
+        _ => None,
+    }
 }
 
 fn wait_result(
     reason: &str,
     pane_id: &str,
     status: String,
-    opencode: Option<OpenCodeWaitSnapshot>,
+    opencode: Option<status::OpenCodeWaitSnapshot>,
+    from_profile: Option<String>,
+    to_profile: Option<String>,
+    task_id: Option<String>,
+    task_status: Option<String>,
+    buffer_tail: Option<String>,
 ) -> WaitForPanesResult {
     WaitForPanesResult {
         reason: reason.to_string(),
         pane_id: pane_id.to_string(),
         status: Some(status),
+        agent_hint: agent_hint_for_reason(reason, opencode.as_ref()),
+        buffer_tail,
         opencode,
+        from_profile,
+        to_profile,
+        task_id,
+        task_status,
     }
+}
+
+pub fn wait_for_worker(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    timeout_ms: u64,
+) -> Result<WaitForPanesResult, String> {
+    wait_for_panes(
+        registry,
+        WaitForPanesRequest {
+            pane_ids: vec![pane_id.to_string()],
+            until: vec!["settled".into(), "error".into()],
+            timeout_ms,
+            task_id: None,
+            output_regex: None,
+            model_match: None,
+        },
+    )
+}
+
+pub fn wait_for_model(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    model_provider: Option<&str>,
+    model_id: Option<&str>,
+    timeout_ms: u64,
+) -> Result<WaitForPanesResult, String> {
+    wait_for_panes(
+        registry,
+        WaitForPanesRequest {
+            pane_ids: vec![pane_id.to_string()],
+            until: vec!["model_ready".into(), "tui_ready".into(), "error".into()],
+            timeout_ms,
+            task_id: None,
+            output_regex: None,
+            model_match: Some(WaitModelMatch {
+                provider_id: model_provider.map(str::to_string),
+                model_id: model_id.map(str::to_string),
+            }),
+        },
+    )
+}
+
+pub fn wait_for_task(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    task_id: &str,
+    until: &[&str],
+    timeout_ms: u64,
+) -> Result<WaitForPanesResult, String> {
+    wait_for_panes(
+        registry,
+        WaitForPanesRequest {
+            pane_ids: vec![pane_id.to_string()],
+            until: until.iter().map(|value| value.to_string()).collect(),
+            timeout_ms,
+            task_id: Some(task_id.to_string()),
+            output_regex: None,
+            model_match: None,
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::opencode::quota::KeySwapEvent;
 
     #[test]
     fn parses_wait_triggers() {
         assert_eq!(WaitUntil::parse("permission").unwrap(), WaitUntil::Permission);
         assert_eq!(WaitUntil::parse("waiting").unwrap(), WaitUntil::WaitingInput);
+        assert_eq!(WaitUntil::parse("key_swap").unwrap(), WaitUntil::KeySwapRequired);
+        assert_eq!(WaitUntil::parse("rate_limited").unwrap(), WaitUntil::KeyRotated);
+        assert_eq!(WaitUntil::parse("model_ready").unwrap(), WaitUntil::ModelReady);
+        assert_eq!(WaitUntil::parse("tui_ready").unwrap(), WaitUntil::TuiReady);
+        assert_eq!(WaitUntil::parse("task_completed").unwrap(), WaitUntil::TaskCompleted);
+        assert_eq!(WaitUntil::parse("settled").unwrap(), WaitUntil::Settled);
+        assert_eq!(WaitUntil::parse("tui_prompt").unwrap(), WaitUntil::TuiPrompt);
     }
 
     #[test]
-    fn default_until_includes_permission_and_idle() {
+    fn agent_hint_for_tui_prompt_suggests_reply_opencode_question() {
+        let hint = agent_hint_for_reason("tui_prompt", None).expect("hint");
+        assert_eq!(
+            hint.get("action").and_then(|v| v.as_str()),
+            Some("reply_opencode_question")
+        );
+    }
+
+    #[test]
+    fn default_until_includes_permission_and_key_swap() {
         let triggers = default_until();
         assert!(triggers.contains(&WaitUntil::Permission));
         assert!(triggers.contains(&WaitUntil::Idle));
+        assert!(triggers.contains(&WaitUntil::KeySwapRequired));
+        assert!(triggers.contains(&WaitUntil::KeyRotated));
+    }
+
+    #[test]
+    fn match_key_event_maps_kind_to_reason() {
+        let rotated = KeySwapEvent {
+            kind: KEY_ROTATED.into(),
+            pane_id: "p1".into(),
+            from_profile: "a".into(),
+            to_profile: Some("b".into()),
+            reason: "rate_limited".into(),
+            auto_rotated: true,
+            at_ms: 0,
+        };
+        assert_eq!(
+            match_key_event_to_reason(&rotated, true, true),
+            Some("key_rotated")
+        );
+        assert_eq!(match_key_event_to_reason(&rotated, true, false), None);
+
+        let swap = KeySwapEvent {
+            kind: KEY_SWAP_REQUIRED.into(),
+            pane_id: "p1".into(),
+            from_profile: "a".into(),
+            to_profile: None,
+            reason: "rate_limited".into(),
+            auto_rotated: false,
+            at_ms: 0,
+        };
+        assert_eq!(
+            match_key_event_to_reason(&swap, true, false),
+            Some("key_swap_required")
+        );
     }
 }

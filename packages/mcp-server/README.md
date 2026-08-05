@@ -156,7 +156,7 @@ then read_terminal_buffer once to confirm receipt.
 | `inspect_agent_model` | Parse recent output for active model signal |
 | `spawn_agent` | New pane — `claude`, `codex`, `opencode`, `powershell`, `bash`, `cursor` |
 | `read_terminal_buffer` | Scrollback (last N lines, default 200) |
-| `write_terminal_input` | Send text as if typed (`append_newline` defaults to `true`) |
+| `write_terminal_input` | Send text as if typed (`append_newline` defaults to `true`; optional `model_provider` + `model_id` for `opencode_native`) |
 | `kill_pane_process` | Terminate a worker pane and its child process |
 | `create_task` | Create a coordination task before delegating work |
 | `claim_task` | Claim or renew a task lease for a worker |

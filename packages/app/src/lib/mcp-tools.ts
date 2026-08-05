@@ -46,7 +46,11 @@ function formatWaitForPanesResult(result: WaitForPanesResult): string {
   const oc = result.opencode
     ? ` serve=${result.opencode.serve_healthy ? 'healthy' : 'unhealthy'} perms=${result.opencode.pending_permission_count}`
     : '';
-  return `${result.reason} pane=${result.pane_id} status=${result.status ?? 'unknown'}${oc}`;
+  const profiles =
+    result.from_profile
+      ? ` from=${result.from_profile}${result.to_profile ? ` to=${result.to_profile}` : ''}`
+      : '';
+  return `${result.reason} pane=${result.pane_id} status=${result.status ?? 'unknown'}${oc}${profiles}`;
 }
 
 /** Prefer an already-open worker pane of the same agent (never the orchestrator pane). */
@@ -89,11 +93,15 @@ export interface McpToolExecutor {
   listAgentContexts(): Promise<AgentContextProfile[]>;
   readAgentContext(args: { agent_type?: string; pane_id?: string }): Promise<unknown>;
   inspectAgentModel(paneId: string, lines?: number): Promise<AgentModelInspection>;
+  switchAgentModel(
+    paneId: string,
+    args: { model_id: string; model_provider?: string },
+  ): Promise<{ ok: boolean; provider_id: string; model_id: string; tui_synced?: boolean }>;
   writeInput(
     paneId: string,
     text: string,
     appendNewline?: boolean,
-    options?: { viaOpencodeApi?: boolean },
+    options?: { viaOpencodeApi?: boolean; modelProvider?: string; modelId?: string },
   ): Promise<void>;
   createTask(args: { title: string; exclusive?: boolean }): Promise<{ task_id: string }>;
   claimTask(taskId: string, args: { agent_id: string; lease_ms?: number }): Promise<unknown>;
@@ -112,6 +120,8 @@ export interface McpToolExecutor {
     owner_id: string;
   }): Promise<unknown>;
   buildContextPack(args: ContextPackRequest): Promise<unknown>;
+  readProjectIrStatus(): Promise<unknown>;
+  readLibrarianPrompt(): Promise<unknown>;
   readSessionContext(): Promise<unknown>;
   updateSessionContext(args: { current_goal?: string | null }): Promise<unknown>;
   setPaneRole(paneId: string, role: PaneRole): Promise<unknown>;
@@ -124,9 +134,38 @@ export interface McpToolExecutor {
     pane_ids: string[];
     until?: string[];
     timeout_ms?: number;
+    task_id?: string;
+    output_regex?: string;
+    match?: { provider_id?: string; model_id?: string };
   }): Promise<WaitForPanesResult>;
+  waitForModel?(args: {
+    pane_id: string;
+    provider_id?: string;
+    model_id?: string;
+    timeout_ms?: number;
+  }): Promise<WaitForPanesResult>;
+  waitForTask?(args: {
+    pane_id: string;
+    task_id: string;
+    until?: string[];
+    timeout_ms?: number;
+  }): Promise<WaitForPanesResult>;
+  readRecentEvents?(args?: {
+    limit?: number;
+    pane_id?: string;
+    types?: string[];
+    since_id?: string;
+  }): Promise<unknown[]>;
   readOpencodeWorkerStatus?(paneId: string): Promise<OpenCodeWorkerStatus>;
+  readOpencodeMessages?(
+    paneId: string,
+    args?: { limit?: number; role?: 'all' | 'user' | 'assistant' },
+  ): Promise<unknown>;
   replyOpencodePermission?(paneId: string, requestId: string, reply: string): Promise<void>;
+  replyOpencodeQuestion?(
+    paneId: string,
+    args: { answer: string; request_id?: string },
+  ): Promise<unknown>;
 }
 
 function bridgeRequiredTool(name: string): never {
@@ -146,8 +185,9 @@ export function makeTauriExecutor(): McpToolExecutor {
     listAgentContexts: () => tauri.listAgentContexts(),
     readAgentContext: (args) => tauri.readAgentContext(args),
     inspectAgentModel: (paneId, lines) => tauri.inspectAgentModel(paneId, lines),
+    switchAgentModel: (paneId, args) => tauri.switchAgentModel(paneId, args),
     writeInput: (paneId, text, appendNewline, options) =>
-      tauri.writeInput(paneId, text, appendNewline, options?.viaOpencodeApi),
+      tauri.writeInput(paneId, text, appendNewline, options),
     createTask: () => bridgeRequiredTool('create_task'),
     claimTask: () => bridgeRequiredTool('claim_task'),
     reportTaskStatus: () => bridgeRequiredTool('report_task_status'),
@@ -187,8 +227,9 @@ export function makeBridgeExecutor(bridge: BridgeClient): McpToolExecutor {
     listAgentContexts: () => bridge.listAgentContexts(),
     readAgentContext: (args) => bridge.readAgentContext(args),
     inspectAgentModel: (paneId, lines) => bridge.inspectAgentModel(paneId, lines),
+    switchAgentModel: (paneId, args) => bridge.switchAgentModel(paneId, args),
     writeInput: (id, text, appendNewline, options) =>
-      bridge.writeInput(id, text, appendNewline, options?.viaOpencodeApi),
+      bridge.writeInput(id, text, appendNewline, options),
     createTask: (args) => bridge.createTask(args),
     claimTask: (taskId, args) => bridge.claimTask(taskId, args),
     reportTaskStatus: (taskId, args) => bridge.patchTaskStatus(taskId, args),
@@ -197,6 +238,8 @@ export function makeBridgeExecutor(bridge: BridgeClient): McpToolExecutor {
     acquireResourceLock: (args) => bridge.acquireResourceLock(args),
     releaseResourceLock: (args) => bridge.releaseResourceLock(args),
     buildContextPack: (args) => bridge.buildContextPack(args),
+    readProjectIrStatus: () => bridge.readProjectIrStatus(),
+    readLibrarianPrompt: () => bridge.readLibrarianPrompt(),
     readSessionContext: () => bridge.readSessionContext(),
     updateSessionContext: (args) => bridge.updateSessionContext(args),
     setPaneRole: (paneId, role) => bridge.setPaneRole(paneId, role),
@@ -206,9 +249,14 @@ export function makeBridgeExecutor(bridge: BridgeClient): McpToolExecutor {
     readOrchestratorState: () => bridge.readOrchestratorState(),
     updateOrchestratorState: (args) => bridge.updateOrchestratorState(args),
     waitForPanes: (args) => bridge.waitForPanes(args),
+    waitForModel: (args) => bridge.waitForModel(args),
+    waitForTask: (args) => bridge.waitForTask(args),
+    readRecentEvents: (args) => bridge.readRecentEvents(args),
     readOpencodeWorkerStatus: (paneId) => bridge.readOpencodeWorkerStatus(paneId),
+    readOpencodeMessages: (paneId, args) => bridge.readOpencodeMessages(paneId, args),
     replyOpencodePermission: (paneId, requestId, reply) =>
       bridge.replyOpencodePermission(paneId, requestId, reply),
+    replyOpencodeQuestion: (paneId, args) => bridge.replyOpencodeQuestion(paneId, args),
   };
 }
 
@@ -263,6 +311,19 @@ export async function executeMcpTool(
         result = JSON.stringify(await executor.inspectAgentModel(a.pane_id, a.lines), null, 2);
         break;
       }
+      case 'switch_agent_model': {
+        const a = args as { pane_id: string; model_id: string; model_provider?: string };
+        assertWorkerPaneTarget(a.pane_id);
+        result = JSON.stringify(
+          await executor.switchAgentModel(a.pane_id, {
+            model_id: a.model_id,
+            model_provider: a.model_provider,
+          }),
+          null,
+          2,
+        );
+        break;
+      }
       case 'spawn_agent': {
         const spawnArgs = args as Parameters<McpToolExecutor['spawnPane']>[0] & {
           force_new?: boolean;
@@ -312,7 +373,13 @@ export async function executeMcpTool(
         break;
       }
       case 'write_terminal_input': {
-        const a = args as { pane_id: string; text: string; append_newline?: boolean };
+        const a = args as {
+          pane_id: string;
+          text: string;
+          append_newline?: boolean;
+          model_provider?: string;
+          model_id?: string;
+        };
         assertWorkerPaneTarget(a.pane_id);
         const append = a.append_newline !== false;
         const panes = await executor.listPanes();
@@ -320,7 +387,11 @@ export async function executeMcpTool(
         if (pane?.agent_type === 'opencode_native') {
           const cleaned = a.text.replace(/[\r\n]+$/, '');
           if (cleaned.length > 0) {
-            await executor.writeInput(a.pane_id, cleaned, false, { viaOpencodeApi: true });
+            await executor.writeInput(a.pane_id, cleaned, false, {
+              viaOpencodeApi: true,
+              modelProvider: a.model_provider,
+              modelId: a.model_id,
+            });
           }
         } else if (append) {
           await typeAndSubmit(executor, a.pane_id, a.text);
@@ -398,6 +469,14 @@ export async function executeMcpTool(
         result = JSON.stringify(await executor.buildContextPack(args as ContextPackRequest), null, 2);
         break;
       }
+      case 'read_project_ir_status': {
+        result = JSON.stringify(await executor.readProjectIrStatus(), null, 2);
+        break;
+      }
+      case 'read_librarian_prompt': {
+        result = JSON.stringify(await executor.readLibrarianPrompt(), null, 2);
+        break;
+      }
       case 'read_session_context': {
         result = JSON.stringify(await executor.readSessionContext(), null, 2);
         break;
@@ -452,12 +531,77 @@ export async function executeMcpTool(
         result = formatOpencodeWorkerStatus(await executor.readOpencodeWorkerStatus(a.pane_id));
         break;
       }
+      case 'read_opencode_messages': {
+        const a = args as {
+          pane_id: string;
+          limit?: number;
+          role?: 'all' | 'user' | 'assistant';
+        };
+        if (!executor.readOpencodeMessages) {
+          throw new Error('read_opencode_messages requires the Rust HTTP bridge executor');
+        }
+        result = JSON.stringify(
+          await executor.readOpencodeMessages(a.pane_id, {
+            limit: a.limit,
+            role: a.role,
+          }),
+          null,
+          2,
+        );
+        break;
+      }
       case 'wait_for_panes': {
         if (!executor.waitForPanes) {
           throw new Error('wait_for_panes requires the Rust HTTP bridge executor');
         }
-        const a = args as { pane_ids: string[]; until?: string[]; timeout_ms?: number };
+        const a = args as {
+          pane_ids: string[];
+          until?: string[];
+          timeout_ms?: number;
+          task_id?: string;
+          output_regex?: string;
+          match?: { provider_id?: string; model_id?: string };
+        };
         result = formatWaitForPanesResult(await executor.waitForPanes(a));
+        break;
+      }
+      case 'wait_for_model': {
+        if (!executor.waitForModel) {
+          throw new Error('wait_for_model requires the Rust HTTP bridge executor');
+        }
+        const a = args as {
+          pane_id: string;
+          provider_id?: string;
+          model_id?: string;
+          timeout_ms?: number;
+        };
+        result = formatWaitForPanesResult(await executor.waitForModel(a));
+        break;
+      }
+      case 'wait_for_task': {
+        if (!executor.waitForTask) {
+          throw new Error('wait_for_task requires the Rust HTTP bridge executor');
+        }
+        const a = args as {
+          pane_id: string;
+          task_id: string;
+          until?: string[];
+          timeout_ms?: number;
+        };
+        result = formatWaitForPanesResult(await executor.waitForTask(a));
+        break;
+      }
+      case 'read_recent_events': {
+        if (!executor.readRecentEvents) {
+          throw new Error('read_recent_events requires the Rust HTTP bridge executor');
+        }
+        const a = (args ?? {}) as {
+          limit?: number;
+          pane_id?: string;
+          types?: string[];
+          since_id?: string;
+        };
+        result = JSON.stringify(await executor.readRecentEvents(a), null, 2);
         break;
       }
       case 'reply_opencode_permission': {
@@ -467,6 +611,21 @@ export async function executeMcpTool(
         }
         await executor.replyOpencodePermission(a.pane_id, a.request_id, a.reply);
         result = 'ok';
+        break;
+      }
+      case 'reply_opencode_question': {
+        const a = args as { pane_id: string; answer: string; request_id?: string };
+        if (!executor.replyOpencodeQuestion) {
+          throw new Error('reply_opencode_question requires the Rust HTTP bridge executor');
+        }
+        result = JSON.stringify(
+          await executor.replyOpencodeQuestion(a.pane_id, {
+            answer: a.answer,
+            request_id: a.request_id,
+          }),
+          null,
+          2,
+        );
         break;
       }
       default:

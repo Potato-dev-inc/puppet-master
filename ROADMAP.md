@@ -213,5 +213,6 @@ Criteria for calling it 1.0 (rough):
 
 - [ROUTING.md](ROUTING.md) — API vs CLI orchestrator backends
 - [MCP_HOSTS.md](MCP_HOSTS.md) — external MCP registration
+- [docs/orchestrator/README.md](docs/orchestrator/README.md) — orchestrator playbooks (OpenCode worker, workflows)
 - [PUBLISHING.md](PUBLISHING.md) — npm publish steps (today)
 - [README.md](README.md) — current architecture and quick start

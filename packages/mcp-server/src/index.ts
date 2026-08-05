@@ -20,6 +20,7 @@ import {
   formatPaneListForOrchestrator,
   PaneInfoSchema,
   SpawnPaneRequestSchema,
+  SwitchModelRequestSchema,
   WriteInputRequestSchema,
 } from '@puppet-master/shared';
 import { readBridgePort } from '@puppet-master/shared/bridge-port';
@@ -39,6 +40,101 @@ interface RegistryTool {
   description: string;
   inputSchema: Record<string, unknown>;
   visibility?: { external_mcp?: boolean };
+  method?: string;
+  path?: string;
+}
+
+function waitTimeoutMs(args: Record<string, unknown>): number {
+  const timeout = typeof args.timeout_ms === 'number' ? args.timeout_ms : 120_000;
+  return Math.min(timeout + 15_000, 310_000);
+}
+
+function resolveRegistryPath(template: string, args: Record<string, unknown>): string {
+  return template.replace(/\{([^}]+)\}/g, (_match, key: string) => {
+    const value = args[key];
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new Error(`missing path parameter: ${key}`);
+    }
+    return encodeURIComponent(value);
+  });
+}
+
+function appendQuery(path: string, args: Record<string, unknown>, keys: string[]): string {
+  const params = new URLSearchParams();
+  for (const key of keys) {
+    const value = args[key];
+    if (value === undefined || value === null) continue;
+    if (key === 'types' && Array.isArray(value)) {
+      for (const item of value) params.append('types', String(item));
+      continue;
+    }
+    params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return qs ? `${path}?${qs}` : path;
+}
+
+async function callWithTimeout<T>(
+  client: BridgeClient,
+  method: string,
+  path: string,
+  body: unknown,
+  timeoutMs: number,
+): Promise<T> {
+  const url = `${client.baseUrl}${path}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`bridge ${method} ${path} -> ${res.status}: ${text}`);
+    }
+    return (await res.json()) as T;
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`bridge ${method} ${path} timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function invokeRegistryTool(
+  clientRef: { current: BridgeClient },
+  name: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const tools = await callWithRefresh<RegistryTool[]>(clientRef, 'GET', '/mcp/tools');
+  const def = tools.find((tool) => tool.name === name);
+  if (!def?.method || !def.path) {
+    throw new Error(`unknown tool: ${name}`);
+  }
+
+  let path = def.path;
+  if (def.method === 'GET') {
+    if (name === 'read_recent_events') {
+      path = appendQuery(path, args, ['limit', 'pane_id', 'since_id', 'types']);
+    } else if (name === 'inspect_agent_model') {
+      path = appendQuery(resolveRegistryPath(path, args), args, ['lines']);
+    } else if (name === 'read_opencode_messages') {
+      path = appendQuery(resolveRegistryPath(path, args), args, ['limit', 'role']);
+    } else if (path.includes('{')) {
+      path = resolveRegistryPath(path, args);
+      path = appendQuery(path, args, ['lines']);
+    }
+  } else {
+    path = path.includes('{') ? resolveRegistryPath(path, args) : path;
+  }
+
+  const timeoutMs = path.includes('/panes/wait') ? waitTimeoutMs(args) : 30_000;
+  return callWithTimeout(clientRef.current, def.method, path, def.method === 'GET' ? undefined : args, timeoutMs);
 }
 
 async function makeClient(): Promise<BridgeClient> {
@@ -114,8 +210,12 @@ async function main(): Promise<void> {
   const clientRef = { current: client };
 
   const server = new Server(
-    { name: 'puppet-master', version: '0.1.2' },
+    { name: 'puppet-master', version: '0.1.3' },
     { capabilities: { tools: {} } },
+  );
+
+  log(
+    'wait-not-poll: after mutating tools call suggested_wait (wait_for_panes / wait_for_model). Do not loop list_panes or read_terminal_buffer for status.',
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -170,6 +270,22 @@ async function main(): Promise<void> {
           text = JSON.stringify(model, null, 2);
           break;
         }
+        case 'switch_agent_model': {
+          const a = args as { pane_id: string; model_id: string; model_provider?: string };
+          assertWorkerPaneTarget(a.pane_id);
+          const parsed = SwitchModelRequestSchema.parse({
+            model_id: a.model_id,
+            model_provider: a.model_provider,
+          });
+          const result = await callWithRefresh<unknown>(
+            clientRef,
+            'POST',
+            `/panes/${encodeURIComponent(a.pane_id)}/model`,
+            parsed,
+          );
+          text = JSON.stringify(result, null, 2);
+          break;
+        }
         case 'spawn_agent': {
           const parsed = SpawnPaneRequestSchema.parse(args);
           if (parsed.pane_id) {
@@ -184,8 +300,8 @@ async function main(): Promise<void> {
               break;
             }
           }
-          const result = await callWithRefresh<{ pane_id: string }>(clientRef, 'POST', '/panes', parsed);
-          text = `spawned pane: ${result.pane_id}`;
+          const result = await callWithRefresh<unknown>(clientRef, 'POST', '/panes', parsed);
+          text = JSON.stringify(result, null, 2);
           break;
         }
         case 'read_terminal_buffer': {
@@ -203,11 +319,14 @@ async function main(): Promise<void> {
           const parsed = WriteInputRequestSchema.parse({ ...(args as object), pane_id: undefined });
           const a = args as { pane_id: string; text: string; append_newline?: boolean };
           assertWorkerPaneTarget(a.pane_id);
-          await callWithRefresh(clientRef, 'POST', `/panes/${encodeURIComponent(a.pane_id)}/input`, {
+          const result = await callWithRefresh<unknown>(clientRef, 'POST', `/panes/${encodeURIComponent(a.pane_id)}/input`, {
             text: a.text,
             append_newline: parsed.append_newline,
+            via_opencode_api: parsed.via_opencode_api ?? true,
+            ...(parsed.model_provider ? { model_provider: parsed.model_provider } : {}),
+            ...(parsed.model_id ? { model_id: parsed.model_id } : {}),
           });
-          text = 'ok';
+          text = JSON.stringify(result, null, 2);
           break;
         }
         case 'kill_pane_process': {
@@ -343,8 +462,10 @@ async function main(): Promise<void> {
           text = JSON.stringify(result, null, 2);
           break;
         }
-        default:
-          throw new Error(`unknown tool: ${name}`);
+        default: {
+          const result = await invokeRegistryTool(clientRef, name, (args ?? {}) as Record<string, unknown>);
+          text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        }
       }
       log('tool done', name, `${Date.now() - t0}ms`);
       return { content: [{ type: 'text' as const, text }] };

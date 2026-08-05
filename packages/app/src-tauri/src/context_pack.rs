@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
+use crate::project_ir;
 use crate::projections::{LockProjection, ReadModels, TaskProjection};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -20,9 +22,17 @@ pub struct ContextPack {
     pub evidence_requirements: Vec<String>,
     pub estimated_raw_scrollback_bytes: usize,
     pub context_pack_bytes: usize,
+    pub project_ir_included: bool,
+    pub project_ir_stale: bool,
+    pub project_ir_indexer_command: String,
 }
 
-pub fn build_context_pack(request: ContextPackRequest, read_models: &ReadModels) -> ContextPack {
+pub fn build_context_pack(
+    request: ContextPackRequest,
+    read_models: &ReadModels,
+    project_root: Option<&Path>,
+    librarian_indexer_path: Option<&str>,
+) -> ContextPack {
     let task = request
         .task_id
         .as_deref()
@@ -87,7 +97,29 @@ pub fn build_context_pack(request: ContextPackRequest, read_models: &ReadModels)
         "Report blockers with the smallest reproducible detail.".to_string(),
     ];
 
-    let prompt = prompt_parts.join("\n");
+    let ir_status = project_root
+        .map(|root| project_ir::status(root, librarian_indexer_path))
+        .unwrap_or_else(|| project_ir::status(Path::new("."), librarian_indexer_path));
+    let mut prompt = prompt_parts.join("\n");
+    let project_ir_included = if let Some(root) = project_root {
+        if let Some(excerpt) = project_ir::read_overview_excerpt(root) {
+            let sha_note = excerpt
+                .git_sha
+                .as_deref()
+                .map(|sha| format!(" (indexed at git {sha})"))
+                .unwrap_or_default();
+            prompt.push_str(&format!(
+                "\n\nProject overview (librarian index{sha_note}):\n{}",
+                excerpt.overview.trim()
+            ));
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
     let estimated_raw_scrollback_bytes = request.raw_scrollback.as_deref().unwrap_or("").len();
     let context_pack_bytes = prompt.len();
 
@@ -104,6 +136,9 @@ pub fn build_context_pack(request: ContextPackRequest, read_models: &ReadModels)
         evidence_requirements,
         estimated_raw_scrollback_bytes,
         context_pack_bytes,
+        project_ir_included,
+        project_ir_stale: ir_status.stale,
+        project_ir_indexer_command: ir_status.indexer_command,
     }
 }
 
@@ -170,6 +205,8 @@ mod tests {
                 raw_scrollback: Some(raw),
             },
             &models,
+            None,
+            None,
         );
         assert!(pack.context_pack_bytes < pack.estimated_raw_scrollback_bytes);
         assert!(pack.prompt.contains("task-1"));
@@ -177,5 +214,57 @@ mod tests {
             .evidence_requirements
             .iter()
             .any(|item| item.contains("test command")));
+    }
+
+    #[test]
+    fn context_pack_appends_project_ir_overview() {
+        let dir = std::env::temp_dir().join(format!(
+            "pm-context-pack-ir-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let storage = dir.join(".puppet-master");
+        std::fs::create_dir_all(&storage).expect("mkdir");
+        std::fs::write(
+            storage.join("project-ir.json"),
+            r#"{"overview":"packages/app is the desktop shell","generated_at_ms":1}"#,
+        )
+        .expect("write ir");
+        std::fs::write(
+            storage.join("project-ir.meta.json"),
+            r#"{"git_sha":"deadbeef","generated_at_ms":1}"#,
+        )
+        .expect("write meta");
+
+        let models = ReadModels {
+            workspace: WorkspaceStateProjection {
+                panes: Vec::new(),
+                task_count: 0,
+                lock_count: 0,
+            },
+            tasks: Vec::new(),
+            locks: Vec::new(),
+            audit: Vec::new(),
+            session: SessionContextProjection::default(),
+        };
+        let pack = build_context_pack(
+            ContextPackRequest {
+                task_id: None,
+                agent_id: None,
+                user_constraints: None,
+                manager_instructions: None,
+                raw_scrollback: None,
+            },
+            &models,
+            Some(&dir),
+            None,
+        );
+        assert!(pack.project_ir_included);
+        assert!(pack.prompt.contains("packages/app is the desktop shell"));
+        assert!(pack.prompt.contains("deadbeef"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

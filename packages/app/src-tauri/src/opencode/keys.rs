@@ -6,16 +6,52 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-const STORE_VERSION: u32 = 1;
+const STORE_VERSION: u32 = 2;
 const DEFAULT_PROVIDER: &str = "opencode-go";
-const PROFILE_A: &str = "a";
-const PROFILE_B: &str = "b";
+pub const PROFILE_A: &str = "a";
+pub const PROFILE_B: &str = "b";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyAutomationMode {
+    AutoIfBackup,
+    NotifyOnly,
+}
+
+impl KeyAutomationMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AutoIfBackup => "auto_if_backup",
+            Self::NotifyOnly => "notify_only",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_lowercase().as_str() {
+            "auto_if_backup" | "auto" => Some(Self::AutoIfBackup),
+            "notify_only" | "notify" => Some(Self::NotifyOnly),
+            _ => None,
+        }
+    }
+}
+
+fn default_automation_mode() -> KeyAutomationMode {
+    KeyAutomationMode::AutoIfBackup
+}
+
+fn default_restart_pane_on_rotate() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct KeyProfilesStore {
     version: u32,
     active: String,
     profiles: BTreeMap<String, KeyProfile>,
+    #[serde(default = "default_automation_mode")]
+    key_automation_mode: KeyAutomationMode,
+    #[serde(default = "default_restart_pane_on_rotate")]
+    restart_pane_on_rotate: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +72,14 @@ pub struct OpenCodeKeyProfileInfo {
 pub struct OpenCodeKeyStatus {
     pub active_profile: String,
     pub profiles: Vec<OpenCodeKeyProfileInfo>,
+    pub key_automation_mode: String,
+    pub restart_pane_on_rotate: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpenCodeKeySettingsPatch {
+    pub key_automation_mode: Option<String>,
+    pub restart_pane_on_rotate: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +118,47 @@ pub fn auth_json_path() -> PathBuf {
 pub fn status() -> Result<OpenCodeKeyStatus, String> {
     let store = load_store()?;
     Ok(public_status(&store))
+}
+
+pub fn automation_mode() -> Result<KeyAutomationMode, String> {
+    Ok(load_store()?.key_automation_mode)
+}
+
+pub fn restart_pane_on_rotate() -> Result<bool, String> {
+    Ok(load_store()?.restart_pane_on_rotate)
+}
+
+pub fn set_automation_settings(
+    mode: Option<KeyAutomationMode>,
+    restart_pane_on_rotate: Option<bool>,
+) -> Result<OpenCodeKeyStatus, String> {
+    let mut store = load_store()?;
+    ensure_default_profiles(&mut store);
+    if let Some(mode) = mode {
+        store.key_automation_mode = mode;
+    }
+    if let Some(restart) = restart_pane_on_rotate {
+        store.restart_pane_on_rotate = restart;
+    }
+    store.version = STORE_VERSION;
+    save_store(&store)?;
+    status()
+}
+
+pub fn patch_settings(patch: &OpenCodeKeySettingsPatch) -> Result<OpenCodeKeyStatus, String> {
+    let mode = patch
+        .key_automation_mode
+        .as_deref()
+        .map(|raw| {
+            KeyAutomationMode::parse(raw)
+                .ok_or_else(|| format!("unsupported key_automation_mode '{raw}'"))
+        })
+        .transpose()?;
+    set_automation_settings(mode, patch.restart_pane_on_rotate)
+}
+
+pub fn toggle_profile_id(current: &str) -> String {
+    toggle_active(current)
 }
 
 pub fn set_profile_api_key(profile_id: &str, api_key: &str, label: Option<&str>) -> Result<(), String> {
@@ -154,7 +239,7 @@ fn load_store() -> Result<KeyProfilesStore, String> {
         .map_err(|err| format!("read {}: {err}", path.display()))?;
     let mut store: KeyProfilesStore = serde_json::from_str(&raw)
         .map_err(|err| format!("parse {}: {err}", path.display()))?;
-    if store.version == 0 {
+    if store.version < STORE_VERSION {
         store.version = STORE_VERSION;
     }
     ensure_default_profiles(&mut store);
@@ -189,6 +274,8 @@ fn default_store() -> KeyProfilesStore {
         version: STORE_VERSION,
         active: PROFILE_A.to_string(),
         profiles,
+        key_automation_mode: default_automation_mode(),
+        restart_pane_on_rotate: default_restart_pane_on_rotate(),
     }
 }
 
@@ -218,6 +305,8 @@ fn public_status(store: &KeyProfilesStore) -> OpenCodeKeyStatus {
                 configured: profile_configured_value(&profile.auth),
             })
             .collect(),
+        key_automation_mode: store.key_automation_mode.as_str().to_string(),
+        restart_pane_on_rotate: store.restart_pane_on_rotate,
     }
 }
 
@@ -301,6 +390,14 @@ mod test_paths {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn test_keys_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(not(test))]
 mod test_paths {
     use std::path::PathBuf;
@@ -317,13 +414,9 @@ mod test_paths {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
 
     fn lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        test_keys_lock()
     }
 
     #[test]

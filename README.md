@@ -200,7 +200,9 @@ The folder is ignored by this repository and should generally stay out of source
 
 Whether you call from the built-in sidebar or an external host, the tool surface is identical.
 
-**Recommended flow for external orchestrators:** `bridge_health` → `create_task` → `acquire_resource_lock` → `build_context_pack` → `spawn_agent` or `list_panes` → delegate with `write_terminal_input` → monitor with `read_terminal_buffer` → `complete_task` with evidence.
+**Recommended flow for external orchestrators:** `bridge_health` → `create_task` → `acquire_resource_lock` → `build_context_pack` → `spawn_agent` or `list_panes` → delegate with `write_terminal_input` → `wait_for_worker` → `read_opencode_messages` → `complete_task` with evidence.
+
+Orchestrator guides: [docs/orchestrator/README.md](docs/orchestrator/README.md).
 
 | Tool | What it does |
 |------|--------------|

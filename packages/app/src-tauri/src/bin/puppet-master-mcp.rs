@@ -91,7 +91,12 @@ fn handle_json_rpc_line(line: &str) -> Option<String> {
                 .and_then(Value::as_str)
                 .unwrap_or("2024-11-05"),
             "capabilities": { "tools": {}, "resources": {}, "prompts": {} },
-            "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION }
+            "serverInfo": {
+                "name": SERVER_NAME,
+                "version": SERVER_VERSION,
+                "catalog_version": tool_registry::catalog_version(),
+            },
+            "instructions": "Puppet Master MCP: after spawn_agent, write_terminal_input, switch_agent_model, or delegate_task, call the returned suggested_wait immediately (usually wait_for_panes). Do not poll list_panes or read_terminal_buffer for status — use wait_for_panes, wait_for_model, read_opencode_worker_status, or inspect_agent_model."
         })),
         "tools/list" => Ok(json!({ "tools": mcp_tools() })),
         "resources/list" => Ok(json!({ "resources": tool_registry::resources() })),
@@ -154,6 +159,19 @@ fn call_tool(params: Value) -> Result<Value, String> {
                 None,
             )?
         }
+        "switch_agent_model" => {
+            let pane_id = assert_worker_pane(&required_string(&args, "pane_id")?)?;
+            let model_id = required_string(&args, "model_id")?;
+            let mut body = json!({ "model_id": model_id });
+            if let Some(provider) = args.get("model_provider").and_then(Value::as_str) {
+                body["model_provider"] = json!(provider);
+            }
+            bridge_request(
+                "POST",
+                &format!("/panes/{}/model", encode_path_segment(&pane_id)),
+                Some(body),
+            )?
+        }
         "spawn_agent" => bridge_request("POST", "/panes", Some(args))?,
         "read_terminal_buffer" => {
             let pane_id = required_string(&args, "pane_id")?;
@@ -178,17 +196,22 @@ fn call_tool(params: Value) -> Result<Value, String> {
         }
         "write_terminal_input" => {
             let pane_id = assert_worker_pane(&required_string(&args, "pane_id")?)?;
-            let body = json!({
+            let mut body = json!({
                 "text": required_string(&args, "text")?,
                 "append_newline": args.get("append_newline").and_then(Value::as_bool).unwrap_or(true),
                 "via_opencode_api": true,
             });
+            if let Some(provider) = args.get("model_provider").and_then(Value::as_str) {
+                body["model_provider"] = json!(provider);
+            }
+            if let Some(model_id) = args.get("model_id").and_then(Value::as_str) {
+                body["model_id"] = json!(model_id);
+            }
             bridge_request(
                 "POST",
                 &format!("/panes/{}/input", encode_path_segment(&pane_id)),
                 Some(body),
-            )?;
-            "ok".to_string()
+            )?
         }
         "press_key" => {
             let pane_id = assert_worker_pane(&required_string(&args, "pane_id")?)?;
@@ -260,6 +283,8 @@ fn call_tool(params: Value) -> Result<Value, String> {
         "acquire_resource_lock" => bridge_request("POST", "/locks", Some(args))?,
         "release_resource_lock" => bridge_request("POST", "/locks/release", Some(args))?,
         "build_context_pack" => bridge_request("POST", "/context-packs", Some(args))?,
+        "read_project_ir_status" => bridge_request("GET", "/project-ir/status", None)?,
+        "read_librarian_prompt" => bridge_request("GET", "/librarian/prompt", None)?,
         "read_session_context" => bridge_request("GET", "/session/context", None)?,
         "update_session_context" => bridge_request("PATCH", "/session/context", Some(args))?,
         "set_pane_role" => {
@@ -304,7 +329,54 @@ fn call_tool(params: Value) -> Result<Value, String> {
                 None,
             )?
         }
+        "read_opencode_messages" => {
+            let pane_id = required_string(&args, "pane_id")?;
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_u64)
+                .unwrap_or(20)
+                .clamp(1, 200);
+            let mut path = format!(
+                "/panes/{}/opencode/messages?limit={limit}",
+                encode_path_segment(&pane_id)
+            );
+            if let Some(role) = args.get("role").and_then(Value::as_str) {
+                if !role.trim().is_empty() {
+                    path.push_str(&format!("&role={}", encode_path_segment(role)));
+                }
+            }
+            bridge_request("GET", &path, None)?
+        }
         "wait_for_panes" => bridge_request("POST", "/panes/wait", Some(args))?,
+        "wait_for_model" => bridge_request("POST", "/panes/wait/model", Some(args))?,
+        "wait_for_task" => bridge_request("POST", "/panes/wait/task", Some(args))?,
+        "wait_for_worker" => bridge_request("POST", "/panes/wait/worker", Some(args))?,
+        "read_recent_events" => {
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_u64)
+                .unwrap_or(50);
+            let pane_id = args.get("pane_id").and_then(Value::as_str);
+            let since_id = args.get("since_id").and_then(Value::as_str);
+            let types = args.get("types").and_then(|value| value.as_array()).map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            });
+            let mut path = format!("/events/recent?limit={limit}");
+            if let Some(pane_id) = pane_id {
+                path.push_str(&format!("&pane_id={}", encode_path_segment(pane_id)));
+            }
+            if let Some(since_id) = since_id {
+                path.push_str(&format!("&since_id={}", encode_path_segment(since_id)));
+            }
+            if let Some(types) = types.filter(|value| !value.is_empty()) {
+                path.push_str(&format!("&types={}", encode_path_segment(&types)));
+            }
+            bridge_request("GET", &path, None)?
+        }
         "reply_opencode_permission" => {
             let pane_id = required_string(&args, "pane_id")?;
             let request_id = required_string(&args, "request_id")?;
@@ -319,6 +391,17 @@ fn call_tool(params: Value) -> Result<Value, String> {
                 Some(json!({ "reply": reply })),
             )?;
             "ok".to_string()
+        }
+        "reply_opencode_question" => {
+            let pane_id = required_string(&args, "pane_id")?;
+            bridge_request(
+                "POST",
+                &format!(
+                    "/panes/{}/opencode/question/reply",
+                    encode_path_segment(&pane_id)
+                ),
+                Some(args),
+            )?
         }
         _ => return Err(format!("unknown tool: {name}")),
     };
@@ -351,10 +434,11 @@ fn read_agent_context(args: &Value) -> Result<String, String> {
 
 fn bridge_request(method: &str, path: &str, body: Option<Value>) -> Result<String, String> {
     let endpoint = read_bridge_endpoint()?;
-    let body_text = body.map(|value| value.to_string()).unwrap_or_default();
+    let body_text = body.as_ref().map(|value| value.to_string()).unwrap_or_default();
+    let read_timeout_secs = bridge_read_timeout_secs(method, path, body.as_ref());
     let mut stream = TcpStream::connect((endpoint.host.as_str(), endpoint.port))
         .map_err(|err| format!("bridge_down: {} ({err})", endpoint.base_url()))?;
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(read_timeout_secs)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
 
     let request = format!(
@@ -379,6 +463,17 @@ fn bridge_request(method: &str, path: &str, body: Option<Value>) -> Result<Strin
         .read_to_end(&mut response)
         .map_err(|err| format!("bridge read failed: {err}"))?;
     parse_http_response(&response)
+}
+
+fn bridge_read_timeout_secs(method: &str, path: &str, body: Option<&Value>) -> u64 {
+    if method == "POST" && path.contains("/panes/wait") {
+        let timeout_ms = body
+            .and_then(|value| value.get("timeout_ms"))
+            .and_then(Value::as_u64)
+            .unwrap_or(120_000);
+        return (timeout_ms / 1000).saturating_add(15).min(330);
+    }
+    30
 }
 
 fn parse_http_response(response: &[u8]) -> Result<String, String> {
@@ -622,6 +717,20 @@ mod tests {
             r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#
         )
         .is_none());
+    }
+
+    #[test]
+    fn wait_tools_use_extended_bridge_timeout() {
+        assert_eq!(bridge_read_timeout_secs("POST", "/panes/wait", None), 135);
+        assert_eq!(
+            bridge_read_timeout_secs(
+                "POST",
+                "/panes/wait/model",
+                Some(&json!({ "timeout_ms": 300_000 }))
+            ),
+            315
+        );
+        assert_eq!(bridge_read_timeout_secs("GET", "/panes", None), 30);
     }
 
     #[test]

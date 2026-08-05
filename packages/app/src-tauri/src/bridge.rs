@@ -31,6 +31,20 @@ pub type SseClients = Arc<Mutex<Vec<SseSender>>>;
 
 /// Global SSE client registry, shared between bridge thread and Tauri commands.
 static SSE_CLIENTS: once_cell::sync::OnceCell<SseClients> = once_cell::sync::OnceCell::new();
+static BRIDGE_APP: once_cell::sync::OnceCell<AppHandle> = once_cell::sync::OnceCell::new();
+static BRIDGE_REGISTRY: once_cell::sync::OnceCell<Arc<Mutex<PaneRegistry>>> =
+    once_cell::sync::OnceCell::new();
+
+/// Set in `start_embedded_bridge` for code paths that need AppHandle without an explicit parameter.
+#[allow(dead_code)]
+pub fn app_handle() -> Option<AppHandle> {
+    BRIDGE_APP.get().cloned()
+}
+
+#[allow(dead_code)]
+pub fn registry() -> Option<Arc<Mutex<PaneRegistry>>> {
+    BRIDGE_REGISTRY.get().cloned()
+}
 
 pub fn get_sse_clients() -> SseClients {
     SSE_CLIENTS
@@ -58,6 +72,7 @@ pub fn push_pane_status_sse(pane_id: &str, status: &str) {
     let payload = json!({ "pane_id": pane_id, "status": status });
     if let Ok(json) = serde_json::to_string(&payload) {
         push_sse(format!("event: pane-status\ndata: {json}\n\n"));
+        crate::pane_wait_notify::bump_waiters();
     }
 }
 
@@ -80,6 +95,17 @@ struct WriteInputBody {
     append_newline: bool,
     #[serde(default)]
     via_opencode_api: bool,
+    #[serde(default)]
+    model_provider: Option<String>,
+    #[serde(default)]
+    model_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SwitchModelBody {
+    #[serde(default)]
+    model_provider: Option<String>,
+    model_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,6 +116,13 @@ struct PressKeyBody {
 #[derive(Debug, Deserialize)]
 struct OpenCodePermissionReplyBody {
     reply: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenCodeQuestionReplyBody {
+    answer: String,
+    #[serde(default)]
+    request_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -200,6 +233,8 @@ struct OrchestratorStatePatchBody {
 struct Health {
     ok: bool,
     version: &'static str,
+    catalog_version: String,
+    tool_count: usize,
 }
 
 fn default_true() -> bool {
@@ -232,6 +267,8 @@ pub fn start_embedded_bridge(
     port_file: PathBuf,
     pairing_file: PathBuf,
 ) -> Result<BridgeHandle, String> {
+    let _ = BRIDGE_APP.set(app.clone());
+    let _ = BRIDGE_REGISTRY.set(registry.clone());
     mobile_pairing::init_pairing_store(pairing_file)?;
     let _ = crate::app_paths::ensure_app_data_dir();
     let (listener, port) = bind_listener()?;
@@ -385,7 +422,13 @@ fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
         ("POST", ["panes", _, "input"]) => Some("write_terminal_input".to_string()),
         ("POST", ["panes", _, "key"]) => Some("press_key".to_string()),
         ("POST", ["panes", _, "detach"]) => Some("detach_terminal_pane".to_string()),
+        ("POST", ["panes", "wait", "model"]) => Some("wait_for_model".to_string()),
+        ("POST", ["panes", "wait", "task"]) => Some("wait_for_task".to_string()),
+        ("POST", ["panes", "wait", "worker"]) => Some("wait_for_worker".to_string()),
+        ("POST", ["panes", "wait"]) => Some("wait_for_panes".to_string()),
+        ("GET", ["events", "recent"]) => Some("read_recent_events".to_string()),
         ("GET", ["panes", _, "model"]) => Some("inspect_agent_model".to_string()),
+        ("POST", ["panes", _, "model"]) => Some("switch_agent_model".to_string()),
         ("GET", ["panes", _, "agent-context"]) => Some("read_agent_context".to_string()),
         ("GET", ["events", "replay", "panes"]) => Some("replay_pane_timeline".to_string()),
         ("GET", ["workspace", "state"]) => Some("get_workspace_state".to_string()),
@@ -394,6 +437,8 @@ fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
         ("GET", ["agents", _, "inbox"]) => Some("read_agent_inbox".to_string()),
         ("GET", ["audit"]) => Some("get_audit".to_string()),
         ("POST", ["context-packs"]) => Some("build_context_pack".to_string()),
+        ("GET", ["project-ir", "status"]) => Some("read_project_ir_status".to_string()),
+        ("GET", ["librarian", "prompt"]) => Some("read_librarian_prompt".to_string()),
         ("GET", ["session", "context"]) => Some("read_session_context".to_string()),
         ("PATCH", ["session", "context"]) => Some("update_session_context".to_string()),
         ("POST", ["panes", _, "role"]) => Some("set_pane_role".to_string()),
@@ -403,11 +448,17 @@ fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
         ("GET", ["orchestrator", "state"]) => Some("read_orchestrator_state".to_string()),
         ("PATCH", ["orchestrator", "state"]) => Some("update_orchestrator_state".to_string()),
         ("GET", ["opencode", "keys", "status"]) => Some("read_opencode_key_status".to_string()),
+        ("PATCH", ["opencode", "keys", "settings"]) | ("POST", ["opencode", "keys", "settings"]) => {
+            Some("set_opencode_key_settings".to_string())
+        }
         ("POST", ["opencode", "keys", "rotate"]) => Some("rotate_opencode_key".to_string()),
-        ("POST", ["panes", "wait"]) => Some("wait_for_panes".to_string()),
         ("GET", ["panes", _, "opencode", "status"]) => Some("read_opencode_worker_status".to_string()),
+        ("GET", ["panes", _, "opencode", "messages"]) => Some("read_opencode_messages".to_string()),
         ("POST", ["panes", _, "opencode", "permissions", _, "reply"]) => {
             Some("reply_opencode_permission".to_string())
+        }
+        ("POST", ["panes", _, "opencode", "question", "reply"]) => {
+            Some("reply_opencode_question".to_string())
         }
         ("POST", ["tasks"]) => Some("create_task".to_string()),
         ("POST", ["tasks", _, "claim"]) => Some("claim_task".to_string()),
@@ -474,7 +525,9 @@ fn route(
             200,
             serde_json::to_value(Health {
                 ok: true,
-                version: "0.1.2",
+                version: env!("CARGO_PKG_VERSION"),
+                catalog_version: crate::tool_registry::catalog_version(),
+                tool_count: crate::tool_registry::external_mcp_tool_count(),
             })
             .unwrap(),
         ));
@@ -681,8 +734,46 @@ fn route(
     if segments == ["context-packs"] && method == "POST" {
         let req: crate::context_pack::ContextPackRequest = parse_json(body)?;
         let read_models = rebuild_read_models().map_err(|err| (500, json!({ "error": err })))?;
-        let pack = crate::context_pack::build_context_pack(req, &read_models);
+        let project_root = resolve_project_root(&registry);
+        let indexer_path = librarian_indexer_path(&app);
+        let pack = crate::context_pack::build_context_pack(
+            req,
+            &read_models,
+            project_root.as_deref(),
+            indexer_path.as_deref(),
+        );
         return Ok((200, serde_json::to_value(pack).unwrap()));
+    }
+
+    if segments == ["project-ir", "status"] && method == "GET" {
+        let project_root = resolve_project_root(&registry).ok_or_else(|| {
+            (
+                400,
+                json!({ "error": "no active project path — set project folder first" }),
+            )
+        })?;
+        let indexer_path = librarian_indexer_path(&app);
+        let status = crate::project_ir::status(&project_root, indexer_path.as_deref());
+        return Ok((200, serde_json::to_value(status).unwrap()));
+    }
+
+    if segments == ["librarian", "prompt"] && method == "GET" {
+        let project_root = resolve_project_root(&registry).ok_or_else(|| {
+            (
+                400,
+                json!({ "error": "no active project path — set project folder first" }),
+            )
+        })?;
+        let prompt = crate::project_ir::render_librarian_prompt(&project_root)
+            .map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((
+            200,
+            json!({
+                "prompt": prompt,
+                "delegate_to": "opencode_native",
+                "completion_marker": "LIBRARIAN_INDEX_COMPLETE",
+            }),
+        ));
     }
 
     if segments == ["session", "context"] && method == "GET" {
@@ -712,15 +803,24 @@ fn route(
                 .map(crate::events::PaneId),
             intent: req.intent.clone(),
         });
-        return Ok((
-            200,
-            json!({
-                "ok": true,
-                "task_id": req.task_id,
-                "target_pane_id": req.target_pane_id,
-                "prompt": prompt,
-            }),
-        ));
+        let mut payload = json!({
+            "task_id": req.task_id,
+            "target_pane_id": req.target_pane_id,
+            "prompt": prompt,
+        });
+        if let Some(pane_id) = req.target_pane_id.as_deref() {
+            return Ok((
+                200,
+                crate::mcp_hints::mutate_ok(
+                    payload,
+                    crate::mcp_hints::suggested_wait_after_delegate(pane_id),
+                ),
+            ));
+        }
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("ok".into(), json!(true));
+        }
+        return Ok((200, payload));
     }
 
     if segments == ["orchestrator", "state"] && method == "GET" {
@@ -755,9 +855,112 @@ fn route(
         return Ok((200, serde_json::to_value(result).unwrap()));
     }
 
+    if segments == ["panes", "wait", "model"] && method == "POST" {
+        #[derive(Deserialize)]
+        struct WaitModelBody {
+            pane_id: String,
+            #[serde(default)]
+            provider_id: Option<String>,
+            #[serde(default)]
+            model_id: Option<String>,
+            #[serde(default = "default_wait_timeout")]
+            timeout_ms: u64,
+        }
+        fn default_wait_timeout() -> u64 {
+            120_000
+        }
+        let req: WaitModelBody = parse_json(body)?;
+        let result = crate::pane_wait::wait_for_model(
+            &registry,
+            &req.pane_id,
+            req.provider_id.as_deref(),
+            req.model_id.as_deref(),
+            req.timeout_ms,
+        )
+        .map_err(|err| (400, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(result).unwrap()));
+    }
+
+    if segments == ["panes", "wait", "task"] && method == "POST" {
+        #[derive(Deserialize)]
+        struct WaitTaskBody {
+            pane_id: String,
+            task_id: String,
+            #[serde(default)]
+            until: Vec<String>,
+            #[serde(default = "default_wait_timeout")]
+            timeout_ms: u64,
+        }
+        fn default_wait_timeout() -> u64 {
+            120_000
+        }
+        let req: WaitTaskBody = parse_json(body)?;
+        let until = if req.until.is_empty() {
+            vec!["task_completed", "task_blocked", "error"]
+        } else {
+            req.until.iter().map(String::as_str).collect::<Vec<_>>()
+        };
+        let result = crate::pane_wait::wait_for_task(
+            &registry,
+            &req.pane_id,
+            &req.task_id,
+            &until,
+            req.timeout_ms,
+        )
+        .map_err(|err| (400, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(result).unwrap()));
+    }
+
+    if segments == ["panes", "wait", "worker"] && method == "POST" {
+        #[derive(Deserialize)]
+        struct WaitWorkerBody {
+            pane_id: String,
+            #[serde(default = "default_wait_timeout")]
+            timeout_ms: u64,
+        }
+        fn default_wait_timeout() -> u64 {
+            120_000
+        }
+        let req: WaitWorkerBody = parse_json(body)?;
+        let result = crate::pane_wait::wait_for_worker(&registry, &req.pane_id, req.timeout_ms)
+            .map_err(|err| (400, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(result).unwrap()));
+    }
+
+    if segments == ["events", "recent"] && method == "GET" {
+        let limit = query_param(query, "limit")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(50);
+        let pane_id = query_param(query, "pane_id");
+        let since_id = query_param(query, "since_id");
+        let types = query_param(query, "types").map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|part| !part.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        });
+        let events = crate::event_log::read_recent_events(
+            limit,
+            pane_id.as_deref(),
+            types.as_deref(),
+            since_id.as_deref(),
+        )
+        .map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(events).unwrap()));
+    }
+
     if segments == ["opencode", "keys", "status"] && method == "GET" {
         let status = crate::opencode::keys::status()
             .map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(status).unwrap()));
+    }
+
+    if segments == ["opencode", "keys", "settings"] && (method == "PATCH" || method == "POST") {
+        let patch: crate::opencode::keys::OpenCodeKeySettingsPatch = parse_json(body)?;
+        let status = crate::opencode::keys::patch_settings(&patch)
+            .map_err(|err| (400, json!({ "error": err })))?;
         return Ok((200, serde_json::to_value(status).unwrap()));
     }
 
@@ -832,7 +1035,13 @@ fn route(
                 let pane_id = registry_spawn_pane(&registry, &app, req)
                     .map_err(|err| (500, json!({ "error": err })))?;
                 emit_panes_changed(&registry, &app);
-                return Ok((201, json!({ "pane_id": pane_id })));
+                return Ok((
+                    201,
+                    crate::mcp_hints::mutate_ok(
+                        json!({ "pane_id": pane_id }),
+                        crate::mcp_hints::suggested_wait_after_spawn(&pane_id),
+                    ),
+                ));
             }
             _ => {}
         }
@@ -869,22 +1078,36 @@ fn route(
         }
         if tail == Some("input") && method == "POST" {
             let req: WriteInputBody = parse_json(body)?;
+            let settings = settings_store::read_public_settings(&app);
+            let model = crate::opencode::resolve_model(
+                req.model_provider.as_deref(),
+                req.model_id.as_deref(),
+                &settings,
+            );
             registry_write_input(
                 &registry,
+                &app,
                 pane_id,
                 &req.text,
                 req.append_newline,
                 req.via_opencode_api,
+                model,
             )
                 .map_err(|err| (404, json!({ "error": err })))?;
-            return Ok((200, json!({ "ok": true })));
+            return Ok((
+                200,
+                crate::mcp_hints::mutate_ok(
+                    json!({ "pane_id": pane_id, "written": true }),
+                    crate::mcp_hints::suggested_wait_after_write(pane_id),
+                ),
+            ));
         }
         if tail == Some("key") && method == "POST" {
             let req: PressKeyBody = parse_json(body)?;
             let seq = crate::pty::keys::sequence(&req.key)
                 .map_err(|err| (400, json!({ "error": err })))?;
             let bytes = seq.len();
-            registry_write_input(&registry, pane_id, &seq, false, false)
+            registry_write_input(&registry, &app, pane_id, &seq, false, false, None)
                 .map_err(|err| (404, json!({ "error": err })))?;
             return Ok((200, json!({ "ok": true, "key": req.key, "bytes": bytes })));
         }
@@ -892,6 +1115,25 @@ fn route(
             let status = crate::opencode::status::worker_status(&registry, pane_id)
                 .map_err(|err| (404, json!({ "error": err })))?;
             return Ok((200, serde_json::to_value(status).unwrap()));
+        }
+        if tail == Some("opencode")
+            && segments.get(3) == Some(&"messages")
+            && method == "GET"
+            && segments.len() == 4
+        {
+            let limit = query_param(query, "limit")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(20)
+                .clamp(1, 200);
+            let role = query_param(query, "role");
+            let view = crate::opencode::messages::read_pane_messages(
+                &registry,
+                pane_id,
+                limit,
+                role.as_deref(),
+            )
+            .map_err(|err| (404, json!({ "error": err })))?;
+            return Ok((200, serde_json::to_value(view).unwrap()));
         }
         if tail == Some("opencode") && method == "GET" && segments.len() == 3 {
             let link = crate::opencode::pane_link(&registry, pane_id).ok_or_else(|| {
@@ -922,6 +1164,22 @@ fn route(
             crate::opencode::reply_pane_permission(&registry, pane_id, request_id, &req.reply)
                 .map_err(|err| (404, json!({ "error": err })))?;
             return Ok((200, json!({ "ok": true })));
+        }
+        if tail == Some("opencode")
+            && segments.get(3) == Some(&"question")
+            && segments.get(4) == Some(&"reply")
+            && method == "POST"
+            && segments.len() == 5
+        {
+            let req: OpenCodeQuestionReplyBody = parse_json(body)?;
+            let result = crate::opencode::reply_pane_question(
+                &registry,
+                pane_id,
+                &req.answer,
+                req.request_id.as_deref(),
+            )
+            .map_err(|err| (404, json!({ "error": err })))?;
+            return Ok((200, result));
         }
         if tail == Some("detach") && method == "POST" {
             let pane = registry
@@ -988,6 +1246,22 @@ fn route(
             let _ = parse_json::<ResizeBody>(body)?;
             return Ok((200, json!({ "ok": true, "ignored": true })));
         }
+        if tail == Some("model") && method == "POST" {
+            let req: SwitchModelBody = parse_json(body)?;
+            let settings = settings_store::read_public_settings(&app);
+            let model = crate::opencode::resolve_model(
+                req.model_provider.as_deref(),
+                Some(req.model_id.as_str()),
+                &settings,
+            )
+            .ok_or_else(|| (400, json!({ "error": "model_id required" })))?;
+            crate::opencode::switch_native_model(&registry, &app, pane_id, &model)
+                .map_err(|err| (404, json!({ "error": err })))?;
+            return Ok((
+                200,
+                crate::opencode::switch_model_response(&registry, pane_id, &model),
+            ));
+        }
         if tail == Some("model") && method == "GET" {
             let lines = query_param(query, "lines")
                 .and_then(|value| value.parse::<usize>().ok())
@@ -1008,8 +1282,11 @@ fn route(
                 .map_err(|err| (404, json!({ "error": err })))?;
             return Ok((
                 200,
-                serde_json::to_value(crate::agent_contexts::inspect_agent_model(
-                    pane_id, agent_type, &buffer,
+                serde_json::to_value(crate::agent_contexts::inspect_agent_model_with_registry(
+                    Some(&registry),
+                    pane_id,
+                    agent_type,
+                    &buffer,
                 ))
                 .unwrap(),
             ));
@@ -1021,7 +1298,7 @@ fn route(
                 let buffer = registry_read_buffer(&registry, pane_id, 200)
                     .map_err(|err| (404, json!({ "error": err })))?;
                 let context =
-                    crate::agent_contexts::build_pane_agent_context(pane.clone(), &buffer)
+                    crate::agent_contexts::build_pane_agent_context(Some(&registry), pane.clone(), &buffer)
                         .ok_or_else(|| (400, json!({ "error": "unknown pane agent_type" })))?;
                 return Ok((200, serde_json::to_value(context).unwrap()));
             }
@@ -1120,6 +1397,25 @@ pub fn push_panes_sse(registry: &Arc<Mutex<PaneRegistry>>) {
     if let Ok(json) = serde_json::to_string(&panes) {
         push_sse(format!("event: panes\ndata: {json}\n\n"));
     }
+}
+
+fn resolve_project_root(registry: &Arc<Mutex<PaneRegistry>>) -> Option<PathBuf> {
+    crate::event_log::active_project_path().or_else(|| {
+        let path = crate::pty::registry::get_project_path(registry);
+        let candidate = PathBuf::from(path);
+        if crate::project_path::is_valid_project_path(&candidate) {
+            Some(candidate)
+        } else {
+            None
+        }
+    })
+}
+
+fn librarian_indexer_path(app: &AppHandle) -> Option<String> {
+    crate::settings_store::read_public_settings(app)
+        .get("librarian_indexer_path")
+        .and_then(|value| value.as_str().map(str::to_string))
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn emit_panes_changed(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {

@@ -70,6 +70,10 @@ pub struct WriteInputArgs {
     /// MCP/orchestrator: send plain-text prompts via OpenCode prompt_async (opencode_native only).
     #[serde(default)]
     pub via_opencode_api: bool,
+    #[serde(default)]
+    pub model_provider: Option<String>,
+    #[serde(default)]
+    pub model_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -87,16 +91,25 @@ fn developer_use_rust_mcp(state: &State<'_, AppState>) -> bool {
 
 #[tauri::command]
 pub async fn write_pane_input(
+    app: AppHandle,
     state: State<'_, AppState>,
     pane_id: String,
     args: WriteInputArgs,
 ) -> Result<(), String> {
+    let settings = state.public_settings.lock().clone();
+    let model = crate::opencode::resolve_model(
+        args.model_provider.as_deref(),
+        args.model_id.as_deref(),
+        &settings,
+    );
     registry_write_input(
         &state.registry,
+        &app,
         &pane_id,
         &args.text,
         args.append_newline,
         args.via_opencode_api,
+        model,
     )
 }
 
@@ -132,6 +145,31 @@ pub async fn list_agent_contexts() -> Result<Vec<crate::agent_contexts::AgentCon
     Ok(crate::agent_contexts::list_agent_context_profiles())
 }
 
+#[derive(Deserialize)]
+pub struct SwitchModelArgs {
+    #[serde(default)]
+    pub model_provider: Option<String>,
+    pub model_id: String,
+}
+
+#[tauri::command]
+pub async fn switch_agent_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pane_id: String,
+    args: SwitchModelArgs,
+) -> Result<serde_json::Value, String> {
+    let settings = state.public_settings.lock().clone();
+    let model = crate::opencode::resolve_model(
+        args.model_provider.as_deref(),
+        Some(args.model_id.as_str()),
+        &settings,
+    )
+    .ok_or_else(|| "model_id required".to_string())?;
+    crate::opencode::switch_native_model(&state.registry, &app, &pane_id, &model)?;
+    Ok(crate::opencode::switch_model_response(&state.registry, &pane_id, &model))
+}
+
 #[tauri::command]
 pub async fn inspect_agent_model(
     state: State<'_, AppState>,
@@ -148,8 +186,11 @@ pub async fn inspect_agent_model(
     let agent_type = AgentType::parse(&pane.agent_type)
         .ok_or_else(|| format!("unknown agent_type: {}", pane.agent_type))?;
     let buffer = registry_read_buffer(&state.registry, &pane_id, lines.unwrap_or(200))?;
-    Ok(crate::agent_contexts::inspect_agent_model(
-        pane_id, agent_type, &buffer,
+    Ok(crate::agent_contexts::inspect_agent_model_with_registry(
+        Some(&state.registry),
+        pane_id,
+        agent_type,
+        &buffer,
     ))
 }
 
@@ -168,7 +209,11 @@ pub async fn read_agent_context(
             .find(|pane| pane.id == pane_id)
             .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
         let buffer = registry_read_buffer(&state.registry, &pane_id, 200)?;
-        let context = crate::agent_contexts::build_pane_agent_context(pane, &buffer)
+        let context = crate::agent_contexts::build_pane_agent_context(
+            Some(&state.registry),
+            pane,
+            &buffer,
+        )
             .ok_or_else(|| "unknown pane agent_type".to_string())?;
         return serde_json::to_value(context)
             .map_err(|err| format!("serialize agent context: {err}"));
@@ -263,9 +308,12 @@ pub async fn build_context_pack(
     request: crate::context_pack::ContextPackRequest,
 ) -> Result<crate::context_pack::ContextPack, String> {
     let read_models = rebuild_read_models()?;
+    let project_root = crate::event_log::active_project_path();
     Ok(crate::context_pack::build_context_pack(
         request,
         &read_models,
+        project_root.as_deref(),
+        None,
     ))
 }
 
@@ -430,6 +478,27 @@ pub fn exit_app(app: AppHandle) {
 #[tauri::command]
 pub fn get_opencode_key_status() -> Result<crate::opencode::keys::OpenCodeKeyStatus, String> {
     crate::opencode::keys::status()
+}
+
+#[tauri::command]
+pub fn set_opencode_automation_settings(
+    mode: String,
+    restart_pane_on_rotate: bool,
+) -> Result<crate::opencode::keys::OpenCodeKeyStatus, String> {
+    let parsed = crate::opencode::keys::KeyAutomationMode::parse(&mode)
+        .ok_or_else(|| "mode must be auto_if_backup or notify_only".to_string())?;
+    crate::opencode::keys::set_automation_settings(Some(parsed), Some(restart_pane_on_rotate))
+}
+
+#[tauri::command]
+pub fn set_opencode_key_settings(
+    key_automation_mode: Option<String>,
+    restart_pane_on_rotate: Option<bool>,
+) -> Result<crate::opencode::keys::OpenCodeKeyStatus, String> {
+    crate::opencode::keys::patch_settings(&crate::opencode::keys::OpenCodeKeySettingsPatch {
+        key_automation_mode,
+        restart_pane_on_rotate,
+    })
 }
 
 #[tauri::command]

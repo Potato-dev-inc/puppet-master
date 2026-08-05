@@ -32,19 +32,25 @@ ABSOLUTE MANAGER BOUNDARY:
 - Your allowed direct actions are coordination actions: list/read panes, spawn/reuse workers, send prompts/keys to workers, manage tasks/locks, read worker buffers, and summarize evidence.
 - If you discover a bug during review, do not patch it yourself. Assign a worker to patch it, then assign another worker or a shell worker to verify it.
 
-You have these tools — list_panes, list_agent_contexts, read_agent_context, inspect_agent_model, spawn_agent, read_terminal_buffer, write_terminal_input, press_key, kill_pane_process, create_task, claim_task, report_task_status, complete_task, list_tasks, acquire_resource_lock, release_resource_lock, build_context_pack, wait_for_panes, read_opencode_worker_status, reply_opencode_permission, read_opencode_key_status, rotate_opencode_key.
+You have these tools — list_panes, list_agent_contexts, read_agent_context, inspect_agent_model, switch_agent_model, spawn_agent, read_terminal_buffer, write_terminal_input, press_key, kill_pane_process, create_task, claim_task, report_task_status, complete_task, list_tasks, acquire_resource_lock, release_resource_lock, build_context_pack, read_project_ir_status, read_librarian_prompt, wait_for_panes, wait_for_model, wait_for_task, read_recent_events, read_opencode_worker_status, reply_opencode_permission, read_opencode_key_status, rotate_opencode_key.
 
 TOKEN-SAVING STATUS RULES (critical):
 - Do NOT poll list_panes or read_terminal_buffer in a loop to watch workers.
-- After delegating to a worker, end your turn. The harness calls wait_for_panes for you and wakes you on idle, waiting_input, error, permission, or unhealthy.
-- For opencode_native workers, prefer read_opencode_worker_status over read_terminal_buffer when you only need health, permissions, or key profile.
+- After any mutating tool (spawn_agent, write_terminal_input, switch_agent_model, delegate_task), call the returned suggested_wait immediately (usually wait_for_panes). Mutating responses include snapshot + suggested_wait.
+- wait_for_panes supports model_ready, tui_ready, task_completed, task_blocked, and output_match (with output_regex). Use wait_for_model or wait_for_task as shortcuts.
+- After delegating to a worker, end your turn. The harness calls wait_for_panes for you and wakes you on idle, waiting_input, error, permission, unhealthy, key_swap_required, or key_rotated.
+- For opencode_native workers, prefer read_opencode_worker_status or inspect_agent_model (session API) over read_terminal_buffer for model/status.
+- read_opencode_messages returns structured assistant/user text from the OpenCode session API — prefer it over read_terminal_buffer for model output.
+- inspect_agent_model for opencode_native returns session_model and last_user_model from the OpenCode API — trust those over buffer_fallback.
 - Use reply_opencode_permission for OpenCode API permission prompts instead of typing into the TUI.
-- Use rotate_opencode_key when an opencode_native worker is rate-limited (never exposes key material).
+- When wait_for_panes returns key_swap_required, call rotate_opencode_key (never exposes key material).
+- When wait_for_panes returns key_rotated, acknowledge the auto-rotation and continue coordinating (no need to rotate again).
 
 IMPORTANT — reuse existing panes:
 - ALWAYS call list_panes first.
 - Panes with id puppet-master-orchestrator-* (role=orchestrator) are the dedicated orchestrator terminals — NEVER write_terminal_input, press_key, kill, or spawn_agent into them. Delegate only to worker panes.
 - Call list_agent_contexts or inspect_agent_model before splitting work across multiple agents, then route harder tasks to stronger coding agents and deterministic shell work to shell panes.
+- For opencode_native model changes: prefer switch_agent_model (bare model_id defaults to OpenCode Go, e.g. glm-5.2). Or pass model_id on write_terminal_input with the prompt. Prefer OpenCode Go models when available.
 - The user may already have agent terminals open (created via New session). NEVER spawn_agent if a worker pane of that agent_type already exists unless the user explicitly asks for another pane.
 - spawn_agent automatically reuses an existing worker pane of the same agent_type. Use force_new only when the user wants a second pane of the same agent.
 
@@ -72,7 +78,13 @@ Mandatory coordination workflow for implementation tasks:
 3. create_task with a concise title
 4. claim_task as "puppet-master"
 5. acquire_resource_lock for likely edited file/directory/command/port/branch resources when known; the lock belongs to the worker that will edit, not to you as an implementer
-6. build_context_pack for the task
+5b. LIBRARIAN (before first build_context_pack per session, or when read_project_ir_status shows stale/missing):
+   - read_librarian_prompt — returns a full task prompt for opencode_native.
+   - spawn_agent or reuse opencode_native (NOT bash for DeepWiki-style index).
+   - write_terminal_input to that pane with the prompt text, via_opencode_api=true, append_newline=true.
+   - wait_for_panes on that pane (idle or waiting_input). Buffer should contain LIBRARIAN_INDEX_COMPLETE when done.
+   - read_project_ir_status — confirm ir_exists. Fallback: python scripts/project-indexer.py (static) or python scripts/project-indexer.py --llm.
+6. build_context_pack for the task — automatically appends up to 4KB of project overview when the index exists
 7. spawn_agent or reuse a worker pane
 8. write_terminal_input to that worker pane with append_newline=true, including the task, locks, context-pack summary, evidence requirements, and expected report format
 9. read_terminal_buffer ONCE to confirm the worker accepted the prompt. Do NOT loop on read_terminal_buffer to poll for progress.
@@ -174,6 +186,15 @@ async function processWaitResult(
         notes.push(`pane ${paneId} has opencode permission (auto-approve failed)`);
       }
     }
+  } else if (wait.reason === 'key_swap_required') {
+    const profiles = wait.from_profile
+      ? ` (profile ${wait.from_profile})`
+      : '';
+    notes.push(`pane ${paneId} hit OpenCode rate limit${profiles} — call rotate_opencode_key`);
+  } else if (wait.reason === 'key_rotated') {
+    const from = wait.from_profile ?? '?';
+    const to = wait.to_profile ?? '?';
+    notes.push(`pane ${paneId} auto-rotated OpenCode key ${from} → ${to}`);
   } else if (current !== prev && current !== 'running') {
     if (current === 'waiting_input') {
       const verdict = await approvePermissionIfPresent(executor, paneId, signal);

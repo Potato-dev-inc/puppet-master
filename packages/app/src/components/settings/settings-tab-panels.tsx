@@ -284,6 +284,47 @@ function OrchestratorTab({ ctx }: { ctx: SettingsTabContext }) {
         </FieldSelect>
       </SettingBlock>
       <SettingToggle label="Cost-aware model router" description="Route tasks to cheaper or stronger models depending on complexity." checked onChange={() => undefined} implemented={false} />
+      <SettingBlock
+        label="Librarian indexer"
+        implemented
+        description="Default: OpenCode librarian (read_librarian_prompt → opencode_native). Use opencode or leave blank. Or scripts/project-indexer.py for static-only. Edit scripts/librarian-prompt.md to customize the OpenCode task."
+      >
+        <FieldInput
+          value={settings.librarian_indexer_path ?? 'opencode'}
+          onChange={(e) => setSettings({ ...settings, librarian_indexer_path: e.target.value || undefined })}
+          className="font-mono"
+          placeholder="opencode"
+          autoComplete="off"
+        />
+      </SettingBlock>
+      <SettingBlock
+        label="OpenCode default model"
+        implemented
+        description="Used for opencode_native API prompts when write_terminal_input omits model_provider/model_id."
+      >
+        <div className="space-y-3">
+          <div>
+            <FieldLabel>Provider ID</FieldLabel>
+            <FieldInput
+              value={settings.opencode_model_provider ?? ''}
+              onChange={(e) => setSettings({ ...settings, opencode_model_provider: e.target.value || undefined })}
+              className="font-mono"
+              placeholder="anthropic"
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <FieldLabel>Model ID</FieldLabel>
+            <FieldInput
+              value={settings.opencode_model_id ?? ''}
+              onChange={(e) => setSettings({ ...settings, opencode_model_id: e.target.value || undefined })}
+              className="font-mono"
+              placeholder="claude-sonnet-4"
+              autoComplete="off"
+            />
+          </div>
+        </div>
+      </SettingBlock>
       <SettingBlock label="Default provider & model" implemented description="Used by the API orchestrator backend.">
         <div className="space-y-3">
           <div>
@@ -337,6 +378,7 @@ function ApiTab({ ctx }: { ctx: SettingsTabContext }) {
   const [keyB, setKeyB] = useState('');
   const [keyError, setKeyError] = useState<string | null>(null);
   const [keySaving, setKeySaving] = useState(false);
+  const [automationSaving, setAutomationSaving] = useState(false);
 
   const refreshKeyStatus = async () => {
     try {
@@ -368,6 +410,18 @@ function ApiTab({ ctx }: { ctx: SettingsTabContext }) {
       setKeyError(err instanceof Error ? err.message : String(err));
     } finally {
       setKeySaving(false);
+    }
+  };
+
+  const saveAutomation = async (mode: 'auto_if_backup' | 'notify_only', restart: boolean) => {
+    setAutomationSaving(true);
+    setKeyError(null);
+    try {
+      setKeyStatus(await tauri.setOpenCodeAutomationSettings(mode, restart));
+    } catch (err) {
+      setKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAutomationSaving(false);
     }
   };
 
@@ -417,6 +471,36 @@ function ApiTab({ ctx }: { ctx: SettingsTabContext }) {
               {keyError}
             </p>
           )}
+        </div>
+      </SettingBlock>
+      <SettingBlock
+        label="OpenCode key automation"
+        implemented
+        description="When an opencode_native worker hits API rate limits: auto-rotate to the backup key if configured, or only notify the orchestrator."
+      >
+        <div className="space-y-3">
+          <FieldLabel>Automation mode</FieldLabel>
+          <FieldSelect
+            value={keyStatus?.key_automation_mode ?? 'auto_if_backup'}
+            disabled={automationSaving || !keyStatus}
+            onChange={(e) => {
+              const mode = e.target.value as 'auto_if_backup' | 'notify_only';
+              void saveAutomation(mode, keyStatus?.restart_pane_on_rotate ?? true);
+            }}
+          >
+            <option value="auto_if_backup">Auto-rotate if backup key configured</option>
+            <option value="notify_only">Notify only (no auto-rotate)</option>
+          </FieldSelect>
+          <SettingToggle
+            label="Restart pane after key rotate"
+            description="Restart the opencode_native pane after an automatic rotation so it picks up the new key."
+            checked={keyStatus?.restart_pane_on_rotate ?? true}
+            implemented={!automationSaving && !!keyStatus}
+            onChange={(checked) => {
+              const mode = (keyStatus?.key_automation_mode ?? 'auto_if_backup') as 'auto_if_backup' | 'notify_only';
+              void saveAutomation(mode, checked);
+            }}
+          />
         </div>
       </SettingBlock>
       <SettingBlock label="GitHub token" implemented={false}><FieldInput type="password" className="font-mono" placeholder="ghp_…" disabled /></SettingBlock>

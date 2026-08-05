@@ -67,6 +67,26 @@ fn object_schema(properties: Value, required: Vec<&'static str>) -> Value {
     })
 }
 
+pub fn catalog_version() -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    for tool in tools() {
+        tool.name.hash(&mut hasher);
+        tool.method.hash(&mut hasher);
+        tool.path.hash(&mut hasher);
+    }
+    format!("{}-{:016x}", tools().len(), hasher.finish())
+}
+
+pub fn external_mcp_tool_count() -> usize {
+    tools()
+        .into_iter()
+        .filter(|tool| tool.visibility.external_mcp)
+        .count()
+}
+
 pub fn tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
@@ -117,7 +137,7 @@ pub fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "inspect_agent_model",
-            description: "Inspect a live terminal pane and report the best-known model signal plus an advisory smartness score.",
+            description: "Report the active model for a pane. For opencode_native, reads OpenCode session API (session_model + last_user_model); buffer text is fallback only. Do not poll in a loop — use wait_for_panes after mutations.",
             input_schema: object_schema(
                 json!({
                     "pane_id": { "type": "string" },
@@ -129,6 +149,29 @@ pub fn tools() -> Vec<ToolDefinition> {
             safety: ToolSafety::ReadOnly,
             visibility: visible_everywhere(),
             method: "GET",
+            path: "/panes/{pane_id}/model",
+        },
+        ToolDefinition {
+            name: "switch_agent_model",
+            description: "Switch an opencode_native pane's session model and sync the TUI footer (no scratch sessions). Prefer OpenCode Go: pass bare model_id like glm-5.2 / deepseek-v4-pro, or model_provider=opencode-go. Use write_terminal_input with model_id when also sending a prompt.",
+            input_schema: object_schema(
+                json!({
+                    "pane_id": { "type": "string" },
+                    "model_id": {
+                        "type": "string",
+                        "description": "Model id (bare id defaults to opencode-go), or provider/model like openrouter/xiaomi/mimo-v2.5"
+                    },
+                    "model_provider": {
+                        "type": "string",
+                        "description": "Optional provider (default opencode-go for bare model_id)"
+                    }
+                }),
+                vec!["pane_id", "model_id"],
+            ),
+            output_schema: None,
+            safety: ToolSafety::Mutating,
+            visibility: visible_everywhere(),
+            method: "POST",
             path: "/panes/{pane_id}/model",
         },
         ToolDefinition {
@@ -152,7 +195,7 @@ pub fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "read_terminal_buffer",
-            description: "Read the recent scrollback of a pane as text.",
+            description: "Read recent pane scrollback for evidence/debugging. Do NOT poll this for status — use wait_for_panes or read_opencode_worker_status instead.",
             input_schema: object_schema(
                 json!({
                     "pane_id": { "type": "string" },
@@ -173,7 +216,15 @@ pub fn tools() -> Vec<ToolDefinition> {
                 json!({
                     "pane_id": { "type": "string" },
                     "text": { "type": "string" },
-                    "append_newline": { "type": "boolean", "default": true }
+                    "append_newline": { "type": "boolean", "default": true },
+                    "model_provider": {
+                        "type": "string",
+                        "description": "OpenCode provider (optional; bare model_id defaults to opencode-go; else settings default)"
+                    },
+                    "model_id": {
+                        "type": "string",
+                        "description": "OpenCode model id or provider/model; prefer OpenCode Go bare ids like glm-5.2"
+                    }
                 }),
                 vec!["pane_id", "text"],
             ),
@@ -322,6 +373,26 @@ pub fn tools() -> Vec<ToolDefinition> {
             visibility: visible_everywhere(),
             method: "POST",
             path: "/locks/release",
+        },
+        ToolDefinition {
+            name: "read_librarian_prompt",
+            description: "Render the OpenCode librarian prompt (DeepWiki-style index task). Send the returned prompt to opencode_native via write_terminal_input; worker writes .puppet-master/project-ir.json.",
+            input_schema: object_schema(json!({}), vec![]),
+            output_schema: None,
+            safety: ToolSafety::ReadOnly,
+            visibility: visible_everywhere(),
+            method: "GET",
+            path: "/librarian/prompt",
+        },
+        ToolDefinition {
+            name: "read_project_ir_status",
+            description: "Check whether the librarian project index exists, is stale vs current git HEAD, and which indexer command to run.",
+            input_schema: object_schema(json!({}), vec![]),
+            output_schema: None,
+            safety: ToolSafety::ReadOnly,
+            visibility: visible_everywhere(),
+            method: "GET",
+            path: "/project-ir/status",
         },
         ToolDefinition {
             name: "build_context_pack",
@@ -528,8 +599,32 @@ pub fn tools() -> Vec<ToolDefinition> {
             path: "/panes/{pane_id}/opencode/status",
         },
         ToolDefinition {
+            name: "read_opencode_messages",
+            description: "Read structured OpenCode session messages for opencode_native (assistant text, tool/question parts). Prefer this over read_terminal_buffer for model output — no TUI chrome.",
+            input_schema: object_schema(
+                json!({
+                    "pane_id": { "type": "string" },
+                    "limit": {
+                        "type": "number",
+                        "description": "Max messages to return (default 20, max 200)"
+                    },
+                    "role": {
+                        "type": "string",
+                        "enum": ["all", "user", "assistant"],
+                        "description": "Filter by role (default all)"
+                    }
+                }),
+                vec!["pane_id"],
+            ),
+            output_schema: None,
+            safety: ToolSafety::ReadOnly,
+            visibility: visible_everywhere(),
+            method: "GET",
+            path: "/panes/{pane_id}/opencode/messages",
+        },
+        ToolDefinition {
             name: "wait_for_panes",
-            description: "Block until any worker pane reaches a target state (idle, waiting_input, error, gone, permission, unhealthy). Use instead of polling list_panes or read_terminal_buffer.",
+            description: "Long-poll until any worker pane reaches a target state. Prefer this over polling list_panes or read_terminal_buffer. Use until=[\"settled\"] after write_terminal_input (idle, permission, TUI yes/no). Returns agent_hint with next action.",
             input_schema: object_schema(
                 json!({
                     "pane_ids": {
@@ -541,9 +636,43 @@ pub fn tools() -> Vec<ToolDefinition> {
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "enum": ["idle", "waiting_input", "error", "gone", "permission", "unhealthy"]
+                            "enum": [
+                                "idle",
+                                "waiting_input",
+                                "error",
+                                "gone",
+                                "permission",
+                                "unhealthy",
+                                "key_swap_required",
+                                "key_swap",
+                                "key_rotated",
+                                "rate_limited",
+                                "model_ready",
+                                "tui_ready",
+                                "task_completed",
+                                "task_blocked",
+                                "output_match",
+                                "settled",
+                                "tui_prompt"
+                            ]
                         },
-                        "description": "Wake triggers. Defaults to all."
+                        "description": "Wake triggers. Defaults to standard worker set."
+                    },
+                    "match": {
+                        "type": "object",
+                        "properties": {
+                            "provider_id": { "type": "string" },
+                            "model_id": { "type": "string" }
+                        },
+                        "description": "Required for model_ready when checking a specific model"
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "Task id for task_completed / task_blocked waits"
+                    },
+                    "output_regex": {
+                        "type": "string",
+                        "description": "Regex for output_match wait (use with until=[\"output_match\"])"
                     },
                     "timeout_ms": {
                         "type": "number",
@@ -557,6 +686,79 @@ pub fn tools() -> Vec<ToolDefinition> {
             visibility: visible_everywhere(),
             method: "POST",
             path: "/panes/wait",
+        },
+        ToolDefinition {
+            name: "wait_for_model",
+            description: "Long-poll until an opencode_native pane's footer model matches (alias for wait_for_panes with model_ready + tui_ready).",
+            input_schema: object_schema(
+                json!({
+                    "pane_id": { "type": "string" },
+                    "provider_id": { "type": "string" },
+                    "model_id": { "type": "string" },
+                    "timeout_ms": { "type": "number", "description": "Max wait ms (default 120000)" }
+                }),
+                vec!["pane_id"],
+            ),
+            output_schema: None,
+            safety: ToolSafety::ReadOnly,
+            visibility: visible_everywhere(),
+            method: "POST",
+            path: "/panes/wait/model",
+        },
+        ToolDefinition {
+            name: "wait_for_task",
+            description: "Long-poll until a task reaches completed or blocked (alias for wait_for_panes task predicates).",
+            input_schema: object_schema(
+                json!({
+                    "pane_id": { "type": "string" },
+                    "task_id": { "type": "string" },
+                    "until": {
+                        "type": "array",
+                        "items": { "type": "string", "enum": ["task_completed", "task_blocked", "error"] }
+                    },
+                    "timeout_ms": { "type": "number" }
+                }),
+                vec!["pane_id", "task_id"],
+            ),
+            output_schema: None,
+            safety: ToolSafety::ReadOnly,
+            visibility: visible_everywhere(),
+            method: "POST",
+            path: "/panes/wait/task",
+        },
+        ToolDefinition {
+            name: "wait_for_worker",
+            description: "Long-poll until a worker pane settles (idle, waiting_input, permission, OpenCode TUI yes/no, or error). Alias for wait_for_panes with until=[\"settled\",\"error\"]. Returns agent_hint for the next step.",
+            input_schema: object_schema(
+                json!({
+                    "pane_id": { "type": "string" },
+                    "timeout_ms": { "type": "number", "description": "Max wait ms (default 120000)" }
+                }),
+                vec!["pane_id"],
+            ),
+            output_schema: None,
+            safety: ToolSafety::ReadOnly,
+            visibility: visible_everywhere(),
+            method: "POST",
+            path: "/panes/wait/worker",
+        },
+        ToolDefinition {
+            name: "read_recent_events",
+            description: "Read recent system events for debugging (not for hot-loop polling).",
+            input_schema: object_schema(
+                json!({
+                    "limit": { "type": "number", "description": "Max events (1-200, default 50)" },
+                    "pane_id": { "type": "string" },
+                    "types": { "type": "array", "items": { "type": "string" } },
+                    "since_id": { "type": "string" }
+                }),
+                vec![],
+            ),
+            output_schema: None,
+            safety: ToolSafety::ReadOnly,
+            visibility: visible_everywhere(),
+            method: "GET",
+            path: "/events/recent",
         },
         ToolDefinition {
             name: "reply_opencode_permission",
@@ -574,6 +776,23 @@ pub fn tools() -> Vec<ToolDefinition> {
             visibility: visible_everywhere(),
             method: "POST",
             path: "/panes/{pane_id}/opencode/permissions/{request_id}/reply",
+        },
+        ToolDefinition {
+            name: "reply_opencode_question",
+            description: "Answer an OpenCode yes/no question for opencode_native via session API. Prefer this over press_key — API prompts do not reach the TUI compose box.",
+            input_schema: object_schema(
+                json!({
+                    "pane_id": { "type": "string" },
+                    "answer": { "type": "string", "description": "Option label, e.g. Yes or No" },
+                    "request_id": { "type": "string", "description": "Optional; omit to answer the pane's current pending question" }
+                }),
+                vec!["pane_id", "answer"],
+            ),
+            output_schema: None,
+            safety: ToolSafety::Mutating,
+            visibility: visible_everywhere(),
+            method: "POST",
+            path: "/panes/{pane_id}/opencode/question/reply",
         },
     ]
 }
@@ -738,6 +957,18 @@ mod tests {
         assert!(names.contains(&"set_pane_role"));
         assert!(names.contains(&"read_pane_digest"));
         assert!(names.contains(&"delegate_task"));
+    }
+
+    #[test]
+    fn registry_contains_wait_tools() {
+        let names = tools()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"wait_for_panes"));
+        assert!(names.contains(&"wait_for_model"));
+        assert!(names.contains(&"wait_for_task"));
+        assert!(names.contains(&"read_recent_events"));
     }
 
     #[test]

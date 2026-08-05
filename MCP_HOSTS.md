@@ -66,6 +66,48 @@ AppData bridge port file (Cursor often cannot resolve bare `node` / `npx` on PAT
 
 Cursor will discover the Puppet Master tools and let the agent use them.
 
+**Local dev (this repo):** build the MCP launcher and point Cursor at it so you get the latest tools without waiting for npm publish:
+
+```bash
+npm run build:mcp
+```
+
+Then set Cursor MCP to (adjust paths):
+
+```json
+{
+  "mcpServers": {
+    "puppet-master": {
+      "command": "C:/Program Files/nodejs/node.exe",
+      "args": ["C:/Users/YOU/Desktop/work2/puppet-master/packages/mcp-server/dist/index.js"],
+      "env": {
+        "PUPPET_MASTER_BRIDGE_PORT_FILE": "C:/Users/YOU/AppData/Roaming/com.puppetmaster.app/puppet-master.bridge.port"
+      }
+    }
+  }
+}
+```
+
+Toggle the MCP server **off and on** in Cursor after rebuilding — `bridge_health` should report current `tool_count` (includes `read_opencode_messages`, `reply_opencode_question`, `wait_for_worker`).
+
+**Orchestrator playbooks:** [docs/orchestrator/README.md](docs/orchestrator/README.md) — quickstart, OpenCode worker guide, workflows, token tips.
+
+**Local dev tip:** use `legacy.js` instead of `index.js` so the tool catalog loads from the bridge (avoids stale `puppet-master-mcp.exe`):
+
+```json
+{
+  "mcpServers": {
+    "puppet-master": {
+      "command": "C:/Program Files/nodejs/node.exe",
+      "args": ["C:/Users/YOU/Desktop/work2/puppet-master/packages/mcp-server/dist/legacy.js"],
+      "env": {
+        "PUPPET_MASTER_BRIDGE_PORT_FILE": "C:/Users/YOU/AppData/Roaming/com.puppetmaster.app/puppet-master.bridge.port"
+      }
+    }
+  }
+}
+```
+
 ### Cursor Orchestrator Instructions
 
 When Cursor is using Puppet Master as an MCP server, tell the Cursor agent to follow this order:
@@ -76,8 +118,11 @@ When Cursor is using Puppet Master as an MCP server, tell the Cursor agent to fo
 4. For any live agent pane you may delegate to, call `read_agent_context` with `pane_id`.
 5. If choosing between multiple agents, call `inspect_agent_model` for each candidate pane and prefer the stronger/smarter fit for the task.
 6. Delegate with `write_terminal_input` using `append_newline: true`.
-7. After delegating, call `read_terminal_buffer` once to confirm the agent received the task.
-8. Avoid polling buffers repeatedly without sending new instructions.
+7. **Immediately** call the `suggested_wait` from the mutate response (usually `wait_for_worker`). Do not poll `read_terminal_buffer` in a loop.
+8. For `opencode_native`: use `read_opencode_messages` for output; `reply_opencode_question` for yes/no; `inspect_agent_model` or `read_opencode_worker_status` for status.
+9. Reconnect MCP in Cursor after tool registry changes so the tool catalog stays fresh.
+
+Full playbooks: [docs/orchestrator/README.md](docs/orchestrator/README.md).
 
 You can paste this into Cursor as a project rule or include it in the prompt:
 
@@ -86,7 +131,9 @@ When using the puppet-master MCP server, first call bridge_health, then list_pan
 Reuse existing panes. Before delegating, inspect the target pane with read_agent_context
 and inspect_agent_model when choosing between agents. Only spawn a new agent if no
 suitable pane exists. Send prompts with write_terminal_input append_newline=true,
-then read_terminal_buffer once to confirm receipt.
+then call suggested_wait from the response (wait_for_worker / wait_for_panes).
+For opencode_native: read_opencode_messages for output; reply_opencode_question for yes/no.
+Never loop read_terminal_buffer or list_panes for status — use wait tools instead.
 ```
 
 ## Claude Desktop
@@ -186,21 +233,62 @@ Returns `{ "pane_id": "..." }`.
 ```json
 { "pane_id": "uuid", "lines": 200 }
 ```
-Returns plain-text recent scrollback.
+Returns plain-text recent scrollback. Debug/evidence only for `opencode_native` — prefer `read_opencode_messages` for model text.
+
+### `read_opencode_messages`
+```json
+{ "pane_id": "uuid", "limit": 20, "role": "assistant" }
+```
+Returns structured OpenCode session messages (`opencode_native` only): assistant/user text parts, tool/question parts, `pending_question`, and `last_assistant_text`. No TUI chrome.
+
+### `reply_opencode_question`
+```json
+{ "pane_id": "uuid", "answer": "Yes", "request_id": "que_..." }
+```
+Answer OpenCode API yes/no menus. Prefer over `press_key`. Omit `request_id` to answer the pane's current pending question.
+
+### `wait_for_worker`
+```json
+{ "pane_id": "uuid", "timeout_ms": 120000 }
+```
+Long-poll until settled (`idle`, `permission`, API yes/no → `tui_prompt`, etc.). Default follow-up to `write_terminal_input` via `suggested_wait`.
 
 ### `write_terminal_input`
 ```json
 {
   "pane_id": "uuid",
   "text": "y",
-  "append_newline": true   // false for partial input
+  "append_newline": true,
+  "model_provider": "anthropic",
+  "model_id": "claude-sonnet-4"
 }
 ```
+
+`append_newline` defaults to `true` (set `false` for partial input). For `opencode_native` panes, `via_opencode_api` is set automatically. Optional `model_provider` + `model_id` override the OpenCode model for that prompt (Settings → Orchestrator → **OpenCode default model** is used when omitted).
 
 ### `kill_pane_process`
 ```json
 { "pane_id": "uuid" }
 ```
+
+### `wait_for_panes` / `wait_for_model` / `wait_for_task`
+
+Long-poll until a pane reaches a target state. Prefer these over polling buffers.
+
+```json
+{
+  "pane_ids": ["uuid"],
+  "until": ["idle", "model_ready", "permission"],
+  "match": { "provider_id": "opencode-go", "model_id": "glm-5.2" },
+  "timeout_ms": 120000
+}
+```
+
+Mutating tools (`spawn_agent`, `write_terminal_input`, `switch_agent_model`, `delegate_task`) return `suggested_wait` — call it immediately after each mutation.
+
+### `read_recent_events`
+
+Debug-only event tail (not for polling loops). Optional `pane_id`, `types`, `since_id`, `limit`.
 
 ## Session and delegation tools
 

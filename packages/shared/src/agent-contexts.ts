@@ -25,10 +25,15 @@ export interface AgentModelInspection {
   pane_id: string;
   agent_type: AgentType;
   detected_model: string | null;
-  source: 'buffer' | 'profile' | 'unknown';
+  provider_id?: string | null;
+  source: 'buffer' | 'profile' | 'unknown' | 'session' | 'last_user';
   confidence: 'high' | 'medium' | 'low';
   smartness: number;
   notes: string[];
+  session_model?: { providerID: string; modelID: string } | null;
+  last_user_model?: { providerID: string; modelID: string } | null;
+  footer_model_source?: 'session' | 'last_user' | 'unknown' | null;
+  buffer_fallback?: string | null;
 }
 
 const MODEL_PATTERNS: Array<{ pattern: RegExp; normalize?: (match: RegExpMatchArray) => string }> = [
@@ -94,6 +99,9 @@ export const AGENT_CONTEXT_PROFILES: Record<AgentType, AgentContextProfile> = {
     context_notes: [
       'Runs opencode serve locally and routes orchestrator input through the REST API (prompt_async) instead of PTY typing.',
       'The attach TUI is for human visibility; MCP/bridge writes go to the API session.',
+      'Read output with read_opencode_messages — not read_terminal_buffer (TUI chrome).',
+      'Yes/no prompts: reply_opencode_question (API). Never press_key for API question menus.',
+      'After write_terminal_input, call suggested_wait (wait_for_worker). Docs: docs/orchestrator/opencode-native-worker.md',
     ],
     best_for: ['orchestrated workers', 'API-driven prompts', 'parallel OpenCode sessions'],
     planned_sidebar_actions: ['delegate via API', 'inspect session health', 'reply to permission prompts'],

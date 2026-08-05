@@ -45,6 +45,12 @@ static PROMPT_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
         r"(?i)do not allow",
         r"(?i)\bdeny\b",
         r"(?i)\bapprove\b",
+        r"(?i)enter submit",
+        r"(?i)esc dismiss",
+        r"(?i)↑↓ select",
+        r"(?i)\d+\.\s*yes\b",
+        r"(?i)\d+\.\s*no\b",
+        r"(?i)type your own answer",
         r"[>?›»]\s*$",
         r":\s*$",
     ]
@@ -69,4 +75,48 @@ pub fn looks_like_prompt(text: &str) -> bool {
         .collect::<Vec<_>>()
         .join("\n");
     PROMPT_PATTERNS.iter().any(|re| re.is_match(&tail))
+}
+
+/// OpenCode TUI menus (numbered yes/no, submit hints) — used by wait `settled`.
+static OPENCODE_TUI_MENU_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+    [
+        r"(?i)enter submit",
+        r"(?i)esc dismiss",
+        r"(?i)↑↓ select",
+        r"(?i)\d+\.\s*yes\b",
+        r"(?i)\d+\.\s*no\b",
+        r"(?i)type your own answer",
+    ]
+    .into_iter()
+    .map(|p| Regex::new(p).expect("valid opencode tui regex"))
+    .collect()
+});
+
+/// OpenCode TUI menus (numbered yes/no, submit hints) — used by wait `settled`.
+pub fn looks_like_opencode_tui_menu(text: &str) -> bool {
+    let clean = strip_ansi(text);
+    let tail: String = clean
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .rev()
+        .take(12)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
+    OPENCODE_TUI_MENU_PATTERNS
+        .iter()
+        .any(|re| re.is_match(&tail))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_opencode_numbered_yes_no_menu() {
+        let text = "1. Yes\n2. No\n3. Type your own answer\n↑↓ select  enter submit  esc dismiss";
+        assert!(looks_like_opencode_tui_menu(text));
+    }
 }

@@ -3,7 +3,9 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::pty::agents::AgentType;
-use crate::pty::registry::PaneInfo;
+use crate::pty::registry::{PaneInfo, PaneRegistry};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -44,10 +46,20 @@ pub struct AgentModelInspection {
     pub pane_id: String,
     pub agent_type: AgentType,
     pub detected_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
     pub source: &'static str,
     pub confidence: &'static str,
     pub smartness: u8,
-    pub notes: Vec<&'static str>,
+    pub notes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_model: Option<crate::opencode::client::OpenCodeModelRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_user_model: Option<crate::opencode::client::OpenCodeModelRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub footer_model_source: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buffer_fallback: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -291,19 +303,45 @@ pub fn inspect_agent_model(
     agent_type: AgentType,
     buffer: &str,
 ) -> AgentModelInspection {
+    inspect_agent_model_with_registry(None, pane_id, agent_type, buffer)
+}
+
+pub fn inspect_agent_model_with_registry(
+    registry: Option<&Arc<Mutex<PaneRegistry>>>,
+    pane_id: impl Into<String>,
+    agent_type: AgentType,
+    buffer: &str,
+) -> AgentModelInspection {
     let pane_id = pane_id.into();
     let profile = get_agent_context_profile(agent_type);
-    if let Some(detected_model) = detect_model_from_buffer(buffer) {
+
+    if agent_type == AgentType::OpencodeNative {
+        if let Some(registry) = registry {
+            if let Ok(inspection) =
+                inspect_opencode_native_model(registry, &pane_id, agent_type, buffer, &profile)
+            {
+                return inspection;
+            }
+        }
+    }
+
+    let buffer_fallback = detect_model_from_buffer(buffer);
+    if let Some(detected_model) = buffer_fallback.clone() {
         return AgentModelInspection {
             pane_id,
             agent_type,
             detected_model: Some(detected_model),
+            provider_id: None,
             source: "buffer",
-            confidence: "medium",
+            confidence: "low",
             smartness: profile.smartness,
             notes: vec![
-                "Detected from recent terminal buffer text; confirm if the CLI allows runtime model switching.",
+                "Detected from terminal buffer text; prefer read_opencode_worker_status for opencode_native.".into(),
             ],
+            session_model: None,
+            last_user_model: None,
+            footer_model_source: None,
+            buffer_fallback,
         };
     }
 
@@ -311,6 +349,7 @@ pub fn inspect_agent_model(
         pane_id,
         agent_type,
         detected_model: profile.default_model.map(str::to_string),
+        provider_id: None,
         source: if profile.default_model.is_some() {
             "profile"
         } else {
@@ -319,17 +358,97 @@ pub fn inspect_agent_model(
         confidence: "low",
         smartness: profile.smartness,
         notes: if profile.default_model.is_some() {
-            vec!["Using the static agent profile default because no model was visible in the buffer."]
+            vec!["Using static agent profile default; no model visible in buffer.".into()]
         } else {
-            vec!["No model was visible in the buffer and this agent has no static default."]
+            vec!["No model visible in buffer and this agent has no static default.".into()]
         },
+        session_model: None,
+        last_user_model: None,
+        footer_model_source: None,
+        buffer_fallback: None,
     }
 }
 
-pub fn build_pane_agent_context(pane: PaneInfo, buffer: &str) -> Option<PaneAgentContext> {
+fn inspect_opencode_native_model(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    agent_type: AgentType,
+    buffer: &str,
+    profile: &AgentContextProfile,
+) -> Result<AgentModelInspection, String> {
+    let status = crate::opencode::status::worker_status(registry, pane_id)?;
+    let session_model = status.session_model.as_ref().map(|model| {
+        crate::opencode::client::OpenCodeModelRef {
+            provider_id: model.provider_id.clone(),
+            model_id: model.model_id.clone(),
+        }
+    });
+    let last_user_model = status.last_user_model.as_ref().map(|model| {
+        crate::opencode::client::OpenCodeModelRef {
+            provider_id: model.provider_id.clone(),
+            model_id: model.model_id.clone(),
+        }
+    });
+    let footer_model_source = status
+        .footer_model_source
+        .as_ref()
+        .map(|source| match source {
+            crate::opencode::status::FooterModelSource::Session => "session",
+            crate::opencode::status::FooterModelSource::LastUser => "last_user",
+            crate::opencode::status::FooterModelSource::Unknown => "unknown",
+        });
+
+    let (detected_model, provider_id, source, confidence) =
+        if let Some(model) = last_user_model.as_ref() {
+            (
+                Some(model.model_id.clone()),
+                Some(model.provider_id.clone()),
+                "last_user",
+                "high",
+            )
+        } else if let Some(model) = session_model.as_ref() {
+            (
+                Some(model.model_id.clone()),
+                Some(model.provider_id.clone()),
+                "session",
+                "medium",
+            )
+        } else {
+            (None, None, "unknown", "low")
+        };
+
+    let buffer_fallback = detect_model_from_buffer(buffer);
+    let mut notes = vec![
+        "OpenCode session API model (footer follows last user message on attach).".into(),
+    ];
+    if buffer_fallback.is_some() {
+        notes.push("Buffer heuristic differs — trust session/last_user fields.".into());
+    }
+
+    Ok(AgentModelInspection {
+        pane_id: pane_id.to_string(),
+        agent_type,
+        detected_model,
+        provider_id,
+        source,
+        confidence,
+        smartness: profile.smartness,
+        notes,
+        session_model,
+        last_user_model,
+        footer_model_source,
+        buffer_fallback,
+    })
+}
+
+pub fn build_pane_agent_context(
+    registry: Option<&Arc<Mutex<PaneRegistry>>>,
+    pane: PaneInfo,
+    buffer: &str,
+) -> Option<PaneAgentContext> {
     let agent_type = AgentType::parse(&pane.agent_type)?;
     let context = get_agent_context_profile(agent_type);
-    let model = inspect_agent_model(&pane.id, agent_type, buffer);
+    let model = inspect_agent_model_with_registry(registry, &pane.id, agent_type, buffer);
     let recent_buffer_preview = buffer.lines().rev().take(40).collect::<Vec<_>>();
     let recent_buffer_preview = recent_buffer_preview
         .into_iter()
@@ -384,7 +503,7 @@ mod tests {
             cols: 120,
             rows: 30,
         };
-        let context = build_pane_agent_context(pane, "line 1\nmodel: o3\nline 3").unwrap();
+        let context = build_pane_agent_context(None, pane, "line 1\nmodel: o3\nline 3").unwrap();
         assert_eq!(context.context.agent_type, AgentType::Codex);
         assert_eq!(context.model.detected_model.as_deref(), Some("o3"));
         assert_eq!(context.model.source, "buffer");

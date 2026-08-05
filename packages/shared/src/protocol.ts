@@ -30,8 +30,17 @@ export type SpawnPaneRequest = z.infer<typeof SpawnPaneRequestSchema>;
 export const WriteInputRequestSchema = z.object({
   text: z.string(),
   append_newline: z.boolean().default(true),
+  via_opencode_api: z.boolean().optional(),
+  model_provider: z.string().optional(),
+  model_id: z.string().optional(),
 });
 export type WriteInputRequest = z.infer<typeof WriteInputRequestSchema>;
+
+export const SwitchModelRequestSchema = z.object({
+  model_id: z.string().min(1),
+  model_provider: z.string().optional(),
+});
+export type SwitchModelRequest = z.infer<typeof SwitchModelRequestSchema>;
 
 export const McpLogEntrySchema = z.object({
   id: z.string(),

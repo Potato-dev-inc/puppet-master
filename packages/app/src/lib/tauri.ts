@@ -89,6 +89,8 @@ export interface OpenCodeKeyProfileInfo {
 export interface OpenCodeKeyStatus {
   active_profile: string;
   profiles: OpenCodeKeyProfileInfo[];
+  key_automation_mode: string;
+  restart_pane_on_rotate: boolean;
 }
 
 export interface RotateOpenCodeKeyResult {
@@ -167,7 +169,7 @@ export const tauri = {
     paneId: string,
     text: string,
     appendNewline = true,
-    viaOpencodeApi = false,
+    options?: { viaOpencodeApi?: boolean; modelProvider?: string; modelId?: string },
   ) =>
     safeInvoke<void>(
       'write_pane_input',
@@ -176,7 +178,9 @@ export const tauri = {
         args: {
           text,
           append_newline: appendNewline,
-          via_opencode_api: viaOpencodeApi,
+          via_opencode_api: options?.viaOpencodeApi ?? false,
+          model_provider: options?.modelProvider,
+          model_id: options?.modelId,
         },
       },
       undefined,
@@ -194,6 +198,11 @@ export const tauri = {
     safeInvoke<unknown>('read_agent_context', { agentType: args.agent_type, paneId: args.pane_id }),
   inspectAgentModel: (paneId: string, lines?: number) =>
     safeInvoke<AgentModelInspection>('inspect_agent_model', { paneId, lines }),
+  switchAgentModel: (paneId: string, args: { model_id: string; model_provider?: string }) =>
+    safeInvoke<{ ok: boolean; provider_id: string; model_id: string; tui_synced?: boolean }>(
+      'switch_agent_model',
+      { paneId, args },
+    ),
   resize: (paneId: string, cols: number, rows: number) =>
     safeInvoke<void>('resize_pane', { paneId, cols, rows }, undefined, true),
   setProjectPath: (path: string) => safeInvoke<void>('set_project_path', { path }, undefined, true),
@@ -388,7 +397,27 @@ export const tauri = {
     safeInvoke<OpenCodeKeyStatus>(
       'get_opencode_key_status',
       undefined,
-      { active_profile: 'a', profiles: [{ id: 'a', label: 'Primary', configured: false }, { id: 'b', label: 'Secondary', configured: false }] },
+      {
+        active_profile: 'a',
+        profiles: [
+          { id: 'a', label: 'Primary', configured: false },
+          { id: 'b', label: 'Secondary', configured: false },
+        ],
+        key_automation_mode: 'auto_if_backup',
+        restart_pane_on_rotate: true,
+      },
+      true,
+    ),
+  setOpenCodeAutomationSettings: (mode: 'auto_if_backup' | 'notify_only', restartPaneOnRotate: boolean) =>
+    safeInvoke<OpenCodeKeyStatus>(
+      'set_opencode_automation_settings',
+      { mode, restartPaneOnRotate },
+      {
+        active_profile: 'a',
+        profiles: [],
+        key_automation_mode: mode,
+        restart_pane_on_rotate: restartPaneOnRotate,
+      },
       true,
     ),
   setOpenCodeKeyProfile: (profileId: string, apiKey: string, label?: string) =>

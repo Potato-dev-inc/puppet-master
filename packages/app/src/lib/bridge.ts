@@ -13,6 +13,12 @@ import { subscribeBridgeEventsViaFetch } from './bridge-sse';
 const DEFAULT_POLL_HOST = '127.0.0.1';
 const DEFAULT_POLL_INTERVAL_MS = 200;
 
+export interface WriteInputOptions {
+  viaOpencodeApi?: boolean;
+  modelProvider?: string;
+  modelId?: string;
+}
+
 export interface PaneStateProjection {
   pane_id: string;
   agent_type: string | null;
@@ -74,12 +80,25 @@ export interface OpenCodeWorkerStatus {
   pending_permission_count: number;
   pending_permission_ids: string[];
   active_key_profile: string | null;
+  key_swap_pending: boolean;
+  key_swap_kind?: string | null;
+  from_profile?: string | null;
+  to_profile?: string | null;
 }
 
 export interface OpenCodeWaitSnapshot {
   serve_healthy: boolean;
   pending_permission_count: number;
   pending_permission_ids: string[];
+  pending_key_swap?: {
+    kind: string;
+    from_profile: string;
+    to_profile?: string | null;
+  } | null;
+  session_model?: { providerID: string; modelID: string } | null;
+  last_user_model?: { providerID: string; modelID: string } | null;
+  tui_attached?: boolean;
+  reattaching?: boolean;
 }
 
 export interface WaitForPanesResult {
@@ -87,6 +106,26 @@ export interface WaitForPanesResult {
   pane_id: string;
   status: string | null;
   opencode: OpenCodeWaitSnapshot | null;
+  from_profile?: string | null;
+  to_profile?: string | null;
+  task_id?: string | null;
+  task_status?: string | null;
+}
+
+export interface SuggestedWait {
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+export interface MutateToolResult {
+  ok: boolean;
+  snapshot?: unknown;
+  suggested_wait?: SuggestedWait;
+  pane_id?: string;
+  written?: boolean;
+  task_id?: string | null;
+  target_pane_id?: string | null;
+  prompt?: string;
 }
 
 export interface OpenCodeWorkerEvent {
@@ -96,6 +135,10 @@ export interface OpenCodeWorkerEvent {
   serve_healthy: boolean;
   pending_permission_count: number;
   pending_permission_ids: string[];
+  from_profile?: string | null;
+  to_profile?: string | null;
+  reason?: string | null;
+  auto_rotated?: boolean | null;
 }
 
 export interface SessionTimelineEvent {
@@ -184,6 +227,24 @@ export interface ContextPack {
   evidence_requirements: string[];
   estimated_raw_scrollback_bytes: number;
   context_pack_bytes: number;
+  project_ir_included: boolean;
+  project_ir_stale: boolean;
+  project_ir_indexer_command: string;
+}
+
+export interface LibrarianPromptResponse {
+  prompt: string;
+  delegate_to: string;
+  completion_marker: string;
+}
+
+export interface ProjectIrStatus {
+  ir_exists: boolean;
+  git_sha: string | null;
+  indexed_git_sha: string | null;
+  stale: boolean;
+  generated_at_ms: number | null;
+  indexer_command: string;
 }
 
 /**
@@ -220,7 +281,11 @@ export interface BridgeClient {
   listAgentContexts(): Promise<AgentContextProfile[]>;
   readAgentContext(args: { agent_type?: string; pane_id?: string }): Promise<unknown>;
   inspectAgentModel(paneId: string, lines?: number): Promise<AgentModelInspection>;
-  writeInput(paneId: string, text: string, appendNewline?: boolean, viaOpencodeApi?: boolean): Promise<void>;
+  switchAgentModel(
+    paneId: string,
+    args: { model_id: string; model_provider?: string },
+  ): Promise<{ ok: boolean; provider_id: string; model_id: string; tui_synced?: boolean }>;
+  writeInput(paneId: string, text: string, appendNewline?: boolean, options?: WriteInputOptions): Promise<void>;
   resize(paneId: string, cols: number, rows: number): Promise<void>;
   getWorkspaceState(): Promise<WorkspaceStateProjection>;
   listMcpTools(): Promise<McpRegistryTool[]>;
@@ -254,13 +319,44 @@ export interface BridgeClient {
   readOrchestratorState(): Promise<OrchestratorStateProjection>;
   updateOrchestratorState(patch: Partial<OrchestratorStateProjection>): Promise<OrchestratorStateProjection>;
   buildContextPack(args: ContextPackRequest): Promise<ContextPack>;
+  readProjectIrStatus(): Promise<ProjectIrStatus>;
+  readLibrarianPrompt(): Promise<LibrarianPromptResponse>;
   waitForPanes(args: {
     pane_ids: string[];
     until?: string[];
     timeout_ms?: number;
+    task_id?: string;
+    output_regex?: string;
+    match?: { provider_id?: string; model_id?: string };
   }): Promise<WaitForPanesResult>;
+  waitForModel(args: {
+    pane_id: string;
+    provider_id?: string;
+    model_id?: string;
+    timeout_ms?: number;
+  }): Promise<WaitForPanesResult>;
+  waitForTask(args: {
+    pane_id: string;
+    task_id: string;
+    until?: string[];
+    timeout_ms?: number;
+  }): Promise<WaitForPanesResult>;
+  readRecentEvents(args?: {
+    limit?: number;
+    pane_id?: string;
+    types?: string[];
+    since_id?: string;
+  }): Promise<unknown[]>;
   readOpencodeWorkerStatus(paneId: string): Promise<OpenCodeWorkerStatus>;
+  readOpencodeMessages(
+    paneId: string,
+    args?: { limit?: number; role?: 'all' | 'user' | 'assistant' },
+  ): Promise<unknown>;
   replyOpencodePermission(paneId: string, requestId: string, reply: string): Promise<void>;
+  replyOpencodeQuestion(
+    paneId: string,
+    args: { answer: string; request_id?: string },
+  ): Promise<unknown>;
   getSettings(): Promise<PublicSettings>;
   patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;
   postOrchestratorMessage(text: string, messageId: string): Promise<void>;
@@ -314,11 +410,15 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     },
     inspectAgentModel: (id, lines = 200) =>
       call('GET', `/panes/${encodeURIComponent(id)}/model?lines=${lines}`),
-    writeInput: (id, text, appendNewline = true, viaOpencodeApi = false) =>
+    switchAgentModel: (id, args) =>
+      call('POST', `/panes/${encodeURIComponent(id)}/model`, args),
+    writeInput: (id, text, appendNewline = true, options) =>
       call('POST', `/panes/${encodeURIComponent(id)}/input`, {
         text,
         append_newline: appendNewline,
-        via_opencode_api: viaOpencodeApi,
+        via_opencode_api: options?.viaOpencodeApi ?? false,
+        ...(options?.modelProvider ? { model_provider: options.modelProvider } : {}),
+        ...(options?.modelId ? { model_id: options.modelId } : {}),
       }),
     resize: (id, cols, rows) =>
       call('POST', `/panes/${encodeURIComponent(id)}/resize`, { cols, rows }),
@@ -348,13 +448,38 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     readOrchestratorState: () => call('GET', '/orchestrator/state'),
     updateOrchestratorState: (patch) => call('PATCH', '/orchestrator/state', patch),
     buildContextPack: (args) => call('POST', '/context-packs', args),
+    readProjectIrStatus: () => call('GET', '/project-ir/status'),
+    readLibrarianPrompt: () => call('GET', '/librarian/prompt'),
     waitForPanes: (args) => call('POST', '/panes/wait', args),
+    waitForModel: (args) => call('POST', '/panes/wait/model', args),
+    waitForTask: (args) => call('POST', '/panes/wait/task', args),
+    readRecentEvents: (args = {}) => {
+      const params = new URLSearchParams();
+      if (args.limit != null) params.set('limit', String(args.limit));
+      if (args.pane_id) params.set('pane_id', args.pane_id);
+      if (args.since_id) params.set('since_id', args.since_id);
+      if (args.types?.length) params.set('types', args.types.join(','));
+      const query = params.toString();
+      return call('GET', `/events/recent${query ? `?${query}` : ''}`);
+    },
     readOpencodeWorkerStatus: (paneId) =>
       call('GET', `/panes/${encodeURIComponent(paneId)}/opencode/status`),
+    readOpencodeMessages: (paneId, args) => {
+      const params = new URLSearchParams();
+      if (args?.limit != null) params.set('limit', String(args.limit));
+      if (args?.role) params.set('role', args.role);
+      const query = params.toString();
+      return call(
+        'GET',
+        `/panes/${encodeURIComponent(paneId)}/opencode/messages${query ? `?${query}` : ''}`,
+      );
+    },
     replyOpencodePermission: (paneId, requestId, reply) =>
       call('POST', `/panes/${encodeURIComponent(paneId)}/opencode/permissions/${encodeURIComponent(requestId)}/reply`, {
         reply,
       }),
+    replyOpencodeQuestion: (paneId, args) =>
+      call('POST', `/panes/${encodeURIComponent(paneId)}/opencode/question/reply`, args),
     getSettings: () => call('GET', '/settings'),
     patchSettings: (patch) => call('PATCH', '/settings', patch),
     postOrchestratorMessage: (text, messageId) =>

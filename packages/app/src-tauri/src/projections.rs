@@ -271,6 +271,8 @@ pub fn build_read_models(entries: &[EventEntry]) -> ReadModels {
                 session.orchestrator.standby_poll_ms = *standby_poll_ms;
                 session.orchestrator.standby_max_ms = *standby_max_ms;
             }
+            SystemEvent::OpenCodeKeySwap { .. } => {}
+            SystemEvent::PaneModelSwitched { .. } | SystemEvent::PaneTuiReattached { .. } => {}
         }
     }
 
@@ -391,6 +393,9 @@ fn event_type_name(event: &SystemEvent) -> &'static str {
         SystemEvent::OrchestratorStandbyPolicyUpdated { .. } => {
             "OrchestratorStandbyPolicyUpdated"
         }
+        SystemEvent::OpenCodeKeySwap { .. } => "OpenCodeKeySwap",
+        SystemEvent::PaneModelSwitched { .. } => "PaneModelSwitched",
+        SystemEvent::PaneTuiReattached { .. } => "PaneTuiReattached",
     }
 }
 
@@ -492,6 +497,36 @@ fn event_summary(event: &SystemEvent) -> String {
             standby_max_ms,
         } => format!(
             "orchestrator standby policy updated: poll={standby_poll_ms}ms max={standby_max_ms}ms"
+        ),
+        SystemEvent::OpenCodeKeySwap {
+            pane_id,
+            event,
+            from_profile,
+            to_profile,
+        } => {
+            let to = to_profile
+                .as_deref()
+                .map(|profile| format!(" -> {profile}"))
+                .unwrap_or_default();
+            format!(
+                "opencode key {event} on pane {} ({from_profile}{to})",
+                pane_id.0
+            )
+        },
+        SystemEvent::PaneModelSwitched {
+            pane_id,
+            provider_id,
+            model_id,
+        } => format!(
+            "pane {} model switched to {provider_id}/{model_id}",
+            pane_id.0
+        ),
+        SystemEvent::PaneTuiReattached {
+            pane_id,
+            attach_generation,
+        } => format!(
+            "pane {} tui reattached (generation {attach_generation})",
+            pane_id.0
         ),
     }
 }

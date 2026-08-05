@@ -8,6 +8,7 @@ mod commands;
 mod context_pack;
 mod event_log;
 mod events;
+mod mcp_hints;
 mod mcp_install;
 mod mcp_runtime;
 mod mcp_status;
@@ -15,7 +16,9 @@ mod mobile_pairing;
 mod mobile_tunnel;
 mod opencode;
 mod pane_wait;
+mod pane_wait_notify;
 mod platform;
+mod project_ir;
 mod project_path;
 mod projections;
 mod pty;
@@ -61,6 +64,7 @@ pub fn run() {
             commands::list_agent_contexts,
             commands::read_agent_context,
             commands::inspect_agent_model,
+            commands::switch_agent_model,
             commands::replay_pane_timeline,
             commands::get_workspace_state,
             commands::list_tasks,
@@ -91,6 +95,8 @@ pub fn run() {
             commands::get_worker_launch,
             commands::exit_app,
             commands::get_opencode_key_status,
+            commands::set_opencode_automation_settings,
+            commands::set_opencode_key_settings,
             commands::set_opencode_key_profile,
             commands::capture_opencode_key_profile,
             commands::rotate_opencode_key,

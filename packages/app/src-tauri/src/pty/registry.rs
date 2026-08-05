@@ -59,6 +59,8 @@ pub struct PaneState {
     pub exited: Arc<Mutex<bool>>,
     /// OpenCode API worker metadata (`opencode serve` + session), when applicable.
     pub opencode: Option<crate::opencode::OpenCodeLink>,
+    /// Pending key-swap event for wait_for_panes (consumed on wake).
+    pub opencode_key_event: Option<crate::opencode::quota::KeySwapEvent>,
 }
 
 impl PaneState {
@@ -331,6 +333,7 @@ pub fn spawn_pane(
         child,
         exited: exited.clone(),
         opencode: None,
+        opencode_key_event: None,
     };
 
     // Spawn the reader thread.
@@ -515,11 +518,13 @@ pub fn spawn_pane(
 }
 
 pub fn write_input(
-    registry: &Mutex<PaneRegistry>,
+    registry: &Arc<Mutex<PaneRegistry>>,
+    app: &AppHandle,
     pane_id: &str,
     text: &str,
     append_newline: bool,
     via_opencode_api: bool,
+    opencode_model: Option<crate::opencode::OpenCodeModelRef>,
 ) -> Result<(), String> {
     let mut reg = registry.lock();
     let pane = reg
@@ -541,7 +546,13 @@ pub fn write_input(
         && !is_pty_control_input(text)
     {
         drop(reg);
-        crate::opencode::write_native_input(registry, pane_id, text)?;
+        crate::opencode::write_native_input(
+            registry,
+            app,
+            pane_id,
+            text,
+            opencode_model.as_ref(),
+        )?;
         crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
             pane_id: PaneId(pane_id.to_string()),
             byte_count: text.as_bytes().len(),
@@ -694,6 +705,57 @@ pub fn get_project_path(registry: &Mutex<PaneRegistry>) -> String {
         guard.project_path = default_cwd();
     }
     guard.project_path.clone()
+}
+
+#[cfg(test)]
+impl PaneRegistry {
+    pub fn test_pane_stub(id: &str) -> PaneState {
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 3,
+                cols: 10,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("openpty");
+        let mut cmd = CommandBuilder::new(if cfg!(windows) { "cmd" } else { "sh" });
+        if cfg!(windows) {
+            cmd.args(["/C", "exit"]);
+        } else {
+            cmd.args(["-c", "exit"]);
+        }
+        let child = pair.slave.spawn_command(cmd).expect("spawn_command");
+        drop(pair.slave);
+        let writer = pair
+            .master
+            .take_writer()
+            .expect("writer");
+        let info = PaneInfo {
+            id: id.to_string(),
+            agent_type: "opencode_native".into(),
+            pid: child.process_id().unwrap_or(0),
+            status: "running".into(),
+            created_at: chrono_now_ms(),
+            last_output_at: None,
+            cwd: ".".into(),
+            cols: 10,
+            rows: 3,
+        };
+        PaneState {
+            info,
+            scrollback: Arc::new(Mutex::new(Scrollback::new(100))),
+            screen: Arc::new(Mutex::new(vt100::Parser::new(3, 10, 100))),
+            status: Arc::new(Mutex::new(PaneStatus::Running)),
+            last_output: Arc::new(Mutex::new(Instant::now())),
+            master: pair.master,
+            writer,
+            child,
+            exited: Arc::new(Mutex::new(false)),
+            opencode: None,
+            opencode_key_event: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

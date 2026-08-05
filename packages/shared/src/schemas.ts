@@ -92,5 +92,11 @@ export const SettingsSchema = z.object({
   theme: z.enum(['dark', 'light']).default('dark'),
   /** Developer option: install MCP configs to launch the bundled Rust binary instead of npm. */
   developer_use_rust_mcp: z.boolean().default(false),
+  /** Optional path to the librarian project indexer script (default scripts/project-indexer.py). */
+  librarian_indexer_path: z.string().optional(),
+  /** Default OpenCode provider for opencode_native API prompts (write_terminal_input). */
+  opencode_model_provider: z.string().optional(),
+  /** Default OpenCode model for opencode_native API prompts (write_terminal_input). */
+  opencode_model_id: z.string().optional(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;

@@ -172,6 +172,21 @@ pub enum SystemEvent {
         standby_poll_ms: u64,
         standby_max_ms: u64,
     },
+    OpenCodeKeySwap {
+        pane_id: PaneId,
+        event: String,
+        from_profile: String,
+        to_profile: Option<String>,
+    },
+    PaneModelSwitched {
+        pane_id: PaneId,
+        provider_id: String,
+        model_id: String,
+    },
+    PaneTuiReattached {
+        pane_id: PaneId,
+        attach_generation: u64,
+    },
 }
 
 impl EventEntry {
