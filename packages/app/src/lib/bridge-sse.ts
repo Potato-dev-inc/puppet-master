@@ -21,6 +21,8 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
   } else if (eventName === 'pane-status') {
     const payload = parsed as { pane_id: string; status: PaneInfo['status'] };
     onEvent({ type: 'pane-status', pane_id: payload.pane_id, status: payload.status });
+  } else if (eventName === 'opencode-worker') {
+    onEvent({ type: 'opencode-worker', event: parsed as import('./bridge').OpenCodeWorkerEvent });
   } else if (eventName === 'pane-resize') {
     const payload = parsed as { pane_id: string; cols: number; rows: number };
     onEvent({

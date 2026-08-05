@@ -67,6 +67,9 @@ pub struct WriteInputArgs {
     pub text: String,
     #[serde(default = "default_true")]
     pub append_newline: bool,
+    /// MCP/orchestrator: send plain-text prompts via OpenCode prompt_async (opencode_native only).
+    #[serde(default)]
+    pub via_opencode_api: bool,
 }
 
 fn default_true() -> bool {
@@ -88,7 +91,13 @@ pub async fn write_pane_input(
     pane_id: String,
     args: WriteInputArgs,
 ) -> Result<(), String> {
-    registry_write_input(&state.registry, &pane_id, &args.text, args.append_newline)
+    registry_write_input(
+        &state.registry,
+        &pane_id,
+        &args.text,
+        args.append_newline,
+        args.via_opencode_api,
+    )
 }
 
 #[tauri::command]
@@ -406,4 +415,71 @@ pub async fn revoke_paired_mobile_device(device_id: String) -> Result<bool, Stri
 #[tauri::command]
 pub fn get_mobile_tunnel_info() -> crate::pwa_server::DevInfoPayload {
     crate::mobile_tunnel::get_mobile_tunnel_info()
+}
+
+#[tauri::command]
+pub fn get_worker_launch() -> Option<crate::worker_launch::WorkerLaunch> {
+    crate::worker_launch::worker_launch()
+}
+
+#[tauri::command]
+pub fn exit_app(app: AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+pub fn get_opencode_key_status() -> Result<crate::opencode::keys::OpenCodeKeyStatus, String> {
+    crate::opencode::keys::status()
+}
+
+#[tauri::command]
+pub fn set_opencode_key_profile(
+    profile_id: String,
+    api_key: String,
+    label: Option<String>,
+) -> Result<(), String> {
+    crate::opencode::keys::set_profile_api_key(&profile_id, &api_key, label.as_deref())
+}
+
+#[tauri::command]
+pub fn capture_opencode_key_profile(
+    profile_id: String,
+    label: Option<String>,
+) -> Result<(), String> {
+    crate::opencode::keys::capture_profile_from_disk(&profile_id, label.as_deref())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RotateOpenCodeKeyResult {
+    pub ok: bool,
+    pub active_profile: String,
+    pub profiles: Vec<crate::opencode::keys::OpenCodeKeyProfileInfo>,
+    pub restarted_panes: Vec<String>,
+}
+
+#[tauri::command]
+pub fn rotate_opencode_key(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    profile: Option<String>,
+    pane_id: Option<String>,
+) -> Result<RotateOpenCodeKeyResult, String> {
+    let target = crate::opencode::keys::RotateTarget::parse(profile.as_deref().unwrap_or("next"))
+        .ok_or_else(|| "profile must be next, a, or b".to_string())?;
+    let status = crate::opencode::keys::rotate(target)?;
+    let restarted = if let Some(pane_id) = pane_id.filter(|id| !id.is_empty()) {
+        vec![crate::opencode::native::restart_native_pane(
+            state.registry.clone(),
+            &app,
+            &pane_id,
+        )?]
+    } else {
+        crate::opencode::native::restart_all_native_panes(state.registry.clone(), &app)?
+    };
+    Ok(RotateOpenCodeKeyResult {
+        ok: true,
+        active_profile: status.active_profile,
+        profiles: status.profiles,
+        restarted_panes: restarted,
+    })
 }

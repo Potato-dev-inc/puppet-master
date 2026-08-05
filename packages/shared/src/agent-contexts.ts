@@ -84,6 +84,20 @@ export const AGENT_CONTEXT_PROFILES: Record<AgentType, AgentContextProfile> = {
     best_for: ['parallel edits', 'alternative implementation passes', 'lighter bug fixes'],
     planned_sidebar_actions: ['delegate parallel attempt', 'ask for alternative', 'compare output'],
   },
+  opencode_native: {
+    agent_type: 'opencode_native',
+    label: 'OpenCode (API)',
+    default_model: null,
+    model_detection: 'configuration',
+    smartness: 8,
+    strengths: ['implementation', 'terminal-ops', 'debugging'],
+    context_notes: [
+      'Runs opencode serve locally and routes orchestrator input through the REST API (prompt_async) instead of PTY typing.',
+      'The attach TUI is for human visibility; MCP/bridge writes go to the API session.',
+    ],
+    best_for: ['orchestrated workers', 'API-driven prompts', 'parallel OpenCode sessions'],
+    planned_sidebar_actions: ['delegate via API', 'inspect session health', 'reply to permission prompts'],
+  },
   cmd: {
     agent_type: 'cmd',
     label: 'Command Prompt',

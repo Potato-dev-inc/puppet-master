@@ -181,6 +181,7 @@ fn call_tool(params: Value) -> Result<Value, String> {
             let body = json!({
                 "text": required_string(&args, "text")?,
                 "append_newline": args.get("append_newline").and_then(Value::as_bool).unwrap_or(true),
+                "via_opencode_api": true,
             });
             bridge_request(
                 "POST",
@@ -188,6 +189,26 @@ fn call_tool(params: Value) -> Result<Value, String> {
                 Some(body),
             )?;
             "ok".to_string()
+        }
+        "press_key" => {
+            let pane_id = assert_worker_pane(&required_string(&args, "pane_id")?)?;
+            let key = required_string(&args, "key")?;
+            let response = bridge_request(
+                "POST",
+                &format!("/panes/{}/key", encode_path_segment(&pane_id)),
+                Some(json!({ "key": key })),
+            )?;
+            serde_json::from_str::<Value>(&response)
+                .ok()
+                .map(|value| {
+                    let pressed = value
+                        .get("key")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&key);
+                    let bytes = value.get("bytes").and_then(Value::as_u64).unwrap_or(0);
+                    format!("pressed {pressed} ({bytes} byte{})", if bytes == 1 { "" } else { "s" })
+                })
+                .unwrap_or_else(|| format!("pressed {key}"))
         }
         "kill_pane_process" => {
             let pane_id = assert_worker_pane(&required_string(&args, "pane_id")?)?;
@@ -269,6 +290,35 @@ fn call_tool(params: Value) -> Result<Value, String> {
         "read_orchestrator_state" => bridge_request("GET", "/orchestrator/state", None)?,
         "update_orchestrator_state" => {
             bridge_request("PATCH", "/orchestrator/state", Some(args))?
+        }
+        "read_opencode_key_status" => bridge_request("GET", "/opencode/keys/status", None)?,
+        "rotate_opencode_key" => bridge_request("POST", "/opencode/keys/rotate", Some(args))?,
+        "read_opencode_worker_status" => {
+            let pane_id = required_string(&args, "pane_id")?;
+            bridge_request(
+                "GET",
+                &format!(
+                    "/panes/{}/opencode/status",
+                    encode_path_segment(&pane_id)
+                ),
+                None,
+            )?
+        }
+        "wait_for_panes" => bridge_request("POST", "/panes/wait", Some(args))?,
+        "reply_opencode_permission" => {
+            let pane_id = required_string(&args, "pane_id")?;
+            let request_id = required_string(&args, "request_id")?;
+            let reply = required_string(&args, "reply")?;
+            bridge_request(
+                "POST",
+                &format!(
+                    "/panes/{}/opencode/permissions/{}/reply",
+                    encode_path_segment(&pane_id),
+                    encode_path_segment(&request_id)
+                ),
+                Some(json!({ "reply": reply })),
+            )?;
+            "ok".to_string()
         }
         _ => return Err(format!("unknown tool: {name}")),
     };

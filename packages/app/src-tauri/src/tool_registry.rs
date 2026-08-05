@@ -104,7 +104,7 @@ pub fn tools() -> Vec<ToolDefinition> {
             description: "Read context for an agent type or a live pane. If pane_id is provided, includes pane metadata, model inspection, and a recent buffer preview.",
             input_schema: object_schema(
                 json!({
-                    "agent_type": { "type": "string", "enum": ["claude", "codex", "opencode", "cmd", "powershell", "bash", "cursor"] },
+                    "agent_type": { "type": "string", "enum": ["claude", "codex", "opencode", "opencode_native", "cmd", "powershell", "bash", "cursor"] },
                     "pane_id": { "type": "string" }
                 }),
                 vec![],
@@ -136,7 +136,7 @@ pub fn tools() -> Vec<ToolDefinition> {
             description: "Spawn a worker PTY pane. Reuse existing worker panes of the same agent_type when possible; never reuse orchestrator panes.",
             input_schema: object_schema(
                 json!({
-                    "agent_type": { "type": "string", "enum": ["claude", "codex", "opencode", "cmd", "powershell", "bash", "cursor"] },
+                    "agent_type": { "type": "string", "enum": ["claude", "codex", "opencode", "opencode_native", "cmd", "powershell", "bash", "cursor"] },
                     "cwd": { "type": "string", "description": "Working directory; defaults to current project root" },
                     "cols": { "type": "number", "description": "Terminal columns (default 120)" },
                     "rows": { "type": "number", "description": "Terminal rows (default 30)" },
@@ -182,6 +182,25 @@ pub fn tools() -> Vec<ToolDefinition> {
             visibility: visible_everywhere(),
             method: "POST",
             path: "/panes/{pane_id}/input",
+        },
+        ToolDefinition {
+            name: "press_key",
+            description: "Send a named key to a worker pane PTY (menus, yes/no, navigation). Cannot target puppet-master-orchestrator-* panes.",
+            input_schema: object_schema(
+                json!({
+                    "pane_id": { "type": "string" },
+                    "key": {
+                        "type": "string",
+                        "description": "enter, escape, tab, space, up, down, left, right, home, end, pageup, pagedown, y, n, yes, no, ctrl+c, ctrl+d, ctrl+z"
+                    }
+                }),
+                vec!["pane_id", "key"],
+            ),
+            output_schema: None,
+            safety: ToolSafety::Mutating,
+            visibility: visible_everywhere(),
+            method: "POST",
+            path: "/panes/{pane_id}/key",
         },
         ToolDefinition {
             name: "kill_pane_process",
@@ -459,6 +478,102 @@ pub fn tools() -> Vec<ToolDefinition> {
             visibility: visible_everywhere(),
             method: "PATCH",
             path: "/orchestrator/state",
+        },
+        ToolDefinition {
+            name: "read_opencode_key_status",
+            description: "Read which OpenCode API key profile is active (a or b). Does not return key material.",
+            input_schema: object_schema(json!({}), vec![]),
+            output_schema: None,
+            safety: ToolSafety::ReadOnly,
+            visibility: visible_everywhere(),
+            method: "GET",
+            path: "/opencode/keys/status",
+        },
+        ToolDefinition {
+            name: "rotate_opencode_key",
+            description: "Switch the active OpenCode API key profile (a/b/next) and restart opencode_native worker panes so the new key takes effect. Never returns key material.",
+            input_schema: object_schema(
+                json!({
+                    "profile": {
+                        "type": "string",
+                        "enum": ["next", "a", "b"],
+                        "description": "Profile to activate. Default next toggles a↔b."
+                    },
+                    "pane_id": {
+                        "type": "string",
+                        "description": "Optional opencode_native pane to restart. Omit to restart all native workers."
+                    }
+                }),
+                vec![],
+            ),
+            output_schema: None,
+            safety: ToolSafety::Mutating,
+            visibility: visible_everywhere(),
+            method: "POST",
+            path: "/opencode/keys/rotate",
+        },
+        ToolDefinition {
+            name: "read_opencode_worker_status",
+            description: "Compact opencode_native worker status: pane status, serve health, pending permission ids, active key profile. Prefer this over read_terminal_buffer for status checks.",
+            input_schema: object_schema(
+                json!({
+                    "pane_id": { "type": "string" }
+                }),
+                vec!["pane_id"],
+            ),
+            output_schema: None,
+            safety: ToolSafety::ReadOnly,
+            visibility: visible_everywhere(),
+            method: "GET",
+            path: "/panes/{pane_id}/opencode/status",
+        },
+        ToolDefinition {
+            name: "wait_for_panes",
+            description: "Block until any worker pane reaches a target state (idle, waiting_input, error, gone, permission, unhealthy). Use instead of polling list_panes or read_terminal_buffer.",
+            input_schema: object_schema(
+                json!({
+                    "pane_ids": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "minItems": 1
+                    },
+                    "until": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["idle", "waiting_input", "error", "gone", "permission", "unhealthy"]
+                        },
+                        "description": "Wake triggers. Defaults to all."
+                    },
+                    "timeout_ms": {
+                        "type": "number",
+                        "description": "Max wait (default 120000, max 300000)"
+                    }
+                }),
+                vec!["pane_ids"],
+            ),
+            output_schema: None,
+            safety: ToolSafety::ReadOnly,
+            visibility: visible_everywhere(),
+            method: "POST",
+            path: "/panes/wait",
+        },
+        ToolDefinition {
+            name: "reply_opencode_permission",
+            description: "Reply to an OpenCode API permission prompt for an opencode_native pane (e.g. reply once/always/deny).",
+            input_schema: object_schema(
+                json!({
+                    "pane_id": { "type": "string" },
+                    "request_id": { "type": "string" },
+                    "reply": { "type": "string", "description": "e.g. once, always, deny" }
+                }),
+                vec!["pane_id", "request_id", "reply"],
+            ),
+            output_schema: None,
+            safety: ToolSafety::Mutating,
+            visibility: visible_everywhere(),
+            method: "POST",
+            path: "/panes/{pane_id}/opencode/permissions/{request_id}/reply",
         },
     ]
 }

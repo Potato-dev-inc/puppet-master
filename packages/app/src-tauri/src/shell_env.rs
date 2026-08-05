@@ -25,6 +25,56 @@ pub fn apply_to_process() {
     std::env::set_var("Path", path);
 }
 
+/// Resolve the OpenCode binary for `std::process::Command` / PTY spawn.
+///
+/// On Windows, npm installs `opencode` as a `.ps1` shim which `CreateProcess`
+/// cannot execute directly — use the real `opencode.exe` under the npm package.
+pub fn resolve_opencode_executable() -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let candidate = PathBuf::from(appdata)
+                .join("npm")
+                .join("node_modules")
+                .join("opencode-ai")
+                .join("bin")
+                .join("opencode.exe");
+            if candidate.is_file() {
+                return Ok(candidate.to_string_lossy().into_owned());
+            }
+        }
+        if let Some(path) = which_on_path("opencode.exe") {
+            return Ok(path);
+        }
+        return Err(
+            "opencode.exe not found (install: npm i -g opencode-ai, or ensure npm global bin is on PATH)"
+                .into(),
+        );
+    }
+    #[cfg(not(windows))]
+    {
+        if which_on_path("opencode").is_some() {
+            return Ok("opencode".into());
+        }
+        Err("opencode not found on PATH (install: npm i -g opencode-ai)".into())
+    }
+}
+
+fn which_on_path(name: &str) -> Option<String> {
+    #[cfg(windows)]
+    let sep = ';';
+    #[cfg(not(windows))]
+    let sep = ':';
+
+    for dir in path_for_spawn().split(sep) {
+        let candidate = PathBuf::from(dir.trim()).join(name);
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().into_owned());
+        }
+    }
+    None
+}
+
 fn discover_interactive_path() -> String {
     if let Some(path) = read_login_shell_path() {
         if !path.is_empty() {
@@ -207,5 +257,17 @@ mod tests {
         #[cfg(target_os = "macos")]
         assert!(path.contains("/opt/homebrew/bin"));
         assert!(path.contains("/usr/local/bin"));
+    }
+
+    #[test]
+    fn resolve_opencode_executable_returns_path() {
+        let path = resolve_opencode_executable();
+        #[cfg(windows)]
+        assert!(
+            path.as_deref().unwrap_or("").ends_with("opencode.exe"),
+            "expected opencode.exe, got {path:?}"
+        );
+        #[cfg(not(windows))]
+        let _ = path;
     }
 }

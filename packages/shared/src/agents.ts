@@ -1,7 +1,16 @@
 import { z } from 'zod';
 import { detectPlatform, type PuppetPlatform } from './platform.js';
 
-export const AgentTypeSchema = z.enum(['claude', 'codex', 'opencode', 'cmd', 'powershell', 'bash', 'cursor']);
+export const AgentTypeSchema = z.enum([
+  'claude',
+  'codex',
+  'opencode',
+  'opencode_native',
+  'cmd',
+  'powershell',
+  'bash',
+  'cursor',
+]);
 export type AgentType = z.infer<typeof AgentTypeSchema>;
 
 export interface AgentPreset {
@@ -42,6 +51,12 @@ const AGENT_META: Record<
     isTui: true,
     icon: 'OC',
   },
+  opencode_native: {
+    type: 'opencode_native',
+    label: 'OpenCode (API)',
+    isTui: true,
+    icon: 'OC+',
+  },
   cmd: {
     type: 'cmd',
     label: 'Command Prompt',
@@ -69,7 +84,7 @@ const AGENT_META: Record<
 };
 
 const CODEX_ARGS = ['--sandbox', 'workspace-write', '--ask-for-approval', 'never'];
-const AGENT_LAUNCH_TYPES: AgentType[] = ['claude', 'codex', 'opencode'];
+const AGENT_LAUNCH_TYPES: AgentType[] = ['claude', 'codex', 'opencode', 'opencode_native'];
 
 const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSpec>> = {
   windows: {
@@ -87,6 +102,11 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
       command: 'opencode',
       baseArgs: [],
       description: 'OpenCode CLI',
+    },
+    opencode_native: {
+      command: 'opencode',
+      baseArgs: [],
+      description: 'OpenCode API worker (serve + attach TUI)',
     },
     cmd: {
       command: 'cmd.exe',
@@ -125,6 +145,11 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
       baseArgs: [],
       description: 'OpenCode CLI',
     },
+    opencode_native: {
+      command: 'opencode',
+      baseArgs: [],
+      description: 'OpenCode API worker (serve + attach TUI)',
+    },
     cmd: {
       command: 'zsh',
       baseArgs: ['-l'],
@@ -161,6 +186,11 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
       command: 'opencode',
       baseArgs: [],
       description: 'OpenCode CLI',
+    },
+    opencode_native: {
+      command: 'opencode',
+      baseArgs: [],
+      description: 'OpenCode API worker (serve + attach TUI)',
     },
     cmd: {
       command: 'bash',

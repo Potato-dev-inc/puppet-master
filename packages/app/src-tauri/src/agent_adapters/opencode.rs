@@ -22,3 +22,25 @@ impl AgentAdapter for OpenCodeAdapter {
         self.inner.observe(pane_id, text)
     }
 }
+
+pub struct OpenCodeNativeAdapter {
+    inner: HeuristicAdapter,
+}
+
+impl Default for OpenCodeNativeAdapter {
+    fn default() -> Self {
+        Self {
+            inner: HeuristicAdapter::new("opencode_native"),
+        }
+    }
+}
+
+impl AgentAdapter for OpenCodeNativeAdapter {
+    fn agent_type(&self) -> &'static str {
+        self.inner.agent_type()
+    }
+
+    fn observe(&mut self, pane_id: &str, text: &str) -> Vec<SystemEvent> {
+        self.inner.observe(pane_id, text)
+    }
+}

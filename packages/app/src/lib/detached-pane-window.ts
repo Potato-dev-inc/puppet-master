@@ -4,11 +4,21 @@ function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-function detachedPaneUrl(paneId: string): string {
+export interface DetachedPaneWindowOptions {
+  /** Standalone worker host — closing the window quits instead of reattaching to the grid. */
+  workerHost?: boolean;
+}
+
+export function detachedPaneTitle(agentType: string, paneId: string): string {
+  return `${agentType} · ${paneId.slice(0, 8)}`;
+}
+
+function detachedPaneUrl(paneId: string, options?: DetachedPaneWindowOptions): string {
   const params = new URLSearchParams();
   params.set('terminal', '1');
   params.set('pane', paneId);
   params.set('detached', '1');
+  if (options?.workerHost) params.set('worker-host', '1');
   return `${window.location.pathname}?${params.toString()}`;
 }
 
@@ -49,8 +59,9 @@ export async function openDetachedPaneWindow(
   paneId: string,
   title = 'Terminal pane',
   size?: DetachedPaneWindowSize,
+  options?: DetachedPaneWindowOptions,
 ): Promise<void> {
-  const url = detachedPaneUrl(paneId);
+  const url = detachedPaneUrl(paneId, options);
   const windowSize = normalizedDetachedWindowSize(size);
   if (!isTauriRuntime()) {
     window.open(

@@ -21,7 +21,7 @@ export function summarizeBuffer(text: string, maxChars = 3500): string {
   return `…(truncated)\n${clean.slice(-maxChars)}`;
 }
 
-const TUI_AGENTS = new Set(['claude', 'codex', 'opencode']);
+const TUI_AGENTS = new Set(['claude', 'codex', 'opencode', 'opencode_native']);
 
 export function isTuiAgent(agentType: string): boolean {
   return TUI_AGENTS.has(agentType);

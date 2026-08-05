@@ -78,6 +78,25 @@ struct WriteInputBody {
     text: String,
     #[serde(default = "default_true")]
     append_newline: bool,
+    #[serde(default)]
+    via_opencode_api: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct PressKeyBody {
+    key: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenCodePermissionReplyBody {
+    reply: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenCodeKeyRotateBody {
+    #[serde(default)]
+    profile: Option<String>,
+    pane_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -364,6 +383,7 @@ fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
         ("GET", ["panes", _, "buffer"]) => Some("read_terminal_buffer".to_string()),
         ("GET", ["panes", _, "snapshot"]) => Some("read_terminal_snapshot".to_string()),
         ("POST", ["panes", _, "input"]) => Some("write_terminal_input".to_string()),
+        ("POST", ["panes", _, "key"]) => Some("press_key".to_string()),
         ("POST", ["panes", _, "detach"]) => Some("detach_terminal_pane".to_string()),
         ("GET", ["panes", _, "model"]) => Some("inspect_agent_model".to_string()),
         ("GET", ["panes", _, "agent-context"]) => Some("read_agent_context".to_string()),
@@ -382,6 +402,13 @@ fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String> {
         ("POST", ["delegate-task"]) => Some("delegate_task".to_string()),
         ("GET", ["orchestrator", "state"]) => Some("read_orchestrator_state".to_string()),
         ("PATCH", ["orchestrator", "state"]) => Some("update_orchestrator_state".to_string()),
+        ("GET", ["opencode", "keys", "status"]) => Some("read_opencode_key_status".to_string()),
+        ("POST", ["opencode", "keys", "rotate"]) => Some("rotate_opencode_key".to_string()),
+        ("POST", ["panes", "wait"]) => Some("wait_for_panes".to_string()),
+        ("GET", ["panes", _, "opencode", "status"]) => Some("read_opencode_worker_status".to_string()),
+        ("POST", ["panes", _, "opencode", "permissions", _, "reply"]) => {
+            Some("reply_opencode_permission".to_string())
+        }
         ("POST", ["tasks"]) => Some("create_task".to_string()),
         ("POST", ["tasks", _, "claim"]) => Some("claim_task".to_string()),
         ("POST", ["tasks", _, "lease"]) => Some("renew_task_lease".to_string()),
@@ -721,6 +748,52 @@ fn route(
         ));
     }
 
+    if segments == ["panes", "wait"] && method == "POST" {
+        let req: crate::pane_wait::WaitForPanesRequest = parse_json(body)?;
+        let result = crate::pane_wait::wait_for_panes(&registry, req)
+            .map_err(|err| (400, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(result).unwrap()));
+    }
+
+    if segments == ["opencode", "keys", "status"] && method == "GET" {
+        let status = crate::opencode::keys::status()
+            .map_err(|err| (500, json!({ "error": err })))?;
+        return Ok((200, serde_json::to_value(status).unwrap()));
+    }
+
+    if segments == ["opencode", "keys", "rotate"] && method == "POST" {
+        let req: OpenCodeKeyRotateBody = parse_json(body)?;
+        let profile = req.profile.unwrap_or_else(|| "next".to_string());
+        let target = crate::opencode::keys::RotateTarget::parse(&profile).ok_or_else(|| {
+            (
+                400,
+                json!({ "error": "profile must be next, a, or b" }),
+            )
+        })?;
+        let status = crate::opencode::keys::rotate(target)
+            .map_err(|err| (400, json!({ "error": err })))?;
+        let restarted = if let Some(pane_id) = normalize_optional_string(req.pane_id) {
+            vec![crate::opencode::native::restart_native_pane(
+                Arc::clone(&registry),
+                &app,
+                &pane_id,
+            )
+                .map_err(|err| (404, json!({ "error": err })))?]
+        } else {
+            crate::opencode::native::restart_all_native_panes(Arc::clone(&registry), &app)
+                .map_err(|err| (500, json!({ "error": err })))?
+        };
+        return Ok((
+            200,
+            json!({
+                "ok": true,
+                "active_profile": status.active_profile,
+                "profiles": status.profiles,
+                "restarted_panes": restarted,
+            }),
+        ));
+    }
+
     if segments == ["agent-contexts"] && method == "GET" {
         return Ok((
             200,
@@ -796,7 +869,57 @@ fn route(
         }
         if tail == Some("input") && method == "POST" {
             let req: WriteInputBody = parse_json(body)?;
-            registry_write_input(&registry, pane_id, &req.text, req.append_newline)
+            registry_write_input(
+                &registry,
+                pane_id,
+                &req.text,
+                req.append_newline,
+                req.via_opencode_api,
+            )
+                .map_err(|err| (404, json!({ "error": err })))?;
+            return Ok((200, json!({ "ok": true })));
+        }
+        if tail == Some("key") && method == "POST" {
+            let req: PressKeyBody = parse_json(body)?;
+            let seq = crate::pty::keys::sequence(&req.key)
+                .map_err(|err| (400, json!({ "error": err })))?;
+            let bytes = seq.len();
+            registry_write_input(&registry, pane_id, &seq, false, false)
+                .map_err(|err| (404, json!({ "error": err })))?;
+            return Ok((200, json!({ "ok": true, "key": req.key, "bytes": bytes })));
+        }
+        if tail == Some("opencode") && segments.get(3) == Some(&"status") && method == "GET" && segments.len() == 4 {
+            let status = crate::opencode::status::worker_status(&registry, pane_id)
+                .map_err(|err| (404, json!({ "error": err })))?;
+            return Ok((200, serde_json::to_value(status).unwrap()));
+        }
+        if tail == Some("opencode") && method == "GET" && segments.len() == 3 {
+            let link = crate::opencode::pane_link(&registry, pane_id).ok_or_else(|| {
+                (
+                    404,
+                    json!({ "error": format!("pane {pane_id} has no opencode native session") }),
+                )
+            })?;
+            return Ok((200, serde_json::to_value(link).unwrap()));
+        }
+        if tail == Some("opencode")
+            && segments.get(3) == Some(&"permissions")
+            && method == "GET"
+            && segments.len() == 4
+        {
+            let permissions = crate::opencode::list_pane_permissions(&registry, pane_id)
+                .map_err(|err| (404, json!({ "error": err })))?;
+            return Ok((200, serde_json::to_value(permissions).unwrap()));
+        }
+        if tail == Some("opencode")
+            && segments.get(3) == Some(&"permissions")
+            && segments.get(5) == Some(&"reply")
+            && method == "POST"
+            && segments.len() == 6
+        {
+            let request_id = segments[4];
+            let req: OpenCodePermissionReplyBody = parse_json(body)?;
+            crate::opencode::reply_pane_permission(&registry, pane_id, request_id, &req.reply)
                 .map_err(|err| (404, json!({ "error": err })))?;
             return Ok((200, json!({ "ok": true })));
         }

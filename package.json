@@ -23,6 +23,7 @@
     "build:rust": "node scripts/with-cargo-path.mjs build",
     "publish:release-assets": "node scripts/publish-github-release-assets.mjs",
     "mcp": "npm run start --workspace=@puppet-master/mcp",
+    "worker": "npm run start --workspace=@puppet-master/cli -- worker",
     "build:mcp": "npm run build --workspace=@puppet-master/mcp",
     "cli": "npm run start --workspace=@puppet-master/cli",
     "test": "npm run test --workspaces --if-present",

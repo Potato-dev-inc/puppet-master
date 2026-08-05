@@ -57,6 +57,8 @@ pub struct PaneState {
     pub child: Box<dyn Child + Send + Sync>,
     /// Set when the reader thread has observed EOF or the child exited.
     pub exited: Arc<Mutex<bool>>,
+    /// OpenCode API worker metadata (`opencode serve` + session), when applicable.
+    pub opencode: Option<crate::opencode::OpenCodeLink>,
 }
 
 impl PaneState {
@@ -122,9 +124,8 @@ impl PaneRegistry {
 
     pub fn kill(&mut self, id: &str) {
         if let Some(mut pane) = self.panes.remove(id) {
-            // Try graceful terminate first.
+            crate::opencode::kill_serve_if_present(&mut pane);
             let _ = pane.child.kill();
-            // Drop the master — closes the PTY.
         }
     }
 
@@ -237,10 +238,14 @@ pub struct SpawnPaneArgs {
 ///
 /// Returns the new pane id.
 pub fn spawn_pane(
-    registry: &Mutex<PaneRegistry>,
+    registry: &Arc<Mutex<PaneRegistry>>,
     app: &AppHandle,
     args: SpawnPaneArgs,
 ) -> Result<String, String> {
+    if args.agent_type == "opencode_native" {
+        return crate::opencode::native::spawn_native_pane(Arc::clone(registry), app, args);
+    }
+
     let agent = AgentType::parse(&args.agent_type)
         .ok_or_else(|| format!("unknown agent_type: {}", args.agent_type))?;
 
@@ -325,6 +330,7 @@ pub fn spawn_pane(
         writer,
         child,
         exited: exited.clone(),
+        opencode: None,
     };
 
     // Spawn the reader thread.
@@ -513,6 +519,7 @@ pub fn write_input(
     pane_id: &str,
     text: &str,
     append_newline: bool,
+    via_opencode_api: bool,
 ) -> Result<(), String> {
     let mut reg = registry.lock();
     let pane = reg
@@ -521,6 +528,32 @@ pub fn write_input(
         .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
 
     let agent = pane.info.agent_type.clone();
+
+    if *pane.exited.lock() {
+        return Err(format!(
+            "pane {pane_id} has exited — close the worker window and run `npm run worker` again"
+        ));
+    }
+
+    if via_opencode_api
+        && agent == "opencode_native"
+        && !text.trim().is_empty()
+        && !is_pty_control_input(text)
+    {
+        drop(reg);
+        crate::opencode::write_native_input(registry, pane_id, text)?;
+        crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
+            pane_id: PaneId(pane_id.to_string()),
+            byte_count: text.as_bytes().len(),
+            append_newline,
+        });
+        return Ok(());
+    }
+
+    if via_opencode_api && agent == "opencode_native" && text.is_empty() && append_newline {
+        // API prompts don't need a trailing PTY Enter on the attach TUI.
+        return Ok(());
+    }
 
     if !text.is_empty() {
         pane.writer
@@ -544,6 +577,12 @@ pub fn write_input(
         append_newline,
     });
     Ok(())
+}
+
+/// True when input should never be routed to OpenCode prompt_async (keys, mouse, escapes).
+fn is_pty_control_input(text: &str) -> bool {
+    text.contains('\x1b')
+        || text.bytes().any(|byte| byte < 32 && byte != b'\t')
 }
 
 /// Send Enter to the PTY. Uses \r (xterm/ConPTY).

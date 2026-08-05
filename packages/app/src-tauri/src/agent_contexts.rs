@@ -93,6 +93,7 @@ pub fn list_agent_context_profiles() -> Vec<AgentContextProfile> {
         AgentType::Claude,
         AgentType::Codex,
         AgentType::Opencode,
+        AgentType::OpencodeNative,
         AgentType::Cmd,
         AgentType::Powershell,
         AgentType::Bash,
@@ -187,6 +188,32 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
                 "delegate parallel attempt",
                 "ask for alternative",
                 "compare output",
+            ],
+        },
+        AgentType::OpencodeNative => AgentContextProfile {
+            agent_type,
+            label: "OpenCode (API)",
+            default_model: None,
+            model_detection: ModelDetection::Configuration,
+            smartness: 8,
+            strengths: &[
+                AgentCapability::Implementation,
+                AgentCapability::TerminalOps,
+                AgentCapability::Debugging,
+            ],
+            context_notes: &[
+                "Runs opencode serve locally; orchestrator input uses prompt_async instead of PTY typing.",
+                "The attach TUI is for visibility; bridge/MCP writes target the API session.",
+            ],
+            best_for: &[
+                "orchestrated workers",
+                "API-driven prompts",
+                "parallel OpenCode sessions",
+            ],
+            planned_sidebar_actions: &[
+                "delegate via API",
+                "inspect session health",
+                "reply to permission prompts",
             ],
         },
         AgentType::Cmd => AgentContextProfile {
@@ -325,7 +352,7 @@ mod tests {
     #[test]
     fn lists_all_agent_profiles() {
         let profiles = list_agent_context_profiles();
-        assert_eq!(profiles.len(), 7);
+        assert_eq!(profiles.len(), 8);
         assert!(profiles
             .iter()
             .any(|profile| profile.agent_type == AgentType::Codex));

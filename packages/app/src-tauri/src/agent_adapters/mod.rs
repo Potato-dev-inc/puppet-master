@@ -131,6 +131,7 @@ pub fn adapter_for(agent_type: &str) -> Box<dyn AgentAdapter + Send> {
         "claude" => Box::new(claude::ClaudeAdapter::default()),
         "codex" => Box::new(codex::CodexAdapter::default()),
         "opencode" => Box::new(opencode::OpenCodeAdapter::default()),
+        "opencode_native" => Box::new(opencode::OpenCodeNativeAdapter::default()),
         "bash" | "cmd" | "powershell" => Box::new(HeuristicAdapter::new(Box::leak(
             agent_type.to_string().into_boxed_str(),
         ))),

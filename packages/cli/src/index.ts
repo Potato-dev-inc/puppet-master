@@ -14,21 +14,29 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
+import { getDefaultTerminalAgentType } from '@puppet-master/shared';
+import { launchWorkerTerminal } from './launch-worker.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface ParsedArgs {
   command: string;
+  positional: string[];
   flags: Record<string, string | boolean>;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
   const [, , ...rest] = argv;
   const command = rest[0] && !rest[0].startsWith('-') ? rest[0] : 'gui';
+  const positional: string[] = [];
   const flags: Record<string, string | boolean> = {};
-  for (let i = command === 'gui' ? 0 : 1; i < rest.length; i++) {
+  const start = command === 'gui' ? 0 : 1;
+  for (let i = start; i < rest.length; i++) {
     const a = rest[i];
-    if (!a.startsWith('-')) continue;
+    if (!a.startsWith('-')) {
+      positional.push(a);
+      continue;
+    }
     const key = a.replace(/^-+/, '');
     const next = rest[i + 1];
     if (next && !next.startsWith('-')) {
@@ -38,18 +46,25 @@ function parseArgs(argv: string[]): ParsedArgs {
       flags[key] = true;
     }
   }
-  return { command, flags };
+  return { command, positional, flags };
 }
 
 function printHelp(): void {
+  const defaultAgent = getDefaultTerminalAgentType();
   console.log(`puppet-master — multi-agent terminal orchestrator
 
 Usage:
   puppet-master                 Launch the desktop GUI
   puppet-master --project PATH  Open with a preset cwd
-  puppet-master mcp             Run stdio MCP server (GUI must be running)
+  puppet-master worker [AGENT]  Open a standalone worker terminal (no main grid UI)
+  puppet-master mcp             Run stdio MCP server (GUI or worker host must be running)
   puppet-master version         Print version
   puppet-master --help          Show this help
+
+Worker examples:
+  puppet-master worker                    # default shell (${defaultAgent})
+  puppet-master worker claude --cwd .     # Claude Code in current directory
+  puppet-master worker codex --force-new  # fresh Codex pane
 `);
 }
 
@@ -104,7 +119,7 @@ async function runMcp(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const { command, flags } = parseArgs(process.argv);
+  const { command, positional, flags } = parseArgs(process.argv);
 
   if (flags.help || flags.h) {
     printHelp();
@@ -116,6 +131,21 @@ async function main(): Promise<void> {
   }
   if (command === 'mcp') {
     await runMcp();
+    return;
+  }
+  if (command === 'worker' || command === 'terminal') {
+    const agentType =
+      positional[0] ??
+      (typeof flags['agent-type'] === 'string' ? flags['agent-type'] : undefined) ??
+      (typeof flags.agent === 'string' ? flags.agent : undefined);
+    await launchWorkerTerminal({
+      agentType,
+      cwd: typeof flags.cwd === 'string' ? flags.cwd : typeof flags.project === 'string' ? flags.project : undefined,
+      paneId: typeof flags['pane-id'] === 'string' ? flags['pane-id'] : typeof flags.pane === 'string' ? flags.pane : undefined,
+      cols: typeof flags.cols === 'string' ? Number(flags.cols) : undefined,
+      rows: typeof flags.rows === 'string' ? Number(flags.rows) : undefined,
+      forceNew: Boolean(flags['force-new']),
+    });
     return;
   }
   const project = typeof flags.project === 'string' ? flags.project : undefined;

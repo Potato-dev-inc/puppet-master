@@ -29,6 +29,15 @@ export type PanesChangedEvent = { changed: boolean };
 export type PaneDetachEvent = { pane_id: string; title?: string; cols?: number; rows?: number };
 export type PaneReattachEvent = { pane_id: string };
 
+export interface WorkerLaunchConfig {
+  agent_type: string;
+  cwd?: string | null;
+  pane_id?: string | null;
+  cols: number;
+  rows: number;
+  force_new: boolean;
+}
+
 export interface EnsureMcpResult {
   installed: boolean;
   changed: boolean;
@@ -69,6 +78,24 @@ export interface CoordinationStorageInfo {
   task_count: number;
   lock_count: number;
   exists: boolean;
+}
+
+export interface OpenCodeKeyProfileInfo {
+  id: string;
+  label: string;
+  configured: boolean;
+}
+
+export interface OpenCodeKeyStatus {
+  active_profile: string;
+  profiles: OpenCodeKeyProfileInfo[];
+}
+
+export interface RotateOpenCodeKeyResult {
+  ok: boolean;
+  active_profile: string;
+  profiles: OpenCodeKeyProfileInfo[];
+  restarted_panes: string[];
 }
 
 export interface AppInstallInfo {
@@ -136,8 +163,25 @@ export const tauri = {
   }) => safeInvoke<string>('spawn_pane', { args }, `browser-preview-${Date.now()}`, true),
   killPane: (paneId: string) => safeInvoke<void>('kill_pane_cmd', { paneId }, undefined, true),
   killAllPanes: () => safeInvoke<void>('kill_all_panes', undefined, undefined, true),
-  writeInput: (paneId: string, text: string, appendNewline = true) =>
-    safeInvoke<void>('write_pane_input', { paneId, args: { text, append_newline: appendNewline } }, undefined, true),
+  writeInput: (
+    paneId: string,
+    text: string,
+    appendNewline = true,
+    viaOpencodeApi = false,
+  ) =>
+    safeInvoke<void>(
+      'write_pane_input',
+      {
+        paneId,
+        args: {
+          text,
+          append_newline: appendNewline,
+          via_opencode_api: viaOpencodeApi,
+        },
+      },
+      undefined,
+      true,
+    ),
   readBuffer: (paneId: string, lines: number) =>
     safeInvoke<string>('read_pane_buffer', { paneId, lines }, '', true),
   readSnapshot: (paneId: string) =>
@@ -339,4 +383,34 @@ export const tauri = {
   openExternalUrl: (url: string) =>
     safeInvoke<void>('open_external_url', { url }, undefined, true),
   launchUninstall: () => safeInvoke<void>('launch_uninstall', undefined, undefined, true),
+  getWorkerLaunch: () => safeInvoke<WorkerLaunchConfig | null>('get_worker_launch', undefined, null, true),
+  getOpenCodeKeyStatus: () =>
+    safeInvoke<OpenCodeKeyStatus>(
+      'get_opencode_key_status',
+      undefined,
+      { active_profile: 'a', profiles: [{ id: 'a', label: 'Primary', configured: false }, { id: 'b', label: 'Secondary', configured: false }] },
+      true,
+    ),
+  setOpenCodeKeyProfile: (profileId: string, apiKey: string, label?: string) =>
+    safeInvoke<void>(
+      'set_opencode_key_profile',
+      { profileId, apiKey, label: label ?? null },
+      undefined,
+      true,
+    ),
+  captureOpenCodeKeyProfile: (profileId: string, label?: string) =>
+    safeInvoke<void>(
+      'capture_opencode_key_profile',
+      { profileId, label: label ?? null },
+      undefined,
+      true,
+    ),
+  rotateOpenCodeKey: (profile: 'next' | 'a' | 'b', paneId?: string) =>
+    safeInvoke<RotateOpenCodeKeyResult>(
+      'rotate_opencode_key',
+      { profile, paneId: paneId ?? null },
+      { ok: true, active_profile: 'a', profiles: [], restarted_panes: [] },
+      true,
+    ),
+  exitApp: () => safeInvoke<void>('exit_app', undefined, undefined, true),
 };

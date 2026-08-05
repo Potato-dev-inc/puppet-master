@@ -13,6 +13,8 @@ mod mcp_runtime;
 mod mcp_status;
 mod mobile_pairing;
 mod mobile_tunnel;
+mod opencode;
+mod pane_wait;
 mod platform;
 mod project_path;
 mod projections;
@@ -22,6 +24,7 @@ mod session_context;
 mod settings_store;
 mod shell_env;
 pub mod tool_registry;
+mod worker_launch;
 
 use commands::AppState;
 use std::path::PathBuf;
@@ -30,6 +33,7 @@ use tauri::{Listener, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    worker_launch::init_from_env();
     shell_env::apply_to_process();
 
     tracing_subscriber::fmt()
@@ -84,6 +88,12 @@ pub fn run() {
             app_lifecycle::get_app_install_info,
             app_lifecycle::open_external_url,
             app_lifecycle::launch_uninstall,
+            commands::get_worker_launch,
+            commands::exit_app,
+            commands::get_opencode_key_status,
+            commands::set_opencode_key_profile,
+            commands::capture_opencode_key_profile,
+            commands::rotate_opencode_key,
         ])
         .setup(|app| {
             if let Ok(resource) = app
@@ -209,8 +219,21 @@ pub fn run() {
                 }
             });
 
+            if worker_launch::worker_launch().is_some() {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Puppet Master");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    pty::registry_kill_all(&state.registry);
+                }
+            }
+        });
 }

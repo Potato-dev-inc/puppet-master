@@ -66,6 +66,38 @@ export interface PaneDigest {
   updated_at_ms: number;
 }
 
+export interface OpenCodeWorkerStatus {
+  pane_id: string;
+  pane_status: string;
+  serve_healthy: boolean;
+  session_id: string;
+  pending_permission_count: number;
+  pending_permission_ids: string[];
+  active_key_profile: string | null;
+}
+
+export interface OpenCodeWaitSnapshot {
+  serve_healthy: boolean;
+  pending_permission_count: number;
+  pending_permission_ids: string[];
+}
+
+export interface WaitForPanesResult {
+  reason: string;
+  pane_id: string;
+  status: string | null;
+  opencode: OpenCodeWaitSnapshot | null;
+}
+
+export interface OpenCodeWorkerEvent {
+  pane_id: string;
+  event: string;
+  pane_status: string;
+  serve_healthy: boolean;
+  pending_permission_count: number;
+  pending_permission_ids: string[];
+}
+
 export interface SessionTimelineEvent {
   timestamp_ms: number;
   actor: string;
@@ -188,7 +220,7 @@ export interface BridgeClient {
   listAgentContexts(): Promise<AgentContextProfile[]>;
   readAgentContext(args: { agent_type?: string; pane_id?: string }): Promise<unknown>;
   inspectAgentModel(paneId: string, lines?: number): Promise<AgentModelInspection>;
-  writeInput(paneId: string, text: string, appendNewline?: boolean): Promise<void>;
+  writeInput(paneId: string, text: string, appendNewline?: boolean, viaOpencodeApi?: boolean): Promise<void>;
   resize(paneId: string, cols: number, rows: number): Promise<void>;
   getWorkspaceState(): Promise<WorkspaceStateProjection>;
   listMcpTools(): Promise<McpRegistryTool[]>;
@@ -222,6 +254,13 @@ export interface BridgeClient {
   readOrchestratorState(): Promise<OrchestratorStateProjection>;
   updateOrchestratorState(patch: Partial<OrchestratorStateProjection>): Promise<OrchestratorStateProjection>;
   buildContextPack(args: ContextPackRequest): Promise<ContextPack>;
+  waitForPanes(args: {
+    pane_ids: string[];
+    until?: string[];
+    timeout_ms?: number;
+  }): Promise<WaitForPanesResult>;
+  readOpencodeWorkerStatus(paneId: string): Promise<OpenCodeWorkerStatus>;
+  replyOpencodePermission(paneId: string, requestId: string, reply: string): Promise<void>;
   getSettings(): Promise<PublicSettings>;
   patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;
   postOrchestratorMessage(text: string, messageId: string): Promise<void>;
@@ -275,10 +314,11 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     },
     inspectAgentModel: (id, lines = 200) =>
       call('GET', `/panes/${encodeURIComponent(id)}/model?lines=${lines}`),
-    writeInput: (id, text, appendNewline = true) =>
+    writeInput: (id, text, appendNewline = true, viaOpencodeApi = false) =>
       call('POST', `/panes/${encodeURIComponent(id)}/input`, {
         text,
         append_newline: appendNewline,
+        via_opencode_api: viaOpencodeApi,
       }),
     resize: (id, cols, rows) =>
       call('POST', `/panes/${encodeURIComponent(id)}/resize`, { cols, rows }),
@@ -308,6 +348,13 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     readOrchestratorState: () => call('GET', '/orchestrator/state'),
     updateOrchestratorState: (patch) => call('PATCH', '/orchestrator/state', patch),
     buildContextPack: (args) => call('POST', '/context-packs', args),
+    waitForPanes: (args) => call('POST', '/panes/wait', args),
+    readOpencodeWorkerStatus: (paneId) =>
+      call('GET', `/panes/${encodeURIComponent(paneId)}/opencode/status`),
+    replyOpencodePermission: (paneId, requestId, reply) =>
+      call('POST', `/panes/${encodeURIComponent(paneId)}/opencode/permissions/${encodeURIComponent(requestId)}/reply`, {
+        reply,
+      }),
     getSettings: () => call('GET', '/settings'),
     patchSettings: (patch) => call('PATCH', '/settings', patch),
     postOrchestratorMessage: (text, messageId) =>
@@ -358,6 +405,7 @@ export type BridgeEvent =
   | { type: 'terminal'; pane_id: string; data: number[] }
   | { type: 'terminal-snapshot'; pane_id: string; snapshot: string }
   | { type: 'pane-status'; pane_id: string; status: PaneInfo['status'] }
+  | { type: 'opencode-worker'; event: OpenCodeWorkerEvent }
   | { type: 'pane-resize'; pane_id: string; cols: number; rows: number }
   | { type: 'settings'; settings: PublicSettings }
   | { type: 'orchestrator-viewport'; width: number; height: number; active: boolean };
@@ -429,6 +477,14 @@ export function subscribeBridgeEvents(
           status: PaneInfo['status'];
         };
         onEvent({ type: 'pane-status', pane_id: payload.pane_id, status: payload.status });
+      } catch (err) {
+        onError?.(err);
+      }
+    });
+    es.addEventListener('opencode-worker', (ev) => {
+      try {
+        const event = JSON.parse((ev as MessageEvent).data) as import('./bridge').OpenCodeWorkerEvent;
+        onEvent({ type: 'opencode-worker', event });
       } catch (err) {
         onError?.(err);
       }

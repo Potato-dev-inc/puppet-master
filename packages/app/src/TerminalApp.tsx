@@ -10,6 +10,7 @@ import { useProjectPath } from './hooks/useProjectPath';
 import { useTerminalSession } from './hooks/useTerminalSession';
 import { tauri } from './lib/tauri';
 import { detachedWindowSizeFromGrid, openDetachedPaneWindow } from './lib/detached-pane-window';
+import { WorkerOpenCodeAuthPanel } from './components/WorkerOpenCodeAuthPanel';
 
 const STATUS_COLOR: Record<string, string> = {
   running: 'bg-pm-ok',
@@ -32,6 +33,8 @@ function paneTitle(agentType: string): string {
       return 'Codex CLI';
     case 'opencode':
       return 'OpenCode';
+    case 'opencode_native':
+      return 'OpenCode (API)';
     default:
       return agentType;
   }
@@ -56,6 +59,9 @@ function TerminalViewport({
   disableMobileInput = false,
   onReattach,
   reflowKey,
+  workerHost = false,
+  workerTrayOpen = false,
+  onToggleWorkerTray,
 }: {
   pane: PaneData;
   registry: ReturnType<typeof usePaneRegistry>;
@@ -63,6 +69,9 @@ function TerminalViewport({
   disableMobileInput?: boolean;
   onReattach?: () => void;
   reflowKey?: number | string;
+  workerHost?: boolean;
+  workerTrayOpen?: boolean;
+  onToggleWorkerTray?: () => void;
 }) {
   const { containerRef, nudgeReflow } = useTerminalSession({
     paneId: pane.info.id,
@@ -87,17 +96,31 @@ function TerminalViewport({
         </div>
       )}
       <div ref={containerRef} className="terminal-host pm-terminal-host" />
-      {!chrome && onReattach && (
+      {!chrome && (onReattach || workerHost || onToggleWorkerTray) && (
         <div className="pm-terminal-floating-controls">
-          <button
-            type="button"
-            className="pm-terminal-control-button"
-            title="Move pane back to app"
-            aria-label="Move pane back to app"
-            onClick={onReattach}
-          >
-            ↙
-          </button>
+          {onReattach && (
+            <button
+              type="button"
+              className="pm-terminal-control-button"
+              title="Move pane back to app"
+              aria-label="Move pane back to app"
+              onClick={onReattach}
+            >
+              ↙
+            </button>
+          )}
+          {workerHost && pane.info.agent_type === 'opencode_native' && onToggleWorkerTray && (
+            <button
+              type="button"
+              className={`pm-terminal-control-button pm-terminal-control-button--tray${workerTrayOpen ? ' is-open' : ''}`}
+              title={workerTrayOpen ? 'Hide API key setup' : 'Open API key setup'}
+              aria-label={workerTrayOpen ? 'Hide API key setup' : 'Open API key setup'}
+              aria-expanded={workerTrayOpen}
+              onClick={onToggleWorkerTray}
+            >
+              ˄
+            </button>
+          )}
           <button
             type="button"
             className="pm-terminal-control-button"
@@ -117,6 +140,7 @@ export default function TerminalApp() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const lockedPaneId = params.get('pane');
   const detached = params.has('detached');
+  const workerHost = params.has('worker-host');
   const registry = usePaneRegistry();
   const bridge = useBridge();
   const { projectPath } = useProjectPath();
@@ -130,6 +154,7 @@ export default function TerminalApp() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [detachedLayoutReady, setDetachedLayoutReady] = useState(!detached);
+  const [workerTrayOpen, setWorkerTrayOpen] = useState(false);
 
   const panes = registry.paneList;
   const selectedPane = selectedPaneId ? registry.panes.get(selectedPaneId) ?? null : null;
@@ -167,6 +192,7 @@ export default function TerminalApp() {
   }, [selectOrSpawnTerminal]);
 
   useEffect(() => {
+    if (detached) return;
     let unlisten: (() => void) | null = null;
     let disposed = false;
     void tauri.onPaneDetach((event) => {
@@ -186,7 +212,7 @@ export default function TerminalApp() {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [detached]);
 
   useEffect(() => {
     if (lockedPaneId) return;
@@ -199,6 +225,17 @@ export default function TerminalApp() {
     let unlisten: (() => void) | null = null;
     let disposed = false;
     void tauri.onCurrentWindowCloseRequested(() => {
+      if (workerHost) {
+        void (async () => {
+          try {
+            await registry.killPane(selectedPaneId);
+          } catch {
+            /* pane may already be gone */
+          }
+          await tauri.exitApp();
+        })();
+        return;
+      }
       void tauri.emitPaneReattach(selectedPaneId);
     }).then((next) => {
       if (disposed) {
@@ -211,7 +248,26 @@ export default function TerminalApp() {
       disposed = true;
       unlisten?.();
     };
-  }, [detached, selectedPaneId]);
+  }, [detached, registry, selectedPaneId, workerHost]);
+
+  useEffect(() => {
+    if (!workerHost || !selectedPaneId) return;
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    void tauri.onPtyExit((event) => {
+      if (event.pane_id !== selectedPaneId) return;
+      setError(
+        'Worker exited (Ctrl+C or process ended). Close this window, then run `npm run worker opencode_native` again.',
+      );
+    }).then((next) => {
+      if (disposed) next();
+      else unlisten = next;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [workerHost, selectedPaneId]);
 
   useEffect(() => {
     if (!detached) {
@@ -342,14 +398,25 @@ export default function TerminalApp() {
         <section className="pm-terminal-main">
           {selectedPane && detached ? (
             detachedLayoutReady ? (
-              <TerminalViewport
-                pane={selectedPane}
-                registry={registry}
-                chrome={false}
-                disableMobileInput
-                onReattach={() => void reattachSelected()}
-                reflowKey={`detached:${selectedPane.info.id}:${selectedPane.info.cols}:${selectedPane.info.rows}`}
-              />
+              <>
+                {workerHost && workerTrayOpen && selectedPane.info.agent_type === 'opencode_native' && (
+                  <WorkerOpenCodeAuthPanel
+                    paneId={selectedPane.info.id}
+                    onClose={() => setWorkerTrayOpen(false)}
+                  />
+                )}
+                <TerminalViewport
+                  pane={selectedPane}
+                  registry={registry}
+                  chrome={false}
+                  disableMobileInput
+                  workerHost={workerHost}
+                  workerTrayOpen={workerTrayOpen}
+                  onToggleWorkerTray={() => setWorkerTrayOpen((open) => !open)}
+                  onReattach={workerHost ? undefined : () => void reattachSelected()}
+                  reflowKey={`detached:${selectedPane.info.id}:${selectedPane.info.cols}:${selectedPane.info.rows}`}
+                />
+              </>
             ) : (
               <div className="pm-terminal-detached-preflight" aria-hidden />
             )

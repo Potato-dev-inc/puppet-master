@@ -2,6 +2,7 @@
 
 pub mod agents;
 pub mod ansi;
+pub mod keys;
 pub mod registry;
 pub mod scrollback;
 pub mod status;

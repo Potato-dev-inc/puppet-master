@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
-"""Spawn or reuse a Puppet Master terminal pane and detach it into its own window.
+"""Spawn or reuse a Puppet Master worker pane in a standalone terminal window.
 
-Requires the Puppet Master desktop app to be running, because the bridge and
-native detached window are owned by the app process.
+If the HTTP bridge is already running (desktop app or another worker host),
+this reuses it and opens a detached pane window in that host.
+
+If no bridge is found, it starts a standalone worker host via the CLI
+(`puppet-master worker`) — no full desktop grid UI required.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import platform
+import subprocess
 import sys
 import time
 import urllib.error
@@ -30,7 +36,7 @@ def request_json(method: str, url: str, payload: dict | None = None, timeout: fl
         return json.loads(raw) if raw else {}
 
 
-def discover_bridge(explicit: str | None, wait_seconds: float) -> str:
+def discover_bridge(explicit: str | None, wait_seconds: float) -> str | None:
     if explicit:
         return explicit.rstrip("/")
 
@@ -47,8 +53,9 @@ def discover_bridge(explicit: str | None, wait_seconds: float) -> str:
                 last_error = exc
         time.sleep(0.25)
 
-    detail = f" Last error: {last_error}" if last_error else ""
-    raise RuntimeError(f"Puppet Master bridge not found on ports {PORT_MIN}-{PORT_MAX}.{detail}")
+    if last_error:
+        return None
+    return None
 
 
 def find_reusable_pane(bridge_url: str, agent_type: str) -> str | None:
@@ -82,22 +89,68 @@ def spawn_pane(bridge_url: str, args: argparse.Namespace) -> str:
     return str(created["pane_id"])
 
 
+def repo_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def launch_standalone_worker(args: argparse.Namespace) -> int:
+    root = repo_root()
+    cli_entry = root / "packages" / "cli" / "src" / "index.ts"
+    if not cli_entry.is_file():
+        print("launch-terminal-app: CLI entry not found; run from the puppet-master repo.", file=sys.stderr)
+        return 1
+
+    cmd = ["npm", "run", "worker", "--"]
+    if args.agent_type:
+        cmd.append(args.agent_type)
+    if args.cwd:
+        cmd.extend(["--cwd", str(Path(args.cwd).resolve())])
+    if args.pane_id:
+        cmd.extend(["--pane-id", args.pane_id])
+    if args.cols:
+        cmd.extend(["--cols", str(args.cols)])
+    if args.rows:
+        cmd.extend(["--rows", str(args.rows)])
+    if args.force_new:
+        cmd.append("--force-new")
+
+    env = os.environ.copy()
+    print("[launch-terminal-app] starting standalone worker host (no desktop grid required)")
+    completed = subprocess.run(cmd, cwd=root, env=env, shell=os.name == "nt")
+    return completed.returncode
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Launch a detached Puppet Master terminal pane.")
+    parser = argparse.ArgumentParser(description="Launch a standalone Puppet Master worker terminal.")
     parser.add_argument("--bridge-url", help="Bridge URL, e.g. http://127.0.0.1:17321")
     parser.add_argument("--pane-id", help="Open an existing pane id instead of spawning/reusing one")
-    parser.add_argument("--agent-type", default="cmd", help="Pane agent type to spawn/reuse (default: cmd)")
+    parser.add_argument(
+        "--agent-type",
+        default="powershell" if platform.system() == "Windows" else "bash",
+        help="Pane agent type to spawn/reuse (default: platform shell)",
+    )
     parser.add_argument("--cwd", help="Working directory for a newly spawned pane")
     parser.add_argument("--cols", type=int, default=120, help="New pane columns")
     parser.add_argument("--rows", type=int, default=32, help="New pane rows")
     parser.add_argument("--force-new", action="store_true", help="Always spawn a new pane")
-    parser.add_argument("--wait", type=float, default=8.0, help="Seconds to wait for the bridge")
+    parser.add_argument("--wait", type=float, default=2.0, help="Seconds to wait for an existing bridge")
     parser.add_argument("--send", help="Optional command/input to send after opening")
     parser.add_argument("--no-enter", action="store_true", help="Do not append Enter to --send")
+    parser.add_argument(
+        "--standalone",
+        action="store_true",
+        help="Always start a standalone worker host (skip bridge discovery)",
+    )
     args = parser.parse_args()
 
     try:
+        if args.standalone:
+            return launch_standalone_worker(args)
+
         bridge_url = discover_bridge(args.bridge_url, args.wait)
+        if bridge_url is None:
+            return launch_standalone_worker(args)
+
         pane_id = args.pane_id
         if not pane_id and not args.force_new:
             pane_id = find_reusable_pane(bridge_url, args.agent_type)
@@ -117,8 +170,8 @@ def main() -> int:
         return 0
     except (RuntimeError, urllib.error.URLError, urllib.error.HTTPError) as exc:
         print(f"launch-terminal-app: {exc}", file=sys.stderr)
-        print("Make sure the Puppet Master desktop app is running first.", file=sys.stderr)
-        return 1
+        print("Falling back to standalone worker host…", file=sys.stderr)
+        return launch_standalone_worker(args)
 
 
 if __name__ == "__main__":

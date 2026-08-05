@@ -2,6 +2,7 @@ import { isOrchestratorPaneId, type LlmModel, type PaneStatus } from '@puppet-ma
 import type { ChatMessage, LlmResponse } from './llm';
 import { streamLlm } from './llm';
 import { executeMcpTool, formatPaneList, loadPuppetMasterTools, type McpToolExecutor } from './mcp-tools';
+import type { WaitForPanesResult } from './bridge';
 import { sleep } from './ansi';
 import { approvePermissionIfPresent } from './tui-autopilot';
 
@@ -31,7 +32,14 @@ ABSOLUTE MANAGER BOUNDARY:
 - Your allowed direct actions are coordination actions: list/read panes, spawn/reuse workers, send prompts/keys to workers, manage tasks/locks, read worker buffers, and summarize evidence.
 - If you discover a bug during review, do not patch it yourself. Assign a worker to patch it, then assign another worker or a shell worker to verify it.
 
-You have these tools — list_panes, list_agent_contexts, read_agent_context, inspect_agent_model, spawn_agent, read_terminal_buffer, write_terminal_input, press_key, kill_pane_process, create_task, claim_task, report_task_status, complete_task, list_tasks, acquire_resource_lock, release_resource_lock, build_context_pack.
+You have these tools — list_panes, list_agent_contexts, read_agent_context, inspect_agent_model, spawn_agent, read_terminal_buffer, write_terminal_input, press_key, kill_pane_process, create_task, claim_task, report_task_status, complete_task, list_tasks, acquire_resource_lock, release_resource_lock, build_context_pack, wait_for_panes, read_opencode_worker_status, reply_opencode_permission, read_opencode_key_status, rotate_opencode_key.
+
+TOKEN-SAVING STATUS RULES (critical):
+- Do NOT poll list_panes or read_terminal_buffer in a loop to watch workers.
+- After delegating to a worker, end your turn. The harness calls wait_for_panes for you and wakes you on idle, waiting_input, error, permission, or unhealthy.
+- For opencode_native workers, prefer read_opencode_worker_status over read_terminal_buffer when you only need health, permissions, or key profile.
+- Use reply_opencode_permission for OpenCode API permission prompts instead of typing into the TUI.
+- Use rotate_opencode_key when an opencode_native worker is rate-limited (never exposes key material).
 
 IMPORTANT — reuse existing panes:
 - ALWAYS call list_panes first.
@@ -129,6 +137,69 @@ function describeStatus(status: PaneStatus | 'gone'): string {
   }
 }
 
+async function processWaitResult(
+  executor: McpToolExecutor,
+  wait: WaitForPanesResult,
+  tracked: Set<string>,
+  previousStatus: Map<string, PaneStatus | 'gone'>,
+  signal: AbortSignal,
+  onAutoApprove?: (paneId: string) => void,
+): Promise<{ notes: string[]; running: number; autoApproved: string[] }> {
+  const autoApproved: string[] = [];
+  if (wait.reason === 'timeout') {
+    const panes = await executor.listPanes();
+    let running = 0;
+    for (const id of tracked) {
+      const pane = panes.find((p) => p.id === id);
+      const current: PaneStatus | 'gone' = pane ? pane.status : 'gone';
+      previousStatus.set(id, current);
+      if (current === 'running') running++;
+    }
+    return { notes: [], running, autoApproved };
+  }
+
+  const paneId = wait.pane_id;
+  const current = (wait.status ?? 'gone') as PaneStatus | 'gone';
+  const prev = previousStatus.get(paneId);
+  const notes: string[] = [];
+
+  if (wait.reason === 'permission' && executor.replyOpencodePermission) {
+    const permId = wait.opencode?.pending_permission_ids[0];
+    if (permId) {
+      try {
+        await executor.replyOpencodePermission(paneId, permId, 'once');
+        autoApproved.push(paneId);
+        onAutoApprove?.(paneId);
+      } catch {
+        notes.push(`pane ${paneId} has opencode permission (auto-approve failed)`);
+      }
+    }
+  } else if (current !== prev && current !== 'running') {
+    if (current === 'waiting_input') {
+      const verdict = await approvePermissionIfPresent(executor, paneId, signal);
+      if (verdict === 'aborted') return { notes: [], running: 0, autoApproved };
+      if (verdict === 'approved') {
+        autoApproved.push(paneId);
+        onAutoApprove?.(paneId);
+      } else {
+        notes.push(`pane ${paneId} ${describeStatus(current)}`);
+      }
+    } else {
+      notes.push(`pane ${paneId} ${describeStatus(current)}`);
+    }
+  }
+
+  const panes = await executor.listPanes();
+  let running = 0;
+  for (const id of tracked) {
+    const pane = panes.find((p) => p.id === id);
+    const status: PaneStatus | 'gone' = pane ? pane.status : 'gone';
+    previousStatus.set(id, status);
+    if (status === 'running') running++;
+  }
+  return { notes, running, autoApproved };
+}
+
 /**
  * Stand idle until tracked worker panes settle (finish, need input, error, or
  * exit), or until the user aborts, or until the standby budget is exhausted.
@@ -212,10 +283,24 @@ export async function standIdleForWorkers(
   const deadline = now() + maxMs;
   while (true) {
     if (signal.aborted) return { reason: 'aborted' };
-    await sleep(pollMs, signal);
-    if (signal.aborted) return { reason: 'aborted' };
 
-    const poll = await pollOnce();
+    const poll = executor.waitForPanes
+      ? await processWaitResult(
+          executor,
+          await executor.waitForPanes({
+            pane_ids: [...tracked],
+            timeout_ms: Math.max(1_000, Math.min(pollMs * 4, deadline - now())),
+          }),
+          tracked,
+          previousStatus,
+          signal,
+          onAutoApprove,
+        )
+      : await (async () => {
+          await sleep(pollMs, signal);
+          if (signal.aborted) return { notes: [] as string[], running: 0, autoApproved: [] as string[] };
+          return pollOnce();
+        })();
     if (signal.aborted) return { reason: 'aborted' };
     emitStandby(previousStatus);
 

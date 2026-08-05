@@ -31,6 +31,7 @@ describe('agent presets', () => {
       'claude',
       'codex',
       'opencode',
+      'opencode_native',
       'powershell',
     ]);
     expect(listLaunchPresets('windows').at(-1)?.label).toBe('Terminal (PowerShell)');
@@ -38,6 +39,7 @@ describe('agent presets', () => {
       'claude',
       'codex',
       'opencode',
+      'opencode_native',
       'bash',
     ]);
     expect(listLaunchPresets('linux').at(-1)?.label).toBe('Terminal (Shell)');

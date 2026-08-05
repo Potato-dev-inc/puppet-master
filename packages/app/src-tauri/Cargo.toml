@@ -39,6 +39,7 @@ rand = "0.8"
 sha2 = "0.10"
 base64 = "0.22"
 anyhow = "1"
+ureq = { version = "2", features = ["json"] }
 
 [features]
 default = ["custom-protocol"]
