@@ -1,7 +1,4 @@
-import type { PaneInfo as BridgePaneInfo } from '@puppet-master/shared';
-import type { PaneInfo as TauriPaneInfo } from './tauri';
-
-type PaneStateEstimate = TauriPaneInfo['pane_state'] | BridgePaneInfo['pane_state'];
+type PaneStateEstimate = { state: string; summary?: string } | undefined;
 
 export const PANE_STATE_COLOR: Record<string, string> = {
   thinking: 'bg-pm-accent',

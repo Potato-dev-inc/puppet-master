@@ -196,6 +196,8 @@ export function makeTauriExecutor(): McpToolExecutor {
     acquireResourceLock: () => bridgeRequiredTool('acquire_resource_lock'),
     releaseResourceLock: () => bridgeRequiredTool('release_resource_lock'),
     buildContextPack: () => bridgeRequiredTool('build_context_pack'),
+    readProjectIrStatus: () => bridgeRequiredTool('read_project_ir_status'),
+    readLibrarianPrompt: () => bridgeRequiredTool('read_librarian_prompt'),
     readSessionContext: () => bridgeRequiredTool('read_session_context'),
     updateSessionContext: () => bridgeRequiredTool('update_session_context'),
     setPaneRole: () => bridgeRequiredTool('set_pane_role'),

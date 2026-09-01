@@ -127,7 +127,7 @@ export default function WorkerHostBootstrap() {
     };
   }, []);
 
-  if (!error) return null;
+  if (!error) return <div hidden />;
 
   return (
     <div className="pm-terminal-app">
