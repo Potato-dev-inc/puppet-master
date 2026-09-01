@@ -84,7 +84,8 @@ const AGENT_META: Record<
 };
 
 const CODEX_ARGS = ['--sandbox', 'workspace-write', '--ask-for-approval', 'never'];
-const AGENT_LAUNCH_TYPES: AgentType[] = ['claude', 'codex', 'opencode', 'opencode_native'];
+/** This flavor only ships the OpenCode API worker in the spawn UI. */
+const AGENT_LAUNCH_TYPES: AgentType[] = ['opencode_native'];
 
 const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSpec>> = {
   windows: {
@@ -235,23 +236,13 @@ export function listPresets(platform?: PuppetPlatform): AgentPreset[] {
   return AgentTypeSchema.options.map((type) => buildPreset(type, resolved));
 }
 
-export function getDefaultTerminalAgentType(platform?: PuppetPlatform): AgentType {
-  return (platform ?? detectPlatform()) === 'windows' ? 'powershell' : 'bash';
+export function getDefaultTerminalAgentType(_platform?: PuppetPlatform): AgentType {
+  return 'opencode_native';
 }
 
 export function listLaunchPresets(platform?: PuppetPlatform): AgentPreset[] {
   const resolved = platform ?? detectPlatform();
-  const terminalType = getDefaultTerminalAgentType(resolved);
-  const terminalLabel = resolved === 'windows' ? 'Terminal (PowerShell)' : 'Terminal (Shell)';
-  return [...AGENT_LAUNCH_TYPES, terminalType].map((type) => {
-    const preset = buildPreset(type, resolved);
-    if (type !== terminalType) return preset;
-    return {
-      ...preset,
-      label: terminalLabel,
-      icon: 'TERM',
-    };
-  });
+  return AGENT_LAUNCH_TYPES.map((type) => buildPreset(type, resolved));
 }
 
 export function getAgentPresets(platform?: PuppetPlatform): Record<AgentType, AgentPreset> {

@@ -176,10 +176,10 @@ pub fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "spawn_agent",
-            description: "Spawn a worker PTY pane. Reuse existing worker panes of the same agent_type when possible; never reuse orchestrator panes.",
+            description: "Spawn an OpenCode native worker pane (API + attach TUI). Reuse an existing opencode_native pane when possible; never reuse orchestrator panes.",
             input_schema: object_schema(
                 json!({
-                    "agent_type": { "type": "string", "enum": ["claude", "codex", "opencode", "opencode_native", "cmd", "powershell", "bash", "cursor"] },
+                    "agent_type": { "type": "string", "enum": ["opencode_native"] },
                     "cwd": { "type": "string", "description": "Working directory; defaults to current project root" },
                     "cols": { "type": "number", "description": "Terminal columns (default 120)" },
                     "rows": { "type": "number", "description": "Terminal rows (default 30)" },

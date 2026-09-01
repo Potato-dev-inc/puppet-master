@@ -26,28 +26,19 @@ describe('agent presets', () => {
     expect(getPreset('opencode', 'windows').command).toBe('opencode');
   });
 
-  it('puts agent launchers first and the platform terminal last', () => {
+  it('only offers the OpenCode API worker in the spawn list', () => {
     expect(listLaunchPresets('windows').map((preset) => preset.type)).toEqual([
-      'claude',
-      'codex',
-      'opencode',
       'opencode_native',
-      'powershell',
     ]);
-    expect(listLaunchPresets('windows').at(-1)?.label).toBe('Terminal (PowerShell)');
     expect(listLaunchPresets('linux').map((preset) => preset.type)).toEqual([
-      'claude',
-      'codex',
-      'opencode',
       'opencode_native',
-      'bash',
     ]);
-    expect(listLaunchPresets('linux').at(-1)?.label).toBe('Terminal (Shell)');
+    expect(listLaunchPresets('windows')[0]?.label).toBe('OpenCode (API)');
   });
 
-  it('uses powershell as the Windows terminal and bash elsewhere', () => {
-    expect(getDefaultTerminalAgentType('windows')).toBe('powershell');
-    expect(getDefaultTerminalAgentType('macos')).toBe('bash');
-    expect(getDefaultTerminalAgentType('linux')).toBe('bash');
+  it('defaults new workers to opencode_native', () => {
+    expect(getDefaultTerminalAgentType('windows')).toBe('opencode_native');
+    expect(getDefaultTerminalAgentType('macos')).toBe('opencode_native');
+    expect(getDefaultTerminalAgentType('linux')).toBe('opencode_native');
   });
 });
