@@ -1,6 +1,7 @@
 pub mod bash;
 pub mod claude;
 pub mod codex;
+pub mod launch;
 pub mod opencode;
 
 use crate::events::{PaneId, SystemEvent};
@@ -9,6 +10,28 @@ use crate::events::{PaneId, SystemEvent};
 pub trait AgentAdapter {
     fn agent_type(&self) -> &'static str;
     fn observe(&mut self, pane_id: &str, text: &str) -> Vec<SystemEvent>;
+    fn launch_spec(
+        &self,
+        project: &str,
+        task: &str,
+        read_only: bool,
+    ) -> Result<launch::LaunchSpec, String> {
+        launch::launch_spec(self.agent_type(), project, task, read_only)
+    }
+    fn extract_result(&self, output: &str, exit_code: i32) -> Option<String> {
+        launch::extract_result(self.agent_type(), output, exit_code)
+    }
+    fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<serde_json::Value> {
+        launch::detect_prompt(self.agent_type(), screen, allow_broad)
+    }
+    fn prompt_reply(
+        &self,
+        prompt: &serde_json::Value,
+        choice: &str,
+        allow_broad: bool,
+    ) -> Result<launch::Reply, String> {
+        launch::prompt_reply(self.agent_type(), prompt, choice, allow_broad)
+    }
 }
 
 #[derive(Default)]
@@ -130,6 +153,7 @@ pub fn adapter_for(agent_type: &str) -> Box<dyn AgentAdapter + Send> {
     match agent_type {
         "claude" => Box::new(claude::ClaudeAdapter::default()),
         "codex" => Box::new(codex::CodexAdapter::default()),
+        "cursor_agent" => Box::new(HeuristicAdapter::new("cursor_agent")),
         "opencode" => Box::new(opencode::OpenCodeAdapter::default()),
         "opencode_native" => Box::new(opencode::OpenCodeNativeAdapter::default()),
         "bash" | "cmd" | "powershell" => Box::new(HeuristicAdapter::new(Box::leak(

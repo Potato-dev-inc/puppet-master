@@ -28,6 +28,7 @@
     "cli": "npm run start --workspace=@puppet-master/cli",
     "test": "npm run test --workspaces --if-present",
     "test:mcp-package": "node scripts/test-mcp-package.mjs",
+    "test:mcp-operations": "node scripts/test-mcp-operations.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "clean": "rimraf \"packages/*/dist\" \"packages/*/.turbo\" \"packages/app/src-tauri/target\""
   },

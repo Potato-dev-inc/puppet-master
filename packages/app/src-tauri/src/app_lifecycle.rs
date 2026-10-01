@@ -67,10 +67,7 @@ pub async fn launch_uninstall(app: tauri::AppHandle) -> Result<(), String> {
     {
         let app_path = default_macos_app_path();
         if !app_path.exists() {
-            return Err(format!(
-                "could not find {} in /Applications",
-                PRODUCT_NAME
-            ));
+            return Err(format!("could not find {} in /Applications", PRODUCT_NAME));
         }
         let script = format!(
             "tell application \"Finder\" to delete POSIX file \"{}\"",

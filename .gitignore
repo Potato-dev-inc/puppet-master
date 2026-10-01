@@ -2,6 +2,9 @@
 node_modules/
 .pnp/
 .pnp.js
+.venv-qt-mcp/
+__pycache__/
+.coverage*
 
 # build outputs
 dist/
@@ -11,6 +14,7 @@ packages/app/dev-dist/
 
 # tauri / rust
 packages/app/src-tauri/target/
+packages/app/src-tauri/target-integrate/
 packages/app/src-tauri/gen/
 
 # logs

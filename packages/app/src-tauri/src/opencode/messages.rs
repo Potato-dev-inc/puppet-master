@@ -92,8 +92,7 @@ pub fn read_pane_messages(
         )
     };
     let raw = client::list_session_messages(&base_url, &session_id, Some(&directory))?;
-    let api_pending =
-        session_pending_question_from_api(&base_url, &session_id, Some(&directory));
+    let api_pending = session_pending_question_from_api(&base_url, &session_id, Some(&directory));
     Ok(build_view(
         pane_id,
         &session_id,
@@ -125,10 +124,7 @@ pub fn build_view(
         .filter(|message| role_matches(&message.info.role, role_filter))
         .collect();
     let start = filtered.len().saturating_sub(limit);
-    let messages: Vec<MessageView> = filtered[start..]
-        .iter()
-        .map(message_view)
-        .collect();
+    let messages: Vec<MessageView> = filtered[start..].iter().map(message_view).collect();
     let pending_question = api_pending.or_else(|| find_pending_question(&filtered));
     let last_assistant_text = last_assistant_text(&filtered);
     SessionMessagesView {
@@ -203,7 +199,10 @@ fn part_view(part: &client::OpenCodeMessagePart) -> Option<MessagePartView> {
 }
 
 fn tool_status(state: &Value) -> Option<String> {
-    state.get("status").and_then(Value::as_str).map(str::to_string)
+    state
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 fn parse_question_input(state: &Value) -> Option<(String, Vec<QuestionOption>)> {
@@ -296,15 +295,12 @@ fn is_pending_question_state(state: &Value) -> bool {
         .unwrap_or("")
         .to_ascii_lowercase();
     match status.as_str() {
-        "completed" | "done" | "success" | "error" | "failed" | "cancelled" | "dismissed" => {
-            false
-        }
+        "completed" | "done" | "success" | "error" | "failed" | "cancelled" | "dismissed" => false,
         "running" | "pending" | "waiting" | "open" => true,
-        _ => state
-            .get("time")
-            .and_then(|time| time.get("end"))
-            .is_none()
-            && state.get("error").is_none(),
+        _ => {
+            state.get("time").and_then(|time| time.get("end")).is_none()
+                && state.get("error").is_none()
+        }
     }
 }
 

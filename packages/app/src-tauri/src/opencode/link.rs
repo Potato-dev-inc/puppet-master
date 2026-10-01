@@ -61,11 +61,30 @@ impl OpenCodeLink {
     }
 
     pub fn kill_serve(&self) {
-        self.keep_serve_on_attach_exit.store(false, Ordering::SeqCst);
+        self.keep_serve_on_attach_exit
+            .store(false, Ordering::SeqCst);
         if let Ok(mut guard) = self.serve_child.lock() {
             if let Some(mut child) = guard.take() {
+                crate::pty::proc_tree::kill_process_tree(child.id());
                 let _ = child.kill();
+                let _ = child.wait();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pty::proc_tree::test_support::*;
+
+    #[test]
+    fn kill_serve_terminates_serve_child_and_its_grandchild() {
+        let (child, grandchild) = spawn_child_with_grandchild();
+        let root = child.id();
+        let link = OpenCodeLink::new("http://127.0.0.1:1".into(), "s".into(), ".".into(), child);
+        link.kill_serve();
+        assert!(wait_until_dead(root), "serve child still alive");
+        assert!(wait_until_dead(grandchild), "serve grandchild leaked");
     }
 }

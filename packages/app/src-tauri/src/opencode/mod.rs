@@ -42,9 +42,7 @@ pub fn resolve_model(
     request_model_id: Option<&str>,
     settings: &Value,
 ) -> Option<OpenCodeModelRef> {
-    if let Some((provider_id, model_id)) =
-        parse_request_model(request_provider, request_model_id)
-    {
+    if let Some((provider_id, model_id)) = parse_request_model(request_provider, request_model_id) {
         return Some(OpenCodeModelRef {
             provider_id,
             model_id,
@@ -74,8 +72,12 @@ fn parse_request_model(
     request_provider: Option<&str>,
     request_model_id: Option<&str>,
 ) -> Option<(String, String)> {
-    let provider = request_provider.map(str::trim).filter(|value| !value.is_empty());
-    let model_id = request_model_id.map(str::trim).filter(|value| !value.is_empty());
+    let provider = request_provider
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let model_id = request_model_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     if let (Some(provider), Some(model_id)) = (provider, model_id) {
         return Some((provider.to_string(), model_id.to_string()));
     }
@@ -150,9 +152,8 @@ pub fn switch_model_response(
     pane_id: &str,
     model: &OpenCodeModelRef,
 ) -> serde_json::Value {
-    let snapshot = status::worker_status_json(registry, pane_id).unwrap_or_else(|err| {
-        serde_json::json!({ "error": err })
-    });
+    let snapshot = status::worker_status_json(registry, pane_id)
+        .unwrap_or_else(|err| serde_json::json!({ "error": err }));
     crate::mcp_hints::mutate_ok(
         snapshot,
         crate::mcp_hints::suggested_wait_after_model_switch(pane_id, model),
@@ -183,12 +184,7 @@ pub fn write_native_input(
         )
     };
     if let Some(model) = model {
-        client::switch_session_model(
-            &base_url,
-            &session_id,
-            Some(&directory),
-            model,
-        )?;
+        client::switch_session_model(&base_url, &session_id, Some(&directory), model)?;
     }
     if text.trim().is_empty() {
         if let Some(model) = model {
@@ -197,25 +193,87 @@ pub fn write_native_input(
         }
         return Ok(());
     }
-    match client::prompt_async(
-        &base_url,
-        &session_id,
-        Some(&directory),
-        text,
-        model,
-    ) {
+    match client::prompt_async(&base_url, &session_id, Some(&directory), text, model) {
         Ok(()) => {
-            if model.is_some() {
-                spawn_reattach_tui(Arc::clone(registry), app.clone(), pane_id.to_string());
-            }
+            spawn_reattach_tui(Arc::clone(registry), app.clone(), pane_id.to_string());
             Ok(())
         }
         Err(err) if client::is_rate_limit_status(err.status, &err.body) => {
             quota::handle_rate_limit(registry, app, pane_id)?;
-            Err(err.into_message())
+            let (base_url, current_session, directory) = {
+                let reg = registry.lock();
+                let pane = reg
+                    .panes
+                    .get(pane_id)
+                    .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
+                let link = pane.opencode.as_ref().ok_or_else(|| {
+                    format!("pane {pane_id} is not an opencode native worker")
+                })?;
+                (
+                    link.base_url.clone(),
+                    link.session_id.clone(),
+                    link.directory.clone(),
+                )
+            };
+            if current_session != session_id && pane_rebound_to(registry, pane_id, &current_session)
+            {
+                spawn_reattach_tui(Arc::clone(registry), app.clone(), pane_id.to_string());
+                return Ok(());
+            }
+            client::prompt_async(&base_url, &current_session, Some(&directory), text, model)
+                .map_err(|retry| retry.into_message())
+                .map(|()| {
+                    spawn_reattach_tui(Arc::clone(registry), app.clone(), pane_id.to_string());
+                })
         }
         Err(err) => Err(err.into_message()),
     }
+}
+
+/// Prompt the live native session without key-rotation / pane restart.
+pub fn prompt_native_session(
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &AppHandle,
+    pane_id: &str,
+    text: &str,
+) -> Result<(), String> {
+    let (base_url, session_id, directory) = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
+        let link = pane
+            .opencode
+            .as_ref()
+            .ok_or_else(|| format!("pane {pane_id} is not an opencode native worker"))?;
+        (
+            link.base_url.clone(),
+            link.session_id.clone(),
+            link.directory.clone(),
+        )
+    };
+    client::prompt_async(&base_url, &session_id, Some(&directory), text, None)
+        .map_err(|error| error.into_message())?;
+    spawn_reattach_tui(Arc::clone(registry), app.clone(), pane_id.to_string());
+    Ok(())
+}
+
+fn pane_rebound_to(
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    pane_id: &str,
+    session_id: &str,
+) -> bool {
+    let project = registry.lock().project_path.clone();
+    crate::operations::list_indexed_operations(&project)
+        .ok()
+        .into_iter()
+        .flatten()
+        .any(|snapshot| {
+            snapshot.pane_id.as_deref() == Some(pane_id)
+                && !snapshot.worker.closed
+                && snapshot.worker.provider_session_id.as_deref() == Some(session_id)
+        })
 }
 
 fn spawn_reattach_tui(
@@ -225,9 +283,17 @@ fn spawn_reattach_tui(
 ) {
     std::thread::spawn(move || {
         if let Err(err) = native::reattach_tui(registry, &app, &pane_id) {
-            tracing::warn!(%pane_id, %err, "opencode tui reattach after model switch failed");
+            tracing::warn!(%pane_id, %err, "opencode tui reattach failed");
         }
     });
+}
+
+pub fn refresh_native_tui(
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &AppHandle,
+    pane_id: &str,
+) {
+    spawn_reattach_tui(Arc::clone(registry), app.clone(), pane_id.to_string());
 }
 
 pub fn kill_serve_if_present(pane: &mut crate::pty::registry::PaneState) {

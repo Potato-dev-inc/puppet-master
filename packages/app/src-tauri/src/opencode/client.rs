@@ -44,7 +44,9 @@ pub fn wait_for_health(base_url: &str, timeout: Duration) -> Result<(), String> 
             _ => std::thread::sleep(Duration::from_millis(250)),
         }
     }
-    Err(format!("OpenCode server not healthy at {base} within {timeout:?}"))
+    Err(format!(
+        "OpenCode server not healthy at {base} within {timeout:?}"
+    ))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -79,11 +81,7 @@ pub struct PromptAsyncError {
 
 impl PromptAsyncError {
     pub fn into_message(self) -> String {
-        format!(
-            "opencode prompt_async: HTTP {} {}",
-            self.status,
-            self.body
-        )
+        format!("opencode prompt_async: HTTP {} {}", self.status, self.body)
     }
 }
 
@@ -159,7 +157,10 @@ pub fn prompt_async(
     model: Option<&OpenCodeModelRef>,
 ) -> Result<(), PromptAsyncError> {
     let base = normalize_base_url(base_url);
-    let url = with_directory_query(&format!("{base}/session/{session_id}/prompt_async"), directory);
+    let url = with_directory_query(
+        &format!("{base}/session/{session_id}/prompt_async"),
+        directory,
+    );
     let response = ureq::post(&url)
         .timeout(DEFAULT_TIMEOUT)
         .send_json(prompt_async_body(text, model))
@@ -352,7 +353,11 @@ pub fn session_model_ref(
     let Some(model_id) = model.id.as_deref().filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
-    let Some(provider_id) = model.provider_id.as_deref().filter(|value| !value.is_empty()) else {
+    let Some(provider_id) = model
+        .provider_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
         return Ok(None);
     };
     Ok(Some(OpenCodeModelRef {
@@ -404,6 +409,12 @@ pub struct OpenCodePermission {
     pub session_id: Option<String>,
     #[serde(rename = "sessionID", default)]
     pub session_id_camel: Option<String>,
+    #[serde(default)]
+    pub permission: Option<String>,
+    #[serde(default)]
+    pub patterns: Option<Vec<String>>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
 }
 
 pub fn list_permissions(base_url: &str) -> Result<Vec<OpenCodePermission>, String> {
@@ -414,7 +425,10 @@ pub fn list_permissions(base_url: &str) -> Result<Vec<OpenCodePermission>, Strin
         .call()
         .map_err(|err| format!("opencode list permissions: {err}"))?;
     if !(200..300).contains(&response.status()) {
-        return Err(format!("opencode list permissions: HTTP {}", response.status()));
+        return Err(format!(
+            "opencode list permissions: HTTP {}",
+            response.status()
+        ));
     }
     response
         .into_json::<Vec<OpenCodePermission>>()
@@ -594,9 +608,21 @@ mod tests {
             provider_id: "opencode-go".into(),
             model_id: "glm-5.2".into(),
         };
-        assert!(model_matches_filter(&model, Some("opencode-go"), Some("glm-5.2")));
+        assert!(model_matches_filter(
+            &model,
+            Some("opencode-go"),
+            Some("glm-5.2")
+        ));
         assert!(model_matches_filter(&model, None, Some("glm-5.2")));
-        assert!(!model_matches_filter(&model, Some("openrouter"), Some("glm-5.2")));
-        assert!(!model_matches_filter(&model, Some("opencode-go"), Some("deepseek")));
+        assert!(!model_matches_filter(
+            &model,
+            Some("openrouter"),
+            Some("glm-5.2")
+        ));
+        assert!(!model_matches_filter(
+            &model,
+            Some("opencode-go"),
+            Some("deepseek")
+        ));
     }
 }

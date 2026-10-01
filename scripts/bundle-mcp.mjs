@@ -58,6 +58,23 @@ if (existsSync(mcpDistBinary)) {
 
 mkdirSync(dirname(outfile), { recursive: true });
 
+// Standalone watcher for `watch_command`: an absolute-path script works from any directory,
+// unlike `npx puppet-master`. ESM because the CLI uses import.meta.
+try {
+  await esbuild.build({
+    entryPoints: [resolve(root, 'packages/cli/src/index.ts')],
+    bundle: true,
+    platform: 'node',
+    target: 'node22',
+    format: 'esm',
+    banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
+    outfile: resolve(root, 'packages/app/src-tauri/resources/puppet-master-cli.bundle.mjs'),
+    logLevel: 'info',
+  });
+} catch (err) {
+  console.error('[bundle-mcp] CLI bundle failed — watch_command falls back to npx', err);
+}
+
 try {
   await esbuild.build({
     entryPoints: [entry],

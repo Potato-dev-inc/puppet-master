@@ -1,6 +1,9 @@
+#![recursion_limit = "512"]
+
 mod actors;
 mod agent_adapters;
 mod agent_contexts;
+pub mod agent_runs;
 mod app_lifecycle;
 mod app_paths;
 mod bridge;
@@ -11,10 +14,15 @@ mod events;
 mod mcp_hints;
 mod mcp_install;
 mod mcp_runtime;
+pub mod mcp_sessions;
 mod mcp_status;
 mod mobile_pairing;
 mod mobile_tunnel;
 mod opencode;
+pub mod operations;
+#[cfg(test)]
+mod operations_contract_tests;
+mod pane_prompt;
 mod pane_wait;
 mod pane_wait_notify;
 mod platform;
@@ -26,8 +34,10 @@ mod pwa_server;
 mod session_context;
 mod settings_store;
 mod shell_env;
+pub mod shell_exec;
 pub mod tool_registry;
 mod worker_launch;
+pub mod watch_command;
 
 use commands::AppState;
 use std::path::PathBuf;
@@ -108,6 +118,14 @@ pub fn run() {
             {
                 if resource.is_file() {
                     mcp_runtime::set_bundled_mcp_script(resource);
+                }
+            }
+            if let Ok(cli) = app
+                .path()
+                .resolve("puppet-master-cli.bundle.mjs", BaseDirectory::Resource)
+            {
+                if let Some(dir) = cli.parent() {
+                    crate::watch_command::set_resource_dir(dir.to_path_buf());
                 }
             }
             let rust_mcp_name = if cfg!(windows) {

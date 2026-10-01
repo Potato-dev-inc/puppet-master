@@ -4,6 +4,16 @@ MCP server for [Puppet Master](https://github.com/Potato-dev-inc/puppet-master) 
 
 ## What is Puppet Master?
 
+New MCP connections default to **agent mode** with worker tools: `run_agent`,
+`wait_agents`, `send_message`, `followup_task`, `interrupt_agent`, `inspect_agent`,
+`agent_transcript`, `close_agent`, plus wrappers `send_agent` / `cancel_agent`,
+`answer_prompt`, `list_agents`, `take_over`, and `set_mode`. `run_agent` performs
+dispatch plus a bounded wait; `background: true` returns an immediate handle. Use
+`set_mode({"mode":"shell"})` for terminal tools or `both` for the full catalog.
+Catalog changes emit `notifications/tools/list_changed`. Hosts that ignore it can start in a chosen mode with `--mode <agent|shell|both>` or `PUPPET_MASTER_MODE`. See the
+[agent and shell contract](../../docs/orchestrator/agent-shell-modes.md) and
+[button GUI guide](../../docs/orchestrator/mcp-gui.md).
+
 **Puppet Master** is a multi-agent terminal orchestrator. It spawns real PTY sessions for Claude Code, Codex CLI, OpenCode, Cursor, PowerShell, and Bash, then coordinates them like a senior engineer at the keyboard: breaking work into tasks, assigning worker panes, enforcing resource locks, handing off context packs, and watching for prompts or blockers.
 
 ### Puppet Master Desktop
@@ -124,14 +134,27 @@ Or from the monorepo: `npm run mcp`
 Whether you orchestrate from Cursor, Claude Desktop, or the built-in sidebar, the tool surface is identical. A typical external flow:
 
 1. `bridge_health` — confirm Puppet Master is running
-2. `list_panes` — see live workers (reuse existing panes when possible)
-3. `create_task` → `acquire_resource_lock` — coordinate before delegating
-4. `read_agent_context` / `inspect_agent_model` — pick the right worker
-5. `spawn_agent` — only if no suitable pane exists
-6. `build_context_pack` — compact handoff prompt for the worker
-7. `write_terminal_input` — delegate with `append_newline: true`
-8. `read_terminal_buffer` — confirm receipt (once; avoid polling loops)
-9. `complete_task` — close out with evidence
+2. `delegate_work` — submit a task with an absolute `project_path` and caller-generated `idempotency_key`
+3. `wait_for_operation` — wait from the returned `operation_id` and `revision`; continue waiting when the result is nonterminal
+4. `get_operation` — inspect the latest durable snapshot when needed; `cancel_operation` requests cancellation and uses worker control for dispatched work.
+
+This is the preferred simple flow. It does not require scraping terminal output. For work already prepared manually, `delegate_task` only validates and renders a prompt; it does not dispatch work.
+
+```json
+{
+  "project_path": "C:/work/my-project",
+  "task": "Fix the failing parser tests and report the changed files",
+  "agent_type": "codex",
+  "idempotency_key": "parser-fix-2026-09-30-01",
+  "acceptance_criteria": ["Relevant tests pass", "Summarize changed files"]
+}
+```
+
+Pass the same idempotency key when retrying the same request. It returns the existing operation instead of dispatching duplicate work; reusing the key with different work returns an idempotency conflict. Use a new key for a distinct request. `acceptance_criteria` is required and must include at least one non-empty criterion.
+
+Operation snapshots include `operation_id`, `status`, monotonically increasing `revision`, `source` (`native` or `inferred`), `stage`, `pane_state`, `required_action`, `progress_pct`, `result`, and structured `error` when present (`code`, `message`, `recoverable`, optional `retry_after_ms`, `context`). Status is one of `queued`, `starting`, `running`, `waiting_input`, `cancelling`, `completed`, `failed`, or `cancelled`. `pane_state` and `required_action` provide structured observations when an agent is blocked. Progress is `null` unless the worker provides authoritative progress. A pane becoming idle or disappearing is not completion; `completed` requires explicit result evidence. If the worker presents an approval prompt during startup, `delegate_work` has already returned its operation ID and the operation moves to `waiting_input` while retaining the pane. Resolve the prompt manually; Puppet Master never approves it. The bridge watches for the prompt to clear, records the observed pane state, and resumes dispatch. `cancel_operation` requests cancellation of queued or running operations. For dispatched work, the adapter aborts a native session, terminates a process created for that operation, or sends Ctrl+C to a reused pane; adapter failures are returned as typed errors.
+
+`wait_for_operation` accepts `project_path`, `operation_id`, optional `after_revision`, optional `until` statuses, and optional `timeout_ms`. Its `reason` is `matched_state`, `revision_changed`, `terminal`, or `timeout`; a timeout or revision change does not mean success. Re-check the snapshot and wait again while the operation remains nonterminal. When the MCP host supplies a progress token, revision changes produce progress notifications containing the current operation snapshot. Request cancellation (`notifications/cancelled`) wakes the waiting tool call and returns a typed cancellation error. To follow startup approval handling, wait for `waiting_input`, then wait again from that revision; the same operation continues after the prompt is cleared.
 
 **Pane rules:** panes with id `puppet-master-orchestrator-*` are dedicated orchestrators. Never `write_terminal_input` or `kill_pane_process` on them — delegate only to worker panes.
 
@@ -171,7 +194,11 @@ then read_terminal_buffer once to confirm receipt.
 | `set_pane_role` | Assign a pane role: implementer, reviewer, shell, orchestrator, or observer |
 | `read_pane_digest` | Read the latest digest for a pane |
 | `update_pane_digest` | Store a manual pane digest in the Rust event log |
-| `delegate_task` | Validate structured delegation input and render a worker prompt |
+| `delegate_task` | Validate structured delegation input and render a worker prompt; does not dispatch |
+| `delegate_work` | Create/reuse a durable asynchronous operation with an idempotency key |
+| `get_operation` | Read the latest operation snapshot |
+| `wait_for_operation` | Wait for a new revision, selected status, terminal state, or timeout |
+| `cancel_operation` | Request queued or running operation cancellation |
 | `read_orchestrator_state` | Read Rust-owned orchestration runtime state |
 | `update_orchestrator_state` | Update standby polling policy |
 

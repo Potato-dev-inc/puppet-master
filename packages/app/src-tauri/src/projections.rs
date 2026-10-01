@@ -138,7 +138,7 @@ pub fn build_read_models(entries: &[EventEntry]) -> ReadModels {
                 pane.status = "running".to_string();
                 pane.killed = false;
             }
-            SystemEvent::PaneKilled { pane_id } => {
+            SystemEvent::PaneKilled { pane_id, .. } => {
                 let pane = panes.entry(pane_id.clone()).or_default();
                 pane.status = "killed".to_string();
                 pane.killed = true;
@@ -390,9 +390,7 @@ fn event_type_name(event: &SystemEvent) -> &'static str {
         SystemEvent::PaneRoleSet { .. } => "PaneRoleSet",
         SystemEvent::PaneDigestUpdated { .. } => "PaneDigestUpdated",
         SystemEvent::DelegationPrepared { .. } => "DelegationPrepared",
-        SystemEvent::OrchestratorStandbyPolicyUpdated { .. } => {
-            "OrchestratorStandbyPolicyUpdated"
-        }
+        SystemEvent::OrchestratorStandbyPolicyUpdated { .. } => "OrchestratorStandbyPolicyUpdated",
         SystemEvent::OpenCodeKeySwap { .. } => "OpenCodeKeySwap",
         SystemEvent::PaneModelSwitched { .. } => "PaneModelSwitched",
         SystemEvent::PaneTuiReattached { .. } => "PaneTuiReattached",
@@ -406,7 +404,13 @@ fn event_summary(event: &SystemEvent) -> String {
             agent_type,
             ..
         } => format!("pane {} spawned as {agent_type}", pane_id.0),
-        SystemEvent::PaneKilled { pane_id } => format!("pane {} killed", pane_id.0),
+        SystemEvent::PaneKilled { pane_id, reason } => {
+            if let Some(reason) = reason {
+                format!("pane {} killed ({})", pane_id.0, reason)
+            } else {
+                format!("pane {} killed", pane_id.0)
+            }
+        }
         SystemEvent::PaneInputWritten { pane_id, .. } => {
             format!("input written to pane {}", pane_id.0)
         }
@@ -512,7 +516,7 @@ fn event_summary(event: &SystemEvent) -> String {
                 "opencode key {event} on pane {} ({from_profile}{to})",
                 pane_id.0
             )
-        },
+        }
         SystemEvent::PaneModelSwitched {
             pane_id,
             provider_id,
@@ -627,6 +631,7 @@ mod tests {
                 CommandId::new(),
                 SystemEvent::PaneKilled {
                     pane_id: PaneId("pane-1".to_string()),
+                    reason: None,
                 },
             ),
         ];

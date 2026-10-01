@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getDefaultTerminalAgentType,
   listLaunchPresets,
@@ -155,11 +155,10 @@ export default function TerminalApp() {
   const [busy, setBusy] = useState(false);
   const [detachedLayoutReady, setDetachedLayoutReady] = useState(!detached);
   const [workerTrayOpen, setWorkerTrayOpen] = useState(false);
+  const sizedDetachedPaneRef = useRef<string | null>(null);
 
   const panes = registry.paneList;
   const selectedPane = selectedPaneId ? registry.panes.get(selectedPaneId) ?? null : null;
-  const selectedPaneCols = selectedPane?.info.cols;
-  const selectedPaneRows = selectedPane?.info.rows;
   const apiBaseUrl = bridge.client?.baseUrl ?? 'http://127.0.0.1:17321';
   const presets = useMemo(() => listLaunchPresets(), []);
 
@@ -271,18 +270,24 @@ export default function TerminalApp() {
 
   useEffect(() => {
     if (!detached) {
+      sizedDetachedPaneRef.current = null;
       setDetachedLayoutReady(true);
       return;
     }
-    if (!selectedPaneId || selectedPaneCols === undefined || selectedPaneRows === undefined) {
+    if (!selectedPaneId) {
+      sizedDetachedPaneRef.current = null;
       setDetachedLayoutReady(false);
+      return;
+    }
+    if (sizedDetachedPaneRef.current === selectedPaneId) {
+      setDetachedLayoutReady(true);
       return;
     }
 
     let cancelled = false;
     setDetachedLayoutReady(false);
     void (async () => {
-      const size = detachedWindowSizeFromGrid(selectedPaneCols, selectedPaneRows);
+      const size = detachedWindowSizeFromGrid(120, 32);
       try {
         await tauri.resizeCurrentWindow(size.width, size.height);
       } catch (err) {
@@ -291,6 +296,7 @@ export default function TerminalApp() {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       if (!cancelled) {
+        sizedDetachedPaneRef.current = selectedPaneId;
         setDetachedLayoutReady(true);
       }
     })();
@@ -298,7 +304,7 @@ export default function TerminalApp() {
     return () => {
       cancelled = true;
     };
-  }, [detached, selectedPaneCols, selectedPaneId, selectedPaneRows]);
+  }, [detached, selectedPaneId]);
 
   const spawnPane = async () => {
     setBusy(true);

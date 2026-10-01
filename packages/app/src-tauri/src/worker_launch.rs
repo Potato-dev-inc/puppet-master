@@ -81,7 +81,7 @@ where
                     rows = value;
                 }
             }
-            "--force-new" => force_new = true,
+            "--new" | "--force-new" => force_new = true,
             _ => {}
         }
         index += 1;
@@ -120,6 +120,13 @@ mod tests {
         assert_eq!(launch.cwd.as_deref(), Some("~/work/repo"));
         assert_eq!(launch.cols, 100);
         assert_eq!(launch.rows, 28);
+        assert!(launch.force_new);
+    }
+
+    #[test]
+    fn new_alias_sets_force_new() {
+        let launch = parse_worker_launch(["--worker".to_string(), "--new".to_string()])
+            .expect("worker launch");
         assert!(launch.force_new);
     }
 

@@ -1,10 +1,10 @@
 //! Long-poll worker pane wait — avoids orchestrator MCP polling loops.
 
-use crate::opencode::status;
 use crate::opencode::quota::{self, KeySwapEvent, KEY_ROTATED, KEY_SWAP_REQUIRED};
+use crate::opencode::status;
 use crate::pane_wait_notify;
-use crate::pty::{registry_read_buffer, PaneRegistry};
 use crate::pty::status::looks_like_opencode_tui_menu;
+use crate::pty::{registry_read_buffer, PaneRegistry};
 use parking_lot::Mutex;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -31,6 +31,8 @@ pub enum WaitUntil {
     Settled,
     /// OpenCode TUI yes/no or numbered menu visible in scrollback.
     TuiPrompt,
+    /// Pane is `running` and has produced output. Ink/Claude TUIs often never idle.
+    Running,
 }
 
 impl WaitUntil {
@@ -58,6 +60,7 @@ impl WaitUntil {
             "output_match" | "buffer_match" => Ok(Self::OutputMatch),
             "settled" | "worker_settled" | "stopped" | "done" => Ok(Self::Settled),
             "tui_prompt" | "tui_menu" | "confirmation" => Ok(Self::TuiPrompt),
+            "running" => Ok(Self::Running),
             other => Err(format!("unsupported wait trigger '{other}'")),
         }
     }
@@ -121,9 +124,57 @@ pub struct WaitForPanesResult {
     pub agent_hint: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub buffer_tail: Option<String>,
+    /// Structured approval prompt blocking the pane: `{prompt_id, kind, choices, text}`.
+    /// Answer it with answer_prompt(pane_id, prompt_id, choice).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<Value>,
 }
 
 pub fn wait_for_panes(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    req: WaitForPanesRequest,
+) -> Result<WaitForPanesResult, String> {
+    let mut result = wait_for_panes_inner(registry, req)?;
+    let blocked = result.status.as_deref() == Some("waiting_input")
+        || matches!(result.reason.as_str(), "waiting_input" | "tui_prompt");
+    if blocked {
+        result.prompt = crate::pane_prompt::detect(registry, &result.pane_id, true);
+    }
+    if result.agent_hint.is_none() {
+        if let Some(info) = status::pane_info(registry, &result.pane_id) {
+            result.agent_hint =
+                tui_hint_for(&info.agent_type, &result.reason, result.status.as_deref());
+        }
+    }
+    Ok(result)
+}
+
+/// Hints for panes that have no OpenCode API session, keyed on the pane's agent type so a
+/// Cursor approval or a shell prompt is never pointed at OpenCode-only tools.
+fn tui_hint_for(agent_type: &str, reason: &str, status: Option<&str>) -> Option<Value> {
+    let blocked =
+        matches!(reason, "waiting_input" | "tui_prompt") || status == Some("waiting_input");
+    match agent_type {
+        "powershell" | "cmd" | "bash" => (reason == "idle" || status == Some("idle")).then(|| json!({
+            "action": "shell_exec",
+            "tools": ["shell_exec", "read_terminal_buffer"],
+            "detail": "Shell is at its prompt. Run a command with shell_exec (shell mode) or write_terminal_input, then read the output with read_terminal_buffer (scrollback view)."
+        })),
+        "cursor_agent" | "claude" | "codex" | "cursor" | "opencode" if blocked => Some(json!({
+            "action": "answer_prompt",
+            "tools": ["answer_prompt", "read_terminal_buffer", "press_key"],
+            "detail": "A prompt is blocking this pane. If `prompt` is present, call answer_prompt(pane_id, prompt.prompt_id, choice: allow_once|deny); this connection must control the pane (take_over with grant=true for panes it did not start). Otherwise read the screen once and use press_key (Cursor: y = run once, n or esc = skip). Workspace trust must be accepted by the user. Nothing is answered automatically."
+        })),
+        "claude" | "codex" | "cursor_agent" | "cursor" | "opencode" if reason == "idle" => Some(json!({
+            "action": "read_terminal_buffer",
+            "tools": ["read_terminal_buffer"],
+            "detail": "Agent settled idle; read the terminal buffer once for its output."
+        })),
+        _ => None,
+    }
+}
+
+fn wait_for_panes_inner(
     registry: &Arc<Mutex<PaneRegistry>>,
     req: WaitForPanesRequest,
 ) -> Result<WaitForPanesResult, String> {
@@ -176,6 +227,7 @@ pub fn wait_for_panes(
                 task_status: task_status(req.task_id.as_deref()),
                 agent_hint: agent_hint_for_reason("timeout", opencode.as_ref()),
                 buffer_tail,
+                prompt: None,
             });
         }
         pane_wait_notify::wait_for_change(deadline, &mut wake_generation);
@@ -221,7 +273,9 @@ fn check_pane(
     let opencode = status::wait_snapshot(registry, pane_id).ok().flatten();
 
     if until.contains(&WaitUntil::Settled) || until.contains(&WaitUntil::TuiPrompt) {
-        if let Some(reason) = worker_settled_reason(registry, pane_id, &info.status, opencode.as_ref(), until) {
+        if let Some(reason) =
+            worker_settled_reason(registry, pane_id, &info.status, opencode.as_ref(), until)
+        {
             let buffer_tail = if reason == "tui_prompt" {
                 registry_read_buffer(registry, pane_id, 40).ok()
             } else {
@@ -241,7 +295,14 @@ fn check_pane(
         }
     }
 
-    if let Some(result) = try_key_swap_wait(registry, pane_id, until, &info.status, opencode.clone(), task_id) {
+    if let Some(result) = try_key_swap_wait(
+        registry,
+        pane_id,
+        until,
+        &info.status,
+        opencode.clone(),
+        task_id,
+    ) {
         return Some(result);
     }
 
@@ -375,9 +436,29 @@ fn check_pane(
             None,
         ));
     }
-    if until.contains(&WaitUntil::WaitingInput) && info.status == "waiting_input" {
+    // A blocked TUI can never become idle without an answer; do not sleep through it.
+    let blocked_tui = info.status == "waiting_input"
+        && !crate::pty::status::is_shell_agent(&info.agent_type)
+        && until.contains(&WaitUntil::Idle);
+    if (until.contains(&WaitUntil::WaitingInput) || blocked_tui) && info.status == "waiting_input" {
         return Some(wait_result(
             "status_changed",
+            pane_id,
+            info.status,
+            opencode,
+            None,
+            None,
+            task_id.map(str::to_string),
+            task_status(task_id),
+            None,
+        ));
+    }
+    if until.contains(&WaitUntil::Running)
+        && info.status == "running"
+        && pane_has_visible_output(registry, pane_id)
+    {
+        return Some(wait_result(
+            "running",
             pane_id,
             info.status,
             opencode,
@@ -458,6 +539,9 @@ fn agent_hint_for_reason(
     reason: &str,
     opencode: Option<&status::OpenCodeWaitSnapshot>,
 ) -> Option<Value> {
+    // These suggested actions call OpenCode API tools. Only native OpenCode
+    // panes have the API-backed session those tools can address.
+    opencode?;
     match reason {
         "tui_prompt" | "waiting_input" => Some(json!({
             "action": "reply_opencode_question",
@@ -554,6 +638,7 @@ fn wait_result(
         status: Some(status),
         agent_hint: agent_hint_for_reason(reason, opencode.as_ref()),
         buffer_tail,
+        prompt: None,
         opencode,
         from_profile,
         to_profile,
@@ -578,6 +663,60 @@ pub fn wait_for_worker(
             model_match: None,
         },
     )
+}
+
+/// Spawn readiness for `delegate_work`. Claude/Ink TUIs stay `running` and never
+/// match `settled` (idle / waiting_input). A live pane with output is enough to
+/// accept the task prompt. `wait_for_worker` after a prompt is unchanged.
+pub fn wait_for_dispatch_ready(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    timeout_ms: u64,
+) -> Result<WaitForPanesResult, String> {
+    let result = wait_for_panes(
+        registry,
+        WaitForPanesRequest {
+            pane_ids: vec![pane_id.to_string()],
+            until: vec!["settled".into(), "running".into(), "error".into()],
+            timeout_ms,
+            task_id: None,
+            output_regex: None,
+            model_match: None,
+        },
+    )?;
+    if result.reason != "timeout" {
+        return Ok(result);
+    }
+    // ponytail: Ink TUIs may never leave `running`; only proceed if the pane
+    // is still live and has painted something. Dead/empty panes stay PANE_NOT_READY.
+    if let Some(info) = status::pane_info(registry, pane_id) {
+        if live_enough_for_dispatch(Some(&info.status))
+            && pane_has_visible_output(registry, pane_id)
+        {
+            return Ok(wait_result(
+                &info.status,
+                pane_id,
+                info.status.clone(),
+                status::wait_snapshot(registry, pane_id).ok().flatten(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            ));
+        }
+    }
+    Ok(result)
+}
+
+fn pane_has_visible_output(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> bool {
+    registry_read_buffer(registry, pane_id, 40)
+        .map(|buf| !buf.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn live_enough_for_dispatch(status: Option<&str>) -> bool {
+    matches!(status, Some("running" | "idle" | "waiting_input"))
 }
 
 pub fn wait_for_model(
@@ -630,24 +769,78 @@ mod tests {
 
     #[test]
     fn parses_wait_triggers() {
-        assert_eq!(WaitUntil::parse("permission").unwrap(), WaitUntil::Permission);
-        assert_eq!(WaitUntil::parse("waiting").unwrap(), WaitUntil::WaitingInput);
-        assert_eq!(WaitUntil::parse("key_swap").unwrap(), WaitUntil::KeySwapRequired);
-        assert_eq!(WaitUntil::parse("rate_limited").unwrap(), WaitUntil::KeyRotated);
-        assert_eq!(WaitUntil::parse("model_ready").unwrap(), WaitUntil::ModelReady);
+        assert_eq!(
+            WaitUntil::parse("permission").unwrap(),
+            WaitUntil::Permission
+        );
+        assert_eq!(
+            WaitUntil::parse("waiting").unwrap(),
+            WaitUntil::WaitingInput
+        );
+        assert_eq!(
+            WaitUntil::parse("key_swap").unwrap(),
+            WaitUntil::KeySwapRequired
+        );
+        assert_eq!(
+            WaitUntil::parse("rate_limited").unwrap(),
+            WaitUntil::KeyRotated
+        );
+        assert_eq!(
+            WaitUntil::parse("model_ready").unwrap(),
+            WaitUntil::ModelReady
+        );
         assert_eq!(WaitUntil::parse("tui_ready").unwrap(), WaitUntil::TuiReady);
-        assert_eq!(WaitUntil::parse("task_completed").unwrap(), WaitUntil::TaskCompleted);
+        assert_eq!(
+            WaitUntil::parse("task_completed").unwrap(),
+            WaitUntil::TaskCompleted
+        );
         assert_eq!(WaitUntil::parse("settled").unwrap(), WaitUntil::Settled);
-        assert_eq!(WaitUntil::parse("tui_prompt").unwrap(), WaitUntil::TuiPrompt);
+        assert_eq!(
+            WaitUntil::parse("tui_prompt").unwrap(),
+            WaitUntil::TuiPrompt
+        );
+        assert_eq!(WaitUntil::parse("running").unwrap(), WaitUntil::Running);
     }
 
     #[test]
-    fn agent_hint_for_tui_prompt_suggests_reply_opencode_question() {
-        let hint = agent_hint_for_reason("tui_prompt", None).expect("hint");
-        assert_eq!(
-            hint.get("action").and_then(|v| v.as_str()),
-            Some("reply_opencode_question")
+    fn live_running_pane_is_dispatchable_after_readiness_timeout() {
+        assert!(live_enough_for_dispatch(Some("running")));
+        assert!(live_enough_for_dispatch(Some("idle")));
+        assert!(live_enough_for_dispatch(Some("waiting_input")));
+        assert!(!live_enough_for_dispatch(Some("error")));
+        assert!(!live_enough_for_dispatch(None));
+    }
+
+    #[test]
+    fn dispatch_ready_accepts_running_claude_pane_with_output() {
+        let registry = Arc::new(Mutex::new(crate::pty::PaneRegistry::new()));
+        let pane = crate::pty::PaneRegistry::test_pane_stub("claude-1");
+        pane.scrollback
+            .lock()
+            .push_chunk(b"Claude Code loaded\nLogin expired\n");
+        registry.lock().panes.insert("claude-1".into(), pane);
+        let result = wait_for_dispatch_ready(&registry, "claude-1", 1_000).expect("wait");
+        assert_eq!(result.reason, "running");
+        assert_eq!(result.status.as_deref(), Some("running"));
+    }
+
+    #[test]
+    fn pane_info_uses_live_status_lock_not_spawn_snapshot() {
+        let registry = Arc::new(Mutex::new(crate::pty::PaneRegistry::new()));
+        let pane = crate::pty::PaneRegistry::test_pane_stub("live-status");
+        *pane.status.lock() = crate::pty::status::PaneStatus::Idle;
+        registry.lock().panes.insert("live-status".into(), pane);
+        let info = status::pane_info(&registry, "live-status").expect("pane");
+        assert_eq!(info.status, "idle");
+        assert_ne!(
+            info.status,
+            registry.lock().panes["live-status"].info.status
         );
+    }
+
+    #[test]
+    fn opencode_reply_hint_requires_native_state() {
+        assert!(agent_hint_for_reason("tui_prompt", None).is_none());
     }
 
     #[test]
@@ -689,5 +882,20 @@ mod tests {
             match_key_event_to_reason(&swap, true, false),
             Some("key_swap_required")
         );
+    }
+
+    #[test]
+    fn hints_follow_the_agent_type_not_opencode_presence() {
+        let cursor = tui_hint_for("cursor_agent", "waiting_input", Some("waiting_input")).unwrap();
+        assert!(cursor["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t == "press_key"));
+        assert!(!cursor.to_string().contains("opencode"));
+        let shell = tui_hint_for("powershell", "idle", Some("idle")).unwrap();
+        assert_eq!(shell["action"], "shell_exec");
+        assert!(tui_hint_for("powershell", "waiting_input", Some("waiting_input")).is_none());
+        assert!(tui_hint_for("opencode_native", "idle", Some("idle")).is_none());
     }
 }

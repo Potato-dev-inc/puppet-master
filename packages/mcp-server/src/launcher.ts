@@ -21,7 +21,7 @@ const args = existsSync(rustBinary) ? process.argv.slice(2) : [legacyServer, ...
 
 if (!existsSync(rustBinary)) {
   process.stderr.write(
-    `[puppet-master-mcp] Rust binary missing at ${rustBinary}; falling back to legacy TypeScript MCP server.\n`,
+    `[puppet-master-mcp] Rust binary missing at ${rustBinary}; falling back to legacy TypeScript MCP server. tools/list will use a local agent-mode catalog if the HTTP bridge is down. Rebuild with npm run build:mcp so agent tools register without an HTTP catalog fetch.\n`,
   );
 }
 

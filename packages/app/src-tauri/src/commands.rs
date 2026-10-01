@@ -167,7 +167,11 @@ pub async fn switch_agent_model(
     )
     .ok_or_else(|| "model_id required".to_string())?;
     crate::opencode::switch_native_model(&state.registry, &app, &pane_id, &model)?;
-    Ok(crate::opencode::switch_model_response(&state.registry, &pane_id, &model))
+    Ok(crate::opencode::switch_model_response(
+        &state.registry,
+        &pane_id,
+        &model,
+    ))
 }
 
 #[tauri::command]
@@ -209,12 +213,9 @@ pub async fn read_agent_context(
             .find(|pane| pane.id == pane_id)
             .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
         let buffer = registry_read_buffer(&state.registry, &pane_id, 200)?;
-        let context = crate::agent_contexts::build_pane_agent_context(
-            Some(&state.registry),
-            pane,
-            &buffer,
-        )
-            .ok_or_else(|| "unknown pane agent_type".to_string())?;
+        let context =
+            crate::agent_contexts::build_pane_agent_context(Some(&state.registry), pane, &buffer)
+                .ok_or_else(|| "unknown pane agent_type".to_string())?;
         return serde_json::to_value(context)
             .map_err(|err| format!("serialize agent context: {err}"));
     }

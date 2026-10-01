@@ -72,6 +72,8 @@ pub enum SystemEvent {
     },
     PaneKilled {
         pane_id: PaneId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
     },
     PaneInputWritten {
         pane_id: PaneId,

@@ -101,7 +101,9 @@ pub fn ensure_watching(pane_id: String, app: AppHandle, registry: Arc<Mutex<Pane
             let Ok(current) = status::worker_status(&registry, &pane_id) else {
                 continue;
             };
-            let changed = last.as_ref().is_none_or(|prev| snapshot_changed(prev, &current));
+            let changed = last
+                .as_ref()
+                .is_none_or(|prev| snapshot_changed(prev, &current));
             if changed {
                 let event = classify_event(last.as_ref(), &current);
                 emit_event(
@@ -122,12 +124,7 @@ pub fn ensure_watching(pane_id: String, app: AppHandle, registry: Arc<Mutex<Pane
                 });
             }
 
-            poll_scrollback_rate_limit(
-                &registry,
-                &app,
-                &pane_id,
-                &mut quota_scrollback_notified,
-            );
+            poll_scrollback_rate_limit(&registry, &app, &pane_id, &mut quota_scrollback_notified);
         }
         watching().lock().remove(&pane_id);
     });
@@ -165,8 +162,7 @@ fn classify_event(prev: Option<&LastSnapshot>, current: &OpenCodeWorkerStatus) -
     if !current.serve_healthy {
         return "unhealthy".into();
     }
-    if current.pending_permission_count > 0
-        && prev.is_none_or(|p| p.pending_permission_count == 0)
+    if current.pending_permission_count > 0 && prev.is_none_or(|p| p.pending_permission_count == 0)
     {
         return "permission".into();
     }

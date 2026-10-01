@@ -37,6 +37,7 @@
     ],
     "resources": [
       "resources/mcp-stdio.bundle.cjs",
+      "resources/puppet-master-cli.bundle.mjs",
       "resources/pwa-dist/*",
       "resources/pwa-dist/assets/*",
       "resources/bin/*"

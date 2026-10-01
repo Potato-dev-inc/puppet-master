@@ -6,6 +6,13 @@ Tauri GUI is already running.
 
 ## Prerequisites
 
+New connections start in **agent mode**. Use `run_agent` to delegate and wait,
+then `wait_agents`, `send_message` / `followup_task`, `interrupt_agent`, or
+`inspect_agent` with its handle. `send_agent` and `cancel_agent` still work as
+wrappers. The terminal tools documented below require `set_mode({"mode":"shell"})`
+or `set_mode({"mode":"both"})`.
+See [agent and shell modes](docs/orchestrator/agent-shell-modes.md).
+
 1. Start the GUI: `npx puppet-master` (or run `npm run tauri dev` from the repo).
 2. Verify the bridge port file exists:
    - Windows: `%APPDATA%\com.puppetmaster.app\puppet-master.bridge.port`
@@ -66,6 +73,12 @@ AppData bridge port file (Cursor often cannot resolve bare `node` / `npx` on PAT
 
 Cursor will discover the Puppet Master tools and let the agent use them.
 
+MCP hosts can cache tool catalogs. `tools/list` is served from the local Rust
+catalog (no HTTP fetch). If an agent tool is missing, the host is likely using
+the legacy TypeScript fallback or a stale binary: run `npm run build:mcp`,
+reconnect, and inspect `initialize.serverInfo.catalog_version` before using a
+raw HTTP workaround.
+
 **Local dev (this repo):** build the MCP launcher and point Cursor at it so you get the latest tools without waiting for npm publish:
 
 ```bash
@@ -117,23 +130,26 @@ When Cursor is using Puppet Master as an MCP server, tell the Cursor agent to fo
 3. Reuse an existing matching agent pane when possible. Do not spawn duplicate Claude/Codex/OpenCode panes unless the user explicitly asks for another one.
 4. For any live agent pane you may delegate to, call `read_agent_context` with `pane_id`.
 5. If choosing between multiple agents, call `inspect_agent_model` for each candidate pane and prefer the stronger/smarter fit for the task.
-6. Delegate with `write_terminal_input` using `append_newline: true`.
-7. **Immediately** call the `suggested_wait` from the mutate response (usually `wait_for_worker`). Do not poll `read_terminal_buffer` in a loop.
-8. For `opencode_native`: use `read_opencode_messages` for output; `reply_opencode_question` for yes/no; `inspect_agent_model` or `read_opencode_worker_status` for status.
-9. Reconnect MCP in Cursor after tool registry changes so the tool catalog stays fresh.
+6. Prefer `delegate_work` with an absolute `project_path`, `task`, and caller-generated `idempotency_key` for ordinary delegation.
+7. Call `wait_for_operation` using its `operation_id` and `revision`; continue waiting while the operation is nonterminal. Use `get_operation` to inspect. `cancel_operation` requests cancellation and uses worker control when available.
+8. For a manually managed pane, send with `write_terminal_input` and call its suggested wait. Do not poll `read_terminal_buffer` in a loop.
+9. For `opencode_native`: use `read_opencode_messages` for output; `reply_opencode_question` for yes/no; `inspect_agent_model` or `read_opencode_worker_status` for status.
+10. Reconnect MCP in Cursor after tool registry changes so the tool catalog stays fresh.
 
 Full playbooks: [docs/orchestrator/README.md](docs/orchestrator/README.md).
 
 You can paste this into Cursor as a project rule or include it in the prompt:
 
 ```text
-When using the puppet-master MCP server, first call bridge_health, then list_panes.
-Reuse existing panes. Before delegating, inspect the target pane with read_agent_context
-and inspect_agent_model when choosing between agents. Only spawn a new agent if no
-suitable pane exists. Send prompts with write_terminal_input append_newline=true,
-then call suggested_wait from the response (wait_for_worker / wait_for_panes).
-For opencode_native: read_opencode_messages for output; reply_opencode_question for yes/no.
-Never loop read_terminal_buffer or list_panes for status — use wait tools instead.
+When using the puppet-master MCP server, call bridge_health before delegating.
+For ordinary work, use delegate_work with an absolute project_path, task, and
+idempotency_key, then wait_for_operation using its operation_id and revision.
+Inspect get_operation when needed. cancel_operation asks worker control to stop a dispatched operation, including aborting a native session when supported.
+Retry the same request with the same idempotency_key. A timeout or revision change
+is not success unless the snapshot is terminal and completed with result evidence.
+waiting_input means a human response is needed; never auto-approve. A pane becoming
+idle is not task completion. For manual pane workflows, use write_terminal_input
+followed by its suggested wait. Do not loop read_terminal_buffer or list_panes.
 ```
 
 ## Claude Desktop
@@ -284,7 +300,19 @@ Long-poll until a pane reaches a target state. Prefer these over polling buffers
 }
 ```
 
-Mutating tools (`spawn_agent`, `write_terminal_input`, `switch_agent_model`, `delegate_task`) return `suggested_wait` — call it immediately after each mutation.
+Mutating pane tools (`spawn_agent`, `write_terminal_input`, `switch_agent_model`) return `suggested_wait` — call it immediately after each mutation.
+
+### Durable asynchronous operations
+
+`delegate_task` validates structured input and renders a worker prompt; it does not dispatch. `delegate_work` creates a durable operation using `{ "project_path": "C:/work/project", "task": "...", "agent_type": "codex", "idempotency_key": "unique-for-this-request", "acceptance_criteria": ["... "] }`. Optional fields include `pane_id`, `task_id`, `exclusive`, and `locks`. Reusing the same key for the same request returns the existing operation and does not dispatch again; a different request with that key returns an idempotency conflict. Use a new key for a distinct request. At least one non-empty acceptance criterion is required.
+
+```json
+{ "project_path": "C:/work/project", "task": "Fix parser tests", "agent_type": "codex", "idempotency_key": "parser-fix-01", "acceptance_criteria": ["Relevant tests pass"] }
+```
+
+`get_operation` takes `operation_id` and optional `project_path`. `wait_for_operation` takes `operation_id`, optional `project_path`, and optionally `after_revision`, `until` (status list), and `timeout_ms`. It returns `{ "snapshot": ..., "reason": "matched_state" | "revision_changed" | "terminal" | "timeout" }`. `cancel_operation` takes `operation_id` and optional `project_path`, then requests cancellation. Its snapshot can pass through `cancelling`; running cancellation uses the agent adapter interruption path (abort a native session, terminate an operation-created process, or send Ctrl+C to a reused pane).
+
+Snapshots carry `status` (`queued`, `starting`, `running`, `waiting_input`, `cancelling`, `completed`, `failed`, `cancelled`), monotonically increasing `revision`, `source` (`native` or `inferred`), optional `stage`, `pane_state`, `required_action`, `progress_pct` (null when no authoritative progress exists), optional `result`, and structured `error` fields (`code`, `message`, `recoverable`, optional `retry_after_ms`, `context`). A timeout or revision change is not success. Idle or missing panes do not imply completion; `completed` requires explicit result evidence. On a startup approval prompt, `delegate_work` has already returned its operation ID and the operation waits in `waiting_input` with the pane preserved. A human must clear the prompt; no approval is automatic. The bridge watches for resolution, records the observed pane state, and resumes dispatch. When the MCP host supplies a progress token, revision changes produce progress notifications containing the current operation snapshot. Request cancellation wakes the waiting tool call and reports a typed cancellation error. Running cancellation uses worker control, including aborting a native session when supported.
 
 ### `read_recent_events`
 
@@ -298,6 +326,7 @@ The Rust bridge also exposes registry-backed coordination tools for longer-runni
 - `set_pane_role` — assign `implementer`, `reviewer`, `shell`, `orchestrator`, or `observer`.
 - `read_pane_digest` / `update_pane_digest` — persist a short pane summary without rereading scrollback.
 - `delegate_task` — validate structured delegation input and render a worker prompt without launching a pane.
+- `delegate_work` / `get_operation` / `wait_for_operation` / `cancel_operation` — create and track durable revisioned work.
 - `read_orchestrator_state` / `update_orchestrator_state` — inspect or tune Rust-owned standby timing.
 
 ## Architecture note

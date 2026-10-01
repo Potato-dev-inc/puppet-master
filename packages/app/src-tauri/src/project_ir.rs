@@ -142,7 +142,11 @@ fn current_git_sha(project_root: &Path) -> Option<String> {
         return None;
     }
     let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if sha.is_empty() { None } else { Some(sha) }
+    if sha.is_empty() {
+        None
+    } else {
+        Some(sha)
+    }
 }
 
 fn truncate_utf8(text: &str, max_bytes: usize) -> String {
@@ -210,11 +214,7 @@ mod tests {
         let storage = dir.join(".puppet-master");
         fs::create_dir_all(&storage).expect("mkdir");
         let big = "x".repeat(5000);
-        fs::write(
-            storage.join(IR_FILE),
-            format!(r#"{{"overview":"{big}"}}"#),
-        )
-        .expect("write ir");
+        fs::write(storage.join(IR_FILE), format!(r#"{{"overview":"{big}"}}"#)).expect("write ir");
 
         let excerpt = read_overview_excerpt(&dir).expect("excerpt");
         assert!(excerpt.overview.len() <= OVERVIEW_CAP_BYTES + 4);

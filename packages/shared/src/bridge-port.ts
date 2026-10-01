@@ -33,17 +33,30 @@ function bridgePortCandidates(filePath?: string): string[] {
   return [DEFAULT_BRIDGE_PORT_FILE, defaultAppDataBridgePortFile()];
 }
 
-export async function readBridgePort(filePath?: string): Promise<{ port: number; host: string }> {
-  const candidates = [...new Set(bridgePortCandidates(filePath))];
-  let lastPath = candidates[candidates.length - 1] ?? DEFAULT_BRIDGE_PORT_FILE;
-  for (const fp of candidates) {
-    lastPath = fp;
+export async function readAllBridgePorts(
+  filePath?: string,
+): Promise<Array<{ host: string; port: number }>> {
+  const found: Array<{ host: string; port: number }> = [];
+  const seen = new Set<string>();
+  for (const fp of [...new Set(bridgePortCandidates(filePath))]) {
     try {
-      return parseBridgePort(await readFile(fp, 'utf-8'));
+      const parsed = parseBridgePort(await readFile(fp, 'utf-8'));
+      if (!Number.isFinite(parsed.port) || parsed.port <= 0) continue;
+      const key = `${parsed.host}:${parsed.port}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push(parsed);
     } catch {
       /* try next candidate */
     }
   }
+  return found;
+}
+
+export async function readBridgePort(filePath?: string): Promise<{ port: number; host: string }> {
+  const found = await readAllBridgePorts(filePath);
+  if (found[0]) return found[0];
+  const candidates = [...new Set(bridgePortCandidates(filePath))];
   throw new Error(
     `Puppet Master bridge port file not found (tried: ${candidates.map((p) => `"${p}"`).join(', ')}). ` +
     `Start Puppet Master first (\`npx puppet-master\`).`
