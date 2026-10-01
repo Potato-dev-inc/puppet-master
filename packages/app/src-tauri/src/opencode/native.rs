@@ -44,14 +44,19 @@ pub fn spawn_native_pane(
     let rows = args.rows.unwrap_or(30);
     let pane_id = args.pane_id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    {
+    let replaced = {
         let mut reg = registry.lock();
-        if reg.panes.contains_key(&pane_id) {
-            reg.kill(&pane_id);
-            crate::event_log::append_system_event(SystemEvent::PaneKilled {
-                pane_id: PaneId(pane_id.clone()),
-            });
-        }
+        reg.take(&pane_id)
+    };
+    let previous_session = replaced
+        .as_ref()
+        .and_then(|pane| pane.opencode.as_ref().map(|link| link.session_id.clone()));
+    if let Some(pane) = replaced {
+        crate::pty::registry::shutdown_pane(pane);
+        crate::event_log::append_system_event(SystemEvent::PaneKilled {
+            pane_id: PaneId(pane_id.clone()),
+            reason: Some("native_respawn_replaced".into()),
+        });
     }
 
     let port = pick_free_port(PORT_MIN, PORT_MAX)?;
@@ -76,20 +81,33 @@ pub fn spawn_native_pane(
         .map_err(|err| format!("opencode serve spawn ({opencode_exe}): {err}"))?;
 
     if let Err(err) = client::wait_for_health(&base_url, SERVE_START_TIMEOUT) {
+        crate::pty::proc_tree::kill_process_tree(serve_child.id());
         let _ = serve_child.kill();
         error!(%pane_id, %base_url, %err, "opencode serve failed health check");
         return Err(err);
     }
 
-    let session = match client::create_session(&base_url, &format!("puppet-master {pane_id}")) {
-        Ok(session) => session,
-        Err(err) => {
-            let _ = serve_child.kill();
-            error!(%pane_id, %err, "opencode create session failed");
-            return Err(err);
+    let reused_session = previous_session
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .and_then(|id| client::get_session(&base_url, id, Some(&cwd)).ok())
+        .map(|session| session.id)
+        .filter(|id| !id.is_empty());
+    let session_id = if let Some(id) = reused_session {
+        info!(%pane_id, %base_url, session_id = %id, "opencode native worker reattached session");
+        id
+    } else {
+        match client::create_session(&base_url, &format!("puppet-master {pane_id}")) {
+            Ok(session) => session.id,
+            Err(err) => {
+                crate::pty::proc_tree::kill_process_tree(serve_child.id());
+                let _ = serve_child.kill();
+                error!(%pane_id, %err, "opencode create session failed");
+                return Err(err);
+            }
         }
     };
-    info!(%pane_id, %base_url, session_id = %session.id, "opencode native worker ready");
+    info!(%pane_id, %base_url, session_id = %session_id, "opencode native worker ready");
 
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -99,24 +117,48 @@ pub fn spawn_native_pane(
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|e| format!("openpty: {e}"))?;
+        .map_err(|e| format!("openpty: {e}"));
+    let pair = match pair {
+        Ok(pair) => pair,
+        Err(err) => {
+            kill_serve_child(&mut serve_child);
+            return Err(err);
+        }
+    };
 
-    let cmd = build_attach_command(&opencode_exe, &base_url, &session.id, &cwd);
-    let child = pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| format!("spawn attach: {e}"))?;
+    let cmd = build_attach_command(&opencode_exe, &base_url, &session_id, &cwd);
+    let child = match pair.slave.spawn_command(cmd) {
+        Ok(child) => child,
+        Err(e) => {
+            kill_serve_child(&mut serve_child);
+            return Err(format!("spawn attach: {e}"));
+        }
+    };
     let pid = child.process_id().unwrap_or(0);
     drop(pair.slave);
 
-    let writer = pair
+    let io = pair
         .master
         .take_writer()
-        .map_err(|e| format!("take_writer: {e}"))?;
-    let reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|e| format!("clone_reader: {e}"))?;
+        .map_err(|e| format!("take_writer: {e}"))
+        .and_then(|writer| {
+            pair.master
+                .try_clone_reader()
+                .map(|reader| (writer, reader))
+                .map_err(|e| format!("clone_reader: {e}"))
+        });
+    let (writer, reader) = match io {
+        Ok(io) => io,
+        Err(err) => {
+            kill_serve_child(&mut serve_child);
+            let mut attach = child;
+            if let Some(pid) = attach.process_id() {
+                crate::pty::proc_tree::kill_process_tree(pid);
+            }
+            let _ = attach.kill();
+            return Err(err);
+        }
+    };
 
     let scrollback = Arc::new(Mutex::new(Scrollback::new(SCROLLBACK_CAP)));
     let screen = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, SCROLLBACK_CAP)));
@@ -138,7 +180,7 @@ pub fn spawn_native_pane(
 
     let opencode = OpenCodeLink::new(
         base_url.clone(),
-        session.id.clone(),
+        session_id.clone(),
         cwd.clone(),
         serve_child,
     );
@@ -153,8 +195,8 @@ pub fn spawn_native_pane(
         screen: screen.clone(),
         status: status.clone(),
         last_output: last_output.clone(),
-        master: pair.master,
-        writer,
+        master: Arc::new(Mutex::new(pair.master)),
+        writer: Arc::new(Mutex::new(writer)),
         child,
         exited: exited.clone(),
         opencode: Some(opencode),
@@ -191,6 +233,15 @@ pub fn spawn_native_pane(
     });
     info!(pane = %pane_id, agent = "opencode_native", pid, "pane spawned");
     let _ = app.emit("pty://panes-changed", ());
+    if let Some(previous_session) = previous_session {
+        crate::agent_runs::on_native_pane_replaced(
+            &pane_id,
+            &previous_session,
+            &session_id,
+            &registry,
+            app,
+        );
+    }
 
     Ok(pane_id)
 }
@@ -249,7 +300,21 @@ pub fn reattach_tui(
     pane_id: &str,
 ) -> Result<(), String> {
     let opencode_exe = crate::shell_env::resolve_opencode_executable()?;
-    let (base_url, session_id, directory, cols, rows, reattaching, keep_serve, attach_generation, scrollback, screen, status, last_output, exited) = {
+    let (
+        base_url,
+        session_id,
+        directory,
+        cols,
+        rows,
+        reattaching,
+        keep_serve,
+        attach_generation,
+        scrollback,
+        screen,
+        status,
+        last_output,
+        exited,
+    ) = {
         let reg = registry.lock();
         let pane = reg
             .panes
@@ -327,14 +392,24 @@ pub fn reattach_tui(
         .try_clone_reader()
         .map_err(|e| format!("clone_reader: {e}"))?;
 
+    // Drain in-flight ConPTY writes without holding PaneRegistry.
+    let (writer_slot, master_slot) = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
+        (pane.writer.clone(), pane.master.clone())
+    };
+    *writer_slot.lock() = writer;
+    *master_slot.lock() = pair.master;
+
     {
         let mut reg = registry.lock();
         let pane = reg
             .panes
             .get_mut(pane_id)
             .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
-        pane.master = pair.master;
-        pane.writer = writer;
         pane.child = child;
         pane.info.pid = pid;
         *pane.exited.lock() = false;
@@ -381,6 +456,12 @@ fn opencode_serve_handle(
         .as_ref()
         .ok_or_else(|| format!("pane {pane_id} has no opencode link"))?;
     Ok(link.serve_handle())
+}
+
+fn kill_serve_child(child: &mut std::process::Child) {
+    crate::pty::proc_tree::kill_process_tree(child.id());
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn pick_free_port(lo: u16, hi: u16) -> Result<u16, String> {
@@ -467,7 +548,7 @@ fn spawn_reader_thread(
         if !keep_serve_on_attach_exit.load(std::sync::atomic::Ordering::SeqCst) {
             if let Ok(mut guard) = serve_handle.lock() {
                 if let Some(mut child) = guard.take() {
-                    let _ = child.kill();
+                    kill_serve_child(&mut child);
                 }
             }
         }

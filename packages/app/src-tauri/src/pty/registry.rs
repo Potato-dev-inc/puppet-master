@@ -15,7 +15,7 @@ use uuid::Uuid;
 use super::agents::{resolve_command, AgentType};
 use super::ansi::strip_ansi;
 use super::scrollback::Scrollback;
-use super::status::{looks_like_prompt, PaneStatus};
+use super::status::PaneStatus;
 use crate::events::{PaneId, SystemEvent};
 
 const SCROLLBACK_CAP: usize = 10_000;
@@ -52,8 +52,10 @@ pub struct PaneState {
     pub screen: Arc<Mutex<vt100::Parser>>,
     pub status: Arc<Mutex<PaneStatus>>,
     pub last_output: Arc<Mutex<Instant>>,
-    pub master: Box<dyn MasterPty + Send>,
-    pub writer: Box<dyn Write + Send>,
+    /// Shared so `resize` can drop the registry lock before blocking ConPTY I/O.
+    pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
+    /// Shared so `write_input` can drop the registry lock before blocking ConPTY I/O.
+    pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     pub child: Box<dyn Child + Send + Sync>,
     /// Set when the reader thread has observed EOF or the child exited.
     pub exited: Arc<Mutex<bool>>,
@@ -124,18 +126,12 @@ impl PaneRegistry {
         self.panes.get_mut(id)
     }
 
-    pub fn kill(&mut self, id: &str) {
-        if let Some(mut pane) = self.panes.remove(id) {
-            crate::opencode::kill_serve_if_present(&mut pane);
-            let _ = pane.child.kill();
-        }
+    pub fn take(&mut self, id: &str) -> Option<PaneState> {
+        self.panes.remove(id)
     }
 
-    pub fn kill_all(&mut self) {
-        let ids: Vec<String> = self.panes.keys().cloned().collect();
-        for id in ids {
-            self.kill(&id);
-        }
+    pub fn take_all(&mut self) -> Vec<PaneState> {
+        std::mem::take(&mut self.panes).into_values().collect()
     }
 }
 
@@ -152,12 +148,17 @@ fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) -> CommandB
 
     #[cfg(windows)]
     {
-        if matches!(agent, AgentType::Claude | AgentType::Codex | AgentType::Opencode) {
+        if windows_powershell_host_agent(agent) {
             let mut cmd_builder = CommandBuilder::new("powershell.exe");
             cmd_builder.arg("-NoLogo");
             cmd_builder.arg("-NoExit");
             cmd_builder.arg("-Command");
-            cmd_builder.arg(powershell_agent_command(cmd, &base_args, extra_args));
+            let invocation = if agent == AgentType::CursorAgent {
+                powershell_cursor_agent_command(cmd, &base_args, extra_args)
+            } else {
+                powershell_agent_command(cmd, &base_args, extra_args)
+            };
+            cmd_builder.arg(invocation);
             cmd_builder.cwd(cwd);
             apply_common_pty_env(&mut cmd_builder);
             return cmd_builder;
@@ -198,6 +199,14 @@ fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) -> CommandB
     }
 }
 
+#[cfg(windows)]
+fn windows_powershell_host_agent(agent: AgentType) -> bool {
+    matches!(
+        agent,
+        AgentType::Claude | AgentType::Codex | AgentType::Opencode | AgentType::CursorAgent
+    )
+}
+
 fn apply_common_pty_env(cmd_builder: &mut CommandBuilder) {
     cmd_builder.env("PATH", crate::shell_env::path_for_spawn());
     #[cfg(windows)]
@@ -225,6 +234,20 @@ fn powershell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+#[cfg(windows)]
+fn powershell_cursor_agent_command(cmd: &str, base_args: &[&str], extra_args: &[String]) -> String {
+    let args = base_args
+        .iter()
+        .map(|arg| powershell_single_quote(arg))
+        .chain(extra_args.iter().map(|arg| powershell_single_quote(arg)))
+        .collect::<Vec<_>>();
+    format!(
+        "& (Get-Command -Name {} -CommandType ExternalScript -ErrorAction Stop).Source {}",
+        powershell_single_quote(cmd),
+        args.join(" ")
+    )
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct SpawnPaneArgs {
     pub agent_type: String,
@@ -239,6 +262,13 @@ pub struct SpawnPaneArgs {
 /// emits Tauri events, and updates status heuristics.
 ///
 /// Returns the new pane id.
+/// Message for a pane lookup that failed. Keeps the `unknown pane:` prefix that callers match on.
+pub fn unknown_pane_message(pane_id: &str) -> String {
+    format!(
+        "unknown pane: {pane_id}; pane_id must be a full pane id from list_panes (not a UI number or an agent run handle)"
+    )
+}
+
 pub fn spawn_pane(
     registry: &Arc<Mutex<PaneRegistry>>,
     app: &AppHandle,
@@ -262,14 +292,16 @@ pub fn spawn_pane(
     let rows = args.rows.unwrap_or(30);
     let pane_id = args.pane_id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    {
+    let replaced = {
         let mut reg = registry.lock();
-        if reg.panes.contains_key(&pane_id) {
-            reg.kill(&pane_id);
-            crate::event_log::append_system_event(SystemEvent::PaneKilled {
-                pane_id: PaneId(pane_id.clone()),
-            });
-        }
+        reg.take(&pane_id)
+    };
+    if let Some(pane) = replaced {
+        shutdown_pane(pane);
+        crate::event_log::append_system_event(SystemEvent::PaneKilled {
+            pane_id: PaneId(pane_id.clone()),
+            reason: Some("respawn_replaced".into()),
+        });
     }
 
     let pty_system = native_pty_system();
@@ -328,8 +360,8 @@ pub fn spawn_pane(
         screen: screen.clone(),
         status: status.clone(),
         last_output: last_output.clone(),
-        master: pair.master,
-        writer,
+        master: Arc::new(Mutex::new(pair.master)),
+        writer: Arc::new(Mutex::new(writer)),
         child,
         exited: exited.clone(),
         opencode: None,
@@ -340,6 +372,7 @@ pub fn spawn_pane(
     {
         let pane_id = pane_id.clone();
         let app = app.clone();
+        let agent_type = args.agent_type.clone();
         let mut adapter = crate::agent_adapters::adapter_for(&args.agent_type);
         let scrollback = scrollback.clone();
         let screen = screen.clone();
@@ -391,13 +424,15 @@ pub fn spawn_pane(
                             };
                             *last_output.lock() = Instant::now();
 
-                            // Status heuristic: if recent output looks like a
-                            // prompt, mark waiting_input.
-                            let new_status = if looks_like_prompt(&scrollback.lock().tail_text(8)) {
-                                PaneStatus::WaitingInput
-                            } else {
-                                PaneStatus::Running
-                            };
+                            // Classify the current VT screen together with recent
+                            // output. Historical prompt text in scrollback must
+                            // not make a later agent response look blocked.
+                            let recent = scrollback.lock().tail_text(8);
+                            let new_status = super::status::classify_agent_observation(
+                                &agent_type,
+                                &snapshot,
+                                &recent,
+                            );
                             let changed = {
                                 let mut s = status.lock();
                                 if *s != new_status {
@@ -482,9 +517,16 @@ pub fn spawn_pane(
                 }
                 let since = last_output.lock().elapsed();
                 if since >= IDLE_AFTER {
-                    let mut s = status.lock();
-                    if *s == PaneStatus::Running {
-                        *s = PaneStatus::Idle;
+                    let became_idle = {
+                        let mut s = status.lock();
+                        if *s == PaneStatus::Running {
+                            *s = PaneStatus::Idle;
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    if became_idle {
                         let _ = app.emit(
                             "pty://status",
                             PaneStatusEvent {
@@ -526,11 +568,11 @@ pub fn write_input(
     via_opencode_api: bool,
     opencode_model: Option<crate::opencode::OpenCodeModelRef>,
 ) -> Result<(), String> {
-    let mut reg = registry.lock();
+    let reg = registry.lock();
     let pane = reg
         .panes
-        .get_mut(pane_id)
-        .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
+        .get(pane_id)
+        .ok_or_else(|| unknown_pane_message(&pane_id))?;
 
     let agent = pane.info.agent_type.clone();
 
@@ -546,13 +588,7 @@ pub fn write_input(
         && !is_pty_control_input(text)
     {
         drop(reg);
-        crate::opencode::write_native_input(
-            registry,
-            app,
-            pane_id,
-            text,
-            opencode_model.as_ref(),
-        )?;
+        crate::opencode::write_native_input(registry, app, pane_id, text, opencode_model.as_ref())?;
         crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
             pane_id: PaneId(pane_id.to_string()),
             byte_count: text.as_bytes().len(),
@@ -566,21 +602,28 @@ pub fn write_input(
         return Ok(());
     }
 
-    if !text.is_empty() {
-        pane.writer
-            .write_all(text.as_bytes())
-            .map_err(|e| format!("write_all: {e}"))?;
-        pane.writer.flush().map_err(|e| format!("flush: {e}"))?;
-        // Ink/React TUIs can drop a submitted prompt if the prompt text and
-        // Enter arrive in the same instant. Raw terminal input must stay
-        // immediate, so only pause for submit-style writes.
-        if append_newline {
-            thread::sleep(Duration::from_millis(50));
-        }
-    }
+    // ponytail: ConPTY write_all/flush can block; holding PaneRegistry across
+    // that freezes list_panes, keyboard input, and the HTTP bridge.
+    let writer = pane.writer.clone();
+    drop(reg);
 
-    if append_newline {
-        write_enter_bytes(&mut pane.writer, &agent)?;
+    {
+        let mut writer = writer.lock();
+        if !text.is_empty() {
+            writer
+                .write_all(text.as_bytes())
+                .map_err(|e| format!("write_all: {e}"))?;
+            writer.flush().map_err(|e| format!("flush: {e}"))?;
+            // Ink/React TUIs can drop a submitted prompt if the prompt text and
+            // Enter arrive in the same instant. Raw terminal input must stay
+            // immediate, so only pause for submit-style writes.
+            if append_newline {
+                thread::sleep(Duration::from_millis(50));
+            }
+        }
+        if append_newline {
+            write_enter_bytes(&mut **writer, &agent)?;
+        }
     }
     crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
         pane_id: PaneId(pane_id.to_string()),
@@ -592,12 +635,11 @@ pub fn write_input(
 
 /// True when input should never be routed to OpenCode prompt_async (keys, mouse, escapes).
 fn is_pty_control_input(text: &str) -> bool {
-    text.contains('\x1b')
-        || text.bytes().any(|byte| byte < 32 && byte != b'\t')
+    text.contains('\x1b') || text.bytes().any(|byte| byte < 32 && byte != b'\t')
 }
 
 /// Send Enter to the PTY. Uses \r (xterm/ConPTY).
-fn write_enter_bytes(writer: &mut Box<dyn Write + Send>, _agent_type: &str) -> Result<(), String> {
+fn write_enter_bytes(writer: &mut dyn Write, _agent_type: &str) -> Result<(), String> {
     writer
         .write_all(b"\r")
         .map_err(|e| format!("write enter: {e}"))?;
@@ -610,22 +652,28 @@ pub fn read_buffer(
     pane_id: &str,
     lines: usize,
 ) -> Result<String, String> {
-    let reg = registry.lock();
-    let pane = reg
-        .panes
-        .get(pane_id)
-        .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
-    let text = pane.scrollback.lock().tail_text(lines);
+    let scrollback = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(&pane_id))?;
+        pane.scrollback.clone()
+    };
+    let text = scrollback.lock().tail_text(lines);
     Ok(strip_ansi(&text))
 }
 
 pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {
-    let reg = registry.lock();
-    let pane = reg
-        .panes
-        .get(pane_id)
-        .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
-    let snapshot = pane.screen.lock().screen().contents();
+    let screen = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(&pane_id))?;
+        pane.screen.clone()
+    };
+    let snapshot = screen.lock().screen().contents();
     Ok(snapshot)
 }
 
@@ -634,12 +682,15 @@ pub fn read_raw_buffer(
     pane_id: &str,
     lines: usize,
 ) -> Result<Vec<u8>, String> {
-    let reg = registry.lock();
-    let pane = reg
-        .panes
-        .get(pane_id)
-        .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
-    let raw = pane.scrollback.lock().tail_raw_bytes(lines);
+    let scrollback = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(&pane_id))?;
+        pane.scrollback.clone()
+    };
+    let raw = scrollback.lock().tail_raw_bytes(lines);
     Ok(raw)
 }
 
@@ -649,15 +700,21 @@ pub fn resize(
     cols: u16,
     rows: u16,
 ) -> Result<bool, String> {
-    let mut reg = registry.lock();
-    let pane = reg
-        .panes
-        .get_mut(pane_id)
-        .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
-    if pane.info.cols == cols && pane.info.rows == rows {
-        return Ok(false);
-    }
-    pane.master
+    let (master, screen) = {
+        let mut reg = registry.lock();
+        let pane = reg
+            .panes
+            .get_mut(pane_id)
+            .ok_or_else(|| unknown_pane_message(&pane_id))?;
+        if pane.info.cols == cols && pane.info.rows == rows {
+            return Ok(false);
+        }
+        (pane.master.clone(), pane.screen.clone())
+    };
+    // ponytail: ConPTY resize can block; holding PaneRegistry across it
+    // freezes list_panes and keyboard input the same way write_all did.
+    master
+        .lock()
         .resize(PtySize {
             rows,
             cols,
@@ -667,26 +724,50 @@ pub fn resize(
         .map_err(|e| format!("resize: {e}"))?;
     // Keep the headless emulator's grid the same shape as the PTY so a later
     // screen reconstruction matches the live geometry.
-    pane.screen.lock().screen_mut().set_size(rows, cols);
-    pane.info.cols = cols;
-    pane.info.rows = rows;
+    screen.lock().screen_mut().set_size(rows, cols);
+    if let Some(pane) = registry.lock().panes.get_mut(pane_id) {
+        pane.info.cols = cols;
+        pane.info.rows = rows;
+    }
     Ok(true)
 }
 
+pub(crate) fn shutdown_pane(mut pane: PaneState) {
+    crate::opencode::kill_serve_if_present(&mut pane);
+    if let Some(pid) = pane.child.process_id().filter(|pid| *pid > 0) {
+        super::proc_tree::kill_process_tree(pid);
+    }
+    let _ = pane.child.kill();
+}
+
 pub fn kill_pane(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<(), String> {
-    registry.lock().kill(pane_id);
+    kill_pane_with_reason(registry, pane_id, None)
+}
+
+pub fn kill_pane_with_reason(
+    registry: &Mutex<PaneRegistry>,
+    pane_id: &str,
+    reason: Option<&str>,
+) -> Result<(), String> {
+    let pane = registry.lock().take(pane_id);
+    if let Some(pane) = pane {
+        shutdown_pane(pane);
+    }
     crate::event_log::append_system_event(SystemEvent::PaneKilled {
         pane_id: PaneId(pane_id.to_string()),
+        reason: reason.map(str::to_string),
     });
     Ok(())
 }
 
 pub fn kill_all(registry: &Mutex<PaneRegistry>) {
-    let ids: Vec<String> = registry.lock().panes.keys().cloned().collect();
-    registry.lock().kill_all();
-    for pane_id in ids {
+    let panes = registry.lock().take_all();
+    for pane in panes {
+        let pane_id = pane.info.id.clone();
+        shutdown_pane(pane);
         crate::event_log::append_system_event(SystemEvent::PaneKilled {
             pane_id: PaneId(pane_id),
+            reason: Some("kill_all".into()),
         });
     }
 }
@@ -727,10 +808,7 @@ impl PaneRegistry {
         }
         let child = pair.slave.spawn_command(cmd).expect("spawn_command");
         drop(pair.slave);
-        let writer = pair
-            .master
-            .take_writer()
-            .expect("writer");
+        let writer = pair.master.take_writer().expect("writer");
         let info = PaneInfo {
             id: id.to_string(),
             agent_type: "opencode_native".into(),
@@ -748,8 +826,8 @@ impl PaneRegistry {
             screen: Arc::new(Mutex::new(vt100::Parser::new(3, 10, 100))),
             status: Arc::new(Mutex::new(PaneStatus::Running)),
             last_output: Arc::new(Mutex::new(Instant::now())),
-            master: pair.master,
-            writer,
+            master: Arc::new(Mutex::new(pair.master)),
+            writer: Arc::new(Mutex::new(writer)),
             child,
             exited: Arc::new(Mutex::new(false)),
             opencode: None,
@@ -779,4 +857,27 @@ struct TerminalSnapshotEvent {
 struct TerminalDataEvent {
     pane_id: String,
     data: Vec<u8>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_enter_bytes_sends_cr() {
+        let mut buf = Vec::new();
+        write_enter_bytes(&mut buf, "powershell").expect("write enter");
+        assert_eq!(buf, b"\r");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cursor_agent_launches_through_interactive_powershell() {
+        assert!(windows_powershell_host_agent(AgentType::CursorAgent));
+        let (command, base_args) = resolve_command(AgentType::CursorAgent);
+        assert_eq!(command, "cursor-agent.ps1");
+        let invocation = powershell_cursor_agent_command(command, &base_args, &[]);
+        assert!(invocation.contains("Get-Command -Name 'cursor-agent.ps1'"));
+        assert!(invocation.starts_with("& (Get-Command"));
+    }
 }

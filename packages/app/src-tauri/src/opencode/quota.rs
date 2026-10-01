@@ -67,7 +67,11 @@ pub struct RateLimitPlan {
     pub should_rotate: bool,
 }
 
-pub fn plan_rate_limit_action(mode: KeyAutomationMode, active_profile: &str, other_configured: bool) -> RateLimitPlan {
+pub fn plan_rate_limit_action(
+    mode: KeyAutomationMode,
+    active_profile: &str,
+    other_configured: bool,
+) -> RateLimitPlan {
     let from_profile = active_profile.to_string();
     match mode {
         KeyAutomationMode::NotifyOnly => RateLimitPlan {
@@ -96,7 +100,7 @@ pub fn plan_rate_limit_action(mode: KeyAutomationMode, active_profile: &str, oth
                     should_rotate: false,
                 }
             }
-        },
+        }
     }
 }
 
@@ -185,7 +189,10 @@ pub fn store_pending_key_event(
     Ok(())
 }
 
-pub fn take_pending_key_event(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<KeySwapEvent> {
+pub fn take_pending_key_event(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+) -> Option<KeySwapEvent> {
     registry
         .lock()
         .panes
@@ -193,7 +200,10 @@ pub fn take_pending_key_event(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str
         .and_then(|pane| pane.opencode_key_event.take())
 }
 
-pub fn pending_key_event(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<KeySwapEvent> {
+pub fn pending_key_event(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+) -> Option<KeySwapEvent> {
     registry
         .lock()
         .panes
@@ -297,12 +307,15 @@ mod tests {
         };
         assert!(store_pending_key_event(&registry, "pane-test", event.clone()).is_err());
 
-        registry
-            .lock()
-            .panes
-            .insert("pane-test".into(), PaneRegistry::test_pane_stub("pane-test"));
+        registry.lock().panes.insert(
+            "pane-test".into(),
+            PaneRegistry::test_pane_stub("pane-test"),
+        );
         store_pending_key_event(&registry, "pane-test", event.clone()).expect("store");
-        assert_eq!(pending_key_event(&registry, "pane-test"), Some(event.clone()));
+        assert_eq!(
+            pending_key_event(&registry, "pane-test"),
+            Some(event.clone())
+        );
         assert_eq!(take_pending_key_event(&registry, "pane-test"), Some(event));
         assert!(pending_key_event(&registry, "pane-test").is_none());
     }

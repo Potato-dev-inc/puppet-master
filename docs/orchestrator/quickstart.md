@@ -1,5 +1,24 @@
 # Orchestrator quickstart
 
+## Agent-mode happy path (one handle)
+
+```
+list_agents
+run_agent { worker_id: "<pane or run id>", task: "..." }   → handle
+send_message { handle, message: "..." }                     → receipt (steer only)
+wait_agents { handles: [handle] }                           → result or needs_input
+followup_task { handle, task: "..." }                     → next turn, same worker
+```
+
+- `run_agent` adopts an existing OpenCode pane by id without `take_over`.
+- `WAIT_TIMEOUT` on run/followup: keep the same `idempotency_key` and call `wait_agents`, or run the returned `watch_command` (`npx puppet-master watch …`) in your agent harness shell tool's **background** mode (foreground process the harness can monitor). Do not use detached `Start-Process` — that bypasses harness notifications.
+- Each `run_agent` / `followup_task` / `delegate_work` response includes `watch_command` (`npx puppet-master watch …`).
+- Default `wait_agents` wakes on completion, failure, cancel, or `needs_input` — not on progress alone. Use `wake_on_progress: true` for stage updates.
+- Closing the user's pane is not cleanup.
+- After an app restart, call `list_agents` again — pane ids are not stable; handles and `worker_id` from persisted runs are.
+
+---
+
 Minimal loop for driving a worker through Puppet Master MCP.
 
 ## 0. Confirm bridge

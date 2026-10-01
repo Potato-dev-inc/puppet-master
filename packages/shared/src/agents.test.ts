@@ -20,34 +20,42 @@ describe('agent presets', () => {
     expect(preset.baseArgs).toEqual(['/K']);
   });
 
+  it('keeps Windows PowerShell open after spawn', () => {
+    const preset = getPreset('powershell', 'windows');
+    expect(preset.command).toBe('powershell.exe');
+    expect(preset.baseArgs).toEqual(['-NoLogo', '-NoExit']);
+  });
+
   it('uses bare Windows agent commands so PowerShell resolves shims', () => {
     expect(getPreset('claude', 'windows').command).toBe('claude');
     expect(getPreset('codex', 'windows').command).toBe('codex');
     expect(getPreset('opencode', 'windows').command).toBe('opencode');
   });
 
-  it('puts agent launchers first and the platform terminal last', () => {
+  it('offers OpenCode API and PowerShell in the spawn list', () => {
     expect(listLaunchPresets('windows').map((preset) => preset.type)).toEqual([
-      'claude',
-      'codex',
-      'opencode',
       'opencode_native',
       'powershell',
     ]);
-    expect(listLaunchPresets('windows').at(-1)?.label).toBe('Terminal (PowerShell)');
     expect(listLaunchPresets('linux').map((preset) => preset.type)).toEqual([
-      'claude',
-      'codex',
-      'opencode',
       'opencode_native',
-      'bash',
+      'powershell',
     ]);
-    expect(listLaunchPresets('linux').at(-1)?.label).toBe('Terminal (Shell)');
+    expect(listLaunchPresets('windows').map((preset) => preset.label)).toEqual([
+      'OpenCode (API)',
+      'PowerShell',
+    ]);
   });
 
-  it('uses powershell as the Windows terminal and bash elsewhere', () => {
-    expect(getDefaultTerminalAgentType('windows')).toBe('powershell');
-    expect(getDefaultTerminalAgentType('macos')).toBe('bash');
-    expect(getDefaultTerminalAgentType('linux')).toBe('bash');
+  it('defaults new workers to opencode_native', () => {
+    expect(getDefaultTerminalAgentType('windows')).toBe('opencode_native');
+    expect(getDefaultTerminalAgentType('macos')).toBe('opencode_native');
+    expect(getDefaultTerminalAgentType('linux')).toBe('opencode_native');
+  });
+
+  it('keeps Cursor IDE and the headless Cursor Agent CLI distinct', () => {
+    expect(getPreset('cursor', 'windows').command).toBe('cursor.cmd');
+    expect(getPreset('cursor_agent', 'windows').command).toBe('cursor-agent');
+    expect(getPreset('cursor_agent', 'windows').isTui).toBe(true);
   });
 });

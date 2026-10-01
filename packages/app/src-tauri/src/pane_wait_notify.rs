@@ -35,5 +35,8 @@ pub fn wait_for_change(deadline: Instant, last_generation: &mut u64) {
 
 #[allow(dead_code)]
 pub fn wait_for_change_ms(timeout_ms: u64, last_generation: &mut u64) {
-    wait_for_change(Instant::now() + Duration::from_millis(timeout_ms), last_generation);
+    wait_for_change(
+        Instant::now() + Duration::from_millis(timeout_ms),
+        last_generation,
+    );
 }

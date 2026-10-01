@@ -161,7 +161,11 @@ pub fn toggle_profile_id(current: &str) -> String {
     toggle_active(current)
 }
 
-pub fn set_profile_api_key(profile_id: &str, api_key: &str, label: Option<&str>) -> Result<(), String> {
+pub fn set_profile_api_key(
+    profile_id: &str,
+    api_key: &str,
+    label: Option<&str>,
+) -> Result<(), String> {
     let id = normalize_profile_id(profile_id)?;
     let key = api_key.trim();
     if key.is_empty() {
@@ -169,10 +173,13 @@ pub fn set_profile_api_key(profile_id: &str, api_key: &str, label: Option<&str>)
     }
     let mut store = load_store()?;
     ensure_default_profiles(&mut store);
-    let entry = store.profiles.entry(id.clone()).or_insert_with(|| KeyProfile {
-        label: default_label_for_id(&id),
-        auth: json!({}),
-    });
+    let entry = store
+        .profiles
+        .entry(id.clone())
+        .or_insert_with(|| KeyProfile {
+            label: default_label_for_id(&id),
+            auth: json!({}),
+        });
     if let Some(label) = label.map(str::trim).filter(|value| !value.is_empty()) {
         entry.label = label.to_string();
     }
@@ -185,10 +192,13 @@ pub fn capture_profile_from_disk(profile_id: &str, label: Option<&str>) -> Resul
     let auth = read_auth_json()?;
     let mut store = load_store()?;
     ensure_default_profiles(&mut store);
-    let entry = store.profiles.entry(id.clone()).or_insert_with(|| KeyProfile {
-        label: default_label_for_id(&id),
-        auth: json!({}),
-    });
+    let entry = store
+        .profiles
+        .entry(id.clone())
+        .or_insert_with(|| KeyProfile {
+            label: default_label_for_id(&id),
+            auth: json!({}),
+        });
     entry.auth = auth;
     if let Some(label) = label.map(str::trim).filter(|value| !value.is_empty()) {
         entry.label = label.to_string();
@@ -235,10 +245,9 @@ fn load_store() -> Result<KeyProfilesStore, String> {
     if !path.is_file() {
         return Ok(default_store());
     }
-    let raw = fs::read_to_string(&path)
-        .map_err(|err| format!("read {}: {err}", path.display()))?;
-    let mut store: KeyProfilesStore = serde_json::from_str(&raw)
-        .map_err(|err| format!("parse {}: {err}", path.display()))?;
+    let raw = fs::read_to_string(&path).map_err(|err| format!("read {}: {err}", path.display()))?;
+    let mut store: KeyProfilesStore =
+        serde_json::from_str(&raw).map_err(|err| format!("parse {}: {err}", path.display()))?;
     if store.version < STORE_VERSION {
         store.version = STORE_VERSION;
     }
@@ -280,14 +289,20 @@ fn default_store() -> KeyProfilesStore {
 }
 
 fn ensure_default_profiles(store: &mut KeyProfilesStore) {
-    store.profiles.entry(PROFILE_A.to_string()).or_insert(KeyProfile {
-        label: "Primary".into(),
-        auth: json!({}),
-    });
-    store.profiles.entry(PROFILE_B.to_string()).or_insert(KeyProfile {
-        label: "Secondary".into(),
-        auth: json!({}),
-    });
+    store
+        .profiles
+        .entry(PROFILE_A.to_string())
+        .or_insert(KeyProfile {
+            label: "Primary".into(),
+            auth: json!({}),
+        });
+    store
+        .profiles
+        .entry(PROFILE_B.to_string())
+        .or_insert(KeyProfile {
+            label: "Secondary".into(),
+            auth: json!({}),
+        });
     if store.active != PROFILE_A && store.active != PROFILE_B {
         store.active = PROFILE_A.to_string();
     }
@@ -333,7 +348,9 @@ fn normalize_profile_id(profile_id: &str) -> Result<String, String> {
     match profile_id.trim().to_lowercase().as_str() {
         "a" | "primary" => Ok(PROFILE_A.to_string()),
         "b" | "secondary" => Ok(PROFILE_B.to_string()),
-        other => Err(format!("unsupported OpenCode key profile '{other}' (use a or b)")),
+        other => Err(format!(
+            "unsupported OpenCode key profile '{other}' (use a or b)"
+        )),
     }
 }
 
@@ -369,8 +386,7 @@ fn read_auth_json() -> Result<Value, String> {
 fn write_auth_json(auth: &Value) -> Result<(), String> {
     let path = auth_json_path();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("create {}: {err}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|err| format!("create {}: {err}", parent.display()))?;
     }
     let json = serde_json::to_string_pretty(auth)
         .map_err(|err| format!("serialize opencode auth.json: {err}"))?;
@@ -444,11 +460,9 @@ mod tests {
 
         let status = rotate(RotateTarget::Next).expect("rotate");
         assert_eq!(status.active_profile, PROFILE_B);
-        let written: Value = serde_json::from_str(&fs::read_to_string(&auth_file).unwrap()).unwrap();
-        assert_eq!(
-            written[DEFAULT_PROVIDER]["key"].as_str(),
-            Some("key-b")
-        );
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&auth_file).unwrap()).unwrap();
+        assert_eq!(written[DEFAULT_PROVIDER]["key"].as_str(), Some("key-b"));
 
         let _ = fs::remove_dir_all(&dir);
         std::env::remove_var("PUPPET_MASTER_TEST_OPENCODE_KEYS_STORE");

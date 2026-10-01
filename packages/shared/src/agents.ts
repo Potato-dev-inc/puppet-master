@@ -10,6 +10,7 @@ export const AgentTypeSchema = z.enum([
   'powershell',
   'bash',
   'cursor',
+  'cursor_agent',
 ]);
 export type AgentType = z.infer<typeof AgentTypeSchema>;
 
@@ -81,10 +82,17 @@ const AGENT_META: Record<
     isTui: false,
     icon: 'ID',
   },
+  cursor_agent: {
+    type: 'cursor_agent',
+    label: 'Cursor Agent CLI',
+    isTui: true,
+    icon: 'CA',
+  },
 };
 
 const CODEX_ARGS = ['--sandbox', 'workspace-write', '--ask-for-approval', 'never'];
-const AGENT_LAUNCH_TYPES: AgentType[] = ['claude', 'codex', 'opencode', 'opencode_native'];
+/** Spawn UI: OpenCode API workers plus PowerShell (multiple panes of either type). */
+const AGENT_LAUNCH_TYPES: AgentType[] = ['opencode_native', 'powershell'];
 
 const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSpec>> = {
   windows: {
@@ -115,7 +123,7 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
     },
     powershell: {
       command: 'powershell.exe',
-      baseArgs: ['-NoLogo'],
+      baseArgs: ['-NoLogo', '-NoExit'],
       description: 'Windows PowerShell',
     },
     bash: {
@@ -128,6 +136,7 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
       baseArgs: [],
       description: 'Opens project in Cursor (not an agent TUI)',
     },
+    cursor_agent: { command: 'cursor-agent', baseArgs: [], description: 'Cursor Agent CLI' },
   },
   macos: {
     claude: {
@@ -157,7 +166,7 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
     },
     powershell: {
       command: 'pwsh',
-      baseArgs: ['-NoLogo'],
+      baseArgs: ['-NoLogo', '-NoExit'],
       description: 'PowerShell (pwsh)',
     },
     bash: {
@@ -170,6 +179,7 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
       baseArgs: [],
       description: 'Opens project in Cursor (not an agent TUI)',
     },
+    cursor_agent: { command: 'cursor-agent', baseArgs: [], description: 'Cursor Agent CLI' },
   },
   linux: {
     claude: {
@@ -199,7 +209,7 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
     },
     powershell: {
       command: 'pwsh',
-      baseArgs: ['-NoLogo'],
+      baseArgs: ['-NoLogo', '-NoExit'],
       description: 'PowerShell (pwsh)',
     },
     bash: {
@@ -212,6 +222,7 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
       baseArgs: [],
       description: 'Opens project in Cursor (not an agent TUI)',
     },
+    cursor_agent: { command: 'cursor-agent', baseArgs: [], description: 'Cursor Agent CLI' },
   },
 };
 
@@ -235,23 +246,13 @@ export function listPresets(platform?: PuppetPlatform): AgentPreset[] {
   return AgentTypeSchema.options.map((type) => buildPreset(type, resolved));
 }
 
-export function getDefaultTerminalAgentType(platform?: PuppetPlatform): AgentType {
-  return (platform ?? detectPlatform()) === 'windows' ? 'powershell' : 'bash';
+export function getDefaultTerminalAgentType(_platform?: PuppetPlatform): AgentType {
+  return 'opencode_native';
 }
 
 export function listLaunchPresets(platform?: PuppetPlatform): AgentPreset[] {
   const resolved = platform ?? detectPlatform();
-  const terminalType = getDefaultTerminalAgentType(resolved);
-  const terminalLabel = resolved === 'windows' ? 'Terminal (PowerShell)' : 'Terminal (Shell)';
-  return [...AGENT_LAUNCH_TYPES, terminalType].map((type) => {
-    const preset = buildPreset(type, resolved);
-    if (type !== terminalType) return preset;
-    return {
-      ...preset,
-      label: terminalLabel,
-      icon: 'TERM',
-    };
-  });
+  return AGENT_LAUNCH_TYPES.map((type) => buildPreset(type, resolved));
 }
 
 export function getAgentPresets(platform?: PuppetPlatform): Record<AgentType, AgentPreset> {

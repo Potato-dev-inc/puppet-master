@@ -23,12 +23,18 @@ async function launchDetachedWorker(
 
   const agentType = (config.agent_type || defaultAgent) as AgentType;
 
-  // ponytail: worker relaunch must not reuse a dead PTY or orphan opencode serve.
+  // OpenCode: kill siblings so relaunch does not orphan `opencode serve`.
+  // PowerShell: keep healthy siblings so several shells can coexist.
   const existing = await tauri.listPanes();
   for (const pane of existing.filter((entry) => entry.agent_type === agentType)) {
-    if (config.pane_id && pane.id === config.pane_id && pane.status !== 'error' && !config.force_new) {
-      continue;
-    }
+    const keepRequested =
+      Boolean(config.pane_id) &&
+      pane.id === config.pane_id &&
+      pane.status !== 'error' &&
+      !config.force_new;
+    const keepPowershellSibling =
+      agentType === 'powershell' && pane.status !== 'error' && pane.id !== config.pane_id;
+    if (keepRequested || keepPowershellSibling) continue;
     await tauri.killPane(pane.id).catch(() => {});
   }
 
@@ -87,6 +93,26 @@ export default function WorkerHostBootstrap() {
   }, []);
 
   useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    void tauri.onPaneDetach((event) => {
+      void openDetachedPaneWindow(
+        event.pane_id,
+        event.title ?? detachedPaneTitle('worker', event.pane_id),
+        detachedWindowSizeFromGrid(event.cols, event.rows),
+        { workerHost: true },
+      );
+    }).then((next) => {
+      if (disposed) next();
+      else unlisten = next;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!initialReady || workerHostLaunchStarted) return;
     workerHostLaunchStarted = true;
 
@@ -127,7 +153,7 @@ export default function WorkerHostBootstrap() {
     };
   }, []);
 
-  if (!error) return null;
+  if (!error) return <div hidden />;
 
   return (
     <div className="pm-terminal-app">

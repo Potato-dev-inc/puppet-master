@@ -244,10 +244,8 @@ mod tests {
             "/usr/bin".to_string(),
             "/opt/homebrew/bin".to_string(),
         ]);
-        let expected = path_separator_join(&[
-            "/opt/homebrew/bin".to_string(),
-            "/usr/bin".to_string(),
-        ]);
+        let expected =
+            path_separator_join(&["/opt/homebrew/bin".to_string(), "/usr/bin".to_string()]);
         assert_eq!(dedupe_path(&duplicate), expected);
     }
 

@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { getDefaultTerminalAgentType } from '@puppet-master/shared';
 import { launchWorkerTerminal } from './launch-worker.js';
+import { runWatch } from './watch.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -24,6 +25,8 @@ interface ParsedArgs {
   positional: string[];
   flags: Record<string, string | boolean>;
 }
+
+const BOOLEAN_FLAGS = new Set(['help', 'h', 'version', 'v', 'force-new', 'new', 'force_new']);
 
 function parseArgs(argv: string[]): ParsedArgs {
   const [, , ...rest] = argv;
@@ -38,6 +41,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
     const key = a.replace(/^-+/, '');
+    if (BOOLEAN_FLAGS.has(key)) {
+      flags[key] = true;
+      continue;
+    }
     const next = rest[i + 1];
     if (next && !next.startsWith('-')) {
       flags[key] = next;
@@ -58,13 +65,15 @@ Usage:
   puppet-master --project PATH  Open with a preset cwd
   puppet-master worker [AGENT]  Open a standalone worker terminal (no main grid UI)
   puppet-master mcp             Run stdio MCP server (GUI or worker host must be running)
+  puppet-master watch ID        Block until an operation reaches a terminal or needs-input state (JSON on stdout)
   puppet-master version         Print version
   puppet-master --help          Show this help
 
 Worker examples:
   puppet-master worker                    # default shell (${defaultAgent})
-  puppet-master worker claude --cwd .     # Claude Code in current directory
-  puppet-master worker codex --force-new  # fresh Codex pane
+  puppet-master worker powershell         # standalone PowerShell pane
+  puppet-master worker powershell --new        # extra pane on the running host
+  puppet-master worker powershell --force-new  # same as --new
 `);
 }
 
@@ -133,9 +142,33 @@ async function main(): Promise<void> {
     await runMcp();
     return;
   }
+  if (command === 'watch') {
+    const ids = positional.length > 0 ? positional : [];
+    if (ids.length === 0) {
+      console.error('usage: puppet-master watch <operation_id|handle> [--project-path P] [--timeout-ms N] [--stream]');
+      process.exit(3);
+    }
+    const projectPath =
+      typeof flags['project-path'] === 'string'
+        ? flags['project-path']
+        : typeof flags.project === 'string'
+          ? flags.project
+          : undefined;
+    const timeoutMs =
+      typeof flags['timeout-ms'] === 'string' ? Number(flags['timeout-ms']) : 3_600_000;
+    const stream = Boolean(flags.stream);
+    const code = await runWatch({
+      ids,
+      projectPath,
+      timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : 3_600_000,
+      stream,
+    });
+    process.exit(code);
+  }
   if (command === 'worker' || command === 'terminal') {
+    const extra = positional.filter((value) => value !== 'new' && value !== 'force-new');
     const agentType =
-      positional[0] ??
+      extra[0] ??
       (typeof flags['agent-type'] === 'string' ? flags['agent-type'] : undefined) ??
       (typeof flags.agent === 'string' ? flags.agent : undefined);
     await launchWorkerTerminal({
@@ -144,7 +177,9 @@ async function main(): Promise<void> {
       paneId: typeof flags['pane-id'] === 'string' ? flags['pane-id'] : typeof flags.pane === 'string' ? flags.pane : undefined,
       cols: typeof flags.cols === 'string' ? Number(flags.cols) : undefined,
       rows: typeof flags.rows === 'string' ? Number(flags.rows) : undefined,
-      forceNew: Boolean(flags['force-new']),
+      forceNew:
+        Boolean(flags['force-new'] || flags.new || flags.force_new) ||
+        positional.some((value) => value === 'new' || value === 'force-new'),
     });
     return;
   }

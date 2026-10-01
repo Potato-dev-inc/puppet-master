@@ -285,6 +285,17 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
             best_for: &["opening the workspace visually", "manual user-guided edits"],
             planned_sidebar_actions: &["open project", "focus editor", "handoff manual review"],
         },
+        AgentType::CursorAgent => AgentContextProfile {
+            agent_type,
+            label: "Cursor Agent CLI",
+            default_model: None,
+            model_detection: ModelDetection::CliBanner,
+            smartness: 8,
+            strengths: &[AgentCapability::CodebaseReasoning, AgentCapability::Implementation, AgentCapability::Review],
+            context_notes: &["Headless Cursor Agent CLI. Read-only delegated tasks use its documented plan mode."],
+            best_for: &["headless code tasks", "structured result reporting"],
+            planned_sidebar_actions: &["delegate task", "inspect result", "review changes"],
+        },
     }
 }
 
@@ -377,18 +388,22 @@ fn inspect_opencode_native_model(
     profile: &AgentContextProfile,
 ) -> Result<AgentModelInspection, String> {
     let status = crate::opencode::status::worker_status(registry, pane_id)?;
-    let session_model = status.session_model.as_ref().map(|model| {
-        crate::opencode::client::OpenCodeModelRef {
-            provider_id: model.provider_id.clone(),
-            model_id: model.model_id.clone(),
-        }
-    });
-    let last_user_model = status.last_user_model.as_ref().map(|model| {
-        crate::opencode::client::OpenCodeModelRef {
-            provider_id: model.provider_id.clone(),
-            model_id: model.model_id.clone(),
-        }
-    });
+    let session_model =
+        status
+            .session_model
+            .as_ref()
+            .map(|model| crate::opencode::client::OpenCodeModelRef {
+                provider_id: model.provider_id.clone(),
+                model_id: model.model_id.clone(),
+            });
+    let last_user_model =
+        status
+            .last_user_model
+            .as_ref()
+            .map(|model| crate::opencode::client::OpenCodeModelRef {
+                provider_id: model.provider_id.clone(),
+                model_id: model.model_id.clone(),
+            });
     let footer_model_source = status
         .footer_model_source
         .as_ref()
@@ -418,9 +433,8 @@ fn inspect_opencode_native_model(
         };
 
     let buffer_fallback = detect_model_from_buffer(buffer);
-    let mut notes = vec![
-        "OpenCode session API model (footer follows last user message on attach).".into(),
-    ];
+    let mut notes =
+        vec!["OpenCode session API model (footer follows last user message on attach).".into()];
     if buffer_fallback.is_some() {
         notes.push("Buffer heuristic differs — trust session/last_user fields.".into());
     }

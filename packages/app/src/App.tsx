@@ -70,6 +70,7 @@ export default function App() {
       unlistenDetach = await tauri.onPaneDetach((event) => {
         void (async () => {
           try {
+            setScreen('workspace');
             await openDetachedPaneWindow(
               event.pane_id,
               event.title ?? `Pane ${event.pane_id.slice(0, 8)}`,

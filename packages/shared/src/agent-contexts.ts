@@ -152,6 +152,20 @@ export const AGENT_CONTEXT_PROFILES: Record<AgentType, AgentContextProfile> = {
     best_for: ['opening the workspace visually', 'manual user-guided edits'],
     planned_sidebar_actions: ['open project', 'focus editor', 'handoff manual review'],
   },
+  cursor_agent: {
+    agent_type: 'cursor_agent',
+    label: 'Cursor Agent CLI',
+    default_model: null,
+    model_detection: 'cli-banner',
+    smartness: 8,
+    strengths: ['codebase-reasoning', 'implementation', 'review', 'debugging'],
+    context_notes: [
+      'Headless Cursor Agent CLI for delegated coding tasks; distinct from the Cursor IDE launcher.',
+      'Read-only runs use the CLI plan mode. Model information may be unavailable unless the CLI output exposes it.',
+    ],
+    best_for: ['headless code tasks', 'structured result reporting', 'repository review'],
+    planned_sidebar_actions: ['delegate task', 'inspect result', 'review changes'],
+  },
 };
 
 export function listAgentContextProfiles(): AgentContextProfile[] {

@@ -204,7 +204,9 @@ pub fn read_global_entries() -> Result<Vec<EventEntry>, String> {
 }
 
 pub fn rebuild_read_models() -> Result<crate::projections::ReadModels, String> {
-    Ok(crate::projections::build_read_models(&read_global_entries()?))
+    Ok(crate::projections::build_read_models(
+        &read_global_entries()?
+    ))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -245,7 +247,10 @@ pub fn read_recent_events(
             }
         }
         if let Some(types) = type_filter.as_ref() {
-            if !types.iter().any(|kind| summary.event_type.to_ascii_lowercase().contains(kind)) {
+            if !types
+                .iter()
+                .any(|kind| summary.event_type.to_ascii_lowercase().contains(kind))
+            {
                 continue;
             }
         }
@@ -283,7 +288,7 @@ fn summarize_event(entry: &EventEntry) -> RecentEventSummary {
 fn event_pane_id(payload: &SystemEvent) -> Option<PaneId> {
     match payload {
         SystemEvent::PaneSpawned { pane_id, .. }
-        | SystemEvent::PaneKilled { pane_id }
+        | SystemEvent::PaneKilled { pane_id, .. }
         | SystemEvent::PaneInputWritten { pane_id, .. }
         | SystemEvent::PaneOutputObserved { pane_id, .. }
         | SystemEvent::PaneStatusChanged { pane_id, .. }
@@ -385,7 +390,7 @@ pub fn replay_pane_timeline_from_entries(
                     event: format!("status:{status}"),
                 })
             }
-            SystemEvent::PaneKilled { pane_id } => timeline.push(PaneTimelineEvent {
+            SystemEvent::PaneKilled { pane_id, .. } => timeline.push(PaneTimelineEvent {
                 timestamp_ms: entry.timestamp_ms,
                 pane_id,
                 event: "killed".to_string(),
@@ -449,6 +454,7 @@ mod tests {
             CommandId::new(),
             SystemEvent::PaneKilled {
                 pane_id: PaneId("pane-1".to_string()),
+                reason: None,
             },
         );
         log.append(&entry).unwrap();
@@ -474,6 +480,7 @@ mod tests {
             CommandId::new(),
             SystemEvent::PaneKilled {
                 pane_id: PaneId("pane-1".to_string()),
+                reason: None,
             },
         );
         manager.append(&entry).unwrap();
