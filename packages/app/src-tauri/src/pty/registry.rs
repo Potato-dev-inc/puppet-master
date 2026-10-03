@@ -768,6 +768,7 @@ pub fn kill_pane_with_reason(
         pane_id: PaneId(pane_id.to_string()),
         reason: reason.map(str::to_string),
     });
+    crate::pane_windows::notify_pane_removed();
     Ok(())
 }
 
@@ -781,6 +782,7 @@ pub fn kill_all(registry: &Mutex<PaneRegistry>) {
             reason: Some("kill_all".into()),
         });
     }
+    crate::pane_windows::notify_pane_removed();
 }
 
 #[allow(dead_code)]

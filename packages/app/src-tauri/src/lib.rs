@@ -23,6 +23,7 @@ pub mod operations;
 #[cfg(test)]
 mod operations_contract_tests;
 mod pane_prompt;
+mod pane_windows;
 mod pane_wait;
 mod pane_wait_notify;
 mod platform;
@@ -230,6 +231,7 @@ pub fn run() {
             });
 
             let registry_for_panes = app.state::<AppState>().registry.clone();
+            pane_windows::init(app.handle(), registry_for_panes.clone());
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
             });
