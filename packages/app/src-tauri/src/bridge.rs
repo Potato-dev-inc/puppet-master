@@ -3984,10 +3984,20 @@ pub fn dispatch_existing_operation(
                         .filter_map(|message| message.id)
                         .collect();
                 }
-                if let Ok(screen) =
-                    registry_read_snapshot(&registry_for_dispatch, &pane_id)
-                {
-                    operation.output_baseline = crate::operations::compact_output_baseline(&screen);
+                // Snapshot the screen right before the prompt is written. A ConPTY screen can lag
+                // and read blank; a blank baseline makes startup furniture look like new output,
+                // so retry briefly before settling for none (completion also guards that case).
+                for attempt in 0..4 {
+                    if attempt > 0 {
+                        thread::sleep(Duration::from_millis(150));
+                    }
+                    if let Ok(screen) = registry_read_snapshot(&registry_for_dispatch, &pane_id) {
+                        operation.output_baseline =
+                            crate::operations::compact_output_baseline(&screen);
+                    }
+                    if operation.output_baseline.is_some() {
+                        break;
+                    }
                 }
                 crate::agent_runs::record_user_task(
                     &operation.project_path,

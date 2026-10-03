@@ -444,6 +444,57 @@ fn fast_reply_never_observed_busy_completes_with_result_not_timeout() {
 }
 
 #[test]
+fn blank_baseline_banner_text_with_no_work_is_not_a_completed_turn() {
+    // The baseline snapshot raced the ConPTY screen and came back blank, so the banner, model and
+    // working directory that are already on screen look like "new output".
+    let mut watch = TuiTurnWatch::from_baseline("").with_task("do X");
+    let screen = "Cursor Agent v2026.10.01-abc\n~/proj\nAdd a follow-up";
+    for tick in 0..6 {
+        let decision = observe_tui_turn(&mut watch, "idle", screen, false);
+        assert!(
+            !matches!(decision, TuiTurnDecision::Complete { .. }),
+            "tick {tick}: banner text must not complete a turn that did nothing: {decision:?}"
+        );
+    }
+}
+
+#[test]
+fn blank_baseline_startup_furniture_beyond_the_known_chrome_is_not_a_completed_turn() {
+    // Same race, but the idle screen carries a bare non-Composer model footer, a trust-folder
+    // line and an update notice: none are in the chrome list, so they read as "new output".
+    let mut watch = TuiTurnWatch::from_baseline("").with_task("do X");
+    let screen =
+        "Cursor Agent v2026.10.01-abc\n~/proj\nGPT-5\nUpdate available: run agent update\nAdd a follow-up";
+    for tick in 0..6 {
+        let decision = observe_tui_turn(&mut watch, "idle", screen, false);
+        assert!(
+            !matches!(decision, TuiTurnDecision::Complete { .. }),
+            "tick {tick}: startup furniture must not complete a turn that did nothing: {decision:?}"
+        );
+    }
+}
+
+#[test]
+fn blank_baseline_turn_completes_once_activity_was_observed() {
+    let mut watch = TuiTurnWatch::from_baseline("").with_task("do X");
+    let _ = observe_tui_turn(&mut watch, "running", "Cursor Agent v1\nworking", false);
+    let screen = "Cursor Agent v1\nThe answer is 42.\nAdd a follow-up";
+    let decision = tick_until_idle(&mut watch, "idle", screen, false, 2);
+    assert!(matches!(decision, TuiTurnDecision::Complete { .. }), "{decision:?}");
+}
+
+#[test]
+fn blank_baseline_turn_completes_once_the_task_echo_is_on_screen() {
+    let mut watch = TuiTurnWatch::from_baseline("").with_task("summarize the readme file");
+    let echoing = "Cursor Agent v1\n> summarize the readme file\nAdd a follow-up";
+    // Echo seen on a busy-looking-idle tick, then the reply lands.
+    let _ = observe_tui_turn(&mut watch, "idle", echoing, false);
+    let screen = "Cursor Agent v1\n> summarize the readme file\nIt documents the CLI.\nAdd a follow-up";
+    let decision = tick_until_idle(&mut watch, "idle", screen, false, 2);
+    assert!(matches!(decision, TuiTurnDecision::Complete { .. }), "{decision:?}");
+}
+
+#[test]
 fn repeated_identical_answers_still_count_as_a_new_turn_result() {
     let previous = "PUPPET_MASTER_AGENT_MODE_OK\nAdd follow-up >";
     let mut watch = TuiTurnWatch::from_baseline(previous);
