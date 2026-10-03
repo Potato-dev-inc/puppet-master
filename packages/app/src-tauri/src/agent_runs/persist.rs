@@ -38,6 +38,8 @@ pub struct FollowupOpts {
     pub acceptance_criteria: Option<Vec<String>>,
     pub checks: Option<Vec<super::checks::Check>>,
     pub locks: Vec<String>,
+    /// Re-run a run that was parked on the workspace-trust prompt with `--trust`.
+    pub trust_workspace: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

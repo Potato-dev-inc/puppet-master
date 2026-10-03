@@ -5,6 +5,9 @@ use serde_json::{json, Value};
 /// Text the rejected-call warning always contains; `run_warnings` looks for it in the result.
 pub(super) const REJECTED_CALL_MARKER: &str = "Cursor reported a rejected tool or shell call";
 
+/// The one resolution a headless trust prompt offers; `answer_prompt` re-runs with `--trust`.
+pub const TRUST_WORKSPACE_CHOICE: &str = "trust_workspace";
+
 /// Cursor prints a refusal when a tool call is rejected (headless runs cannot approve shell
 /// commands) yet exits 0. Returns a warning to attach to the result so `completed` is not read as
 /// "the commands ran".
@@ -57,9 +60,14 @@ pub(super) fn detect_trust(agent_type: &str, output: &str) -> Option<Value> {
         "agent_type": agent_type,
         "kind": "workspace_trust",
         "text": output.trim(),
-        "choices": [],
+        "choices": [TRUST_WORKSPACE_CHOICE],
+        "options": [{
+            "id": TRUST_WORKSPACE_CHOICE,
+            "label": "Trust this workspace and re-run this task (passes --trust)",
+            "effect": "answer_prompt(handle, prompt_id, choice=\"trust_workspace\") re-runs this task on the same handle with trust_workspace=true, equivalent to run_agent(..., trust_workspace=true). Only choose it for a folder the user named; Cursor can then run code and read files there."
+        }],
         "headless": true,
-        "resolution": "Trust this folder yourself in an interactive Cursor Agent (run `agent` in the project and accept the trust prompt), then retry with send_agent on this handle or a new run_agent. Puppet Master only passes --trust when the run was started with trust_workspace=true, and passes --force only when the run was started with allow_shell=true."
+        "resolution": "Resolve in one call: answer_prompt(handle, prompt_id, choice=\"trust_workspace\"), or retry with run_agent(..., trust_workspace=true). Alternatively trust the folder yourself in an interactive Cursor Agent (run `agent` in the project and accept the trust prompt), then retry with send_agent. Puppet Master only passes --trust when the run was started with trust_workspace=true, and passes --force only when the run was started with allow_shell=true."
     }))
 }
 
@@ -110,7 +118,10 @@ mod tests {
         let cursor = profile_for("cursor_agent");
         let prompt = cursor.detect_headless_trust(stderr).unwrap();
         assert_eq!(prompt["kind"], "workspace_trust");
-        assert_eq!(prompt["choices"], json!([]));
+        assert_eq!(prompt["choices"], json!(["trust_workspace"]));
+        assert_eq!(prompt["options"][0]["id"], "trust_workspace");
+        assert!(prompt["options"][0]["label"].as_str().unwrap().contains("Trust"));
+        assert!(prompt["resolution"].as_str().unwrap().contains("trust_workspace"));
         assert!(prompt["text"]
             .as_str()
             .unwrap()
