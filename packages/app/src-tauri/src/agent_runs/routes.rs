@@ -33,6 +33,21 @@ pub fn handle_request(
             )
             .map(|view| serde_json::to_value(view).unwrap_or(Value::Null))
         }),
+        ("POST", ["agents", "quick"]) => parse::<super::quick::QuickAskRequest>(body).and_then(|mut request| {
+            if request
+                .project_path
+                .as_deref()
+                .is_none_or(|path| path.trim().is_empty())
+            {
+                request.project_path = query_value(query, "project_path");
+            }
+            super::quick::quick_ask(
+                request,
+                registry.clone(),
+                app.clone(),
+                session_id.map(str::to_string),
+            )
+        }),
         ("POST", ["agents", "wait"]) => parse::<WaitAgentsRequest>(body).and_then(|request| {
             let project = project_path(request.project_path.as_deref(), query, registry);
             wait_agents(&project, request, session_id, registry)

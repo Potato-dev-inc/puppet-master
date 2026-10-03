@@ -332,6 +332,14 @@ fn call_tool_cancellable(
                 Err(error) => Err(wait_timeout_recovery("/agents/run", &body, error)),
             }
         }
+        "quick_ask" => {
+            let mut body = args.clone();
+            ensure_idempotency_key(&mut body);
+            match bridge_request("POST", "/agents/quick", Some(body.clone())) {
+                Ok(response) => Ok(response),
+                Err(error) => Err(wait_timeout_recovery("/agents/quick", &body, error)),
+            }
+        }
         "wait_agents" => bridge_request_wait_agents(&args, cancel_rx.as_ref()),
         "send_message" => {
             let mut body = args.clone();
@@ -1039,8 +1047,18 @@ fn bridge_read_timeout_secs(method: &str, path: &str, body: Option<&Value>) -> u
             || path.contains("/operations/") && path.ends_with("/wait")
             || path == "/agents/wait"
             || path == "/agents/run"
+            || path == "/agents/quick"
             || path == "/agents/followup")
     {
+        if path == "/agents/quick" {
+            // quick_ask waits wait_ms (default 90s, clamped to 120s) like the bridge does.
+            let wait_ms = body
+                .and_then(|value| value.get("wait_ms"))
+                .and_then(Value::as_u64)
+                .unwrap_or(90_000)
+                .min(120_000);
+            return (wait_ms / 1000).saturating_add(15);
+        }
         if path == "/agents/run"
             && body
                 .and_then(|value| value.get("background"))

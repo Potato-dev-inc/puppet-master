@@ -1174,6 +1174,7 @@ mod tests {
         for name in [
             "set_mode",
             "run_agent",
+            "quick_ask",
             "wait_agents",
             "send_message",
             "followup_task",
@@ -1193,6 +1194,7 @@ mod tests {
         let shell = set_mode(&second, "shell").unwrap();
         assert!(shell.iter().any(|tool| tool.name == "shell_exec"));
         assert!(!shell.iter().any(|tool| tool.name == "run_agent"));
+        assert!(!shell.iter().any(|tool| tool.name == "quick_ask"));
         assert_eq!(mode_for(&first), McpMode::Agent);
     }
 
@@ -1223,6 +1225,7 @@ mod tests {
         );
         set_mode(&session, "shell").unwrap();
         assert!(authorize(Some(&session), "POST", "/agents/run", &Value::Null).is_err());
+        assert!(authorize(Some(&session), "POST", "/agents/quick", &Value::Null).is_err());
         let shell_id = format!("shell-{}", Uuid::new_v4());
         register_shell_pane(&session, &shell_id).unwrap();
         assert!(authorize(
@@ -1335,6 +1338,7 @@ mod tests {
         for (method, path, body) in [
             ("GET", "/agents", Value::Null),
             ("POST", "/agents/run", serde_json::json!({"task":"work"})),
+            ("POST", "/agents/quick", serde_json::json!({"task":"work"})),
             (
                 "POST",
                 "/agents/cancel",
