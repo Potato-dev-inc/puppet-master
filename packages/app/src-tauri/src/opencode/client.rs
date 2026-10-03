@@ -6,6 +6,10 @@ use serde_json::json;
 use std::time::{Duration, Instant};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+/// Health polling: serve usually comes up in ~1.2s, so poll tightly with a short
+/// per-request timeout; the overall cap stays the caller's `timeout`.
+const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const HEALTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
 
 fn encode_query_component(value: &str) -> String {
     value
@@ -39,9 +43,9 @@ pub fn wait_for_health(base_url: &str, timeout: Duration) -> Result<(), String> 
     let url = format!("{base}/global/health");
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        match ureq::get(&url).timeout(DEFAULT_TIMEOUT).call() {
+        match ureq::get(&url).timeout(HEALTH_REQUEST_TIMEOUT).call() {
             Ok(response) if response.status() == 200 => return Ok(()),
-            _ => std::thread::sleep(Duration::from_millis(250)),
+            _ => std::thread::sleep(HEALTH_POLL_INTERVAL),
         }
     }
     Err(format!(
@@ -534,6 +538,39 @@ pub fn health_ok(base_url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wait_for_health_polls_fast_and_survives_a_hung_request() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for (n, stream) in listener.incoming().enumerate() {
+                let mut stream = stream.unwrap();
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                match n {
+                    0 => {
+                        let _ = stream.write_all(
+                            b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        );
+                    }
+                    1 => held.push(stream), // never answers: must hit the per-request timeout
+                    _ => {
+                        let _ = stream.write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                        );
+                        break;
+                    }
+                }
+            }
+        });
+        let start = Instant::now();
+        wait_for_health(&format!("http://127.0.0.1:{port}"), Duration::from_secs(10)).unwrap();
+        // hung request is cut at ~1s, not 30s
+        assert!(start.elapsed() < Duration::from_secs(4), "{:?}", start.elapsed());
+    }
 
     #[test]
     fn normalizes_base_url() {
