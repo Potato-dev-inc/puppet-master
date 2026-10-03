@@ -121,6 +121,18 @@ async function runToEnd(runArgs) {
   return view;
 }
 
+/** A visible Cursor pane in the suite's own fresh sandbox stops on the first-run workspace-trust
+ *  dialog. Trusting that folder (created by this script, empty) is part of the scenario; anything
+ *  else that blocks is left for the assertions to report. */
+async function resolveSandboxTrust(view) {
+  for (let i = 0; i < 6 && view.status === 'needs_input' && view.prompt?.kind === 'workspace_trust' && view.handle; i += 1) {
+    await tool('answer_prompt', { handle: view.handle, prompt_id: view.prompt.id, choice: 'trust', project_path: sandbox });
+    view = await tool('wait_agents', { handles: [view.handle], timeout_ms: 90_000, project_path: sandbox });
+    view = view.runs?.[0] ?? view.agents?.[0] ?? view;
+  }
+  return view;
+}
+
 const PONG = 'Reply with only the word PONG. Use no tools.';
 const scenarios = {
   async pong(backend, extra) {
@@ -225,7 +237,7 @@ const scenarios = {
   // Visible pane, two turns, then close_agent must close the pane (B1) and the first turn must
   // never report success without the prompt having landed.
   async visible_close(backend) {
-    const first = await runToEnd({ agent_type: backend, headless: false, keep_pane: true, task: PONG });
+    const first = await resolveSandboxTrust(await runToEnd({ agent_type: backend, headless: false, keep_pane: true, task: PONG }));
     const ok = check('visible: first turn completed with PONG', first.status === 'completed' && /PONG/.test(first.result ?? ''), `${first.status} ${first.error?.code ?? ''} ${String(first.result).slice(0, 60)}`);
     const paneId = first.pane_id;
     if (ok && first.handle) {
