@@ -96,10 +96,21 @@ pub fn run_agent(
             false,
         ));
     }
-    if request.read_only
-        && (!request.headless
-            || !super::capabilities::read_only_supported(&request.agent_type, false))
+    // A backend that enforces read-only on a pane it spawns itself (opencode_native) may run in a
+    // pane; every other backend needs a headless run. An explicitly named pane must itself have
+    // been spawned read-only, and the dispatch re-checks adopted worker panes.
+    let read_only_ok = if crate::tui::profile_for(&request.agent_type)
+        .features()
+        .read_only_spawned_pane
     {
+        request
+            .pane_id
+            .as_deref()
+            .is_none_or(|pane| super::capabilities::read_only_supported_for(&request.agent_type, Some(pane)))
+    } else {
+        request.headless && super::capabilities::read_only_supported(&request.agent_type, false)
+    };
+    if request.read_only && !read_only_ok {
         return Err(OperationError::new(
             "READ_ONLY_UNSUPPORTED",
             super::capabilities::read_only_unsupported_message(
