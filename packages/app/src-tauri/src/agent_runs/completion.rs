@@ -22,6 +22,7 @@ pub struct TuiTurnWatch {
     idle_ticks: u8,
     reconcile_ticks: u8,
     saw_activity: bool,
+    saw_task_echo: bool,
     submit_retried: bool,
 }
 
@@ -73,9 +74,18 @@ pub fn observe_tui_turn(
         watch.reconcile_ticks = 0;
         return TuiTurnDecision::Continue;
     }
-    if let Some(evidence) = tui_turn_evidence(screen, &watch.baseline)
-        .and_then(|raw| clean_extracted_result(&raw, &watch.task))
-    {
+    if !watch.saw_task_echo && task_echo_on_screen(screen, &watch.task) {
+        watch.saw_task_echo = true;
+    }
+    // With a blank baseline (the snapshot raced a lagging screen) everything already on screen,
+    // banner, model footer, update notices, counts as "new". Until the pane was seen running or
+    // the task's own echo appeared, there is no proof this turn started, so accept no evidence.
+    let turn_started = !watch.baseline.trim().is_empty() || watch.saw_activity || watch.saw_task_echo;
+    let evidence = turn_started
+        .then(|| tui_turn_evidence(screen, &watch.baseline))
+        .flatten()
+        .and_then(|raw| clean_extracted_result(&raw, &watch.task));
+    if let Some(evidence) = evidence {
         if watch.idle_evidence.as_deref() == Some(evidence.as_str()) {
             watch.idle_ticks = watch.idle_ticks.saturating_add(1);
         } else {
@@ -111,6 +121,14 @@ pub fn observe_tui_turn(
     } else {
         TuiTurnDecision::Continue
     }
+}
+
+/// Whether the start of the task text is visible on screen (the TUI echoes the submitted prompt).
+/// Whitespace and punctuation are ignored so a wrapped line still matches.
+fn task_echo_on_screen(screen: &str, task: &str) -> bool {
+    let task_n = normalize_echo(task);
+    let head: String = task_n.chars().take(40).collect();
+    head.len() >= 8 && normalize_echo(screen).contains(head.trim_end())
 }
 
 pub fn is_tui_chrome_line(line: &str) -> bool {

@@ -444,6 +444,57 @@ fn fast_reply_never_observed_busy_completes_with_result_not_timeout() {
 }
 
 #[test]
+fn blank_baseline_banner_text_with_no_work_is_not_a_completed_turn() {
+    // The baseline snapshot raced the ConPTY screen and came back blank, so the banner, model and
+    // working directory that are already on screen look like "new output".
+    let mut watch = TuiTurnWatch::from_baseline("").with_task("do X");
+    let screen = "Cursor Agent v2026.10.01-abc\n~/proj\nAdd a follow-up";
+    for tick in 0..6 {
+        let decision = observe_tui_turn(&mut watch, "idle", screen, false);
+        assert!(
+            !matches!(decision, TuiTurnDecision::Complete { .. }),
+            "tick {tick}: banner text must not complete a turn that did nothing: {decision:?}"
+        );
+    }
+}
+
+#[test]
+fn blank_baseline_startup_furniture_beyond_the_known_chrome_is_not_a_completed_turn() {
+    // Same race, but the idle screen carries a bare non-Composer model footer, a trust-folder
+    // line and an update notice: none are in the chrome list, so they read as "new output".
+    let mut watch = TuiTurnWatch::from_baseline("").with_task("do X");
+    let screen =
+        "Cursor Agent v2026.10.01-abc\n~/proj\nGPT-5\nUpdate available: run agent update\nAdd a follow-up";
+    for tick in 0..6 {
+        let decision = observe_tui_turn(&mut watch, "idle", screen, false);
+        assert!(
+            !matches!(decision, TuiTurnDecision::Complete { .. }),
+            "tick {tick}: startup furniture must not complete a turn that did nothing: {decision:?}"
+        );
+    }
+}
+
+#[test]
+fn blank_baseline_turn_completes_once_activity_was_observed() {
+    let mut watch = TuiTurnWatch::from_baseline("").with_task("do X");
+    let _ = observe_tui_turn(&mut watch, "running", "Cursor Agent v1\nworking", false);
+    let screen = "Cursor Agent v1\nThe answer is 42.\nAdd a follow-up";
+    let decision = tick_until_idle(&mut watch, "idle", screen, false, 2);
+    assert!(matches!(decision, TuiTurnDecision::Complete { .. }), "{decision:?}");
+}
+
+#[test]
+fn blank_baseline_turn_completes_once_the_task_echo_is_on_screen() {
+    let mut watch = TuiTurnWatch::from_baseline("").with_task("summarize the readme file");
+    let echoing = "Cursor Agent v1\n> summarize the readme file\nAdd a follow-up";
+    // Echo seen on a busy-looking-idle tick, then the reply lands.
+    let _ = observe_tui_turn(&mut watch, "idle", echoing, false);
+    let screen = "Cursor Agent v1\n> summarize the readme file\nIt documents the CLI.\nAdd a follow-up";
+    let decision = tick_until_idle(&mut watch, "idle", screen, false, 2);
+    assert!(matches!(decision, TuiTurnDecision::Complete { .. }), "{decision:?}");
+}
+
+#[test]
 fn repeated_identical_answers_still_count_as_a_new_turn_result() {
     let previous = "PUPPET_MASTER_AGENT_MODE_OK\nAdd follow-up >";
     let mut watch = TuiTurnWatch::from_baseline(previous);
@@ -564,7 +615,7 @@ fn transcript_truncation_does_not_drop_stored_result() {
         &project_path,
         &queued.operation_id,
         Some("kept final answer".into()),
-        ResultCapture::Inferred,
+        ResultCapture::Authoritative,
         false,
     )
     .unwrap();
@@ -983,6 +1034,127 @@ fn running_turn(
 }
 
 #[test]
+fn inferred_pane_result_without_checks_is_marked_unverified() {
+    let project = std::env::temp_dir().join(format!("pm-inferred-{}", Uuid::new_v4()));
+    let project_path = project.to_string_lossy().into_owned();
+    let pane = running_turn(&project_path, "pane", "cursor_agent", Some("pane-1"), true);
+    let done = operations::mark_operation_finished(
+        &project_path,
+        &pane.operation_id,
+        Some("The fix is in main.rs.".into()),
+        ResultCapture::Inferred,
+        false,
+    )
+    .unwrap();
+    assert_eq!(done.status, OperationStatus::Completed);
+    assert!(!done.verified);
+    assert_eq!(done.acceptance_status, crate::operations::AcceptanceStatus::NotChecked);
+    assert_eq!(
+        done.result.as_deref(),
+        Some("[unverified: read from terminal screen] The fix is in main.rs.")
+    );
+    let view = super::runtime::inspect_agent(&project_path, "pane", Some("persist-session")).unwrap();
+    assert_eq!(view["verified"], false);
+    assert!(view["warnings"]
+        .to_string()
+        .contains("PROVENANCE_INFERRED"));
+
+    // An authoritative result is stored untouched.
+    let head = running_turn(&project_path, "head", "cursor_agent", None, false);
+    let done = operations::mark_operation_finished(
+        &project_path,
+        &head.operation_id,
+        Some("PONG".into()),
+        ResultCapture::Authoritative,
+        false,
+    )
+    .unwrap();
+    assert_eq!(done.result.as_deref(), Some("PONG"));
+    let _ = fs::remove_dir_all(project);
+}
+
+fn headless_cursor_turn(
+    project: &str,
+    handle: &str,
+    session: Option<&str>,
+    pane: Option<&str>,
+) -> operations::OperationSnapshot {
+    let mut request = persist_req(project, handle, 1, "current turn");
+    request.agent_type = "cursor_agent".into();
+    request.pane_id = pane.map(str::to_string);
+    request.worker.provider_session_id = session.map(str::to_string);
+    let queued = operations::create_operation(request).unwrap().0;
+    operations::run_operation_dispatch(project, &queued.operation_id, |snapshot| {
+        snapshot.pane_id = pane.map(str::to_string);
+        Ok(())
+    })
+    .unwrap()
+}
+
+#[test]
+fn busy_headless_cursor_with_a_session_is_steered_by_restart() {
+    use super::messaging::{DeliveryMode, Disposition};
+    let project = std::env::temp_dir().join(format!("pm-steer-restart-{}", Uuid::new_v4()));
+    let project_path = project.to_string_lossy().into_owned();
+    let running = headless_cursor_turn(&project_path, "cur", Some("chat-1"), None);
+    assert!(super::messaging::can_restart_steer(&running));
+    let send = |mode, key: &str| {
+        super::messaging::send_message(&project_path, "cur", "use tabs", &running, mode, Some(key))
+            .unwrap()
+    };
+    let receipt = send(DeliveryMode::LiveOrQueue, "k1");
+    assert_eq!(receipt.disposition, Disposition::AcceptedViaRestart);
+    assert_eq!(
+        super::messaging::receipt_value(&receipt)["disposition"],
+        "accepted_via_restart"
+    );
+    assert_eq!(send(DeliveryMode::Live, "k2").disposition, Disposition::AcceptedViaRestart);
+    assert_eq!(send(DeliveryMode::Queue, "k3").disposition, Disposition::Queued);
+    // The restarted turn finishing settles the steer, with its result.
+    super::messaging::mark_open_steers_processed_for_turn(&project_path, "cur", "tabs used", 2);
+    let settled = super::messaging::find_receipt_by_key(&project_path, "cur", "k1").unwrap();
+    assert_eq!(settled.disposition, Disposition::Processed);
+    assert_eq!(settled.result.as_deref(), Some("tabs used"));
+    assert!(super::capabilities::for_snapshot(&running)
+        .notes
+        .iter()
+        .any(|note| note.starts_with("steer_via_restart")));
+    let _ = fs::remove_dir_all(project);
+}
+
+#[test]
+fn steer_falls_back_to_queue_without_a_session_or_with_a_pane() {
+    use super::messaging::{DeliveryMode, Disposition};
+    let project = std::env::temp_dir().join(format!("pm-steer-norestart-{}", Uuid::new_v4()));
+    let project_path = project.to_string_lossy().into_owned();
+    let no_session = headless_cursor_turn(&project_path, "nosess", None, None);
+    assert!(!super::messaging::can_restart_steer(&no_session));
+    let receipt = super::messaging::send_message(
+        &project_path, "nosess", "m", &no_session, DeliveryMode::LiveOrQueue, Some("a"),
+    )
+    .unwrap();
+    assert_eq!(receipt.disposition, Disposition::Queued);
+    let strict = super::messaging::send_message(
+        &project_path, "nosess", "m", &no_session, DeliveryMode::Live, Some("b"),
+    )
+    .unwrap();
+    assert_eq!(strict.disposition, Disposition::Unsupported);
+
+    let pane = headless_cursor_turn(&project_path, "pane", Some("chat-2"), Some("pane-9"));
+    assert!(!super::messaging::can_restart_steer(&pane));
+    let receipt = super::messaging::send_message(
+        &project_path, "pane", "m", &pane, DeliveryMode::LiveOrQueue, Some("c"),
+    )
+    .unwrap();
+    assert_eq!(receipt.disposition, Disposition::Queued);
+
+    // Backends without resume never restart-steer.
+    let codex_like = running_turn(&project_path, "claude", "claude", None, false);
+    assert!(!super::messaging::can_restart_steer(&codex_like));
+    let _ = fs::remove_dir_all(project);
+}
+
+#[test]
 fn send_message_steers_current_turn_followup_opens_next_turn() {
     let project = std::env::temp_dir().join(format!("pm-msg-vs-follow-{}", Uuid::new_v4()));
     let project_path = project.to_string_lossy().into_owned();
@@ -1101,6 +1273,7 @@ fn busy_tui_never_claims_injected_text_was_delivered() {
         waiting_input: false,
         has_pane: true,
         can_live_steer: false,
+        can_restart_steer: false,
     };
     assert_eq!(
         super::messaging::decide_delivery(super::messaging::DeliveryMode::LiveOrQueue, tui),
@@ -1124,6 +1297,7 @@ fn busy_tui_never_claims_injected_text_was_delivered() {
         waiting_input: false,
         has_pane: false,
         can_live_steer: false,
+        can_restart_steer: false,
     };
     assert_eq!(
         super::messaging::decide_delivery(super::messaging::DeliveryMode::LiveOrQueue, headless),
@@ -1135,6 +1309,7 @@ fn busy_tui_never_claims_injected_text_was_delivered() {
         waiting_input: false,
         has_pane: true,
         can_live_steer: true,
+        can_restart_steer: false,
     };
     assert_eq!(
         super::messaging::decide_delivery(super::messaging::DeliveryMode::LiveOrQueue, native),
@@ -1525,6 +1700,61 @@ fn visible_terminal_only_when_pane_exists() {
 }
 
 #[test]
+fn headless_cursor_resumes_one_conversation_across_followups() {
+    let caps = super::capabilities::for_backend("cursor_agent", false);
+    assert!(caps.session_resume);
+    assert!(!super::capabilities::for_backend("cursor_agent", true).session_resume);
+
+    let project = std::env::temp_dir().join(format!("pm-cursor-resume-{}", Uuid::new_v4()));
+    let project_path = project.to_string_lossy().into_owned();
+    let mut first = persist_req(&project_path, "cur", 0, "turn one");
+    first.agent_type = "cursor_agent".into();
+    let (op, _) = operations::create_operation(first).unwrap();
+    // The first turn's JSON result carries the chat id; the exit path stores it on the worker.
+    let session = crate::tui::profile_for("cursor_agent")
+        .extract_provider_session(include_str!("../tui/cursor/fixtures/headless_result.json"))
+        .unwrap();
+    operations::set_provider_session(&project_path, &op.operation_id, &session).unwrap();
+    let stored = operations::get_operation(&project_path, &op.operation_id).unwrap();
+    assert!(super::persist::snapshot_can_resume(&stored));
+    // The next turn's launch resumes that chat instead of starting a new one.
+    let spec = crate::tui::headless_launch(
+        "cursor_agent",
+        &crate::tui::HeadlessLaunch {
+            resume_session: stored.worker.provider_session_id.as_deref(),
+            ..crate::tui::HeadlessLaunch::new(".", "turn two")
+        },
+    )
+    .unwrap();
+    assert!(spec
+        .args
+        .windows(2)
+        .any(|pair| pair[0] == "--resume" && pair[1] == session));
+    let _ = fs::remove_dir_all(project);
+}
+
+#[test]
+fn headless_cursor_model_is_selectable_but_unconfirmed() {
+    assert!(super::capabilities::for_backend("cursor_agent", false).model_selection);
+    assert!(!super::capabilities::for_backend("cursor_agent", true).model_selection);
+    assert!(!super::capabilities::for_backend("codex", false).model_selection);
+    let facts = |has_pane, model_requested| crate::tui::RunFacts {
+        result: Some("ok"),
+        has_pane,
+        completed: true,
+        result_inferred: false,
+        model_requested,
+    };
+    let cursor = crate::tui::profile_for("cursor_agent");
+    assert!(cursor
+        .run_warnings(&facts(false, true))
+        .iter()
+        .any(|warning| warning.code == "MODEL_UNCONFIRMED"));
+    assert!(cursor.run_warnings(&facts(false, false)).is_empty());
+    assert!(cursor.run_warnings(&facts(true, true)).is_empty());
+}
+
+#[test]
 fn cursor_tui_contract_documents_version_limits_without_parity_claims() {
     let caps = super::capabilities::for_backend("cursor_agent", true);
     assert!(!caps.live_messages);
@@ -1769,6 +1999,7 @@ fn steering_a_finished_turn_is_rejected_unless_explicitly_queued() {
         waiting_input: false,
         has_pane: true,
         can_live_steer: true,
+        can_restart_steer: false,
     };
     assert_eq!(
         super::messaging::decide_delivery(super::messaging::DeliveryMode::LiveOrQueue, idle),

@@ -316,6 +316,7 @@ fn run_warnings(snapshot: &OperationSnapshot) -> Vec<RunWarning> {
         has_pane: snapshot.pane_id.is_some(),
         completed: snapshot.status == OperationStatus::Completed,
         result_inferred: matches!(snapshot.result_capture, Some(ResultCapture::Inferred)),
+        model_requested: snapshot.worker.requested_model.is_some(),
     };
     for warning in crate::tui::profile_for(&snapshot.agent_type).run_warnings(&facts) {
         push(warning.code, warning.source, warning.detail);
@@ -884,6 +885,24 @@ pub fn send_message(
         mode,
         idempotency_key,
     )?;
+    if receipt.disposition == Disposition::AcceptedViaRestart {
+        if let Err(error) = restart_with_steer(
+            project,
+            handle,
+            &message,
+            session_id,
+            &registry,
+            &app,
+        ) {
+            if mode == DeliveryMode::Live {
+                return Err(error);
+            }
+            // The restart did not happen (or could not be started): hold the message for the
+            // next turn like any other backend that cannot take live steers.
+            receipt.disposition = Disposition::Queued;
+            messaging::update_receipt(project, handle, &receipt)?;
+        }
+    }
     if receipt.disposition == Disposition::Accepted {
         if let Err(error) = deliver_live(&snapshot, &message, &registry, &app) {
             if mode == DeliveryMode::Live {
@@ -897,7 +916,10 @@ pub fn send_message(
     }
     if matches!(
         receipt.disposition,
-        Disposition::Accepted | Disposition::Queued | Disposition::Deferred
+        Disposition::Accepted
+            | Disposition::AcceptedViaRestart
+            | Disposition::Queued
+            | Disposition::Deferred
     ) {
         transcript::append(project, &snapshot.operation_id, "user_steer", &message);
     }
@@ -905,6 +927,12 @@ pub fn send_message(
     let live = capabilities::for_snapshot(&snapshot).live_messages;
     if let Some(object) = value.as_object_mut() {
         object.insert("supports_live_steer".into(), json!(live));
+        if receipt.disposition == Disposition::AcceptedViaRestart {
+            object.insert(
+                "note".into(),
+                json!("steered by restart: the running turn was stopped and this message started a new turn on the same provider session (--resume); unfinished work from the stopped turn is not carried over. Use wait_agents on this handle for the new turn's result"),
+            );
+        }
         if !live
             && matches!(receipt.disposition, Disposition::Queued | Disposition::Deferred)
         {
@@ -926,6 +954,51 @@ pub fn send_message(
         }
     }
     Ok(value)
+}
+
+/// Steer a busy headless run by stopping its child and starting the next turn on the same handle
+/// with the message as the prompt; the launch carries `--resume <provider session>`.
+fn restart_with_steer(
+    project: &str,
+    handle: &str,
+    message: &str,
+    session_id: Option<&str>,
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &tauri::AppHandle,
+) -> Result<(), OperationError> {
+    interrupt_active_turns(
+        project,
+        handle,
+        session_id,
+        |snapshot| {
+            if !messaging::can_restart_steer(snapshot) {
+                return Err(OperationError::new(
+                    "DELIVERY_UNSUPPORTED",
+                    "the run can no longer be restarted with a steer",
+                    false,
+                ));
+            }
+            match super::headless::cancel_headless(snapshot) {
+                Err(error) if error.code != "WORKER_NOT_FOUND" => Err(error),
+                _ => Ok(()),
+            }
+        },
+        |interrupted| crate::bridge::publish_operation(interrupted, registry, app),
+    )?;
+    send_agent(
+        project,
+        handle,
+        message.to_string(),
+        session_id.map(str::to_string),
+        registry.clone(),
+        app.clone(),
+        FollowupOpts {
+            background: true,
+            wait_ms: Some(0),
+            ..FollowupOpts::default()
+        },
+    )
+    .map(|_| ())
 }
 
 fn rebase_native_steer(

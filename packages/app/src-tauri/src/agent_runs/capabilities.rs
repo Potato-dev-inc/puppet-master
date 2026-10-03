@@ -15,6 +15,8 @@ pub const NOTE_HEADLESS_INTERRUPT: &str =
     "headless interrupt stops the child; a follow-up starts a new child; pane kill is close_agent only";
 pub const NOTE_LIVE_NATIVE_ONLY: &str =
     "live_messages is opencode_native only; other backends queue or report unsupported and never inject text into a busy TUI";
+pub const NOTE_STEER_VIA_RESTART: &str =
+    "steer_via_restart: send_message on a busy headless run stops the child and starts a new turn with --resume (disposition accepted_via_restart) once the provider session id is known, which is after the run's first turn finishes; the stopped turn's unfinished work is lost, and before that the message is queued";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackendInterface {
@@ -87,7 +89,14 @@ pub fn for_backend(agent_type: &str, has_pane: bool) -> BackendCapabilities {
     let features = profile.features();
     let mut caps = match features.kind {
         Kind::NativeProtocol => native_protocol(has_pane),
-        Kind::Cli => cli_contract(has_pane, features.resumable_headless && !has_pane),
+        Kind::Cli => {
+            let mut caps = cli_contract(has_pane, features.resumable_headless && !has_pane);
+            caps.model_selection = profile.accepts_headless_model() && !has_pane;
+            if caps.session_resume {
+                caps.notes.push(NOTE_STEER_VIA_RESTART.into());
+            }
+            caps
+        }
         Kind::Shell | Kind::Unknown => shell_contract(has_pane),
     };
     caps.notes.extend(profile.capability_notes(has_pane));

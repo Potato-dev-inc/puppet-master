@@ -1016,6 +1016,10 @@ pub(super) fn execute_headless(
     let allow_shell = snapshot
         .as_ref()
         .is_some_and(|current| current.worker.allow_shell);
+    let requested_model = snapshot
+        .as_ref()
+        .and_then(|current| current.worker.requested_model.clone())
+        .filter(|model| !model.trim().is_empty());
     if crate::tui::profile_for(&agent_type).probes_default_model()
         && snapshot
             .as_ref()
@@ -1046,6 +1050,7 @@ pub(super) fn execute_headless(
                 resume_session: resume_session.as_deref(),
                 trust_workspace,
                 allow_shell,
+                model: requested_model.as_deref(),
             },
         ) {
             Ok(spec) if !read_only || spec.read_only_enforced => spec,

@@ -33,7 +33,7 @@ const NOTE_EXTRACT: &str =
 const NOTE_HEADLESS_SHELL: &str =
     "headless cursor_agent runs without --force/--trust, so its shell commands are rejected by Cursor and it cannot run tests; completed only means the process exited. Use a visible pane or opencode_native when the task must execute commands";
 const NOTE_HEADLESS_MODEL: &str =
-    "headless cursor_agent does not report which model ran, so resolved_model is the CLI configured default (from `cursor-agent about`), not a per-run confirmation";
+    "headless cursor_agent passes a requested model as --model but never reports which model ran, so resolved_model is the requested value (unconfirmed) or, when none was requested, the CLI configured default (from `cursor-agent about`); neither is a per-run confirmation";
 
 fn capability_notes(has_pane: bool) -> Vec<String> {
     let mut notes: Vec<String> = [
@@ -62,6 +62,7 @@ impl TuiProfile for CursorAgent {
     fn features(&self) -> Features {
         Features {
             read_only_headless: true,
+            resumable_headless: true,
             ..Features::CLI
         }
     }
@@ -84,6 +85,14 @@ impl TuiProfile for CursorAgent {
 
     fn extract_result(&self, output: &str, exit_code: i32) -> Option<String> {
         headless::extract_result(output, exit_code)
+    }
+
+    fn accepts_headless_model(&self) -> bool {
+        true
+    }
+
+    fn extract_provider_session(&self, output: &str) -> Option<String> {
+        headless::extract_provider_session(output)
     }
 
     fn rejected_call_warning(&self, output: &str) -> Option<&'static str> {
@@ -112,6 +121,13 @@ impl TuiProfile for CursorAgent {
                 code: "SHELL_COMMAND_REJECTED",
                 source: "heuristic",
                 detail: "Cursor reported a rejected tool or shell call; its commands may not have run. Verify with `checks` (command_exits).",
+            });
+        }
+        if !facts.has_pane && facts.completed && facts.model_requested {
+            warnings.push(Warning {
+                code: "MODEL_UNCONFIRMED",
+                source: "capture",
+                detail: "The requested model was passed to Cursor as --model, but headless Cursor does not report which model ran, so resolved_model is the request, not a confirmation.",
             });
         }
         if facts.has_pane && facts.completed && facts.result_inferred {
