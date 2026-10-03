@@ -52,6 +52,36 @@ pub fn launch_spec_resuming(
     read_only: bool,
     resume_session: Option<&str>,
 ) -> Result<LaunchSpec, String> {
+    launch_spec_with(agent_type, project, task, read_only, resume_session, false)
+}
+
+/// `trust_workspace` adds `--trust` to a headless `cursor_agent` launch; only an explicit
+/// caller opt-in sets it.
+pub fn launch_spec_with(
+    agent_type: &str,
+    project: &str,
+    task: &str,
+    read_only: bool,
+    resume_session: Option<&str>,
+    trust_workspace: bool,
+) -> Result<LaunchSpec, String> {
+    launch_spec_opts(agent_type, project, task, read_only, resume_session, trust_workspace, false)
+}
+
+/// `allow_shell` adds `--force` to a headless `cursor_agent` launch so its shell commands run
+/// instead of being rejected. Opt-in per run, and never combined with `read_only`.
+pub fn launch_spec_opts(
+    agent_type: &str,
+    project: &str,
+    task: &str,
+    read_only: bool,
+    resume_session: Option<&str>,
+    trust_workspace: bool,
+    allow_shell: bool,
+) -> Result<LaunchSpec, String> {
+    if allow_shell && read_only {
+        return Err("allow_shell cannot be combined with read_only".into());
+    }
     if read_only && !matches!(agent_type, "claude" | "codex" | "cursor_agent") {
         return Err(format!(
             "READ_ONLY_UNSUPPORTED: read-only headless execution is unsupported for agent type: {agent_type}"
@@ -70,6 +100,8 @@ pub fn launch_spec_resuming(
                     shim.to_string_lossy().into_owned(),
                 ],
                 vec!["--print".into(), "--output-format".into(), "json".into()],
+                if trust_workspace { vec!["--trust".into()] } else { vec![] },
+                if allow_shell { vec!["--force".into()] } else { vec![] },
                 if read_only {
                     vec!["--mode".into(), "plan".into()]
                 } else {
@@ -109,11 +141,17 @@ pub fn launch_spec_resuming(
             codex_exec_args(task, read_only, resume_session),
         ),
         "cursor_agent" => {
-            let args = if read_only {
-                vec!["--print", "--output-format", "json", "--mode", "plan", task]
-            } else {
-                vec!["--print", "--output-format", "json", task]
-            };
+            let mut args = vec!["--print", "--output-format", "json"];
+            if trust_workspace {
+                args.push("--trust");
+            }
+            if allow_shell {
+                args.push("--force");
+            }
+            if read_only {
+                args.extend(["--mode", "plan"]);
+            }
+            args.push(task);
             let args = args.into_iter().map(str::to_string).collect();
             return Ok(LaunchSpec {
                 program: "cursor-agent".into(),
@@ -227,6 +265,89 @@ fn resolve_windows_exe(name: &str) -> Result<String, String> {
         .ok_or_else(|| format!("{name} was not found on PATH"))
 }
 
+/// Pull `Default Model: X` out of `cursor-agent about` output (ANSI escapes ignored).
+pub fn parse_cursor_default_model(about: &str) -> Option<String> {
+    let mut plain = String::new();
+    let mut chars = about.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            for next in chars.by_ref() {
+                if next.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            plain.push(ch);
+        }
+    }
+    plain.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        (key.trim().eq_ignore_ascii_case("default model"))
+            .then(|| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+/// The model Cursor uses when no `--model` is given, from `cursor-agent about`. Headless runs do
+/// not report which model ran, so this is the best truthful answer; looked up once per process.
+pub fn cursor_default_model() -> Option<String> {
+    static CACHE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let mut command;
+            #[cfg(windows)]
+            {
+                let shim = find_path_file("cursor-agent.ps1")?;
+                command = std::process::Command::new("powershell.exe");
+                command.args(["-NoProfile", "-File"]).arg(shim).arg("about");
+            }
+            #[cfg(not(windows))]
+            {
+                command = std::process::Command::new("cursor-agent");
+                command.arg("about");
+            }
+            command
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null());
+            let mut child = command.spawn().ok()?;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    _ => {
+                        let _ = child.kill();
+                        return None;
+                    }
+                }
+            }
+            let output = child.wait_with_output().ok()?;
+            parse_cursor_default_model(&String::from_utf8_lossy(&output.stdout))
+        })
+        .clone()
+}
+
+/// Cursor prints a refusal when a tool call is rejected (headless runs cannot approve shell
+/// commands) yet exits 0. Returns a warning to attach to the result so `completed` is not read as
+/// "the commands ran".
+pub fn rejected_call_warning(agent_type: &str, output: &str) -> Option<&'static str> {
+    if agent_type != "cursor_agent" {
+        return None;
+    }
+    let lower = output.to_ascii_lowercase();
+    let denied = lower.contains("not in allowlist")
+        || (lower.contains("rejected")
+            && ["shell", "command", "tool call", "terminal"]
+                .iter()
+                .any(|word| lower.contains(word)));
+    denied.then_some(
+        "WARNING: Cursor reported a rejected tool or shell call. Its commands may not have run, but it may still have changed files directly, so rejected does not mean unchanged; verify the effect (use checks).",
+    )
+}
+
 /// Extracts only machine-readable final output after a successful process exit.
 /// Human-readable fallback is deliberately excluded as it is not completion evidence.
 pub fn extract_result(agent_type: &str, output: &str, exit_code: i32) -> Option<String> {
@@ -282,7 +403,7 @@ pub fn detect_headless_trust(agent_type: &str, output: &str) -> Option<Value> {
         "text": output.trim(),
         "choices": [],
         "headless": true,
-        "resolution": "Trust this folder yourself in an interactive Cursor Agent (run `agent` in the project and accept the trust prompt), then retry with send_agent on this handle or a new run_agent. Puppet Master never passes --trust, --yolo or -f for you."
+        "resolution": "Trust this folder yourself in an interactive Cursor Agent (run `agent` in the project and accept the trust prompt), then retry with send_agent on this handle or a new run_agent. Puppet Master only passes --trust when the run was started with trust_workspace=true, and passes --force only when the run was started with allow_shell=true."
     }))
 }
 
@@ -366,6 +487,23 @@ pub fn prompt_reply(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trust_flag_is_added_only_on_explicit_opt_in() {
+        let plain = launch_spec_with("cursor_agent", ".", "t", false, None, false).unwrap();
+        assert!(!plain.args.iter().any(|arg| arg == "--trust"));
+        let trusted = launch_spec_with("cursor_agent", ".", "t", false, None, true).unwrap();
+        assert!(trusted.args.iter().any(|arg| arg == "--trust"));
+        assert_eq!(trusted.args.last().map(String::as_str), Some("t"));
+    }
+
+    #[test]
+    fn rejected_cursor_calls_are_flagged_and_other_backends_are_not() {
+        let raw = r#"{"result":"Shell command rejected: Not in allowlist: python"}"#;
+        assert!(rejected_call_warning("cursor_agent", raw).is_some());
+        assert!(rejected_call_warning("cursor_agent", r#"{"result":"PONG"}"#).is_none());
+        assert!(rejected_call_warning("codex", raw).is_none());
+    }
 
     #[test]
     fn launches_cursor_agent_without_ide_and_uses_plan_for_read_only() {

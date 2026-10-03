@@ -309,6 +309,25 @@ pub fn detect_model_from_buffer(buffer: &str) -> Option<String> {
     })
 }
 
+/// Cursor's TUI footer reads `Composer 2.5 · 7.2%` (model, then context usage); the last such row
+/// on screen names the live model.
+pub fn detect_cursor_footer_model(buffer: &str) -> Option<String> {
+    buffer.lines().rev().find_map(|line| {
+        let (model, usage) = line.trim().rsplit_once(" · ")?;
+        let digits = usage.strip_suffix('%')?;
+        let model = model.trim();
+        let plausible = !digits.is_empty()
+            && digits.chars().all(|ch| ch.is_ascii_digit() || ch == '.')
+            && !model.is_empty()
+            && model.len() <= 40
+            && model.chars().next().is_some_and(char::is_alphabetic)
+            && model
+                .chars()
+                .all(|ch| ch.is_alphanumeric() || matches!(ch, ' ' | '.' | '-' | '_' | '/' | ':'));
+        plausible.then(|| model.to_string())
+    })
+}
+
 pub fn inspect_agent_model(
     pane_id: impl Into<String>,
     agent_type: AgentType,
@@ -336,7 +355,11 @@ pub fn inspect_agent_model_with_registry(
         }
     }
 
-    let buffer_fallback = detect_model_from_buffer(buffer);
+    let buffer_fallback = if agent_type == AgentType::CursorAgent {
+        detect_cursor_footer_model(buffer).or_else(|| detect_model_from_buffer(buffer))
+    } else {
+        detect_model_from_buffer(buffer)
+    };
     if let Some(detected_model) = buffer_fallback.clone() {
         return AgentModelInspection {
             pane_id,
@@ -502,6 +525,21 @@ mod tests {
             detect_model_from_buffer("using GPT-5.1 for this session").as_deref(),
             Some("GPT-5.1")
         );
+    }
+
+    #[test]
+    fn detects_cursor_model_from_footer() {
+        assert_eq!(
+            detect_cursor_footer_model("reply text\nComposer 2.5 · 7.2%\n").as_deref(),
+            Some("Composer 2.5")
+        );
+        assert!(detect_cursor_footer_model("done · fast\nabout 50%").is_none());
+        let inspected = inspect_agent_model(
+            "p1",
+            AgentType::CursorAgent,
+            "hi\nComposer 2.5 · 7.2%",
+        );
+        assert_eq!(inspected.detected_model.as_deref(), Some("Composer 2.5"));
     }
 
     #[test]

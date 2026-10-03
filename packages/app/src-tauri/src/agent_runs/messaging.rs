@@ -268,6 +268,22 @@ pub fn latest_steer(project: &str, handle: &str) -> Option<MessageReceipt> {
 }
 
 pub fn mark_open_steers_processed(project: &str, handle: &str, result: &str) {
+    mark_steers_processed(project, handle, result, None);
+}
+
+/// Called when `turn_index` finishes. A live-accepted steer was applied during this turn. A
+/// queued message was held for the NEXT turn, so it is only processed once a later turn ran;
+/// finishing the turn it was queued in must not report it as applied.
+pub fn mark_open_steers_processed_for_turn(
+    project: &str,
+    handle: &str,
+    result: &str,
+    turn_index: u32,
+) {
+    mark_steers_processed(project, handle, result, Some(turn_index));
+}
+
+fn mark_steers_processed(project: &str, handle: &str, result: &str, finishing_turn: Option<u32>) {
     let result = result.trim();
     if result.is_empty() {
         return;
@@ -275,10 +291,13 @@ pub fn mark_open_steers_processed(project: &str, handle: &str, result: &str) {
     let open: Vec<MessageReceipt> = load_all(project, handle)
         .into_iter()
         .filter(|receipt| {
-            matches!(
-                receipt.disposition,
-                Disposition::Accepted | Disposition::Queued
-            ) && receipt.result.is_none()
+            let queued_this_turn = finishing_turn
+                .is_some_and(|turn| receipt.turn_id == format!("turn-{turn}"));
+            match receipt.disposition {
+                Disposition::Accepted => receipt.result.is_none(),
+                Disposition::Queued => receipt.result.is_none() && !queued_this_turn,
+                _ => false,
+            }
         })
         .collect();
     for mut receipt in open {

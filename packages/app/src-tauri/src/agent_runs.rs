@@ -1,5 +1,6 @@
 //! Durable handles and bounded transcript support for MCP agent runs.
 
+mod approval_policy;
 mod capabilities;
 pub(crate) mod checks;
 mod completion;
@@ -7,7 +8,7 @@ mod headless;
 mod messaging;
 mod native;
 pub(crate) mod pane_close;
-mod persist;
+pub(crate) mod persist;
 mod recovery;
 mod routes;
 mod runtime;

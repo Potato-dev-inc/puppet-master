@@ -85,6 +85,7 @@ pub fn handle_request(
                     background: false,
                     wait_ms: None,
                     idempotency_key: request.idempotency_key,
+                    ..Default::default()
                 },
             )
             .map(|view| serde_json::to_value(view).unwrap_or(Value::Null))
@@ -150,7 +151,8 @@ pub fn handle_request(
         ("GET", ["agents"]) => {
             let explicit = query_value(query, "project_path");
             let project = project_path(explicit.as_deref(), query, registry);
-            list_agents(&project, session_id, registry, explicit.is_some())
+            let filter = AgentListFilter::from_query(query);
+            list_agents(&project, session_id, registry, explicit.is_some(), filter)
         }
         ("GET", ["agents", handle]) => {
             let project = project_path(None, query, registry);
@@ -378,11 +380,58 @@ fn inspect_agent(
     runtime::inspect_agent(project, handle, session_id)
 }
 
+/// Optional `list_agents` narrowing; the default lists everything visible.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct AgentListFilter {
+    /// Only runs/panes this connection controls.
+    pub mine_only: bool,
+    /// Only runs that have not ended.
+    pub active_only: bool,
+    /// Hide ended runs that finished longer ago than this many ms.
+    pub ended_within_ms: Option<u64>,
+}
+
+impl AgentListFilter {
+    fn from_query(query: &str) -> Self {
+        let flag = |key: &str| {
+            query_value(query, key).is_some_and(|value| matches!(value.as_str(), "1" | "true"))
+        };
+        Self {
+            mine_only: flag("mine_only"),
+            active_only: flag("active_only"),
+            ended_within_ms: query_value(query, "ended_within_ms")
+                .and_then(|value| value.parse().ok()),
+        }
+    }
+
+    pub(crate) fn keeps(
+        &self,
+        snapshot: &crate::operations::OperationSnapshot,
+        owned: bool,
+        now_ms: u64,
+    ) -> bool {
+        if self.mine_only && !owned {
+            return false;
+        }
+        if snapshot.status.terminal() {
+            if self.active_only {
+                return false;
+            }
+            if let (Some(window), Some(finished)) = (self.ended_within_ms, snapshot.finished_at_ms)
+            {
+                return now_ms.saturating_sub(finished) <= window;
+            }
+        }
+        true
+    }
+}
+
 fn list_agents(
     project: &str,
     session_id: Option<&str>,
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     explicit_project: bool,
+    filter: AgentListFilter,
 ) -> Result<Value, OperationError> {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -403,7 +452,7 @@ fn list_agents(
     let mut live_workers = Vec::new();
     let mut other = Vec::new();
     for (snapshot, owned) in visible_runs(operations, session_id, now_ms) {
-        if should_hide_from_agent_list(&snapshot) {
+        if should_hide_from_agent_list(&snapshot) || !filter.keeps(&snapshot, owned, now_ms) {
             continue;
         }
         let live_pane = snapshot
@@ -424,7 +473,11 @@ fn list_agents(
         other.push(run_worker_entry(&snapshot, owned, session_id, registry));
     }
     for pane in live.values() {
-        if !claimed.contains(&pane.id) {
+        let hidden_by_mine = filter.mine_only
+            && !session_id.is_some_and(|session| {
+                crate::mcp_sessions::session_controls_pane(session, &pane.id)
+            });
+        if !claimed.contains(&pane.id) && !hidden_by_mine {
             live_workers.push(pane_worker_entry(pane, session_id));
         }
     }
@@ -445,7 +498,7 @@ fn run_worker_entry(
     session_id: Option<&str>,
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
 ) -> Value {
-    let view = AgentRunView::from(snapshot.clone());
+    let view = AgentRunView::present(snapshot.clone(), Some(registry));
     let grant_required = snapshot.pane_id.as_deref().is_some_and(|pane_id| {
         session_id.is_some_and(|session| !crate::mcp_sessions::session_controls_pane(session, pane_id))
     });
@@ -627,6 +680,7 @@ fn wait_agents(
             false,
         ));
     }
+    let wait_started = std::time::Instant::now();
     let result = operations::wait_for_operations(
         &cursors,
         request.until,
@@ -634,6 +688,7 @@ fn wait_agents(
         wait_all,
         request.wake_on_progress,
     )?;
+    let waited_ms = wait_started.elapsed().as_millis() as u64;
     let agents = result
         .snapshots
         .into_iter()
@@ -651,7 +706,7 @@ fn wait_agents(
             value
         })
         .collect::<Vec<_>>();
-    Ok(json!({"agents": agents, "reason": result.reason, "mode": if wait_all {"all"} else {"any"}}))
+    Ok(json!({"agents": agents, "reason": result.reason, "mode": if wait_all {"all"} else {"any"}, "waited_ms": waited_ms, "requested_wait_ms": request.wait_ms}))
 }
 
 fn transcript(

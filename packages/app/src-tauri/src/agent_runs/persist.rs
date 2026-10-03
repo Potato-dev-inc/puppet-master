@@ -34,6 +34,10 @@ pub struct FollowupOpts {
     pub background: bool,
     pub wait_ms: Option<u64>,
     pub idempotency_key: Option<String>,
+    /// Carried through so a run that adopts an existing worker keeps its acceptance gate and locks.
+    pub acceptance_criteria: Option<Vec<String>>,
+    pub checks: Option<Vec<super::checks::Check>>,
+    pub locks: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,6 +202,15 @@ pub fn snapshot_can_resume(snapshot: &OperationSnapshot) -> bool {
             .is_some_and(|id| !id.is_empty())
 }
 
+/// A follow-up that goes back into the same live pane continues that pane's own conversation, so
+/// pasting a rebuilt "Prior context" block would repeat what the TUI already shows. Native opencode
+/// resumes through its provider session instead.
+pub fn pane_keeps_context(previous: &OperationSnapshot) -> bool {
+    previous.pane_id.is_some()
+        && previous.agent_type != "opencode_native"
+        && !previous.worker.session_reset
+}
+
 pub fn resolve_continuity(
     policy: ContextPolicy,
     can_resume: bool,
@@ -225,15 +238,24 @@ pub fn conversation_facts(project: &str, handle: &str) -> Option<String> {
     let turns = operations::turns_for_handle(project, handle).ok()?;
     let mut parts = Vec::new();
     for turn in turns {
-        let task = turn.task.trim();
+        let unanswered = matches!(
+            turn.status,
+            OperationStatus::Failed | OperationStatus::Cancelled
+        ) && turn
+            .result
+            .as_deref()
+            .map_or(true, |text| text.trim().is_empty());
+        if unanswered {
+            continue;
+        }
+        let task = original_task(&turn.task);
         if !task.is_empty() {
             parts.push(format!("User: {task}"));
         }
         if let Some(result) = turn
             .result
             .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
+            .and_then(|text| super::completion::clean_extracted_result(text, ""))
         {
             parts.push(format!("Assistant: {result}"));
         }
@@ -244,6 +266,36 @@ pub fn conversation_facts(project: &str, handle: &str) -> Option<String> {
     } else {
         Some(owned_bound_summary(&text))
     }
+}
+
+/// Stored turn tasks are the rendered prompt; cut the blocks `render_turn_prompt` and the
+/// acceptance wrapper appended so replayed history does not nest earlier packets.
+fn original_task(stored: &str) -> &str {
+    const MARKERS: [&str; 5] = [
+        "
+
+Scope: ",
+        "
+
+Prior context:
+",
+        "
+
+Parent summary:
+",
+        "
+Selected history:",
+        "
+
+Acceptance criteria:
+",
+    ];
+    let end = MARKERS
+        .iter()
+        .filter_map(|marker| stored.find(marker))
+        .min()
+        .unwrap_or(stored.len());
+    stored[..end].trim()
 }
 
 pub fn render_turn_prompt(args: TurnPromptArgs<'_>) -> TurnPrompt {
@@ -417,6 +469,12 @@ pub fn apply_inspect_fields(value: &mut Value, snapshot: &OperationSnapshot, sib
         "backend".into(),
         Value::String(snapshot.agent_type.clone()),
     );
+    // Callers that never learned a backend cannot take live steers (Cursor) see this up front
+    // instead of finding out from an `expired` receipt.
+    object.insert(
+        "supports_live_steer".into(),
+        Value::Bool(super::capabilities::for_snapshot(snapshot).live_messages),
+    );
     object.insert(
         "current_task".into(),
         Value::String(snapshot.task.clone()),
@@ -504,7 +562,12 @@ pub fn apply_inspect_fields(value: &mut Value, snapshot: &OperationSnapshot, sib
         "event_cursor".into(),
         json!(snapshot.worker.event_cursor.max(snapshot.revision)),
     );
-    object.insert("closed".into(), json!(snapshot.worker.closed));
+    object.insert(
+        "closed".into(),
+        json!(snapshot.worker.closed || snapshot.worker.pane_disposed),
+    );
+    object.insert("pane_disposed".into(), json!(snapshot.worker.pane_disposed));
+    object.insert("stage_timings".into(), stage_timings(snapshot));
     object.insert(
         "capabilities".into(),
         super::capabilities::for_snapshot(snapshot).value(),
@@ -520,6 +583,23 @@ pub fn apply_inspect_fields(value: &mut Value, snapshot: &OperationSnapshot, sib
             }),
         );
     }
+}
+
+/// Per-stage durations: each stage lasts until the next one starts (the last until the run
+/// finished, or `updated_at_ms` while it is still running). The first is measured from creation.
+fn stage_timings(snapshot: &OperationSnapshot) -> Value {
+    let log = &snapshot.worker.stage_log;
+    let end = snapshot.finished_at_ms.unwrap_or(snapshot.updated_at_ms);
+    let mut rows = Vec::new();
+    for (index, mark) in log.iter().enumerate() {
+        let until = log.get(index + 1).map_or(end, |next| next.at_ms);
+        rows.push(json!({
+            "stage": mark.stage,
+            "entered_after_ms": mark.at_ms.saturating_sub(snapshot.created_at_ms),
+            "duration_ms": until.saturating_sub(mark.at_ms),
+        }));
+    }
+    json!(rows)
 }
 
 fn context_packet(task: &str, scope: Option<&str>, facts: Option<&str>) -> String {
@@ -588,4 +668,9 @@ fn opt_string(value: Option<&str>) -> Value {
         .map(str::to_string)
         .map(Value::String)
         .unwrap_or(Value::Null)
+}
+
+#[cfg(test)]
+pub(super) fn original_task_for_test(stored: &str) -> &str {
+    original_task(stored)
 }

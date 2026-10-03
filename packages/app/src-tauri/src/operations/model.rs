@@ -271,6 +271,13 @@ impl ContextContinuity {
     }
 }
 
+/// When a run entered a `stage` (spawning_pane, waiting_for_pane_readiness, ...).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StageMark {
+    pub stage: String,
+    pub at_ms: u64,
+}
+
 /// Durable collaborator record that outlives a single turn.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct WorkerPersist {
@@ -308,6 +315,21 @@ pub struct WorkerPersist {
     pub event_cursor: u64,
     #[serde(default)]
     pub closed: bool,
+    /// True once the app closed this run's pane on its own (`keep_pane=false` terminal cleanup).
+    #[serde(default)]
+    pub pane_disposed: bool,
+    /// Caller opted in to `cursor-agent --trust` for headless runs in this workspace.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trust_workspace: bool,
+    /// Caller opted in to `cursor-agent --force` (shell commands run unreviewed) for this run.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_shell: bool,
+    /// Programs pre-authorised for allow-once on Cursor shell prompts (see approval_policy).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_commands: Vec<String>,
+    /// Stage entries for the current turn, oldest first (capped), for startup diagnosis.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stage_log: Vec<StageMark>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

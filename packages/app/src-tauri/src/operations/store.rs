@@ -265,5 +265,16 @@ pub(super) fn bump(op: &mut OperationSnapshot) -> Result<(), OperationError> {
     op.revision = op.revision.saturating_add(1);
     op.worker.event_cursor = op.worker.event_cursor.max(op.revision);
     op.updated_at_ms = now_ms();
+    if let Some(stage) = op.stage.clone() {
+        if op.worker.stage_log.last().map(|mark| mark.stage.as_str()) != Some(stage.as_str()) {
+            if op.worker.stage_log.len() >= 32 {
+                op.worker.stage_log.remove(0);
+            }
+            op.worker.stage_log.push(super::model::StageMark {
+                stage,
+                at_ms: op.updated_at_ms,
+            });
+        }
+    }
     persist(op)
 }

@@ -467,6 +467,33 @@ fn latest_in_project(
         .max_by_key(|snapshot| (snapshot.turn_index, snapshot.created_at_ms)))
 }
 
+/// Record what must outlive the pane when a terminal run's pane is auto-closed: the live model
+/// (unreadable once the pane is gone) and the fact that the pane was disposed.
+pub fn record_terminal_pane_state(
+    project_path: &str,
+    operation_id: &str,
+    live_model: Option<String>,
+    pane_disposed: bool,
+) -> Result<OperationSnapshot, OperationError> {
+    let _serial = UPDATE_LOCK.get_or_init(|| Mutex::new(())).lock();
+    let mut op = get_operation(project_path, operation_id)?;
+    let mut changed = false;
+    if let Some(model) = live_model.filter(|model| !model.trim().is_empty()) {
+        if op.worker.resolved_model.as_deref() != Some(model.as_str()) {
+            op.worker.resolved_model = Some(model);
+            changed = true;
+        }
+    }
+    if pane_disposed && !op.worker.pane_disposed {
+        op.worker.pane_disposed = true;
+        changed = true;
+    }
+    if changed {
+        bump(&mut op)?;
+    }
+    Ok(op)
+}
+
 pub fn mark_worker_closed(
     project_path: &str,
     agent_run_id: &str,
@@ -832,6 +859,20 @@ pub fn mark_operation_state(
     op.progress_pct = None;
     bump(&mut op)?;
     Ok(op)
+}
+
+/// Record a named stage on a still-active operation (shows up in `stage_timings`). A no-op once
+/// the operation is terminal or already at that stage.
+pub fn mark_operation_stage(project: &str, id: &str, stage: &str) {
+    let _serial = UPDATE_LOCK.get_or_init(|| Mutex::new(())).lock();
+    let Ok(mut op) = get_operation(project, id) else {
+        return;
+    };
+    if op.status.terminal() || op.stage.as_deref() == Some(stage) {
+        return;
+    }
+    op.stage = Some(stage.to_string());
+    let _ = bump(&mut op);
 }
 
 pub fn mark_operation_observation(
@@ -1246,6 +1287,16 @@ pub fn mark_operation_finished(
             false,
         ));
     }
+    // Command checks can run for minutes; execute them before taking the global update lock.
+    let command_results = match get_operation(project, id) {
+        Ok(peek) if !peek.status.terminal() && !peek.checks.is_empty() => {
+            crate::agent_runs::checks::run_command_checks(
+                std::path::Path::new(&peek.project_path),
+                &peek.checks,
+            )
+        }
+        _ => Default::default(),
+    };
     let _serial = UPDATE_LOCK.get_or_init(|| Mutex::new(())).lock();
     let mut op = get_operation(project, id)?;
     if op.status.terminal() {
@@ -1282,9 +1333,11 @@ pub fn mark_operation_finished(
     op.required_action = None;
     evaluate_acceptance_criteria(&mut op);
     if !op.checks.is_empty() {
-        let results = crate::agent_runs::checks::evaluate(
+        let results = crate::agent_runs::checks::evaluate_with_commands(
             std::path::Path::new(&op.project_path),
             &op.checks,
+            op.result.as_deref(),
+            &command_results,
         );
         let failure = crate::agent_runs::checks::failure_summary(&results);
         op.check_results = results;

@@ -618,7 +618,7 @@ pub fn write_input(
             // Enter arrive in the same instant. Raw terminal input must stay
             // immediate, so only pause for submit-style writes.
             if append_newline {
-                thread::sleep(Duration::from_millis(50));
+                thread::sleep(submit_delay(text));
             }
         }
         if append_newline {
@@ -631,6 +631,17 @@ pub fn write_input(
         append_newline,
     });
     Ok(())
+}
+
+/// Pause between pasted text and Enter. Multi-line or long text is a bracketed paste that the
+/// TUI needs time to ingest; an Enter that lands mid-paste is dropped and the prompt stays in
+/// the input box unsubmitted.
+fn submit_delay(text: &str) -> Duration {
+    if text.contains('\n') || text.len() > 200 {
+        Duration::from_millis((300 + text.len() as u64 / 10).min(1_500))
+    } else {
+        Duration::from_millis(50)
+    }
 }
 
 /// True when input should never be routed to OpenCode prompt_async (keys, mouse, escapes).
@@ -879,5 +890,17 @@ mod tests {
         let invocation = powershell_cursor_agent_command(command, &base_args, &[]);
         assert!(invocation.contains("Get-Command -Name 'cursor-agent.ps1'"));
         assert!(invocation.starts_with("& (Get-Command"));
+    }
+}
+
+#[cfg(test)]
+mod submit_delay_tests {
+    use super::*;
+
+    #[test]
+    fn multiline_paste_waits_longer_than_a_short_line() {
+        assert_eq!(submit_delay("hi"), Duration::from_millis(50));
+        assert!(submit_delay("a\nb") >= Duration::from_millis(300));
+        assert_eq!(submit_delay(&"x\n".repeat(20_000)), Duration::from_millis(1_500));
     }
 }

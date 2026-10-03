@@ -423,6 +423,48 @@ pub fn check_run_wait_access(session_id: &str, handle: &str) -> Result<(), Opera
     }
 }
 
+/// MCP connection id -> OS pid of the process serving it (sent by the MCP binary on each request).
+/// In memory only: a pid means nothing after the bridge restarts.
+static SESSION_PIDS: Lazy<Mutex<HashMap<String, u32>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+pub fn note_session_pid(session_id: &str, pid: u32) {
+    if let Ok(mut pids) = SESSION_PIDS.lock() {
+        if pids.get(session_id) != Some(&pid) {
+            pids.insert(session_id.to_string(), pid);
+        }
+    }
+}
+
+fn process_is_alive(pid: u32) -> bool {
+    #[cfg(windows)]
+    let output = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output();
+    #[cfg(not(windows))]
+    let output = std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output();
+    match output {
+        #[cfg(windows)]
+        Ok(out) => String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")),
+        #[cfg(not(windows))]
+        Ok(out) => out.status.success(),
+        // Cannot tell: assume alive, so control is never released on a guess.
+        Err(_) => true,
+    }
+}
+
+/// True only when we know this connection's process and it has exited. A host that abandons a
+/// request after a timeout restarts the MCP process under a new id; the old id is then dead
+/// weight, not a live competitor.
+fn session_process_dead(session_id: &str) -> bool {
+    let pid = SESSION_PIDS
+        .lock()
+        .ok()
+        .and_then(|pids| pids.get(session_id).copied());
+    pid.is_some_and(|pid| !process_is_alive(pid))
+}
+
 fn coordinator_live_connection(state: &State, coordinator_id: &str) -> Option<String> {
     state
         .coordinators
@@ -434,8 +476,11 @@ fn controller_is_stale(state: &State, agent: &PaneControl) -> bool {
     match agent.controller.as_deref() {
         None => true,
         Some(controller) if agent.released => true,
-        Some(controller) => coordinator_live_connection(state, &agent.coordinator_id)
-            .is_some_and(|live| live != controller),
+        Some(controller) => {
+            coordinator_live_connection(state, &agent.coordinator_id)
+                .is_some_and(|live| live != controller)
+                || session_process_dead(controller)
+        }
     }
 }
 
@@ -1497,6 +1542,24 @@ mod tests {
         assert_eq!(denied.code, "AUTHORIZATION_DENIED");
         assert!(denied.message.contains("another MCP coordinator"));
         release_owned_pane(&owner, "prompt-pane").unwrap();
+    }
+
+    #[test]
+    fn runs_of_a_dead_mcp_process_become_readable_but_a_live_one_stays_private() {
+        let owner = id();
+        let other = id();
+        register_owned_agent(&owner, "dead-handle").unwrap();
+        // A pid that cannot exist: the process behind `owner` is gone.
+        note_session_pid(&owner, u32::MAX - 1);
+        assert!(check_run_read_access(&other, "dead-handle").is_ok());
+        assert!(check_run_wait_access(&other, "dead-handle").is_ok());
+        // Mutation still needs an explicit take_over.
+        assert!(check_run_access(&other, "dead-handle").is_err());
+
+        let live_owner = id();
+        register_owned_agent(&live_owner, "live-handle").unwrap();
+        note_session_pid(&live_owner, std::process::id());
+        assert!(check_run_read_access(&other, "live-handle").is_err());
     }
 
     #[test]

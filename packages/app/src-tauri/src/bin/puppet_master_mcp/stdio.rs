@@ -6,7 +6,7 @@ pub(crate) fn run() {
     }
 
     log("starting");
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_id = session_id_from(env::var(CLIENT_ID_ENV).ok());
     let launch_args: Vec<String> = env::args().skip(1).collect();
     match initial_mode_from(&launch_args, env::var(MODE_ENV).ok()) {
         Ok(Some(mode)) => match mcp_sessions::set_mode(&session_id, mode.as_str()) {
@@ -199,7 +199,24 @@ fn handle_json_rpc_line_cancellable(
             ) {
                 Ok(value) => Ok(value),
                 Err(message) => {
-                    let detail = tool_error_detail(&message);
+                    let mut detail = tool_error_detail(&message);
+                    // A rejected argument is the usual symptom of a stale schema; say so.
+                    if detail.get("code").and_then(Value::as_str) == Some("INVALID_ARGUMENT") {
+                        if let Some(drift) = detect_schema_drift() {
+                            let hint = drift["hint"].as_str().unwrap_or_default().to_string();
+                            if let Some(object) = detail.as_object_mut() {
+                                if let Some(text) = object.get("message").and_then(Value::as_str) {
+                                    let text = format!("{text} [SCHEMA_DRIFT: {hint}]");
+                                    object.insert("message".into(), json!(text));
+                                }
+                                if let Some(context) =
+                                    object.get_mut("context").and_then(Value::as_object_mut)
+                                {
+                                    context.insert("schema_drift".into(), drift);
+                                }
+                            }
+                        }
+                    }
                     Ok(
                         json!({"content":[{"type":"text","text":detail.get("message").and_then(Value::as_str).unwrap_or("tool call failed")}],"isError":true,"structuredContent":detail}),
                     )

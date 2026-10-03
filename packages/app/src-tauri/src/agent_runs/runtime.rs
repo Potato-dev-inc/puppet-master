@@ -145,6 +145,15 @@ pub struct AgentRunRequest {
     /// Resource locks held for the run (`type:name`, e.g. `file:src/a.rs`).
     #[serde(default)]
     pub locks: Vec<String>,
+    /// Opt-in: pass `--trust` to a headless `cursor_agent` run, trusting `project_path`.
+    #[serde(default)]
+    pub trust_workspace: bool,
+    /// Opt-in: pass `--force` to a headless `cursor_agent` run so its shell commands execute.
+    #[serde(default)]
+    pub allow_shell: bool,
+    /// Opt-in: bare program names answered allow-once on Cursor `Not in allowlist` prompts.
+    #[serde(default)]
+    pub allowed_commands: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +166,10 @@ pub struct AgentRunView {
     pub result: Option<String>,
     pub result_capture: String,
     pub acceptance_status: String,
+    /// Number of acceptance `checks` stored on this run, so a dropped gate is visible before
+    /// completion (`checks` below holds results only once the run has finished).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub checks_configured: usize,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checks: Vec<super::checks::CheckResult>,
     pub verified: bool,
@@ -169,6 +182,12 @@ pub struct AgentRunView {
     pub prompt: Option<serde_json::Value>,
     pub error: Option<crate::operations::OperationError>,
     pub pane_id: Option<String>,
+    /// Whether the run's pane is still alive. Set only where the live registry is consulted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_open: Option<bool>,
+    /// Present when a finished run's pane stays open and needs `close_agent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_note: Option<String>,
     pub duration_ms: Option<u64>,
     pub revision: u64,
     pub next_cursor: u64,
@@ -194,6 +213,66 @@ pub struct AgentRunView {
     pub wake_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub watch_command: Option<String>,
+    /// Caveats on a finished run. They never change `status`; read them before trusting `result`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<RunWarning>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunWarning {
+    pub code: String,
+    /// `capture` (how the result was obtained) or `heuristic` (text match; not a fact).
+    pub source: String,
+    pub detail: String,
+}
+
+fn run_warnings(snapshot: &OperationSnapshot) -> Vec<RunWarning> {
+    if !snapshot.status.terminal() {
+        return Vec::new();
+    }
+    let mut warnings = Vec::new();
+    let mut push = |code: &str, source: &str, detail: &str| {
+        warnings.push(RunWarning {
+            code: code.into(),
+            source: source.into(),
+            detail: detail.into(),
+        })
+    };
+    if snapshot
+        .result
+        .as_deref()
+        .is_some_and(|result| result.contains("Cursor reported a rejected tool or shell call"))
+    {
+        push(
+            "SHELL_COMMAND_REJECTED",
+            "heuristic",
+            "Cursor reported a rejected tool or shell call; its commands may not have run. Verify with `checks` (command_exits).",
+        );
+    }
+    if snapshot.agent_type == "cursor_agent"
+        && snapshot.pane_id.is_some()
+        && snapshot.status == OperationStatus::Completed
+        && matches!(snapshot.result_capture, Some(ResultCapture::Inferred))
+    {
+        push(
+            "PROVENANCE_INFERRED",
+            "capture",
+            "Result was read from the terminal screen, not a structured stream. Prefer headless, or confirm with `checks`.",
+        );
+    }
+    // Only worth a warning when the caller asked for a specific model and it was not confirmed;
+    // a backend that never reports one (headless Cursor) is stated in capabilities, not per run.
+    if snapshot.status == OperationStatus::Completed
+        && snapshot.worker.resolved_model.is_none()
+        && snapshot.worker.requested_model.is_some()
+    {
+        push(
+            "MODEL_UNRESOLVED",
+            "capture",
+            "A model was requested but the backend did not confirm which model ran.",
+        );
+    }
+    warnings
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,12 +284,30 @@ pub struct SteerView {
     pub result: Option<String>,
 }
 
+/// End of a run's elapsed time: when it finished, else (still active) now. Measuring an active
+/// run to its last update made a quiet run look like it had lasted only a few milliseconds.
+fn run_end_ms(snapshot: &OperationSnapshot) -> u64 {
+    if let Some(finished) = snapshot.finished_at_ms {
+        return finished;
+    }
+    if snapshot.status.terminal() {
+        return snapshot.updated_at_ms;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as u64);
+    now.max(snapshot.updated_at_ms)
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
+}
+
 impl From<OperationSnapshot> for AgentRunView {
     fn from(snapshot: OperationSnapshot) -> Self {
-        let end = snapshot.finished_at_ms.unwrap_or(snapshot.updated_at_ms);
         let duration_ms = snapshot
             .started_at_ms
-            .map(|start| end.saturating_sub(start));
+            .map(|start| run_end_ms(&snapshot).saturating_sub(start));
         let capabilities = capabilities::for_snapshot(&snapshot);
         let operation_id = snapshot.operation_id.clone();
         let project_path = snapshot.project_path.clone();
@@ -220,6 +317,7 @@ impl From<OperationSnapshot> for AgentRunView {
             snapshot.agent_run_id.clone()
         };
         let turn_id = format!("turn-{}", snapshot.turn_index);
+        let warnings = run_warnings(&snapshot);
         if snapshot.status.terminal() {
             messaging::expire_terminal_steers(&snapshot.project_path, &handle);
         }
@@ -282,6 +380,7 @@ impl From<OperationSnapshot> for AgentRunView {
                 AcceptanceStatus::Failed => "failed".into(),
                 AcceptanceStatus::Blocked => "blocked".into(),
             },
+            checks_configured: snapshot.checks.len(),
             checks: snapshot.check_results.clone(),
             verified: snapshot.verified,
             result_verified: snapshot.verified,
@@ -307,6 +406,10 @@ impl From<OperationSnapshot> for AgentRunView {
                 .map(super::headless::compact_prompt),
             error: snapshot.error,
             pane_id: snapshot.pane_id,
+            pane_open: snapshot.worker.pane_disposed.then_some(false),
+            pane_note: snapshot.worker.pane_disposed.then(|| {
+                "pane was closed automatically when the run finished (keep_pane=false)".into()
+            }),
             duration_ms,
             revision: snapshot.revision,
             next_cursor: snapshot.worker.event_cursor.max(snapshot.revision),
@@ -329,10 +432,14 @@ impl From<OperationSnapshot> for AgentRunView {
             last_steer,
             result_unchanged: None,
             wake_reason: None,
-            watch_command: Some(crate::watch_command::format_watch_command(
-                operation_id.as_str(),
-                Some(project_path.as_str()),
-            )),
+            // A settled turn has nothing left to wake on, so the caller needs no second call.
+            watch_command: (!snapshot.status.terminal()).then(|| {
+                crate::watch_command::format_watch_command(
+                    operation_id.as_str(),
+                    Some(project_path.as_str()),
+                )
+            }),
+            warnings,
         }
     }
 }
@@ -352,6 +459,19 @@ impl AgentRunView {
         );
         view.requested_model = requested;
         view.resolved_model = resolved;
+        if view.resolved_model.is_some() {
+            view.warnings.retain(|warning| warning.code != "MODEL_UNRESOLVED");
+        }
+        if let (Some(registry), Some(pane_id)) = (registry, snapshot.pane_id.as_deref()) {
+            let open = registry.lock().panes.contains_key(pane_id);
+            view.pane_open = Some(open);
+            if open && snapshot.keep_pane && snapshot.status.terminal() {
+                view.pane_note = Some(
+                    "pane stays open (keep_pane=true); call close_agent when you are done with it"
+                        .into(),
+                );
+            }
+        }
         view
     }
 }
@@ -604,7 +724,22 @@ pub fn close_agent(
         registry.clone(),
         app.clone(),
     )?;
-    if let Ok(latest) = operations::resolve_agent_run(project, handle) {
+    if let Ok(mut latest) = operations::resolve_agent_run(project, handle) {
+        // Only the turn that spawned the pane has `pane_created`; follow-up turns reuse it. Look
+        // across the run's turns so close_agent still closes a pane the run itself created.
+        if !latest.pane_created {
+            let spawned_here = operations::list_operations(project)
+                .unwrap_or_default()
+                .iter()
+                .any(|turn| {
+                    turn.pane_created
+                        && turn.pane_id.is_some()
+                        && turn.pane_id == latest.pane_id
+                        && (turn.agent_run_id == latest.agent_run_id
+                            || turn.operation_id == latest.operation_id)
+                });
+            latest.pane_created = spawned_here;
+        }
         super::pane_close::dispose_explicit_close(&latest, &registry)?;
     }
     if let Some(session) = session_id {
@@ -672,6 +807,18 @@ pub fn send_message(
         transcript::append(project, &snapshot.operation_id, "user_steer", &message);
     }
     let mut value = messaging::receipt_value(&receipt);
+    let live = capabilities::for_snapshot(&snapshot).live_messages;
+    if let Some(object) = value.as_object_mut() {
+        object.insert("supports_live_steer".into(), json!(live));
+        if !live
+            && matches!(receipt.disposition, Disposition::Queued | Disposition::Deferred)
+        {
+            object.insert(
+                "note".into(),
+                json!("this backend cannot take live steers: the message is queued for the next turn (followup_task) and will not change the turn already running"),
+            );
+        }
+    }
     if let Ok(current) = current_agent(project, handle, session_id) {
         if let Some(object) = value.as_object_mut() {
             object.insert("next_cursor".into(), json!(current.worker.event_cursor.max(current.revision)));
@@ -819,8 +966,8 @@ pub fn send_agent(
             .idempotency_key
             .clone()
             .or_else(|| Some(Uuid::new_v4().to_string())),
-        acceptance_criteria: None,
-        checks: None,
+        acceptance_criteria: opts.acceptance_criteria.clone(),
+        checks: opts.checks.clone(),
         pane_id: if headless {
             None
         } else {
@@ -846,7 +993,10 @@ pub fn send_agent(
         role: opts.role.or(previous.worker.role.clone()),
         scope: opts.scope.or(previous.worker.scope.clone()),
         selected_history: opts.selected_history,
-        locks: Vec::new(),
+        locks: opts.locks.clone(),
+        trust_workspace: false,
+        allow_shell: false,
+        allowed_commands: None,
     };
     drop(serial);
     run_agent(request, registry, app, session_id)
@@ -889,7 +1039,8 @@ pub(super) fn enqueue_followup(
         prior_result: previous.result.as_deref(),
         prior_user: conversation.as_deref(),
         selected_history: opts.selected_history.as_deref().unwrap_or(&[]),
-        can_resume: persist::snapshot_can_resume(previous),
+        can_resume: persist::snapshot_can_resume(previous)
+            || persist::pane_keeps_context(previous),
         is_followup: true,
     });
     let mut worker = persist::build_worker(
@@ -910,16 +1061,22 @@ pub(super) fn enqueue_followup(
         .clone()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let queued_checks = opts.checks.clone().unwrap_or_default();
+    super::checks::validate(std::path::Path::new(project), &queued_checks)
+        .map_err(|message| OperationError::new("INVALID_ARGUMENT", message, false))?;
     operations::create_operation(operations::DelegateWorkRequest {
         project_path: project.to_string(),
         task,
         agent_type: previous.agent_type.clone(),
         pane_id: previous.pane_id.clone(),
         idempotency_key,
-        acceptance_criteria: None,
+        acceptance_criteria: opts
+            .acceptance_criteria
+            .clone()
+            .filter(|items| !items.is_empty()),
         task_id: None,
         exclusive: false,
-        locks: Vec::new(),
+        locks: opts.locks.clone(),
         timeout_ms: previous.timeout_ms,
         read_only: previous.read_only,
         keep_pane: previous.keep_pane,
@@ -929,7 +1086,7 @@ pub(super) fn enqueue_followup(
         turn_index: next_turn,
         worker,
         context_policy: Some(policy),
-        checks: Vec::new(),
+        checks: queued_checks,
     })
 }
 

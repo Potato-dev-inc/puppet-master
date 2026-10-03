@@ -1,6 +1,6 @@
 use super::completion::{
     clean_extracted_result, observe_tui_turn, tui_turn_evidence, TuiTurnDecision, TuiTurnWatch,
-    RECONCILE_IDLE_TICKS,
+    NOT_SUBMITTED_TICKS, RECONCILE_IDLE_TICKS,
 };
 use super::native::native_completion_evidence;
 use super::runtime::AgentRunRequest;
@@ -467,9 +467,9 @@ fn stale_pre_dispatch_output_is_not_the_new_result() {
         "idle",
         stale,
         false,
-        RECONCILE_IDLE_TICKS,
+        NOT_SUBMITTED_TICKS,
     );
-    assert_eq!(decision, TuiTurnDecision::AmbiguousIdle);
+    assert_eq!(decision, TuiTurnDecision::NotSubmitted);
     assert!(tui_turn_evidence(stale, stale).is_none());
 }
 
@@ -1990,6 +1990,7 @@ fn failing_check_turns_completion_into_acceptance_failed() {
     assert!(!done.verified);
     assert_eq!(done.error.as_ref().map(|e| e.code.as_str()), Some("ACCEPTANCE_FAILED"));
     let view = super::runtime::AgentRunView::from(done);
+    assert_eq!(view.checks_configured, 1);
     assert_eq!(view.checks.len(), 1);
     assert!(!view.checks[0].passed);
     let _ = fs::remove_dir_all(project);
@@ -2036,4 +2037,239 @@ fn wait_returns_the_result_unless_the_caller_already_saw_that_revision() {
     assert_eq!(seen.result_unchanged, Some(true));
     let behind = super::runtime::agent_view_after_wait(snapshot, Some(3), None);
     assert_eq!(behind.result.as_deref(), Some("the answer"));
+}
+
+#[test]
+fn duration_of_an_active_run_tracks_elapsed_time_not_the_last_update() {
+    let mut snapshot = parked_snapshot(OperationStatus::Running, "none");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    snapshot.started_at_ms = Some(now - 45_000);
+    snapshot.updated_at_ms = now - 44_971; // last event 29 ms after start
+    snapshot.finished_at_ms = None;
+    let view = super::runtime::AgentRunView::from(snapshot.clone());
+    let duration = view.duration_ms.expect("duration");
+    assert!(duration >= 45_000, "active run showed {duration} ms");
+    // A finished run is measured to its finish time, not to now.
+    snapshot.status = OperationStatus::Completed;
+    snapshot.finished_at_ms = Some(now - 40_000);
+    let done = super::runtime::AgentRunView::from(snapshot);
+    assert_eq!(done.duration_ms, Some(5_000));
+}
+
+#[test]
+fn followup_keeps_checks_it_was_given_and_rejects_bad_ones() {
+    let (project, id) = run_with_checks("adopt", vec![]);
+    let done = operations::mark_operation_completed(&project, &id, "PONG", true).unwrap();
+    let handle = done.agent_run_id.clone();
+    let opts = |text: &str| super::persist::FollowupOpts {
+        checks: Some(vec![super::checks::Check::ResultContains { text: text.into() }]),
+        locks: vec!["file:src/a.rs".into()],
+        ..Default::default()
+    };
+    let (next, created) =
+        super::runtime::enqueue_followup(&project, &handle, &done, "again".into(), None, opts("ZZZ"))
+            .unwrap();
+    assert!(created);
+    assert_eq!(next.checks.len(), 1);
+    assert_eq!(next.locks, vec!["file:src/a.rs".to_string()]);
+    let bad = super::persist::FollowupOpts {
+        checks: Some(vec![super::checks::Check::ResultContains { text: String::new() }]),
+        idempotency_key: Some("other".into()),
+        ..Default::default()
+    };
+    let error = super::runtime::enqueue_followup(&project, &handle, &next, "x".into(), None, bad)
+        .unwrap_err();
+    assert_eq!(error.code, "INVALID_ARGUMENT");
+    let _ = fs::remove_dir_all(project);
+}
+
+#[test]
+fn conversation_replay_does_not_nest_prior_context() {
+    let stored = "second question\n\nPrior context:\nUser: first\nAssistant: a\n\nAcceptance criteria:\n- x";
+    assert_eq!(super::persist::original_task_for_test(stored), "second question");
+}
+
+#[test]
+fn status_line_is_chrome_and_repeats_collapse() {
+    let cleaned = super::completion::clean_extracted_result(
+        "done\ndone\nComposer 2.5 · 7.2%",
+        "",
+    );
+    assert_eq!(cleaned.as_deref(), Some("done"));
+}
+
+#[test]
+fn add_a_follow_up_hint_is_chrome() {
+    let cleaned = super::completion::clean_extracted_result("PONG\n→ Add a follow-up", "");
+    assert_eq!(cleaned.as_deref(), Some("PONG"));
+}
+
+#[test]
+fn live_pane_followup_sends_only_the_new_task() {
+    let mut previous = parked_snapshot(OperationStatus::Completed, "none");
+    previous.pane_id = Some("pane-1".into());
+    assert!(super::persist::pane_keeps_context(&previous));
+    let render = |can_resume: bool| {
+        super::persist::render_turn_prompt(super::persist::TurnPromptArgs {
+            policy: ContextPolicy::Packet,
+            task: "second question",
+            scope: None,
+            prior_result: Some("first answer"),
+            prior_user: Some("User: first question\nAssistant: first answer"),
+            selected_history: &[],
+            can_resume,
+            is_followup: true,
+        })
+    };
+    assert_eq!(render(true).prompt, "second question");
+    assert!(render(false).prompt.contains("Prior context"));
+    previous.pane_id = None;
+    assert!(!super::persist::pane_keeps_context(&previous));
+}
+
+#[test]
+fn slow_start_gets_one_enter_retry_before_failing() {
+    let mut watch = TuiTurnWatch::from_baseline("Add follow-up >");
+    let mut seen_retry = 0;
+    let mut last = TuiTurnDecision::Continue;
+    for _ in 0..NOT_SUBMITTED_TICKS {
+        last = observe_tui_turn(&mut watch, "idle", "Add follow-up >", false);
+        if last == TuiTurnDecision::RetrySubmit {
+            seen_retry += 1;
+        }
+    }
+    assert_eq!(seen_retry, 1);
+    assert_eq!(last, TuiTurnDecision::NotSubmitted);
+}
+
+#[test]
+fn busy_pane_never_triggers_submit_retry() {
+    let mut watch = TuiTurnWatch::from_baseline("Add follow-up >");
+    observe_tui_turn(&mut watch, "running", "working", false);
+    for _ in 0..NOT_SUBMITTED_TICKS {
+        let decision = observe_tui_turn(&mut watch, "idle", "Add follow-up >", false);
+        assert_ne!(decision, TuiTurnDecision::RetrySubmit);
+        assert_ne!(decision, TuiTurnDecision::NotSubmitted);
+    }
+}
+
+#[test]
+fn cursor_startup_banner_and_cwd_line_are_not_result_text() {
+    let screen = "Cursor Agent\nv2026.10.01-e373342\nTip: Use /plan to plan execution.\nPONG\n~\\Desktop\\pm-bench";
+    assert_eq!(
+        super::completion::clean_extracted_result(screen, "").as_deref(),
+        Some("PONG")
+    );
+    // A real reply that merely mentions a version or folder is kept.
+    let reply = "Upgrade to v2 now, then open ~/notes in your editor.";
+    assert_eq!(
+        super::completion::clean_extracted_result(reply, "").as_deref(),
+        Some(reply)
+    );
+}
+
+#[test]
+fn native_prompt_that_never_landed_is_detected_only_when_idle_and_late() {
+    let view = |ids: &[&str]| SessionMessagesView {
+        pane_id: "p".into(),
+        session_id: "s".into(),
+        messages: ids
+            .iter()
+            .map(|id| MessageView {
+                id: Some(id.to_string()),
+                role: "user".into(),
+                model: None,
+                finish: None,
+                error: None,
+                parts: vec![],
+            })
+            .collect(),
+        pending_question: None,
+        last_assistant_text: None,
+    };
+    let baseline = vec!["m1".to_string()];
+    let late = 1_000_000;
+    let started = Some(late - super::native::NATIVE_PROMPT_LANDING_MS - 1);
+    // Nothing new, idle, past the window: lost.
+    assert!(super::native::native_prompt_never_landed(&view(&["m1"]), &baseline, started, late, "idle"));
+    // A new message exists: it landed.
+    assert!(!super::native::native_prompt_never_landed(&view(&["m1", "m2"]), &baseline, started, late, "idle"));
+    // Still busy, or too early, or never started: not lost.
+    assert!(!super::native::native_prompt_never_landed(&view(&["m1"]), &baseline, started, late, "running"));
+    assert!(!super::native::native_prompt_never_landed(&view(&["m1"]), &baseline, Some(late - 1_000), late, "idle"));
+    assert!(!super::native::native_prompt_never_landed(&view(&["m1"]), &baseline, None, late, "idle"));
+    // A stuck non-idle pane with no new message is lost only after the longer cap.
+    let stuck = Some(late - super::native::NATIVE_PROMPT_LANDING_MS * 3 - 1);
+    assert!(super::native::native_prompt_never_landed(&view(&["m1"]), &baseline, stuck, late, "running"));
+    assert!(!super::native::native_prompt_never_landed(&view(&["m2", "m1"]), &baseline, stuck, late, "running"));
+}
+
+#[test]
+fn cursor_tool_activity_lines_are_not_part_of_the_result() {
+    let raw = "Read todo.py\n$ cd proj && python -m pytest 11s\n… 2 output lines hidden · ctrl+o to expand\nAll 12 tests pass.\nComposer 2.5 · 7.2%";
+    let cleaned = super::completion::clean_extracted_result(raw, "");
+    assert_eq!(cleaned.as_deref(), Some("All 12 tests pass."));
+    // Ordinary prose that starts with "Read" survives.
+    let prose = super::completion::clean_extracted_result("Read the docs first.", "");
+    assert_eq!(prose.as_deref(), Some("Read the docs first."));
+}
+
+#[test]
+fn allow_shell_adds_force_only_when_asked_and_never_with_read_only() {
+    let plain = crate::agent_adapters::launch::launch_spec_opts(
+        "cursor_agent", ".", "t", false, None, false, false,
+    )
+    .unwrap();
+    assert!(!plain.args.iter().any(|arg| arg == "--force"));
+    let forced = crate::agent_adapters::launch::launch_spec_opts(
+        "cursor_agent", ".", "t", false, None, false, true,
+    )
+    .unwrap();
+    assert!(forced.args.iter().any(|arg| arg == "--force"));
+    assert!(crate::agent_adapters::launch::launch_spec_opts(
+        "cursor_agent", ".", "t", true, None, false, true,
+    )
+    .is_err());
+}
+
+#[test]
+fn untouched_cursor_pane_is_not_a_result() {
+    assert!(super::completion::clean_extracted_result("→ Plan, search, build anything\nComposer 2.5", "").is_none());
+    // Text above the last tool marker is tool output, not the reply.
+    let cleaned = super::completion::clean_extracted_result(
+        "partial output\n$ python todo.py list 3s\nThere are 3 items.",
+        "",
+    );
+    assert_eq!(cleaned.as_deref(), Some("There are 3 items."));
+}
+
+#[test]
+fn cursor_shell_turn_capture_keeps_only_the_reply() {
+    // Real capture: tool output is indented deeper than the `$` line; the reply is back at its column.
+    let screen = "  Using your shell tool, run `python todo.py list` and report the output.\n\n  $ python todo.py list 14s\n    … 1 output lines hidden · ctrl+o to expand\n    2 [ ] recheck-item\n    3 [ ] should-not-exist\n\n  python todo.py list exited with code 0 and printed:\n\n  1 [ ] bench-item-B\n  2 [ ] recheck-item\n  3 [ ] should-not-exist\n\n  All three items are unchecked ([ ]).\n";
+    let evidence = super::completion::tui_turn_evidence(screen, "").expect("evidence");
+    let cleaned = super::completion::clean_extracted_result(
+        &evidence,
+        "Using your shell tool, run `python todo.py list` and report the output.",
+    )
+    .expect("result");
+    assert!(!cleaned.contains("hidden"), "{cleaned}");
+    assert!(cleaned.starts_with("python todo.py list exited with code 0"), "{cleaned}");
+    assert!(cleaned.contains("1 [ ] bench-item-B"));
+    assert!(cleaned.ends_with("All three items are unchecked ([ ])."));
+    // The stray tool lines appear once (in the reply), not twice.
+    assert_eq!(cleaned.matches("3 [ ] should-not-exist").count(), 1);
+}
+
+#[test]
+fn cursor_default_model_is_parsed_from_about_output() {
+    let about = "About Cursor CLI\n\nCLI Version         2026.10.01-e373342\nDefault Model:      \u{1b}[1mComposer 2.5\u{1b}[0m\nSubscription Tier   Pro+\n";
+    assert_eq!(
+        crate::agent_adapters::launch::parse_cursor_default_model(about).as_deref(),
+        Some("Composer 2.5")
+    );
+    assert!(crate::agent_adapters::launch::parse_cursor_default_model("Version: 1").is_none());
 }

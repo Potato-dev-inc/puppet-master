@@ -195,6 +195,7 @@ fn agent_run_schema() -> Value {
         "requested_model":{"type":["string","null"]},"resolved_model":{"type":["string","null"]},
         "requested_reasoning":{"type":["string","null"]},"resolved_reasoning":{"type":["string","null"]},
         "model_mismatch":{"type":"boolean"},
+        "warnings":{"type":"array","description":"Caveats on a finished run (never change status): SHELL_COMMAND_REJECTED, PROVENANCE_INFERRED, MODEL_UNRESOLVED. source=heuristic means a text match, not a fact.","items":{"type":"object","properties":{"code":{"type":"string"},"source":{"type":"string","enum":["capture","heuristic"]},"detail":{"type":"string"}},"required":["code","source","detail"]}},
         "capabilities":{"type":"object","properties":{
             "session_resume":{"type":"boolean"},"live_messages":{"type":"boolean"},
             "queued_followups":{"type":"boolean"},"structured_results":{"type":"boolean"},
@@ -216,7 +217,7 @@ fn agent_run_schema() -> Value {
 
 /// Coordinator-facing MCP initialize text (stdio binary and HTTP catalog consumers).
 pub fn mcp_instructions() -> &'static str {
-    "Puppet Master MCP (agent mode). Sequence: list_agents → run_agent(worker_id or pane_id, task) → handle; send_message(handle) steers the current turn (receipt ≠ result); followup_task(handle, task) starts the next turn on the same conversation; wait_agents(handles) collects answers (default until: completed, failed, cancelled, needs_input). After run_agent/followup_task/delegate_work or WAIT_TIMEOUT, run the returned watch_command (plain `npx puppet-master watch …`) via your agent harness shell tool's background mode — do not use detached Start-Process; the harness must own stdout so it can wake when the turn finishes. run_agent/followup_task mint idempotency_key if omitted — reuse it after WAIT_TIMEOUT. Do not close the user's pane as cleanup. OpenCode yes/no: answer_prompt, not press_key."
+    "Puppet Master MCP (agent mode). Start work with one call: run_agent(agent_type, project_path, task) creates its own pane in project_path, runs the task and returns the result and a handle; no spawn_agent needed. To reuse an existing worker: list_agents → run_agent(worker_id or pane_id, task) → handle; send_message(handle) steers the current turn (receipt ≠ result); followup_task(handle, task) starts the next turn on the same conversation; wait_agents(handles) collects answers (default until: completed, failed, cancelled, needs_input). When run_agent/followup_task/delegate_work or WAIT_TIMEOUT returns a still-running turn it includes a watch_command (a settled turn has none; read its result directly); run that watch_command (plain `npx puppet-master watch …`) via your agent harness shell tool's background mode — do not use detached Start-Process; the harness must own stdout so it can wake when the turn finishes. run_agent/followup_task mint idempotency_key if omitted — reuse it after WAIT_TIMEOUT. Do not close the user's pane as cleanup. OpenCode yes/no: answer_prompt, not press_key."
 }
 
 pub fn catalog_version() -> String {
@@ -256,7 +257,7 @@ pub fn tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: "run_agent",
             description: "Start or adopt a worker with a task and return a stable handle. Happy path: list_agents → run_agent(worker_id or pane_id, task) → handle. Waits up to wait_ms (120s default). On WAIT_TIMEOUT, retry with the same idempotency_key and call wait_agents — do not start a duplicate turn. Steering: send_message; next turn: followup_task(handle). Closing the user's pane is not cleanup. keep_pane defaults to false: a pane this run created is closed automatically when the run completes, after which take_over, switch_agent_model and live pane inspection fail with PANE_CLOSED_AFTER_RUN (agent_transcript keeps working from the stored transcript). Pass keep_pane=true to keep the pane until close_agent is called. Adopted UI panes are never closed.",
-            input_schema: object_schema(json!({"project_path":{"type":"string"},"task":{"type":"string"},"name":{"type":"string"},"handle":{"type":"string"},"worker_id":{"type":"string"},"agent_run_id":{"type":"string"},"agent_type":{"type":"string","enum":["claude","codex","cursor_agent","opencode","opencode_native"]},"headless":{"type":"boolean","default":true},"background":{"type":"boolean","default":false},"wait_ms":{"type":"integer","minimum":0,"maximum":300000,"default":120000},"read_only":{"type":"boolean","default":false},"keep_pane":{"type":"boolean","default":false,"description":"Default false: a pane created for this run is closed when the run completes (take_over/switch_agent_model then fail with PANE_CLOSED_AFTER_RUN). true keeps the pane until close_agent."},"timeout_ms":{"type":"integer","minimum":1,"maximum":86400000,"default":900000},"idempotency_key":{"type":"string"},"acceptance_criteria":{"type":"array","items":{"type":"string","minLength":1},"description":"Optional free-text guidance for the worker; NOT machine-checked. For verified acceptance use `checks`."},"checks":{"type":"array","maxItems":20,"description":"State-based acceptance checks evaluated on disk at completion (no commands run). Paths are relative to project_path. A failing check fails the run with ACCEPTANCE_FAILED.","items":{"type":"object","properties":{"type":{"type":"string","enum":["file_exists","file_contains","file_absent"]},"path":{"type":"string","minLength":1},"text":{"type":"string","minLength":1}},"required":["type","path"]}},"pane_id":{"type":"string"},"allow_broad":{"type":"boolean","default":false},"context_policy":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"]},"context_mode":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"],"description":"alias for context_policy"},"model":{"type":"string"},"reasoning":{"type":"string"},"role":{"type":"string"},"scope":{"type":"string"},"selected_history":{"type":"array","items":{"type":"string"}},"locks":{"type":"array","items":{"type":"string","minLength":1},"description":"Optional resource locks (type:name, e.g. file:src/a.rs) acquired before the run starts and released when it ends. Fails fast with RESOURCE_LOCKED (context resource_id, owner_id) if another run holds one."}}), vec!["task"]),
+            input_schema: object_schema(json!({"project_path":{"type":"string"},"task":{"type":"string"},"name":{"type":"string"},"handle":{"type":"string"},"worker_id":{"type":"string"},"agent_run_id":{"type":"string"},"agent_type":{"type":"string","enum":["claude","codex","cursor_agent","opencode","opencode_native"]},"headless":{"type":"boolean","default":true},"background":{"type":"boolean","default":false},"wait_ms":{"type":"integer","minimum":0,"maximum":300000,"default":120000},"read_only":{"type":"boolean","default":false},"keep_pane":{"type":"boolean","default":false,"description":"Default false: a pane created for this run is closed when the run completes (take_over/switch_agent_model then fail with PANE_CLOSED_AFTER_RUN). true keeps the pane until close_agent."},"timeout_ms":{"type":"integer","minimum":1,"maximum":86400000,"default":900000},"idempotency_key":{"type":"string"},"acceptance_criteria":{"type":"array","items":{"type":"string","minLength":1},"description":"Optional free-text guidance for the worker; NOT machine-checked. For verified acceptance use `checks`."},"checks":{"type":"array","maxItems":20,"description":"Acceptance checks evaluated at completion. file_* and result_contains are read-only; command_exits runs the given argv (no shell) in project_path and compares its exit code. Paths are relative to project_path. A failing check fails the run with ACCEPTANCE_FAILED.","items":{"type":"object","properties":{"type":{"type":"string","enum":["file_exists","file_contains","file_absent","result_contains","command_exits"]},"path":{"type":"string","minLength":1,"description":"Required for file_* checks."},"text":{"type":"string","minLength":1},"command":{"type":"array","items":{"type":"string"},"minItems":1,"description":"command_exits: argv run in project_path without a shell, e.g. [\"python\",\"-m\",\"pytest\",\"-q\"]."},"expect_exit":{"type":"integer","description":"command_exits only; expected exit code, 0 when omitted."},"timeout_ms":{"type":"integer","minimum":1,"maximum":600000,"description":"command_exits only; 120000 when omitted."}},"required":["type"]}},"pane_id":{"type":"string"},"allow_broad":{"type":"boolean","default":false},"trust_workspace":{"type":"boolean","default":false,"description":"Opt-in, headless cursor_agent only: pass --trust so Cursor trusts project_path without an interactive prompt. Only set for a folder the user named."},"allow_shell":{"type":"boolean","default":false,"description":"Opt-in, headless cursor_agent only (not with read_only): pass --force so Cursor's shell commands run instead of being rejected. Commands then run without review inside project_path; pair with `checks`. Without it, headless Cursor cannot run tests and the result carries SHELL_COMMAND_REJECTED."},"allowed_commands":{"type":"array","maxItems":10,"items":{"type":"string","minLength":1},"description":"Opt-in, visible cursor_agent pane only: bare program names (e.g. [\"python\",\"pytest\"]) answered allow-once when Cursor stops on Not in allowlist: <program>. Never allow-always; any other prompt still needs answer_prompt."},"context_policy":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"]},"context_mode":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"],"description":"alias for context_policy"},"model":{"type":"string"},"reasoning":{"type":"string"},"role":{"type":"string"},"scope":{"type":"string"},"selected_history":{"type":"array","items":{"type":"string"}},"locks":{"type":"array","items":{"type":"string","minLength":1},"description":"Optional resource locks (type:name, e.g. file:src/a.rs) acquired before the run starts and released when it ends. Fails fast with RESOURCE_LOCKED (context resource_id, owner_id) if another run holds one."}}), vec!["task"]),
             output_schema: Some(agent_run_schema()), safety: ToolSafety::Mutating,
             visibility: visible_everywhere(), method: "POST", path: "/agents/run",
         },
@@ -324,14 +325,14 @@ pub fn tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: "list_agents",
             description: "List workers this connection can adopt: managed runs and live UI panes. Each entry has worker_id, backend, workspace, status, model when known, grant_required, and read_only_supported. Pass worker_id to run_agent to adopt. Alias: list_workers.",
-            input_schema: object_schema(json!({"project_path":{"type":"string"}}), vec![]),
+            input_schema: object_schema(json!({"project_path":{"type":"string"},"mine_only":{"type":"boolean","default":false,"description":"Only runs and panes this connection controls."},"active_only":{"type":"boolean","default":false,"description":"Hide runs that have ended (completed/failed/cancelled)."},"ended_within_ms":{"type":"integer","minimum":0,"description":"Hide ended runs that finished longer ago than this. Runs are never deleted; this only narrows the listing."}}), vec![]),
             output_schema: Some(json!({"type":"object","properties":{"workers":{"type":"array","items":{"type":"object","properties":{"worker_id":{"type":"string"},"handle":{"type":"string"},"pane_id":{"type":["string","null"]},"backend":{"type":"string"},"workspace":{"type":"string"},"status":{"type":"string"},"model":{"type":["string","null"]},"owned":{"type":"boolean"},"grant_required":{"type":"boolean"},"read_only_supported":{"type":"boolean"},"adoptable":{"type":"boolean"}}}}},"required":["workers"]})),
             safety: ToolSafety::ReadOnly, visibility: visible_everywhere(), method: "GET", path: "/agents",
         },
         ToolDefinition {
             name: "list_workers",
             description: "Same as list_agents: discover UI panes and managed runs in agent mode, then adopt with run_agent(worker_id, task).",
-            input_schema: object_schema(json!({"project_path":{"type":"string"}}), vec![]),
+            input_schema: object_schema(json!({"project_path":{"type":"string"},"mine_only":{"type":"boolean","default":false},"active_only":{"type":"boolean","default":false},"ended_within_ms":{"type":"integer","minimum":0}}), vec![]),
             output_schema: Some(json!({"type":"object","properties":{"workers":{"type":"array"}},"required":["workers"]})),
             safety: ToolSafety::ReadOnly, visibility: visible_everywhere(), method: "GET", path: "/agents",
         },
@@ -492,7 +493,7 @@ pub fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "spawn_agent",
-            description: "Spawn a worker pane (OpenCode API or PowerShell). Reuse an existing pane of the same agent_type when possible; pass force_new to create another. Never reuse orchestrator panes.",
+            description: "Advanced: only create an empty worker pane (OpenCode API or PowerShell) without running anything. To run a task, call run_agent directly: it creates its own pane in project_path and needs no spawn_agent. Pass cwd to pick the workspace (default: the app's selected project); run_agent against the pane must use the same workspace. Reuse an existing pane of the same agent_type when possible; pass force_new to create another. Never reuse orchestrator panes.",
             input_schema: object_schema(
                 json!({
                     "agent_type": { "type": "string", "enum": ["opencode_native", "powershell"] },
@@ -855,7 +856,7 @@ pub fn tools() -> Vec<ToolDefinition> {
                 "idempotency_key": { "type": "string", "description": "Caller-supplied key to make retries safe" },
                 "pane_id": { "type": "string" },
                 "agent_type": { "type": "string", "enum": ["claude", "codex", "cursor", "opencode", "opencode_native"] },
-                "acceptance_criteria": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Optional free-text guidance for the worker; NOT machine-checked (a text mismatch never fails a run and acceptance_status stays not_checked). For verified acceptance pass `checks` (file_exists / file_contains / file_absent, evaluated against disk at completion); acceptance_status then reflects the checks." },
+                "acceptance_criteria": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Optional free-text guidance for the worker; NOT machine-checked (a text mismatch never fails a run and acceptance_status stays not_checked). For verified acceptance pass `checks` (file_exists / file_contains / file_absent evaluated against disk, result_contains against the reply text, command_exits runs an argv and compares its exit code, all at completion); acceptance_status then reflects the checks." },
                 "context_policy": { "type": "string", "enum": ["fresh", "packet", "parent_summary", "resume", "selected_history"] },
                 "task_id": { "type": "string" },
                 "exclusive": { "type": "boolean" },
@@ -1560,6 +1561,22 @@ mod tests {
         assert!(!names.contains(&"spawn_agent"));
         assert!(!names.contains(&"write_terminal_input"));
         assert!(!names.contains(&"press_key"));
+    }
+
+    #[test]
+    fn check_item_schema_has_no_defaults_that_clients_would_fill_in() {
+        // Schema-driven clients inject `default`s into every array item; a filled-in
+        // expect_exit/timeout_ms would be rejected by result_contains (deny_unknown_fields).
+        let run = tools().into_iter().find(|tool| tool.name == "run_agent").unwrap();
+        let items = &run.input_schema["properties"]["checks"]["items"]["properties"];
+        for field in ["expect_exit", "timeout_ms", "command", "path", "text"] {
+            assert!(items.get(field).is_some(), "{field} missing from checks schema");
+            assert!(items[field].get("default").is_none(), "{field} must not declare a default");
+        }
+        let plain: crate::agent_runs::checks::Check =
+            serde_json::from_value(serde_json::json!({"type":"result_contains","text":"x"}))
+                .unwrap();
+        assert!(matches!(plain, crate::agent_runs::checks::Check::ResultContains { .. }));
     }
 
     #[test]

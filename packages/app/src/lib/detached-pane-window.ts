@@ -13,13 +13,15 @@ export function detachedPaneTitle(agentType: string, paneId: string): string {
   return `${agentType} · ${paneId.slice(0, 8)}`;
 }
 
-function detachedPaneUrl(paneId: string, options?: DetachedPaneWindowOptions): string {
+export function detachedPaneUrl(paneId: string, options?: DetachedPaneWindowOptions): string {
   const params = new URLSearchParams();
   params.set('terminal', '1');
   params.set('pane', paneId);
   params.set('detached', '1');
   if (options?.workerHost) params.set('worker-host', '1');
-  return `${window.location.pathname}?${params.toString()}`;
+  // Vite and Tauri's custom protocol both serve the app from index.html.
+  // `/?terminal=1` works in `tauri dev` but the production webview never loads.
+  return `index.html?${params.toString()}`;
 }
 
 function detachedPaneLabel(paneId: string): string {
@@ -89,10 +91,22 @@ export async function openDetachedPaneWindow(
     minHeight: 140,
     resizable: true,
     focus: true,
+    visible: true,
   });
 
   await new Promise<void>((resolve, reject) => {
-    void view.once('tauri://created', () => resolve());
-    void view.once('tauri://error', (event) => reject(event.payload));
+    const timer = setTimeout(() => {
+      reject(new Error(`timed out opening detached pane window ${label}`));
+    }, 8000);
+    void view.once('tauri://created', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    void view.once('tauri://error', (event) => {
+      clearTimeout(timer);
+      reject(event.payload);
+    });
   });
+  await view.show();
+  await view.setFocus();
 }

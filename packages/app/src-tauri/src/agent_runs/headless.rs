@@ -16,6 +16,9 @@ use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
+
+/// Consecutive failed snapshot reads (500 ms apart) the deadline supervisor tolerates.
+const SUPERVISOR_MAX_READ_FAILURES: u32 = 40;
 struct HeadlessControl {
     child: Mutex<Child>,
     cancelled: AtomicBool,
@@ -145,6 +148,9 @@ pub fn run_agent(
                         background: request.background,
                         wait_ms: Some(if request.background { 0 } else { request.wait_ms }),
                         idempotency_key: request.idempotency_key.clone(),
+                        acceptance_criteria: request.acceptance_criteria.clone(),
+                        checks: request.checks.clone(),
+                        locks: request.locks.clone(),
                     },
                 );
             }
@@ -192,9 +198,10 @@ pub fn run_agent(
             .and_then(|snapshot| snapshot.result.as_deref()),
         prior_user: conversation.as_deref(),
         selected_history: request.selected_history.as_deref().unwrap_or(&[]),
-        can_resume: previous
-            .as_ref()
-            .is_some_and(persist::snapshot_can_resume),
+        can_resume: previous.as_ref().is_some_and(|snapshot| {
+            persist::snapshot_can_resume(snapshot)
+                || (!request.headless && persist::pane_keeps_context(snapshot))
+        }),
         is_followup: previous.is_some(),
     });
     let handle = request
@@ -202,7 +209,7 @@ pub fn run_agent(
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
     request.agent_run_id = Some(handle.clone());
-    let worker = persist::build_worker(
+    let mut worker = persist::build_worker(
         &handle,
         request.name.as_deref(),
         request.role.as_deref(),
@@ -212,6 +219,38 @@ pub fn run_agent(
         &rendered,
         &choice,
     );
+    if request.trust_workspace {
+        if agent_type != "cursor_agent" || !request.headless {
+            return Err(OperationError::new(
+                "INVALID_ARGUMENT",
+                "trust_workspace applies only to headless cursor_agent runs; in a visible pane answer the trust prompt with answer_prompt(choice=trust)",
+                false,
+            ));
+        }
+        worker.trust_workspace = true;
+    }
+    if request.allow_shell {
+        if agent_type != "cursor_agent" || !request.headless || request.read_only {
+            return Err(OperationError::new(
+                "INVALID_ARGUMENT",
+                "allow_shell applies only to headless, non-read-only cursor_agent runs; in a visible pane use allowed_commands or answer_prompt",
+                false,
+            ));
+        }
+        worker.allow_shell = true;
+    }
+    if let Some(allowed) = request.allowed_commands.as_ref().filter(|items| !items.is_empty()) {
+        if agent_type != "cursor_agent" || request.headless {
+            return Err(OperationError::new(
+                "INVALID_ARGUMENT",
+                "allowed_commands applies only to cursor_agent runs in a visible pane",
+                false,
+            ));
+        }
+        super::approval_policy::validate(allowed)
+            .map_err(|message| OperationError::new("INVALID_ARGUMENT", message, false))?;
+        worker.allowed_commands = allowed.iter().map(|item| item.trim().to_string()).collect();
+    }
     let idempotency_key = request
         .idempotency_key
         .clone()
@@ -582,6 +621,64 @@ pub(super) fn compact_prompt(action: serde_json::Value) -> serde_json::Value {
     prompt
 }
 
+/// Answer a Cursor `Not in allowlist: <program>` prompt with allow-once when the run opted in to
+/// that program. Returns true when the prompt was answered; false leaves it for the caller.
+fn auto_approve_allowed_command(
+    current: &OperationSnapshot,
+    action: &serde_json::Value,
+    screen: &str,
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &tauri::AppHandle,
+) -> bool {
+    if current.agent_type != "cursor_agent" || current.worker.allowed_commands.is_empty() {
+        return false;
+    }
+    let Some(raw_prompt) = action.get("raw_prompt") else {
+        return false;
+    };
+    if raw_prompt.get("kind").and_then(serde_json::Value::as_str) != Some("command_approval") {
+        return false;
+    }
+    let Some(program) = super::approval_policy::approved_program(
+        screen,
+        &current.worker.allowed_commands,
+    ) else {
+        return false;
+    };
+    let Some(pane_id) = current.pane_id.as_deref() else {
+        return false;
+    };
+    let adapter = crate::agent_adapters::adapter_for(&current.agent_type);
+    let Ok(reply) = adapter.prompt_reply(raw_prompt, "allow_once", false) else {
+        return false;
+    };
+    let Some(text) = reply.key.or(reply.text) else {
+        return false;
+    };
+    if crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None).is_err()
+    {
+        return false;
+    }
+    transcript::append(
+        &current.project_path,
+        &current.operation_id,
+        "permission",
+        &format!("auto-approved once (run policy allowed_commands): {program}"),
+    );
+    if current.status == OperationStatus::WaitingInput {
+        if let Ok(running) = operations::mark_operation_observation(
+            &current.project_path,
+            &current.operation_id,
+            Some("running".into()),
+            None,
+            StateSource::Inferred,
+        ) {
+            let _ = crate::bridge::publish_operation(&running, registry, app);
+        }
+    }
+    true
+}
+
 fn read_tui_screen(
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     pane_id: &str,
@@ -603,12 +700,25 @@ pub fn supervise_existing(
                 snapshot.output_baseline.clone().unwrap_or_default(),
             )
             .with_task(snapshot.task.clone());
+            // A snapshot read can fail transiently (file briefly locked mid-write). Giving up on the
+            // first failure would stop deadline enforcement for good and leave the turn `running`.
+            let mut read_failures = 0u32;
             loop {
                 let current =
                     match operations::get_operation(&snapshot.project_path, &snapshot.operation_id)
                     {
-                        Ok(current) => current,
-                        Err(_) => return,
+                        Ok(current) => {
+                            read_failures = 0;
+                            current
+                        }
+                        Err(_) => {
+                            read_failures += 1;
+                            if read_failures > SUPERVISOR_MAX_READ_FAILURES {
+                                return;
+                            }
+                            thread::sleep(Duration::from_millis(500));
+                            continue;
+                        }
                     };
                 if current.status.terminal() {
                     return;
@@ -652,7 +762,12 @@ pub fn supervise_existing(
                             has_prompt,
                         ) {
                             super::completion::TuiTurnDecision::WaitingInput => {
-                                if let Some(action) = action {
+                                let approved = action.as_ref().is_some_and(|action| {
+                                    auto_approve_allowed_command(
+                                        &current, action, &screen, &registry, &app,
+                                    )
+                                });
+                                if let Some(action) = action.filter(|_| !approved) {
                                     if current.status != OperationStatus::WaitingInput
                                         || current.required_action.as_ref() != Some(&action)
                                     {
@@ -701,6 +816,29 @@ pub fn supervise_existing(
                                     return;
                                 }
                             }
+                            super::completion::TuiTurnDecision::AmbiguousIdle
+                                if current.checks.is_empty() =>
+                            {
+                                let error = OperationError::new(
+                                    "RESULT_NOT_CAPTURED",
+                                    "the pane went idle but no reply text could be captured for this turn; read the pane or agent_transcript to see what happened",
+                                    true,
+                                );
+                                if let Ok(failed) = operations::mark_operation_state(
+                                    &current.project_path,
+                                    &current.operation_id,
+                                    OperationStatus::Failed,
+                                    StateSource::Inferred,
+                                    Some("failed".into()),
+                                    None,
+                                    Some(error),
+                                ) {
+                                    let _ = crate::bridge::publish_operation(
+                                        &failed, &registry, &app,
+                                    );
+                                    return;
+                                }
+                            }
                             super::completion::TuiTurnDecision::AmbiguousIdle => {
                                 if let Ok(completed) = operations::mark_operation_finished(
                                     &current.project_path,
@@ -711,6 +849,45 @@ pub fn supervise_existing(
                                 ) {
                                     let _ = crate::bridge::publish_operation(
                                         &completed, &registry, &app,
+                                    );
+                                    return;
+                                }
+                            }
+                            super::completion::TuiTurnDecision::RetrySubmit => {
+                                if let Some(pane_id) = current.pane_id.as_deref() {
+                                    // Empty text + newline writes just Enter.
+                                    let _ = crate::pty::registry_write_input(
+                                        &registry, &app, pane_id, "", true, false, None,
+                                    );
+                                }
+                            }
+                            super::completion::TuiTurnDecision::NotSubmitted => {
+                                // The unsent prompt is still typed in the input box; the next
+                                // attempt would append to it. Ctrl+U empties it. Never Ctrl+C: on
+                                // Cursor that only arms "press again to exit".
+                                if current.agent_type == "cursor_agent" {
+                                    if let Some(pane_id) = current.pane_id.as_deref() {
+                                        let _ = crate::pty::registry_write_input(
+                                            &registry, &app, pane_id, "\u{15}", false, false, None,
+                                        );
+                                    }
+                                }
+                                let error = OperationError::new(
+                                    "PROMPT_NOT_SUBMITTED",
+                                    "the pane stayed idle and showed no output for this turn; the prompt was probably not submitted; the input box was cleared, so retrying is safe",
+                                    true,
+                                );
+                                if let Ok(failed) = operations::mark_operation_state(
+                                    &current.project_path,
+                                    &current.operation_id,
+                                    OperationStatus::Failed,
+                                    StateSource::Inferred,
+                                    Some("failed".into()),
+                                    None,
+                                    Some(error),
+                                ) {
+                                    let _ = crate::bridge::publish_operation(
+                                        &failed, &registry, &app,
                                     );
                                     return;
                                 }
@@ -806,13 +983,40 @@ pub(super) fn execute_headless(
         })
         .and_then(|current| current.worker.provider_session_id.clone())
         .filter(|id| !id.is_empty());
+    let trust_workspace = snapshot
+        .as_ref()
+        .is_some_and(|current| current.worker.trust_workspace);
+    let allow_shell = snapshot
+        .as_ref()
+        .is_some_and(|current| current.worker.allow_shell);
+    if agent_type == "cursor_agent"
+        && snapshot
+            .as_ref()
+            .is_some_and(|current| current.worker.resolved_model.is_none())
+    {
+        // Headless Cursor never says which model ran; record the CLI's configured default so
+        // resolved_model is a real answer instead of null. Off-thread: it shells out once.
+        let (project, operation_id) = (project.clone(), operation_id.clone());
+        let _ = thread::Builder::new().name("puppet-cursor-model".into()).spawn(move || {
+            if let Some(model) = crate::agent_adapters::launch::cursor_default_model() {
+                let _ = operations::record_terminal_pane_state(
+                    &project,
+                    &operation_id,
+                    Some(model),
+                    false,
+                );
+            }
+        });
+    }
     let spec =
-        match crate::agent_adapters::launch::launch_spec_resuming(
+        match crate::agent_adapters::launch::launch_spec_opts(
             &agent_type,
             &project,
             &task,
             read_only,
             resume_session.as_deref(),
+            trust_workspace,
+            allow_shell,
         ) {
             Ok(spec) if !read_only || spec.read_only_enforced => spec,
             Ok(_) => {
@@ -900,6 +1104,7 @@ pub(super) fn execute_headless(
     let Some(control) = children().lock().get(&operation_id).cloned() else {
         return;
     };
+    operations::mark_operation_stage(&project, &operation_id, "process_running");
     let started = Instant::now();
     let exit_status = loop {
         if control.cancelled.load(Ordering::Acquire) {
@@ -991,6 +1196,18 @@ pub(super) fn execute_headless(
         if let Some(result) =
             crate::agent_adapters::launch::extract_result(&agent_type, &transcript, code)
         {
+            // A rejected shell call means the task may not have done what it says: keep the run
+            // `completed`, but do not call its result verified (an explicit check can still verify).
+            let rejected = crate::agent_adapters::launch::rejected_call_warning(
+                &agent_type,
+                &transcript,
+            );
+            let result = match rejected {
+                Some(warning) => format!("{result}
+
+{warning}"),
+                None => result,
+            };
             transcript::append(&project, &operation_id, "assistant_final", &result);
             if let Ok(snapshot) = operations::get_operation(&project, &operation_id) {
                 let handle = if snapshot.agent_run_id.is_empty() {
@@ -998,9 +1215,19 @@ pub(super) fn execute_headless(
                 } else {
                     snapshot.agent_run_id.as_str()
                 };
-                super::messaging::mark_open_steers_processed(&project, handle, &result);
+                super::messaging::mark_open_steers_processed_for_turn(
+                    &project,
+                    handle,
+                    &result,
+                    snapshot.turn_index,
+                );
             }
-            let _ = operations::mark_operation_completed(&project, &operation_id, &result, true);
+            let _ = operations::mark_operation_completed(
+                &project,
+                &operation_id,
+                &result,
+                rejected.is_none(),
+            );
         } else if let Some(mut prompt) = crate::agent_adapters::launch::detect_headless_trust(
             &agent_type,
             &format!(
@@ -1128,12 +1355,17 @@ fn spawn_reader<R: Read + Send + 'static>(
         .spawn(move || {
             let mut bytes = [0u8; 8192];
             let mut pending = Vec::new();
+            let mut first_output = stream == "stdout";
             loop {
                 let Ok(read) = reader.read(&mut bytes) else {
                     break;
                 };
                 if read == 0 {
                     break;
+                }
+                if first_output {
+                    first_output = false;
+                    operations::mark_operation_stage(&project, &operation_id, "first_output");
                 }
                 pending.extend_from_slice(&bytes[..read]);
                 append_valid_utf8(&project, &operation_id, stream, &mut pending, false);

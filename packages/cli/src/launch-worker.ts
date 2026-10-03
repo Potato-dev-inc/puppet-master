@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,21 +47,6 @@ function portInUse(port: number): Promise<boolean> {
   });
 }
 
-function releaseBinary(root: string): string | null {
-  const binary = appBinary(root, 'release');
-  if (!binary) return null;
-  const agentsSrc = join(root, 'packages', 'app', 'src-tauri', 'src', 'pty', 'agents.rs');
-  try {
-    if (statSync(agentsSrc).mtimeMs > statSync(binary).mtimeMs) {
-      console.error('[puppet-master] release binary is older than source; using tauri dev');
-      return null;
-    }
-  } catch {
-    /* keep release */
-  }
-  return binary;
-}
-
 async function resolveWorkerBinary(root: string): Promise<string | null> {
   const explicitBin = process.env.PUPPET_MASTER_BIN;
   if (explicitBin && existsSync(explicitBin)) return explicitBin;
@@ -75,7 +60,9 @@ async function resolveWorkerBinary(root: string): Promise<string | null> {
     }
   }
 
-  return releaseBinary(root);
+  // ponytail: cargo --release also writes puppet_master_app.exe; that GUI binary
+  // flashes and exits. From source, always use `tauri dev` unless PUPPET_MASTER_BIN is set.
+  return null;
 }
 
 function buildWorkerArgs(options: WorkerLaunchOptions): string[] {

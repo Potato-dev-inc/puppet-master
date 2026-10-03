@@ -254,6 +254,8 @@ Rust accumulates all PTY output in a bounded deque (10k lines) alongside xterm s
 
 Tasks, locks, audit entries, and pane timeline events are event-sourced from `<project>/.puppet-master/events.jsonl`. Switching the project folder switches the coordination board, so different repos do not share locks or task history.
 
+The first run in a folder creates `<project>/.puppet-master/` containing `events.jsonl` (the event log), `operations/` (one `<id>.json` snapshot plus `<id>.transcript.jsonl` per turn) and `messages/` (steering receipts). It is local state, never uploaded, and safe to delete when no run is active. Add `.puppet-master/` to your `.gitignore`. Finished runs are kept; narrow `list_agents` with `active_only` or `ended_within_ms` instead of expecting them to disappear.
+
 ### Permission and action prompts
 
 The desktop harness watches live pane events and classifies terminal output. Routine permission prompts can be auto-approved without waking the orchestrator. Ambiguous menus, substantive worker questions, terminal errors, and completion reports wake the orchestrator so it can choose the next keypress or prompt.

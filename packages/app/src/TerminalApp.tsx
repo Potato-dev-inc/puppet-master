@@ -191,7 +191,7 @@ export default function TerminalApp() {
   }, [selectOrSpawnTerminal]);
 
   useEffect(() => {
-    if (detached) return;
+    if (detached && !workerHost) return;
     let unlisten: (() => void) | null = null;
     let disposed = false;
     void tauri.onPaneDetach((event) => {
@@ -199,6 +199,7 @@ export default function TerminalApp() {
         event.pane_id,
         event.title ?? `Pane ${event.pane_id.slice(0, 8)}`,
         detachedWindowSizeFromGrid(event.cols, event.rows),
+        workerHost ? { workerHost: true } : undefined,
       );
     }).then((next) => {
       if (disposed) {
@@ -211,7 +212,7 @@ export default function TerminalApp() {
       disposed = true;
       unlisten?.();
     };
-  }, [detached]);
+  }, [detached, workerHost]);
 
   useEffect(() => {
     if (lockedPaneId) return;

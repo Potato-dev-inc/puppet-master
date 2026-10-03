@@ -26,10 +26,15 @@ function parseBridgePort(raw: string): { port: number; host: string } {
   return { host: '127.0.0.1', port: Number(trimmed) };
 }
 
+/** Expands `%VAR%` so MCP client `env` blocks can reference `%APPDATA%`. Unknown vars stay as-is. */
+export function expandEnvVars(input: string, env: NodeJS.ProcessEnv = process.env): string {
+  return input.replace(/%([^%]+)%/g, (match, name: string) => env[name] ?? match);
+}
+
 function bridgePortCandidates(filePath?: string): string[] {
   if (filePath) return [filePath];
   const envPath = process.env[BRIDGE_PORT_FILE_ENV];
-  if (envPath) return [envPath];
+  if (envPath) return [expandEnvVars(envPath)];
   return [DEFAULT_BRIDGE_PORT_FILE, defaultAppDataBridgePortFile()];
 }
 

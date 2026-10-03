@@ -243,12 +243,6 @@ pub fn run() {
                 }
             });
 
-            if worker_launch::worker_launch().is_some() {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.hide();
-                }
-            }
-
             Ok(())
         })
         .build(tauri::generate_context!())

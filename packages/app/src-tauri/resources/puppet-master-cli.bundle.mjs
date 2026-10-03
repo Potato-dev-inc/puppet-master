@@ -6,13 +6,13 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
-// packages/cli/src/index.ts
+// ../cli/src/index.ts
 import { spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync2, readFileSync } from "node:fs";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { dirname as dirname2, join as join3, resolve as resolve2 } from "node:path";
 
-// node_modules/zod/v3/external.js
+// ../../node_modules/zod/v3/external.js
 var external_exports = {};
 __export(external_exports, {
   BRAND: () => BRAND,
@@ -124,7 +124,7 @@ __export(external_exports, {
   void: () => voidType
 });
 
-// node_modules/zod/v3/helpers/util.js
+// ../../node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
   util2.assertEqual = (_) => {
@@ -258,7 +258,7 @@ var getParsedType = (data) => {
   }
 };
 
-// node_modules/zod/v3/ZodError.js
+// ../../node_modules/zod/v3/ZodError.js
 var ZodIssueCode = util.arrayToEnum([
   "invalid_type",
   "invalid_literal",
@@ -376,7 +376,7 @@ ZodError.create = (issues) => {
   return error;
 };
 
-// node_modules/zod/v3/locales/en.js
+// ../../node_modules/zod/v3/locales/en.js
 var errorMap = (issue, _ctx) => {
   let message;
   switch (issue.code) {
@@ -479,7 +479,7 @@ var errorMap = (issue, _ctx) => {
 };
 var en_default = errorMap;
 
-// node_modules/zod/v3/errors.js
+// ../../node_modules/zod/v3/errors.js
 var overrideErrorMap = en_default;
 function setErrorMap(map) {
   overrideErrorMap = map;
@@ -488,7 +488,7 @@ function getErrorMap() {
   return overrideErrorMap;
 }
 
-// node_modules/zod/v3/helpers/parseUtil.js
+// ../../node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
   const { data, path, errorMaps, issueData } = params;
   const fullPath = [...path, ...issueData.path || []];
@@ -598,14 +598,14 @@ var isDirty = (x) => x.status === "dirty";
 var isValid = (x) => x.status === "valid";
 var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 
-// node_modules/zod/v3/helpers/errorUtil.js
+// ../../node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
   errorUtil2.errToObj = (message) => typeof message === "string" ? { message } : message || {};
   errorUtil2.toString = (message) => typeof message === "string" ? message : message?.message;
 })(errorUtil || (errorUtil = {}));
 
-// node_modules/zod/v3/types.js
+// ../../node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
   constructor(parent, value, path, key) {
     this._cachedPath = [];
@@ -4053,7 +4053,7 @@ var coerce = {
 };
 var NEVER = INVALID;
 
-// packages/shared/dist/agents.js
+// ../shared/dist/agents.js
 var AgentTypeSchema = external_exports.enum([
   "claude",
   "codex",
@@ -4069,7 +4069,7 @@ function getDefaultTerminalAgentType(_platform) {
   return "opencode_native";
 }
 
-// packages/shared/dist/protocol.js
+// ../shared/dist/protocol.js
 var PaneStatusSchema = external_exports.enum(["running", "waiting_input", "error", "idle"]);
 var PaneInfoSchema = external_exports.object({
   id: external_exports.string(),
@@ -4126,7 +4126,7 @@ var OrchestratorChatEventSchema = external_exports.discriminatedUnion("type", [
   external_exports.object({ type: external_exports.literal("error"), message_id: external_exports.string(), error: external_exports.string() })
 ]);
 
-// packages/shared/dist/schemas.js
+// ../shared/dist/schemas.js
 var ChatMessageSchema = external_exports.object({
   id: external_exports.string(),
   role: external_exports.enum(["user", "assistant", "system", "tool"]),
@@ -4190,7 +4190,7 @@ var SettingsSchema = external_exports.object({
   opencode_model_id: external_exports.string().optional()
 });
 
-// packages/shared/dist/mobile-pairing.js
+// ../shared/dist/mobile-pairing.js
 var PairingQrPayloadSchema = external_exports.object({
   v: external_exports.literal(1),
   /** PWA origin or `/bridge` base URL the phone should use. */
@@ -4235,7 +4235,7 @@ var PairingSessionInfoSchema = external_exports.object({
   bridge_url: external_exports.string().url()
 });
 
-// packages/shared/dist/orchestrator-panes.js
+// ../shared/dist/orchestrator-panes.js
 var ORCHESTRATOR_PANE_PREFIX = "puppet-master-orchestrator-";
 function isOrchestratorPaneId(paneId) {
   return paneId.startsWith(ORCHESTRATOR_PANE_PREFIX);
@@ -4253,14 +4253,14 @@ function findReusableWorkerPane(panes, agentType) {
   return matches.sort((a, b) => b.created_at - a.created_at)[0];
 }
 
-// packages/cli/src/launch-worker.ts
+// ../cli/src/launch-worker.ts
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { createConnection } from "node:net";
 import { dirname, join as join2, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// packages/shared/dist/bridge-port.js
+// ../shared/dist/bridge-port.js
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -4284,12 +4284,15 @@ function parseBridgePort(raw) {
   }
   return { host: "127.0.0.1", port: Number(trimmed) };
 }
+function expandEnvVars(input, env = process.env) {
+  return input.replace(/%([^%]+)%/g, (match, name) => env[name] ?? match);
+}
 function bridgePortCandidates(filePath) {
   if (filePath)
     return [filePath];
   const envPath = process.env[BRIDGE_PORT_FILE_ENV];
   if (envPath)
-    return [envPath];
+    return [expandEnvVars(envPath)];
   return [DEFAULT_BRIDGE_PORT_FILE, defaultAppDataBridgePortFile()];
 }
 async function readAllBridgePorts(filePath) {
@@ -4318,7 +4321,7 @@ async function readBridgePort(filePath) {
   throw new Error(`Puppet Master bridge port file not found (tried: ${candidates.map((p) => `"${p}"`).join(", ")}). Start Puppet Master first (\`npx puppet-master\`).`);
 }
 
-// packages/cli/src/launch-worker.ts
+// ../cli/src/launch-worker.ts
 var __dirname = dirname(fileURLToPath(import.meta.url));
 var VITE_DEV_PORT = 1420;
 function repoRoot() {
@@ -4507,7 +4510,7 @@ function waitForChild(child) {
   });
 }
 
-// packages/cli/src/watch.ts
+// ../cli/src/watch.ts
 var TERMINAL = /* @__PURE__ */ new Set(["completed", "failed", "cancelled"]);
 var NEEDS_INPUT = /* @__PURE__ */ new Set(["waiting_input", "needs_input"]);
 async function bridgeJson(method, path, body, timeoutMs = 3e4) {
@@ -4672,7 +4675,7 @@ async function runWatch(options) {
   return 1;
 }
 
-// packages/cli/src/index.ts
+// ../cli/src/index.ts
 var __dirname2 = dirname2(fileURLToPath2(import.meta.url));
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["help", "h", "version", "v", "force-new", "new", "force_new"]);
 function parseArgs(argv) {

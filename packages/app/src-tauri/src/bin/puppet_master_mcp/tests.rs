@@ -425,3 +425,11 @@ fn operation_timeout_outcome_classifies_dispatch_and_terminal_states() {
     let failed_dispatch = json!({"status":"failed", "error":{"code":"DISPATCH_FAILED"}});
     assert_eq!(operation_timeout_outcome(&failed_dispatch), "not_dispatched");
 }
+
+#[test]
+fn stable_client_id_gives_a_stable_session_id_and_default_is_unique() {
+    assert_eq!(session_id_from(Some(" my agent/1 ".into())), "client-myagent1");
+    assert_eq!(session_id_from(Some("a".into())), session_id_from(Some("a".into())));
+    assert_ne!(session_id_from(None), session_id_from(None));
+    assert_ne!(session_id_from(Some("  ".into())), session_id_from(Some("".into())));
+}

@@ -22,6 +22,8 @@ pub const NOTE_CURSOR_INTERRUPT: &str =
     "cursor interrupt is Ctrl+C on a visible TUI or child stop when headless; not a graceful provider abort";
 pub const NOTE_CURSOR_EXTRACT: &str =
     "cursor output extraction is headless JSON (--print) or TUI screen delta; exact parity across versions is not guaranteed";
+pub const NOTE_CURSOR_HEADLESS_SHELL: &str =
+    "headless cursor_agent runs without --force/--trust, so its shell commands are rejected by Cursor and it cannot run tests; completed only means the process exited. Use a visible pane or opencode_native when the task must execute commands";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -158,6 +160,13 @@ fn cursor_contract(has_pane: bool) -> BackendCapabilities {
         NOTE_CURSOR_INTERRUPT.into(),
         NOTE_CURSOR_EXTRACT.into(),
     ]);
+    if !has_pane {
+        caps.notes.push(NOTE_CURSOR_HEADLESS_SHELL.into());
+        caps.notes.push(
+            "headless cursor_agent does not report which model ran, so resolved_model is the CLI configured default (from `cursor-agent about`), not a per-run confirmation"
+                .into(),
+        );
+    }
     caps
 }
 

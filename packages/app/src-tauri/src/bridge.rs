@@ -441,6 +441,43 @@ fn native_status_unavailable(error: impl std::fmt::Display) -> crate::operations
 
 /// OpenCode native: trust the session API (healthy, attached, not generating).
 /// Other backends still require a TUI-idle pane.
+/// Screen must hold still this long after the pane reads idle before a prompt is typed into it.
+const PANE_SETTLE: Duration = Duration::from_millis(700);
+
+/// Wait until the pane reads idle AND its screen has stopped changing. Status goes idle before a
+/// TUI has finished redrawing its input box, and a prompt typed into that window is dropped.
+fn wait_for_pane_idle(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    let mut settled: Option<(String, Instant)> = None;
+    loop {
+        let status = registry
+            .lock()
+            .list()
+            .into_iter()
+            .find(|pane| pane.id == pane_id)
+            .map(|pane| pane.status);
+        match status.as_deref() {
+            Some("error") | None => return,
+            Some("idle") => {
+                let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
+                match &settled {
+                    Some((previous, since)) if *previous == screen => {
+                        if since.elapsed() >= PANE_SETTLE {
+                            return;
+                        }
+                    }
+                    _ => settled = Some((screen, Instant::now())),
+                }
+            }
+            _ => settled = None,
+        }
+        if Instant::now() >= deadline {
+            return;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn pane_ready_for_dispatch(
     pane: &crate::pty::PaneInfo,
     agent_type: &str,
@@ -546,6 +583,8 @@ struct Health {
     ok: bool,
     version: &'static str,
     catalog_version: String,
+    /// Git sha, dirty flag and build time of the running binary.
+    build_id: &'static str,
     tool_count: usize,
 }
 
@@ -867,6 +906,7 @@ fn route(
                 ok: true,
                 version: env!("CARGO_PKG_VERSION"),
                 catalog_version: crate::tool_registry::catalog_version(),
+                build_id: env!("PM_BUILD_ID"),
                 tool_count: crate::tool_registry::external_mcp_tool_count(),
             })
             .unwrap(),
@@ -3204,11 +3244,22 @@ fn cancel_operation_http(
 }
 
 fn request_session(headers: &str) -> Option<&str> {
-    headers.lines().find_map(|line| {
+    let session = headers.lines().find_map(|line| {
         let (key, value) = line.split_once(':')?;
         (key.eq_ignore_ascii_case("x-puppet-master-session") && !value.trim().is_empty())
             .then_some(value.trim())
-    })
+    })?;
+    // The MCP process also names itself so a dead one can be told apart from a live one.
+    let pid = headers.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.eq_ignore_ascii_case("x-puppet-master-pid")
+            .then(|| value.trim().parse::<u32>().ok())
+            .flatten()
+    });
+    if let Some(pid) = pid {
+        crate::mcp_sessions::note_session_pid(session, pid);
+    }
+    Some(session)
 }
 
 fn operation_error_from_http(error: (u16, serde_json::Value)) -> crate::operations::OperationError {
@@ -3286,9 +3337,29 @@ pub fn publish_operation(
             append_operation_event(&snapshot.project_path, event)
                 .map_err(|error| OperationError::new("EVENT_WRITE_FAILED", error, true))?;
         }
-        if snapshot.pane_id.is_some() {
-            crate::agent_runs::pane_close::maybe_dispose_after_terminal(snapshot, registry)?;
+        if let Some(pane_id) = snapshot.pane_id.as_deref() {
+            // The live model is unreadable once the pane is gone, so persist it first.
+            let live_model = crate::agent_runs::persist::live_resolved_model(registry, snapshot);
+            let _ = crate::operations::record_terminal_pane_state(
+                &snapshot.project_path,
+                &snapshot.operation_id,
+                live_model,
+                false,
+            );
+            let disposed =
+                crate::agent_runs::pane_close::maybe_dispose_after_terminal(snapshot, registry);
+            if crate::agent_runs::pane_close::should_dispose_after_terminal(snapshot)
+                && !registry.lock().panes.contains_key(pane_id)
+            {
+                let _ = crate::operations::record_terminal_pane_state(
+                    &snapshot.project_path,
+                    &snapshot.operation_id,
+                    None,
+                    true,
+                );
+            }
             emit_panes_changed(registry, app);
+            disposed?;
         }
     }
     push_operation_sse(snapshot);
@@ -3614,11 +3685,32 @@ pub fn dispatch_existing_operation(
                             Duration::from_secs(8),
                         );
                         _pane_assignment_guard = PANE_ASSIGNMENT_SERIAL.lock();
+                    } else {
+                        // Pane status trails the last output; give a just-finished turn a moment to
+                        // read idle instead of failing the follow-up with PANE_UNAVAILABLE.
+                        drop(_pane_assignment_guard);
+                        wait_for_pane_idle(&registry_for_dispatch, &requested_id, Duration::from_secs(15));
+                        _pane_assignment_guard = PANE_ASSIGNMENT_SERIAL.lock();
                     }
                 }
                 let existing_panes = registry_for_dispatch.lock().list();
+                // A first-turn run with no explicit pane must not inherit a pane an earlier run
+                // used: its terminal still holds that task's conversation. Panes the user opened
+                // themselves stay adoptable.
+                let panes_used_by_runs: std::collections::HashSet<String> =
+                    if operation.pane_id.is_none() && operation.turn_index == 0 {
+                        crate::operations::list_operations(&operation.project_path)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter(|other| other.operation_id != operation.operation_id)
+                            .filter_map(|other| other.pane_id)
+                            .collect()
+                    } else {
+                        Default::default()
+                    };
                 let eligible = |pane: &&crate::pty::PaneInfo| {
-                    (operation
+                    !panes_used_by_runs.contains(&pane.id)
+                        && (operation
                         .owner_session_id
                         .as_deref()
                         .map_or(true, |session| {
@@ -3913,6 +4005,20 @@ pub fn dispatch_existing_operation(
                                 "operation no longer owns its dispatch pane",
                                 false,
                             ));
+                        }
+                        if agent_type == "cursor_agent" {
+                            // Ctrl+U empties Cursor's input box (verified live); on an empty box
+                            // it is a no-op. Without it a leftover prompt prefixes the new one.
+                            let _ = registry_write_input(
+                                &registry_for_dispatch,
+                                &app_for_dispatch,
+                                &pane_id,
+                                "\u{15}",
+                                false,
+                                false,
+                                None,
+                            );
+                            thread::sleep(Duration::from_millis(250));
                         }
                         registry_write_input(
                             &registry_for_dispatch,

@@ -142,6 +142,34 @@ pub(super) fn supervise_native_observation(
     {
         return;
     }
+    if native_prompt_never_landed(
+        &messages,
+        &operation.message_baseline_ids,
+        operation.started_at_ms,
+        crate::event_log::now_ms().max(0) as u64,
+        &status.pane_status,
+    ) {
+        let error = OperationError::new(
+            "PROMPT_NOT_SUBMITTED",
+            format!(
+                "no new message appeared in the OpenCode session {}s after dispatch and the pane is idle; the prompt never landed. Retry the turn.",
+                NATIVE_PROMPT_LANDING_MS / 1000
+            ),
+            true,
+        );
+        if let Ok(failed) = operations::mark_operation_state(
+            &operation.project_path,
+            &operation.operation_id,
+            OperationStatus::Failed,
+            StateSource::Native,
+            Some("failed".into()),
+            None,
+            Some(error),
+        ) {
+            let _ = crate::bridge::publish_operation(&failed, registry, app);
+        }
+        return;
+    }
     match native_completion_evidence(&messages, &operation.message_baseline_ids, false) {
         Some(Err(error)) => {
             super::transcript::append(
@@ -175,10 +203,11 @@ pub(super) fn supervise_native_observation(
             } else {
                 operation.agent_run_id.as_str()
             };
-            super::messaging::mark_open_steers_processed(
+            super::messaging::mark_open_steers_processed_for_turn(
                 &operation.project_path,
                 handle,
                 &evidence,
+                operation.turn_index,
             );
             if let Ok(completed) = operations::mark_operation_completed(
                 &operation.project_path,
@@ -194,6 +223,40 @@ pub(super) fn supervise_native_observation(
         }
         None => {}
     }
+}
+
+/// A dispatched prompt shows up as a new user message within moments. If none has appeared this
+/// long after dispatch, the session is idle, and nothing is pending, the prompt was lost; without
+/// this the turn would wait out its whole timeout with no error.
+pub(super) const NATIVE_PROMPT_LANDING_MS: u64 = 45_000;
+
+pub(super) fn native_prompt_never_landed(
+    messages: &crate::opencode::messages::SessionMessagesView,
+    baseline_ids: &[String],
+    started_at_ms: Option<u64>,
+    now_ms: u64,
+    pane_status: &str,
+) -> bool {
+    let Some(started) = started_at_ms else {
+        return false;
+    };
+    let waited = now_ms.saturating_sub(started);
+    // A session that never goes idle is still not running our prompt if no message of ours ever
+    // appeared; give it a longer, hard cap instead of waiting out the whole turn timeout.
+    let patience = if pane_status == "idle" {
+        NATIVE_PROMPT_LANDING_MS
+    } else {
+        NATIVE_PROMPT_LANDING_MS * 3
+    };
+    if waited < patience {
+        return false;
+    }
+    !messages.messages.iter().any(|message| {
+        message
+            .id
+            .as_deref()
+            .is_some_and(|id| !baseline_ids.iter().any(|known| known == id))
+    })
 }
 
 pub(super) fn native_completion_evidence(

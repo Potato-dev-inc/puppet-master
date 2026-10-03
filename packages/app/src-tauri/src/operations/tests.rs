@@ -750,3 +750,29 @@ fn acceptance_file_exists_criterion() {
     assert_eq!(finished.acceptance_status, AcceptanceStatus::Passed);
     let _ = fs::remove_dir_all(dir);
 }
+
+#[test]
+fn wait_blocks_for_the_requested_time_when_nothing_changes() {
+    let dir = temp();
+    let project = dir.to_string_lossy().into_owned();
+    let running = delegate_work(request(&dir, "wait-honours-timeout"), |op| {
+        op.pane_id = Some("p1".into());
+        Ok(())
+    })
+    .unwrap();
+    let cursor = OperationWaitCursor {
+        project_path: project,
+        operation_id: running.operation_id.clone(),
+        after_revision: running.revision,
+    };
+    let started = std::time::Instant::now();
+    let result = wait_for_operations(&[cursor], None, 900, false, false).unwrap();
+    let elapsed = started.elapsed();
+    assert_eq!(result.reason, "timeout");
+    assert!(
+        elapsed >= std::time::Duration::from_millis(850),
+        "returned after {elapsed:?}, before the 900 ms timeout"
+    );
+    assert!(elapsed < std::time::Duration::from_secs(5), "blocked far too long: {elapsed:?}");
+    let _ = fs::remove_dir_all(dir);
+}

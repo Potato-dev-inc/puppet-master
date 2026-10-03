@@ -23,6 +23,25 @@ static INITIAL_MODE: std::sync::OnceLock<tool_registry::McpMode> = std::sync::On
 /// True once the bridge knows this connection's mode (either the starting mode or a `set_mode` call).
 static INITIAL_MODE_SYNCED: AtomicBool = AtomicBool::new(false);
 
+/// Opt-in stable identity: a reconnecting MCP process that sets the same value reuses its session
+/// id, so runs it started stay owned without take_over. Left unset, every process gets a fresh id.
+const CLIENT_ID_ENV: &str = "PUPPET_MASTER_CLIENT_ID";
+
+fn session_id_from(client_id: Option<String>) -> String {
+    let stable: String = client_id
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+        .take(64)
+        .collect();
+    if stable.is_empty() {
+        uuid::Uuid::new_v4().to_string()
+    } else {
+        format!("client-{stable}")
+    }
+}
+
 thread_local! { static MCP_SESSION_ID: RefCell<Option<String>> = const { RefCell::new(None) }; }
 fn set_mcp_session_id(id: String) {
     MCP_SESSION_ID.with(|slot| *slot.borrow_mut() = Some(id));
@@ -247,7 +266,8 @@ fn call_wait_agents_with_progress(
             let _ = sender.send(notification);
         }
         let reason = value.get("reason").and_then(Value::as_str).unwrap_or_default();
-        let terminal = matches!(reason, "matched_state" | "terminal" | "timeout");
+        // A per-chunk "timeout" only means this 4s slice elapsed; the overall deadline decides.
+        let terminal = matches!(reason, "matched_state" | "terminal");
         let agents = value.get("agents").and_then(Value::as_array);
         let any_needs_input = agents.is_some_and(|list| {
             list.iter().any(|agent| {
@@ -258,6 +278,19 @@ fn call_wait_agents_with_progress(
             })
         });
         if terminal || any_needs_input || std::time::Instant::now() >= deadline {
+            // The bridge only saw the last <=4s slice; report the caller's whole wait instead.
+            let mut value = value;
+            if let Some(object) = value.as_object_mut() {
+                object.insert("requested_wait_ms".into(), json!(timeout_ms));
+                object.insert(
+                    "waited_ms".into(),
+                    json!(timeout_ms.saturating_sub(
+                        deadline
+                            .saturating_duration_since(std::time::Instant::now())
+                            .as_millis() as u64
+                    )),
+                );
+            }
             return Ok(
                 json!({"content":[{"type":"text","text":serde_json::to_string_pretty(&value).unwrap_or(response)}],"structuredContent":value}),
             );
@@ -352,11 +385,23 @@ fn call_tool_cancellable(
         }
         "close_agent" => bridge_request("POST", "/agents/close", Some(args)),
         "list_agents" | "list_workers" => {
-            let suffix = args
-                .get("project_path")
-                .and_then(Value::as_str)
-                .map(|path| format!("?project_path={}", encode_path_segment(path)))
-                .unwrap_or_default();
+            let mut query = Vec::new();
+            if let Some(path) = args.get("project_path").and_then(Value::as_str) {
+                query.push(format!("project_path={}", encode_path_segment(path)));
+            }
+            for key in ["mine_only", "active_only"] {
+                if args.get(key).and_then(Value::as_bool) == Some(true) {
+                    query.push(format!("{key}=true"));
+                }
+            }
+            if let Some(ms) = args.get("ended_within_ms").and_then(Value::as_u64) {
+                query.push(format!("ended_within_ms={ms}"));
+            }
+            let suffix = if query.is_empty() {
+                String::new()
+            } else {
+                format!("?{}", query.join("&"))
+            };
             bridge_request("GET", &format!("/agents{suffix}"), None)
         }
         "agent_transcript" => {
@@ -391,7 +436,23 @@ fn call_tool_cancellable(
         "release_lease" => bridge_request("POST", "/agents/release-lease", Some(args)),
         "transfer_agent" => bridge_request("POST", "/agents/transfer", Some(args)),
         "list_panes" => bridge_request("GET", "/panes", None),
-        "bridge_health" => bridge_request("GET", "/health", None),
+        "bridge_health" => bridge_request("GET", "/health", None).map(|body| {
+            let Ok(mut health) = serde_json::from_str::<Value>(&body) else {
+                return body;
+            };
+            let drift = schema_drift_from_health(&health);
+            if let Some(object) = health.as_object_mut() {
+                object.insert(
+                    "shim_catalog_version".into(),
+                    json!(tool_registry::catalog_version()),
+                );
+                object.insert("schema_drift".into(), json!(drift.is_some()));
+                if let Some(drift) = drift {
+                    object.insert("schema_drift_hint".into(), drift["hint"].clone());
+                }
+            }
+            health.to_string()
+        }),
         "list_agent_contexts" => bridge_request("GET", "/agent-contexts", None),
         "read_agent_context" => read_agent_context(&args),
         "inspect_agent_model" => {
@@ -810,6 +871,29 @@ fn read_agent_context(args: &Value) -> Result<String, String> {
     serde_json::to_string_pretty(context).map_err(|err| format!("serialize agent context: {err}"))
 }
 
+/// Compares this MCP binary's tool catalog with the running app's (from a `/health` body). A
+/// mismatch means the client was given an older or newer schema than the bridge enforces, which
+/// shows up as confusing argument rejections. The call is still served; this only explains.
+fn schema_drift_from_health(health: &Value) -> Option<Value> {
+    let bridge = health.get("catalog_version").and_then(Value::as_str)?;
+    let shim = tool_registry::catalog_version();
+    if bridge == shim {
+        return None;
+    }
+    Some(json!({
+        "code": "SCHEMA_DRIFT",
+        "shim_catalog_version": shim,
+        "bridge_catalog_version": bridge,
+        "bridge_build_id": health.get("build_id"),
+        "hint": format!("this MCP binary's tool schema ({shim}) differs from the running app's ({bridge}); restart the app or reconnect/reinstall the MCP binary (/mcp) so both match."),
+    }))
+}
+
+fn detect_schema_drift() -> Option<Value> {
+    let body = bridge_request("GET", "/health", None).ok()?;
+    schema_drift_from_health(&serde_json::from_str(&body).ok()?)
+}
+
 fn bridge_request(method: &str, path: &str, body: Option<Value>) -> Result<String, String> {
     let endpoint = read_bridge_endpoint()?;
     let body_text = body
@@ -823,7 +907,7 @@ fn bridge_request(method: &str, path: &str, body: Option<Value>) -> Result<Strin
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
 
     let session_header = current_mcp_session_id()
-        .map(|id| format!("X-Puppet-Master-Session: {id}\r\n"))
+        .map(|id| format!("X-Puppet-Master-Session: {id}\r\nX-Puppet-Master-Pid: {}\r\n", std::process::id()))
         .unwrap_or_default();
     let request = format!(
         "{method} {path} HTTP/1.1\r\n\
@@ -864,7 +948,7 @@ fn bridge_request_wait(
     let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
     let session_header = current_mcp_session_id()
-        .map(|id| format!("X-Puppet-Master-Session: {id}\r\n"))
+        .map(|id| format!("X-Puppet-Master-Session: {id}\r\nX-Puppet-Master-Pid: {}\r\n", std::process::id()))
         .unwrap_or_default();
     let request = format!("POST /operations/{}/wait{} HTTP/1.1\r\nHost: {}:{}\r\n{}Connection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", encode_path_segment(id), query, endpoint.host, endpoint.port, session_header, body_text.len(), body_text);
     stream
@@ -913,7 +997,7 @@ fn bridge_request_wait_agents(
     let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
     let session_header = current_mcp_session_id()
-        .map(|id| format!("X-Puppet-Master-Session: {id}\r\n"))
+        .map(|id| format!("X-Puppet-Master-Session: {id}\r\nX-Puppet-Master-Pid: {}\r\n", std::process::id()))
         .unwrap_or_default();
     let request = format!(
         "POST /agents/wait HTTP/1.1\r\nHost: {}:{}\r\n{}Connection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
@@ -1320,12 +1404,42 @@ fn read_bridge_endpoint_from_candidates(candidates: &[PathBuf]) -> Result<Bridge
 
 fn bridge_port_candidates() -> Vec<PathBuf> {
     if let Ok(path) = env::var(BRIDGE_PORT_FILE_ENV) {
-        return vec![PathBuf::from(path)];
+        return vec![PathBuf::from(expand_env_vars(&path, |name| env::var(name).ok()))];
     }
     vec![
         PathBuf::from(DEFAULT_BRIDGE_PORT_FILE),
         default_app_data_bridge_port_file(),
     ]
+}
+
+/// Expands `%VAR%` references so config files that cannot expand variables
+/// themselves (e.g. an MCP client's `env` block) can still use `%APPDATA%`.
+/// Unknown variables are left untouched.
+fn expand_env_vars(input: &str, lookup: impl Fn(&str) -> Option<String>) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(start) = rest.find('%') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        match after.find('%') {
+            Some(end) if end > 0 => match lookup(&after[..end]) {
+                Some(value) => {
+                    out.push_str(&value);
+                    rest = &after[end + 1..];
+                }
+                None => {
+                    out.push('%');
+                    rest = after;
+                }
+            },
+            _ => {
+                out.push('%');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn default_app_data_bridge_port_file() -> PathBuf {
@@ -1396,4 +1510,28 @@ fn encode_path_segment(input: &str) -> String {
             _ => format!("%{byte:02X}").chars().collect(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod env_expansion_tests {
+    use super::expand_env_vars;
+
+    fn lookup(name: &str) -> Option<String> {
+        (name == "APPDATA").then(|| r"C:\Users\x\AppData\Roaming".to_string())
+    }
+
+    #[test]
+    fn expands_known_variable() {
+        assert_eq!(
+            expand_env_vars(r"%APPDATA%\app\bridge.port", lookup),
+            r"C:\Users\x\AppData\Roaming\app\bridge.port"
+        );
+    }
+
+    #[test]
+    fn leaves_unknown_and_unpaired_percent_untouched() {
+        assert_eq!(expand_env_vars("%NOPE%/a", lookup), "%NOPE%/a");
+        assert_eq!(expand_env_vars("100%/a", lookup), "100%/a");
+        assert_eq!(expand_env_vars("%%", lookup), "%%");
+    }
 }
