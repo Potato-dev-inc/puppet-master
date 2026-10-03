@@ -21,7 +21,15 @@ fn build_id() -> String {
 
 fn main() {
     println!("cargo:rustc-env=PM_BUILD_ID={}", build_id());
+    // HEAD only changes on a branch switch; a commit moves the branch ref (or packed-refs), so
+    // watch those too, otherwise a new commit keeps reporting the old build id.
     println!("cargo:rerun-if-changed=../../../.git/HEAD");
+    println!("cargo:rerun-if-changed=../../../.git/packed-refs");
+    if let Ok(head) = std::fs::read_to_string("../../../.git/HEAD") {
+        if let Some(reference) = head.trim().strip_prefix("ref: ") {
+            println!("cargo:rerun-if-changed=../../../.git/{reference}");
+        }
+    }
     println!("cargo:rerun-if-changed=src");
     tauri_build::build();
 }
