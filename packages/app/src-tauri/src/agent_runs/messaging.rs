@@ -35,6 +35,9 @@ impl DeliveryMode {
 pub enum Disposition {
     #[serde(alias = "delivered")]
     Accepted,
+    /// The running turn was stopped and the message started a new turn on the same provider
+    /// session (`--resume`). The in-flight turn's unfinished work is not carried over.
+    AcceptedViaRestart,
     Queued,
     Processed,
     Deferred,
@@ -47,6 +50,7 @@ impl Disposition {
     #[allow(dead_code)]
     pub const ALL: &'static [&'static str] = &[
         "accepted",
+        "accepted_via_restart",
         "queued",
         "processed",
         "deferred",
@@ -58,6 +62,7 @@ impl Disposition {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Accepted => "accepted",
+            Self::AcceptedViaRestart => "accepted_via_restart",
             Self::Queued => "queued",
             Self::Processed => "processed",
             Self::Deferred => "deferred",
@@ -94,6 +99,9 @@ pub struct SteerTarget<'a> {
     pub waiting_input: bool,
     pub has_pane: bool,
     pub can_live_steer: bool,
+    /// A headless run on a resumable backend with a known provider session: the turn can be
+    /// stopped and the message sent as the next turn on that session.
+    pub can_restart_steer: bool,
 }
 
 pub fn steer_target(snapshot: &OperationSnapshot) -> SteerTarget<'_> {
@@ -108,7 +116,19 @@ pub fn steer_target(snapshot: &OperationSnapshot) -> SteerTarget<'_> {
                 .provider_session_id
                 .as_deref()
                 .is_some_and(|id| !id.is_empty()),
+        can_restart_steer: can_restart_steer(snapshot),
     }
+}
+
+/// Steering by restart: only a headless child of a resumable profile that is actually running
+/// (not parked on a prompt) and whose provider session id is already known. Without the id there
+/// is nothing to resume, so the message is queued as before.
+pub fn can_restart_steer(snapshot: &OperationSnapshot) -> bool {
+    snapshot.status == OperationStatus::Running
+        && snapshot.pane_id.is_none()
+        && super::persist::snapshot_can_resume(snapshot)
+        && snapshot.worker.context_policy != crate::operations::ContextPolicy::Fresh
+        && snapshot.agent_type != "opencode_native"
 }
 
 /// Decide how a current-turn message is handled. Never claims TUI injection succeeded.
@@ -129,6 +149,12 @@ pub fn decide_delivery(mode: DeliveryMode, target: SteerTarget<'_>) -> Dispositi
         return match mode {
             DeliveryMode::Queue => Disposition::Queued,
             DeliveryMode::Live | DeliveryMode::LiveOrQueue => Disposition::Accepted,
+        };
+    }
+    if target.can_restart_steer && !target.has_pane {
+        return match mode {
+            DeliveryMode::Queue => Disposition::Queued,
+            DeliveryMode::Live | DeliveryMode::LiveOrQueue => Disposition::AcceptedViaRestart,
         };
     }
     // Busy TUI or headless CLI: do not inject arbitrary text.
@@ -247,7 +273,10 @@ pub fn expire_unsettled_steers(project: &str, handle: &str) {
     expire_matching(project, handle, |receipt| {
         matches!(
             receipt.disposition,
-            Disposition::Accepted | Disposition::Queued | Disposition::Deferred
+            Disposition::Accepted
+                | Disposition::AcceptedViaRestart
+                | Disposition::Queued
+                | Disposition::Deferred
         )
     });
 }
@@ -294,7 +323,9 @@ fn mark_steers_processed(project: &str, handle: &str, result: &str, finishing_tu
             let queued_this_turn = finishing_turn
                 .is_some_and(|turn| receipt.turn_id == format!("turn-{turn}"));
             match receipt.disposition {
-                Disposition::Accepted => receipt.result.is_none(),
+                Disposition::Accepted | Disposition::AcceptedViaRestart => {
+                    receipt.result.is_none()
+                }
                 Disposition::Queued => receipt.result.is_none() && !queued_this_turn,
                 _ => false,
             }

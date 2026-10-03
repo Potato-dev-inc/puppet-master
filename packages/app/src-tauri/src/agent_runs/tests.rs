@@ -1073,6 +1073,87 @@ fn inferred_pane_result_without_checks_is_marked_unverified() {
     let _ = fs::remove_dir_all(project);
 }
 
+fn headless_cursor_turn(
+    project: &str,
+    handle: &str,
+    session: Option<&str>,
+    pane: Option<&str>,
+) -> operations::OperationSnapshot {
+    let mut request = persist_req(project, handle, 1, "current turn");
+    request.agent_type = "cursor_agent".into();
+    request.pane_id = pane.map(str::to_string);
+    request.worker.provider_session_id = session.map(str::to_string);
+    let queued = operations::create_operation(request).unwrap().0;
+    operations::run_operation_dispatch(project, &queued.operation_id, |snapshot| {
+        snapshot.pane_id = pane.map(str::to_string);
+        Ok(())
+    })
+    .unwrap()
+}
+
+#[test]
+fn busy_headless_cursor_with_a_session_is_steered_by_restart() {
+    use super::messaging::{DeliveryMode, Disposition};
+    let project = std::env::temp_dir().join(format!("pm-steer-restart-{}", Uuid::new_v4()));
+    let project_path = project.to_string_lossy().into_owned();
+    let running = headless_cursor_turn(&project_path, "cur", Some("chat-1"), None);
+    assert!(super::messaging::can_restart_steer(&running));
+    let send = |mode, key: &str| {
+        super::messaging::send_message(&project_path, "cur", "use tabs", &running, mode, Some(key))
+            .unwrap()
+    };
+    let receipt = send(DeliveryMode::LiveOrQueue, "k1");
+    assert_eq!(receipt.disposition, Disposition::AcceptedViaRestart);
+    assert_eq!(
+        super::messaging::receipt_value(&receipt)["disposition"],
+        "accepted_via_restart"
+    );
+    assert_eq!(send(DeliveryMode::Live, "k2").disposition, Disposition::AcceptedViaRestart);
+    assert_eq!(send(DeliveryMode::Queue, "k3").disposition, Disposition::Queued);
+    // The restarted turn finishing settles the steer, with its result.
+    super::messaging::mark_open_steers_processed_for_turn(&project_path, "cur", "tabs used", 2);
+    let settled = super::messaging::find_receipt_by_key(&project_path, "cur", "k1").unwrap();
+    assert_eq!(settled.disposition, Disposition::Processed);
+    assert_eq!(settled.result.as_deref(), Some("tabs used"));
+    assert!(super::capabilities::for_snapshot(&running)
+        .notes
+        .iter()
+        .any(|note| note.starts_with("steer_via_restart")));
+    let _ = fs::remove_dir_all(project);
+}
+
+#[test]
+fn steer_falls_back_to_queue_without_a_session_or_with_a_pane() {
+    use super::messaging::{DeliveryMode, Disposition};
+    let project = std::env::temp_dir().join(format!("pm-steer-norestart-{}", Uuid::new_v4()));
+    let project_path = project.to_string_lossy().into_owned();
+    let no_session = headless_cursor_turn(&project_path, "nosess", None, None);
+    assert!(!super::messaging::can_restart_steer(&no_session));
+    let receipt = super::messaging::send_message(
+        &project_path, "nosess", "m", &no_session, DeliveryMode::LiveOrQueue, Some("a"),
+    )
+    .unwrap();
+    assert_eq!(receipt.disposition, Disposition::Queued);
+    let strict = super::messaging::send_message(
+        &project_path, "nosess", "m", &no_session, DeliveryMode::Live, Some("b"),
+    )
+    .unwrap();
+    assert_eq!(strict.disposition, Disposition::Unsupported);
+
+    let pane = headless_cursor_turn(&project_path, "pane", Some("chat-2"), Some("pane-9"));
+    assert!(!super::messaging::can_restart_steer(&pane));
+    let receipt = super::messaging::send_message(
+        &project_path, "pane", "m", &pane, DeliveryMode::LiveOrQueue, Some("c"),
+    )
+    .unwrap();
+    assert_eq!(receipt.disposition, Disposition::Queued);
+
+    // Backends without resume never restart-steer.
+    let codex_like = running_turn(&project_path, "claude", "claude", None, false);
+    assert!(!super::messaging::can_restart_steer(&codex_like));
+    let _ = fs::remove_dir_all(project);
+}
+
 #[test]
 fn send_message_steers_current_turn_followup_opens_next_turn() {
     let project = std::env::temp_dir().join(format!("pm-msg-vs-follow-{}", Uuid::new_v4()));
@@ -1192,6 +1273,7 @@ fn busy_tui_never_claims_injected_text_was_delivered() {
         waiting_input: false,
         has_pane: true,
         can_live_steer: false,
+        can_restart_steer: false,
     };
     assert_eq!(
         super::messaging::decide_delivery(super::messaging::DeliveryMode::LiveOrQueue, tui),
@@ -1215,6 +1297,7 @@ fn busy_tui_never_claims_injected_text_was_delivered() {
         waiting_input: false,
         has_pane: false,
         can_live_steer: false,
+        can_restart_steer: false,
     };
     assert_eq!(
         super::messaging::decide_delivery(super::messaging::DeliveryMode::LiveOrQueue, headless),
@@ -1226,6 +1309,7 @@ fn busy_tui_never_claims_injected_text_was_delivered() {
         waiting_input: false,
         has_pane: true,
         can_live_steer: true,
+        can_restart_steer: false,
     };
     assert_eq!(
         super::messaging::decide_delivery(super::messaging::DeliveryMode::LiveOrQueue, native),
@@ -1915,6 +1999,7 @@ fn steering_a_finished_turn_is_rejected_unless_explicitly_queued() {
         waiting_input: false,
         has_pane: true,
         can_live_steer: true,
+        can_restart_steer: false,
     };
     assert_eq!(
         super::messaging::decide_delivery(super::messaging::DeliveryMode::LiveOrQueue, idle),
