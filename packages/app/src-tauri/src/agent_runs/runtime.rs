@@ -243,6 +243,7 @@ fn run_warnings(snapshot: &OperationSnapshot) -> Vec<RunWarning> {
         has_pane: snapshot.pane_id.is_some(),
         completed: snapshot.status == OperationStatus::Completed,
         result_inferred: matches!(snapshot.result_capture, Some(ResultCapture::Inferred)),
+        model_requested: snapshot.worker.requested_model.is_some(),
     };
     for warning in crate::tui::profile_for(&snapshot.agent_type).run_warnings(&facts) {
         push(warning.code, warning.source, warning.detail);

@@ -77,6 +77,8 @@ pub struct HeadlessLaunch<'a> {
     pub resume_session: Option<&'a str>,
     pub trust_workspace: bool,
     pub allow_shell: bool,
+    /// Model requested for this run; only profiles with `accepts_headless_model` use it.
+    pub model: Option<&'a str>,
 }
 
 #[cfg(test)]
@@ -89,6 +91,7 @@ impl<'a> HeadlessLaunch<'a> {
             resume_session: None,
             trust_workspace: false,
             allow_shell: false,
+            model: None,
         }
     }
 }
@@ -125,6 +128,8 @@ pub struct RunFacts<'a> {
     pub completed: bool,
     /// The result was read off the terminal screen rather than a structured stream.
     pub result_inferred: bool,
+    /// The caller asked for a specific model for this run.
+    pub model_requested: bool,
 }
 
 /// One agent CLI/TUI. Every method has a generic default, so a profile overrides only what its
@@ -156,6 +161,11 @@ pub trait TuiProfile: Sync {
             "headless launch is unsupported for agent type: {}",
             self.id()
         ))
+    }
+
+    /// True when `headless_command` passes `HeadlessLaunch::model` to the CLI (a per-run model).
+    fn accepts_headless_model(&self) -> bool {
+        false
     }
 
     /// Final machine-readable result after a successful exit; never a human-readable fallback.

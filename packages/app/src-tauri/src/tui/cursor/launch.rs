@@ -10,6 +10,14 @@ fn cli_args(launch: &HeadlessLaunch) -> Vec<String> {
     if let Some(session) = launch.resume_session.filter(|id| !id.is_empty()) {
         args.extend(["--resume", session]);
     }
+    // A value starting with `-` would be read as another flag; never forward one.
+    if let Some(model) = launch
+        .model
+        .map(str::trim)
+        .filter(|model| !model.is_empty() && !model.starts_with('-'))
+    {
+        args.extend(["--model", model]);
+    }
     if launch.trust_workspace {
         args.push("--trust");
     }
@@ -171,6 +179,26 @@ mod tests {
         .unwrap();
         assert!(resumed.args.windows(2).any(|pair| pair == ["--resume", "chat-1"]));
         assert_eq!(resumed.args.last().map(String::as_str), Some("next"));
+    }
+
+    #[test]
+    fn requested_model_is_passed_as_model_flag() {
+        let run = |model| {
+            headless_launch(
+                "cursor_agent",
+                &HeadlessLaunch {
+                    model,
+                    ..HeadlessLaunch::new(".", "t")
+                },
+            )
+            .unwrap()
+        };
+        assert!(!run(None).args.iter().any(|arg| arg == "--model"));
+        assert!(!run(Some("  ")).args.iter().any(|arg| arg == "--model"));
+        assert!(!run(Some("--force")).args.iter().any(|arg| arg == "--force"));
+        let spec = run(Some("gpt-5"));
+        assert!(spec.args.windows(2).any(|pair| pair == ["--model", "gpt-5"]));
+        assert_eq!(spec.args.last().map(String::as_str), Some("t"));
     }
 
     #[test]

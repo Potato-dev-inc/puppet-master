@@ -1559,6 +1559,27 @@ fn headless_cursor_resumes_one_conversation_across_followups() {
 }
 
 #[test]
+fn headless_cursor_model_is_selectable_but_unconfirmed() {
+    assert!(super::capabilities::for_backend("cursor_agent", false).model_selection);
+    assert!(!super::capabilities::for_backend("cursor_agent", true).model_selection);
+    assert!(!super::capabilities::for_backend("codex", false).model_selection);
+    let facts = |has_pane, model_requested| crate::tui::RunFacts {
+        result: Some("ok"),
+        has_pane,
+        completed: true,
+        result_inferred: false,
+        model_requested,
+    };
+    let cursor = crate::tui::profile_for("cursor_agent");
+    assert!(cursor
+        .run_warnings(&facts(false, true))
+        .iter()
+        .any(|warning| warning.code == "MODEL_UNCONFIRMED"));
+    assert!(cursor.run_warnings(&facts(false, false)).is_empty());
+    assert!(cursor.run_warnings(&facts(true, true)).is_empty());
+}
+
+#[test]
 fn cursor_tui_contract_documents_version_limits_without_parity_claims() {
     let caps = super::capabilities::for_backend("cursor_agent", true);
     assert!(!caps.live_messages);

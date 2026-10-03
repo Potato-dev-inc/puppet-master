@@ -87,7 +87,11 @@ pub fn for_backend(agent_type: &str, has_pane: bool) -> BackendCapabilities {
     let features = profile.features();
     let mut caps = match features.kind {
         Kind::NativeProtocol => native_protocol(has_pane),
-        Kind::Cli => cli_contract(has_pane, features.resumable_headless && !has_pane),
+        Kind::Cli => {
+            let mut caps = cli_contract(has_pane, features.resumable_headless && !has_pane);
+            caps.model_selection = profile.accepts_headless_model() && !has_pane;
+            caps
+        }
         Kind::Shell | Kind::Unknown => shell_contract(has_pane),
     };
     caps.notes.extend(profile.capability_notes(has_pane));
