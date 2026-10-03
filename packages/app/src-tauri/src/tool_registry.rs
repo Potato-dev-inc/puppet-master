@@ -70,6 +70,7 @@ pub fn tool_visible_in_mode(name: &str, mode: McpMode) -> bool {
     }
     const AGENT_TOOLS: &[&str] = &[
         "run_agent",
+        "quick_ask",
         "wait_agents",
         "send_agent",
         "send_message",
@@ -178,6 +179,16 @@ fn operation_snapshot_schema() -> Value {
     },"required":["operation_id","project_path","task","idempotency_key","status","revision","created_at_ms","updated_at_ms","source"]})
 }
 
+fn receipt_schema() -> Value {
+    json!({"type":"object","description":"What this run verified and what it did not. not_verified entries are derived from recorded facts only.","properties":{
+        "backend":{"type":"string"},"model":{"type":"string","description":"Resolved model when confirmed, else the requested one."},
+        "read_only":{"type":"string","enum":["enforced","unenforced","off"]},
+        "checks":{"type":"string","description":"`none configured` or `<passed>/<total> passed`."},
+        "result_capture":{"type":"string","enum":["authoritative","inferred","missing","pending"]},
+        "not_verified":{"type":"array","items":{"type":"string"}}
+    },"required":["backend","read_only","checks","result_capture","not_verified"]})
+}
+
 fn agent_run_schema() -> Value {
     let mut schema = json!({"type":"object","properties":{
         "handle":{"type":"string"},"operation_id":{"type":"string"},"turn_id":{"type":"string"},
@@ -211,13 +222,14 @@ fn agent_run_schema() -> Value {
         properties.insert("result_verified".into(), json!({"type":"boolean"}));
         properties.insert("model_verified".into(), json!({"type":["boolean","null"]}));
         properties.insert("recovery".into(), json!({"type":["object","null"]}));
+        properties.insert("receipt".into(), receipt_schema());
     }
     schema
 }
 
 /// Coordinator-facing MCP initialize text (stdio binary and HTTP catalog consumers).
 pub fn mcp_instructions() -> &'static str {
-    "Puppet Master MCP (agent mode). Start work with one call: run_agent(agent_type, project_path, task) creates its own pane in project_path, runs the task and returns the result and a handle; no spawn_agent needed. To reuse an existing worker: list_agents → run_agent(worker_id or pane_id, task) → handle; send_message(handle) steers the current turn (receipt ≠ result); followup_task(handle, task) starts the next turn on the same conversation; wait_agents(handles) collects answers (default until: completed, failed, cancelled, needs_input). When run_agent/followup_task/delegate_work or WAIT_TIMEOUT returns a still-running turn it includes a watch_command (a settled turn has none; read its result directly); run that watch_command (plain `npx puppet-master watch …`) via your agent harness shell tool's background mode — do not use detached Start-Process; the harness must own stdout so it can wake when the turn finishes. run_agent/followup_task mint idempotency_key if omitted — reuse it after WAIT_TIMEOUT. Do not close the user's pane as cleanup. OpenCode yes/no: answer_prompt, not press_key."
+    "Puppet Master MCP (agent mode). For a tiny question call quick_ask(task) and read its answer; its receipt lists what was not verified. Start work with one call: run_agent(agent_type, project_path, task) creates its own pane in project_path, runs the task and returns the result and a handle; no spawn_agent needed. To reuse an existing worker: list_agents → run_agent(worker_id or pane_id, task) → handle; send_message(handle) steers the current turn (receipt ≠ result); followup_task(handle, task) starts the next turn on the same conversation; wait_agents(handles) collects answers (default until: completed, failed, cancelled, needs_input). When run_agent/followup_task/delegate_work or WAIT_TIMEOUT returns a still-running turn it includes a watch_command (a settled turn has none; read its result directly); run that watch_command (plain `npx puppet-master watch …`) via your agent harness shell tool's background mode — do not use detached Start-Process; the harness must own stdout so it can wake when the turn finishes. run_agent/followup_task mint idempotency_key if omitted — reuse it after WAIT_TIMEOUT. Do not close the user's pane as cleanup. OpenCode yes/no: answer_prompt, not press_key."
 }
 
 pub fn catalog_version() -> String {
@@ -253,6 +265,14 @@ pub fn tools() -> Vec<ToolDefinition> {
             visibility: visible_everywhere(),
             method: "POST",
             path: "/mcp/mode",
+        },
+        ToolDefinition {
+            name: "quick_ask",
+            description: "Ask a tiny one-shot question and get just the answer, like a native subagent call. Runs a fresh headless read-only worker (no checks, no shell, pane closed afterwards) on the first installed backend (claude, codex, cursor_agent) unless `backend` says otherwise. Returns {answer, receipt}; receipt.not_verified lists what was not verified. If it is still running after wait_ms (default 90s, max 120s) it returns {status:\"running\", handle, hint:\"wait_agents\"}: call wait_agents(handle). For real work, checks, or follow-ups use run_agent.",
+            input_schema: object_schema(json!({"task":{"type":"string"},"project_path":{"type":"string"},"backend":{"type":"string","enum":["claude","codex","cursor_agent"]},"model":{"type":"string"},"wait_ms":{"type":"integer","minimum":0,"maximum":120000,"default":90000},"read_only":{"type":"boolean","default":true,"description":"Defaults to true. Only pass false when the question needs the agent to write."},"idempotency_key":{"type":"string"}}), vec!["task"]),
+            output_schema: Some(json!({"type":"object","properties":{"answer":{"type":["string","null"]},"receipt":receipt_schema(),"status":{"type":"string","enum":["running","needs_input"]},"handle":{"type":"string"},"hint":{"type":"string"},"prompt":{"type":["object","null"]}}})),
+            safety: ToolSafety::Mutating,
+            visibility: visible_everywhere(), method: "POST", path: "/agents/quick",
         },
         ToolDefinition {
             name: "run_agent",
@@ -1411,6 +1431,7 @@ mod tests {
             .collect::<Vec<_>>();
         for name in [
             "run_agent",
+            "quick_ask",
             "wait_agents",
             "send_message",
             "followup_task",
@@ -1470,6 +1491,7 @@ mod tests {
             "result_verified",
             "model_verified",
             "recovery",
+            "receipt",
         ] {
             assert!(props.contains_key(key), "missing output field {key}");
         }
@@ -1541,6 +1563,7 @@ mod tests {
             .collect();
         for name in [
             "run_agent",
+            "quick_ask",
             "wait_agents",
             "send_message",
             "followup_task",

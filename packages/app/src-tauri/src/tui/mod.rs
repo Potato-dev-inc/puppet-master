@@ -147,6 +147,12 @@ pub trait TuiProfile: Sync {
         RunOptionSupport::default()
     }
 
+    /// Whether the CLI this profile launches can be found on this machine. Defaults to true for
+    /// backends with nothing to look up; CLI profiles override it with a PATH lookup.
+    fn is_installed(&self) -> bool {
+        true
+    }
+
     // ---- headless runs ------------------------------------------------------------------
 
     /// Command line for a headless run. Argument policy (read-only support, flag conflicts) is
@@ -338,6 +344,20 @@ pub fn is_tool_activity_line(lower: &str) -> bool {
     PROFILES
         .iter()
         .any(|profile| profile.is_tool_activity_line(lower))
+}
+
+/// Whether an executable called `name` is on PATH (`name.exe` on Windows).
+pub(crate) fn program_on_path(name: &str) -> bool {
+    #[cfg(windows)]
+    {
+        find_path_file(&format!("{name}.exe")).is_some()
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("PATH").is_some_and(|paths| {
+            std::env::split_paths(&paths).any(|dir| dir.join(name).is_file())
+        })
+    }
 }
 
 #[cfg(windows)]

@@ -67,6 +67,7 @@ fn initialize_returns_server_info() {
         .unwrap_or_default();
     assert!(instructions.contains("list_agents"));
     assert!(instructions.contains("followup_task"));
+    assert!(instructions.contains("quick_ask"));
     assert!(instructions.contains("wait_agents"));
 }
 
@@ -212,6 +213,11 @@ fn wait_tools_use_extended_bridge_timeout() {
             Some(&json!({"background": true, "wait_ms": 120_000}))
         ),
         30
+    );
+    assert_eq!(bridge_read_timeout_secs("POST", "/agents/quick", None), 105);
+    assert_eq!(
+        bridge_read_timeout_secs("POST", "/agents/quick", Some(&json!({"wait_ms": 900_000}))),
+        135
     );
     assert_eq!(bridge_read_timeout_secs("POST", "/agents/wait", None), 135);
     assert_eq!(bridge_read_timeout_secs("POST", "/agents/followup", None), 135);
@@ -363,6 +369,7 @@ fn agent_mode_tools_list_is_local_and_includes_primary_controls() {
         .collect();
     for name in [
         "run_agent",
+        "quick_ask",
         "wait_agents",
         "send_message",
         "followup_task",

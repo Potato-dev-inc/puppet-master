@@ -23,6 +23,10 @@ impl TuiProfile for Claude {
         }
     }
 
+    fn is_installed(&self) -> bool {
+        super::program_on_path("claude")
+    }
+
     fn headless_command(&self, launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
         headless::command(launch)
     }

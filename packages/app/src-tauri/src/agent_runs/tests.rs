@@ -2281,3 +2281,69 @@ fn cursor_model_is_parsed_from_real_about_columns() {
         Some("Composer 2.5")
     );
 }
+
+fn receipt_of(snapshot: operations::OperationSnapshot) -> super::runtime::RunReceipt {
+    super::runtime::AgentRunView::from(snapshot)
+        .receipt
+        .expect("every view carries a receipt")
+}
+
+#[test]
+fn receipt_for_unchecked_inferred_run_lists_what_was_not_verified() {
+    let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+    snapshot.result_capture = Some(operations::ResultCapture::Inferred);
+    snapshot.worker.requested_model = Some("gpt-x".into());
+    let receipt = receipt_of(snapshot);
+    assert_eq!(receipt.backend, "cursor_agent");
+    assert_eq!(receipt.read_only, "enforced");
+    assert_eq!(receipt.checks, "none configured");
+    assert_eq!(receipt.result_capture, "inferred");
+    assert_eq!(receipt.model.as_deref(), Some("gpt-x"));
+    assert_eq!(
+        receipt.not_verified,
+        vec![
+            "no checks configured",
+            "result read from terminal screen",
+            "model not confirmed"
+        ]
+    );
+}
+
+#[test]
+fn receipt_counts_passed_checks_and_confirmed_model_is_not_flagged() {
+    let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+    snapshot.result_capture = Some(operations::ResultCapture::Authoritative);
+    snapshot.read_only = false;
+    snapshot.worker.requested_model = Some("m".into());
+    snapshot.worker.resolved_model = Some("m".into());
+    let check = super::checks::Check::FileExists { path: "a".into() };
+    snapshot.checks = vec![check.clone(), check.clone()];
+    snapshot.check_results = vec![
+        super::checks::CheckResult { check: check.clone(), passed: true, detail: String::new() },
+        super::checks::CheckResult { check, passed: false, detail: String::new() },
+    ];
+    let receipt = receipt_of(snapshot);
+    assert_eq!(receipt.checks, "1/2 passed");
+    assert_eq!(receipt.read_only, "off");
+    assert!(receipt.not_verified.is_empty(), "{:?}", receipt.not_verified);
+}
+
+#[test]
+fn receipt_flags_read_only_the_backend_cannot_enforce() {
+    let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+    snapshot.agent_type = "opencode".into();
+    let receipt = receipt_of(snapshot);
+    assert_eq!(receipt.read_only, "unenforced");
+    assert!(receipt.not_verified.contains(&"read_only not enforced".to_string()));
+}
+
+#[test]
+fn receipt_serializes_additively_and_running_runs_do_not_claim_unverified_model() {
+    let mut snapshot = parked_snapshot(OperationStatus::Running, "none");
+    snapshot.worker.requested_model = Some("m".into());
+    let view = super::runtime::AgentRunView::from(snapshot);
+    let value = serde_json::to_value(&view).unwrap();
+    assert_eq!(value["receipt"]["result_capture"], "pending");
+    let not_verified = value["receipt"]["not_verified"].as_array().unwrap();
+    assert!(!not_verified.iter().any(|entry| entry == "model not confirmed"));
+}

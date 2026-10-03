@@ -9,6 +9,7 @@ mod messaging;
 mod native;
 pub(crate) mod pane_close;
 pub(crate) mod persist;
+mod quick;
 mod recovery;
 mod routes;
 mod runtime;

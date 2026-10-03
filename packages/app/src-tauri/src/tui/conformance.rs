@@ -60,6 +60,13 @@ fn feature_flags_agree_with_the_methods_they_promise() {
                 assert!(!error.contains("unsupported"), "{id}: read_only_headless needs a headless command: {error}");
             }
         }
+        if features.read_only_headless && profile.is_installed() {
+            // is_installed must agree with the launcher: a CLI it calls installed must launch.
+            assert!(
+                profile.headless_command(&launch).is_ok(),
+                "{id}: is_installed() is true but the headless launch fails"
+            );
+        }
         if features.resumable_headless {
             assert!(
                 features.kind == Kind::Cli,

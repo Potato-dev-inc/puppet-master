@@ -1,7 +1,8 @@
 # MCP tool cheatsheet
 
-New connections start in **agent mode**. Call `run_agent` with a task; it waits
-up to 30 seconds by default. Use `background: true` for an immediate handle.
+New connections start in **agent mode**. For a tiny question call `quick_ask`
+(below). For real work call `run_agent` with a task; it waits up to 120 seconds
+(`wait_ms`, default 120000) by default. Use `background: true` for an immediate handle.
 Then use `wait_agents`, `send_message` or `followup_task`, `interrupt_agent`,
 `inspect_agent`, `agent_transcript`, or `close_agent`. `send_agent` and
 `cancel_agent` remain compatibility wrappers. `take_over` grants explicit pane
@@ -17,10 +18,46 @@ terminal and legacy operation tools below. See [the mode contract](agent-shell-m
 | `bridge_health` | — | Confirms bridge + `tool_count` |
 | `list_panes` | — | Reuse before `spawn_agent` |
 
+## Quick questions: `quick_ask`
+
+`quick_ask({"task": "..."})` is the native-subagent-style call for a tiny question. It runs
+`run_agent` with fixed conservative settings: headless, foreground, `read_only: true`, fresh
+context, no `checks`, no shell, `keep_pane: false`, `timeout_ms: 300000`. Arguments: `task`
+(required), `project_path`, `backend` (`claude` | `codex` | `cursor_agent`), `model`, `wait_ms`
+(default 90000, clamped to 120000) and `read_only` (pass `false` only if the agent must write).
+With no `backend`, the first installed CLI that enforces read-only is used, in order
+claude, codex, cursor_agent (OpenCode is never picked). If none is on PATH the call fails with
+`BACKEND_UNAVAILABLE`.
+
+It returns `{"answer": "...", "receipt": {...}}`. If the run is still going at `wait_ms` it returns
+`{"status":"running","handle":"...","hint":"wait_agents"}`; call `wait_agents` with that handle.
+A failed run is an error that carries the handle and receipt in `context`.
+
+## Run receipt
+
+Every run view (`run_agent`, `wait_agents`, `followup_task`, `inspect_agent`, `quick_ask`) carries a
+`receipt` saying what the run verified and what it did not:
+
+| Field | Meaning |
+|-------|---------|
+| `backend` | Agent type that ran |
+| `model` | Resolved model when the backend confirmed it, else the requested one (absent if neither) |
+| `read_only` | `enforced` (requested and the backend enforces it), `unenforced` (requested, backend cannot), `off` |
+| `checks` | `none configured` or `<passed>/<total> passed` (`0/N passed (pending)` while running) |
+| `result_capture` | `authoritative`, `inferred`, `missing`, or `pending` |
+| `not_verified` | Short strings, each derived from a recorded fact |
+
+`not_verified` entries: `no checks configured`; `result read from terminal screen`
+(`result_capture` is `inferred`); `model not confirmed` (a model was requested but not confirmed,
+only once the run has finished); `read_only not enforced`; `shell commands rejected` (the
+`SHELL_COMMAND_REJECTED` warning is present). An empty list means none of these apply, not that
+the answer is correct. Read it before trusting `result`.
+
 ## Delegate & wait
 
 | Tool | When |
 |------|------|
+| `quick_ask` | Tiny one-shot question; returns `{answer, receipt}` (see above) |
 | `run_agent` | Start/adopt a worker; `name`/`handle` reuse an idle worker unless `context_mode=fresh` |
 | `wait_agents` | Wait for turn result (`status`, `result`, `result_capture`, `acceptance_status`, `next_cursor`) |
 | `send_message` | Steer the current turn; receipt has `message_id` + `disposition` |

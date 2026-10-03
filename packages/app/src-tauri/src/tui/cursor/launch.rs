@@ -20,6 +20,18 @@ fn cli_args(launch: &HeadlessLaunch) -> Vec<String> {
     args.into_iter().map(str::to_string).collect()
 }
 
+/// `cursor-agent` is reachable: the `.ps1` shim on Windows, the binary elsewhere.
+pub(super) fn is_installed() -> bool {
+    #[cfg(windows)]
+    {
+        crate::tui::find_path_file("cursor-agent.ps1").is_some()
+    }
+    #[cfg(not(windows))]
+    {
+        crate::tui::program_on_path("cursor-agent")
+    }
+}
+
 pub(super) fn headless_command(launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
     let args = cli_args(launch);
     // Cursor Agent installs a PowerShell shim on Windows; run it through PowerShell rather than

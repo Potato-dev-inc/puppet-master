@@ -74,6 +74,10 @@ impl TuiProfile for CursorAgent {
         }
     }
 
+    fn is_installed(&self) -> bool {
+        launch::is_installed()
+    }
+
     fn headless_command(&self, launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
         launch::headless_command(launch)
     }

@@ -24,6 +24,10 @@ impl TuiProfile for Codex {
         }
     }
 
+    fn is_installed(&self) -> bool {
+        super::program_on_path("codex")
+    }
+
     fn headless_command(&self, launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
         headless::command(launch)
     }
