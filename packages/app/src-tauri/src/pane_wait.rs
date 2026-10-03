@@ -709,6 +709,46 @@ pub fn wait_for_dispatch_ready(
     Ok(result)
 }
 
+/// Native OpenCode prompts go through the HTTP API, so the attached TUI does not have
+/// to have painted (that takes seconds) before dispatch: serve healthy + attach live
+/// is enough.
+pub(crate) fn native_status_ready_for_dispatch(
+    status: &crate::opencode::status::OpenCodeWorkerStatus,
+) -> bool {
+    matches!(status.pane_status.as_str(), "running" | "idle")
+        && status.serve_healthy
+        && status.tui_attached
+        && !status.reattaching
+        && !status.key_swap_pending
+}
+
+/// Fast path for `wait_for_dispatch_ready` on opencode_native: one status read and no
+/// wait. Returns the ready result plus the status so callers do not fetch it again.
+pub fn native_fast_dispatch_ready(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+) -> Option<(
+    WaitForPanesResult,
+    crate::opencode::status::OpenCodeWorkerStatus,
+)> {
+    let status = crate::opencode::status::worker_status(registry, pane_id).ok()?;
+    if !native_status_ready_for_dispatch(&status) {
+        return None;
+    }
+    let result = wait_result(
+        "running",
+        pane_id,
+        status.pane_status.clone(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    Some((result, status))
+}
+
 fn pane_has_visible_output(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> bool {
     registry_read_buffer(registry, pane_id, 40)
         .map(|buf| !buf.trim().is_empty())
@@ -766,6 +806,51 @@ pub fn wait_for_task(
 mod tests {
     use super::*;
     use crate::opencode::quota::KeySwapEvent;
+
+    fn native_status(pane_status: &str) -> crate::opencode::status::OpenCodeWorkerStatus {
+        crate::opencode::status::OpenCodeWorkerStatus {
+            pane_id: "p".into(),
+            pane_status: pane_status.into(),
+            serve_healthy: true,
+            session_id: "s".into(),
+            pending_permission_count: 0,
+            pending_permission_ids: vec![],
+            pending_permissions: vec![],
+            active_key_profile: None,
+            key_swap_pending: false,
+            key_swap_kind: None,
+            from_profile: None,
+            to_profile: None,
+            session_model: None,
+            last_user_model: None,
+            footer_model_source: None,
+            tui_attached: true,
+            reattaching: false,
+            last_event: None,
+        }
+    }
+
+    #[test]
+    fn native_dispatch_skips_tui_paint_wait_only_when_healthy_and_attached() {
+        assert!(native_status_ready_for_dispatch(&native_status("running")));
+        assert!(native_status_ready_for_dispatch(&native_status("idle")));
+        assert!(!native_status_ready_for_dispatch(&native_status("error")));
+        assert!(!native_status_ready_for_dispatch(&native_status(
+            "waiting_input"
+        )));
+        let mut s = native_status("running");
+        s.serve_healthy = false;
+        assert!(!native_status_ready_for_dispatch(&s));
+        let mut s = native_status("running");
+        s.tui_attached = false;
+        assert!(!native_status_ready_for_dispatch(&s));
+        let mut s = native_status("running");
+        s.reattaching = true;
+        assert!(!native_status_ready_for_dispatch(&s));
+        let mut s = native_status("running");
+        s.key_swap_pending = true;
+        assert!(!native_status_ready_for_dispatch(&s));
+    }
 
     #[test]
     fn parses_wait_triggers() {

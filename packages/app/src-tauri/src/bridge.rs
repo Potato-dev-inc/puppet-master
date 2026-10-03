@@ -3843,14 +3843,34 @@ pub fn dispatch_existing_operation(
                 if pane_created {
                     operation.stage = Some("waiting_for_pane_readiness".into());
                     *operation = crate::operations::save_operation_snapshot(operation)?;
-                    let readiness = crate::pane_wait::wait_for_dispatch_ready(
-                        &registry_for_dispatch,
-                        &pane_id,
-                        120_000,
-                    )
-                    .map_err(|err| {
-                        crate::operations::OperationError::new("PANE_READINESS_FAILED", err, true)
-                    })?;
+                    // Native workers take prompts over HTTP: skip the TUI-paint wait when
+                    // serve is healthy and attach is live (status reused below).
+                    let fast_native = if agent_type == "opencode_native" {
+                        crate::pane_wait::native_fast_dispatch_ready(
+                            &registry_for_dispatch,
+                            &pane_id,
+                        )
+                    } else {
+                        None
+                    };
+                    let (readiness, fast_native_status) = match fast_native {
+                        Some((readiness, status)) => (readiness, Some(status)),
+                        None => (
+                            crate::pane_wait::wait_for_dispatch_ready(
+                                &registry_for_dispatch,
+                                &pane_id,
+                                120_000,
+                            )
+                            .map_err(|err| {
+                                crate::operations::OperationError::new(
+                                    "PANE_READINESS_FAILED",
+                                    err,
+                                    true,
+                                )
+                            })?,
+                            None,
+                        ),
+                    };
                     crate::startup_timing::mark(&pane_id, "dispatch_ready");
                     if readiness.reason == "timeout"
                         || readiness.status.as_deref() == Some("error")
@@ -3870,11 +3890,14 @@ pub fn dispatch_existing_operation(
                     let screen = registry_read_snapshot(&registry_for_dispatch, &pane_id)
                         .unwrap_or_default();
                     let native_permissions = if agent_type == "opencode_native" {
-                        let status = crate::opencode::status::worker_status(
-                            &registry_for_dispatch,
-                            &pane_id,
-                        )
-                        .map_err(native_status_unavailable)?;
+                        let status = match fast_native_status {
+                            Some(status) => status,
+                            None => crate::opencode::status::worker_status(
+                                &registry_for_dispatch,
+                                &pane_id,
+                            )
+                            .map_err(native_status_unavailable)?,
+                        };
                         if let Some(model) = status
                             .session_model
                             .or(status.last_user_model)
