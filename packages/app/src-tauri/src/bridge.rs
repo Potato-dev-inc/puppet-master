@@ -193,11 +193,17 @@ fn observe_operation_pane_status(pane_id: &str, status: &str) {
     } else {
         status
     };
-    let action = native_action.or_else(|| (status == "waiting_input").then(|| json!({
-        "kind": "manual_input_required",
-        "pane_id": pane_id,
-        "detail": "Inspect the pane and resolve the prompt manually. No permission was approved automatically."
-    })));
+    // A supported prompt on screen is recorded with its id and command straight away; the
+    // id-less manual fallback is only for blocked panes whose prompt is not recognised.
+    let action = native_action.or_else(|| {
+        (status == "waiting_input").then(|| {
+            crate::pane_prompt::required_action(registry, pane_id).unwrap_or_else(|| json!({
+                "kind": "manual_input_required",
+                "pane_id": pane_id,
+                "detail": "Inspect the pane and resolve the prompt manually. No permission was approved automatically."
+            }))
+        })
+    });
     if let Ok(snapshot) = crate::operations::mark_operation_observation(
         &project_text,
         &operation.operation_id,

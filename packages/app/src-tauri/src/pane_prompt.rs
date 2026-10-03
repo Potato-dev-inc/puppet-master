@@ -21,7 +21,9 @@ const PROMPT_ANCHORS: &[&str] = &[
     "always allow",
 ];
 /// Lines kept above the anchor: the command or file being approved is usually shown there.
-const CONTEXT_ABOVE: usize = 3;
+/// Wide enough for a wrapped multi-line command; the prompt id does not depend on these lines
+/// when the command itself was extracted.
+const CONTEXT_ABOVE: usize = 14;
 const FALLBACK_TAIL_LINES: usize = 25;
 
 fn prompt_region(screen: &str) -> String {
@@ -65,9 +67,87 @@ pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool
     }
     let mut prompt = crate::agent_adapters::adapter_for(agent_type)
         .detect_prompt(&prompt_region(screen), allow_broad)?;
-    let id = crate::agent_runs::stable_prompt_id(&prompt)?;
+    if prompt.get("command").and_then(Value::as_str).is_some() {
+        if prompt.get("cwd").is_none() {
+            let dir = prompt
+                .get("command")
+                .and_then(Value::as_str)
+                .and_then(crate::agent_runs::approval_policy::leading_cd_dir);
+            if let Some(dir) = dir {
+                prompt["cwd"] = Value::String(dir);
+            }
+        }
+        prompt["summary"] = Value::String(command_summary(&prompt));
+    }
+    let id = prompt_id_for(&prompt)?;
     prompt["prompt_id"] = Value::String(id);
     Some(prompt)
+}
+
+/// `Run command: <command> (in <cwd>)`, so a caller sees what it is approving without the pane.
+pub(crate) fn command_summary(prompt: &Value) -> String {
+    let command = prompt.get("command").and_then(Value::as_str).unwrap_or_default();
+    match prompt.get("cwd").and_then(Value::as_str) {
+        Some(cwd) if !command.contains(cwd) => format!("Run command: {command} (in {cwd})"),
+        _ => format!("Run command: {command}"),
+    }
+}
+
+/// The id names what is being approved. When the command was read off the screen it is the
+/// identity (so redraws, a still-arriving option list or scrolling do not change it); otherwise the
+/// whole prompt is hashed.
+fn prompt_id_for(prompt: &Value) -> Option<String> {
+    if prompt.get("command").and_then(Value::as_str).is_some() {
+        return crate::agent_runs::stable_prompt_id(&json!({
+            "agent_type": prompt.get("agent_type"),
+            "kind": prompt.get("kind"),
+            "command": prompt.get("command"),
+            "cwd": prompt.get("cwd"),
+        }));
+    }
+    crate::agent_runs::stable_prompt_id(prompt)
+}
+
+/// The prompt blocking `pane_id` as a run's `required_action` (with an id, kind, options and a
+/// summary naming the command), or `None` when the pane shows no supported prompt. The id is the
+/// same one `detect` and `answer_prompt` use.
+pub fn required_action(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+) -> Option<Value> {
+    let prompt = detect(registry, pane_id, false)?;
+    Some(required_action_from_prompt(prompt))
+}
+
+pub(crate) fn required_action_from_prompt(prompt: Value) -> Value {
+    let id = prompt.get("prompt_id").cloned().unwrap_or(Value::Null);
+    let options: Vec<Value> = prompt
+        .get("choices")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(|choice| json!({"id": choice, "label": choice}))
+        .collect();
+    let summary = prompt
+        .get("summary")
+        .or_else(|| prompt.get("text"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let mut action = json!({
+        "id": id,
+        "prompt_id": id,
+        "kind": prompt.get("kind"),
+        "summary": summary,
+        "options": options,
+        "raw_prompt": prompt,
+    });
+    for key in ["command", "cwd"] {
+        if let Some(value) = action["raw_prompt"].get(key).cloned() {
+            action[key] = value;
+        }
+    }
+    action
 }
 
 pub fn answer(
@@ -190,6 +270,59 @@ step two
         let a = detect_in_screen("cursor_agent", &short, false).unwrap();
         let b = detect_in_screen("cursor_agent", &long, false).unwrap();
         assert_eq!(a["prompt_id"], b["prompt_id"]);
+    }
+
+    const CD_SCREEN: &str = "\
+ $ cd \"C:\\x\" && python todo.py add \"buy milk\"\n\n Run this command?\n Run once (y)\n Skip (esc or n)\n\n → Add follow-up\n";
+
+    #[test]
+    fn prompt_names_the_command_cwd_and_summary() {
+        let prompt = detect_in_screen("cursor_agent", CD_SCREEN, false).unwrap();
+        assert_eq!(prompt["command"], "cd \"C:\\x\" && python todo.py add \"buy milk\"");
+        assert_eq!(prompt["cwd"], "C:\\x");
+        assert!(prompt["summary"].as_str().unwrap().starts_with("Run command: cd"));
+        assert_eq!(prompt["fully_drawn"], true);
+        let action = required_action_from_prompt(prompt.clone());
+        assert_eq!(action["prompt_id"], prompt["prompt_id"]);
+        assert_eq!(action["command"], prompt["command"]);
+        assert!(action["summary"].as_str().unwrap().contains("python todo.py add"));
+    }
+
+    #[test]
+    fn id_is_stable_while_the_option_list_is_still_drawing() {
+        let partial = " $ cargo test --lib\n\n Run this command?\n";
+        let full = " $ cargo test --lib\n\n Run this command?\n Run once (y)\n Skip (esc or n)\n";
+        let a = detect_in_screen("cursor_agent", partial, false).unwrap();
+        let b = detect_in_screen("cursor_agent", full, false).unwrap();
+        assert_eq!(a["prompt_id"], b["prompt_id"]);
+        assert_eq!(a["fully_drawn"], false);
+        assert_eq!(b["fully_drawn"], true);
+        assert!(a["prompt_id"].is_string());
+    }
+
+    #[test]
+    fn multi_line_command_survives_the_context_window() {
+        let screen = " $ python -c \"x\" &&\n   python a.py &&\n   python b.py &&\n   python c.py &&\n   python d.py\n\n Run this command?\n Run once (y)\n";
+        let prompt = detect_in_screen("cursor_agent", screen, false).unwrap();
+        assert!(prompt["command"].as_str().unwrap().starts_with("python -c"));
+        assert!(prompt["command"].as_str().unwrap().ends_with("python d.py"));
+    }
+
+    #[test]
+    fn auto_approval_end_to_end_on_a_real_screen() {
+        use crate::agent_runs::approval_policy::decide;
+        let allowed = vec!["python todo.py add *".to_string()];
+        let prompt = detect_in_screen("cursor_agent", CD_SCREEN, false).unwrap();
+        assert!(decide(&prompt, CD_SCREEN, &allowed, Some("C:\\x")).is_some());
+        let evil = CD_SCREEN.replace("add \"buy milk\"", "add x && rm -rf /");
+        let prompt = detect_in_screen("cursor_agent", &evil, false).unwrap();
+        assert!(decide(&prompt, &evil, &allowed, Some("C:\\x")).is_none());
+        let partial = " $ python todo.py add x\n\n Run this command?\n";
+        let prompt = detect_in_screen("cursor_agent", partial, false).unwrap();
+        assert!(
+            decide(&prompt, partial, &allowed, None).is_none(),
+            "never answer a dialog whose options are not drawn yet"
+        );
     }
 
     #[test]

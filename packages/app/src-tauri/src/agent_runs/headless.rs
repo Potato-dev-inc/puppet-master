@@ -575,6 +575,7 @@ pub(super) fn compact_prompt(action: serde_json::Value) -> serde_json::Value {
         .get("question")
         .or_else(|| action.get("detail"))
         .or_else(|| action.get("text"))
+        .or_else(|| action.get("summary"))
         .cloned()
         .unwrap_or_else(|| kind.clone());
     let options = action
@@ -634,6 +635,8 @@ pub(super) fn compact_prompt(action: serde_json::Value) -> serde_json::Value {
             "previous_session",
             "session_id",
             "pane_id",
+            "command",
+            "cwd",
         ] {
             if let Some(value) = action.get(key).cloned().filter(|value| !value.is_null()) {
                 object.insert(key.to_string(), value);
@@ -665,15 +668,25 @@ fn auto_approve_allowed_command(
     if raw_prompt.get("kind").and_then(serde_json::Value::as_str) != Some("command_approval") {
         return false;
     }
-    let Some(program) = super::approval_policy::approved_program(
+    let Some(program) = super::approval_policy::decide(
+        raw_prompt,
         screen,
         &current.worker.allowed_commands,
+        Some(&current.project_path),
     ) else {
         return false;
     };
     let Some(pane_id) = current.pane_id.as_deref() else {
         return false;
     };
+    // The screen can change between the read that produced `action` and the keypress: answer only
+    // if the very same prompt is still showing.
+    let still_showing = crate::pane_prompt::detect(registry, pane_id, false)
+        .and_then(|prompt| prompt.get("prompt_id").cloned())
+        == action.get("prompt_id").cloned();
+    if !still_showing {
+        return false;
+    }
     let adapter = crate::agent_adapters::adapter_for(&current.agent_type);
     let Ok(reply) = adapter.prompt_reply(raw_prompt, "allow_once", false) else {
         return false;
@@ -1673,5 +1686,24 @@ mod bind_tests {
         assert_eq!(run.pane_id.as_deref(), Some("pane-native"));
         assert!(!run.headless);
         let _ = std::fs::remove_dir_all(project);
+    }
+}
+
+#[cfg(test)]
+mod approval_view_tests {
+    use super::*;
+
+    #[test]
+    fn run_view_prompt_carries_id_summary_command_and_cwd() {
+        let screen = " $ cd \"C:\\x\" && python todo.py add \"buy milk\"\n\n Run this command?\n Run once (y)\n Skip (esc or n)\n";
+        let prompt = crate::pane_prompt::detect_in_screen("cursor_agent", screen, false).unwrap();
+        let action = crate::pane_prompt::required_action_from_prompt(prompt.clone());
+        let view = compact_prompt(action);
+        assert_eq!(view["id"], prompt["prompt_id"]);
+        assert!(view["id"].is_string());
+        assert_eq!(view["kind"], "command_approval");
+        assert_eq!(view["command"], prompt["command"]);
+        assert_eq!(view["cwd"], "C:\\x");
+        assert!(view["summary"].as_str().unwrap().contains("python todo.py add"));
     }
 }
