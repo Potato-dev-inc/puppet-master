@@ -615,7 +615,7 @@ fn transcript_truncation_does_not_drop_stored_result() {
         &project_path,
         &queued.operation_id,
         Some("kept final answer".into()),
-        ResultCapture::Inferred,
+        ResultCapture::Authoritative,
         false,
     )
     .unwrap();
@@ -1031,6 +1031,46 @@ fn running_turn(
         Ok(())
     })
     .unwrap()
+}
+
+#[test]
+fn inferred_pane_result_without_checks_is_marked_unverified() {
+    let project = std::env::temp_dir().join(format!("pm-inferred-{}", Uuid::new_v4()));
+    let project_path = project.to_string_lossy().into_owned();
+    let pane = running_turn(&project_path, "pane", "cursor_agent", Some("pane-1"), true);
+    let done = operations::mark_operation_finished(
+        &project_path,
+        &pane.operation_id,
+        Some("The fix is in main.rs.".into()),
+        ResultCapture::Inferred,
+        false,
+    )
+    .unwrap();
+    assert_eq!(done.status, OperationStatus::Completed);
+    assert!(!done.verified);
+    assert_eq!(done.acceptance_status, crate::operations::AcceptanceStatus::NotChecked);
+    assert_eq!(
+        done.result.as_deref(),
+        Some("[unverified: read from terminal screen] The fix is in main.rs.")
+    );
+    let view = super::runtime::inspect_agent(&project_path, "pane", Some("persist-session")).unwrap();
+    assert_eq!(view["verified"], false);
+    assert!(view["warnings"]
+        .to_string()
+        .contains("PROVENANCE_INFERRED"));
+
+    // An authoritative result is stored untouched.
+    let head = running_turn(&project_path, "head", "cursor_agent", None, false);
+    let done = operations::mark_operation_finished(
+        &project_path,
+        &head.operation_id,
+        Some("PONG".into()),
+        ResultCapture::Authoritative,
+        false,
+    )
+    .unwrap();
+    assert_eq!(done.result.as_deref(), Some("PONG"));
+    let _ = fs::remove_dir_all(project);
 }
 
 #[test]

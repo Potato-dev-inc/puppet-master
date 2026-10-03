@@ -1262,6 +1262,9 @@ pub fn mark_operation_completed(
 }
 
 /// Finish a turn. Missing capture is allowed so an idle worker is not left "running" until timeout.
+/// Prefix on a stored result that was read from the terminal screen without any `checks`.
+pub const UNVERIFIED_SCREEN_PREFIX: &str = "[unverified: read from terminal screen] ";
+
 pub fn mark_operation_finished(
     project: &str,
     id: &str,
@@ -1329,6 +1332,17 @@ pub fn mark_operation_finished(
     op.progress_pct = None;
     op.required_action = None;
     evaluate_acceptance_criteria(&mut op);
+    if capture == ResultCapture::Inferred && op.checks.is_empty() {
+        // Text scraped off a terminal screen with nothing configured to verify it: still
+        // `completed`, but the stored result says so and no acceptance claim is made.
+        op.verified = false;
+        op.acceptance_status = AcceptanceStatus::NotChecked;
+        if let Some(result) = op.result.as_mut() {
+            if !result.starts_with(UNVERIFIED_SCREEN_PREFIX) {
+                result.insert_str(0, UNVERIFIED_SCREEN_PREFIX);
+            }
+        }
+    }
     if !op.checks.is_empty() {
         let results = crate::agent_runs::checks::evaluate_with_commands(
             std::path::Path::new(&op.project_path),
