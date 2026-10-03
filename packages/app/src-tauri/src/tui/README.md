@@ -1,0 +1,75 @@
+# TUI profiles
+
+One folder (or file) per agent CLI/TUI. Anything that is true of **one** TUI and not the others
+lives here, so a break in one TUI is fixed in one place and cannot disturb the rest.
+
+```
+tui/
+  mod.rs          TuiProfile trait, Features, registry (PROFILES), shared policy
+  generic.rs      default prompt handling + the profile for unregistered agent types
+  conformance.rs  rules every registered profile must pass (runs for new profiles automatically)
+  claude.rs       Claude Code
+  codex.rs        Codex
+  opencode.rs     OpenCode TUI + opencode_native (TUI-facing part only; HTTP client is crate::opencode)
+  shell.rs        cmd / powershell / bash
+  cursor/         Cursor Agent CLI + Cursor IDE launcher
+    launch.rs       headless command line, default model lookup
+    headless.rs     reading headless output (result, rejected calls, trust screen)
+    screen.rs       interactive TUI: status, approval/trust prompts, footer model
+    chrome.rs       which screen lines are furniture, not reply text
+    fixtures/       real captures replayed by the tests
+```
+
+## The rule
+
+Generic code (`pty`, `agent_runs`, `pane_wait`, `bridge`, …) **never matches on an agent-type
+string**. It calls `tui::profile_for(agent_type)` and uses a `TuiProfile` method or a `Features`
+flag. If you find yourself writing `if agent_type == "cursor_agent"` outside this folder, add a
+method (with a generic default) to `TuiProfile` instead.
+
+## Adding a TUI (e.g. a new CLI called `foo`)
+
+1. **Enum**: add `AgentType::Foo` in `pty/agents.rs` (`as_str`, `parse`, the three
+   `resolve_*` launch commands) and mirror it in `packages/shared/src/agents.ts`. Add its
+   `AgentContextProfile` in `agent_contexts.rs`.
+2. **Profile**: create `tui/foo.rs` (or `tui/foo/` once it has more than ~200 lines) with a unit
+   struct implementing `TuiProfile`. Override only what differs. Start from:
+
+   ```rust
+   pub struct Foo;
+
+   impl TuiProfile for Foo {
+       fn id(&self) -> &'static str { "foo" }
+       // features(): Features { read_only_headless: true, ..Features::CLI }
+       // headless_command / extract_result / extract_provider_session  → headless runs
+       // classify_screen / detect_prompt / prompt_reply                → visible pane
+       // is_chrome_line / is_tool_activity_line / detect_footer_model  → screen result capture
+       // capability_notes                                              → caveats in the contract
+   }
+   ```
+3. **Register**: `pub mod foo;` and add `&foo::Foo` to `PROFILES` in `mod.rs`. Keep the order
+   stable: `read_only_backends()` reports it in registration order.
+4. **Fixtures + tests**: put real captures in `tui/foo/fixtures/` and replay them in that
+   profile's tests. Prefer a real capture over a hand-written screen.
+5. `cargo test --lib tui::` — `conformance.rs` checks the new profile against the shared rules
+   (unique id, `AgentType` round-trip, shared launch policy, parsers reject garbage, every
+   detected prompt can be answered, an empty screen is never "blocked").
+
+## Where a fix for an existing TUI goes
+
+| Symptom | File |
+|---|---|
+| Pane shows idle/blocked/running wrongly | `<tui>/screen.rs` (`classify_screen`) |
+| Approval or trust prompt not detected / wrong key sent | `<tui>/screen.rs` (`detect_prompt`, `prompt_reply`) |
+| Headless result empty / session not resumed | `<tui>/headless.rs` or the `extract_*` methods |
+| Wrong flags on a headless launch | `<tui>/launch.rs` (`headless_command`) |
+| Reply text polluted with banner / tool rows | `<tui>/chrome.rs` |
+| Model name wrong | `detect_footer_model` / `default_model` |
+
+## Known leftovers (still keyed by `AgentType`, not yet profile methods)
+
+- `pty/agents.rs` per-OS launch commands and `pty/registry.rs` Windows PowerShell hosting for
+  `cursor-agent.ps1` (spawn infrastructure, mirrors the TypeScript enum).
+- `agent_contexts.rs` display labels/strengths per agent.
+- `opencode_native` branches in `bridge.rs`, `agent_runs/*` and `pty/registry.rs`: that is a
+  protocol backend, not a screen-scraped TUI, and lives with the OpenCode client.

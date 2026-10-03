@@ -238,27 +238,14 @@ fn run_warnings(snapshot: &OperationSnapshot) -> Vec<RunWarning> {
             detail: detail.into(),
         })
     };
-    if snapshot
-        .result
-        .as_deref()
-        .is_some_and(|result| result.contains("Cursor reported a rejected tool or shell call"))
-    {
-        push(
-            "SHELL_COMMAND_REJECTED",
-            "heuristic",
-            "Cursor reported a rejected tool or shell call; its commands may not have run. Verify with `checks` (command_exits).",
-        );
-    }
-    if snapshot.agent_type == "cursor_agent"
-        && snapshot.pane_id.is_some()
-        && snapshot.status == OperationStatus::Completed
-        && matches!(snapshot.result_capture, Some(ResultCapture::Inferred))
-    {
-        push(
-            "PROVENANCE_INFERRED",
-            "capture",
-            "Result was read from the terminal screen, not a structured stream. Prefer headless, or confirm with `checks`.",
-        );
+    let facts = crate::tui::RunFacts {
+        result: snapshot.result.as_deref(),
+        has_pane: snapshot.pane_id.is_some(),
+        completed: snapshot.status == OperationStatus::Completed,
+        result_inferred: matches!(snapshot.result_capture, Some(ResultCapture::Inferred)),
+    };
+    for warning in crate::tui::profile_for(&snapshot.agent_type).run_warnings(&facts) {
+        push(warning.code, warning.source, warning.detail);
     }
     // Only worth a warning when the caller asked for a specific model and it was not confirmed;
     // a backend that never reports one (headless Cursor) is stated in capabilities, not per run.

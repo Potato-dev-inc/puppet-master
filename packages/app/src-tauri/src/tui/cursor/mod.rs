@@ -1,0 +1,191 @@
+//! Cursor: the headless/interactive Cursor Agent CLI (`cursor_agent`) and the Cursor IDE
+//! launcher (`cursor`). Everything Cursor-specific lives in this folder:
+//!
+//! - `launch`   — command lines for headless runs and the CLI's configured default model
+//! - `headless` — reading a headless run's output (result, rejected calls, trust screen)
+//! - `screen`   — the interactive TUI: status classification, approval/trust prompts, footer model
+//! - `chrome`   — which screen lines are TUI furniture rather than reply text
+//! - `fixtures` — real captures the tests replay
+
+mod chrome;
+mod headless;
+mod launch;
+mod screen;
+
+#[cfg(test)]
+pub use launch::parse_default_model;
+
+use super::{
+    Features, HeadlessLaunch, Kind, LaunchSpec, Reply, RunFacts, RunOptionSupport, TuiProfile,
+    Warning,
+};
+use crate::pty::status::PaneStatus;
+use serde_json::Value;
+
+const NOTE_BOUNDARIES: &str =
+    "cursor TUI response boundaries are version-specific screen heuristics, not protocol events";
+const NOTE_QUESTIONS: &str =
+    "cursor questions (trust / allow-once) are version-specific screen matches, not a stable question API";
+const NOTE_INTERRUPT: &str =
+    "cursor interrupt is Ctrl+C on a visible TUI or child stop when headless; not a graceful provider abort";
+const NOTE_EXTRACT: &str =
+    "cursor output extraction is headless JSON (--print) or TUI screen delta; exact parity across versions is not guaranteed";
+const NOTE_HEADLESS_SHELL: &str =
+    "headless cursor_agent runs without --force/--trust, so its shell commands are rejected by Cursor and it cannot run tests; completed only means the process exited. Use a visible pane or opencode_native when the task must execute commands";
+const NOTE_HEADLESS_MODEL: &str =
+    "headless cursor_agent does not report which model ran, so resolved_model is the CLI configured default (from `cursor-agent about`), not a per-run confirmation";
+
+fn capability_notes(has_pane: bool) -> Vec<String> {
+    let mut notes: Vec<String> = [
+        NOTE_BOUNDARIES,
+        NOTE_QUESTIONS,
+        NOTE_INTERRUPT,
+        NOTE_EXTRACT,
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    if !has_pane {
+        notes.push(NOTE_HEADLESS_SHELL.into());
+        notes.push(NOTE_HEADLESS_MODEL.into());
+    }
+    notes
+}
+
+pub struct CursorAgent;
+
+impl TuiProfile for CursorAgent {
+    fn id(&self) -> &'static str {
+        "cursor_agent"
+    }
+
+    fn features(&self) -> Features {
+        Features {
+            read_only_headless: true,
+            ..Features::CLI
+        }
+    }
+
+    fn run_options(&self) -> RunOptionSupport {
+        RunOptionSupport {
+            trust_workspace: true,
+            allow_shell: true,
+            allowed_commands: true,
+        }
+    }
+
+    fn headless_command(&self, launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
+        launch::headless_command(launch)
+    }
+
+    fn extract_result(&self, output: &str, exit_code: i32) -> Option<String> {
+        headless::extract_result(output, exit_code)
+    }
+
+    fn rejected_call_warning(&self, output: &str) -> Option<&'static str> {
+        headless::rejected_call_warning(output)
+    }
+
+    fn detect_headless_trust(&self, output: &str) -> Option<Value> {
+        headless::detect_trust(self.id(), output)
+    }
+
+    fn probes_default_model(&self) -> bool {
+        true
+    }
+
+    fn default_model(&self) -> Option<String> {
+        launch::default_model()
+    }
+
+    fn run_warnings(&self, facts: &RunFacts) -> Vec<Warning> {
+        let mut warnings = Vec::new();
+        if facts
+            .result
+            .is_some_and(|result| result.contains(headless::REJECTED_CALL_MARKER))
+        {
+            warnings.push(Warning {
+                code: "SHELL_COMMAND_REJECTED",
+                source: "heuristic",
+                detail: "Cursor reported a rejected tool or shell call; its commands may not have run. Verify with `checks` (command_exits).",
+            });
+        }
+        if facts.has_pane && facts.completed && facts.result_inferred {
+            warnings.push(Warning {
+                code: "PROVENANCE_INFERRED",
+                source: "capture",
+                detail: "Result was read from the terminal screen, not a structured stream. Prefer headless, or confirm with `checks`.",
+            });
+        }
+        warnings
+    }
+
+    fn classify_screen(&self, visible_tail: &str) -> Option<PaneStatus> {
+        Some(screen::classify(visible_tail))
+    }
+
+    fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<Value> {
+        screen::detect_prompt(self.id(), screen, allow_broad)
+    }
+
+    fn prompt_reply(
+        &self,
+        prompt: &Value,
+        choice: &str,
+        allow_broad: bool,
+    ) -> Result<Reply, String> {
+        screen::prompt_reply(prompt, choice, allow_broad)
+    }
+
+    /// Ctrl+U empties Cursor's input box (verified live). Never Ctrl+C: on Cursor that only
+    /// arms "press again to exit".
+    fn clear_input_sequence(&self) -> Option<&'static str> {
+        Some("\u{15}")
+    }
+
+    fn is_chrome_line(&self, lower: &str) -> bool {
+        chrome::is_chrome_line(lower)
+    }
+
+    fn is_tool_activity_line(&self, lower: &str) -> bool {
+        chrome::is_tool_line(lower)
+    }
+
+    fn detect_footer_model(&self, buffer: &str) -> Option<String> {
+        screen::footer_model(buffer)
+    }
+
+    fn capability_notes(&self, has_pane: bool) -> Vec<String> {
+        capability_notes(has_pane)
+    }
+}
+
+/// The Cursor IDE launcher. It opens the editor, so it is not a delegated-work backend, but its
+/// panes share the CLI's screen heuristics.
+pub struct CursorIde;
+
+impl TuiProfile for CursorIde {
+    fn id(&self) -> &'static str {
+        "cursor"
+    }
+
+    fn features(&self) -> Features {
+        Features {
+            kind: Kind::Cli,
+            dispatchable: false,
+            ..Features::CLI
+        }
+    }
+
+    fn not_dispatchable_reason(&self) -> &'static str {
+        "cursor opens the IDE and cannot run delegated work; use cursor_agent for agent runs"
+    }
+
+    fn classify_screen(&self, visible_tail: &str) -> Option<PaneStatus> {
+        Some(screen::classify(visible_tail))
+    }
+
+    fn capability_notes(&self, has_pane: bool) -> Vec<String> {
+        capability_notes(has_pane)
+    }
+}

@@ -2219,20 +2219,19 @@ fn cursor_tool_activity_lines_are_not_part_of_the_result() {
 
 #[test]
 fn allow_shell_adds_force_only_when_asked_and_never_with_read_only() {
-    let plain = crate::agent_adapters::launch::launch_spec_opts(
-        "cursor_agent", ".", "t", false, None, false, false,
-    )
-    .unwrap();
-    assert!(!plain.args.iter().any(|arg| arg == "--force"));
-    let forced = crate::agent_adapters::launch::launch_spec_opts(
-        "cursor_agent", ".", "t", false, None, false, true,
-    )
-    .unwrap();
-    assert!(forced.args.iter().any(|arg| arg == "--force"));
-    assert!(crate::agent_adapters::launch::launch_spec_opts(
-        "cursor_agent", ".", "t", true, None, false, true,
-    )
-    .is_err());
+    let launch = |read_only, allow_shell| {
+        crate::tui::headless_launch(
+            "cursor_agent",
+            &crate::tui::HeadlessLaunch {
+                read_only,
+                allow_shell,
+                ..crate::tui::HeadlessLaunch::new(".", "t")
+            },
+        )
+    };
+    assert!(!launch(false, false).unwrap().args.iter().any(|arg| arg == "--force"));
+    assert!(launch(false, true).unwrap().args.iter().any(|arg| arg == "--force"));
+    assert!(launch(true, true).is_err());
 }
 
 #[test]
@@ -2268,17 +2267,17 @@ fn cursor_shell_turn_capture_keeps_only_the_reply() {
 fn cursor_default_model_is_parsed_from_about_output() {
     let about = "About Cursor CLI\n\nCLI Version         2026.10.01-e373342\nDefault Model:      \u{1b}[1mComposer 2.5\u{1b}[0m\nSubscription Tier   Pro+\n";
     assert_eq!(
-        crate::agent_adapters::launch::parse_cursor_default_model(about).as_deref(),
+        crate::tui::cursor::parse_default_model(about).as_deref(),
         Some("Composer 2.5")
     );
-    assert!(crate::agent_adapters::launch::parse_cursor_default_model("Version: 1").is_none());
+    assert!(crate::tui::cursor::parse_default_model("Version: 1").is_none());
 }
 
 #[test]
 fn cursor_model_is_parsed_from_real_about_columns() {
     let about = "About Cursor CLI\n\nCLI Version         2026.10.01-e373342\nLatest              2026.10.01-e373342 (up to date)\nModel               Composer 2.5\nSubscription Tier   Pro+\n";
     assert_eq!(
-        crate::agent_adapters::launch::parse_cursor_default_model(about).as_deref(),
+        crate::tui::cursor::parse_default_model(about).as_deref(),
         Some("Composer 2.5")
     );
 }

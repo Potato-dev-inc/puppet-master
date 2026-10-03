@@ -106,15 +106,15 @@ pub fn run_agent(
             false,
         ));
     }
-    let agent_type = if request.agent_type == "cursor" {
+    let profile = crate::tui::profile_for(&request.agent_type);
+    if !profile.features().dispatchable {
         return Err(OperationError::new(
             "AGENT_NOT_DISPATCHABLE",
-            "cursor opens the IDE; use cursor_agent for headless agent runs",
+            profile.not_dispatchable_reason(),
             false,
         ));
-    } else {
-        request.agent_type.clone()
-    };
+    }
+    let agent_type = request.agent_type.clone();
     if request.turn_index == 0 {
         let key = persist::worker_key(
             request.agent_run_id.as_deref(),
@@ -219,31 +219,53 @@ pub fn run_agent(
         &rendered,
         &choice,
     );
+    let supported = profile.run_options();
     if request.trust_workspace {
-        if agent_type != "cursor_agent" || !request.headless {
+        if !supported.trust_workspace {
             return Err(OperationError::new(
                 "INVALID_ARGUMENT",
-                "trust_workspace applies only to headless cursor_agent runs; in a visible pane answer the trust prompt with answer_prompt(choice=trust)",
+                format!("trust_workspace is not supported by {agent_type}"),
+                false,
+            ));
+        }
+        if !request.headless {
+            return Err(OperationError::new(
+                "INVALID_ARGUMENT",
+                "trust_workspace applies only to headless runs; in a visible pane answer the trust prompt with answer_prompt(choice=trust)",
                 false,
             ));
         }
         worker.trust_workspace = true;
     }
     if request.allow_shell {
-        if agent_type != "cursor_agent" || !request.headless || request.read_only {
+        if !supported.allow_shell {
             return Err(OperationError::new(
                 "INVALID_ARGUMENT",
-                "allow_shell applies only to headless, non-read-only cursor_agent runs; in a visible pane use allowed_commands or answer_prompt",
+                format!("allow_shell is not supported by {agent_type}"),
+                false,
+            ));
+        }
+        if !request.headless || request.read_only {
+            return Err(OperationError::new(
+                "INVALID_ARGUMENT",
+                "allow_shell applies only to headless, non-read-only runs; in a visible pane use allowed_commands or answer_prompt",
                 false,
             ));
         }
         worker.allow_shell = true;
     }
     if let Some(allowed) = request.allowed_commands.as_ref().filter(|items| !items.is_empty()) {
-        if agent_type != "cursor_agent" || request.headless {
+        if !supported.allowed_commands {
             return Err(OperationError::new(
                 "INVALID_ARGUMENT",
-                "allowed_commands applies only to cursor_agent runs in a visible pane",
+                format!("allowed_commands is not supported by {agent_type}"),
+                false,
+            ));
+        }
+        if request.headless {
+            return Err(OperationError::new(
+                "INVALID_ARGUMENT",
+                "allowed_commands applies only to runs in a visible pane",
                 false,
             ));
         }
@@ -630,7 +652,11 @@ fn auto_approve_allowed_command(
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     app: &tauri::AppHandle,
 ) -> bool {
-    if current.agent_type != "cursor_agent" || current.worker.allowed_commands.is_empty() {
+    if !crate::tui::profile_for(&current.agent_type)
+        .run_options()
+        .allowed_commands
+        || current.worker.allowed_commands.is_empty()
+    {
         return false;
     }
     let Some(raw_prompt) = action.get("raw_prompt") else {
@@ -863,12 +889,13 @@ pub fn supervise_existing(
                             }
                             super::completion::TuiTurnDecision::NotSubmitted => {
                                 // The unsent prompt is still typed in the input box; the next
-                                // attempt would append to it. Ctrl+U empties it. Never Ctrl+C: on
-                                // Cursor that only arms "press again to exit".
-                                if current.agent_type == "cursor_agent" {
+                                // attempt would append to it, so empty the box first.
+                                if let Some(clear) = crate::tui::profile_for(&current.agent_type)
+                                    .clear_input_sequence()
+                                {
                                     if let Some(pane_id) = current.pane_id.as_deref() {
                                         let _ = crate::pty::registry_write_input(
-                                            &registry, &app, pane_id, "\u{15}", false, false, None,
+                                            &registry, &app, pane_id, clear, false, false, None,
                                         );
                                     }
                                 }
@@ -989,16 +1016,17 @@ pub(super) fn execute_headless(
     let allow_shell = snapshot
         .as_ref()
         .is_some_and(|current| current.worker.allow_shell);
-    if agent_type == "cursor_agent"
+    if crate::tui::profile_for(&agent_type).probes_default_model()
         && snapshot
             .as_ref()
             .is_some_and(|current| current.worker.resolved_model.is_none())
     {
-        // Headless Cursor never says which model ran; record the CLI's configured default so
-        // resolved_model is a real answer instead of null. Off-thread: it shells out once.
+        // Some headless CLIs never say which model ran; record the CLI's configured default so
+        // resolved_model is a real answer instead of null. Off-thread: it may shell out.
         let (project, operation_id) = (project.clone(), operation_id.clone());
-        let _ = thread::Builder::new().name("puppet-cursor-model".into()).spawn(move || {
-            if let Some(model) = crate::agent_adapters::launch::cursor_default_model() {
+        let probe_type = agent_type.clone();
+        let _ = thread::Builder::new().name("puppet-default-model".into()).spawn(move || {
+            if let Some(model) = crate::tui::profile_for(&probe_type).default_model() {
                 let _ = operations::record_terminal_pane_state(
                     &project,
                     &operation_id,
@@ -1009,14 +1037,16 @@ pub(super) fn execute_headless(
         });
     }
     let spec =
-        match crate::agent_adapters::launch::launch_spec_opts(
+        match crate::tui::headless_launch(
             &agent_type,
-            &project,
-            &task,
-            read_only,
-            resume_session.as_deref(),
-            trust_workspace,
-            allow_shell,
+            &crate::tui::HeadlessLaunch {
+                project: &project,
+                task: &task,
+                read_only,
+                resume_session: resume_session.as_deref(),
+                trust_workspace,
+                allow_shell,
+            },
         ) {
             Ok(spec) if !read_only || spec.read_only_enforced => spec,
             Ok(_) => {
@@ -1189,19 +1219,16 @@ pub(super) fn execute_headless(
         let stderr = collect("stderr");
         let code = status.code().unwrap_or(-1);
         if let Some(session) =
-            crate::agent_adapters::launch::extract_provider_session(&agent_type, &transcript)
+            crate::tui::profile_for(&agent_type).extract_provider_session(&transcript)
         {
             let _ = operations::set_provider_session(&project, &operation_id, &session);
         }
         if let Some(result) =
-            crate::agent_adapters::launch::extract_result(&agent_type, &transcript, code)
+            crate::tui::profile_for(&agent_type).extract_result(&transcript, code)
         {
             // A rejected shell call means the task may not have done what it says: keep the run
             // `completed`, but do not call its result verified (an explicit check can still verify).
-            let rejected = crate::agent_adapters::launch::rejected_call_warning(
-                &agent_type,
-                &transcript,
-            );
+            let rejected = crate::tui::profile_for(&agent_type).rejected_call_warning(&transcript);
             let result = match rejected {
                 Some(warning) => format!("{result}
 
@@ -1228,8 +1255,7 @@ pub(super) fn execute_headless(
                 &result,
                 rejected.is_none(),
             );
-        } else if let Some(mut prompt) = crate::agent_adapters::launch::detect_headless_trust(
-            &agent_type,
+        } else if let Some(mut prompt) = crate::tui::profile_for(&agent_type).detect_headless_trust(
             &format!(
                 "{stderr}
 {transcript}"

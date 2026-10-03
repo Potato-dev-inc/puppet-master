@@ -3,7 +3,6 @@
 use crate::opencode::quota::{self, KeySwapEvent, KEY_ROTATED, KEY_SWAP_REQUIRED};
 use crate::opencode::status;
 use crate::pane_wait_notify;
-use crate::pty::status::looks_like_opencode_tui_menu;
 use crate::pty::{registry_read_buffer, PaneRegistry};
 use parking_lot::Mutex;
 use regex::Regex;
@@ -154,18 +153,19 @@ pub fn wait_for_panes(
 fn tui_hint_for(agent_type: &str, reason: &str, status: Option<&str>) -> Option<Value> {
     let blocked =
         matches!(reason, "waiting_input" | "tui_prompt") || status == Some("waiting_input");
-    match agent_type {
-        "powershell" | "cmd" | "bash" => (reason == "idle" || status == Some("idle")).then(|| json!({
+    let kind = crate::tui::profile_for(agent_type).features().kind;
+    match kind {
+        crate::tui::Kind::Shell => (reason == "idle" || status == Some("idle")).then(|| json!({
             "action": "shell_exec",
             "tools": ["shell_exec", "read_terminal_buffer"],
             "detail": "Shell is at its prompt. Run a command with shell_exec (shell mode) or write_terminal_input, then read the output with read_terminal_buffer (scrollback view)."
         })),
-        "cursor_agent" | "claude" | "codex" | "cursor" | "opencode" if blocked => Some(json!({
+        crate::tui::Kind::Cli if blocked => Some(json!({
             "action": "answer_prompt",
             "tools": ["answer_prompt", "read_terminal_buffer", "press_key"],
             "detail": "A prompt is blocking this pane. If `prompt` is present, call answer_prompt(pane_id, prompt.prompt_id, choice: allow_once|deny); this connection must control the pane (take_over with grant=true for panes it did not start). Otherwise read the screen once and use press_key (Cursor: y = run once, n or esc = skip). Workspace trust must be accepted by the user. Nothing is answered automatically."
         })),
-        "claude" | "codex" | "cursor_agent" | "cursor" | "opencode" if reason == "idle" => Some(json!({
+        crate::tui::Kind::Cli if reason == "idle" => Some(json!({
             "action": "read_terminal_buffer",
             "tools": ["read_terminal_buffer"],
             "detail": "Agent settled idle; read the terminal buffer once for its output."
@@ -527,7 +527,7 @@ fn worker_settled_reason(
             return Some("tui_prompt");
         }
         if let Ok(buffer) = registry_read_buffer(registry, pane_id, 80) {
-            if looks_like_opencode_tui_menu(&buffer) && !buffer.contains("You selected") {
+            if crate::tui::looks_like_menu(&buffer) && !buffer.contains("You selected") {
                 return Some("tui_prompt");
             }
         }

@@ -101,10 +101,7 @@ pub fn create_operation(
             false,
         ));
     }
-    if !matches!(
-        req.agent_type.as_str(),
-        "claude" | "codex" | "cursor" | "cursor_agent" | "opencode" | "opencode_native"
-    ) {
+    if !crate::tui::is_agent_backend(&req.agent_type) {
         return Err(OperationError::new(
             "INVALID_AGENT_TYPE",
             "agent_type is not supported",

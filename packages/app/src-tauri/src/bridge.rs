@@ -3653,10 +3653,11 @@ pub fn dispatch_existing_operation(
                         false,
                     ));
                 }
-                if agent_type == "cursor" {
+                let profile = crate::tui::profile_for(&agent_type);
+                if !profile.features().dispatchable {
                     return Err(crate::operations::OperationError::new(
                         "AGENT_NOT_DISPATCHABLE",
-                        "cursor opens the IDE and cannot run delegated work; use claude, codex, opencode, or opencode_native",
+                        profile.not_dispatchable_reason(),
                         false,
                     ));
                 }
@@ -4006,14 +4007,16 @@ pub fn dispatch_existing_operation(
                                 false,
                             ));
                         }
-                        if agent_type == "cursor_agent" {
-                            // Ctrl+U empties Cursor's input box (verified live); on an empty box
-                            // it is a no-op. Without it a leftover prompt prefixes the new one.
+                        if let Some(clear) =
+                            crate::tui::profile_for(&agent_type).clear_input_sequence()
+                        {
+                            // Empty the TUI's input box first (a no-op when it is already
+                            // empty); otherwise a leftover prompt prefixes the new one.
                             let _ = registry_write_input(
                                 &registry_for_dispatch,
                                 &app_for_dispatch,
                                 &pane_id,
-                                "\u{15}",
+                                clear,
                                 false,
                                 false,
                                 None,

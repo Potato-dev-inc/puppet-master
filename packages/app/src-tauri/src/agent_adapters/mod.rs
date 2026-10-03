@@ -1,36 +1,23 @@
 pub mod bash;
 pub mod claude;
 pub mod codex;
-pub mod launch;
 pub mod opencode;
 
 use crate::events::{PaneId, SystemEvent};
 
-#[allow(dead_code)]
 pub trait AgentAdapter {
     fn agent_type(&self) -> &'static str;
     fn observe(&mut self, pane_id: &str, text: &str) -> Vec<SystemEvent>;
-    fn launch_spec(
-        &self,
-        project: &str,
-        task: &str,
-        read_only: bool,
-    ) -> Result<launch::LaunchSpec, String> {
-        launch::launch_spec(self.agent_type(), project, task, read_only)
-    }
-    fn extract_result(&self, output: &str, exit_code: i32) -> Option<String> {
-        launch::extract_result(self.agent_type(), output, exit_code)
-    }
     fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<serde_json::Value> {
-        launch::detect_prompt(self.agent_type(), screen, allow_broad)
+        crate::tui::profile_for(self.agent_type()).detect_prompt(screen, allow_broad)
     }
     fn prompt_reply(
         &self,
         prompt: &serde_json::Value,
         choice: &str,
         allow_broad: bool,
-    ) -> Result<launch::Reply, String> {
-        launch::prompt_reply(self.agent_type(), prompt, choice, allow_broad)
+    ) -> Result<crate::tui::Reply, String> {
+        crate::tui::profile_for(self.agent_type()).prompt_reply(prompt, choice, allow_broad)
     }
 }
 

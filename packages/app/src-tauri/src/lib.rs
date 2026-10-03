@@ -36,6 +36,7 @@ mod settings_store;
 mod shell_env;
 pub mod shell_exec;
 pub mod tool_registry;
+mod tui;
 mod worker_launch;
 pub mod watch_command;
 

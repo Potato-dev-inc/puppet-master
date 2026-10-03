@@ -3,7 +3,6 @@
 //! approvals still need an explicit opt-in.
 
 use crate::operations::OperationError;
-use crate::pty::status::is_shell_agent;
 use crate::pty::PaneRegistry;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
@@ -58,7 +57,10 @@ pub fn detect(
 }
 
 pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool) -> Option<Value> {
-    if agent_type == "opencode_native" || is_shell_agent(agent_type) {
+    if matches!(
+        crate::tui::profile_for(agent_type).features().kind,
+        crate::tui::Kind::NativeProtocol | crate::tui::Kind::Shell
+    ) {
         return None;
     }
     let mut prompt = crate::agent_adapters::adapter_for(agent_type)

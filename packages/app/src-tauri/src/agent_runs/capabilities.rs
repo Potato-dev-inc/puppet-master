@@ -2,6 +2,7 @@
 //! except `visible_terminal` (true only when a pane exists).
 
 use crate::operations::OperationSnapshot;
+use crate::tui::Kind;
 use serde::{Deserialize, Serialize};
 
 pub const NOTE_INTERRUPT_ACK: &str =
@@ -14,17 +15,6 @@ pub const NOTE_HEADLESS_INTERRUPT: &str =
     "headless interrupt stops the child; a follow-up starts a new child; pane kill is close_agent only";
 pub const NOTE_LIVE_NATIVE_ONLY: &str =
     "live_messages is opencode_native only; other backends queue or report unsupported and never inject text into a busy TUI";
-pub const NOTE_CURSOR_BOUNDARIES: &str =
-    "cursor TUI response boundaries are version-specific screen heuristics, not protocol events";
-pub const NOTE_CURSOR_QUESTIONS: &str =
-    "cursor questions (trust / allow-once) are version-specific screen matches, not a stable question API";
-pub const NOTE_CURSOR_INTERRUPT: &str =
-    "cursor interrupt is Ctrl+C on a visible TUI or child stop when headless; not a graceful provider abort";
-pub const NOTE_CURSOR_EXTRACT: &str =
-    "cursor output extraction is headless JSON (--print) or TUI screen delta; exact parity across versions is not guaranteed";
-pub const NOTE_CURSOR_HEADLESS_SHELL: &str =
-    "headless cursor_agent runs without --force/--trust, so its shell commands are rejected by Cursor and it cannot run tests; completed only means the process exited. Use a visible pane or opencode_native when the task must execute commands";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackendInterface {
@@ -54,7 +44,7 @@ impl BackendCapabilities {
 }
 
 pub fn read_only_supported(agent_type: &str, has_pane: bool) -> bool {
-    !has_pane && READ_ONLY_BACKENDS.contains(&agent_type)
+    !has_pane && crate::tui::profile_for(agent_type).features().read_only_headless
 }
 
 #[cfg(test)]
@@ -63,7 +53,7 @@ mod read_only_tests {
 
     #[test]
     fn flag_matches_supported_backends_and_native_is_unsupported() {
-        for backend in READ_ONLY_BACKENDS {
+        for backend in crate::tui::read_only_backends() {
             assert!(read_only_supported(backend, false));
             assert!(!read_only_supported(backend, true));
         }
@@ -79,15 +69,12 @@ mod read_only_tests {
     }
 }
 
-/// Backends whose headless launch enforces read-only (see `launch_spec`).
-pub const READ_ONLY_BACKENDS: &[&str] = &["claude", "codex", "cursor_agent"];
-
 /// Clear error for `read_only=true` on a backend/mode that cannot enforce it.
 pub fn read_only_unsupported_message(agent_type: &str, has_pane: bool) -> String {
     let mode = if has_pane { " in a shared terminal pane" } else { "" };
     format!(
         "read_only=true cannot be enforced for backend '{agent_type}'{mode}; read_only is supported only for headless runs on: {}. Retry with read_only=false or a supported backend",
-        READ_ONLY_BACKENDS.join(", ")
+        crate::tui::read_only_backends().join(", ")
     )
 }
 
@@ -96,13 +83,15 @@ pub fn for_snapshot(snapshot: &OperationSnapshot) -> BackendCapabilities {
 }
 
 pub fn for_backend(agent_type: &str, has_pane: bool) -> BackendCapabilities {
-    match agent_type {
-        "opencode_native" => native_protocol(has_pane),
-        "cursor_agent" | "cursor" => cursor_contract(has_pane),
-        "codex" => cli_contract(has_pane, !has_pane),
-        "claude" | "opencode" => cli_contract(has_pane, false),
-        _ => shell_contract(has_pane),
-    }
+    let profile = crate::tui::profile_for(agent_type);
+    let features = profile.features();
+    let mut caps = match features.kind {
+        Kind::NativeProtocol => native_protocol(has_pane),
+        Kind::Cli => cli_contract(has_pane, features.resumable_headless && !has_pane),
+        Kind::Shell | Kind::Unknown => shell_contract(has_pane),
+    };
+    caps.notes.extend(profile.capability_notes(has_pane));
+    caps
 }
 
 fn shared_ceilings() -> Vec<String> {
@@ -150,24 +139,6 @@ fn cli_contract(has_pane: bool, session_resume: bool) -> BackendCapabilities {
         },
         notes,
     }
-}
-
-fn cursor_contract(has_pane: bool) -> BackendCapabilities {
-    let mut caps = cli_contract(has_pane, false);
-    caps.notes.extend([
-        NOTE_CURSOR_BOUNDARIES.into(),
-        NOTE_CURSOR_QUESTIONS.into(),
-        NOTE_CURSOR_INTERRUPT.into(),
-        NOTE_CURSOR_EXTRACT.into(),
-    ]);
-    if !has_pane {
-        caps.notes.push(NOTE_CURSOR_HEADLESS_SHELL.into());
-        caps.notes.push(
-            "headless cursor_agent does not report which model ran, so resolved_model is the CLI configured default (from `cursor-agent about`), not a per-run confirmation"
-                .into(),
-        );
-    }
-    caps
 }
 
 fn shell_contract(has_pane: bool) -> BackendCapabilities {
