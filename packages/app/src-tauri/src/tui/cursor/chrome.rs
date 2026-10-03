@@ -36,6 +36,23 @@ pub(super) fn strip_dialog_boxes(text: &str) -> String {
                 continue;
             }
         }
+        // The same dialog with its top/bottom border rows already removed (screen text that went
+        // through box-art compaction): a run of `│` rows that contains dialog text.
+        if trimmed.starts_with('│') {
+            let end = lines[index..]
+                .iter()
+                .position(|l| !l.trim_start().starts_with('│'))
+                .map_or(lines.len(), |rel| index + rel);
+            let is_dialog = lines[index..end].iter().any(|l| {
+                let lower = l.to_ascii_lowercase();
+                DIALOG_MARKERS.iter().any(|m| lower.contains(m))
+            });
+            if is_dialog {
+                keep[index..end].iter_mut().for_each(|k| *k = false);
+            }
+            index = end;
+            continue;
+        }
         index += 1;
     }
     lines
@@ -195,6 +212,23 @@ mod tests {
         assert!(stripped.contains("Plan, search, build anything"), "TUI below the dialog stays");
         let table = "\u{256d}\u{2500}\u{2500}\u{256e}\n\u{2502} a \u{2502} b \u{2502}\n\u{2570}\u{2500}\u{2500}\u{256f}";
         assert_eq!(strip_dialog_boxes(table), table);
+    }
+
+    #[test]
+    fn a_trust_dialog_without_its_border_rows_is_stripped_too() {
+        let borderless: String = TRUST_RESOLVED
+            .lines()
+            .filter(|l| {
+                let t = l.trim_start();
+                !t.starts_with('╭') && !t.starts_with('╰')
+            })
+            .collect::<Vec<_>>()
+            .join("
+");
+        let stripped = strip_dialog_boxes(&borderless);
+        assert!(!stripped.contains("Workspace Trust Required"), "{stripped}");
+        assert!(!stripped.contains("Cursor Agent can execute"), "{stripped}");
+        assert!(stripped.contains("Plan, search, build anything"));
     }
 
     #[test]

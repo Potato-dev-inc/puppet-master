@@ -761,16 +761,32 @@ fn answer_prompt(
 ) -> Result<Value, OperationError> {
     let handle = request.handle.as_deref().unwrap_or_default();
     let snapshot = runtime::current_agent(project, handle, session_id)?;
-    let action = snapshot.required_action.as_ref().ok_or_else(|| {
-        OperationError::new("PROMPT_NOT_PENDING", "agent has no pending prompt", false)
-    })?;
-    if snapshot.status != OperationStatus::WaitingInput {
-        return Err(OperationError::new(
-            "PROMPT_NOT_PENDING",
-            "agent is not waiting for input",
-            false,
-        ));
-    }
+    // The stored run state can lag the pane: a caller sees the prompt in a live view before the
+    // dispatch thread has recorded it. Fall back to the dialog actually on screen, which is
+    // checked against the same prompt id below, so only the prompt the caller was shown can be
+    // answered.
+    let stored = snapshot
+        .required_action
+        .as_ref()
+        .filter(|_| snapshot.status == OperationStatus::WaitingInput);
+    let live_action = match stored {
+        Some(_) => None,
+        None => snapshot
+            .pane_id
+            .as_deref()
+            .and_then(|pane| crate::pane_prompt::required_action(registry, pane)),
+    };
+    let action = match (stored, live_action.as_ref()) {
+        (Some(action), _) | (None, Some(action)) => action,
+        (None, None) => {
+            let message = if snapshot.required_action.is_none() {
+                "agent has no pending prompt"
+            } else {
+                "agent is not waiting for input"
+            };
+            return Err(OperationError::new("PROMPT_NOT_PENDING", message, false));
+        }
+    };
     let matches_prompt = ["prompt_id", "request_id", "message_id", "id"]
         .iter()
         .filter_map(|key| action.get(*key).and_then(Value::as_str))

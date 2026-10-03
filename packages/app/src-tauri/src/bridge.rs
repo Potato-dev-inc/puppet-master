@@ -188,20 +188,27 @@ fn observe_operation_pane_status(pane_id: &str, status: &str) {
     let native_action = native_status.as_ref().filter(|state| !state.pending_permission_ids.is_empty()).map(|state| json!({
         "kind":"permission_required", "pane_id":pane_id, "permission_ids":state.pending_permission_ids
     }));
-    let observed_state = if native_action.is_some() {
+    // A dialog the TUI profile recognises is blocking whatever the status heuristic says (status
+    // trails the screen, and a run parked on it at startup must not be un-parked by a stale
+    // "running"). It is recorded with its id and command straight away; the id-less manual
+    // fallback is only for blocked panes whose prompt is not recognised.
+    let screen_action = if pane.agent_type == "opencode_native" {
+        None
+    } else {
+        crate::pane_prompt::required_action(registry, pane_id)
+    };
+    let observed_state = if native_action.is_some() || screen_action.is_some() {
         "waiting_input"
     } else {
         status
     };
-    // A supported prompt on screen is recorded with its id and command straight away; the
-    // id-less manual fallback is only for blocked panes whose prompt is not recognised.
-    let action = native_action.or_else(|| {
+    let action = native_action.or(screen_action).or_else(|| {
         (status == "waiting_input").then(|| {
-            crate::pane_prompt::required_action(registry, pane_id).unwrap_or_else(|| json!({
+            json!({
                 "kind": "manual_input_required",
                 "pane_id": pane_id,
                 "detail": "Inspect the pane and resolve the prompt manually. No permission was approved automatically."
-            }))
+            })
         })
     });
     if let Ok(snapshot) = crate::operations::mark_operation_observation(
@@ -433,6 +440,14 @@ fn startup_manual_approval_required(
     if agent_type == "opencode_native" && !pending_permission_ids.is_empty() {
         return true;
     }
+    // A dialog the TUI profile recognises (Cursor's workspace trust, a command approval) blocks
+    // typing whatever the pane status says: status trails the screen, and a prompt typed into the
+    // dialog is read as hotkeys (`a` trusts, `q` quits).
+    if agent_type != "opencode_native"
+        && crate::pane_prompt::detect_in_screen(agent_type, current_screen, false).is_some()
+    {
+        return true;
+    }
     pane_status == Some("waiting_input")
         && explicit_manual_approval_required(agent_type, current_screen, pending_permission_ids)
 }
@@ -555,7 +570,12 @@ fn wait_for_startup_permission_resolution(
         } else {
             Vec::new()
         };
-        if !explicit_manual_approval_required(agent_type, &screen, &permissions) {
+        // Same test that parked the run: phrases a CLI prints, or a dialog its TUI profile
+        // recognises (Cursor's trust dialog prints none of the phrases).
+        let still_blocked = explicit_manual_approval_required(agent_type, &screen, &permissions)
+            || (agent_type != "opencode_native"
+                && crate::pane_prompt::detect_in_screen(agent_type, &screen, false).is_some());
+        if !still_blocked {
             return Ok(pane.status);
         }
         if Instant::now() >= deadline {
@@ -2863,6 +2883,34 @@ fn write_json(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_trust_dialog_on_screen_blocks_startup_dispatch_whatever_the_status_says() {
+        // Real captures of a visible cursor_agent pane. Right after the dialog is drawn the pane
+        // status still reads `running`; typing the task then hits the dialog's hotkeys.
+        let pending = include_str!("tui/cursor/fixtures/workspace_trust_visible_pending.txt");
+        let resolved = include_str!("tui/cursor/fixtures/workspace_trust_visible_resolved.txt");
+        assert!(super::startup_manual_approval_required(
+            "cursor_agent",
+            Some("running"),
+            pending,
+            &[]
+        ));
+        assert!(!super::startup_manual_approval_required(
+            "cursor_agent",
+            Some("running"),
+            resolved,
+            &[]
+        ));
+        assert!(!super::startup_manual_approval_required(
+            "cursor_agent",
+            Some("idle"),
+            "Cursor Agent
+→ Plan, search, build anything
+",
+            &[]
+        ));
+    }
+
     use super::*;
 
     #[test]
@@ -3941,6 +3989,12 @@ pub fn dispatch_existing_operation(
                     ) {
                         let required_action = if !native_permissions.is_empty() {
                             json!({"kind":"permission_required","pane_id":pane_id,"permission_ids":native_permissions})
+                        } else if let Some(classified) =
+                            crate::pane_prompt::required_action(&registry_for_dispatch, &pane_id)
+                        {
+                            // A prompt the TUI profile recognises (Cursor trust / approval) gets its
+                            // id, kind and options now, so the caller can answer_prompt it.
+                            classified
                         } else {
                             json!({"kind":"manual_approval_required","pane_id":pane_id,"detail":"Resolve the displayed permission prompt manually; the bridge will not approve it."})
                         };
@@ -3956,13 +4010,39 @@ pub fn dispatch_existing_operation(
                             },
                         )?;
                         push_operation_sse(operation);
-                        let ready_state = wait_for_startup_permission_resolution(
+                        let mut ready_state = wait_for_startup_permission_resolution(
                             &registry_for_dispatch,
                             &operation.project_path,
                             &operation.operation_id,
                             &pane_id,
                             &agent_type,
                         )?;
+                        // The TUI is still redrawing after a dialog it just had open (Cursor shows
+                        // "Trusting workspace..." and then a fresh input box). A prompt typed in that
+                        // window is swallowed, so wait for the pane to read idle and hold still.
+                        // This happens while the run is still parked: once resumed, status events
+                        // move it out of Starting and the dispatch would abort.
+                        if agent_type != "opencode_native" {
+                            *operation = crate::operations::mark_operation_startup_settling(
+                                &operation.project_path,
+                                &operation.operation_id,
+                                crate::operations::StateSource::Inferred,
+                            )?;
+                            push_operation_sse(operation);
+                            wait_for_pane_idle(
+                                &registry_for_dispatch,
+                                &pane_id,
+                                Duration::from_secs(20),
+                            );
+                            if let Some(pane) = registry_for_dispatch
+                                .lock()
+                                .list()
+                                .into_iter()
+                                .find(|pane| pane.id == pane_id)
+                            {
+                                ready_state = pane.status;
+                            }
+                        }
                         *operation = crate::operations::resume_operation_dispatch_when_ready(
                             &operation.project_path,
                             &operation.operation_id,

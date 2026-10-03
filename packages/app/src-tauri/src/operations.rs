@@ -1020,7 +1020,12 @@ pub fn mark_operation_startup_wait(
 ) -> Result<OperationSnapshot, OperationError> {
     let _serial = UPDATE_LOCK.get_or_init(|| Mutex::new(())).lock();
     let mut op = get_operation(project, id)?;
-    if op.status != OperationStatus::Starting {
+    // The pane observer can already have recorded a blocking dialog (status WaitingInput, stage
+    // still waiting_for_pane_readiness) before the dispatch thread parks; parking is then a
+    // no-op update, not an invalid transition that would kill the dispatch thread.
+    let already_parked = op.status == OperationStatus::WaitingInput
+        && op.stage.as_deref() == Some("waiting_for_pane_readiness");
+    if op.status != OperationStatus::Starting && !already_parked {
         return Err(OperationError::new(
             "INVALID_STATE_TRANSITION",
             "startup readiness wait requires a dispatching operation",
@@ -1031,6 +1036,30 @@ pub fn mark_operation_startup_wait(
     op.stage = Some("waiting_for_pane_readiness".into());
     op.pane_state = pane_state;
     op.required_action = required_action;
+    op.observed_at_ms = Some(now_ms());
+    op.source = source;
+    bump(&mut op)?;
+    Ok(op)
+}
+
+/// A startup prompt was resolved and the pane is redrawing. Drop the parked prompt and report the
+/// run as starting again instead of "needs input" with nothing to answer; the stage stays
+/// waiting_for_pane_readiness so status events cannot move it before dispatch resumes.
+pub fn mark_operation_startup_settling(
+    project: &str,
+    id: &str,
+    source: StateSource,
+) -> Result<OperationSnapshot, OperationError> {
+    let _serial = UPDATE_LOCK.get_or_init(|| Mutex::new(())).lock();
+    let mut op = get_operation(project, id)?;
+    if op.status != OperationStatus::WaitingInput
+        || op.stage.as_deref() != Some("waiting_for_pane_readiness")
+    {
+        return Ok(op);
+    }
+    op.status = OperationStatus::Starting;
+    op.pane_state = Some("running".into());
+    op.required_action = None;
     op.observed_at_ms = Some(now_ms());
     op.source = source;
     bump(&mut op)?;
@@ -1064,7 +1093,9 @@ fn resume_operation_dispatch_locked(
     source: StateSource,
 ) -> Result<OperationSnapshot, OperationError> {
     let mut op = get_operation(project, id)?;
-    if op.status != OperationStatus::WaitingInput
+    // WaitingInput while a prompt is parked; Starting once the prompt is resolved and the pane
+    // is only settling (see `mark_operation_startup_settling`).
+    if !matches!(op.status, OperationStatus::WaitingInput | OperationStatus::Starting)
         || op.stage.as_deref() != Some("waiting_for_pane_readiness")
     {
         return Err(OperationError::new(
