@@ -56,7 +56,17 @@ pub(super) fn detect_prompt(agent_type: &str, screen: &str, _allow_broad: bool) 
         } else {
             return None;
         };
-    Some(generic::prompt_json(agent_type, kind, screen, choices))
+    let mut prompt = generic::prompt_json(agent_type, kind, screen, choices);
+    if kind == "command_approval" {
+        if let Some(found) = super::approval::extract(screen) {
+            prompt["command"] = Value::String(found.command);
+            if let Some(cwd) = found.cwd {
+                prompt["cwd"] = Value::String(cwd);
+            }
+        }
+        prompt["fully_drawn"] = Value::Bool(super::approval::fully_drawn(screen));
+    }
+    Some(prompt)
 }
 
 pub(super) fn prompt_reply(

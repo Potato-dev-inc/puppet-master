@@ -7,6 +7,7 @@
 //! - `chrome`   — which screen lines are TUI furniture rather than reply text
 //! - `fixtures` — real captures the tests replay
 
+pub(crate) mod approval;
 mod chrome;
 mod headless;
 mod launch;
