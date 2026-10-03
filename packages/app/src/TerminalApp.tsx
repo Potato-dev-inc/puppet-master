@@ -220,6 +220,24 @@ export default function TerminalApp() {
     setSelectedPaneId(panes[0]?.info.id ?? null);
   }, [lockedPaneId, panes, registry.panes, selectedPaneId]);
 
+  // A detached window is bound to one pane. When something else closes that pane (an agent
+  // closing its subagent, a kill from the MCP) there is nothing left to show, so close the
+  // window instead of leaving it on "No terminal pane selected." Worker hosts keep theirs: they
+  // explain the exit and quit the app on close.
+  const lockedPaneSeenRef = useRef(false);
+  const lockedPanePresent = lockedPaneId ? registry.panes.has(lockedPaneId) : false;
+  useEffect(() => {
+    if (!detached || workerHost || !lockedPaneId) return;
+    if (lockedPanePresent) {
+      lockedPaneSeenRef.current = true;
+      return;
+    }
+    if (!lockedPaneSeenRef.current || !registry.initialReady) return;
+    void tauri.closeCurrentWindow().catch((err) => {
+      console.warn('[TerminalApp] failed to close detached window for a closed pane', err);
+    });
+  }, [detached, workerHost, lockedPaneId, lockedPanePresent, registry.initialReady]);
+
   useEffect(() => {
     if (!detached || !selectedPaneId) return;
     let unlisten: (() => void) | null = null;
