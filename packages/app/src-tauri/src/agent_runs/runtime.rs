@@ -317,6 +317,7 @@ fn run_warnings(snapshot: &OperationSnapshot) -> Vec<RunWarning> {
         completed: snapshot.status == OperationStatus::Completed,
         result_inferred: matches!(snapshot.result_capture, Some(ResultCapture::Inferred)),
         model_requested: snapshot.worker.requested_model.is_some(),
+        model_unconfirmed: snapshot.worker.model_unconfirmed,
     };
     for warning in crate::tui::profile_for(&snapshot.agent_type).run_warnings(&facts) {
         push(warning.code, warning.source, warning.detail);
@@ -693,7 +694,12 @@ pub(super) fn interrupt_active_turns(
     for snapshot in turns {
         request(&snapshot)?;
         let partial = snapshot.result.clone().or_else(|| {
-            Some("turn interrupted before a final response was recorded".into())
+            Some(if super::headless::blocked_on_trust(&snapshot) {
+                // Nothing ran: the run was parked on the trust prompt and is simply closed.
+                "closed while waiting for workspace trust; nothing was run".into()
+            } else {
+                "turn interrupted before a final response was recorded".into()
+            })
         });
         transcript::append(
             project,
@@ -1162,7 +1168,7 @@ pub fn send_agent(
         scope: opts.scope.or(previous.worker.scope.clone()),
         selected_history: opts.selected_history,
         locks: opts.locks.clone(),
-        trust_workspace: false,
+        trust_workspace: opts.trust_workspace && headless,
         allow_shell: false,
         allowed_commands: None,
     };

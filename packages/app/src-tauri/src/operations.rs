@@ -480,12 +480,34 @@ pub fn record_terminal_pane_state(
             op.worker.resolved_model = Some(model);
             changed = true;
         }
+        // A model read from the live TUI is a confirmation.
+        if op.worker.model_unconfirmed {
+            op.worker.model_unconfirmed = false;
+            changed = true;
+        }
     }
     if pane_disposed && !op.worker.pane_disposed {
         op.worker.pane_disposed = true;
         changed = true;
     }
     if changed {
+        bump(&mut op)?;
+    }
+    Ok(op)
+}
+
+/// Record the CLI's configured default as `resolved_model` when nothing better is known, flagged
+/// unconfirmed. Never overwrites a model that is already set.
+pub fn record_unconfirmed_model(
+    project_path: &str,
+    operation_id: &str,
+    model: &str,
+) -> Result<OperationSnapshot, OperationError> {
+    let _serial = UPDATE_LOCK.get_or_init(|| Mutex::new(())).lock();
+    let mut op = get_operation(project_path, operation_id)?;
+    if op.worker.resolved_model.is_none() && !model.trim().is_empty() {
+        op.worker.resolved_model = Some(model.to_string());
+        op.worker.model_unconfirmed = true;
         bump(&mut op)?;
     }
     Ok(op)

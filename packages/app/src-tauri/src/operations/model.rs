@@ -318,6 +318,10 @@ pub struct WorkerPersist {
     /// True once the app closed this run's pane on its own (`keep_pane=false` terminal cleanup).
     #[serde(default)]
     pub pane_disposed: bool,
+    /// `resolved_model` came from the CLI's configured default, not from the TUI footer: a best
+    /// answer, not a confirmation of what ran.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub model_unconfirmed: bool,
     /// Caller opted in to `cursor-agent --trust` for headless runs in this workspace.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub trust_workspace: bool,

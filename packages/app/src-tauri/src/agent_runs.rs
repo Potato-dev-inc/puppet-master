@@ -4,6 +4,7 @@ mod approval_policy;
 mod capabilities;
 pub(crate) mod checks;
 mod completion;
+pub(crate) mod delivery;
 mod headless;
 mod messaging;
 mod native;
@@ -14,6 +15,9 @@ mod recovery;
 mod routes;
 mod runtime;
 mod transcript;
+
+#[cfg(test)]
+mod cursor_delivery_tests;
 
 pub(crate) use native::stable_prompt_id;
 pub(crate) use persist::resolve_worker_name;

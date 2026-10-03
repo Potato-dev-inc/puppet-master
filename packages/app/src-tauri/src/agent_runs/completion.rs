@@ -18,6 +18,9 @@ pub const RETRY_SUBMIT_TICKS: u8 = 12;
 pub struct TuiTurnWatch {
     pub baseline: String,
     pub task: String,
+    /// The previous turn's prompt on this pane. Its echo is still on screen (and a failed delivery
+    /// can leave a stale copy in the input box), so it is never evidence for this turn.
+    pub previous_task: String,
     idle_evidence: Option<String>,
     idle_ticks: u8,
     reconcile_ticks: u8,
@@ -38,6 +41,55 @@ impl TuiTurnWatch {
         self.task = task.into();
         self
     }
+
+    pub fn with_previous_task(mut self, previous: impl Into<String>) -> Self {
+        self.previous_task = previous.into();
+        self
+    }
+
+    /// Start watching again from `baseline` after the prompt was delivered a second time.
+    pub fn restart(&mut self, baseline: impl Into<String>) {
+        self.baseline = baseline.into();
+        self.idle_evidence = None;
+        self.idle_ticks = 0;
+        self.reconcile_ticks = 0;
+        self.saw_activity = false;
+        self.saw_task_echo = false;
+        self.submit_retried = false;
+    }
+}
+
+/// The model to record for a completed pane run: the TUI footer when it is on screen (confirmed),
+/// else the CLI's configured default (not a confirmation). `None` only when neither is known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletionModel {
+    pub model: String,
+    pub confirmed: bool,
+}
+
+pub fn completion_model(
+    agent_type: &str,
+    screen: &str,
+    already_resolved: Option<&str>,
+    default_model: impl FnOnce() -> Option<String>,
+) -> Option<CompletionModel> {
+    let profile = crate::tui::profile_for(agent_type);
+    if let Some(model) = profile.detect_footer_model(screen) {
+        return Some(CompletionModel {
+            model,
+            confirmed: true,
+        });
+    }
+    if already_resolved.is_some_and(|model| !model.trim().is_empty()) {
+        return None;
+    }
+    if !profile.probes_default_model() {
+        return None;
+    }
+    default_model().map(|model| CompletionModel {
+        model,
+        confirmed: false,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,7 +136,7 @@ pub fn observe_tui_turn(
     let evidence = turn_started
         .then(|| tui_turn_evidence(screen, &watch.baseline))
         .flatten()
-        .and_then(|raw| clean_extracted_result(&raw, &watch.task));
+        .and_then(|raw| clean_extracted_result_after(&raw, &watch.task, &watch.previous_task));
     if let Some(evidence) = evidence {
         if watch.idle_evidence.as_deref() == Some(evidence.as_str()) {
             watch.idle_ticks = watch.idle_ticks.saturating_add(1);
@@ -158,6 +210,21 @@ pub fn is_tui_chrome_line(line: &str) -> bool {
 /// Drop Cursor paste markers, prompt echoes, and acceptance tables so they
 /// cannot be stored as an assistant result or reused as follow-up context.
 pub fn clean_extracted_result(evidence: &str, task: &str) -> Option<String> {
+    clean_extracted_result_after(evidence, task, "")
+}
+
+/// As [`clean_extracted_result`], also dropping echoes of the previous turn's prompt.
+pub fn clean_extracted_result_after(
+    evidence: &str,
+    task: &str,
+    previous_task: &str,
+) -> Option<String> {
+    let corpus = if previous_task.trim().is_empty() {
+        task.to_string()
+    } else {
+        format!("{task}\n{previous_task}")
+    };
+    let task = corpus.as_str();
     let all: Vec<&str> = evidence.lines().map(str::trim).collect();
     // The reply comes after the agent's tool calls, so everything up to the last tool-activity
     // marker (shell header, hidden-output notice, file read) is tool output, not the answer.
@@ -165,10 +232,17 @@ pub fn clean_extracted_result(evidence: &str, task: &str) -> Option<String> {
         .iter()
         .rposition(|line| crate::tui::is_tool_activity_line(&line.to_ascii_lowercase()))
         .map_or(0, |index| index + 1);
-    let mut lines: Vec<&str> = all[after_tools..]
+    let candidates: Vec<&str> = all[after_tools..]
         .iter()
         .copied()
-        .filter(|line| !is_tui_chrome_line(line) && !line_echoes_task(line, task))
+        .filter(|line| !is_tui_chrome_line(line))
+        .collect();
+    let echoed = echoed_lines(&candidates, task);
+    let mut lines: Vec<&str> = candidates
+        .iter()
+        .zip(&echoed)
+        .filter(|(_, echoed)| !**echoed)
+        .map(|(line, _)| *line)
         .collect();
     lines.dedup();
     if lines.is_empty() {
@@ -179,6 +253,42 @@ pub fn clean_extracted_result(evidence: &str, task: &str) -> Option<String> {
         None
     } else {
         Some(cleaned)
+    }
+}
+
+/// Which lines echo the task. A line that is a whole sentence of the prompt echoes it outright;
+/// a short wrapped fragment (the tail of a prompt line the TUI broke at the box width) counts
+/// when it sits next to an echoed line, so `and propose a fix` cannot survive as a reply.
+fn echoed_lines(lines: &[&str], task: &str) -> Vec<bool> {
+    let mut echoed: Vec<bool> = lines
+        .iter()
+        .map(|line| line_echoes_task(line, task))
+        .collect();
+    if task.is_empty() {
+        return echoed;
+    }
+    let task_n = normalize_echo(task);
+    loop {
+        let mut changed = false;
+        for index in 0..lines.len() {
+            if echoed[index] {
+                continue;
+            }
+            let neighbour =
+                (index > 0 && echoed[index - 1]) || echoed.get(index + 1) == Some(&true);
+            if !neighbour {
+                continue;
+            }
+            let stripped = lines[index].trim_start_matches(['-', '*', '•', '>']).trim();
+            let line_n = normalize_echo(stripped);
+            if line_n.len() >= 12 && task_n.contains(&line_n) {
+                echoed[index] = true;
+                changed = true;
+            }
+        }
+        if !changed {
+            return echoed;
+        }
     }
 }
 
