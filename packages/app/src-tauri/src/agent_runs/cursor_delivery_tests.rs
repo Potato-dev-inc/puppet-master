@@ -251,3 +251,16 @@ fn unconfirmed_pane_model_warns_through_the_profile() {
         .iter()
         .all(|warning| warning.code != "MODEL_UNCONFIRMED"));
 }
+
+#[test]
+fn an_answered_trust_dialog_in_the_scrollback_is_not_a_result() {
+    // Real capture (2026-10-04): the dialog box stays on screen after "Trusting workspace..." and
+    // the banner is redrawn below it. It used to be returned as the run's result.
+    let screen = include_str!("../tui/cursor/fixtures/workspace_trust_visible_resolved.txt");
+    assert_eq!(crate::agent_runs::completion::tui_turn_evidence(screen, ""), None);
+    let with_reply = format!("{screen}\nPONG\n");
+    assert_eq!(
+        crate::agent_runs::completion::tui_turn_evidence(&with_reply, "").as_deref(),
+        Some("PONG")
+    );
+}

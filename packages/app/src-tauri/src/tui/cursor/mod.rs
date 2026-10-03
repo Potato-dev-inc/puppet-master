@@ -183,6 +183,10 @@ impl TuiProfile for CursorAgent {
         chrome::is_tool_line(lower)
     }
 
+    fn strip_dialogs(&self, text: &str) -> String {
+        chrome::strip_dialog_boxes(text)
+    }
+
     fn detect_footer_model(&self, buffer: &str) -> Option<String> {
         screen::footer_model(buffer)
     }

@@ -271,6 +271,12 @@ pub trait TuiProfile: Sync {
         false
     }
 
+    /// Remove boxed dialogs (trust, approval) from screen text. Their text is never reply
+    /// evidence, and the box stays in the scrollback after it was answered.
+    fn strip_dialogs(&self, text: &str) -> String {
+        text.to_string()
+    }
+
     /// Live model name shown in the TUI footer, when the TUI prints one.
     fn detect_footer_model(&self, _buffer: &str) -> Option<String> {
         None
@@ -368,6 +374,13 @@ pub fn looks_like_menu(text: &str) -> bool {
 /// Whether any profile treats this (trimmed, lowercased) line as TUI chrome.
 pub fn is_chrome_line(lower: &str) -> bool {
     PROFILES.iter().any(|profile| profile.is_chrome_line(lower))
+}
+
+/// Screen text with every profile's boxed dialogs removed.
+pub fn strip_dialogs(text: &str) -> String {
+    PROFILES
+        .iter()
+        .fold(text.to_string(), |acc, profile| profile.strip_dialogs(&acc))
 }
 
 /// Whether any profile treats this (trimmed, lowercased) line as a tool-activity row.

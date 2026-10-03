@@ -1,6 +1,53 @@
 //! Screen lines that are Cursor TUI furniture, not part of a reply. Inputs are trimmed and
 //! lowercased by the caller.
 
+/// Text that only Cursor's modal dialogs (workspace trust, command approval) print.
+const DIALOG_MARKERS: &[&str] = &[
+    "workspace trust required",
+    "do you trust the contents",
+    "trust this workspace",
+    "trusting workspace",
+    "run this command",
+    "add to allowlist",
+    "run everything",
+    "skip (esc or n)",
+];
+
+/// Drop every boxed dialog (a `╭…╰` block containing dialog text, or a loose line of dialog text)
+/// from screen text. A dialog is never part of a reply, and after it was answered its box stays in
+/// the scrollback with the TUI redrawn below. Other boxed content (a table in a reply) is kept.
+pub(super) fn strip_dialog_boxes(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut keep = vec![true; lines.len()];
+    let mut index = 0;
+    while index < lines.len() {
+        let trimmed = lines[index].trim_start();
+        if trimmed.starts_with('╭') {
+            if let Some(rel) = lines[index..].iter().position(|l| l.trim_start().starts_with('╰')) {
+                let end = index + rel;
+                let is_dialog = lines[index..=end].iter().any(|l| {
+                    let lower = l.to_ascii_lowercase();
+                    DIALOG_MARKERS.iter().any(|m| lower.contains(m))
+                });
+                if is_dialog {
+                    keep[index..=end].iter_mut().for_each(|k| *k = false);
+                }
+                index = end + 1;
+                continue;
+            }
+        }
+        index += 1;
+    }
+    lines
+        .iter()
+        .zip(keep)
+        .filter(|(_, keep)| *keep)
+        .map(|(line, _)| *line)
+        .collect::<Vec<_>>()
+        .join("
+")
+}
+
 /// Banner, footer, input placeholder or tool-activity row.
 pub(super) fn is_chrome_line(lower: &str) -> bool {
     is_status_line(lower)
@@ -134,6 +181,20 @@ mod tests {
         assert!(is_tool_line("created src/notes.md +12"));
         assert!(!is_chrome_line("edited the file to add a feature."));
         assert!(!is_chrome_line("the output was truncated because it was long."));
+    }
+
+    const TRUST_RESOLVED: &str = include_str!("fixtures/workspace_trust_visible_resolved.txt");
+
+    #[test]
+    fn a_boxed_trust_dialog_is_stripped_but_other_boxes_survive() {
+        let stripped = strip_dialog_boxes(TRUST_RESOLVED);
+        assert!(!stripped.contains("Workspace Trust Required"), "{stripped}");
+        assert!(!stripped.contains("Trust this workspace"), "{stripped}");
+        // The dialog's own directory row goes; the `~\...` footer outside it is ordinary chrome.
+        assert!(!stripped.contains(r"C:\Users\Ren-pc\AppData\Local\Temp\cur-_b1a_ip3"));
+        assert!(stripped.contains("Plan, search, build anything"), "TUI below the dialog stays");
+        let table = "\u{256d}\u{2500}\u{2500}\u{256e}\n\u{2502} a \u{2502} b \u{2502}\n\u{2570}\u{2500}\u{2500}\u{256f}";
+        assert_eq!(strip_dialog_boxes(table), table);
     }
 
     #[test]

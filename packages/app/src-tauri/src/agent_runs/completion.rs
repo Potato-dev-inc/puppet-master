@@ -379,7 +379,10 @@ pub fn tui_turn_evidence(screen: &str, baseline: &str) -> Option<String> {
     if screen == baseline {
         return None;
     }
-    let (screen, baseline) = (strip_tool_output_blocks(screen), strip_tool_output_blocks(baseline));
+    let (screen, baseline) = (
+        strip_tool_output_blocks(&crate::tui::strip_dialogs(screen)),
+        strip_tool_output_blocks(&crate::tui::strip_dialogs(baseline)),
+    );
     let (screen, baseline) = (screen.as_str(), baseline.as_str());
     if screen == baseline {
         return None;
