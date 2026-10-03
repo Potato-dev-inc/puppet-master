@@ -373,6 +373,42 @@ pub fn pane_native_accepts_prompt(
     ))
 }
 
+/// Why a native pane is not taking a prompt right now, for error context. Empty when it is ready.
+pub fn native_prompt_blockers(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+) -> Vec<String> {
+    let status = match worker_status(registry, pane_id) {
+        Ok(status) => status,
+        Err(error) => return vec![format!("status_unreadable: {error}")],
+    };
+    let mut blockers = Vec::new();
+    if !status.serve_healthy {
+        blockers.push("serve_unhealthy".to_string());
+    }
+    if !status.tui_attached {
+        blockers.push("tui_not_attached".to_string());
+    }
+    if status.reattaching {
+        blockers.push("reattaching".to_string());
+    }
+    if status.pending_permission_count > 0 {
+        blockers.push(format!("pending_permissions={}", status.pending_permission_count));
+    }
+    match crate::opencode::messages::read_pane_messages(registry.as_ref(), pane_id, 20, None) {
+        Ok(messages) => {
+            if messages.pending_question.is_some() {
+                blockers.push("pending_question".to_string());
+            }
+            if messages_are_generating(&messages.messages) {
+                blockers.push("assistant_still_generating".to_string());
+            }
+        }
+        Err(error) => blockers.push(format!("messages_unreadable: {error}")),
+    }
+    blockers
+}
+
 pub fn wait_until_native_accepts_prompt(
     registry: &Arc<Mutex<PaneRegistry>>,
     pane_id: &str,

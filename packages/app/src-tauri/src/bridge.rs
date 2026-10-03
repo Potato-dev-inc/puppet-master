@@ -3770,6 +3770,11 @@ pub fn dispatch_existing_operation(
                             "pane_id": pane.id,
                             "pane_status": pane.status,
                             "agent_type": pane.agent_type,
+                            "blocked_by": if agent_type == "opencode_native" {
+                                crate::opencode::status::native_prompt_blockers(&registry_for_dispatch, &pane.id)
+                            } else {
+                                Vec::new()
+                            },
                         });
                         return Err(error);
                     }

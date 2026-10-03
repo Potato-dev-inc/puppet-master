@@ -563,7 +563,10 @@ async function benchPhase({ backend, task, round, phase, dir, begin, handleOf, c
   const pick = (key) => view[key] ?? inspected[key] ?? inspected.run?.[key] ?? inspected.turn?.[key] ?? null;
   const startedAt = pick('started_at');
   const completedAt = pick('completed_at');
-  const serverMs = stamp(startedAt) !== null && stamp(completedAt) !== null ? stamp(completedAt) - stamp(startedAt) : null;
+  // Prefer the run view's own duration_ms (prompt written -> completion); started/completed stamps
+  // are not exposed on every build.
+  const stampedMs = stamp(startedAt) !== null && stamp(completedAt) !== null ? stamp(completedAt) - stamp(startedAt) : null;
+  const serverMs = typeof view.duration_ms === 'number' ? view.duration_ms : stampedMs;
   const result = view.result ?? inspected.result ?? '';
   const completed = view.status === 'completed';
   const localOk = completed && allLocal(dir, checks, result);
@@ -575,7 +578,7 @@ async function benchPhase({ backend, task, round, phase, dir, begin, handleOf, c
     pass: localOk, verified: localOk && pmVerified, error: view.error?.code ?? view._error ?? null,
   };
   const tag = `${backend}/${task.id}/${phase}#${round}`;
-  if (!completed) failures.push(`${tag}: did not complete (${view.status} ${row.error ?? ''})`);
+  if (!completed) failures.push(`${tag}: did not complete (${view.status} ${row.error ?? ''}${view.error?.context ? ` ${JSON.stringify(view.error.context)}` : ''})`);
   else if (!localOk) failures.push(`${tag}: local machine check failed (PM acceptance ${row.acceptance ?? 'n/a'})`);
   if (pmVerified && completed && !localOk) failures.push(`${tag}: PM reported verified but the local check disagrees`);
   console.log(`${row.pass ? 'ok  ' : 'FAIL'} ${tag} total ${fmt(totalS)}s ttfh ${fmt(ttfh)}s server ${fmt(row.server_s)}s verified=${row.verified}`);
@@ -597,7 +600,7 @@ async function benchMain(health) {
           freshFixture(dir, task);
           const cold = await benchPhase({
             backend, task, round, phase: 'cold', dir, limitMs, checks: task.checks,
-            begin: () => tool('run_agent', { agent_type: backend, project_path: dir, task: task.prompt, checks: task.checks, background: true, wait_ms: 0, ...extra }),
+            begin: () => tool('run_agent', { agent_type: backend, project_path: dir, task: task.prompt, checks: task.checks, background: true, wait_ms: 0, keep_pane: Boolean(task.size === 'small' && task.warm), ...extra }),
           });
           runs.push(cold.row);
           handle = cold.handle;
