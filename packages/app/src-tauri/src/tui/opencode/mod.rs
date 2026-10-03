@@ -6,6 +6,7 @@
 //! The HTTP API client (keys, quota, messages) is a protocol backend, not a screen-scraped TUI,
 //! and stays in `crate::opencode`.
 
+pub mod read_only;
 mod screen;
 
 use super::{Features, Kind, TuiProfile};
@@ -32,6 +33,7 @@ impl TuiProfile for OpenCodeNative {
     fn features(&self) -> Features {
         Features {
             kind: Kind::NativeProtocol,
+            read_only_spawned_pane: true,
             ..Features::CLI
         }
     }

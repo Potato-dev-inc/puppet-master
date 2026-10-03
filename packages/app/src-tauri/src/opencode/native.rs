@@ -76,6 +76,15 @@ pub fn spawn_native_pane(
         .env("PATH", crate::shell_env::path_for_spawn());
     #[cfg(windows)]
     serve.env("Path", crate::shell_env::path_for_spawn());
+    if args.read_only {
+        serve.env(
+            "OPENCODE_CONFIG_CONTENT",
+            crate::tui::opencode::read_only::config_content(),
+        );
+    } else {
+        serve.env_remove("OPENCODE_CONFIG_CONTENT");
+    }
+    crate::tui::opencode::read_only::set_enforced(&pane_id, args.read_only);
 
     let mut serve_child = serve
         .spawn()
@@ -275,6 +284,7 @@ pub fn restart_native_pane(
             rows: Some(pane.info.rows),
             extra_args: None,
             pane_id: Some(pane_id.to_string()),
+            read_only: crate::tui::opencode::read_only::is_enforced(pane_id),
         }
     };
     crate::opencode::keys::apply_active_auth()?;

@@ -256,6 +256,9 @@ pub struct SpawnPaneArgs {
     pub rows: Option<u16>,
     pub extra_args: Option<Vec<String>>,
     pub pane_id: Option<String>,
+    /// Start the pane with enforced read-only permissions (opencode_native only).
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 /// Spawn a pane. The reader thread pushes raw bytes to the scrollback,

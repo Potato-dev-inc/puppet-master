@@ -373,13 +373,21 @@ fn read_only_on_unsupported_backend_fails_before_any_operation_exists() {
     let project = Project::new();
     let mut native = request(&project, "ro-native");
     native.agent_type = "opencode_native".into();
-    native.pane_id = None;
+    // An adopted (shared) pane cannot be made read-only.
+    native.pane_id = Some("adopted-native-pane".into());
     native.read_only = true;
     let err = operations::create_operation(native).unwrap_err();
     assert_eq!(err.code, "READ_ONLY_UNSUPPORTED");
     assert!(err.message.contains("opencode_native"));
     assert!(err.message.contains("claude, codex, cursor_agent"));
     assert!(operations::list_operations(&project.str()).unwrap().is_empty());
+
+    // A native run that spawns its own pane is started with enforced read-only config.
+    let mut spawned = request(&project, "ro-native-spawned");
+    spawned.agent_type = "opencode_native".into();
+    spawned.pane_id = None;
+    spawned.read_only = true;
+    assert!(operations::create_operation(spawned).is_ok());
 
     let mut supported = request(&project, "ro-codex");
     supported.pane_id = None;
