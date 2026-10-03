@@ -31,5 +31,15 @@ fn main() {
         }
     }
     println!("cargo:rerun-if-changed=src");
+    // A release build (the app and the MCP exe people retest) must carry a fresh build id every
+    // time, even when nothing changed. A rerun-if-changed path that does not exist is always
+    // considered stale, so cargo re-runs this script (and re-stamps the id) on every release
+    // build. Debug builds keep the cheaper rule above so `cargo test` is not recompiled each run;
+    // set PM_FORCE_NEW_BUILD_ID=1 to force it there too.
+    println!("cargo:rerun-if-env-changed=PM_FORCE_NEW_BUILD_ID");
+    let release = std::env::var("PROFILE").is_ok_and(|profile| profile == "release");
+    if release || std::env::var_os("PM_FORCE_NEW_BUILD_ID").is_some() {
+        println!("cargo:rerun-if-changed=.pm-always-new-build-id");
+    }
     tauri_build::build();
 }
