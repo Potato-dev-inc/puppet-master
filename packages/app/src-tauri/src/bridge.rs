@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::events::{ResourceId, SystemEvent, TaskId};
 use crate::mobile_pairing::{self, PairRequestBody};
@@ -2592,6 +2592,60 @@ fn librarian_indexer_path(app: &AppHandle) -> Option<String> {
 fn emit_panes_changed(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
     push_panes_sse(registry);
     let _ = app.emit("pty://panes-changed", json!({ "changed": true }));
+    schedule_orphan_pane_window_sweep(registry, app);
+}
+
+/// Label the frontend gives a detached pane window (mirrors `detachedPaneLabel` in
+/// `src/lib/detached-pane-window.ts`).
+fn detached_pane_window_label(pane_id: &str) -> String {
+    let safe: String = pane_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '/' | ':' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("detached-pane-{safe}")
+}
+
+/// Detached pane windows whose pane is gone from the registry (e.g. an agent closed its
+/// subagent). Pure so it can be tested without a window system.
+fn orphaned_pane_window_labels(window_labels: &[String], live_pane_ids: &[String]) -> Vec<String> {
+    let live: std::collections::HashSet<String> = live_pane_ids
+        .iter()
+        .map(|id| detached_pane_window_label(id))
+        .collect();
+    window_labels
+        .iter()
+        .filter(|label| label.starts_with("detached-pane-") && !live.contains(*label))
+        .cloned()
+        .collect()
+}
+
+/// After a pane closes, destroy its detached window instead of leaving a blank "No terminal
+/// pane selected." window behind. Checked again after a grace period so a pane that is only
+/// being replaced (killed and respawned under the same id) keeps its window. Worker-host
+/// processes keep their own exit flow.
+fn schedule_orphan_pane_window_sweep(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
+    if crate::worker_launch::worker_launch().is_some() {
+        return;
+    }
+    let (registry, app) = (registry.clone(), app.clone());
+    let _ = thread::Builder::new()
+        .name("puppet-orphan-window-sweep".into())
+        .spawn(move || {
+            thread::sleep(Duration::from_millis(1500));
+            let live: Vec<String> = registry.lock().list().into_iter().map(|pane| pane.id).collect();
+            let labels: Vec<String> = app.webview_windows().keys().cloned().collect();
+            for label in orphaned_pane_window_labels(&labels, &live) {
+                if let Some(window) = app.get_webview_window(&label) {
+                    let _ = window.destroy();
+                }
+            }
+        });
 }
 
 /// Pop out a worker pane so MCP/bridge spawns are visible even when the home screen is open.
@@ -2848,6 +2902,22 @@ fn write_json(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn detached_windows_of_closed_panes_are_swept_and_live_ones_kept() {
+        let live = vec!["11f5b783-aaaa".to_string(), "odd id/1".to_string()];
+        let windows = vec![
+            "main".to_string(),
+            super::detached_pane_window_label("11f5b783-aaaa"),
+            super::detached_pane_window_label("odd id/1"),
+            super::detached_pane_window_label("1b078cd4-gone"),
+        ];
+        assert_eq!(
+            super::orphaned_pane_window_labels(&windows, &live),
+            vec!["detached-pane-1b078cd4-gone".to_string()]
+        );
+        assert_eq!(super::detached_pane_window_label("odd id/1"), "detached-pane-odd_id/1");
+    }
+
     use super::*;
 
     #[test]
