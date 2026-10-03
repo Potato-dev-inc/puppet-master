@@ -34,6 +34,7 @@ mod pwa_server;
 mod session_context;
 mod settings_store;
 mod shell_env;
+mod startup_timing;
 pub mod shell_exec;
 pub mod tool_registry;
 mod tui;

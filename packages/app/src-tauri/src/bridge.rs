@@ -3851,6 +3851,7 @@ pub fn dispatch_existing_operation(
                     .map_err(|err| {
                         crate::operations::OperationError::new("PANE_READINESS_FAILED", err, true)
                     })?;
+                    crate::startup_timing::mark(&pane_id, "dispatch_ready");
                     if readiness.reason == "timeout"
                         || readiness.status.as_deref() == Some("error")
                         || readiness.reason == "gone"
@@ -4037,6 +4038,7 @@ pub fn dispatch_existing_operation(
                         })
                     },
                 )?;
+                crate::startup_timing::mark(&pane_id, "prompt_sent");
                 operation.stage = Some("dispatched_waiting_for_task_completion".into());
                 emit_panes_changed(&registry_for_dispatch, &app_for_dispatch);
                 Ok(())

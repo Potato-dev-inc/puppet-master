@@ -59,6 +59,7 @@ pub fn spawn_native_pane(
         });
     }
 
+    crate::startup_timing::mark(&pane_id, "native_spawn_begin");
     let port = pick_free_port(PORT_MIN, PORT_MAX)?;
     let base_url = format!("http://127.0.0.1:{port}");
 
@@ -80,7 +81,12 @@ pub fn spawn_native_pane(
         .spawn()
         .map_err(|err| format!("opencode serve spawn ({opencode_exe}): {err}"))?;
 
-    if let Err(err) = client::wait_for_health(&base_url, SERVE_START_TIMEOUT) {
+    crate::startup_timing::mark(&pane_id, "serve_spawned");
+    let health = client::wait_for_health(&base_url, SERVE_START_TIMEOUT);
+    if health.is_ok() {
+        crate::startup_timing::mark(&pane_id, "health_ready");
+    }
+    if let Err(err) = health {
         crate::pty::proc_tree::kill_process_tree(serve_child.id());
         let _ = serve_child.kill();
         error!(%pane_id, %base_url, %err, "opencode serve failed health check");
@@ -107,6 +113,7 @@ pub fn spawn_native_pane(
             }
         }
     };
+    crate::startup_timing::mark(&pane_id, "session_created");
     info!(%pane_id, %base_url, session_id = %session_id, "opencode native worker ready");
 
     let pty_system = native_pty_system();
@@ -135,6 +142,7 @@ pub fn spawn_native_pane(
         }
     };
     let pid = child.process_id().unwrap_or(0);
+    crate::startup_timing::mark(&pane_id, "attach_spawned");
     drop(pair.slave);
 
     let io = pair
