@@ -1,6 +1,6 @@
 //! Durable handles and bounded transcript support for MCP agent runs.
 
-mod approval_policy;
+pub(crate) mod approval_policy;
 mod capabilities;
 pub(crate) mod checks;
 mod completion;

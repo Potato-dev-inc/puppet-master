@@ -6,33 +6,9 @@ use std::sync::Arc;
 pub(super) fn infer_tui_prompt(
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     pane_id: &str,
-    agent_type: &str,
+    _agent_type: &str,
 ) -> Option<serde_json::Value> {
-    let screen = {
-        let guard = registry.lock();
-        let pane = guard.panes.get(pane_id)?;
-        let contents = pane.screen.lock().screen().contents();
-        contents
-    };
-    let adapter = crate::agent_adapters::adapter_for(agent_type);
-    let prompt = adapter.detect_prompt(&screen, false)?;
-    let prompt_id = stable_prompt_id(&prompt)?;
-    let options = prompt
-        .get("choices")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(serde_json::Value::as_str)
-        .map(|choice| serde_json::json!({"id": choice, "label": choice}))
-        .collect::<Vec<_>>();
-    Some(serde_json::json!({
-        "id": prompt_id,
-        "prompt_id": prompt_id,
-        "kind": prompt.get("kind"),
-        "summary": prompt.get("text"),
-        "options": options,
-        "raw_prompt": prompt,
-    }))
+    crate::pane_prompt::required_action(registry, pane_id)
 }
 
 pub(crate) fn stable_prompt_id(prompt: &serde_json::Value) -> Option<String> {

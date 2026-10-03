@@ -129,6 +129,9 @@ pub struct WaitForPanesResult {
     pub prompt: Option<Value>,
 }
 
+const PROMPT_SETTLE_POLLS: usize = 6;
+const PROMPT_SETTLE_STEP: Duration = Duration::from_millis(250);
+
 pub fn wait_for_panes(
     registry: &Arc<Mutex<PaneRegistry>>,
     req: WaitForPanesRequest,
@@ -138,6 +141,25 @@ pub fn wait_for_panes(
         || matches!(result.reason.as_str(), "waiting_input" | "tui_prompt");
     if blocked {
         result.prompt = crate::pane_prompt::detect(registry, &result.pane_id, true);
+        // A dialog can still be drawing when the status flips: give a CLI pane a moment to
+        // settle so the first wake carries the classified prompt (id, kind, command).
+        let settleable = result.prompt.is_none()
+            && result.status.as_deref() == Some("waiting_input")
+            && status::pane_info(registry, &result.pane_id).is_some_and(|info| {
+                matches!(
+                    crate::tui::profile_for(&info.agent_type).features().kind,
+                    crate::tui::Kind::Cli
+                )
+            });
+        if settleable {
+            for _ in 0..PROMPT_SETTLE_POLLS {
+                std::thread::sleep(PROMPT_SETTLE_STEP);
+                result.prompt = crate::pane_prompt::detect(registry, &result.pane_id, true);
+                if result.prompt.is_some() {
+                    break;
+                }
+            }
+        }
     }
     if result.agent_hint.is_none() {
         if let Some(info) = status::pane_info(registry, &result.pane_id) {
@@ -163,7 +185,7 @@ fn tui_hint_for(agent_type: &str, reason: &str, status: Option<&str>) -> Option<
         crate::tui::Kind::Cli if blocked => Some(json!({
             "action": "answer_prompt",
             "tools": ["answer_prompt", "read_terminal_buffer", "press_key"],
-            "detail": "A prompt is blocking this pane. If `prompt` is present, call answer_prompt(pane_id, prompt.prompt_id, choice: allow_once|deny); this connection must control the pane (take_over with grant=true for panes it did not start). Otherwise read the screen once and use press_key (Cursor: y = run once, n or esc = skip). Workspace trust must be accepted by the user. Nothing is answered automatically."
+            "detail": "A prompt is blocking this pane. If `prompt` is present, check prompt.command (and prompt.cwd) is what you mean to approve, then call answer_prompt(pane_id, prompt.prompt_id, choice: allow_once|deny); this connection must control the pane (take_over with grant=true for panes it did not start). Otherwise read the screen once and use press_key (Cursor: y = run once, n or esc = skip). Workspace trust must be accepted by the user. Nothing is answered automatically."
         })),
         crate::tui::Kind::Cli if reason == "idle" => Some(json!({
             "action": "read_terminal_buffer",
