@@ -221,22 +221,22 @@ export default function TerminalApp() {
   }, [lockedPaneId, panes, registry.panes, selectedPaneId]);
 
   // A detached window is bound to one pane. When something else closes that pane (an agent
-  // closing its subagent, a kill from the MCP) there is nothing left to show, so close the
-  // window instead of leaving it on "No terminal pane selected." Worker hosts keep theirs: they
-  // explain the exit and quit the app on close.
-  const lockedPaneSeenRef = useRef(false);
-  const lockedPanePresent = lockedPaneId ? registry.panes.has(lockedPaneId) : false;
+  // closing its subagent, a kill from the MCP) or the pane process has exited, there is nothing
+  // left to show, so close the window instead of leaving a blank terminal or "No terminal pane
+  // selected." A short grace period covers the window opening a moment before the registry
+  // learns about its pane. Worker hosts keep theirs: they explain the exit and quit the app.
+  const lockedPane = lockedPaneId ? registry.panes.get(lockedPaneId) ?? null : null;
+  const lockedPaneGone = registry.initialReady && lockedPaneId !== null && lockedPane === null;
+  const lockedPaneDead = lockedPane !== null && lockedPane.status === 'error';
   useEffect(() => {
-    if (!detached || workerHost || !lockedPaneId) return;
-    if (lockedPanePresent) {
-      lockedPaneSeenRef.current = true;
-      return;
-    }
-    if (!lockedPaneSeenRef.current || !registry.initialReady) return;
-    void tauri.closeCurrentWindow().catch((err) => {
-      console.warn('[TerminalApp] failed to close detached window for a closed pane', err);
-    });
-  }, [detached, workerHost, lockedPaneId, lockedPanePresent, registry.initialReady]);
+    if (!detached || workerHost || !(lockedPaneGone || lockedPaneDead)) return;
+    const timer = window.setTimeout(() => {
+      void tauri.closeCurrentWindow().catch((err) => {
+        console.warn('[TerminalApp] failed to close detached window for a closed pane', err);
+      });
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [detached, workerHost, lockedPaneGone, lockedPaneDead]);
 
   useEffect(() => {
     if (!detached || !selectedPaneId) return;
