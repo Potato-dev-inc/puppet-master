@@ -95,6 +95,35 @@ spawn_agent { agent_type: "opencode_native", cwd: "<project>" }
 
 Or CLI: `npm run worker opencode_native` from repo root (dev).
 
+## Read-only runs (`read_only: true`)
+
+Supported for a pane the run **spawns itself** (no `pane_id`/`worker_id`). The app starts
+`opencode serve` with `OPENCODE_CONFIG_CONTENT` defining a primary agent `pm-read-only`
+(`permission: {"*":"deny", read/grep/glob/list/question/todowrite: "allow"}`) and
+`default_agent: "pm-read-only"`. The agent never receives `bash`, `edit`, `write`, `webfetch`, `task`
+or any MCP tool. Prompts, follow-ups and TUI input in that pane all use it. Adopting a shared pane
+with `read_only: true` stays `READ_ONLY_UNSUPPORTED`; a read-only run never reuses a pane started
+without the config, and other runs never land in a read-only pane. The receipt reports `enforced`.
+The human in the attached TUI can still switch the agent to `build` (it is a visibility TUI).
+
+### How this was verified (opencode 1.18.34, Windows, model `openrouter/anthropic/claude-haiku-4.5`)
+
+Each run: `OPENCODE_CONFIG_CONTENT=<cfg> opencode serve --port N`, `POST /session?directory=<tmp>`,
+`POST /session/{id}/prompt_async` asking it to (1) create `created.txt`, (2) run
+`echo bashran > bash.txt`, (3) read `readme.md`, then list the directory and `GET /session/{id}/message`.
+
+| Config | Result |
+|--------|--------|
+| `{}` (control) | `read`, `write`, `bash` tools all completed; `created.txt` and `bash.txt` exist |
+| `permission: {edit:deny, bash:deny, webfetch:deny}` | no file created; only `read` completed. But the MCP tool `pencil_execute` (from the user's global config) was still offered and attempted to write, so a top-level deny list is not enough |
+| `permission: {"*":deny, read/grep/glob/list/question/todowrite: allow}` | no files created, `read` completed, no MCP tool offered |
+| same, plus a project `opencode.json` with `permission {bash:allow, edit:allow, "*":allow, "pencil_*":allow}` | `pencil_execute` offered again: a later project rule beats the config-level `"*":deny` |
+| agent `pm-read-only` with the deny-all ruleset, selected per message (`agent` field) against that hostile project config | no files created, only `read`/`list` completed, no MCP tool offered |
+| same agent as `default_agent`, no per-message `agent`, hostile project config | same result, so TUI and API prompts are both covered |
+
+(The `opencode/*` free-tier models answered 403 from outside the OpenCode client, so the
+OpenRouter provider already configured on this machine was used.)
+
 ## MCP catalog freshness
 
 Local dev: prefer `packages/mcp-server/dist/legacy.js` in Cursor MCP config — it loads tools from `GET /mcp/tools` on connect. Stale `puppet-master-mcp.exe` may hide `read_opencode_messages` / `reply_opencode_question`. Toggle MCP after `npm run build:mcp`.
