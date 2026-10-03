@@ -2578,3 +2578,35 @@ fn receipt_serializes_additively_and_running_runs_do_not_claim_unverified_model(
     let not_verified = value["receipt"]["not_verified"].as_array().unwrap();
     assert!(!not_verified.iter().any(|entry| entry == "model not confirmed"));
 }
+
+#[test]
+fn duration_measures_prompt_to_finish_and_total_includes_setup() {
+    let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+    snapshot.created_at_ms = 1_000;
+    snapshot.started_at_ms = Some(51_000);
+    snapshot.finished_at_ms = Some(62_000);
+    let value = serde_json::to_value(super::runtime::AgentRunView::from(snapshot)).unwrap();
+    assert_eq!(value["duration_ms"], 11_000);
+    assert_eq!(value["setup_ms"], 50_000);
+    assert_eq!(value["total_ms"], 61_000);
+    assert_eq!(value["receipt"]["build_id"], env!("PM_BUILD_ID"));
+}
+
+#[test]
+fn pane_open_is_false_while_an_auto_closing_pane_is_still_in_the_registry() {
+    let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+    snapshot.pane_created = true;
+    snapshot.keep_pane = false;
+    let (open, closing, note) = super::runtime::pane_presentation(&snapshot, true, false);
+    assert!(!open && closing);
+    assert!(note.unwrap().contains("being closed"));
+    // The dispose is skipped when another operation holds the pane: it really stays open.
+    assert_eq!(super::runtime::pane_presentation(&snapshot, true, true), (true, false, None));
+    // keep_pane runs and adopted panes are never auto-closed.
+    snapshot.keep_pane = true;
+    let (open, closing, note) = super::runtime::pane_presentation(&snapshot, true, false);
+    assert!(open && !closing && note.unwrap().contains("keep_pane=true"));
+    snapshot.keep_pane = false;
+    snapshot.pane_created = false;
+    assert_eq!(super::runtime::pane_presentation(&snapshot, true, false), (true, false, None));
+}

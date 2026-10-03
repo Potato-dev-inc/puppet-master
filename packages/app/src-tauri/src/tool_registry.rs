@@ -185,7 +185,7 @@ fn receipt_schema() -> Value {
         "read_only":{"type":"string","enum":["enforced","unenforced","off"]},
         "checks":{"type":"string","description":"`none configured` or `<passed>/<total> passed`."},
         "result_capture":{"type":"string","enum":["authoritative","inferred","missing","pending"]},
-        "not_verified":{"type":"array","items":{"type":"string"}}
+        "not_verified":{"type":"array","items":{"type":"string"}},"build_id":{"type":"string","description":"Puppet Master build that produced this run."}
     },"required":["backend","read_only","checks","result_capture","not_verified"]})
 }
 
@@ -198,7 +198,7 @@ fn agent_run_schema() -> Value {
         "acceptance_status":{"type":"string","enum":["not_checked","passed","failed","blocked"]},
         "verified":{"type":"boolean"},
         "prompt":{"type":["object","null"]},"error":{"type":["object","null"]},
-        "pane_id":{"type":["string","null"]},"duration_ms":{"type":["integer","null"]},"revision":{"type":"integer"},
+        "pane_id":{"type":["string","null"]},"duration_ms":{"type":["integer","null"],"description":"Prompt sent to completion."},"total_ms":{"type":["integer","null"],"description":"Run created to completion, including pane spawn and readiness."},"setup_ms":{"type":["integer","null"]},"pane_closing":{"type":"boolean"},"revision":{"type":"integer"},
         "next_cursor":{"type":"integer","minimum":0},
         "name":{"type":["string","null"]},
         "context_policy":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"]},

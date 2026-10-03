@@ -185,10 +185,21 @@ pub struct AgentRunView {
     /// Whether the run's pane is still alive. Set only where the live registry is consulted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_open: Option<bool>,
+    /// True when the run is finished and its pane is being closed automatically right now
+    /// (`pane_open` is already false in that case).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_closing: Option<bool>,
     /// Present when a finished run's pane stays open and needs `close_agent`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_note: Option<String>,
+    /// Prompt written to the worker until the turn finished (or now, while running).
     pub duration_ms: Option<u64>,
+    /// Run created until the turn finished, so it includes queueing, pane spawn and readiness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_ms: Option<u64>,
+    /// Run created until the prompt was written (`total_ms - duration_ms`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_ms: Option<u64>,
     pub revision: u64,
     pub next_cursor: u64,
     pub name: Option<String>,
@@ -235,6 +246,9 @@ pub struct RunReceipt {
     pub checks: String,
     pub result_capture: String,
     pub not_verified: Vec<String>,
+    /// Puppet Master build that produced the run, so a result can be tied to the code under test.
+    #[serde(default)]
+    pub build_id: String,
 }
 
 fn build_receipt(
@@ -288,6 +302,7 @@ fn build_receipt(
         checks,
         result_capture: result_capture.into(),
         not_verified,
+        build_id: env!("PM_BUILD_ID").to_string(),
     }
 }
 
@@ -360,15 +375,26 @@ fn run_end_ms(snapshot: &OperationSnapshot) -> u64 {
     now.max(snapshot.updated_at_ms)
 }
 
+/// `(duration_ms, total_ms, setup_ms)`. `started_at_ms` is stamped when the prompt is written to
+/// the worker (after pane spawn and readiness), so `duration_ms` is the turn itself; `total_ms`
+/// adds the setup before it. The dispatch start only stands in until a prompt is written.
+pub(super) fn run_timings(snapshot: &OperationSnapshot) -> (Option<u64>, Option<u64>, Option<u64>) {
+    let end = run_end_ms(snapshot);
+    let duration = snapshot.started_at_ms.map(|start| end.saturating_sub(start));
+    let total = end.saturating_sub(snapshot.created_at_ms);
+    let setup = snapshot
+        .started_at_ms
+        .map(|start| start.saturating_sub(snapshot.created_at_ms));
+    (duration, Some(total), setup)
+}
+
 fn is_zero(value: &usize) -> bool {
     *value == 0
 }
 
 impl From<OperationSnapshot> for AgentRunView {
     fn from(snapshot: OperationSnapshot) -> Self {
-        let duration_ms = snapshot
-            .started_at_ms
-            .map(|start| run_end_ms(&snapshot).saturating_sub(start));
+        let (duration_ms, total_ms, setup_ms) = run_timings(&snapshot);
         let capabilities = capabilities::for_snapshot(&snapshot);
         let operation_id = snapshot.operation_id.clone();
         let project_path = snapshot.project_path.clone();
@@ -471,10 +497,13 @@ impl From<OperationSnapshot> for AgentRunView {
             error: snapshot.error,
             pane_id: snapshot.pane_id,
             pane_open: snapshot.worker.pane_disposed.then_some(false),
+            pane_closing: None,
             pane_note: snapshot.worker.pane_disposed.then(|| {
                 "pane was closed automatically when the run finished (keep_pane=false)".into()
             }),
             duration_ms,
+            total_ms,
+            setup_ms,
             revision: snapshot.revision,
             next_cursor: snapshot.worker.event_cursor.max(snapshot.revision),
             name: snapshot.worker.name.clone(),
@@ -535,17 +564,55 @@ impl AgentRunView {
             }
         }
         if let (Some(registry), Some(pane_id)) = (registry, snapshot.pane_id.as_deref()) {
-            let open = registry.lock().panes.contains_key(pane_id);
+            let alive = registry.lock().panes.contains_key(pane_id);
+            let busy = alive
+                && snapshot.status.terminal()
+                && super::pane_close::should_dispose_after_terminal(&snapshot)
+                && crate::operations::conflicting_pane_operation(
+                    &snapshot.project_path,
+                    pane_id,
+                    &snapshot.operation_id,
+                )
+                .ok()
+                .flatten()
+                .is_some();
+            let (open, closing, note) = pane_presentation(&snapshot, alive, busy);
             view.pane_open = Some(open);
-            if open && snapshot.keep_pane && snapshot.status.terminal() {
-                view.pane_note = Some(
-                    "pane stays open (keep_pane=true); call close_agent when you are done with it"
-                        .into(),
-                );
+            view.pane_closing = closing.then_some(true);
+            if note.is_some() {
+                view.pane_note = note;
             }
         }
         view
     }
+}
+
+/// `(pane_open, pane_closing, note)` at return time. A finished keep_pane=false run's pane is
+/// closed right after the result is published, so it may still be in the registry when the view
+/// is built; reporting it open would be false by the time the caller reads it.
+pub(super) fn pane_presentation(
+    snapshot: &OperationSnapshot,
+    alive: bool,
+    other_op_busy: bool,
+) -> (bool, bool, Option<String>) {
+    if alive
+        && snapshot.status.terminal()
+        && !other_op_busy
+        && super::pane_close::should_dispose_after_terminal(snapshot)
+    {
+        return (
+            false,
+            true,
+            Some(
+                "pane is being closed automatically now that the run finished (keep_pane=false)"
+                    .into(),
+            ),
+        );
+    }
+    let note = (alive && snapshot.keep_pane && snapshot.status.terminal()).then(|| {
+        "pane stays open (keep_pane=true); call close_agent when you are done with it".into()
+    });
+    (alive, false, note)
 }
 
 /// `caller_cursor` is the revision the caller explicitly said it had already seen, if any. The
