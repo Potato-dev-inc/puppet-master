@@ -1,6 +1,6 @@
 # TUI profiles
 
-One folder (or file) per agent CLI/TUI. Anything that is true of **one** TUI and not the others
+One folder per agent CLI/TUI. Anything that is true of **one** TUI and not the others
 lives here, so a break in one TUI is fixed in one place and cannot disturb the rest.
 
 ```
@@ -8,16 +8,17 @@ tui/
   mod.rs          TuiProfile trait, Features, registry (PROFILES), shared policy
   generic.rs      default prompt handling + the profile for unregistered agent types
   conformance.rs  rules every registered profile must pass (runs for new profiles automatically)
-  claude.rs       Claude Code
-  codex.rs        Codex
-  opencode.rs     OpenCode TUI + opencode_native (TUI-facing part only; HTTP client is crate::opencode)
-  shell.rs        cmd / powershell / bash
   cursor/         Cursor Agent CLI + Cursor IDE launcher
     launch.rs       headless command line, default model lookup
     headless.rs     reading headless output (result, rejected calls, trust screen)
     screen.rs       interactive TUI: status, approval/trust prompts, footer model
     chrome.rs       which screen lines are furniture, not reply text
     fixtures/       real captures replayed by the tests
+  claude/         Claude Code        (mod.rs profile, headless.rs)
+  codex/          Codex              (mod.rs profile, headless.rs)
+  opencode/       OpenCode TUI + opencode_native, TUI-facing part only (mod.rs, screen.rs)
+                  (the HTTP client is crate::opencode)
+  shell/          cmd / powershell / bash (mod.rs, prompt.rs)
 ```
 
 ## The rule
@@ -32,8 +33,9 @@ method (with a generic default) to `TuiProfile` instead.
 1. **Enum**: add `AgentType::Foo` in `pty/agents.rs` (`as_str`, `parse`, the three
    `resolve_*` launch commands) and mirror it in `packages/shared/src/agents.ts`. Add its
    `AgentContextProfile` in `agent_contexts.rs`.
-2. **Profile**: create `tui/foo.rs` (or `tui/foo/` once it has more than ~200 lines) with a unit
-   struct implementing `TuiProfile`. Override only what differs. Start from:
+2. **Profile**: create `tui/foo/mod.rs` with a unit struct implementing `TuiProfile`, and split
+   it into `launch.rs`/`headless.rs`/`screen.rs`/`chrome.rs` as logic appears (see `claude/`
+   for the smallest example, `cursor/` for the fullest). Override only what differs. Start from:
 
    ```rust
    pub struct Foo;
