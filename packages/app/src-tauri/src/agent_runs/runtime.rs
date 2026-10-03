@@ -216,6 +216,79 @@ pub struct AgentRunView {
     /// Caveats on a finished run. They never change `status`; read them before trusting `result`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<RunWarning>,
+    /// Honest summary of what this run did and did not verify, derived only from recorded facts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<RunReceipt>,
+}
+
+/// What a run proved and what it did not. Every `not_verified` entry is derived from a fact the
+/// run recorded; nothing here is a guess.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunReceipt {
+    pub backend: String,
+    /// The model that ran when the backend confirmed it, else the one requested.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// `enforced`, `unenforced` (requested but the backend cannot enforce it) or `off`.
+    pub read_only: String,
+    /// `none configured` or `<passed>/<total> passed`.
+    pub checks: String,
+    pub result_capture: String,
+    pub not_verified: Vec<String>,
+}
+
+fn build_receipt(
+    snapshot: &OperationSnapshot,
+    warnings: &[RunWarning],
+    model_verified: Option<bool>,
+    result_capture: &str,
+) -> RunReceipt {
+    let terminal = snapshot.status.terminal();
+    let features = crate::tui::profile_for(&snapshot.agent_type).features();
+    let read_only = if !snapshot.read_only {
+        "off"
+    } else if features.read_only_headless {
+        "enforced"
+    } else {
+        "unenforced"
+    };
+    let total = snapshot.checks.len();
+    let checks = if total == 0 {
+        "none configured".to_string()
+    } else if terminal {
+        let passed = snapshot.check_results.iter().filter(|result| result.passed).count();
+        format!("{passed}/{total} passed")
+    } else {
+        format!("0/{total} passed (pending)")
+    };
+    let mut not_verified = Vec::new();
+    if total == 0 {
+        not_verified.push("no checks configured".to_string());
+    }
+    if terminal && result_capture == "inferred" {
+        not_verified.push("result read from terminal screen".to_string());
+    }
+    if terminal && snapshot.worker.requested_model.is_some() && model_verified != Some(true) {
+        not_verified.push("model not confirmed".to_string());
+    }
+    if read_only == "unenforced" {
+        not_verified.push("read_only not enforced".to_string());
+    }
+    if warnings.iter().any(|warning| warning.code == "SHELL_COMMAND_REJECTED") {
+        not_verified.push("shell commands rejected".to_string());
+    }
+    RunReceipt {
+        backend: snapshot.agent_type.clone(),
+        model: snapshot
+            .worker
+            .resolved_model
+            .clone()
+            .or_else(|| snapshot.worker.requested_model.clone()),
+        read_only: read_only.into(),
+        checks,
+        result_capture: result_capture.into(),
+        not_verified,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -324,6 +397,24 @@ impl From<OperationSnapshot> for AgentRunView {
                 result: if same_turn { receipt.result } else { None },
             })
         });
+        let result_capture: String = if snapshot.status.terminal() {
+            match snapshot.result_capture {
+                Some(ResultCapture::Authoritative) => "authoritative".into(),
+                Some(ResultCapture::Inferred) => "inferred".into(),
+                Some(ResultCapture::Missing) | None => "missing".into(),
+            }
+        } else {
+            "pending".into()
+        };
+        let model_verified = match (
+            snapshot.worker.requested_model.as_deref(),
+            snapshot.worker.resolved_model.as_deref(),
+        ) {
+            (None, _) => None,
+            (Some(requested), Some(resolved)) => Some(requested == resolved),
+            (Some(_), None) => Some(false),
+        };
+        let receipt = build_receipt(&snapshot, &warnings, model_verified, &result_capture);
         Self {
             handle,
             turn_id,
@@ -352,15 +443,7 @@ impl From<OperationSnapshot> for AgentRunView {
             },
             stage: snapshot.stage,
             result: snapshot.result,
-            result_capture: if snapshot.status.terminal() {
-                match snapshot.result_capture {
-                    Some(ResultCapture::Authoritative) => "authoritative".into(),
-                    Some(ResultCapture::Inferred) => "inferred".into(),
-                    Some(ResultCapture::Missing) | None => "missing".into(),
-                }
-            } else {
-                "pending".into()
-            },
+            result_capture,
             acceptance_status: match snapshot.acceptance_status {
                 AcceptanceStatus::NotChecked => "not_checked".into(),
                 AcceptanceStatus::Passed => "passed".into(),
@@ -371,14 +454,7 @@ impl From<OperationSnapshot> for AgentRunView {
             checks: snapshot.check_results.clone(),
             verified: snapshot.verified,
             result_verified: snapshot.verified,
-            model_verified: match (
-                snapshot.worker.requested_model.as_deref(),
-                snapshot.worker.resolved_model.as_deref(),
-            ) {
-                (None, _) => None,
-                (Some(requested), Some(resolved)) => Some(requested == resolved),
-                (Some(_), None) => Some(false),
-            },
+            model_verified,
             recovery: snapshot.required_action.as_ref().and_then(|value| {
                 value
                     .get("kind")
@@ -427,6 +503,7 @@ impl From<OperationSnapshot> for AgentRunView {
                 )
             }),
             warnings,
+            receipt: Some(receipt),
         }
     }
 }
@@ -448,6 +525,13 @@ impl AgentRunView {
         view.resolved_model = resolved;
         if view.resolved_model.is_some() {
             view.warnings.retain(|warning| warning.code != "MODEL_UNRESOLVED");
+        }
+        if let Some(receipt) = view.receipt.as_mut() {
+            // Live registry knowledge may confirm the model after the snapshot was written.
+            receipt.model = view.resolved_model.clone().or_else(|| view.requested_model.clone());
+            if view.requested_model.is_none() || view.requested_model == view.resolved_model {
+                receipt.not_verified.retain(|entry| entry != "model not confirmed");
+            }
         }
         if let (Some(registry), Some(pane_id)) = (registry, snapshot.pane_id.as_deref()) {
             let open = registry.lock().panes.contains_key(pane_id);

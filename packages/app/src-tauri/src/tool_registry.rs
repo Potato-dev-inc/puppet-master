@@ -178,6 +178,16 @@ fn operation_snapshot_schema() -> Value {
     },"required":["operation_id","project_path","task","idempotency_key","status","revision","created_at_ms","updated_at_ms","source"]})
 }
 
+fn receipt_schema() -> Value {
+    json!({"type":"object","description":"What this run verified and what it did not. not_verified entries are derived from recorded facts only.","properties":{
+        "backend":{"type":"string"},"model":{"type":"string","description":"Resolved model when confirmed, else the requested one."},
+        "read_only":{"type":"string","enum":["enforced","unenforced","off"]},
+        "checks":{"type":"string","description":"`none configured` or `<passed>/<total> passed`."},
+        "result_capture":{"type":"string","enum":["authoritative","inferred","missing","pending"]},
+        "not_verified":{"type":"array","items":{"type":"string"}}
+    },"required":["backend","read_only","checks","result_capture","not_verified"]})
+}
+
 fn agent_run_schema() -> Value {
     let mut schema = json!({"type":"object","properties":{
         "handle":{"type":"string"},"operation_id":{"type":"string"},"turn_id":{"type":"string"},
@@ -211,6 +221,7 @@ fn agent_run_schema() -> Value {
         properties.insert("result_verified".into(), json!({"type":"boolean"}));
         properties.insert("model_verified".into(), json!({"type":["boolean","null"]}));
         properties.insert("recovery".into(), json!({"type":["object","null"]}));
+        properties.insert("receipt".into(), receipt_schema());
     }
     schema
 }
@@ -1470,6 +1481,7 @@ mod tests {
             "result_verified",
             "model_verified",
             "recovery",
+            "receipt",
         ] {
             assert!(props.contains_key(key), "missing output field {key}");
         }
