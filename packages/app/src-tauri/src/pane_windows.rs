@@ -59,8 +59,10 @@ pub fn orphaned_labels(window_labels: &[String], live_pane_ids: &[String]) -> Ve
         .collect()
 }
 
-/// Destroy the detached windows of panes that are gone, after the grace period. Worker-host
-/// processes keep their own exit flow. Compiled out of unit-test builds: the window APIs need
+/// Destroy the detached windows of panes that are gone, after the grace period. Only
+/// `detached-pane-*` windows are touched, so a worker host's own main window is safe; destroying
+/// (unlike closing) skips the worker-host close handler that would kill the pane and quit the
+/// app. Compiled out of unit-test builds: the window APIs need
 /// the Windows application manifest, which the test executable does not carry.
 #[cfg(test)]
 pub fn schedule_sweep(_registry: &Arc<Mutex<PaneRegistry>>, _app: &AppHandle) {}
@@ -69,9 +71,6 @@ pub fn schedule_sweep(_registry: &Arc<Mutex<PaneRegistry>>, _app: &AppHandle) {}
 pub fn schedule_sweep(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
     use std::thread;
     use tauri::Manager;
-    if crate::worker_launch::worker_launch().is_some() {
-        return;
-    }
     let (registry, app) = (registry.clone(), app.clone());
     let _ = thread::Builder::new()
         .name("puppet-orphan-window-sweep".into())
@@ -84,9 +83,15 @@ pub fn schedule_sweep(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
                 .map(|pane| pane.id)
                 .collect();
             let labels: Vec<String> = app.webview_windows().keys().cloned().collect();
-            for label in orphaned_labels(&labels, &live) {
-                if let Some(window) = app.get_webview_window(&label) {
-                    let _ = window.destroy();
+            let orphans = orphaned_labels(&labels, &live);
+            tracing::info!(?labels, ?live, ?orphans, "orphan pane window sweep");
+            for label in orphans {
+                match app.get_webview_window(&label) {
+                    Some(window) => {
+                        let result = window.destroy();
+                        tracing::info!(%label, ?result, "destroyed orphan pane window");
+                    }
+                    None => tracing::warn!(%label, "orphan pane window vanished before destroy"),
                 }
             }
         });
