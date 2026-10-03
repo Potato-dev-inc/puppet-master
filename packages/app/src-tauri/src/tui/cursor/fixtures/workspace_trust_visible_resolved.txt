@@ -1,0 +1,30 @@
+
+  ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                                                   │
+  │  ⚠ Workspace Trust Required                                                                                       │
+  │                                                                                                                   │
+  │  Cursor Agent can execute code and access files in this directory.                                                │
+  │                                                                                                                   │
+  │  Do you trust the contents of this directory?                                                                     │
+  │                                                                                                                   │
+  │    C:\Users\Ren-pc\AppData\Local\Temp\cur-_b1a_ip3                                                                │
+  │                                                                                                                   │
+  │                                                                                                                   │
+  │    [a] Trust this workspace                                                                                       │  
+  │    [q] Quit                                                                                                       │  
+  │                                                                                                                   │  
+  │  ⏳ Trusting workspace...                                                                                         │  
+  │                                                                                                                   │  
+  ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+
+
+  Cursor Agent
+  v2026.10.01-e373342
+  Tip: Use /plan to plan execution and reach the right outcome faster.
+
+
+ ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+  → Plan, search, build anything                                                                                         
+ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 
+  Composer 2.5
+  ~\AppData\Local\Temp\cur-_b1a_ip3

@@ -23,9 +23,43 @@ static BLOCKED_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     .collect()
 });
 
+/// The workspace-trust dialog stays in the scrollback after it was answered; the TUI then prints
+/// its banner and input prompt BELOW it. Drops everything up to and including a trust dialog that
+/// something below shows has already been dealt with, so it is not read as a live prompt.
+/// (Real capture: tests/fixtures workspace_trust_visible_resolved.txt.) Command-approval dialogs
+/// keep their footer underneath while live, so only the trust dialog gets this treatment.
+fn without_resolved_trust_dialog(screen: &str) -> String {
+    let lines: Vec<&str> = screen.lines().collect();
+    let is_trust = |line: &str| {
+        let lower = line.to_ascii_lowercase();
+        lower.contains("trust this workspace")
+            || lower.contains("workspace trust required")
+            || lower.contains("do you trust the contents")
+            || lower.contains("trusting workspace")
+    };
+    let Some(last_trust) = lines.iter().rposition(|line| is_trust(line)) else {
+        return screen.to_string();
+    };
+    let progressed = lines[last_trust + 1..].iter().any(|line| {
+        let lower = line.trim().trim_start_matches(['→', '>', ' ']).to_ascii_lowercase();
+        lower.starts_with("plan, search, build anything")
+            || lower.starts_with("add follow-up")
+            || lower.starts_with("add a follow-up")
+            || lower == "cursor agent"
+    });
+    if progressed || lines[last_trust].to_ascii_lowercase().contains("trusting workspace") {
+        lines[last_trust + 1..].join("
+")
+    } else {
+        screen.to_string()
+    }
+}
+
 /// Status from the last visible lines. Order matters: a dialog beats the working indicator, which
 /// beats the idle footer.
 pub(super) fn classify(visible_tail: &str) -> PaneStatus {
+    let live = without_resolved_trust_dialog(visible_tail);
+    let visible_tail = live.as_str();
     if BLOCKED_PATTERNS.iter().any(|re| re.is_match(visible_tail)) {
         return PaneStatus::WaitingInput;
     }
@@ -44,7 +78,8 @@ pub(super) fn classify(visible_tail: &str) -> PaneStatus {
 /// Narrow on purpose: only Cursor's trust and command-approval dialogs. There is no broad
 /// "allow all" prompt, so `allow_broad` is ignored.
 pub(super) fn detect_prompt(agent_type: &str, screen: &str, _allow_broad: bool) -> Option<Value> {
-    let lower = screen.to_ascii_lowercase();
+    let live = without_resolved_trust_dialog(screen);
+    let lower = live.to_ascii_lowercase();
     let (kind, choices) =
         if lower.contains("trust this workspace") || lower.contains("trust the authors") {
             ("workspace_trust", vec!["trust".to_string(), "deny".to_string()])
@@ -75,13 +110,35 @@ pub(super) fn prompt_reply(
     allow_broad: bool,
 ) -> Result<Reply, String> {
     if prompt.get("kind").and_then(Value::as_str) == Some("workspace_trust") {
+        // The dialog names its own keys (`[a] Trust this workspace`, `[q] Quit`); older builds
+        // answered y/n, so fall back to those when the screen text has no bracketed keys.
+        let text = prompt.get("text").and_then(Value::as_str).unwrap_or_default();
+        let (trust_key, deny_key) = trust_dialog_keys(text);
         return match choice {
-            "trust" => Ok(Reply::key("y")),
-            "deny" => Ok(Reply::key("n")),
+            "trust" => Ok(Reply::key(&trust_key)),
+            "deny" => Ok(Reply::key(&deny_key)),
             _ => Err("unsupported workspace trust choice".into()),
         };
     }
     generic::prompt_reply(prompt, choice, allow_broad)
+}
+
+/// Keys of the trust dialog's `[x] Trust this workspace` and `[x] Quit` rows.
+fn trust_dialog_keys(text: &str) -> (String, String) {
+    let key_of = |needle: &str| {
+        text.lines().find_map(|line| {
+            let lower = line.to_ascii_lowercase();
+            let at = lower.find(needle)?;
+            let head = &line[..at];
+            let open = head.rfind('[')?;
+            let key = head[open + 1..].split(']').next()?.trim();
+            (key.chars().count() == 1).then(|| key.to_string())
+        })
+    };
+    (
+        key_of("trust this workspace").unwrap_or_else(|| "y".into()),
+        key_of("quit").unwrap_or_else(|| "n".into()),
+    )
 }
 
 /// Cursor's TUI footer reads `Composer 2.5 · 7.2%` (model, then context usage); the last such row
@@ -190,6 +247,30 @@ mod tests {
         assert_eq!(cursor.prompt_reply(&prompt, "trust", false).unwrap(), Reply::key("y"));
         assert_eq!(cursor.prompt_reply(&prompt, "deny", false).unwrap(), Reply::key("n"));
         assert!(cursor.prompt_reply(&prompt, "allow_once", false).is_err());
+    }
+
+    // Real captures from a visible cursor_agent pane in an untrusted folder (2026-10-04).
+    const TRUST_PENDING: &str = include_str!("fixtures/workspace_trust_visible_pending.txt");
+    const TRUST_RESOLVED: &str = include_str!("fixtures/workspace_trust_visible_resolved.txt");
+
+    #[test]
+    fn a_pending_trust_dialog_is_a_live_prompt_with_its_own_keys() {
+        assert_eq!(status(TRUST_PENDING), PaneStatus::WaitingInput);
+        let cursor = profile_for("cursor_agent");
+        let prompt = cursor.detect_prompt(TRUST_PENDING, false).unwrap();
+        assert_eq!(prompt["kind"], "workspace_trust");
+        assert_eq!(cursor.prompt_reply(&prompt, "trust", false).unwrap(), Reply::key("a"));
+        assert_eq!(cursor.prompt_reply(&prompt, "deny", false).unwrap(), Reply::key("q"));
+    }
+
+    #[test]
+    fn an_answered_trust_dialog_left_in_the_scrollback_is_not_a_live_prompt() {
+        // The TUI redraws its banner and input prompt below the old dialog; PM used to keep
+        // re-reporting workspace_trust forever.
+        assert_ne!(status(TRUST_RESOLVED), PaneStatus::WaitingInput);
+        assert!(profile_for("cursor_agent")
+            .detect_prompt(TRUST_RESOLVED, false)
+            .is_none());
     }
 
     #[test]
