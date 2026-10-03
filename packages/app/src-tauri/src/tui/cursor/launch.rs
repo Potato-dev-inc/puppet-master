@@ -7,6 +7,9 @@ use std::path::PathBuf;
 /// added when the caller explicitly asked; `--yolo`/`-f` are never passed.
 fn cli_args(launch: &HeadlessLaunch) -> Vec<String> {
     let mut args = vec!["--print", "--output-format", "json"];
+    if let Some(session) = launch.resume_session.filter(|id| !id.is_empty()) {
+        args.extend(["--resume", session]);
+    }
     if launch.trust_workspace {
         args.push("--trust");
     }
@@ -152,6 +155,22 @@ mod tests {
         .unwrap();
         assert!(trusted.args.iter().any(|arg| arg == "--trust"));
         assert_eq!(trusted.args.last().map(String::as_str), Some("t"));
+    }
+
+    #[test]
+    fn resume_session_adds_resume_flag_before_the_task() {
+        let fresh = headless_launch("cursor_agent", &HeadlessLaunch::new(".", "t")).unwrap();
+        assert!(!fresh.args.iter().any(|arg| arg == "--resume"));
+        let resumed = headless_launch(
+            "cursor_agent",
+            &HeadlessLaunch {
+                resume_session: Some("chat-1"),
+                ..HeadlessLaunch::new(".", "next")
+            },
+        )
+        .unwrap();
+        assert!(resumed.args.windows(2).any(|pair| pair == ["--resume", "chat-1"]));
+        assert_eq!(resumed.args.last().map(String::as_str), Some("next"));
     }
 
     #[test]

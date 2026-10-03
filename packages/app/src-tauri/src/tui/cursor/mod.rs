@@ -62,6 +62,7 @@ impl TuiProfile for CursorAgent {
     fn features(&self) -> Features {
         Features {
             read_only_headless: true,
+            resumable_headless: true,
             ..Features::CLI
         }
     }
@@ -80,6 +81,10 @@ impl TuiProfile for CursorAgent {
 
     fn extract_result(&self, output: &str, exit_code: i32) -> Option<String> {
         headless::extract_result(output, exit_code)
+    }
+
+    fn extract_provider_session(&self, output: &str) -> Option<String> {
+        headless::extract_provider_session(output)
     }
 
     fn rejected_call_warning(&self, output: &str) -> Option<&'static str> {

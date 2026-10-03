@@ -1525,6 +1525,40 @@ fn visible_terminal_only_when_pane_exists() {
 }
 
 #[test]
+fn headless_cursor_resumes_one_conversation_across_followups() {
+    let caps = super::capabilities::for_backend("cursor_agent", false);
+    assert!(caps.session_resume);
+    assert!(!super::capabilities::for_backend("cursor_agent", true).session_resume);
+
+    let project = std::env::temp_dir().join(format!("pm-cursor-resume-{}", Uuid::new_v4()));
+    let project_path = project.to_string_lossy().into_owned();
+    let mut first = persist_req(&project_path, "cur", 0, "turn one");
+    first.agent_type = "cursor_agent".into();
+    let (op, _) = operations::create_operation(first).unwrap();
+    // The first turn's JSON result carries the chat id; the exit path stores it on the worker.
+    let session = crate::tui::profile_for("cursor_agent")
+        .extract_provider_session(include_str!("../tui/cursor/fixtures/headless_result.json"))
+        .unwrap();
+    operations::set_provider_session(&project_path, &op.operation_id, &session).unwrap();
+    let stored = operations::get_operation(&project_path, &op.operation_id).unwrap();
+    assert!(super::persist::snapshot_can_resume(&stored));
+    // The next turn's launch resumes that chat instead of starting a new one.
+    let spec = crate::tui::headless_launch(
+        "cursor_agent",
+        &crate::tui::HeadlessLaunch {
+            resume_session: stored.worker.provider_session_id.as_deref(),
+            ..crate::tui::HeadlessLaunch::new(".", "turn two")
+        },
+    )
+    .unwrap();
+    assert!(spec
+        .args
+        .windows(2)
+        .any(|pair| pair[0] == "--resume" && pair[1] == session));
+    let _ = fs::remove_dir_all(project);
+}
+
+#[test]
 fn cursor_tui_contract_documents_version_limits_without_parity_claims() {
     let caps = super::capabilities::for_backend("cursor_agent", true);
     assert!(!caps.live_messages);

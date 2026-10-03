@@ -32,6 +32,18 @@ pub(super) fn extract_result(output: &str, exit_code: i32) -> Option<String> {
         .find_map(|key| value.get(*key).and_then(Value::as_str).map(str::to_string))
 }
 
+/// The chat id of a headless run (`session_id` in the `--output-format json` result object), which
+/// `--resume <id>` accepts to continue the same conversation. Verified live: a resumed run reports
+/// the same id.
+pub(super) fn extract_provider_session(output: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(output.trim()).ok()?;
+    value
+        .get("session_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|id| !id.is_empty())
+}
+
 /// Recognises the trust screen a headless run writes before exiting in an untrusted folder. It is
 /// surfaced as a prompt for the user; `--trust`, `--yolo` and `-f` are never passed on the user's
 /// behalf.
@@ -77,6 +89,18 @@ mod tests {
         );
         assert_eq!(extract_result(r#"{"result":"ok"}"#, 1), None);
         assert_eq!(extract_result("plain text", 0), None);
+    }
+
+    #[test]
+    fn captures_the_chat_id_from_a_real_result() {
+        let sample = include_str!("fixtures/headless_result.json");
+        assert_eq!(
+            extract_provider_session(sample).as_deref(),
+            Some("c5ff69cc-81e6-4279-a20b-1c614522ce27")
+        );
+        assert_eq!(extract_result(sample, 0).as_deref(), Some("PONG"));
+        assert_eq!(extract_provider_session(r#"{"session_id":""}"#), None);
+        assert_eq!(extract_provider_session("plain text"), None);
     }
 
     #[test]
