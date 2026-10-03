@@ -19,6 +19,9 @@ use uuid::Uuid;
 
 /// Consecutive failed snapshot reads (500 ms apart) the deadline supervisor tolerates.
 const SUPERVISOR_MAX_READ_FAILURES: u32 = 40;
+/// Supervisor tick. Was 1000 ms for opencode_native, which put up to a second of dead time after
+/// the model finished into every run.
+const SUPERVISE_POLL_MS: u64 = 250;
 struct HeadlessControl {
     child: Mutex<Child>,
     cancelled: AtomicBool,
@@ -979,13 +982,9 @@ pub fn supervise_existing(
                     }
                     return;
                 }
-                thread::sleep(Duration::from_millis(
-                    if snapshot.agent_type == "opencode_native" {
-                        1_000
-                    } else {
-                        250
-                    },
-                ));
+                // Native completion is only noticed by this poll (the wait wakes on the terminal
+                // status it writes), so the interval is added to every run's latency.
+                thread::sleep(Duration::from_millis(SUPERVISE_POLL_MS));
             }
         });
 }
