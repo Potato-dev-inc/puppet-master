@@ -2273,3 +2273,12 @@ fn cursor_default_model_is_parsed_from_about_output() {
     );
     assert!(crate::agent_adapters::launch::parse_cursor_default_model("Version: 1").is_none());
 }
+
+#[test]
+fn cursor_model_is_parsed_from_real_about_columns() {
+    let about = "About Cursor CLI\n\nCLI Version         2026.10.01-e373342\nLatest              2026.10.01-e373342 (up to date)\nModel               Composer 2.5\nSubscription Tier   Pro+\n";
+    assert_eq!(
+        crate::agent_adapters::launch::parse_cursor_default_model(about).as_deref(),
+        Some("Composer 2.5")
+    );
+}

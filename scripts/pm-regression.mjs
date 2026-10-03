@@ -169,6 +169,24 @@ const scenarios = {
     }
     return view;
   },
+  // Steering immediately after run_agent, before the pane has even opened: the message must be
+  // delivered live once the prompt dispatches, not queued and lost.
+  async steer_early(backend, extra) {
+    if (backend !== 'opencode_native') return {};
+    const slow = `Run the shell command \`node -e "setTimeout(()=>{},20000)"\` and wait for it to finish, then reply with only the word PONG.`;
+    const started = await tool('run_agent', { agent_type: backend, project_path: sandbox, task: slow, background: true, wait_ms: 0, ...extra });
+    if (started.handle) handlesSeen.push(started.handle);
+    if (!check('steer_early: run started', started.handle, started._error)) return started;
+    const receipt = await tool('send_message', { handle: started.handle, message: 'Correction: reply with only the word STEERED instead of PONG.', project_path: sandbox });
+    check('steer_early: delivered live, not queued', ['accepted', 'processed'].includes(receipt.disposition), receipt.disposition ?? receipt._error);
+    let view = started;
+    for (let i = 0; i < 10 && !['completed', 'failed', 'cancelled'].includes(view.status); i += 1) {
+      const waited = await tool('wait_agents', { handles: [started.handle], timeout_ms: 60_000, project_path: sandbox });
+      view = waited.agents?.[0] ?? view;
+    }
+    check('steer_early: result follows the correction', /STEERED/.test(view.result ?? ''), String(view.result).slice(0, 60));
+    return view;
+  },
   // Visible pane, two turns, then close_agent must close the pane (B1) and the first turn must
   // never report success without the prompt having landed.
   async visible_close(backend) {

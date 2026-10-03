@@ -280,11 +280,18 @@ pub fn parse_cursor_default_model(about: &str) -> Option<String> {
             plain.push(ch);
         }
     }
+    // Real output is aligned columns (`Model               Composer 2.5`); older/other builds
+    // may print `Default Model: X`. Take the first column as the key, split on a colon or a run
+    // of two or more spaces.
     plain.lines().find_map(|line| {
-        let (key, value) = line.split_once(':')?;
-        (key.trim().eq_ignore_ascii_case("default model"))
-            .then(|| value.trim().to_string())
-            .filter(|value| !value.is_empty())
+        let line = line.trim();
+        let split = line.find(':').or_else(|| line.find("  "))?;
+        let (key, value) = line.split_at(split);
+        let key = key.trim();
+        let value = value.trim_start_matches(':').trim();
+        ((key.eq_ignore_ascii_case("model") || key.eq_ignore_ascii_case("default model"))
+            && !value.is_empty())
+        .then(|| value.to_string())
     })
 }
 

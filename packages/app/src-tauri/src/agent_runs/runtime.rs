@@ -779,7 +779,31 @@ pub fn send_message(
     registry: Arc<Mutex<crate::pty::PaneRegistry>>,
     app: tauri::AppHandle,
 ) -> Result<serde_json::Value, OperationError> {
-    let snapshot = current_agent(project, handle, session_id)?;
+    let mut snapshot = current_agent(project, handle, session_id)?;
+    // A backend that takes live steers has no session to steer until its prompt is dispatched.
+    // Sending now would queue the message and expire it at run end, losing the correction, so
+    // hold a short moment for dispatch instead (the pane takes a few seconds to open).
+    if capabilities::for_snapshot(&snapshot).live_messages
+        && !snapshot.status.terminal()
+        && snapshot.stage.as_deref() != Some("dispatched_waiting_for_task_completion")
+    {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            match current_agent(project, handle, session_id) {
+                Ok(latest) => {
+                    let ready = latest.stage.as_deref() == Some("dispatched_waiting_for_task_completion")
+                        || latest.status.terminal()
+                        || latest.status == OperationStatus::WaitingInput;
+                    snapshot = latest;
+                    if ready {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    }
     let mode = DeliveryMode::parse(delivery);
     let mut receipt = messaging::send_message(
         project,
