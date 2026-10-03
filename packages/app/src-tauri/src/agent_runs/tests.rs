@@ -1744,6 +1744,7 @@ fn headless_cursor_model_is_selectable_but_unconfirmed() {
         completed: true,
         result_inferred: false,
         model_requested,
+        model_unconfirmed: false,
     };
     let cursor = crate::tui::profile_for("cursor_agent");
     assert!(cursor

@@ -131,6 +131,13 @@ impl TuiProfile for CursorAgent {
                 detail: "The requested model was passed to Cursor as --model, but headless Cursor does not report which model ran, so resolved_model is the request, not a confirmation.",
             });
         }
+        if facts.has_pane && facts.completed && facts.model_unconfirmed {
+            warnings.push(Warning {
+                code: "MODEL_UNCONFIRMED",
+                source: "capture",
+                detail: "The Cursor footer model was not visible when the turn finished, so resolved_model is the CLI's configured default, not a confirmation of what ran.",
+            });
+        }
         if facts.has_pane && facts.completed && facts.result_inferred {
             warnings.push(Warning {
                 code: "PROVENANCE_INFERRED",
@@ -162,6 +169,10 @@ impl TuiProfile for CursorAgent {
     /// arms "press again to exit".
     fn clear_input_sequence(&self) -> Option<&'static str> {
         Some("\u{15}")
+    }
+
+    fn verifies_prompt_delivery(&self) -> bool {
+        true
     }
 
     fn is_chrome_line(&self, lower: &str) -> bool {

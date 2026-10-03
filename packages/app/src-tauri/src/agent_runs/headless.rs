@@ -154,6 +154,7 @@ pub fn run_agent(
                         acceptance_criteria: request.acceptance_criteria.clone(),
                         checks: request.checks.clone(),
                         locks: request.locks.clone(),
+                        trust_workspace: request.trust_workspace,
                     },
                 );
             }
@@ -728,6 +729,52 @@ fn read_tui_screen(
     crate::pty::registry_read_snapshot(registry.as_ref(), pane_id).ok()
 }
 
+/// The prompt of the turn before this one on the same handle (empty for a first turn). Its echo
+/// stays on a reused pane's screen and must never be mistaken for this turn's output.
+fn previous_turn_task(snapshot: &OperationSnapshot) -> String {
+    if snapshot.turn_index == 0 {
+        return String::new();
+    }
+    let handle = if snapshot.agent_run_id.is_empty() {
+        snapshot.operation_id.as_str()
+    } else {
+        snapshot.agent_run_id.as_str()
+    };
+    operations::turns_for_handle(&snapshot.project_path, handle)
+        .unwrap_or_default()
+        .into_iter()
+        .rfind(|turn| turn.turn_index < snapshot.turn_index)
+        .map(|turn| turn.task)
+        .unwrap_or_default()
+}
+
+/// Record the model a completed pane run used: the TUI footer when visible (a confirmation),
+/// else the CLI's configured default flagged unconfirmed, so `resolved_model` is not left null.
+fn record_completion_model(current: &OperationSnapshot, screen: &str) {
+    let Some(found) = super::completion::completion_model(
+        &current.agent_type,
+        screen,
+        current.worker.resolved_model.as_deref(),
+        || crate::tui::profile_for(&current.agent_type).default_model(),
+    ) else {
+        return;
+    };
+    if found.confirmed {
+        let _ = operations::record_terminal_pane_state(
+            &current.project_path,
+            &current.operation_id,
+            Some(found.model),
+            false,
+        );
+    } else {
+        let _ = operations::record_unconfirmed_model(
+            &current.project_path,
+            &current.operation_id,
+            &found.model,
+        );
+    }
+}
+
 pub fn supervise_existing(
     snapshot: OperationSnapshot,
     registry: Arc<Mutex<crate::pty::PaneRegistry>>,
@@ -741,7 +788,10 @@ pub fn supervise_existing(
             let mut watch = super::completion::TuiTurnWatch::from_baseline(
                 snapshot.output_baseline.clone().unwrap_or_default(),
             )
-            .with_task(snapshot.task.clone());
+            .with_task(snapshot.task.clone())
+            .with_previous_task(previous_turn_task(&snapshot));
+            // One automatic re-delivery per turn when the prompt never started a turn.
+            let mut redelivered = false;
             // A snapshot read can fail transiently (file briefly locked mid-write). Giving up on the
             // first failure would stop deadline enforcement for good and leave the turn `running`.
             let mut read_failures = 0u32;
@@ -839,6 +889,7 @@ pub fn supervise_existing(
                                 }
                             }
                             super::completion::TuiTurnDecision::Complete { result, capture } => {
+                                record_completion_model(&current, &screen);
                                 transcript::append(
                                     &current.project_path,
                                     &current.operation_id,
@@ -901,6 +952,45 @@ pub fn supervise_existing(
                                     let _ = crate::pty::registry_write_input(
                                         &registry, &app, pane_id, "", true, false, None,
                                     );
+                                }
+                            }
+                            super::completion::TuiTurnDecision::NotSubmitted
+                                if !redelivered
+                                    && crate::tui::profile_for(&current.agent_type)
+                                        .verifies_prompt_delivery() =>
+                            {
+                                // The turn never started. Re-run the delivery protocol once
+                                // (clear, retype, verify, submit) before failing the run.
+                                redelivered = true;
+                                if let Some(pane_id) = current.pane_id.as_deref() {
+                                    let profile = crate::tui::profile_for(&current.agent_type);
+                                    let prompt = super::delivery::dispatch_prompt(
+                                        &current.task,
+                                        current.worker_has_mcp_tools,
+                                        current.task_id.as_deref().unwrap_or_default(),
+                                        pane_id,
+                                        &current.project_path,
+                                    );
+                                    let mut io = super::delivery::PaneIo {
+                                        registry: &registry,
+                                        app: &app,
+                                        pane_id,
+                                    };
+                                    let delivery = super::delivery::deliver_prompt(
+                                        &mut io,
+                                        profile.clear_input_sequence(),
+                                        &prompt,
+                                    );
+                                    transcript::append(
+                                        &current.project_path,
+                                        &current.operation_id,
+                                        "delivery",
+                                        &format!("prompt not submitted; re-delivered once: {delivery:?}"),
+                                    );
+                                    if let Some(screen) = read_tui_screen(&registry, pane_id) {
+                                        // Anything on screen before the retry was typed is stale.
+                                        watch.restart(screen);
+                                    }
                                 }
                             }
                             super::completion::TuiTurnDecision::NotSubmitted => {

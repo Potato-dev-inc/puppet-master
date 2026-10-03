@@ -130,6 +130,8 @@ pub struct RunFacts<'a> {
     pub result_inferred: bool,
     /// The caller asked for a specific model for this run.
     pub model_requested: bool,
+    /// `resolved_model` is the CLI's default (or a request), not read from the live TUI.
+    pub model_unconfirmed: bool,
 }
 
 /// One agent CLI/TUI. Every method has a generic default, so a profile overrides only what its
@@ -239,6 +241,13 @@ pub trait TuiProfile: Sync {
     /// Input that empties the TUI's prompt box without side effects, when it has one.
     fn clear_input_sequence(&self) -> Option<&'static str> {
         None
+    }
+
+    /// Whether prompts typed into this TUI are verified on screen before Enter and a started turn
+    /// is verified after it (`agent_runs::delivery`). Off by default: the check needs a TUI whose
+    /// input box and transcript echo are readable from the screen.
+    fn verifies_prompt_delivery(&self) -> bool {
+        false
     }
 
     /// Whether `prompt_visible` is meaningful (shells only).

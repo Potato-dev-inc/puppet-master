@@ -3973,10 +3973,13 @@ pub fn dispatch_existing_operation(
                     crate::operations::OperationError::new("EVENT_WRITE_FAILED", err, true)
                 })?;
                 *operation = crate::operations::save_operation_snapshot(operation)?;
-                let mut prompt = operation.task.clone();
-                if operation.worker_has_mcp_tools {
-                    prompt.push_str(&format!("\nWhen complete call complete_task with task_id={}, agent_id={}, project_path={} and evidence. If blocked call report_task_status with status=blocked and reason.",task_id,pane_id,operation.project_path));
-                }
+                let prompt = crate::agent_runs::delivery::dispatch_prompt(
+                    &operation.task,
+                    operation.worker_has_mcp_tools,
+                    &task_id,
+                    &pane_id,
+                    &operation.project_path,
+                );
                 let _dispatch_guard = PANE_ASSIGNMENT_SERIAL.lock();
                 let current = crate::operations::get_operation(
                     &operation.project_path,
@@ -4048,9 +4051,38 @@ pub fn dispatch_existing_operation(
                                 false,
                             ));
                         }
-                        if let Some(clear) =
-                            crate::tui::profile_for(&agent_type).clear_input_sequence()
-                        {
+                        let profile = crate::tui::profile_for(&agent_type);
+                        if profile.verifies_prompt_delivery() {
+                            // Visible panes whose TUI is readable: clear, type, verify the text
+                            // is in the input box, submit, verify a turn started.
+                            let mut io = crate::agent_runs::delivery::PaneIo {
+                                registry: &registry_for_dispatch,
+                                app: &app_for_dispatch,
+                                pane_id: &pane_id,
+                            };
+                            return match crate::agent_runs::delivery::deliver_prompt(
+                                &mut io,
+                                profile.clear_input_sequence(),
+                                &prompt,
+                            ) {
+                                crate::agent_runs::delivery::Delivery::NotVisible => {
+                                    Err(crate::operations::OperationError::new(
+                                        "PROMPT_NOT_SUBMITTED",
+                                        crate::agent_runs::delivery::NOT_VISIBLE_MESSAGE,
+                                        true,
+                                    ))
+                                }
+                                crate::agent_runs::delivery::Delivery::WriteFailed(err) => {
+                                    Err(crate::operations::OperationError::new(
+                                        "DISPATCH_FAILED",
+                                        err,
+                                        true,
+                                    ))
+                                }
+                                _ => Ok(()),
+                            };
+                        }
+                        if let Some(clear) = profile.clear_input_sequence() {
                             // Empty the TUI's input box first (a no-op when it is already
                             // empty); otherwise a leftover prompt prefixes the new one.
                             let _ = registry_write_input(

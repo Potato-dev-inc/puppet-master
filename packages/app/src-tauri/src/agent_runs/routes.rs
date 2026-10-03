@@ -797,10 +797,33 @@ fn answer_prompt(
             false,
         ));
     }
+    if snapshot.pane_id.is_none()
+        && request.choice == "trust_workspace"
+        && action.get("kind").and_then(Value::as_str) == Some("workspace_trust")
+        && super::headless::blocked_on_trust(&snapshot)
+    {
+        // A headless run parked on the trust screen has no worker to answer: re-run the same
+        // task on this handle with --trust, which is what the caller just asked for.
+        let view = runtime::send_agent(
+            project,
+            handle,
+            snapshot.task.clone(),
+            session_id.map(str::to_string),
+            registry.clone(),
+            app.clone(),
+            super::persist::FollowupOpts {
+                trust_workspace: true,
+                ..Default::default()
+            },
+        )?;
+        return serde_json::to_value(view).map_err(|error| {
+            OperationError::new("SERIALIZATION_ERROR", error.to_string(), false)
+        });
+    }
     let pane_id = snapshot.pane_id.as_deref().ok_or_else(|| {
         OperationError::new(
             "PROMPT_UNAVAILABLE",
-            "headless worker does not accept interactive prompt replies; for workspace_trust, trust the folder in an interactive agent yourself, then retry with send_agent",
+            "headless worker does not accept interactive prompt replies; for workspace_trust, answer with choice=trust_workspace, or trust the folder in an interactive agent yourself and retry with send_agent",
             false,
         )
     })?;
