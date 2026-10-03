@@ -4068,7 +4068,14 @@ pub fn dispatch_existing_operation(
                             None,
                         )
                         .map_err(|err| {
-                            crate::operations::OperationError::new("DISPATCH_FAILED", err, true)
+                            let code = if err
+                                .starts_with(crate::opencode::delivery::PROMPT_NOT_DELIVERED)
+                            {
+                                crate::opencode::delivery::PROMPT_NOT_DELIVERED
+                            } else {
+                                "DISPATCH_FAILED"
+                            };
+                            crate::operations::OperationError::new(code, err, true)
                         })
                     },
                 )?;

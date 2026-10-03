@@ -1,4 +1,5 @@
 pub mod client;
+pub mod delivery;
 pub mod keys;
 pub mod link;
 pub mod messages;
@@ -160,7 +161,39 @@ pub fn switch_model_response(
     )
 }
 
+/// Send a prompt over the session API and confirm it landed as a user message (see `delivery`).
 pub fn write_native_input(
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &AppHandle,
+    pane_id: &str,
+    text: &str,
+    model: Option<&OpenCodeModelRef>,
+) -> Result<(), String> {
+    if text.trim().is_empty() {
+        return send_native_input(registry, app, pane_id, text, model);
+    }
+    let read = || {
+        messages::read_pane_messages(registry.as_ref(), pane_id, 10_000, None)
+            .map(|view| view.messages)
+    };
+    let before: std::collections::HashSet<String> = read()
+        .map(|messages| messages.into_iter().filter_map(|m| m.id).collect())
+        .unwrap_or_default();
+    match delivery::deliver_with_ack(
+        &before,
+        text,
+        delivery::ACK_TIMEOUT,
+        || send_native_input(registry, app, pane_id, text, model),
+        read,
+        std::thread::sleep,
+        std::time::Instant::now,
+    )? {
+        delivery::Delivery::Delivered(_) => Ok(()),
+        delivery::Delivery::NotDelivered => Err(delivery::not_delivered_message()),
+    }
+}
+
+fn send_native_input(
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     app: &AppHandle,
     pane_id: &str,
