@@ -164,6 +164,10 @@ fn object_schema(properties: Value, required: Vec<&'static str>) -> Value {
     })
 }
 
+fn env_tool_schema() -> Value {
+    json!({"type":"object","properties":{"present":{"type":"boolean"},"version":{"type":["string","null"]},"path":{"type":["string","null"]}},"required":["present"]})
+}
+
 fn operation_snapshot_schema() -> Value {
     json!({"type":"object","properties":{
         "operation_id":{"type":"string"},"project_path":{"type":"string"},"task":{"type":"string"},
@@ -276,15 +280,15 @@ pub fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "run_agent",
-            description: "Start or adopt a worker with a task and return a stable handle. Happy path: list_agents → run_agent(worker_id or pane_id, task) → handle. Waits up to wait_ms (120s default). On WAIT_TIMEOUT, retry with the same idempotency_key and call wait_agents — do not start a duplicate turn. Steering: send_message; next turn: followup_task(handle). Closing the user's pane is not cleanup. keep_pane defaults to false: a pane this run created is closed automatically when the run completes, after which take_over, switch_agent_model and live pane inspection fail with PANE_CLOSED_AFTER_RUN (agent_transcript keeps working from the stored transcript). Pass keep_pane=true to keep the pane until close_agent is called. Adopted UI panes are never closed.",
-            input_schema: object_schema(json!({"project_path":{"type":"string"},"task":{"type":"string"},"name":{"type":"string"},"handle":{"type":"string"},"worker_id":{"type":"string"},"agent_run_id":{"type":"string"},"agent_type":{"type":"string","enum":["claude","codex","cursor_agent","opencode","opencode_native"]},"headless":{"type":"boolean","default":true},"background":{"type":"boolean","default":false},"wait_ms":{"type":"integer","minimum":0,"maximum":300000,"default":120000},"read_only":{"type":"boolean","default":false},"keep_pane":{"type":"boolean","default":false,"description":"Default false: a pane created for this run is closed when the run completes (take_over/switch_agent_model then fail with PANE_CLOSED_AFTER_RUN). true keeps the pane until close_agent."},"timeout_ms":{"type":"integer","minimum":1,"maximum":86400000,"default":900000},"idempotency_key":{"type":"string"},"acceptance_criteria":{"type":"array","items":{"type":"string","minLength":1},"description":"Optional free-text guidance for the worker; NOT machine-checked. For verified acceptance use `checks`."},"checks":{"type":"array","maxItems":20,"description":"Acceptance checks evaluated at completion. file_* and result_contains are read-only; command_exits runs the given argv (no shell) in project_path and compares its exit code. Paths are relative to project_path. A failing check fails the run with ACCEPTANCE_FAILED.","items":{"type":"object","properties":{"type":{"type":"string","enum":["file_exists","file_contains","file_absent","result_contains","command_exits"]},"path":{"type":"string","minLength":1,"description":"Required for file_* checks."},"text":{"type":"string","minLength":1},"command":{"type":"array","items":{"type":"string"},"minItems":1,"description":"command_exits: argv run in project_path without a shell, e.g. [\"python\",\"-m\",\"pytest\",\"-q\"]."},"expect_exit":{"type":"integer","description":"command_exits only; expected exit code, 0 when omitted."},"timeout_ms":{"type":"integer","minimum":1,"maximum":600000,"description":"command_exits only; 120000 when omitted."}},"required":["type"]}},"pane_id":{"type":"string"},"allow_broad":{"type":"boolean","default":false},"trust_workspace":{"type":"boolean","default":false,"description":"Opt-in, headless cursor_agent only: pass --trust so Cursor trusts project_path without an interactive prompt. Only set for a folder the user named."},"allow_shell":{"type":"boolean","default":false,"description":"Opt-in, headless cursor_agent only (not with read_only): pass --force so Cursor's shell commands run instead of being rejected. Commands then run without review inside project_path; pair with `checks`. Without it, headless Cursor cannot run tests and the result carries SHELL_COMMAND_REJECTED."},"allowed_commands":{"type":"array","maxItems":10,"items":{"type":"string","minLength":1},"description":"Opt-in, visible cursor_agent pane only: bare program names (e.g. [\"python\",\"pytest\"]) answered allow-once when Cursor stops on Not in allowlist: <program>. Never allow-always; any other prompt still needs answer_prompt."},"context_policy":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"]},"context_mode":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"],"description":"alias for context_policy"},"model":{"type":"string"},"reasoning":{"type":"string"},"role":{"type":"string"},"scope":{"type":"string"},"selected_history":{"type":"array","items":{"type":"string"}},"locks":{"type":"array","items":{"type":"string","minLength":1},"description":"Optional resource locks (type:name, e.g. file:src/a.rs) acquired before the run starts and released when it ends. Fails fast with RESOURCE_LOCKED (context resource_id, owner_id) if another run holds one."}}), vec!["task"]),
+            description: "Start or adopt a worker with a task and return a stable handle. Happy path: list_agents → run_agent(worker_id or pane_id, task) → handle. Waits up to wait_ms (120s default). On WAIT_TIMEOUT, retry with the same idempotency_key and call wait_agents — do not start a duplicate turn. Steering: send_message; next turn: followup_task(handle). Closing the user's pane is not cleanup. keep_pane defaults to false: a pane this run created is closed automatically when the run completes, after which take_over, switch_agent_model and live pane inspection fail with PANE_CLOSED_AFTER_RUN (agent_transcript keeps working from the stored transcript). Pass keep_pane=true to keep the pane until close_agent is called. Adopted UI panes are never closed. Steering limits: Cursor headless steering works only by restart from turn 2, and visible Cursor panes are queue-only; send_message can queue the message as the next turn (delivery=queue) instead of steering live. watch_command is valid in PowerShell and Git Bash; pass shell=bash|powershell|cmd to target one.",
+            input_schema: object_schema(json!({"project_path":{"type":"string"},"task":{"type":"string"},"name":{"type":"string"},"handle":{"type":"string"},"worker_id":{"type":"string"},"agent_run_id":{"type":"string"},"agent_type":{"type":"string","enum":["claude","codex","cursor_agent","opencode","opencode_native"]},"headless":{"type":"boolean","default":true},"background":{"type":"boolean","default":false},"wait_ms":{"type":"integer","minimum":0,"maximum":300000,"default":120000},"read_only":{"type":"boolean","default":false},"keep_pane":{"type":"boolean","default":false,"description":"Default false: a pane created for this run is closed when the run completes (take_over/switch_agent_model then fail with PANE_CLOSED_AFTER_RUN). true keeps the pane until close_agent."},"timeout_ms":{"type":"integer","minimum":1,"maximum":86400000,"default":900000},"idempotency_key":{"type":"string"},"shell":{"type":"string","enum":["bash","powershell","cmd"],"description":"Shell that will run watch_command (default: a form valid in both PowerShell and Git Bash)."},"acceptance_criteria":{"type":"array","items":{"type":"string","minLength":1},"description":"Optional free-text guidance for the worker; NOT machine-checked. For verified acceptance use `checks`."},"checks":{"type":"array","maxItems":20,"description":"Acceptance checks evaluated at completion. file_* and result_contains are read-only; command_exits runs the given argv (no shell) in project_path and compares its exit code. Paths are relative to project_path. A failing check fails the run with ACCEPTANCE_FAILED.","items":{"type":"object","properties":{"type":{"type":"string","enum":["file_exists","file_contains","file_absent","result_contains","command_exits"]},"path":{"type":"string","minLength":1,"description":"Required for file_* checks."},"text":{"type":"string","minLength":1},"command":{"type":"array","items":{"type":"string"},"minItems":1,"description":"command_exits: argv run in project_path without a shell, e.g. [\"python\",\"-m\",\"pytest\",\"-q\"]."},"expect_exit":{"type":"integer","description":"command_exits only; expected exit code, 0 when omitted."},"timeout_ms":{"type":"integer","minimum":1,"maximum":600000,"description":"command_exits only; 120000 when omitted."}},"required":["type"]}},"pane_id":{"type":"string"},"allow_broad":{"type":"boolean","default":false},"trust_workspace":{"type":"boolean","default":false,"description":"Opt-in, headless cursor_agent only: pass --trust so Cursor trusts project_path without an interactive prompt. Only set for a folder the user named."},"allow_shell":{"type":"boolean","default":false,"description":"Opt-in, headless cursor_agent only (not with read_only): pass --force so Cursor's shell commands run instead of being rejected. Commands then run without review inside project_path; pair with `checks`. Without it, headless Cursor cannot run tests and the result carries SHELL_COMMAND_REJECTED."},"allowed_commands":{"type":"array","maxItems":10,"items":{"type":"string","minLength":1},"description":"Opt-in, visible cursor_agent pane only: bare program names (e.g. [\"python\",\"pytest\"]) answered allow-once when Cursor stops on Not in allowlist: <program>. Never allow-always; any other prompt still needs answer_prompt."},"context_policy":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"]},"context_mode":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"],"description":"alias for context_policy"},"model":{"type":"string"},"reasoning":{"type":"string"},"role":{"type":"string"},"scope":{"type":"string"},"selected_history":{"type":"array","items":{"type":"string"}},"locks":{"type":"array","items":{"type":"string","minLength":1},"description":"Optional resource locks (type:name, e.g. file:src/a.rs) acquired before the run starts and released when it ends. Fails fast with RESOURCE_LOCKED (context resource_id, owner_id) if another run holds one."}}), vec!["task"]),
             output_schema: Some(agent_run_schema()), safety: ToolSafety::Mutating,
             visibility: visible_everywhere(), method: "POST", path: "/agents/run",
         },
         ToolDefinition {
             name: "wait_agents",
             description: "Wait for worker handles. Default until is completed, failed, cancelled, and needs_input (progress revisions do not wake). Pass wake_on_progress=true to wake on any revision. Omits result when unchanged since after_cursor (result_unchanged). Default and maximum timeout_ms is 120000: MCP hosts commonly abandon a call after 2-3 minutes (Request timed out) and a timeout never drops ownership, so loop wait_agents for longer runs.",
-            input_schema: object_schema(json!({"project_path":{"type":"string"},"handles":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}},"after_cursor":{"type":"integer","minimum":0},"after_revisions":{"type":"object","additionalProperties":{"type":"integer","minimum":0}},"until":{"type":"array","items":{"type":"string","enum":["queued","starting","running","waiting_input","needs_input","cancelling","completed","failed","cancelled"]}},"wake_on_progress":{"type":"boolean","default":false},"timeout_ms":{"type":"integer","minimum":0,"maximum":120000,"default":120000},"mode":{"type":"string","enum":["any","all"],"default":"any"}}), vec!["handles"]),
+            input_schema: object_schema(json!({"project_path":{"type":"string"},"handles":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}},"after_cursor":{"type":"integer","minimum":0},"after_revisions":{"type":"object","additionalProperties":{"type":"integer","minimum":0}},"until":{"type":"array","items":{"type":"string","enum":["queued","starting","running","waiting_input","needs_input","cancelling","completed","failed","cancelled"]}},"wake_on_progress":{"type":"boolean","default":false},"timeout_ms":{"type":"integer","minimum":0,"maximum":120000,"default":120000},"mode":{"type":"string","enum":["any","all"],"default":"any"},"shell":{"type":"string","enum":["bash","powershell","cmd"],"description":"Shell that will run watch_command (default: valid in both PowerShell and Git Bash)."}}), vec!["handles"]),
             output_schema: Some(json!({"type":"object","properties":{"agents":{"type":"array","items":agent_run_schema()},"reason":{"type":"string"},"mode":{"type":"string","enum":["any","all"]}},"required":["agents","reason","mode"]})), safety: ToolSafety::ReadOnly,
             visibility: visible_everywhere(), method: "POST", path: "/agents/wait",
         },
@@ -298,7 +302,7 @@ pub fn tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: "followup_task",
             description: "Give the same worker a new task as the next turn. Like run_agent, this waits up to 120 seconds and returns the settled turn (status/result). Call wait_agents only if status is still queued or running; a transport timeout still keeps this handle — wait_agents recovers the answer. The handle stays stable; a finished task does not dispose the worker.",
-            input_schema: object_schema(json!({"handle":{"type":"string"},"task":{"type":"string","minLength":1},"project_path":{"type":"string"},"idempotency_key":{"type":"string"},"context_policy":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"]},"context_mode":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"],"description":"alias for context_policy"},"selected_history":{"type":"array","items":{"type":"string"}},"model":{"type":"string"},"reasoning":{"type":"string"}}), vec!["handle","task"]),
+            input_schema: object_schema(json!({"handle":{"type":"string"},"task":{"type":"string","minLength":1},"project_path":{"type":"string"},"idempotency_key":{"type":"string"},"context_policy":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"]},"context_mode":{"type":"string","enum":["fresh","packet","parent_summary","resume","selected_history"],"description":"alias for context_policy"},"selected_history":{"type":"array","items":{"type":"string"}},"model":{"type":"string"},"reasoning":{"type":"string"},"shell":{"type":"string","enum":["bash","powershell","cmd"],"description":"Shell that will run watch_command (default: valid in both PowerShell and Git Bash)."}}), vec!["handle","task"]),
             output_schema: Some(agent_run_schema()), safety: ToolSafety::Mutating,
             visibility: visible_everywhere(), method: "POST", path: "/agents/followup",
         },
@@ -438,9 +442,9 @@ pub fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "bridge_health",
-            description: "Check whether the Puppet Master HTTP bridge is reachable and return its version metadata.",
+            description: "Check whether the Puppet Master HTTP bridge is reachable and return its version metadata. Also returns env: {python, pytest, node, git, cargo} each {present, version, path} from PATH lookups on the MCP host (cached ~60s), so you need not install or probe tools yourself.",
             input_schema: object_schema(json!({}), vec![]),
-            output_schema: None,
+            output_schema: Some(json!({"type":"object","properties":{"ok":{"type":"boolean"},"version":{"type":"string"},"build_id":{"type":"string"},"catalog_version":{"type":"string"},"tool_count":{"type":"integer"},"shim_catalog_version":{"type":"string"},"schema_drift":{"type":"boolean"},"env":{"type":"object","properties":{"python":env_tool_schema(),"pytest":env_tool_schema(),"node":env_tool_schema(),"git":env_tool_schema(),"cargo":env_tool_schema()}}}})),
             safety: ToolSafety::ReadOnly,
             visibility: visible_everywhere(),
             method: "GET",
@@ -1348,14 +1352,41 @@ mod tests {
 
     #[test]
     fn omits_output_schema_when_absent() {
-        let value = serde_json::to_value(
-            tools()
-                .into_iter()
-                .find(|tool| tool.name == "bridge_health")
-                .unwrap(),
-        )
-        .unwrap();
+        let absent = tools()
+            .into_iter()
+            .find(|tool| tool.output_schema.is_none())
+            .expect("some tool has no output schema");
+        let value = serde_json::to_value(absent).unwrap();
         assert!(value.get("outputSchema").is_none());
+    }
+
+    #[test]
+    fn bridge_health_documents_the_env_section() {
+        let health = tools()
+            .into_iter()
+            .find(|tool| tool.name == "bridge_health")
+            .unwrap();
+        let schema = health.output_schema.expect("bridge_health output schema");
+        for key in ["python", "pytest", "node", "git", "cargo"] {
+            assert!(schema["properties"]["env"]["properties"].get(key).is_some(), "{key}");
+        }
+        assert!(health.description.contains("env:"));
+    }
+
+    #[test]
+    fn run_agent_documents_cursor_steering_limits_and_the_shell_hint() {
+        let tools = tools();
+        let run = tools.iter().find(|tool| tool.name == "run_agent").unwrap();
+        assert!(run.description.contains("Cursor headless steering works only by restart from turn 2"));
+        assert!(run.description.contains("queue-only"));
+        for name in ["run_agent", "wait_agents", "followup_task"] {
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            assert_eq!(
+                tool.input_schema["properties"]["shell"]["enum"],
+                json!(["bash", "powershell", "cmd"]),
+                "{name}"
+            );
+        }
     }
 
     #[test]
