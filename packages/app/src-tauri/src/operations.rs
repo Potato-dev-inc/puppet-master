@@ -116,7 +116,10 @@ pub fn create_operation(
         ));
     }
     if req.read_only
-        && !crate::agent_runs::read_only_supported(&req.agent_type, req.pane_id.is_some())
+        && !crate::agent_runs::read_only_supported_for(
+            &req.agent_type,
+            req.pane_id.as_deref(),
+        )
     {
         return Err(OperationError::new(
             "READ_ONLY_UNSUPPORTED",

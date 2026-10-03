@@ -306,10 +306,17 @@ fn call_tool_cancellable(
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| "tools/call missing params.name".to_string())?;
-    let args = params
+    let mut args = params
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
+    // Optional `shell` hint (bash|powershell|cmd) shapes the printed watch_command only; the
+    // bridge never sees it.
+    let shell_hint = take_shell_hint(name, &mut args)?;
+    let project_hint: Option<String> = args
+        .get("project_path")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     ensure_tool_mode(name)?;
     let call = match name {
         "set_mode" => {
@@ -454,6 +461,8 @@ fn call_tool_cancellable(
                     "shim_catalog_version".into(),
                     json!(tool_registry::catalog_version()),
                 );
+                // Additive: which dev tools exist on PATH here (cached, short timeouts).
+                object.insert("env".into(), puppet_master_app_lib::env_probe::env_snapshot());
                 object.insert("schema_drift".into(), json!(drift.is_some()));
                 if let Some(drift) = drift {
                     object.insert("schema_drift_hint".into(), drift["hint"].clone());
@@ -828,7 +837,21 @@ fn call_tool_cancellable(
         _ => return Err(format!("unknown tool: {name}")),
     };
 
-    let text = call.map_err(|error| format!("{error}"))?;
+    let project_hint = project_hint.as_deref();
+    let mut text = match call {
+        Ok(text) => text,
+        Err(error) => {
+            // WAIT_TIMEOUT recovery payloads carry a watch_command too.
+            let error = format!("{error}");
+            return Err(match shell_hint {
+                Some(hint) => apply_shell_hint(&error, hint, project_hint),
+                None => error,
+            });
+        }
+    };
+    if let Some(hint) = shell_hint {
+        text = apply_shell_hint(&text, hint, project_hint);
+    }
 
     let structured = serde_json::from_str::<Value>(&text).ok();
     let mut result = json!({ "content": [{ "type": "text", "text": text }] });
@@ -845,6 +868,71 @@ fn call_tool_cancellable(
         }
     }
     Ok(result)
+}
+
+/// Removes and parses the optional `shell` argument of the tools that print a `watch_command`.
+fn take_shell_hint(
+    tool: &str,
+    args: &mut Value,
+) -> Result<Option<puppet_master_app_lib::watch_command::ShellHint>, String> {
+    if !matches!(tool, "run_agent" | "wait_agents" | "followup_task" | "send_agent") {
+        return Ok(None);
+    }
+    let Some(raw) = args.as_object_mut().and_then(|object| object.remove("shell")) else {
+        return Ok(None);
+    };
+    let name = raw.as_str().unwrap_or_default();
+    puppet_master_app_lib::watch_command::ShellHint::parse(name)
+        .map(Some)
+        .ok_or_else(|| format!("invalid shell {raw}: expected bash, powershell, cmd, or default"))
+}
+
+/// Rewrites every `watch_command` (next to an `operation_id`) in a JSON tool result for `hint`.
+fn apply_shell_hint(
+    text: &str,
+    hint: puppet_master_app_lib::watch_command::ShellHint,
+    project_fallback: Option<&str>,
+) -> String {
+    fn walk(
+        value: &mut Value,
+        hint: puppet_master_app_lib::watch_command::ShellHint,
+        project_fallback: Option<&str>,
+    ) {
+        match value {
+            Value::Object(object) => {
+                let operation_id = object
+                    .get("operation_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                if let (Some(operation_id), Some(Value::String(command))) =
+                    (operation_id, object.get_mut("watch_command"))
+                {
+                    *command = puppet_master_app_lib::watch_command::reformat_for_shell(
+                        command,
+                        &operation_id,
+                        project_fallback,
+                        hint,
+                    );
+                }
+                for child in object.values_mut() {
+                    walk(child, hint, project_fallback);
+                }
+            }
+            Value::Array(items) => {
+                for child in items {
+                    walk(child, hint, project_fallback);
+                }
+            }
+            _ => {}
+        }
+    }
+    match serde_json::from_str::<Value>(text) {
+        Ok(mut value) => {
+            walk(&mut value, hint, project_fallback);
+            value.to_string()
+        }
+        Err(_) => text.to_string(),
+    }
 }
 
 fn negotiate_protocol_version(requested: Option<&str>) -> &'static str {
@@ -1199,9 +1287,15 @@ fn format_operation_timeout_recovery(path: &str, args: &Value, snapshot: &Value)
         .get("project_path")
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty());
-    let watch_command = puppet_master_app_lib::watch_command::format_watch_command(
+    let shell = args
+        .get("shell")
+        .and_then(Value::as_str)
+        .and_then(puppet_master_app_lib::watch_command::ShellHint::parse)
+        .unwrap_or_else(puppet_master_app_lib::watch_command::ShellHint::from_env);
+    let watch_command = puppet_master_app_lib::watch_command::format_watch_command_for(
         operation_id,
         project_path,
+        shell,
     );
     let mut payload = json!({
         "code": "WAIT_TIMEOUT",

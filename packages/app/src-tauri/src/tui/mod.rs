@@ -36,6 +36,8 @@ pub struct Features {
     pub dispatchable: bool,
     /// A headless run can enforce `read_only`.
     pub read_only_headless: bool,
+    /// A pane this app spawns for the run can enforce `read_only` (headless is separate).
+    pub read_only_spawned_pane: bool,
     /// A headless run can resume a provider session by id.
     pub resumable_headless: bool,
 }
@@ -45,6 +47,7 @@ impl Features {
         kind: Kind::Cli,
         dispatchable: true,
         read_only_headless: false,
+        read_only_spawned_pane: false,
         resumable_headless: false,
     };
 }
@@ -330,6 +333,15 @@ pub fn read_only_backends() -> Vec<&'static str> {
     PROFILES
         .iter()
         .filter(|profile| profile.features().read_only_headless)
+        .map(|profile| profile.id())
+        .collect()
+}
+
+/// Agent types whose run-spawned pane enforces `read_only`.
+pub fn read_only_spawned_pane_backends() -> Vec<&'static str> {
+    PROFILES
+        .iter()
+        .filter(|profile| profile.features().read_only_spawned_pane)
         .map(|profile| profile.id())
         .collect()
 }

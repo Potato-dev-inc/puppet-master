@@ -46,7 +46,21 @@ impl BackendCapabilities {
 }
 
 pub fn read_only_supported(agent_type: &str, has_pane: bool) -> bool {
-    !has_pane && crate::tui::profile_for(agent_type).features().read_only_headless
+    let features = crate::tui::profile_for(agent_type).features();
+    // No pane named: the run spawns its own (headless process, or a pane started read-only).
+    !has_pane && (features.read_only_headless || features.read_only_spawned_pane)
+}
+
+/// Like [`read_only_supported`], but a named pane counts when it was spawned with enforced
+/// read-only permissions. Adopted shared panes never do.
+pub fn read_only_supported_for(agent_type: &str, pane_id: Option<&str>) -> bool {
+    match pane_id {
+        None => read_only_supported(agent_type, false),
+        Some(pane_id) => {
+            crate::tui::profile_for(agent_type).features().read_only_spawned_pane
+                && crate::tui::opencode::read_only::is_enforced(pane_id)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -59,15 +73,23 @@ mod read_only_tests {
             assert!(read_only_supported(backend, false));
             assert!(!read_only_supported(backend, true));
         }
-        assert!(!read_only_supported("opencode_native", false));
+        // Native: supported only for a pane the run spawns itself with read-only config.
+        assert!(read_only_supported("opencode_native", false));
         assert!(!read_only_supported("opencode_native", true));
+        assert!(!read_only_supported("opencode", false));
+        assert!(!read_only_supported_for("opencode_native", Some("adopted-pane")));
+        crate::tui::opencode::read_only::set_enforced("cap-test-pane", true);
+        assert!(read_only_supported_for("opencode_native", Some("cap-test-pane")));
+        assert!(!read_only_supported_for("codex", Some("cap-test-pane")));
+        crate::tui::opencode::read_only::set_enforced("cap-test-pane", false);
     }
 
     #[test]
     fn message_names_backend_and_supported_list() {
-        let msg = read_only_unsupported_message("opencode_native", false);
+        let msg = read_only_unsupported_message("opencode_native", true);
         assert!(msg.contains("opencode_native"));
         assert!(msg.contains("claude, codex, cursor_agent"));
+        assert!(msg.contains("opencode_native (run-spawned pane only)"));
     }
 }
 
@@ -75,8 +97,13 @@ mod read_only_tests {
 pub fn read_only_unsupported_message(agent_type: &str, has_pane: bool) -> String {
     let mode = if has_pane { " in a shared terminal pane" } else { "" };
     format!(
-        "read_only=true cannot be enforced for backend '{agent_type}'{mode}; read_only is supported only for headless runs on: {}. Retry with read_only=false or a supported backend",
-        crate::tui::read_only_backends().join(", ")
+        "read_only=true cannot be enforced for backend '{agent_type}'{mode}; read_only is supported only for headless runs on: {}, and for a pane the run spawns itself on: {}. Retry with read_only=false or a supported backend",
+        crate::tui::read_only_backends().join(", "),
+        crate::tui::read_only_spawned_pane_backends()
+            .into_iter()
+            .map(|id| format!("{id} (run-spawned pane only)"))
+            .collect::<Vec<_>>()
+            .join(", ")
     )
 }
 

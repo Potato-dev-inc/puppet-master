@@ -9,6 +9,7 @@ const FEATURES: Features = Features {
     kind: Kind::Shell,
     dispatchable: false,
     read_only_headless: false,
+    read_only_spawned_pane: false,
     resumable_headless: false,
 };
 

@@ -261,7 +261,13 @@ fn build_receipt(
     let features = crate::tui::profile_for(&snapshot.agent_type).features();
     let read_only = if !snapshot.read_only {
         "off"
-    } else if features.read_only_headless {
+    } else if features.read_only_headless
+        || (features.read_only_spawned_pane
+            && snapshot
+                .pane_id
+                .as_deref()
+                .is_some_and(crate::tui::opencode::read_only::is_enforced))
+    {
         "enforced"
     } else {
         "unenforced"

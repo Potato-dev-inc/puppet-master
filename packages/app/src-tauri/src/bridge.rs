@@ -484,6 +484,13 @@ fn wait_for_pane_idle(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str, timeou
     }
 }
 
+/// Whether an existing pane's read-only state fits the run (`read_only_spawned_pane` backends
+/// only; every other backend is unaffected).
+fn read_only_pane_matches(agent_type: &str, run_read_only: bool, pane_id: &str) -> bool {
+    !crate::tui::profile_for(agent_type).features().read_only_spawned_pane
+        || crate::tui::opencode::read_only::is_enforced(pane_id) == run_read_only
+}
+
 fn pane_ready_for_dispatch(
     pane: &crate::pty::PaneInfo,
     agent_type: &str,
@@ -1022,6 +1029,7 @@ fn route(
                     rows: None,
                     extra_args: None,
                     pane_id: None,
+                    read_only: false,
                 },
             )
             .map_err(|error| {
@@ -3669,9 +3677,9 @@ pub fn dispatch_existing_operation(
                     ));
                 }
                 if operation.read_only
-                    && !crate::agent_runs::read_only_supported(
+                    && !crate::agent_runs::read_only_supported_for(
                         &agent_type,
-                        operation.pane_id.is_some(),
+                        operation.pane_id.as_deref(),
                     )
                 {
                     return Err(crate::operations::OperationError::new(
@@ -3716,8 +3724,11 @@ pub fn dispatch_existing_operation(
                     } else {
                         Default::default()
                     };
+                // A read-only run only reuses panes started read-only; other runs never land in
+                // one (the worker there cannot write).
                 let eligible = |pane: &&crate::pty::PaneInfo| {
-                    !panes_used_by_runs.contains(&pane.id)
+                    read_only_pane_matches(&agent_type, operation.read_only, &pane.id)
+                        && !panes_used_by_runs.contains(&pane.id)
                         && (operation
                         .owner_session_id
                         .as_deref()
@@ -3817,6 +3828,7 @@ pub fn dispatch_existing_operation(
                             rows: None,
                             extra_args: None,
                             pane_id: None,
+                            read_only: operation.read_only,
                         },
                         Duration::from_secs(45),
                     )?;

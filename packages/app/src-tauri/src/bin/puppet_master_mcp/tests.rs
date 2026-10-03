@@ -1,6 +1,28 @@
 use super::*;
 
 #[test]
+fn shell_hint_is_stripped_from_the_request_and_rewrites_watch_commands() {
+    let mut args = json!({"task":"t","shell":"bash","project_path":"C:/a b"});
+    let hint = take_shell_hint("run_agent", &mut args).unwrap().expect("hint");
+    assert!(args.get("shell").is_none(), "the bridge must never see the hint");
+    let response = json!({
+        "operation_id": "op-1",
+        "watch_command": "npx puppet-master watch op-1 --project-path 'C:/a b'"
+    })
+    .to_string();
+    let rewritten: Value =
+        serde_json::from_str(&apply_shell_hint(&response, hint, Some("C:/a b"))).unwrap();
+    let command = rewritten["watch_command"].as_str().unwrap();
+    assert!(command.ends_with("--project-path 'C:/a b'"), "{command}");
+
+    let mut other = json!({"shell":"fish"});
+    assert!(take_shell_hint("wait_agents", &mut other).is_err());
+    let mut untouched = json!({"shell":"bash"});
+    assert!(take_shell_hint("list_agents", &mut untouched).unwrap().is_none());
+    assert!(untouched.get("shell").is_some());
+}
+
+#[test]
 fn hidden_tools_and_progress_waits_fail_before_reaching_the_bridge() {
     let session = uuid::Uuid::new_v4().to_string();
     set_mcp_session_id(session);

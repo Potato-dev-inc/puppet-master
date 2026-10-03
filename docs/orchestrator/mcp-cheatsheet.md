@@ -18,6 +18,28 @@ terminal and legacy operation tools below. See [the mode contract](agent-shell-m
 | `bridge_health` | — | Confirms bridge + `tool_count` |
 | `list_panes` | — | Reuse before `spawn_agent` |
 
+`bridge_health` also returns an additive `env` object so you do not have to install or probe tools:
+`{"python","pytest","node","git","cargo"}`, each `{present, version, path}` (`version`/`path` are
+null when absent). It is read from PATH on the MCP host with a short per-tool timeout and cached for
+about a minute. `pytest` counts as present for a `pytest` executable or `python -m pytest`. Check it
+before running `pip install` or bootstrapping a virtualenv.
+
+## `watch_command` and the `shell` argument
+
+Running turns return a `watch_command` (`node <cli> watch <operation_id> --project-path <path>`).
+Paths use forward slashes and are single-quoted when they need quoting, which is valid in both
+PowerShell and Git Bash (backslash paths were eaten by Git Bash). `run_agent`, `wait_agents` and
+`followup_task` accept an optional `shell` (`bash` | `powershell` | `cmd`) to render it for one shell;
+the env var `PUPPET_MASTER_WATCH_SHELL` sets a default.
+
+## Steering limits
+
+- Cursor headless runs can only be steered by a restart, and only from turn 2; visible Cursor panes
+  are queue-only (no live steering).
+- `send_message` can queue the message as the next turn (`delivery=queue`, or `live_or_queue` when
+  live delivery is unavailable) instead of steering the current one; a finished turn needs
+  `followup_task`. Check the returned `disposition` before assuming the worker saw it.
+
 ## Quick questions: `quick_ask`
 
 `quick_ask({"task": "..."})` is the native-subagent-style call for a tiny question. It runs
@@ -42,7 +64,7 @@ Every run view (`run_agent`, `wait_agents`, `followup_task`, `inspect_agent`, `q
 |-------|---------|
 | `backend` | Agent type that ran |
 | `model` | Resolved model when the backend confirmed it, else the requested one (absent if neither) |
-| `read_only` | `enforced` (requested and the backend enforces it), `unenforced` (requested, backend cannot), `off` |
+| `read_only` | `enforced` (requested and the backend enforces it), `unenforced` (requested, backend cannot), `off`. `opencode_native` enforces it only for a pane the run spawns itself (see [opencode-native-worker.md](opencode-native-worker.md)) |
 | `checks` | `none configured` or `<passed>/<total> passed` (`0/N passed (pending)` while running) |
 | `result_capture` | `authoritative`, `inferred`, `missing`, or `pending` |
 | `not_verified` | Short strings, each derived from a recorded fact |

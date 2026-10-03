@@ -540,7 +540,7 @@ fn run_worker_entry(
         "model": snapshot.worker.resolved_model.clone().or(snapshot.worker.requested_model.clone()),
         "owned": owned,
         "grant_required": grant_required,
-        "read_only_supported": super::capabilities::read_only_supported(&snapshot.agent_type, snapshot.pane_id.is_some()),
+        "read_only_supported": super::capabilities::read_only_supported_for(&snapshot.agent_type, snapshot.pane_id.as_deref()),
         "adoptable": pane
             .as_ref()
             .map(|pane| pane.status != "error")
@@ -561,7 +561,7 @@ fn pane_worker_entry(pane: &crate::pty::PaneInfo, session_id: Option<&str>) -> V
         "model": Value::Null,
         "owned": !grant_required,
         "grant_required": grant_required,
-        "read_only_supported": super::capabilities::read_only_supported(&pane.agent_type, true),
+        "read_only_supported": super::capabilities::read_only_supported_for(&pane.agent_type, Some(&pane.id)),
         "adoptable": pane.status != "error",
     })
 }
