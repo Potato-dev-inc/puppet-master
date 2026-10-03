@@ -17,6 +17,10 @@ use tauri::{AppHandle, Emitter};
 #[cfg_attr(test, allow(dead_code))]
 const SWEEP_GRACE: Duration = Duration::from_millis(1500);
 
+/// Extra wait before the second sweep pass.
+#[cfg_attr(test, allow(dead_code))]
+const SWEEP_RECHECK: Duration = Duration::from_millis(2500);
+
 static CONTEXT: OnceLock<(AppHandle, Arc<Mutex<PaneRegistry>>)> = OnceLock::new();
 
 /// Call once at startup.
@@ -75,23 +79,29 @@ pub fn schedule_sweep(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
     let _ = thread::Builder::new()
         .name("puppet-orphan-window-sweep".into())
         .spawn(move || {
-            thread::sleep(SWEEP_GRACE);
-            let live: Vec<String> = registry
-                .lock()
-                .list()
-                .into_iter()
-                .map(|pane| pane.id)
-                .collect();
-            let labels: Vec<String> = app.webview_windows().keys().cloned().collect();
-            let orphans = orphaned_labels(&labels, &live);
-            tracing::info!(?labels, ?live, ?orphans, "orphan pane window sweep");
-            for label in orphans {
-                match app.get_webview_window(&label) {
-                    Some(window) => {
-                        let result = window.destroy();
-                        tracing::info!(%label, ?result, "destroyed orphan pane window");
+            // Second pass: a window can be created just after its pane was killed (spawn then
+            // quick close), after the first pass already looked.
+            for delay in [SWEEP_GRACE, SWEEP_RECHECK] {
+                thread::sleep(delay);
+                let live: Vec<String> = registry
+                    .lock()
+                    .list()
+                    .into_iter()
+                    .map(|pane| pane.id)
+                    .collect();
+                let labels: Vec<String> = app.webview_windows().keys().cloned().collect();
+                let orphans = orphaned_labels(&labels, &live);
+                if !orphans.is_empty() {
+                    tracing::info!(?labels, ?live, ?orphans, "orphan pane window sweep");
+                }
+                for label in orphans {
+                    match app.get_webview_window(&label) {
+                        Some(window) => {
+                            let result = window.destroy();
+                            tracing::info!(%label, ?result, "destroyed orphan pane window");
+                        }
+                        None => tracing::warn!(%label, "orphan pane window vanished before destroy"),
                     }
-                    None => tracing::warn!(%label, "orphan pane window vanished before destroy"),
                 }
             }
         });
