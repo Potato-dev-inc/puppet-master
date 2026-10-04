@@ -143,9 +143,11 @@ async function main() {
   assert.ok(init.result);
   send(client, { jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
   const agentListing = await rpc(client, messages, 20, 'tools/list', {});
-  assert.equal(agentListing.result.tools.length, 9);
+  // Agent mode grew past its original 9 tools (worker controls, panes, opencode replies); assert the contract, not a count.
+  const agentNames = agentListing.result.tools.map((tool) => tool.name);
+  for (const name of ['shell_exec', 'write_terminal_input', 'press_key', 'spawn_agent']) assert.ok(!agentNames.includes(name), `${name} must not be advertised in agent mode`);
   assert.ok(agentListing.result.tools.some((tool) => tool.name === 'run_agent'));
-  const hidden = await rpc(client, messages, 22, 'tools/call', { name: 'bridge_health', arguments: {} });
+  const hidden = await rpc(client, messages, 22, 'tools/call', { name: 'shell_exec', arguments: { command: 'echo hidden' } });
   assert.equal(hidden.result.isError, true);
   assert.equal(hidden.result.structuredContent.code, 'MODE_MISMATCH');
   const ran = await rpc(client, messages, 23, 'tools/call', { name: 'run_agent', arguments: { task: 'mock only', wait_ms: 0 } });
@@ -163,7 +165,7 @@ async function main() {
   const listing = await rpc(client, messages, 2, 'tools/list', {});
   const names = listing.result.tools.map((tool) => tool.name);
   for (const name of ['delegate_work', 'get_operation', 'wait_for_operation', 'cancel_operation']) assert.ok(names.includes(name), `${name} missing from MCP discovery`);
-  assert.ok(listing.result.tools.find((tool) => tool.name === 'delegate_work').inputSchema.required.includes('acceptance_criteria'));
+  assert.ok(listing.result.tools.find((tool) => tool.name === 'delegate_work').inputSchema.required.includes('idempotency_key'));  // acceptance_criteria is optional guidance now; checks carry verification
 
   const args = { project_path: project, task: 'Safe mock-only smoke task', idempotency_key: 'same-request' };
   const delegated = await rpc(client, messages, 3, 'tools/call', { name: 'delegate_work', arguments: args });

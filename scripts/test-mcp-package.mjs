@@ -79,7 +79,8 @@ async function main() {
   );
   const [{ filename }] = JSON.parse(packResult.stdout);
   const tarball = join(tmp, filename);
-  run('tar', ['-xzf', tarball, '-C', tmp], { cwd: tmp });
+  // Relative names: GNU tar (Git Bash on Windows) reads 'C:\...' as a remote host:path.
+  run('tar', ['-xzf', filename], { cwd: tmp });
   const packedEntrypoint = join(tmp, 'package', 'dist', 'index.js');
   if (!existsSync(packedEntrypoint)) {
     throw new Error(`packed entrypoint missing: ${packedEntrypoint}`);
@@ -158,7 +159,7 @@ async function main() {
   console.log(`tools: ${toolNames.join(', ')}`);
   console.log(`bridge_health: ${JSON.stringify(healthJson)}`);
 
-  if (!toolNames.includes('bridge_health') || !toolNames.includes('spawn_agent')) {
+  if (!toolNames.includes('bridge_health') || !toolNames.includes('run_agent')) {
     throw new Error(`expected MCP tools missing: ${toolNames.join(', ')}`);
   }
   if (healthJson.ok !== true) {
