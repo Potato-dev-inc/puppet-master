@@ -189,7 +189,7 @@ fn receipt_schema() -> Value {
         "read_only":{"type":"string","enum":["enforced","unenforced","off"]},
         "checks":{"type":"string","description":"`none configured` or `<passed>/<total> passed`."},
         "result_capture":{"type":"string","enum":["authoritative","inferred","missing","pending"]},
-        "not_verified":{"type":"array","items":{"type":"string"}},"build_id":{"type":"string","description":"Puppet Master build that produced this run."}
+        "not_verified":{"type":"array","items":{"type":"string"}},"outcome":{"type":"string","enum":["passed_checks","completed_unchecked","failed_checks","failed","cancelled","needs_input","in_progress"],"description":"The one field for did-it-work. Only passed_checks means the requested behaviour was proven by acceptance checks; completed_unchecked means the worker finished but nothing verified it."},"build_id":{"type":"string","description":"Puppet Master build that produced this run."}
     },"required":["backend","read_only","checks","result_capture","not_verified"]})
 }
 

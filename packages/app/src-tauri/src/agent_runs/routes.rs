@@ -1123,23 +1123,26 @@ mod tests {
     #[test]
     fn persisted_worker_name_resolves_to_handle_when_unique() {
         let (project, registry, _pane) = pane_bound_run(false);
-        named_run(&project, "run-luna", "luna", 0);
-        named_run(&project, "run-luna", "luna", 1);
-        named_run(&project, "run-nova", "nova", 0);
+        let uniq = uuid::Uuid::new_v4().simple().to_string();
+        let (luna, nova) = (format!("luna-{uniq}"), format!("nova-{uniq}"));
+        let (run_luna, run_luna_2, run_nova) = (format!("run-{luna}"), format!("run-{luna}-2"), format!("run-{nova}"));
+        named_run(&project, &run_luna, &luna, 0);
+        named_run(&project, &run_luna, &luna, 1);
+        named_run(&project, &run_nova, &nova, 0);
         // Same resolution a fresh process uses after restart: name -> persisted handle.
         assert_eq!(
-            resolve_run_handle(&project, "luna", &registry).unwrap(),
-            "run-luna"
+            resolve_run_handle(&project, &luna, &registry).unwrap(),
+            run_luna
         );
         assert_eq!(
-            super::super::persist::find_worker(&project, "luna")
+            super::super::persist::find_worker(&project, &luna)
                 .unwrap()
                 .agent_run_id,
-            "run-luna"
+            run_luna
         );
         assert!(resolve_run_handle(&project, "unknown-name", &registry).is_err());
-        named_run(&project, "run-luna-2", "luna", 0);
-        let error = resolve_run_handle(&project, "luna", &registry).unwrap_err();
+        named_run(&project, &run_luna_2, &luna, 0);
+        let error = resolve_run_handle(&project, &luna, &registry).unwrap_err();
         assert_eq!(error.code, "AMBIGUOUS_WORKER_NAME");
         let _ = std::fs::remove_dir_all(&project);
     }

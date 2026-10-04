@@ -246,6 +246,12 @@ pub struct RunReceipt {
     pub checks: String,
     pub result_capture: String,
     pub not_verified: Vec<String>,
+    /// One field for "did it work": `passed_checks`, `completed_unchecked`, `failed_checks`,
+    /// `failed`, `cancelled`, `needs_input` or `in_progress`. Only `passed_checks` means the
+    /// requested behaviour was proven; `completed_unchecked` means the worker finished but nothing
+    /// verified it.
+    #[serde(default)]
+    pub outcome: String,
     /// Puppet Master build that produced the run, so a result can be tied to the code under test.
     #[serde(default)]
     pub build_id: String,
@@ -297,6 +303,7 @@ fn build_receipt(
     if warnings.iter().any(|warning| warning.code == "SHELL_COMMAND_REJECTED") {
         not_verified.push("shell commands rejected".to_string());
     }
+    let outcome = receipt_outcome(snapshot, total);
     RunReceipt {
         backend: snapshot.agent_type.clone(),
         model: snapshot
@@ -308,7 +315,42 @@ fn build_receipt(
         checks,
         result_capture: result_capture.into(),
         not_verified,
+        outcome: outcome.into(),
         build_id: env!("PM_BUILD_ID").to_string(),
+    }
+}
+
+fn receipt_outcome(snapshot: &OperationSnapshot, checks_total: usize) -> &'static str {
+    match snapshot.status {
+        OperationStatus::Completed => {
+            let all_passed = checks_total > 0
+                && snapshot.check_results.len() >= checks_total
+                && snapshot.check_results.iter().all(|result| result.passed);
+            if all_passed {
+                "passed_checks"
+            } else if checks_total == 0 {
+                "completed_unchecked"
+            } else {
+                // Completed with checks that did not all pass cannot normally happen (a failing
+                // check fails the run); never report it as proven.
+                "completed_unchecked"
+            }
+        }
+        OperationStatus::Failed => {
+            if snapshot
+                .error
+                .as_ref()
+                .is_some_and(|error| error.code == "ACCEPTANCE_FAILED")
+            {
+                "failed_checks"
+            } else {
+                "failed"
+            }
+        }
+        OperationStatus::Cancelled => "cancelled",
+        OperationStatus::WaitingInput => "needs_input",
+        OperationStatus::Queued | OperationStatus::Starting | OperationStatus::Running
+        | OperationStatus::Cancelling => "in_progress",
     }
 }
 

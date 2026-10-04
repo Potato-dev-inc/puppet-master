@@ -2611,3 +2611,34 @@ fn pane_open_is_false_while_an_auto_closing_pane_is_still_in_the_registry() {
     snapshot.pane_created = false;
     assert_eq!(super::runtime::pane_presentation(&snapshot, true, false), (true, false, None));
 }
+
+#[test]
+fn receipt_outcome_is_the_single_answer_to_did_it_work() {
+    let check = super::checks::Check::FileExists { path: "a".into() };
+    let passed = |ok: bool| super::checks::CheckResult { check: check.clone(), passed: ok, detail: String::new() };
+
+    // Completed with every check passed: the requested behaviour was proven.
+    let mut proven = parked_snapshot(OperationStatus::Completed, "none");
+    proven.checks = vec![check.clone()];
+    proven.check_results = vec![passed(true)];
+    assert_eq!(receipt_of(proven).outcome, "passed_checks");
+
+    // Completed with nothing checking it: finished is not the same as proven.
+    let unchecked = parked_snapshot(OperationStatus::Completed, "none");
+    assert_eq!(receipt_of(unchecked).outcome, "completed_unchecked");
+
+    // A failing check fails the run.
+    let mut failed_checks = parked_snapshot(OperationStatus::Failed, "none");
+    failed_checks.checks = vec![check.clone()];
+    failed_checks.check_results = vec![passed(false)];
+    failed_checks.error = Some(OperationError::new("ACCEPTANCE_FAILED", "check failed", false));
+    assert_eq!(receipt_of(failed_checks).outcome, "failed_checks");
+
+    let mut failed = parked_snapshot(OperationStatus::Failed, "none");
+    failed.error = Some(OperationError::new("RESULT_NOT_CAPTURED", "x", true));
+    assert_eq!(receipt_of(failed).outcome, "failed");
+
+    assert_eq!(receipt_of(parked_snapshot(OperationStatus::WaitingInput, "none")).outcome, "needs_input");
+    assert_eq!(receipt_of(parked_snapshot(OperationStatus::Running, "none")).outcome, "in_progress");
+    assert_eq!(receipt_of(parked_snapshot(OperationStatus::Cancelled, "none")).outcome, "cancelled");
+}
