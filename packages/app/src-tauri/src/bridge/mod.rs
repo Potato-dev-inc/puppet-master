@@ -1,0 +1,119 @@
+//! Embedded HTTP bridge for external MCP clients.
+//!
+//! This bridge intentionally shares the same Rust `PaneRegistry` used by the
+//! Tauri commands. External MCP calls therefore operate on the real visible
+//! terminal panes instead of a stub sidecar process.
+//!
+//! Layout: `http`/`router`/`routes` parse and dispatch requests, `sse` broadcasts events,
+//! `delegation`/`dispatch`/`locks`/`handoff` implement operations, and the rest are helpers.
+
+mod approvals;
+mod delegation;
+mod dispatch;
+mod errors;
+mod handoff;
+mod http;
+mod locks;
+mod observe;
+mod pane_util;
+mod projects;
+mod router;
+mod routes;
+mod sse;
+mod state;
+mod store;
+#[cfg(test)]
+mod tests;
+mod tool_names;
+
+pub use delegation::{delegate_operation, publish_operation, stop_operation_worker_with_kill};
+pub use dispatch::dispatch_existing_operation;
+#[cfg(test)]
+pub(crate) use locks::{acquire_operation_locks, release_operation_locks};
+pub(crate) use locks::{
+    fail_operation_on_lock_conflict, recover_interrupted_operations_on_startup,
+};
+pub use sse::{
+    push_pane_resize_sse, push_pane_status_sse, push_panes_sse, push_settings_sse, push_sse,
+    push_terminal_sse,
+};
+
+use parking_lot::Mutex;
+use std::fs;
+use std::net::TcpListener;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::thread;
+use tauri::AppHandle;
+
+use crate::mobile_pairing;
+use crate::pty::PaneRegistry;
+use sse::push_operation_sse;
+use state::{BRIDGE_APP, BRIDGE_REGISTRY};
+
+const HOST: &str = "127.0.0.1";
+const PORT_MIN: u16 = 17321;
+const PORT_MAX: u16 = 17399;
+
+pub struct BridgeHandle {
+    pub url: String,
+}
+
+impl BridgeHandle {
+    pub fn new(url: String) -> Self {
+        Self { url }
+    }
+}
+
+fn bind_listener() -> Result<(TcpListener, u16), String> {
+    for port in PORT_MIN..=PORT_MAX {
+        match TcpListener::bind((HOST, port)) {
+            Ok(listener) => return Ok((listener, port)),
+            Err(_) => continue,
+        }
+    }
+    Err(format!("no free bridge port in {PORT_MIN}-{PORT_MAX}"))
+}
+
+pub fn start_embedded_bridge(
+    registry: Arc<Mutex<PaneRegistry>>,
+    app: AppHandle,
+    port_file: PathBuf,
+    pairing_file: PathBuf,
+) -> Result<BridgeHandle, String> {
+    let _ = BRIDGE_APP.set(app.clone());
+    let _ = BRIDGE_REGISTRY.set(registry.clone());
+    if let Ok(recovered) = recover_interrupted_operations_on_startup() {
+        for snapshot in recovered {
+            push_operation_sse(&snapshot);
+        }
+    }
+    mobile_pairing::init_pairing_store(pairing_file)?;
+    let _ = crate::app_paths::ensure_app_data_dir();
+    let (listener, port) = bind_listener()?;
+    let url = format!("http://{HOST}:{port}");
+    fs::write(&port_file, format!("{HOST}:{port}\n"))
+        .map_err(|err| format!("write bridge port file {}: {err}", port_file.display()))?;
+
+    thread::Builder::new()
+        .name("puppet-master-http-bridge".into())
+        .spawn(move || {
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => {
+                        let registry = registry.clone();
+                        let app = app.clone();
+                        thread::spawn(move || {
+                            if let Err(err) = http::handle_connection(stream, registry, app) {
+                                tracing::debug!(%err, "bridge request failed");
+                            }
+                        });
+                    }
+                    Err(err) => tracing::debug!(%err, "bridge accept failed"),
+                }
+            }
+        })
+        .map_err(|err| format!("spawn bridge thread: {err}"))?;
+
+    Ok(BridgeHandle::new(url))
+}
