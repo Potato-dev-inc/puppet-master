@@ -1,0 +1,31 @@
+
+
+  Cursor Agent
+  v2026.10.01-e373342
+  Tip: Type ? in the prompt bar to show in-app hints.
+
+
+  Reply with only [], no tools, no explanation.
+
+
+  []
+
+
+  Reply with only {}, no tools, no explanation.
+
+
+  {}
+
+
+  Reply with exactly this sentence, no tools: Composer 2.5 is mentioned in this answer.
+
+
+  Composer 2.5 is mentioned in this answer.
+
+
+ ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+  → Add a follow-up
+ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  Composer 2.5 · 7.3%
+  ~\AppData\Local\Temp\claude\C--Users-Ren-pc-Desktop-work2-puppet-master\7f91bd8b-8ce7-4122-9d68-3ea20af2faed\scratchpa
+  d\verify5-1

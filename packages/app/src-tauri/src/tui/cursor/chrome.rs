@@ -165,25 +165,97 @@ fn is_idle_chrome(lower: &str) -> bool {
 }
 
 /// Cursor's tool-activity rows shown above a reply: the collapsed-output notice
-/// (`… 2 output lines hidden · ctrl+o to expand`), a shell header (`$ cd … 11s`) and a one-file
-/// read (`Read todo.py`). None of them is part of the reply text.
+/// (`… 2 output lines hidden · ctrl+o to expand`), a shell header (`$ cd … 11s`), file reads and
+/// searches (`Read todo.py`, `Globbed "**/*.py" in .`, `Read, globbed 1 file, 1 glob`) and the
+/// in-flight forms (`Running…`). None of them is part of the reply text.
 pub(super) fn is_tool_line(lower: &str) -> bool {
     if lower.contains("ctrl+o to expand")
         || (lower.contains("output line") && lower.contains("hidden"))
         || is_truncation_notice(lower)
         || is_edit_header(lower)
+        || is_search_header(lower)
+        || is_running_notice(lower)
     {
         return true;
     }
-    // Every `$ <command>` row is Cursor's header for a shell call (its duration may be on the
-    // same row or on the next one), and a bare `6.0s` is that duration.
-    if lower.starts_with("$ ") || is_duration(lower) {
+    // A shell call's header is `$ <command>` followed by its duration (or `Waiting for
+    // approval...`). A `$ <command>` row with neither is text the agent wrote (a command quoted in
+    // the answer), not Cursor's header. When the duration wraps onto the next row, that bare
+    // duration row is itself a tool row.
+    if let Some(command) = lower.strip_prefix("$ ") {
+        return has_trailing_duration(command) || command.contains("waiting for approval");
+    }
+    if is_duration(lower) {
         return true;
     }
-    lower.strip_prefix("read ").is_some_and(|target| {
+    let target = lower
+        .strip_prefix("read ")
+        .or_else(|| lower.strip_prefix("reading "));
+    target.is_some_and(|target| {
         !target.contains(' ')
             && target.chars().any(|ch| matches!(ch, '.' | '/' | '\\'))
             && !target.ends_with('.')
+    })
+}
+
+const TOOL_VERBS: &[&str] = &[
+    "read", "reading", "globbed", "globbing", "grepped", "grepping", "searched", "searching",
+    "listed", "listing", "fetched", "fetching", "ran",
+];
+const TOOL_NOUNS: &[&str] = &[
+    "file", "files", "glob", "globs", "grep", "greps", "search", "searches", "dir", "dirs",
+    "directory", "directories", "listing", "listings", "command", "commands", "page", "pages",
+];
+
+/// A search/read header: a verb followed by a quoted pattern (`Globbed "**/*.py" in .`,
+/// `Grepped "todo" in src`) or the collapsed summary of a group of calls, which is only verbs,
+/// counts and nouns (`Read, globbed 1 file, 1 glob`, `Globbed, read 2 globs, 1 file`). Prose that
+/// starts with the same word (`Read the docs first.`) has other words in it and does not match.
+fn is_search_header(lower: &str) -> bool {
+    let words: Vec<&str> = lower.split_whitespace().collect();
+    let Some(first) = words.first() else {
+        return false;
+    };
+    let verb = first.trim_end_matches(',');
+    if !TOOL_VERBS.contains(&verb) {
+        return false;
+    }
+    if !matches!(verb, "read" | "reading")
+        && lower[first.len()..].trim_start().starts_with(['"', '\'', '`'])
+    {
+        return true;
+    }
+    let is_summary_word = |word: &&str| {
+        let word = word.trim_end_matches(',');
+        TOOL_VERBS.contains(&word)
+            || TOOL_NOUNS.contains(&word)
+            || (!word.is_empty() && word.chars().all(|ch| ch.is_ascii_digit()))
+    };
+    // A group summary carries counts; `Read files.` or `Ran commands` alone is prose.
+    words.len() >= 3
+        && words.iter().all(is_summary_word)
+        && words
+            .iter()
+            .any(|word| word.trim_end_matches(',').chars().all(|ch| ch.is_ascii_digit()))
+}
+
+/// `Running…` / `Running...`: the in-flight marker of a tool call that has no duration yet.
+fn is_running_notice(lower: &str) -> bool {
+    matches!(lower.trim(), "running" | "running…" | "running...")
+}
+
+/// The text ends with a duration such as `9.3s`, `213ms` or `1m 27s`.
+fn has_trailing_duration(text: &str) -> bool {
+    text.split_whitespace().last().is_some_and(|word| {
+        let number = word
+            .strip_suffix("ms")
+            .or_else(|| word.strip_suffix('s'))
+            .or_else(|| word.strip_suffix('m'));
+        word.len() <= 7
+            && number.is_some_and(|n| {
+                n.chars().next().is_some_and(|ch| ch.is_ascii_digit())
+                    && n.chars().all(|ch| ch.is_ascii_digit() || ch == '.')
+            })
     })
 }
 
@@ -216,9 +288,6 @@ fn is_header_line(lower: &str) -> bool {
 /// context usage and a change summary). A reply that only mentions the model, or uses ` · ` in a
 /// sentence, does not match: every part after the model name must itself be a status figure.
 fn is_status_line(lower: &str) -> bool {
-    if lower.len() <= 80 && lower.contains(" · ") && lower.ends_with('%') {
-        return true;
-    }
     if lower.len() > 120 {
         return false;
     }
@@ -231,7 +300,16 @@ fn is_status_line(lower: &str) -> bool {
         && model.chars().next().is_some_and(char::is_alphabetic)
         && !model.contains([',', ';', ':', '!', '?'])
         && !model.ends_with('.');
-    model_like && !rest.is_empty() && rest.iter().all(|part| is_status_figure(part))
+    if !model_like || rest.is_empty() {
+        return false;
+    }
+    // Every part after the model must be a status figure; a footer cell this build does not know
+    // yet (a short `Auto-run`-style tag) is tolerated only when the row still ends in the context
+    // percentage, which a sentence never does after a ` · ` separator.
+    rest.iter().all(|part| is_status_figure(part))
+        || (rest.last().is_some_and(|part| is_status_figure(part) && part.ends_with('%'))
+            && rest.len() <= 3
+            && rest.iter().all(|part| part.len() <= 24 && !part.contains(['.', ',']) || is_status_figure(part)))
 }
 
 /// `7.2%`, `1 file edited`, `3 files changed`, `+14 -3`: one footer figure.
@@ -342,7 +420,7 @@ mod tests {
 
     #[test]
     fn shell_call_headers_and_durations_are_tool_rows() {
-        assert!(is_tool_line("$ cd \"c:\\proj\" && python todo.py add buy-milk && python todo.py list"));
+        assert!(is_tool_line("$ cd \"c:\\proj\" && python todo.py add buy-milk && python todo.py list 6.0s"));
         assert!(is_tool_line("6.0s"));
         assert!(is_tool_line("1m 3s"));
         assert!(!is_tool_line("2 seconds later it finished"));
@@ -355,5 +433,38 @@ mod tests {
         assert!(is_chrome_line("v2026.10.01-e373342"));
         assert!(is_chrome_line("tip: press ? for help"));
         assert!(is_chrome_line("~\\proj"));
+    }
+
+    #[test]
+    fn search_and_group_headers_are_tool_rows_but_prose_is_not() {
+        assert!(is_tool_line("read, globbed 1 file, 1 glob"));
+        assert!(is_tool_line("globbed, read 2 globs, 1 file"));
+        assert!(is_tool_line("globbed \"**/test*.py\" in ."));
+        assert!(is_tool_line("grepped \"todo\" in src"));
+        assert!(is_tool_line("reading todo.py"));
+        assert!(is_tool_line("running\u{2026}"));
+        assert!(!is_tool_line("read the docs first."));
+        assert!(!is_tool_line("read files."));
+        assert!(!is_tool_line("searched for the bug in utils and found it"));
+        assert!(!is_tool_line("exploring todo.py to identify supported commands"));
+    }
+
+    #[test]
+    fn a_dollar_row_is_a_shell_header_only_with_a_duration_or_approval_wait() {
+        assert!(is_tool_line("$ python -m pytest -q 9.3s"));
+        assert!(is_tool_line("$ python -m pytest -q 213ms"));
+        assert!(is_tool_line("$ python -m pytest -q 1m 27s"));
+        assert!(is_tool_line("$ python todo.py list waiting for approval..."));
+        assert!(!is_tool_line("$ python todo.py list"));
+        assert!(!is_tool_line("$ echo hello world"));
+    }
+
+    #[test]
+    fn a_sentence_that_starts_with_the_model_name_is_not_a_footer() {
+        assert!(!is_chrome_line("composer 2.5 is mentioned in this answer."));
+        assert!(!is_chrome_line("composer 2.5 \u{b7} up 5%"));
+        assert!(!is_chrome_line("composer 2.5 \u{b7} is a model, 90% sure"));
+        assert!(is_chrome_line("composer 2.5 \u{b7} 7.3%"));
+        assert!(is_chrome_line("composer 2.5 \u{b7} 8.9% \u{b7} 1 file edited"));
     }
 }

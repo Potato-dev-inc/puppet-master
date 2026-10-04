@@ -473,6 +473,28 @@ fn keep_last_copy_of_repeated_echoes(
             rescued = true;
         }
     }
+    // A reply that repeats part of a prompt row without being a row of its own: the prompt
+    // "Reply with exactly this sentence, no tools: S" is echoed as one row and the reply S is a
+    // slice of it. The echo comes first and has already used up that text, so a later echoed row
+    // wholly contained in the rows before it is the reply, not a second echo. A wrapped echo
+    // continues the text and is never contained in what precedes it.
+    let mut consumed = String::new();
+    for index in 0..lines.len() {
+        if !echoed[index] {
+            continue;
+        }
+        let line_n = normalize_echo(lines[index]);
+        if line_n.len() >= 8
+            && !(!previous_n.is_empty() && previous_n.contains(&line_n))
+            && format!(" {consumed} ").contains(&format!(" {line_n} "))
+        {
+            echoed[index] = false;
+            rescued = true;
+            continue;
+        }
+        consumed.push(' ');
+        consumed.push_str(&line_n);
+    }
     rescued
 }
 
@@ -559,6 +581,24 @@ pub fn strip_tool_output_blocks(text: &str) -> String {
     out.join("\n")
 }
 
+/// The text after the last tool-call row (`Edited x +3`, `$ cmd 9s`, `Read f`, `Globbed ...`).
+/// What a TUI prints after its last tool call is the final message; everything above it is tool
+/// output and the commentary that introduced each call ("Now I will run the tests"), which are
+/// not the answer. With no tool row the text is returned whole. Run after
+/// [`strip_tool_output_blocks`] and before chrome rows are dropped, since the tool rows are
+/// themselves chrome and would otherwise be gone by the time the cut is made.
+fn after_last_tool_block(text: &str) -> &str {
+    let mut offset = 0;
+    let mut cut = 0;
+    for line in text.split_inclusive('\n') {
+        offset += line.len();
+        if crate::tui::is_tool_activity_line(&line.trim().to_ascii_lowercase()) {
+            cut = offset;
+        }
+    }
+    &text[cut..]
+}
+
 /// New non-chrome TUI text since `baseline`. Occurrence counts so a repeated
 /// identical answer still counts as this turn's result.
 pub fn tui_turn_evidence(screen: &str, baseline: &str) -> Option<String> {
@@ -574,6 +614,7 @@ pub fn tui_turn_evidence(screen: &str, baseline: &str) -> Option<String> {
         return None;
     }
     if let Some(suffix) = screen.strip_prefix(baseline) {
+        let suffix = after_last_tool_block(suffix);
         let added = suffix
             .lines()
             .map(str::trim)
@@ -589,6 +630,7 @@ pub fn tui_turn_evidence(screen: &str, baseline: &str) -> Option<String> {
     }
     let mut seen: HashMap<&str, usize> = HashMap::new();
     let mut added = Vec::new();
+    let screen = after_last_tool_block(screen);
     for line in screen.lines().map(str::trim).filter(|line| !line.is_empty()) {
         if is_tui_chrome_line(line) {
             continue;

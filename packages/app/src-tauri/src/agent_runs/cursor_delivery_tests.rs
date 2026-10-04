@@ -3,6 +3,7 @@
 //! pane capture was available).
 
 use super::completion::{
+    tui_turn_evidence,
     clean_extracted_result, clean_extracted_result_after, completion_model, observe_tui_turn,
     TuiTurnDecision, TuiTurnWatch, NOT_SUBMITTED_TICKS, RETRY_SUBMIT_TICKS,
 };
@@ -328,4 +329,102 @@ fn watch_diagnostics_say_what_the_supervisor_saw() {
     assert_eq!(diag["saw_reply"], false);
     assert_eq!(diag["delivery_verified"], false);
     assert!(diag["baseline_tail"].as_str().unwrap().contains("ALPHA"));
+}
+
+// ---- Cursor reply capture: verify5 captures (tester build b8693a6) --------------------------
+
+const PYTEST_TASK: &str = "Write test_todo.py with pytest tests for every command supported by todo.py. Isolate storage in temporary directories. Run python -m pytest -q and report the exact pass/fail count. Do not modify todo.py.";
+const PYTEST_FINAL: &str = "Added test_todo.py with pytest coverage for todo.py’s add and list commands (plus no-args behavior). Each test runs\nthe CLI in a fresh tmp_path so todos.json stays isolated.\npython -m pytest -q: 8 passed, 0 failed (0.93s)";
+
+#[test]
+fn a_reply_that_is_a_slice_of_a_one_line_prompt_is_still_the_reply() {
+    // Live capture: the prompt "Reply with exactly this sentence, no tools: S" is echoed as ONE
+    // row, and the reply S is the tail of that row. S was dropped as an echo (issue: the standalone
+    // "Composer 2.5 ..." sentence vanished). The footer is not involved.
+    let screen = include_str!("../tui/cursor/fixtures/reply_composer_sentence_screen.txt");
+    let task = "Reply with exactly this sentence, no tools: Composer 2.5 is mentioned in this answer.";
+    let previous = "Reply with only {}, no tools, no explanation.";
+    let reply = scrollback_reply(screen, task, previous);
+    assert_eq!(reply.as_deref(), Some("Composer 2.5 is mentioned in this answer."));
+    // The same screen through the live watch path (baseline = screen before the turn).
+    let baseline = screen
+        .split("  Reply with exactly this sentence")
+        .next()
+        .unwrap()
+        .to_string();
+    let evidence = tui_turn_evidence(screen, &baseline).expect("new text");
+    assert_eq!(
+        clean_extracted_result_after(&evidence, task, previous).as_deref(),
+        Some("Composer 2.5 is mentioned in this answer.")
+    );
+}
+
+#[test]
+fn a_prompt_echo_alone_is_never_a_reply_even_when_it_is_one_line() {
+    let task = "Reply with exactly this sentence, no tools: Composer 2.5 is mentioned in this answer.";
+    let screen = format!("  {task}\n\n -----\n  → Add a follow-up\n  Composer 2.5 · 7.3%");
+    assert_eq!(scrollback_reply(&screen, task, ""), None);
+    let evidence = tui_turn_evidence(&screen, "").unwrap_or_default();
+    assert_eq!(clean_extracted_result_after(&evidence, task, ""), None);
+}
+
+#[test]
+fn a_turn_where_cursor_printed_no_reply_stays_without_a_result() {
+    // Live capture (verify5-1): follow-up "Reply with only []..." after PONG. The pane shows the
+    // prompt echo and the idle input box and nothing else; Cursor's own chat store holds an
+    // assistant message with only (redacted) reasoning and no text part. Nothing may be invented.
+    let screen = include_str!("../tui/cursor/fixtures/reply_empty_data_screen.txt");
+    let task = "Reply with only [], no tools, no explanation.";
+    assert_eq!(scrollback_reply(screen, task, "Reply with only PONG, no tools."), None);
+    let baseline = screen.split("  Reply with only [], no tools").next().unwrap().to_string();
+    let evidence = tui_turn_evidence(screen, &baseline).unwrap_or_default();
+    assert_eq!(
+        clean_extracted_result_after(&evidence, task, "Reply with only PONG, no tools."),
+        None
+    );
+}
+
+#[test]
+fn tool_blocks_and_commentary_are_not_part_of_the_final_message() {
+    let full = include_str!("../tui/cursor/fixtures/reply_pytest_turn_full.txt");
+    let reply = scrollback_reply(
+        full,
+        PYTEST_TASK,
+        "Reply with exactly this sentence, no tools: Composer 2.5 is mentioned in this answer.",
+    )
+    .expect("final message");
+    assert_eq!(reply, PYTEST_FINAL);
+}
+
+#[test]
+fn the_testers_pytest_turn_yields_only_the_final_message() {
+    let full = include_str!("../tui/cursor/fixtures/reply_pytest_tester_turn_full.txt");
+    let reply = scrollback_reply(full, PYTEST_TASK, "").expect("final message");
+    assert!(reply.starts_with("Added test_todo.py with seven tests"), "{reply}");
+    assert!(reply.ends_with("7 passed, 0 failed."), "{reply}");
+    for leaked in ["Globbed", "globbed", "Read todo.py", "Using subprocess", "Edited", "$ python", "1m 27s"] {
+        assert!(!reply.contains(leaked), "leaked {leaked:?}: {reply}");
+    }
+    // The answer's own quoted output survives.
+    assert!(reply.contains("Exact python -m pytest -q output:"), "{reply}");
+    assert!(reply.contains("7 passed in 1.26s"), "{reply}");
+}
+
+#[test]
+fn the_visible_rows_of_a_finished_tool_turn_give_the_final_message_too() {
+    let screen = include_str!("../tui/cursor/fixtures/reply_pytest_final_screen.txt");
+    let baseline = "  Cursor Agent\n  → Add a follow-up\n  Composer 2.5 · 7.3%";
+    let evidence = tui_turn_evidence(screen, baseline).expect("new text");
+    let reply = clean_extracted_result_after(&evidence, PYTEST_TASK, "").expect("reply");
+    assert_eq!(reply, PYTEST_FINAL);
+}
+
+#[test]
+fn a_final_message_that_quotes_commands_keeps_them() {
+    let full = "  Show me how to list todos.\n\n    Read todo.py\n\n  $ python todo.py list 0ms\n    1 [ ] a\n\n  Run it like this:\n  $ python todo.py list\n  1 [ ] a\n  Then add one with python todo.py add b.\n\n  → Add a follow-up\n  Composer 2.5 · 4%";
+    let reply = scrollback_reply(full, "Show me how to list todos.", "").expect("reply");
+    assert_eq!(
+        reply,
+        "Run it like this:\n$ python todo.py list\n1 [ ] a\nThen add one with python todo.py add b."
+    );
 }
