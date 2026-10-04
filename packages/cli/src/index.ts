@@ -17,6 +17,7 @@ import { dirname, join, resolve } from 'node:path';
 import { getDefaultTerminalAgentType } from '@puppet-master/shared';
 import { launchWorkerTerminal } from './launch-worker.js';
 import { runWatch } from './watch.js';
+import { WATCH_USAGE, validateWatchFlags } from './watch-args.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,7 +27,7 @@ interface ParsedArgs {
   flags: Record<string, string | boolean>;
 }
 
-const BOOLEAN_FLAGS = new Set(['help', 'h', 'version', 'v', 'force-new', 'new', 'force_new']);
+const BOOLEAN_FLAGS = new Set(['help', 'h', 'version', 'v', 'force-new', 'new', 'force_new', 'stream']);
 
 function parseArgs(argv: string[]): ParsedArgs {
   const [, , ...rest] = argv;
@@ -146,8 +147,14 @@ async function main(): Promise<void> {
   }
   if (command === 'watch') {
     const ids = positional.length > 0 ? positional : [];
+    const problem = validateWatchFlags(flags);
+    if (problem) {
+      console.error(`puppet-master watch: ${problem}`);
+      console.error(WATCH_USAGE);
+      process.exit(4);
+    }
     if (ids.length === 0) {
-      console.error('usage: puppet-master watch <operation_id|handle> [--project-path P] [--timeout-ms N] [--stream]');
+      console.error(WATCH_USAGE);
       process.exit(4);
     }
     const projectPath =

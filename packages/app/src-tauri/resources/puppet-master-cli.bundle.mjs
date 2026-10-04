@@ -12,7 +12,7 @@ import { existsSync as existsSync2, readFileSync } from "node:fs";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { dirname as dirname2, join as join3, resolve as resolve2 } from "node:path";
 
-// ../../../node_modules/zod/v3/external.js
+// node_modules/zod/v3/external.js
 var external_exports = {};
 __export(external_exports, {
   BRAND: () => BRAND,
@@ -124,7 +124,7 @@ __export(external_exports, {
   void: () => voidType
 });
 
-// ../../../node_modules/zod/v3/helpers/util.js
+// node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
   util2.assertEqual = (_) => {
@@ -258,7 +258,7 @@ var getParsedType = (data) => {
   }
 };
 
-// ../../../node_modules/zod/v3/ZodError.js
+// node_modules/zod/v3/ZodError.js
 var ZodIssueCode = util.arrayToEnum([
   "invalid_type",
   "invalid_literal",
@@ -376,7 +376,7 @@ ZodError.create = (issues) => {
   return error;
 };
 
-// ../../../node_modules/zod/v3/locales/en.js
+// node_modules/zod/v3/locales/en.js
 var errorMap = (issue, _ctx) => {
   let message;
   switch (issue.code) {
@@ -479,7 +479,7 @@ var errorMap = (issue, _ctx) => {
 };
 var en_default = errorMap;
 
-// ../../../node_modules/zod/v3/errors.js
+// node_modules/zod/v3/errors.js
 var overrideErrorMap = en_default;
 function setErrorMap(map) {
   overrideErrorMap = map;
@@ -488,7 +488,7 @@ function getErrorMap() {
   return overrideErrorMap;
 }
 
-// ../../../node_modules/zod/v3/helpers/parseUtil.js
+// node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
   const { data, path, errorMaps, issueData } = params;
   const fullPath = [...path, ...issueData.path || []];
@@ -598,14 +598,14 @@ var isDirty = (x) => x.status === "dirty";
 var isValid = (x) => x.status === "valid";
 var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 
-// ../../../node_modules/zod/v3/helpers/errorUtil.js
+// node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
   errorUtil2.errToObj = (message) => typeof message === "string" ? { message } : message || {};
   errorUtil2.toString = (message) => typeof message === "string" ? message : message?.message;
 })(errorUtil || (errorUtil = {}));
 
-// ../../../node_modules/zod/v3/types.js
+// node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
   constructor(parent, value, path, key) {
     this._cachedPath = [];
@@ -4053,7 +4053,7 @@ var coerce = {
 };
 var NEVER = INVALID;
 
-// ../../../packages/shared/dist/agents.js
+// packages/shared/dist/agents.js
 var AgentTypeSchema = external_exports.enum([
   "claude",
   "codex",
@@ -4069,7 +4069,7 @@ function getDefaultTerminalAgentType(_platform) {
   return "opencode_native";
 }
 
-// ../../../packages/shared/dist/protocol.js
+// packages/shared/dist/protocol.js
 var PaneStatusSchema = external_exports.enum(["running", "waiting_input", "error", "idle"]);
 var PaneInfoSchema = external_exports.object({
   id: external_exports.string(),
@@ -4126,7 +4126,7 @@ var OrchestratorChatEventSchema = external_exports.discriminatedUnion("type", [
   external_exports.object({ type: external_exports.literal("error"), message_id: external_exports.string(), error: external_exports.string() })
 ]);
 
-// ../../../packages/shared/dist/schemas.js
+// packages/shared/dist/schemas.js
 var ChatMessageSchema = external_exports.object({
   id: external_exports.string(),
   role: external_exports.enum(["user", "assistant", "system", "tool"]),
@@ -4190,7 +4190,7 @@ var SettingsSchema = external_exports.object({
   opencode_model_id: external_exports.string().optional()
 });
 
-// ../../../packages/shared/dist/mobile-pairing.js
+// packages/shared/dist/mobile-pairing.js
 var PairingQrPayloadSchema = external_exports.object({
   v: external_exports.literal(1),
   /** PWA origin or `/bridge` base URL the phone should use. */
@@ -4235,7 +4235,7 @@ var PairingSessionInfoSchema = external_exports.object({
   bridge_url: external_exports.string().url()
 });
 
-// ../../../packages/shared/dist/orchestrator-panes.js
+// packages/shared/dist/orchestrator-panes.js
 var ORCHESTRATOR_PANE_PREFIX = "puppet-master-orchestrator-";
 function isOrchestratorPaneId(paneId) {
   return paneId.startsWith(ORCHESTRATOR_PANE_PREFIX);
@@ -4260,7 +4260,7 @@ import { createConnection } from "node:net";
 import { dirname, join as join2, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// ../../../packages/shared/dist/bridge-port.js
+// packages/shared/dist/bridge-port.js
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -4725,9 +4725,28 @@ async function runWatch(options) {
   return failedAny ? EXIT_FAILED : EXIT_COMPLETED;
 }
 
+// packages/cli/src/watch-args.ts
+var WATCH_USAGE = "usage: puppet-master watch <operation_id|handle> [--project-path P] [--timeout-ms N] [--stream]";
+var WATCH_FLAGS = /* @__PURE__ */ new Set(["project-path", "project", "timeout-ms", "stream", "help", "h"]);
+function validateWatchFlags(flags) {
+  for (const key of Object.keys(flags)) {
+    if (!WATCH_FLAGS.has(key)) {
+      return `unknown flag --${key} (milliseconds are given as --timeout-ms N)`;
+    }
+  }
+  if ("timeout-ms" in flags) {
+    const value = flags["timeout-ms"];
+    const parsed = typeof value === "string" ? Number(value) : Number.NaN;
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return `--timeout-ms needs a positive number of milliseconds, got ${String(value)}`;
+    }
+  }
+  return null;
+}
+
 // packages/cli/src/index.ts
 var __dirname2 = dirname2(fileURLToPath2(import.meta.url));
-var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["help", "h", "version", "v", "force-new", "new", "force_new"]);
+var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["help", "h", "version", "v", "force-new", "new", "force_new", "stream"]);
 function parseArgs(argv) {
   const [, , ...rest] = argv;
   const command = rest[0] && !rest[0].startsWith("-") ? rest[0] : "gui";
@@ -4833,8 +4852,14 @@ async function main() {
   }
   if (command === "watch") {
     const ids = positional.length > 0 ? positional : [];
+    const problem = validateWatchFlags(flags);
+    if (problem) {
+      console.error(`puppet-master watch: ${problem}`);
+      console.error(WATCH_USAGE);
+      process.exit(4);
+    }
     if (ids.length === 0) {
-      console.error("usage: puppet-master watch <operation_id|handle> [--project-path P] [--timeout-ms N] [--stream]");
+      console.error(WATCH_USAGE);
       process.exit(4);
     }
     const projectPath = typeof flags["project-path"] === "string" ? flags["project-path"] : typeof flags.project === "string" ? flags.project : void 0;
