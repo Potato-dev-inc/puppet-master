@@ -117,6 +117,32 @@ pub fn handle_request(
                         false,
                     )
                 })?;
+                // A pane that belongs to a run is answered through that run, so a repeated answer
+                // finds the same replay ledger entry instead of pressing the key twice.
+                let (default_project, cwd) = {
+                    let guard = registry.lock();
+                    (
+                        guard.project_path.clone(),
+                        guard.panes.get(pane_id).map(|pane| pane.info.cwd.clone()),
+                    )
+                };
+                let candidates: Vec<String> = [Some(default_project), cwd].into_iter().flatten().collect();
+                if let Some((project, handle)) = run_for_pane(&candidates, pane_id) {
+                    let routed = AnswerPromptRequest {
+                        project_path: Some(project.clone()),
+                        handle: Some(handle),
+                        pane_id: request.pane_id.clone(),
+                        prompt_id: request.prompt_id.clone(),
+                        choice: request.choice.clone(),
+                        allow_broad: request.allow_broad,
+                    };
+                    match answer_prompt(&project, Some(&project), &routed, session_id, registry, app) {
+                        // Pane control was already authorised for this caller; run ownership
+                        // is not required to answer a prompt on a pane it has taken over.
+                        Err(error) if error.code == "AUTHORIZATION_DENIED" => {}
+                        other => return other,
+                    }
+                }
                 return crate::pane_prompt::answer(
                     registry,
                     app,
@@ -583,6 +609,15 @@ fn pane_worker_entry(pane: &crate::pty::PaneInfo, session_id: Option<&str>) -> V
         "grant_required": grant_required,
         "read_only_supported": super::capabilities::read_only_supported_for(&pane.agent_type, Some(&pane.id)),
         "adoptable": pane.status != "error",
+    })
+}
+
+/// The run (project, handle) bound to `pane_id`, searching `projects` in order.
+pub(super) fn run_for_pane(projects: &[String], pane_id: &str) -> Option<(String, String)> {
+    projects.iter().find_map(|project| {
+        latest_handle_for_pane(project, pane_id)
+            .ok()
+            .map(|handle| (project.clone(), handle))
     })
 }
 

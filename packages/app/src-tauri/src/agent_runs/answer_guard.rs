@@ -268,6 +268,18 @@ mod tests {
     }
 
     #[test]
+    fn a_pane_answer_resolves_to_the_run_that_owns_the_pane_so_it_shares_the_replay_ledger() {
+        let (default, home) = (project(), project());
+        let handle = uniq("run-pane");
+        run(&home, &handle, None);
+        let (found_project, found_handle) =
+            super::super::routes::run_for_pane(&[default.clone(), home.clone()], "pane-x")
+                .expect("run bound to the pane");
+        assert_eq!((found_project, found_handle), (home, handle));
+        assert!(super::super::routes::run_for_pane(&[default], "pane-x").is_none());
+    }
+
+    #[test]
     fn omitted_project_resolves_a_handle_that_lives_in_another_project() {
         // The reported bug: the bridge default project differs from the run's project.
         let (default, home) = (project(), project());
