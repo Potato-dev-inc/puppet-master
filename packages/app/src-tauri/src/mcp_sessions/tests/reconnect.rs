@@ -113,7 +113,7 @@ fn reconnect_recovers_only_the_owners_panes_never_another_live_connections() {
     assert!(check_run_access(&neighbour, &their_run).is_ok());
     assert!(check_run_access(&replacement, &their_run).is_err());
     assert!(check_run_read_access(&replacement, &their_run).is_err());
-    assert!(check_run_wait_access(&replacement, &their_run).is_ok() == false);
+    assert!(check_run_wait_access(&replacement, &their_run).is_err());
     // Presenting the neighbour's id or the owner's token again does not move their lease.
     assert!(attach_coordinator(&replacement, Some("guess"), Some("whoever")).is_err());
     assert!(inspect_lease(&their_run).unwrap().owner == neighbour);

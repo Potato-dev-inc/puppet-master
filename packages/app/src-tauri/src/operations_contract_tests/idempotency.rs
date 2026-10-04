@@ -176,14 +176,12 @@ fn invalid_task_criteria_and_project_values_are_rejected() {
         "INVALID_TASK"
     );
 
-    for criteria in [Some(vec!["  ".into()])] {
-        let mut invalid = request(&project, "invalid-criteria");
-        invalid.acceptance_criteria = criteria;
-        assert_eq!(
-            operations::create_operation(invalid).unwrap_err().code,
-            "INVALID_ACCEPTANCE_CRITERIA"
-        );
-    }
+    let mut invalid = request(&project, "invalid-criteria");
+    invalid.acceptance_criteria = Some(vec!["  ".into()]);
+    assert_eq!(
+        operations::create_operation(invalid).unwrap_err().code,
+        "INVALID_ACCEPTANCE_CRITERIA"
+    );
 
     let mut optional = request(&project, "optional-criteria");
     optional.acceptance_criteria = None;
