@@ -463,7 +463,7 @@ fn a_wrapped_shell_header_is_joined_whether_the_continuation_is_indented_or_not(
 {continuation}ea20af2 && python -m pytest -q 5.7s\n    8 passed in 0.86s\n\n  All 8 tests pass.\n\n  → Add a follow-up\n  Composer 2.5 · 7%"
         )
     };
-    for continuation in ["", "  "] {
+    for continuation in ["", "  ", "    "] {
         let reply = scrollback_reply(&wrapped(continuation), "Run the tests please now.", "").expect("reply");
         assert_eq!(reply, "All 8 tests pass.", "continuation {continuation:?}");
     }

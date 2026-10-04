@@ -4,7 +4,7 @@
   The tests already exist; I'll run them.
 
   $ cd "C:\Users\Ren-pc\AppData\Local\Temp\claude\C--Users-Ren-pc-Desktop-work2-puppet-master\7f91bd8b-8ce7-4122-9d68-3
-  ea20af2faed\scratchpad\verify5-1" && python -m pytest -q 5.7s
+    ea20af2faed\scratchpad\verify5-1" && python -m pytest -q 5.7s
     ........                                                                 [100%]
     8 passed in 0.86s
 

@@ -108,11 +108,14 @@ pub(super) fn strip_footer_cwd(text: &str) -> String {
 ")
 }
 
+/// A wrapped header's first row is at least this wide (trimmed); the pane is ~115 columns.
+const WRAPPED_HEADER_MIN: usize = 80;
+
 /// Rejoin a shell header the terminal hard-wrapped. A long `$ cd "<path>" && cmd 5.7s` header
 /// breaks at the pane width: its first row carries no duration (so it reads as quoted text, not a
 /// header) and the rest starts at column 0 with the duration at its end. Merging the pieces lets
 /// the header be recognised as the tool row it is. Only a `$ ` row, followed within two rows by
-/// continuation rows (at its own indent or shallower) that end in a duration, is merged.
+/// continuation rows that end in a duration, is merged.
 pub(super) fn join_wrapped_shell_headers(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let mut out: Vec<String> = Vec::with_capacity(lines.len());
@@ -120,14 +123,14 @@ pub(super) fn join_wrapped_shell_headers(text: &str) -> String {
     while index < lines.len() {
         let line = lines[index];
         let lower = line.trim().to_ascii_lowercase();
-        if lower.starts_with("$ ") && !is_tool_line(&lower) {
+        // Only a header long enough to have been wrapped: a short `$ cmd` row is quoted text.
+        if lower.starts_with("$ ") && !is_tool_line(&lower) && lower.len() >= WRAPPED_HEADER_MIN {
             let mut merged = line.to_string();
             let mut joined = None;
             for offset in 1..=2 {
                 let Some(next) = lines.get(index + offset) else { break };
-                // Cursor wraps at the header's own indent; a deeper row is the command's output.
-                let indent = |row: &str| row.len() - row.trim_start().len();
-                if next.trim().is_empty() || indent(next) > indent(line) {
+                // Cursor continues the command on the next row, indented past the `$ `.
+                if next.trim().is_empty() {
                     break;
                 }
                 merged.push_str(next.trim_start());
