@@ -315,6 +315,15 @@ JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WA
   choice (`INVALID_PROMPT_CHOICE`, broad approvals need opt-in `BROAD_APPROVAL_REQUIRES_OPT_IN`).
   A repeat of the same id within `REPLAY_WINDOW_MS` returns the earlier receipt and never presses the
   key twice. Never type into a pane while a dialog is up (Cursor dialogs act on hotkeys).
+  Answers are serialized (`answer_guard::serialize_answers`) so concurrent duplicates press once, and
+  a pane-only answer (`pane_id`, no handle) on a pane that belongs to a run is routed through that run
+  (`routes.rs::run_for_pane`) so it shares the same ledger. Run-spawned agent panes still need
+  `take_over` before a pane-only answer is authorised.
+- **Native (OpenCode) completion is decided from message order**, never from a baseline re-read
+  after a steer: `native.rs::native_completion_evidence` requires the newest assistant message (not
+  in the dispatch baseline, finish=stop) to come after the latest user message. A live steer
+  registers a `SteerGuard` and the supervisor completes only via `unless_steer_in_flight` (which
+  re-reads the session under the lock), so a steer is never accepted-then-ignored.
 - **OpenCode yes/no goes through `answer_prompt`, not `press_key`.** Multi-line prompts to
   `opencode_native` must not be typed as raw newlines (see `is_pty_control_input`).
 - **Pane close policy**: a run closes a pane only if it spawned it and `keep_pane` is not requested
