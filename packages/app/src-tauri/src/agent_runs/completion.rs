@@ -133,13 +133,18 @@ pub fn observe_tui_turn(
         watch.reconcile_ticks = 0;
         return TuiTurnDecision::Continue;
     }
-    if !watch.saw_task_echo && task_echo_on_screen(screen, &watch.task) {
+    if !watch.saw_task_echo && task_echo_on_screen(screen, &watch.baseline, &watch.task) {
         watch.saw_task_echo = true;
     }
     // With a blank baseline (the snapshot raced a lagging screen) everything already on screen,
     // banner, model footer, update notices, counts as "new". Until the pane was seen running or
     // the task's own echo appeared, there is no proof this turn started, so accept no evidence.
-    let turn_started = !watch.baseline.trim().is_empty() || watch.saw_activity || watch.saw_task_echo;
+    // With a task to look for, a non-blank baseline is not proof either: whatever else changed on
+    // screen (a wrapped footer row, an update notice) is not a reply. Only a task-less watch,
+    // which has nothing to echo, falls back to the baseline alone.
+    let turn_started = watch.saw_activity
+        || watch.saw_task_echo
+        || (watch.task.trim().is_empty() && !watch.baseline.trim().is_empty());
     let evidence = turn_started
         .then(|| tui_turn_evidence(screen, &watch.baseline))
         .flatten()
@@ -190,10 +195,17 @@ pub fn observe_tui_turn(
 
 /// Whether the start of the task text is visible on screen (the TUI echoes the submitted prompt).
 /// Whitespace and punctuation are ignored so a wrapped line still matches.
-fn task_echo_on_screen(screen: &str, task: &str) -> bool {
+fn task_echo_on_screen(screen: &str, baseline: &str, task: &str) -> bool {
     let task_n = normalize_echo(task);
     let head: String = task_n.chars().take(40).collect();
-    head.len() >= 8 && normalize_echo(screen).contains(head.trim_end())
+    let screen_n = normalize_echo(screen);
+    if head.len() >= 8 {
+        return screen_n.contains(head.trim_end());
+    }
+    // Too short to be distinctive on its own: its echo must be new since the baseline.
+    !head.is_empty()
+        && screen_n.matches(head.as_str()).count()
+            > normalize_echo(baseline).matches(head.as_str()).count()
 }
 
 pub fn is_tui_chrome_line(line: &str) -> bool {

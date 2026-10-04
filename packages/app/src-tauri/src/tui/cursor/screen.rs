@@ -14,9 +14,9 @@ static BLOCKED_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
         r"(?i)\brun once\b",
         r"(?i)\brun everything\b",
         r"(?i)\bskip\s*\((esc|n)\b",
-        r"(?i)workspace trust required",
-        r"(?i)trust this workspace",
-        r"(?i)do you trust the contents",
+        r"(?i)workspace\W+trust\W+required",
+        r"(?i)trust\W+this\W+workspace",
+        r"(?i)do\W+you\W+trust\W+the\W+contents",
     ]
     .into_iter()
     .map(|p| Regex::new(p).expect("valid cursor blocked regex"))
@@ -32,9 +32,9 @@ fn without_resolved_trust_dialog(screen: &str) -> String {
     let lines: Vec<&str> = screen.lines().collect();
     let is_trust = |line: &str| {
         let lower = line.to_ascii_lowercase();
-        lower.contains("trust this workspace")
-            || lower.contains("workspace trust required")
-            || lower.contains("do you trust the contents")
+        lower.contains("trust this")
+            || lower.contains("workspace trust")
+            || lower.contains("do you trust the")
             || lower.contains("trusting workspace")
     };
     let Some(last_trust) = lines.iter().rposition(|line| is_trust(line)) else {
@@ -79,7 +79,13 @@ pub(super) fn classify(visible_tail: &str) -> PaneStatus {
 /// "allow all" prompt, so `allow_broad` is ignored.
 pub(super) fn detect_prompt(agent_type: &str, screen: &str, _allow_broad: bool) -> Option<Value> {
     let live = without_resolved_trust_dialog(screen);
-    let lower = live.to_ascii_lowercase();
+    // A narrow pane wraps the dialog mid-phrase: match on the text with wrapping and box art gone.
+    let lower = live
+        .to_ascii_lowercase()
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
     let (kind, choices) =
         if lower.contains("trust this workspace") || lower.contains("trust the authors") {
             ("workspace_trust", vec!["trust".to_string(), "deny".to_string()])
@@ -92,6 +98,10 @@ pub(super) fn detect_prompt(agent_type: &str, screen: &str, _allow_broad: bool) 
             return None;
         };
     let mut prompt = generic::prompt_json(agent_type, kind, screen, choices);
+    if kind == "workspace_trust" {
+        // One trust dialog per pane at a time; its text re-wraps when the layout changes.
+        prompt["identity"] = Value::String("workspace_trust".into());
+    }
     if kind == "command_approval" {
         if let Some(found) = super::approval::extract(screen) {
             prompt["command"] = Value::String(found.command);
@@ -136,7 +146,7 @@ fn trust_dialog_keys(text: &str) -> (String, String) {
         })
     };
     (
-        key_of("trust this workspace").unwrap_or_else(|| "y".into()),
+        key_of("trust this").unwrap_or_else(|| "y".into()),
         key_of("quit").unwrap_or_else(|| "n".into()),
     )
 }

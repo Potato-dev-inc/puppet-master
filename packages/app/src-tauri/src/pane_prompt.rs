@@ -84,6 +84,20 @@ pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool
     Some(prompt)
 }
 
+/// Refusal to type a task into a pane that is showing a prompt. Dialogs act on hotkeys (Cursor's
+/// trust dialog takes `a`/`q`), so typing a prompt over one answers it with the prompt's letters
+/// and the task is lost. `None` when the pane is free for input.
+pub(crate) fn dispatch_blocker(agent_type: &str, screen: &str) -> Option<OperationError> {
+    let prompt = detect_in_screen(agent_type, screen, false)?;
+    let mut error = OperationError::new(
+        "PANE_BLOCKED_BY_PROMPT",
+        "the pane is showing a prompt (workspace trust or command approval); the task was not typed into it. Answer the prompt with answer_prompt, then retry",
+        true,
+    );
+    error.context = json!({"prompt_id": prompt.get("prompt_id"), "kind": prompt.get("kind")});
+    Some(error)
+}
+
 /// `Run command: <command> (in <cwd>)`, so a caller sees what it is approving without the pane.
 pub(crate) fn command_summary(prompt: &Value) -> String {
     let command = prompt.get("command").and_then(Value::as_str).unwrap_or_default();
@@ -105,7 +119,29 @@ fn prompt_id_for(prompt: &Value) -> Option<String> {
             "cwd": prompt.get("cwd"),
         }));
     }
-    crate::agent_runs::stable_prompt_id(prompt)
+    // No command to anchor on: hash the semantic identity, never the layout. A profile may name
+    // it (`identity`); otherwise it is the prompt text with wrapping, box art and case removed, so
+    // a dialog that re-renders at a different width keeps the id that was handed out.
+    let identity = prompt
+        .get("identity")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            prompt
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .chars()
+                .filter(|ch| ch.is_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect()
+        });
+    crate::agent_runs::stable_prompt_id(&json!({
+        "agent_type": prompt.get("agent_type"),
+        "kind": prompt.get("kind"),
+        "choices": prompt.get("choices"),
+        "identity": identity,
+    }))
 }
 
 /// The prompt blocking `pane_id` as a run's `required_action` (with an id, kind, options and a
@@ -249,6 +285,36 @@ another line
     }
 
     use super::*;
+
+    const TRUST_PENDING: &str = include_str!("tui/cursor/fixtures/workspace_trust_visible_pending.txt");
+    const TRUST_REWRAPPED: &str = "  Cursor Agent\n  v2026.10.01-e373342\n\n  \u{256d}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{256e}\n  \u{2502} \u{26a0} Workspace Trust \u{2502}\n  \u{2502} Required \u{2502}\n  \u{2502} Cursor Agent can \u{2502}\n  \u{2502} execute code and \u{2502}\n  \u{2502} access files in \u{2502}\n  \u{2502} this directory. \u{2502}\n  \u{2502} Do you trust the \u{2502}\n  \u{2502} contents of this \u{2502}\n  \u{2502} directory? \u{2502}\n  \u{2502} C:\\Users\\Ren-pc\\AppData\\ \u{2502}\n  \u{2502} Local\\Temp\\cur-_b1a_ip3 \u{2502}\n  \u{2502} [a] Trust this \u{2502}\n  \u{2502} workspace \u{2502}\n  \u{2502} [q] Quit \u{2502}\n  \u{2570}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{256f}\n";
+
+    #[test]
+    fn a_trust_prompt_keeps_its_id_when_the_dialog_is_rewrapped() {
+        // Live (2026-10-04): the dialog re-rendered with different wrapping ~45s later and the
+        // id handed out earlier hashed the screen text, so answer_prompt said "no longer current".
+        let first = detect_in_screen("cursor_agent", TRUST_PENDING, true).expect("trust prompt");
+        let again = detect_in_screen("cursor_agent", TRUST_REWRAPPED, false).expect("trust prompt");
+        assert_eq!(first["kind"], "workspace_trust");
+        assert_eq!(again["kind"], "workspace_trust");
+        assert_eq!(first["prompt_id"], again["prompt_id"]);
+    }
+
+    #[test]
+    fn a_task_is_never_typed_over_a_dialog() {
+        for dialog in [TRUST_PENDING, TRUST_REWRAPPED, APPROVAL] {
+            let blocker = dispatch_blocker("cursor_agent", dialog).expect("blocked");
+            assert_eq!(blocker.code, "PANE_BLOCKED_BY_PROMPT");
+        }
+        assert!(dispatch_blocker("cursor_agent", "  Cursor Agent\n  \u{2192} Plan, search, build anything\n  Composer 2.5\n").is_none());
+    }
+
+    #[test]
+    fn prompts_without_a_command_ignore_wrapping_and_box_art() {
+        let a = detect_in_screen("claude", "Always allow this command in the repo?\n", true).unwrap();
+        let b = detect_in_screen("claude", "  Always allow this\n  command in the repo?\n", true).unwrap();
+        assert_eq!(a["prompt_id"], b["prompt_id"]);
+    }
 
     const APPROVAL: &str = "\
  $ cargo test --lib\n\n Run this command?\n Run once (y)\n Skip (esc or n)\n\n → Add follow-up\n";

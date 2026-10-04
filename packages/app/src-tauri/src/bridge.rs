@@ -4164,6 +4164,15 @@ pub fn dispatch_existing_operation(
                         }
                         let profile = crate::tui::profile_for(&agent_type);
                         if profile.verifies_prompt_delivery() {
+                            // A dialog on screen (trust, command approval) takes hotkeys: typing the
+                            // task over it would answer it with the task's letters and lose the task.
+                            let screen = registry_read_snapshot(&registry_for_dispatch, &pane_id)
+                                .unwrap_or_default();
+                            if let Some(blocked) =
+                                crate::pane_prompt::dispatch_blocker(&agent_type, &screen)
+                            {
+                                return Err(blocked);
+                            }
                             // Visible panes whose TUI is readable: clear, type, verify the text
                             // is in the input box, submit, verify a turn started.
                             let mut io = crate::agent_runs::delivery::PaneIo {

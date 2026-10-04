@@ -369,3 +369,29 @@ fn an_answer_that_looks_like_a_path_survives_when_it_is_not_the_footer() {
         assert_eq!(completed(&ticks(&mut watch, "idle", &done, 4)).as_deref(), Some(reply));
     }
 }
+
+#[test]
+fn debris_without_a_turn_start_is_never_a_completed_result() {
+    // Live (2026-10-04): the task prompt was swallowed by a trust dialog, the pane returned to an
+    // empty composer, and the run completed with footer debris as its result. With a non-blank
+    // baseline, no busy tick and no echo of the task, nothing proves the turn started.
+    let prompt = "Reply with only PONG, no tools.";
+    let baseline = screen_after(&[], "Composer 2.5");
+    for debris in [r"d\live-2", "Update available: v2026.11.01", "Run npm i -g cursor-agent to upgrade"] {
+        let mut watch = TuiTurnWatch::from_baseline(baseline.clone()).with_task(prompt);
+        let screen = baseline.replacen(INPUT, &format!("  {debris}\n\n{INPUT}"), 1);
+        let decisions = ticks(&mut watch, "idle", &screen, NOT_SUBMITTED_TICKS as u32 + 2);
+        assert!(completed(&decisions).is_none(), "{debris:?}: {decisions:?}");
+        assert!(decisions.contains(&TuiTurnDecision::NotSubmitted), "{decisions:?}");
+    }
+}
+
+#[test]
+fn a_very_short_task_echo_still_counts_as_a_turn_start() {
+    // "hi" is too short for the 8-character echo prefix; its echo is still new on screen.
+    let baseline = screen_after(&[], "Composer 2.5");
+    let mut watch = TuiTurnWatch::from_baseline(baseline).with_task("hi");
+    let done = screen_after(&[("hi", "Hello!")], "Composer 2.5 \u{b7} 3.4%");
+    let result = completed(&ticks(&mut watch, "idle", &done, 4)).expect("a turn that echoed its task completes");
+    assert!(result.ends_with("Hello!"), "{result}");
+}
