@@ -1,0 +1,359 @@
+/* Boot / loading screen. */
+
+
+.pm-boot-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(var(--pm-bg));
+  color: rgb(var(--pm-text));
+  overflow: hidden;
+  animation: pm-boot-enter 0.55s ease-out both;
+}
+
+.pm-boot-screen--exit {
+  animation: pm-boot-exit 0.52s ease-in forwards;
+  pointer-events: none;
+}
+
+.pm-boot-grid-bg {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgb(var(--pm-border) / 0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--pm-border) / 0.35) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 42%, black 20%, transparent 78%);
+  opacity: 0.55;
+  animation: pm-boot-grid-drift 18s linear infinite;
+}
+
+.pm-boot-layout {
+  position: relative;
+  width: min(920px, 92vw);
+  padding: clamp(20px, 4vw, 40px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(24px, 4vw, 40px);
+}
+
+.pm-boot-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.pm-boot-logo {
+  width: 56px;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid rgb(var(--pm-border));
+  animation: pm-boot-logo-pulse 2.4s ease-in-out infinite;
+}
+
+.pm-boot-kicker {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgb(var(--pm-muted));
+}
+
+.pm-boot-title {
+  margin: 4px 0 0;
+  font-size: clamp(1.35rem, 2.4vw, 1.85rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.pm-boot-stage {
+  display: grid;
+  gap: 28px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  align-items: center;
+}
+
+@media (max-width: 760px) {
+  .pm-boot-stage {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pm-boot-pane-grid {
+  position: relative;
+  aspect-ratio: 1.15;
+  max-height: 320px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1.1fr 0.9fr;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 16px;
+  background: rgb(var(--pm-panel));
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.28);
+}
+
+.pm-boot-pane {
+  position: relative;
+  min-height: 0;
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 10px;
+  background: rgb(var(--pm-bg));
+  padding: 10px;
+  overflow: hidden;
+  animation: pm-boot-pane-breathe 2.8s ease-in-out infinite;
+}
+
+.pm-boot-pane--a { grid-column: 1; grid-row: 1; animation-delay: 0s; }
+.pm-boot-pane--b { grid-column: 2; grid-row: 1 / span 2; animation-delay: 0.35s; }
+.pm-boot-pane--c { grid-column: 1; grid-row: 2; animation-delay: 0.7s; }
+
+.pm-boot-pane-label {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(var(--pm-muted));
+  margin-bottom: 8px;
+}
+
+.pm-boot-pane-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pm-boot-pane-lines span {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--pm-border)) 0%,
+    rgb(var(--pm-accent) / 0.55) 50%,
+    rgb(var(--pm-border)) 100%
+  );
+  background-size: 200% 100%;
+  animation: pm-boot-line-shimmer 1.6s ease-in-out infinite;
+}
+
+.pm-boot-pane-lines span:nth-child(2) { width: 88%; animation-delay: 0.15s; }
+.pm-boot-pane-lines span:nth-child(3) { width: 62%; animation-delay: 0.3s; }
+.pm-boot-pane-lines--short { width: 54% !important; }
+
+.pm-boot-scan {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(var(--pm-accent) / 0.85), transparent);
+  box-shadow: 0 0 12px rgb(var(--pm-accent) / 0.35);
+  animation: pm-boot-scan 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.pm-boot-node {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  border: 1px solid rgb(var(--pm-accent));
+  background: rgb(var(--pm-bg));
+  box-shadow: 0 0 0 4px rgb(var(--pm-accent) / 0.12);
+  animation: pm-boot-node-pulse 1.8s ease-in-out infinite;
+}
+
+.pm-boot-log {
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 14px;
+  background: rgb(var(--pm-panel));
+  padding: 18px 20px;
+}
+
+.pm-boot-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pm-boot-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: rgb(var(--pm-muted));
+  opacity: 0.55;
+  transform: translateY(4px);
+  transition: opacity 0.35s ease, transform 0.35s ease, color 0.35s ease;
+}
+
+.pm-boot-step--active,
+.pm-boot-step--done {
+  opacity: 1;
+  transform: translateY(0);
+  color: rgb(var(--pm-text));
+}
+
+.pm-boot-step-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pm-boot-step-icon--pending {
+  width: 6px;
+  height: 6px;
+  margin: 5px;
+  border-radius: 50%;
+  background: rgb(var(--pm-border));
+}
+
+.pm-boot-step-icon--active {
+  border-radius: 50%;
+  border: 2px solid rgb(var(--pm-border));
+  border-top-color: rgb(var(--pm-accent));
+  animation: pm-boot-spin 0.75s linear infinite;
+}
+
+.pm-boot-step-icon--done {
+  color: rgb(var(--pm-ok));
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pm-boot-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pm-boot-progress-track {
+  position: relative;
+  height: 3px;
+  border-radius: 999px;
+  background: rgb(var(--pm-border) / 0.65);
+  overflow: hidden;
+}
+
+.pm-boot-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: rgb(var(--pm-accent));
+  transition: width 0.45s ease;
+}
+
+.pm-boot-progress-glow {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: rgb(var(--pm-accent));
+  filter: blur(6px);
+  opacity: 0.65;
+  transition: left 0.45s ease;
+}
+
+.pm-boot-footer-meta {
+  display: flex;
+  justify-content: space-between;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: rgb(var(--pm-muted));
+}
+
+.pm-boot-cursor {
+  animation: pm-boot-blink 1s step-end infinite;
+}
+
+@keyframes pm-boot-enter {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes pm-boot-exit {
+  from { opacity: 1; transform: scale(1); filter: blur(0); }
+  to { opacity: 0; transform: scale(1.02); filter: blur(6px); }
+}
+
+@keyframes pm-boot-grid-drift {
+  from { transform: translateY(0); }
+  to { transform: translateY(48px); }
+}
+
+@keyframes pm-boot-logo-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--pm-accent) / 0); }
+  50% { box-shadow: 0 0 0 6px rgb(var(--pm-accent) / 0.08); }
+}
+
+@keyframes pm-boot-pane-breathe {
+  0%, 100% { border-color: rgb(var(--pm-border)); }
+  50% { border-color: rgb(var(--pm-accent) / 0.45); }
+}
+
+@keyframes pm-boot-line-shimmer {
+  0% { background-position: 100% 0; opacity: 0.45; }
+  50% { opacity: 0.95; }
+  100% { background-position: -100% 0; opacity: 0.45; }
+}
+
+@keyframes pm-boot-scan {
+  0% { top: 12%; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { top: 88%; opacity: 0; }
+}
+
+@keyframes pm-boot-node-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 4px rgb(var(--pm-accent) / 0.12); }
+  50% { transform: scale(1.12); box-shadow: 0 0 0 8px rgb(var(--pm-accent) / 0.06); }
+}
+
+@keyframes pm-boot-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pm-boot-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-boot-screen,
+  .pm-boot-grid-bg,
+  .pm-boot-logo,
+  .pm-boot-pane,
+  .pm-boot-pane-lines span,
+  .pm-boot-scan,
+  .pm-boot-node,
+  .pm-boot-step-icon--active,
+  .pm-boot-cursor {
+    animation: none !important;
+  }
+
+  .pm-boot-screen--exit {
+    animation: pm-boot-exit-reduced 0.12s ease-out forwards;
+  }
+}
+
+@keyframes pm-boot-exit-reduced {
+  to { opacity: 0; }
+}
+
+

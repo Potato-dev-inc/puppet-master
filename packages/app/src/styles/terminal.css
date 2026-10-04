@@ -1,0 +1,318 @@
+/* xterm host surface: scaled/grid mirror modes, mobile keyboard capture, special-key controls, snapshot. */
+
+.terminal-host {
+  contain: strict;
+  height: 100%;
+  width: 100%;
+  background: rgb(var(--pm-bg));
+  cursor: text;
+  position: relative;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+  width: 100%;
+  padding: 8px 10px;
+}
+
+.terminal-host .xterm-viewport,
+.terminal-host .xterm-screen {
+  background: rgb(var(--pm-bg)) !important;
+}
+
+.terminal-host .xterm-rows {
+  color: rgb(var(--pm-text));
+}
+
+.terminal-host .xterm-cursor {
+  background: rgb(var(--pm-accent)) !important;
+  color: rgb(var(--pm-bg)) !important;
+}
+
+.terminal-host .xterm-screen canvas {
+  image-rendering: auto;
+}
+
+.terminal-host--mirror-grid .xterm {
+  width: max-content;
+  min-width: 100%;
+}
+
+.terminal-host--mirror-grid .xterm-screen {
+  width: max-content !important;
+  min-width: 100%;
+}
+
+.terminal-host--mirror-scale {
+  overflow: hidden;
+}
+
+.terminal-scale-viewport {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.terminal-scale-stage {
+  transform-origin: top left;
+  will-change: transform;
+}
+
+.terminal-host--mirror-scale.terminal-host--mirror-grid .xterm {
+  width: max-content;
+  min-width: 100%;
+}
+
+.terminal-host--mirror-scale.terminal-host--mirror-grid .xterm-screen {
+  width: max-content !important;
+  min-width: 100%;
+}
+
+/* Mobile mirror: terminal is the app surface; keyboard capture is independent. */
+.terminal-host--mobile-input {
+  display: flex;
+  flex-direction: column;
+  contain: layout style;
+  overflow: hidden;
+  --pm-mobile-keyboard-panel-height: 42dvh;
+  --pm-mobile-input-bar-height: var(--pm-mobile-keyboard-panel-height);
+}
+
+.terminal-host--mobile-input > .xterm,
+.terminal-host--mobile-input > .terminal-scale-viewport {
+  order: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto !important;
+  width: 100%;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.terminal-host--mobile-input > .xterm {
+  overflow: auto;
+}
+
+.terminal-host--mobile-input.terminal-host--mirror-grid > .xterm,
+.terminal-host--mobile-input.terminal-host--mirror-scale > .terminal-scale-viewport .xterm {
+  width: max-content;
+  min-width: 100%;
+}
+
+.terminal-host--mobile-input.terminal-host--mobile-input-hidden {
+  display: block;
+  --pm-mobile-input-bar-height: 0px;
+}
+
+.terminal-host--mobile-input.terminal-host--mobile-input-hidden > .xterm,
+.terminal-host--mobile-input.terminal-host--mobile-input-hidden > .terminal-scale-viewport {
+  height: calc(100% - var(--pm-mobile-input-bar-height)) !important;
+}
+
+.terminal-host--mobile-input-hidden.terminal-host--mobile-input-engaged {
+  --pm-mobile-input-bar-height: var(--pm-mobile-keyboard-panel-height);
+}
+
+.terminal-mobile-keyboard-sink-zone {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  width: auto;
+  height: 44px;
+  overflow: hidden;
+  opacity: 0.01;
+  pointer-events: none;
+  padding: 0;
+}
+
+.terminal-mobile-keyboard-sink-zone .terminal-mobile-command-form {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  padding: 0;
+  background: transparent;
+  border-top-color: transparent;
+}
+
+.terminal-mobile-keyboard-sink-zone .terminal-mobile-command-input {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  box-shadow: none;
+}
+
+.terminal-mobile-keyboard-sink-zone .terminal-mobile-command-input::placeholder {
+  color: transparent;
+}
+
+.terminal-mobile-keyboard-sink-zone .terminal-mobile-command-input:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.terminal-mobile-tap-zone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: var(--pm-mobile-input-bar-height);
+  z-index: 15;
+  pointer-events: none;
+}
+
+.terminal-mobile-input-zone {
+  flex: 0 0 auto;
+  width: 100%;
+  order: 2;
+}
+
+
+.terminal-mobile-special-controls {
+  position: absolute;
+  right: 10px;
+  bottom: calc(var(--pm-mobile-input-bar-height) + 12px);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.terminal-host--mobile-input-hidden .terminal-mobile-special-controls {
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+
+.terminal-mobile-special-toggle,
+.terminal-mobile-special-key {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgb(var(--pm-border));
+  background: rgb(var(--pm-bg) / 0.92);
+  color: rgb(var(--pm-text));
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.terminal-mobile-special-toggle {
+  min-width: 52px;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.terminal-mobile-special-grid {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(56px, 1fr));
+  gap: 8px;
+  width: min(240px, calc(100vw - 84px));
+  max-height: min(50dvh, 360px);
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 12px;
+  background: rgb(var(--pm-bg) / 0.95);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+}
+
+.terminal-mobile-special-grid[hidden] {
+  display: none;
+}
+
+.terminal-mobile-special-key {
+  min-width: 0;
+  height: 38px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.terminal-mobile-special-toggle:active,
+.terminal-mobile-special-key:active {
+  background: rgb(var(--pm-accent) / 0.2);
+}
+
+.terminal-mobile-command-form {
+  margin: 0;
+  box-sizing: border-box;
+  height: var(--pm-mobile-keyboard-panel-height);
+  min-height: var(--pm-mobile-keyboard-panel-height);
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  background: rgb(var(--pm-bg) / 0.98);
+  border-top: 1px solid rgb(var(--pm-border));
+}
+
+.terminal-mobile-command-input {
+  display: block;
+  box-sizing: border-box;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  height: auto;
+  padding: 14px;
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 12px;
+  background: rgb(var(--pm-bg));
+  color: rgb(var(--pm-text));
+  font: 16px/1.45 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  caret-color: rgb(var(--pm-accent));
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.terminal-mobile-command-input::placeholder {
+  color: rgb(var(--pm-muted));
+  opacity: 0.85;
+}
+
+.terminal-mobile-command-input:focus {
+  border-color: rgb(var(--pm-accent));
+  box-shadow: 0 0 0 2px rgb(var(--pm-accent) / 0.2);
+}
+
+.terminal-snapshot {
+  margin: 0;
+  padding: 8px 10px;
+  color: rgb(var(--pm-text));
+  font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre;
+  tab-size: 4;
+  transform: translateZ(0);
+  text-rendering: geometricPrecision;
+  user-select: text;
+}
+
+.terminal-snapshot:focus {
+  box-shadow: inset 0 0 0 1px rgb(var(--pm-accent) / 0.35);
+}
+
+.resize-both {
+  resize: both;
+}
