@@ -201,6 +201,56 @@ fn native_completion_requires_fresh_stop_and_no_pending_prompt() {
     );
 }
 
+fn user_message(id: &str, text: &str) -> MessageView {
+    MessageView {
+        id: Some(id.into()),
+        role: "user".into(),
+        model: None,
+        finish: None,
+        error: None,
+        parts: vec![MessagePartView::Text { text: text.into() }],
+    }
+}
+
+/// Regression for the intermittent `PROMPT_NOT_SUBMITTED` after a live steer: the answer to the
+/// steer (`a3`) may already exist when the steer is acknowledged, so completion must be decided
+/// from message order against the dispatch baseline, never from a baseline re-read after the steer.
+#[test]
+fn native_completion_follows_the_steer_even_when_its_answer_already_exists() {
+    let baseline = vec!["u1".to_string()];
+    let answered = view(vec![
+        user_message("u1", "do the thing"),
+        assistant("a1", "tool-calls", "", None),
+        assistant("a2", "stop", "PONG", None),
+        user_message("u2", "reply STEERED instead"),
+        assistant("a3", "stop", "STEERED", None),
+    ]);
+    assert_eq!(
+        native_completion_evidence(&answered, &baseline, false),
+        Some(Ok("STEERED".into()))
+    );
+}
+
+#[test]
+fn native_completion_waits_for_an_answer_that_follows_the_latest_user_message() {
+    let baseline = vec!["u1".to_string()];
+    // The first turn's answer finished, but a steer arrived after it: that answer is not final.
+    let steered = view(vec![
+        user_message("u1", "do the thing"),
+        assistant("a1", "stop", "PONG", None),
+        user_message("u2", "reply STEERED instead"),
+    ]);
+    assert!(native_completion_evidence(&steered, &baseline, false).is_none());
+    // A reply to an earlier assistant step that was still streaming when the steer landed.
+    let racing = view(vec![
+        user_message("u1", "do the thing"),
+        assistant("a2", "stop", "PONG", None),
+        user_message("u2", "reply STEERED instead"),
+        assistant("a3", "", "", None),
+    ]);
+    assert!(native_completion_evidence(&racing, &baseline, false).is_none());
+}
+
 #[test]
 fn native_assistant_error_is_not_reported_as_verified_success() {
     let messages = view(vec![assistant(

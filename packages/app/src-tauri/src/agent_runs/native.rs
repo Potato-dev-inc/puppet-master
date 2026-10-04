@@ -316,11 +316,22 @@ pub(super) fn native_completion_evidence(
     if has_pending_prompt {
         return None;
     }
-    let assistant = messages
+    let (assistant_index, assistant) = messages
         .messages
         .iter()
+        .enumerate()
         .rev()
-        .find(|message| message.role.eq_ignore_ascii_case("assistant"))?;
+        .find(|(_, message)| message.role.eq_ignore_ascii_case("assistant"))?;
+    // A user message after the newest assistant message is a steer that has not been answered
+    // yet. The earlier answer belongs to the superseded instruction, so it is not the result.
+    // Deciding this from message order (against the dispatch baseline) is race-free; re-reading
+    // the baseline after a steer is not, because the steer's answer may already exist by then.
+    if messages.messages[assistant_index + 1..]
+        .iter()
+        .any(|message| message.role.eq_ignore_ascii_case("user"))
+    {
+        return None;
+    }
     let id = assistant.id.as_ref()?;
     if baseline_ids.iter().any(|known| known == id) {
         return None;

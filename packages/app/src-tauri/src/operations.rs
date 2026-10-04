@@ -971,21 +971,6 @@ pub fn mark_operation_observation(
     Ok(op)
 }
 
-pub fn set_message_baseline(
-    project: &str,
-    id: &str,
-    message_ids: Vec<String>,
-) -> Result<OperationSnapshot, OperationError> {
-    let _serial = UPDATE_LOCK.get_or_init(|| Mutex::new(())).lock();
-    let mut op = get_operation(project, id)?;
-    if op.status.terminal() {
-        return Ok(op);
-    }
-    op.message_baseline_ids = message_ids;
-    bump(&mut op)?;
-    Ok(op)
-}
-
 pub fn rebind_provider_session(
     project: &str,
     id: &str,

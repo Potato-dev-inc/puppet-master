@@ -1113,8 +1113,6 @@ pub fn send_message(
             }
             receipt.disposition = Disposition::Queued;
             messaging::update_receipt(project, handle, &receipt)?;
-        } else {
-            rebase_native_steer(&snapshot, &registry)?;
         }
     }
     if matches!(
@@ -1202,30 +1200,6 @@ fn restart_with_steer(
         },
     )
     .map(|_| ())
-}
-
-fn rebase_native_steer(
-    snapshot: &OperationSnapshot,
-    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
-) -> Result<(), OperationError> {
-    let Some(pane_id) = snapshot.pane_id.as_deref() else {
-        return Ok(());
-    };
-    let ids = crate::opencode::messages::read_pane_messages(registry.as_ref(), pane_id, 10_000, None)
-        .ok()
-        .map(|view| {
-            view.messages
-                .into_iter()
-                .filter_map(|message| message.id)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    operations::set_message_baseline(
-        &snapshot.project_path,
-        &snapshot.operation_id,
-        ids,
-    )?;
-    Ok(())
 }
 
 fn deliver_live(
