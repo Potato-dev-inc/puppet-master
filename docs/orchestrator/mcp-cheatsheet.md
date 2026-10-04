@@ -32,6 +32,32 @@ PowerShell and Git Bash (backslash paths were eaten by Git Bash). `run_agent`, `
 `followup_task` accept an optional `shell` (`bash` | `powershell` | `cmd`) to render it for one shell;
 the env var `PUPPET_MASTER_WATCH_SHELL` sets a default.
 
+### What `watch` guarantees (and does not)
+
+`watch` is the supported way to get one terminal result for background work without repeated
+status checks. Run it as a foreground process in your harness shell tool's background mode; the
+harness wakes when the process exits. It is **not push delivery**: nothing is sent into the agent
+session, the harness is only woken by the watcher's exit.
+
+- Blocks on a long-poll (`/operations/{id}/wait`), not a status loop, and prints **one JSON line
+  per operation** (`operation_id`, `status`, `result`, `error`, `revision`).
+- Exit codes: `0` completed, `1` failed or cancelled (the line carries the status and error, for
+  example `ACCEPTANCE_FAILED`), `2` `waiting_input` (the run needs input; answer it, then watch
+  again), `3` deadline reached, `4` error (unknown operation id/handle, rejected request).
+- Deadline: `--timeout-ms N` (default one hour). At the deadline it prints
+  `{"status":"timeout","last_status":...}` (plus `bridge_unreachable` when the bridge was down) and
+  exits 3; the operation keeps running. Re-run the watch or use `wait_agents`.
+- Bridge restarts or a bridge that is not up yet are waited out: it re-reads the bridge port file,
+  backs off, and resumes the long-poll from the last revision it saw on the same operation. A run
+  the restart interrupted ends as `failed` / `OPERATION_INTERRUPTED`; its resource locks are
+  released at startup.
+- It needs no MCP connection and takes no ownership or lease. It is read-only, and killing it
+  never cancels the run. Cancelling the run (`cancel_agent` / `cancel_operation`) makes the watch
+  print the `cancelled` result and exit 1.
+- A reconnecting MCP client recovers its own panes and runs with `attach_agents(attach_token)`; a
+  pane or run controlled by another live connection is never reclaimed that way (only an explicit
+  `take_over(grant=true)` does).
+
 ## Steering limits
 
 - Cursor headless runs can only be steered by a restart, and only from turn 2; visible Cursor panes

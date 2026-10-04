@@ -65,7 +65,9 @@ Usage:
   puppet-master --project PATH  Open with a preset cwd
   puppet-master worker [AGENT]  Open a standalone worker terminal (no main grid UI)
   puppet-master mcp             Run stdio MCP server (GUI or worker host must be running)
-  puppet-master watch ID        Block until an operation reaches a terminal or needs-input state (JSON on stdout)
+  puppet-master watch ID        Block until an operation is terminal or needs input; prints one JSON result.
+                                Exit codes: 0 completed, 1 failed/cancelled, 2 needs input, 3 timeout, 4 error.
+                                Waits out bridge restarts; --timeout-ms N sets the deadline (default 3600000).
   puppet-master version         Print version
   puppet-master --help          Show this help
 
@@ -146,7 +148,7 @@ async function main(): Promise<void> {
     const ids = positional.length > 0 ? positional : [];
     if (ids.length === 0) {
       console.error('usage: puppet-master watch <operation_id|handle> [--project-path P] [--timeout-ms N] [--stream]');
-      process.exit(3);
+      process.exit(4);
     }
     const projectPath =
       typeof flags['project-path'] === 'string'
