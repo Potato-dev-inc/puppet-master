@@ -18,6 +18,51 @@ pub(crate) fn stable_prompt_id(prompt: &serde_json::Value) -> Option<String> {
     Some(format!("prompt-{:016x}", hasher.finish()))
 }
 
+/// Steers being delivered right now, per operation. A live steer is accepted while the turn is
+/// still running, but its user message reaches the session a moment later; completing the turn in
+/// that gap would report the superseded answer. The supervisor therefore decides completion under
+/// this lock and skips it while a steer is in flight, and a steer registers itself before it
+/// re-checks that the turn is still running, so exactly one of "turn completed first" or "steer
+/// registered first" holds.
+static STEERS_IN_FLIGHT: once_cell::sync::Lazy<Mutex<std::collections::HashMap<String, usize>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
+
+pub(crate) struct SteerGuard(String);
+
+impl SteerGuard {
+    pub(crate) fn begin(operation_id: &str) -> Self {
+        *STEERS_IN_FLIGHT
+            .lock()
+            .entry(operation_id.to_string())
+            .or_insert(0) += 1;
+        Self(operation_id.to_string())
+    }
+}
+
+impl Drop for SteerGuard {
+    fn drop(&mut self) {
+        let mut map = STEERS_IN_FLIGHT.lock();
+        if let Some(count) = map.get_mut(&self.0) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                map.remove(&self.0);
+            }
+        }
+    }
+}
+
+/// Run `decide` only if no steer is being delivered to `operation_id`; the check and `decide`
+/// are atomic with respect to `SteerGuard::begin`. Returns whether `decide` ran.
+pub(super) fn unless_steer_in_flight(operation_id: &str, decide: impl FnOnce()) -> bool {
+    let map = STEERS_IN_FLIGHT.lock();
+    if map.contains_key(operation_id) {
+        return false;
+    }
+    decide();
+    drop(map);
+    true
+}
+
 /// How long an OpenCode server may stay unreachable before the run waiting on it is failed. A
 /// restarting server is back well within this; a dead one never is.
 pub(super) const SERVER_LOSS_GRACE_MS: u64 = 60_000;
@@ -219,7 +264,11 @@ pub(super) fn supervise_native_observation(
         }
         return;
     }
-    match native_completion_evidence(&messages, &operation.message_baseline_ids, false) {
+    let evidence = native_completion_evidence(&messages, &operation.message_baseline_ids, false);
+    if evidence.is_none() {
+        return;
+    }
+    unless_steer_in_flight(&operation.operation_id, || match evidence {
         Some(Err(error)) => {
             super::transcript::append(
                 &operation.project_path,
@@ -271,7 +320,7 @@ pub(super) fn supervise_native_observation(
             }
         }
         None => {}
-    }
+    });
 }
 
 /// A dispatched prompt shows up as a new user message within moments. If none has appeared this

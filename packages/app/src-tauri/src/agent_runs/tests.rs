@@ -252,6 +252,20 @@ fn native_completion_waits_for_an_answer_that_follows_the_latest_user_message() 
 }
 
 #[test]
+fn native_completion_is_deferred_while_a_steer_is_being_delivered() {
+    use super::native::{unless_steer_in_flight, SteerGuard};
+    let op = format!("steer-guard-{}", Uuid::new_v4());
+    assert!(unless_steer_in_flight(&op, || {}), "no steer: completion may be decided");
+    let guard = SteerGuard::begin(&op);
+    let mut ran = false;
+    assert!(!unless_steer_in_flight(&op, || ran = true));
+    assert!(!ran, "completion must wait for the in-flight steer");
+    drop(guard);
+    assert!(unless_steer_in_flight(&op, || ran = true));
+    assert!(ran);
+}
+
+#[test]
 fn native_assistant_error_is_not_reported_as_verified_success() {
     let messages = view(vec![assistant(
         "fresh-error",

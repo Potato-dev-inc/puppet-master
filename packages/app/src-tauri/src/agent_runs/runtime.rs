@@ -1,6 +1,7 @@
 use super::capabilities::{self, BackendCapabilities};
 use super::transcript;
 use super::messaging::{self, DeliveryMode, Disposition};
+use super::native;
 use super::persist::{self, FollowupOpts};
 use crate::operations::{
     self, AcceptanceStatus, ContextPolicy, OperationError, OperationSnapshot, OperationStatus,
@@ -1078,6 +1079,14 @@ pub fn send_message(
                 Err(_) => break,
             }
         }
+    }
+    // Register the steer before re-reading the turn so the supervisor cannot complete it on the
+    // superseded answer between this check and the message reaching the session.
+    let _steer_in_flight = (capabilities::for_snapshot(&snapshot).live_messages
+        && !snapshot.status.terminal())
+    .then(|| native::SteerGuard::begin(&snapshot.operation_id));
+    if _steer_in_flight.is_some() {
+        snapshot = current_agent(project, handle, session_id)?;
     }
     let mode = DeliveryMode::parse(delivery);
     let mut receipt = messaging::send_message(
