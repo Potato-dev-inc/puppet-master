@@ -81,6 +81,33 @@ pub fn worker_key(
         .map(str::to_string)
 }
 
+/// A handle derived from the project and the caller's idempotency key. A retry of the same
+/// `run_agent` call (after a transport timeout, a reconnect) must see the same handle, or the
+/// request fingerprint differs and the retry is rejected as IDEMPOTENCY_KEY_CONFLICT instead of
+/// replaying the run that is already in flight. Uuid-shaped so it reads like any other handle.
+pub fn stable_handle(project: &str, idempotency_key: &str) -> String {
+    fn fnv1a(seed: u64, parts: &[&str]) -> u64 {
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64 ^ seed;
+        for part in parts {
+            for byte in part.bytes().chain(std::iter::once(0u8)) {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        hash
+    }
+    let parts = [project, idempotency_key.trim()];
+    let (high, low) = (fnv1a(0, &parts), fnv1a(0x9e37_79b9_7f4a_7c15, &parts));
+    format!(
+        "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
+        (high >> 32) as u32,
+        (high >> 16) as u16,
+        (high & 0x0fff) as u16,
+        0x8000 | ((low >> 48) as u16 & 0x3fff),
+        low & 0xffff_ffff_ffff
+    )
+}
+
 pub fn decide_worker(
     project: &str,
     key: Option<&str>,

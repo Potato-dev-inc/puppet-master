@@ -134,6 +134,7 @@ async function resolveSandboxTrust(view) {
 }
 
 const PONG = 'Reply with only the word PONG. Use no tools.';
+const SLOW_TASK = 'Run the shell command `python -c "import time; time.sleep(60)"` and then reply DONE.';
 const scenarios = {
   async pong(backend, extra) {
     const view = await runToEnd({ agent_type: backend, task: PONG, checks: [{ type: 'result_contains', text: 'PONG' }], ...extra });
@@ -255,6 +256,107 @@ const scenarios = {
       check('visible: pane gone after close_agent', !alive, paneId);
     }
     return first;
+  },
+
+  // ---- recovery: duplicate prevention, cancellation, timeouts, reconnect ----------------------
+
+  /** The same idempotency_key must never start a second execution. */
+  async duplicate(backend, extra) {
+    const key = `dup-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const start = () => tool('run_agent', { agent_type: backend, task: PONG, project_path: sandbox, idempotency_key: key, background: true, wait_ms: 0, ...extra });
+    const first = await start();
+    const second = await start();
+    if (first.handle) handlesSeen.push(first.handle);
+    check('duplicate: both calls return the same handle', Boolean(first.handle) && first.handle === second.handle, `${first.handle} vs ${second.handle}`);
+    check('duplicate: both calls return the same operation', Boolean(first.operation_id) && first.operation_id === second.operation_id, `${first.operation_id} vs ${second.operation_id}`);
+    let view = first;
+    for (let i = 0; i < 12 && !['completed', 'failed', 'cancelled'].includes(view.status) && first.handle; i += 1) {
+      view = await tool('wait_agents', { handles: [first.handle], timeout_ms: 30_000, project_path: sandbox });
+      view = view.runs?.[0] ?? view.agents?.[0] ?? view;
+    }
+    check('duplicate: the single run completed', view.status === 'completed', view.status);
+    const turns = JSON.stringify(await tool('inspect_agent', { handle: first.handle, project_path: sandbox }));
+    check('duplicate: only one turn exists', !turns.includes('"turn_index":1') && !turns.includes('"turn-1"'), 'a second turn was created');
+  },
+
+  /** cancel_agent must end a running turn as cancelled, never as a success. */
+  async cancel(backend, extra) {
+    const view = await tool('run_agent', { agent_type: backend, project_path: sandbox, task: SLOW_TASK, background: true, wait_ms: 0, ...(backend === 'cursor_agent' ? { allow_shell: true } : {}), ...extra });
+    if (view.handle) handlesSeen.push(view.handle);
+    if (!check('cancel: run started', Boolean(view.handle), JSON.stringify(view).slice(0, 160))) return;
+    await new Promise((resolve) => setTimeout(resolve, 9_000));
+    await tool('cancel_agent', { handle: view.handle, project_path: sandbox });
+    let final = view;
+    // A cancelled turn reads `interrupted` (cancel_agent/interrupt_agent) or `cancelled`.
+    for (let i = 0; i < 30; i += 1) {
+      final = await tool('inspect_agent', { handle: view.handle, project_path: sandbox });
+      if (['completed', 'failed', 'cancelled', 'interrupted'].includes(final.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+    check('cancel: ends cancelled or interrupted', ['cancelled', 'interrupted'].includes(final.status), final.status);
+    check('cancel: never reported as success', final.status !== 'completed' && final.receipt?.outcome !== 'passed_checks', `${final.status} ${final.receipt?.outcome}`);
+    check('cancel: receipt says cancelled', final.receipt?.outcome === 'cancelled', String(final.receipt?.outcome));
+  },
+
+  /** A run that exceeds timeout_ms fails with a recoverable TIMEOUT and stays inspectable. */
+  async timeout(backend, extra) {
+    const view = await tool('run_agent', { agent_type: backend, project_path: sandbox, task: SLOW_TASK, timeout_ms: 12_000, background: true, wait_ms: 0, ...(backend === 'cursor_agent' ? { allow_shell: true } : {}), ...extra });
+    if (view.handle) handlesSeen.push(view.handle);
+    if (!check('timeout: run started', Boolean(view.handle), JSON.stringify(view).slice(0, 160))) return;
+    let final = view;
+    for (let i = 0; i < 45; i += 1) {
+      final = await tool('inspect_agent', { handle: view.handle, project_path: sandbox });
+      if (['completed', 'failed', 'cancelled', 'interrupted'].includes(final.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+    check('timeout: run did not complete', final.status !== 'completed', final.status);
+    check('timeout: error code is TIMEOUT', final.error?.code === 'TIMEOUT', JSON.stringify(final.error)?.slice(0, 160));
+    check('timeout: marked recoverable', final.error?.recoverable === true, String(final.error?.recoverable));
+    check('timeout: receipt outcome is failed', final.receipt?.outcome === 'failed', String(final.receipt?.outcome));
+  },
+
+  /** A second connection cannot touch another connection's worker until it attaches with the
+   *  owner's token; after attaching it can close it. Uses the bridge directly (two sessions). */
+  async reconnect(backend, extra) {
+    if (backend !== 'opencode_native') return; // fast backend is enough to prove ownership recovery
+    let base = null;
+    for (let port = 17321; port <= 17335 && !base; port += 1) {
+      try {
+        const health = await (await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) })).json();
+        if (health.ok) base = `http://127.0.0.1:${port}`;
+      } catch { /* next port */ }
+    }
+    if (!check('reconnect: bridge found', Boolean(base))) return;
+    const stamp = `${Date.now()}`;
+    const a = `recov-A-${stamp}`;
+    const b = `recov-B-${stamp}`;
+    const call = async (session, method, path, body) => {
+      const response = await fetch(`${base}${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json', 'X-Puppet-Master-Session': session },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(120_000),
+      });
+      const text = await response.text();
+      let json = {};
+      try { json = JSON.parse(text); } catch { json = { raw: text }; }
+      return { status: response.status, ...json };
+    };
+    await call(a, 'POST', '/mcp/mode', { mode: 'agent' });
+    await call(b, 'POST', '/mcp/mode', { mode: 'agent' });
+    const run = await call(a, 'POST', '/agents/run', { task: PONG, agent_type: backend, project_path: sandbox, keep_pane: true, wait_ms: 60_000, idempotency_key: `recov-${stamp}` });
+    if (run.handle) handlesSeen.push(run.handle);
+    if (!check('reconnect: owner run completed', run.status === 'completed', `${run.status} ${run.code ?? ''}`)) return;
+    const identity = await call(a, 'GET', '/mcp/session');
+    check('reconnect: owner has an attach token', Boolean(identity.attach_token), JSON.stringify(identity).slice(0, 120));
+    const denied = await call(b, 'POST', '/agents/close', { handle: run.handle, project_path: sandbox });
+    check('reconnect: a stranger cannot close the worker', denied.code === 'AUTHORIZATION_DENIED', `${denied.status} ${denied.code}`);
+    const attached = await call(b, 'POST', '/agents/attach', { attach_token: identity.attach_token, coordinator_name: 'recovery-test' });
+    check('reconnect: attaching with the owner token succeeds', attached.status === 200 || attached.ok === true || Array.isArray(attached.attached) || Boolean(attached.attached), JSON.stringify(attached).slice(0, 200));
+    const closed = await call(b, 'POST', '/agents/close', { handle: run.handle, project_path: sandbox });
+    check('reconnect: the new connection can close it after attaching', closed.status === 'closed' || closed.stage === 'closed', `${closed.status} ${closed.code ?? ''}`);
+    const panes = JSON.stringify(await tool('list_panes', {}));
+    check('reconnect: the pane is gone after close', !run.pane_id || !panes.includes(run.pane_id), String(run.pane_id));
   },
 };
 

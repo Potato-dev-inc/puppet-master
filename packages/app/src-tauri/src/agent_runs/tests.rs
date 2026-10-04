@@ -2676,3 +2676,15 @@ fn every_steer_disposition_says_whether_it_was_applied_and_what_to_do() {
     assert!(Disposition::Queued.next_action().contains("followup_task"));
     assert!(Disposition::Expired.next_action().contains("followup_task"));
 }
+
+#[test]
+fn a_retried_run_agent_call_gets_the_same_handle_but_different_calls_do_not() {
+    let a = super::persist::stable_handle("C:/proj", "key-1");
+    assert_eq!(a, super::persist::stable_handle("C:/proj", "key-1"));
+    assert_eq!(a, super::persist::stable_handle("C:/proj", " key-1 "), "keys are trimmed");
+    assert_ne!(a, super::persist::stable_handle("C:/proj", "key-2"));
+    assert_ne!(a, super::persist::stable_handle("C:/other", "key-1"));
+    // Uuid-shaped like every other handle.
+    assert_eq!(a.len(), 36);
+    assert!(a.chars().enumerate().all(|(i, c)| if [8, 13, 18, 23].contains(&i) { c == '-' } else { c.is_ascii_hexdigit() }), "{a}");
+}

@@ -170,6 +170,14 @@ pub fn run_agent(
                 );
             }
             WorkerBind::Create { handle } => {
+                // No worker name/handle given: tie the new handle to the idempotency key so a
+                // retry of this exact call replays the run instead of conflicting with it.
+                let handle = match (key.as_deref(), request.idempotency_key.as_deref()) {
+                    (None, Some(idem)) if !idem.trim().is_empty() => {
+                        persist::stable_handle(&project_path, idem)
+                    }
+                    _ => handle,
+                };
                 request.agent_run_id = Some(handle);
             }
         }
