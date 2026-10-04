@@ -119,8 +119,10 @@ puppet-master/
         src/                Rust sources (section 3)
     cli/                    `puppet-master` CLI (src/index.ts: gui, mcp, worker, watch, version;
                             watch.ts + watch-args.ts = the watch command; launch-worker.ts)
-    mcp-server/             MCP packaging: src/index.ts (legacy TS MCP, loads catalog from bridge),
-                            src/launcher.ts (picks the Rust binary), dist/ holds the built exe
+    mcp-server/             MCP packaging: src/index.ts (legacy TS MCP entry: startup mode + handlers;
+                            bridge-client / catalog / tool-router / registry-call / timeouts / errors /
+                            types / util alongside), src/launcher.ts (picks the Rust binary),
+                            dist/ holds the built exe
     shared/                 TS types/zod shared by app + cli + mcp (protocol.ts, agents.ts,
                             bridge-port.ts, agent-contexts.ts, mobile-pairing.ts, schemas.ts)
   scripts/
@@ -131,11 +133,13 @@ puppet-master/
     run-tauri-dev.ps1, vite-dev.mjs, dev-tunnel.mjs   dev server helpers
     test-mcp-operations.mjs mock-bridge stdio smoke test; test-mcp-package.mjs packaging test;
     test-bridge.ps1 test-e2e.ps1 test-mcp.ps1   PowerShell live checks
-    pm-regression.mjs       LIVE regression + benchmark suite against the running app
+    pm-regression.mjs       LIVE regression + benchmark suite against the running app (entry point);
+                            modules in pm-regression/: context (args, rpc), scenarios, bench*.mjs
     spawn-close-agent.py    live pane spawn/close probe
     project-indexer.py, librarian-prompt.md   librarian project IR
     publish-github-release-assets.mjs, count-loc.*   release/LOC helpers
     launch-mcp-gui.ps1, puppet-master-mcp-gui.py, qt_mcp/   old/aux GUI launchers
+                            (qt_mcp/: gui.py MainWindow; discovery, operations, dialogs, style helpers)
 ```
 
 Gitignored build outputs: `dist/`, `target/`, `gen/`, `node_modules/`. `.claude/worktrees/` holds
