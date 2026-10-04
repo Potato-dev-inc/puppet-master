@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import type { LlmModel, OrchestratorChatEvent } from '@puppet-master/shared';
 import type { BridgeClient } from '../../lib/bridge';
-import { makeBridgeExecutor, makeTauriExecutor } from '../../lib/mcp-tools';
+import { makeBridgeExecutor, makeTauriExecutor } from '../../lib/mcp-executor';
 import { isCliOrchestratorBackend } from '../../lib/orchestrator-panes';
 import { runPuppetMasterLoop } from '../../lib/puppet-master';
 import { runPuppetMasterCliLoop } from '../../lib/puppet-master-cli';

@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { isOrchestratorPaneId } from '@puppet-master/shared';
 import type { PaneRegistryApi } from '../../hooks/usePaneRegistry';
-import { makeTauriExecutor } from '../../lib/mcp-tools';
+import { makeTauriExecutor } from '../../lib/mcp-executor';
 import { classifyPaneAttention, compactPaneText, hashPaneText, type PaneAttention } from '../../lib/pane-attention';
 import { tauri } from '../../lib/tauri';
 import { approvePermissionIfPresent } from '../../lib/tui-autopilot';

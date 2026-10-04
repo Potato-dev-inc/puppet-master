@@ -1,4 +1,4 @@
-import type { McpToolExecutor } from './mcp-tools';
+import type { McpToolExecutor } from './mcp-executor';
 import { sleep } from './ansi';
 import { classifyPaneAttention } from './pane-attention';
 

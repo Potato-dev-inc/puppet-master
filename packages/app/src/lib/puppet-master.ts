@@ -1,7 +1,8 @@
-import { isOrchestratorPaneId, type LlmModel, type PaneStatus } from '@puppet-master/shared';
+import { formatPaneListForOrchestrator, isOrchestratorPaneId, type LlmModel, type PaneStatus } from '@puppet-master/shared';
 import type { ChatMessage, LlmResponse } from './llm';
 import { streamLlm } from './llm';
-import { executeMcpTool, formatPaneList, loadPuppetMasterTools, type McpToolExecutor } from './mcp-tools';
+import { executeMcpTool, loadPuppetMasterTools } from './mcp-tools';
+import type { McpToolExecutor } from './mcp-executor';
 import type { WaitForPanesResult } from './bridge';
 import { sleep } from './ansi';
 import { approvePermissionIfPresent } from './tui-autopilot';
@@ -349,7 +350,7 @@ export async function runPuppetMasterLoop(
   const livePanes = await executor.listPanes();
   const paneSnapshot =
     livePanes.length > 0
-      ? `\n\n[Current open panes — reuse these; do not spawn duplicates]\n${formatPaneList(livePanes)}`
+      ? `\n\n[Current open panes — reuse these; do not spawn duplicates]\n${formatPaneListForOrchestrator(livePanes)}`
       : '';
 
   const messages: ChatMessage[] = [
