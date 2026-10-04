@@ -778,3 +778,22 @@ fn wait_blocks_for_the_requested_time_when_nothing_changes() {
     assert!(elapsed < std::time::Duration::from_secs(5), "blocked far too long: {elapsed:?}");
     let _ = fs::remove_dir_all(dir);
 }
+
+#[cfg(windows)]
+#[test]
+fn operations_persist_when_the_project_path_pushes_files_past_max_path() {
+    // B3: project_path >= ~158 chars made the atomic replace fail with a raw os error 3.
+    let mut dir = temp();
+    while dir.as_os_str().len() < 170 {
+        dir = dir.join("long-project-segment");
+    }
+    fs::create_dir_all(&dir).unwrap();
+    let (op, _) = create_operation(request(&dir, "long-path")).unwrap();
+    let path = path_for(&op.project_path, &op.operation_id).unwrap();
+    assert!(path.as_os_str().len() + 45 > 260, "{}", path.as_os_str().len());
+    let again = get_operation(&op.project_path, &op.operation_id).unwrap();
+    assert_eq!(again.operation_id, op.operation_id);
+    let _ = fs::remove_dir_all(
+        dir.ancestors().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("pm-ops-"))).unwrap(),
+    );
+}

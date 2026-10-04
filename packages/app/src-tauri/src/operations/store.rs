@@ -186,6 +186,20 @@ fn replace_file(temp: &Path, path: &Path) -> Result<(), OperationError> {
         OperationError::io(e)
     })
 }
+/// Win32 calls made directly (unlike `std::fs`) stop at MAX_PATH unless the path carries the
+/// extended-length prefix. Short or already-prefixed paths pass through unchanged.
+#[cfg(windows)]
+pub(crate) fn extended_length(path: &Path) -> std::ffi::OsString {
+    let text = path.to_string_lossy();
+    if text.len() < 240 || text.starts_with(r"\\?\") || !path.is_absolute() {
+        return path.as_os_str().to_os_string();
+    }
+    let text = text.replace('/', r"\");
+    match text.strip_prefix(r"\\") {
+        Some(unc) => format!(r"\\?\UNC\{unc}").into(),
+        None => format!(r"\\?\{text}").into(),
+    }
+}
 #[cfg(windows)]
 fn replace_file(temp: &Path, path: &Path) -> Result<(), OperationError> {
     use std::os::windows::ffi::OsStrExt;
@@ -193,8 +207,8 @@ fn replace_file(temp: &Path, path: &Path) -> Result<(), OperationError> {
     extern "system" {
         fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
     }
-    let from: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
-    let to: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let from: Vec<u16> = extended_length(temp).encode_wide().chain(Some(0)).collect();
+    let to: Vec<u16> = extended_length(path).encode_wide().chain(Some(0)).collect();
     // Another process (or a polling reader without FILE_SHARE_DELETE) can hold the target open
     // for a few milliseconds; a swallowed failure here would freeze an operation's state.
     let mut attempt = 0_u64;
@@ -219,6 +233,29 @@ fn replace_file(temp: &Path, path: &Path) -> Result<(), OperationError> {
 mod replace_tests {
     use super::*;
     use std::os::windows::fs::OpenOptionsExt;
+
+    /// A project path of ~200 chars puts `.puppet-master/operations/<uuid>.<uuid>.tmp` past
+    /// MAX_PATH (260); the replace must still work (B3: raw "os error 3" from MoveFileExW).
+    fn long_dir() -> std::path::PathBuf {
+        let mut dir = std::env::temp_dir().join(format!("pm-long-{}", uuid::Uuid::new_v4()));
+        while dir.as_os_str().len() < 200 {
+            dir = dir.join("segment-of-a-long-project-path");
+        }
+        dir.join(".puppet-master").join("operations")
+    }
+
+    #[test]
+    fn replace_works_when_the_path_is_longer_than_max_path() {
+        let dir = long_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join(format!("{}.json", uuid::Uuid::new_v4()));
+        let temp = target.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+        assert!(temp.as_os_str().len() > 260, "{}", temp.as_os_str().len());
+        fs::write(&temp, "new").unwrap();
+        replace_file(&temp, &target).unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new");
+        assert!(!temp.exists());
+    }
 
     #[test]
     fn replace_waits_out_a_briefly_exclusive_holder() {
