@@ -2703,3 +2703,15 @@ fn cancel_releases_a_run_spawned_pane_unless_keep_pane_was_asked_for() {
     adopted.keep_pane = false;
     assert!(!super::pane_close::should_dispose_after_terminal(&adopted));
 }
+
+#[test]
+fn an_empty_json_reply_is_a_result_but_rules_and_box_art_are_not() {
+    // Real case: the agent printed the JSON list `[]` and the result came back as None.
+    assert_eq!(
+        super::completion::clean_extracted_result("The JSON printed was:\n[]", "").as_deref(),
+        Some("The JSON printed was:\n[]")
+    );
+    assert_eq!(super::completion::clean_extracted_result("[]", "").as_deref(), Some("[]"));
+    assert_eq!(super::completion::clean_extracted_result("{}", "").as_deref(), Some("{}"));
+    assert!(super::completion::clean_extracted_result("────────\n▄▄▄▄▄▄\n   \n", "").is_none());
+}

@@ -204,7 +204,10 @@ pub fn is_tui_chrome_line(line: &str) -> bool {
         || lower.starts_with("constraints:")
         || lower.starts_with("facts:")
         || crate::tui::is_chrome_line(&lower)
-        || lower.chars().all(|ch| !ch.is_alphanumeric())
+        // Rules, block fills and box art are chrome; a line of data punctuation (`[]`, `{}`,
+        // `""`, `()`) is a legitimate one-line reply such as an empty JSON list.
+        || (lower.chars().all(|ch| !ch.is_alphanumeric())
+            && !lower.chars().any(|ch| matches!(ch, '[' | ']' | '{' | '}' | '(' | ')' | '"' | '\'')))
 }
 
 /// Drop Cursor paste markers, prompt echoes, and acceptance tables so they

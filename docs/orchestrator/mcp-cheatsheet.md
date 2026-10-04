@@ -68,12 +68,60 @@ Every run view (`run_agent`, `wait_agents`, `followup_task`, `inspect_agent`, `q
 | `checks` | `none configured` or `<passed>/<total> passed` (`0/N passed (pending)` while running) |
 | `result_capture` | `authoritative`, `inferred`, `missing`, or `pending` |
 | `not_verified` | Short strings, each derived from a recorded fact |
+| `outcome` | The one field for "did it work" (below) |
+| `build_id` | Puppet Master build that produced the run |
 
 `not_verified` entries: `no checks configured`; `result read from terminal screen`
 (`result_capture` is `inferred`); `model not confirmed` (a model was requested but not confirmed,
 only once the run has finished); `read_only not enforced`; `shell commands rejected` (the
 `SHELL_COMMAND_REJECTED` warning is present). An empty list means none of these apply, not that
 the answer is correct. Read it before trusting `result`.
+
+### Did it work? `receipt.outcome`
+
+Read `receipt.outcome` instead of combining `status`, `verified` and `acceptance_status`:
+
+| `outcome` | Meaning |
+|-----------|---------|
+| `passed_checks` | Completed **and** every acceptance check passed: the requested behaviour was proven |
+| `completed_unchecked` | The worker finished but nothing verified it (no `checks`); the answer may still be wrong |
+| `failed_checks` | A check failed (`ACCEPTANCE_FAILED`) |
+| `failed` | The run failed for another reason (see `error.code`; `recoverable` says whether a retry is sensible) |
+| `cancelled` | Stopped by `cancel_agent` / `interrupt_agent` (the view `status` reads `interrupted`) |
+| `needs_input` | Waiting on a prompt; `prompt` holds its id, kind, `command` and `cwd` |
+| `in_progress` | Still running |
+
+A finished run's `status` is one of `completed`, `failed`, `interrupted` (cancelled), `timeout`,
+`closed`. For anything that changes state, pass `checks` (for example `command_exits` running the
+tests, or `file_contains`) so `passed_checks` means something. `followup_task` takes the same
+`checks`, `acceptance_criteria`, `wait_ms`, `background` and `locks` as `run_agent`.
+
+### Recovery contract
+
+- **Retries do not duplicate.** Calling `run_agent` again with the same `idempotency_key` (and no
+  worker name) replays the run already in flight and returns the same `handle` and `operation_id`.
+- **Cancel releases.** `cancel_agent` stops the turn and closes a pane the run created unless it
+  was started with `keep_pane=true`. `interrupt_agent` stops the turn but leaves the worker (and its
+  pane) open for a resume.
+- **Timeouts are explicit.** A run past `timeout_ms` ends as `status: timeout`, `error.code:
+  TIMEOUT`, `recoverable: true`, with its handle still inspectable.
+- **Reconnect.** Another connection cannot act on a worker it does not own
+  (`AUTHORIZATION_DENIED`); it can after `attach_agents` with the owner's `attach_token`
+  (see `session_identity`).
+- **Approvals.** A command approval has a stable `prompt_id` tied to the exact command and cwd; it
+  survives redraws and scrolling. If the command on screen changed, `answer_prompt` returns
+  `STALE_PROMPT` with the `current_prompt` (id, command, cwd) so you can review and answer that one.
+
+Each of these has a scenario in `scripts/pm-regression.mjs` (`duplicate`, `cancel`, `timeout`,
+`reconnect`).
+
+### Steering receipts
+
+`send_message` returns a receipt whose `disposition` is `accepted`, `accepted_via_restart`,
+`queued`, `processed`, `deferred`, `unsupported`, `expired` or `rejected`. It also says what that
+means: `applied` (true only when the message reached the turn it was meant for) and `next_action`
+in words. A `queued` message does **not** change the running turn; it expires when the turn ends, so
+send it with `followup_task` if you still need it.
 
 ## Delegate & wait
 
