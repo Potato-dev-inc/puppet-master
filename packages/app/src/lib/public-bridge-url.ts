@@ -25,15 +25,6 @@ export function readStoredPublicBridgeUrl(): string | null {
   }
 }
 
-export function saveStoredPublicBridgeUrl(input: string): void {
-  const normalized = normalizePublicBridgeUrl(input);
-  if (!normalized) {
-    localStorage.removeItem(LS_PUBLIC_BRIDGE_URL);
-    return;
-  }
-  localStorage.setItem(LS_PUBLIC_BRIDGE_URL, normalized);
-}
-
 export interface PublicBridgeDevInfo {
   bridgeProxyUrl?: string | null;
   tunnelUrl?: string | null;

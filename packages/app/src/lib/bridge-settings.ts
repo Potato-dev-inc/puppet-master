@@ -1,4 +1,4 @@
-import type { OrchestratorBackend, Settings } from '@puppet-master/shared';
+import type { Settings } from '@puppet-master/shared';
 
 export function clampMobileInputDelayMs(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 250;
@@ -46,12 +46,3 @@ export const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
   developer_use_rust_mcp: false,
   librarian_indexer_path: undefined,
 };
-
-export function isOrchestratorBackend(value: string): value is OrchestratorBackend {
-  return (
-    value === 'api' ||
-    value === 'claude_cli' ||
-    value === 'codex_cli' ||
-    value === 'opencode_cli'
-  );
-}

@@ -11,23 +11,6 @@ export { subscribeBridgeEvents } from './bridge-sse';
 const DEFAULT_POLL_HOST = '127.0.0.1';
 const DEFAULT_POLL_INTERVAL_MS = 200;
 
-/**
- * Discover the bridge URL by reading the port file written by the GUI on start.
- * Returns null if the file doesn't exist yet.
- */
-export async function discoverBridge(): Promise<string | null> {
-  try {
-    const res = await fetch('/__puppet_master_bridge__.json', { cache: 'no-store' });
-    if (res.ok) {
-      const j = (await res.json()) as { url?: string };
-      if (j.url) return j.url;
-    }
-  } catch {
-    /* ignore — we don't actually expose this in dev, fall through */
-  }
-  return null;
-}
-
 export function makeBridgeClient(baseUrl: string): BridgeClient {
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers = mergeBridgeHeaders({ ...ngrokRequestHeaders(baseUrl) });
