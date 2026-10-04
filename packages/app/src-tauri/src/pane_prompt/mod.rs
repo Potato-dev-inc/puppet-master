@@ -9,10 +9,6 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::AppHandle;
 
-
-
-
-
 /// Phrases that open an approval dialog. The prompt text is taken from the last such line, so
 /// output scrolling above the dialog cannot change its id while the same question is showing.
 const PROMPT_ANCHORS: &[&str] = &[
@@ -104,7 +100,10 @@ pub(crate) fn dispatch_blocker(agent_type: &str, screen: &str) -> Option<Operati
 
 /// `Run command: <command> (in <cwd>)`, so a caller sees what it is approving without the pane.
 pub(crate) fn command_summary(prompt: &Value) -> String {
-    let command = prompt.get("command").and_then(Value::as_str).unwrap_or_default();
+    let command = prompt
+        .get("command")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     match prompt.get("cwd").and_then(Value::as_str) {
         Some(cwd) if !command.contains(cwd) => format!("Run command: {command} (in {cwd})"),
         _ => format!("Run command: {command}"),
@@ -151,10 +150,7 @@ fn prompt_id_for(prompt: &Value) -> Option<String> {
 /// The prompt blocking `pane_id` as a run's `required_action` (with an id, kind, options and a
 /// summary naming the command), or `None` when the pane shows no supported prompt. The id is the
 /// same one `detect` and `answer_prompt` use.
-pub fn required_action(
-    registry: &Arc<Mutex<PaneRegistry>>,
-    pane_id: &str,
-) -> Option<Value> {
+pub fn required_action(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<Value> {
     let prompt = detect(registry, pane_id, false)?;
     Some(required_action_from_prompt(prompt))
 }

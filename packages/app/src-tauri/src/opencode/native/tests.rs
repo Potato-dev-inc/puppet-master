@@ -19,7 +19,13 @@ fn measure_native_startup() {
         let base_url = format!("http://127.0.0.1:{port}");
         let mut serve = StdCommand::new(&exe);
         serve
-            .args(["serve", "--hostname", "127.0.0.1", "--port", &port.to_string()])
+            .args([
+                "serve",
+                "--hostname",
+                "127.0.0.1",
+                "--port",
+                &port.to_string(),
+            ])
             .current_dir(&cwd)
             .env("PATH", crate::shell_env::path_for_spawn());
         let mut child = serve.spawn().unwrap();
@@ -29,7 +35,12 @@ fn measure_native_startup() {
         let session = client::create_session(&base_url, "measure").unwrap().id;
         let sess = t0.elapsed().as_millis();
         let pair = native_pty_system()
-            .openpty(PtySize { rows: 30, cols: 120, pixel_width: 0, pixel_height: 0 })
+            .openpty(PtySize {
+                rows: 30,
+                cols: 120,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .unwrap();
         let mut attach = pair
             .slave

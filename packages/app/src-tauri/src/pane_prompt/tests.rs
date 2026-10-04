@@ -5,12 +5,17 @@ fn a_command_approval_keeps_its_id_through_redraws_and_scrolling() {
     let screen = include_str!("../tui/cursor/fixtures/command_approval_visible.txt");
     let first = super::detect_in_screen("cursor_agent", screen, true).expect("prompt");
     assert_eq!(first["kind"], "command_approval");
-    assert!(first["command"].as_str().unwrap().contains("python todo.py add buy-milk"));
+    assert!(first["command"]
+        .as_str()
+        .unwrap()
+        .contains("python todo.py add buy-milk"));
     let id = first["prompt_id"].as_str().unwrap().to_string();
     // The same dialog with more scrollback above it, a spinner tick, and without allow_broad.
-    let scrolled = format!("old output line
+    let scrolled = format!(
+        "old output line
 another line
-{screen}");
+{screen}"
+    );
     let again = super::detect_in_screen("cursor_agent", &scrolled, false).expect("prompt");
     assert_eq!(again["prompt_id"].as_str(), Some(id.as_str()));
     // A different command is a different prompt.
@@ -21,7 +26,8 @@ another line
 
 use super::*;
 
-const TRUST_PENDING: &str = include_str!("../tui/cursor/fixtures/workspace_trust_visible_pending.txt");
+const TRUST_PENDING: &str =
+    include_str!("../tui/cursor/fixtures/workspace_trust_visible_pending.txt");
 const TRUST_REWRAPPED: &str = "  Cursor Agent\n  v2026.10.01-e373342\n\n  \u{256d}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{256e}\n  \u{2502} \u{26a0} Workspace Trust \u{2502}\n  \u{2502} Required \u{2502}\n  \u{2502} Cursor Agent can \u{2502}\n  \u{2502} execute code and \u{2502}\n  \u{2502} access files in \u{2502}\n  \u{2502} this directory. \u{2502}\n  \u{2502} Do you trust the \u{2502}\n  \u{2502} contents of this \u{2502}\n  \u{2502} directory? \u{2502}\n  \u{2502} C:\\Users\\Ren-pc\\AppData\\ \u{2502}\n  \u{2502} Local\\Temp\\cur-_b1a_ip3 \u{2502}\n  \u{2502} [a] Trust this \u{2502}\n  \u{2502} workspace \u{2502}\n  \u{2502} [q] Quit \u{2502}\n  \u{2570}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{256f}\n";
 
 #[test]
@@ -41,13 +47,22 @@ fn a_task_is_never_typed_over_a_dialog() {
         let blocker = dispatch_blocker("cursor_agent", dialog).expect("blocked");
         assert_eq!(blocker.code, "PANE_BLOCKED_BY_PROMPT");
     }
-    assert!(dispatch_blocker("cursor_agent", "  Cursor Agent\n  \u{2192} Plan, search, build anything\n  Composer 2.5\n").is_none());
+    assert!(dispatch_blocker(
+        "cursor_agent",
+        "  Cursor Agent\n  \u{2192} Plan, search, build anything\n  Composer 2.5\n"
+    )
+    .is_none());
 }
 
 #[test]
 fn prompts_without_a_command_ignore_wrapping_and_box_art() {
     let a = detect_in_screen("claude", "Always allow this command in the repo?\n", true).unwrap();
-    let b = detect_in_screen("claude", "  Always allow this\n  command in the repo?\n", true).unwrap();
+    let b = detect_in_screen(
+        "claude",
+        "  Always allow this\n  command in the repo?\n",
+        true,
+    )
+    .unwrap();
     assert_eq!(a["prompt_id"], b["prompt_id"]);
 }
 
@@ -100,14 +115,23 @@ const CD_SCREEN: &str = "\
 #[test]
 fn prompt_names_the_command_cwd_and_summary() {
     let prompt = detect_in_screen("cursor_agent", CD_SCREEN, false).unwrap();
-    assert_eq!(prompt["command"], "cd \"C:\\x\" && python todo.py add \"buy milk\"");
+    assert_eq!(
+        prompt["command"],
+        "cd \"C:\\x\" && python todo.py add \"buy milk\""
+    );
     assert_eq!(prompt["cwd"], "C:\\x");
-    assert!(prompt["summary"].as_str().unwrap().starts_with("Run command: cd"));
+    assert!(prompt["summary"]
+        .as_str()
+        .unwrap()
+        .starts_with("Run command: cd"));
     assert_eq!(prompt["fully_drawn"], true);
     let action = required_action_from_prompt(prompt.clone());
     assert_eq!(action["prompt_id"], prompt["prompt_id"]);
     assert_eq!(action["command"], prompt["command"]);
-    assert!(action["summary"].as_str().unwrap().contains("python todo.py add"));
+    assert!(action["summary"]
+        .as_str()
+        .unwrap()
+        .contains("python todo.py add"));
 }
 
 #[test]

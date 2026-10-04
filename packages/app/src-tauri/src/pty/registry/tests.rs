@@ -12,7 +12,9 @@ fn write_enter_bytes_sends_cr() {
 fn multi_line_prompts_go_through_the_api_but_keys_and_escapes_do_not() {
     // A task with acceptance criteria is several lines; it used to be classified as terminal
     // input, typed into the attached TUI and dropped (PROMPT_NOT_SUBMITTED after 45s).
-    assert!(!is_pty_control_input("Reply PONG.\n\nAcceptance criteria:\n- be brief"));
+    assert!(!is_pty_control_input(
+        "Reply PONG.\n\nAcceptance criteria:\n- be brief"
+    ));
     assert!(!is_pty_control_input("line one\r\nline two\ttabbed"));
     assert!(is_pty_control_input("\x1b[A"));
     assert!(is_pty_control_input("\x03"));

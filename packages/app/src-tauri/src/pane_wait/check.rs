@@ -145,37 +145,37 @@ pub(super) fn check_pane(
         }
     }
 
-    if until.contains(&WaitUntil::ModelReady) {
-        if status::is_model_ready(registry, pane_id, model_provider, model_id).unwrap_or(false) {
-            clear_pending_model(registry, pane_id);
-            return Some(wait_result(
-                "model_ready",
-                pane_id,
-                info.status.clone(),
-                opencode.clone(),
-                None,
-                None,
-                task_id.map(str::to_string),
-                task_status(task_id),
-                None,
-            ));
-        }
+    if until.contains(&WaitUntil::ModelReady)
+        && status::is_model_ready(registry, pane_id, model_provider, model_id).unwrap_or(false)
+    {
+        clear_pending_model(registry, pane_id);
+        return Some(wait_result(
+            "model_ready",
+            pane_id,
+            info.status.clone(),
+            opencode.clone(),
+            None,
+            None,
+            task_id.map(str::to_string),
+            task_status(task_id),
+            None,
+        ));
     }
 
-    if until.contains(&WaitUntil::TuiReady) {
-        if status::is_tui_ready(registry, pane_id).unwrap_or(false) {
-            return Some(wait_result(
-                "tui_ready",
-                pane_id,
-                info.status.clone(),
-                opencode.clone(),
-                None,
-                None,
-                task_id.map(str::to_string),
-                task_status(task_id),
-                None,
-            ));
-        }
+    if until.contains(&WaitUntil::TuiReady)
+        && status::is_tui_ready(registry, pane_id).unwrap_or(false)
+    {
+        return Some(wait_result(
+            "tui_ready",
+            pane_id,
+            info.status.clone(),
+            opencode.clone(),
+            None,
+            None,
+            task_id.map(str::to_string),
+            task_status(task_id),
+            None,
+        ));
     }
 
     if let Some(snapshot) = opencode.as_ref() {

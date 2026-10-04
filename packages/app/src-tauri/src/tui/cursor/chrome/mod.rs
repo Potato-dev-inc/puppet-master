@@ -392,17 +392,13 @@ fn is_status_line(lower: &str) -> bool {
 
 /// `7.2%`, `1 file edited`, `3 files changed`, `+14 -3`: one footer figure.
 fn is_status_figure(part: &str) -> bool {
-    if part.ends_with('%') {
-        return part[..part.len() - 1]
-            .chars()
-            .all(|ch| ch.is_ascii_digit() || ch == '.')
-            && part.len() > 1;
+    if let Some(number) = part.strip_suffix('%') {
+        return number.chars().all(|ch| ch.is_ascii_digit() || ch == '.') && part.len() > 1;
     }
     let words: Vec<&str> = part.split_whitespace().collect();
     let is_count = |word: &str| word.chars().all(|ch| ch.is_ascii_digit()) && !word.is_empty();
     let is_delta = |word: &str| {
-        word.strip_prefix(['+', '-'])
-            .is_some_and(|n| is_count(n))
+        word.strip_prefix(['+', '-']).is_some_and(is_count)
     };
     if !words.is_empty() && words.iter().all(|word| is_delta(word)) {
         return true;

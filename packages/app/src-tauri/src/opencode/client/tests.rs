@@ -30,7 +30,11 @@ fn wait_for_health_polls_fast_and_survives_a_hung_request() {
     let start = Instant::now();
     wait_for_health(&format!("http://127.0.0.1:{port}"), Duration::from_secs(10)).unwrap();
     // hung request is cut at ~1s, not 30s
-    assert!(start.elapsed() < Duration::from_secs(4), "{:?}", start.elapsed());
+    assert!(
+        start.elapsed() < Duration::from_secs(4),
+        "{:?}",
+        start.elapsed()
+    );
 }
 
 #[test]
@@ -46,7 +50,11 @@ fn abort_gives_up_quickly_on_a_server_that_never_answers() {
     let result = abort_session(&format!("http://127.0.0.1:{port}"), "ses_x", None);
     assert!(result.is_err());
     // cancel_agent must answer well inside the MCP shim's read timeout
-    assert!(start.elapsed() < Duration::from_secs(10), "{:?}", start.elapsed());
+    assert!(
+        start.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        start.elapsed()
+    );
 }
 
 #[test]

@@ -57,6 +57,7 @@ pub(super) fn apply_pty_env(cmd: &mut CommandBuilder) {
     cmd.env("COLORTERM", "truecolor");
 }
 
+#[allow(clippy::too_many_arguments)] // bundles the per-pane handles the reader thread owns
 pub(super) fn spawn_reader_thread(
     pane_id: String,
     app: AppHandle,

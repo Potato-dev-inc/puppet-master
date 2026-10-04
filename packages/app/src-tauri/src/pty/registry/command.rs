@@ -42,7 +42,7 @@ pub(super) fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) 
         }
         cmd_builder.cwd(cwd);
         apply_common_pty_env(&mut cmd_builder);
-        return cmd_builder;
+        cmd_builder
     }
 
     #[cfg(not(windows))]
@@ -77,7 +77,11 @@ pub(super) fn apply_common_pty_env(cmd_builder: &mut CommandBuilder) {
 }
 
 #[cfg(windows)]
-pub(super) fn powershell_agent_command(cmd: &str, base_args: &[&str], extra_args: &[String]) -> String {
+pub(super) fn powershell_agent_command(
+    cmd: &str,
+    base_args: &[&str],
+    extra_args: &[String],
+) -> String {
     let args = base_args
         .iter()
         .map(|arg| powershell_single_quote(arg))
@@ -96,7 +100,11 @@ pub(super) fn powershell_single_quote(value: &str) -> String {
 }
 
 #[cfg(windows)]
-pub(super) fn powershell_cursor_agent_command(cmd: &str, base_args: &[&str], extra_args: &[String]) -> String {
+pub(super) fn powershell_cursor_agent_command(
+    cmd: &str,
+    base_args: &[&str],
+    extra_args: &[String],
+) -> String {
     let args = base_args
         .iter()
         .map(|arg| powershell_single_quote(arg))

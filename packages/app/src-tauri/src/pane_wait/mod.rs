@@ -261,6 +261,7 @@ pub(crate) fn match_key_event_to_reason(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // mirrors the flat WaitForPanesResult fields
 fn wait_result(
     reason: &str,
     pane_id: &str,

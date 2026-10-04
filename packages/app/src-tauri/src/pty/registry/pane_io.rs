@@ -15,7 +15,7 @@ pub fn write_input(
     let pane = reg
         .panes
         .get(pane_id)
-        .ok_or_else(|| unknown_pane_message(&pane_id))?;
+        .ok_or_else(|| unknown_pane_message(pane_id))?;
 
     let agent = pane.info.agent_type.clone();
 
@@ -34,7 +34,7 @@ pub fn write_input(
         crate::opencode::write_native_input(registry, app, pane_id, text, opencode_model.as_ref())?;
         crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
             pane_id: PaneId(pane_id.to_string()),
-            byte_count: text.as_bytes().len(),
+            byte_count: text.len(),
             append_newline,
         });
         return Ok(());
@@ -70,7 +70,7 @@ pub fn write_input(
     }
     crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
         pane_id: PaneId(pane_id.to_string()),
-        byte_count: text.as_bytes().len() + usize::from(append_newline),
+        byte_count: text.len() + usize::from(append_newline),
         append_newline,
     });
     Ok(())
@@ -116,7 +116,7 @@ pub fn read_buffer(
         let pane = reg
             .panes
             .get(pane_id)
-            .ok_or_else(|| unknown_pane_message(&pane_id))?;
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
         pane.scrollback.clone()
     };
     let text = scrollback.lock().tail_text(lines);
@@ -129,7 +129,7 @@ pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<St
         let pane = reg
             .panes
             .get(pane_id)
-            .ok_or_else(|| unknown_pane_message(&pane_id))?;
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
         pane.screen.clone()
     };
     let snapshot = screen.lock().screen().contents();
@@ -140,13 +140,12 @@ pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<St
 /// rows, one entry per row (trailing blanks trimmed). A TUI on the alternate screen has no history,
 /// so this is then just the screen.
 pub fn read_full_text(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {
-    const FULL_TEXT_MAX_LINES: usize = 4000;
     let screen = {
         let reg = registry.lock();
         let pane = reg
             .panes
             .get(pane_id)
-            .ok_or_else(|| unknown_pane_message(&pane_id))?;
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
         pane.screen.clone()
     };
     let mut parser = screen.lock();
@@ -167,7 +166,12 @@ pub(super) fn full_text_of(parser: &mut vt100::Parser) -> String {
         }
     }
     parser.screen_mut().set_scrollback(0);
-    lines.extend(parser.screen().rows(0, cols).map(|row| row.trim_end().to_string()));
+    lines.extend(
+        parser
+            .screen()
+            .rows(0, cols)
+            .map(|row| row.trim_end().to_string()),
+    );
     lines.join("\n")
 }
 
@@ -186,7 +190,11 @@ mod full_text_tests {
         assert_eq!(lines.len(), 60, "{full}");
         assert_eq!(lines[0], "line 01");
         assert_eq!(lines[59], "line 60");
-        assert_eq!(parser.screen().scrollback(), 0, "the view offset is restored");
+        assert_eq!(
+            parser.screen().scrollback(),
+            0,
+            "the view offset is restored"
+        );
     }
 
     #[test]
@@ -209,7 +217,7 @@ pub fn read_raw_buffer(
         let pane = reg
             .panes
             .get(pane_id)
-            .ok_or_else(|| unknown_pane_message(&pane_id))?;
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
         pane.scrollback.clone()
     };
     let raw = scrollback.lock().tail_raw_bytes(lines);
@@ -227,7 +235,7 @@ pub fn resize(
         let pane = reg
             .panes
             .get_mut(pane_id)
-            .ok_or_else(|| unknown_pane_message(&pane_id))?;
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
         if pane.info.cols == cols && pane.info.rows == rows {
             return Ok(false);
         }
@@ -262,6 +270,9 @@ mod submit_delay_tests {
     fn multiline_paste_waits_longer_than_a_short_line() {
         assert_eq!(submit_delay("hi"), Duration::from_millis(50));
         assert!(submit_delay("a\nb") >= Duration::from_millis(300));
-        assert_eq!(submit_delay(&"x\n".repeat(20_000)), Duration::from_millis(1_500));
+        assert_eq!(
+            submit_delay(&"x\n".repeat(20_000)),
+            Duration::from_millis(1_500)
+        );
     }
 }

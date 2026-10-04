@@ -173,11 +173,6 @@ impl MobilePairingStore {
         fs::write(&self.path, json).map_err(|e| e.to_string())
     }
 
-    #[allow(dead_code)]
-    pub fn server_public_key_b64(&self) -> &str {
-        &self.server_public_b64
-    }
-
     pub fn list_devices(&self) -> Vec<PairedDeviceInfo> {
         self.devices
             .iter()

@@ -50,7 +50,6 @@ pub struct PaneInfo {
 }
 
 /// Internal handle — owns the PTY master and the reader thread handle.
-#[allow(dead_code)]
 pub struct PaneState {
     pub info: PaneInfo,
     pub scrollback: Arc<Mutex<Scrollback>>,
@@ -112,7 +111,6 @@ pub struct PaneRegistry {
     pub project_path: String,
 }
 
-#[allow(dead_code)]
 impl PaneRegistry {
     pub fn new() -> Self {
         Self {
@@ -129,7 +127,6 @@ impl PaneRegistry {
         self.panes.get(id)
     }
 
-    #[allow(dead_code)]
     pub fn get_mut(&mut self, id: &str) -> Option<&mut PaneState> {
         self.panes.get_mut(id)
     }
@@ -191,7 +188,6 @@ pub fn kill_all(registry: &Mutex<PaneRegistry>) {
     crate::pane_windows::notify_pane_removed();
 }
 
-#[allow(dead_code)]
 pub fn set_project_path(registry: &Mutex<PaneRegistry>, path: String) {
     if let Ok(normalized) = crate::project_path::normalize_project_path(std::path::Path::new(&path))
     {

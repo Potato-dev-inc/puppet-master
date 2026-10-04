@@ -24,11 +24,7 @@ fn detects_model_from_buffer_text() {
 
 #[test]
 fn detects_cursor_model_from_footer() {
-    let inspected = inspect_agent_model(
-        "p1",
-        AgentType::CursorAgent,
-        "hi\nComposer 2.5 · 7.2%",
-    );
+    let inspected = inspect_agent_model("p1", AgentType::CursorAgent, "hi\nComposer 2.5 · 7.2%");
     assert_eq!(inspected.detected_model.as_deref(), Some("Composer 2.5"));
 }
 

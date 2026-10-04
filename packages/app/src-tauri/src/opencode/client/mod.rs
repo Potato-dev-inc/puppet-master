@@ -193,9 +193,17 @@ pub fn prompt_async(
 /// (refused, reset, not listening), as opposed to the server answering with an error.
 pub fn is_unreachable_error(error: &str) -> bool {
     let lower = error.to_ascii_lowercase();
-    ["connection failed", "connection refused", "10061", "connection reset", "error sending request", "tcp connect", "timed out"]
-        .iter()
-        .any(|marker| lower.contains(marker))
+    [
+        "connection failed",
+        "connection refused",
+        "10061",
+        "connection reset",
+        "error sending request",
+        "tcp connect",
+        "timed out",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
         && !lower.contains("http 4")
         && !lower.contains("http 5")
 }
