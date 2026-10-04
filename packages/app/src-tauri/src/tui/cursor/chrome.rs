@@ -169,9 +169,69 @@ fn is_header_line(lower: &str) -> bool {
         || ((lower.starts_with("~\\") || lower.starts_with("~/")) && !lower.contains(' '))
 }
 
-/// Footer such as `Composer 2.5 · 7.2%` (model name and context usage).
+/// Footer such as `Composer 2.5 · 7.2%` or `Composer 2.5 · 12% · 1 file edited` (model name, then
+/// context usage and a change summary). A reply that only mentions the model, or uses ` · ` in a
+/// sentence, does not match: every part after the model name must itself be a status figure.
 fn is_status_line(lower: &str) -> bool {
-    lower.len() <= 80 && lower.contains(" · ") && lower.ends_with('%')
+    if lower.len() <= 80 && lower.contains(" · ") && lower.ends_with('%') {
+        return true;
+    }
+    if lower.len() > 120 {
+        return false;
+    }
+    let mut parts = lower.split(" · ").map(str::trim);
+    let (Some(model), rest) = (parts.next(), parts.collect::<Vec<_>>()) else {
+        return false;
+    };
+    let model_like = !model.is_empty()
+        && model.len() <= 30
+        && model.chars().next().is_some_and(char::is_alphabetic)
+        && !model.contains([',', ';', ':', '!', '?'])
+        && !model.ends_with('.');
+    model_like && !rest.is_empty() && rest.iter().all(|part| is_status_figure(part))
+}
+
+/// `7.2%`, `1 file edited`, `3 files changed`, `+14 -3`: one footer figure.
+fn is_status_figure(part: &str) -> bool {
+    if part.ends_with('%') {
+        return part[..part.len() - 1]
+            .chars()
+            .all(|ch| ch.is_ascii_digit() || ch == '.')
+            && part.len() > 1;
+    }
+    let words: Vec<&str> = part.split_whitespace().collect();
+    let is_count = |word: &str| word.chars().all(|ch| ch.is_ascii_digit()) && !word.is_empty();
+    let is_delta = |word: &str| {
+        word.strip_prefix(['+', '-'])
+            .is_some_and(|n| is_count(n))
+    };
+    if !words.is_empty() && words.iter().all(|word| is_delta(word)) {
+        return true;
+    }
+    matches!(
+        words.as_slice(),
+        [n, "file" | "files", "edited" | "changed" | "created" | "modified" | "deleted"] if is_count(n)
+    )
+}
+
+/// Drop later copies of a long line. Cursor redraws its commentary (the "I will now ..." lines
+/// above a tool call) as it streams, so the same sentence can sit on screen more than once;
+/// short lines are data (`ok`, `[]`) and may repeat on purpose.
+pub(super) fn tidy_reply(text: &str) -> String {
+    const LONG_LINE: usize = 40;
+    let mut seen: Vec<&str> = Vec::new();
+    let mut out: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        let key = line.trim();
+        if key.chars().count() >= LONG_LINE {
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+        }
+        out.push(line);
+    }
+    out.join("\n")
 }
 
 #[cfg(test)]
