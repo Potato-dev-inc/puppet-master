@@ -65,6 +65,49 @@ pub(super) fn strip_dialog_boxes(text: &str) -> String {
 ")
 }
 
+/// Drop the working-directory rows under the model footer. Cursor prints `Composer 2.5 · 3%` and
+/// then the cwd (`~\AppData\...`), hard-wrapped at the pane width, so a long path becomes several
+/// rows and only the first starts with `~\`. The footer is the last block on screen, so once a
+/// model row is followed by a path-like row, that row and every row after it up to the next blank
+/// row are footer. A path-looking line elsewhere (a reply) is never touched.
+pub(super) fn strip_footer_cwd(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let is_model_row = |line: &str| {
+        let lower = line.trim().to_ascii_lowercase();
+        !lower.is_empty() && (is_status_line(&lower) || is_idle_chrome(&lower))
+    };
+    let starts_path = |line: &str| {
+        let t = line.trim();
+        t.starts_with("~\\") || t.starts_with("~/") || t.starts_with('/') || {
+            let b = t.as_bytes();
+            b.len() > 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && matches!(b[2], b'\\' | b'/')
+        }
+    };
+    let mut drop = vec![false; lines.len()];
+    for index in 0..lines.len() {
+        if !is_model_row(lines[index]) || !lines.get(index + 1).is_some_and(|l| starts_path(l)) {
+            continue;
+        }
+        for (offset, line) in lines[index + 1..].iter().enumerate() {
+            if line.trim().is_empty() {
+                break;
+            }
+            drop[index + 1 + offset] = true;
+        }
+    }
+    if !drop.contains(&true) {
+        return text.to_string();
+    }
+    lines
+        .iter()
+        .zip(drop)
+        .filter(|(_, drop)| !*drop)
+        .map(|(line, _)| *line)
+        .collect::<Vec<_>>()
+        .join("
+")
+}
+
 /// Banner, footer, input placeholder or tool-activity row.
 pub(super) fn is_chrome_line(lower: &str) -> bool {
     is_status_line(lower)

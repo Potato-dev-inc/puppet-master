@@ -320,3 +320,52 @@ fn passing_checks_do_not_turn_a_screen_scrape_into_an_authoritative_result() {
     );
     let _ = std::fs::remove_dir_all(project);
 }
+
+/// A first-turn screen whose footer cwd was hard-wrapped by the TUI at `width` columns.
+fn wrapped_footer_screen(prompt: &str, reply: &str, cwd: &str, width: usize) -> String {
+    let mut out = String::from(BANNER);
+    out.push('\n');
+    out.push_str(&indent(prompt));
+    out.push_str("\n\n");
+    if !reply.is_empty() {
+        out.push_str(&indent(reply));
+        out.push_str("\n\n");
+    }
+    out.push_str(INPUT);
+    out.push_str("  Composer 2.5 \u{b7} 3.4%\n");
+    let chars: Vec<char> = cwd.chars().collect();
+    for chunk in chars.chunks(width) {
+        out.push_str("  ");
+        out.extend(chunk);
+        out.push('\n');
+    }
+    out
+}
+
+#[test]
+fn a_footer_cwd_wrapped_over_several_rows_is_not_part_of_the_answer() {
+    let cwd = r"~\AppData\Local\Temp\claude\C--Users-Ren-pc-Desktop-work2-puppet-master\7f91bd8b\scratchpad\live-2";
+    for width in [20, 33, 48, 60, 80] {
+        let baseline = screen_after(&[], "Composer 2.5");
+        let mut watch = TuiTurnWatch::from_baseline(baseline).with_task(FIRST.0);
+        let echo = wrapped_footer_screen(FIRST.0, "", cwd, width);
+        let _ = observe_tui_turn(&mut watch, "running", &echo, false);
+        let done = wrapped_footer_screen(FIRST.0, "PONG", cwd, width);
+        assert_eq!(
+            completed(&ticks(&mut watch, "idle", &done, 4)).as_deref(),
+            Some("PONG"),
+            "width {width}"
+        );
+    }
+}
+
+#[test]
+fn an_answer_that_looks_like_a_path_survives_when_it_is_not_the_footer() {
+    let cwd = r"~\AppData\Local\Temp\claude\scratchpad\live-2";
+    for reply in [r"d\live-2", r"C:\proj\src\main.rs", "src/lib.rs"] {
+        let mut watch = TuiTurnWatch::from_baseline(screen_after(&[], "Composer 2.5")).with_task(FIRST.0);
+        let _ = observe_tui_turn(&mut watch, "running", &wrapped_footer_screen(FIRST.0, "", cwd, 24), false);
+        let done = wrapped_footer_screen(FIRST.0, reply, cwd, 24);
+        assert_eq!(completed(&ticks(&mut watch, "idle", &done, 4)).as_deref(), Some(reply));
+    }
+}

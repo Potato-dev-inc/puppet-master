@@ -184,7 +184,7 @@ impl TuiProfile for CursorAgent {
     }
 
     fn strip_dialogs(&self, text: &str) -> String {
-        chrome::strip_dialog_boxes(text)
+        chrome::strip_footer_cwd(&chrome::strip_dialog_boxes(text))
     }
 
     fn tidy_reply(&self, text: &str) -> String {
