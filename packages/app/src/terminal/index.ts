@@ -4,7 +4,6 @@ export { mirrorLayoutSessionKey } from './mirror-layout-session';
 export { InputBatcher } from './input-batcher';
 export { PaneStreamManager, MAX_BACKLOG_CHUNKS, RAW_REPLAY_LINES } from './pane-stream';
 export type { PaneStream, PaneStreamMode, ReadRawBufferFn } from './pane-stream';
-export { ResizeController } from './resize-controller';
 export { SnapshotBatcher } from './snapshot-batcher';
 export { TerminalSession } from './terminal-session';
 export {

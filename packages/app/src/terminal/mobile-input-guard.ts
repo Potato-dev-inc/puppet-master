@@ -1,13 +1,20 @@
+// MobileInputGuard: keeps the phone keyboard away from xterm. A hidden command box buffers typing
+// (IME/autocorrect-safe), diffs it into PTY input on flush, and exposes a special-key row and long-press engage.
 import type { Disposable } from './types';
+import {
+  BACKSPACE,
+  buildInputDelta,
+  CONTROL_KEYS,
+  endsWithInsertedWhitespace,
+  ENTER,
+  isDeletionOnlyPayload,
+  SPECIAL_KEYS,
+} from './mobile-input-text';
 import {
   isReplacementInputType,
   normalizeSuggestionText,
-  stripCjkImeLeadingSpace,
   stripCjkImeSpaces,
 } from './word-replacement';
-
-const BACKSPACE = '\x7f';
-const ENTER = '\r';
 
 /** Default time to hold mobile input in memory before committing to the PTY. */
 export const DEFAULT_MOBILE_BUFFER_MS = 250;
@@ -28,36 +35,6 @@ const MOBILE_KEYBOARD_MIN_OBSCURED_PX = 100;
 
 const MOBILE_LONG_PRESS_MOVE_THRESHOLD_PX = 12;
 
-const CONTROL_KEYS: Record<string, string> = {
-  ArrowUp: '\x1b[A',
-  ArrowDown: '\x1b[B',
-  ArrowRight: '\x1b[C',
-  ArrowLeft: '\x1b[D',
-  Delete: '\x1b[3~',
-  Home: '\x1b[H',
-  End: '\x1b[F',
-  Escape: '\x1b',
-  Tab: '\t',
-};
-
-const SPECIAL_KEYS: Array<{ label: string; value: string; title: string }> = [
-  { label: 'Esc', value: CONTROL_KEYS.Escape, title: 'Escape' },
-  { label: 'Ctrl-C', value: '\x03', title: 'Interrupt / cancel current command' },
-  { label: 'Ctrl-D', value: '\x04', title: 'End of input / exit shell' },
-  { label: 'Ctrl-Z', value: '\x1a', title: 'Suspend process' },
-  { label: 'Ctrl-L', value: '\x0c', title: 'Clear screen' },
-  { label: 'Tab', value: CONTROL_KEYS.Tab, title: 'Tab completion' },
-  { label: 'Enter', value: ENTER, title: 'Enter' },
-  { label: 'Back', value: BACKSPACE, title: 'Backspace' },
-  { label: 'Del', value: CONTROL_KEYS.Delete, title: 'Delete' },
-  { label: '←', value: CONTROL_KEYS.ArrowLeft, title: 'Left arrow' },
-  { label: '↑', value: CONTROL_KEYS.ArrowUp, title: 'Up arrow' },
-  { label: '↓', value: CONTROL_KEYS.ArrowDown, title: 'Down arrow' },
-  { label: '→', value: CONTROL_KEYS.ArrowRight, title: 'Right arrow' },
-  { label: 'Home', value: CONTROL_KEYS.Home, title: 'Home' },
-  { label: 'End', value: CONTROL_KEYS.End, title: 'End' },
-];
-
 export type MobileInputDelivery = 'batched' | 'immediate';
 
 export function isMobileInputDevice(): boolean {
@@ -67,40 +44,6 @@ export function isMobileInputDevice(): boolean {
     navigator.maxTouchPoints > 0 ||
     /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
   );
-}
-
-function normalizeTerminalLineEndings(text: string): string {
-  return text.replace(/\r\n/g, ENTER).replace(/\n/g, ENTER);
-}
-
-function isDeletionOnlyPayload(text: string): boolean {
-  return text.length > 0 && [...text].every((ch) => ch === BACKSPACE);
-}
-
-function endsWithInsertedWhitespace(previous: string, next: string): boolean {
-  if (next.length <= previous.length) return false;
-  return /\s$/u.test(next.slice(previous.length));
-}
-
-/** Translate committed vs current input text into PTY keystrokes (used only on flush). */
-export function buildInputDelta(previous: string, next: string): string {
-  if (previous === next) return '';
-
-  let prefixLength = 0;
-  const maxPrefix = Math.min(previous.length, next.length);
-  while (
-    prefixLength < maxPrefix &&
-    previous[prefixLength] === next[prefixLength]
-  ) {
-    prefixLength += 1;
-  }
-
-  const deletedLength = previous.length - prefixLength;
-  const inserted = stripCjkImeLeadingSpace(
-    previous.slice(0, prefixLength),
-    next.slice(prefixLength),
-  );
-  return BACKSPACE.repeat(deletedLength) + normalizeTerminalLineEndings(inserted);
 }
 
 /** Keep xterm's internal textarea out of the mobile keyboard path. */
@@ -483,11 +426,6 @@ export class MobileInputGuard implements Disposable {
     if (scroll) {
       this.scrollToCursor();
     }
-  }
-
-  private emitControlKey(key: keyof typeof CONTROL_KEYS): void {
-    this.flushToTerminal();
-    this.emit(CONTROL_KEYS[key]);
   }
 
   private emitSpecialKey(payload: string): void {

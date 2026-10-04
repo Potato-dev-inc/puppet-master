@@ -8,7 +8,6 @@ import { applyMirrorLocalEcho } from './mirror-local-echo';
 import {
   configureXtermTextareaForMobileMirror,
   isMobileInputDevice,
-  MOBILE_INPUT_HIDDEN_CLASS,
   MobileInputGuard,
   type MobileInputDelivery,
 } from './mobile-input-guard';
