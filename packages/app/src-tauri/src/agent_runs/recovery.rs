@@ -52,11 +52,7 @@ pub fn on_native_pane_replaced(
                 "previous_session": previous_session,
                 "session_id": new_session,
                 "pane_id": pane_id,
-                "context": if previous_session == new_session {
-                    "replayed"
-                } else {
-                    "replayed"
-                },
+                "context": "replayed",
                 "detail": "OpenCode process was replaced under the same pane id; rebound to the current native session"
             })),
         ) {

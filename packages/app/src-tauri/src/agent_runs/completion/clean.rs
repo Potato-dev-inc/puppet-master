@@ -175,7 +175,7 @@ fn keep_last_copy_of_repeated_echoes(
         }
         let line_n = normalize_echo(lines[index]);
         if line_n.len() >= 8
-            && !(!previous_n.is_empty() && previous_n.contains(&line_n))
+            && (previous_n.is_empty() || !previous_n.contains(&line_n))
             && format!(" {consumed} ").contains(&format!(" {line_n} "))
         {
             echoed[index] = false;

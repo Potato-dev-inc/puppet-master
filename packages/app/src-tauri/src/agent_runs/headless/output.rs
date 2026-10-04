@@ -29,10 +29,7 @@ pub(super) fn spawn_reader<R: Read + Send + 'static>(
             let mut bytes = [0u8; 8192];
             let mut pending = Vec::new();
             let mut first_output = stream == "stdout";
-            loop {
-                let Ok(read) = reader.read(&mut bytes) else {
-                    break;
-                };
+            while let Ok(read) = reader.read(&mut bytes) {
                 if read == 0 {
                     break;
                 }

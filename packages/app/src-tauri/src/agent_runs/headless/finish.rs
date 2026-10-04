@@ -13,56 +13,56 @@ pub(super) fn finish_from_output(
     program: &str,
     code: i32,
 ) {
-    let transcript = stream_text(&project, &operation_id, "stdout");
-    let stderr = stream_text(&project, &operation_id, "stderr");
+    let transcript = stream_text(project, operation_id, "stdout");
+    let stderr = stream_text(project, operation_id, "stderr");
     if let Some(session) =
-        crate::tui::profile_for(&agent_type).extract_provider_session(&transcript)
+        crate::tui::profile_for(agent_type).extract_provider_session(&transcript)
     {
-        let _ = operations::set_provider_session(&project, &operation_id, &session);
+        let _ = operations::set_provider_session(project, operation_id, &session);
     }
-    if let Some(result) = crate::tui::profile_for(&agent_type).extract_result(&transcript, code) {
+    if let Some(result) = crate::tui::profile_for(agent_type).extract_result(&transcript, code) {
         if result.trim().is_empty() {
             // The worker reported an empty result: that is an honest, authoritative answer.
             // Completion with no evidence text is refused by mark_operation_completed.
-            let _ = operations::mark_operation_completed_empty(&project, &operation_id);
+            let _ = operations::mark_operation_completed_empty(project, operation_id);
             return;
         }
         // A rejected shell call means the task may not have done what it says: keep the run
         // `completed`, but do not call its result verified (an explicit check can still verify).
-        let rejected = crate::tui::profile_for(&agent_type).rejected_call_warning(&transcript);
+        let rejected = crate::tui::profile_for(agent_type).rejected_call_warning(&transcript);
         let result = match rejected {
             Some(warning) => format!("{result}\n\n{warning}"),
             None => result,
         };
-        transcript::append(&project, &operation_id, "assistant_final", &result);
-        if let Ok(snapshot) = operations::get_operation(&project, &operation_id) {
+        transcript::append(project, operation_id, "assistant_final", &result);
+        if let Ok(snapshot) = operations::get_operation(project, operation_id) {
             let handle = if snapshot.agent_run_id.is_empty() {
                 snapshot.operation_id.as_str()
             } else {
                 snapshot.agent_run_id.as_str()
             };
             messaging::mark_open_steers_processed_for_turn(
-                &project,
+                project,
                 handle,
                 &result,
                 snapshot.turn_index,
             );
         }
         let _ = operations::mark_operation_completed(
-            &project,
-            &operation_id,
+            project,
+            operation_id,
             &result,
             rejected.is_none(),
         );
-    } else if let Some(mut prompt) = crate::tui::profile_for(&agent_type)
+    } else if let Some(mut prompt) = crate::tui::profile_for(agent_type)
         .detect_headless_trust(&format!("{stderr}\n{transcript}"))
     {
         if let Some(id) = native::stable_prompt_id(&prompt) {
             prompt["prompt_id"] = serde_json::Value::String(id);
         }
         if let Err(error) = operations::mark_operation_waiting_input(
-            &project,
-            &operation_id,
+            project,
+            operation_id,
             Some("waiting_input".into()),
             prompt,
             StateSource::Native,
@@ -80,8 +80,8 @@ pub(super) fn finish_from_output(
             code != 0,
         );
         let _ = operations::mark_operation_state(
-            &project,
-            &operation_id,
+            project,
+            operation_id,
             OperationStatus::Failed,
             StateSource::Native,
             Some("failed".into()),

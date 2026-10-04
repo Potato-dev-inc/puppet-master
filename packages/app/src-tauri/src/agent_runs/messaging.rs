@@ -438,7 +438,7 @@ fn upsert_receipt(
 ) -> Result<(), OperationError> {
     let key = store_key(project, handle);
     let mut all = cache().lock();
-    let entries = all.entry(key).or_insert_with(Vec::new);
+    let entries = all.entry(key).or_default();
     if let Some(existing) = entries
         .iter_mut()
         .find(|existing| existing.idempotency_key == receipt.idempotency_key)

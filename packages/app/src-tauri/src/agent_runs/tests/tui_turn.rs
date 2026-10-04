@@ -163,9 +163,8 @@ Add follow-up >";
     .is_none());
     let mut watch = TuiTurnWatch::from_baseline("Add follow-up >").with_task(task);
     let decision = tick_until_idle(&mut watch, "idle", screen, false, 4);
-    assert_ne!(
-        matches!(decision, TuiTurnDecision::Complete { .. }),
-        true,
+    assert!(
+        !matches!(decision, TuiTurnDecision::Complete { .. }),
         "prompt paste must not complete the turn: {decision:?}"
     );
 }
