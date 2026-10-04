@@ -279,6 +279,21 @@ const scenarios = {
     check('duplicate: only one turn exists', !turns.includes('"turn_index":1') && !turns.includes('"turn-1"'), 'a second turn was created');
   },
 
+  /** A multi-line task (three lines plus acceptance criteria) must reach the worker. It used to
+   *  be classified as terminal input for opencode_native and typed into the TUI, where it was lost
+   *  (PROMPT_NOT_SUBMITTED after 45 s). */
+  async multiline(backend, extra) {
+    const view = await runToEnd({
+      agent_type: backend,
+      task: 'Do these two things in order.\n1. Create a file named multi.txt containing exactly MULTI-OK.\n2. Reply with only the word DONE.',
+      acceptance_criteria: ['Reply with only the word DONE', 'multi.txt exists'],
+      checks: [{ type: 'file_contains', path: 'multi.txt', text: 'MULTI-OK' }, { type: 'result_contains', text: 'DONE' }],
+      ...extra,
+    });
+    check('multiline: completed', view.status === 'completed', `${view.status} ${view.error?.code ?? ''}`);
+    check('multiline: checks passed', view.receipt?.outcome === 'passed_checks', String(view.receipt?.outcome));
+  },
+
   /** The same replay guarantee when a worker name, checks, locks and criteria are in the request,
    *  and a changed request under the same key must still conflict. */
   async duplicate_named(backend, extra) {

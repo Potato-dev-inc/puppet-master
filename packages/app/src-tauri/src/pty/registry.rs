@@ -648,8 +648,13 @@ fn submit_delay(text: &str) -> Duration {
 }
 
 /// True when input should never be routed to OpenCode prompt_async (keys, mouse, escapes).
+/// Line breaks and tabs are ordinary prompt text: a multi-line task (acceptance criteria, a
+/// context packet) must still go through the API, or it is typed into the attached TUI and lost.
 fn is_pty_control_input(text: &str) -> bool {
-    text.contains('\x1b') || text.bytes().any(|byte| byte < 32 && byte != b'\t')
+    text.contains('\x1b')
+        || text
+            .bytes()
+            .any(|byte| byte < 32 && !matches!(byte, b'\t' | b'\n' | b'\r'))
 }
 
 /// Send Enter to the PTY. Uses \r (xterm/ConPTY).
@@ -887,6 +892,18 @@ mod tests {
     }
 
     #[cfg(windows)]
+    #[test]
+    fn multi_line_prompts_go_through_the_api_but_keys_and_escapes_do_not() {
+        // A task with acceptance criteria is several lines; it used to be classified as terminal
+        // input, typed into the attached TUI and dropped (PROMPT_NOT_SUBMITTED after 45s).
+        assert!(!is_pty_control_input("Reply PONG.\n\nAcceptance criteria:\n- be brief"));
+        assert!(!is_pty_control_input("line one\r\nline two\ttabbed"));
+        assert!(is_pty_control_input("\x1b[A"));
+        assert!(is_pty_control_input("\x03"));
+        assert!(is_pty_control_input("text with an escape \x1b inside"));
+        assert!(is_pty_control_input("\x15"));
+    }
+
     #[test]
     fn cursor_agent_launches_through_interactive_powershell() {
         assert!(windows_powershell_host_agent(AgentType::CursorAgent));
