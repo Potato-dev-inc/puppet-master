@@ -428,3 +428,16 @@ fn a_final_message_that_quotes_commands_keeps_them() {
         "Run it like this:\n$ python todo.py list\n1 [ ] a\nThen add one with python todo.py add b."
     );
 }
+
+#[test]
+fn a_shell_header_wrapped_by_the_terminal_is_not_part_of_the_final_message() {
+    // Live capture (verify5-1, build b694b47): the `$ cd "<long path>" && python ... 5.7s` header
+    // is hard-wrapped, so its first row has no duration and the second starts at column 0.
+    let full = include_str!("../tui/cursor/fixtures/reply_pytest_wrapped_header.txt");
+    let reply = scrollback_reply(full, PYTEST_TASK, "").expect("final message");
+    assert!(!reply.contains("$ cd"), "{reply}");
+    assert!(!reply.contains("5.7s"), "{reply}");
+    assert!(!reply.contains("8 passed in"), "{reply}");
+    assert!(reply.starts_with("todo.py only implements add and list"), "{reply}");
+    assert!(reply.ends_with("Pytest: 8 passed, 0 failed (in 0.86s)"), "{reply}");
+}

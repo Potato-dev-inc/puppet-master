@@ -108,6 +108,44 @@ pub(super) fn strip_footer_cwd(text: &str) -> String {
 ")
 }
 
+/// Rejoin a shell header the terminal hard-wrapped. A long `$ cd "<path>" && cmd 5.7s` header
+/// breaks at the pane width: its first row carries no duration (so it reads as quoted text, not a
+/// header) and the rest starts at column 0 with the duration at its end. Merging the pieces lets
+/// the header be recognised as the tool row it is. Only a `$ ` row, followed within two rows by
+/// unindented continuation rows that end in a duration, is merged.
+pub(super) fn join_wrapped_shell_headers(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    let mut index = 0;
+    while index < lines.len() {
+        let line = lines[index];
+        let lower = line.trim().to_ascii_lowercase();
+        if lower.starts_with("$ ") && !is_tool_line(&lower) {
+            let mut merged = line.to_string();
+            let mut joined = None;
+            for offset in 1..=2 {
+                let Some(next) = lines.get(index + offset) else { break };
+                if next.is_empty() || next.starts_with(char::is_whitespace) {
+                    break;
+                }
+                merged.push_str(next);
+                if is_tool_line(&merged.trim().to_ascii_lowercase()) {
+                    joined = Some(offset);
+                    break;
+                }
+            }
+            if let Some(offset) = joined {
+                out.push(merged);
+                index += offset + 1;
+                continue;
+            }
+        }
+        out.push(line.to_string());
+        index += 1;
+    }
+    out.join("\n")
+}
+
 /// Banner, footer, input placeholder or tool-activity row.
 pub(super) fn is_chrome_line(lower: &str) -> bool {
     is_status_line(lower)
