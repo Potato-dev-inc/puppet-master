@@ -1,12 +1,20 @@
-//! Worker-handle adoption, context modes, and requested-vs-resolved model choice.
+//! Worker-handle adoption, context modes, and requested-vs-resolved model choice. Turn prompt
+//! rendering lives in `prompt`, the `inspect_agent` field set in `inspect`.
+
+mod inspect;
+mod prompt;
 
 use crate::operations::{
-    self, ContextContinuity, ContextPolicy, OperationError, OperationSnapshot, OperationStatus,
-    WorkerPersist,
+    self, ContextContinuity, ContextPolicy, OperationError, OperationSnapshot, WorkerPersist,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 
-const PARENT_SUMMARY_LIMIT: usize = 2000;
+pub use inspect::apply_inspect_fields;
+#[cfg(test)]
+pub(super) use prompt::original_task_for_test;
+pub use prompt::{conversation_facts, render_turn_prompt, TurnPrompt, TurnPromptArgs};
+
+pub(super) const PARENT_SUMMARY_LIMIT: usize = 2000;
 pub(crate) const FOLLOWUP_WAIT_MS: u64 = 120_000;
 /// Foreground wait budget for run_agent and followup_task (MCP + bridge defaults).
 pub(crate) const FOREGROUND_WAIT_MS: u64 = FOLLOWUP_WAIT_MS;
@@ -49,25 +57,6 @@ pub struct ModelChoice {
     pub requested_reasoning: Option<String>,
     pub resolved_reasoning: Option<String>,
     pub mismatch: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct TurnPromptArgs<'a> {
-    pub policy: ContextPolicy,
-    pub task: &'a str,
-    pub scope: Option<&'a str>,
-    pub prior_result: Option<&'a str>,
-    pub prior_user: Option<&'a str>,
-    pub selected_history: &'a [String],
-    pub can_resume: bool,
-    pub is_followup: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TurnPrompt {
-    pub prompt: String,
-    pub policy: ContextPolicy,
-    pub continuity: ContextContinuity,
 }
 
 pub fn worker_key(
@@ -141,11 +130,13 @@ pub fn decide_worker(
 pub fn find_worker(project: &str, key: &str) -> Result<OperationSnapshot, OperationError> {
     match operations::resolve_agent_run(project, key) {
         Ok(snapshot) => Ok(snapshot),
-        Err(error) if error.code == "AGENT_NOT_FOUND" => operations::list_indexed_operations(project)?
-            .into_iter()
-            .filter(|snapshot| snapshot.worker.name.as_deref() == Some(key))
-            .max_by_key(|snapshot| (snapshot.turn_index, snapshot.created_at_ms))
-            .ok_or(error),
+        Err(error) if error.code == "AGENT_NOT_FOUND" => {
+            operations::list_indexed_operations(project)?
+                .into_iter()
+                .filter(|snapshot| snapshot.worker.name.as_deref() == Some(key))
+                .max_by_key(|snapshot| (snapshot.turn_index, snapshot.created_at_ms))
+                .ok_or(error)
+        }
         Err(error) => Err(error),
     }
 }
@@ -263,119 +254,6 @@ pub fn followup_policy(requested: Option<ContextPolicy>, previous: ContextPolicy
     }
 }
 
-pub fn conversation_facts(project: &str, handle: &str) -> Option<String> {
-    let turns = operations::turns_for_handle(project, handle).ok()?;
-    let mut parts = Vec::new();
-    for turn in turns {
-        let unanswered = matches!(
-            turn.status,
-            OperationStatus::Failed | OperationStatus::Cancelled
-        ) && turn
-            .result
-            .as_deref()
-            .map_or(true, |text| text.trim().is_empty());
-        if unanswered {
-            continue;
-        }
-        let task = original_task(&turn.task);
-        if !task.is_empty() {
-            parts.push(format!("User: {task}"));
-        }
-        if let Some(result) = turn
-            .result
-            .as_deref()
-            .and_then(|text| super::completion::clean_extracted_result(text, ""))
-        {
-            parts.push(format!("Assistant: {result}"));
-        }
-    }
-    let text = parts.join("\n");
-    if text.is_empty() {
-        None
-    } else {
-        Some(owned_bound_summary(&text))
-    }
-}
-
-/// Stored turn tasks are the rendered prompt; cut the blocks `render_turn_prompt` and the
-/// acceptance wrapper appended so replayed history does not nest earlier packets.
-fn original_task(stored: &str) -> &str {
-    const MARKERS: [&str; 5] = [
-        "
-
-Scope: ",
-        "
-
-Prior context:
-",
-        "
-
-Parent summary:
-",
-        "
-Selected history:",
-        "
-
-Acceptance criteria:
-",
-    ];
-    let end = MARKERS
-        .iter()
-        .filter_map(|marker| stored.find(marker))
-        .min()
-        .unwrap_or(stored.len());
-    stored[..end].trim()
-}
-
-pub fn render_turn_prompt(args: TurnPromptArgs<'_>) -> TurnPrompt {
-    let continuity = resolve_continuity(args.policy, args.can_resume, args.is_followup);
-    let cleaned_prior = args
-        .prior_result
-        .and_then(|text| super::completion::clean_extracted_result(text, ""));
-    let reconstructed = if args.is_followup && !args.can_resume {
-        Some(reconstruct_facts(args.prior_user, cleaned_prior.as_deref()))
-            .filter(|text| !text.is_empty())
-    } else {
-        None
-    };
-    let reconstructed_facts = reconstructed.as_deref();
-    let prompt = match args.policy {
-        ContextPolicy::Fresh => args.task.to_string(),
-        ContextPolicy::Packet => {
-            context_packet(args.task, args.scope, reconstructed_facts)
-        }
-        ContextPolicy::ParentSummary => {
-            let summary = if args.is_followup {
-                reconstructed_facts.or(cleaned_prior.as_deref()).unwrap_or("(none)")
-            } else {
-                "(none)"
-            };
-            format!(
-                "{}\n\nParent summary:\n{}",
-                args.task,
-                bound_summary(summary)
-            )
-        }
-        ContextPolicy::Resume => context_packet(args.task, args.scope, reconstructed_facts),
-        ContextPolicy::SelectedHistory => {
-            let mut prompt = context_packet(args.task, args.scope, reconstructed_facts);
-            if !args.selected_history.is_empty() {
-                prompt.push_str("\nSelected history:");
-                for message in args.selected_history {
-                    prompt.push_str("\n- ");
-                    prompt.push_str(message);
-                }
-            }
-            prompt
-        }
-    };
-    TurnPrompt {
-        prompt,
-        policy: args.policy,
-        continuity,
-    }
-}
-
 pub fn build_worker(
     handle: &str,
     name: Option<&str>,
@@ -471,214 +349,10 @@ pub fn live_resolved_model(
         agent_type,
         &buffer,
     );
-    if let Some(model) = inspection
-        .last_user_model
-        .or(inspection.session_model)
-    {
+    if let Some(model) = inspection.last_user_model.or(inspection.session_model) {
         return Some(format!("{}/{}", model.provider_id, model.model_id));
     }
     inspection.detected_model
-}
-
-pub fn apply_inspect_fields(value: &mut Value, snapshot: &OperationSnapshot, siblings: &[OperationSnapshot]) {
-    let Some(object) = value.as_object_mut() else {
-        return;
-    };
-    let handle = if snapshot.agent_run_id.is_empty() {
-        snapshot.operation_id.as_str()
-    } else {
-        snapshot.agent_run_id.as_str()
-    };
-    let queued: Vec<String> = siblings
-        .iter()
-        .filter(|item| item.agent_run_id == handle && item.status == OperationStatus::Queued)
-        .map(|item| item.operation_id.clone())
-        .collect();
-    object.insert(
-        "backend".into(),
-        Value::String(snapshot.agent_type.clone()),
-    );
-    // Callers that never learned a backend cannot take live steers (Cursor) see this up front
-    // instead of finding out from an `expired` receipt.
-    object.insert(
-        "supports_live_steer".into(),
-        Value::Bool(super::capabilities::for_snapshot(snapshot).live_messages),
-    );
-    object.insert(
-        "current_task".into(),
-        Value::String(snapshot.task.clone()),
-    );
-    object.insert(
-        "name".into(),
-        snapshot
-            .worker
-            .name
-            .clone()
-            .map(Value::String)
-            .unwrap_or(Value::String(handle.to_string())),
-    );
-    object.insert(
-        "role".into(),
-        opt_string(snapshot.worker.role.as_deref()),
-    );
-    object.insert(
-        "scope".into(),
-        opt_string(snapshot.worker.scope.as_deref()),
-    );
-    object.insert(
-        "workspace".into(),
-        snapshot
-            .worker
-            .workspace
-            .clone()
-            .map(Value::String)
-            .unwrap_or_else(|| Value::String(snapshot.project_path.clone())),
-    );
-    object.insert(
-        "provider_session_id".into(),
-        opt_string(snapshot.worker.provider_session_id.as_deref()),
-    );
-    object.insert(
-        "session_reset".into(),
-        Value::Bool(snapshot.worker.session_reset),
-    );
-    object.insert(
-        "context_policy".into(),
-        Value::String(snapshot.worker.context_policy.as_str().into()),
-    );
-    object.insert(
-        "context_continuity".into(),
-        Value::String(snapshot.worker.context_continuity.as_str().into()),
-    );
-    object.insert(
-        "requested_model".into(),
-        opt_string(snapshot.worker.requested_model.as_deref()),
-    );
-    object.insert(
-        "resolved_model".into(),
-        opt_string(snapshot.worker.resolved_model.as_deref()),
-    );
-    object.insert(
-        "requested_reasoning".into(),
-        opt_string(snapshot.worker.requested_reasoning.as_deref()),
-    );
-    object.insert(
-        "resolved_reasoning".into(),
-        opt_string(snapshot.worker.resolved_reasoning.as_deref()),
-    );
-    object.insert(
-        "model_mismatch".into(),
-        Value::Bool(visible_mismatch(
-            snapshot.worker.requested_model.as_deref(),
-            snapshot.worker.resolved_model.as_deref(),
-            snapshot.worker.requested_reasoning.as_deref(),
-            snapshot.worker.resolved_reasoning.as_deref(),
-        )),
-    );
-    object.insert("current_turn".into(), json!(snapshot.turn_index));
-    let pending = if snapshot.worker.pending_messages.is_empty() {
-        super::messaging::pending_texts(&snapshot.project_path, handle)
-    } else {
-        snapshot.worker.pending_messages.clone()
-    };
-    object.insert("pending_messages".into(), json!(pending));
-    object.insert("queued_tasks".into(), json!(queued));
-    object.insert(
-        "ownership".into(),
-        opt_string(snapshot.owner_session_id.as_deref()),
-    );
-    object.insert(
-        "event_cursor".into(),
-        json!(snapshot.worker.event_cursor.max(snapshot.revision)),
-    );
-    object.insert(
-        "closed".into(),
-        json!(snapshot.worker.closed || snapshot.worker.pane_disposed),
-    );
-    object.insert("pane_disposed".into(), json!(snapshot.worker.pane_disposed));
-    object.insert("stage_timings".into(), stage_timings(snapshot));
-    object.insert(
-        "capabilities".into(),
-        super::capabilities::for_snapshot(snapshot).value(),
-    );
-    if let Some(receipt) = super::messaging::latest_steer(&snapshot.project_path, handle) {
-        object.insert(
-            "last_steer".into(),
-            json!({
-                "message_id": receipt.message_id,
-                "state": receipt.disposition.as_str(),
-                "turn_id": receipt.turn_id,
-                "result": receipt.result,
-            }),
-        );
-    }
-}
-
-/// Per-stage durations: each stage lasts until the next one starts (the last until the run
-/// finished, or `updated_at_ms` while it is still running). The first is measured from creation.
-fn stage_timings(snapshot: &OperationSnapshot) -> Value {
-    let log = &snapshot.worker.stage_log;
-    let end = snapshot.finished_at_ms.unwrap_or(snapshot.updated_at_ms);
-    let mut rows = Vec::new();
-    for (index, mark) in log.iter().enumerate() {
-        let until = log.get(index + 1).map_or(end, |next| next.at_ms);
-        rows.push(json!({
-            "stage": mark.stage,
-            "entered_after_ms": mark.at_ms.saturating_sub(snapshot.created_at_ms),
-            "duration_ms": until.saturating_sub(mark.at_ms),
-        }));
-    }
-    json!(rows)
-}
-
-fn context_packet(task: &str, scope: Option<&str>, facts: Option<&str>) -> String {
-    let scope = scope.map(str::trim).filter(|value| !value.is_empty());
-    let facts = facts
-        .map(bound_summary)
-        .filter(|value| !value.is_empty());
-    if scope.is_none() && facts.is_none() {
-        return task.to_string();
-    }
-    let mut prompt = task.to_string();
-    if let Some(scope) = scope {
-        prompt.push_str("\n\nScope: ");
-        prompt.push_str(scope);
-    }
-    if let Some(facts) = facts {
-        prompt.push_str("\n\nPrior context:\n");
-        prompt.push_str(facts);
-    }
-    prompt
-}
-
-fn reconstruct_facts(prior_user: Option<&str>, prior_result: Option<&str>) -> String {
-    let mut parts = Vec::new();
-    if let Some(user) = prior_user.map(str::trim).filter(|value| !value.is_empty()) {
-        parts.push(user.to_string());
-    }
-    if let Some(result) = prior_result.map(str::trim).filter(|value| !value.is_empty()) {
-        if !parts.iter().any(|part| part.contains(result)) {
-            parts.push(format!("Assistant: {result}"));
-        }
-    }
-    parts.join("\n")
-}
-
-fn bound_summary(text: &str) -> &str {
-    if text.len() <= PARENT_SUMMARY_LIMIT {
-        return text;
-    }
-    let end = text
-        .char_indices()
-        .map(|(index, ch)| index + ch.len_utf8())
-        .take_while(|end| *end <= PARENT_SUMMARY_LIMIT)
-        .last()
-        .unwrap_or(0);
-    &text[..end]
-}
-
-fn owned_bound_summary(text: &str) -> String {
-    bound_summary(text).to_string()
 }
 
 fn nonempty(value: Option<&str>) -> Option<String> {
@@ -692,14 +366,9 @@ fn differs(requested: Option<&str>, resolved: Option<&str>) -> bool {
     matches!((requested, resolved), (Some(left), Some(right)) if left != right)
 }
 
-fn opt_string(value: Option<&str>) -> Value {
+pub(super) fn opt_string(value: Option<&str>) -> Value {
     value
         .map(str::to_string)
         .map(Value::String)
         .unwrap_or(Value::Null)
-}
-
-#[cfg(test)]
-pub(super) fn original_task_for_test(stored: &str) -> &str {
-    original_task(stored)
 }
