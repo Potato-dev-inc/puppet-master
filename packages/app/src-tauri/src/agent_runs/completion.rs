@@ -249,6 +249,25 @@ pub fn widen_reply(
     if head.len() < 8 || normalize_echo(visible).contains(head) {
         return unchanged(false);
     }
+    match scrollback_reply(full, task, previous_task) {
+        Some(text) => WidenedReply {
+            text,
+            truncated: false,
+        },
+        None => unchanged(true),
+    }
+}
+
+/// The reply to `task` read from `full` (scrollback plus screen): what follows the last echo of
+/// the prompt, cleaned. `None` when the echo is not there or nothing but chrome follows it, so a
+/// reply is never attributed to a turn on the strength of an older turn's text.
+pub fn scrollback_reply(full: &str, task: &str, previous_task: &str) -> Option<String> {
+    let task_n = normalize_echo(task);
+    let head: String = task_n.chars().take(40).collect();
+    let head = head.trim_end();
+    if head.len() < 8 {
+        return None;
+    }
     let lines: Vec<&str> = full.lines().collect();
     let echo_at = (0..lines.len()).rev().find(|&index| {
         let own = normalize_echo(lines[index]);
@@ -259,20 +278,38 @@ pub fn widen_reply(
             let span = lines[index..lines.len().min(index + 6)].join(" ");
             normalize_echo(&span).contains(head)
         }
-    });
-    let Some(echo_at) = echo_at else {
-        return unchanged(true);
-    };
+    })?;
     let turn = lines[echo_at..].join("
 ");
-    match tui_turn_evidence(&turn, "")
+    tui_turn_evidence(&turn, "")
         .and_then(|raw| clean_extracted_result_after(&raw, task, previous_task))
-    {
-        Some(text) => WidenedReply {
-            text,
-            truncated: false,
-        },
-        None => unchanged(true),
+}
+
+/// A last attempt to read this turn's reply before it is declared not captured: the visible rows
+/// again (the screen may have finished painting), then the whole history.
+pub fn recapture_reply(watch: &TuiTurnWatch, visible: &str, full: &str) -> Option<String> {
+    tui_turn_evidence(visible, &watch.baseline)
+        .and_then(|raw| clean_extracted_result_after(&raw, &watch.task, &watch.previous_task))
+        .or_else(|| scrollback_reply(full, &watch.task, &watch.previous_task))
+}
+
+impl TuiTurnWatch {
+    /// What the watch saw, attached to a not-captured failure so the next occurrence is diagnosable.
+    pub fn diagnostics(&self) -> serde_json::Value {
+        let tail = |text: &str| {
+            let lines: Vec<&str> = text.lines().collect();
+            lines[lines.len().saturating_sub(40)..].join("
+")
+        };
+        serde_json::json!({
+            "saw_activity": self.saw_activity,
+            "saw_task_echo": self.saw_task_echo,
+            "saw_reply": self.saw_reply,
+            "delivery_verified": self.delivery_verified,
+            "reconcile_ticks": self.reconcile_ticks,
+            "task_head": self.task.chars().take(80).collect::<String>(),
+            "baseline_tail": tail(&self.baseline),
+        })
     }
 }
 
@@ -282,6 +319,8 @@ pub fn is_tui_chrome_line(line: &str) -> bool {
         || lower.contains("add follow-up")
         || lower.contains("add a follow-up")
         || lower == "composing"
+        // Cursor's progress line, e.g. "Composing 36 tokens".
+        || (lower.starts_with("composing ") && (lower.ends_with(" tokens") || lower.ends_with(" token")))
         || lower == "working"
         || lower.starts_with("working...")
         || lower.contains("allow once")
@@ -566,3 +605,4 @@ pub fn tui_turn_evidence(screen: &str, baseline: &str) -> Option<String> {
         Some(added.join("\n"))
     }
 }
+

@@ -987,10 +987,56 @@ pub fn supervise_existing(
                             super::completion::TuiTurnDecision::AmbiguousIdle
                                 if current.checks.is_empty() =>
                             {
-                                let error = OperationError::new(
+                                // Bounded re-read before giving up: the screen may have finished
+                                // painting, or the reply may sit in the scrollback.
+                                let mut recovered = None;
+                                for attempt in 0..REREAD_ATTEMPTS {
+                                    let visible = read_tui_screen(&registry, pane_id).unwrap_or_default();
+                                    let full = crate::pty::registry_read_full_text(registry.as_ref(), pane_id)
+                                        .unwrap_or_default();
+                                    recovered = super::completion::recapture_reply(&watch, &visible, &full);
+                                    if recovered.is_some() || attempt + 1 == REREAD_ATTEMPTS {
+                                        break;
+                                    }
+                                    thread::sleep(Duration::from_millis(REREAD_DELAY_MS));
+                                }
+                                if let Some(result) = recovered {
+                                    transcript::append(
+                                        &current.project_path,
+                                        &current.operation_id,
+                                        "delivery",
+                                        "reply was not on the visible rows when the pane went idle; recovered by re-reading the pane",
+                                    );
+                                    transcript::append(
+                                        &current.project_path,
+                                        &current.operation_id,
+                                        "assistant_final",
+                                        &result,
+                                    );
+                                    if let Ok(completed) = operations::mark_operation_finished(
+                                        &current.project_path,
+                                        &current.operation_id,
+                                        Some(result),
+                                        crate::operations::ResultCapture::Inferred,
+                                        false,
+                                    ) {
+                                        let _ = crate::bridge::publish_operation(
+                                            &completed, &registry, &app,
+                                        );
+                                        return;
+                                    }
+                                }
+                                let mut error = OperationError::new(
                                     "RESULT_NOT_CAPTURED",
                                     "the pane went idle but no reply text could be captured for this turn; read the pane or agent_transcript to see what happened",
                                     true,
+                                );
+                                error.context = not_captured_diagnostics(&registry, pane_id, &watch);
+                                transcript::append(
+                                    &current.project_path,
+                                    &current.operation_id,
+                                    "diagnostic",
+                                    &error.context.to_string(),
                                 );
                                 if let Ok(failed) = operations::mark_operation_state(
                                     &current.project_path,
@@ -1432,6 +1478,36 @@ fn stream_text(project: &str, operation_id: &str, stream: &str) -> String {
         .filter(|chunk| chunk.stream == stream)
         .map(|chunk| chunk.text.as_str())
         .collect()
+}
+
+/// Re-reads of the pane before a turn is declared not captured, and the pause between them.
+const REREAD_ATTEMPTS: u32 = 2;
+const REREAD_DELAY_MS: u64 = 1500;
+
+/// Raw evidence for a RESULT_NOT_CAPTURED failure: the visible rows, the scrollback with history,
+/// the raw output as the PTY wrote it (escape codes stripped), and what the watch saw. Bounded.
+fn not_captured_diagnostics(
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    pane_id: &str,
+    watch: &super::completion::TuiTurnWatch,
+) -> serde_json::Value {
+    let tail = |text: String, lines: usize| {
+        let all: Vec<&str> = text.lines().collect();
+        all[all.len().saturating_sub(lines)..].join("
+")
+    };
+    serde_json::json!({
+        "screen": read_tui_screen(registry, pane_id).unwrap_or_default(),
+        "scrollback_tail": tail(
+            crate::pty::registry_read_full_text(registry.as_ref(), pane_id).unwrap_or_default(),
+            80,
+        ),
+        "raw_output_tail": tail(
+            crate::pty::registry_read_buffer(registry.as_ref(), pane_id, 80).unwrap_or_default(),
+            80,
+        ),
+        "watch": watch.diagnostics(),
+    })
 }
 
 /// Settles a finished headless turn from the child's recorded output and exit code.

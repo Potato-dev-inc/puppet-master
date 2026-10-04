@@ -281,3 +281,51 @@ fn a_turn_whose_delivery_was_verified_never_gets_a_blind_second_enter() {
     assert!(!decisions.contains(&TuiTurnDecision::RetrySubmit), "{decisions:?}");
     assert_eq!(decisions.last(), Some(&TuiTurnDecision::NotSubmitted));
 }
+
+// ---- B4: RESULT_NOT_CAPTURED recovery --------------------------------------------------------
+// Live (2026-10-04, pm-regression visible_close #2): the follow-up went idle with the reply not
+// on the rows the supervisor read and failed as RESULT_NOT_CAPTURED. Before failing, the
+// supervisor re-reads the turn from the scrollback; it never invents a reply.
+
+use super::completion::{recapture_reply, scrollback_reply};
+
+#[test]
+fn a_reply_missing_from_the_visible_rows_is_recovered_from_the_scrollback() {
+    // The visible rows hold only the footer; the turn is in the history above them.
+    let visible = FOOTER.to_string();
+    let full = format!("> {FIRST}\n\nALPHA\n\n> {SECOND}\n\nBRAVO\n\n{FOOTER}");
+    let watch = TuiTurnWatch::from_baseline(after_first_turn())
+        .with_task(SECOND)
+        .with_previous_task(FIRST);
+    assert_eq!(recapture_reply(&watch, &visible, &full).as_deref(), Some("BRAVO"));
+    assert_eq!(scrollback_reply(&full, SECOND, FIRST).as_deref(), Some("BRAVO"));
+}
+
+#[test]
+fn recapture_never_invents_a_reply() {
+    let watch = TuiTurnWatch::from_baseline(after_first_turn())
+        .with_task(SECOND)
+        .with_previous_task(FIRST);
+    // Echo and "Composing" only, no assistant text anywhere.
+    let full = format!("> {FIRST}\n\nALPHA\n\n> {SECOND}\n\nComposing 12 tokens\n\n{FOOTER}");
+    assert_eq!(recapture_reply(&watch, &FOOTER, &full), None);
+    // No echo of this turn's prompt at all: nothing after it can be attributed to the turn.
+    let stale = format!("> {FIRST}\n\nALPHA\n\n{FOOTER}");
+    assert_eq!(scrollback_reply(&stale, SECOND, FIRST), None);
+    // The previous turn's reply is not this turn's.
+    assert_eq!(recapture_reply(&watch, &FOOTER, &stale), None);
+}
+
+#[test]
+fn watch_diagnostics_say_what_the_supervisor_saw() {
+    let mut watch = TuiTurnWatch::from_baseline(after_first_turn())
+        .with_task(SECOND)
+        .with_previous_task(FIRST);
+    let busy = format!("> {SECOND}\n\nComposing 12 tokens");
+    let _ = observe_tui_turn(&mut watch, "running", &busy, false);
+    let diag = watch.diagnostics();
+    assert_eq!(diag["saw_activity"], true);
+    assert_eq!(diag["saw_reply"], false);
+    assert_eq!(diag["delivery_verified"], false);
+    assert!(diag["baseline_tail"].as_str().unwrap().contains("ALPHA"));
+}
