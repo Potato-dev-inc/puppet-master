@@ -146,6 +146,37 @@ pub(super) fn join_wrapped_shell_headers(text: &str) -> String {
     out.join("\n")
 }
 
+/// Drop the result row Cursor prints under a search header (`Grepped "def " in .` then
+/// `Found 14 matches`). Positional on purpose: the same words standing alone are an answer.
+pub(super) fn strip_search_results(text: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    let mut previous_is_search = false;
+    for line in text.lines() {
+        let lower = line.trim().to_ascii_lowercase();
+        if previous_is_search && is_search_result(&lower) {
+            continue;
+        }
+        if !lower.is_empty() {
+            previous_is_search = is_search_header(&lower);
+        }
+        out.push(line);
+    }
+    out.join("\n")
+}
+
+/// `Found 14 matches`, `Found 2 files`, `No matches found`.
+fn is_search_result(lower: &str) -> bool {
+    let words: Vec<&str> = lower.split_whitespace().collect();
+    match words.as_slice() {
+        ["found", n, noun] | ["found", n, noun, ..] if words.len() <= 4 => {
+            n.chars().all(|ch| ch.is_ascii_digit())
+                && matches!(*noun, "match" | "matches" | "file" | "files" | "result" | "results" | "line" | "lines")
+        }
+        ["no", "matches", ..] | ["no", "results", ..] | ["no", "files", ..] => words.len() <= 4,
+        _ => false,
+    }
+}
+
 /// Banner, footer, input placeholder or tool-activity row.
 pub(super) fn is_chrome_line(lower: &str) -> bool {
     is_status_line(lower)

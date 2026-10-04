@@ -441,3 +441,16 @@ fn a_shell_header_wrapped_by_the_terminal_is_not_part_of_the_final_message() {
     assert!(reply.starts_with("todo.py only implements add and list"), "{reply}");
     assert!(reply.ends_with("Pytest: 8 passed, 0 failed (in 0.86s)"), "{reply}");
 }
+
+#[test]
+fn a_search_result_row_under_a_grep_header_is_tool_output_not_the_answer() {
+    // Live capture (verify5-1, build 5114177): `Grepped "def " in .` prints `Found 14 matches`
+    // under it, at the header's own indent.
+    let full = include_str!("../tui/cursor/fixtures/reply_grep_turn.txt");
+    let task = "Use your grep search tool (not the shell) to find the text \"def \" in the files of this folder, then in one sentence tell me how many matches you found.";
+    let reply = scrollback_reply(full, task, "").expect("final message");
+    assert_eq!(reply, "I found 14 matches for def  across 5 files in this folder.");
+    // The same words as the whole answer, with no search header above them, are kept.
+    let bare = "  Say how many.\n\n  Found 14 matches\n\n  → Add a follow-up\n  Composer 2.5 · 7.5%";
+    assert_eq!(scrollback_reply(bare, "Say how many.", "").as_deref(), Some("Found 14 matches"));
+}
