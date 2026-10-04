@@ -184,6 +184,12 @@ pub trait TuiProfile: Sync {
         None
     }
 
+    /// True once the CLI's output already holds its terminal result, so the turn is over even if
+    /// the child process lingers instead of exiting.
+    fn headless_result_ready(&self, _output: &str) -> bool {
+        false
+    }
+
     /// Provider conversation id from the CLI output, so a follow-up can resume it.
     fn extract_provider_session(&self, _output: &str) -> Option<String> {
         None

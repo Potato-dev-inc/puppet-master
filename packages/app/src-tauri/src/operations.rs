@@ -1352,6 +1352,15 @@ pub fn mark_operation_completed(
 /// Prefix on a stored result that was read from the terminal screen without any `checks`.
 pub const UNVERIFIED_SCREEN_PREFIX: &str = "[unverified: read from terminal screen] ";
 
+/// Complete a turn whose worker authoritatively reported an empty result (the model said
+/// nothing). The result stays empty and unverified; checks and acceptance criteria decide.
+pub fn mark_operation_completed_empty(
+    project: &str,
+    id: &str,
+) -> Result<OperationSnapshot, OperationError> {
+    finish_operation(project, id, None, ResultCapture::Authoritative, false, true)
+}
+
 pub fn mark_operation_finished(
     project: &str,
     id: &str,
@@ -1359,8 +1368,19 @@ pub fn mark_operation_finished(
     capture: ResultCapture,
     verified: bool,
 ) -> Result<OperationSnapshot, OperationError> {
+    finish_operation(project, id, result, capture, verified, false)
+}
+
+fn finish_operation(
+    project: &str,
+    id: &str,
+    result: Option<String>,
+    capture: ResultCapture,
+    verified: bool,
+    allow_empty: bool,
+) -> Result<OperationSnapshot, OperationError> {
     let evidence = result.as_deref().unwrap_or("").trim();
-    if capture != ResultCapture::Missing && evidence.is_empty() {
+    if !allow_empty && capture != ResultCapture::Missing && evidence.is_empty() {
         return Err(OperationError::new(
             "COMPLETION_EVIDENCE_REQUIRED",
             "completion requires explicit result evidence",

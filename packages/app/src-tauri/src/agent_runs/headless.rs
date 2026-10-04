@@ -1324,13 +1324,15 @@ pub(super) fn execute_headless(
     };
     operations::mark_operation_stage(&project, &operation_id, "process_running");
     let started = Instant::now();
-    let exit_status = loop {
+    let mut result_seen_at: Option<Instant> = None;
+    let mut last_result_poll = Instant::now();
+    let exit_status: Option<i32> = loop {
         if control.cancelled.load(Ordering::Acquire) {
             break None;
         }
         let mut child = control.child.lock();
         match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
+            Ok(Some(status)) => break Some(status.code().unwrap_or(-1)),
             Ok(None) => {}
             Err(error) => {
                 let _ = operations::mark_operation_state(
@@ -1350,6 +1352,24 @@ pub(super) fn execute_headless(
             }
         }
         drop(child);
+        // A CLI that printed its terminal result but does not exit would hold the turn open until
+        // the deadline: once the result is in the output, give it a short grace to exit, then
+        // stop it and finish the turn from that result.
+        if last_result_poll.elapsed() >= Duration::from_millis(RESULT_POLL_MS) {
+            last_result_poll = Instant::now();
+            if result_seen_at.is_none() {
+                let stdout = stream_text(&project, &operation_id, "stdout");
+                if crate::tui::profile_for(&agent_type).headless_result_ready(&stdout) {
+                    result_seen_at = Some(Instant::now());
+                }
+            }
+        }
+        if result_seen_at.is_some_and(|seen| seen.elapsed() >= Duration::from_millis(RESULT_EXIT_GRACE_MS)) {
+            tracing::warn!(operation_id = %operation_id, "headless child printed its result but did not exit; stopping it");
+            if terminate(&control).is_ok() {
+                break Some(0);
+            }
+        }
         if started.elapsed() >= Duration::from_millis(timeout_ms) {
             if let Err(stop_error) = terminate(&control) {
                 let failure = OperationError::new("WORKER_STOP_FAILED", stop_error.message, true);
@@ -1392,98 +1412,119 @@ pub(super) fn execute_headless(
         publish(&project, &operation_id, &registry, &app);
         return;
     }
-    if let Some(status) = exit_status {
-        let chunks = transcript::read(&project, &operation_id, 0)
-            .map(|page| page.chunks)
-            .unwrap_or_default();
-        let collect = |stream: &str| {
-            chunks
-                .iter()
-                .filter(|chunk| chunk.stream == stream)
-                .map(|chunk| chunk.text.as_str())
-                .collect::<String>()
-        };
-        let transcript = collect("stdout");
-        let stderr = collect("stderr");
-        let code = status.code().unwrap_or(-1);
-        if let Some(session) =
-            crate::tui::profile_for(&agent_type).extract_provider_session(&transcript)
-        {
-            let _ = operations::set_provider_session(&project, &operation_id, &session);
-        }
-        if let Some(result) =
-            crate::tui::profile_for(&agent_type).extract_result(&transcript, code)
-        {
-            // A rejected shell call means the task may not have done what it says: keep the run
-            // `completed`, but do not call its result verified (an explicit check can still verify).
-            let rejected = crate::tui::profile_for(&agent_type).rejected_call_warning(&transcript);
-            let result = match rejected {
-                Some(warning) => format!("{result}
-
-{warning}"),
-                None => result,
-            };
-            transcript::append(&project, &operation_id, "assistant_final", &result);
-            if let Ok(snapshot) = operations::get_operation(&project, &operation_id) {
-                let handle = if snapshot.agent_run_id.is_empty() {
-                    snapshot.operation_id.as_str()
-                } else {
-                    snapshot.agent_run_id.as_str()
-                };
-                super::messaging::mark_open_steers_processed_for_turn(
-                    &project,
-                    handle,
-                    &result,
-                    snapshot.turn_index,
-                );
-            }
-            let _ = operations::mark_operation_completed(
-                &project,
-                &operation_id,
-                &result,
-                rejected.is_none(),
-            );
-        } else if let Some(mut prompt) = crate::tui::profile_for(&agent_type).detect_headless_trust(
-            &format!(
-                "{stderr}
-{transcript}"
-            ),
-        ) {
-            if let Some(id) = super::native::stable_prompt_id(&prompt) {
-                prompt["prompt_id"] = serde_json::Value::String(id);
-            }
-            if let Err(error) = operations::mark_operation_waiting_input(
-                &project,
-                &operation_id,
-                Some("waiting_input".into()),
-                prompt,
-                StateSource::Native,
-            ) {
-                tracing::warn!(operation_id = %operation_id, code = %error.code, message = %error.message, "could not park headless run on workspace trust prompt");
-            }
-        } else {
-            let error = OperationError::new(
-                if code == 0 {
-                    "UNVERIFIED_RESULT"
-                } else {
-                    "WORKER_EXIT_FAILED"
-                },
-                failure_message(code, &stderr, Some(&spec.program)),
-                code != 0,
-            );
-            let _ = operations::mark_operation_state(
-                &project,
-                &operation_id,
-                OperationStatus::Failed,
-                StateSource::Native,
-                Some("failed".into()),
-                None,
-                Some(error),
-            );
-        }
+    if let Some(code) = exit_status {
+        finish_from_output(&project, &operation_id, &agent_type, &spec.program, code);
     }
     children().lock().remove(&operation_id);
     publish(&project, &operation_id, &registry, &app);
+}
+
+/// How often the wait loop looks for a printed result, and how long the child gets to exit after it.
+const RESULT_POLL_MS: u64 = 400;
+const RESULT_EXIT_GRACE_MS: u64 = 3000;
+
+/// Everything the child wrote to one stream so far.
+fn stream_text(project: &str, operation_id: &str, stream: &str) -> String {
+    transcript::read(project, operation_id, 0)
+        .map(|page| page.chunks)
+        .unwrap_or_default()
+        .iter()
+        .filter(|chunk| chunk.stream == stream)
+        .map(|chunk| chunk.text.as_str())
+        .collect()
+}
+
+/// Settles a finished headless turn from the child's recorded output and exit code.
+pub(super) fn finish_from_output(
+    project: &str,
+    operation_id: &str,
+    agent_type: &str,
+    program: &str,
+    code: i32,
+) {
+    let transcript = stream_text(&project, &operation_id, "stdout");
+    let stderr = stream_text(&project, &operation_id, "stderr");
+    if let Some(session) =
+        crate::tui::profile_for(&agent_type).extract_provider_session(&transcript)
+    {
+        let _ = operations::set_provider_session(&project, &operation_id, &session);
+    }
+    if let Some(result) =
+        crate::tui::profile_for(&agent_type).extract_result(&transcript, code)
+    {
+        if result.trim().is_empty() {
+            // The worker reported an empty result: that is an honest, authoritative answer.
+            // Completion with no evidence text is refused by mark_operation_completed.
+            let _ = operations::mark_operation_completed_empty(&project, &operation_id);
+            return;
+        }
+        // A rejected shell call means the task may not have done what it says: keep the run
+        // `completed`, but do not call its result verified (an explicit check can still verify).
+        let rejected = crate::tui::profile_for(&agent_type).rejected_call_warning(&transcript);
+        let result = match rejected {
+            Some(warning) => format!("{result}
+
+{warning}"),
+            None => result,
+        };
+        transcript::append(&project, &operation_id, "assistant_final", &result);
+        if let Ok(snapshot) = operations::get_operation(&project, &operation_id) {
+            let handle = if snapshot.agent_run_id.is_empty() {
+                snapshot.operation_id.as_str()
+            } else {
+                snapshot.agent_run_id.as_str()
+            };
+            super::messaging::mark_open_steers_processed_for_turn(
+                &project,
+                handle,
+                &result,
+                snapshot.turn_index,
+            );
+        }
+        let _ = operations::mark_operation_completed(
+            &project,
+            &operation_id,
+            &result,
+            rejected.is_none(),
+        );
+    } else if let Some(mut prompt) = crate::tui::profile_for(&agent_type).detect_headless_trust(
+        &format!(
+            "{stderr}
+{transcript}"
+        ),
+    ) {
+        if let Some(id) = super::native::stable_prompt_id(&prompt) {
+            prompt["prompt_id"] = serde_json::Value::String(id);
+        }
+        if let Err(error) = operations::mark_operation_waiting_input(
+            &project,
+            &operation_id,
+            Some("waiting_input".into()),
+            prompt,
+            StateSource::Native,
+        ) {
+            tracing::warn!(operation_id = %operation_id, code = %error.code, message = %error.message, "could not park headless run on workspace trust prompt");
+        }
+    } else {
+        let error = OperationError::new(
+            if code == 0 {
+                "UNVERIFIED_RESULT"
+            } else {
+                "WORKER_EXIT_FAILED"
+            },
+            failure_message(code, &stderr, Some(program)),
+            code != 0,
+        );
+        let _ = operations::mark_operation_state(
+            &project,
+            &operation_id,
+            OperationStatus::Failed,
+            StateSource::Native,
+            Some("failed".into()),
+            None,
+            Some(error),
+        );
+    }
 }
 
 /// Builds the run error text, surfacing the first useful CLI diagnostic so
@@ -1875,5 +1916,87 @@ mod approval_view_tests {
         assert_eq!(view["command"], prompt["command"]);
         assert_eq!(view["cwd"], "C:\\x");
         assert!(view["summary"].as_str().unwrap().contains("python todo.py add"));
+    }
+}
+
+#[cfg(test)]
+mod finish_tests {
+    use super::*;
+    use crate::operations::{DelegateWorkRequest, OperationStatus, ResultCapture};
+
+    fn running_cursor_turn(name: &str, turn: u32) -> (std::path::PathBuf, String, String) {
+        let project = std::env::temp_dir().join(format!("pm-finish-{name}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&project).unwrap();
+        let project_path = project.to_string_lossy().into_owned();
+        let request = DelegateWorkRequest {
+            project_path: project_path.clone(),
+            task: "reply with []".into(),
+            agent_type: "cursor_agent".into(),
+            pane_id: None,
+            idempotency_key: uuid::Uuid::new_v4().to_string(),
+            acceptance_criteria: None,
+            task_id: None,
+            exclusive: false,
+            locks: vec![],
+            timeout_ms: 900_000,
+            read_only: false,
+            keep_pane: false,
+            owner_session_id: None,
+            worker_has_mcp_tools: false,
+            agent_run_id: Some(format!("finish-{name}-{}", &uuid::Uuid::new_v4().to_string()[..8])),
+            turn_index: turn,
+            worker: Default::default(),
+            context_policy: None,
+            checks: Vec::new(),
+        };
+        let (op, _) = operations::create_operation(request).unwrap();
+        for status in [OperationStatus::Starting, OperationStatus::Running] {
+            operations::mark_operation_state(
+                &op.project_path,
+                &op.operation_id,
+                status,
+                StateSource::Native,
+                Some("process_running".into()),
+                None,
+                None,
+            )
+            .unwrap();
+        }
+        (project, project_path, op.operation_id)
+    }
+
+    #[test]
+    fn empty_result_event_completes_the_turn_honestly() {
+        let (project, path, id) = running_cursor_turn("empty", 1);
+        transcript::append(
+            &path,
+            &id,
+            "stdout",
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"","session_id":"s-empty"}"#,
+        );
+        finish_from_output(&path, &id, "cursor_agent", "agent", 0);
+        let done = operations::get_operation(&path, &id).unwrap();
+        assert_eq!(done.status, OperationStatus::Completed, "{:?}", done.error);
+        assert_eq!(done.result.as_deref(), None);
+        assert_eq!(done.result_capture, Some(ResultCapture::Authoritative));
+        assert_eq!(done.worker.provider_session_id.as_deref(), Some("s-empty"));
+        let _ = std::fs::remove_dir_all(project);
+    }
+
+    #[test]
+    fn result_without_trailing_newline_after_other_events_completes() {
+        let (project, path, id) = running_cursor_turn("eof", 0);
+        transcript::append(&path, &id, "stdout", "{\"type\":\"system\",\"subtype\":\"init\"}\n");
+        transcript::append(
+            &path,
+            &id,
+            "stdout",
+            r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s1"}"#,
+        );
+        finish_from_output(&path, &id, "cursor_agent", "agent", 0);
+        let done = operations::get_operation(&path, &id).unwrap();
+        assert_eq!(done.status, OperationStatus::Completed, "{:?}", done.error);
+        assert_eq!(done.result.as_deref(), Some("PONG"));
+        let _ = std::fs::remove_dir_all(project);
     }
 }

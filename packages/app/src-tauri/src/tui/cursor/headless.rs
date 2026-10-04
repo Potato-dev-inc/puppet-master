@@ -23,24 +23,53 @@ pub(super) fn rejected_call_warning(output: &str) -> Option<&'static str> {
     )
 }
 
+/// The terminal `{"type":"result"}` event of a run: the whole output as one JSON object, or the
+/// last complete line that is one (a banner before it, CRLF endings, no trailing newline and a
+/// partial line after it are all tolerated).
+fn result_event(output: &str) -> Option<Value> {
+    let is_result = |value: &Value| {
+        value.is_object()
+            && value.get("type").and_then(Value::as_str).map_or(
+                // The single-object json format always carries "type", but accept a bare object
+                // that has a result field too.
+                value.get("result").is_some(),
+                |kind| kind == "result",
+            )
+    };
+    if let Ok(value) = serde_json::from_str::<Value>(output.trim()) {
+        if is_result(&value) {
+            return Some(value);
+        }
+    }
+    output
+        .lines()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+        .find(is_result)
+}
+
+/// True once the output holds a complete result event: the turn is over even if the child lingers.
+pub(super) fn has_result_event(output: &str) -> bool {
+    result_event(output).is_some()
+}
+
 /// Machine-readable final output after a successful exit. Human-readable fallback is excluded:
-/// it is not completion evidence.
+/// it is not completion evidence. An empty result string is a result (the model said nothing).
 pub(super) fn extract_result(output: &str, exit_code: i32) -> Option<String> {
     if exit_code != 0 {
         return None;
     }
-    let value: Value = serde_json::from_str(output.trim()).ok()?;
+    let value = result_event(output)?;
     ["result", "text", "response"]
         .iter()
         .find_map(|key| value.get(*key).and_then(Value::as_str).map(str::to_string))
 }
 
-/// The chat id of a headless run (`session_id` in the `--output-format json` result object), which
+/// The chat id of a headless run (`session_id` in the result event), which
 /// `--resume <id>` accepts to continue the same conversation. Verified live: a resumed run reports
 /// the same id.
 pub(super) fn extract_provider_session(output: &str) -> Option<String> {
-    let value: Value = serde_json::from_str(output.trim()).ok()?;
-    value
+    result_event(output)?
         .get("session_id")
         .and_then(Value::as_str)
         .map(str::to_string)
@@ -97,6 +126,36 @@ mod tests {
         );
         assert_eq!(extract_result(r#"{"result":"ok"}"#, 1), None);
         assert_eq!(extract_result("plain text", 0), None);
+    }
+
+    #[test]
+    fn an_empty_result_is_still_a_result() {
+        let raw = r#"{"type":"result","subtype":"success","is_error":false,"result":"","session_id":"abc"}"#;
+        assert_eq!(extract_result(raw, 0).as_deref(), Some(""));
+        assert_eq!(extract_provider_session(raw).as_deref(), Some("abc"));
+        assert!(has_result_event(raw));
+    }
+
+    #[test]
+    fn only_a_complete_result_event_marks_the_turn_over() {
+        let cursor = profile_for("cursor_agent");
+        assert!(cursor.headless_result_ready(r#"{"type":"result","result":""}"#));
+        assert!(!cursor.headless_result_ready(r#"{"type":"result","res"#));
+        assert!(!profile_for("codex").headless_result_ready(r#"{"type":"result","result":""}"#));
+    }
+
+    #[test]
+    fn result_event_is_found_without_a_trailing_newline_and_among_other_lines() {
+        let stream = "{\"type\":\"system\",\"subtype\":\"init\"}\n{\"type\":\"assistant\",\"message\":{}}\n{\"type\":\"result\",\"is_error\":false,\"result\":\"[]\",\"session_id\":\"s1\"}";
+        assert!(!stream.ends_with('\n'));
+        assert_eq!(extract_result(stream, 0).as_deref(), Some("[]"));
+        assert_eq!(extract_provider_session(stream).as_deref(), Some("s1"));
+        assert!(has_result_event(stream));
+        // CRLF line endings and a partial trailing line are tolerated.
+        let crlf = "banner\r\n{\"type\":\"result\",\"result\":\"ok\"}\r\n{\"type\":\"res";
+        assert_eq!(extract_result(crlf, 0).as_deref(), Some("ok"));
+        assert!(!has_result_event("{\"type\":\"assistant\"}"));
+        assert!(!has_result_event("{\"type\":\"result\",\"res"));
     }
 
     #[test]

@@ -92,6 +92,10 @@ impl TuiProfile for CursorAgent {
         true
     }
 
+    fn headless_result_ready(&self, output: &str) -> bool {
+        headless::has_result_event(output)
+    }
+
     fn extract_provider_session(&self, output: &str) -> Option<String> {
         headless::extract_provider_session(output)
     }
