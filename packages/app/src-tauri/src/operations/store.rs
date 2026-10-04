@@ -1,5 +1,8 @@
+//! On-disk operation records: atomic persistence, the project and task indexes, the process
+//! locks that serialize writers, and the change notification that wakes waiters.
+
 use super::model::{OperationError, OperationSnapshot};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,14 +10,24 @@ use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-pub(super) static DELEGATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-pub(super) static UPDATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static DELEGATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static UPDATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static TASK_INDEX_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static CHANGE: OnceLock<(Mutex<u64>, parking_lot::Condvar)> = OnceLock::new();
 static RUNTIME_ID: OnceLock<String> = OnceLock::new();
 #[cfg(test)]
 thread_local! {
     static TEST_INDEX_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Serializes operation creation so idempotency lookups and inserts cannot interleave.
+pub(super) fn delegate_lock() -> MutexGuard<'static, ()> {
+    DELEGATE_LOCK.get_or_init(|| Mutex::new(())).lock()
+}
+
+/// Serializes every read-modify-write of an existing operation snapshot.
+pub(super) fn update_lock() -> MutexGuard<'static, ()> {
+    UPDATE_LOCK.get_or_init(|| Mutex::new(())).lock()
 }
 
 pub(super) fn change() -> &'static (Mutex<u64>, parking_lot::Condvar) {

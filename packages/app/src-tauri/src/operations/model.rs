@@ -1,3 +1,6 @@
+//! Operation record types: status and source enums, the delegate request, the persisted
+//! snapshot, errors and wait results.
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
