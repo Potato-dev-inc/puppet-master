@@ -775,7 +775,23 @@ pub fn cancel_agent(
     registry: Arc<Mutex<crate::pty::PaneRegistry>>,
     app: tauri::AppHandle,
 ) -> Result<AgentRunView, OperationError> {
-    interrupt_agent(project, handle, session_id, registry, app)
+    let view = interrupt_agent(project, handle, session_id, registry.clone(), app)?;
+    // cancel_agent means stop and release: a pane this run created for itself (keep_pane=false) is
+    // closed once the turn is stopped. interrupt_agent leaves it open so the worker can be resumed.
+    // The caller just stopped this run, so a read-level lookup is enough (and cannot be refused
+    // because the interrupt already changed the worker's control state).
+    let Ok(snapshot) = current_agent_for_read(project, handle, session_id) else {
+        return Ok(view);
+    };
+    // `keep_pane` itself is forced on by the interrupt, so go by what the caller asked for.
+    let released = snapshot.pane_created && snapshot.keep_pane_requested == Some(false);
+    if snapshot.pane_id.is_none() || !released {
+        return Ok(view);
+    }
+    if super::pane_close::dispose_explicit_close(&snapshot, &registry).is_err() {
+        return Ok(view);
+    }
+    Ok(AgentRunView::present(snapshot, Some(&registry)))
 }
 
 pub fn interrupt_agent(

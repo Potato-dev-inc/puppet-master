@@ -2688,3 +2688,18 @@ fn a_retried_run_agent_call_gets_the_same_handle_but_different_calls_do_not() {
     assert_eq!(a.len(), 36);
     assert!(a.chars().enumerate().all(|(i, c)| if [8, 13, 18, 23].contains(&i) { c == '-' } else { c.is_ascii_hexdigit() }), "{a}");
 }
+
+#[test]
+fn cancel_releases_a_run_spawned_pane_unless_keep_pane_was_asked_for() {
+    let mut spawned = parked_snapshot(OperationStatus::Cancelled, "none");
+    spawned.pane_created = true;
+    spawned.keep_pane = false;
+    assert!(super::pane_close::should_dispose_after_terminal(&spawned));
+    spawned.keep_pane = true;
+    assert!(!super::pane_close::should_dispose_after_terminal(&spawned));
+    // A pane the user opened (adopted, not created by the run) is never closed for them.
+    let mut adopted = parked_snapshot(OperationStatus::Cancelled, "none");
+    adopted.pane_created = false;
+    adopted.keep_pane = false;
+    assert!(!super::pane_close::should_dispose_after_terminal(&adopted));
+}

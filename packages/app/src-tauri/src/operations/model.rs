@@ -197,6 +197,11 @@ pub struct OperationSnapshot {
     pub read_only: bool,
     #[serde(default)]
     pub keep_pane: bool,
+    /// What the caller asked for. `keep_pane` is forced on when a turn is interrupted (so the
+    /// worker can be resumed), which loses the request; `cancel_agent` needs it to know whether
+    /// to release the pane. `None` on operations stored before this field existed.
+    #[serde(default)]
+    pub keep_pane_requested: Option<bool>,
     #[serde(default)]
     pub owner_session_id: Option<String>,
     #[serde(default)]

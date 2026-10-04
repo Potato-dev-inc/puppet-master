@@ -234,6 +234,7 @@ pub fn create_operation(
         timeout_ms: req.timeout_ms,
         read_only: req.read_only,
         keep_pane: req.keep_pane,
+        keep_pane_requested: Some(req.keep_pane),
         owner_session_id: req.owner_session_id,
         worker_has_mcp_tools: req.worker_has_mcp_tools,
         agent_run_id,

@@ -236,6 +236,7 @@ mod tests {
             timeout_ms: 900_000,
             read_only: true,
             keep_pane: false,
+            keep_pane_requested: None,
             owner_session_id: None,
             worker_has_mcp_tools: false,
             agent_run_id: "h1".into(),

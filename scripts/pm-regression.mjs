@@ -296,6 +296,10 @@ const scenarios = {
     check('cancel: ends cancelled or interrupted', ['cancelled', 'interrupted'].includes(final.status), final.status);
     check('cancel: never reported as success', final.status !== 'completed' && final.receipt?.outcome !== 'passed_checks', `${final.status} ${final.receipt?.outcome}`);
     check('cancel: receipt says cancelled', final.receipt?.outcome === 'cancelled', String(final.receipt?.outcome));
+    // keep_pane defaults to false, so cancel_agent releases the pane the run created.
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    const livePanes = JSON.stringify(await tool('list_panes', {}));
+    check('cancel: the run-spawned pane is released', !view.pane_id || !livePanes.includes(view.pane_id), String(view.pane_id));
   },
 
   /** A run that exceeds timeout_ms fails with a recoverable TIMEOUT and stays inspectable. */
@@ -306,10 +310,11 @@ const scenarios = {
     let final = view;
     for (let i = 0; i < 45; i += 1) {
       final = await tool('inspect_agent', { handle: view.handle, project_path: sandbox });
-      if (['completed', 'failed', 'cancelled', 'interrupted'].includes(final.status)) break;
+      if (['completed', 'failed', 'cancelled', 'interrupted', 'timeout'].includes(final.status)) break;
       await new Promise((resolve) => setTimeout(resolve, 2_000));
     }
     check('timeout: run did not complete', final.status !== 'completed', final.status);
+    check('timeout: status is timeout', final.status === 'timeout', final.status);
     check('timeout: error code is TIMEOUT', final.error?.code === 'TIMEOUT', JSON.stringify(final.error)?.slice(0, 160));
     check('timeout: marked recoverable', final.error?.recoverable === true, String(final.error?.recoverable));
     check('timeout: receipt outcome is failed', final.receipt?.outcome === 'failed', String(final.receipt?.outcome));
@@ -345,7 +350,6 @@ const scenarios = {
     await call(a, 'POST', '/mcp/mode', { mode: 'agent' });
     await call(b, 'POST', '/mcp/mode', { mode: 'agent' });
     const run = await call(a, 'POST', '/agents/run', { task: PONG, agent_type: backend, project_path: sandbox, keep_pane: true, wait_ms: 60_000, idempotency_key: `recov-${stamp}` });
-    if (run.handle) handlesSeen.push(run.handle);
     if (!check('reconnect: owner run completed', run.status === 'completed', `${run.status} ${run.code ?? ''}`)) return;
     const identity = await call(a, 'GET', '/mcp/session');
     check('reconnect: owner has an attach token', Boolean(identity.attach_token), JSON.stringify(identity).slice(0, 120));
