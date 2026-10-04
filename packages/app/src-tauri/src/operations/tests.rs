@@ -262,6 +262,7 @@ fn cancel_persisted_queued_operation() {
         worker: Default::default(),
         checks: Vec::new(),
         check_results: Vec::new(),
+        warnings: Vec::new(),
     };
     persist(&op).unwrap();
     op = cancel_operation(&dir.to_string_lossy(), &op.operation_id).unwrap();

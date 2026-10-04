@@ -1580,6 +1580,7 @@ mod tests {
             },
             checks: Vec::new(),
             check_results: Vec::new(),
+            warnings: Vec::new(),
         };
         let value = serde_json::to_value(AgentRunView::from(snapshot)).unwrap();
         for key in ["handle", "operation_id", "status", "result_verified", "model_verified"] {

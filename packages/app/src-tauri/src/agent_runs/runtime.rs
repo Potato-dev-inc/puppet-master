@@ -374,6 +374,9 @@ fn run_warnings(snapshot: &OperationSnapshot) -> Vec<RunWarning> {
             detail: detail.into(),
         })
     };
+    for warning in &snapshot.warnings {
+        push(&warning.code, "capture", &warning.detail);
+    }
     let facts = crate::tui::RunFacts {
         result: snapshot.result.as_deref(),
         has_pane: snapshot.pane_id.is_some(),
@@ -868,6 +871,34 @@ pub(super) fn interrupt_active_turns(
     Ok(final_snapshot.into())
 }
 
+/// Warning code recorded when a stop could not reach the OpenCode server.
+pub(super) const OPENCODE_SERVER_UNREACHABLE: &str = "OPENCODE_SERVER_UNREACHABLE";
+
+/// Outcome of asking OpenCode to abort a session. A server that cannot be reached has nothing
+/// left to abort, so the stop still goes ahead (the operation is finalised, locks and pane are
+/// released) and the unconfirmed abort is recorded as a warning. Any other failure is an error.
+pub(super) fn settle_native_abort(
+    project: &str,
+    operation_id: &str,
+    abort: Result<(), String>,
+) -> Result<(), OperationError> {
+    match abort {
+        Ok(()) => Ok(()),
+        Err(error) if crate::opencode::client::is_unreachable_error(&error) => {
+            let _ = operations::add_warning(
+                project,
+                operation_id,
+                OPENCODE_SERVER_UNREACHABLE,
+                &format!(
+                    "the OpenCode server could not be reached, so the abort was not delivered; the run was stopped on the Puppet Master side only ({error})"
+                ),
+            );
+            Ok(())
+        }
+        Err(error) => Err(OperationError::new("INTERRUPT_FAILED", error, true)),
+    }
+}
+
 fn request_interrupt(
     snapshot: &OperationSnapshot,
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
@@ -891,14 +922,16 @@ fn request_interrupt(
                 })
             };
             if let Some((base, session, directory)) = link {
-                crate::opencode::client::abort_session(&base, &session, Some(&directory)).map_err(
-                    |error| OperationError::new("INTERRUPT_FAILED", error, true),
-                )?;
-                let _ = crate::opencode::status::wait_until_native_accepts_prompt(
-                    registry,
-                    pane_id,
-                    Duration::from_secs(5),
-                );
+                let abort = crate::opencode::client::abort_session(&base, &session, Some(&directory));
+                let reached = abort.is_ok();
+                settle_native_abort(&snapshot.project_path, &snapshot.operation_id, abort)?;
+                if reached {
+                    let _ = crate::opencode::status::wait_until_native_accepts_prompt(
+                        registry,
+                        pane_id,
+                        Duration::from_secs(5),
+                    );
+                }
             }
             Ok(())
         }

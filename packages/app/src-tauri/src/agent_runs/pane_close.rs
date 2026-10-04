@@ -138,8 +138,12 @@ pub fn stop_worker_control(
                 true,
             )
         })?;
-        crate::opencode::client::abort_session(&link.0, &link.1, Some(&link.2))
-            .map_err(|err| OperationError::new("CANCEL_FAILED", err, true))?;
+        super::runtime::settle_native_abort(
+            &snapshot.project_path,
+            &snapshot.operation_id,
+            crate::opencode::client::abort_session(&link.0, &link.1, Some(&link.2)),
+        )
+        .map_err(|err| OperationError::new("CANCEL_FAILED", err.message, true))?;
     }
     if spawned_by_run(snapshot) && allow_kill_spawned_pane {
         if !pane_busy(&snapshot.project_path, pane_id, &snapshot.operation_id)? {

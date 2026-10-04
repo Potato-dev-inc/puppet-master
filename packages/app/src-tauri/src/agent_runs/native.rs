@@ -18,6 +18,69 @@ pub(crate) fn stable_prompt_id(prompt: &serde_json::Value) -> Option<String> {
     Some(format!("prompt-{:016x}", hasher.finish()))
 }
 
+/// How long an OpenCode server may stay unreachable before the run waiting on it is failed. A
+/// restarting server is back well within this; a dead one never is.
+pub(super) const SERVER_LOSS_GRACE_MS: u64 = 60_000;
+
+static SERVER_DOWN_SINCE: once_cell::sync::Lazy<Mutex<std::collections::HashMap<String, u64>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Record one health observation for `operation_id`'s OpenCode server. Returns how long (ms) it
+/// has been unreachable once that exceeds the grace period, else `None`. A reachable observation
+/// resets the clock.
+pub(super) fn note_server_health(operation_id: &str, reachable: bool, now_ms: u64) -> Option<u64> {
+    let mut down = SERVER_DOWN_SINCE.lock();
+    if reachable {
+        down.remove(operation_id);
+        return None;
+    }
+    let since = *down.entry(operation_id.to_string()).or_insert(now_ms);
+    let downtime = now_ms.saturating_sub(since);
+    (downtime >= SERVER_LOSS_GRACE_MS).then_some(downtime)
+}
+
+fn server_unreachable_error(downtime_ms: u64, detail: &str) -> OperationError {
+    let mut error = OperationError::new(
+        "OPENCODE_SERVER_UNREACHABLE",
+        format!(
+            "the OpenCode server has been unreachable for {}s, so this run can no longer make progress; start a new run (the session is not recoverable while the server is down): {detail}",
+            downtime_ms / 1000
+        ),
+        true,
+    );
+    error.context = serde_json::json!({"downtime_ms": downtime_ms});
+    error
+}
+
+/// A native read failed. If the server itself is unreachable for longer than the grace period,
+/// fail the run instead of letting it sit `running` until its whole timeout.
+fn handle_native_read_failure(
+    operation: &OperationSnapshot,
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &tauri::AppHandle,
+    error: &str,
+) {
+    if !crate::opencode::client::is_unreachable_error(error) {
+        return;
+    }
+    let now = crate::event_log::now_ms().max(0) as u64;
+    let Some(downtime) = note_server_health(&operation.operation_id, false, now) else {
+        return;
+    };
+    SERVER_DOWN_SINCE.lock().remove(&operation.operation_id);
+    if let Ok(failed) = operations::mark_operation_state(
+        &operation.project_path,
+        &operation.operation_id,
+        OperationStatus::Failed,
+        StateSource::Native,
+        Some("failed".into()),
+        None,
+        Some(server_unreachable_error(downtime, error)),
+    ) {
+        let _ = crate::bridge::publish_operation(&failed, registry, app);
+    }
+}
+
 pub(super) fn supervise_native_observation(
     operation: &OperationSnapshot,
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
@@ -29,11 +92,17 @@ pub(super) fn supervise_native_observation(
     let messages =
         match crate::opencode::messages::read_pane_messages(registry, pane_id, 10_000, None) {
             Ok(messages) => messages,
-            Err(_) => return,
+            Err(error) => {
+                handle_native_read_failure(operation, registry, app, &error.to_string());
+                return;
+            }
         };
     let status = match crate::opencode::status::worker_status(registry, pane_id) {
         Ok(status) => status,
-        Err(_) => return,
+        Err(error) => {
+            handle_native_read_failure(operation, registry, app, &error.to_string());
+            return;
+        }
     };
     let permission_ids = status.pending_permission_ids.clone();
     let (base_url, directory) = {
@@ -53,8 +122,12 @@ pub(super) fn supervise_native_observation(
                 .into_iter()
                 .filter(|request| request.session_id == messages.session_id)
                 .collect::<Vec<_>>(),
-            Err(_) => return,
+            Err(error) => {
+                handle_native_read_failure(operation, registry, app, &error.to_string());
+                return;
+            }
         };
+    note_server_health(&operation.operation_id, true, 0);
     let required_action = if !permission_ids.is_empty() {
         let first = status
             .pending_permissions

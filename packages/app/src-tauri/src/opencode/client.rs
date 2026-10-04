@@ -180,6 +180,17 @@ pub fn prompt_async(
     Err(PromptAsyncError { status, body })
 }
 
+/// Whether an error from this client means the OpenCode server itself could not be reached
+/// (refused, reset, not listening), as opposed to the server answering with an error.
+pub fn is_unreachable_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    ["connection failed", "connection refused", "10061", "connection reset", "error sending request", "tcp connect", "timed out"]
+        .iter()
+        .any(|marker| lower.contains(marker))
+        && !lower.contains("http 4")
+        && !lower.contains("http 5")
+}
+
 pub fn abort_session(
     base_url: &str,
     session_id: &str,

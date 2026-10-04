@@ -251,6 +251,7 @@ mod tests {
             worker: Default::default(),
             checks: Vec::new(),
             check_results: Vec::new(),
+        warnings: Vec::new(),
         };
         let mut view = AgentRunView::from(snapshot);
         view.status = status.into();

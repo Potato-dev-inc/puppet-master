@@ -157,6 +157,13 @@ mod io_at_tests {
     }
 }
 
+/// A caveat recorded on an operation while it ran or was stopped (never changes its status).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OperationWarning {
+    pub code: String,
+    pub detail: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperationSnapshot {
     pub operation_id: String,
@@ -232,6 +239,8 @@ pub struct OperationSnapshot {
     pub checks: Vec<crate::agent_runs::checks::Check>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub check_results: Vec<crate::agent_runs::checks::CheckResult>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<OperationWarning>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

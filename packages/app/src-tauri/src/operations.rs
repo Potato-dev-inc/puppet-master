@@ -249,6 +249,7 @@ pub fn create_operation(
         worker,
         checks: req.checks,
         check_results: Vec::new(),
+        warnings: Vec::new(),
     };
     persist(&op)?;
     Ok((op, true))
@@ -1449,6 +1450,26 @@ pub fn mark_operation_finished(
             op.acceptance_status = AcceptanceStatus::Passed;
         }
     }
+    bump(&mut op)?;
+    Ok(op)
+}
+
+/// Record a caveat on an operation (once per code) without touching its status.
+pub fn add_warning(
+    project: &str,
+    id: &str,
+    code: &str,
+    detail: &str,
+) -> Result<OperationSnapshot, OperationError> {
+    let _serial = UPDATE_LOCK.get_or_init(|| Mutex::new(())).lock();
+    let mut op = get_operation(project, id)?;
+    if op.warnings.iter().any(|warning| warning.code == code) {
+        return Ok(op);
+    }
+    op.warnings.push(OperationWarning {
+        code: code.into(),
+        detail: detail.into(),
+    });
     bump(&mut op)?;
     Ok(op)
 }
