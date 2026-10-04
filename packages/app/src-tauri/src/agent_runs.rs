@@ -17,6 +17,9 @@ mod runtime;
 mod transcript;
 
 #[cfg(test)]
+mod cursor_capture_tests;
+
+#[cfg(test)]
 mod cursor_delivery_tests;
 
 pub(crate) use native::stable_prompt_id;

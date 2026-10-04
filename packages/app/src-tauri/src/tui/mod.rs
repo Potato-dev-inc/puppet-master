@@ -277,6 +277,12 @@ pub trait TuiProfile: Sync {
         text.to_string()
     }
 
+    /// Final pass over text extracted from the screen as the reply, after chrome and tool rows
+    /// were removed: drop artifacts of how this TUI redraws (repeated lines).
+    fn tidy_reply(&self, text: &str) -> String {
+        text.to_string()
+    }
+
     /// Live model name shown in the TUI footer, when the TUI prints one.
     fn detect_footer_model(&self, _buffer: &str) -> Option<String> {
         None
@@ -381,6 +387,13 @@ pub fn strip_dialogs(text: &str) -> String {
     PROFILES
         .iter()
         .fold(text.to_string(), |acc, profile| profile.strip_dialogs(&acc))
+}
+
+/// Reply text after every profile's redraw-artifact cleanup.
+pub fn tidy_reply(text: &str) -> String {
+    PROFILES
+        .iter()
+        .fold(text.to_string(), |acc, profile| profile.tidy_reply(&acc))
 }
 
 /// Whether any profile treats this (trimmed, lowercased) line as a tool-activity row.

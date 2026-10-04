@@ -8,6 +8,10 @@ use std::collections::HashMap;
 
 pub const STABLE_IDLE_TICKS: u8 = 2;
 pub const RECONCILE_IDLE_TICKS: u8 = 4;
+/// A turn that was seen running but has shown no reply text yet gets this many idle ticks (250ms
+/// each) before it is declared ambiguous. The TUI can look idle (echoed prompt, input footer) for
+/// seconds between submitting and the first token, so a 1s window ended turns before the reply.
+pub const AWAITING_REPLY_TICKS: u8 = 40;
 /// A turn that never showed activity gets this many idle ticks (250ms each) before it is declared
 /// not submitted. Cursor can take several seconds to start reacting, and its screen lags the PTY.
 pub const NOT_SUBMITTED_TICKS: u8 = 24;
@@ -26,6 +30,8 @@ pub struct TuiTurnWatch {
     reconcile_ticks: u8,
     saw_activity: bool,
     saw_task_echo: bool,
+    /// Reply text (after cleaning) has been on screen at some point this turn.
+    saw_reply: bool,
     submit_retried: bool,
 }
 
@@ -55,6 +61,7 @@ impl TuiTurnWatch {
         self.reconcile_ticks = 0;
         self.saw_activity = false;
         self.saw_task_echo = false;
+        self.saw_reply = false;
         self.submit_retried = false;
     }
 }
@@ -138,6 +145,7 @@ pub fn observe_tui_turn(
         .flatten()
         .and_then(|raw| clean_extracted_result_after(&raw, &watch.task, &watch.previous_task));
     if let Some(evidence) = evidence {
+        watch.saw_reply = true;
         if watch.idle_evidence.as_deref() == Some(evidence.as_str()) {
             watch.idle_ticks = watch.idle_ticks.saturating_add(1);
         } else {
@@ -159,7 +167,12 @@ pub fn observe_tui_turn(
     watch.idle_ticks = 0;
     watch.reconcile_ticks = watch.reconcile_ticks.saturating_add(1);
     if watch.saw_activity {
-        return if watch.reconcile_ticks >= RECONCILE_IDLE_TICKS {
+        let patience = if watch.saw_reply {
+            RECONCILE_IDLE_TICKS
+        } else {
+            AWAITING_REPLY_TICKS
+        };
+        return if watch.reconcile_ticks >= patience {
             TuiTurnDecision::AmbiguousIdle
         } else {
             TuiTurnDecision::Continue
@@ -204,10 +217,23 @@ pub fn is_tui_chrome_line(line: &str) -> bool {
         || lower.starts_with("constraints:")
         || lower.starts_with("facts:")
         || crate::tui::is_chrome_line(&lower)
-        // Rules, block fills and box art are chrome; a line of data punctuation (`[]`, `{}`,
-        // `""`, `()`) is a legitimate one-line reply such as an empty JSON list.
-        || (lower.chars().all(|ch| !ch.is_alphanumeric())
-            && !lower.chars().any(|ch| matches!(ch, '[' | ']' | '{' | '}' | '(' | ')' | '"' | '\'')))
+        || is_rule_line(&lower)
+}
+
+/// A line made only of rules, block fills, box art and bare prompt markers. Anything else with no
+/// letters or digits (`[]`, `{}`, `""`, an emoji, a check mark) is a legitimate short reply.
+fn is_rule_line(line: &str) -> bool {
+    line.chars().all(|ch| {
+        ch.is_whitespace()
+            || matches!(
+                ch,
+                '-' | '=' | '_' | '~' | '*' | '#' | '+' | '.' | '|' | '/' | '\\' | ':' | '>' | '<'
+                    | '\u{2026}' | '\u{b7}' | '\u{2022}' | '\u{2192}' | '\u{276f}' | '\u{203a}'
+                    | '\u{bb}'
+            )
+            // Box drawing and block elements: the input box, rules and fills.
+            || ('\u{2500}'..='\u{259f}').contains(&ch)
+    })
 }
 
 /// Drop Cursor paste markers, prompt echoes, and acceptance tables so they
@@ -252,7 +278,7 @@ pub fn clean_extracted_result_after(
     if lines.is_empty() {
         return None;
     }
-    let cleaned = lines.join("\n");
+    let cleaned = crate::tui::tidy_reply(&lines.join("\n"));
     // A reply rescued from a repeated echo is wholly contained in the prompt by construction.
     if !rescued && is_mostly_prompt_echo(&cleaned, task) {
         None
