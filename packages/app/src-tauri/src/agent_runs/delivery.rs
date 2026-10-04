@@ -108,11 +108,13 @@ fn occurrences(haystack: &str, needle: &str) -> usize {
 /// often on screen than before Enter (the TUI echoed it into the transcript), or the input area
 /// no longer holds it while the screen changed.
 pub fn turn_started(before: &str, now: &str, prompt: &str, busy: bool) -> bool {
-    if busy {
-        return true;
-    }
+    // Nothing on screen moved since Enter: the pane's "busy" flag is left over from typing the
+    // prompt (any output flips an idle pane to running) or from the previous turn repainting.
     if before == now {
         return false;
+    }
+    if busy {
+        return true;
     }
     let Some(head) = head_of(prompt) else {
         return normalize(before) != normalize(now);
@@ -124,21 +126,58 @@ pub fn turn_started(before: &str, now: &str, prompt: &str, busy: bool) -> bool {
     !prompt_visible_in_input(now, prompt) && before_n != now_n
 }
 
+/// Whether the supervisor must deliver the turn's prompt itself: the profile verifies delivery,
+/// the run is already `running`, no dispatch closure is typing right now, the stage log shows the
+/// dispatch never submitted the prompt, and this has not been tried yet.
+pub fn needs_redelivery(
+    profile_verifies: bool,
+    running: bool,
+    dispatch_in_flight: bool,
+    prompt_dispatched: bool,
+    already_redelivered: bool,
+) -> bool {
+    profile_verifies && running && !dispatch_in_flight && !prompt_dispatched && !already_redelivered
+}
+
 pub fn deliver_prompt(io: &mut dyn DeliveryIo, clear: Option<&str>, prompt: &str) -> Delivery {
+    deliver_prompt_traced(io, clear, prompt, &mut Vec::new())
+}
+
+/// The few non-empty rows at the bottom of the screen, for a delivery trace line.
+fn trace_rows(screen: &str) -> String {
+    bottom_rows(screen, 5)
+        .lines()
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// [`deliver_prompt`] that also records what it saw, so a delivery that claimed success without a
+/// turn can be diagnosed from the operation transcript.
+pub fn deliver_prompt_traced(
+    io: &mut dyn DeliveryIo,
+    clear: Option<&str>,
+    prompt: &str,
+    trace: &mut Vec<String>,
+) -> Delivery {
     let mut visible = false;
-    for _attempt in 0..2 {
+    for attempt in 0..2 {
         if let Some(clear) = clear {
             if let Err(error) = io.write(clear, false) {
                 return Delivery::WriteFailed(error);
             }
             io.pause(Duration::from_millis(250));
         }
+        trace.push(format!("attempt {attempt}: typing; busy={} rows={}", io.busy(), trace_rows(&io.screen())));
         if let Err(error) = io.write(prompt, false) {
             return Delivery::WriteFailed(error);
         }
-        for _poll in 0..VISIBLE_POLLS {
+        for poll in 0..VISIBLE_POLLS {
             io.pause(POLL_INTERVAL);
-            if prompt_visible_in_input(&io.screen(), prompt) {
+            let screen = io.screen();
+            let seen = prompt_visible_in_input(&screen, prompt);
+            trace.push(format!("typed poll {poll}: visible={seen} busy={} rows={}", io.busy(), trace_rows(&screen)));
+            if seen {
                 visible = true;
                 break;
             }
@@ -161,7 +200,10 @@ pub fn deliver_prompt(io: &mut dyn DeliveryIo, clear: Option<&str>, prompt: &str
     for poll in 0..STARTED_POLLS {
         io.pause(POLL_INTERVAL);
         let busy = io.busy();
-        if turn_started(&before, &io.screen(), prompt, busy) {
+        let screen = io.screen();
+        let started = turn_started(&before, &screen, prompt, busy);
+        trace.push(format!("enter poll {poll}: started={started} busy={busy} rows={}", trace_rows(&screen)));
+        if started {
             return Delivery::Started;
         }
         if poll == RESUBMIT_AT_POLL && !resubmitted {
@@ -356,6 +398,60 @@ mod tests {
         }
         screen.push_str("→ Add a follow-up\nComposer 2.5 · 3%");
         assert!(!prompt_visible_in_input(&screen, PROMPT));
+    }
+
+    #[test]
+    fn redelivery_only_when_a_running_turn_never_had_its_prompt_dispatched() {
+        // profile, running, in_flight, dispatched, already
+        assert!(needs_redelivery(true, true, false, false, false));
+        assert!(!needs_redelivery(true, true, false, true, false), "prompt was dispatched");
+        assert!(!needs_redelivery(true, true, true, false, false), "dispatch still typing");
+        assert!(!needs_redelivery(true, true, false, false, true), "already retried once");
+        assert!(!needs_redelivery(true, false, false, false, false), "not running yet");
+        assert!(!needs_redelivery(false, true, false, false, false), "profile cannot verify");
+    }
+
+    #[test]
+    fn busy_left_over_from_typing_is_not_a_started_turn() {
+        // Typing flips an idle pane to running for the next IDLE_AFTER seconds, so "busy" right
+        // after Enter says nothing unless the screen also moved.
+        let typed = format!("│ {PROMPT} │
+Composer 2.5");
+        assert!(!turn_started(&typed, &typed, PROMPT, true));
+        assert!(turn_started(&typed, "→ Add a follow-up   ctrl+c to stop
+Composer 2.5", PROMPT, true));
+    }
+
+    #[test]
+    fn a_swallowed_enter_with_a_stale_busy_flag_is_not_reported_as_started() {
+        let mut pane = pane(|pane, text, enter| {
+            if !enter && text == PROMPT {
+                pane.screen = format!("│ {PROMPT} │");
+                pane.busy = true;
+            }
+        });
+        assert_eq!(deliver_prompt(&mut pane, None, PROMPT), Delivery::SubmittedUnconfirmed);
+    }
+
+    #[test]
+    fn the_trace_records_what_each_step_saw() {
+        let mut pane = pane(|pane, text, enter| {
+            if enter {
+                pane.screen = format!("→ {PROMPT}
+working
+→ Add a follow-up");
+                pane.busy = true;
+            } else if text == PROMPT {
+                pane.screen = format!("│ {PROMPT} │");
+            }
+        });
+        let mut trace = Vec::new();
+        assert_eq!(
+            deliver_prompt_traced(&mut pane, None, PROMPT, &mut trace),
+            Delivery::Started
+        );
+        assert!(trace.iter().any(|line| line.starts_with("typed poll 0: visible=true")));
+        assert!(trace.iter().any(|line| line.starts_with("enter poll 0: started=true")));
     }
 
     #[test]

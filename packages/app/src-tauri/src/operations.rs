@@ -255,6 +255,49 @@ pub fn create_operation(
     Ok((op, true))
 }
 
+static DISPATCHING: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> =
+    std::sync::OnceLock::new();
+
+/// Marks an operation as having its dispatch closure running in this process.
+struct DispatchGuard(String);
+
+impl DispatchGuard {
+    fn enter(id: &str) -> Self {
+        DISPATCHING
+            .get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+            .lock()
+            .insert(id.to_string());
+        Self(id.to_string())
+    }
+}
+
+impl Drop for DispatchGuard {
+    fn drop(&mut self) {
+        if let Some(set) = DISPATCHING.get() {
+            set.lock().remove(&self.0);
+        }
+    }
+}
+
+/// Whether the prompt of this operation is being typed into its pane right now.
+pub fn dispatch_in_flight(id: &str) -> bool {
+    DISPATCHING.get().is_some_and(|set| set.lock().contains(id))
+}
+
+/// Whether this turn's dispatch ran to the point of submitting the prompt. A turn whose stage log
+/// shows it entered `dispatching` but never reached `dispatched_waiting_for_task_completion` had
+/// its dispatch abandoned (the operation left `starting` first): nothing was typed. A snapshot
+/// with no `dispatching` mark at all is not judged.
+pub fn prompt_dispatched(op: &OperationSnapshot) -> bool {
+    let log = &op.worker.stage_log;
+    match log.iter().rposition(|mark| mark.stage == "dispatching") {
+        None => true,
+        Some(at) => log[at..]
+            .iter()
+            .any(|mark| mark.stage == "dispatched_waiting_for_task_completion"),
+    }
+}
+
 /// Claim a queued operation before invoking dispatch. Cancellation can win while queued;
 /// once claimed, cancellation is rejected until the worker control path supports it.
 pub fn run_operation_dispatch<F>(
@@ -284,6 +327,7 @@ where
         bump(&mut op)?;
     }
     let mut op = get_operation(project, id)?;
+    let in_flight = DispatchGuard::enter(id);
     let dispatch_result =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dispatch(&mut op)))
             .unwrap_or_else(|payload| {
@@ -293,6 +337,7 @@ where
                     true,
                 ))
             });
+    drop(in_flight);
     match dispatch_result {
         Ok(()) => {
             let dispatched = op;
@@ -949,12 +994,18 @@ pub fn mark_operation_observation(
         return Ok(op);
     }
     let awaiting_readiness = op.stage.as_deref() == Some("waiting_for_pane_readiness");
+    // Pane output while the prompt is still being dispatched is the previous turn's TUI repainting
+    // (or the typing itself), not this turn running. Leaving `starting` here made the dispatch
+    // refuse to type the prompt.
+    let dispatching =
+        op.status == OperationStatus::Starting && op.stage.as_deref() == Some("dispatching");
     if pane_state.as_deref() == Some("waiting_input") {
         op.status = OperationStatus::WaitingInput;
         if !awaiting_readiness {
             op.stage = Some("waiting_input".into());
         }
     } else if !awaiting_readiness
+        && !dispatching
         && matches!(
             op.status,
             OperationStatus::Starting | OperationStatus::WaitingInput

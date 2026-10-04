@@ -4180,11 +4180,20 @@ pub fn dispatch_existing_operation(
                                 app: &app_for_dispatch,
                                 pane_id: &pane_id,
                             };
-                            return match crate::agent_runs::delivery::deliver_prompt(
+                            let mut trace = Vec::new();
+                            let outcome = crate::agent_runs::delivery::deliver_prompt_traced(
                                 &mut io,
                                 profile.clear_input_sequence(),
                                 &prompt,
-                            ) {
+                                &mut trace,
+                            );
+                            crate::agent_runs::transcript::append(
+                                &active.project_path,
+                                &active.operation_id,
+                                "delivery",
+                                &format!("{outcome:?}\n{}", trace.join("\n")),
+                            );
+                            return match outcome {
                                 crate::agent_runs::delivery::Delivery::NotVisible => {
                                     Err(crate::operations::OperationError::new(
                                         "PROMPT_NOT_SUBMITTED",

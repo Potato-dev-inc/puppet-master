@@ -774,6 +774,63 @@ fn read_tui_screen(
     crate::pty::registry_read_snapshot(registry.as_ref(), pane_id).ok()
 }
 
+/// Run the delivery protocol (clear, retype, verify, submit, verify a turn started) for the
+/// current turn's prompt and restart the turn watch from the screen as it is now. Returns false,
+/// typing nothing, when a dialog is on screen (it takes hotkeys), so the caller can try later.
+fn redeliver_prompt(
+    current: &OperationSnapshot,
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &tauri::AppHandle,
+    watch: &mut super::completion::TuiTurnWatch,
+    why: &str,
+) -> bool {
+    let Some(pane_id) = current.pane_id.as_deref() else {
+        return false;
+    };
+    if let Some(screen) = read_tui_screen(registry, pane_id) {
+        if crate::pane_prompt::dispatch_blocker(&current.agent_type, &screen).is_some() {
+            return false;
+        }
+    }
+    let profile = crate::tui::profile_for(&current.agent_type);
+    let prompt = super::delivery::dispatch_prompt(
+        &current.task,
+        current.worker_has_mcp_tools,
+        current.task_id.as_deref().unwrap_or_default(),
+        pane_id,
+        &current.project_path,
+    );
+    let mut io = super::delivery::PaneIo {
+        registry,
+        app,
+        pane_id,
+    };
+    let mut trace = Vec::new();
+    let delivery = super::delivery::deliver_prompt_traced(
+        &mut io,
+        profile.clear_input_sequence(),
+        &prompt,
+        &mut trace,
+    );
+    transcript::append(
+        &current.project_path,
+        &current.operation_id,
+        "delivery",
+        &format!("{why}; re-delivered once: {delivery:?}\n{}", trace.join("\n")),
+    );
+    if !matches!(
+        delivery,
+        super::delivery::Delivery::NotVisible | super::delivery::Delivery::WriteFailed(_)
+    ) {
+        super::runtime::record_user_task(&current.project_path, &current.operation_id, &prompt);
+    }
+    if let Some(screen) = read_tui_screen(registry, pane_id) {
+        // Anything on screen before the retry was typed is stale.
+        watch.restart(screen);
+    }
+    true
+}
+
 /// The prompt of the turn before this one on the same handle (empty for a first turn). Its echo
 /// stays on a reused pane's screen and must never be mistaken for this turn's output.
 fn previous_turn_task(snapshot: &OperationSnapshot) -> String {
@@ -894,7 +951,37 @@ pub fn supervise_existing(
                             &current.agent_type,
                         );
                         let has_prompt = action.is_some() || pane_status == "waiting_input";
+                        // The run left `starting` without its prompt ever being typed (the dispatch
+                        // was abandoned: see `operations::prompt_dispatched`). Watching the pane for
+                        // a reply to a prompt the model never received ends in RESULT_NOT_CAPTURED,
+                        // so deliver it now, once, through the verified protocol.
+                        if super::delivery::needs_redelivery(
+                            crate::tui::profile_for(&current.agent_type)
+                                .verifies_prompt_delivery(),
+                            current.status == OperationStatus::Running,
+                            operations::dispatch_in_flight(&current.operation_id),
+                            operations::prompt_dispatched(&current),
+                            redelivered,
+                        ) && !has_prompt
+                        {
+                            if redeliver_prompt(
+                                &current,
+                                &registry,
+                                &app,
+                                &mut watch,
+                                "the run left starting before its prompt was dispatched",
+                            ) {
+                                redelivered = true;
+                            }
+                            thread::sleep(Duration::from_millis(SUPERVISE_POLL_MS));
+                            continue;
+                        }
                         let screen = read_tui_screen(&registry, pane_id).unwrap_or_default();
+                        watch.set_delivery_verified(
+                            crate::tui::profile_for(&current.agent_type)
+                                .verifies_prompt_delivery()
+                                && operations::prompt_dispatched(&current),
+                        );
                         match super::completion::observe_tui_turn(
                             &mut watch,
                             &pane_status,
@@ -1128,36 +1215,13 @@ pub fn supervise_existing(
                                 // The turn never started. Re-run the delivery protocol once
                                 // (clear, retype, verify, submit) before failing the run.
                                 redelivered = true;
-                                if let Some(pane_id) = current.pane_id.as_deref() {
-                                    let profile = crate::tui::profile_for(&current.agent_type);
-                                    let prompt = super::delivery::dispatch_prompt(
-                                        &current.task,
-                                        current.worker_has_mcp_tools,
-                                        current.task_id.as_deref().unwrap_or_default(),
-                                        pane_id,
-                                        &current.project_path,
-                                    );
-                                    let mut io = super::delivery::PaneIo {
-                                        registry: &registry,
-                                        app: &app,
-                                        pane_id,
-                                    };
-                                    let delivery = super::delivery::deliver_prompt(
-                                        &mut io,
-                                        profile.clear_input_sequence(),
-                                        &prompt,
-                                    );
-                                    transcript::append(
-                                        &current.project_path,
-                                        &current.operation_id,
-                                        "delivery",
-                                        &format!("prompt not submitted; re-delivered once: {delivery:?}"),
-                                    );
-                                    if let Some(screen) = read_tui_screen(&registry, pane_id) {
-                                        // Anything on screen before the retry was typed is stale.
-                                        watch.restart(screen);
-                                    }
-                                }
+                                redeliver_prompt(
+                                    &current,
+                                    &registry,
+                                    &app,
+                                    &mut watch,
+                                    "prompt not submitted",
+                                );
                             }
                             super::completion::TuiTurnDecision::NotSubmitted => {
                                 // The unsent prompt is still typed in the input box; the next

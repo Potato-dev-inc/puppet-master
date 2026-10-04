@@ -56,6 +56,10 @@ impl TuiTurnWatch {
         self
     }
 
+    pub fn set_delivery_verified(&mut self, verified: bool) {
+        self.delivery_verified = verified;
+    }
+
     pub fn with_previous_task(mut self, previous: impl Into<String>) -> Self {
         self.previous_task = previous.into();
         self
