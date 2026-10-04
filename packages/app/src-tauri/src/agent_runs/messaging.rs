@@ -328,6 +328,7 @@ pub fn latest_steer(project: &str, handle: &str) -> Option<MessageReceipt> {
     load_all(project, handle).into_iter().next_back()
 }
 
+#[cfg(test)]
 pub fn mark_open_steers_processed(project: &str, handle: &str, result: &str) {
     mark_steers_processed(project, handle, result, None);
 }
