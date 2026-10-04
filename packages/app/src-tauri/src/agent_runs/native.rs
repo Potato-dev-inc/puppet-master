@@ -264,11 +264,16 @@ pub(super) fn supervise_native_observation(
         }
         return;
     }
-    let evidence = native_completion_evidence(&messages, &operation.message_baseline_ids, false);
-    if evidence.is_none() {
+    if native_completion_evidence(&messages, &operation.message_baseline_ids, false).is_none() {
         return;
     }
-    unless_steer_in_flight(&operation.operation_id, || match evidence {
+    // The reads above can be stale by the time no steer is in flight: a whole steer (register,
+    // deliver, release) may have happened since. A steer posts its user message before it
+    // releases, so re-reading under the same lock sees it and withholds the superseded answer.
+    unless_steer_in_flight(&operation.operation_id, || match crate::opencode::messages::read_pane_messages(registry, pane_id, 10_000, None)
+        .ok()
+        .and_then(|fresh| native_completion_evidence(&fresh, &operation.message_baseline_ids, false))
+    {
         Some(Err(error)) => {
             super::transcript::append(
                 &operation.project_path,
