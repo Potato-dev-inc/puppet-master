@@ -30,6 +30,14 @@ fn ledger() -> &'static Mutex<Ledger> {
     LEDGER.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Answers are checked against the ledger and then sent as a keystroke; two concurrent answers
+/// for one prompt must not both pass the check before either has recorded itself, or the key is
+/// pressed twice (the TUI then receives a stray character). Hold this across check, send, record.
+pub(super) fn serialize_answers() -> parking_lot::MutexGuard<'static, ()> {
+    static SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
+    SERIAL.get_or_init(|| Mutex::new(())).lock()
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -277,6 +285,30 @@ mod tests {
                 .expect("run bound to the pane");
         assert_eq!((found_project, found_handle), (home, handle));
         assert!(super::super::routes::run_for_pane(&[default], "pane-x").is_none());
+    }
+
+    #[test]
+    fn concurrent_answers_for_one_prompt_press_the_key_once() {
+        let (home, handle) = (project(), uniq("run-conc"));
+        let snapshot = run(&home, &handle, None);
+        let presses = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let threads: Vec<_> = (0..4)
+            .map(|_| {
+                let (snapshot, presses) = (snapshot.clone(), presses.clone());
+                std::thread::spawn(move || {
+                    let _serial = serialize_answers();
+                    if replay_receipt(&snapshot, "p-conc", "allow_once", true).is_none() {
+                        presses.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        std::thread::sleep(std::time::Duration::from_millis(30));
+                        record_applied(&snapshot, "p-conc", "allow_once");
+                    }
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(presses.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]

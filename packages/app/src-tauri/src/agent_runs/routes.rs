@@ -825,6 +825,7 @@ fn answer_prompt(
         handle,
         session_id,
     )?;
+    let _serial = super::answer_guard::serialize_answers();
     // The run's own project, not whichever project the request or the bridge defaulted to.
     let project = snapshot.project_path.as_str();
     let choice_key = match request.choice.as_str() {
