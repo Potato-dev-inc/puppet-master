@@ -3,8 +3,13 @@ use super::*;
 #[test]
 fn shell_hint_is_stripped_from_the_request_and_rewrites_watch_commands() {
     let mut args = json!({"task":"t","shell":"bash","project_path":"C:/a b"});
-    let hint = take_shell_hint("run_agent", &mut args).unwrap().expect("hint");
-    assert!(args.get("shell").is_none(), "the bridge must never see the hint");
+    let hint = take_shell_hint("run_agent", &mut args)
+        .unwrap()
+        .expect("hint");
+    assert!(
+        args.get("shell").is_none(),
+        "the bridge must never see the hint"
+    );
     let response = json!({
         "operation_id": "op-1",
         "watch_command": "npx puppet-master watch op-1 --project-path 'C:/a b'"
@@ -18,7 +23,9 @@ fn shell_hint_is_stripped_from_the_request_and_rewrites_watch_commands() {
     let mut other = json!({"shell":"fish"});
     assert!(take_shell_hint("wait_agents", &mut other).is_err());
     let mut untouched = json!({"shell":"bash"});
-    assert!(take_shell_hint("list_agents", &mut untouched).unwrap().is_none());
+    assert!(take_shell_hint("list_agents", &mut untouched)
+        .unwrap()
+        .is_none());
     assert!(untouched.get("shell").is_some());
 }
 
@@ -26,14 +33,14 @@ fn shell_hint_is_stripped_from_the_request_and_rewrites_watch_commands() {
 fn hidden_tools_and_progress_waits_fail_before_reaching_the_bridge() {
     let session = uuid::Uuid::new_v4().to_string();
     set_mcp_session_id(session);
-    let hidden = call_tool(json!({"name":"read_terminal_buffer","arguments":{"pane_id":"p1"}}))
-        .unwrap_err();
+    let hidden =
+        call_tool(json!({"name":"read_terminal_buffer","arguments":{"pane_id":"p1"}})).unwrap_err();
     assert_eq!(
         serde_json::from_str::<Value>(&hidden).unwrap()["code"],
         "MODE_MISMATCH"
     );
-    let shell = call_tool(json!({"name":"shell_exec","arguments":{"command":"echo hi"}}))
-        .unwrap_err();
+    let shell =
+        call_tool(json!({"name":"shell_exec","arguments":{"command":"echo hi"}})).unwrap_err();
     assert_eq!(
         serde_json::from_str::<Value>(&shell).unwrap()["code"],
         "MODE_MISMATCH"
@@ -224,10 +231,7 @@ fn wait_tools_use_extended_bridge_timeout() {
         bridge_read_timeout_secs("POST", "/agents/run", Some(&json!({"wait_ms":120_000}))),
         135
     );
-    assert_eq!(
-        bridge_read_timeout_secs("POST", "/agents/run", None),
-        135
-    );
+    assert_eq!(bridge_read_timeout_secs("POST", "/agents/run", None), 135);
     assert_eq!(
         bridge_read_timeout_secs(
             "POST",
@@ -242,7 +246,10 @@ fn wait_tools_use_extended_bridge_timeout() {
         135
     );
     assert_eq!(bridge_read_timeout_secs("POST", "/agents/wait", None), 135);
-    assert_eq!(bridge_read_timeout_secs("POST", "/agents/followup", None), 135);
+    assert_eq!(
+        bridge_read_timeout_secs("POST", "/agents/followup", None),
+        135
+    );
     assert_eq!(
         bridge_read_timeout_secs(
             "POST",
@@ -275,7 +282,7 @@ fn wait_timeout_keeps_the_followup_handle() {
 
 #[test]
 fn maps_legacy_http_errors_to_nonrecoverable_or_retryable_codes() {
-    let missing = crate::legacy_http_error(404, r#"{"error":"unknown pane"}"#);
+    let missing = super::legacy_http_error(404, r#"{"error":"unknown pane"}"#);
     assert_eq!(
         missing.get("code").and_then(Value::as_str),
         Some("NOT_FOUND")
@@ -284,13 +291,13 @@ fn maps_legacy_http_errors_to_nonrecoverable_or_retryable_codes() {
         missing.get("recoverable").and_then(Value::as_bool),
         Some(false)
     );
-    let busy = crate::legacy_http_error(409, "conflict");
+    let busy = super::legacy_http_error(409, "conflict");
     assert_eq!(busy.get("code").and_then(Value::as_str), Some("CONFLICT"));
     assert_eq!(
         busy.get("retry_after_ms").and_then(Value::as_u64),
         Some(1000)
     );
-    let typed = crate::legacy_http_error(
+    let typed = super::legacy_http_error(
         500,
         r#"{"code":"OPERATION_NOT_FOUND","message":"gone","recoverable":false}"#,
     );
@@ -302,7 +309,7 @@ fn maps_legacy_http_errors_to_nonrecoverable_or_retryable_codes() {
         typed.get("recoverable").and_then(Value::as_bool),
         Some(false)
     );
-    let legacy_message = crate::legacy_http_error(
+    let legacy_message = super::legacy_http_error(
         400,
         r#"{"code":"PROJECT_PATH_REQUIRED","error":"project_path is required when no project is selected","recoverable":false}"#,
     );
@@ -450,15 +457,30 @@ fn operation_timeout_outcome_classifies_dispatch_and_terminal_states() {
     let pending = json!({"status":"running"});
     assert_eq!(operation_timeout_outcome(&pending), "pending");
     let done = json!({"status":"completed", "result":"ok"});
-    assert_eq!(operation_timeout_outcome(&done), "completed_delivery_failed");
+    assert_eq!(
+        operation_timeout_outcome(&done),
+        "completed_delivery_failed"
+    );
     let failed_dispatch = json!({"status":"failed", "error":{"code":"DISPATCH_FAILED"}});
-    assert_eq!(operation_timeout_outcome(&failed_dispatch), "not_dispatched");
+    assert_eq!(
+        operation_timeout_outcome(&failed_dispatch),
+        "not_dispatched"
+    );
 }
 
 #[test]
 fn stable_client_id_gives_a_stable_session_id_and_default_is_unique() {
-    assert_eq!(session_id_from(Some(" my agent/1 ".into())), "client-myagent1");
-    assert_eq!(session_id_from(Some("a".into())), session_id_from(Some("a".into())));
+    assert_eq!(
+        session_id_from(Some(" my agent/1 ".into())),
+        "client-myagent1"
+    );
+    assert_eq!(
+        session_id_from(Some("a".into())),
+        session_id_from(Some("a".into()))
+    );
     assert_ne!(session_id_from(None), session_id_from(None));
-    assert_ne!(session_id_from(Some("  ".into())), session_id_from(Some("".into())));
+    assert_ne!(
+        session_id_from(Some("  ".into())),
+        session_id_from(Some("".into()))
+    );
 }
