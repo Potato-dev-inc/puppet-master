@@ -1,6 +1,6 @@
 use super::completion::{
     clean_extracted_result, observe_tui_turn, tui_turn_evidence, TuiTurnDecision, TuiTurnWatch,
-    NOT_SUBMITTED_TICKS, RECONCILE_IDLE_TICKS,
+    NOT_SUBMITTED_TICKS,
 };
 use super::native::native_completion_evidence;
 use super::runtime::AgentRunRequest;
