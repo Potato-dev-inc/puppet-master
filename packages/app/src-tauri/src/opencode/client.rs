@@ -6,6 +6,9 @@ use serde_json::json;
 use std::time::{Duration, Instant};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+/// An abort is a fire-and-forget nudge; a server that does not answer in this long is gone, and
+/// cancel must still finish inside the MCP shim's read timeout.
+const ABORT_TIMEOUT: Duration = Duration::from_secs(5);
 /// Health polling: serve usually comes up in ~1.2s, so poll tightly with a short
 /// per-request timeout; the overall cap stays the caller's `timeout`.
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -199,7 +202,7 @@ pub fn abort_session(
     let base = normalize_base_url(base_url);
     let url = with_directory_query(&format!("{base}/session/{session_id}/abort"), directory);
     let response = ureq::post(&url)
-        .timeout(DEFAULT_TIMEOUT)
+        .timeout(ABORT_TIMEOUT)
         .call()
         .map_err(|err| format!("opencode abort session: {err}"))?;
     if response.status() == 204 || (200..300).contains(&response.status()) {
@@ -581,6 +584,22 @@ mod tests {
         wait_for_health(&format!("http://127.0.0.1:{port}"), Duration::from_secs(10)).unwrap();
         // hung request is cut at ~1s, not 30s
         assert!(start.elapsed() < Duration::from_secs(4), "{:?}", start.elapsed());
+    }
+
+    #[test]
+    fn abort_gives_up_quickly_on_a_server_that_never_answers() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let held: Vec<_> = listener.incoming().take(2).filter_map(Result::ok).collect();
+            std::thread::sleep(Duration::from_secs(40));
+            drop(held);
+        });
+        let start = Instant::now();
+        let result = abort_session(&format!("http://127.0.0.1:{port}"), "ses_x", None);
+        assert!(result.is_err());
+        // cancel_agent must answer well inside the MCP shim's read timeout
+        assert!(start.elapsed() < Duration::from_secs(10), "{:?}", start.elapsed());
     }
 
     #[test]
