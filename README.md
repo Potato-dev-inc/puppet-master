@@ -1,11 +1,17 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Potato-dev-inc/puppet-master)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 # Puppet Master
 
-**Multi-agent terminal orchestrator.** Spawn real PTY sessions for Claude Code, Codex CLI, OpenCode, Cursor, PowerShell, and Bash — then drive them from a Tauri desktop app, a mobile PWA, or any external MCP host (Cursor, Claude Desktop, Codex).
+**Turn other coding TUIs into subagents** that another AI can call.
 
-Puppet Master is the coordination layer: it behaves like a senior engineer at the keyboard, breaking work into tasks, assigning worker panes, enforcing resource locks, handing off compact context packs, and watching panes for prompts or blockers. Worker agents do the coding, shell work, tests, and file inspection.
+OpenCode, Cursor Agent, Claude Code, Codex, and shells already run as real terminals. Puppet Master wraps those sessions so your orchestrator — Cursor, Claude Desktop, Codex, or the in-app sidebar — can `run_agent`, wait, steer, lock files, and get a receipt. Same idea as a native Task/subagent, except the worker is an inspectable pane with a persistent session, not a hidden helper that vanishes when the turn ends.
 
-One HTTP bridge. One tool surface. Every client talks to the same panes and the same project-local coordination state.
+It is the **control room**, not the coder. The orchestrator plans and delegates. The worker TUI writes the code. The run result tells you whether the agent finished **and** whether the requested checks passed — that distinction is the point.
+
+One HTTP bridge. One tool catalog. Desktop, mobile PWA, and MCP hosts all drive the same workers.
+
+Installers: [GitHub Releases](https://github.com/Potato-dev-inc/puppet-master/releases). Handbook: [docs/wiki](docs/wiki/README.md).
 
 ---
 
@@ -13,133 +19,117 @@ One HTTP bridge. One tool surface. Every client talks to the same panes and the 
 
 | Surface | Role |
 |---------|------|
-| **Desktop app** | Scrollable terminal grid + Puppet Master chat sidebar |
-| **Mobile PWA** | Mirror panes over the bridge; orchestrate from your phone |
-| **`@puppet-master/mcp`** | Stdio MCP package for Cursor / Claude Desktop / Codex |
-| **Built-in LLM chat** | Sidebar loop (Anthropic / OpenAI / OpenRouter) calling the same bridge tools |
-| **Coordination kernel** | Project-scoped tasks, locks, audit log, context packs, and pane timeline replay |
+| **Desktop app** | Terminal grid + orchestrator sidebar (Tauri 2 + React) |
+| **Mobile PWA** | Mirror desktop panes from your phone (no PTY on the device) |
+| **`@puppet-master/mcp`** | Stdio MCP shim for Cursor / Claude Desktop / Codex |
+| **`puppet-master` CLI** | Launch GUI / worker window; `watch` long-polls a running turn |
+| **Coordination kernel** | Tasks, resource locks, operations, context packs, audit log |
+
+---
+
+## Vs native subagents
+
+Native delegation (Cursor `Task`, in-host subagents, and similar) feels like a **direct conversation with a helper**. Puppet Master feels like a **control room**: you pick the backend and workspace, watch a real TUI, and get an explicit outcome.
+
+Independent GPT evaluation of PM vs the native workflow it tested (not a ranking of other orchestrators):
+
+| Experience | Puppet Master | Native delegation |
+|---|---|---|
+| Starting work | Backend, workspace, and session choices | Simple spawn |
+| Receiving results | Watcher handling; sometimes approvals | Final messages arrived automatically |
+| Verifying work | Built-in acceptance checks and explicit outcomes | Parent must implement verification |
+| Visibility | Inspectable panes, commands, and approvals | Primarily messages and tool outputs |
+| Control | Locks, cancellation, persistent sessions, steering receipts | Simpler coordination |
+| Friction | More orchestration steps; some noisy or missing results | Less coordination overhead |
+
+**PM’s strongest feature is distinguishing “the agent finished” from “the requested checks passed.”** That matters more than launching another model.
+
+What held up in that eval:
+
+- **OpenCode (`opencode_native`)** — structured results, working steering, and acceptance checks. The dependable path for implementation work.
+- **Visible Cursor** — needs more supervision. Approvals improved; short replies can still go missing and tool chrome can leak into the result. Headless Cursor captured `[]` correctly when the visible path failed.
+- **Native subagents** — still better for small questions and internal subtasks (less ceremony).
+
+When to use which:
+
+| Job | Prefer |
+|-----|--------|
+| Small questions, internal subtasks | Native delegation |
+| Implementation that needs checks, locks, or a visible session | PM + OpenCode |
+| Work that must run in Cursor | PM Cursor, plus independent verification |
+
+PM currently asks for more attention than a native spawn. The capabilities are already useful; clean automatic result delivery and recovery after disconnects are the remaining bar for it to become a general default.
 
 ---
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         Puppet Master desktop (Tauri)                       │
-│  ┌─────────────────────────────┐  ┌──────────────────────────────────────┐  │
-│  │  Terminal grid (xterm.js)   │  │  Puppet Master sidebar               │  │
-│  │  ┌──────┐ ┌──────┐ ┌──────┐ │  │  • LLM orchestrator (API or CLI)     │  │
-│  │  │Claude│ │ Codex│ │ Bash │ │  │  • MCP activity log (SSE)            │  │
-│  │  └──────┘ └──────┘ └──────┘ │  │  • Tasks / locks / context packs     │  │
-│  └─────────────────────────────┘  └──────────────────────────────────────┘  │
-│                              │ Tauri commands / events                      │
-│  ┌───────────────────────────▼──────────────────────────────────────────┐   │
-│  │ Rust PaneRegistry + coordination event log                           │   │
-│  │   spawn · write · read · resize · kill · task/lock projections       │   │
-│  └───────────────────────────┬──────────────────────────────────────────┘   │
-└──────────────────────────────┼──────────────────────────────────────────────┘
-                               │ embedded on startup
-┌──────────────────────────────▼────────────────────────────────────────────────┐
-│ Local HTTP bridge  (Rust, stdlib TCP)          127.0.0.1:17321–17399          │
-│   GET  /health · /panes · /tasks · /locks · /audit · /agent-contexts          │
-│   POST /panes · /panes/:id/input · /tasks · /locks · /context-packs           │
-│   SSE  /events  (pane, status, settings, chat, terminal, tool activity)       │
-│   writes puppet-master.bridge.port so MCP clients auto-discover the port      │
-└──────────────┬───────────────────────────────┬────────────────────────────────┘
-               │                               │
-    ┌──────────▼──────────┐         ┌──────────▼──────────────────────────────┐
-    │ Mobile PWA          │         │ External MCP hosts                      │
-    │ (Vite, mirror mode) │         │ Cursor · Claude Desktop · Codex CLI     │
-    │ same-origin /bridge │         │   └─► @puppet-master/mcp (stdio)        │
-    │ proxy or tunnel URL │         │         └─► HTTP ──► bridge             │
-    └─────────────────────┘         └─────────────────────────────────────────┘
-```
-
-### Orchestration paths
-
-Every path hits the **same** bridge HTTP API — no duplicate logic.
+The desktop process embeds a loopback HTTP bridge (`127.0.0.1`, default `17321`, scans upward). MCP is a **stateless stdio shim** over that API. If the GUI is not running, MCP fails fast.
 
 ```
-                    ┌─────────────────────────────────────┐
-                    │         HTTP bridge (:17321)        │
-                    │ list · spawn · read · write · tasks │
-                    │ locks · context · keypress · kill   │
-                    └────────▲───────────────▲────────────┘
-                             │               │
-           ┌─────────────────┘               └─────────────────┐
-           │                                                   │
-┌──────────▼──────────┐                            ┌───────────▼───────────┐
-│  Sidebar API loop   │                            │  External MCP client  │
-│  or CLI orchestrator│                            │  (Cursor, etc.)       │
-│                     │                            │                       │
-│  User prompt        │                            │  Agent decides        │
-│    → LLM API        │                            │    → MCP tool calls   │
-│    → tool_use       │                            │    → stdio MCP pkg    │
-│    → bridge HTTP    │                            │    → bridge HTTP      │
-│    → PTY panes      │                            │    → PTY panes        │
-└─────────────────────┘                            └───────────────────────┘
-
-CLI orchestrator panes use the same MCP bridge as external hosts. See [ROUTING.md](ROUTING.md).
+┌─────────────────────────────────────────────────────────────┐
+│  Puppet Master desktop (Tauri)                              │
+│  terminal grid (xterm.js)  ·  sidebar LLM  ·  PaneRegistry  │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ 127.0.0.1:17321–17399
+           ┌───────────────┼────────────────┬─────────────────┐
+           ▼               ▼                ▼                 ▼
+     MCP stdio shim    Mobile PWA      Sidebar LLM        CLI `watch`
+     @puppet-master/mcp  /bridge proxy   (same HTTP)     long-poll wait
 ```
 
-### Mobile mirror mode
+Two APIs, same panes:
 
-The PWA does not own PTY processes. It mirrors desktop panes over the bridge.
+| Path | MCP mode | Use |
+|------|----------|-----|
+| **Agent** — `run_agent`, `wait_agents`, `send_message`, `followup_task` | `agent` (default) | Delegate a task to a **worker handle**; persist an operation; wait for a result |
+| **Shell** — `spawn_agent`, `write_terminal_input`, `press_key` | `shell` or `both` | Drive a **pane id** like a keyboard |
 
-```
- Phone keyboard                Bridge / desktop PTY
- ─────────────                 ───────────────────
+`spawn_agent` only opens a pane. Prefer `run_agent` for implementation work.
 
- xterm hidden textarea
-       │
-       ├─ keystrokes ──────────► POST /panes/:id/input ──► real shell
-       │
-       └─ local echo (mirror)     PTY output
-                                         │
- SSE /events ◄───────────────────────────┘
-       │
-       └─► xterm display (deduped echo)
-```
-
-Desktop keeps PTY dimensions; mobile sends input and renders output without resizing the remote session.
+Worker backends: `opencode_native` (OpenCode HTTP API + attached TUI) or screen-scraped / headless CLIs. Details: [docs/wiki/architecture.md](docs/wiki/architecture.md).
 
 ---
 
 ## Quick start
 
 ```bash
-# from repo root
 npm install
-npm run dev          # alias for: npm run tauri dev
+npm run dev          # Tauri desktop + Vite + embedded bridge
 ```
 
-That launches the full stack: shared build, Vite/PWA, Tauri, and the embedded bridge.
+That is the full stack. Put agent CLIs on `PATH` (`claude`, `codex`, `opencode`, `cursor-agent`) so preset spawns work.
 
-### Uninstall
+### Connect an MCP host
 
-| Install type | How to remove |
-|--------------|---------------|
-| **Windows installer** (`Puppet Master_*_x64-setup.exe`) | **Settings → Advanced → Uninstall Puppet Master**, or Windows **Settings → Apps → Installed apps → Puppet Master → Uninstall** |
-| **macOS** (`.app` in Applications) | **Settings → Advanced → Uninstall**, or drag **Puppet Master.app** to Trash |
-| **Dev build** (`npm run tauri dev`) | Stop the app and delete the repo folder — there is no system uninstaller |
+The GUI must be running. Register `@puppet-master/mcp` — see [MCP_HOSTS.md](MCP_HOSTS.md).
 
-App data (settings, bridge port file, mobile pairing) may remain after uninstall:
-
-- Windows: `%APPDATA%\com.puppetmaster.app`
-- macOS: `~/Library/Application Support/com.puppetmaster.app`
-
-Delete that folder if you want a clean removal.
-
-On launch, the desktop app checks [GitHub Releases](https://github.com/Potato-dev-inc/puppet-master/releases) for a newer version and shows a dismissible banner when an update is available.
-
-**External MCP only** (Cursor / Claude Desktop while the GUI is running):
-
-```bash
-npm run mcp
+```json
+{
+  "mcpServers": {
+    "puppet-master": {
+      "command": "npx",
+      "args": ["-y", "@puppet-master/mcp"]
+    }
+  }
+}
 ```
 
-Register `@puppet-master/mcp` in your host — see [MCP_HOSTS.md](MCP_HOSTS.md).
-Local agent/editor config is ignored; see [CONTRIBUTING.md](CONTRIBUTING.md).
+For local development, point the host at `packages/mcp-server/dist/puppet-master-mcp.exe` after `npm run build:mcp`. Local editor config is not committed — [CONTRIBUTING.md](CONTRIBUTING.md).
+
+New connections start in **agent mode**. Terminal tools require `set_mode({ "mode": "shell" })` or `"both"`: [agent and shell modes](docs/orchestrator/agent-shell-modes.md).
+
+### Orchestrator loop
+
+```
+bridge_health
+run_agent { task }           → handle  (or WAIT_TIMEOUT + watch_command)
+wait_agents { handles }      → result / needs_input
+send_message | followup_task | answer_prompt
+close_agent
+```
+
+Playbooks: [docs/orchestrator](docs/orchestrator/README.md). Cheatsheet: [mcp-cheatsheet.md](docs/orchestrator/mcp-cheatsheet.md).
 
 ---
 
@@ -149,159 +139,97 @@ Local agent/editor config is ignored; see [CONTRIBUTING.md](CONTRIBUTING.md).
 |------|---------|-------|-------|
 | Node | 22.x | 22.x | 22.x |
 | Rust | 1.96+ (`rustup`) | 1.96+ | 1.96+ |
-| Build tools | MSVC 14.51+, Windows SDK 10.0.26100+ | Xcode CLT (`xcode-select --install`) | `build-essential` |
-
-Agent presets resolve binaries for your OS (`claude.exe` vs `claude`, etc.). Put Cursor, Codex, OpenCode, and Claude Code on `PATH` for preset spawns to work.
-
----
-
-## Monorepo layout
-
-```
-puppet-master/
-├── packages/
-│   ├── shared/         # Zod schemas, agent presets, pane types, port-file reader
-│   ├── bridge/         # Legacy bridge package and shared bridge protocol helpers
-│   ├── mcp-server/     # @puppet-master/mcp — stdio MCP for external hosts
-│   ├── cli/            # puppet-master bin (launches the GUI)
-│   └── app/            # Tauri 2 + React + PWA
-│       ├── src/        # UI, terminal layer, orchestrator loops
-│       └── src-tauri/  # Rust PTY manager, HTTP bridge, coordination kernel
-├── ROUTING.md          # Sidebar orchestration: API vs CLI backends
-├── MCP_HOSTS.md        # Cursor / Claude Desktop / Codex setup
-├── docs/design/        # Static design prototypes
-└── scripts/            # Bridge + MCP smoke tests (PowerShell)
-```
+| Build tools | MSVC 14.51+, Windows SDK 10.0.26100+ | Xcode CLT | `build-essential` |
 
 ---
 
 ## Coordination model
 
-Puppet Master separates coordination from implementation:
+- **Orchestrator** — plans, delegates, waits, unblocks. Does not implement the change in the target repo.
+- **Workers** — Claude, Codex, OpenCode, Cursor Agent, or a shell pane. They edit files and report back on the run.
+- **Operations** — durable JSON snapshots of each turn under `<project>/.puppet-master/operations/`.
+- **Tasks / locks / context packs** — project-scoped coordination so two workers do not collide.
 
-- **Orchestrator**: acts as the senior engineer. It creates tasks, claims or assigns ownership, builds context packs, sends prompts/keys to worker panes, monitors status, and summarizes evidence. It must not directly edit project files or run project tests itself.
-- **Workers**: Claude Code, Codex, OpenCode, Bash, PowerShell, or Cursor panes. Workers inspect files, write code, run commands, and report results back through the terminal.
-- **Tasks**: durable work items rebuilt from the project event log. Tasks can be claimed, completed, blocked, assigned reviewers, and given leases.
-- **Locks**: exclusive ownership records for files, directories, commands, ports, branches, or panes. Locks prevent two workers from editing or controlling the same resource at once.
-- **Context packs**: compact handoff prompts built from the selected task, current locks, manager instructions, constraints, and evidence requirements. They are generated on demand and can be cleared from the UI.
-- **Audit log**: every task, lock, tool, pane, and observation event is append-only and replayed into read models.
-
-Coordination state is scoped per project. When a project folder is selected, tasks, locks, audit entries, and pane timeline events are written to:
+State lives in the **target** project, not this repo:
 
 ```text
-<project>/.puppet-master/events.jsonl
+<project>/.puppet-master/
+  events.jsonl
+  operations/<id>.json
+  operations/<id>.transcript.jsonl
+  messages/
 ```
 
-The folder is ignored by this repository and should generally stay out of source control.
+Add `.puppet-master/` to that project's `.gitignore`. Safe to delete when no run is active. Finished operations are kept; filter with `list_agents` (`active_only`, `ended_within_ms`).
+
+App data (port file, settings, pairing):
+
+- Windows: `%APPDATA%\com.puppetmaster.app`
+- macOS: `~/Library/Application Support/com.puppetmaster.app`
 
 ---
 
-## MCP tools
+## Docs
 
-Whether you call from the built-in sidebar or an external host, the tool surface is identical.
-
-**Recommended flow for external orchestrators:** `bridge_health` → `create_task` → `acquire_resource_lock` → `build_context_pack` → `spawn_agent` or `list_panes` → delegate with `write_terminal_input` → `wait_for_worker` → `read_opencode_messages` → `complete_task` with evidence.
-
-Orchestrator guides: [docs/orchestrator/README.md](docs/orchestrator/README.md).
-
-| Tool | What it does |
-|------|--------------|
-| `bridge_health` | Confirm the local HTTP bridge is reachable |
-| `list_panes` | Live panes: id, agent type, pid, status, cwd, size |
-| `list_agent_contexts` | Supported agents with strengths and routing hints |
-| `read_agent_context` | Agent profile or live pane context + buffer preview |
-| `inspect_agent_model` | Parse recent output for active model signal |
-| `spawn_agent` | New pane — `claude`, `codex`, `opencode`, `powershell`, `bash`, `cursor` |
-| `read_terminal_buffer` | Scrollback (last N lines, default 200) |
-| `write_terminal_input` | Send text as if typed (appends Enter by default) |
-| `press_key` | Send named TUI keys such as `enter`, arrows, `escape`, `y`, `n`, or `ctrl+c` |
-| `create_task` | Create a coordination task before delegating implementation work |
-| `claim_task` | Claim or renew a task lease for a worker |
-| `report_task_status` | Mark delegated work as in progress, blocked, or otherwise updated |
-| `complete_task` | Complete a task with evidence from the worker |
-| `list_tasks` | Rebuild and list project-local task projections |
-| `acquire_resource_lock` | Claim exclusive ownership of a file, directory, command, port, branch, or pane |
-| `release_resource_lock` | Release a lock owned by a worker |
-| `build_context_pack` | Build a compact handoff prompt from task, locks, constraints, and scrollback |
-| `kill_pane_process` | Terminate pane and child process |
+| Doc | Audience |
+|-----|----------|
+| [docs/wiki](docs/wiki/README.md) | Developers and coding agents — architecture, concepts, how to keep building |
+| [docs/orchestrator](docs/orchestrator/README.md) | External MCP hosts driving workers |
+| [MCP_HOSTS.md](MCP_HOSTS.md) | Register the MCP server |
+| [ROUTING.md](ROUTING.md) | Sidebar: API vs CLI orchestrator backends |
+| [docs/REPO_MAP.md](docs/REPO_MAP.md) | File/function map (agents: read before grepping) |
+| [ROADMAP.md](ROADMAP.md) | Planned work |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Local config is not committed |
 
 ---
 
-## Pane status
+## Monorepo
 
-Each pane gets a live status from recent output. The header LED reflects it.
+```
+puppet-master/
+├── packages/
+│   ├── app/            # Tauri 2 + React + PWA; Rust bridge + PTY + run engine
+│   ├── mcp-server/     # @puppet-master/mcp (stdio launcher + Rust exe)
+│   ├── cli/            # puppet-master bin (gui, mcp, worker, watch)
+│   └── shared/         # Zod schemas, agent types, port-file helpers
+├── docs/wiki/          # Product + development handbook
+├── docs/orchestrator/  # MCP playbooks
+└── scripts/            # MCP rebuild, bundles, live regression
+```
 
-| Status | When |
-|--------|------|
-| `running` | Child alive + output in last 5s |
-| `waiting_input` | Output matches prompt heuristics (`y/n`, `continue?`, …) |
-| `idle` | Child alive, quiet for 5s |
-| `error` | Child exited or read error |
-
----
-
-## Design notes
-
-### Why a local bridge between PTY and MCP?
-
-Tauri owns OS processes. External MCP clients speak **stdio JSON-RPC**. The embedded bridge is a thin local HTTP API on `127.0.0.1` so the GUI, mobile PWA, CLI orchestrator panes, and `@puppet-master/mcp` share one control plane. When the GUI is not running, the MCP package fails fast instead of hanging.
-
-### Scrollback safety
-
-Rust accumulates all PTY output in a bounded deque (10k lines) alongside xterm scrollback. MCP `read_terminal_buffer` works even when the pane is off-screen or the GUI is hidden — clients can read history from before they attached.
-
-### Project-local memory
-
-Tasks, locks, audit entries, and pane timeline events are event-sourced from `<project>/.puppet-master/events.jsonl`. Switching the project folder switches the coordination board, so different repos do not share locks or task history.
-
-The first run in a folder creates `<project>/.puppet-master/` containing `events.jsonl` (the event log), `operations/` (one `<id>.json` snapshot plus `<id>.transcript.jsonl` per turn) and `messages/` (steering receipts). It is local state, never uploaded, and safe to delete when no run is active. Add `.puppet-master/` to your `.gitignore`. Finished runs are kept; narrow `list_agents` with `active_only` or `ended_within_ms` instead of expecting them to disappear.
-
-### Permission and action prompts
-
-The desktop harness watches live pane events and classifies terminal output. Routine permission prompts can be auto-approved without waking the orchestrator. Ambiguous menus, substantive worker questions, terminal errors, and completion reports wake the orchestrator so it can choose the next keypress or prompt.
-
-### Dual orchestration
-
-- **In-app sidebar** — see agents, interject manually, stream tool log.
-- **External MCP** — let Cursor / Claude Desktop orchestrate your panes directly.
-- **CLI orchestrator pane** — run Claude, Codex, or OpenCode as the manager while it controls workers through MCP.
-- **Mobile PWA** — monitor and steer from a phone via tunnel or same-origin proxy.
-
-Details on sidebar routing and backend selection: [ROUTING.md](ROUTING.md).
+The HTTP bridge is Rust inside `packages/app/src-tauri`. There is no `packages/bridge`.
 
 ---
 
-## Desktop release build
+## Uninstall
+
+| Install type | How to remove |
+|--------------|---------------|
+| **Windows installer** | Settings → Apps → Puppet Master → Uninstall, or in-app **Settings → Advanced → Uninstall** |
+| **macOS** | In-app uninstall, or drag **Puppet Master.app** to Trash |
+| **Dev build** (`npm run dev`) | Stop the app and delete the repo folder |
+
+App data may remain in the folders above. Delete those for a clean removal.
+
+On launch, the desktop app checks [GitHub Releases](https://github.com/Potato-dev-inc/puppet-master/releases) and shows a dismissible update banner.
+
+---
+
+## Build and test
 
 ```bash
-npm run build:rust
+npm test
+npm run typecheck
+
+cd packages/app/src-tauri && cargo test --lib
+
+npm run build:rust          # desktop installers
+SKIP_RELEASE_UPLOAD=1 npm run build:rust   # build without GitHub upload
 ```
 
-On Windows this produces NSIS (`.exe`) and WiX (`.msi`) installers; on macOS, `.dmg` files (e.g. `Puppet.Master_0.1.2_aarch64.dmg`). Artifacts live under `packages/app/src-tauri/target/release/bundle/`. After build, matching installers (filename contains `_0.1.2_` for version `0.1.2`) upload to the GitHub release tag [`0-1-2`](https://github.com/Potato-dev-inc/puppet-master/releases/tag/0-1-2). Same filenames are replaced (`gh release upload --clobber`).
+Windows produces NSIS (`.exe`) and WiX (`.msi`); macOS produces `.dmg`. Artifacts: `packages/app/src-tauri/target/release/bundle/`. Upload only: `npm run publish:release-assets` ([GitHub CLI](https://cli.github.com/) required).
 
-**Requirements:** [GitHub CLI](https://cli.github.com/) with `gh auth login`. To build without uploading: `SKIP_RELEASE_UPLOAD=1 npm run build:rust`. To upload only: `npm run publish:release-assets`.
-
----
-
-## Smoke testing
-
-```bash
-npm run build
-
-# terminal 1 — bridge only
-npm run bridge
-
-# terminal 2 — HTTP
-curl http://127.0.0.1:17321/health
-curl -X POST http://127.0.0.1:17321/panes \
-  -H 'Content-Type: application/json' -d '{"agent_type":"bash"}'
-
-# terminal 3 — MCP stdio
-npm run mcp
-```
-
-Or run `scripts/test-bridge.ps1` and `scripts/test-mcp.ps1`.
-
+Day-to-day rebuild, MCP exe swap, and `SCHEMA_DRIFT`: [docs/wiki/developing.md](docs/wiki/developing.md).
 
 ---
 

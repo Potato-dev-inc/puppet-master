@@ -1,6 +1,7 @@
 # Puppet Master repository map
 
-Orientation for coding agents. Read this before exploring. Paths are relative to the repo root;
+Orientation for coding agents. For product concepts and how to keep developing, start at
+[`docs/wiki/`](wiki/README.md). Read this file before exploring the tree. Paths are relative to the repo root;
 functions are cited by name (line numbers rot). When something here disagrees with the code, the
 code wins: fix this file.
 
@@ -8,6 +9,7 @@ Existing docs this file links to rather than repeats:
 
 | Doc | Covers |
 |---|---|
+| `docs/wiki/` | product + development handbook (README seed, architecture, how to keep building) |
 | `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md` | product overview, contribution flow |
 | `MCP_HOSTS.md` | registering the MCP server with Cursor/Claude/Codex hosts, tool reference |
 | `ROUTING.md`, `ROADMAP.md` | API-vs-CLI orchestrator backends, planned work |
@@ -101,6 +103,7 @@ puppet-master/
     design/                 static HTML demo
     mobile-terminal-bugs-and-fixes.md
     REPO_MAP.md             this file
+    wiki/                   developer/agent handbook (overview, architecture, developing, extending)
   packages/
     app/                    Tauri app
       src/                  React UI (App.tsx, PwaApp.tsx mobile PWA, TerminalApp.tsx worker window,
@@ -286,7 +289,19 @@ JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WA
   Idle never completes a task by itself ("Pane lifecycle and task lifecycle are separate",
   `operations.rs` module doc): see `AmbiguousIdle` -> `RESULT_NOT_CAPTURED` failure (when no checks)
   or `Missing` completion (checks decide).
-- **Warnings never change status** (`RESULT_TRUNCATED`, `SHELL_COMMAND_REJECTED`,
+- **Visible Cursor result = the final message only.** `completion.rs::tui_turn_evidence` cuts the
+  screen at the last tool row (`after_last_tool_block`, run on raw text before chrome rows are
+  dropped), so tool headers/output, diffs and the commentary above them never reach `result`. The
+  Cursor profile's `strip_dialogs` pipeline (`tui/cursor/chrome.rs`) first rejoins hard-wrapped
+  `$ cmd` headers (`join_wrapped_shell_headers`) and drops the `Found N matches` row under a
+  search header (`strip_search_results`). A `$ cmd` row counts as a shell header only with a
+  trailing duration or `Waiting for approval` (a command quoted in the answer is kept). A reply
+  that is a slice of a one-line prompt echo is kept (`keep_last_copy_of_repeated_echoes`).
+  Cursor itself sometimes answers a bare-data follow-up (`[]`, `{}`) or `café ✓` with an EMPTY
+  assistant message (its chat store `~/.cursor/chats/*/*/store.db` has no text part; headless does
+  the same intermittently): such a turn ends with no result, the `NO_REPLY_TEXT` warning and pane
+  evidence in `agent_transcript`; nothing is inferred.
+- **Warnings never change status** (`RESULT_TRUNCATED`, `NO_REPLY_TEXT`, `SHELL_COMMAND_REJECTED`,
   `PROVENANCE_INFERRED`, `MODEL_UNRESOLVED`, `MODEL_UNCONFIRMED`); they are caveats on the receipt.
 - **Idempotency semantics**: `run_agent`/`followup_task` mint a key if omitted (shim). An identical
   retry (same key, same agent_type, task contained, turn_index 0) replays the existing run *before*
@@ -495,6 +510,7 @@ validation unless noted.
 - `STALE_PROMPT`, `PROMPT_NOT_PENDING`, `PROMPT_UNAVAILABLE`, `INVALID_PROMPT_CHOICE`, `PROMPT_REPLY_FAILED`, `BROAD_APPROVAL_REQUIRES_OPT_IN` - `answer_prompt` path - `pane_prompt.rs`, `routes.rs`.
 - `STEER_RECEIPT_NOT_FOUND` - `routes.rs`.
 - `RESULT_NOT_CAPTURED` - pane idle but no reply text recoverable (recoverable) - `headless.rs`.
+- `NO_REPLY_TEXT` - warning: a visible turn with checks finished with no reply text on the pane - `runtime.rs` const, added in `headless.rs`.
 - `RESULT_TRUNCATED` - warning: reply longer than the screen and its start not in scrollback - `runtime.rs` const, added in `headless.rs`.
 - `UNVERIFIED_RESULT` - `headless.rs` (headless result not backed by authoritative evidence).
 - `LAUNCH_FAILED`, `THREAD_START_FAILED`, `TIMEOUT`, `TRANSCRIPT_READ_FAILED` - headless launch/run - `headless.rs`, `runtime.rs`.

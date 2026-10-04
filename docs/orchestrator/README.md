@@ -24,6 +24,7 @@ You are the **orchestrator**. Workers (`opencode_native`, Claude, Codex, …) ho
 
 ## Related
 
+- [docs/wiki/](../wiki/README.md) — in-repo product + development handbook (not orchestrator playbooks)
 - [MCP_HOSTS.md](../../MCP_HOSTS.md) — host registration and tool reference
 - [ROUTING.md](../../ROUTING.md) — API vs CLI orchestrator backends
 - [ROADMAP.md](../../ROADMAP.md) — planned session context, skills, UI
