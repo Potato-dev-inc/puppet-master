@@ -264,3 +264,20 @@ fn an_answered_trust_dialog_in_the_scrollback_is_not_a_result() {
         Some("PONG")
     );
 }
+
+#[test]
+fn a_turn_whose_delivery_was_verified_never_gets_a_blind_second_enter() {
+    // Live (2026-10-04): three visible-Cursor turns showed "Composing 36-41 tokens" and then went
+    // idle with no reply painted. The supervisor re-pressed Enter after 3s of idle ticks with no
+    // busy tick; for a pane whose delivery protocol already verified submit that Enter lands on
+    // an empty composer while the turn is starting, the only input Puppet Master could have sent
+    // mid-turn. Redelivery (clear, retype, verify) stays as the recovery.
+    let mut watch = TuiTurnWatch::from_baseline(after_first_turn())
+        .with_task(SECOND)
+        .with_previous_task(FIRST)
+        .with_verified_delivery(true);
+    let echoed = format!("> {FIRST}\n\nALPHA\n\n> {SECOND}\n\n{FOOTER}");
+    let decisions = run(&mut watch, "idle", &echoed, NOT_SUBMITTED_TICKS as u32);
+    assert!(!decisions.contains(&TuiTurnDecision::RetrySubmit), "{decisions:?}");
+    assert_eq!(decisions.last(), Some(&TuiTurnDecision::NotSubmitted));
+}

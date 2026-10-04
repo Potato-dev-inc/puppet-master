@@ -33,6 +33,9 @@ pub struct TuiTurnWatch {
     /// Reply text (after cleaning) has been on screen at some point this turn.
     saw_reply: bool,
     submit_retried: bool,
+    /// The delivery protocol already verified the prompt was typed, submitted and the turn
+    /// started (`TuiProfile::verifies_prompt_delivery`), so no blind second Enter is ever sent.
+    delivery_verified: bool,
 }
 
 impl TuiTurnWatch {
@@ -45,6 +48,11 @@ impl TuiTurnWatch {
 
     pub fn with_task(mut self, task: impl Into<String>) -> Self {
         self.task = task.into();
+        self
+    }
+
+    pub fn with_verified_delivery(mut self, verified: bool) -> Self {
+        self.delivery_verified = verified;
         self
     }
 
@@ -185,7 +193,10 @@ pub fn observe_tui_turn(
     }
     if watch.reconcile_ticks >= NOT_SUBMITTED_TICKS {
         TuiTurnDecision::NotSubmitted
-    } else if watch.reconcile_ticks >= RETRY_SUBMIT_TICKS && !watch.submit_retried {
+    } else if watch.reconcile_ticks >= RETRY_SUBMIT_TICKS
+        && !watch.submit_retried
+        && !watch.delivery_verified
+    {
         watch.submit_retried = true;
         TuiTurnDecision::RetrySubmit
     } else {

@@ -834,7 +834,10 @@ pub fn supervise_existing(
                 snapshot.output_baseline.clone().unwrap_or_default(),
             )
             .with_task(snapshot.task.clone())
-            .with_previous_task(previous_turn_task(&snapshot));
+            .with_previous_task(previous_turn_task(&snapshot))
+            .with_verified_delivery(
+                crate::tui::profile_for(&snapshot.agent_type).verifies_prompt_delivery(),
+            );
             // One automatic re-delivery per turn when the prompt never started a turn.
             let mut redelivered = false;
             // A snapshot read can fail transiently (file briefly locked mid-write). Giving up on the
@@ -1020,6 +1023,12 @@ pub fn supervise_existing(
                             }
                             super::completion::TuiTurnDecision::RetrySubmit => {
                                 if let Some(pane_id) = current.pane_id.as_deref() {
+                                    transcript::append(
+                                        &current.project_path,
+                                        &current.operation_id,
+                                        "delivery",
+                                        "pane idle with no activity for 3s; Enter sent once more",
+                                    );
                                     // Empty text + newline writes just Enter.
                                     let _ = crate::pty::registry_write_input(
                                         &registry, &app, pane_id, "", true, false, None,
