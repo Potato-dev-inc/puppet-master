@@ -452,6 +452,27 @@ pub fn resolve_agent_run(
     Err(crate::mcp_sessions::agent_not_found(agent_run_id))
 }
 
+/// Newest turn of `agent_run_id` in each project that owns it: `preferred` first, then every
+/// other indexed project. Lets a caller tell a handle that is unique from one that is not.
+pub fn agent_runs_by_project(
+    preferred: &str,
+    agent_run_id: &str,
+) -> Result<Vec<OperationSnapshot>, OperationError> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut found = Vec::new();
+    let mut projects = vec![preferred.to_string()];
+    projects.extend(indexed_projects()?);
+    for project in projects {
+        if project.trim().is_empty() || !seen.insert(project.clone()) {
+            continue;
+        }
+        if let Some(snapshot) = latest_in_project(&project, agent_run_id)? {
+            found.push(snapshot);
+        }
+    }
+    Ok(found)
+}
+
 pub fn turns_for_handle(
     project_path: &str,
     agent_run_id: &str,

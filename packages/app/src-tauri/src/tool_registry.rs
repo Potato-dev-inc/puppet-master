@@ -315,7 +315,7 @@ pub fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "answer_prompt",
-            description: "Answer the approval prompt blocking a worker. Pass handle (agent run) or pane_id (pane this connection controls). Get prompt_id from wait_agents or inspect_agent.",
+            description: "Answer the approval prompt blocking a worker. Pass handle (agent run) or pane_id (pane this connection controls). Get prompt_id from wait_agents or inspect_agent. With handle, project_path is optional: the handle's own project is used (a project_path that is a different project is rejected with PROJECT_MISMATCH, a handle present in several projects with AMBIGUOUS_HANDLE; both before any key is sent). Every refusal (stale prompt_id, foreign owner, broad choice without allow_broad) also happens before input is sent. The reply carries answer.applied=true once the key is delivered; answer.warning means only the run-state bookkeeping failed, so do not answer again. Retrying the same prompt_id and choice after it was applied returns the prior receipt with answer.already_applied=true and presses nothing.",
             input_schema: json!({
                 "type":"object",
                 "properties":{

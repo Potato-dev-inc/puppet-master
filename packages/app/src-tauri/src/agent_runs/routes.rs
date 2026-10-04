@@ -126,8 +126,13 @@ pub fn handle_request(
                     request.allow_broad,
                 );
             }
-            let project = project_path(request.project_path.as_deref(), query, registry);
-            answer_prompt(&project, &request, session_id, registry, app)
+            let explicit = request
+                .project_path
+                .clone()
+                .filter(|path| !path.trim().is_empty())
+                .or_else(|| query_value(query, "project_path"));
+            let default_project = registry.lock().project_path.clone();
+            answer_prompt(&default_project, explicit.as_deref(), &request, session_id, registry, app)
         }),
         ("POST", ["agents", "cancel"]) => parse::<AgentHandleRequest>(body).and_then(|request| {
             let project = project_path(request.project_path.as_deref(), query, registry);
@@ -767,15 +772,33 @@ fn transcript(
         .map_err(|error| OperationError::new("SERIALIZATION_ERROR", error.to_string(), false))
 }
 
+/// Answer the prompt blocking an agent run. Order matters: everything that can refuse (project,
+/// ownership, broad opt-in, stale or already-answered prompt) happens before the key is sent;
+/// after it is sent nothing can turn the answer into an error (see `answer_guard::finish`).
 fn answer_prompt(
-    project: &str,
+    default_project: &str,
+    explicit_project: Option<&str>,
     request: &AnswerPromptRequest,
     session_id: Option<&str>,
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     app: &AppHandle,
 ) -> Result<Value, OperationError> {
     let handle = request.handle.as_deref().unwrap_or_default();
-    let snapshot = runtime::current_agent(project, handle, session_id)?;
+    let snapshot = super::answer_guard::resolve_target(
+        default_project,
+        explicit_project,
+        handle,
+        session_id,
+    )?;
+    // The run's own project, not whichever project the request or the bridge defaulted to.
+    let project = snapshot.project_path.as_str();
+    let choice_key = match request.choice.as_str() {
+        "once" => "allow_once",
+        "reject" => "deny",
+        "always" | "allow_broad" => "allow_all",
+        other => other,
+    }
+    .to_string();
     // The stored run state can lag the pane: a caller sees the prompt in a live view before the
     // dispatch thread has recorded it. Fall back to the dialog actually on screen, which is
     // checked against the same prompt id below, so only the prompt the caller was shown can be
@@ -794,6 +817,16 @@ fn answer_prompt(
     let action = match (stored, live_action.as_ref()) {
         (Some(action), _) | (None, Some(action)) => action,
         (None, None) => {
+            // A retry of an answer that already went out finds the prompt gone: hand back the
+            // receipt instead of failing (and never press again).
+            if let Some(receipt) = super::answer_guard::replay_receipt(
+                &snapshot,
+                &request.prompt_id,
+                &choice_key,
+                false,
+            ) {
+                return Ok(receipt);
+            }
             // Say what actually happened: a prompt that is already gone usually means the run
             // moved on (someone answered it, or the TUI accepted it), not that nothing changed.
             let status = format!("{:?}", snapshot.status).to_ascii_lowercase();
@@ -823,6 +856,14 @@ fn answer_prompt(
             .get("permission_ids")
             .and_then(Value::as_array)
             .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(&request.prompt_id)));
+    if let Some(receipt) = super::answer_guard::replay_receipt(
+        &snapshot,
+        &request.prompt_id,
+        &choice_key,
+        matches_prompt,
+    ) {
+        return Ok(receipt);
+    }
     if !matches_prompt {
         return Err(OperationError::new(
             "STALE_PROMPT",
@@ -979,16 +1020,23 @@ fn answer_prompt(
         crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None)
             .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))?;
     }
-    let updated = operations::mark_operation_observation(
-        project,
-        &snapshot.operation_id,
-        Some("running".into()),
-        None,
-        StateSource::Native,
-    )?;
-    crate::bridge::publish_operation(&updated, registry, app)?;
-    serde_json::to_value(AgentRunView::from(updated))
-        .map_err(|error| OperationError::new("SERIALIZATION_ERROR", error.to_string(), false))
+    // The key is out. From here a failure is a warning on an applied receipt, not an error.
+    Ok(super::answer_guard::finish(
+        &snapshot,
+        &request.prompt_id,
+        &choice_key,
+        |current| {
+            let updated = operations::mark_operation_observation(
+                &current.project_path,
+                &current.operation_id,
+                Some("running".into()),
+                None,
+                StateSource::Native,
+            )?;
+            crate::bridge::publish_operation(&updated, registry, app)?;
+            Ok(updated)
+        },
+    ))
 }
 
 #[cfg(test)]
