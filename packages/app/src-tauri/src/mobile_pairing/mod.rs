@@ -11,6 +11,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod auth;
+
+pub use auth::*;
+
 const PAIRING_CODE_TTL_SECS: u64 = 600;
 const PAIRING_CODE_LEN: usize = 8;
 
@@ -318,86 +322,6 @@ pub fn pairing_store() -> Option<SharedPairingStore> {
     PAIRING_STORE.get().cloned()
 }
 
-/// Strip a leading `bridge` segment when a reverse proxy forwards `/bridge/*` to the
-/// embedded bridge without rewriting the path (common with custom domains).
-pub fn normalize_bridge_segments<'a>(segments: &'a [&'a str]) -> &'a [&'a str] {
-    match segments.first() {
-        Some(&"bridge") if segments.len() > 1 => &segments[1..],
-        _ => segments,
-    }
-}
-
-pub fn is_public_bridge_path(segments: &[&str], method: &str) -> bool {
-    let segments = normalize_bridge_segments(segments);
-    (segments == ["health"] && method == "GET")
-        || (segments == ["pair"] && method == "POST")
-        || (segments.len() == 3
-            && segments[0] == "pair"
-            && segments[1] == "session"
-            && method == "GET")
-}
-
-pub fn header_value<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
-    headers.lines().find_map(|line| {
-        let (key, value) = line.split_once(':')?;
-        if key.trim().eq_ignore_ascii_case(name) {
-            Some(value.trim())
-        } else {
-            None
-        }
-    })
-}
-
-pub fn bearer_token(headers: &str) -> Option<String> {
-    let auth = header_value(headers, "Authorization")?;
-    auth.strip_prefix("Bearer ")
-        .or_else(|| auth.strip_prefix("bearer "))
-        .map(|t| t.trim().to_string())
-}
-
-pub fn requires_pairing_token(headers: &str, peer_loopback: bool) -> bool {
-    if header_value(headers, "X-PM-Proxied").is_some() {
-        return true;
-    }
-    !peer_loopback
-}
-
-pub fn authorize_bridge_request(
-    headers: &str,
-    peer_loopback: bool,
-    segments: &[&str],
-    method: &str,
-) -> Result<(), (u16, serde_json::Value)> {
-    let segments = normalize_bridge_segments(segments);
-    if is_public_bridge_path(segments, method) {
-        return Ok(());
-    }
-
-    let needs_token = requires_pairing_token(headers, peer_loopback);
-    if !needs_token {
-        return Ok(());
-    }
-
-    let token = bearer_token(headers).ok_or_else(|| {
-        (
-            401,
-            serde_json::json!({
-                "error": "pairing_required",
-                "hint": "Scan the desktop QR code to pair this device before remote control.",
-            }),
-        )
-    })?;
-
-    let store = pairing_store()
-        .ok_or_else(|| (503, serde_json::json!({ "error": "pairing_unavailable" })))?;
-    let valid = store.lock().validate_bearer_token(&token);
-    if valid {
-        Ok(())
-    } else {
-        Err((401, serde_json::json!({ "error": "invalid_token" })))
-    }
-}
-
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -428,26 +352,4 @@ fn random_pairing_code() -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn public_paths_accept_bridge_prefix() {
-        let segments = ["bridge", "health"];
-        assert!(is_public_bridge_path(&segments, "GET"));
-
-        let segments = ["bridge", "pair", "session", "CODE12"];
-        assert!(is_public_bridge_path(&segments, "GET"));
-
-        let segments = ["bridge", "pair"];
-        assert!(is_public_bridge_path(&segments, "POST"));
-    }
-
-    #[test]
-    fn proxied_bridge_prefix_does_not_bypass_pairing() {
-        let segments = ["bridge", "panes"];
-        let err = authorize_bridge_request("X-PM-Proxied: 1\r\n", true, &segments, "GET")
-            .expect_err("panes should require auth");
-        assert_eq!(err.0, 401);
-    }
-}
+mod tests;
