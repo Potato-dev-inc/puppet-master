@@ -729,6 +729,27 @@ fn current_agent_with_access(
     access: RunAccess,
 ) -> Result<OperationSnapshot, OperationError> {
     let snapshot = operations::resolve_agent_run(project, handle)?;
+    check_snapshot_access(&snapshot, handle, session_id, access)?;
+    Ok(snapshot)
+}
+
+/// Ownership gate for a run that was already resolved (so a caller that located the run itself
+/// does not re-resolve it through another project).
+pub(super) fn check_snapshot_mutate_access(
+    snapshot: &OperationSnapshot,
+    handle: &str,
+    session_id: Option<&str>,
+) -> Result<(), OperationError> {
+    check_snapshot_access(snapshot, handle, session_id, RunAccess::Mutate)
+}
+
+fn check_snapshot_access(
+    snapshot: &OperationSnapshot,
+    handle: &str,
+    session_id: Option<&str>,
+    access: RunAccess,
+) -> Result<(), OperationError> {
+    {
     if let Some(session) = session_id {
         if crate::mcp_sessions::agent_is_registered(handle) {
             let check = match access {
@@ -749,7 +770,8 @@ fn current_agent_with_access(
             ));
         }
     }
-    Ok(snapshot)
+    }
+    Ok(())
 }
 
 pub fn current_agent_for_read(
