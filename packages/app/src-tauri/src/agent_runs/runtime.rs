@@ -882,6 +882,8 @@ pub(super) fn interrupt_active_turns(
 
 /// Warning code on a pane run whose captured result is only the tail of the reply.
 pub(super) const RESULT_TRUNCATED: &str = "RESULT_TRUNCATED";
+/// Warning on a visible turn that finished with no reply text on the pane (nothing was inferred).
+pub(super) const NO_REPLY_TEXT: &str = "NO_REPLY_TEXT";
 
 /// Warning code recorded when a stop could not reach the OpenCode server.
 pub(super) const OPENCODE_SERVER_UNREACHABLE: &str = "OPENCODE_SERVER_UNREACHABLE";

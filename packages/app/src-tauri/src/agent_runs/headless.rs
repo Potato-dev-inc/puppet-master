@@ -1054,6 +1054,45 @@ pub fn supervise_existing(
                                 }
                             }
                             super::completion::TuiTurnDecision::AmbiguousIdle => {
+                                // The checks decide this run, so a missing reply is not hidden:
+                                // say what the pane showed (the same evidence a RESULT_NOT_CAPTURED
+                                // failure carries) and that nothing was inferred.
+                                let visible = read_tui_screen(&registry, pane_id).unwrap_or_default();
+                                let full = crate::pty::registry_read_full_text(registry.as_ref(), pane_id)
+                                    .unwrap_or_default();
+                                if let Some(result) = super::completion::recapture_reply(&watch, &visible, &full) {
+                                    transcript::append(
+                                        &current.project_path,
+                                        &current.operation_id,
+                                        "assistant_final",
+                                        &result,
+                                    );
+                                    if let Ok(completed) = operations::mark_operation_finished(
+                                        &current.project_path,
+                                        &current.operation_id,
+                                        Some(result),
+                                        crate::operations::ResultCapture::Inferred,
+                                        false,
+                                    ) {
+                                        let _ = crate::bridge::publish_operation(
+                                            &completed, &registry, &app,
+                                        );
+                                        return;
+                                    }
+                                }
+                                let diagnostics = not_captured_diagnostics(&registry, pane_id, &watch);
+                                transcript::append(
+                                    &current.project_path,
+                                    &current.operation_id,
+                                    "diagnostic",
+                                    &diagnostics.to_string(),
+                                );
+                                let _ = operations::add_warning(
+                                    &current.project_path,
+                                    &current.operation_id,
+                                    super::runtime::NO_REPLY_TEXT,
+                                    "the turn finished but no reply text could be read from the pane under the prompt, so there is nothing to check. If the pane shows the prompt and an empty reply, the model itself answered with an empty message (seen with Cursor on bare-data replies such as [] or {} on a follow-up, confirmed in its own chat store). No result was inferred; the pane evidence is in agent_transcript",
+                                );
                                 if let Ok(completed) = operations::mark_operation_finished(
                                     &current.project_path,
                                     &current.operation_id,
