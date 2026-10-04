@@ -97,9 +97,12 @@ pub fn handle_request(
                     requested_reasoning: request.reasoning,
                     role: None,
                     scope: request.scope,
-                    background: false,
-                    wait_ms: None,
+                    background: request.background,
+                    wait_ms: request.wait_ms,
                     idempotency_key: request.idempotency_key,
+                    acceptance_criteria: request.acceptance_criteria,
+                    checks: request.checks,
+                    locks: request.locks,
                     ..Default::default()
                 },
             )
@@ -242,6 +245,18 @@ struct SendAgentRequest {
     reasoning: Option<String>,
     #[serde(default)]
     scope: Option<String>,
+    /// Same meaning as on run_agent: how long this call waits for the turn, whether it returns
+    /// immediately, and the acceptance gate for this turn.
+    #[serde(default)]
+    wait_ms: Option<u64>,
+    #[serde(default)]
+    background: bool,
+    #[serde(default)]
+    acceptance_criteria: Option<Vec<String>>,
+    #[serde(default)]
+    checks: Option<Vec<super::checks::Check>>,
+    #[serde(default)]
+    locks: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -901,21 +916,36 @@ fn answer_prompt(
             contents
         };
         let adapter = crate::agent_adapters::adapter_for(&snapshot.agent_type);
-        let prompt = adapter
-            .detect_prompt(&screen, request.allow_broad)
-            .ok_or_else(|| {
-                OperationError::new(
-                    "STALE_PROMPT",
-                    "current screen no longer contains a supported prompt",
-                    false,
-                )
-            })?;
-        if super::native::stable_prompt_id(&prompt).as_deref() != Some(request.prompt_id.as_str()) {
-            return Err(OperationError::new(
+        // The id handed to callers comes from `pane_prompt` (stable per command), so the live
+        // prompt must be re-identified the same way. Hashing the whole screen here made every
+        // answer to a command approval STALE_PROMPT.
+        let prompt = crate::pane_prompt::detect_in_screen(
+            &snapshot.agent_type,
+            &screen,
+            request.allow_broad,
+        )
+        .ok_or_else(|| {
+            OperationError::new(
                 "STALE_PROMPT",
-                "current terminal prompt changed",
+                "current screen no longer contains a supported prompt",
                 false,
-            ));
+            )
+        })?;
+        if prompt.get("prompt_id").and_then(Value::as_str) != Some(request.prompt_id.as_str()) {
+            let mut error = OperationError::new(
+                "STALE_PROMPT",
+                "the prompt on screen is a different one; review it and answer with its id",
+                false,
+            );
+            error.context = json!({
+                "current_prompt": {
+                    "prompt_id": prompt.get("prompt_id"),
+                    "kind": prompt.get("kind"),
+                    "command": prompt.get("command"),
+                    "cwd": prompt.get("cwd"),
+                }
+            });
+            return Err(error);
         }
         let choice = match request.choice.as_str() {
             "once" => "allow_once",

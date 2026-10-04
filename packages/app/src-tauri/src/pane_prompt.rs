@@ -227,6 +227,27 @@ fn reply_key(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_command_approval_keeps_its_id_through_redraws_and_scrolling() {
+        // Real capture (2026-10-04): the answer route used to hash the whole screen and so never
+        // matched the id it had handed out.
+        let screen = include_str!("tui/cursor/fixtures/command_approval_visible.txt");
+        let first = super::detect_in_screen("cursor_agent", screen, true).expect("prompt");
+        assert_eq!(first["kind"], "command_approval");
+        assert!(first["command"].as_str().unwrap().contains("python todo.py add buy-milk"));
+        let id = first["prompt_id"].as_str().unwrap().to_string();
+        // The same dialog with more scrollback above it, a spinner tick, and without allow_broad.
+        let scrolled = format!("old output line
+another line
+{screen}");
+        let again = super::detect_in_screen("cursor_agent", &scrolled, false).expect("prompt");
+        assert_eq!(again["prompt_id"].as_str(), Some(id.as_str()));
+        // A different command is a different prompt.
+        let other = screen.replace("add buy-milk", "rm buy-milk");
+        let changed = super::detect_in_screen("cursor_agent", &other, true).expect("prompt");
+        assert_ne!(changed["prompt_id"].as_str(), Some(id.as_str()));
+    }
+
     use super::*;
 
     const APPROVAL: &str = "\

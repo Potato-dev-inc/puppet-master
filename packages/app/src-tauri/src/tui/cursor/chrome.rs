@@ -132,20 +132,26 @@ pub(super) fn is_tool_line(lower: &str) -> bool {
     {
         return true;
     }
-    if let Some(command) = lower.strip_prefix("$ ") {
-        let last = command.split_whitespace().last().unwrap_or("");
-        let is_duration = last.strip_suffix('s').is_some_and(|digits| {
-            !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit() || ch == '.')
-        });
-        if is_duration {
-            return true;
-        }
+    // Every `$ <command>` row is Cursor's header for a shell call (its duration may be on the
+    // same row or on the next one), and a bare `6.0s` is that duration.
+    if lower.starts_with("$ ") || is_duration(lower) {
+        return true;
     }
     lower.strip_prefix("read ").is_some_and(|target| {
         !target.contains(' ')
             && target.chars().any(|ch| matches!(ch, '.' | '/' | '\\'))
             && !target.ends_with('.')
     })
+}
+
+/// `6.0s`, `14s`, `1m 3s`: how long a tool call took, printed under its header.
+fn is_duration(lower: &str) -> bool {
+    let text = lower.trim();
+    !text.is_empty()
+        && text.len() <= 9
+        && text.ends_with('s')
+        && text.chars().all(|ch| ch.is_ascii_digit() || matches!(ch, '.' | 's' | 'm' | ' '))
+        && text.chars().any(|ch| ch.is_ascii_digit())
 }
 
 /// Cursor's startup banner and footer rows: `Cursor Agent`, `v2026.10.01-e373342`, `Tip: ...`,
@@ -229,6 +235,15 @@ mod tests {
         assert!(!stripped.contains("Workspace Trust Required"), "{stripped}");
         assert!(!stripped.contains("Cursor Agent can execute"), "{stripped}");
         assert!(stripped.contains("Plan, search, build anything"));
+    }
+
+    #[test]
+    fn shell_call_headers_and_durations_are_tool_rows() {
+        assert!(is_tool_line("$ cd \"c:\\proj\" && python todo.py add buy-milk && python todo.py list"));
+        assert!(is_tool_line("6.0s"));
+        assert!(is_tool_line("1m 3s"));
+        assert!(!is_tool_line("2 seconds later it finished"));
+        assert!(!is_tool_line("done"));
     }
 
     #[test]
