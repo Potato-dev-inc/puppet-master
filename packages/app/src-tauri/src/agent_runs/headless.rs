@@ -129,6 +129,32 @@ pub fn run_agent(
         ));
     }
     let agent_type = request.agent_type.clone();
+    // An identical retry (same idempotency_key, same task) is a replay of the run already started,
+    // whatever worker name or handle was given: do not run worker selection again, which would
+    // adopt the first run's worker and open a second turn that conflicts with the key.
+    if request.turn_index == 0 {
+        if let Some(key) = request
+            .idempotency_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+        {
+            if let Ok(Some(existing)) = operations::find_by_idempotency_key(&project_path, key) {
+                if existing.agent_type == agent_type
+                    && existing.turn_index == 0
+                    && existing.task.contains(request.task.trim())
+                {
+                    let fresh = operations::get_operation(&project_path, &existing.operation_id)
+                        .unwrap_or(existing);
+                    return if request.background {
+                        Ok(present_view(&fresh, &registry))
+                    } else {
+                        wait_for_run(&fresh, request.wait_ms, &registry)
+                    };
+                }
+            }
+        }
+    }
     if request.turn_index == 0 {
         let key = persist::worker_key(
             request.agent_run_id.as_deref(),

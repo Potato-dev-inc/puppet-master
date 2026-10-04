@@ -794,12 +794,25 @@ fn answer_prompt(
     let action = match (stored, live_action.as_ref()) {
         (Some(action), _) | (None, Some(action)) => action,
         (None, None) => {
-            let message = if snapshot.required_action.is_none() {
-                "agent has no pending prompt"
+            // Say what actually happened: a prompt that is already gone usually means the run
+            // moved on (someone answered it, or the TUI accepted it), not that nothing changed.
+            let status = format!("{:?}", snapshot.status).to_ascii_lowercase();
+            let message = if snapshot.status == OperationStatus::WaitingInput {
+                "the agent is waiting, but not on a prompt Puppet Master recognises; read the pane"
+                    .to_string()
             } else {
-                "agent is not waiting for input"
+                format!(
+                    "no prompt is pending: it was already resolved and the run continued (status {status}); nothing was sent"
+                )
             };
-            return Err(OperationError::new("PROMPT_NOT_PENDING", message, false));
+            let mut error = OperationError::new("PROMPT_NOT_PENDING", message, false);
+            error.context = json!({
+                "run_status": status,
+                "stage": snapshot.stage,
+                "already_resolved": snapshot.status != OperationStatus::WaitingInput,
+                "sent_input": false,
+            });
+            return Err(error);
         }
     };
     let matches_prompt = ["prompt_id", "request_id", "message_id", "id"]

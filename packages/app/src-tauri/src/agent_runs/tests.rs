@@ -2715,3 +2715,45 @@ fn an_empty_json_reply_is_a_result_but_rules_and_box_art_are_not() {
     assert_eq!(super::completion::clean_extracted_result("{}", "").as_deref(), Some("{}"));
     assert!(super::completion::clean_extracted_result("────────\n▄▄▄▄▄▄\n   \n", "").is_none());
 }
+
+#[test]
+fn an_operation_can_be_found_again_by_its_idempotency_key() {
+    let project = std::env::temp_dir().join(format!("pm-idem-{}", Uuid::new_v4()));
+    fs::create_dir_all(&project).unwrap();
+    let project_path = project.to_string_lossy().into_owned();
+    let mut request = persist_req(&project_path, "worker-x", 0, "do the thing");
+    request.idempotency_key = "idem-find-me".into();
+    let (op, _) = operations::create_operation(request).unwrap();
+    let found = operations::find_by_idempotency_key(&project_path, "idem-find-me")
+        .unwrap()
+        .expect("the key was stored");
+    assert_eq!(found.operation_id, op.operation_id);
+    assert!(operations::find_by_idempotency_key(&project_path, "other").unwrap().is_none());
+    let _ = fs::remove_dir_all(project);
+}
+
+#[test]
+fn a_reply_that_repeats_the_prompt_text_is_still_captured() {
+    // Real case: "Reply with exactly <payload>" - the reply is identical to part of the prompt.
+    let task = "Reply with exactly the following text and nothing else:\nfirst line of the reply\nsecond line ünïcode ✓";
+    let evidence = format!("{task}\nfirst line of the reply\nsecond line ünïcode ✓");
+    assert_eq!(
+        super::completion::clean_extracted_result(&evidence, task).as_deref(),
+        Some("first line of the reply\nsecond line ünïcode ✓")
+    );
+    // Only the echo on screen: still not a result.
+    assert!(super::completion::clean_extracted_result(task, task).is_none());
+    // Punctuation-only replies survive even though the prompt mentions them.
+    assert_eq!(
+        super::completion::clean_extracted_result("Reply with exactly [] and nothing else.\n[]", "Reply with exactly [] and nothing else.").as_deref(),
+        Some("[]")
+    );
+    assert_eq!(
+        super::completion::clean_extracted_result("Reply with exactly {} and nothing else.\n{}", "Reply with exactly {} and nothing else.").as_deref(),
+        Some("{}")
+    );
+    // The previous turn's prompt shown again is never rescued as this turn's reply.
+    let previous = "Please remember the codeword ORCHID-7 for later";
+    let stale = format!("{previous}\n{previous}");
+    assert!(super::completion::clean_extracted_result_after(&stale, "What is 2+2?", previous).is_none());
+}

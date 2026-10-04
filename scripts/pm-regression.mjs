@@ -279,6 +279,27 @@ const scenarios = {
     check('duplicate: only one turn exists', !turns.includes('"turn_index":1') && !turns.includes('"turn-1"'), 'a second turn was created');
   },
 
+  /** The same replay guarantee when a worker name, checks, locks and criteria are in the request,
+   *  and a changed request under the same key must still conflict. */
+  async duplicate_named(backend, extra) {
+    const key = `dupn-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const name = `worker-${Math.random().toString(16).slice(2, 8)}`;
+    const body = { agent_type: backend, task: PONG, project_path: sandbox, idempotency_key: key, name, checks: [{ type: 'result_contains', text: 'PONG' }], locks: [`file:dupn-${key}.txt`], acceptance_criteria: ['be brief'], background: true, wait_ms: 0, ...extra };
+    const first = await tool('run_agent', body);
+    const second = await tool('run_agent', body);
+    if (first.handle) handlesSeen.push(first.handle);
+    check('duplicate_named: identical retry returns the same handle', Boolean(first.handle) && first.handle === second.handle, `${first.handle} vs ${second.handle} ${second._error ?? ''}`);
+    check('duplicate_named: identical retry returns the same operation', Boolean(first.operation_id) && first.operation_id === second.operation_id, `${first.operation_id} vs ${second.operation_id}`);
+    const changed = await tool('run_agent', { ...body, task: 'Reply with only the word DIFFERENT. Use no tools.' });
+    check('duplicate_named: a changed request under the same key conflicts', changed.code === 'IDEMPOTENCY_KEY_CONFLICT' || /idempotency/i.test(String(changed._error)), String(changed.code ?? changed._error ?? changed.status));
+    let view = first;
+    for (let i = 0; i < 12 && !['completed', 'failed', 'cancelled', 'interrupted'].includes(view.status) && first.handle; i += 1) {
+      view = await tool('wait_agents', { handles: [first.handle], timeout_ms: 30_000, project_path: sandbox });
+      view = view.runs?.[0] ?? view.agents?.[0] ?? view;
+    }
+    check('duplicate_named: the single run completed', view.status === 'completed', view.status);
+  },
+
   /** cancel_agent must end a running turn as cancelled, never as a success. */
   async cancel(backend, extra) {
     const view = await tool('run_agent', { agent_type: backend, project_path: sandbox, task: SLOW_TASK, background: true, wait_ms: 0, ...(backend === 'cursor_agent' ? { allow_shell: true } : {}), ...extra });

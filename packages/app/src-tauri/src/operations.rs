@@ -426,6 +426,14 @@ pub fn latest_agent_run(
 }
 
 /// Prefer `project_path`, then any indexed project that owns this handle.
+/// The operation a caller's idempotency key already started in this project, if any.
+pub fn find_by_idempotency_key(
+    project_path: &str,
+    key: &str,
+) -> Result<Option<OperationSnapshot>, OperationError> {
+    find_key(project_path, key)
+}
+
 pub fn resolve_agent_run(
     project_path: &str,
     agent_run_id: &str,

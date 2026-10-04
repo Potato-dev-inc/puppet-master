@@ -240,7 +240,8 @@ pub fn clean_extracted_result_after(
         .copied()
         .filter(|line| !is_tui_chrome_line(line))
         .collect();
-    let echoed = echoed_lines(&candidates, task);
+    let mut echoed = echoed_lines(&candidates, task);
+    let rescued = keep_last_copy_of_repeated_echoes(&candidates, &mut echoed, previous_task);
     let mut lines: Vec<&str> = candidates
         .iter()
         .zip(&echoed)
@@ -252,7 +253,8 @@ pub fn clean_extracted_result_after(
         return None;
     }
     let cleaned = lines.join("\n");
-    if is_mostly_prompt_echo(&cleaned, task) {
+    // A reply rescued from a repeated echo is wholly contained in the prompt by construction.
+    if !rescued && is_mostly_prompt_echo(&cleaned, task) {
         None
     } else {
         Some(cleaned)
@@ -295,6 +297,40 @@ fn echoed_lines(lines: &[&str], task: &str) -> Vec<bool> {
     }
 }
 
+/// A reply can legitimately repeat text from the prompt ("reply with exactly: X"). The prompt echo
+/// comes first, so when a line judged an echo appears again later, the last copy is the reply.
+/// Text that only the previous turn's prompt contains is never rescued: that is the stale-prompt
+/// case, which must stay dropped.
+fn keep_last_copy_of_repeated_echoes(
+    lines: &[&str],
+    echoed: &mut [bool],
+    previous_task: &str,
+) -> bool {
+    let mut rescued = false;
+    let previous_n = normalize_echo(previous_task);
+    let mut handled: Vec<String> = Vec::new();
+    for index in 0..lines.len() {
+        if !echoed[index] {
+            continue;
+        }
+        let key = lines[index].trim().to_string();
+        if handled.contains(&key) {
+            continue;
+        }
+        let copies: Vec<usize> = (0..lines.len())
+            .filter(|other| echoed[*other] && lines[*other].trim() == key)
+            .collect();
+        handled.push(key.clone());
+        let line_n = normalize_echo(&key);
+        let only_in_previous = !previous_n.is_empty() && previous_n.contains(&line_n);
+        if copies.len() >= 2 && !only_in_previous {
+            echoed[*copies.last().expect("two copies")] = false;
+            rescued = true;
+        }
+    }
+    rescued
+}
+
 fn normalize_echo(text: &str) -> String {
     text.chars()
         .filter(|ch| ch.is_alphanumeric() || ch.is_whitespace())
@@ -332,7 +368,9 @@ fn is_mostly_prompt_echo(cleaned: &str, task: &str) -> bool {
     let task_n = normalize_echo(task);
     let out_n = normalize_echo(cleaned);
     if out_n.is_empty() {
-        return true;
+        // Nothing alphanumeric left. Whitespace-only is an echo of nothing; a line of data
+        // punctuation (`[]`, `{}`) is the reply itself, since a prompt echo is far longer.
+        return cleaned.trim().is_empty();
     }
     if out_n.len() >= 40 && task_n.contains(&out_n) {
         return true;
