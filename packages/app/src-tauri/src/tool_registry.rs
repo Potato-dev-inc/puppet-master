@@ -210,7 +210,7 @@ fn agent_run_schema() -> Value {
         "requested_model":{"type":["string","null"]},"resolved_model":{"type":["string","null"]},
         "requested_reasoning":{"type":["string","null"]},"resolved_reasoning":{"type":["string","null"]},
         "model_mismatch":{"type":"boolean"},
-        "warnings":{"type":"array","description":"Caveats on a finished run (never change status): SHELL_COMMAND_REJECTED, PROVENANCE_INFERRED, MODEL_UNRESOLVED. source=heuristic means a text match, not a fact.","items":{"type":"object","properties":{"code":{"type":"string"},"source":{"type":"string","enum":["capture","heuristic"]},"detail":{"type":"string"}},"required":["code","source","detail"]}},
+        "warnings":{"type":"array","description":"Caveats on a finished run (never change status): SHELL_COMMAND_REJECTED, PROVENANCE_INFERRED, MODEL_UNRESOLVED, RESULT_TRUNCATED (result is only the tail of a reply longer than the screen), OPENCODE_SERVER_UNREACHABLE. source=heuristic means a text match, not a fact.","items":{"type":"object","properties":{"code":{"type":"string"},"source":{"type":"string","enum":["capture","heuristic"]},"detail":{"type":"string"}},"required":["code","source","detail"]}},
         "capabilities":{"type":"object","properties":{
             "session_resume":{"type":"boolean"},"live_messages":{"type":"boolean"},
             "queued_followups":{"type":"boolean"},"structured_results":{"type":"boolean"},

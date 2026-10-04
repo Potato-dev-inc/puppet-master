@@ -935,6 +935,33 @@ pub fn supervise_existing(
                             }
                             super::completion::TuiTurnDecision::Complete { result, capture } => {
                                 record_completion_model(&current, &screen);
+                                // The reply was read from the visible rows; one longer than the
+                                // screen is re-read from the scrollback, or flagged as truncated.
+                                let widened = match crate::pty::registry_read_full_text(
+                                    registry.as_ref(),
+                                    pane_id,
+                                ) {
+                                    Ok(full) => super::completion::widen_reply(
+                                        &screen,
+                                        &full,
+                                        &current.task,
+                                        &previous_turn_task(&current),
+                                        &result,
+                                    ),
+                                    Err(_) => super::completion::WidenedReply {
+                                        text: result.clone(),
+                                        truncated: false,
+                                    },
+                                };
+                                let result = widened.text;
+                                if widened.truncated {
+                                    let _ = operations::add_warning(
+                                        &current.project_path,
+                                        &current.operation_id,
+                                        super::runtime::RESULT_TRUNCATED,
+                                        "the reply is longer than the pane's visible rows and its start could not be found in the scrollback; result holds only the last part of it. Read the pane or agent_transcript for the rest",
+                                    );
+                                }
                                 transcript::append(
                                     &current.project_path,
                                     &current.operation_id,

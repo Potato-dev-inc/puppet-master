@@ -395,3 +395,76 @@ fn a_very_short_task_echo_still_counts_as_a_turn_start() {
     let result = completed(&ticks(&mut watch, "idle", &done, 4)).expect("a turn that echoed its task completes");
     assert!(result.ends_with("Hello!"), "{result}");
 }
+
+// ---- replies longer than the screen ---------------------------------------------------------
+
+fn last_lines(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(n)..].join("\n")
+}
+
+fn numbered(count: usize) -> String {
+    (1..=count).map(|n| format!("line {n:02}")).collect::<Vec<_>>().join("\n")
+}
+
+/// What the supervisor would capture from the visible rows alone.
+fn visible_result(visible: &str, baseline: &str, task: &str) -> String {
+    super::completion::tui_turn_evidence(visible, baseline)
+        .and_then(|raw| clean_extracted_result_after(&raw, task, ""))
+        .expect("visible evidence")
+}
+
+#[test]
+fn a_reply_longer_than_the_screen_is_read_back_from_the_scrollback() {
+    // Live (2026-10-04): a 60-line reply came back as lines 37-60.
+    let prompt = "Print the numbers one per line, 60 of them.";
+    let reply = numbered(60);
+    let baseline = screen_after(&[], "Composer 2.5");
+    let full = screen_after(&[(prompt, &reply)], "Composer 2.5 \u{b7} 3.4%");
+    let visible = last_lines(&full, 24);
+    let partial = visible_result(&visible, &baseline, prompt);
+    assert!(!partial.contains("line 01"), "the screen alone cannot hold the reply");
+
+    let widened = super::completion::widen_reply(&visible, &full, prompt, "", &partial);
+    assert!(!widened.truncated);
+    assert_eq!(widened.text, reply);
+}
+
+#[test]
+fn a_reply_whose_start_cannot_be_located_is_flagged_truncated_not_passed_off_as_whole() {
+    let prompt = "Print the numbers one per line, 60 of them.";
+    let reply = numbered(60);
+    let baseline = screen_after(&[], "Composer 2.5");
+    let full = screen_after(&[(prompt, &reply)], "Composer 2.5 \u{b7} 3.4%");
+    let visible = last_lines(&full, 24);
+    let partial = visible_result(&visible, &baseline, prompt);
+    // No scrollback available (alternate screen, or history shorter than the reply).
+    let widened = super::completion::widen_reply(&visible, &visible, prompt, "", &partial);
+    assert!(widened.truncated);
+    assert_eq!(widened.text, partial);
+}
+
+#[test]
+fn a_reply_that_fits_the_screen_is_untouched() {
+    let prompt = "Print the numbers one per line, 3 of them.";
+    let baseline = screen_after(&[], "Composer 2.5");
+    let full = screen_after(&[(prompt, "line 01\nline 02\nline 03")], "Composer 2.5 \u{b7} 3.4%");
+    let partial = visible_result(&full, &baseline, prompt);
+    let widened = super::completion::widen_reply(&full, &full, prompt, "", &partial);
+    assert!(!widened.truncated);
+    assert_eq!(widened.text, "line 01\nline 02\nline 03");
+}
+
+#[test]
+fn a_repeated_prompt_widens_from_the_latest_turn_only() {
+    let prompt = "Print the numbers one per line, 60 of them.";
+    let first = numbered(10);
+    let second = numbered(60);
+    let baseline = screen_after(&[(prompt, &first)], "Composer 2.5");
+    let full = screen_after(&[(prompt, &first), (prompt, &second)], "Composer 2.5 \u{b7} 3.4%");
+    let visible = last_lines(&full, 24);
+    let partial = visible_result(&visible, &baseline, prompt);
+    let widened = super::completion::widen_reply(&visible, &full, prompt, prompt, &partial);
+    assert!(!widened.truncated);
+    assert_eq!(widened.text, second);
+}

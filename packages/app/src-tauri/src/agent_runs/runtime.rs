@@ -165,6 +165,10 @@ pub struct AgentRunView {
     pub stage: Option<String>,
     pub result: Option<String>,
     pub result_capture: String,
+    /// True when `result` is known to be only the tail of the reply: it outgrew the screen and the
+    /// start of the turn could not be found in the scrollback (see the RESULT_TRUNCATED warning).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub result_truncated: bool,
     pub acceptance_status: String,
     /// Number of acceptance `checks` stored on this run, so a dropped gate is visible before
     /// completion (`checks` below holds results only once the run has finished).
@@ -523,6 +527,10 @@ impl From<OperationSnapshot> for AgentRunView {
             stage: snapshot.stage,
             result: snapshot.result,
             result_capture,
+            result_truncated: snapshot
+                .warnings
+                .iter()
+                .any(|warning| warning.code == RESULT_TRUNCATED),
             acceptance_status: match snapshot.acceptance_status {
                 AcceptanceStatus::NotChecked => "not_checked".into(),
                 AcceptanceStatus::Passed => "passed".into(),
@@ -870,6 +878,9 @@ pub(super) fn interrupt_active_turns(
     let final_snapshot = current_agent(project, handle, session_id)?;
     Ok(final_snapshot.into())
 }
+
+/// Warning code on a pane run whose captured result is only the tail of the reply.
+pub(super) const RESULT_TRUNCATED: &str = "RESULT_TRUNCATED";
 
 /// Warning code recorded when a stop could not reach the OpenCode server.
 pub(super) const OPENCODE_SERVER_UNREACHABLE: &str = "OPENCODE_SERVER_UNREACHABLE";

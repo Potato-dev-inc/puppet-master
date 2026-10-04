@@ -208,6 +208,63 @@ fn task_echo_on_screen(screen: &str, baseline: &str, task: &str) -> bool {
             > normalize_echo(baseline).matches(head.as_str()).count()
 }
 
+/// A captured reply, and whether it is known to be only the tail of the real one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WidenedReply {
+    pub text: String,
+    /// The start of the turn could not be found, so lines above the visible rows may be missing.
+    pub truncated: bool,
+}
+
+/// `result` was read from the visible rows. When this turn's prompt echo is not on them, the
+/// reply scrolled past the top and `result` is only its tail: re-read the turn from `full` (the
+/// scrollback plus the screen), starting at the last echo of the prompt. When even `full` does not
+/// hold the echo (alternate screen, history too short) the result is flagged `truncated` rather
+/// than passed off as whole.
+pub fn widen_reply(
+    visible: &str,
+    full: &str,
+    task: &str,
+    previous_task: &str,
+    result: &str,
+) -> WidenedReply {
+    let unchanged = |truncated| WidenedReply {
+        text: result.to_string(),
+        truncated,
+    };
+    let task_n = normalize_echo(task);
+    let head: String = task_n.chars().take(40).collect();
+    let head = head.trim_end();
+    if head.len() < 8 || normalize_echo(visible).contains(head) {
+        return unchanged(false);
+    }
+    let lines: Vec<&str> = full.lines().collect();
+    let echo_at = (0..lines.len()).rev().find(|&index| {
+        let own = normalize_echo(lines[index]);
+        if own.is_empty() || !(head.starts_with(own.as_str()) || own.starts_with(head)) {
+            return false;
+        }
+        own.len() >= 8 && {
+            let span = lines[index..lines.len().min(index + 6)].join(" ");
+            normalize_echo(&span).contains(head)
+        }
+    });
+    let Some(echo_at) = echo_at else {
+        return unchanged(true);
+    };
+    let turn = lines[echo_at..].join("
+");
+    match tui_turn_evidence(&turn, "")
+        .and_then(|raw| clean_extracted_result_after(&raw, task, previous_task))
+    {
+        Some(text) => WidenedReply {
+            text,
+            truncated: false,
+        },
+        None => unchanged(true),
+    }
+}
+
 pub fn is_tui_chrome_line(line: &str) -> bool {
     let lower = line.trim().to_ascii_lowercase();
     lower.is_empty()

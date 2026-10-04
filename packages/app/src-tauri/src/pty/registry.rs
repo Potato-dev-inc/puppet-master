@@ -696,6 +696,69 @@ pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<St
     Ok(snapshot)
 }
 
+/// The pane's text with its scrollback: up to `FULL_TEXT_MAX_LINES` of history above the visible
+/// rows, one entry per row (trailing blanks trimmed). A TUI on the alternate screen has no history,
+/// so this is then just the screen.
+pub fn read_full_text(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {
+    const FULL_TEXT_MAX_LINES: usize = 4000;
+    let screen = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(&pane_id))?;
+        pane.screen.clone()
+    };
+    let mut parser = screen.lock();
+    Ok(full_text_of(&mut parser))
+}
+
+fn full_text_of(parser: &mut vt100::Parser) -> String {
+    const FULL_TEXT_MAX_LINES: usize = 4000;
+    let (_, cols) = parser.screen().size();
+    parser.screen_mut().set_scrollback(usize::MAX);
+    let total = parser.screen().scrollback().min(FULL_TEXT_MAX_LINES);
+    let mut lines: Vec<String> = Vec::new();
+    // At offset `n` the first visible row is the n-th line above the live screen.
+    for offset in (1..=total).rev() {
+        parser.screen_mut().set_scrollback(offset);
+        if let Some(row) = parser.screen().rows(0, cols).next() {
+            lines.push(row.trim_end().to_string());
+        }
+    }
+    parser.screen_mut().set_scrollback(0);
+    lines.extend(parser.screen().rows(0, cols).map(|row| row.trim_end().to_string()));
+    lines.join("\n")
+}
+
+#[cfg(test)]
+mod full_text_tests {
+    use super::full_text_of;
+
+    #[test]
+    fn scrollback_and_screen_are_returned_in_order() {
+        let mut parser = vt100::Parser::new(10, 40, 1000);
+        for n in 1..=60 {
+            parser.process(format!("line {n:02}\r\n").as_bytes());
+        }
+        let full = full_text_of(&mut parser);
+        let lines: Vec<&str> = full.lines().filter(|l| l.starts_with("line")).collect();
+        assert_eq!(lines.len(), 60, "{full}");
+        assert_eq!(lines[0], "line 01");
+        assert_eq!(lines[59], "line 60");
+        assert_eq!(parser.screen().scrollback(), 0, "the view offset is restored");
+    }
+
+    #[test]
+    fn an_alternate_screen_has_no_history() {
+        let mut parser = vt100::Parser::new(5, 40, 1000);
+        parser.process(b"history\r\n\r\n\r\n\r\n\r\n\r\n\x1b[?1049hvisible");
+        let full = full_text_of(&mut parser);
+        assert!(full.contains("visible"));
+        assert!(!full.contains("history"), "{full}");
+    }
+}
+
 pub fn read_raw_buffer(
     registry: &Mutex<PaneRegistry>,
     pane_id: &str,
