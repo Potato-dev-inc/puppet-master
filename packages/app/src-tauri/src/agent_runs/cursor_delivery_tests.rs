@@ -454,3 +454,17 @@ fn a_search_result_row_under_a_grep_header_is_tool_output_not_the_answer() {
     let bare = "  Say how many.\n\n  Found 14 matches\n\n  → Add a follow-up\n  Composer 2.5 · 7.5%";
     assert_eq!(scrollback_reply(bare, "Say how many.", "").as_deref(), Some("Found 14 matches"));
 }
+
+#[test]
+fn a_wrapped_shell_header_is_joined_whether_the_continuation_is_indented_or_not() {
+    let wrapped = |continuation: &str| {
+        format!(
+            "  Run the tests please now.\n\n  Running them.\n\n  $ cd \"C:/very/long/path/to/the/project/folder/that/wraps/at/the/pane/width/and/goes/on/and/on/for/a/bit/more/to/be/sure\"
+{continuation}ea20af2 && python -m pytest -q 5.7s\n    8 passed in 0.86s\n\n  All 8 tests pass.\n\n  → Add a follow-up\n  Composer 2.5 · 7%"
+        )
+    };
+    for continuation in ["", "  "] {
+        let reply = scrollback_reply(&wrapped(continuation), "Run the tests please now.", "").expect("reply");
+        assert_eq!(reply, "All 8 tests pass.", "continuation {continuation:?}");
+    }
+}

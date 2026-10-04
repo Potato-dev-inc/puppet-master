@@ -112,7 +112,7 @@ pub(super) fn strip_footer_cwd(text: &str) -> String {
 /// breaks at the pane width: its first row carries no duration (so it reads as quoted text, not a
 /// header) and the rest starts at column 0 with the duration at its end. Merging the pieces lets
 /// the header be recognised as the tool row it is. Only a `$ ` row, followed within two rows by
-/// unindented continuation rows that end in a duration, is merged.
+/// continuation rows (at its own indent or shallower) that end in a duration, is merged.
 pub(super) fn join_wrapped_shell_headers(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let mut out: Vec<String> = Vec::with_capacity(lines.len());
@@ -125,10 +125,12 @@ pub(super) fn join_wrapped_shell_headers(text: &str) -> String {
             let mut joined = None;
             for offset in 1..=2 {
                 let Some(next) = lines.get(index + offset) else { break };
-                if next.is_empty() || next.starts_with(char::is_whitespace) {
+                // Cursor wraps at the header's own indent; a deeper row is the command's output.
+                let indent = |row: &str| row.len() - row.trim_start().len();
+                if next.trim().is_empty() || indent(next) > indent(line) {
                     break;
                 }
-                merged.push_str(next);
+                merged.push_str(next.trim_start());
                 if is_tool_line(&merged.trim().to_ascii_lowercase()) {
                     joined = Some(offset);
                     break;
