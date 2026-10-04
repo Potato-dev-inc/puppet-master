@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::time::{Duration, Instant};
 use store::{
-    bump, change, current_runtime_id, find_key, indexed_projects, now_ms, path_for, persist, read,
-    root, task_index_path, DELEGATE_LOCK, UPDATE_LOCK,
+    bump, change, current_runtime_id, find_key, indexed_projects, now_ms, path_for, persist,
+    project_key, read, root, task_index_path, DELEGATE_LOCK, UPDATE_LOCK,
 };
 use uuid::Uuid;
 
@@ -408,7 +408,7 @@ pub fn list_indexed_operations(project_path: &str) -> Result<Vec<OperationSnapsh
     let mut projects = vec![project_path.to_string()];
     projects.extend(indexed_projects().unwrap_or_default());
     for project in projects {
-        if !seen.insert(project.clone()) {
+        if !seen.insert(project_key(&project)) {
             continue;
         }
         snapshots.extend(list_operations(&project)?);
@@ -443,7 +443,7 @@ pub fn resolve_agent_run(
         return Ok(snapshot);
     }
     for project in indexed_projects()? {
-        if project == project_path {
+        if project_key(&project) == project_key(project_path) {
             continue;
         }
         if let Some(snapshot) = latest_in_project(&project, agent_run_id)? {
@@ -464,7 +464,7 @@ pub fn agent_runs_by_project(
     let mut projects = vec![preferred.to_string()];
     projects.extend(indexed_projects()?);
     for project in projects {
-        if project.trim().is_empty() || !seen.insert(project.clone()) {
+        if project.trim().is_empty() || !seen.insert(project_key(&project)) {
             continue;
         }
         if let Some(snapshot) = latest_in_project(&project, agent_run_id)? {
@@ -1805,3 +1805,13 @@ pub fn snapshot_for_api(mut snapshot: OperationSnapshot) -> OperationSnapshot {
 #[cfg(test)]
 #[path = "operations/tests.rs"]
 mod tests;
+
+/// Test helper: how many index entries name the project with this comparable key.
+#[cfg(test)]
+pub(crate) fn indexed_project_keys_for_test(key: &str) -> usize {
+    indexed_projects()
+        .unwrap_or_default()
+        .iter()
+        .filter(|entry| project_key(entry) == key)
+        .count()
+}

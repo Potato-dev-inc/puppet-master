@@ -221,7 +221,13 @@ mod tests {
     }
 
     fn run(project: &str, handle: &str, owner: Option<&str>) -> OperationSnapshot {
-        let req = DelegateWorkRequest {
+        let mut req = run_request(project, handle);
+        req.owner_session_id = owner.map(str::to_string);
+        operations::create_operation(req).unwrap().0
+    }
+
+    fn run_request(project: &str, handle: &str) -> DelegateWorkRequest {
+        DelegateWorkRequest {
             project_path: project.to_string(),
             task: "t".into(),
             agent_type: "cursor_agent".into(),
@@ -234,15 +240,14 @@ mod tests {
             timeout_ms: 60_000,
             read_only: false,
             keep_pane: true,
-            owner_session_id: owner.map(str::to_string),
+            owner_session_id: None,
             worker_has_mcp_tools: false,
             agent_run_id: Some(handle.into()),
             turn_index: 0,
             worker: WorkerPersist::default(),
             context_policy: None,
             checks: Vec::new(),
-        };
-        operations::create_operation(req).unwrap().0
+        }
     }
 
     fn uniq(prefix: &str) -> String {
@@ -312,6 +317,66 @@ mod tests {
         assert_eq!(error.code, "AMBIGUOUS_HANDLE");
         // An explicit project disambiguates.
         assert!(resolve_target(&default, Some(&a), &handle, None).is_ok());
+    }
+
+    fn spellings(dir: &str) -> Vec<String> {
+        let mut out = vec![format!("{dir}{}", std::path::MAIN_SEPARATOR)];
+        #[cfg(windows)]
+        {
+            out.push(dir.replace('\\', "/"));
+            out.push(dir.to_ascii_uppercase());
+            out.push(format!(r"\\?\{dir}"));
+        }
+        out
+    }
+
+    #[test]
+    fn equivalent_spellings_of_one_project_are_not_ambiguous() {
+        // B2: run_agent with a forward-slash project_path, replayed, then answer_prompt(handle)
+        // without a project: the one project was indexed under two spellings.
+        let (home, default) = (project(), project());
+        for spelling in spellings(&home) {
+            let handle = uniq("run-spelling");
+            run(&spelling, &handle, None);
+            run_turn(&home, &handle, 1);
+            let found = resolve_target(&default, None, &handle, None)
+                .unwrap_or_else(|e| panic!("{spelling}: {} {}", e.code, e.message));
+            assert_eq!(found.agent_run_id, handle);
+            // Explicit project in yet another spelling still resolves.
+            assert!(resolve_target(&default, Some(&spelling), &handle, None).is_ok());
+            assert_eq!(operations::agent_runs_by_project(&default, &handle).unwrap().len(), 1);
+        }
+    }
+
+    #[test]
+    fn project_index_stores_one_entry_per_project() {
+        let home = project();
+        let handle = uniq("run-index");
+        for (turn, spelling) in spellings(&home).iter().enumerate() {
+            run_turn(spelling, &handle, turn as u32);
+        }
+        let key = crate::project_path::comparable_project_path(std::path::Path::new(&home));
+        let entries = operations::indexed_project_keys_for_test(&key);
+        assert_eq!(entries, 1, "one index entry per project, got {entries}");
+    }
+
+    #[test]
+    fn distinct_projects_stay_ambiguous_even_when_spelled_differently() {
+        let (a, b, default) = (project(), project(), project());
+        let handle = uniq("run-distinct");
+        run(&a, &handle, None);
+        for (turn, spelling) in spellings(&b).iter().enumerate() {
+            run_turn(spelling, &handle, turn as u32);
+        }
+        let error = resolve_target(&default, None, &handle, None).unwrap_err();
+        assert_eq!(error.code, "AMBIGUOUS_HANDLE");
+        assert_eq!(error.context["projects"].as_array().unwrap().len(), 2);
+    }
+
+    fn run_turn(project: &str, handle: &str, turn: u32) -> OperationSnapshot {
+        let mut req = run_request(project, handle);
+        req.turn_index = turn;
+        operations::create_operation(req).unwrap().0
     }
 
     #[test]

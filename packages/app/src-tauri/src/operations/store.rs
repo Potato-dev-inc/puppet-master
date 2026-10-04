@@ -101,7 +101,10 @@ fn update_indexes(
     } else {
         HashMap::new()
     };
-    if !projects.iter().any(|existing| existing == project) {
+    // One entry per project, however its path is spelled (slash direction, case on Windows,
+    // trailing separator, extended-length prefix).
+    let key = project_key(project);
+    if !projects.iter().any(|existing| project_key(existing) == key) {
         projects.push(project.to_string());
     }
     if let Some(task_id) = task_id {
@@ -132,7 +135,17 @@ pub(super) fn indexed_projects() -> Result<Vec<String>, OperationError> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(err) => return Err(OperationError::io(err)),
     };
-    serde_json::from_slice(&bytes).map_err(OperationError::io)
+    let listed: Vec<String> = serde_json::from_slice(&bytes).map_err(OperationError::io)?;
+    // Older index files may hold several spellings of one project.
+    let mut seen = std::collections::HashSet::new();
+    Ok(listed
+        .into_iter()
+        .filter(|project| seen.insert(project_key(project)))
+        .collect())
+}
+/// Identity of a project directory independent of how its path is written.
+pub(crate) fn project_key(project: &str) -> String {
+    crate::project_path::comparable_project_path(Path::new(project))
 }
 pub(super) fn task_index_path() -> Result<PathBuf, OperationError> {
     Ok(index_dir()?.join("operation-task-index.json"))

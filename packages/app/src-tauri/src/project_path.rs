@@ -105,6 +105,21 @@ pub fn comparable_project_path(path: &Path) -> String {
     let normalized = normalize_project_path(path).unwrap_or_else(|_| path.to_path_buf());
     let canon = std::fs::canonicalize(&normalized).unwrap_or(normalized);
     let text = canon.to_string_lossy().replace('\\', "/");
+    // `\\?\C:\x` (extended-length) and `\\?\UNC\host\share` name the same places as `C:\x` and
+    // `\\host\share`; a trailing separator names the same directory as none.
+    let text = if let Some(rest) = text.strip_prefix("//?/UNC/") {
+        format!("//{rest}")
+    } else if let Some(rest) = text.strip_prefix("//?/").or_else(|| text.strip_prefix("//./")) {
+        rest.to_string()
+    } else {
+        text
+    };
+    let trimmed = text.trim_end_matches('/');
+    let text = if trimmed.is_empty() || trimmed.ends_with(':') {
+        text // a filesystem root keeps its separator
+    } else {
+        trimmed.to_string()
+    };
     if cfg!(windows) {
         text.to_ascii_lowercase()
     } else {
