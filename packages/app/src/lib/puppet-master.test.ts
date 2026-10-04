@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaneInfo, PaneStatus } from '@puppet-master/shared';
-import type { McpToolExecutor } from './mcp-tools';
+import type { McpToolExecutor } from './mcp-executor';
 import { classifyPaneAttention } from './pane-attention';
 import { parseSpawnedPaneId, standIdleForWorkers } from './puppet-master';
 import {

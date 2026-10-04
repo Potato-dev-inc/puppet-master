@@ -67,15 +67,6 @@ export function PlannedBadge({ compact }: { compact?: boolean }) {
   );
 }
 
-export function LiveBadge() {
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-      Live
-    </span>
-  );
-}
-
 export function SettingsSection({
   title,
   description,

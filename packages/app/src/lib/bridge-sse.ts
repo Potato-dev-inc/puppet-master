@@ -1,8 +1,9 @@
+// Bridge event stream (SSE): native EventSource for loopback, fetch-streaming for remote/ngrok hosts.
 import type { McpLogEntry, OrchestratorChatEvent, PaneInfo } from '@puppet-master/shared';
 import type { PublicSettings } from './bridge-settings';
-import { ngrokRequestHeaders } from './bridge-ngrok';
+import { isNgrokHost, ngrokRequestHeaders } from './bridge-ngrok';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
-import type { BridgeEvent } from './bridge';
+import type { BridgeEvent, OpenCodeWorkerEvent } from './bridge-types';
 
 function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: BridgeEvent) => void): void {
   const parsed = JSON.parse(data) as unknown;
@@ -22,7 +23,7 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
     const payload = parsed as { pane_id: string; status: PaneInfo['status'] };
     onEvent({ type: 'pane-status', pane_id: payload.pane_id, status: payload.status });
   } else if (eventName === 'opencode-worker') {
-    onEvent({ type: 'opencode-worker', event: parsed as import('./bridge').OpenCodeWorkerEvent });
+    onEvent({ type: 'opencode-worker', event: parsed as OpenCodeWorkerEvent });
   } else if (eventName === 'pane-resize') {
     const payload = parsed as { pane_id: string; cols: number; rows: number };
     onEvent({
@@ -121,5 +122,77 @@ export function subscribeBridgeEventsViaFetch(
   return () => {
     cancelled = true;
     abort?.abort();
+  };
+}
+
+const BRIDGE_EVENT_NAMES = [
+  'panes',
+  'log',
+  'chat',
+  'terminal',
+  'terminal-snapshot',
+  'pane-status',
+  'opencode-worker',
+  'pane-resize',
+  'settings',
+  'orchestrator-viewport',
+] as const;
+
+function shouldUseFetchBridgeSse(baseUrl: string): boolean {
+  if (isNgrokHost(baseUrl)) return true;
+  try {
+    const { hostname } = new URL(baseUrl);
+    return hostname !== '127.0.0.1' && hostname !== 'localhost';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Subscribe to the bridge SSE stream. Returns an unlisten function.
+ * If the bridge is unreachable, retries forever with exponential backoff.
+ */
+export function subscribeBridgeEvents(
+  baseUrl: string,
+  onEvent: (e: BridgeEvent) => void,
+  onError?: (err: unknown) => void,
+): () => void {
+  if (shouldUseFetchBridgeSse(baseUrl)) {
+    return subscribeBridgeEventsViaFetch(baseUrl, onEvent, onError);
+  }
+
+  let es: EventSource | null = null;
+  let cancelled = false;
+  let retryDelay = 500;
+
+  function connect() {
+    if (cancelled) return;
+    es = new EventSource(`${baseUrl}/events`);
+    for (const name of BRIDGE_EVENT_NAMES) {
+      es.addEventListener(name, (ev) => {
+        try {
+          dispatchBridgeEvent(name, (ev as MessageEvent).data as string, onEvent);
+        } catch (err) {
+          onError?.(err);
+        }
+      });
+    }
+    es.onerror = () => {
+      es?.close();
+      es = null;
+      if (cancelled) return;
+      setTimeout(connect, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 5000);
+    };
+    es.onopen = () => {
+      retryDelay = 500;
+    };
+  }
+
+  connect();
+
+  return () => {
+    cancelled = true;
+    es?.close();
   };
 }

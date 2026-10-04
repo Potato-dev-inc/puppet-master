@@ -1,0 +1,5 @@
+/* Tailwind entry points (must load first so utilities sit below the app's own rules). */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
