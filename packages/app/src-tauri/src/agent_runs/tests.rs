@@ -2642,3 +2642,37 @@ fn receipt_outcome_is_the_single_answer_to_did_it_work() {
     assert_eq!(receipt_of(parked_snapshot(OperationStatus::Running, "none")).outcome, "in_progress");
     assert_eq!(receipt_of(parked_snapshot(OperationStatus::Cancelled, "none")).outcome, "cancelled");
 }
+
+#[test]
+fn every_steer_disposition_says_whether_it_was_applied_and_what_to_do() {
+    use super::messaging::Disposition;
+    let all = [
+        Disposition::Accepted,
+        Disposition::AcceptedViaRestart,
+        Disposition::Queued,
+        Disposition::Processed,
+        Disposition::Deferred,
+        Disposition::Unsupported,
+        Disposition::Expired,
+        Disposition::Rejected,
+    ];
+    for disposition in all {
+        assert!(!disposition.next_action().is_empty(), "{disposition:?}");
+    }
+    // Applied means it reached the turn it was meant for; a queued correction does not change
+    // the running turn, which is exactly what the receipt must not hide.
+    for applied in [Disposition::Accepted, Disposition::AcceptedViaRestart, Disposition::Processed] {
+        assert!(applied.applied(), "{applied:?}");
+    }
+    for not_applied in [
+        Disposition::Queued,
+        Disposition::Deferred,
+        Disposition::Unsupported,
+        Disposition::Expired,
+        Disposition::Rejected,
+    ] {
+        assert!(!not_applied.applied(), "{not_applied:?}");
+    }
+    assert!(Disposition::Queued.next_action().contains("followup_task"));
+    assert!(Disposition::Expired.next_action().contains("followup_task"));
+}

@@ -47,6 +47,35 @@ pub enum Disposition {
 }
 
 impl Disposition {
+    /// True when the message reached the turn it was meant to steer (live, or by restarting it).
+    pub fn applied(self) -> bool {
+        matches!(self, Self::Accepted | Self::AcceptedViaRestart | Self::Processed)
+    }
+
+    /// What the caller should do next, in plain words.
+    pub fn next_action(self) -> &'static str {
+        match self {
+            Self::Accepted => "wait for the turn; the message was delivered to the running turn",
+            Self::AcceptedViaRestart => {
+                "wait for the restarted turn; work the interrupted turn had not finished was not carried over"
+            }
+            Self::Processed => "none: the turn's result reflects the message",
+            Self::Queued => {
+                "not applied yet and it does NOT change the running turn; it expires when the turn ends, so send it with followup_task if you still need it"
+            }
+            Self::Deferred => {
+                "not applied yet; it is held until the worker can take it, then it is delivered or expires"
+            }
+            Self::Expired => {
+                "not applied: the turn ended before the message was delivered; send it with followup_task(handle, task)"
+            }
+            Self::Rejected => "not applied: the turn already finished; use followup_task for the next turn",
+            Self::Unsupported => {
+                "not applied: this backend cannot steer a running turn; wait for it to finish and use followup_task, or cancel_agent"
+            }
+        }
+    }
+
     #[allow(dead_code)]
     pub const ALL: &'static [&'static str] = &[
         "accepted",
@@ -257,6 +286,9 @@ pub fn receipt_value(receipt: &MessageReceipt) -> serde_json::Value {
     if receipt.disposition == Disposition::Rejected {
         value["suggestion"] = json!("turn already finished; use followup_task for the next turn");
     }
+    // Spell out what the disposition means so a caller never has to infer it from the final answer.
+    value["applied"] = json!(receipt.disposition.applied());
+    value["next_action"] = json!(receipt.disposition.next_action());
     value
 }
 
