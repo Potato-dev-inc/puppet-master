@@ -123,6 +123,51 @@ fn replay_matches_original_request_after_dispatch_assigns_pane_task_and_locks() 
 }
 
 #[test]
+fn replay_while_running_returns_the_same_run_and_never_repeats_side_effects() {
+    let project = Project::new();
+    let mut original = request_with_worker_assigned_fields(&project, "running-replay");
+    original.agent_run_id = Some("stable-handle".into());
+    let spawns = AtomicUsize::new(0);
+    let first = operations::delegate_work(original.clone(), |op| {
+        spawns.fetch_add(1, Ordering::SeqCst); // pane spawn + prompt delivery stand-in
+        op.pane_id = Some("spawned-pane".into());
+        op.pane_created = true;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(first.status, OperationStatus::Running, "the worker is mid-turn");
+
+    for _ in 0..3 {
+        let replay = operations::delegate_work(original.clone(), |_| {
+            spawns.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(replay.operation_id, first.operation_id);
+        assert_eq!(replay.agent_run_id, "stable-handle");
+        assert_eq!(replay.status, OperationStatus::Running);
+        assert_eq!(replay.pane_id.as_deref(), Some("spawned-pane"));
+    }
+    assert_eq!(spawns.load(Ordering::SeqCst), 1);
+
+    // A changed request under the same key is a conflict, also while the run is live, and it
+    // neither dispatches nor disturbs the running operation.
+    let mut changed = original;
+    changed.task = "something else".into();
+    let dispatched = AtomicUsize::new(0);
+    let error = operations::delegate_work(changed, |_| {
+        dispatched.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    })
+    .unwrap_err();
+    assert_eq!(error.code, "IDEMPOTENCY_KEY_CONFLICT");
+    assert_eq!(dispatched.load(Ordering::SeqCst), 0);
+    let still = operations::get_operation(&project.str(), &first.operation_id).unwrap();
+    assert_eq!(still.status, OperationStatus::Running);
+    assert_eq!(operations::list_operations(&project.str()).unwrap().len(), 1);
+}
+
+#[test]
 fn reusing_key_with_changed_request_fields_conflicts() {
     let project = Project::new();
     let original = request(&project, "conflict-key");
@@ -872,4 +917,44 @@ fn concurrent_runs_locking_the_same_file_let_exactly_one_proceed() {
         .filter(|won| *won)
         .count();
     assert_eq!(winners, 1);
+}
+
+/// Locks live in the durable event log, so an operation the restart marked interrupted must not
+/// keep its resources locked forever.
+#[test]
+fn startup_recovery_releases_locks_held_by_interrupted_operations() {
+    let project = Project::new();
+    let held = locked_operation(&project, "lock-interrupted", "file:src/restart.rs");
+    crate::bridge::acquire_operation_locks(&held).unwrap();
+    operations::mark_operation_state(
+        &project.str(),
+        &held.operation_id,
+        OperationStatus::Starting,
+        StateSource::Native,
+        Some("dispatching".into()),
+        None,
+        None,
+    )
+    .unwrap();
+    let record_path = project
+        .0
+        .join(".puppet-master")
+        .join("operations")
+        .join(format!("{}.json", held.operation_id));
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&record_path).unwrap()).unwrap();
+    record["runtime_id"] = serde_json::Value::String("previous-runtime".into());
+    std::fs::write(&record_path, serde_json::to_vec(&record).unwrap()).unwrap();
+
+    let blocked = locked_operation(&project, "lock-after-restart", "file:src/restart.rs");
+    assert_eq!(
+        crate::bridge::acquire_operation_locks(&blocked).unwrap_err().code,
+        "RESOURCE_LOCKED"
+    );
+
+    let recovered = crate::bridge::recover_interrupted_operations_on_startup().unwrap();
+    assert!(recovered
+        .iter()
+        .any(|op| op.operation_id == held.operation_id && op.status == OperationStatus::Failed));
+    crate::bridge::acquire_operation_locks(&blocked).unwrap();
 }

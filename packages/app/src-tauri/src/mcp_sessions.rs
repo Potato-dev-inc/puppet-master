@@ -1711,6 +1711,62 @@ mod tests {
     }
 
     #[test]
+    fn reconnect_recovers_only_the_owners_panes_never_another_live_connections() {
+        let owner = id();
+        let neighbour = id();
+        let own_pane = format!("pane-{}", id());
+        let their_pane = format!("pane-{}", id());
+        let own_run = format!("run-{}", id());
+        let their_run = format!("run-{}", id());
+        register_owned_pane(&owner, &own_pane).unwrap();
+        register_owned_agent(&owner, &own_run).unwrap();
+        register_owned_pane(&neighbour, &their_pane).unwrap();
+        register_owned_agent(&neighbour, &their_run).unwrap();
+        note_session_pid(&neighbour, std::process::id());
+        let owner_identity = session_identity(&owner);
+
+        // The owner's connection drops; a new one reattaches with the owner's token.
+        let replacement = id();
+        let attached =
+            attach_coordinator(&replacement, Some(&owner_identity.attach_token), None).unwrap();
+        let panes = attached["panes"].as_array().unwrap();
+        assert!(panes.iter().any(|p| p == own_pane.as_str()));
+        assert!(!panes.iter().any(|p| p == their_pane.as_str()));
+        assert!(attached["handles"].as_array().unwrap().iter().all(|h| h != their_run.as_str()));
+        assert!(session_controls_pane(&replacement, &own_pane));
+        assert!(check_run_access(&replacement, &own_run).is_ok());
+
+        // The live neighbour keeps its own and the reconnected owner cannot touch them.
+        assert!(session_controls_pane(&neighbour, &their_pane));
+        assert!(!session_controls_pane(&replacement, &their_pane));
+        assert!(check_run_access(&neighbour, &their_run).is_ok());
+        assert!(check_run_access(&replacement, &their_run).is_err());
+        assert!(check_run_read_access(&replacement, &their_run).is_err());
+        assert!(check_run_wait_access(&replacement, &their_run).is_ok() == false);
+        // Presenting the neighbour's id or the owner's token again does not move their lease.
+        assert!(attach_coordinator(&replacement, Some("guess"), Some("whoever")).is_err());
+        assert!(inspect_lease(&their_run).unwrap().owner == neighbour);
+    }
+
+    #[test]
+    fn terminal_run_lease_release_leaves_it_reclaimable_by_owner_only_via_token_or_grant() {
+        let owner = id();
+        let other = id();
+        let handle = format!("run-{}", id());
+        register_owned_agent(&owner, &handle).unwrap();
+        note_session_pid(&owner, std::process::id());
+        let identity = session_identity(&owner);
+        release_agent_lease(&owner, &handle).unwrap();
+        // Released: nobody controls it, but a stranger still needs an explicit grant.
+        assert!(check_run_access(&other, &handle).is_err());
+        let replacement = id();
+        attach_coordinator(&replacement, Some(&identity.attach_token), None).unwrap();
+        // The owner's new connection may take its own released lease back.
+        take_over_agent(&replacement, &handle, true).unwrap();
+        assert!(check_run_access(&replacement, &handle).is_ok());
+    }
+
+    #[test]
     fn caller_supplied_coordinator_name_does_not_grant_authority() {
         let owner = id();
         let other = id();

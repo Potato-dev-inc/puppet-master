@@ -653,7 +653,7 @@ pub fn start_embedded_bridge(
 ) -> Result<BridgeHandle, String> {
     let _ = BRIDGE_APP.set(app.clone());
     let _ = BRIDGE_REGISTRY.set(registry.clone());
-    if let Ok(recovered) = crate::operations::recover_all_interrupted_operations() {
+    if let Ok(recovered) = recover_interrupted_operations_on_startup() {
         for snapshot in recovered {
             push_operation_sse(&snapshot);
         }
@@ -2375,6 +2375,20 @@ pub(crate) fn acquire_operation_locks(
         .map_err(|err| crate::operations::OperationError::new("EVENT_WRITE_FAILED", err, true))?;
     }
     Ok(())
+}
+
+/// Fail operations a previous app process left active, and free the resource locks they held.
+/// Locks are durable event-log entries, so without this an interrupted run would keep its files
+/// locked across every later restart.
+pub(crate) fn recover_interrupted_operations_on_startup(
+) -> Result<Vec<crate::operations::OperationSnapshot>, crate::operations::OperationError> {
+    let recovered = crate::operations::recover_all_interrupted_operations()?;
+    for snapshot in &recovered {
+        if let Err(err) = release_operation_locks(snapshot) {
+            tracing::warn!(%err, operation_id = %snapshot.operation_id, "failed to release locks of interrupted operation");
+        }
+    }
+    Ok(recovered)
 }
 
 /// Release the locks held by `operation`. Locks currently owned by a different operation are
