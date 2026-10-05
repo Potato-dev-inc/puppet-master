@@ -1,11 +1,12 @@
 //! Claude Code CLI (`claude`). Everything Claude-specific lives in this folder:
 //!
 //! - `headless` — command line for headless runs and reading their JSON output
+//! - `screen` — whether the interactive TUI is working (drives how soon a pane reads idle)
 //!
-//! Interactive-pane heuristics for Claude (status, approvals) are not special yet and use the
-//! generic defaults; add a `screen.rs` here when they need to be.
+//! Other interactive-pane heuristics for Claude (status, approvals) use the generic defaults.
 
 mod headless;
+mod screen;
 
 use super::{Features, HeadlessLaunch, LaunchSpec, TuiProfile};
 
@@ -41,5 +42,33 @@ impl TuiProfile for Claude {
 
     fn extract_model(&self, output: &str) -> Option<String> {
         headless::extract_model(output)
+    }
+
+    /// The activity row animates every ~100-250ms for the whole turn, so 2s of stillness with it
+    /// on screen is a stuck or blocked TUI, not a working one.
+    fn idle_after(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(2)
+    }
+
+    fn busy_marker(&self, visible_tail: &str) -> Option<bool> {
+        Some(screen::shows_work_in_progress(visible_tail))
+    }
+
+    /// No activity row and 800ms of stillness: the turn is over (live capture of a finished turn).
+    fn quiet_idle_after(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(800)
+    }
+
+    fn is_chrome_line(&self, lower: &str) -> bool {
+        screen::is_chrome_line(lower)
+    }
+
+    /// Typing the prompt and Enter in one burst is taken for a paste: Claude drops the Enter as an
+    /// "invisible character" and waits for the user to "review and press Enter to send" (live,
+    /// v2.1.287). The verified protocol types the text, confirms it is in the box, then sends Enter
+    /// on its own. There is no clear sequence: Ctrl+U is not a kill-line key there, it is typed
+    /// into the box as another invisible character.
+    fn verifies_prompt_delivery(&self) -> bool {
+        true
     }
 }
