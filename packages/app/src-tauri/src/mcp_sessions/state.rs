@@ -3,6 +3,7 @@
 
 #[cfg(not(test))]
 use super::persist::restore_snapshot;
+use super::coalesce::Coalescer;
 use super::persist::{persist_path, snapshot_state};
 use crate::tool_registry::McpMode;
 use once_cell::sync::Lazy;
@@ -41,7 +42,7 @@ pub(super) struct CoordinatorRecord {
     pub(super) connection_id: String,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct State {
     pub(super) sessions: HashMap<String, Session>,
     pub(super) coordinators: HashMap<String, CoordinatorRecord>,
@@ -82,15 +83,29 @@ impl std::ops::DerefMut for StateGuard {
     }
 }
 
+/// Background writer for the persisted table: the guard publishes a clone and moves on, so the
+/// process-wide lock is never held across serialization or disk I/O. Identical consecutive
+/// snapshots (a take_over that changed nothing) are not rewritten.
+static WRITER: Lazy<Option<std::sync::Arc<Coalescer<State>>>> = Lazy::new(|| {
+    let path = persist_path()?;
+    let mut last_written: Option<String> = None;
+    Some(Coalescer::spawn("mcp-sessions-writer", move |state: State| {
+        let text = snapshot_state(&state).to_string();
+        if last_written.as_deref() == Some(text.as_str()) {
+            return;
+        }
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, &text).is_ok() && std::fs::rename(&tmp, &path).is_ok() {
+            last_written = Some(text);
+        }
+    }))
+});
+
 impl Drop for StateGuard {
     fn drop(&mut self) {
         if self.dirty {
-            if let Some(path) = persist_path() {
-                let text = snapshot_state(&self.inner).to_string();
-                let tmp = path.with_extension("json.tmp");
-                if std::fs::write(&tmp, text).is_ok() {
-                    let _ = std::fs::rename(&tmp, &path);
-                }
+            if let Some(writer) = WRITER.as_ref() {
+                writer.submit((*self.inner).clone());
             }
         }
     }

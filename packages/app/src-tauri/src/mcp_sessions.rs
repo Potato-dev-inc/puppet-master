@@ -12,6 +12,7 @@
 
 mod access;
 mod authorize;
+mod coalesce;
 mod handles;
 mod identity;
 mod leases;
