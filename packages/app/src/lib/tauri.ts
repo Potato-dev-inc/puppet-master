@@ -26,6 +26,8 @@ import type {
   OpenCodeKeyStatus,
   RotateOpenCodeKeyResult,
   AppInstallInfo,
+  StandbyConfig,
+  StandbyStatus,
 } from './tauri-types';
 
 export type * from './tauri-types';
@@ -296,6 +298,9 @@ export const tauri = {
       updatedAt: number;
     } | null>('get_mobile_tunnel_info', undefined, null, true),
 
+  standbyGetStatus: () => safeInvoke<StandbyStatus | null>('standby_get_status', undefined, null, true),
+  standbySetConfig: (config: StandbyConfig) =>
+    safeInvoke<StandbyStatus | null>('standby_set_config', { config }, null, true),
   getAppInstallInfo: () =>
     safeInvoke<AppInstallInfo>(
       'get_app_install_info',

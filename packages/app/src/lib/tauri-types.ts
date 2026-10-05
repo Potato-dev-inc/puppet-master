@@ -99,3 +99,60 @@ export interface AppInstallInfo {
   uninstallInstructions: string;
   dataDir: string;
 }
+
+/** Warm standby pool settings (`standby-pool.json`; see `src-tauri/src/standby`). */
+export interface StandbyBackendToggle {
+  visible: boolean;
+  headless: boolean;
+}
+
+export interface StandbyConfig {
+  enabled: boolean;
+  backends: Record<string, StandbyBackendToggle>;
+  max_total: number;
+  recent_projects: number;
+  recent_hours: number;
+  idle_timeout_secs: number;
+}
+
+export interface StandbyView {
+  id: number;
+  agent_type: string;
+  project: string;
+  headless: boolean;
+  read_only: boolean;
+  model: string | null;
+  state: 'starting' | 'ready';
+  health: string;
+  age_ms: number;
+  ready_for_ms: number | null;
+  idle_expires_in_ms: number | null;
+  pane_id?: string;
+}
+
+export interface StandbyBlockedView {
+  key: string;
+  reason: string;
+  fails: number;
+  retry_in_ms: number;
+  cold: boolean;
+}
+
+export interface StandbyStatus {
+  enabled: boolean;
+  config: StandbyConfig;
+  counts: { total: number; ready: number; starting: number };
+  standbys: StandbyView[];
+  blocked: StandbyBlockedView[];
+  recent: { key: string; age_ms: number }[];
+  stats: {
+    spawned: number;
+    spawn_failed: number;
+    claimed: number;
+    missed: number;
+    discarded: number;
+    expired: number;
+    abandoned: number;
+  };
+  supported: { agent_type: string; visible: boolean; headless: boolean }[];
+}
