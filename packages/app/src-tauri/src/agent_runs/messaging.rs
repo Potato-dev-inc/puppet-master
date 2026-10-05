@@ -328,6 +328,7 @@ pub fn latest_steer(project: &str, handle: &str) -> Option<MessageReceipt> {
     load_all(project, handle).into_iter().next_back()
 }
 
+#[cfg(test)]
 pub fn mark_open_steers_processed(project: &str, handle: &str, result: &str) {
     mark_steers_processed(project, handle, result, None);
 }
@@ -437,7 +438,7 @@ fn upsert_receipt(
 ) -> Result<(), OperationError> {
     let key = store_key(project, handle);
     let mut all = cache().lock();
-    let entries = all.entry(key).or_insert_with(Vec::new);
+    let entries = all.entry(key).or_default();
     if let Some(existing) = entries
         .iter_mut()
         .find(|existing| existing.idempotency_key == receipt.idempotency_key)

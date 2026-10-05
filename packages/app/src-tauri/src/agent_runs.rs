@@ -37,5 +37,4 @@ pub use runtime::{record_user_task, supervise_existing, AgentRunRequest, AgentRu
 pub use capabilities::{read_only_supported, read_only_supported_for, read_only_unsupported_message};
 
 #[cfg(test)]
-#[path = "agent_runs/tests.rs"]
 mod tests;

@@ -139,6 +139,7 @@ pub fn needs_redelivery(
     profile_verifies && running && !dispatch_in_flight && !prompt_dispatched && !already_redelivered
 }
 
+#[cfg(test)]
 pub fn deliver_prompt(io: &mut dyn DeliveryIo, clear: Option<&str>, prompt: &str) -> Delivery {
     deliver_prompt_traced(io, clear, prompt, &mut Vec::new())
 }

@@ -309,12 +309,12 @@ fn recapture_never_invents_a_reply() {
         .with_previous_task(FIRST);
     // Echo and "Composing" only, no assistant text anywhere.
     let full = format!("> {FIRST}\n\nALPHA\n\n> {SECOND}\n\nComposing 12 tokens\n\n{FOOTER}");
-    assert_eq!(recapture_reply(&watch, &FOOTER, &full), None);
+    assert_eq!(recapture_reply(&watch, FOOTER, &full), None);
     // No echo of this turn's prompt at all: nothing after it can be attributed to the turn.
     let stale = format!("> {FIRST}\n\nALPHA\n\n{FOOTER}");
     assert_eq!(scrollback_reply(&stale, SECOND, FIRST), None);
     // The previous turn's reply is not this turn's.
-    assert_eq!(recapture_reply(&watch, &FOOTER, &stale), None);
+    assert_eq!(recapture_reply(&watch, FOOTER, &stale), None);
 }
 
 #[test]
