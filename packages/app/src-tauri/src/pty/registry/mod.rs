@@ -19,6 +19,7 @@ use super::status::PaneStatus;
 use crate::events::{PaneId, SystemEvent};
 
 mod command;
+mod idle;
 mod pane_io;
 mod spawn;
 
@@ -27,8 +28,8 @@ pub use pane_io::*;
 pub use spawn::*;
 
 const SCROLLBACK_CAP: usize = 10_000;
-const IDLE_AFTER: Duration = Duration::from_secs(5);
-const READ_CHUNK_MS: u64 = 30;
+/// Default quiet window before a running pane reads idle; a profile may shorten it (`TuiProfile::idle_after`).
+pub(crate) const DEFAULT_IDLE_AFTER: Duration = Duration::from_secs(5);
 
 /// Default project cwd used when no project path has been set.
 fn default_cwd() -> String {

@@ -47,7 +47,9 @@ pub(super) fn spawn_pane_with_timeout(
 }
 
 /// Screen must hold still this long after the pane reads idle before a prompt is typed into it.
-const PANE_SETTLE: Duration = Duration::from_millis(700);
+/// Idle already means the screen held still for the profile's `idle_after`, so this only has to
+/// confirm two consecutive equal reads.
+const PANE_SETTLE: Duration = Duration::from_millis(250);
 
 /// Wait until the pane reads idle AND its screen has stopped changing. Status goes idle before a
 /// TUI has finished redrawing its input box, and a prompt typed into that window is dropped.

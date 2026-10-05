@@ -93,6 +93,13 @@ pub trait TuiProfile: Sync {
 
     // ---- visible pane -------------------------------------------------------------------
 
+    /// How long a running pane's screen must hold still before it reads `idle`. The default is
+    /// conservative; a TUI whose busy states always animate (a spinner, a timer) can shorten it so
+    /// a finished turn is noticed sooner. Completion detection waits for `idle`.
+    fn idle_after(&self) -> std::time::Duration {
+        crate::pty::registry::DEFAULT_IDLE_AFTER
+    }
+
     /// Classify the last visible lines when this TUI has screens the generic prompt heuristic
     /// misreads. `None` falls through to the generic heuristic.
     fn classify_screen(&self, _visible_tail: &str) -> Option<PaneStatus> {

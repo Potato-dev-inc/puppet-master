@@ -84,6 +84,8 @@ pub fn spawn_pane(
     let screen = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, SCROLLBACK_CAP)));
     let status = Arc::new(Mutex::new(PaneStatus::Running));
     let last_output = Arc::new(Mutex::new(Instant::now()));
+    let idle_clock = Arc::new(idle::IdleClock::new(Instant::now()));
+    let idle_after = crate::tui::profile_for(&args.agent_type).idle_after();
     let exited = Arc::new(Mutex::new(false));
 
     let info = PaneInfo {
@@ -122,6 +124,7 @@ pub fn spawn_pane(
         let screen = screen.clone();
         let status = status.clone();
         let last_output = last_output.clone();
+        let idle_clock = idle_clock.clone();
         let exited = exited.clone();
         thread::Builder::new()
             .name(format!("pty-reader-{pane_id}"))
@@ -168,14 +171,21 @@ pub fn spawn_pane(
                             };
                             *last_output.lock() = Instant::now();
 
-                            // Classify the current VT screen together with recent
-                            // output. Historical prompt text in scrollback must
-                            // not make a later agent response look blocked.
-                            let recent = scrollback.lock().tail_text(8);
+                            // Output that leaves every visible cell alone (cursor and
+                            // attribute sequences) is not activity: it neither postpones
+                            // idleness nor re-runs the classifier, which would flip an idle
+                            // pane back to running on every chunk.
+                            if snapshot == last_snapshot {
+                                continue;
+                            }
+                            idle_clock.screen_changed(Instant::now());
+
+                            // Classify the current VT screen. Historical prompt text in
+                            // scrollback must not make a later agent response look blocked.
                             let new_status = crate::pty::status::classify_agent_observation(
                                 &agent_type,
                                 &snapshot,
-                                &recent,
+                                "",
                             );
                             let changed = {
                                 let mut s = status.lock();
@@ -187,16 +197,14 @@ pub fn spawn_pane(
                                 }
                             };
 
-                            if snapshot != last_snapshot {
-                                last_snapshot = snapshot.clone();
-                                let _ = app.emit(
-                                    "terminal-snapshot",
-                                    TerminalSnapshotEvent {
-                                        pane_id: pane_id.clone(),
-                                        snapshot,
-                                    },
-                                );
-                            }
+                            last_snapshot = snapshot.clone();
+                            let _ = app.emit(
+                                "terminal-snapshot",
+                                TerminalSnapshotEvent {
+                                    pane_id: pane_id.clone(),
+                                    snapshot,
+                                },
+                            );
 
                             if changed {
                                 let s = *status.lock();
@@ -245,22 +253,21 @@ pub fn spawn_pane(
             .map_err(|e| format!("spawn reader thread: {e}"))?;
     }
 
-    // Idle watcher thread — flips Running -> Idle after IDLE_AFTER with no output.
+    // Idle watcher thread: flips Running -> Idle once the screen has held still for the profile's idle_after.
     {
         let pane_id = pane_id.clone();
         let app = app.clone();
-        let last_output = last_output.clone();
+        let idle_clock = idle_clock.clone();
         let status = status.clone();
         let exited = exited.clone();
         thread::Builder::new()
             .name(format!("pty-idle-{pane_id}"))
             .spawn(move || loop {
-                thread::sleep(Duration::from_millis(READ_CHUNK_MS * 20));
+                thread::sleep(idle::IDLE_POLL);
                 if *exited.lock() {
                     break;
                 }
-                let since = last_output.lock().elapsed();
-                if since >= IDLE_AFTER {
+                if idle_clock.idle_due(Instant::now(), idle_after) {
                     let became_idle = {
                         let mut s = status.lock();
                         if *s == PaneStatus::Running {

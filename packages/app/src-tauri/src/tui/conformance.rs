@@ -172,3 +172,16 @@ fn shell_helper_agrees_with_kind() {
         assert_eq!(is_shell(id), profile.features().kind == Kind::Shell, "{id}");
     }
 }
+
+#[test]
+fn idle_windows_are_sane_and_only_animated_tuis_shorten_them() {
+    use std::time::Duration;
+    for profile in profiles() {
+        let id = profile.id();
+        let window = profile.idle_after();
+        assert!(window >= Duration::from_millis(1500), "{id}: {window:?} is too short to ride out a quiet spinner frame");
+        assert!(window <= Duration::from_secs(5), "{id}: {window:?} is longer than the default");
+    }
+    // Cursor's spinner repaints every ~250ms, which is what justifies its shorter window.
+    assert!(crate::tui::profile_for("cursor_agent").idle_after() < crate::pty::registry::DEFAULT_IDLE_AFTER);
+}
