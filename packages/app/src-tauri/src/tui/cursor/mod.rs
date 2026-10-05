@@ -153,12 +153,6 @@ impl TuiProfile for CursorAgent {
         warnings
     }
 
-    /// Cursor repaints its spinner/timer row at least every ~250ms while a turn runs (frames
-    /// recorded live), so a screen that held still for 2s is a finished or blocked turn.
-    fn idle_after(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(2)
-    }
-
     fn busy_marker(&self, visible_tail: &str) -> Option<bool> {
         Some(screen::shows_work_in_progress(visible_tail))
     }

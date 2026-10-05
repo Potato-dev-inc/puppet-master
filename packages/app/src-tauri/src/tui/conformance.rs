@@ -185,6 +185,4 @@ fn idle_windows_are_sane_and_only_animated_tuis_shorten_them() {
         assert!(quiet <= window, "{id}: the quiet window {quiet:?} must not exceed {window:?}");
         assert!(quiet >= Duration::from_millis(500), "{id}: {quiet:?} would flip between spinner frames");
     }
-    // Cursor's spinner repaints every ~250ms, which is what justifies its shorter window.
-    assert!(crate::tui::profile_for("cursor_agent").idle_after() < crate::pty::registry::DEFAULT_IDLE_AFTER);
 }

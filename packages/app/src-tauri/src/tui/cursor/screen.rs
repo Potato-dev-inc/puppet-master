@@ -248,6 +248,8 @@ mod tests {
     fn the_quiet_window_is_shorter_than_the_busy_one_and_never_below_the_spinner_period() {
         let cursor = crate::tui::profile_for("cursor_agent");
         assert!(cursor.quiet_idle_after() < cursor.idle_after());
+        // The busy window stays long: the trust handshake is a static screen for ~2.4s that must not read idle.
+        assert!(cursor.idle_after() >= std::time::Duration::from_secs(5));
         // The spinner repaints about every 250ms; the quiet window must ride out several frames.
         assert!(cursor.quiet_idle_after() >= std::time::Duration::from_millis(500));
     }

@@ -44,12 +44,6 @@ impl TuiProfile for Claude {
         headless::extract_model(output)
     }
 
-    /// The activity row animates every ~100-250ms for the whole turn, so 2s of stillness with it
-    /// on screen is a stuck or blocked TUI, not a working one.
-    fn idle_after(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(2)
-    }
-
     fn busy_marker(&self, visible_tail: &str) -> Option<bool> {
         Some(screen::shows_work_in_progress(visible_tail))
     }
