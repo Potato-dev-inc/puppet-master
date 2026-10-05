@@ -100,6 +100,18 @@ pub trait TuiProfile: Sync {
         crate::pty::registry::DEFAULT_IDLE_AFTER
     }
 
+    /// Whether the last visible lines show the TUI actively working (a spinner, a stop hint):
+    /// `Some(true)`, `Some(false)` when it provably is not, `None` when the profile cannot tell.
+    fn busy_marker(&self, _visible_tail: &str) -> Option<bool> {
+        None
+    }
+
+    /// The shorter window used instead of `idle_after` while `busy_marker` says `Some(false)`.
+    /// A screen with no sign of work that holds still this long is a finished turn.
+    fn quiet_idle_after(&self) -> std::time::Duration {
+        self.idle_after()
+    }
+
     /// Classify the last visible lines when this TUI has screens the generic prompt heuristic
     /// misreads. `None` falls through to the generic heuristic.
     fn classify_screen(&self, _visible_tail: &str) -> Option<PaneStatus> {

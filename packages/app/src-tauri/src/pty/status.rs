@@ -112,6 +112,23 @@ pub fn classify_agent_observation(agent_type: &str, screen: &str, _recent: &str)
     }
 }
 
+/// The profile's view of whether the screen shows work in progress (`None` = cannot tell). Built
+/// from the same last-12-rows tail the classifier uses.
+pub fn busy_marker(agent_type: &str, screen: &str) -> Option<bool> {
+    let clean_screen = strip_ansi(screen);
+    let visible_tail = clean_screen
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .rev()
+        .take(12)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
+    crate::tui::profile_for(agent_type).busy_marker(&visible_tail)
+}
+
 pub fn is_shell_agent(agent_type: &str) -> bool {
     crate::tui::is_shell(agent_type)
 }

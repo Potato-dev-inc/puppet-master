@@ -30,6 +30,15 @@ impl IdleClock {
     }
 }
 
+/// The window to apply: the profile's `quiet` one while it says the screen shows no sign of work,
+/// otherwise the conservative `base` one.
+pub(super) fn idle_window(busy_marker: Option<bool>, base: Duration, quiet: Duration) -> Duration {
+    match busy_marker {
+        Some(false) => quiet.min(base),
+        _ => base,
+    }
+}
+
 /// How often the idle watcher looks. Bounds how late an idle flip can be on top of `idle_after`.
 pub(super) const IDLE_POLL: Duration = Duration::from_millis(100);
 
@@ -54,6 +63,16 @@ mod tests {
         clock.screen_changed(start + Duration::from_millis(1000));
         assert!(!clock.idle_due(start + Duration::from_millis(2400), window));
         assert!(clock.idle_due(start + Duration::from_millis(2500), window));
+    }
+
+    #[test]
+    fn the_quiet_window_applies_only_when_the_profile_says_no_work_is_showing() {
+        let (base, quiet) = (Duration::from_secs(2), Duration::from_millis(700));
+        assert_eq!(idle_window(Some(false), base, quiet), quiet);
+        assert_eq!(idle_window(Some(true), base, quiet), base, "a spinner or stop hint keeps the long window");
+        assert_eq!(idle_window(None, base, quiet), base, "unknown is conservative");
+        // A profile can never make the quiet window longer than the base one.
+        assert_eq!(idle_window(Some(false), quiet, base), quiet);
     }
 
     #[test]

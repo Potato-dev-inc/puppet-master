@@ -75,6 +75,36 @@ pub(super) fn classify(visible_tail: &str) -> PaneStatus {
     PaneStatus::Running
 }
 
+/// Whether the visible rows show Cursor working: its braille spinner (any label: Composing,
+/// Running, Thinking), the "ctrl+c to stop" hint that stays on the input row for the whole turn,
+/// or the workspace-trust handshake that is still redrawing into the input box.
+pub(super) fn shows_work_in_progress(visible_tail: &str) -> bool {
+    let lower = visible_tail.to_ascii_lowercase();
+    visible_tail.chars().any(|ch| ('\u{2800}'..='\u{28ff}').contains(&ch))
+        || lower.contains("ctrl+c to stop")
+        || trust_handshake_in_progress(visible_tail)
+}
+
+/// "Trusting workspace..." with nothing of the real UI below it yet. Once Cursor has drawn its
+/// banner or input row underneath, the old dialog is only scrollback (it stays within the visible
+/// rows for the rest of a cold run) and says nothing about the current state.
+fn trust_handshake_in_progress(visible_tail: &str) -> bool {
+    let lines: Vec<&str> = visible_tail.lines().collect();
+    let Some(last) = lines
+        .iter()
+        .rposition(|line| line.to_ascii_lowercase().contains("trusting workspace"))
+    else {
+        return false;
+    };
+    !lines[last + 1..].iter().any(|line| {
+        let lower = line.trim().trim_start_matches(['\u{2192}', '>', ' ']).to_ascii_lowercase();
+        lower.starts_with("plan, search, build anything")
+            || lower.starts_with("add follow-up")
+            || lower.starts_with("add a follow-up")
+            || lower == "cursor agent"
+    })
+}
+
 /// Narrow on purpose: only Cursor's trust and command-approval dialogs. There is no broad
 /// "allow all" prompt, so `allow_broad` is ignored.
 pub(super) fn detect_prompt(agent_type: &str, screen: &str, _allow_broad: bool) -> Option<Value> {
@@ -191,6 +221,35 @@ mod tests {
 
     fn status(screen: &str) -> PaneStatus {
         classify_agent_observation("cursor_agent", screen, "")
+    }
+
+    // Rows recorded from a live Cursor Agent session (v2026.10.01).
+    const WORKING_SCREEN: &str = "DONE.\n  \u{2820}\u{231c} Composing  5 tokens\n  Tip: Use subagents to parallelize work\n  \u{2192} Add a follow-up      ctrl+c to stop\n  Composer 2.5\n";
+    const RUNNING_TOOL_SCREEN: &str = "  \u{2820}\u{249b} Running  52 tokens\n  \u{2192} Add a follow-up      ctrl+c to stop\n  1 task\n  Composer 2.5 \u{b7} 7.4%\n";
+    const FINISHED_SCREEN: &str = "  PONG\n\n  \u{2192} Add a follow-up\n  Composer 2.5 \u{b7} 7.4%\n  ~\\AppData\\Local\\Temp\n";
+    const GHOST_PROMPT_SCREEN: &str = "  PONG\n\n  \u{2192} Reply with only the word PONG. Use no tools.\n  Composer 2.5 \u{b7} 7.4%\n";
+    const READY_SCREEN: &str = "  Cursor Agent\n  \u{2192} Plan, search, build anything\n  Composer 2.5\n";
+
+    #[test]
+    fn only_a_screen_with_no_sign_of_work_counts_as_quiet() {
+        let cursor = crate::tui::profile_for("cursor_agent");
+        assert_eq!(cursor.busy_marker(WORKING_SCREEN), Some(true));
+        assert_eq!(cursor.busy_marker(RUNNING_TOOL_SCREEN), Some(true), "a tool run is still work");
+        assert_eq!(cursor.busy_marker("  Trusting workspace...\n"), Some(true));
+        // A cold run keeps the answered dialog in the visible rows above the real UI.
+        let stale_dialog = format!("  \u{23f3} Trusting workspace...\n  Cursor Agent\n{FINISHED_SCREEN}");
+        assert_eq!(cursor.busy_marker(&stale_dialog), Some(false), "the old dialog is scrollback");
+        assert_eq!(cursor.busy_marker(FINISHED_SCREEN), Some(false));
+        assert_eq!(cursor.busy_marker(GHOST_PROMPT_SCREEN), Some(false), "the footer is not always 'Add a follow-up'");
+        assert_eq!(cursor.busy_marker(READY_SCREEN), Some(false));
+    }
+
+    #[test]
+    fn the_quiet_window_is_shorter_than_the_busy_one_and_never_below_the_spinner_period() {
+        let cursor = crate::tui::profile_for("cursor_agent");
+        assert!(cursor.quiet_idle_after() < cursor.idle_after());
+        // The spinner repaints about every 250ms; the quiet window must ride out several frames.
+        assert!(cursor.quiet_idle_after() >= std::time::Duration::from_millis(500));
     }
 
     #[test]

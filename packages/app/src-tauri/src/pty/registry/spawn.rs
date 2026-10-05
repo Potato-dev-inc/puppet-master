@@ -85,7 +85,10 @@ pub fn spawn_pane(
     let status = Arc::new(Mutex::new(PaneStatus::Running));
     let last_output = Arc::new(Mutex::new(Instant::now()));
     let idle_clock = Arc::new(idle::IdleClock::new(Instant::now()));
-    let idle_after = crate::tui::profile_for(&args.agent_type).idle_after();
+    let idle_profile = crate::tui::profile_for(&args.agent_type);
+    let (idle_after, quiet_idle_after) = (idle_profile.idle_after(), idle_profile.quiet_idle_after());
+    // 0 = unknown, 1 = the screen shows work, 2 = it provably does not (see `TuiProfile::busy_marker`).
+    let busy_state = Arc::new(std::sync::atomic::AtomicU8::new(0));
     let exited = Arc::new(Mutex::new(false));
 
     let info = PaneInfo {
@@ -125,6 +128,7 @@ pub fn spawn_pane(
         let status = status.clone();
         let last_output = last_output.clone();
         let idle_clock = idle_clock.clone();
+        let busy_state = busy_state.clone();
         let exited = exited.clone();
         thread::Builder::new()
             .name(format!("pty-reader-{pane_id}"))
@@ -179,6 +183,14 @@ pub fn spawn_pane(
                                 continue;
                             }
                             idle_clock.screen_changed(Instant::now());
+                            busy_state.store(
+                                match crate::pty::status::busy_marker(&agent_type, &snapshot) {
+                                    Some(true) => 1,
+                                    Some(false) => 2,
+                                    None => 0,
+                                },
+                                std::sync::atomic::Ordering::Relaxed,
+                            );
 
                             // Classify the current VT screen. Historical prompt text in
                             // scrollback must not make a later agent response look blocked.
@@ -258,6 +270,7 @@ pub fn spawn_pane(
         let pane_id = pane_id.clone();
         let app = app.clone();
         let idle_clock = idle_clock.clone();
+        let busy_state = busy_state.clone();
         let status = status.clone();
         let exited = exited.clone();
         thread::Builder::new()
@@ -267,7 +280,13 @@ pub fn spawn_pane(
                 if *exited.lock() {
                     break;
                 }
-                if idle_clock.idle_due(Instant::now(), idle_after) {
+                let marker = match busy_state.load(std::sync::atomic::Ordering::Relaxed) {
+                    1 => Some(true),
+                    2 => Some(false),
+                    _ => None,
+                };
+                let window = idle::idle_window(marker, idle_after, quiet_idle_after);
+                if idle_clock.idle_due(Instant::now(), window) {
                     let became_idle = {
                         let mut s = status.lock();
                         if *s == PaneStatus::Running {

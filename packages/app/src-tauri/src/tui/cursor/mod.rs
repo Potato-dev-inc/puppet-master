@@ -159,6 +159,17 @@ impl TuiProfile for CursorAgent {
         std::time::Duration::from_secs(2)
     }
 
+    fn busy_marker(&self, visible_tail: &str) -> Option<bool> {
+        Some(screen::shows_work_in_progress(visible_tail))
+    }
+
+    /// With no spinner and no stop hint on screen, 700ms of stillness is a finished turn: the
+    /// spinner repaints every ~250ms and the stop hint stays up for the whole turn, including
+    /// tool runs (frames recorded live, an 8s shell command included).
+    fn quiet_idle_after(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(700)
+    }
+
     fn classify_screen(&self, visible_tail: &str) -> Option<PaneStatus> {
         Some(screen::classify(visible_tail))
     }
