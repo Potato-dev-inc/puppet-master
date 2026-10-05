@@ -42,6 +42,18 @@ pub(super) fn extract_provider_session(output: &str) -> Option<String> {
         .filter(|id| !id.is_empty())
 }
 
+/// The model(s) `claude -p --output-format json` reports in `modelUsage`; with several (e.g. a
+/// helper model) the one that produced the most output tokens wins.
+pub(super) fn extract_model(output: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(output.trim()).ok()?;
+    let usage = value.get("modelUsage")?.as_object()?;
+    usage
+        .iter()
+        .max_by_key(|(_, entry)| entry.get("outputTokens").and_then(Value::as_u64).unwrap_or(0))
+        .map(|(model, _)| model.trim().to_string())
+        .filter(|model| !model.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,6 +66,16 @@ mod tests {
         );
         assert_eq!(extract_result("I am done", 0), None);
         assert_eq!(extract_result(r#"{"result":"done"}"#, 1), None);
+    }
+
+    #[test]
+    fn reads_the_model_from_model_usage() {
+        let single = r#"{"result":"x","modelUsage":{"claude-sonnet-5-5":{"outputTokens":14}}}"#;
+        assert_eq!(extract_model(single).as_deref(), Some("claude-sonnet-5-5"));
+        let two = r#"{"modelUsage":{"claude-haiku":{"outputTokens":3},"claude-opus":{"outputTokens":90}}}"#;
+        assert_eq!(extract_model(two).as_deref(), Some("claude-opus"));
+        assert_eq!(extract_model(r#"{"result":"x"}"#), None);
+        assert_eq!(extract_model("not json"), None);
     }
 
     #[test]

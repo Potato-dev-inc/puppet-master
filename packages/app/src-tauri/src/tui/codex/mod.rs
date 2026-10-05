@@ -39,4 +39,12 @@ impl TuiProfile for Codex {
     fn extract_provider_session(&self, output: &str) -> Option<String> {
         headless::extract_provider_session(output)
     }
+
+    fn probes_default_model(&self) -> bool {
+        true
+    }
+
+    fn default_model(&self) -> Option<String> {
+        headless::default_model()
+    }
 }

@@ -60,3 +60,10 @@ fn handle_lock(handle: &str) -> Arc<Mutex<()>> {
         .or_insert_with(|| Arc::new(Mutex::new(())))
         .clone()
 }
+
+#[cfg(test)]
+pub(crate) fn run_warnings_for_tests(
+    snapshot: &crate::operations::OperationSnapshot,
+) -> Vec<receipt::RunWarning> {
+    receipt::run_warnings(snapshot)
+}

@@ -56,12 +56,8 @@ pub(in crate::agent_runs) fn execute_headless(
             .name("puppet-default-model".into())
             .spawn(move || {
                 if let Some(model) = crate::tui::profile_for(&probe_type).default_model() {
-                    let _ = operations::record_terminal_pane_state(
-                        &project,
-                        &operation_id,
-                        Some(model),
-                        false,
-                    );
+                    // A configured default is a best guess, not a confirmation of what ran.
+                    let _ = operations::record_unconfirmed_model(&project, &operation_id, &model);
                 }
             });
     }

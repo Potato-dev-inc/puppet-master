@@ -54,6 +54,32 @@ pub(super) fn extract_result(output: &str, exit_code: i32) -> Option<String> {
     final_text
 }
 
+/// `codex exec --json` never says which model ran; the best truthful answer is the top-level
+/// `model = "..."` of the user's `config.toml` (flagged unconfirmed by the caller).
+pub(super) fn default_model() -> Option<String> {
+    let home = crate::project_path::home_dir()?;
+    let dir = std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".codex"));
+    model_from_config(&std::fs::read_to_string(dir.join("config.toml")).ok()?)
+}
+
+fn model_from_config(config: &str) -> Option<String> {
+    for line in config.lines().map(str::trim) {
+        if line.starts_with('[') {
+            break; // only the top-level table
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() == "model" {
+            let value = value.split('#').next().unwrap_or("").trim().trim_matches(|c| matches!(c, '"' | '\''));
+            return (!value.is_empty()).then(|| value.to_string());
+        }
+    }
+    None
+}
+
 pub(super) fn extract_provider_session(output: &str) -> Option<String> {
     let mut found = None;
     for line in output.lines() {
@@ -88,6 +114,21 @@ pub(super) fn extract_provider_session(output: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_model_comes_from_the_top_level_config_key() {
+        let config = "model = \"gpt-6.1-sol\" # pinned
+model_reasoning_effort = \"high\"
+[profiles.x]
+model = \"other\"
+";
+        assert_eq!(model_from_config(config).as_deref(), Some("gpt-6.1-sol"));
+        assert_eq!(model_from_config("[profiles.x]
+model = \"other\"
+"), None);
+        assert_eq!(model_from_config("model_reasoning_effort = \"high\"
+"), None);
+    }
 
     #[test]
     fn launches_with_approval_before_exec() {

@@ -173,7 +173,7 @@ fn model_falls_back_to_the_cli_default_unconfirmed() {
 fn an_already_resolved_model_is_not_replaced_by_the_default() {
     assert!(completion_model("cursor_agent", "no footer", Some("gpt-5"), || Some("x".into()))
         .is_none());
-    assert!(completion_model("codex", "no footer", None, || Some("x".into())).is_none());
+    assert!(completion_model("claude", "no footer", None, || Some("x".into())).is_none());
 }
 
 // ---- D13: headless trust ----------------------------------------------------------------

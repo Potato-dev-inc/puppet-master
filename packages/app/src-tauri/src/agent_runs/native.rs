@@ -312,6 +312,16 @@ pub(super) fn supervise_native_observation(
                 &evidence,
                 operation.turn_index,
             );
+            // Persist the model BEFORE the terminal revision is visible: a waiter woken by the
+            // completion must not read a snapshot whose resolved_model is still null.
+            if let Some(model) = crate::agent_runs::persist::live_resolved_model(registry, operation) {
+                let _ = operations::record_terminal_pane_state(
+                    &operation.project_path,
+                    &operation.operation_id,
+                    Some(model),
+                    false,
+                );
+            }
             if let Ok(completed) = operations::mark_operation_completed(
                 &operation.project_path,
                 &operation.operation_id,

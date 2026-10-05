@@ -20,6 +20,10 @@ pub(super) fn finish_from_output(
     {
         let _ = operations::set_provider_session(project, operation_id, &session);
     }
+    // A model the CLI itself reported is a confirmation; record it even when the turn failed.
+    if let Some(model) = crate::tui::profile_for(agent_type).extract_model(&transcript) {
+        let _ = operations::record_terminal_pane_state(project, operation_id, Some(model), false);
+    }
     if let Some(result) = crate::tui::profile_for(agent_type).extract_result(&transcript, code) {
         if result.trim().is_empty() {
             // The worker reported an empty result: that is an honest, authoritative answer.
@@ -256,6 +260,48 @@ mod tests {
         let done = operations::get_operation(&path, &id).unwrap();
         assert_eq!(done.status, OperationStatus::Completed, "{:?}", done.error);
         assert_eq!(done.result.as_deref(), Some("PONG"));
+        let _ = std::fs::remove_dir_all(project);
+    }
+
+    #[test]
+    fn claude_reported_model_is_recorded_as_confirmed() {
+        let (project, path, id) = running_cursor_turn("claude-model", 0);
+        operations::record_unconfirmed_model(&path, &id, "guess").unwrap();
+        transcript::append(
+            &path,
+            &id,
+            "stdout",
+            r#"{"result":"PONG","session_id":"s2","modelUsage":{"claude-sonnet-5-5":{"outputTokens":14}}}"#,
+        );
+        finish_from_output(&path, &id, "claude", "claude", 0);
+        let done = operations::get_operation(&path, &id).unwrap();
+        assert_eq!(done.status, OperationStatus::Completed, "{:?}", done.error);
+        assert_eq!(done.worker.resolved_model.as_deref(), Some("claude-sonnet-5-5"));
+        assert!(!done.worker.model_unconfirmed);
+        let _ = std::fs::remove_dir_all(project);
+    }
+
+    #[test]
+    fn a_completed_run_with_no_model_carries_an_explicit_warning_not_a_silent_null() {
+        let (project, path, id) = running_cursor_turn("no-model", 0);
+        transcript::append(
+            &path,
+            &id,
+            "stdout",
+            r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s3"}"#,
+        );
+        finish_from_output(&path, &id, "cursor_agent", "agent", 0);
+        let done = operations::get_operation(&path, &id).unwrap();
+        assert!(done.worker.resolved_model.is_none());
+        let warnings = crate::agent_runs::runtime::run_warnings_for_tests(&done);
+        let unresolved = warnings.iter().find(|w| w.code == "MODEL_UNRESOLVED").expect("warning");
+        assert!(unresolved.detail.contains("did not report which model"), "{}", unresolved.detail);
+        // A configured default is shown, but flagged.
+        operations::record_unconfirmed_model(&path, &id, "Composer 2.5").unwrap();
+        let done = operations::get_operation(&path, &id).unwrap();
+        let warnings = crate::agent_runs::runtime::run_warnings_for_tests(&done);
+        assert!(warnings.iter().all(|w| w.code != "MODEL_UNRESOLVED"));
+        assert!(warnings.iter().any(|w| w.code == "MODEL_UNCONFIRMED"));
         let _ = std::fs::remove_dir_all(project);
     }
 }

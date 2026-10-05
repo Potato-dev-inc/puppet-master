@@ -167,17 +167,31 @@ pub(super) fn run_warnings(snapshot: &OperationSnapshot) -> Vec<RunWarning> {
     for warning in crate::tui::profile_for(&snapshot.agent_type).run_warnings(&facts) {
         push(warning.code, warning.source, warning.detail);
     }
-    // Only worth a warning when the caller asked for a specific model and it was not confirmed;
-    // a backend that never reports one (headless Cursor) is stated in capabilities, not per run.
-    if snapshot.status == OperationStatus::Completed
-        && snapshot.worker.resolved_model.is_none()
-        && snapshot.worker.requested_model.is_some()
-    {
-        push(
-            "MODEL_UNRESOLVED",
-            "capture",
-            "A model was requested but the backend did not confirm which model ran.",
-        );
+    if snapshot.status == OperationStatus::Completed {
+        if snapshot.worker.resolved_model.is_none() {
+            // Never a silent null: say whether it was asked for and that the backend stayed silent.
+            let detail = if snapshot.worker.requested_model.is_some() {
+                "A model was requested but the backend did not confirm which model ran.".to_string()
+            } else {
+                format!(
+                    "{} did not report which model ran and no configured default could be determined, so resolved_model is null.",
+                    snapshot.agent_type
+                )
+            };
+            warnings.push(RunWarning {
+                code: "MODEL_UNRESOLVED".into(),
+                source: "capture".into(),
+                detail,
+            });
+        } else if snapshot.worker.model_unconfirmed
+            && !warnings.iter().any(|warning| warning.code == "MODEL_UNCONFIRMED")
+        {
+            warnings.push(RunWarning {
+                code: "MODEL_UNCONFIRMED".into(),
+                source: "capture".into(),
+                detail: "The backend does not report which model ran; resolved_model is the CLI's configured default, not a confirmation.".into(),
+            });
+        }
     }
     warnings
 }

@@ -38,4 +38,8 @@ impl TuiProfile for Claude {
     fn extract_provider_session(&self, output: &str) -> Option<String> {
         headless::extract_provider_session(output)
     }
+
+    fn extract_model(&self, output: &str) -> Option<String> {
+        headless::extract_model(output)
+    }
 }

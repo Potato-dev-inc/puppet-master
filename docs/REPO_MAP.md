@@ -258,7 +258,7 @@ and server-health changes, `keys.rs` API key profiles/rotation (never exposed th
 `watch_command.rs`: builds the `watch_command` string returned for running turns
 (`format_watch_command*`, `reformat_for_shell`, `ShellHint`). `find_cli_entry` searches
 `PUPPET_MASTER_CLI`, the resource dir, ancestors of the exe, then `packages/cli/dist/index.js`;
-`stable_copy` copies the self-contained `puppet-master-cli.bundle.mjs` into
+`reformat_for_shell` (used by the MCP shim, which cannot resolve the bundle itself) keeps the entry path the app already chose; `stable_copy` copies the self-contained `puppet-master-cli.bundle.mjs` into
 `%APPDATA%\com.puppetmaster.app\cli` so the command survives cargo clean/rebuilds.
 JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WATCH_USAGE`),
 `index.ts` (dispatch; unknown watch flag -> exit 4 + usage).
@@ -331,6 +331,10 @@ JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WA
   evidence in `agent_transcript`; nothing is inferred.
 - **Warnings never change status** (`RESULT_TRUNCATED`, `NO_REPLY_TEXT`, `SHELL_COMMAND_REJECTED`,
   `PROVENANCE_INFERRED`, `MODEL_UNRESOLVED`, `MODEL_UNCONFIRMED`); they are caveats on the receipt.
+  `resolved_model` sources, best first: the CLI's own output (`TuiProfile::extract_model`, Claude `modelUsage`; recorded in
+  `headless/finish.rs`), the live TUI/OpenCode session (persisted by `native.rs` BEFORE the terminal revision so a woken
+  waiter never reads null), then the CLI's configured default (`default_model`: Cursor `about`, Codex `config.toml`) flagged
+  `model_unconfirmed` -> `MODEL_UNCONFIRMED`. Completed with none of these -> `MODEL_UNRESOLVED` (`runtime/receipt.rs::run_warnings`).
 - **Idempotency semantics**: `run_agent`/`followup_task` mint a key if omitted (shim). An identical
   retry (same key, same agent_type, task contained, turn_index 0) replays the existing run *before*
   worker selection (`headless/entry.rs::run_agent`); the handle for a keyless-worker create is derived from
@@ -380,7 +384,7 @@ JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WA
   (see `operations_contract_tests/panes.rs`) and generous channel timeouts (30s) so a loaded CI box or a
   concurrent dev-app rebuild cannot flake them.
 - **Cursor specifics**: TUI trust/approval dialogs use hotkeys; headless runs need
-  `trust_workspace`; `allow_shell` is headless-only and never with `read_only`; `allowed_commands`
+  `trust_workspace`; `allow_shell` is headless-only and never with `read_only` (`opencode_native` accepts it as a no-op: its bash tool already runs without opt-in, `RunOptionSupport.shell_default_on`, validated by `headless/entry.rs::allow_shell_applies`); `allowed_commands`
   is visible-pane-only (`RunOptionSupport`).
 - **Build id**: every release build re-stamps `PM_BUILD_ID`; hand-offs for live retest must carry a
   fresh `build_id` (commit first so the sha is current).

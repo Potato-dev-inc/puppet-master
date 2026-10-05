@@ -70,6 +70,12 @@ pub trait TuiProfile: Sync {
         None
     }
 
+    /// The model a headless run reports in its own structured output (a confirmation, unlike
+    /// `default_model`). `None` when the CLI does not say.
+    fn extract_model(&self, _output: &str) -> Option<String> {
+        None
+    }
+
     /// True when `default_model` can answer (it may shell out, so callers run it off-thread).
     fn probes_default_model(&self) -> bool {
         false
