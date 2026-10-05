@@ -24,6 +24,11 @@ const FOLLOWUPS = Number(opt('followups', 2));
 const BRIDGE = opt('bridge', 'http://127.0.0.1:17321');
 // --task / --allowed let an experiment run something longer than PONG (frames are still recorded).
 const TASK = opt('task', PONG);
+// --fixed-dir reuses one (already trusted) project folder for every cold run instead of a fresh sandbox, and
+// --cold-gap waits that many ms between cold runs: needed to measure the warm standby pool, which only warms
+// folders a run was seen in and needs time to start its replacement.
+const FIXED_DIR = opt('fixed-dir');
+const COLD_GAP = Number(opt('cold-gap', 0));
 const ALLOWED = opt('allowed') ? opt('allowed').split(',') : null;
 mkdirSync(out, { recursive: true });
 
@@ -124,7 +129,7 @@ async function oneTurn({ scenario, cfg, dir, kind, index, handle }) {
   const fa = visible ? frameAnalysis(frames, tCall, op?.finished_at_ms ?? null) : {};
   const row = {
     scenario, kind, index, dir_n: dirCounter, handle: view.handle ?? handle ?? null, operation_id: view.operation_id ?? null,
-    status: view.status, error: view.error?.code ?? view._error ?? null, result: String(view.result ?? '').slice(0, 40),
+    standby_used: view.standby_used === true, status: view.status, error: view.error?.code ?? view._error ?? null, result: String(view.result ?? '').slice(0, 40),
     pane_id: view.pane_id ?? watcher?.paneId ?? null,
     call_start: tCall, wall_first_return_ms: tFirstReturn - tCall, wall_total_ms: tEnd - tCall,
     created_at_ms: created, started_at_ms: op?.started_at_ms ?? null, finished_at_ms: op?.finished_at_ms ?? null,
@@ -158,8 +163,9 @@ for (const name of wanted) {
   if (!cfg) { console.error(`unknown scenario ${name}`); continue; }
   for (let c = 0; c < COLD; c += 1) {
     dirCounter += 1;
-    const dir = join(out, `perf-${dirCounter}`);
+    const dir = FIXED_DIR ?? join(out, `perf-${dirCounter}`);
     mkdirSync(dir, { recursive: true });
+    if (c > 0 && COLD_GAP) await sleep(COLD_GAP);
     if (cfg.agent_type === 'codex') spawnSync('git', ['init', '-q'], { cwd: dir });
     const first = await oneTurn({ scenario: name, cfg, dir, kind: 'cold', index: c });
     all.push(first.row); frameDump[`${name}/${dirCounter}/cold`] = first.frames;
@@ -178,7 +184,7 @@ for (const name of wanted) {
 
 writeFileSync(join(out, `${label}-turns.json`), JSON.stringify({ label, at: new Date().toISOString(), overhead, turns: all }, null, 1));
 writeFileSync(join(out, `${label}-frames.json`), JSON.stringify(frameDump));
-const cols = ['scenario', 'kind', 'index', 'status', 'error', 'wall_first_return_ms', 'wall_total_ms', 'create_off_ms', 'started_off_ms', 'finished_off_ms', 'return_lag_ms', 'first_frame_ms', 'reply_visible_ms', 'reply_visible_to_finished_ms', 'screen_final_to_finished_ms', 'setup_ms', 'duration_ms', 'status_trace', 'stages'];
+const cols = ['scenario', 'kind', 'index', 'standby_used', 'status', 'error', 'wall_first_return_ms', 'wall_total_ms', 'create_off_ms', 'started_off_ms', 'finished_off_ms', 'return_lag_ms', 'first_frame_ms', 'reply_visible_ms', 'reply_visible_to_finished_ms', 'screen_final_to_finished_ms', 'setup_ms', 'duration_ms', 'status_trace', 'stages'];
 writeFileSync(join(out, `${label}-turns.csv`), [cols.join(','), ...all.map((r) => cols.map((c) => JSON.stringify(Array.isArray(r[c]) ? r[c].map((s) => s.join('@')).join(' ') : (r[c] ?? ''))).join(','))].join('\n'));
 const sandboxPrefix = out.replace(/\\/g, '/').toLowerCase();
 const left = JSON.parse((await http('/panes')).body).filter((p) => String(p.cwd).replace(/\\/g, '/').toLowerCase().startsWith(sandboxPrefix));

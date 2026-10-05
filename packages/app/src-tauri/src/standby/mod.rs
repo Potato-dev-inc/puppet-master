@@ -64,6 +64,7 @@ pub fn init(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle) {
 }
 
 fn init_with_path(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle, path: std::path::PathBuf) {
+    let _ = CONFIG_PATH.set(path.clone());
     let host = Arc::new(LiveHost::new(registry, app));
     let (config, recent) = config::load(&path);
     let pool = Arc::new(Pool::new(
@@ -82,16 +83,41 @@ fn init_with_path(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle, path: std:
     {
         return;
     }
+    let path = config_path_for_loop();
     let _ = std::thread::Builder::new()
         .name("standby-pool".into())
-        .spawn(move || loop {
-            pool.wake_handle().wait(TICK);
-            if pool.is_shut_down() {
-                break;
+        .spawn(move || {
+            let mut seen_mtime = mtime(&path);
+            loop {
+                pool.wake_handle().wait(TICK);
+                if pool.is_shut_down() {
+                    break;
+                }
+                // The settings file is the source of truth: a hand edit (or another tool) is
+                // picked up within a second. The app's own writes load back as an equal config.
+                let current = mtime(&path);
+                if current != seen_mtime {
+                    seen_mtime = current;
+                    let (from_file, _) = config::load(&path);
+                    if from_file != pool.config() {
+                        tracing::info!("standby pool config changed on disk; applying");
+                        pool.set_config(from_file);
+                    }
+                }
+                pool.reconcile(now_ms());
             }
-            pool.reconcile(now_ms());
         });
 }
+
+fn config_path_for_loop() -> std::path::PathBuf {
+    CONFIG_PATH.get().cloned().unwrap_or_else(config::default_path)
+}
+
+fn mtime(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|meta| meta.modified()).ok()
+}
+
+static CONFIG_PATH: OnceCell<std::path::PathBuf> = OnceCell::new();
 
 fn pool() -> Option<&'static Arc<Pool>> {
     GLOBAL.get().map(|global| &global.pool)

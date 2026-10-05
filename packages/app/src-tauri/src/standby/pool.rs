@@ -321,6 +321,10 @@ impl Pool {
         &self.shared.wake
     }
 
+    pub fn config(&self) -> StandbyConfig {
+        self.shared.inner.lock().config.clone()
+    }
+
     /// Replace the settings. Standbys the new settings no longer allow (pool off, backend off,
     /// smaller cap) are shut down right away.
     pub fn set_config(&self, config: StandbyConfig) -> StandbyConfig {

@@ -38,7 +38,8 @@ pub fn spawn_pane(
 
     let replaced = {
         let mut reg = registry.lock();
-        reg.take(&pane_id)
+        // Not `take`: a replaced id keeps its hidden mark (a standby is spawned under a pre-hidden id).
+        reg.panes.remove(&pane_id)
     };
     if let Some(pane) = replaced {
         shutdown_pane(pane);
