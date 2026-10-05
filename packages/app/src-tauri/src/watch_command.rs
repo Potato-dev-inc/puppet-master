@@ -105,7 +105,31 @@ pub fn reformat_for_shell(
     shell: ShellHint,
 ) -> String {
     let project = existing_project_path(existing);
-    format_watch_command_for(operation_id, project.as_deref().or(project_fallback), shell)
+    let project = project.as_deref().or(project_fallback);
+    // The MCP shim runs outside the app, so its own CLI lookup finds only the workspace
+    // `cli/dist/index.js` (stale or absent). The app already chose (and stabilised) the entry:
+    // keep it and only change the quoting.
+    match existing_entry(existing) {
+        Some(entry) => format_with_entry(Some(&entry), operation_id, project, shell),
+        None => format_watch_command_for(operation_id, project, shell),
+    }
+}
+
+/// The script path of an already formatted `node <script> watch ...` command.
+fn existing_entry(existing: &str) -> Option<PathBuf> {
+    let rest = existing.trim_start().strip_prefix("node ")?.trim_start();
+    let (script, _) = match rest.chars().next()? {
+        quote @ ('\'' | '"') => {
+            let inner = &rest[1..];
+            let end = inner.find(quote)?;
+            (inner[..end].to_string(), &inner[end + 1..])
+        }
+        _ => {
+            let end = rest.find(" watch ")?;
+            (rest[..end].to_string(), &rest[end..])
+        }
+    };
+    (!script.is_empty()).then(|| PathBuf::from(script))
 }
 
 fn existing_project_path(existing: &str) -> Option<String> {
@@ -289,6 +313,22 @@ mod tests {
         assert_eq!(existing_project_path("npx puppet-master watch op-9"), None);
         let pwsh_quoted = format_with_entry(None, "op-9", Some("D:/x y"), ShellHint::PowerShell);
         assert_eq!(existing_project_path(&pwsh_quoted).as_deref(), Some("D:/x y"));
+    }
+
+    #[test]
+    fn reformat_keeps_the_entry_chosen_by_the_app() {
+        let bundle = "C:/Users/me/AppData/Roaming/app/cli/puppet-master-cli.bundle.mjs";
+        let original = format!("node {bundle} watch op-3 --project-path /p");
+        assert_eq!(existing_entry(&original), Some(PathBuf::from(bundle)));
+        let spaced = "node 'C:/Users/Ren Pc/cli/x.mjs' watch op-3";
+        assert_eq!(
+            existing_entry(spaced),
+            Some(PathBuf::from("C:/Users/Ren Pc/cli/x.mjs"))
+        );
+        assert_eq!(existing_entry("npx puppet-master watch op-3"), None);
+        let out = reformat_for_shell(&original, "op-3", None, ShellHint::Bash);
+        assert!(out.starts_with(&format!("node {bundle} watch op-3")), "{out}");
+        assert!(!out.contains("dist/index.js"), "{out}");
     }
 
     #[test]

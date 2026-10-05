@@ -105,11 +105,21 @@ pub(crate) fn format_operation_timeout_recovery(
         .and_then(Value::as_str)
         .and_then(puppet_master_app_lib::watch_command::ShellHint::parse)
         .unwrap_or_else(puppet_master_app_lib::watch_command::ShellHint::from_env);
-    let watch_command = puppet_master_app_lib::watch_command::format_watch_command_for(
-        operation_id,
-        project_path,
-        shell,
-    );
+    // Prefer the command the app already put on the snapshot (it knows the stable CLI copy);
+    // this shim process cannot resolve the bundled watcher itself.
+    let watch_command = match snapshot.get("watch_command").and_then(Value::as_str) {
+        Some(existing) => puppet_master_app_lib::watch_command::reformat_for_shell(
+            existing,
+            operation_id,
+            project_path,
+            shell,
+        ),
+        None => puppet_master_app_lib::watch_command::format_watch_command_for(
+            operation_id,
+            project_path,
+            shell,
+        ),
+    };
     let mut payload = json!({
         "code": "WAIT_TIMEOUT",
         "message": "the worker may still be running; use next_action instead of retrying with a new idempotency key",
