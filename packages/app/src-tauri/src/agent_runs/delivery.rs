@@ -25,10 +25,15 @@ const MIN_HEAD_CHARS: usize = 8;
 /// Bottom screen rows that count as "the input area" (box, hint row, footer).
 const INPUT_AREA_ROWS: usize = 12;
 
-const VISIBLE_POLLS: u32 = 8;
-const STARTED_POLLS: u32 = 12;
-const RESUBMIT_AT_POLL: u32 = 6;
-const POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// The windows below are time budgets (polls x interval), kept at 2s to type, 3s to start and a
+/// second Enter at 1.5s; only the interval is short so a healthy pane is confirmed within ~100ms
+/// of the screen settling instead of up to 250ms later.
+const POLL_INTERVAL: Duration = Duration::from_millis(80);
+const VISIBLE_POLLS: u32 = 25;
+const STARTED_POLLS: u32 = 38;
+const RESUBMIT_AT_POLL: u32 = 19;
+/// Pause after the clear sequence so the TUI has processed it before the text arrives.
+const CLEAR_PAUSE: Duration = Duration::from_millis(120);
 
 pub trait DeliveryIo {
     fn write(&mut self, text: &str, enter: bool) -> Result<(), String>;
@@ -167,7 +172,7 @@ pub fn deliver_prompt_traced(
             if let Err(error) = io.write(clear, false) {
                 return Delivery::WriteFailed(error);
             }
-            io.pause(Duration::from_millis(250));
+            io.pause(CLEAR_PAUSE);
         }
         trace.push(format!("attempt {attempt}: typing; busy={} rows={}", io.busy(), trace_rows(&io.screen())));
         if let Err(error) = io.write(prompt, false) {
@@ -271,6 +276,7 @@ mod tests {
         screen: String,
         busy: bool,
         writes: Vec<(String, bool)>,
+        paused: Duration,
         on_write: Box<dyn FnMut(&mut FakePane, &str, bool)>,
     }
 
@@ -288,7 +294,9 @@ mod tests {
         fn busy(&mut self) -> bool {
             self.busy
         }
-        fn pause(&mut self, _duration: Duration) {}
+        fn pause(&mut self, duration: Duration) {
+            self.paused += duration;
+        }
     }
 
     const PROMPT: &str = "Summarize the failing test in tests/login.rs and propose a fix";
@@ -298,6 +306,7 @@ mod tests {
             screen: "Composer 2.5\n→ Plan, search, build anything".into(),
             busy: false,
             writes: Vec::new(),
+            paused: Duration::ZERO,
             on_write: Box::new(on_write),
         }
     }
@@ -460,5 +469,38 @@ working
         assert_eq!(dispatch_prompt("t", false, "id", "pane", "C:/p"), "t");
         let with = dispatch_prompt("t", true, "id", "pane", "C:/p");
         assert!(with.starts_with("t\nWhen complete call complete_task with task_id=id, agent_id=pane"));
+    }
+
+    #[test]
+    fn a_healthy_delivery_costs_well_under_a_second_of_waiting() {
+        let mut pane = pane(|pane, text, enter| {
+            if enter {
+                pane.screen = format!("→ {PROMPT}\n\nworking\n→ Add a follow-up");
+                pane.busy = true;
+            } else if text == PROMPT {
+                pane.screen = format!("│ {PROMPT} │\nComposer 2.5");
+            }
+        });
+        assert_eq!(deliver_prompt(&mut pane, Some("\u{15}"), PROMPT), Delivery::Started);
+        assert!(pane.paused <= Duration::from_millis(400), "paused {:?}", pane.paused);
+    }
+
+    #[test]
+    fn polling_faster_does_not_shrink_the_time_given_to_a_slow_tui() {
+        // Never shows the typed text: each of the two attempts must still wait about 2s for it.
+        let mut blank = pane(|pane, _, _| pane.screen = String::new());
+        assert_eq!(deliver_prompt(&mut blank, Some("\u{15}"), PROMPT), Delivery::NotVisible);
+        assert!(blank.paused >= Duration::from_secs(4), "paused {:?}", blank.paused);
+        // Types fine, but the turn never starts: about 3s of polling before giving up.
+        let mut stuck = pane(|pane, text, enter| {
+            if !enter && text == PROMPT {
+                pane.screen = format!("│ {PROMPT} │\nComposer 2.5");
+            }
+        });
+        assert_eq!(deliver_prompt(&mut stuck, Some("\u{15}"), PROMPT), Delivery::SubmittedUnconfirmed);
+        assert!(stuck.paused >= Duration::from_secs(3), "paused {:?}", stuck.paused);
+        // The second Enter still goes out, once.
+        let enters = stuck.writes.iter().filter(|(_, enter)| *enter).count();
+        assert_eq!(enters, 2);
     }
 }
