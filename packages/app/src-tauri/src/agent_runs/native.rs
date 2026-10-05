@@ -134,15 +134,16 @@ pub(super) fn supervise_native_observation(
     let Some(pane_id) = operation.pane_id.as_deref() else {
         return;
     };
-    let messages =
-        match crate::opencode::messages::read_pane_messages(registry, pane_id, 10_000, None) {
+    let messages = match crate::opencode::messages::read_pane_messages_without_question_lookup(
+        registry, pane_id, 10_000,
+    ) {
             Ok(messages) => messages,
             Err(error) => {
                 handle_native_read_failure(operation, registry, app, &error.to_string());
                 return;
             }
         };
-    let status = match crate::opencode::status::worker_status(registry, pane_id) {
+    let status = match crate::opencode::status::pending_permission_status(registry, pane_id) {
         Ok(status) => status,
         Err(error) => {
             handle_native_read_failure(operation, registry, app, &error.to_string());
@@ -270,7 +271,7 @@ pub(super) fn supervise_native_observation(
     // The reads above can be stale by the time no steer is in flight: a whole steer (register,
     // deliver, release) may have happened since. A steer posts its user message before it
     // releases, so re-reading under the same lock sees it and withholds the superseded answer.
-    unless_steer_in_flight(&operation.operation_id, || match crate::opencode::messages::read_pane_messages(registry, pane_id, 10_000, None)
+    unless_steer_in_flight(&operation.operation_id, || match crate::opencode::messages::read_pane_messages_without_question_lookup(registry, pane_id, 10_000)
         .ok()
         .and_then(|fresh| native_completion_evidence(&fresh, &operation.message_baseline_ids, false))
     {

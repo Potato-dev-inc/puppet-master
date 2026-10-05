@@ -156,6 +156,66 @@ fn model_snapshots(
     (session_model, last_user_model, footer_model_source)
 }
 
+/// The permissions of one session that are waiting for an answer, as ids and as prompts.
+fn session_permissions(
+    permissions: Vec<client::OpenCodePermission>,
+    session_id: &str,
+) -> (Vec<PendingPermission>, Vec<String>) {
+    let mine: Vec<_> = permissions
+        .into_iter()
+        .filter(|permission| {
+            permission.session_id.as_deref() == Some(session_id)
+                || permission.session_id_camel.as_deref() == Some(session_id)
+        })
+        .collect();
+    let prompts = mine.iter().map(pending_permission_from).collect();
+    let ids = mine.iter().map(|permission| permission.id.clone()).collect();
+    (prompts, ids)
+}
+
+/// What the run supervisor needs from a native worker on every tick: the pane's status and the
+/// permissions waiting for an answer. `worker_status` also reads the session, the message list,
+/// the server health, the key store and the event log; against a server that is streaming a
+/// reply those extra requests made one tick take 1-1.3s.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativePermissionStatus {
+    pub pane_status: String,
+    pub pending_permission_ids: Vec<String>,
+    pub pending_permissions: Vec<PendingPermission>,
+}
+
+pub fn pending_permission_status(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+) -> Result<NativePermissionStatus, String> {
+    let (pane_status, base_url, session_id) = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
+        if pane.info.agent_type != "opencode_native" {
+            return Err(format!("pane {pane_id} is not opencode_native"));
+        }
+        let link = pane
+            .opencode
+            .as_ref()
+            .ok_or_else(|| format!("pane {pane_id} has no opencode native session"))?;
+        (
+            pane.info.status.clone(),
+            link.base_url.clone(),
+            link.session_id.clone(),
+        )
+    };
+    let (pending_permissions, pending_permission_ids) =
+        session_permissions(client::list_permissions(&base_url)?, &session_id);
+    Ok(NativePermissionStatus {
+        pane_status,
+        pending_permission_ids,
+        pending_permissions,
+    })
+}
+
 pub fn worker_status(
     registry: &Arc<Mutex<PaneRegistry>>,
     pane_id: &str,
@@ -185,22 +245,10 @@ pub fn worker_status(
     };
 
     let pane_status = pane.status.clone();
-    let permissions = client::list_permissions(&runtime.base_url)?;
-    let session_permissions: Vec<_> = permissions
-        .into_iter()
-        .filter(|permission| {
-            permission.session_id.as_deref() == Some(runtime.session_id.as_str())
-                || permission.session_id_camel.as_deref() == Some(runtime.session_id.as_str())
-        })
-        .collect();
-    let pending_permissions: Vec<PendingPermission> = session_permissions
-        .iter()
-        .map(pending_permission_from)
-        .collect();
-    let pending_permission_ids: Vec<String> = session_permissions
-        .iter()
-        .map(|permission| permission.id.clone())
-        .collect();
+    let (pending_permissions, pending_permission_ids) = session_permissions(
+        client::list_permissions(&runtime.base_url)?,
+        &runtime.session_id,
+    );
 
     let active_key_profile = crate::opencode::keys::status()
         .ok()
@@ -482,5 +530,29 @@ mod tests {
         assert!(assistant_is_generating(Some("assistant"), Some("tool-calls")));
         assert!(!assistant_is_generating(Some("assistant"), Some("stop")));
         assert!(!assistant_is_generating(Some("assistant"), Some("aborted")));
+    }
+
+    #[test]
+    fn session_permissions_keep_only_this_sessions_either_spelling() {
+        let permission = |id: &str, snake: Option<&str>, camel: Option<&str>| client::OpenCodePermission {
+            id: id.into(),
+            session_id: snake.map(str::to_string),
+            session_id_camel: camel.map(str::to_string),
+            permission: Some("bash".into()),
+            patterns: Some(vec!["ls".into()]),
+            metadata: None,
+        };
+        let (prompts, ids) = session_permissions(
+            vec![
+                permission("p1", Some("ses-a"), None),
+                permission("p2", None, Some("ses-a")),
+                permission("p3", Some("ses-b"), None),
+            ],
+            "ses-a",
+        );
+        assert_eq!(ids, vec!["p1".to_string(), "p2".to_string()]);
+        assert_eq!(prompts.len(), 2);
+        assert_eq!(prompts[0].resource.as_deref(), Some("ls"));
+        assert!(session_permissions(Vec::new(), "ses-a").1.is_empty());
     }
 }
