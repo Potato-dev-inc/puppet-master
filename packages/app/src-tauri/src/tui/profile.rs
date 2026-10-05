@@ -91,6 +91,32 @@ pub trait TuiProfile: Sync {
         Vec::new()
     }
 
+    // ---- warm standby (see `crate::standby`) --------------------------------------------
+
+    /// Whether this backend can be pre-launched and handed its task later.
+    fn standby_support(&self) -> StandbySupport {
+        StandbySupport::default()
+    }
+
+    /// What a pre-launched TUI pane's screen shows. A standby is only handed out while this is
+    /// `Ready`; dialogs are never answered by the pool.
+    fn standby_screen(&self, _screen: &str) -> StandbyScreen {
+        StandbyScreen::NotReady
+    }
+
+    /// Command line of a pre-launched headless process that waits for its task on stdin. The launch
+    /// carries every option fixed at spawn (read-only, shell, model); the task is not known yet.
+    /// `None` when the CLI has no stdin task mode.
+    fn headless_standby_command(&self, _launch: &HeadlessLaunch) -> Option<Result<LaunchSpec, String>> {
+        None
+    }
+
+    /// The bytes that hand `task` to a process started by `headless_standby_command`; the pool
+    /// closes stdin after writing them.
+    fn headless_standby_input(&self, _task: &str) -> Option<String> {
+        None
+    }
+
     // ---- visible pane -------------------------------------------------------------------
 
     /// How long a running pane's screen must hold still before it reads `idle`. The default is

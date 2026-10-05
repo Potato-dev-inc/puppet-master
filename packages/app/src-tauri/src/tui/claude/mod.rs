@@ -8,7 +8,7 @@
 mod headless;
 mod screen;
 
-use super::{Features, HeadlessLaunch, LaunchSpec, TuiProfile};
+use super::{Features, HeadlessLaunch, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
 
 pub struct Claude;
 
@@ -42,6 +42,27 @@ impl TuiProfile for Claude {
 
     fn extract_model(&self, output: &str) -> Option<String> {
         headless::extract_model(output)
+    }
+
+    /// Both forms: a TUI pane waits at an empty prompt, and `claude -p --input-format stream-json`
+    /// waits for its task on stdin (see `headless::standby_command`).
+    fn standby_support(&self) -> StandbySupport {
+        StandbySupport {
+            visible: true,
+            headless: true,
+        }
+    }
+
+    fn standby_screen(&self, screen: &str) -> StandbyScreen {
+        screen::standby_screen(screen)
+    }
+
+    fn headless_standby_command(&self, launch: &HeadlessLaunch) -> Option<Result<LaunchSpec, String>> {
+        Some(headless::standby_command(launch))
+    }
+
+    fn headless_standby_input(&self, task: &str) -> Option<String> {
+        Some(headless::standby_input(task))
     }
 
     fn busy_marker(&self, visible_tail: &str) -> Option<bool> {

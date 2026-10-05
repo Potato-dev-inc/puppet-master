@@ -1,7 +1,7 @@
 //! The interactive Cursor Agent TUI: what its screens mean and how to answer them.
 
 use crate::pty::status::{looks_like_prompt, PaneStatus};
-use crate::tui::{generic, Reply};
+use crate::tui::{generic, Reply, StandbyScreen};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
@@ -103,6 +103,48 @@ fn trust_handshake_in_progress(visible_tail: &str) -> bool {
             || lower.starts_with("add a follow-up")
             || lower == "cursor agent"
     })
+}
+
+/// Phrases of a login, update or first-run screen: the TUI is waiting for the user, not for a task.
+const ATTENTION_PHRASES: [&str; 7] = [
+    "log in to cursor",
+    "please log in",
+    "not logged in",
+    "sign in to",
+    "update available",
+    "new version available",
+    "press enter to update",
+];
+
+/// Whether a pre-launched pane is at an empty input box a task can be typed into. A dialog (trust,
+/// command approval) is reported as such and never answered by the standby pool: whether a folder
+/// is trusted is the caller's decision.
+pub(super) fn standby_screen(agent_type: &str, screen: &str) -> StandbyScreen {
+    if detect_prompt(agent_type, screen, false).is_some() {
+        return StandbyScreen::Dialog;
+    }
+    let live = without_resolved_trust_dialog(screen);
+    if BLOCKED_PATTERNS.iter().any(|re| re.is_match(&live)) {
+        return StandbyScreen::Dialog;
+    }
+    let lower = live.to_ascii_lowercase();
+    if ATTENTION_PHRASES.iter().any(|phrase| lower.contains(phrase)) {
+        return StandbyScreen::NeedsAttention;
+    }
+    if shows_work_in_progress(&live) {
+        return StandbyScreen::NotReady;
+    }
+    let empty_box = live.lines().any(|line| {
+        let row = line.trim().trim_start_matches(['\u{2192}', '>', ' ']).to_ascii_lowercase();
+        row.starts_with("plan, search, build anything")
+            || row == "add a follow-up"
+            || row == "add follow-up"
+    });
+    if empty_box {
+        StandbyScreen::Ready
+    } else {
+        StandbyScreen::NotReady
+    }
 }
 
 /// Narrow on purpose: only Cursor's trust and command-approval dialogs. There is no broad
@@ -318,6 +360,25 @@ mod tests {
         assert_eq!(cursor.prompt_reply(&prompt, "trust", false).unwrap(), Reply::key("y"));
         assert_eq!(cursor.prompt_reply(&prompt, "deny", false).unwrap(), Reply::key("n"));
         assert!(cursor.prompt_reply(&prompt, "allow_once", false).is_err());
+    }
+
+    #[test]
+    fn standby_screen_reads_the_empty_input_box_and_never_a_dialog() {
+        let cursor = profile_for("cursor_agent");
+        assert_eq!(cursor.standby_screen(READY_SCREEN), StandbyScreen::Ready);
+        assert_eq!(cursor.standby_screen("  Cursor Agent\n  \u{2192} Add a follow-up\n"), StandbyScreen::Ready);
+        assert_eq!(cursor.standby_screen(WORKING_SCREEN), StandbyScreen::NotReady);
+        assert_eq!(cursor.standby_screen("  Cursor Agent\n  v2026\n"), StandbyScreen::NotReady, "not drawn yet");
+        assert_eq!(cursor.standby_screen(APPROVAL_SCREEN), StandbyScreen::Dialog);
+        assert_eq!(cursor.standby_screen("  Update available. Press enter to update\n  \u{2192} Plan, search, build anything\n"), StandbyScreen::NeedsAttention);
+        assert_eq!(cursor.standby_screen("Please log in to Cursor\n"), StandbyScreen::NeedsAttention);
+    }
+
+    #[test]
+    fn standby_screen_flags_a_pending_trust_dialog_as_a_dialog() {
+        let cursor = profile_for("cursor_agent");
+        assert_eq!(cursor.standby_screen(TRUST_PENDING), StandbyScreen::Dialog, "an untrusted folder is not poolable");
+        assert_eq!(cursor.standby_screen(include_str!("fixtures/workspace_trust_screen.txt")), StandbyScreen::Dialog);
     }
 
     // Real captures from a visible cursor_agent pane in an untrusted folder (2026-10-04).

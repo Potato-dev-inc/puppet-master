@@ -1,0 +1,199 @@
+//! The live `Host`: real hidden PTY panes and real waiting headless processes.
+//!
+//! Agent-specific knowledge stays in `tui/<agent>/`: this file asks the profile for the launch
+//! line (`headless_standby_command`) and for what a pane's screen means (`standby_screen`).
+
+use super::key::PoolKey;
+use super::pool::{Handle, Health, Host};
+use crate::pty::status::PaneStatus;
+use crate::pty::{PaneRegistry, SpawnPaneArgs};
+use crate::tui::{HeadlessLaunch, StandbyScreen};
+use parking_lot::Mutex;
+use std::collections::HashMap;
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use tauri::AppHandle;
+
+/// A headless standby process prints nothing until it gets its task, so readiness cannot be
+/// observed: it counts as warm after its startup has had this long (a Claude standby spent ~1s
+/// on startup in the live probe).
+const HEADLESS_WARM_MS: i64 = 4_000;
+
+/// A headless CLI process started ahead of its task, with stdin still open.
+pub struct StandbyProcess {
+    pub child: Child,
+}
+
+pub struct LiveHost {
+    registry: Arc<Mutex<PaneRegistry>>,
+    app: AppHandle,
+    processes: Mutex<HashMap<u64, StandbyProcess>>,
+    next_token: AtomicU64,
+}
+
+impl LiveHost {
+    pub fn new(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle) -> Self {
+        Self {
+            registry,
+            app,
+            processes: Mutex::new(HashMap::new()),
+            next_token: AtomicU64::new(1),
+        }
+    }
+
+    /// Hand a claimed headless standby to the run that claimed it.
+    pub fn take_process(&self, token: u64) -> Option<StandbyProcess> {
+        self.processes.lock().remove(&token)
+    }
+
+    fn spawn_pane(&self, key: &PoolKey, cwd: &str) -> Result<Handle, String> {
+        let pane_id = uuid::Uuid::new_v4().to_string();
+        // Hidden BEFORE the spawn: the spawn announces a panes change, and no list may show it.
+        crate::pty::hidden::hide(&pane_id);
+        match crate::pty::registry_spawn_pane(
+            &self.registry,
+            &self.app,
+            SpawnPaneArgs {
+                agent_type: key.agent_type.clone(),
+                cwd: Some(cwd.to_string()),
+                cols: None,
+                rows: None,
+                extra_args: None,
+                pane_id: Some(pane_id.clone()),
+                read_only: key.read_only,
+            },
+        ) {
+            Ok(id) => Ok(Handle::Pane(id)),
+            Err(error) => {
+                crate::pty::hidden::forget(&pane_id);
+                Err(error)
+            }
+        }
+    }
+
+    fn spawn_process(&self, key: &PoolKey, cwd: &str) -> Result<Handle, String> {
+        let profile = crate::tui::profile_for(&key.agent_type);
+        let launch = HeadlessLaunch {
+            project: cwd,
+            task: "",
+            read_only: key.read_only,
+            resume_session: None,
+            trust_workspace: false,
+            allow_shell: key.allow_shell,
+            model: key.model.as_deref(),
+        };
+        let spec = profile
+            .headless_standby_command(&launch)
+            .ok_or_else(|| format!("{} has no headless standby mode", key.agent_type))??;
+        if key.read_only && !spec.read_only_enforced {
+            return Err("adapter did not enforce read-only mode".into());
+        }
+        let mut command = Command::new(&spec.program);
+        command
+            .args(&spec.args)
+            .current_dir(&spec.cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        let child = command
+            .spawn()
+            .map_err(|error| format!("spawn failed ({}): {error}", spec.program))?;
+        let token = self.next_token.fetch_add(1, Ordering::Relaxed);
+        self.processes.lock().insert(
+            token,
+            StandbyProcess {
+                child,
+            },
+        );
+        Ok(Handle::Process(token))
+    }
+
+    fn check_pane(&self, key: &PoolKey, pane_id: &str) -> Health {
+        let (status, screen) = {
+            let registry = self.registry.lock();
+            let Some(pane) = registry.panes.get(pane_id) else {
+                return Health::Dead;
+            };
+            if *pane.exited.lock() {
+                return Health::Dead;
+            }
+            let status = *pane.status.lock();
+            (status, pane.screen.clone())
+        };
+        if status == PaneStatus::Error {
+            return Health::Dead;
+        }
+        let text = screen.lock().screen().contents();
+        match crate::tui::profile_for(&key.agent_type).standby_screen(&text) {
+            StandbyScreen::Dialog => Health::Dialog,
+            StandbyScreen::NeedsAttention => Health::NeedsAttention,
+            StandbyScreen::Ready if status == PaneStatus::Idle => Health::Ready,
+            StandbyScreen::Ready | StandbyScreen::NotReady => Health::Starting,
+        }
+    }
+}
+
+impl Host for LiveHost {
+    fn spawn(&self, key: &PoolKey, cwd: &str) -> Result<Handle, String> {
+        if !std::path::Path::new(cwd).is_dir() {
+            return Err(format!("project folder is gone: {cwd}"));
+        }
+        if key.headless {
+            self.spawn_process(key, cwd)
+        } else {
+            self.spawn_pane(key, cwd)
+        }
+    }
+
+    fn check(&self, key: &PoolKey, handle: &Handle, age_ms: i64) -> Health {
+        match handle {
+            Handle::Pane(id) => self.check_pane(key, id),
+            Handle::Process(token) => {
+                let mut processes = self.processes.lock();
+                let Some(process) = processes.get_mut(token) else {
+                    return Health::Dead;
+                };
+                match process.child.try_wait() {
+                    Ok(None) if age_ms >= HEADLESS_WARM_MS => Health::Ready,
+                    Ok(None) => Health::Starting,
+                    Ok(Some(_)) | Err(_) => Health::Dead,
+                }
+            }
+        }
+    }
+
+    fn kill(&self, handle: &Handle, reason: &str) {
+        tracing::info!(?handle, reason, "standby shut down");
+        match handle {
+            Handle::Pane(id) => {
+                // Taking the pane out of the registry is quick; stopping its process tree is not.
+                let (registry, id, reason) = (self.registry.clone(), id.clone(), reason.to_string());
+                let _ = std::thread::Builder::new()
+                    .name("standby-kill".into())
+                    .spawn(move || {
+                        let _ = crate::pty::registry_kill_pane_with_reason(
+                            &registry,
+                            &id,
+                            Some(&format!("standby_{reason}")),
+                        );
+                    });
+            }
+            Handle::Process(token) => {
+                if let Some(mut process) = self.take_process(*token) {
+                    let _ = std::thread::Builder::new()
+                        .name("standby-kill".into())
+                        .spawn(move || {
+                            let _ = process.child.kill();
+                            let _ = process.child.wait();
+                        });
+                }
+            }
+        }
+    }
+}

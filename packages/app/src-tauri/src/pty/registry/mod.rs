@@ -120,7 +120,17 @@ impl PaneRegistry {
         }
     }
 
+    /// The panes any pane list shows: hidden standby workers (`pty::hidden`) are left out.
     pub fn list(&self) -> Vec<PaneInfo> {
+        self.panes
+            .values()
+            .filter(|pane| !super::hidden::is_hidden(&pane.info.id))
+            .map(|p| p.info())
+            .collect()
+    }
+
+    /// Every pane including hidden ones; only the standby pool needs this.
+    pub fn list_all(&self) -> Vec<PaneInfo> {
         self.panes.values().map(|p| p.info()).collect()
     }
 
@@ -133,10 +143,14 @@ impl PaneRegistry {
     }
 
     pub fn take(&mut self, id: &str) -> Option<PaneState> {
+        super::hidden::forget(id);
         self.panes.remove(id)
     }
 
     pub fn take_all(&mut self) -> Vec<PaneState> {
+        for id in self.panes.keys() {
+            super::hidden::forget(id);
+        }
         std::mem::take(&mut self.panes).into_values().collect()
     }
 }

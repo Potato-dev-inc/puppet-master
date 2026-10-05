@@ -305,6 +305,8 @@ pub fn build_read_models(entries: &[EventEntry]) -> ReadModels {
 
     let panes = panes
         .into_iter()
+        // A hidden standby worker is not part of the workspace until a run claims it.
+        .filter(|(pane_id, _)| !crate::pty::hidden::is_hidden(&pane_id.0))
         .map(|(pane_id, pane)| PaneStateProjection {
             role: session.pane_roles.get(&pane_id.0).copied(),
             pane_id,

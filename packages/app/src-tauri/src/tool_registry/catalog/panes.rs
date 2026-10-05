@@ -20,7 +20,7 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
             name: "bridge_health",
             description: "Check whether the Puppet Master HTTP bridge is reachable and return its version metadata. Also returns env: {python, pytest, node, git, cargo} each {present, version, path} from PATH lookups on the MCP host (cached ~60s), so you need not install or probe tools yourself.",
             input_schema: object_schema(json!({}), vec![]),
-            output_schema: Some(json!({"type":"object","properties":{"ok":{"type":"boolean"},"version":{"type":"string"},"build_id":{"type":"string"},"catalog_version":{"type":"string"},"tool_count":{"type":"integer"},"shim_catalog_version":{"type":"string"},"schema_drift":{"type":"boolean"},"env":{"type":"object","properties":{"python":env_tool_schema(),"pytest":env_tool_schema(),"node":env_tool_schema(),"git":env_tool_schema(),"cargo":env_tool_schema()}}}})),
+            output_schema: Some(json!({"type":"object","properties":{"ok":{"type":"boolean"},"version":{"type":"string"},"build_id":{"type":"string"},"catalog_version":{"type":"string"},"tool_count":{"type":"integer"},"shim_catalog_version":{"type":"string"},"schema_drift":{"type":"boolean"},"standby":{"type":"object","description":"Warm standby pool counts only (GET /standby has the detail); absent before the pool starts.","properties":{"enabled":{"type":"boolean"},"total":{"type":"integer"},"ready":{"type":"integer"},"starting":{"type":"integer"}}},"env":{"type":"object","properties":{"python":env_tool_schema(),"pytest":env_tool_schema(),"node":env_tool_schema(),"git":env_tool_schema(),"cargo":env_tool_schema()}}}})),
             safety: ToolSafety::ReadOnly,
             visibility: visible_everywhere(),
             method: "GET",

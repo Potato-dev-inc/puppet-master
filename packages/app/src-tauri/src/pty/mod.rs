@@ -2,6 +2,7 @@
 
 pub mod agents;
 pub mod ansi;
+pub mod hidden;
 pub mod keys;
 pub mod proc_tree;
 pub mod registry;

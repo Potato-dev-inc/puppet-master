@@ -94,6 +94,26 @@ pub(in crate::agent_runs) fn execute_headless(
             return;
         }
     };
+    // Opt-in warm pool: a pre-launched process (startup already paid) takes the task over stdin.
+    let pool_key = (resume_session.is_none() && !trust_workspace)
+        .then(|| {
+            crate::standby::key_for_run(
+                &agent_type,
+                &project,
+                requested_model.as_deref(),
+                read_only,
+                allow_shell,
+                true,
+            )
+        })
+        .flatten();
+    let mut standby = pool_key
+        .as_ref()
+        .and_then(crate::standby::claim_headless)
+        .and_then(|claim| claim.into_process());
+    if let Some(key) = &pool_key {
+        crate::standby::note_run(key, &project);
+    }
     let mut command = Command::new(&spec.program);
     command
         .args(&spec.args)
@@ -109,7 +129,15 @@ pub(in crate::agent_runs) fn execute_headless(
     let mut readers = Vec::new();
     let dispatch = operations::run_operation_dispatch(&project, &operation_id, |_| {
         operations::dispatch_input_if_active(&project, &operation_id, |_| {
-            let child = command.spawn().map_err(|error| {
+            let from_standby = standby
+                .take()
+                .and_then(|process| hand_task_to_standby(process, &agent_type, &task));
+            if from_standby.is_some() {
+                operations::mark_standby_claimed(&project, &operation_id);
+            }
+            let child = match from_standby {
+                Some(child) => child,
+                None => command.spawn().map_err(|error| {
                 let mut op_error = OperationError::new(
                     "LAUNCH_FAILED",
                     format!(
@@ -121,7 +149,8 @@ pub(in crate::agent_runs) fn execute_headless(
                 );
                 op_error.context = serde_json::json!({"program": spec.program, "cwd": spec.cwd.display().to_string()});
                 op_error
-            })?;
+            })?,
+            };
             let control = Arc::new(HeadlessControl {
                 child: Mutex::new(child),
                 cancelled: AtomicBool::new(false),
@@ -256,6 +285,36 @@ pub(in crate::agent_runs) fn execute_headless(
     }
     children().lock().remove(&operation_id);
     publish(&project, &operation_id, &registry, &app);
+}
+
+/// Gives a claimed standby process its task and closes its stdin. `None` (the process is shut
+/// down) when it died while it waited or cannot take the task: the run then spawns normally, so a
+/// bad standby is never a user-visible failure.
+fn hand_task_to_standby(
+    mut process: crate::standby::StandbyProcess,
+    agent_type: &str,
+    task: &str,
+) -> Option<std::process::Child> {
+    use std::io::Write;
+    let Some(input) = crate::tui::profile_for(agent_type).headless_standby_input(task) else {
+        let _ = process.child.kill();
+        let _ = process.child.wait();
+        return None;
+    };
+    let delivered = process.child.stdin.take().is_some_and(|mut stdin| {
+        stdin
+            .write_all(input.as_bytes())
+            .and_then(|()| stdin.flush())
+            .is_ok()
+        // `stdin` drops here: EOF tells the CLI the task is complete.
+    });
+    if delivered && process.child.try_wait().map_or(false, |status| status.is_none()) {
+        Some(process.child)
+    } else {
+        let _ = process.child.kill();
+        let _ = process.child.wait();
+        None
+    }
 }
 
 /// How often the wait loop looks for a printed result, and how long the child gets to exit after it.

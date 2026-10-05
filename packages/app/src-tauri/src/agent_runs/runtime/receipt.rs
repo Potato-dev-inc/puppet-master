@@ -27,6 +27,10 @@ pub struct RunReceipt {
     /// Puppet Master build that produced the run, so a result can be tied to the code under test.
     #[serde(default)]
     pub build_id: String,
+    /// A warm standby worker (`crate::standby`) ran the turn: no pane spawn or CLI startup was
+    /// paid for it. Absent when the run used a freshly spawned worker.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub standby_used: bool,
 }
 
 pub(super) fn build_receipt(
@@ -96,6 +100,7 @@ pub(super) fn build_receipt(
         not_verified,
         outcome: outcome.into(),
         build_id: env!("PM_BUILD_ID").to_string(),
+        standby_used: snapshot.worker.standby_used,
     }
 }
 

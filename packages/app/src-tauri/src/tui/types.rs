@@ -53,6 +53,28 @@ pub struct RunOptionSupport {
     pub allowed_commands: bool,
 }
 
+/// Which kinds of warm standby worker (`crate::standby`) a backend supports.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StandbySupport {
+    /// A TUI pane can be started ahead of time and given its task later.
+    pub visible: bool,
+    /// A headless process can be started ahead of time and given its task over stdin later.
+    pub headless: bool,
+}
+
+/// What a standby pane's screen shows, for the claim-time health check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StandbyScreen {
+    /// An empty input box with no dialog on top of it: a task can be typed now.
+    Ready,
+    /// A trust or approval dialog is up. A standby never answers one: trust is the caller's call.
+    Dialog,
+    /// A login, update or first-run screen the user has to deal with.
+    NeedsAttention,
+    /// Still starting, or showing something this profile does not recognise as ready.
+    NotReady,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchSpec {
     pub program: String,

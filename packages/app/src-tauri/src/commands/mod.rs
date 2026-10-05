@@ -13,6 +13,7 @@ mod coordination;
 mod mcp;
 mod opencode_keys;
 mod panes;
+mod standby;
 
 pub use agent_models::*;
 pub use app::*;
@@ -20,6 +21,7 @@ pub use coordination::*;
 pub use mcp::*;
 pub use opencode_keys::*;
 pub use panes::*;
+pub use standby::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{

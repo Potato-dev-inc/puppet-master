@@ -83,6 +83,15 @@ pub fn read_only_spawned_pane_backends() -> Vec<&'static str> {
         .collect()
 }
 
+/// Backends that can have a warm standby worker, with the kinds each supports.
+pub fn standby_backends() -> Vec<(&'static str, StandbySupport)> {
+    PROFILES
+        .iter()
+        .map(|profile| (profile.id(), profile.standby_support()))
+        .filter(|(_, support)| support.visible || support.headless)
+        .collect()
+}
+
 /// Headless command line for `agent_type`, after the checks every backend shares.
 pub fn headless_launch(agent_type: &str, launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
     if launch.allow_shell && launch.read_only {

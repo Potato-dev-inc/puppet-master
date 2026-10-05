@@ -1,5 +1,7 @@
 //! The interactive Claude Code TUI: what its screens show about whether a turn is running.
 
+use crate::tui::StandbyScreen;
+
 /// Spinner glyphs Claude cycles through in front of its activity verb.
 const SPINNER_GLYPHS: [char; 8] = ['\u{2722}', '*', '\u{2736}', '\u{273b}', '\u{273d}', '\u{2733}', '\u{b7}', '\u{2731}'];
 
@@ -18,6 +20,55 @@ pub(super) fn shows_work_in_progress(visible_tail: &str) -> bool {
             && rest.starts_with(' ')
             && rest.contains('\u{2026}')
     })
+}
+
+/// Dialogs that wait for the user and take Enter/arrow keys: the folder trust check, tool
+/// permission requests. A standby never answers one.
+const DIALOG_PHRASES: [&str; 6] = [
+    "quick safety check",
+    "yes, i trust this folder",
+    "do you trust the files",
+    "do you want to proceed",
+    "do you want to allow",
+    "enter to confirm",
+];
+
+/// Login, update and first-run screens.
+const ATTENTION_PHRASES: [&str; 8] = [
+    "select login method",
+    "please run /login",
+    "invalid api key",
+    "choose the text style",
+    "welcome to claude code",
+    "update available",
+    "auto-update failed",
+    "claude update",
+];
+
+/// Whether a pre-launched Claude pane is at an empty prompt: the `\u{276f}` row between the rules holds
+/// nothing or only the rotating `Try "..."` placeholder. The folder-trust dialog also draws a
+/// `\u{276f}` (on its selected option), so dialogs are ruled out first.
+pub(super) fn standby_screen(screen: &str) -> StandbyScreen {
+    let lower = screen.to_ascii_lowercase();
+    if DIALOG_PHRASES.iter().any(|phrase| lower.contains(phrase)) {
+        return StandbyScreen::Dialog;
+    }
+    if ATTENTION_PHRASES.iter().any(|phrase| lower.contains(phrase)) {
+        return StandbyScreen::NeedsAttention;
+    }
+    if shows_work_in_progress(screen) {
+        return StandbyScreen::NotReady;
+    }
+    let empty_prompt = screen.lines().any(|line| {
+        line.trim()
+            .strip_prefix('\u{276f}')
+            .is_some_and(|rest| rest.trim().is_empty() || rest.trim().starts_with("Try \""))
+    });
+    if empty_prompt && screen.contains("Claude Code") {
+        StandbyScreen::Ready
+    } else {
+        StandbyScreen::NotReady
+    }
 }
 
 /// Status rows Claude draws under a reply: the finished-turn summary (`<glyph> Churned for 16s \u{b7}
@@ -45,6 +96,21 @@ mod tests {
     const WORKING_STAR: &str = "* Osmosing\u{2026}\n\u{2500}\u{2500}\u{2500}\u{2500}\n\u{276f} \n";
     const FINISHED: &str = "\u{276f} Reply with only the word PONG. Use no tools.\n\u{25cf} PONG\n\u{273b} Brewed for 1s \u{b7} done 23:01\n\u{2500}\u{2500}\u{2500}\u{2500}\n\u{276f} \n\u{2500}\u{2500}\u{2500}\u{2500}\n";
     const READY: &str = " \u{2590}\u{259b}\u{2588}\u{2588}\u{2588}\u{259c}\u{258c}   Claude Code v2.1.287\n\u{2500}\u{2500}\u{2500}\u{2500}\n\u{276f} Try \"how does <filepath> work?\"\n\u{2500}\u{2500}\u{2500}\u{2500}\n";
+
+    // Live captures (v2.1.287, 2026-10-06): the folder-trust dialog and a freshly started session.
+    const TRUST_DIALOG: &str = "\u{2500}\u{2500}\u{2500}\n Accessing workspace:\n\n sandbox\n\n Quick safety check: Is this a project you created or one you trust?\n\n \u{276f} No, exit\n   Yes, I trust this folder\n\n Enter to confirm \u{b7} Esc to cancel";
+    const STARTED: &str = "\n \u{2590}\u{259b}\u{2588}\u{2588}\u{2588}\u{259c}\u{258c}   Claude Code v2.1.287\n\u{259d}\u{259c}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{259b}\u{2580}  Sonnet 5.5 \u{b7} Claude Pro\n\n\u{2500}\u{2500}\u{2500}\u{2500}\n\u{276f} Try \"edit <filepath> to...\"\n\u{2500}\u{2500}\u{2500}\u{2500}\n  \u{23f5}\u{23f5} auto mode on (shift+tab to cycle)";
+
+    #[test]
+    fn standby_screen_is_ready_only_at_an_empty_prompt() {
+        assert_eq!(standby_screen(STARTED), StandbyScreen::Ready);
+        assert_eq!(standby_screen(READY), StandbyScreen::Ready);
+        assert_eq!(standby_screen(TRUST_DIALOG), StandbyScreen::Dialog, "the dialog's own selector is not a prompt");
+        assert_eq!(standby_screen(WORKING), StandbyScreen::NotReady);
+        assert_eq!(standby_screen("\u{276f} half typed text\n Claude Code"), StandbyScreen::NotReady);
+        assert_eq!(standby_screen(""), StandbyScreen::NotReady);
+        assert_eq!(standby_screen("Select login method:\n\u{276f} 1. Claude account"), StandbyScreen::NeedsAttention);
+    }
 
     #[test]
     fn status_rows_under_a_reply_are_chrome_but_the_reply_is_not() {

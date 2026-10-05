@@ -37,6 +37,7 @@ mod settings_store;
 mod shell_env;
 mod startup_timing;
 pub mod shell_exec;
+mod standby;
 pub mod tool_registry;
 mod tui;
 mod worker_launch;
@@ -114,6 +115,8 @@ pub fn run() {
             commands::set_opencode_key_profile,
             commands::capture_opencode_key_profile,
             commands::rotate_opencode_key,
+            commands::standby_get_status,
+            commands::standby_set_config,
         ])
         .setup(|app| {
             if let Ok(resource) = app
@@ -233,6 +236,7 @@ pub fn run() {
 
             let registry_for_panes = app.state::<AppState>().registry.clone();
             pane_windows::init(app.handle(), registry_for_panes.clone());
+            standby::init(registry_for_panes.clone(), app.handle().clone());
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
             });
@@ -254,6 +258,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                standby::shutdown();
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     pty::registry_kill_all(&state.registry);
                 }

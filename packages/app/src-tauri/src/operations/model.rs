@@ -345,6 +345,9 @@ pub struct WorkerPersist {
     /// Caller opted in to `cursor-agent --force` (shell commands run unreviewed) for this run.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub allow_shell: bool,
+    /// A warm standby worker (`crate::standby`) ran this turn instead of a freshly spawned one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub standby_used: bool,
     /// Programs pre-authorised for allow-once on Cursor shell prompts (see approval_policy).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_commands: Vec<String>,

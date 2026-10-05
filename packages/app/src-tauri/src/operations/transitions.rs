@@ -108,6 +108,21 @@ pub fn mark_operation_stage(project: &str, id: &str, stage: &str) {
     let _ = bump(&mut op);
 }
 
+/// Record that a warm standby worker (`crate::standby`) was claimed for this turn: sets
+/// `worker.standby_used` and adds the `standby_claimed` stage. A no-op once terminal.
+pub fn mark_standby_claimed(project: &str, id: &str) {
+    let _serial = update_lock();
+    let Ok(mut op) = get_operation(project, id) else {
+        return;
+    };
+    if op.status.terminal() {
+        return;
+    }
+    op.worker.standby_used = true;
+    op.stage = Some("standby_claimed".to_string());
+    let _ = bump(&mut op);
+}
+
 pub fn mark_operation_observation(
     project: &str,
     id: &str,

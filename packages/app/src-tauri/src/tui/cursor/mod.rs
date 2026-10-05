@@ -17,8 +17,8 @@ mod screen;
 pub use launch::parse_default_model;
 
 use super::{
-    Features, HeadlessLaunch, Kind, LaunchSpec, Reply, RunFacts, RunOptionSupport, TuiProfile,
-    Warning,
+    Features, HeadlessLaunch, Kind, LaunchSpec, Reply, RunFacts, RunOptionSupport, StandbyScreen,
+    StandbySupport, TuiProfile, Warning,
 };
 use crate::pty::status::PaneStatus;
 use serde_json::Value;
@@ -151,6 +151,19 @@ impl TuiProfile for CursorAgent {
             });
         }
         warnings
+    }
+
+    /// Visible panes only: headless Cursor takes its prompt as an argument and ignores stdin
+    /// (`No prompt provided for print mode`), so it cannot be pre-launched.
+    fn standby_support(&self) -> StandbySupport {
+        StandbySupport {
+            visible: true,
+            headless: false,
+        }
+    }
+
+    fn standby_screen(&self, screen: &str) -> StandbyScreen {
+        screen::standby_screen(self.id(), screen)
     }
 
     fn busy_marker(&self, visible_tail: &str) -> Option<bool> {

@@ -10,6 +10,7 @@ mod pairing;
 mod panes;
 mod session;
 mod shell;
+mod standby;
 mod tasks;
 mod wait;
 mod workspace;
@@ -48,6 +49,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| locks::handle(cx))
         .or_else(|| session::handle(cx))
         .or_else(|| wait::handle(cx))
+        .or_else(|| standby::handle(cx))
         .or_else(|| opencode::handle(cx))
         .or_else(|| panes::handle(cx))
 }

@@ -89,6 +89,10 @@ pub struct AgentRunView {
     /// Honest summary of what this run did and did not verify, derived only from recorded facts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub receipt: Option<RunReceipt>,
+    /// True when a warm standby worker (`crate::standby`) ran this turn (the stage log then shows
+    /// `standby_claimed`). Absent for a freshly spawned worker.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub standby_used: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,6 +285,7 @@ impl From<OperationSnapshot> for AgentRunView {
             }),
             warnings,
             receipt: Some(receipt),
+            standby_used: snapshot.worker.standby_used,
         }
     }
 }

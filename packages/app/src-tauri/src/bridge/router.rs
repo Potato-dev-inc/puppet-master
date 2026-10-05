@@ -21,6 +21,9 @@ struct Health {
     /// Git sha, dirty flag and build time of the running binary.
     build_id: &'static str,
     tool_count: usize,
+    /// Warm standby pool counts (see `GET /standby` for the detail); absent before it starts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    standby: Option<crate::standby::HealthSummary>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -57,6 +60,7 @@ pub(super) fn route(
                 catalog_version: crate::tool_registry::catalog_version(),
                 build_id: env!("PM_BUILD_ID"),
                 tool_count: crate::tool_registry::external_mcp_tool_count(),
+                standby: crate::standby::health_summary(),
             })
             .unwrap(),
         ));

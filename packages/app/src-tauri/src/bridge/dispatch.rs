@@ -103,9 +103,11 @@ fn dispatch_operation(
     acquire_operation_locks(operation)?;
     let agent_type = operation.agent_type.clone();
     ensure_agent_dispatchable(operation, &agent_type)?;
-    let (pane_id, pane_created) =
+    let (pane_id, pane_created, standby) =
         assign_pane(operation, registry, app, &agent_type, pane_assignment_guard)?;
-    if pane_created {
+    // A claimed standby was health-checked at an empty input box when it was claimed: there is no
+    // startup to wait for and no dialog to resolve.
+    if pane_created && !standby {
         await_pane_ready(operation, registry, &pane_id, &agent_type)?;
     }
     send_task_prompt(operation, registry, app, &task_id, &pane_id, &agent_type)?;
@@ -159,7 +161,7 @@ fn assign_pane(
     app: &AppHandle,
     agent_type: &str,
     mut pane_assignment_guard: PaneAssignmentGuard,
-) -> Result<(String, bool), OperationError> {
+) -> Result<(String, bool, bool), OperationError> {
     let project_path = std::path::PathBuf::from(&operation.project_path);
     if let Some(requested_id) = operation.pane_id.clone() {
         if agent_type == "opencode_native" {
@@ -218,6 +220,9 @@ fn assign_pane(
             .flatten()
             .is_none()
     };
+    // Opt-in warm pool: a run that needs a new pane may take a pre-launched one (see `standby`).
+    let pool_key = standby_key(operation, agent_type);
+    let mut standby_claim: Option<crate::standby::VisibleClaim> = None;
     let (pane_id, pane_created) = if let Some(requested_id) = operation.pane_id.clone() {
         let pane = existing_panes
             .iter()
@@ -278,6 +283,19 @@ fn assign_pane(
         (requested_id, false)
     } else if let Some(pane) = existing_panes.iter().find(eligible) {
         (pane.id.clone(), false)
+    } else if let Some(claim) = pool_key
+        .as_ref()
+        .and_then(crate::standby::claim_visible)
+    {
+        let pane_id = claim.pane_id().to_string();
+        tracing::info!(
+            operation_id = %operation.operation_id,
+            pane_id = %pane_id,
+            warm_ms = claim.age_ms(),
+            "dispatch claimed a standby worker"
+        );
+        standby_claim = Some(claim);
+        (pane_id, true)
     } else {
         drop(pane_assignment_guard);
         operation.stage = Some("spawning_pane".into());
@@ -304,11 +322,20 @@ fn assign_pane(
         pane_assignment_guard = PANE_ASSIGNMENT_SERIAL.lock();
         (pane_id, true)
     };
-    if pane_created {
+    if let Some(key) = &pool_key {
+        crate::standby::note_run(key, &operation.project_path);
+    }
+    if pane_created && standby_claim.is_none() {
         present_spawned_pane(registry, app, &pane_id);
     }
     operation.pane_created = pane_created;
     operation.pane_id = Some(pane_id.clone());
+    if standby_claim.is_some() {
+        // Persisted now: `reserve_pane` below reloads the snapshot from disk.
+        operation.worker.standby_used = true;
+        operation.stage = Some("standby_claimed".into());
+        *operation = crate::operations::save_operation_snapshot(operation)?;
+    }
     if let Some(session) = operation.owner_session_id.as_deref() {
         if !pane_created && !crate::mcp_sessions::session_controls_pane(session, &pane_id) {
             return Err(crate::operations::OperationError::new(
@@ -325,8 +352,28 @@ fn assign_pane(
         &pane_id,
         pane_created,
     )?;
+    // Reserved and owned: the standby is the run's pane now. Reveal it like a run-created pane.
+    // Any error above dropped the claim instead, which shuts the hidden pane down (no leak).
+    let standby = standby_claim.is_some();
+    if let Some(claim) = standby_claim {
+        claim.commit();
+        present_spawned_pane(registry, app, &pane_id);
+    }
     drop(pane_assignment_guard);
-    Ok((pane_id, pane_created))
+    Ok((pane_id, pane_created, standby))
+}
+
+/// The pool key this run would claim: only a run that spawns its own visible pane for a backend
+/// with a standby mode has one.
+fn standby_key(operation: &OperationSnapshot, agent_type: &str) -> Option<crate::standby::PoolKey> {
+    crate::standby::key_for_run(
+        agent_type,
+        &operation.project_path,
+        operation.worker.requested_model.as_deref(),
+        operation.read_only,
+        operation.worker.allow_shell,
+        false,
+    )
 }
 
 /// Waits for a freshly spawned worker to reach a safe ready state, parking the run while a
