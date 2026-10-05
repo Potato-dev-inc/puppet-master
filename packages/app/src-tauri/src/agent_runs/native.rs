@@ -265,6 +265,14 @@ pub(super) fn supervise_native_observation(
         }
         return;
     }
+    // A cancel aborts the assistant message, which reads as an agent error. The snapshot this
+    // tick started from can predate the cancel, so ask again before turning that into a failure.
+    let latest_status = operations::get_operation(&operation.project_path, &operation.operation_id)
+        .map(|fresh| fresh.status)
+        .unwrap_or(operation.status);
+    if turn_is_ending(latest_status) {
+        return;
+    }
     if native_completion_evidence(&messages, &operation.message_baseline_ids, false).is_none() {
         return;
     }
@@ -371,6 +379,25 @@ pub(super) fn native_prompt_never_landed(
             .as_deref()
             .is_some_and(|id| !baseline_ids.iter().any(|known| known == id))
     })
+}
+
+/// The turn is being cancelled or already finished: the supervisor must not conclude anything.
+fn turn_is_ending(status: OperationStatus) -> bool {
+    status == OperationStatus::Cancelling || status.terminal()
+}
+
+#[cfg(test)]
+mod ending_tests {
+    use super::*;
+
+    #[test]
+    fn a_cancelling_or_finished_turn_is_never_concluded_by_the_tick() {
+        assert!(turn_is_ending(OperationStatus::Cancelling));
+        assert!(turn_is_ending(OperationStatus::Cancelled));
+        assert!(turn_is_ending(OperationStatus::Completed));
+        assert!(!turn_is_ending(OperationStatus::Running));
+        assert!(!turn_is_ending(OperationStatus::WaitingInput));
+    }
 }
 
 pub(super) fn native_completion_evidence(
