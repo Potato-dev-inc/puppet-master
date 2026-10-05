@@ -52,7 +52,7 @@ pub(super) const NO_REPLY_TEXT: &str = "NO_REPLY_TEXT";
 static HANDLE_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
 
 /// One lock per run handle, so concurrent turn changes on the same handle are serialized.
-fn handle_lock(handle: &str) -> Arc<Mutex<()>> {
+pub(in crate::agent_runs) fn handle_lock(handle: &str) -> Arc<Mutex<()>> {
     HANDLE_LOCKS
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()

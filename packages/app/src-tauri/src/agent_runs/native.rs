@@ -273,6 +273,17 @@ pub(super) fn supervise_native_observation(
     if turn_is_ending(latest_status) {
         return;
     }
+    // cancel_agent / interrupt_agent hold the handle's lock from the abort until the turn is marked
+    // interrupted, and the abort reads as an agent error in between: leave the turn to them.
+    let handle = if operation.agent_run_id.is_empty() {
+        operation.operation_id.as_str()
+    } else {
+        operation.agent_run_id.as_str()
+    };
+    let stop_in_progress = super::runtime::handle_lock(handle);
+    if stop_in_progress.try_lock().is_none() {
+        return;
+    }
     if native_completion_evidence(&messages, &operation.message_baseline_ids, false).is_none() {
         return;
     }
