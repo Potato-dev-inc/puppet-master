@@ -46,6 +46,9 @@ pub struct RunOptionSupport {
     pub trust_workspace: bool,
     /// `allow_shell`: headless-only, never with `read_only`; lets the agent run shell commands.
     pub allow_shell: bool,
+    /// Shell commands already run without opting in (OpenCode native), so `allow_shell` is an
+    /// accepted no-op there (still never with `read_only`).
+    pub shell_default_on: bool,
     /// `allowed_commands`: visible-pane-only; auto-approve named programs.
     pub allowed_commands: bool,
 }

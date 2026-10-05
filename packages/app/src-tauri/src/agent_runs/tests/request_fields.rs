@@ -216,3 +216,19 @@ fn a_retried_run_agent_call_gets_the_same_handle_but_different_calls_do_not() {
         "{a}"
     );
 }
+
+#[test]
+fn allow_shell_is_a_noop_for_opencode_native_and_rejected_for_read_only_and_unsupported() {
+    use crate::agent_runs::headless::allow_shell_applies;
+    let native = crate::tui::profile_for("opencode_native").run_options();
+    // Shell is already on for the native worker: accepted, nothing to apply, even in a pane.
+    assert_eq!(allow_shell_applies(&native, "opencode_native", false, false).unwrap(), false);
+    assert!(allow_shell_applies(&native, "opencode_native", false, true).is_err());
+    let cursor = crate::tui::profile_for("cursor_agent").run_options();
+    assert_eq!(allow_shell_applies(&cursor, "cursor_agent", true, false).unwrap(), true);
+    assert!(allow_shell_applies(&cursor, "cursor_agent", false, false).is_err());
+    assert!(allow_shell_applies(&cursor, "cursor_agent", true, true).is_err());
+    let claude = crate::tui::profile_for("claude").run_options();
+    let error = allow_shell_applies(&claude, "claude", true, false).unwrap_err();
+    assert!(error.message.contains("not supported by claude"), "{}", error.message);
+}

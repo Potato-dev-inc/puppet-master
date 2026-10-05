@@ -20,6 +20,8 @@ mod supervise;
 mod view;
 
 pub use entry::run_agent;
+#[cfg(test)]
+pub(crate) use entry::allow_shell_applies;
 pub use supervise::supervise_existing;
 
 pub(super) use control::{blocked_on_trust, cancel_headless};

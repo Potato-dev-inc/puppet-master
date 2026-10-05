@@ -72,6 +72,7 @@ impl TuiProfile for CursorAgent {
         RunOptionSupport {
             trust_workspace: true,
             allow_shell: true,
+            shell_default_on: false,
             allowed_commands: true,
         }
     }

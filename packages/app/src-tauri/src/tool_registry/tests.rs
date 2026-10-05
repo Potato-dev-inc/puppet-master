@@ -401,5 +401,5 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "66-13b16c52e84e2043");
+    assert_eq!(catalog_version(), "66-91b6c68e1db9fece");
 }

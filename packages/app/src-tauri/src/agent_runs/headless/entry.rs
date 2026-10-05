@@ -7,11 +7,48 @@ use super::view::{present_view, wait_for_run};
 use crate::agent_runs::persist::{self, FollowupOpts, WorkerBind};
 use crate::agent_runs::runtime::{self, AgentRunRequest, AgentRunView};
 use crate::agent_runs::{approval_policy, capabilities, checks};
+use crate::tui::RunOptionSupport;
 use crate::operations::{self, ContextPolicy, DelegateWorkRequest, OperationError};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::thread;
 use uuid::Uuid;
+
+/// Validates `allow_shell` against the backend. Returns whether the flag needs to be applied to
+/// the launch (headless Cursor: `--force`); `false` means shell is already permitted and the flag
+/// is an accepted no-op (OpenCode native runs bash by default).
+pub(crate) fn allow_shell_applies(
+    supported: &RunOptionSupport,
+    agent_type: &str,
+    headless: bool,
+    read_only: bool,
+) -> Result<bool, OperationError> {
+    if !supported.allow_shell {
+        return Err(OperationError::new(
+            "INVALID_ARGUMENT",
+            format!("allow_shell is not supported by {agent_type}: it is only needed for headless cursor_agent; OpenCode native already runs shell commands"),
+            false,
+        ));
+    }
+    if read_only {
+        return Err(OperationError::new(
+            "INVALID_ARGUMENT",
+            "allow_shell cannot be combined with read_only",
+            false,
+        ));
+    }
+    if supported.shell_default_on {
+        return Ok(false);
+    }
+    if !headless {
+        return Err(OperationError::new(
+            "INVALID_ARGUMENT",
+            "allow_shell applies only to headless, non-read-only runs; in a visible pane use allowed_commands or answer_prompt",
+            false,
+        ));
+    }
+    Ok(true)
+}
 
 pub fn run_agent(
     mut request: AgentRunRequest,
@@ -261,21 +298,12 @@ pub fn run_agent(
         worker.trust_workspace = true;
     }
     if request.allow_shell {
-        if !supported.allow_shell {
-            return Err(OperationError::new(
-                "INVALID_ARGUMENT",
-                format!("allow_shell is not supported by {agent_type}"),
-                false,
-            ));
-        }
-        if !request.headless || request.read_only {
-            return Err(OperationError::new(
-                "INVALID_ARGUMENT",
-                "allow_shell applies only to headless, non-read-only runs; in a visible pane use allowed_commands or answer_prompt",
-                false,
-            ));
-        }
-        worker.allow_shell = true;
+        worker.allow_shell = allow_shell_applies(
+            &supported,
+            &agent_type,
+            request.headless,
+            request.read_only,
+        )?;
     }
     if let Some(allowed) = request
         .allowed_commands

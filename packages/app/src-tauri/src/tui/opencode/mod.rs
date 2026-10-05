@@ -38,6 +38,15 @@ impl TuiProfile for OpenCodeNative {
         }
     }
 
+    fn run_options(&self) -> super::RunOptionSupport {
+        // Verified live: the native worker's bash tool runs without any permission opt-in.
+        super::RunOptionSupport {
+            allow_shell: true,
+            shell_default_on: true,
+            ..Default::default()
+        }
+    }
+
     fn looks_like_menu(&self, text: &str) -> bool {
         screen::looks_like_menu(text)
     }
