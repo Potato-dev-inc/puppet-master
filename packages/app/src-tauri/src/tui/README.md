@@ -5,7 +5,9 @@ lives here, so a break in one TUI is fixed in one place and cannot disturb the r
 
 ```
 tui/
-  mod.rs          TuiProfile trait, Features, registry (PROFILES), shared policy
+  mod.rs          registry (PROFILES), profile_for, shared helpers
+  profile.rs      TuiProfile trait (every per-agent behaviour, with generic defaults)
+  types.rs        Kind, Features, LaunchSpec, HeadlessLaunch, Reply, Warning, RunFacts
   generic.rs      default prompt handling + the profile for unregistered agent types
   conformance.rs  rules every registered profile must pass (runs for new profiles automatically)
   cursor/         Cursor Agent CLI + Cursor IDE launcher

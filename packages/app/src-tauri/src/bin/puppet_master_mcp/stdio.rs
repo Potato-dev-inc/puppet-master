@@ -1,4 +1,6 @@
-use crate::*;
+//! JSON-RPC over stdio: the request loop, `initialize`, tool/resource/prompt listing.
+
+use super::*;
 pub(crate) fn run() {
     if env::args().any(|arg| arg == "--version") {
         println!("{SERVER_NAME} {SERVER_VERSION}");
@@ -145,6 +147,7 @@ fn json_id_key(id: &Value) -> String {
     id.to_string()
 }
 
+#[cfg(test)]
 fn handle_json_rpc_line(line: &str) -> Option<String> {
     handle_json_rpc_line_cancellable(line, None, None)
 }
@@ -167,9 +170,7 @@ fn handle_json_rpc_line_cancellable(
             );
         }
     };
-    if request.get("id").is_none() {
-        return None;
-    }
+    request.get("id")?;
     let id = request.get("id").cloned().unwrap_or(Value::Null);
     let method = request
         .get("method")
@@ -305,7 +306,7 @@ fn json_rpc_error(id: Value, code: i64, message: String) -> Value {
 fn mcp_tools() -> Vec<Value> {
     let tools = current_mcp_session_id()
         .map(|id| mcp_sessions::tools_for_session(&id))
-        .unwrap_or_else(|| tool_registry::tools());
+        .unwrap_or_else(tool_registry::tools);
     tools
         .into_iter()
         .filter(|tool| tool.visibility.external_mcp)
@@ -321,4 +322,13 @@ fn mcp_tools() -> Vec<Value> {
             value
         })
         .collect()
+}
+
+fn negotiate_protocol_version(requested: Option<&str>) -> &'static str {
+    match requested {
+        Some("2025-11-25") => "2025-11-25",
+        Some("2025-06-18") => "2025-06-18",
+        Some("2025-03-26") => "2025-03-26",
+        _ => "2024-11-05",
+    }
 }
