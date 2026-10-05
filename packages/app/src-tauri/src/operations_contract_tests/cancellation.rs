@@ -34,12 +34,12 @@ fn worker_cancellation_during_startup_prevents_dispatch_completion_overwrite() {
     let worker = thread::spawn(move || {
         operations::run_operation_dispatch(&path, &operation_id, |_| {
             entered_tx.send(()).unwrap();
-            release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(30)).unwrap();
             Ok(())
         })
         .unwrap()
     });
-    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(30)).unwrap();
 
     let approval = operations::mark_operation_observation(
         &project.str(),

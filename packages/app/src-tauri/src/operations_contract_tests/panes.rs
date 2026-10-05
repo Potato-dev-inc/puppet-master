@@ -20,7 +20,13 @@ fn separate_operations_can_dispatch_concurrently() {
                 operations::run_operation_dispatch(&project_path, &op.operation_id, |_| {
                     let now = active.fetch_add(1, Ordering::SeqCst) + 1;
                     max_active.fetch_max(now, Ordering::SeqCst);
-                    thread::sleep(Duration::from_millis(100));
+                    // Wait (bounded) until the other dispatch is inside its callback too, so
+                    // the overlap does not depend on thread start-up skew under load.
+                    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+                    while active.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < deadline
+                    {
+                        thread::sleep(Duration::from_millis(5));
+                    }
                     active.fetch_sub(1, Ordering::SeqCst);
                     Ok(())
                 })
