@@ -122,3 +122,26 @@ stream-json process is pooled for Claude).
 - Every event-log `PaneOutputObserved` chunk is appended and flushed; coalescing unchanged-screen chunks would cut I/O but changes the audit stream.
 - `rebuild_read_models` still parses the whole event log per task/lock/session route.
 - Visible Claude reply text keeps its `●` marker.
+
+## Warm standby pool (opt-in) results
+
+Build 1b52915+. Pool on for cursor_agent visible, claude visible and claude headless, one fixed (already trusted)
+sandbox folder, 4 cold runs per scenario spaced 25s apart (run 0 seeds the pool and is a normal cold start; runs 1-3
+claimed a standby, `receipt.standby_used: true`, stage `standby_claimed`). Pool off: 3 cold runs, same folder.
+`node scripts/perf-latency.mjs --out <dir> --scenarios cursor_visible,claude_visible,claude_headless --cold 4 --followups 0 --fixed-dir <trusted folder> --cold-gap 25000`
+
+| scenario | pool off (3 runs, median) | pool on, claimed (3 runs, median) | saved | run 0 (miss) |
+|---|---|---|---|---|
+| cursor_visible | 10.9s (11.9 / 10.4 / 10.9) | 5.2s (5.4 / 4.7 / 5.2) | 5.7s | 10.2s |
+| claude_visible | 4.6s (4.6 / 4.6 / 4.6) | 3.8s (3.8 / 3.6 / 3.8) | 0.8s | 6.4s |
+| claude_headless | 3.9s (3.9 / 3.9 / 4.6) | 2.2s (2.1 / 3.3 / 2.2) | 1.7s | 4.1s |
+
+Claimed-run stage log (cursor_visible): `standby_claimed` ~0.1s after the call, prompt typed at ~0.75s (cold: 3.0s after
+~2.2s waiting for the TUI). Headless Claude: `first_output` at 0.15s instead of 3.1s.
+
+Cost: a standby is a real process tree, resident until claimed or idle-expired (20 min default): Cursor ~294 MB
+(PowerShell host 85 + node 209), Claude pane ~308 MB (host 72 + claude 236), headless Claude ~206 MB (+ ~10 MB conhost
+each). Default cap 3 (`max_total`), 2 projects.
+
+Not poolable: headless Cursor (prompt is an argv, stdin ignored: "No prompt provided for print mode"; ~20s CLI start
+cannot be pre-paid), headless Codex/OpenCode (no gain: 0.1s process launch), native OpenCode.

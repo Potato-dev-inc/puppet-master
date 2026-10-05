@@ -246,6 +246,22 @@ Per agent: `cursor/` (`mod.rs`, `launch.rs`, `headless.rs`, `screen.rs`, `chrome
 | `projections.rs` (+`projections/summary.rs`, `tests.rs`), `event_log.rs` (+`event_log/recent.rs`, `tests.rs`; `find_last_entry` scans the log from its end, so a pane's last event never parses the whole file), `events.rs`, `actors.rs` | Event stream (`SystemEvent`), append-only event log per project (recent-event queries in `event_log/recent.rs`), read models (`WorkspaceAttention`, `GET /workspace/state`; audit summaries in `projections/summary.rs`), actor/role bookkeeping. |
 | `session_context.rs`, `context_pack.rs`, `agent_contexts/` (`mod.rs`, `profiles.rs`, `inspect.rs`, `tests.rs`), `project_ir.rs` | Session context store, context packs, agent context profiles/labels (`AgentContextProfile` in `profiles.rs`; model detection/inspection in `inspect.rs`), librarian project IR reader. |
 
+### 3.5b `standby/` (opt-in warm worker pool)
+
+Off by default. Per backend and kind (visible pane / headless process) a worker for a recently used project is
+started ahead of time; `run_agent` claims it instead of spawning. Settings + history live in
+`<app data>/standby-pool.json` (hand edits are applied within a second); UI: Settings > Performance
+(`PerformanceTab.tsx`, `lib/standby.ts`, Tauri commands `standby_get_status` / `standby_set_config`).
+
+| File | Purpose / key items |
+|---|---|
+| `standby/pool.rs` | State machine, no I/O: `Pool` (`note_run`, `claim` -> `ClaimOutcome`, `reconcile`, `set_config`, `shutdown`, `status`), `Host` trait (spawn / check / kill), `Claim` guard (dropped uncommitted = worker killed, so a cancelled claim leaks nothing). Rules: one per `PoolKey`, top N recent projects inside X hours, global cap, claimable after two ready observations, idle expiry leaves the key cold until its next run, dialog / dead / startup-timeout = discard + backoff (cold after 3). |
+| `standby/host.rs` | `LiveHost`: hidden PTY panes (`pty/hidden.rs`, `registry_spawn_pane` under a pre-hidden id) and waiting headless processes; health = profile `standby_screen` + pane status idle. |
+| `standby/key.rs`, `config.rs`, `mod.rs` | `PoolKey` (agent, canonical project, model, read_only, allow_shell, headless), settings/history file, global API (`init`, `claim_visible`, `claim_headless`, `note_run`, `status`, `shutdown`). Tests: `standby/tests.rs`. |
+| `pty/hidden.rs` | Hidden-pane set; `PaneRegistry::list()` skips them (`list_all()` does not), so UI, `/panes`, workspace state and run adoption never see a standby until `reveal`. |
+| `tui/<agent>/` | `TuiProfile::{standby_support, standby_screen, headless_standby_command, headless_standby_input}`: Cursor (visible only: headless takes its prompt as an argument), Claude (visible + `claude -p --input-format stream-json`). |
+| integration | `bridge/dispatch.rs::assign_pane` (claim before spawning; `standby_claimed` stage; claimed pane = run-created, so `keep_pane=false` disposes it), `agent_runs/headless/process.rs` (`hand_task_to_standby`, falls back to a normal spawn), `operations::mark_standby_claimed`, `worker.standby_used` -> `receipt.standby_used` / view `standby_used`, `GET /standby`, `/health.standby` counts. Visible standbys never answer a trust dialog: an untrusted folder is simply not pooled. |
+
 ### 3.6 `opencode/` (native HTTP backend, not screen scraping)
 
 `client/` (`mod.rs` REST client v1 API, `models.rs` session/message reads, `interactions.rs` permission and
@@ -297,6 +313,7 @@ JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WA
 | OpenCode native behaviour | `opencode/*`, `agent_runs/native.rs`, `tui/opencode/` | `docs/orchestrator/opencode-native-worker.md` |
 | Pane state labels (idle/blocked/...) | `pty/status.rs` + profile `classify_screen` | `lib/pane-state.ts`, `shared/src/protocol.ts` (`PaneActivityStateSchema`) |
 | Wait semantics (`wait_agents`, `wait_for_panes`) | `routes/wait.rs::wait_agents`, `operations/wait.rs::wait_for_operation(s)`, `pane_wait/` | `completion_wait_until()` default set |
+| Warm standby pool (what is kept warm, claim rules, why a key is held back) | `standby/pool.rs` (rules), `standby/host.rs` (live spawn/health), `GET /standby` for state | profile `standby_screen` / `headless_standby_*` in `tui/<agent>/`; claim sites `bridge/dispatch.rs::assign_pane`, `headless/process.rs`; `scripts/perf-latency.mjs --fixed-dir --cold-gap` to measure |
 | Delegation latency (measure first: `scripts/perf-latency.mjs`, results in `docs/perf/latency-baseline.md`) | per-stage: `operations/store.rs::bump` (stage_log), `startup_timing.rs`, `bridge/dispatch.rs`, `agent_runs/delivery.rs`, `pty/registry/idle.rs` | whole-file scans on hot paths (`event_log::find_last_entry`, `agent_runs/headless/bind.rs::worker_lookup_key`), `mcp_sessions/state.rs` writer |
 | Windows-specific spawn quirks | `pty/registry/command.rs`, `pty/agents.rs`, `project_path.rs`, `shell_env.rs` | |
 | UI | `packages/app/src` (components/, hooks/, lib/); settings tabs in `components/settings/tabs/`, sidebar in `components/sidebar/`, styles in `styles/` | Tauri command called from the UI: `lib/tauri.ts` + `commands/` + `lib.rs` `invoke_handler` |
