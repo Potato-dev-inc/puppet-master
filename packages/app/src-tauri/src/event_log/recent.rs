@@ -60,16 +60,15 @@ pub fn read_recent_events(
 }
 
 pub fn last_pane_event_summary(pane_id: &str) -> Option<LastEventSummary> {
-    let entries = read_global_entries().ok()?;
-    for entry in entries.into_iter().rev() {
-        if matches!(event_pane_id(&entry.payload), Some(id) if id.0 == pane_id) {
-            return Some(LastEventSummary {
-                event_type: event_type_name(&entry.payload).to_string(),
-                timestamp_ms: entry.timestamp_ms,
-            });
-        }
-    }
-    None
+    // Scans from the end of the log: every worker-status call asks this, and the log only grows.
+    let entry = super::find_last_entry(
+        |entry| matches!(event_pane_id(&entry.payload), Some(id) if id.0 == pane_id),
+    )
+    .ok()??;
+    Some(LastEventSummary {
+        event_type: event_type_name(&entry.payload).to_string(),
+        timestamp_ms: entry.timestamp_ms,
+    })
 }
 
 fn summarize_event(entry: &EventEntry) -> RecentEventSummary {

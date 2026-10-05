@@ -214,6 +214,69 @@ pub fn rebuild_read_models() -> Result<crate::projections::ReadModels, String> {
     ))
 }
 
+/// Bytes read per step when scanning a log from its end.
+const TAIL_CHUNK_BYTES: usize = 256 * 1024;
+
+/// The newest entry (scanning from the end of the file) that satisfies `want`. Reads the log in
+/// chunks backwards and stops at the first match, so a lookup of a recent event costs a few
+/// hundred KB instead of parsing a multi-MB history (a busy project's log reached 40MB and took
+/// 1.3s to parse on every worker-status call).
+pub fn find_last_entry(want: impl FnMut(&EventEntry) -> bool) -> Result<Option<EventEntry>, String> {
+    let log = EVENT_LOG
+        .get()
+        .ok_or_else(|| "event log not initialized".to_string())?;
+    find_last_entry_in(&log.current_path(), TAIL_CHUNK_BYTES, want)
+}
+
+fn find_last_entry_in(
+    path: &Path,
+    chunk_bytes: usize,
+    mut want: impl FnMut(&EventEntry) -> bool,
+) -> Result<Option<EventEntry>, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    if !path.exists() {
+        return Ok(None);
+    }
+    let mut file =
+        File::open(path).map_err(|err| format!("open event log {}: {err}", path.display()))?;
+    let mut position = file
+        .metadata()
+        .map_err(|err| format!("stat event log {}: {err}", path.display()))?
+        .len();
+    // Bytes read so far that do not yet start at a line boundary (the line continues further up).
+    let mut carry: Vec<u8> = Vec::new();
+    let chunk_bytes = chunk_bytes.max(1);
+    while position > 0 {
+        let step = (chunk_bytes as u64).min(position);
+        position -= step;
+        let mut chunk = vec![0_u8; step as usize];
+        file.seek(SeekFrom::Start(position))
+            .and_then(|_| file.read_exact(&mut chunk))
+            .map_err(|err| format!("read event log {}: {err}", path.display()))?;
+        chunk.extend_from_slice(&carry);
+        let buffer = chunk;
+        // Everything after the first newline is made of whole lines; the head may be a partial
+        // line unless this chunk reaches the start of the file.
+        let (head_len, lines_start) = match buffer.iter().position(|byte| *byte == b'\n') {
+            Some(newline) if position > 0 => (newline, newline + 1),
+            _ if position > 0 => (buffer.len(), buffer.len()),
+            _ => (0, 0),
+        };
+        for line in buffer[lines_start..].split(|byte| *byte == b'\n').rev() {
+            if line.iter().all(u8::is_ascii_whitespace) {
+                continue;
+            }
+            let entry: EventEntry = serde_json::from_slice(line)
+                .map_err(|err| format!("parse event log {}: {err}", path.display()))?;
+            if want(&entry) {
+                return Ok(Some(entry));
+            }
+        }
+        carry = if position > 0 { buffer[..head_len].to_vec() } else { Vec::new() };
+    }
+    Ok(None)
+}
+
 pub fn read_entries(path: &Path) -> Result<Vec<EventEntry>, String> {
     if !path.exists() {
         return Ok(Vec::new());

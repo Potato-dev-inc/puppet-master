@@ -95,3 +95,57 @@ fn replay_reconstructs_pane_timeline() {
     assert_eq!(timeline[0].event, "spawned");
     assert_eq!(timeline[1].event, "status:idle");
 }
+
+fn status_entry(pane: &str, status: &str) -> EventEntry {
+    EventEntry::new(
+        ActorId::system(),
+        CommandId::new(),
+        SystemEvent::PaneStatusChanged {
+            pane_id: PaneId(pane.to_string()),
+            status: status.to_string(),
+        },
+    )
+}
+
+#[test]
+fn find_last_entry_returns_the_newest_match_across_chunk_boundaries() {
+    let path = temp_event_log_path("find-last");
+    let log = EventLog::new(path.clone()).unwrap();
+    for index in 0..200 {
+        log.append(&status_entry("pane-a", &format!("a{index}"))).unwrap();
+        if index % 3 == 0 {
+            log.append(&status_entry("pane-b", &format!("b{index}"))).unwrap();
+        }
+    }
+    let wants = |pane: &'static str| {
+        move |entry: &EventEntry| {
+            matches!(&entry.payload, SystemEvent::PaneStatusChanged { pane_id, .. } if pane_id.0 == pane)
+        }
+    };
+    // A tiny chunk forces lines to straddle chunk boundaries.
+    for chunk in [7usize, 64, 1_000, 1 << 20] {
+        let a = find_last_entry_in(&path, chunk, wants("pane-a")).unwrap().unwrap();
+        assert!(matches!(&a.payload, SystemEvent::PaneStatusChanged { status, .. } if status == "a199"), "chunk {chunk}");
+        let b = find_last_entry_in(&path, chunk, wants("pane-b")).unwrap().unwrap();
+        assert!(matches!(&b.payload, SystemEvent::PaneStatusChanged { status, .. } if status == "b198"), "chunk {chunk}");
+    }
+    assert!(find_last_entry_in(&path, 64, wants("pane-missing")).unwrap().is_none());
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn find_last_entry_handles_missing_empty_and_unterminated_files() {
+    let missing = temp_event_log_path("find-last-missing");
+    assert!(find_last_entry_in(&missing, 64, |_| true).unwrap().is_none());
+    let empty = temp_event_log_path("find-last-empty");
+    fs::write(&empty, "").unwrap();
+    assert!(find_last_entry_in(&empty, 64, |_| true).unwrap().is_none());
+    // No trailing newline (a writer was interrupted mid-append is not tolerated, but a file that
+    // simply lacks the final newline is), and a blank line in the middle.
+    let json = serde_json::to_string(&status_entry("p", "x")).unwrap();
+    let odd = temp_event_log_path("find-last-odd");
+    fs::write(&odd, format!("{json}\n\n{json}")).unwrap();
+    assert!(find_last_entry_in(&odd, 16, |_| true).unwrap().is_some());
+    let _ = fs::remove_file(empty);
+    let _ = fs::remove_file(odd);
+}
