@@ -41,10 +41,16 @@ pub(super) fn bind_existing_worker(
     let Some(pane_ref) = pane_ref else {
         return Ok(());
     };
-    if let Ok(existing) = persist::find_worker(
-        request.project_path.as_deref().unwrap_or_default(),
-        &pane_ref,
-    ) {
+    let live_pane_ids: Vec<String> = registry
+        .lock()
+        .list()
+        .into_iter()
+        .map(|pane| pane.id)
+        .collect();
+    let persisted = worker_lookup_key(request, &pane_ref, &live_pane_ids).and_then(|key| {
+        persist::find_worker(request.project_path.as_deref().unwrap_or_default(), key).ok()
+    });
+    if let Some(existing) = persisted {
         let worker_dir = existing
             .worker
             .workspace
@@ -112,6 +118,27 @@ pub(super) fn bind_existing_worker(
     Ok(())
 }
 
+/// The key to look a persisted worker up by, or `None` when no worker can match.
+///
+/// A miss in `find_worker` scans every operation of every indexed project (0.7s here, and it grows
+/// with history), so the cheap, certain cases skip it: a follow-up already names its handle, and a
+/// reference that is exactly a live pane's id is a pane, never a handle or a worker name.
+fn worker_lookup_key<'a>(
+    request: &'a AgentRunRequest,
+    pane_ref: &'a str,
+    live_pane_ids: &[String],
+) -> Option<&'a str> {
+    if request.turn_index > 0 {
+        if let Some(handle) = request.handle.as_deref().filter(|handle| !handle.is_empty()) {
+            return Some(handle);
+        }
+    }
+    if live_pane_ids.iter().any(|id| id == pane_ref) {
+        return None;
+    }
+    Some(pane_ref)
+}
+
 fn find_live_pane(
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     id: &str,
@@ -155,6 +182,29 @@ mod tests {
             context_policy: None,
             checks: Vec::new(),
         }
+    }
+
+    fn request_with(value: serde_json::Value) -> AgentRunRequest {
+        let mut base = serde_json::json!({"task": "t", "agent_type": "codex"});
+        base.as_object_mut().unwrap().extend(value.as_object().unwrap().clone());
+        serde_json::from_value(base).unwrap()
+    }
+
+    #[test]
+    fn worker_lookup_skips_the_all_projects_scan_when_the_answer_is_already_known() {
+        let live = vec!["pane-live-1".to_string()];
+        // A follow-up already carries its handle: look that up (one project), not the pane id.
+        let mut follow_up = request_with(serde_json::json!({"pane_id": "pane-live-1", "handle": "luna"}));
+        follow_up.turn_index = 1;
+        assert_eq!(worker_lookup_key(&follow_up, "pane-live-1", &live), Some("luna"));
+        // A first turn aimed at a live pane's exact id is a pane: no worker can be named that.
+        let adopt = request_with(serde_json::json!({"pane_id": "pane-live-1"}));
+        assert_eq!(worker_lookup_key(&adopt, "pane-live-1", &live), None);
+        // A worker name or handle is still looked up, as is an id that is not (or no longer) live.
+        let named = request_with(serde_json::json!({"worker_id": "luna"}));
+        assert_eq!(worker_lookup_key(&named, "luna", &live), Some("luna"));
+        let stale = request_with(serde_json::json!({"pane_id": "pane-gone"}));
+        assert_eq!(worker_lookup_key(&stale, "pane-gone", &live), Some("pane-gone"));
     }
 
     #[test]
