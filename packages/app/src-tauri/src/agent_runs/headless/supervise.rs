@@ -239,6 +239,7 @@ impl Supervisor {
             &pane_status,
             &screen,
             has_prompt,
+            &current.agent_type,
         ) {
             TuiTurnDecision::WaitingInput => {
                 self.on_waiting_input(current, action, &screen);
@@ -353,6 +354,7 @@ impl Supervisor {
                 &current.task,
                 &previous_turn_task(current),
                 &result,
+                &current.agent_type,
             ),
             Err(_) => completion::WidenedReply {
                 text: result.clone(),
@@ -384,7 +386,7 @@ impl Supervisor {
         // may sit in the scrollback.
         let mut recovered = None;
         for attempt in 0..REREAD_ATTEMPTS {
-            recovered = self.recapture(pane_id);
+            recovered = self.recapture(pane_id, &current.agent_type);
             if recovered.is_some() || attempt + 1 == REREAD_ATTEMPTS {
                 break;
             }
@@ -426,7 +428,7 @@ impl Supervisor {
     /// not hidden: say what the pane showed (the same evidence a RESULT_NOT_CAPTURED failure
     /// carries) and that nothing was inferred.
     fn on_idle_with_checks(&self, current: &OperationSnapshot, pane_id: &str) -> bool {
-        if let Some(result) = self.recapture(pane_id) {
+        if let Some(result) = self.recapture(pane_id, &current.agent_type) {
             transcript::append(
                 &current.project_path,
                 &current.operation_id,
@@ -476,11 +478,11 @@ impl Supervisor {
     }
 
     /// Reads the visible rows and scrollback again and tries to find the turn's reply in them.
-    fn recapture(&self, pane_id: &str) -> Option<String> {
+    fn recapture(&self, pane_id: &str, agent_type: &str) -> Option<String> {
         let visible = read_tui_screen(&self.registry, pane_id).unwrap_or_default();
         let full = crate::pty::registry_read_full_text(self.registry.as_ref(), pane_id)
             .unwrap_or_default();
-        completion::recapture_reply(&self.watch, &visible, &full)
+        completion::recapture_reply(&self.watch, &visible, &full, agent_type)
     }
 
     /// The wall-clock deadline passed: stop the worker and fail the run with TIMEOUT (or

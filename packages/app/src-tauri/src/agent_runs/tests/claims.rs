@@ -82,6 +82,7 @@ fn session_resume_claim_matches_inspect_continuity() {
     let previous = operations::latest_agent_run(&project_path, "native").unwrap();
     let native_prompt = crate::agent_runs::persist::render_turn_prompt(
         crate::agent_runs::persist::TurnPromptArgs {
+            agent_type: "opencode_native",
             policy: ContextPolicy::Packet,
             task: "continue",
             scope: None,
@@ -118,6 +119,7 @@ fn session_resume_claim_matches_inspect_continuity() {
     let previous_cli = operations::latest_agent_run(&project_path, "cli").unwrap();
     let cli_prompt = crate::agent_runs::persist::render_turn_prompt(
         crate::agent_runs::persist::TurnPromptArgs {
+            agent_type: "codex",
             policy: ContextPolicy::Packet,
             task: "continue",
             scope: None,

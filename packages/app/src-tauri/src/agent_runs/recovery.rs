@@ -63,6 +63,7 @@ pub fn on_native_pane_replaced(
         if running {
             let facts = persist::conversation_facts(&snapshot.project_path, &handle);
             let rendered = persist::render_turn_prompt(persist::TurnPromptArgs {
+                agent_type: &snapshot.agent_type,
                 policy: persist::followup_policy(None, snapshot.worker.context_policy),
                 task: &snapshot.task,
                 scope: snapshot.worker.scope.as_deref(),

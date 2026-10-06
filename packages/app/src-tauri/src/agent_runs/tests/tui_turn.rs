@@ -6,10 +6,12 @@ use crate::agent_runs::completion::{
 };
 use crate::operations::ResultCapture;
 
+const AGENT: &str = "cursor_agent";
+
 #[test]
 fn tui_turn_evidence_ignores_unchanged_idle_chrome() {
     let idle = "Add follow-up >";
-    assert!(tui_turn_evidence(idle, idle).is_none());
+    assert!(tui_turn_evidence(idle, idle, AGENT).is_none());
 }
 
 #[test]
@@ -17,7 +19,7 @@ fn tui_turn_evidence_returns_new_reply_after_idle_baseline() {
     let before = "previous chatter\nAdd follow-up >";
     let after = "previous chatter\nPUPPET_MASTER_AGENT_MODE_OK\n\nAdd follow-up >";
     assert_eq!(
-        tui_turn_evidence(after, before).as_deref(),
+        tui_turn_evidence(after, before, AGENT).as_deref(),
         Some("PUPPET_MASTER_AGENT_MODE_OK")
     );
 }
@@ -26,7 +28,7 @@ fn tui_turn_evidence_returns_new_reply_after_idle_baseline() {
 fn tui_turn_evidence_ignores_chrome_only_delta() {
     let before = "hello\nAdd follow-up >";
     let after = "hello\n→ Add follow-up";
-    assert!(tui_turn_evidence(after, before).is_none());
+    assert!(tui_turn_evidence(after, before, AGENT).is_none());
 }
 
 fn tick_until_idle(
@@ -38,7 +40,7 @@ fn tick_until_idle(
 ) -> TuiTurnDecision {
     let mut last = TuiTurnDecision::Continue;
     for _ in 0..times {
-        last = observe_tui_turn(watch, status, screen, has_prompt);
+        last = observe_tui_turn(watch, status, screen, has_prompt, AGENT);
     }
     last
 }
@@ -64,7 +66,7 @@ fn blank_baseline_banner_text_with_no_work_is_not_a_completed_turn() {
     let mut watch = TuiTurnWatch::from_baseline("").with_task("do X");
     let screen = "Cursor Agent v2026.10.01-abc\n~/proj\nAdd a follow-up";
     for tick in 0..6 {
-        let decision = observe_tui_turn(&mut watch, "idle", screen, false);
+        let decision = observe_tui_turn(&mut watch, "idle", screen, false, AGENT);
         assert!(
             !matches!(decision, TuiTurnDecision::Complete { .. }),
             "tick {tick}: banner text must not complete a turn that did nothing: {decision:?}"
@@ -80,7 +82,7 @@ fn blank_baseline_startup_furniture_beyond_the_known_chrome_is_not_a_completed_t
     let screen =
         "Cursor Agent v2026.10.01-abc\n~/proj\nGPT-5\nUpdate available: run agent update\nAdd a follow-up";
     for tick in 0..6 {
-        let decision = observe_tui_turn(&mut watch, "idle", screen, false);
+        let decision = observe_tui_turn(&mut watch, "idle", screen, false, AGENT);
         assert!(
             !matches!(decision, TuiTurnDecision::Complete { .. }),
             "tick {tick}: startup furniture must not complete a turn that did nothing: {decision:?}"
@@ -91,7 +93,7 @@ fn blank_baseline_startup_furniture_beyond_the_known_chrome_is_not_a_completed_t
 #[test]
 fn blank_baseline_turn_completes_once_activity_was_observed() {
     let mut watch = TuiTurnWatch::from_baseline("").with_task("do X");
-    let _ = observe_tui_turn(&mut watch, "running", "Cursor Agent v1\nworking", false);
+    let _ = observe_tui_turn(&mut watch, "running", "Cursor Agent v1\nworking", false, AGENT);
     let screen = "Cursor Agent v1\nThe answer is 42.\nAdd a follow-up";
     let decision = tick_until_idle(&mut watch, "idle", screen, false, 2);
     assert!(
@@ -105,7 +107,7 @@ fn blank_baseline_turn_completes_once_the_task_echo_is_on_screen() {
     let mut watch = TuiTurnWatch::from_baseline("").with_task("summarize the readme file");
     let echoing = "Cursor Agent v1\n> summarize the readme file\nAdd a follow-up";
     // Echo seen on a busy-looking-idle tick, then the reply lands.
-    let _ = observe_tui_turn(&mut watch, "idle", echoing, false);
+    let _ = observe_tui_turn(&mut watch, "idle", echoing, false, AGENT);
     let screen =
         "Cursor Agent v1\n> summarize the readme file\nIt documents the CLI.\nAdd a follow-up";
     let decision = tick_until_idle(&mut watch, "idle", screen, false, 2);
@@ -136,7 +138,7 @@ fn stale_pre_dispatch_output_is_not_the_new_result() {
     let mut watch = TuiTurnWatch::from_baseline(stale);
     let decision = tick_until_idle(&mut watch, "idle", stale, false, NOT_SUBMITTED_TICKS);
     assert_eq!(decision, TuiTurnDecision::NotSubmitted);
-    assert!(tui_turn_evidence(stale, stale).is_none());
+    assert!(tui_turn_evidence(stale, stale, AGENT).is_none());
 }
 
 #[test]
@@ -158,7 +160,8 @@ Acceptance criteria:
 Add follow-up >";
     assert!(clean_extracted_result(
         "[Pasted text #1 +36 lines]\nAcceptance criteria:\n- Return READY ORCHID-731",
-        task
+        task,
+        AGENT,
     )
     .is_none());
     let mut watch = TuiTurnWatch::from_baseline("Add follow-up >").with_task(task);
@@ -184,6 +187,7 @@ fn status_line_is_chrome_and_repeats_collapse() {
     let cleaned = crate::agent_runs::completion::clean_extracted_result(
         "done\ndone\nComposer 2.5 · 7.2%",
         "",
+        AGENT,
     );
     assert_eq!(cleaned.as_deref(), Some("done"));
 }
@@ -191,7 +195,7 @@ fn status_line_is_chrome_and_repeats_collapse() {
 #[test]
 fn add_a_follow_up_hint_is_chrome() {
     let cleaned =
-        crate::agent_runs::completion::clean_extracted_result("PONG\n→ Add a follow-up", "");
+        crate::agent_runs::completion::clean_extracted_result("PONG\n→ Add a follow-up", "", AGENT);
     assert_eq!(cleaned.as_deref(), Some("PONG"));
 }
 
@@ -201,7 +205,7 @@ fn slow_start_gets_one_enter_retry_before_failing() {
     let mut seen_retry = 0;
     let mut last = TuiTurnDecision::Continue;
     for _ in 0..NOT_SUBMITTED_TICKS {
-        last = observe_tui_turn(&mut watch, "idle", "Add follow-up >", false);
+        last = observe_tui_turn(&mut watch, "idle", "Add follow-up >", false, AGENT);
         if last == TuiTurnDecision::RetrySubmit {
             seen_retry += 1;
         }
@@ -213,9 +217,9 @@ fn slow_start_gets_one_enter_retry_before_failing() {
 #[test]
 fn busy_pane_never_triggers_submit_retry() {
     let mut watch = TuiTurnWatch::from_baseline("Add follow-up >");
-    observe_tui_turn(&mut watch, "running", "working", false);
+    observe_tui_turn(&mut watch, "running", "working", false, AGENT);
     for _ in 0..NOT_SUBMITTED_TICKS {
-        let decision = observe_tui_turn(&mut watch, "idle", "Add follow-up >", false);
+        let decision = observe_tui_turn(&mut watch, "idle", "Add follow-up >", false, AGENT);
         assert_ne!(decision, TuiTurnDecision::RetrySubmit);
         assert_ne!(decision, TuiTurnDecision::NotSubmitted);
     }
@@ -225,13 +229,13 @@ fn busy_pane_never_triggers_submit_retry() {
 fn cursor_startup_banner_and_cwd_line_are_not_result_text() {
     let screen = "Cursor Agent\nv2026.10.01-e373342\nTip: Use /plan to plan execution.\nPONG\n~\\Desktop\\pm-bench";
     assert_eq!(
-        crate::agent_runs::completion::clean_extracted_result(screen, "").as_deref(),
+        crate::agent_runs::completion::clean_extracted_result(screen, "", AGENT).as_deref(),
         Some("PONG")
     );
     // A real reply that merely mentions a version or folder is kept.
     let reply = "Upgrade to v2 now, then open ~/notes in your editor.";
     assert_eq!(
-        crate::agent_runs::completion::clean_extracted_result(reply, "").as_deref(),
+        crate::agent_runs::completion::clean_extracted_result(reply, "", AGENT).as_deref(),
         Some(reply)
     );
 }
@@ -239,10 +243,10 @@ fn cursor_startup_banner_and_cwd_line_are_not_result_text() {
 #[test]
 fn cursor_tool_activity_lines_are_not_part_of_the_result() {
     let raw = "Read todo.py\n$ cd proj && python -m pytest 11s\n… 2 output lines hidden · ctrl+o to expand\nAll 12 tests pass.\nComposer 2.5 · 7.2%";
-    let cleaned = crate::agent_runs::completion::clean_extracted_result(raw, "");
+    let cleaned = crate::agent_runs::completion::clean_extracted_result(raw, "", AGENT);
     assert_eq!(cleaned.as_deref(), Some("All 12 tests pass."));
     // Ordinary prose that starts with "Read" survives.
-    let prose = crate::agent_runs::completion::clean_extracted_result("Read the docs first.", "");
+    let prose = crate::agent_runs::completion::clean_extracted_result("Read the docs first.", "", AGENT);
     assert_eq!(prose.as_deref(), Some("Read the docs first."));
 }
 
@@ -250,13 +254,15 @@ fn cursor_tool_activity_lines_are_not_part_of_the_result() {
 fn untouched_cursor_pane_is_not_a_result() {
     assert!(crate::agent_runs::completion::clean_extracted_result(
         "→ Plan, search, build anything\nComposer 2.5",
-        ""
+        "",
+        AGENT,
     )
     .is_none());
     // Text above the last tool marker is tool output, not the reply.
     let cleaned = crate::agent_runs::completion::clean_extracted_result(
         "partial output\n$ python todo.py list 3s\nThere are 3 items.",
         "",
+        AGENT,
     );
     assert_eq!(cleaned.as_deref(), Some("There are 3 items."));
 }
@@ -265,10 +271,11 @@ fn untouched_cursor_pane_is_not_a_result() {
 fn cursor_shell_turn_capture_keeps_only_the_reply() {
     // Real capture: tool output is indented deeper than the `$` line; the reply is back at its column.
     let screen = "  Using your shell tool, run `python todo.py list` and report the output.\n\n  $ python todo.py list 14s\n    … 1 output lines hidden · ctrl+o to expand\n    2 [ ] recheck-item\n    3 [ ] should-not-exist\n\n  python todo.py list exited with code 0 and printed:\n\n  1 [ ] bench-item-B\n  2 [ ] recheck-item\n  3 [ ] should-not-exist\n\n  All three items are unchecked ([ ]).\n";
-    let evidence = crate::agent_runs::completion::tui_turn_evidence(screen, "").expect("evidence");
+    let evidence = crate::agent_runs::completion::tui_turn_evidence(screen, "", AGENT).expect("evidence");
     let cleaned = crate::agent_runs::completion::clean_extracted_result(
         &evidence,
         "Using your shell tool, run `python todo.py list` and report the output.",
+        AGENT,
     )
     .expect("result");
     assert!(!cleaned.contains("hidden"), "{cleaned}");
@@ -305,20 +312,20 @@ fn cursor_model_is_parsed_from_real_about_columns() {
 fn an_empty_json_reply_is_a_result_but_rules_and_box_art_are_not() {
     // Real case: the agent printed the JSON list `[]` and the result came back as None.
     assert_eq!(
-        crate::agent_runs::completion::clean_extracted_result("The JSON printed was:\n[]", "")
+        crate::agent_runs::completion::clean_extracted_result("The JSON printed was:\n[]", "", AGENT)
             .as_deref(),
         Some("The JSON printed was:\n[]")
     );
     assert_eq!(
-        crate::agent_runs::completion::clean_extracted_result("[]", "").as_deref(),
+        crate::agent_runs::completion::clean_extracted_result("[]", "", AGENT).as_deref(),
         Some("[]")
     );
     assert_eq!(
-        crate::agent_runs::completion::clean_extracted_result("{}", "").as_deref(),
+        crate::agent_runs::completion::clean_extracted_result("{}", "", AGENT).as_deref(),
         Some("{}")
     );
     assert!(
-        crate::agent_runs::completion::clean_extracted_result("────────\n▄▄▄▄▄▄\n   \n", "")
+        crate::agent_runs::completion::clean_extracted_result("────────\n▄▄▄▄▄▄\n   \n", "", AGENT)
             .is_none()
     );
 }
@@ -329,16 +336,17 @@ fn a_reply_that_repeats_the_prompt_text_is_still_captured() {
     let task = "Reply with exactly the following text and nothing else:\nfirst line of the reply\nsecond line ünïcode ✓";
     let evidence = format!("{task}\nfirst line of the reply\nsecond line ünïcode ✓");
     assert_eq!(
-        crate::agent_runs::completion::clean_extracted_result(&evidence, task).as_deref(),
+        crate::agent_runs::completion::clean_extracted_result(&evidence, task, AGENT).as_deref(),
         Some("first line of the reply\nsecond line ünïcode ✓")
     );
     // Only the echo on screen: still not a result.
-    assert!(crate::agent_runs::completion::clean_extracted_result(task, task).is_none());
+    assert!(crate::agent_runs::completion::clean_extracted_result(task, task, AGENT).is_none());
     // Punctuation-only replies survive even though the prompt mentions them.
     assert_eq!(
         crate::agent_runs::completion::clean_extracted_result(
             "Reply with exactly [] and nothing else.\n[]",
-            "Reply with exactly [] and nothing else."
+            "Reply with exactly [] and nothing else.",
+            AGENT,
         )
         .as_deref(),
         Some("[]")
@@ -346,7 +354,8 @@ fn a_reply_that_repeats_the_prompt_text_is_still_captured() {
     assert_eq!(
         crate::agent_runs::completion::clean_extracted_result(
             "Reply with exactly {} and nothing else.\n{}",
-            "Reply with exactly {} and nothing else."
+            "Reply with exactly {} and nothing else.",
+            AGENT,
         )
         .as_deref(),
         Some("{}")
@@ -357,7 +366,8 @@ fn a_reply_that_repeats_the_prompt_text_is_still_captured() {
     assert!(crate::agent_runs::completion::clean_extracted_result_after(
         &stale,
         "What is 2+2?",
-        previous
+        previous,
+        AGENT,
     )
     .is_none());
 }

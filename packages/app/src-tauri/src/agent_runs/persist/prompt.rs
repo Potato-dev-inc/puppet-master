@@ -6,6 +6,7 @@ use crate::operations::{self, ContextContinuity, ContextPolicy, OperationStatus}
 
 #[derive(Debug, Clone)]
 pub struct TurnPromptArgs<'a> {
+    pub agent_type: &'a str,
     pub policy: ContextPolicy,
     pub task: &'a str,
     pub scope: Option<&'a str>,
@@ -44,7 +45,9 @@ pub fn conversation_facts(project: &str, handle: &str) -> Option<String> {
         if let Some(result) = turn
             .result
             .as_deref()
-            .and_then(|text| crate::agent_runs::completion::clean_extracted_result(text, ""))
+            .and_then(|text| {
+                crate::agent_runs::completion::clean_extracted_result(text, "", &turn.agent_type)
+            })
         {
             parts.push(format!("Assistant: {result}"));
         }
@@ -91,7 +94,9 @@ pub fn render_turn_prompt(args: TurnPromptArgs<'_>) -> TurnPrompt {
     let continuity = resolve_continuity(args.policy, args.can_resume, args.is_followup);
     let cleaned_prior = args
         .prior_result
-        .and_then(|text| crate::agent_runs::completion::clean_extracted_result(text, ""));
+        .and_then(|text| {
+            crate::agent_runs::completion::clean_extracted_result(text, "", args.agent_type)
+        });
     let reconstructed = if args.is_followup && !args.can_resume {
         Some(reconstruct_facts(args.prior_user, cleaned_prior.as_deref()))
             .filter(|text| !text.is_empty())

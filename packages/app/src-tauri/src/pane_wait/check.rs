@@ -58,7 +58,14 @@ pub(super) fn check_pane(
 
     if until.contains(&WaitUntil::Settled) || until.contains(&WaitUntil::TuiPrompt) {
         if let Some(reason) =
-            worker_settled_reason(registry, pane_id, &info.status, opencode.as_ref(), until)
+            worker_settled_reason(
+                registry,
+                pane_id,
+                &info.status,
+                opencode.as_ref(),
+                until,
+                &info.agent_type,
+            )
         {
             let buffer_tail = if reason == "tui_prompt" {
                 registry_read_buffer(registry, pane_id, 40).ok()
@@ -289,6 +296,7 @@ pub(super) fn worker_settled_reason(
     pane_status: &str,
     opencode: Option<&status::OpenCodeWaitSnapshot>,
     until: &[WaitUntil],
+    agent_type: &str,
 ) -> Option<&'static str> {
     let check_settled = until.contains(&WaitUntil::Settled);
     let check_tui = until.contains(&WaitUntil::TuiPrompt);
@@ -311,7 +319,8 @@ pub(super) fn worker_settled_reason(
             return Some("tui_prompt");
         }
         if let Ok(buffer) = registry_read_buffer(registry, pane_id, 80) {
-            if crate::tui::looks_like_menu(&buffer) && !buffer.contains("You selected") {
+            if crate::tui::looks_like_menu(&buffer, agent_type) && !buffer.contains("You selected")
+            {
                 return Some("tui_prompt");
             }
         }

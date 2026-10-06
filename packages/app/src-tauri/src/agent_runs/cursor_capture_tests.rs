@@ -15,6 +15,8 @@ use crate::operations::{
 };
 use uuid::Uuid;
 
+const AGENT: &str = "cursor_agent";
+
 const BANNER: &str = "  Cursor Agent\n  v2026.10.01-e373342\n  Tip: Use /plan to plan execution.\n";
 const INPUT: &str = " \u{2584}\u{2584}\u{2584}\u{2584}\u{2584}\u{2584}\u{2584}\u{2584}\n  \u{2192} Add a follow-up\n \u{2580}\u{2580}\u{2580}\u{2580}\u{2580}\u{2580}\u{2580}\u{2580}\n";
 
@@ -44,7 +46,7 @@ fn screen_after(turns: &[(&str, &str)], footer: &str) -> String {
 
 fn ticks(watch: &mut TuiTurnWatch, status: &str, screen: &str, n: u32) -> Vec<TuiTurnDecision> {
     (0..n)
-        .map(|_| observe_tui_turn(watch, status, screen, false))
+        .map(|_| observe_tui_turn(watch, status, screen, false, AGENT))
         .collect()
 }
 
@@ -67,7 +69,7 @@ fn follow_up(history: &[(&str, &str)], prompt: &str, reply: &str) -> Option<Stri
         &[history, &[(prompt, "")]].concat(),
         "Composer 2.5 \u{b7} 3.0%",
     );
-    let _ = observe_tui_turn(&mut watch, "running", &echo_only, false);
+    let _ = observe_tui_turn(&mut watch, "running", &echo_only, false, AGENT);
     let done = screen_after(
         &[history, &[(prompt, reply)]].concat(),
         "Composer 2.5 \u{b7} 3.4%",
@@ -136,7 +138,7 @@ fn a_slow_reply_is_waited_for_not_given_up_on() {
         .with_task(prompt)
         .with_previous_task(FIRST.0);
     let echo_only = screen_after(&[FIRST, (prompt, "")], "Composer 2.5 \u{b7} 3.0%");
-    let _ = observe_tui_turn(&mut watch, "running", &echo_only, false);
+    let _ = observe_tui_turn(&mut watch, "running", &echo_only, false, AGENT);
     let waiting = ticks(&mut watch, "idle", &echo_only, 20);
     assert!(
         waiting.iter().all(|d| *d == TuiTurnDecision::Continue),
@@ -155,7 +157,7 @@ fn nothing_captured_stays_null_with_an_honest_end_state() {
         .with_task(prompt)
         .with_previous_task(FIRST.0);
     let echo_only = screen_after(&[FIRST, (prompt, "")], "Composer 2.5 \u{b7} 3.0%");
-    let _ = observe_tui_turn(&mut watch, "running", &echo_only, false);
+    let _ = observe_tui_turn(&mut watch, "running", &echo_only, false, AGENT);
     let decisions = ticks(&mut watch, "idle", &echo_only, 200);
     assert!(completed(&decisions).is_none(), "{decisions:?}");
     assert_eq!(decisions.last(), Some(&TuiTurnDecision::AmbiguousIdle));
@@ -178,8 +180,8 @@ fn an_echoed_prompt_alone_never_satisfies_capture() {
         let decisions = ticks(&mut watch, "idle", &echo, NOT_SUBMITTED_TICKS as u32);
         assert!(completed(&decisions).is_none(), "{decisions:?}");
     }
-    assert!(clean_extracted_result_after(prompt, prompt, FIRST.0).is_none());
-    assert!(clean_extracted_result_after("Reply with only [], no tools,\nno explanation.", prompt, "").is_none());
+    assert!(clean_extracted_result_after(prompt, prompt, FIRST.0, AGENT).is_none());
+    assert!(clean_extracted_result_after("Reply with only [], no tools,\nno explanation.", prompt, "", AGENT).is_none());
 
     // End to end: with the check configured, an ambiguous end fails acceptance with no result.
     let project = std::env::temp_dir().join(format!("pm-cap-{}", Uuid::new_v4()));
@@ -202,7 +204,7 @@ fn an_echoed_prompt_alone_never_satisfies_capture() {
 // ---- debris -------------------------------------------------------------------------------
 
 fn clean(evidence: &str) -> Option<String> {
-    clean_extracted_result_after(evidence, "", "")
+    clean_extracted_result_after(evidence, "", "", AGENT)
 }
 
 #[test]
@@ -349,7 +351,7 @@ fn a_footer_cwd_wrapped_over_several_rows_is_not_part_of_the_answer() {
         let baseline = screen_after(&[], "Composer 2.5");
         let mut watch = TuiTurnWatch::from_baseline(baseline).with_task(FIRST.0);
         let echo = wrapped_footer_screen(FIRST.0, "", cwd, width);
-        let _ = observe_tui_turn(&mut watch, "running", &echo, false);
+        let _ = observe_tui_turn(&mut watch, "running", &echo, false, AGENT);
         let done = wrapped_footer_screen(FIRST.0, "PONG", cwd, width);
         assert_eq!(
             completed(&ticks(&mut watch, "idle", &done, 4)).as_deref(),
@@ -364,7 +366,7 @@ fn an_answer_that_looks_like_a_path_survives_when_it_is_not_the_footer() {
     let cwd = r"~\AppData\Local\Temp\claude\scratchpad\live-2";
     for reply in [r"d\live-2", r"C:\proj\src\main.rs", "src/lib.rs"] {
         let mut watch = TuiTurnWatch::from_baseline(screen_after(&[], "Composer 2.5")).with_task(FIRST.0);
-        let _ = observe_tui_turn(&mut watch, "running", &wrapped_footer_screen(FIRST.0, "", cwd, 24), false);
+        let _ = observe_tui_turn(&mut watch, "running", &wrapped_footer_screen(FIRST.0, "", cwd, 24), false, AGENT);
         let done = wrapped_footer_screen(FIRST.0, reply, cwd, 24);
         assert_eq!(completed(&ticks(&mut watch, "idle", &done, 4)).as_deref(), Some(reply));
     }
@@ -409,8 +411,8 @@ fn numbered(count: usize) -> String {
 
 /// What the supervisor would capture from the visible rows alone.
 fn visible_result(visible: &str, baseline: &str, task: &str) -> String {
-    super::completion::tui_turn_evidence(visible, baseline)
-        .and_then(|raw| clean_extracted_result_after(&raw, task, ""))
+    super::completion::tui_turn_evidence(visible, baseline, AGENT)
+        .and_then(|raw| clean_extracted_result_after(&raw, task, "", AGENT))
         .expect("visible evidence")
 }
 
@@ -425,7 +427,7 @@ fn a_reply_longer_than_the_screen_is_read_back_from_the_scrollback() {
     let partial = visible_result(&visible, &baseline, prompt);
     assert!(!partial.contains("line 01"), "the screen alone cannot hold the reply");
 
-    let widened = super::completion::widen_reply(&visible, &full, prompt, "", &partial);
+    let widened = super::completion::widen_reply(&visible, &full, prompt, "", &partial, AGENT);
     assert!(!widened.truncated);
     assert_eq!(widened.text, reply);
 }
@@ -439,7 +441,7 @@ fn a_reply_whose_start_cannot_be_located_is_flagged_truncated_not_passed_off_as_
     let visible = last_lines(&full, 24);
     let partial = visible_result(&visible, &baseline, prompt);
     // No scrollback available (alternate screen, or history shorter than the reply).
-    let widened = super::completion::widen_reply(&visible, &visible, prompt, "", &partial);
+    let widened = super::completion::widen_reply(&visible, &visible, prompt, "", &partial, AGENT);
     assert!(widened.truncated);
     assert_eq!(widened.text, partial);
 }
@@ -450,7 +452,7 @@ fn a_reply_that_fits_the_screen_is_untouched() {
     let baseline = screen_after(&[], "Composer 2.5");
     let full = screen_after(&[(prompt, "line 01\nline 02\nline 03")], "Composer 2.5 \u{b7} 3.4%");
     let partial = visible_result(&full, &baseline, prompt);
-    let widened = super::completion::widen_reply(&full, &full, prompt, "", &partial);
+    let widened = super::completion::widen_reply(&full, &full, prompt, "", &partial, AGENT);
     assert!(!widened.truncated);
     assert_eq!(widened.text, "line 01\nline 02\nline 03");
 }
@@ -464,7 +466,7 @@ fn a_repeated_prompt_widens_from_the_latest_turn_only() {
     let full = screen_after(&[(prompt, &first), (prompt, &second)], "Composer 2.5 \u{b7} 3.4%");
     let visible = last_lines(&full, 24);
     let partial = visible_result(&visible, &baseline, prompt);
-    let widened = super::completion::widen_reply(&visible, &full, prompt, prompt, &partial);
+    let widened = super::completion::widen_reply(&visible, &full, prompt, prompt, &partial, AGENT);
     assert!(!widened.truncated);
     assert_eq!(widened.text, second);
 }

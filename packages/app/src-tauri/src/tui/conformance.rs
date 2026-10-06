@@ -186,3 +186,89 @@ fn idle_windows_are_sane_and_only_animated_tuis_shorten_them() {
         assert!(quiet >= Duration::from_millis(500), "{id}: {quiet:?} would flip between spinner frames");
     }
 }
+
+#[test]
+fn scoped_dispatchers_match_profile_for_each_registered_id() {
+    const PROBE: &str = "probe line\n";
+    const LOWER: &str = "probe line";
+    for profile in profiles() {
+        let id = profile.id();
+        assert_eq!(
+            is_chrome_line(LOWER, id),
+            profile.is_chrome_line(LOWER),
+            "{id}: is_chrome_line"
+        );
+        assert_eq!(
+            is_tool_activity_line(LOWER, id),
+            profile.is_tool_activity_line(LOWER),
+            "{id}: is_tool_activity_line"
+        );
+        assert_eq!(
+            strip_dialogs(PROBE, id),
+            profile.strip_dialogs(PROBE),
+            "{id}: strip_dialogs"
+        );
+        assert_eq!(
+            tidy_reply(PROBE, id),
+            profile.tidy_reply(PROBE),
+            "{id}: tidy_reply"
+        );
+        assert_eq!(
+            looks_like_menu(PROBE, id),
+            profile.looks_like_menu(PROBE),
+            "{id}: looks_like_menu"
+        );
+    }
+}
+
+/// Claude's finished-turn summary row (`claude/screen.rs`); Cursor's idle placeholder
+/// (`cursor/chrome/tests.rs`) is chrome only for `cursor_agent`.
+#[test]
+fn scoping_chrome_rule_of_a_does_not_touch_b() {
+    let claude_done = "\u{273b} churned for 16s \u{b7} done 23:03";
+    assert!(is_chrome_line(claude_done, "claude"));
+    assert!(!is_chrome_line(claude_done, "cursor_agent"));
+
+    let cursor_placeholder = "→ plan, search, build anything";
+    assert!(is_chrome_line(cursor_placeholder, "cursor_agent"));
+    assert!(!is_chrome_line(cursor_placeholder, "claude"));
+}
+
+#[test]
+fn scoping_strip_dialogs_only_runs_selected_profile() {
+    const TRUST: &str = include_str!("cursor/fixtures/workspace_trust_visible_resolved.txt");
+    let claude_stripped = strip_dialogs(TRUST, "claude");
+    assert!(
+        claude_stripped.contains("Workspace Trust Required"),
+        "claude profile must not run Cursor dialog stripping"
+    );
+    let cursor_stripped = strip_dialogs(TRUST, "cursor_agent");
+    assert!(
+        !cursor_stripped.contains("Workspace Trust Required"),
+        "{cursor_stripped}"
+    );
+}
+
+/// Same golden expectations as `cursor/chrome/tests.rs` on the trust capture, via the scoped dispatcher.
+#[test]
+fn cursor_fixture_replays_scoped_strip_dialogs() {
+    const TRUST: &str = include_str!("cursor/fixtures/workspace_trust_visible_resolved.txt");
+    let stripped = strip_dialogs(TRUST, "cursor_agent");
+    assert!(!stripped.contains("Workspace Trust Required"), "{stripped}");
+    assert!(!stripped.contains("Trust this workspace"), "{stripped}");
+    assert!(
+        stripped.contains("Plan, search, build anything"),
+        "TUI below the dialog stays"
+    );
+}
+
+/// Same expectations as `opencode/screen.rs` menu test, via the scoped dispatcher.
+#[test]
+fn opencode_fixture_replays_scoped_looks_like_menu() {
+    let menu =
+        "1. Yes\n2. No\n3. Type your own answer\n↑↓ select  enter submit  esc dismiss";
+    assert!(looks_like_menu(menu, "opencode"));
+    assert!(looks_like_menu(menu, "opencode_native"));
+    assert!(!looks_like_menu(menu, "claude"));
+    assert!(!looks_like_menu("just some output", "opencode"));
+}

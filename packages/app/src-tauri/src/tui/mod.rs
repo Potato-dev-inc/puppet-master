@@ -106,35 +106,29 @@ pub fn headless_launch(agent_type: &str, launch: &HeadlessLaunch) -> Result<Laun
     profile.headless_command(launch)
 }
 
-/// Whether any profile treats `text` as an open menu/selector screen.
-pub fn looks_like_menu(text: &str) -> bool {
-    PROFILES.iter().any(|profile| profile.looks_like_menu(text))
+/// Whether this agent's profile treats `text` as an open menu/selector screen.
+pub fn looks_like_menu(text: &str, agent_type: &str) -> bool {
+    profile_for(agent_type).looks_like_menu(text)
 }
 
-/// Whether any profile treats this (trimmed, lowercased) line as TUI chrome.
-pub fn is_chrome_line(lower: &str) -> bool {
-    PROFILES.iter().any(|profile| profile.is_chrome_line(lower))
+/// Whether this agent's profile treats this (trimmed, lowercased) line as TUI chrome.
+pub fn is_chrome_line(lower: &str, agent_type: &str) -> bool {
+    profile_for(agent_type).is_chrome_line(lower)
 }
 
-/// Screen text with every profile's boxed dialogs removed.
-pub fn strip_dialogs(text: &str) -> String {
-    PROFILES
-        .iter()
-        .fold(text.to_string(), |acc, profile| profile.strip_dialogs(&acc))
+/// Screen text with this agent's profile removing boxed dialogs (and related chrome) only.
+pub fn strip_dialogs(text: &str, agent_type: &str) -> String {
+    profile_for(agent_type).strip_dialogs(text)
 }
 
-/// Reply text after every profile's redraw-artifact cleanup.
-pub fn tidy_reply(text: &str) -> String {
-    PROFILES
-        .iter()
-        .fold(text.to_string(), |acc, profile| profile.tidy_reply(&acc))
+/// Reply text after this agent's profile redraw-artifact cleanup only.
+pub fn tidy_reply(text: &str, agent_type: &str) -> String {
+    profile_for(agent_type).tidy_reply(text)
 }
 
-/// Whether any profile treats this (trimmed, lowercased) line as a tool-activity row.
-pub fn is_tool_activity_line(lower: &str) -> bool {
-    PROFILES
-        .iter()
-        .any(|profile| profile.is_tool_activity_line(lower))
+/// Whether this agent's profile treats this (trimmed, lowercased) line as a tool-activity row.
+pub fn is_tool_activity_line(lower: &str, agent_type: &str) -> bool {
+    profile_for(agent_type).is_tool_activity_line(lower)
 }
 
 /// Whether an executable called `name` is on PATH (`name.exe` on Windows).
@@ -176,3 +170,37 @@ pub(crate) fn executable(name: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod conformance;
+
+#[cfg(test)]
+mod scoping {
+    use super::*;
+
+    /// Claude's finished-turn summary row (`claude/screen.rs`); Cursor's idle placeholder
+    /// (`cursor/chrome/tests.rs`) is chrome only for `cursor_agent`.
+    #[test]
+    fn scoping_chrome_rule_of_a_does_not_touch_b() {
+        let claude_done = "\u{273b} churned for 16s \u{b7} done 23:03";
+        assert!(is_chrome_line(claude_done, "claude"));
+        assert!(!is_chrome_line(claude_done, "cursor_agent"));
+
+        let cursor_placeholder = "→ plan, search, build anything";
+        assert!(is_chrome_line(cursor_placeholder, "cursor_agent"));
+        assert!(!is_chrome_line(cursor_placeholder, "claude"));
+    }
+
+    #[test]
+    fn scoping_strip_dialogs_only_runs_selected_profile() {
+        const TRUST: &str =
+            include_str!("cursor/fixtures/workspace_trust_visible_resolved.txt");
+        let claude_stripped = strip_dialogs(TRUST, "claude");
+        assert!(
+            claude_stripped.contains("Workspace Trust Required"),
+            "claude profile must not run Cursor dialog stripping"
+        );
+        let cursor_stripped = strip_dialogs(TRUST, "cursor_agent");
+        assert!(
+            !cursor_stripped.contains("Workspace Trust Required"),
+            "{cursor_stripped}"
+        );
+    }
+}

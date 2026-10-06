@@ -134,6 +134,7 @@ pub fn observe_tui_turn(
     pane_status: &str,
     screen: &str,
     has_prompt: bool,
+    agent_type: &str,
 ) -> TuiTurnDecision {
     if has_prompt || pane_status == "waiting_input" {
         watch.idle_evidence = None;
@@ -161,9 +162,11 @@ pub fn observe_tui_turn(
         || watch.saw_task_echo
         || (watch.task.trim().is_empty() && !watch.baseline.trim().is_empty());
     let evidence = turn_started
-        .then(|| tui_turn_evidence(screen, &watch.baseline))
+        .then(|| tui_turn_evidence(screen, &watch.baseline, agent_type))
         .flatten()
-        .and_then(|raw| clean_extracted_result_after(&raw, &watch.task, &watch.previous_task));
+        .and_then(|raw| {
+            clean_extracted_result_after(&raw, &watch.task, &watch.previous_task, agent_type)
+        });
     if let Some(evidence) = evidence {
         watch.saw_reply = true;
         if watch.idle_evidence.as_deref() == Some(evidence.as_str()) {
@@ -245,6 +248,7 @@ pub fn widen_reply(
     task: &str,
     previous_task: &str,
     result: &str,
+    agent_type: &str,
 ) -> WidenedReply {
     let unchanged = |truncated| WidenedReply {
         text: result.to_string(),
@@ -256,7 +260,7 @@ pub fn widen_reply(
     if head.len() < 8 || normalize_echo(visible).contains(head) {
         return unchanged(false);
     }
-    match scrollback_reply(full, task, previous_task) {
+    match scrollback_reply(full, task, previous_task, agent_type) {
         Some(text) => WidenedReply {
             text,
             truncated: false,
@@ -268,7 +272,12 @@ pub fn widen_reply(
 /// The reply to `task` read from `full` (scrollback plus screen): what follows the last echo of
 /// the prompt, cleaned. `None` when the echo is not there or nothing but chrome follows it, so a
 /// reply is never attributed to a turn on the strength of an older turn's text.
-pub fn scrollback_reply(full: &str, task: &str, previous_task: &str) -> Option<String> {
+pub fn scrollback_reply(
+    full: &str,
+    task: &str,
+    previous_task: &str,
+    agent_type: &str,
+) -> Option<String> {
     let task_n = normalize_echo(task);
     let head: String = task_n.chars().take(40).collect();
     let head = head.trim_end();
@@ -290,16 +299,23 @@ pub fn scrollback_reply(full: &str, task: &str, previous_task: &str) -> Option<S
         "
 ",
     );
-    tui_turn_evidence(&turn, "")
-        .and_then(|raw| clean_extracted_result_after(&raw, task, previous_task))
+    tui_turn_evidence(&turn, "", agent_type)
+        .and_then(|raw| clean_extracted_result_after(&raw, task, previous_task, agent_type))
 }
 
 /// A last attempt to read this turn's reply before it is declared not captured: the visible rows
 /// again (the screen may have finished painting), then the whole history.
-pub fn recapture_reply(watch: &TuiTurnWatch, visible: &str, full: &str) -> Option<String> {
-    tui_turn_evidence(visible, &watch.baseline)
-        .and_then(|raw| clean_extracted_result_after(&raw, &watch.task, &watch.previous_task))
-        .or_else(|| scrollback_reply(full, &watch.task, &watch.previous_task))
+pub fn recapture_reply(
+    watch: &TuiTurnWatch,
+    visible: &str,
+    full: &str,
+    agent_type: &str,
+) -> Option<String> {
+    tui_turn_evidence(visible, &watch.baseline, agent_type)
+        .and_then(|raw| {
+            clean_extracted_result_after(&raw, &watch.task, &watch.previous_task, agent_type)
+        })
+        .or_else(|| scrollback_reply(full, &watch.task, &watch.previous_task, agent_type))
 }
 
 impl TuiTurnWatch {

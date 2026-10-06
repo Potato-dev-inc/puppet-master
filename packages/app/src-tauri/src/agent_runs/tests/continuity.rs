@@ -30,6 +30,7 @@ fn sequential_tasks_on_one_handle_disclose_reconstructed_continuity() {
 
     let rendered = crate::agent_runs::persist::render_turn_prompt(
         crate::agent_runs::persist::TurnPromptArgs {
+            agent_type: "codex",
             policy: ContextPolicy::Packet,
             task: "propose a fix",
             scope: Some("auth"),
@@ -106,6 +107,7 @@ fn fresh_starts_a_new_conversation_when_a_name_matches() {
 
     let rendered = crate::agent_runs::persist::render_turn_prompt(
         crate::agent_runs::persist::TurnPromptArgs {
+            agent_type: "codex",
             policy: ContextPolicy::Fresh,
             task: "brand new question",
             scope: None,
@@ -174,6 +176,7 @@ fn inspect_reflects_default_context_packet_policy() {
 fn native_session_followup_reports_resume_continuity() {
     let rendered = crate::agent_runs::persist::render_turn_prompt(
         crate::agent_runs::persist::TurnPromptArgs {
+            agent_type: "opencode_native",
             policy: ContextPolicy::Packet,
             task: "continue",
             scope: None,
@@ -207,6 +210,7 @@ fn ack_only_user_marker_is_reconstructed_when_resume_is_unavailable() {
     let previous = operations::latest_agent_run(&project_path, "luna").unwrap();
     let rendered = crate::agent_runs::persist::render_turn_prompt(
         crate::agent_runs::persist::TurnPromptArgs {
+            agent_type: "codex",
             policy: ContextPolicy::Packet,
             task: "What is the marker?",
             scope: None,
@@ -247,6 +251,7 @@ fn captured_codex_thread_resumes_instead_of_reconstructing() {
     assert!(crate::agent_runs::persist::snapshot_can_resume(&previous));
     let rendered = crate::agent_runs::persist::render_turn_prompt(
         crate::agent_runs::persist::TurnPromptArgs {
+            agent_type: "codex",
             policy: ContextPolicy::Packet,
             task: "What is the marker?",
             scope: None,
@@ -324,6 +329,7 @@ fn session_reset_is_visible_and_blocks_resume() {
     assert_eq!(inspected["provider_session_id"], "ses-new");
     let rendered = crate::agent_runs::persist::render_turn_prompt(
         crate::agent_runs::persist::TurnPromptArgs {
+            agent_type: "opencode_native",
             policy: ContextPolicy::Packet,
             task: "continue",
             scope: None,
@@ -343,6 +349,7 @@ fn session_reset_is_visible_and_blocks_resume() {
 fn fresh_context_policy_renders_plain_task_without_packet_sections() {
     let rendered = crate::agent_runs::persist::render_turn_prompt(
         crate::agent_runs::persist::TurnPromptArgs {
+            agent_type: "codex",
             policy: ContextPolicy::Fresh,
             task: "Review docs/orchestrator/quickstart.md",
             scope: None,

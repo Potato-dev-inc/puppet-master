@@ -201,6 +201,7 @@ fn live_pane_followup_sends_only_the_new_task() {
     assert!(crate::agent_runs::persist::pane_keeps_context(&previous));
     let render = |can_resume: bool| {
         crate::agent_runs::persist::render_turn_prompt(crate::agent_runs::persist::TurnPromptArgs {
+            agent_type: &previous.agent_type,
             policy: ContextPolicy::Packet,
             task: "second question",
             scope: None,

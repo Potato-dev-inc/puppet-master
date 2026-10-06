@@ -155,6 +155,7 @@ pub(in crate::agent_runs) fn enqueue_followup(
     );
     let conversation = persist::conversation_facts(&previous.project_path, handle);
     let rendered = persist::render_turn_prompt(persist::TurnPromptArgs {
+        agent_type: &previous.agent_type,
         policy,
         task: task.trim(),
         scope: opts.scope.as_deref().or(previous.worker.scope.as_deref()),

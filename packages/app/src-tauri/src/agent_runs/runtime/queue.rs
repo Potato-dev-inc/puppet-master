@@ -156,6 +156,7 @@ pub(super) fn queue_followup(
                     }
                 }
                 let rendered = persist::render_turn_prompt(persist::TurnPromptArgs {
+                    agent_type: &queued_state.agent_type,
                     policy: queued_state.worker.context_policy,
                     task: &queued_state.task,
                     scope: queued_state.worker.scope.as_deref(),

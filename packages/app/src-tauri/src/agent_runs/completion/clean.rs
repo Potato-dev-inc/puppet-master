@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-pub fn is_tui_chrome_line(line: &str) -> bool {
+pub fn is_tui_chrome_line(line: &str, agent_type: &str) -> bool {
     let lower = line.trim().to_ascii_lowercase();
     lower.is_empty()
         || lower.contains("add follow-up")
@@ -25,7 +25,7 @@ pub fn is_tui_chrome_line(line: &str) -> bool {
         || lower.starts_with("scope:")
         || lower.starts_with("constraints:")
         || lower.starts_with("facts:")
-        || crate::tui::is_chrome_line(&lower)
+        || crate::tui::is_chrome_line(&lower, agent_type)
         || is_rule_line(&lower)
 }
 
@@ -47,8 +47,8 @@ fn is_rule_line(line: &str) -> bool {
 
 /// Drop Cursor paste markers, prompt echoes, and acceptance tables so they
 /// cannot be stored as an assistant result or reused as follow-up context.
-pub fn clean_extracted_result(evidence: &str, task: &str) -> Option<String> {
-    clean_extracted_result_after(evidence, task, "")
+pub fn clean_extracted_result(evidence: &str, task: &str, agent_type: &str) -> Option<String> {
+    clean_extracted_result_after(evidence, task, "", agent_type)
 }
 
 /// As [`clean_extracted_result`], also dropping echoes of the previous turn's prompt.
@@ -56,6 +56,7 @@ pub fn clean_extracted_result_after(
     evidence: &str,
     task: &str,
     previous_task: &str,
+    agent_type: &str,
 ) -> Option<String> {
     let corpus = if previous_task.trim().is_empty() {
         task.to_string()
@@ -68,12 +69,14 @@ pub fn clean_extracted_result_after(
     // marker (shell header, hidden-output notice, file read) is tool output, not the answer.
     let after_tools = all
         .iter()
-        .rposition(|line| crate::tui::is_tool_activity_line(&line.to_ascii_lowercase()))
+        .rposition(|line| {
+            crate::tui::is_tool_activity_line(&line.to_ascii_lowercase(), agent_type)
+        })
         .map_or(0, |index| index + 1);
     let candidates: Vec<&str> = all[after_tools..]
         .iter()
         .copied()
-        .filter(|line| !is_tui_chrome_line(line))
+        .filter(|line| !is_tui_chrome_line(line, agent_type))
         .collect();
     let mut echoed = echoed_lines(&candidates, task);
     let rescued = keep_last_copy_of_repeated_echoes(&candidates, &mut echoed, previous_task);
@@ -87,9 +90,9 @@ pub fn clean_extracted_result_after(
     if lines.is_empty() {
         return None;
     }
-    let cleaned = crate::tui::tidy_reply(&lines.join("\n"));
+    let cleaned = crate::tui::tidy_reply(&lines.join("\n"), agent_type);
     // A reply rescued from a repeated echo is wholly contained in the prompt by construction.
-    if !rescued && is_mostly_prompt_echo(&cleaned, task) {
+    if !rescued && is_mostly_prompt_echo(&cleaned, task, agent_type) {
         None
     } else {
         Some(cleaned)
@@ -220,7 +223,7 @@ fn line_echoes_task(line: &str, task: &str) -> bool {
             .any(|task_line| normalize_echo(task_line) == line_n)
 }
 
-fn is_mostly_prompt_echo(cleaned: &str, task: &str) -> bool {
+fn is_mostly_prompt_echo(cleaned: &str, task: &str, agent_type: &str) -> bool {
     if task.is_empty() {
         return false;
     }
@@ -244,7 +247,7 @@ fn is_mostly_prompt_echo(cleaned: &str, task: &str) -> bool {
     }
     let echoed = content_lines
         .iter()
-        .filter(|line| line_echoes_task(line, task) || is_tui_chrome_line(line))
+        .filter(|line| line_echoes_task(line, task) || is_tui_chrome_line(line, agent_type))
         .count();
     echoed * 2 >= content_lines.len()
 }
@@ -253,7 +256,7 @@ fn is_mostly_prompt_echo(cleaned: &str, task: &str) -> bool {
 /// output at +2 columns), and the agent's reply back at the tool line's column. Drop every line
 /// indented deeper than a tool marker, up to the next blank or shallower line. Indentation is
 /// the only thing that separates the two, so this must run before lines are trimmed.
-pub fn strip_tool_output_blocks(text: &str) -> String {
+pub fn strip_tool_output_blocks(text: &str, agent_type: &str) -> String {
     let indent = |line: &str| line.len() - line.trim_start().len();
     let mut out: Vec<&str> = Vec::new();
     let mut block_indent: Option<usize> = None;
@@ -265,7 +268,7 @@ pub fn strip_tool_output_blocks(text: &str) -> String {
             }
             block_indent = None;
         }
-        if crate::tui::is_tool_activity_line(&trimmed.to_ascii_lowercase()) {
+        if crate::tui::is_tool_activity_line(&trimmed.to_ascii_lowercase(), agent_type) {
             block_indent = Some(indent(line));
         }
         out.push(line);
@@ -279,12 +282,12 @@ pub fn strip_tool_output_blocks(text: &str) -> String {
 /// not the answer. With no tool row the text is returned whole. Run after
 /// [`strip_tool_output_blocks`] and before chrome rows are dropped, since the tool rows are
 /// themselves chrome and would otherwise be gone by the time the cut is made.
-fn after_last_tool_block(text: &str) -> &str {
+fn after_last_tool_block<'a>(text: &'a str, agent_type: &str) -> &'a str {
     let mut offset = 0;
     let mut cut = 0;
     for line in text.split_inclusive('\n') {
         offset += line.len();
-        if crate::tui::is_tool_activity_line(&line.trim().to_ascii_lowercase()) {
+        if crate::tui::is_tool_activity_line(&line.trim().to_ascii_lowercase(), agent_type) {
             cut = offset;
         }
     }
@@ -293,24 +296,24 @@ fn after_last_tool_block(text: &str) -> &str {
 
 /// New non-chrome TUI text since `baseline`. Occurrence counts so a repeated
 /// identical answer still counts as this turn's result.
-pub fn tui_turn_evidence(screen: &str, baseline: &str) -> Option<String> {
+pub fn tui_turn_evidence(screen: &str, baseline: &str, agent_type: &str) -> Option<String> {
     if screen == baseline {
         return None;
     }
     let (screen, baseline) = (
-        strip_tool_output_blocks(&crate::tui::strip_dialogs(screen)),
-        strip_tool_output_blocks(&crate::tui::strip_dialogs(baseline)),
+        strip_tool_output_blocks(&crate::tui::strip_dialogs(screen, agent_type), agent_type),
+        strip_tool_output_blocks(&crate::tui::strip_dialogs(baseline, agent_type), agent_type),
     );
     let (screen, baseline) = (screen.as_str(), baseline.as_str());
     if screen == baseline {
         return None;
     }
     if let Some(suffix) = screen.strip_prefix(baseline) {
-        let suffix = after_last_tool_block(suffix);
+        let suffix = after_last_tool_block(suffix, agent_type);
         let added = suffix
             .lines()
             .map(str::trim)
-            .filter(|line| !is_tui_chrome_line(line))
+            .filter(|line| !is_tui_chrome_line(line, agent_type))
             .collect::<Vec<_>>();
         if !added.is_empty() {
             return Some(added.join("\n"));
@@ -326,13 +329,13 @@ pub fn tui_turn_evidence(screen: &str, baseline: &str) -> Option<String> {
     }
     let mut seen: HashMap<&str, usize> = HashMap::new();
     let mut added = Vec::new();
-    let screen = after_last_tool_block(screen);
+    let screen = after_last_tool_block(screen, agent_type);
     for line in screen
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
     {
-        if is_tui_chrome_line(line) {
+        if is_tui_chrome_line(line, agent_type) {
             continue;
         }
         let count = seen.entry(line).or_insert(0);

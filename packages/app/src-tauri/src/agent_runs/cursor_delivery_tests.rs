@@ -8,13 +8,15 @@ use super::completion::{
     TuiTurnDecision, TuiTurnWatch, NOT_SUBMITTED_TICKS, RETRY_SUBMIT_TICKS,
 };
 
+const AGENT: &str = "cursor_agent";
+
 const FIRST: &str = "Reply with exactly the word ALPHA and nothing else at all";
 const SECOND: &str = "Reply with exactly the word BRAVO and nothing else at all please";
 const FOOTER: &str = "→ Add a follow-up\nComposer 2.5 · 4.1%";
 
 fn run(watch: &mut TuiTurnWatch, status: &str, screen: &str, ticks: u32) -> Vec<TuiTurnDecision> {
     (0..ticks)
-        .map(|_| observe_tui_turn(watch, status, screen, false))
+        .map(|_| observe_tui_turn(watch, status, screen, false, AGENT))
         .collect()
 }
 
@@ -48,8 +50,8 @@ fn stale_prompt_echo_is_dropped_even_without_the_previous_task_known() {
     // Without previous_task the repeated prompt line is new evidence by occurrence count; with it
     // the line is recognised as an echo and nothing is left.
     let stale = format!("> {FIRST}\n\nALPHA\n\n> {FIRST}\n{FOOTER}");
-    let evidence = super::completion::tui_turn_evidence(&stale, &after_first_turn()).unwrap();
-    assert!(clean_extracted_result_after(&evidence, SECOND, FIRST).is_none());
+    let evidence = super::completion::tui_turn_evidence(&stale, &after_first_turn(), AGENT).unwrap();
+    assert!(clean_extracted_result_after(&evidence, SECOND, FIRST, AGENT).is_none());
 }
 
 #[test]
@@ -100,7 +102,7 @@ fn restart_after_redelivery_watches_from_the_new_baseline() {
     let mut watch = TuiTurnWatch::from_baseline(after_first_turn()).with_task(SECOND);
     let _ = run(&mut watch, "idle", &after_first_turn(), NOT_SUBMITTED_TICKS as u32);
     watch.restart(format!("> {FIRST}\nALPHA\n> {SECOND}\n{FOOTER}"));
-    let _ = observe_tui_turn(&mut watch, "running", "working", false);
+    let _ = observe_tui_turn(&mut watch, "running", "working", false, AGENT);
     let screen = format!("> {FIRST}\nALPHA\n> {SECOND}\n\nBRAVO\n{FOOTER}");
     let decisions = run(&mut watch, "idle", &screen, 3);
     assert!(
@@ -114,7 +116,7 @@ fn restart_after_redelivery_watches_from_the_new_baseline() {
 #[test]
 fn diff_gutter_lines_and_truncation_notices_never_reach_the_result() {
     let evidence = "Edited todo.py +3 -1\n\u{258e}+ def add(item):\n\u{258e}+     items.append(item)\n\u{258e}- pass\n\u{2026} truncated (14 more lines)\nI added the add() helper to todo.py and kept the old API.";
-    let cleaned = clean_extracted_result(evidence, "add an add helper").unwrap();
+    let cleaned = clean_extracted_result(evidence, "add an add helper", AGENT).unwrap();
     assert_eq!(cleaned, "I added the add() helper to todo.py and kept the old API.");
     assert!(!cleaned.contains('\u{258e}'));
     assert!(!cleaned.contains("truncated"));
@@ -123,7 +125,7 @@ fn diff_gutter_lines_and_truncation_notices_never_reach_the_result() {
 #[test]
 fn diff_only_evidence_is_no_result() {
     let evidence = "\u{258e}+ x = 1\n\u{258e}+ y = 2\n\u{2026} truncated (9 more lines)";
-    assert!(clean_extracted_result(evidence, "make a change").is_none());
+    assert!(clean_extracted_result(evidence, "make a change", AGENT).is_none());
 }
 
 #[test]
@@ -131,21 +133,21 @@ fn wrapped_prompt_fragments_are_not_a_result() {
     let task = "Read the failing test in tests/login.rs and propose a minimal fix, then explain the root cause";
     // The TUI wrapped the echoed prompt at the box width, leaving short tail fragments.
     let evidence = "> Read the failing test in tests/login.rs and propose a minimal fix,\nthen explain the root cause\nThe root cause is a missing await.";
-    let cleaned = clean_extracted_result(evidence, task).unwrap();
+    let cleaned = clean_extracted_result(evidence, task, AGENT).unwrap();
     assert_eq!(cleaned, "The root cause is a missing await.");
 }
 
 #[test]
 fn short_reply_next_to_an_echo_is_kept() {
     // A one-word answer that also appears inside the task must survive.
-    let cleaned = clean_extracted_result("> Reply with the word PONG\nPONG", "Reply with the word PONG");
+    let cleaned = clean_extracted_result("> Reply with the word PONG\nPONG", "Reply with the word PONG", AGENT);
     assert_eq!(cleaned.as_deref(), Some("PONG"));
 }
 
 #[test]
 fn previous_prompt_fragments_are_dropped_from_a_follow_up_result() {
     let evidence = "> Reply with exactly the word ALPHA and nothing else at all\nBRAVO";
-    let cleaned = clean_extracted_result_after(evidence, SECOND, FIRST);
+    let cleaned = clean_extracted_result_after(evidence, SECOND, FIRST, AGENT);
     assert_eq!(cleaned.as_deref(), Some("BRAVO"));
 }
 
@@ -258,10 +260,10 @@ fn an_answered_trust_dialog_in_the_scrollback_is_not_a_result() {
     // Real capture (2026-10-04): the dialog box stays on screen after "Trusting workspace..." and
     // the banner is redrawn below it. It used to be returned as the run's result.
     let screen = include_str!("../tui/cursor/fixtures/workspace_trust_visible_resolved.txt");
-    assert_eq!(crate::agent_runs::completion::tui_turn_evidence(screen, ""), None);
+    assert_eq!(crate::agent_runs::completion::tui_turn_evidence(screen, "", AGENT), None);
     let with_reply = format!("{screen}\nPONG\n");
     assert_eq!(
-        crate::agent_runs::completion::tui_turn_evidence(&with_reply, "").as_deref(),
+        crate::agent_runs::completion::tui_turn_evidence(&with_reply, "", AGENT).as_deref(),
         Some("PONG")
     );
 }
@@ -298,8 +300,8 @@ fn a_reply_missing_from_the_visible_rows_is_recovered_from_the_scrollback() {
     let watch = TuiTurnWatch::from_baseline(after_first_turn())
         .with_task(SECOND)
         .with_previous_task(FIRST);
-    assert_eq!(recapture_reply(&watch, &visible, &full).as_deref(), Some("BRAVO"));
-    assert_eq!(scrollback_reply(&full, SECOND, FIRST).as_deref(), Some("BRAVO"));
+    assert_eq!(recapture_reply(&watch, &visible, &full, AGENT).as_deref(), Some("BRAVO"));
+    assert_eq!(scrollback_reply(&full, SECOND, FIRST, AGENT).as_deref(), Some("BRAVO"));
 }
 
 #[test]
@@ -309,12 +311,12 @@ fn recapture_never_invents_a_reply() {
         .with_previous_task(FIRST);
     // Echo and "Composing" only, no assistant text anywhere.
     let full = format!("> {FIRST}\n\nALPHA\n\n> {SECOND}\n\nComposing 12 tokens\n\n{FOOTER}");
-    assert_eq!(recapture_reply(&watch, FOOTER, &full), None);
+    assert_eq!(recapture_reply(&watch, FOOTER, &full, AGENT), None);
     // No echo of this turn's prompt at all: nothing after it can be attributed to the turn.
     let stale = format!("> {FIRST}\n\nALPHA\n\n{FOOTER}");
-    assert_eq!(scrollback_reply(&stale, SECOND, FIRST), None);
+    assert_eq!(scrollback_reply(&stale, SECOND, FIRST, AGENT), None);
     // The previous turn's reply is not this turn's.
-    assert_eq!(recapture_reply(&watch, FOOTER, &stale), None);
+    assert_eq!(recapture_reply(&watch, FOOTER, &stale, AGENT), None);
 }
 
 #[test]
@@ -323,7 +325,7 @@ fn watch_diagnostics_say_what_the_supervisor_saw() {
         .with_task(SECOND)
         .with_previous_task(FIRST);
     let busy = format!("> {SECOND}\n\nComposing 12 tokens");
-    let _ = observe_tui_turn(&mut watch, "running", &busy, false);
+    let _ = observe_tui_turn(&mut watch, "running", &busy, false, AGENT);
     let diag = watch.diagnostics();
     assert_eq!(diag["saw_activity"], true);
     assert_eq!(diag["saw_reply"], false);
@@ -344,7 +346,7 @@ fn a_reply_that_is_a_slice_of_a_one_line_prompt_is_still_the_reply() {
     let screen = include_str!("../tui/cursor/fixtures/reply_composer_sentence_screen.txt");
     let task = "Reply with exactly this sentence, no tools: Composer 2.5 is mentioned in this answer.";
     let previous = "Reply with only {}, no tools, no explanation.";
-    let reply = scrollback_reply(screen, task, previous);
+    let reply = scrollback_reply(screen, task, previous, AGENT);
     assert_eq!(reply.as_deref(), Some("Composer 2.5 is mentioned in this answer."));
     // The same screen through the live watch path (baseline = screen before the turn).
     let baseline = screen
@@ -352,9 +354,9 @@ fn a_reply_that_is_a_slice_of_a_one_line_prompt_is_still_the_reply() {
         .next()
         .unwrap()
         .to_string();
-    let evidence = tui_turn_evidence(screen, &baseline).expect("new text");
+    let evidence = tui_turn_evidence(screen, &baseline, AGENT).expect("new text");
     assert_eq!(
-        clean_extracted_result_after(&evidence, task, previous).as_deref(),
+        clean_extracted_result_after(&evidence, task, previous, AGENT).as_deref(),
         Some("Composer 2.5 is mentioned in this answer.")
     );
 }
@@ -363,9 +365,9 @@ fn a_reply_that_is_a_slice_of_a_one_line_prompt_is_still_the_reply() {
 fn a_prompt_echo_alone_is_never_a_reply_even_when_it_is_one_line() {
     let task = "Reply with exactly this sentence, no tools: Composer 2.5 is mentioned in this answer.";
     let screen = format!("  {task}\n\n -----\n  → Add a follow-up\n  Composer 2.5 · 7.3%");
-    assert_eq!(scrollback_reply(&screen, task, ""), None);
-    let evidence = tui_turn_evidence(&screen, "").unwrap_or_default();
-    assert_eq!(clean_extracted_result_after(&evidence, task, ""), None);
+    assert_eq!(scrollback_reply(&screen, task, "", AGENT), None);
+    let evidence = tui_turn_evidence(&screen, "", AGENT).unwrap_or_default();
+    assert_eq!(clean_extracted_result_after(&evidence, task, "", AGENT), None);
 }
 
 #[test]
@@ -375,11 +377,11 @@ fn a_turn_where_cursor_printed_no_reply_stays_without_a_result() {
     // assistant message with only (redacted) reasoning and no text part. Nothing may be invented.
     let screen = include_str!("../tui/cursor/fixtures/reply_empty_data_screen.txt");
     let task = "Reply with only [], no tools, no explanation.";
-    assert_eq!(scrollback_reply(screen, task, "Reply with only PONG, no tools."), None);
+    assert_eq!(scrollback_reply(screen, task, "Reply with only PONG, no tools.", AGENT), None);
     let baseline = screen.split("  Reply with only [], no tools").next().unwrap().to_string();
-    let evidence = tui_turn_evidence(screen, &baseline).unwrap_or_default();
+    let evidence = tui_turn_evidence(screen, &baseline, AGENT).unwrap_or_default();
     assert_eq!(
-        clean_extracted_result_after(&evidence, task, "Reply with only PONG, no tools."),
+        clean_extracted_result_after(&evidence, task, "Reply with only PONG, no tools.", AGENT),
         None
     );
 }
@@ -391,6 +393,7 @@ fn tool_blocks_and_commentary_are_not_part_of_the_final_message() {
         full,
         PYTEST_TASK,
         "Reply with exactly this sentence, no tools: Composer 2.5 is mentioned in this answer.",
+        AGENT,
     )
     .expect("final message");
     assert_eq!(reply, PYTEST_FINAL);
@@ -399,7 +402,7 @@ fn tool_blocks_and_commentary_are_not_part_of_the_final_message() {
 #[test]
 fn the_testers_pytest_turn_yields_only_the_final_message() {
     let full = include_str!("../tui/cursor/fixtures/reply_pytest_tester_turn_full.txt");
-    let reply = scrollback_reply(full, PYTEST_TASK, "").expect("final message");
+    let reply = scrollback_reply(full, PYTEST_TASK, "", AGENT).expect("final message");
     assert!(reply.starts_with("Added test_todo.py with seven tests"), "{reply}");
     assert!(reply.ends_with("7 passed, 0 failed."), "{reply}");
     for leaked in ["Globbed", "globbed", "Read todo.py", "Using subprocess", "Edited", "$ python", "1m 27s"] {
@@ -414,15 +417,15 @@ fn the_testers_pytest_turn_yields_only_the_final_message() {
 fn the_visible_rows_of_a_finished_tool_turn_give_the_final_message_too() {
     let screen = include_str!("../tui/cursor/fixtures/reply_pytest_final_screen.txt");
     let baseline = "  Cursor Agent\n  → Add a follow-up\n  Composer 2.5 · 7.3%";
-    let evidence = tui_turn_evidence(screen, baseline).expect("new text");
-    let reply = clean_extracted_result_after(&evidence, PYTEST_TASK, "").expect("reply");
+    let evidence = tui_turn_evidence(screen, baseline, AGENT).expect("new text");
+    let reply = clean_extracted_result_after(&evidence, PYTEST_TASK, "", AGENT).expect("reply");
     assert_eq!(reply, PYTEST_FINAL);
 }
 
 #[test]
 fn a_final_message_that_quotes_commands_keeps_them() {
     let full = "  Show me how to list todos.\n\n    Read todo.py\n\n  $ python todo.py list 0ms\n    1 [ ] a\n\n  Run it like this:\n  $ python todo.py list\n  1 [ ] a\n  Then add one with python todo.py add b.\n\n  → Add a follow-up\n  Composer 2.5 · 4%";
-    let reply = scrollback_reply(full, "Show me how to list todos.", "").expect("reply");
+    let reply = scrollback_reply(full, "Show me how to list todos.", "", AGENT).expect("reply");
     assert_eq!(
         reply,
         "Run it like this:\n$ python todo.py list\n1 [ ] a\nThen add one with python todo.py add b."
@@ -434,7 +437,7 @@ fn a_shell_header_wrapped_by_the_terminal_is_not_part_of_the_final_message() {
     // Live capture (verify5-1, build b694b47): the `$ cd "<long path>" && python ... 5.7s` header
     // is hard-wrapped, so its first row has no duration and the second starts at column 0.
     let full = include_str!("../tui/cursor/fixtures/reply_pytest_wrapped_header.txt");
-    let reply = scrollback_reply(full, PYTEST_TASK, "").expect("final message");
+    let reply = scrollback_reply(full, PYTEST_TASK, "", AGENT).expect("final message");
     assert!(!reply.contains("$ cd"), "{reply}");
     assert!(!reply.contains("5.7s"), "{reply}");
     assert!(!reply.contains("8 passed in"), "{reply}");
@@ -448,11 +451,11 @@ fn a_search_result_row_under_a_grep_header_is_tool_output_not_the_answer() {
     // under it, at the header's own indent.
     let full = include_str!("../tui/cursor/fixtures/reply_grep_turn.txt");
     let task = "Use your grep search tool (not the shell) to find the text \"def \" in the files of this folder, then in one sentence tell me how many matches you found.";
-    let reply = scrollback_reply(full, task, "").expect("final message");
+    let reply = scrollback_reply(full, task, "", AGENT).expect("final message");
     assert_eq!(reply, "I found 14 matches for def  across 5 files in this folder.");
     // The same words as the whole answer, with no search header above them, are kept.
     let bare = "  Say how many.\n\n  Found 14 matches\n\n  → Add a follow-up\n  Composer 2.5 · 7.5%";
-    assert_eq!(scrollback_reply(bare, "Say how many.", "").as_deref(), Some("Found 14 matches"));
+    assert_eq!(scrollback_reply(bare, "Say how many.", "", AGENT).as_deref(), Some("Found 14 matches"));
 }
 
 #[test]
@@ -464,7 +467,7 @@ fn a_wrapped_shell_header_is_joined_whether_the_continuation_is_indented_or_not(
         )
     };
     for continuation in ["", "  ", "    "] {
-        let reply = scrollback_reply(&wrapped(continuation), "Run the tests please now.", "").expect("reply");
+        let reply = scrollback_reply(&wrapped(continuation), "Run the tests please now.", "", AGENT).expect("reply");
         assert_eq!(reply, "All 8 tests pass.", "continuation {continuation:?}");
     }
 }

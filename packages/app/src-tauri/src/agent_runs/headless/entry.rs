@@ -248,6 +248,7 @@ pub fn run_agent(
         persist::conversation_facts(&snapshot.project_path, handle)
     });
     let rendered = persist::render_turn_prompt(persist::TurnPromptArgs {
+        agent_type: &agent_type,
         policy: request.context_policy,
         task: &request.task,
         scope: request.scope.as_deref().or(previous
