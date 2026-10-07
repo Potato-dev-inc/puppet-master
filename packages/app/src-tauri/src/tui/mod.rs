@@ -21,21 +21,7 @@ pub mod shell;
 use crate::pty::status::PaneStatus;
 use serde_json::Value;
 use std::path::PathBuf;
-
-/// Registry order is the order `read_only_backends` reports; keep it stable.
-static PROFILES: &[&dyn TuiProfile] = &[
-    &claude::Claude,
-    &codex::Codex,
-    &opencode::OpenCode,
-    &opencode::OpenCodeNative,
-    &cursor::CursorAgent,
-    &cursor::CursorIde,
-    &shell::Cmd,
-    &shell::Powershell,
-    &shell::Bash,
-];
-
-static UNKNOWN: generic::Unknown = generic::Unknown;
+use std::sync::Arc;
 
 /// Unregistered `agent_type` with the ids callers may use instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +34,7 @@ pub struct UnknownAgentType {
 pub fn registered_agent_ids() -> Vec<String> {
     let mut dispatchable = Vec::new();
     let mut rest = Vec::new();
-    for profile in PROFILES {
+    for profile in registry::snapshot().iter() {
         let id = profile.id();
         if profile.features().dispatchable {
             dispatchable.push(id.to_string());
@@ -62,7 +48,10 @@ pub fn registered_agent_ids() -> Vec<String> {
 
 /// Every registered agent as `GET /agents/types` lists it, in registry order.
 pub fn descriptors() -> Vec<Descriptor> {
-    PROFILES.iter().map(|profile| Descriptor::of(*profile)).collect()
+    registry::snapshot()
+        .iter()
+        .map(|profile| Descriptor::of(profile.as_ref()))
+        .collect()
 }
 
 /// Body of `GET /agents/types`: `{agents, dispatchable_ids}` (SPEC 7.5).
@@ -76,32 +65,30 @@ pub fn agent_types_listing() -> Value {
     serde_json::json!({ "agents": agents, "dispatchable_ids": dispatchable_ids })
 }
 
+/// Every registered profile, in registry order (a copy of the current snapshot).
 #[cfg(test)]
-pub fn profiles() -> &'static [&'static dyn TuiProfile] {
-    PROFILES
+pub fn profiles() -> Vec<Arc<dyn TuiProfile>> {
+    registry::registry().ordered()
 }
 
 /// Profile for an `agent_type`, case-insensitively; unregistered types get generic behaviour.
-pub fn profile_for(agent_type: &str) -> &'static dyn TuiProfile {
-    PROFILES
-        .iter()
-        .copied()
-        .find(|profile| profile.id().eq_ignore_ascii_case(agent_type))
-        .unwrap_or(&UNKNOWN)
+/// Hot path (pane loops): one atomic snapshot load plus an `Arc` clone.
+pub fn profile_for(agent_type: &str) -> Arc<dyn TuiProfile> {
+    registry::profile_for_arc(agent_type)
 }
 
 pub fn is_registered(agent_type: &str) -> bool {
-    PROFILES
+    registry::snapshot()
         .iter()
         .any(|profile| profile.id().eq_ignore_ascii_case(agent_type))
 }
 
 /// Resolve a registered profile or return the canonical id list for `UNKNOWN_AGENT_TYPE`.
-pub fn require_registered(agent_type: &str) -> Result<&'static dyn TuiProfile, UnknownAgentType> {
-    match PROFILES
+pub fn require_registered(agent_type: &str) -> Result<Arc<dyn TuiProfile>, UnknownAgentType> {
+    match registry::snapshot()
         .iter()
-        .copied()
         .find(|profile| profile.id().eq_ignore_ascii_case(agent_type))
+        .cloned()
     {
         Some(profile) => Ok(profile),
         None => Err(UnknownAgentType {
@@ -122,7 +109,7 @@ pub fn is_shell(agent_type: &str) -> bool {
 
 /// Agent types whose headless run enforces `read_only`.
 pub fn read_only_backends() -> Vec<&'static str> {
-    PROFILES
+    registry::snapshot()
         .iter()
         .filter(|profile| profile.features().read_only_headless)
         .map(|profile| profile.id())
@@ -131,7 +118,7 @@ pub fn read_only_backends() -> Vec<&'static str> {
 
 /// Agent types whose run-spawned pane enforces `read_only`.
 pub fn read_only_spawned_pane_backends() -> Vec<&'static str> {
-    PROFILES
+    registry::snapshot()
         .iter()
         .filter(|profile| profile.features().read_only_spawned_pane)
         .map(|profile| profile.id())
@@ -140,7 +127,7 @@ pub fn read_only_spawned_pane_backends() -> Vec<&'static str> {
 
 /// Backends that can have a warm standby worker, with the kinds each supports.
 pub fn standby_backends() -> Vec<(&'static str, StandbySupport)> {
-    PROFILES
+    registry::snapshot()
         .iter()
         .map(|profile| (profile.id(), profile.standby_support()))
         .filter(|(_, support)| support.visible || support.headless)
@@ -316,7 +303,7 @@ mod descriptor {
     #[test]
     fn descriptor_modes_follow_features() {
         for profile in profiles() {
-            let d = Descriptor::of(*profile);
+            let d = Descriptor::of(profile.as_ref());
             let features = profile.features();
             assert!(d.modes.visible, "{} is always visible", d.id);
             assert_eq!(d.dispatchable, features.dispatchable);

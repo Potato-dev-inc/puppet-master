@@ -1,22 +1,20 @@
 //! Runtime agent registry (SPEC REG-1..3): an `ArcSwap` snapshot of every profile.
 //!
-//! Not wired yet: `profile_for` still answers from the static `PROFILES` slice; T07 moves callers
-//! here. A reader takes the current snapshot without locking; a reload swaps in a whole new one.
-
-#![allow(dead_code)] // wired in T07
+//! `profile_for`, `profiles()` and the other lookups in `tui` read this. A reader takes the current
+//! snapshot without locking; a reload swaps in a whole new one.
 
 use super::*;
 use arc_swap::ArcSwap;
 use std::sync::{Arc, OnceLock};
 
-/// Ordered profiles (code profiles first, in `PROFILES` order) behind an atomic snapshot.
+/// Ordered profiles (code profiles first, in `read_only_backends` order) behind an atomic snapshot.
 pub struct Registry {
     snapshot: ArcSwap<Vec<Arc<dyn TuiProfile>>>,
     fallback: Arc<dyn TuiProfile>,
 }
 
 impl Registry {
-    /// The nine code profiles, in the order `PROFILES` (and so `read_only_backends`) uses.
+    /// The nine code profiles; this order is what `read_only_backends` reports, keep it stable.
     pub fn seeded() -> Self {
         let code: Vec<Arc<dyn TuiProfile>> = vec![
             Arc::new(claude::Claude),
@@ -41,6 +39,7 @@ impl Registry {
     }
 
     /// Profiles in registry order.
+    #[cfg_attr(not(test), allow(dead_code))] // only `tui::profiles()` (test-only) reads it so far
     pub fn ordered(&self) -> Vec<Arc<dyn TuiProfile>> {
         self.snapshot.load().iter().cloned().collect()
     }
@@ -56,6 +55,7 @@ impl Registry {
     }
 
     /// Replace the whole snapshot atomically (SPEC REG-2).
+    #[cfg_attr(not(test), allow(dead_code))] // the reload path (later phase) calls it
     pub fn swap(&self, profiles: Vec<Arc<dyn TuiProfile>>) {
         self.snapshot.store(Arc::new(profiles));
     }
@@ -91,6 +91,24 @@ mod tests {
         assert_eq!(registry.snapshot().len(), 9);
         assert_eq!(registry.profile_for_arc("CLAUDE").id(), "claude");
         assert_eq!(registry.profile_for_arc("not-a-real-agent").id(), "unknown");
+    }
+
+    /// The hot path hands out the same `Arc` on every call until a swap replaces the snapshot.
+    #[test]
+    fn profile_for_returns_same_arc_until_swap() {
+        let first = crate::tui::profile_for("claude");
+        let again = crate::tui::profile_for("CLAUDE");
+        assert!(Arc::ptr_eq(&first, &again));
+
+        let registry = Registry::seeded();
+        let before = registry.profile_for_arc("codex");
+        assert!(Arc::ptr_eq(&before, &registry.profile_for_arc("codex")));
+        let unknown = registry.profile_for_arc("not-a-real-agent");
+        assert!(Arc::ptr_eq(&unknown, &registry.profile_for_arc("also-not-real")));
+        registry.swap(vec![Arc::new(codex::Codex)]);
+        let after = registry.profile_for_arc("codex");
+        assert!(!Arc::ptr_eq(&before, &after));
+        assert!(Arc::ptr_eq(&after, &registry.profile_for_arc("codex")));
     }
 
     /// Profile whose id carries the swap generation that published it.
