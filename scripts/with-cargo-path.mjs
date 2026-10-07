@@ -49,7 +49,7 @@ if (args[0] === 'dev') {
   console.error('[puppet-master] starting dev stack (vite + tauri + embedded bridge)…');
 }
 
-const result = spawnSync(npm, ['run', 'tauri', '--workspace=@puppet-master/app', ...args], {
+const result = spawnSync(npm, ['run', 'tauri', '--workspace=@puppet-master/app', '--', ...args], {
   stdio: 'inherit',
   env,
   cwd: repoRoot,
