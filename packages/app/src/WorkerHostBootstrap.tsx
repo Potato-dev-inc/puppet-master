@@ -99,7 +99,7 @@ export default function WorkerHostBootstrap() {
         event.pane_id,
         event.title ?? detachedPaneTitle('worker', event.pane_id),
         detachedWindowSizeFromGrid(event.cols, event.rows),
-        { workerHost: true },
+        { workerHost: true, background: true },
       );
     }).then((next) => {
       if (disposed) next();

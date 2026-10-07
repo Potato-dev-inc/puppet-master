@@ -75,6 +75,7 @@ export default function App() {
               event.pane_id,
               event.title ?? `Pane ${event.pane_id.slice(0, 8)}`,
               detachedWindowSizeFromGrid(event.cols, event.rows),
+              { background: true },
             );
             markPaneDetached(event.pane_id);
           } catch (err) {

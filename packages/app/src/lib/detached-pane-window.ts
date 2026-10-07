@@ -7,6 +7,11 @@ function isTauriRuntime(): boolean {
 export interface DetachedPaneWindowOptions {
   /** Standalone worker host — closing the window quits instead of reattaching to the grid. */
   workerHost?: boolean;
+  /**
+   * Opened by a backend `pane://detach` event (an agent, not a click): do not take
+   * focus, and open next to the main window so it lands on the monitor the app is on.
+   */
+  background?: boolean;
 }
 
 export function detachedPaneTitle(agentType: string, paneId: string): string {
@@ -75,13 +80,15 @@ export async function openDetachedPaneWindow(
   }
 
   const label = detachedPaneLabel(paneId);
+  const background = options?.background === true;
   const existing = await WebviewWindow.getByLabel(label);
   if (existing) {
     await existing.show();
-    await existing.setFocus();
+    if (!background) await existing.setFocus();
     return;
   }
 
+  const position = background ? await positionNearMainWindow() : null;
   const view = new WebviewWindow(label, {
     url,
     title,
@@ -90,8 +97,9 @@ export async function openDetachedPaneWindow(
     minWidth: 260,
     minHeight: 140,
     resizable: true,
-    focus: true,
+    focus: !background,
     visible: true,
+    ...(position ?? {}),
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -108,5 +116,20 @@ export async function openDetachedPaneWindow(
     });
   });
   await view.show();
-  await view.setFocus();
+  if (!background) await view.setFocus();
+}
+
+let backgroundWindowCount = 0;
+
+/** Logical x/y just inside the main window, staggered so background windows do not stack exactly. */
+async function positionNearMainWindow(): Promise<{ x: number; y: number } | null> {
+  try {
+    const main = await WebviewWindow.getByLabel('main');
+    if (!main) return null;
+    const [pos, scale] = await Promise.all([main.outerPosition(), main.scaleFactor()]);
+    const step = (backgroundWindowCount++ % 8) * 28;
+    return { x: Math.round(pos.x / scale) + 40 + step, y: Math.round(pos.y / scale) + 60 + step };
+  } catch {
+    return null;
+  }
 }

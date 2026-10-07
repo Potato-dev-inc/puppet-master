@@ -87,7 +87,7 @@ export default function TerminalApp() {
         event.pane_id,
         event.title ?? `Pane ${event.pane_id.slice(0, 8)}`,
         detachedWindowSizeFromGrid(event.cols, event.rows),
-        workerHost ? { workerHost: true } : undefined,
+        { workerHost, background: true },
       );
     }).then((next) => {
       if (disposed) {
