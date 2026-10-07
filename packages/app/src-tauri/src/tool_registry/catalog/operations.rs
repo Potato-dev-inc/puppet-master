@@ -36,7 +36,7 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
                 "task": { "type": "string", "description": "Work to delegate" },
                 "idempotency_key": { "type": "string", "description": "Caller-supplied key to make retries safe" },
                 "pane_id": { "type": "string" },
-                "agent_type": { "type": "string", "enum": ["claude", "codex", "cursor", "opencode", "opencode_native"] },
+                "agent_type": agent_type_schema(),
                 "acceptance_criteria": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Optional free-text guidance for the worker; NOT machine-checked (a text mismatch never fails a run and acceptance_status stays not_checked). For verified acceptance pass `checks` (file_exists / file_contains / file_absent evaluated against disk, result_contains against the reply text, command_exits runs an argv and compares its exit code, all at completion); acceptance_status then reflects the checks." },
                 "context_policy": { "type": "string", "enum": ["fresh", "packet", "parent_summary", "resume", "selected_history"] },
                 "task_id": { "type": "string" },

@@ -1,6 +1,6 @@
 //! Catalog tests.
 
-use super::schema::agent_run_schema;
+use super::schema::{agent_run_schema, agent_type_schema};
 use super::*;
 use serde_json::json;
 
@@ -42,17 +42,14 @@ fn spawn_agent_accepts_powershell_and_force_new() {
         .into_iter()
         .find(|tool| tool.name == "spawn_agent")
         .unwrap();
-    let agent_enum = spawn
+    let pattern = spawn
         .input_schema
-        .pointer("/properties/agent_type/enum")
-        .and_then(|value| value.as_array())
-        .expect("agent_type enum");
-    let types: Vec<&str> = agent_enum
-        .iter()
-        .filter_map(|value| value.as_str())
-        .collect();
-    assert!(types.contains(&"opencode_native"));
-    assert!(types.contains(&"powershell"));
+        .pointer("/properties/agent_type/pattern")
+        .and_then(|value| value.as_str())
+        .expect("agent_type pattern");
+    let re = regex::Regex::new(pattern).unwrap();
+    assert!(re.is_match("opencode_native"));
+    assert!(re.is_match("powershell"));
     assert!(spawn
         .input_schema
         .pointer("/properties/force_new")
@@ -401,5 +398,38 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "66-91b6c68e1db9fece");
+    assert_eq!(catalog_version(), "66-4cd8e0886d0f544a");
+}
+
+/// Every tool input that names an agent (`agent_type`, or `backend` on quick_ask) uses the one
+/// `agent_type_schema()` output: a pattern-validated string, never an enum of ids.
+#[test]
+fn agent_type_schema_has_pattern_not_enum() {
+    let schema = agent_type_schema();
+    assert_eq!(schema["type"], "string");
+    assert_eq!(schema["pattern"], "^[a-z][a-z0-9_]{1,31}$");
+    assert!(schema.get("enum").is_none());
+    assert!(schema["description"]
+        .as_str()
+        .unwrap()
+        .contains("GET /agents/types"));
+    let re = regex::Regex::new(schema["pattern"].as_str().unwrap()).unwrap();
+    for ok in ["claude", "codex", "cursor", "cursor_agent", "opencode_native", "cmd", "kilo"] {
+        assert!(re.is_match(ok), "{ok} should match");
+    }
+    for bad in ["", "a", "Claude", "1abc", "has-dash", "a_very_long_agent_identifier_over_32"] {
+        assert!(!re.is_match(bad), "{bad} should not match");
+    }
+    let mut seen = Vec::new();
+    for tool in tools() {
+        for key in ["agent_type", "backend"] {
+            if let Some(prop) = tool.input_schema.pointer(&format!("/properties/{key}")) {
+                assert_eq!(prop, &schema, "{}.{key} must use agent_type_schema()", tool.name);
+                seen.push(tool.name);
+            }
+        }
+    }
+    for name in ["quick_ask", "run_agent", "delegate_work", "read_agent_context", "spawn_agent"] {
+        assert!(seen.contains(&name), "{name} lost its agent_type/backend property");
+    }
 }

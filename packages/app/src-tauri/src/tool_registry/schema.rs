@@ -18,6 +18,17 @@ pub(super) fn object_schema(properties: Value, required: Vec<&'static str>) -> V
     })
 }
 
+/// The one schema for every tool input naming an agent (`agent_type`, `backend`). A validated
+/// string, not an enum: registering an agent must never change the catalog (`catalog_version`).
+/// Unknown ids are rejected by the bridge with UNKNOWN_AGENT_TYPE.
+pub(super) fn agent_type_schema() -> Value {
+    json!({
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{1,31}$",
+        "description": "Agent id, e.g. claude, codex, cursor_agent, opencode_native. The registered ids and what each supports are listed by GET /agents/types; an unregistered id fails with UNKNOWN_AGENT_TYPE (context.valid lists the accepted ids).",
+    })
+}
+
 pub(super) fn env_tool_schema() -> Value {
     json!({"type":"object","properties":{"present":{"type":"boolean"},"version":{"type":["string","null"]},"path":{"type":["string","null"]}},"required":["present"]})
 }

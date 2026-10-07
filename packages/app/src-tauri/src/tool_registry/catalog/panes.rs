@@ -41,7 +41,7 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
             description: "Read context for an agent type or a live pane. If pane_id is provided, includes pane metadata, model inspection, and a recent buffer preview.",
             input_schema: object_schema(
                 json!({
-                    "agent_type": { "type": "string", "enum": ["claude", "codex", "opencode", "opencode_native", "cmd", "powershell", "bash", "cursor"] },
+                    "agent_type": agent_type_schema(),
                     "pane_id": { "type": "string" }
                 }),
                 vec![],
@@ -96,7 +96,7 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
             description: "Advanced: only create an empty worker pane (OpenCode API or PowerShell) without running anything. To run a task, call run_agent directly: it creates its own pane in project_path and needs no spawn_agent. Pass cwd to pick the workspace (default: the app's selected project); run_agent against the pane must use the same workspace. Reuse an existing pane of the same agent_type when possible; pass force_new to create another. Never reuse orchestrator panes.",
             input_schema: object_schema(
                 json!({
-                    "agent_type": { "type": "string", "enum": ["opencode_native", "powershell"] },
+                    "agent_type": agent_type_schema(),
                     "cwd": { "type": "string", "description": "Working directory; defaults to current project root" },
                     "cols": { "type": "number", "description": "Terminal columns (default 120)" },
                     "rows": { "type": "number", "description": "Terminal rows (default 30)" },
