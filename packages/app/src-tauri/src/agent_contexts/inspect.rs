@@ -106,7 +106,7 @@ pub fn inspect_agent_model_with_registry(
     AgentModelInspection {
         pane_id,
         agent_type,
-        detected_model: profile.default_model.map(str::to_string),
+        detected_model: profile.default_model.as_deref().map(str::to_string),
         provider_id: None,
         source: if profile.default_model.is_some() {
             "profile"

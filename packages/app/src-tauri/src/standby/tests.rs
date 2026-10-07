@@ -445,3 +445,81 @@ fn the_status_view_describes_each_standby_and_the_health_summary_counts_them() {
     assert!(view.standbys[0].pane_id.is_some());
     assert_eq!(pool.health_summary().ready, 1);
 }
+
+/// `standby-pool.json` exactly as the previous build wrote it (`config::save` output).
+const LEGACY_POOL_FILE: &str = r#"{
+  "config": {
+    "enabled": true,
+    "backends": {
+      "claude": {
+        "visible": true,
+        "headless": true
+      },
+      "cursor_agent": {
+        "visible": true,
+        "headless": false
+      }
+    },
+    "max_total": 3,
+    "recent_projects": 2,
+    "recent_hours": 6,
+    "idle_timeout_secs": 1200
+  },
+  "recent": [
+    {
+      "key": {
+        "agent_type": "claude",
+        "project": "/p",
+        "model": null,
+        "read_only": false,
+        "allow_shell": false,
+        "headless": true
+      },
+      "cwd": "/p",
+      "at_ms": 5
+    },
+    {
+      "key": {
+        "agent_type": "cursor_agent",
+        "project": "/q",
+        "model": null,
+        "read_only": true,
+        "allow_shell": false,
+        "headless": false
+      },
+      "cwd": "/q",
+      "at_ms": 7
+    }
+  ]
+}"#;
+
+#[test]
+fn loads_legacy_pool_file() {
+    let dir = std::env::temp_dir().join(format!("pm-standby-legacy-{}", uuid::Uuid::new_v4()));
+    let path = dir.join("standby-pool.json");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(&path, LEGACY_POOL_FILE).unwrap();
+
+    let (loaded, recent) = super::config::load(&path);
+    assert!(loaded.enabled);
+    assert_eq!(
+        loaded.backends.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["claude", "cursor_agent"]
+    );
+    assert_eq!(loaded.backends["claude"], BackendToggle { visible: true, headless: true });
+    assert_eq!(loaded.backends["cursor_agent"], BackendToggle { visible: true, headless: false });
+    assert_eq!(
+        recent.iter().map(|r| r.key.clone()).collect::<Vec<_>>(),
+        [
+            PoolKey::new("claude", "/p", None, false, false, true),
+            PoolKey::new("cursor_agent", "/q", None, true, false, false),
+        ]
+    );
+    assert!(loaded.allows(&recent[0].key));
+
+    // Saving what was loaded writes the same file back, byte for byte.
+    super::config::save(&path, &loaded, &recent).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), LEGACY_POOL_FILE);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_dir(&dir);
+}

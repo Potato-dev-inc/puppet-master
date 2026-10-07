@@ -261,7 +261,7 @@ pub struct StatusView {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SupportedBackend {
-    pub agent_type: &'static str,
+    pub agent_type: String,
     pub visible: bool,
     pub headless: bool,
 }
@@ -685,7 +685,7 @@ impl Pool {
             supported: crate::tui::standby_backends()
                 .into_iter()
                 .map(|(agent_type, support)| SupportedBackend {
-                    agent_type,
+                    agent_type: agent_type.to_string(),
                     visible: support.visible,
                     headless: support.headless,
                 })

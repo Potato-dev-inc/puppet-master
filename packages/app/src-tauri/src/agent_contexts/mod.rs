@@ -3,6 +3,8 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::pty::agents::AgentType;
+use crate::tui::AgentId;
+use std::borrow::Cow;
 use crate::pty::registry::{PaneInfo, PaneRegistry};
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -32,17 +34,18 @@ pub enum ModelDetection {
     Unknown,
 }
 
+/// Owned strings so a profile that is not compiled in (a declarative definition) can fill one.
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentContextProfile {
-    pub agent_type: AgentType,
-    pub label: &'static str,
-    pub default_model: Option<&'static str>,
+    pub agent_type: AgentId,
+    pub label: Cow<'static, str>,
+    pub default_model: Option<Cow<'static, str>>,
     pub model_detection: ModelDetection,
     pub smartness: u8,
-    pub strengths: &'static [AgentCapability],
-    pub context_notes: &'static [&'static str],
-    pub best_for: &'static [&'static str],
-    pub planned_sidebar_actions: &'static [&'static str],
+    pub strengths: Cow<'static, [AgentCapability]>,
+    pub context_notes: Vec<Cow<'static, str>>,
+    pub best_for: Vec<Cow<'static, str>>,
+    pub planned_sidebar_actions: Vec<Cow<'static, str>>,
 }
 
 #[derive(Debug, Clone, Serialize)]

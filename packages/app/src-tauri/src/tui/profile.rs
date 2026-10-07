@@ -226,4 +226,52 @@ pub trait TuiProfile: Send + Sync {
     fn capability_notes(&self, _has_pane: bool) -> Vec<String> {
         Vec::new()
     }
+
+    /// Capabilities, model detection and routing notes for `list_agent_contexts`. `None` (no
+    /// context) keeps the agent out of that list. The default is the code table in
+    /// `agent_contexts::profiles`, keyed by `id()`.
+    fn context(&self) -> Option<ContextProfile> {
+        crate::agent_contexts::context_profile(self.id())
+    }
+}
+
+/// What `TuiProfile::context` returns.
+pub type ContextProfile = crate::agent_contexts::AgentContextProfile;
+
+/// An agent id (`agent_type` string) outside the spawn/launch layer, where `AgentType` stays
+/// (SPEC REG-5). Lowercase; serialises as the bare string, exactly like `AgentType` did.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
+#[serde(transparent)]
+pub struct AgentId(Arc<str>);
+
+impl AgentId {
+    pub fn new(id: &str) -> Self {
+        if id.bytes().any(|b| b.is_ascii_uppercase()) {
+            Self(Arc::from(id.to_ascii_lowercase()))
+        } else {
+            Self(Arc::from(id))
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for AgentId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl PartialEq<str> for AgentId {
+    fn eq(&self, other: &str) -> bool {
+        &*self.0 == other
+    }
+}
+
+impl PartialEq<&str> for AgentId {
+    fn eq(&self, other: &&str) -> bool {
+        &*self.0 == *other
+    }
 }

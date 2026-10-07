@@ -1,27 +1,54 @@
-//! Static per-agent context profiles (capabilities, model detection, instructions).
+//! Context profiles (capabilities, model detection, instructions) for the code agents.
 
 use super::*;
 
+/// Every registered agent's context, in registry order (agents without one are left out).
 pub fn list_agent_context_profiles() -> Vec<AgentContextProfile> {
-    [
-        AgentType::Claude,
-        AgentType::Codex,
-        AgentType::Opencode,
-        AgentType::OpencodeNative,
-        AgentType::Cmd,
-        AgentType::Powershell,
-        AgentType::Bash,
-        AgentType::Cursor,
-    ]
-    .iter()
-    .map(|agent_type| get_agent_context_profile(*agent_type))
-    .collect()
+    crate::tui::registry::snapshot()
+        .iter()
+        .filter_map(|profile| profile.context())
+        .collect()
 }
 
+/// Context of a code agent (`AgentType`); the spawn-layer callers that still hold one use this.
 pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
-    match agent_type {
-        AgentType::Claude => AgentContextProfile {
-            agent_type,
+    context_profile(agent_type.as_str()).expect("every AgentType has a code context profile")
+}
+
+/// Compiled-in text of one code context profile.
+struct Static {
+    label: &'static str,
+    default_model: Option<&'static str>,
+    model_detection: ModelDetection,
+    smartness: u8,
+    strengths: &'static [AgentCapability],
+    context_notes: &'static [&'static str],
+    best_for: &'static [&'static str],
+    planned_sidebar_actions: &'static [&'static str],
+}
+
+impl Static {
+    fn into_profile(self, id: &str) -> AgentContextProfile {
+        let owned = |items: &'static [&'static str]| items.iter().map(|s| Cow::Borrowed(*s)).collect();
+        AgentContextProfile {
+            agent_type: AgentId::new(id),
+            label: Cow::Borrowed(self.label),
+            default_model: self.default_model.map(Cow::Borrowed),
+            model_detection: self.model_detection,
+            smartness: self.smartness,
+            strengths: Cow::Borrowed(self.strengths),
+            context_notes: owned(self.context_notes),
+            best_for: owned(self.best_for),
+            planned_sidebar_actions: owned(self.planned_sidebar_actions),
+        }
+    }
+}
+
+/// The code table behind `TuiProfile::context`'s default. `None` for an id without a code
+/// context (the generic `unknown` profile, or a profile defined outside this table).
+pub fn context_profile(id: &str) -> Option<AgentContextProfile> {
+    let profile = match id {
+        "claude" => Static {
             label: "Claude Code",
             default_model: None,
             model_detection: ModelDetection::CliBanner,
@@ -49,8 +76,7 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
                 "summarize current pane",
             ],
         },
-        AgentType::Codex => AgentContextProfile {
-            agent_type,
+        "codex" => Static {
             label: "Codex CLI",
             default_model: None,
             model_detection: ModelDetection::CliBanner,
@@ -78,8 +104,7 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
                 "handoff focused bug",
             ],
         },
-        AgentType::Opencode => AgentContextProfile {
-            agent_type,
+        "opencode" => Static {
             label: "OpenCode",
             default_model: None,
             model_detection: ModelDetection::Configuration,
@@ -104,8 +129,7 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
                 "compare output",
             ],
         },
-        AgentType::OpencodeNative => AgentContextProfile {
-            agent_type,
+        "opencode_native" => Static {
             label: "OpenCode (API)",
             default_model: None,
             model_detection: ModelDetection::Configuration,
@@ -130,8 +154,7 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
                 "reply to permission prompts",
             ],
         },
-        AgentType::Cmd => AgentContextProfile {
-            agent_type,
+        "cmd" => Static {
             label: "Command Prompt",
             default_model: None,
             model_detection: ModelDetection::Unknown,
@@ -147,8 +170,7 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
             ],
             planned_sidebar_actions: &["run command", "capture output", "prepare environment"],
         },
-        AgentType::Powershell => AgentContextProfile {
-            agent_type,
+        "powershell" => Static {
             label: "PowerShell",
             default_model: None,
             model_detection: ModelDetection::Unknown,
@@ -160,8 +182,7 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
             best_for: &["build commands", "file inspection", "manual scripts"],
             planned_sidebar_actions: &["run command", "capture output", "prepare environment"],
         },
-        AgentType::Bash => AgentContextProfile {
-            agent_type,
+        "bash" => Static {
             label: "Bash",
             default_model: None,
             model_detection: ModelDetection::Unknown,
@@ -171,8 +192,7 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
             best_for: &["shell commands", "cross-platform scripts", "log inspection"],
             planned_sidebar_actions: &["run command", "capture output", "prepare environment"],
         },
-        AgentType::Cursor => AgentContextProfile {
-            agent_type,
+        "cursor" => Static {
             label: "Cursor IDE",
             default_model: None,
             model_detection: ModelDetection::Unknown,
@@ -187,8 +207,7 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
             best_for: &["opening the workspace visually", "manual user-guided edits"],
             planned_sidebar_actions: &["open project", "focus editor", "handoff manual review"],
         },
-        AgentType::CursorAgent => AgentContextProfile {
-            agent_type,
+        "cursor_agent" => Static {
             label: "Cursor Agent CLI",
             default_model: None,
             model_detection: ModelDetection::CliBanner,
@@ -198,5 +217,7 @@ pub fn get_agent_context_profile(agent_type: AgentType) -> AgentContextProfile {
             best_for: &["headless code tasks", "structured result reporting"],
             planned_sidebar_actions: &["delegate task", "inspect result", "review changes"],
         },
-    }
+        _ => return None,
+    };
+    Some(profile.into_profile(id))
 }
