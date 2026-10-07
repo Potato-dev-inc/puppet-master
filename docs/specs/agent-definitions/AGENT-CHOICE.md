@@ -45,8 +45,8 @@ Protocol server), `attach`, `models`, `agent` (manage agents), `session`, `expor
 | `-s, --session <id>` | continue a session by id | `when="resume"` -> `-s {session}` |
 | `-c, --continue` | continue the last session | not used (ambiguous with several runs) |
 | `--fork` | fork when continuing | not used |
-| `--agent <name>` | agent profile | candidates for read-only: `plan`, `ask` (not verified read-only) |
-| `--auto` | auto-approve all permissions | `when="allow_shell"` -> `--auto` (needs verification, assumption 4) |
+| `--agent <name>` | agent profile | `ask` is read-only, `plan` is NOT (T05 checks 4-5) |
+| `--auto` | auto-approve permissions that would otherwise `ask` | not needed for shell/edit in the project dir; needed only for `ask`-level permissions (T05 checks 1-3) |
 | `--dir <path>` | working directory | not needed; the profile sets the process cwd |
 | `--variant` | provider reasoning effort | possible future `{reasoning}` mapping |
 | `--thinking` | show thinking blocks | off |
@@ -84,15 +84,77 @@ Primary agents listed by `kilo agent list`: `ask`, `code`, `compaction`, `debug`
    (also a `-baseline` variant). `tui::executable("kilo")` would fail on this machine because it only looks for
    `kilo.exe` on PATH; the definition's `shim_native_globs` solves that (SPEC 7.3).
 
-## Not verified (must be checked in PLAN P0-5 / P2-14)
+## Verified in T05 (PLAN P0-5, run 2026-10-07, kilo 7.0.50, from `C:\Users\Ren-pc\AppData\Local\Temp\kilotest`)
 
-- Whether shell/edit tools in `kilo run` need `--auto` (a `read` tool ran without any flag; `bash`/`edit` untested).
-- Whether `--agent plan` (or `ask`) is truly read-only. Until proven, `read_only_headless = false`.
-- The visible TUI: banner and footer text, the working indicator (`esc interrupt` is an OpenCode convention), the
-  permission dialog wording and keys, the empty-input marker. The `[tui]` regexes in the draft are guesses and
-  must be replaced with real PTY captures.
-- Behaviour when `kilo` is launched with `-s` in TUI mode, and with `--prompt`.
-- The exit code on an `error` event.
+All headless runs used `kilo run --format json -m kilo/kilo-auto/free -- "<task>"` plus the flags named. The raw
+outputs are in the scratch dir (`*.jsonl` / `*.err`, one pair per check); they are not fixtures (T21 saves those).
+
+1. Shell without `--auto`: task "run `echo hello-from-bash > bash_noauto.txt` with your bash tool". `tool_use`
+   `bash` `status=completed`, `metadata.exit=0`, file created, exit code 0. Shell inside the project dir does NOT
+   need `--auto`.
+2. Edit without `--auto`: task "change a.txt with your edit/write tool". `write` first failed with Kilo's own
+   "You must read file ... before overwriting it" (not a permission), then `read` + `write` completed and the file
+   changed. Edit/write inside the project dir do NOT need `--auto`.
+3. Permission `ask` without and with `--auto`: task "read C:\Windows\win.ini". Without `--auto`, stderr printed
+   `! permission requested: external_directory (C:/Windows/*); auto-rejecting`, the tool event had
+   `status=error`, `error="... The user rejected permission to use this specific tool call."`, the LAST `text` was
+   `""`, the LAST event was `step_finish` with `reason="tool-calls"` (no `reason="stop"` at all), and the process
+   exited 0. With `--auto` the read completed and the answer was correct. So `--auto` only changes rules whose
+   action is `ask` (by default: `external_directory`, `doom_loop`, `read *.env*`); without it those are rejected,
+   never prompted.
+4. `--agent plan` is NOT read-only. `kilo debug agent plan` shows `edit * deny` (plan files excepted) but
+   `bash * allow`. Task "create a file with write, else with bash": with `--auto` the `write` call was denied by a
+   rule and `bash` then wrote `plan_auto_bash.txt`. Without `--auto` the model refused on its own (prompt-level
+   restraint only), called `plan_exit` (which wrote a plan under `%USERPROFILE%\.local\share\kilo\plans\`), emitted
+   `step_finish reason="stop"`, and then the process did NOT exit within 150 s (killed by `timeout`, exit 124).
+5. `--agent ask` IS read-only by configuration. `kilo debug agent ask` shows tools `bash=false, edit=false,
+   write=false, task=false, todowrite=false` and permission `* * deny` with allows only for read, grep, glob, list,
+   question, webfetch, websearch, codesearch. The same create-a-file task with and without `--auto` made no tool
+   call, created no file, ended with `reason="stop"` and exit 0. It can still reach the network (webfetch/websearch).
+6. Exit code on an `error` event: never a usable signal. (a) No `-m` (default model -> OpenRouter `APIError` "No
+   endpoints found that support tool use"), run twice: one `error` line on stdout, then the process never exited
+   (both killed at 90 s, exit 124). (b) `-m nosuchprovider/nosuchmodel`: one `error` line
+   (`error.name="UnknownError"`, `error.data.message="Model not found: ..."`), a Bun stack trace on stderr, exit 0.
+   No orphaned `kilo.exe` remained after the `timeout` kills.
+7. TUI `--prompt`: `kilo -m kilo/kilo-auto/free --prompt "reply with exactly: tuipong"` in a puppet-master PTY pane
+   (120x30) auto-submitted the prompt and the reply `tuipong` rendered with no extra keypress. Captured screen text:
+   reply footer `▣  Code · kilo-auto/free · 3.7s` (the model IS visible in the TUI, unlike the JSON stream); status
+   line `Code  Auto Free Kilo Gateway  ...  /~\AppData\Local\Temp\kilotest`; bottom line
+   `tab agents  ctrl+p commands    • Kilo 7.0.50` (with leading spaces); a right-hand sidebar with the session
+   title, `Context`, token count, `% used`, `$0.00 spent`, `LSP`. Ctrl+C quit the TUI.
+8. TUI and headless share sessions: the TUI session above (`ses_ee9bedb4cffe36fb8JcCNtSkYr`, listed by
+   `kilo session list`) was resumed headlessly with `-s` and answered `tuipong`.
+
+## Assumptions (not checked; T23 must confirm with real PTY captures)
+
+- TUI launched with `-s <id>` opens that session. Not run: the coordinator forbade further visible panes during
+  T05. Evidence for: headless `-s` works and the session store is shared with the TUI (check 8).
+- The TUI working indicator (`esc interrupt` is an OpenCode convention), the permission dialog wording and keys,
+  and the empty-input marker. Not captured. The draft `[tui.busy]` and `[[tui.prompt]]` regexes stay guesses.
+- The TUI permission dialog only appears for `ask`-level rules (check 3), so a T23 capture must provoke one, for
+  example by reading a file outside the project dir.
+
+## Contradictions with the draft `kilo.toml` / SPEC 7.2 and SPEC 10 (edits needed; SPEC not edited here)
+
+1. SPEC 10 assumption 4 is false in both halves: shell does not need `--auto` (checks 1-2), and `plan` is not
+   read-only (check 4). Edit SPEC 10 to say so.
+2. `allow_shell` -> `--auto` does not control shell. Omitting `--auto` leaves bash/edit/write enabled in the
+   project dir; it only stops `ask`-level actions (outside-dir access, `.env` reads, doom-loop). SPEC 7.2's comment
+   `allow_shell = true # maps to --auto` and SEC rules that treat `--auto` as the shell switch should say that
+   `--auto` = "approve `ask`-level permissions"; the only way to disable shell is a restricted agent.
+3. Read-only is possible via `--agent ask` (check 5): add `[[headless.optional]] when = "read_only"`,
+   `args = ["--agent", "ask"]` and only then flip `read_only_headless = true` (SEC-8 needs that segment). Never use
+   `plan` for read-only. Note at approval time that `ask` can still use the network.
+4. `[headless.output.done]` (`step_finish` + `reason="stop"`) is not always emitted: a turn whose tool call was
+   auto-rejected ends with `reason="tool-calls"` and a clean exit (check 3). The runner must also treat process
+   exit as end of turn, and must not wait for exit after the `done` event either (check 4: `stop` then no exit).
+5. `[headless.output.result] pick = "last"` can yield `""` (check 3). Prefer the last non-empty `text`, or
+   surface the stderr `auto-rejecting` line as the reason when the result is empty.
+6. Error handling: the draft's "an `error` event ends the turn, the runner applies its own timeout and kills the
+   process" stands; exit code must not be used for success/failure (check 6: 0 or never).
+7. `[tui.chrome] line_regex = ["^tab agents"]` misses the real footer because the line starts with spaces (check
+   7): use `^\s*tab agents\s+ctrl\+p commands` or match on trimmed lines. `^ctrl\+[a-z] ` matched nothing
+   observed. The sidebar lines (`Context`, `% used`, `$... spent`, `LSP`) are chrome too.
 
 ## Draft definition (`kilo.toml`)
 
