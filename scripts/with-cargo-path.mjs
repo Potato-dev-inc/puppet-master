@@ -40,6 +40,12 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 if (args[0] === 'dev') {
   ensureWorkspaceBuilt(repoRoot);
   ensureTauriResources();
+  // Optional, gitignored per-machine window overrides (position, focus) for dev runs.
+  const localConfig = join(repoRoot, 'packages', 'app', 'src-tauri', 'tauri.dev.local.json');
+  if (existsSync(localConfig) && !args.includes('--config') && !args.includes('-c')) {
+    args.push('--config', localConfig);
+    console.error(`[puppet-master] using ${localConfig}`);
+  }
   console.error('[puppet-master] starting dev stack (vite + tauri + embedded bridge)…');
 }
 
