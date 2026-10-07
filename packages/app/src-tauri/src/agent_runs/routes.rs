@@ -175,6 +175,8 @@ pub fn handle_request(
             let filter = AgentListFilter::from_query(query);
             list_agents(&project, session_id, registry, explicit.is_some(), filter)
         }
+        // `GET /agents/types` is the agent-type listing served by `bridge/routes/mcp.rs`.
+        ("GET", ["agents", "types"]) => return None,
         ("GET", ["agents", handle]) => {
             let project = project_path(None, query, registry);
             resolve_run_handle(&project, handle, registry).and_then(|handle| {

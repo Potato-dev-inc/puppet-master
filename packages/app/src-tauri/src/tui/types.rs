@@ -1,6 +1,7 @@
 //! Data types the profiles and the generic machinery exchange (kinds, features, launch specs, replies, warnings).
 
 use super::*;
+use serde::Serialize;
 
 /// How a backend is driven; decides which capability contract it gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,6 +14,18 @@ pub enum Kind {
     Shell,
     /// Not a registered profile; behaves like a bare pane with generic heuristics.
     Unknown,
+}
+
+impl Kind {
+    /// Wire name used by `GET /agents/types`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Kind::Cli => "cli",
+            Kind::NativeProtocol => "native_protocol",
+            Kind::Shell => "shell",
+            Kind::Unknown => "unknown",
+        }
+    }
 }
 
 /// Declarative facts about a profile. Generic code reads these instead of listing agent names.
@@ -40,7 +53,7 @@ impl Features {
 }
 
 /// Opt-in per-run flags a profile may accept.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize)]
 pub struct RunOptionSupport {
     /// `trust_workspace`: headless-only; pre-trusts the project folder.
     pub trust_workspace: bool,
@@ -54,7 +67,7 @@ pub struct RunOptionSupport {
 }
 
 /// Which kinds of warm standby worker (`crate::standby`) a backend supports.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct StandbySupport {
     /// A TUI pane can be started ahead of time and given its task later.
     pub visible: bool,
@@ -147,4 +160,100 @@ pub struct RunFacts<'a> {
     pub model_requested: bool,
     /// `resolved_model` is the CLI's default (or a request), not read from the live TUI.
     pub model_unconfirmed: bool,
+}
+
+/// How a run of this agent can be shown: headless child process and/or visible TUI pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Modes {
+    pub headless: bool,
+    pub visible: bool,
+}
+
+/// The `Features` flags listed by `GET /agents/types`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct FeatureFlags {
+    pub read_only_headless: bool,
+    pub read_only_spawned_pane: bool,
+    pub resumable_headless: bool,
+}
+
+/// One registered agent as listed by `GET /agents/types` (SPEC 7.5). Built from the profile only;
+/// declarative-definition fields (`definition`, non-code `source`) arrive with the registry.
+#[derive(Debug, Clone, Serialize)]
+pub struct Descriptor {
+    pub id: &'static str,
+    pub label: String,
+    pub icon: Option<String>,
+    pub kind: &'static str,
+    pub source: &'static str,
+    pub experimental: bool,
+    pub dispatchable: bool,
+    pub not_dispatchable_reason: Option<&'static str>,
+    pub installed: bool,
+    pub install_hint: Option<String>,
+    pub modes: Modes,
+    pub features: FeatureFlags,
+    pub run_options: RunOptionSupport,
+    pub standby: StandbySupport,
+    pub definition: Option<Value>,
+}
+
+impl Descriptor {
+    pub fn of(profile: &dyn TuiProfile) -> Self {
+        let id = profile.id();
+        let features = profile.features();
+        let label = crate::pty::agents::AgentType::parse(id)
+            .map(|agent| crate::agent_contexts::get_agent_context_profile(agent).label.to_string())
+            .unwrap_or_else(|| id.to_string());
+        Self {
+            id,
+            label,
+            icon: None,
+            kind: features.kind.as_str(),
+            source: "code",
+            experimental: false,
+            dispatchable: features.dispatchable,
+            not_dispatchable_reason: (!features.dispatchable)
+                .then(|| profile.not_dispatchable_reason()),
+            installed: profile.is_installed(),
+            install_hint: None,
+            modes: Modes {
+                headless: supports_headless(profile),
+                visible: true,
+            },
+            features: FeatureFlags {
+                read_only_headless: features.read_only_headless,
+                read_only_spawned_pane: features.read_only_spawned_pane,
+                resumable_headless: features.resumable_headless,
+            },
+            run_options: profile.run_options(),
+            standby: profile.standby_support(),
+            definition: None,
+        }
+    }
+}
+
+/// A dispatchable CLI profile that implements `headless_command`. Probing builds the command line
+/// only (no process starts); a missing binary still counts as headless-capable, since `installed`
+/// reports that separately. Only the trait's default "unsupported" error means no headless mode.
+fn supports_headless(profile: &dyn TuiProfile) -> bool {
+    let features = profile.features();
+    if !features.dispatchable || features.kind != Kind::Cli {
+        return false;
+    }
+    let probe = HeadlessLaunch {
+        project: ".",
+        task: "probe",
+        read_only: false,
+        resume_session: None,
+        trust_workspace: false,
+        allow_shell: false,
+        model: None,
+    };
+    match profile.headless_command(&probe) {
+        Ok(_) => true,
+        Err(error) => {
+            error != format!("headless launch is unsupported for agent type: {}", profile.id())
+        }
+    }
 }

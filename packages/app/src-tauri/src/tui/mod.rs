@@ -59,6 +59,22 @@ pub fn registered_agent_ids() -> Vec<String> {
     dispatchable
 }
 
+/// Every registered agent as `GET /agents/types` lists it, in registry order.
+pub fn descriptors() -> Vec<Descriptor> {
+    PROFILES.iter().map(|profile| Descriptor::of(*profile)).collect()
+}
+
+/// Body of `GET /agents/types`: `{agents, dispatchable_ids}` (SPEC 7.5).
+pub fn agent_types_listing() -> Value {
+    let agents = descriptors();
+    let dispatchable_ids: Vec<&str> = agents
+        .iter()
+        .filter(|agent| agent.dispatchable)
+        .map(|agent| agent.id)
+        .collect();
+    serde_json::json!({ "agents": agents, "dispatchable_ids": dispatchable_ids })
+}
+
 #[cfg(test)]
 pub fn profiles() -> &'static [&'static dyn TuiProfile] {
     PROFILES
@@ -256,5 +272,46 @@ mod scoping {
             !cursor_stripped.contains("Workspace Trust Required"),
             "{cursor_stripped}"
         );
+    }
+}
+
+#[cfg(test)]
+mod descriptor {
+    use super::*;
+
+    #[test]
+    fn descriptor_builds_all_nine() {
+        let all = descriptors();
+        assert_eq!(all.len(), 9);
+        let ids: Vec<&str> = all.iter().map(|d| d.id).collect();
+        let expected: Vec<&str> = profiles().iter().map(|p| p.id()).collect();
+        assert_eq!(ids, expected);
+        for d in &all {
+            assert!(!d.label.is_empty(), "{} has a label", d.id);
+            assert_eq!(d.source, "code");
+            assert!(!d.experimental);
+            assert_eq!(d.not_dispatchable_reason.is_some(), !d.dispatchable, "{}", d.id);
+        }
+    }
+
+    #[test]
+    fn descriptor_modes_follow_features() {
+        for profile in profiles() {
+            let d = Descriptor::of(*profile);
+            let features = profile.features();
+            assert!(d.modes.visible, "{} is always visible", d.id);
+            assert_eq!(d.dispatchable, features.dispatchable);
+            assert_eq!(d.features.read_only_headless, features.read_only_headless);
+            assert_eq!(d.features.resumable_headless, features.resumable_headless);
+            if d.modes.headless {
+                assert!(features.dispatchable && features.kind == Kind::Cli, "{}", d.id);
+            }
+        }
+        let headless: Vec<&str> = descriptors()
+            .into_iter()
+            .filter(|d| d.modes.headless)
+            .map(|d| d.id)
+            .collect();
+        assert_eq!(headless, vec!["claude", "codex", "cursor_agent"]);
     }
 }

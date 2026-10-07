@@ -372,3 +372,32 @@ fn delegate_work_unknown_type_keeps_invalid_agent_type() {
     assert_eq!(body["message"], "agent_type is not supported");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn agents_types_lists_every_code_profile() {
+    let (status, body) = mcp_registry_route("GET", &["agents", "types"]).expect("route exists");
+    assert_eq!(status, 200);
+    let agents = body["agents"].as_array().expect("agents array");
+    let ids: Vec<&str> = agents
+        .iter()
+        .map(|agent| agent["id"].as_str().expect("id"))
+        .collect();
+    let expected: Vec<&str> = crate::tui::profiles().iter().map(|p| p.id()).collect();
+    assert_eq!(ids, expected, "registry order");
+    for agent in agents {
+        assert!(agent["installed"].is_boolean(), "{agent}");
+        assert!(agent["modes"]["visible"].is_boolean(), "{agent}");
+        assert!(agent["modes"]["headless"].is_boolean(), "{agent}");
+        assert!(agent["features"]["read_only_headless"].is_boolean(), "{agent}");
+        assert!(agent["run_options"]["allow_shell"].is_boolean(), "{agent}");
+        assert!(agent["standby"]["visible"].is_boolean(), "{agent}");
+        assert!(agent["label"].is_string(), "{agent}");
+    }
+    let dispatchable: Vec<&str> = body["dispatchable_ids"]
+        .as_array()
+        .expect("dispatchable_ids")
+        .iter()
+        .map(|id| id.as_str().expect("id"))
+        .collect();
+    assert_eq!(dispatchable, vec!["claude", "codex", "opencode", "opencode_native", "cursor_agent"]);
+}

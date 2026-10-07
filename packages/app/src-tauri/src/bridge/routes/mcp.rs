@@ -50,6 +50,9 @@ pub(in crate::bridge) fn registry_route(
             200,
             json!({"instructions": crate::tool_registry::mcp_instructions()}),
         )),
+        // Static listing of the registered agent types (SPEC 7.5). Sits under `/agents/`, so the
+        // router's session gate for agent APIs applies to it.
+        ("GET", ["agents", "types"]) => Some((200, crate::tui::agent_types_listing())),
         _ => None,
     }
 }
