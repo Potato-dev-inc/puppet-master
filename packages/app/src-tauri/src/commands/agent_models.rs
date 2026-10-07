@@ -50,8 +50,7 @@ pub async fn inspect_agent_model(
         .into_iter()
         .find(|pane| pane.id == pane_id)
         .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
-    let agent_type = AgentType::parse(&pane.agent_type)
-        .ok_or_else(|| format!("unknown agent_type: {}", pane.agent_type))?;
+    let agent_type = context_agent(&pane.agent_type)?;
     let buffer = registry_read_buffer(&state.registry, &pane_id, lines.unwrap_or(200))?;
     Ok(crate::agent_contexts::inspect_agent_model_with_registry(
         Some(&state.registry),
@@ -84,8 +83,18 @@ pub async fn read_agent_context(
     }
 
     let agent_type = agent_type.ok_or_else(|| "agent_type or pane_id is required".to_string())?;
-    let agent_type =
-        AgentType::parse(&agent_type).ok_or_else(|| format!("unknown agent_type: {agent_type}"))?;
+    let agent_type = context_agent(&agent_type)?;
     serde_json::to_value(crate::agent_contexts::get_agent_context_profile(agent_type))
         .map_err(|err| format!("serialize agent context profile: {err}"))
+}
+
+/// Registry gate for the commands above: unknown ids get the `UNKNOWN_AGENT_TYPE` message.
+fn context_agent(agent_type: &str) -> Result<AgentType, String> {
+    match crate::agent_contexts::registered_context_agent(agent_type) {
+        Ok(Some(agent_type)) => Ok(agent_type),
+        Ok(None) => Err(format!("no agent context for agent_type: {agent_type}")),
+        Err(unknown) => {
+            Err(crate::operations::OperationError::unknown_agent_type(unknown.id, unknown.valid).message)
+        }
+    }
 }

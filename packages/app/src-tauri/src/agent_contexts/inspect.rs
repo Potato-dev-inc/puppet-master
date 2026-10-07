@@ -42,6 +42,17 @@ pub fn detect_model_from_buffer(buffer: &str) -> Option<String> {
     })
 }
 
+/// Registry gate for the agent-context layer. An unregistered id is `Err` (`UNKNOWN_AGENT_TYPE`
+/// at the callers); `Ok(None)` is a registered agent without a code context profile. Context
+/// profiles are keyed by the code profiles' `AgentType` until they move to strings (T10), so this
+/// is the one place that maps a resolved registry id onto it.
+pub fn registered_context_agent(
+    agent_type: &str,
+) -> Result<Option<AgentType>, crate::tui::UnknownAgentType> {
+    let profile = crate::tui::require_registered(agent_type)?;
+    Ok(AgentType::parse(profile.id()))
+}
+
 #[cfg(test)]
 pub fn inspect_agent_model(
     pane_id: impl Into<String>,
@@ -196,7 +207,7 @@ pub fn build_pane_agent_context(
     pane: PaneInfo,
     buffer: &str,
 ) -> Option<PaneAgentContext> {
-    let agent_type = AgentType::parse(&pane.agent_type)?;
+    let agent_type = registered_context_agent(&pane.agent_type).ok().flatten()?;
     let context = get_agent_context_profile(agent_type);
     let model = inspect_agent_model_with_registry(registry, &pane.id, agent_type, buffer);
     let recent_buffer_preview = buffer.lines().rev().take(40).collect::<Vec<_>>();

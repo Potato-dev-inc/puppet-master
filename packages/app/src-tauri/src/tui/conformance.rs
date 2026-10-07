@@ -1,19 +1,34 @@
 //! Rules every registered profile must satisfy. A new TUI gets these checks for free by being
-//! added to `PROFILES`; a failure here means the profile contradicts itself or the registry.
+//! added to the registry; a failure here means the profile contradicts itself or the registry.
 
 use super::*;
 use std::collections::HashSet;
 
 #[test]
-fn ids_are_unique_lowercase_and_known_to_agent_type() {
+fn ids_are_unique_and_lowercase() {
     let mut seen = HashSet::new();
     for profile in profiles() {
         let id = profile.id();
         assert_eq!(id, id.to_ascii_lowercase(), "{id}: ids are lowercase");
         assert!(seen.insert(id), "{id}: registered twice");
-        let agent = crate::pty::agents::AgentType::parse(id)
-            .unwrap_or_else(|| panic!("{id}: add an AgentType variant for this profile"));
-        assert_eq!(agent.as_str(), id, "{id}: AgentType::as_str must round-trip");
+    }
+}
+
+/// Every code profile id resolves through the registry gate (`require_registered`) and the
+/// hot-path lookup (`profile_for`) to itself, in any letter case.
+#[test]
+fn every_code_id_resolves_in_registry() {
+    let code = registry::Registry::seeded().ordered();
+    assert_eq!(code.len(), 9, "nine code profiles");
+    for profile in code {
+        let id = profile.id();
+        for spelling in [id.to_string(), id.to_ascii_uppercase()] {
+            let resolved = require_registered(&spelling)
+                .unwrap_or_else(|unknown| panic!("{id}: not registered ({unknown:?})"));
+            assert_eq!(resolved.id(), id, "{spelling}: gate resolves to the canonical id");
+            assert_eq!(profile_for(&spelling).id(), id, "{spelling}: profile_for agrees");
+            assert!(is_registered(&spelling), "{spelling}: is_registered agrees");
+        }
     }
 }
 

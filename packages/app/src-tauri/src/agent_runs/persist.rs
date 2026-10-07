@@ -212,8 +212,17 @@ pub fn visible_mismatch(
     differs(requested_model, resolved_model) || differs(requested_reasoning, resolved_reasoning)
 }
 
+/// Status a persisted run reports when its `agent_type` is no longer registered (SPEC 9).
+pub const AGENT_GONE: &str = "agent_gone";
+
+/// A persisted run whose agent definition is gone: it stays viewable but is never resumed.
+pub fn agent_gone(snapshot: &OperationSnapshot) -> bool {
+    !crate::tui::is_registered(&snapshot.agent_type)
+}
+
 pub fn snapshot_can_resume(snapshot: &OperationSnapshot) -> bool {
-    !snapshot.worker.session_reset
+    !agent_gone(snapshot)
+        && !snapshot.worker.session_reset
         && super::capabilities::for_snapshot(snapshot).session_resume
         && snapshot
             .worker
@@ -334,6 +343,16 @@ pub fn overlay_live_model(
     );
     object.insert("requested_model".into(), opt_string(requested.as_deref()));
     object.insert("resolved_model".into(), opt_string(resolved.as_deref()));
+    if agent_gone(snapshot) {
+        object.insert("agent_status".into(), Value::String(AGENT_GONE.into()));
+        object.insert(
+            "agent_status_detail".into(),
+            Value::String(format!(
+                "agent_type {} is not registered any more; the run is viewable but cannot be resumed",
+                snapshot.agent_type
+            )),
+        );
+    }
 }
 
 pub fn live_resolved_model(
@@ -341,7 +360,9 @@ pub fn live_resolved_model(
     snapshot: &OperationSnapshot,
 ) -> Option<String> {
     let pane_id = snapshot.pane_id.as_deref()?;
-    let agent_type = crate::pty::agents::AgentType::parse(&snapshot.agent_type)?;
+    let agent_type = crate::agent_contexts::registered_context_agent(&snapshot.agent_type)
+        .ok()
+        .flatten()?;
     let buffer = crate::pty::registry_read_snapshot(registry, pane_id).unwrap_or_default();
     let inspection = crate::agent_contexts::inspect_agent_model_with_registry(
         Some(registry),
@@ -371,4 +392,73 @@ pub(super) fn opt_string(value: Option<&str>) -> Value {
         .map(str::to_string)
         .map(Value::String)
         .unwrap_or(Value::Null)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::operations::{DelegateWorkRequest, WorkerPersist};
+
+    /// A persisted run whose agent definition has since been removed reloads from disk without a
+    /// panic, reports `agent_gone` with an explanation, and is not resumable (SPEC 9).
+    #[test]
+    fn reload_with_unregistered_agent_type_is_agent_gone() {
+        let project = std::env::temp_dir().join(format!("pm-agent-gone-{}", uuid::Uuid::new_v4()));
+        let project = project.to_string_lossy().into_owned();
+        let request = DelegateWorkRequest {
+            project_path: project.clone(),
+            task: "inspect".into(),
+            agent_type: "codex".into(),
+            pane_id: None,
+            idempotency_key: uuid::Uuid::new_v4().to_string(),
+            acceptance_criteria: None,
+            task_id: None,
+            exclusive: false,
+            locks: vec![],
+            timeout_ms: 60_000,
+            read_only: false,
+            keep_pane: false,
+            owner_session_id: Some("agent-gone".into()),
+            worker_has_mcp_tools: false,
+            agent_run_id: Some("agent-gone-run".into()),
+            turn_index: 0,
+            worker: WorkerPersist {
+                provider_session_id: Some("session-1".into()),
+                ..Default::default()
+            },
+            context_policy: None,
+            checks: Vec::new(),
+        };
+        let created = operations::create_operation(request).unwrap().0;
+        assert!(!agent_gone(&created));
+        assert!(snapshot_can_resume(&created), "control: the codex run itself is resumable");
+
+        // Rewrite the persisted snapshot as if it had been written by an agent that is gone now.
+        let file = std::path::Path::new(&project)
+            .join(".puppet-master")
+            .join("operations")
+            .join(format!("{}.json", created.operation_id));
+        let mut raw: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        raw["agent_type"] = Value::String("zzz".into());
+        raw["pane_id"] = Value::String("pane-agent-gone".into());
+        std::fs::write(&file, serde_json::to_vec(&raw).unwrap()).unwrap();
+
+        let reloaded = operations::get_operation(&project, &created.operation_id).unwrap();
+        assert_eq!(reloaded.agent_type, "zzz");
+        assert!(agent_gone(&reloaded));
+        assert!(!snapshot_can_resume(&reloaded), "an agent_gone run is not resumable");
+
+        let registry = std::sync::Arc::new(parking_lot::Mutex::new(
+            crate::pty::PaneRegistry::default(),
+        ));
+        assert_eq!(live_resolved_model(&registry, &reloaded), None);
+        let mut view = serde_json::json!({ "handle": "agent-gone-run" });
+        overlay_live_model(&mut view, &reloaded, Some(&registry));
+        assert_eq!(view["agent_status"], AGENT_GONE);
+        let detail = view["agent_status_detail"].as_str().unwrap();
+        assert!(detail.contains("zzz"), "{detail}");
+        assert!(detail.contains("not registered"), "{detail}");
+
+        let _ = std::fs::remove_file(&file);
+    }
 }

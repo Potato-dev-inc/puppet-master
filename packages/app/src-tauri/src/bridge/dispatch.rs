@@ -660,3 +660,70 @@ fn send_task_prompt(
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tui::{registry, TuiProfile};
+    use std::sync::Arc;
+
+    /// A profile that only exists in this test: its id is not an `AgentType` variant.
+    struct GateProbe;
+
+    impl TuiProfile for GateProbe {
+        fn id(&self) -> &'static str {
+            "gate_probe_t08"
+        }
+    }
+
+    /// Every gate asks the registry: a registered id that `AgentType` does not know passes the
+    /// dispatch gate and the agent-context gate, and is rejected again once it is unregistered.
+    #[test]
+    fn gates_use_registry() {
+        let project = std::env::temp_dir().join(format!("pm-gates-{}", uuid::Uuid::new_v4()));
+        let request = crate::operations::DelegateWorkRequest {
+            project_path: project.to_string_lossy().into_owned(),
+            task: "inspect".into(),
+            agent_type: "codex".into(),
+            pane_id: None,
+            idempotency_key: uuid::Uuid::new_v4().to_string(),
+            acceptance_criteria: None,
+            task_id: None,
+            exclusive: false,
+            locks: vec![],
+            timeout_ms: 60_000,
+            read_only: false,
+            keep_pane: false,
+            owner_session_id: Some("gates".into()),
+            worker_has_mcp_tools: false,
+            agent_run_id: None,
+            turn_index: 0,
+            worker: Default::default(),
+            context_policy: None,
+            checks: Vec::new(),
+        };
+        let operation = crate::operations::create_operation(request).unwrap().0;
+        let id = GateProbe.id();
+        assert!(crate::pty::agents::AgentType::parse(id).is_none());
+
+        // Inject, probe the gates, restore: other tests read the same process-wide registry, so
+        // keep the window with the extra profile as short as possible.
+        let before = registry::snapshot();
+        let mut with_probe: Vec<Arc<dyn TuiProfile>> = before.iter().cloned().collect();
+        with_probe.push(Arc::new(GateProbe));
+        registry::registry().swap(with_probe);
+        let dispatch = super::check_agent_dispatchable(&operation, id);
+        let context = crate::agent_contexts::registered_context_agent(id);
+        registry::registry().swap(before.iter().cloned().collect());
+
+        assert!(dispatch.is_ok(), "registered profile passes the dispatch gate: {dispatch:?}");
+        assert_eq!(context.ok(), Some(None), "registered, but no code context profile");
+
+        let error = super::check_agent_dispatchable(&operation, id).unwrap_err();
+        assert_eq!(error.code, "UNKNOWN_AGENT_TYPE");
+        assert!(crate::agent_contexts::registered_context_agent(id).is_err());
+        assert_eq!(
+            crate::agent_contexts::registered_context_agent("CODEX").ok(),
+            Some(Some(crate::pty::agents::AgentType::Codex))
+        );
+    }
+}

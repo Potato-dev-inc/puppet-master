@@ -12,7 +12,6 @@ use crate::bridge::http::{parse_json, query_param};
 use crate::bridge::pane_util::{
     emit_panes_changed, pane_buffer_view, present_spawned_pane, register_spawned_pane,
 };
-use crate::pty::agents::AgentType;
 use crate::pty::{
     registry_kill_pane, registry_read_buffer, registry_read_raw_buffer, registry_read_snapshot,
     registry_spawn_pane, registry_write_input, SpawnPaneArgs,
@@ -320,8 +319,14 @@ fn inspect_model(cx: &Ctx, pane_id: &str) -> RouteResult {
                 json!({ "error": crate::pty::registry::unknown_pane_message(pane_id) }),
             )
         })?;
-    let agent_type = match crate::tui::require_registered(&pane.agent_type) {
-        Ok(profile) => AgentType::parse(profile.id()).expect("registered ids parse as AgentType"),
+    let agent_type = match crate::agent_contexts::registered_context_agent(&pane.agent_type) {
+        Ok(Some(agent_type)) => agent_type,
+        Ok(None) => {
+            return Err((
+                400,
+                json!({ "error": format!("no model inspection for agent_type: {}", pane.agent_type) }),
+            ));
+        }
         Err(unknown) => {
             return Err(operation_http_error(
                 crate::operations::OperationError::unknown_agent_type(unknown.id, unknown.valid),

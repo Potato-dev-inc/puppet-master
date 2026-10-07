@@ -22,10 +22,12 @@ pub fn spawn_pane(
         return crate::opencode::native::spawn_native_pane(Arc::clone(registry), app, args);
     }
 
-    crate::tui::require_registered(&args.agent_type).map_err(|unknown| {
+    let profile = crate::tui::require_registered(&args.agent_type).map_err(|unknown| {
         crate::operations::OperationError::unknown_agent_type(unknown.id, unknown.valid).message
     })?;
-    let agent = AgentType::parse(&args.agent_type).expect("registered ids parse as AgentType");
+    // Launch path: code profiles launch through `AgentType::resolve_command`.
+    let agent = AgentType::parse(profile.id())
+        .ok_or_else(|| format!("agent_type {} has no launch command", profile.id()))?;
 
     let cwd = crate::project_path::resolve_spawn_cwd(
         args.cwd.clone(),
