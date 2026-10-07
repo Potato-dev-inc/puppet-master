@@ -4,7 +4,7 @@ use super::*;
 
 /// One agent CLI/TUI. Every method has a generic default, so a profile overrides only what its
 /// TUI does differently. Keep patterns, fixtures and tests for a TUI in that TUI's folder.
-pub trait TuiProfile: Sync {
+pub trait TuiProfile: Send + Sync {
     /// The `agent_type` string (matches `pty::agents::AgentType::as_str`).
     fn id(&self) -> &'static str;
 

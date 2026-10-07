@@ -15,6 +15,7 @@ pub mod codex;
 pub mod cursor;
 pub mod generic;
 pub mod opencode;
+pub mod registry;
 pub mod shell;
 
 use crate::pty::status::PaneStatus;
@@ -272,6 +273,24 @@ mod scoping {
             !cursor_stripped.contains("Workspace Trust Required"),
             "{cursor_stripped}"
         );
+    }
+}
+
+#[cfg(test)]
+mod order {
+    use super::*;
+
+    /// `read_only_backends()` keeps registry order; the registry snapshot reports the same order.
+    #[test]
+    fn read_only_backends_order_unchanged() {
+        assert_eq!(read_only_backends(), vec!["claude", "codex", "cursor_agent"]);
+        let from_registry: Vec<&str> = registry::Registry::seeded()
+            .ordered()
+            .iter()
+            .filter(|profile| profile.features().read_only_headless)
+            .map(|profile| profile.id())
+            .collect();
+        assert_eq!(from_registry, read_only_backends());
     }
 }
 
