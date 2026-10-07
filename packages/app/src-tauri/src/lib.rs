@@ -76,6 +76,7 @@ pub fn run() {
             commands::read_pane_buffer,
             commands::read_pane_snapshot,
             commands::read_pane_raw_buffer,
+            commands::agents_list,
             commands::list_agent_contexts,
             commands::read_agent_context,
             commands::inspect_agent_model,

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 mod agent_models;
+mod agents;
 mod app;
 mod coordination;
 mod mcp;
@@ -16,6 +17,7 @@ mod panes;
 mod standby;
 
 pub use agent_models::*;
+pub use agents::*;
 pub use app::*;
 pub use coordination::*;
 pub use mcp::*;
