@@ -28,6 +28,16 @@ pub trait TuiProfile: Send + Sync {
         true
     }
 
+    // ---- visible pane spawn -------------------------------------------------------------
+
+    /// Program, arguments and cwd for an interactive PTY pane. `None` (the default) keeps the
+    /// code launch path (`pty::agents::resolve_command`), which only knows the built-in ids; a
+    /// profile outside that set returns `Some` to be spawnable. The program runs directly (no
+    /// shell); the spawn path adds the common PTY environment.
+    fn spawn_command(&self, _request: &SpawnRequest) -> Option<LaunchSpec> {
+        None
+    }
+
     // ---- headless runs ------------------------------------------------------------------
 
     /// Command line for a headless run. Argument policy (read-only support, flag conflicts) is

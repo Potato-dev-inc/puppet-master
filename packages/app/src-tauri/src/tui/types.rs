@@ -97,6 +97,19 @@ pub struct LaunchSpec {
     pub read_only_enforced: bool,
 }
 
+/// What a visible pane spawn hands `TuiProfile::spawn_command`.
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // no code profile reads size/read_only yet; declarative profiles will (T16)
+pub struct SpawnRequest<'a> {
+    pub cwd: &'a str,
+    /// Caller-supplied arguments appended after the profile's own.
+    pub extra_args: &'a [String],
+    pub cols: u16,
+    pub rows: u16,
+    /// The pane was asked to start with enforced read-only permissions.
+    pub read_only: bool,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct HeadlessLaunch<'a> {
     pub project: &'a str,

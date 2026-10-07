@@ -60,6 +60,18 @@ pub(super) fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) 
     }
 }
 
+/// Build a CommandBuilder from a profile's `spawn_command`: the program runs directly with its
+/// arguments (no shell, no AgentType), in the spec's cwd, with the common PTY environment.
+pub(super) fn build_launch_spec_command(spec: &crate::tui::LaunchSpec) -> CommandBuilder {
+    let mut cmd_builder = CommandBuilder::new(&spec.program);
+    for a in &spec.args {
+        cmd_builder.arg(a);
+    }
+    cmd_builder.cwd(&spec.cwd);
+    apply_common_pty_env(&mut cmd_builder);
+    cmd_builder
+}
+
 #[cfg(windows)]
 pub(super) fn windows_powershell_host_agent(agent: AgentType) -> bool {
     matches!(

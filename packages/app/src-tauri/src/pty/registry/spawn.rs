@@ -9,6 +9,53 @@ pub fn unknown_pane_message(pane_id: &str) -> String {
     )
 }
 
+/// The PTY command for a registered profile: its `spawn_command` when it has one, otherwise the
+/// code launch path (`AgentType` + `resolve_command`), which only the built-in ids have.
+pub(super) fn launch_command(
+    profile: &dyn crate::tui::TuiProfile,
+    request: &crate::tui::SpawnRequest,
+) -> Result<CommandBuilder, String> {
+    if let Some(spec) = profile.spawn_command(request) {
+        return Ok(build_launch_spec_command(&spec));
+    }
+    let agent = AgentType::parse(profile.id())
+        .ok_or_else(|| format!("agent_type {} has no launch command", profile.id()))?;
+    Ok(build_command(agent, request.cwd, request.extra_args))
+}
+
+/// A child process running on a fresh PTY.
+pub(super) struct PtyChild {
+    pub master: Box<dyn MasterPty + Send>,
+    pub child: Box<dyn Child + Send + Sync>,
+    pub pid: u32,
+}
+
+/// Open a PTY of the given size and start `cmd` on it.
+pub(super) fn open_pty_child(cmd: CommandBuilder, rows: u16, cols: u16) -> Result<PtyChild, String> {
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("openpty: {e}"))?;
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("spawn_command: {e}"))?;
+    let pid = child.process_id().unwrap_or(0);
+    // Slave handle is now owned by the child; drop our copy so the master
+    // gets EOF when the child exits.
+    drop(pair.slave);
+    Ok(PtyChild {
+        master: pair.master,
+        child,
+        pid,
+    })
+}
+
 /// Spawn a pane. The reader thread pushes raw bytes to the scrollback,
 /// emits Tauri events, and updates status heuristics.
 ///
@@ -25,9 +72,6 @@ pub fn spawn_pane(
     let profile = crate::tui::require_registered(&args.agent_type).map_err(|unknown| {
         crate::operations::OperationError::unknown_agent_type(unknown.id, unknown.valid).message
     })?;
-    // Launch path: code profiles launch through `AgentType::resolve_command`.
-    let agent = AgentType::parse(profile.id())
-        .ok_or_else(|| format!("agent_type {} has no launch command", profile.id()))?;
 
     let cwd = crate::project_path::resolve_spawn_cwd(
         args.cwd.clone(),
@@ -53,33 +97,22 @@ pub fn spawn_pane(
         });
     }
 
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(PtySize {
-            rows,
+    let cmd = launch_command(
+        profile.as_ref(),
+        &crate::tui::SpawnRequest {
+            cwd: &cwd,
+            extra_args: args.extra_args.as_deref().unwrap_or(&[]),
             cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|e| format!("openpty: {e}"))?;
+            rows,
+            read_only: args.read_only,
+        },
+    )?;
+    let PtyChild { master, child, pid } = open_pty_child(cmd, rows, cols)?;
 
-    let cmd = build_command(agent, &cwd, args.extra_args.as_deref().unwrap_or(&[]));
-    let child = pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| format!("spawn_command: {e}"))?;
-    let pid = child.process_id().unwrap_or(0);
-
-    // Slave handle is now owned by the child; drop our copy so the master
-    // gets EOF when the child exits.
-    drop(pair.slave);
-
-    let writer = pair
-        .master
+    let writer = master
         .take_writer()
         .map_err(|e| format!("take_writer: {e}"))?;
-    let reader = pair
-        .master
+    let reader = master
         .try_clone_reader()
         .map_err(|e| format!("clone_reader: {e}"))?;
 
@@ -114,7 +147,7 @@ pub fn spawn_pane(
         screen: screen.clone(),
         status: status.clone(),
         last_output: last_output.clone(),
-        master: Arc::new(Mutex::new(pair.master)),
+        master: Arc::new(Mutex::new(master)),
         writer: Arc::new(Mutex::new(writer)),
         child,
         exited: exited.clone(),
