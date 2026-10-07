@@ -36,6 +36,29 @@ static PROFILES: &[&dyn TuiProfile] = &[
 
 static UNKNOWN: generic::Unknown = generic::Unknown;
 
+/// Unregistered `agent_type` with the ids callers may use instead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownAgentType {
+    pub id: String,
+    pub valid: Vec<String>,
+}
+
+/// Registered ids for error context: dispatchable backends first, then the rest in registry order.
+pub fn registered_agent_ids() -> Vec<String> {
+    let mut dispatchable = Vec::new();
+    let mut rest = Vec::new();
+    for profile in PROFILES {
+        let id = profile.id();
+        if profile.features().dispatchable {
+            dispatchable.push(id.to_string());
+        } else {
+            rest.push(id.to_string());
+        }
+    }
+    dispatchable.extend(rest);
+    dispatchable
+}
+
 #[cfg(test)]
 pub fn profiles() -> &'static [&'static dyn TuiProfile] {
     PROFILES
@@ -54,6 +77,21 @@ pub fn is_registered(agent_type: &str) -> bool {
     PROFILES
         .iter()
         .any(|profile| profile.id().eq_ignore_ascii_case(agent_type))
+}
+
+/// Resolve a registered profile or return the canonical id list for `UNKNOWN_AGENT_TYPE`.
+pub fn require_registered(agent_type: &str) -> Result<&'static dyn TuiProfile, UnknownAgentType> {
+    match PROFILES
+        .iter()
+        .copied()
+        .find(|profile| profile.id().eq_ignore_ascii_case(agent_type))
+    {
+        Some(profile) => Ok(profile),
+        None => Err(UnknownAgentType {
+            id: agent_type.to_string(),
+            valid: registered_agent_ids(),
+        }),
+    }
 }
 
 /// A registered agent backend (not a plain shell) that `delegate_work` may be asked for.
@@ -186,6 +224,22 @@ mod scoping {
         let cursor_placeholder = "→ plan, search, build anything";
         assert!(is_chrome_line(cursor_placeholder, "cursor_agent"));
         assert!(!is_chrome_line(cursor_placeholder, "claude"));
+    }
+
+    #[test]
+    fn require_registered_lists_nine_valid_ids() {
+        let err = match require_registered("not-a-real-agent") {
+            Err(err) => err,
+            Ok(_) => panic!("expected unknown agent type"),
+        };
+        assert_eq!(err.id, "not-a-real-agent");
+        assert_eq!(err.valid.len(), 9);
+        assert_eq!(
+            err.valid,
+            registered_agent_ids(),
+            "valid ids are dispatchable backends first"
+        );
+        assert!(require_registered("claude").is_ok());
     }
 
     #[test]

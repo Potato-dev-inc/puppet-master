@@ -23,10 +23,17 @@ use super::state::PANE_ASSIGNMENT_SERIAL;
 use super::store::{append_operation_event, lease_expires_at};
 use crate::events::{SystemEvent, TaskId};
 use crate::operations::{OperationError, OperationSnapshot};
-use crate::pty::agents::AgentType;
 use crate::pty::{registry_read_snapshot, registry_write_input, PaneRegistry, SpawnPaneArgs};
 
 type PaneAssignmentGuard = parking_lot::MutexGuard<'static, ()>;
+
+#[cfg(test)]
+pub(crate) fn check_agent_dispatchable(
+    operation: &OperationSnapshot,
+    agent_type: &str,
+) -> Result<(), OperationError> {
+    ensure_agent_dispatchable(operation, agent_type)
+}
 
 pub fn dispatch_existing_operation(
     registry: &Arc<Mutex<PaneRegistry>>,
@@ -122,14 +129,9 @@ fn ensure_agent_dispatchable(
     operation: &OperationSnapshot,
     agent_type: &str,
 ) -> Result<(), OperationError> {
-    if AgentType::parse(agent_type).is_none() {
-        return Err(crate::operations::OperationError::new(
-            "INVALID_AGENT_TYPE",
-            format!("unsupported agent_type: {agent_type}"),
-            false,
-        ));
-    }
-    let profile = crate::tui::profile_for(agent_type);
+    let profile = crate::tui::require_registered(agent_type).map_err(|unknown| {
+        OperationError::unknown_agent_type(unknown.id, unknown.valid)
+    })?;
     if !profile.features().dispatchable {
         return Err(crate::operations::OperationError::new(
             "AGENT_NOT_DISPATCHABLE",

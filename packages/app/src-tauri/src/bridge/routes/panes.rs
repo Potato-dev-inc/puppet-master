@@ -98,6 +98,12 @@ fn spawn(cx: &Ctx) -> RouteResult {
     let app = cx.app;
     let session = cx.session;
     let req: SpawnPaneArgs = parse_json(body)?;
+    crate::tui::require_registered(&req.agent_type).map_err(|unknown| {
+        operation_http_error(crate::operations::OperationError::unknown_agent_type(
+            unknown.id,
+            unknown.valid,
+        ))
+    })?;
     let agent_type = req.agent_type.clone();
     let pane_id =
         registry_spawn_pane(registry, app, req).map_err(|err| (500, json!({ "error": err })))?;
@@ -314,12 +320,14 @@ fn inspect_model(cx: &Ctx, pane_id: &str) -> RouteResult {
                 json!({ "error": crate::pty::registry::unknown_pane_message(pane_id) }),
             )
         })?;
-    let agent_type = AgentType::parse(&pane.agent_type).ok_or_else(|| {
-        (
-            400,
-            json!({ "error": format!("unknown agent_type: {}", pane.agent_type) }),
-        )
-    })?;
+    let agent_type = match crate::tui::require_registered(&pane.agent_type) {
+        Ok(profile) => AgentType::parse(profile.id()).expect("registered ids parse as AgentType"),
+        Err(unknown) => {
+            return Err(operation_http_error(
+                crate::operations::OperationError::unknown_agent_type(unknown.id, unknown.valid),
+            ));
+        }
+    };
     let buffer = registry_read_buffer(registry, pane_id, lines)
         .map_err(|err| (404, json!({ "error": err })))?;
     Ok((

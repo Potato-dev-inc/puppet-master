@@ -39,6 +39,7 @@ pub(super) fn operation_http_error(
         | "INVALID_PROJECT_PATH"
         | "INVALID_OPERATION_ID"
         | "INVALID_AGENT_TYPE"
+        | "UNKNOWN_AGENT_TYPE"
         | "INVALID_LOCK"
         | "COMPLETION_EVIDENCE_REQUIRED" => 400,
         "PROJECT_PATH_REQUIRED" => 400,

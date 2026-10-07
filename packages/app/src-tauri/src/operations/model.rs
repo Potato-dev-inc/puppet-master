@@ -122,6 +122,20 @@ impl OperationError {
             context: Value::Null,
         }
     }
+
+    pub fn unknown_agent_type(id: impl Into<String>, valid: Vec<String>) -> Self {
+        let id = id.into();
+        let mut error = Self::new(
+            "UNKNOWN_AGENT_TYPE",
+            format!("unknown agent_type: {id}"),
+            false,
+        );
+        error.context = serde_json::json!({
+            "valid": valid,
+            "hint": "GET /agents/types",
+        });
+        error
+    }
     pub(super) fn io(err: impl std::fmt::Display) -> Self {
         Self::new("STORAGE_ERROR", err.to_string(), true)
     }

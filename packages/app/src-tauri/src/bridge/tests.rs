@@ -210,6 +210,7 @@ fn operation_errors_use_the_structured_retry_contract() {
         ("IDEMPOTENCY_KEY_CONFLICT", 409),
         ("PANE_UNAVAILABLE", 409),
         ("INVALID_AGENT_TYPE", 400),
+        ("UNKNOWN_AGENT_TYPE", 400),
     ] {
         let (status, body) = operation_http_error(crate::operations::OperationError::new(
             code, "invalid", false,
@@ -254,4 +255,120 @@ fn wait_project_path_prefers_body_then_query() {
         Some("C:/query".into())
     );
     assert_eq!(requested_project_path(Some("  "), ""), None);
+}
+
+fn assert_unknown_agent_type_response(status: u16, body: &serde_json::Value) {
+    assert_eq!(status, 400);
+    assert_eq!(body["code"], "UNKNOWN_AGENT_TYPE");
+    assert_eq!(body["recoverable"], false);
+    assert_eq!(body["context"]["hint"], "GET /agents/types");
+    let valid: Vec<String> = body["context"]["valid"]
+        .as_array()
+        .expect("valid ids")
+        .iter()
+        .map(|value| value.as_str().expect("id").to_string())
+        .collect();
+    assert_eq!(valid.len(), 9);
+    assert_eq!(valid, crate::tui::registered_agent_ids());
+}
+
+#[test]
+fn run_agent_unknown_type_returns_unknown_agent_type() {
+    let snapshot = crate::operations::OperationSnapshot {
+        operation_id: uuid::Uuid::new_v4().to_string(),
+        runtime_id: String::new(),
+        request_fingerprint: String::new(),
+        project_path: "C:/proj".into(),
+        task: "work".into(),
+        agent_type: "not-a-real-agent".into(),
+        pane_id: None,
+        pane_created: false,
+        idempotency_key: "key".into(),
+        acceptance_criteria: None,
+        task_id: None,
+        exclusive: false,
+        locks: vec![],
+        status: crate::operations::OperationStatus::Queued,
+        revision: 1,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        observed_at_ms: None,
+        pane_state: None,
+        required_action: None,
+        source: crate::operations::StateSource::Native,
+        stage: None,
+        progress_pct: None,
+        result: None,
+        error: None,
+        timeout_ms: 60_000,
+        read_only: false,
+        keep_pane: false,
+        keep_pane_requested: None,
+        owner_session_id: None,
+        worker_has_mcp_tools: false,
+        agent_run_id: "run".into(),
+        turn_index: 0,
+        verified: false,
+        started_at_ms: None,
+        finished_at_ms: None,
+        message_baseline_ids: vec![],
+        output_baseline: None,
+        result_capture: None,
+        acceptance_status: crate::operations::AcceptanceStatus::NotChecked,
+        worker: Default::default(),
+        checks: Vec::new(),
+        check_results: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let error =
+        super::dispatch::check_agent_dispatchable(&snapshot, "not-a-real-agent").unwrap_err();
+    let (status, body) = operation_http_error(error);
+    assert_unknown_agent_type_response(status, &body);
+}
+
+#[test]
+fn spawn_unknown_type_returns_unknown_agent_type() {
+    let unknown = match crate::tui::require_registered("bogus-agent") {
+        Err(err) => err,
+        Ok(_) => panic!("expected unknown agent type"),
+    };
+    let (status, body) = operation_http_error(
+        crate::operations::OperationError::unknown_agent_type(unknown.id, unknown.valid),
+    );
+    assert_unknown_agent_type_response(status, &body);
+}
+
+#[test]
+fn delegate_work_unknown_type_keeps_invalid_agent_type() {
+    let dir = std::env::temp_dir().join(format!("pm-delegate-unknown-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let req = crate::operations::DelegateWorkRequest {
+        project_path: dir.to_string_lossy().into_owned(),
+        task: "do work".into(),
+        agent_type: "not-a-real-agent".into(),
+        pane_id: None,
+        idempotency_key: "delegate-unknown".into(),
+        acceptance_criteria: None,
+        task_id: None,
+        exclusive: false,
+        locks: vec![],
+        timeout_ms: 900_000,
+        read_only: false,
+        keep_pane: false,
+        owner_session_id: None,
+        worker_has_mcp_tools: false,
+        agent_run_id: None,
+        turn_index: 0,
+        worker: Default::default(),
+        context_policy: None,
+        checks: Vec::new(),
+    };
+    let error = crate::operations::create_operation(req).unwrap_err();
+    assert_eq!(error.code, "INVALID_AGENT_TYPE");
+    assert_eq!(error.message, "agent_type is not supported");
+    let (status, body) = operation_http_error(error);
+    assert_eq!(status, 400);
+    assert_eq!(body["code"], "INVALID_AGENT_TYPE");
+    assert_eq!(body["message"], "agent_type is not supported");
+    let _ = std::fs::remove_dir_all(dir);
 }
