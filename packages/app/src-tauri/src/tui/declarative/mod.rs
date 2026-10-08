@@ -12,6 +12,7 @@ pub mod output;
 pub mod resolve;
 pub mod schema;
 pub mod select;
+pub mod service;
 pub mod sources;
 pub mod template;
 pub mod validate;

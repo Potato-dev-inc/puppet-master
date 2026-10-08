@@ -51,8 +51,30 @@ pub fn registered_agent_ids() -> Vec<String> {
 pub fn descriptors() -> Vec<Descriptor> {
     registry::snapshot()
         .iter()
-        .map(|profile| Descriptor::of(profile.as_ref()))
+        .map(|profile| {
+            let mut descriptor = Descriptor::of(profile.as_ref());
+            overlay_definition(&mut descriptor);
+            descriptor
+        })
         .collect()
+}
+
+/// A declarative agent: source, label, icon, install hint, modes and `definition` come from its
+/// loaded definition (code profiles have no loader row and stay as `Descriptor::of` built them).
+fn overlay_definition(descriptor: &mut Descriptor) {
+    let Some(entry) = declarative::loader::last_entry_for(descriptor.id) else { return };
+    descriptor.source = entry.source;
+    if let Some(meta) = &entry.meta {
+        descriptor.label = meta.label.clone();
+        descriptor.icon = Some(meta.icon.clone());
+        descriptor.install_hint = meta.install_hint.clone();
+        descriptor.modes.visible = meta.has_tui;
+    }
+    descriptor.definition = Some(serde_json::json!({
+        "path": entry.path.to_string_lossy(),
+        "fingerprint": entry.fingerprint,
+        "state": entry.state.as_str(),
+    }));
 }
 
 /// Body of `GET /agents/types`: `{agents, dispatchable_ids}` (SPEC 7.5).

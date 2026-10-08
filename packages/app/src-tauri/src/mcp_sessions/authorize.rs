@@ -41,7 +41,11 @@ pub fn authorize(
             ));
         }
         let clean_path = path.split('?').next().unwrap_or(path);
-        if clean_path == "/agents" || clean_path.starts_with("/agents/") {
+        // The app's own session (webview, local tools) carries no MCP header; it is the only
+        // caller `/agents/definitions` serves (APR-7). MCP sessions are refused further down.
+        let app_route =
+            clean_path == "/agents/definitions" || clean_path.starts_with("/agents/definitions/");
+        if !app_route && (clean_path == "/agents" || clean_path.starts_with("/agents/")) {
             return Err(OperationError::new(
                 "SESSION_REQUIRED",
                 "agent APIs require an MCP session id",
@@ -109,6 +113,12 @@ pub fn authorize(
         || (method == "GET" && clean_path == "/mcp/session")
     {
         return Ok(());
+    }
+
+    // Definition management is the app session only (APR-7); `GET /agents/{handle}` must not
+    // be able to claim `/agents/definitions` for an MCP session either.
+    if clean_path == "/agents/definitions" || clean_path.starts_with("/agents/definitions/") {
+        return Err(denied("agent definitions are managed by the app session, not MCP sessions"));
     }
 
     let definitions = tool_registry::tools();

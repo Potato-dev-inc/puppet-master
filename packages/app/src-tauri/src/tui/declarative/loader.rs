@@ -169,6 +169,29 @@ pub struct Entry {
     pub fingerprint: Option<String>,
     pub errors: Vec<DefError>,
     pub shadowed_by: Option<PathBuf>,
+    /// Display facts of the parsed definition, for `GET /agents/types` (absent when it did not parse).
+    pub meta: Option<EntryMeta>,
+}
+
+/// What `GET /agents/types` shows about a declarative agent beyond the profile's own features.
+#[derive(Debug, Clone)]
+pub struct EntryMeta {
+    pub label: String,
+    pub icon: String,
+    pub install_hint: Option<String>,
+    pub has_tui: bool,
+}
+
+impl EntryMeta {
+    fn of(def: &Definition) -> Self {
+        let hint = def.binary.install_hint.trim();
+        Self {
+            label: def.agent.label.clone(),
+            icon: def.agent.icon_or_default(),
+            install_hint: (!hint.is_empty()).then(|| hint.to_string()),
+            has_tui: def.tui.is_some(),
+        }
+    }
 }
 
 pub struct LoadInputs<'a> {
@@ -236,6 +259,7 @@ pub fn build(inputs: &LoadInputs<'_>, approvals: &Approvals) -> Built {
             fingerprint: file.fingerprint.clone(),
             errors,
             shadowed_by: None,
+            meta: file.definition.as_ref().map(EntryMeta::of),
         });
     }
     for shadowed in resolution.shadowed {
@@ -248,6 +272,7 @@ pub fn build(inputs: &LoadInputs<'_>, approvals: &Approvals) -> Built {
             fingerprint: shadowed.file.fingerprint.clone(),
             errors: Vec::new(),
             shadowed_by: Some(shadowed.shadowed_by),
+            meta: shadowed.file.definition.as_ref().map(EntryMeta::of),
         });
     }
     for file in resolution.invalid {
@@ -260,6 +285,7 @@ pub fn build(inputs: &LoadInputs<'_>, approvals: &Approvals) -> Built {
             fingerprint: None,
             errors: file.errors,
             shadowed_by: None,
+            meta: None,
         });
     }
     Built { entries, profiles, issues }
@@ -272,6 +298,30 @@ pub fn reload_into(registry: &Registry, inputs: &LoadInputs<'_>, approvals_path:
     built
 }
 
+/// The rows of the last registry reload, for `GET /agents/types` (source, state, label).
+static LAST: std::sync::RwLock<Vec<Entry>> = std::sync::RwLock::new(Vec::new());
+
+/// The row of the last reload for agent `id`, if a definition with that id was loaded.
+pub fn last_entry_for(id: &str) -> Option<Entry> {
+    LAST.read()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|e| e.id.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(id)) && e.state != DefState::Shadowed)
+        .cloned()
+}
+
+/// Rows of the last reload (what the registry was built from).
+pub fn last_entries() -> Vec<Entry> {
+    LAST.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// `reload_into` the process-wide registry and remember the rows (see `last_entry_for`).
+pub fn reload_global(inputs: &LoadInputs<'_>, approvals_path: &Path) -> Built {
+    let built = reload_into(crate::tui::registry::registry(), inputs, approvals_path);
+    *LAST.write().unwrap_or_else(|e| e.into_inner()) = built.entries.clone();
+    built
+}
+
 /// Startup / manual reload against the process-wide registry and the app data dir. Bundled
 /// definitions arrive with T21; until then only user definitions can register.
 pub fn reload() -> Built {
@@ -279,7 +329,7 @@ pub fn reload() -> Built {
     let code_ids = registry.code_ids();
     let user_dir = crate::app_paths::agents_dir();
     let inputs = LoadInputs { bundled: &[], user_dir: Some(&user_dir), code_ids: &code_ids };
-    let built = reload_into(registry, &inputs, &super::approvals::default_path());
+    let built = reload_global(&inputs, &super::approvals::default_path());
     for entry in &built.entries {
         tracing::info!(
             file = %entry.path.display(),

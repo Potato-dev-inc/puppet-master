@@ -2,6 +2,7 @@
 //! `None` for requests it does not own, and `dispatch` tries the groups in a fixed order
 //! (the order matters where a literal path such as `/panes/wait` overlaps a parameterised one).
 
+pub(super) mod definitions;
 mod locks;
 pub(super) mod mcp;
 mod opencode;
@@ -39,6 +40,7 @@ pub(super) struct Ctx<'a> {
 /// Runs the first group that owns the request; `None` means no route matched.
 pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
     mcp::handle_session(cx)
+        .or_else(|| definitions::handle(cx))
         .or_else(|| agent_runs(cx))
         .or_else(|| shell::handle(cx))
         .or_else(|| mcp::handle_agents(cx))

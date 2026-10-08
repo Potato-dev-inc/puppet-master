@@ -274,6 +274,7 @@ fn assert_unknown_agent_type_response(status: u16, body: &serde_json::Value) {
 
 #[test]
 fn run_agent_unknown_type_returns_unknown_agent_type() {
+    let _serial = crate::tui::registry::test_serial();
     let snapshot = crate::operations::OperationSnapshot {
         operation_id: uuid::Uuid::new_v4().to_string(),
         runtime_id: String::new(),
@@ -328,6 +329,7 @@ fn run_agent_unknown_type_returns_unknown_agent_type() {
 
 #[test]
 fn spawn_unknown_type_returns_unknown_agent_type() {
+    let _serial = crate::tui::registry::test_serial();
     let unknown = match crate::tui::require_registered("bogus-agent") {
         Err(err) => err,
         Ok(_) => panic!("expected unknown agent type"),
@@ -375,6 +377,7 @@ fn delegate_work_unknown_type_keeps_invalid_agent_type() {
 
 #[test]
 fn agents_types_lists_every_code_profile() {
+    let _serial = crate::tui::registry::test_serial();
     let (status, body) = mcp_registry_route("GET", &["agents", "types"]).expect("route exists");
     assert_eq!(status, 200);
     let agents = body["agents"].as_array().expect("agents array");
@@ -400,4 +403,194 @@ fn agents_types_lists_every_code_profile() {
         .map(|id| id.as_str().expect("id"))
         .collect();
     assert_eq!(dispatchable, vec!["claude", "codex", "opencode", "opencode_native", "cursor_agent"]);
+}
+
+// ---- /agents/definitions (T19) -------------------------------------------------------------
+
+mod definitions {
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use serde_json::{json, Value};
+
+    use crate::bridge::routes::definitions::respond;
+    use crate::mcp_sessions;
+    use crate::tui::declarative::loader::{reload_global, LoadInputs};
+    use crate::tui::declarative::service;
+
+    /// A unique temp tree; cleanup removes only recorded entries, one at a time.
+    struct Tree {
+        root: PathBuf,
+        files: Vec<PathBuf>,
+    }
+
+    impl Tree {
+        fn new() -> Self {
+            static N: AtomicUsize = AtomicUsize::new(0);
+            let root = std::env::temp_dir()
+                .join(format!("pm-defroutes-{}-{}", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
+            std::fs::create_dir_all(root.join("agents")).unwrap();
+            Self { root, files: Vec::new() }
+        }
+        fn agents(&self) -> PathBuf {
+            self.root.join("agents")
+        }
+        fn approvals(&mut self) -> PathBuf {
+            let path = self.root.join("approvals.json");
+            self.files.push(path.clone());
+            path
+        }
+        fn file(&mut self, name: &str, text: &str) -> PathBuf {
+            let path = self.agents().join(name);
+            std::fs::write(&path, text).unwrap();
+            self.files.push(path.clone());
+            path
+        }
+    }
+
+    impl Drop for Tree {
+        fn drop(&mut self) {
+            for file in &self.files {
+                let _ = std::fs::remove_file(file);
+            }
+            let _ = std::fs::remove_dir(self.root.join("agents"));
+            let _ = std::fs::remove_dir(&self.root);
+        }
+    }
+
+    /// `cargo` is on PATH while tests run, so the binary resolves without any agent installed.
+    fn def(id: &str, extra: &str) -> String {
+        format!(
+            "schema_version = 1\n[agent]\nid = \"{id}\"\nlabel = \"Test {id}\"\n[binary]\nnames = [\"cargo\"]\ninstall_hint = \"get cargo\"\n[headless]\nargv = [\"run\"]\ntask_separator = \"--\"\n[headless.output]\nformat = \"plain_text\"\n{extra}"
+        )
+    }
+
+    fn inputs<'a>(dir: &'a Path, code_ids: &'a [&'a str]) -> LoadInputs<'a> {
+        LoadInputs { bundled: &[], user_dir: Some(dir), code_ids }
+    }
+
+    #[test]
+    fn agents_definitions_lists_state_and_errors() {
+        let mut t = Tree::new();
+        let good = t.file("a.toml", &def("defa_x", ""));
+        t.file("b.toml", "schema_version = 1\n[agent]\nid = \"defb_x\"\nbogus = 1\n");
+        let approvals = t.approvals();
+        let code = ["claude"];
+        let body = service::listing(&inputs(&t.agents(), &code), &approvals);
+        assert_eq!(body["sources"][1]["name"], "user");
+        assert_eq!(body["sources"][1]["enabled"], true);
+        let defs = body["definitions"].as_array().unwrap();
+        assert_eq!(defs.len(), 2);
+        let a = defs.iter().find(|d| d["id"] == "defa_x").unwrap();
+        assert_eq!(a["state"], "needs_approval");
+        assert_eq!(a["source"], "user");
+        assert!(a["fingerprint"].as_str().unwrap().starts_with("sha256:"));
+        assert_eq!(a["file"], good.to_string_lossy().as_ref());
+        let bad = defs.iter().find(|d| d["state"] == "invalid").unwrap();
+        let errors = bad["errors"].as_array().unwrap();
+        assert!(!errors.is_empty());
+        assert!(errors[0]["code"].is_string() && errors[0]["message"].is_string());
+        assert!(bad["file"].as_str().unwrap().ends_with("b.toml"));
+    }
+
+    #[test]
+    fn approve_stale_fingerprint_and_revoke() {
+        let mut t = Tree::new();
+        let file = t.file("a.toml", &def("defc_x", ""));
+        let approvals = t.approvals();
+        let code = ["claude"];
+        let agents = t.agents();
+        let inp = inputs(&agents, &code);
+        let listed = service::listing(&inp, &approvals);
+        let fp = listed["definitions"][0]["fingerprint"].as_str().unwrap().to_string();
+
+        let stale = service::approve(&inp, &approvals, &file.to_string_lossy(), "sha256:nope").unwrap_err();
+        assert_eq!((stale.status, stale.code), (409, "AGENT_DEF_APPROVAL_STALE"));
+        let missing = service::approve(&inp, &approvals, "C:/no/such.toml", &fp).unwrap_err();
+        assert_eq!(missing.code, "AGENT_DEF_NOT_FOUND");
+
+        let ok = service::approve(&inp, &approvals, &file.to_string_lossy(), &fp).unwrap();
+        assert_eq!(ok["ok"], true);
+        assert_eq!(ok["id"], "defc_x");
+        assert_eq!(ok["state"], "active");
+        let record = crate::tui::declarative::approvals::Approvals::load(&approvals).records()[0].clone();
+        assert!(!record.binary.is_empty(), "binary is pinned at approval");
+
+        assert_eq!(service::listing(&inp, &approvals)["definitions"][0]["state"], "active");
+        service::revoke(&approvals, "defc_x").unwrap();
+        assert_eq!(service::listing(&inp, &approvals)["definitions"][0]["state"], "needs_approval");
+        assert_eq!(service::revoke(&approvals, "defc_x").unwrap_err().code, "AGENT_DEF_NOT_FOUND");
+    }
+
+    #[test]
+    fn validate_renders_argv_and_registers_nothing() {
+        let good = service::validate_text(&def("defd_x", ""), "user", &["claude"]).unwrap();
+        assert_eq!(good["ok"], true, "{good}");
+        assert_eq!(good["rendered"]["headless_argv"], json!(["run", "--", "<task>"]));
+        let clash = service::validate_text(&def("claude", ""), "user", &["claude"]).unwrap();
+        assert_eq!(clash["ok"], false);
+        assert!(!clash["errors"].as_array().unwrap().is_empty());
+        assert_eq!(service::validate_text("x", "nowhere", &[]).unwrap_err().status, 400);
+    }
+
+    #[test]
+    fn approve_requires_app_session() {
+        let body = json!({"file": "C:/x.toml", "fingerprint": "sha256:x"});
+        // an MCP session (header present) can reach none of the definition routes
+        for (method, path) in [
+            ("POST", "/agents/definitions/approve"),
+            ("POST", "/agents/definitions/revoke"),
+            ("POST", "/agents/definitions/consent"),
+            ("POST", "/agents/definitions/reload"),
+            ("GET", "/agents/definitions"),
+        ] {
+            let denied = mcp_sessions::authorize(Some("mcp-session-1"), method, path, &body).unwrap_err();
+            assert_eq!(denied.code, "AUTHORIZATION_DENIED", "{method} {path}");
+        }
+        // belt and braces: the route layer refuses a session too, before touching any file
+        for action in ["approve", "revoke", "consent"] {
+            let (status, reply) =
+                respond("POST", &["agents", "definitions", action], &body, Some("mcp-session-1")).unwrap().unwrap_err();
+            assert_eq!(status, 403, "{action}");
+            assert_eq!(reply["code"], "AUTHORIZATION_DENIED");
+        }
+        // the app session (no MCP header) is let through the gate
+        assert!(mcp_sessions::authorize(None, "POST", "/agents/definitions/approve", &body).is_ok());
+        assert!(mcp_sessions::authorize(None, "GET", "/agents/definitions", &json!({})).is_ok());
+        // other agent APIs still demand a session
+        assert!(mcp_sessions::authorize(None, "GET", "/agents/types", &json!({})).is_err());
+        // unknown paths under it are not routes
+        assert!(respond("POST", &["agents", "definitions", "nope"], &body, None).is_none());
+    }
+
+    #[test]
+    fn agents_types_includes_declarative_after_approval() {
+        let _serial = crate::tui::registry::test_serial();
+        let mut t = Tree::new();
+        let file = t.file("a.toml", &def("defe_x", ""));
+        let approvals = t.approvals();
+        let code = crate::tui::registry::registry().code_ids();
+        let agents = t.agents();
+        let inp = inputs(&agents, &code);
+
+        reload_global(&inp, &approvals);
+        let before: Value = crate::tui::agent_types_listing();
+        let row = before["agents"].as_array().unwrap().iter().find(|a| a["id"] == "defe_x");
+        assert!(row.is_none(), "unapproved definitions are not listed as agents");
+
+        let fp = service::listing(&inp, &approvals)["definitions"][0]["fingerprint"].as_str().unwrap().to_string();
+        service::approve(&inp, &approvals, &file.to_string_lossy(), &fp).unwrap();
+        reload_global(&inp, &approvals);
+        let after: Value = crate::tui::agent_types_listing();
+        let row = after["agents"].as_array().unwrap().iter().find(|a| a["id"] == "defe_x").cloned();
+        reload_global(&inputs(&t.root.join("none"), &code), &approvals);
+
+        let row = row.expect("approved definition is listed");
+        assert_eq!(row["source"], "user");
+        assert_eq!(row["label"], "Test defe_x");
+        assert_eq!(row["definition"]["state"], "active");
+        assert_eq!(row["install_hint"], "get cargo");
+        assert_eq!(row["modes"]["visible"], false, "no [tui] table");
+        assert!(row["definition"]["fingerprint"].as_str().unwrap().starts_with("sha256:"));
+    }
 }
