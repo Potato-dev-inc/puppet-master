@@ -89,6 +89,7 @@ pub(super) fn route(
         body,
         request_body,
         headers,
+        peer_loopback,
         session,
         registry,
         app,

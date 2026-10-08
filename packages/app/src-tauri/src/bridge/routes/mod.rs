@@ -32,6 +32,8 @@ pub(super) struct Ctx<'a> {
     /// `body` parsed as JSON (`{}` when empty).
     pub request_body: serde_json::Value,
     pub headers: &'a str,
+    /// TCP peer of the request is a loopback address.
+    pub peer_loopback: bool,
     pub session: Option<&'a str>,
     pub registry: &'a Arc<Mutex<PaneRegistry>>,
     pub app: &'a AppHandle,

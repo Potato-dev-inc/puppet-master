@@ -11,7 +11,22 @@ use super::{Ctx, RouteResult};
 use crate::tui::declarative::service::{self, ServiceError};
 
 pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
-    respond(cx.method, cx.segments, &cx.request_body, cx.session)
+    let local_app = is_local_app(cx.headers, cx.peer_loopback);
+    respond(cx.method, cx.segments, &cx.request_body, cx.session, local_app)
+}
+
+/// True only for the desktop app itself: a loopback peer that is neither proxied (tunnel / vite
+/// proxy add `X-PM-Proxied`) nor carries a paired-device bearer token or forwarding headers.
+/// A paired remote device (PWA over the tunnel) is therefore never the "app session" (APR-7).
+pub(in crate::bridge) fn is_local_app(headers: &str, peer_loopback: bool) -> bool {
+    use crate::mobile_pairing::{bearer_token, header_value, requires_pairing_token};
+    peer_loopback
+        && !requires_pairing_token(headers, peer_loopback)
+        && bearer_token(headers).is_none()
+        && header_value(headers, "Authorization").is_none()
+        && ["X-Forwarded-For", "Forwarded", "CF-Connecting-IP", "X-Real-IP", "CF-Ray"]
+            .iter()
+            .all(|h| header_value(headers, h).is_none())
 }
 
 fn fail(error: ServiceError) -> (u16, Value) {
@@ -31,6 +46,7 @@ pub(in crate::bridge) fn respond(
     segments: &[&str],
     body: &Value,
     session: Option<&str>,
+    local_app: bool,
 ) -> Option<RouteResult> {
     let route = match (method, segments) {
         ("GET", ["agents", "definitions"]) => "list",
@@ -42,6 +58,13 @@ pub(in crate::bridge) fn respond(
     };
     if session.is_some_and(|s| !s.trim().is_empty()) {
         let message = "agent definitions are managed by the app session, not MCP sessions";
+        return Some(Err((
+            403,
+            json!({"code": "AUTHORIZATION_DENIED", "error": message, "message": message, "recoverable": false}),
+        )));
+    }
+    if route != "list" && !local_app {
+        let message = "agent definitions can only be changed from the local desktop app, not a remote device";
         return Some(Err((
             403,
             json!({"code": "AUTHORIZATION_DENIED", "error": message, "message": message, "recoverable": false}),

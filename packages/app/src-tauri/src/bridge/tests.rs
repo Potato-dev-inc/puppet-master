@@ -538,6 +538,32 @@ mod definitions {
     }
 
     #[test]
+    fn remote_device_cannot_mutate_definitions() {
+        use crate::bridge::routes::definitions::is_local_app;
+        let local = "POST /x HTTP/1.1\r\nHost: 127.0.0.1:17321\r\n";
+        let tunnel = "POST /x HTTP/1.1\r\nX-PM-Proxied: 1\r\nAuthorization: Bearer tok\r\n";
+        let bearer_only = "POST /x HTTP/1.1\r\nAuthorization: Bearer tok\r\n";
+        let fwd = "POST /x HTTP/1.1\r\nCF-Connecting-IP: 1.2.3.4\r\n";
+        assert!(is_local_app(local, true));
+        assert!(!is_local_app(tunnel, true));
+        assert!(!is_local_app(bearer_only, true));
+        assert!(!is_local_app(fwd, true));
+        assert!(!is_local_app(local, false));
+        let body = json!({"file": "C:/x.toml", "fingerprint": "sha256:x", "id": "x", "toml": "x"});
+        for action in ["approve", "revoke", "consent", "reload", "validate"] {
+            let remote = is_local_app(tunnel, true);
+            let (status, reply) =
+                respond("POST", &["agents", "definitions", action], &body, None, remote).unwrap().unwrap_err();
+            assert_eq!(status, 403, "{action}");
+            assert_eq!(reply["code"], "AUTHORIZATION_DENIED");
+        }
+        // listing stays readable; the local app is not refused by the gate
+        assert!(respond("GET", &["agents", "definitions"], &json!({}), None, false).unwrap().is_ok());
+        let local_reply = respond("POST", &["agents", "definitions", "revoke"], &json!({"id": "zz-none"}), None, true).unwrap();
+        assert_ne!(local_reply.err().map(|e| e.0), Some(403));
+    }
+
+    #[test]
     fn approve_requires_app_session() {
         let body = json!({"file": "C:/x.toml", "fingerprint": "sha256:x"});
         // an MCP session (header present) can reach none of the definition routes
@@ -554,7 +580,7 @@ mod definitions {
         // belt and braces: the route layer refuses a session too, before touching any file
         for action in ["approve", "revoke", "consent"] {
             let (status, reply) =
-                respond("POST", &["agents", "definitions", action], &body, Some("mcp-session-1")).unwrap().unwrap_err();
+                respond("POST", &["agents", "definitions", action], &body, Some("mcp-session-1"), true).unwrap().unwrap_err();
             assert_eq!(status, 403, "{action}");
             assert_eq!(reply["code"], "AUTHORIZATION_DENIED");
         }
@@ -564,7 +590,7 @@ mod definitions {
         // other agent APIs still demand a session
         assert!(mcp_sessions::authorize(None, "GET", "/agents/types", &json!({})).is_err());
         // unknown paths under it are not routes
-        assert!(respond("POST", &["agents", "definitions", "nope"], &body, None).is_none());
+        assert!(respond("POST", &["agents", "definitions", "nope"], &body, None, true).is_none());
     }
 
     #[test]
