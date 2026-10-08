@@ -140,6 +140,13 @@ regex = ["⇆\\s*select\\s+enter"]
 [tui.footer_model]
 regex = "▣\\s+code\\s+·\\s+[^·\\n]+?\\s+·\\s+(?P<model>[^·\\n]+?)\\s+·\\s+\\d"
 
+# Verified delivery (T24): the first turn of a fresh pane can be typed before kilo's input handler
+# is bound and is then lost, so the task is typed, checked in the input box, and only then sent.
+# The regexes document where kilo echoes input (the boxed prompt) and the transcript.
+[tui.delivery]
+input_echo_regex = "┃\\s+\\S"
+transcript_echo_regex = "┃\\s+\\S"
+
 # The dialog opens on "Allow once", so Enter allows once; Escape rejects.
 [[tui.prompt]]
 kind = "command_approval"

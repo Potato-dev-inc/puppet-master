@@ -129,9 +129,12 @@ fn compile_prompt(table: &PromptTable, at: &str) -> Result<Prompt, DefError> {
         let here = format!("{at}.choices.{j}");
         let reply = match (&choice.key, &choice.text) {
             (Some(key), None) => {
-                crate::pty::keys::sequence(key)
+                let sequence = crate::pty::keys::sequence(key)
                     .map_err(|e| DefError::new("AGENT_DEF_INCONSISTENT", &format!("{here}.key"), e))?;
-                Reply::key(key)
+                // The answer routes type a reply and then press Enter themselves, so the bytes
+                // here are the sequence without its own trailing Enter: `enter` is the empty
+                // reply, `escape` is ESC (then their Enter), `y` is `y`.
+                Reply::key(sequence.strip_suffix('\r').unwrap_or(&sequence))
             }
             (None, Some(text)) => Reply { key: None, text: Some(text.clone()) },
             _ => {

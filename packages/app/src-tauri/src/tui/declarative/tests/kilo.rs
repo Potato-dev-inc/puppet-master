@@ -164,8 +164,9 @@ fn tui_permission_prompt_detected() {
     assert_eq!(prompt["kind"], "command_approval");
     assert_eq!(prompt["agent_type"], "kilo");
     assert_eq!(prompt["choices"], serde_json::json!(["allow_once", "deny"]));
-    assert_eq!(p.prompt_reply(&prompt, "allow_once", false).unwrap(), crate::tui::types::Reply::key("enter"));
-    assert_eq!(p.prompt_reply(&prompt, "deny", false).unwrap(), crate::tui::types::Reply::key("escape"));
+    // the answer routes type the reply and then press Enter themselves
+    assert_eq!(p.prompt_reply(&prompt, "allow_once", false).unwrap(), crate::tui::types::Reply::key(""));
+    assert_eq!(p.prompt_reply(&prompt, "deny", false).unwrap(), crate::tui::types::Reply::key("\u{1b}"));
     assert!(p.looks_like_menu(screen(TUI_PERMISSION)), "select/confirm hints mark an open menu");
     // the same turn after it was answered (dialog gone) is not a prompt, nor is any other capture
     for other in [TUI_IDLE, TUI_WORKING, TUI_REPLY] {
@@ -233,6 +234,7 @@ fn tui_launch_argv_and_idle_windows() {
     if let Some(args) = spec {
         assert_eq!(args, ["-m", "kilo/kilo-auto/free"]);
     }
+    assert!(p.verifies_prompt_delivery(), "typed, verified in the box, then submitted (T24)");
     assert_eq!(p.clear_input_sequence(), Some("\u{15}"));
     assert_eq!(p.idle_after(), std::time::Duration::from_millis(2500));
     assert_eq!(p.quiet_idle_after(), std::time::Duration::from_millis(1200));

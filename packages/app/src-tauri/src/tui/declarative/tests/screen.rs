@@ -140,7 +140,7 @@ fn broad_semantics_match_generic() {
     let generic_err = generic::prompt_reply(&generic_broad, "allow_all", false).unwrap_err();
     assert_eq!(p.prompt_reply(&with, "allow_all", false).unwrap_err(), generic_err);
     assert_eq!(p.prompt_reply(&without, "allow_all", false).unwrap_err(), generic_err);
-    assert_eq!(p.prompt_reply(&with, "allow_all", true).unwrap(), Reply::key("enter"));
+    assert_eq!(p.prompt_reply(&with, "allow_all", true).unwrap(), Reply::key(""), "enter is the empty reply: the route appends Enter");
     // a non-broad prompt never grants allow_all even with allow_broad
     let plain = p.detect_prompt("Allow once?", true).unwrap();
     assert_eq!(p.prompt_reply(&plain, "allow_all", true).unwrap_err(), generic_err);
