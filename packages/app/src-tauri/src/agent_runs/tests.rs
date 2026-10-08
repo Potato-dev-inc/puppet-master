@@ -4,6 +4,7 @@
 mod checks;
 mod claims;
 mod continuity;
+mod definitions;
 mod fixtures;
 mod followups;
 mod interrupt;

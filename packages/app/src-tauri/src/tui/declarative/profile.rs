@@ -11,12 +11,18 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 
 use crate::agent_contexts::{AgentCapability, AgentContextProfile, ModelDetection};
+use crate::standby::key::canonical_project;
 use crate::tui::types::{
-    Features, HeadlessLaunch, Kind, LaunchSpec, RunOptionSupport, StandbySupport,
+    DefinitionRef, Features, GateError, HeadlessLaunch, Kind, LaunchSpec, RunOptionSupport,
+    StandbySupport,
 };
 use crate::tui::{AgentId, TuiProfile};
 
+use super::approvals::{ApprovalState, Approvals};
+use super::loader::load_text;
 use super::output::OutputParser;
+use super::sources::{source_name, Origin};
+use super::validate::Source;
 use super::resolve::resolve_binary;
 use super::schema::{Cwd, DefError, Definition, ModelSource};
 use super::template;
@@ -36,7 +42,19 @@ fn intern(text: &str) -> &'static str {
     leaked
 }
 
+/// Where a registered definition came from, kept so every spawn can re-verify it (APR-4, SEC-4).
+#[derive(Debug, Clone)]
+pub struct DefinitionOrigin {
+    pub source: Source,
+    /// The fingerprint that was approved and registered.
+    pub fingerprint: String,
+    pub path: PathBuf,
+    /// Canonical project path of a project definition.
+    pub project: Option<String>,
+}
+
 pub struct DeclarativeProfile {
+    origin: Option<DefinitionOrigin>,
     def: Definition,
     id: &'static str,
     not_dispatchable_reason: &'static str,
@@ -60,6 +78,7 @@ impl DeclarativeProfile {
             .and_then(|r| r.warning_code.as_deref())
             .map(intern);
         Ok(Self {
+            origin: None,
             id: intern(&def.agent.id),
             not_dispatchable_reason: intern(&def.features.not_dispatchable_reason),
             warning_code,
@@ -70,6 +89,87 @@ impl DeclarativeProfile {
 
     pub fn definition(&self) -> &Definition {
         &self.def
+    }
+
+    /// Bind the file this profile was loaded from; without it `spawn_gate` has nothing to verify.
+    pub fn with_origin(mut self, origin: DefinitionOrigin) -> Self {
+        self.origin = Some(origin);
+        self
+    }
+
+    /// The spawn-time check against explicit approvals (pure apart from reading the file and
+    /// resolving the binary): the file still fingerprints as registered and is still approved
+    /// under that fingerprint, and the binary resolves to the path pinned at approval.
+    pub(crate) fn gate_with(
+        &self,
+        approvals: &Approvals,
+        code_ids: &[&str],
+        project: &str,
+    ) -> Result<Option<DefinitionRef>, GateError> {
+        let Some(origin) = &self.origin else { return Ok(None) };
+        let mut reference = DefinitionRef {
+            id: self.id.to_string(),
+            source: source_name(origin.source).to_string(),
+            fingerprint: origin.fingerprint.clone(),
+            binary: None,
+        };
+        if origin.source == Source::Bundled {
+            return Ok(Some(reference));
+        }
+        let stale = |message: String| GateError { code: "AGENT_DEF_APPROVAL_STALE", message };
+        let text = std::fs::read_to_string(&origin.path).map_err(|e| {
+            stale(format!("definition file {} cannot be read: {e}", origin.path.display()))
+        })?;
+        let file = load_text(
+            &origin.path,
+            &text,
+            text.len(),
+            Origin::new(origin.source),
+            origin.project.as_deref(),
+            code_ids,
+        );
+        let current = match &file.fingerprint {
+            Some(current) => current.clone(),
+            None => {
+                let first = file.errors.first().map(|e| e.to_string()).unwrap_or_default();
+                return Err(stale(format!("definition file changed and is no longer valid: {first}")));
+            }
+        };
+        if current != origin.fingerprint {
+            return Err(stale(format!(
+                "definition {} changed after it was approved; review and approve it again",
+                self.id
+            )));
+        }
+        let record = match approvals.state(&origin.path, &current) {
+            ApprovalState::Approved => approvals.get(&origin.path),
+            ApprovalState::Stale => {
+                return Err(stale(format!("approval of {} is stale; approve it again", self.id)))
+            }
+            ApprovalState::Unapproved => {
+                return Err(GateError {
+                    code: "AGENT_DEF_UNAPPROVED",
+                    message: format!("{} is not approved (or the approval was revoked)", self.id),
+                })
+            }
+        };
+        let resolved = resolve_binary(&self.def.binary, Path::new(project))
+            .map_err(|e| GateError { code: e.code(), message: e.to_string() })?;
+        if let Some(record) = record {
+            if canonical_project(&resolved.to_string_lossy()) != canonical_project(&record.binary) {
+                return Err(GateError {
+                    code: "AGENT_DEF_BINARY_CHANGED",
+                    message: format!(
+                        "{} now resolves to {} but {} was approved",
+                        self.id,
+                        resolved.display(),
+                        record.binary
+                    ),
+                });
+            }
+        }
+        reference.binary = Some(resolved.to_string_lossy().into_owned());
+        Ok(Some(reference))
     }
 
     fn has_segment(&self, when: &str) -> bool {
@@ -164,6 +264,27 @@ impl TuiProfile for DeclarativeProfile {
             shell_default_on: r.shell_default_on,
             allowed_commands: r.allowed_commands,
         }
+    }
+
+    fn spawn_gate(&self, project: &str) -> Result<Option<DefinitionRef>, GateError> {
+        if self.origin.is_none() {
+            return Ok(None);
+        }
+        let code_ids = crate::tui::registry::registry().code_ids();
+        self.gate_with(&Approvals::load(&super::approvals::default_path()), &code_ids, project)
+    }
+
+    fn classify_headless_failure(&self, output: &str, exit_code: i32) -> Option<(&'static str, String)> {
+        let parser = self.parser.as_ref()?;
+        if let Some(message) = parser.error_message(output) {
+            return Some(("AGENT_REPORTED_ERROR", message));
+        }
+        (exit_code == 0).then(|| {
+            (
+                "AGENT_OUTPUT_UNPARSEABLE",
+                format!("{} exited cleanly but no result could be read from its output", self.id),
+            )
+        })
     }
 
     fn is_installed(&self) -> bool {

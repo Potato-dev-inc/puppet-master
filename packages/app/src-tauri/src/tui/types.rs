@@ -1,7 +1,7 @@
 //! Data types the profiles and the generic machinery exchange (kinds, features, launch specs, replies, warnings).
 
 use super::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// How a backend is driven; decides which capability contract it gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +135,25 @@ impl<'a> HeadlessLaunch<'a> {
             model: None,
         }
     }
+}
+
+/// Which definition a run was started from (SPEC OBS-2), recorded on the run and in its receipt so a
+/// result can be tied to the exact file contents and binary that produced it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DefinitionRef {
+    pub id: String,
+    pub source: String,
+    pub fingerprint: String,
+    /// Absolute path of the binary the approval pinned (absent for bundled definitions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary: Option<String>,
+}
+
+/// A spawn refused before anything started: SPEC 7.4 code and message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GateError {
+    pub code: &'static str,
+    pub message: String,
 }
 
 /// What to send a pane to answer a prompt.

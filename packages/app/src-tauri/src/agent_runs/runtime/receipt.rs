@@ -31,6 +31,9 @@ pub struct RunReceipt {
     /// paid for it. Absent when the run used a freshly spawned worker.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub standby_used: bool,
+    /// The definition (id, source, fingerprint, pinned binary) a declarative agent ran from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_definition: Option<crate::tui::DefinitionRef>,
 }
 
 pub(super) fn build_receipt(
@@ -101,6 +104,7 @@ pub(super) fn build_receipt(
         outcome: outcome.into(),
         build_id: env!("PM_BUILD_ID").to_string(),
         standby_used: snapshot.worker.standby_used,
+        agent_definition: snapshot.worker.agent_definition.clone(),
     }
 }
 

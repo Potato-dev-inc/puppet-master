@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use super::approvals::{ApprovalState, Approvals};
 use super::fingerprint::fingerprint;
-use super::profile::DeclarativeProfile;
+use super::profile::{DeclarativeProfile, DefinitionOrigin};
 use super::schema::{parse_definition, DefError, Definition};
 use super::sources::{scan_dir, source_name, Origin, RawFile, ScanIssue};
 use super::validate::{validate, Source, ValidationContext};
@@ -242,7 +242,18 @@ pub fn build(inputs: &LoadInputs<'_>, approvals: &Approvals) -> Built {
         let mut state = state;
         if state == DefState::Active {
             match file.definition.clone().map(DeclarativeProfile::new) {
-                Some(Ok(profile)) => profiles.push(Arc::new(profile)),
+                Some(Ok(profile)) => {
+                    let profile = match &file.fingerprint {
+                        Some(fingerprint) => profile.with_origin(DefinitionOrigin {
+                            source: file.origin.source,
+                            fingerprint: fingerprint.clone(),
+                            path: file.path.clone(),
+                            project: file.project.clone(),
+                        }),
+                        None => profile,
+                    };
+                    profiles.push(Arc::new(profile))
+                }
                 Some(Err(err)) => {
                     errors.push(err);
                     state = DefState::Invalid;

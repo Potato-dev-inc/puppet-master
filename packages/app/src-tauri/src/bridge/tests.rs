@@ -211,6 +211,10 @@ fn operation_errors_use_the_structured_retry_contract() {
         ("PANE_UNAVAILABLE", 409),
         ("INVALID_AGENT_TYPE", 400),
         ("UNKNOWN_AGENT_TYPE", 400),
+        ("AGENT_DEF_APPROVAL_STALE", 409),
+        ("AGENT_DEF_BINARY_CHANGED", 409),
+        ("AGENT_DEF_UNAPPROVED", 409),
+        ("AGENT_NOT_INSTALLED", 400),
     ] {
         let (status, body) = operation_http_error(crate::operations::OperationError::new(
             code, "invalid", false,

@@ -27,4 +27,4 @@ pub use schema::{parse_definition, DefError, Definition, SUPPORTED_SCHEMA_VERSIO
 #[allow(unused_imports)]
 pub use validate::{validate, Source, ValidationContext};
 #[allow(unused_imports)]
-pub use profile::DeclarativeProfile;
+pub use profile::{DeclarativeProfile, DefinitionOrigin};

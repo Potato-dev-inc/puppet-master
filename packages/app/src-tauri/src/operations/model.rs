@@ -362,6 +362,10 @@ pub struct WorkerPersist {
     /// A warm standby worker (`crate::standby`) ran this turn instead of a freshly spawned one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub standby_used: bool,
+    /// The agent definition this turn started from (OBS-2); absent for code profiles. Set at every
+    /// turn's spawn, so a later edit to the file never rewrites an earlier run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_definition: Option<crate::tui::DefinitionRef>,
     /// Programs pre-authorised for allow-once on Cursor shell prompts (see approval_policy).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_commands: Vec<String>,

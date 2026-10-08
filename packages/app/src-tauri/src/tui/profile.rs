@@ -38,6 +38,13 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// Re-checked at every spawn (APR-4, SEC-4): a definition-backed profile verifies that its file
+    /// still has the approved fingerprint and that the binary is still the pinned one, and returns
+    /// the reference to record on the run. Code profiles have nothing to check (`Ok(None)`).
+    fn spawn_gate(&self, _project: &str) -> Result<Option<DefinitionRef>, GateError> {
+        Ok(None)
+    }
+
     // ---- headless runs ------------------------------------------------------------------
 
     /// Command line for a headless run. Argument policy (read-only support, flag conflicts) is
@@ -47,6 +54,14 @@ pub trait TuiProfile: Send + Sync {
             "headless launch is unsupported for agent type: {}",
             self.id()
         ))
+    }
+
+    /// Why a headless turn that produced no result failed, when the profile can tell: the CLI
+    /// reported an error itself (`AGENT_REPORTED_ERROR`, message preserved) or exited cleanly with
+    /// output the definition cannot read (`AGENT_OUTPUT_UNPARSEABLE`). `None` keeps the generic
+    /// failure handling.
+    fn classify_headless_failure(&self, _output: &str, _exit_code: i32) -> Option<(&'static str, String)> {
+        None
     }
 
     /// True when `headless_command` passes `HeadlessLaunch::model` to the CLI (a per-run model).

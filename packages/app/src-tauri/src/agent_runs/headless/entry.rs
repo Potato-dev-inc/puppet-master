@@ -280,6 +280,9 @@ pub fn run_agent(
         &rendered,
         &choice,
     );
+    // APR-4/SEC-4: the file must still be what was approved and the binary the pinned one; the
+    // reference is recorded on this turn (OBS-2).
+    worker.agent_definition = crate::tui::registry::admit(&agent_type, &project_path)?;
     let supported = profile.run_options();
     if request.trust_workspace {
         if !supported.trust_workspace {

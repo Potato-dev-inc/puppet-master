@@ -73,6 +73,20 @@ pub(super) fn finish_from_output(
         ) {
             tracing::warn!(operation_id = %operation_id, code = %error.code, message = %error.message, "could not park headless run on workspace trust prompt");
         }
+    } else if let Some((error_code, message)) =
+        crate::tui::profile_for(agent_type).classify_headless_failure(&transcript, code)
+    {
+        // The definition says what went wrong: the CLI reported an error, or exited cleanly with
+        // output nothing in it could read. The run fails rather than guessing a result.
+        let _ = operations::mark_operation_state(
+            project,
+            operation_id,
+            OperationStatus::Failed,
+            StateSource::Native,
+            Some("failed".into()),
+            None,
+            Some(OperationError::new(error_code, message, false)),
+        );
     } else {
         let error = OperationError::new(
             if code == 0 {

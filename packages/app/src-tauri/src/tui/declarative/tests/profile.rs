@@ -177,3 +177,24 @@ fn context_maps_definition() {
     assert_eq!(c.strengths.len(), 2);
     assert_eq!(c.context_notes.len(), 1);
 }
+
+#[test]
+fn failed_turns_are_classified_by_the_definition() {
+    let k = kilo();
+    let error = r#"{"type":"error","sessionID":"s","error":{"name":"APIError","data":{"message":"No endpoints found"}}}"#;
+    assert_eq!(
+        k.classify_headless_failure(error, 0),
+        Some(("AGENT_REPORTED_ERROR", "No endpoints found".to_string()))
+    );
+    // a reported error wins whatever the exit code says (kilo exits 0, or never)
+    assert_eq!(k.classify_headless_failure(error, 1).map(|c| c.0), Some("AGENT_REPORTED_ERROR"));
+    // exit 0 and nothing readable: the run fails instead of guessing
+    assert_eq!(
+        k.classify_headless_failure("not json at all\n", 0).map(|c| c.0),
+        Some("AGENT_OUTPUT_UNPARSEABLE")
+    );
+    // a non-zero exit with no reported error keeps the generic WORKER_EXIT_FAILED path
+    assert_eq!(k.classify_headless_failure("not json at all\n", 2), None);
+    // a profile with no parser never classifies
+    assert_eq!(profile(MINIMAL).classify_headless_failure(error, 0), None);
+}

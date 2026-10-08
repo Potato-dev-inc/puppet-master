@@ -83,6 +83,18 @@ impl Registry {
     }
 }
 
+/// Spawn-time gate for `agent_type` (APR-4, SEC-4): the reference to record on the run, or the
+/// refusal (`AGENT_DEF_APPROVAL_STALE`, `AGENT_DEF_UNAPPROVED`, `AGENT_DEF_BINARY_CHANGED`,
+/// `AGENT_NOT_INSTALLED`). Code profiles pass with no reference.
+pub fn admit(
+    agent_type: &str,
+    project: &str,
+) -> Result<Option<DefinitionRef>, crate::operations::OperationError> {
+    profile_for_arc(agent_type)
+        .spawn_gate(project)
+        .map_err(|e| crate::operations::OperationError::new(e.code, e.message, false))
+}
+
 /// Serializes tests that swap profiles into the process-wide registry with tests that assert on
 /// its exact contents. Hold the guard for the whole swap window / assertion.
 #[cfg(test)]
