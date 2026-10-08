@@ -56,3 +56,8 @@ pub use profile::{DeclarativeProfile, DefinitionOrigin};
 #[cfg(test)]
 #[path = "tests/expect.rs"]
 mod expect;
+
+// `tui::declarative::parity_claude` (phase T28 verification filter).
+#[cfg(test)]
+#[path = "tests/parity_claude.rs"]
+mod parity_claude;

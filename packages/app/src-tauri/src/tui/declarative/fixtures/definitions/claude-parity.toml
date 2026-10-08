@@ -1,0 +1,31 @@
+# TEST ONLY, never registered: the Claude headless output contract written as a definition, to
+# compare against tui::claude::Claude (tests/parity_claude.rs). Claude's real argv/policy flags are
+# not expressible here (the id `claude` is reserved), so only the output half is compared.
+schema_version = 1
+
+[agent]
+id = "claudeparity"
+label = "Claude parity"
+
+[binary]
+names = ["claude-parity-fixture-not-installed"]
+install_hint = "fixture only"
+
+[features]
+dispatchable = true
+
+[headless]
+argv = ["--output-format", "json"]
+task_flag = "-p"
+
+[headless.output]
+format = "json_single"
+
+[headless.output.result]
+where = { "~result" = true }
+path = "result"
+
+[headless.output.session]
+where = { "~session_id" = true }
+path = "session_id"
+pick = "first"
