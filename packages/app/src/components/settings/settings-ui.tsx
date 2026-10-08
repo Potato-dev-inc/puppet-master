@@ -9,6 +9,7 @@ export type SettingsTabId =
   | 'mcp'
   | 'mobile'
   | 'performance'
+  | 'agents'
   | 'security'
   | 'storage'
   | 'notifications'
@@ -39,6 +40,7 @@ export const SETTINGS_TABS: SettingsTabDef[] = [
   { id: 'mcp', label: 'MCP & bridge', planned: false },
   { id: 'mobile', label: 'Mobile PWA', planned: false },
   { id: 'performance', label: 'Performance', planned: false },
+  { id: 'agents', label: 'Agents', planned: false },
   { id: 'security', label: 'Security', planned: true },
   { id: 'storage', label: 'Storage', planned: false },
   { id: 'notifications', label: 'Notifications', planned: true },

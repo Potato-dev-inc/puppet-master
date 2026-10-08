@@ -38,6 +38,19 @@ pub fn agents_definition_approve(file: String, fingerprint: String) -> Result<Va
     crate::tui::declarative::service::approve_global(&file, &fingerprint).map_err(command_error)
 }
 
+/// The validation result (`ok`, `errors`, `rendered` argv) for one listed definition file, so the
+/// approve dialog can show what would run (APR-3). Only files the last scan listed can be read.
+#[tauri::command]
+pub fn agents_definition_preview(file: String) -> Result<Value, String> {
+    let wanted = std::fs::canonicalize(&file).unwrap_or_else(|_| PathBuf::from(&file));
+    let entry = crate::tui::declarative::loader::last_entries()
+        .into_iter()
+        .find(|e| std::fs::canonicalize(&e.path).unwrap_or_else(|_| e.path.clone()) == wanted)
+        .ok_or_else(|| format!("AGENT_DEF_NOT_FOUND: no listed definition file {file}"))?;
+    let text = std::fs::read_to_string(&entry.path).map_err(|e| format!("AGENT_DEF_NOT_FOUND: {e}"))?;
+    crate::tui::declarative::service::validate_global(&text, entry.source).map_err(command_error)
+}
+
 #[tauri::command]
 pub fn agents_definition_revoke(id: String) -> Result<Value, String> {
     crate::tui::declarative::service::revoke_global(&id).map_err(command_error)
@@ -52,6 +65,12 @@ pub fn agents_definitions_consent(kind: String, path: String, enabled: bool) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_refuses_a_file_the_scan_did_not_list() {
+        let error = agents_definition_preview("C:\\definitely\\not\\listed.toml".into()).unwrap_err();
+        assert!(error.starts_with("AGENT_DEF_NOT_FOUND"), "{error}");
+    }
 
     #[test]
     fn agents_list_returns_the_nine_code_agents() {

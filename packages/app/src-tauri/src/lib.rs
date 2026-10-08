@@ -81,6 +81,7 @@ pub fn run() {
             commands::agents_definitions_reload,
             commands::agents_definitions_validate,
             commands::agents_definition_approve,
+            commands::agents_definition_preview,
             commands::agents_definition_revoke,
             commands::agents_definitions_consent,
             commands::list_agent_contexts,

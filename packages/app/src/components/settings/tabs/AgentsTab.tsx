@@ -1,0 +1,272 @@
+// Settings > Agents: declarative agent definitions (list, errors, reload, approve/revoke).
+// Every string from a definition file is rendered as React text, never as HTML (UI-4).
+import { useCallback, useEffect, useState } from 'react';
+import {
+  approvalWarnings,
+  errorMessage,
+  fileName,
+  formatArgv,
+  sourceLabel,
+  stateLabel,
+  tauriAgentDefinitionsApi,
+  type AgentDefinitionsApi,
+  type DefinitionPreview,
+  type DefinitionRow,
+  type DefinitionsListing,
+} from '../../../lib/agentDefinitions';
+import { resetAgentRegistryCache } from '../../../lib/agentRegistry';
+import { SettingBlock, SettingsSection } from '../settings-ui';
+
+const STATE_TONE: Record<string, string> = {
+  active: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400',
+  unapproved: 'border-amber-500/40 bg-amber-500/10 text-amber-400',
+  invalid: 'border-red-500/40 bg-red-500/10 text-red-400',
+};
+
+const BADGE = 'inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-medium';
+const BTN =
+  'rounded-lg border border-pm-border px-3 py-1.5 text-xs font-medium hover:bg-pm-border/40 disabled:opacity-50';
+
+interface Reviewing {
+  row: DefinitionRow;
+  preview: DefinitionPreview | null;
+  error: string | null;
+}
+
+export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefinitionsApi }) {
+  const [listing, setListing] = useState<DefinitionsListing | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState<Reviewing | null>(null);
+
+  const apply = useCallback((next: DefinitionsListing) => {
+    setListing(next);
+    resetAgentRegistryCache();
+  }, []);
+
+  const load = useCallback(async () => {
+    try {
+      apply(await api.list());
+      setError(null);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }, [api, apply]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reload = () =>
+    run(async () => {
+      const next = await api.reload();
+      apply(next);
+      const diff = next.diff;
+      const parts = diff
+        ? [
+            diff.added.length ? `added ${diff.added.join(', ')}` : '',
+            diff.removed.length ? `removed ${diff.removed.join(', ')}` : '',
+            diff.changed.length ? `changed ${diff.changed.join(', ')}` : '',
+          ].filter(Boolean)
+        : [];
+      setNote(parts.length ? `Reloaded: ${parts.join('; ')}` : 'Reloaded: no changes');
+    });
+
+  const review = (row: DefinitionRow) =>
+    run(async () => {
+      try {
+        setReviewing({ row, preview: await api.preview(row.file), error: null });
+      } catch (e) {
+        setReviewing({ row, preview: null, error: errorMessage(e) });
+      }
+    });
+
+  const approve = () =>
+    run(async () => {
+      if (!reviewing?.row.fingerprint) return;
+      await api.approve(reviewing.row.file, reviewing.row.fingerprint);
+      setReviewing(null);
+      apply(await api.list());
+    });
+
+  const revoke = (row: DefinitionRow) =>
+    run(async () => {
+      if (!row.id) return;
+      await api.revoke(row.id);
+      apply(await api.list());
+    });
+
+  return (
+    <SettingsSection
+      title="Agents"
+      description="Agents defined by TOML files. A definition runs a program, so a new or changed one stays inactive until you review and approve it here."
+    >
+      <SettingBlock label="Definitions" implemented>
+        <div className="mb-3 flex items-center gap-2">
+          <button type="button" className={BTN} disabled={busy} onClick={() => void reload()}>
+            Reload
+          </button>
+          {note && <span className="text-xs text-pm-muted">{note}</span>}
+        </div>
+        {error && (
+          <p role="alert" className="mb-3 text-sm text-red-400">
+            {error}
+          </p>
+        )}
+        {listing && listing.definitions.length === 0 && (
+          <p className="text-sm text-pm-muted">No definition files found.</p>
+        )}
+        <ul className="space-y-3">
+          {listing?.definitions.map((row) => (
+            <DefinitionItem key={row.file} row={row} busy={busy} onReview={review} onRevoke={revoke} />
+          ))}
+        </ul>
+      </SettingBlock>
+      {reviewing && (
+        <ApproveDialog
+          reviewing={reviewing}
+          busy={busy}
+          onApprove={() => void approve()}
+          onCancel={() => setReviewing(null)}
+        />
+      )}
+    </SettingsSection>
+  );
+}
+
+function DefinitionItem({
+  row,
+  busy,
+  onReview,
+  onRevoke,
+}: {
+  row: DefinitionRow;
+  busy: boolean;
+  onReview: (row: DefinitionRow) => void;
+  onRevoke: (row: DefinitionRow) => void;
+}) {
+  return (
+    <li data-testid="definition-row" className="rounded-lg border border-pm-border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold">{row.id ?? fileName(row.file)}</span>
+        <span data-testid="source-badge" className={`${BADGE} border-pm-border text-pm-muted`}>
+          {sourceLabel(row.source)}
+        </span>
+        <span
+          data-testid="state-badge"
+          className={`${BADGE} ${STATE_TONE[row.state] ?? 'border-pm-border text-pm-muted'}`}
+        >
+          {stateLabel(row.state)}
+        </span>
+        <span className="ml-auto flex gap-2">
+          {row.state === 'unapproved' && row.fingerprint && (
+            <button type="button" className={BTN} disabled={busy} onClick={() => onReview(row)}>
+              Review and approve
+            </button>
+          )}
+          {row.state === 'active' && row.id && (
+            <button type="button" className={BTN} disabled={busy} onClick={() => onRevoke(row)}>
+              Revoke
+            </button>
+          )}
+        </span>
+      </div>
+      <p className="mt-1 break-all text-xs text-pm-muted">{row.file}</p>
+      {row.shadowed_by && (
+        <p className="mt-1 text-xs text-pm-muted">Shadowed by {fileName(row.shadowed_by)}</p>
+      )}
+      {row.errors.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {row.errors.map((e, i) => (
+            <li key={i} className="text-xs text-red-400">
+              <span className="font-mono">{e.code}</span>{' '}
+              <span className="font-mono">
+                {fileName(row.file)}
+                {e.line != null ? `:${e.line}${e.column != null ? `:${e.column}` : ''}` : ''}
+              </span>{' '}
+              {e.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function ApproveDialog({
+  reviewing,
+  busy,
+  onApprove,
+  onCancel,
+}: {
+  reviewing: Reviewing;
+  busy: boolean;
+  onApprove: () => void;
+  onCancel: () => void;
+}) {
+  const { row, preview } = reviewing;
+  const rendered = preview?.rendered;
+  const blocked = !preview || !preview.ok;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Approve ${row.id ?? fileName(row.file)}`}
+        className="max-h-full w-full max-w-xl overflow-auto rounded-xl border border-pm-border bg-pm-panel p-5"
+      >
+        <h3 className="text-sm font-semibold">Approve {row.id ?? fileName(row.file)}</h3>
+        <p className="mt-1 break-all text-xs text-pm-muted">{row.file}</p>
+        {reviewing.error && <p className="mt-3 text-sm text-red-400">{reviewing.error}</p>}
+        {rendered && (
+          <div className="mt-3 space-y-2">
+            <ArgvBlock title="Headless command" argv={rendered.headless_argv} />
+            <ArgvBlock title="Visible pane command" argv={rendered.tui_argv} />
+          </div>
+        )}
+        <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-amber-400">
+          {approvalWarnings(row, preview).map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+        {preview?.errors.map((e, i) => (
+          <p key={i} className="mt-1 text-xs text-red-400">
+            <span className="font-mono">{e.code}</span> {e.message}
+          </p>
+        ))}
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" className={BTN} onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className={BTN} disabled={busy || blocked} onClick={onApprove}>
+            Approve
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ArgvBlock({ title, argv }: { title: string; argv: string[] | null }) {
+  return (
+    <div>
+      <div className="text-xs font-medium text-pm-muted">{title}</div>
+      <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-pm-bg p-2 text-xs">
+        {argv ? formatArgv(argv) : 'not available'}
+      </pre>
+    </div>
+  );
+}

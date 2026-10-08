@@ -1,5 +1,6 @@
 // Settings tab dispatcher: maps a SettingsTabId to its panel in ./tabs. Each tab owns its own file.
 import type { SettingsTabId } from './settings-ui';
+import { AgentsTab } from './tabs/AgentsTab';
 import { AdvancedTab } from './tabs/AdvancedTab';
 import { ApiTab } from './tabs/ApiTab';
 import { AppearanceTab } from './tabs/AppearanceTab';
@@ -37,6 +38,7 @@ export function SettingsTabPanel({ tab, ctx }: { tab: SettingsTabId; ctx: Settin
     case 'mcp': return <McpTab ctx={ctx} />;
     case 'mobile': return <MobileTab ctx={ctx} />;
     case 'performance': return <PerformanceTab />;
+    case 'agents': return <AgentsTab />;
     case 'security': return <SecurityTab />;
     case 'storage': return <StorageTab ctx={ctx} />;
     case 'notifications': return <NotificationsTab />;
