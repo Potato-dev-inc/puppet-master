@@ -10,6 +10,8 @@ use std::sync::{Arc, OnceLock};
 /// Ordered profiles (code profiles first, in `read_only_backends` order) behind an atomic snapshot.
 pub struct Registry {
     snapshot: ArcSwap<Vec<Arc<dyn TuiProfile>>>,
+    /// The compiled-in profiles, always first in every snapshot `set_declarative` publishes.
+    code: Vec<Arc<dyn TuiProfile>>,
     fallback: Arc<dyn TuiProfile>,
 }
 
@@ -28,7 +30,8 @@ impl Registry {
             Arc::new(shell::Bash),
         ];
         Self {
-            snapshot: ArcSwap::from_pointee(code),
+            snapshot: ArcSwap::from_pointee(code.clone()),
+            code,
             fallback: Arc::new(generic::Unknown),
         }
     }
@@ -52,6 +55,25 @@ impl Registry {
             .find(|profile| profile.id().eq_ignore_ascii_case(agent_type))
             .cloned()
             .unwrap_or_else(|| self.fallback.clone())
+    }
+
+    /// Ids of the compiled-in profiles (reserved for definitions, REG-7).
+    pub fn code_ids(&self) -> Vec<&'static str> {
+        self.code.iter().map(|profile| profile.id()).collect()
+    }
+
+    /// Publish the code profiles (unchanged, first, in their fixed order) followed by `extra`
+    /// (declarative profiles). An extra whose id collides with an earlier entry is dropped, so a
+    /// definition can never replace a code profile (REG-7). One atomic swap (REG-2); readers
+    /// holding the previous snapshot keep it.
+    pub fn set_declarative(&self, extra: Vec<Arc<dyn TuiProfile>>) {
+        let mut next = self.code.clone();
+        for profile in extra {
+            if !next.iter().any(|p| p.id().eq_ignore_ascii_case(profile.id())) {
+                next.push(profile);
+            }
+        }
+        self.swap(next);
     }
 
     /// Replace the whole snapshot atomically (SPEC REG-2).
@@ -117,6 +139,48 @@ mod tests {
         let after = registry.profile_for_arc("codex");
         assert!(!Arc::ptr_eq(&before, &after));
         assert!(Arc::ptr_eq(&after, &registry.profile_for_arc("codex")));
+    }
+
+    fn declarative(id: &str) -> Arc<dyn TuiProfile> {
+        let text = format!(
+            "schema_version = 1\n[agent]\nid = \"{id}\"\nlabel = \"T\"\n[binary]\nnames = [\"t\"]\n[headless]\nargv = []\n"
+        );
+        let def = crate::tui::declarative::parse_definition(&text).unwrap();
+        Arc::new(crate::tui::declarative::DeclarativeProfile::new(def).unwrap())
+    }
+
+    #[test]
+    fn reload_adds_and_removes_declarative() {
+        let registry = Registry::seeded();
+        let code: Vec<&str> = registry.ordered().iter().map(|p| p.id()).collect();
+        let before = registry.profile_for_arc("claude");
+        assert_eq!(registry.code_ids(), code);
+
+        registry.set_declarative(vec![declarative("alpha_x"), declarative("beta_x")]);
+        let ids: Vec<&str> = registry.ordered().iter().map(|p| p.id()).collect();
+        assert_eq!(&ids[..9], &code[..], "code profiles stay first, in order");
+        assert_eq!(&ids[9..], ["alpha_x", "beta_x"]);
+        assert!(Arc::ptr_eq(&before, &registry.profile_for_arc("claude")), "code profiles are the same Arcs");
+        assert_eq!(registry.profile_for_arc("ALPHA_X").id(), "alpha_x");
+
+        let held = registry.snapshot();
+        registry.set_declarative(vec![declarative("beta_x")]);
+        assert_eq!(registry.profile_for_arc("alpha_x").id(), "unknown");
+        assert_eq!(held.len(), 11, "an earlier snapshot is unchanged");
+        assert_eq!(registry.snapshot().len(), 10);
+
+        registry.set_declarative(Vec::new());
+        assert_eq!(registry.snapshot().len(), 9);
+    }
+
+    #[test]
+    fn a_declarative_profile_cannot_replace_a_code_profile() {
+        let registry = Registry::seeded();
+        registry.set_declarative(vec![declarative("claude"), declarative("dup_x"), declarative("dup_x")]);
+        let ids: Vec<&str> = registry.ordered().iter().map(|p| p.id()).collect();
+        assert_eq!(ids.iter().filter(|id| **id == "claude").count(), 1);
+        assert_eq!(ids.iter().filter(|id| **id == "dup_x").count(), 1);
+        assert!(registry.profile_for_arc("claude").features().read_only_headless);
     }
 
     /// Profile whose id carries the swap generation that published it.

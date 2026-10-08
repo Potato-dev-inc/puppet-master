@@ -1,14 +1,20 @@
-//! Load definition text into reports (parse, validate, fingerprint) and apply REG-8 precedence.
+//! Load definition text into reports (parse, validate, fingerprint), apply REG-8 precedence, and
+//! (`build`/`reload`) turn the approved ones into registrable profiles.
 //!
-//! Pure with respect to the registry: nothing is registered and no approval is consulted (T18).
-//! A bad file never aborts the others; every problem is a `DefError` on its own report.
+//! Everything up to `resolve` is pure; `build` reads approvals; only `reload_into`/`reload` touch a
+//! registry. A bad file never aborts the others; every problem is a `DefError` on its own report.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use super::approvals::{ApprovalState, Approvals};
 use super::fingerprint::fingerprint;
+use super::profile::DeclarativeProfile;
 use super::schema::{parse_definition, DefError, Definition};
 use super::sources::{scan_dir, source_name, Origin, RawFile, ScanIssue};
-use super::validate::{validate, ValidationContext};
+use super::validate::{validate, Source, ValidationContext};
+use crate::tui::registry::Registry;
+use crate::tui::TuiProfile;
 
 /// What one definition file turned into.
 #[derive(Debug, Clone)]
@@ -121,4 +127,168 @@ pub fn resolve(files: Vec<LoadedFile>) -> Resolution {
         }
     }
     out
+}
+
+// ---- registration -------------------------------------------------------------------------
+
+/// What a definition is doing right now (SPEC UI-3 wire names).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DefState {
+    /// Registered and spawnable.
+    Active,
+    /// Valid, but the user has not approved this file (APR-1).
+    NeedsApproval,
+    /// Approved earlier; the fingerprint changed since (APR-4).
+    ApprovalStale,
+    /// Valid but another definition with the same id wins (REG-8).
+    Shadowed,
+    /// Failed parse or validation.
+    Invalid,
+}
+
+impl DefState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DefState::Active => "active",
+            DefState::NeedsApproval => "needs_approval",
+            DefState::ApprovalStale => "approval_stale",
+            DefState::Shadowed => "shadowed",
+            DefState::Invalid => "invalid",
+        }
+    }
+}
+
+/// One row of `GET /agents/definitions` (T19 serialises it).
+#[derive(Debug, Clone)]
+pub struct Entry {
+    pub path: PathBuf,
+    pub id: Option<String>,
+    pub source: &'static str,
+    pub state: DefState,
+    pub approval: Option<ApprovalState>,
+    pub fingerprint: Option<String>,
+    pub errors: Vec<DefError>,
+    pub shadowed_by: Option<PathBuf>,
+}
+
+pub struct LoadInputs<'a> {
+    /// Embedded bundled definitions: (file name, text). Trusted without approval (SRC-1).
+    pub bundled: &'a [(&'a str, &'a str)],
+    /// `<app data>/agents` (SRC-2); `None` skips the source.
+    pub user_dir: Option<&'a Path>,
+    /// Ids of the compiled-in profiles (VAL-1, REG-7).
+    pub code_ids: &'a [&'a str],
+}
+
+pub struct Built {
+    pub entries: Vec<Entry>,
+    /// Profiles for every `Active` entry, in load order.
+    pub profiles: Vec<Arc<dyn TuiProfile>>,
+    pub issues: Vec<ScanIssue>,
+}
+
+/// Load every enabled source, resolve precedence and approvals, and build the profiles that may be
+/// registered. Pure: reads files, registers nothing.
+pub fn build(inputs: &LoadInputs<'_>, approvals: &Approvals) -> Built {
+    let mut files = Vec::new();
+    let mut issues = Vec::new();
+    for (name, text) in inputs.bundled {
+        let path = PathBuf::from(format!("bundled/{name}"));
+        files.push(load_text(&path, text, text.len(), Origin::new(Source::Bundled), None, inputs.code_ids));
+    }
+    if let Some(dir) = inputs.user_dir {
+        let loaded = load_dir(dir, Origin::new(Source::User), None, inputs.code_ids);
+        files.extend(loaded.files);
+        issues.extend(loaded.issues);
+    }
+    let resolution = resolve(files);
+    let mut entries = Vec::new();
+    let mut profiles: Vec<Arc<dyn TuiProfile>> = Vec::new();
+    for file in resolution.active {
+        let approval = match (file.origin.source, &file.fingerprint) {
+            (Source::Bundled, _) => Some(ApprovalState::Approved),
+            (_, Some(fingerprint)) => Some(approvals.state(&file.path, fingerprint)),
+            _ => None,
+        };
+        let state = match approval {
+            Some(ApprovalState::Approved) => DefState::Active,
+            Some(ApprovalState::Stale) => DefState::ApprovalStale,
+            _ => DefState::NeedsApproval,
+        };
+        let mut errors = file.errors.clone();
+        let mut state = state;
+        if state == DefState::Active {
+            match file.definition.clone().map(DeclarativeProfile::new) {
+                Some(Ok(profile)) => profiles.push(Arc::new(profile)),
+                Some(Err(err)) => {
+                    errors.push(err);
+                    state = DefState::Invalid;
+                }
+                None => state = DefState::Invalid,
+            }
+        }
+        entries.push(Entry {
+            path: file.path.clone(),
+            id: file.id.clone(),
+            source: file.source_name(),
+            state,
+            approval,
+            fingerprint: file.fingerprint.clone(),
+            errors,
+            shadowed_by: None,
+        });
+    }
+    for shadowed in resolution.shadowed {
+        entries.push(Entry {
+            path: shadowed.file.path.clone(),
+            id: shadowed.file.id.clone(),
+            source: shadowed.file.source_name(),
+            state: DefState::Shadowed,
+            approval: None,
+            fingerprint: shadowed.file.fingerprint.clone(),
+            errors: Vec::new(),
+            shadowed_by: Some(shadowed.shadowed_by),
+        });
+    }
+    for file in resolution.invalid {
+        entries.push(Entry {
+            path: file.path.clone(),
+            id: file.id.clone(),
+            source: file.source_name(),
+            state: DefState::Invalid,
+            approval: None,
+            fingerprint: None,
+            errors: file.errors,
+            shadowed_by: None,
+        });
+    }
+    Built { entries, profiles, issues }
+}
+
+/// Build from the real app dirs and approvals file, then swap the result into `registry`.
+pub fn reload_into(registry: &Registry, inputs: &LoadInputs<'_>, approvals_path: &Path) -> Built {
+    let built = build(inputs, &Approvals::load(approvals_path));
+    registry.set_declarative(built.profiles.clone());
+    built
+}
+
+/// Startup / manual reload against the process-wide registry and the app data dir. Bundled
+/// definitions arrive with T21; until then only user definitions can register.
+pub fn reload() -> Built {
+    let registry = crate::tui::registry::registry();
+    let code_ids = registry.code_ids();
+    let user_dir = crate::app_paths::agents_dir();
+    let inputs = LoadInputs { bundled: &[], user_dir: Some(&user_dir), code_ids: &code_ids };
+    let built = reload_into(registry, &inputs, &super::approvals::default_path());
+    for entry in &built.entries {
+        tracing::info!(
+            file = %entry.path.display(),
+            id = entry.id.as_deref().unwrap_or(""),
+            source = entry.source,
+            state = entry.state.as_str(),
+            errors = entry.errors.len(),
+            "agent definition loaded"
+        );
+    }
+    built
 }

@@ -5,6 +5,7 @@
 // Consumers (loader, template, selectors) land in later phases.
 #![allow(dead_code)]
 
+pub mod approvals;
 pub mod fingerprint;
 pub mod loader;
 pub mod output;

@@ -240,3 +240,133 @@ mod fingerprint_cases {
         );
     }
 }
+
+mod approvals_cases {
+    use super::*;
+    use crate::tui::declarative::approvals::{Approval, ApprovalState, Approvals};
+    use crate::tui::declarative::loader::{build, reload_into, DefState, LoadInputs};
+    use crate::tui::registry::Registry;
+
+    fn record(file: &LoadedFile) -> Approval {
+        Approval {
+            id: file.id.clone().unwrap(),
+            source: file.source_name().to_string(),
+            path: file.path.to_string_lossy().into_owned(),
+            fingerprint: file.fingerprint.clone().unwrap(),
+            binary: "C:/bin/kilo.exe".to_string(),
+            approved_at: "2026-10-09T00:00:00Z".to_string(),
+        }
+    }
+
+    fn user_file(dir: &Path) -> LoadedFile {
+        load_dir(dir, Origin::new(Source::User), None, &["claude"]).files.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn bad_file_means_empty() {
+        let mut t = Tree::new();
+        let missing = t.root.join("nope.json");
+        assert!(Approvals::load(&missing).records().is_empty());
+        let garbage = t.file("garbage.json", "{ not json");
+        assert!(Approvals::load(&garbage).records().is_empty());
+        let wrong = t.file("wrong.json", "{\"version\":99,\"approvals\":[{\"id\":\"x\"}]}");
+        assert!(Approvals::load(&wrong).records().is_empty());
+        let shapeless = t.file("shapeless.json", "[1,2,3]");
+        assert!(Approvals::load(&shapeless).records().is_empty());
+    }
+
+    #[test]
+    fn persist_and_load_roundtrip_and_revoke() {
+        let mut t = Tree::new();
+        let dir = t.dir("agents");
+        t.file("agents/k.toml", &with_id("kk"));
+        let file = user_file(&dir);
+        let store_path = t.root.join("agent-approvals.json");
+        t.files.push(store_path.clone());
+        let mut store = Approvals::default();
+        store.approve(record(&file));
+        store.approve(record(&file));
+        assert_eq!(store.records().len(), 1, "same file replaces its record");
+        store.save(&store_path).unwrap();
+        let mut loaded = Approvals::load(&store_path);
+        assert_eq!(loaded, store);
+        assert_eq!(loaded.state(&file.path, file.fingerprint.as_deref().unwrap()), ApprovalState::Approved);
+        assert!(loaded.revoke("kk"));
+        assert!(!loaded.revoke("kk"));
+        assert_eq!(loaded.state(&file.path, file.fingerprint.as_deref().unwrap()), ApprovalState::Unapproved);
+    }
+
+    fn inputs<'a>(dir: &'a Path, code_ids: &'a [&'a str]) -> LoadInputs<'a> {
+        LoadInputs { bundled: &[], user_dir: Some(dir), code_ids }
+    }
+
+    #[test]
+    fn unapproved_is_not_registered() {
+        let mut t = Tree::new();
+        let dir = t.dir("agents");
+        t.file("agents/k.toml", &with_id("kk"));
+        let built = build(&inputs(&dir, &["claude"]), &Approvals::default());
+        assert!(built.profiles.is_empty());
+        assert_eq!(built.entries.len(), 1);
+        assert_eq!(built.entries[0].state, DefState::NeedsApproval);
+        assert_eq!(built.entries[0].approval, Some(ApprovalState::Unapproved));
+    }
+
+    #[test]
+    fn approved_registers_and_stale_blocks_registration() {
+        let mut t = Tree::new();
+        let dir = t.dir("agents");
+        let path = t.file("agents/k.toml", &with_id("kk"));
+        let mut store = Approvals::default();
+        store.approve(record(&user_file(&dir)));
+
+        let registry = Registry::seeded();
+        let store_path = t.root.join("approvals.json");
+        t.files.push(store_path.clone());
+        store.save(&store_path).unwrap();
+        let built = reload_into(&registry, &inputs(&dir, &registry.code_ids()), &store_path);
+        assert_eq!(built.entries[0].state, DefState::Active);
+        assert_eq!(registry.profile_for_arc("kk").id(), "kk");
+        assert_eq!(registry.snapshot().len(), 10);
+
+        // an executable edit (argv) invalidates the approval
+        fs::write(&path, with_id("kk").replace("args = [\"--auto\"]", "args = [\"--yolo\"]")).unwrap();
+        let built = reload_into(&registry, &inputs(&dir, &registry.code_ids()), &store_path);
+        assert_eq!(built.entries[0].state, DefState::ApprovalStale);
+        assert_eq!(built.entries[0].state.as_str(), "approval_stale");
+        assert_eq!(built.entries[0].approval.unwrap().as_str(), "approval_stale");
+        assert_eq!(registry.profile_for_arc("kk").id(), "unknown");
+        assert_eq!(registry.snapshot().len(), 9);
+
+        // a cosmetic edit keeps the approval
+        fs::write(&path, with_id("kk").replace("label = \"Kilo Code\"", "label = \"Other\"")).unwrap();
+        let built = reload_into(&registry, &inputs(&dir, &registry.code_ids()), &store_path);
+        assert_eq!(built.entries[0].state, DefState::Active);
+    }
+
+    #[test]
+    fn bundled_needs_no_approval_and_invalid_and_shadowed_are_reported() {
+        let mut t = Tree::new();
+        let dir = t.dir("agents");
+        t.file("agents/dup.toml", &with_id("dup"));
+        t.file("agents/broken.toml", "schema_version = 1\n[agent]\n");
+        let bundled = with_id("dup");
+        let built = build(
+            &LoadInputs { bundled: &[("dup.toml", &bundled)], user_dir: Some(&dir), code_ids: &["claude"] },
+            &Approvals::default(),
+        );
+        let by_state = |s: DefState| built.entries.iter().filter(|e| e.state == s).count();
+        // user wins over bundled (REG-8) but is unapproved, so the bundled one is the shadowed loser
+        assert_eq!(by_state(DefState::NeedsApproval), 1);
+        assert_eq!(by_state(DefState::Shadowed), 1);
+        assert_eq!(by_state(DefState::Invalid), 1);
+        assert!(built.profiles.is_empty());
+
+        let only_bundled = build(
+            &LoadInputs { bundled: &[("dup.toml", &bundled)], user_dir: None, code_ids: &["claude"] },
+            &Approvals::default(),
+        );
+        assert_eq!(only_bundled.entries[0].state, DefState::Active);
+        assert_eq!(only_bundled.profiles.len(), 1);
+    }
+}

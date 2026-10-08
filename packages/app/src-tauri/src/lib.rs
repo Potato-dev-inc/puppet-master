@@ -120,6 +120,8 @@ pub fn run() {
             commands::standby_set_config,
         ])
         .setup(|app| {
+            // Register approved declarative agent definitions before anything resolves a profile.
+            tui::declarative::loader::reload();
             if let Ok(resource) = app
                 .path()
                 .resolve("mcp-stdio.bundle.cjs", BaseDirectory::Resource)
