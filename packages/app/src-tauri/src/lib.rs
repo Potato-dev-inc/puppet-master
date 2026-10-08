@@ -1,6 +1,7 @@
 #![recursion_limit = "512"]
 
 mod actors;
+mod agent_definitions_recorder;
 mod agent_adapters;
 mod agent_contexts;
 pub mod agent_runs;

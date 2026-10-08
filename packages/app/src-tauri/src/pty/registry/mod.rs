@@ -32,6 +32,15 @@ const SCROLLBACK_CAP: usize = 10_000;
 /// Default quiet window before a running pane reads idle; a profile may shorten it (`TuiProfile::idle_after`).
 pub(crate) const DEFAULT_IDLE_AFTER: Duration = Duration::from_secs(5);
 
+/// Recorder tap (SPEC REC-1): hands the recorder a read-only copy of a visible screen change. It does
+/// nothing unless the user started recording this pane, and never for a hidden standby pane (REC-5).
+pub(crate) fn recorder_tap(pane_id: &str, status: PaneStatus, screen_text: &str) {
+    if !crate::agent_definitions_recorder::snapshots::any_recording() {
+        return;
+    }
+    crate::agent_definitions_recorder::observe(pane_id, super::hidden::is_hidden(pane_id), status, screen_text);
+}
+
 /// Default project cwd used when no project path has been set.
 fn default_cwd() -> String {
     crate::project_path::default_project_path()
