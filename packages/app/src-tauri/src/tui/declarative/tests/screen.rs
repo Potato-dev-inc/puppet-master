@@ -210,3 +210,14 @@ fn unknown_key_in_a_prompt_is_rejected() {
     let bad = MINIMAL_TUI.replace("key = \"y\"", "key = \"hyper+q\"");
     assert!(build_for_test(&bad).is_err());
 }
+
+#[test]
+fn visible_pane_launch_renders_tui_argv() {
+    use crate::tui::declarative::template::render_tui;
+    let text = KILO_LIKE.replace("argv = []\nidle_after_ms", "argv = [\"--pure\"]\nread_only_argv = [\"--read-only\"]\nidle_after_ms");
+    let def = crate::tui::declarative::parse_definition(&text).unwrap();
+    let tui = def.tui.as_ref().unwrap();
+    assert_eq!(render_tui(tui, "C:/p", false, None, None), ["--pure"]);
+    assert_eq!(render_tui(tui, "C:/p", false, Some("a/b"), Some("ses_1")), ["--pure", "-m", "a/b", "-s", "ses_1"]);
+    assert_eq!(render_tui(tui, "C:/p", true, None, None), ["--pure", "--read-only"]);
+}

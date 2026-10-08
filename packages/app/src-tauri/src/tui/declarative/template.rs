@@ -4,7 +4,7 @@
 
 use crate::tui::types::HeadlessLaunch;
 
-use super::schema::{Definition, HeadlessTable, OptionalSegment};
+use super::schema::{Definition, HeadlessTable, OptionalSegment, TuiTable};
 
 /// Values a placeholder can take. `None` means the run has no such value.
 struct Values<'a> {
@@ -119,4 +119,30 @@ pub fn render_stdin(headless: &HeadlessTable, launch: &HeadlessLaunch<'_>) -> Op
 
 fn has_task_placeholder(element: &str) -> bool {
     super::validate::placeholders(element).contains(&"task")
+}
+
+/// The visible-pane argv after the program (TUI-1): `[tui] argv`, active `[[tui.optional]]`
+/// segments (`model`, `resume` when the value is known, `read_only`), then `read_only_argv` for a
+/// read-only run. No task: a visible pane is handed its task by typing it.
+pub fn render_tui(tui: &TuiTable, project: &str, read_only: bool, model: Option<&str>, session: Option<&str>) -> Vec<String> {
+    let values = Values { task: None, project: Some(project), model, session };
+    let mut out = Vec::new();
+    push_all(&mut out, &tui.argv, &values);
+    for OptionalSegment { when, args } in &tui.optional {
+        let active = match when.as_str() {
+            "model" => model.is_some(),
+            "resume" => session.is_some(),
+            "read_only" => read_only,
+            _ => false,
+        };
+        if active {
+            push_all(&mut out, args, &values);
+        }
+    }
+    if read_only {
+        if let Some(extra) = &tui.read_only_argv {
+            push_all(&mut out, extra, &values);
+        }
+    }
+    out
 }

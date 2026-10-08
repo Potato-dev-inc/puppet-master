@@ -14,7 +14,7 @@ use crate::agent_contexts::{AgentCapability, AgentContextProfile, ModelDetection
 use crate::standby::key::canonical_project;
 use crate::tui::types::{
     DefinitionRef, Features, GateError, HeadlessLaunch, Kind, LaunchSpec, RunOptionSupport,
-    StandbySupport,
+    SpawnRequest, StandbySupport,
 };
 use crate::pty::status::PaneStatus;
 use crate::tui::types::{Reply, StandbyScreen};
@@ -218,6 +218,18 @@ impl DeclarativeProfile {
         })
     }
 
+    /// The pane launch for an already resolved `program`.
+    pub(crate) fn tui_spec(&self, tui: &super::schema::TuiTable, request: &SpawnRequest<'_>, program: PathBuf) -> LaunchSpec {
+        let mut args = template::render_tui(tui, request.cwd, request.read_only, None, None);
+        args.extend(request.extra_args.iter().cloned());
+        LaunchSpec {
+            program: program.to_string_lossy().into_owned(),
+            args,
+            cwd: PathBuf::from(request.cwd),
+            read_only_enforced: request.read_only && self.def.features.read_only_spawned_pane,
+        }
+    }
+
     fn resolve_program(&self, project: &str) -> Result<PathBuf, String> {
         resolve_binary(&self.def.binary, Path::new(project))
             .map_err(|e| format!("{}: {e}", e.code()))
@@ -277,6 +289,15 @@ impl TuiProfile for DeclarativeProfile {
             shell_default_on: r.shell_default_on,
             allowed_commands: r.allowed_commands,
         }
+    }
+
+    /// Visible pane launch (TUI-1): resolved program + `[tui]` argv + the caller's extra args, in the
+    /// project directory. `None` without a `[tui]` table or when the binary does not resolve (the
+    /// spawn path then reports that no launch command exists).
+    fn spawn_command(&self, request: &SpawnRequest) -> Option<LaunchSpec> {
+        let tui = self.def.tui.as_ref()?;
+        let program = self.resolve_program(request.cwd).ok()?;
+        Some(self.tui_spec(tui, request, program))
     }
 
     fn spawn_gate(&self, project: &str) -> Result<Option<DefinitionRef>, GateError> {
