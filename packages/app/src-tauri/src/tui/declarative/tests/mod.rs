@@ -1,3 +1,4 @@
+mod loader;
 mod output;
 mod profile;
 mod resolve;

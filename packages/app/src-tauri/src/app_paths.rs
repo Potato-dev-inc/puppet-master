@@ -36,6 +36,12 @@ pub fn ensure_app_data_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// `<app data>/agents`: the `user` definition source (SRC-2).
+#[allow(dead_code)] // the loader wiring (T18) reads it
+pub fn agents_dir() -> PathBuf {
+    app_data_dir().join("agents")
+}
+
 pub fn bridge_port_file() -> PathBuf {
     app_data_dir().join(BRIDGE_PORT_FILE_NAME)
 }
