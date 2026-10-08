@@ -130,10 +130,32 @@ pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<St
             .panes
             .get(pane_id)
             .ok_or_else(|| unknown_pane_message(pane_id))?;
-        pane.screen.clone()
+        (pane.screen.clone(), pane.info.agent_type.clone())
     };
-    let snapshot = screen.lock().screen().contents();
-    Ok(snapshot)
+    let (screen, agent_type) = screen;
+    let parser = screen.lock();
+    let keep = sidebar_keep_cols(&agent_type, parser.screen().size().1);
+    Ok(snapshot_text(parser.screen(), keep))
+}
+
+/// The screen as text. With `keep_cols` set, one entry per row limited to that many columns
+/// (`contents()` would glue a full-width row to the next one and cannot crop).
+pub(crate) fn snapshot_text(screen: &vt100::Screen, keep_cols: Option<u16>) -> String {
+    match keep_cols {
+        Some(keep) => {
+            let rows: Vec<String> = screen.rows(0, keep).map(|row| row.trim_end().to_string()).collect();
+            rows.join("
+")
+        }
+        None => screen.contents(),
+    }
+}
+
+/// Columns left after the profile's right sidebar is cropped, `None` when the pane is not wide
+/// enough to show one (or the profile has none).
+pub(super) fn sidebar_keep_cols(agent_type: &str, cols: u16) -> Option<u16> {
+    let crop = crate::tui::profile_for(agent_type).sidebar_crop()?;
+    (cols >= crop.min_cols && cols > crop.width).then(|| cols - crop.width)
 }
 
 /// The pane's text with its scrollback: up to `FULL_TEXT_MAX_LINES` of history above the visible
@@ -146,15 +168,23 @@ pub fn read_full_text(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<S
             .panes
             .get(pane_id)
             .ok_or_else(|| unknown_pane_message(pane_id))?;
-        pane.screen.clone()
+        (pane.screen.clone(), pane.info.agent_type.clone())
     };
+    let (screen, agent_type) = screen;
     let mut parser = screen.lock();
-    Ok(full_text_of(&mut parser))
+    let keep = sidebar_keep_cols(&agent_type, parser.screen().size().1);
+    Ok(full_text_of_cols(&mut parser, keep))
 }
 
 pub(super) fn full_text_of(parser: &mut vt100::Parser) -> String {
+    full_text_of_cols(parser, None)
+}
+
+/// `full_text_of` limited to the first `keep_cols` columns of every row.
+pub(super) fn full_text_of_cols(parser: &mut vt100::Parser, keep_cols: Option<u16>) -> String {
     const FULL_TEXT_MAX_LINES: usize = 4000;
     let (_, cols) = parser.screen().size();
+    let cols = keep_cols.unwrap_or(cols).min(cols);
     parser.screen_mut().set_scrollback(usize::MAX);
     let total = parser.screen().scrollback().min(FULL_TEXT_MAX_LINES);
     let mut lines: Vec<String> = Vec::new();

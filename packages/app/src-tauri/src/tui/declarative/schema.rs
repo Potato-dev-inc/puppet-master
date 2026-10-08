@@ -317,6 +317,7 @@ pub struct TuiTable {
     #[serde(default)]
     pub prompt: Vec<PromptTable>,
     pub delivery: Option<DeliveryTable>,
+    pub layout: Option<LayoutTable>,
     pub classify: Option<ClassifyTable>,
 }
 
@@ -395,6 +396,15 @@ pub struct PromptTable {
     #[serde(default)]
     pub broad: bool,
     pub not_when_regex: Option<String>,
+}
+
+/// `[tui.layout]`: a fixed-width right sidebar that appears when the pane is wider than
+/// `sidebar_min_cols`; the rightmost `sidebar_width` columns are cropped from screen text.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LayoutTable {
+    pub sidebar_min_cols: Option<u16>,
+    pub sidebar_width: Option<u16>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

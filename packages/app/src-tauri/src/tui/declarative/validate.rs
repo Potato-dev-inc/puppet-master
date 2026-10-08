@@ -387,6 +387,16 @@ fn check_tui(def: &Definition, e: &mut Errors, regexes: &mut Regexes) {
             e.add("AGENT_DEF_INCONSISTENT", "tui.footer_model.regex", "the regex needs a group named `model`");
         }
     }
+    if let Some(layout) = &tui.layout {
+        match (layout.sidebar_min_cols, layout.sidebar_width) {
+            (Some(min), Some(width)) if width >= 1 && width < min && min <= 1000 => {}
+            _ => e.add(
+                "AGENT_DEF_INCONSISTENT",
+                "tui.layout",
+                "sidebar_min_cols and sidebar_width are both required, with 1 <= sidebar_width < sidebar_min_cols <= 1000",
+            ),
+        }
+    }
     if let Some(delivery) = &tui.delivery {
         match (&delivery.input_echo_regex, &delivery.transcript_echo_regex) {
             (Some(a), Some(b)) => {

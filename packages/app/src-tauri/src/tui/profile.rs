@@ -218,6 +218,11 @@ pub trait TuiProfile: Send + Sync {
         false
     }
 
+    /// A right-hand sidebar the screen readers should crop away (see `SidebarCrop`).
+    fn sidebar_crop(&self) -> Option<crate::tui::types::SidebarCrop> {
+        None
+    }
+
     /// Remove boxed dialogs (trust, approval) from screen text. Their text is never reply
     /// evidence, and the box stays in the scrollback after it was answered.
     fn strip_dialogs(&self, text: &str) -> String {

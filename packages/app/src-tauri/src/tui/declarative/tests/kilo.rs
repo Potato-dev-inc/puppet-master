@@ -239,3 +239,32 @@ fn tui_launch_argv_and_idle_windows() {
     assert_eq!(p.idle_after(), std::time::Duration::from_millis(2500));
     assert_eq!(p.quiet_idle_after(), std::time::Duration::from_millis(1200));
 }
+
+#[test]
+fn tui_sidebar_is_cropped_so_the_reply_is_just_the_answer() {
+    let p = profile();
+    let crop = p.sidebar_crop().expect("kilo declares [tui.layout]");
+    assert_eq!((crop.min_cols, crop.width), (121, 42));
+    // Replay the real 121x36 capture through a terminal emulator, then read it the way the pane
+    // readers do at 121 columns.
+    let mut parser = vt100::Parser::new(36, 121, 0);
+    for (i, row) in rows(TUI_REPLY).iter().enumerate() {
+        parser.process(format!("[{};1H{}", i + 1, row).as_bytes());
+    }
+    let cropped = crate::pty::registry::snapshot_text(parser.screen(), Some(121 - crop.width));
+    for junk in ["Context", "tokens", "Token Usage", "Reasoning", "Cache", "Models", "LSP", "Cost", "Generation"] {
+        assert!(!cropped.contains(junk), "sidebar text {junk:?} survived:
+{cropped}");
+    }
+    let kept: Vec<String> = cropped
+        .lines()
+        .map(|r| r.trim().to_string())
+        .filter(|r| {
+            let lower = r.to_lowercase();
+            // the box edge and the echoed prompt are removed by the task-echo pass in the runner
+            !lower.is_empty() && !p.is_chrome_line(&lower) && !p.is_tool_activity_line(&lower)
+        })
+        .filter(|r| !r.contains("Read .env variable names") && !r.contains("tell me the variable") && !r.contains("Use your read tool"))
+        .collect();
+    assert_eq!(kept, ["The variable name is SECRET_FIXTURE_VALUE."], "{cropped}");
+}

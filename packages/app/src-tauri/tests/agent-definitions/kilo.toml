@@ -122,6 +122,11 @@ line_regex = [
   "^\\s*\\d+%\\s+used\\s*$",
   "^\\s*\\$[\\d.]+\\s+spent\\s*$",
   "^\\s*▣\\s+code\\s+·",
+  # the boxed input area (empty rows, its mode row, bottom edge) and the footer status row
+  "^\\s*┃\\s*$",
+  "^\\s*┃\\s+code\\s+·",
+  "^\\s*╹▀+\\s*$",
+  "^\\s*[\\d.,]+k?\\s+\\(\\d+%\\)\\s+ctrl\\+p\\s+commands",
 ]
 
 # Rows above a reply: `+ Thought: 1.3s`, `→ Read .env · approved by you`, spinner `⠋ Read .env`.
@@ -139,6 +144,12 @@ regex = ["⇆\\s*select\\s+enter"]
 # `▣  Code · Auto Free · Nemotron 3 Ultra (free) · 19.0s`: the model is the third field.
 [tui.footer_model]
 regex = "▣\\s+code\\s+·\\s+[^·\\n]+?\\s+·\\s+(?P<model>[^·\\n]+?)\\s+·\\s+\\d"
+
+# Kilo draws a 42-column sidebar (context, token usage, models, LSP) once the pane is wider than 120
+# columns. Screen readers crop those columns so the sidebar never joins the reply text.
+[tui.layout]
+sidebar_min_cols = 121
+sidebar_width = 42
 
 # Verified delivery (T24): the first turn of a fresh pane can be typed before kilo's input handler
 # is bound and is then lost, so the task is typed, checked in the input box, and only then sent.

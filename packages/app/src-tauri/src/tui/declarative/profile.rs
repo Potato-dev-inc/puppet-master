@@ -475,6 +475,10 @@ impl TuiProfile for DeclarativeProfile {
         self.engine.as_ref().is_some_and(|engine| engine.is_tool_activity_line(lower))
     }
 
+    fn sidebar_crop(&self) -> Option<crate::tui::types::SidebarCrop> {
+        self.engine.as_ref().and_then(|engine| engine.sidebar_crop())
+    }
+
     fn strip_dialogs(&self, text: &str) -> String {
         match &self.engine {
             Some(engine) => engine.strip_dialogs(text),

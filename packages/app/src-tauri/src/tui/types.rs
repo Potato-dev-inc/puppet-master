@@ -97,6 +97,15 @@ pub struct LaunchSpec {
     pub read_only_enforced: bool,
 }
 
+/// A TUI that draws a fixed-width sidebar on the right once the pane is wider than `min_cols`
+/// (Kilo: more than 120 columns). Screen text readers drop the rightmost `width` columns of every
+/// row, so the sidebar's text never joins the reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarCrop {
+    pub min_cols: u16,
+    pub width: u16,
+}
+
 /// What a visible pane spawn hands `TuiProfile::spawn_command`.
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)] // no code profile reads size/read_only yet; declarative profiles will (T16)

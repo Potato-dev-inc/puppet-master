@@ -21,6 +21,7 @@ use crate::events::{PaneId, SystemEvent};
 mod command;
 mod idle;
 mod pane_io;
+pub(crate) use pane_io::snapshot_text;
 mod spawn;
 
 pub use command::*;

@@ -121,6 +121,7 @@ pub struct TuiEngine {
     waiting: Vec<Regex>,
     has_ready: bool,
     delivery: bool,
+    sidebar: Option<crate::tui::types::SidebarCrop>,
 }
 
 fn compile_prompt(table: &PromptTable, at: &str) -> Result<Prompt, DefError> {
@@ -210,7 +211,14 @@ impl TuiEngine {
                 .delivery
                 .as_ref()
                 .is_some_and(|d| d.input_echo_regex.is_some() && d.transcript_echo_regex.is_some()),
+            sidebar: tui.layout.as_ref().and_then(|l| {
+                Some(crate::tui::types::SidebarCrop { min_cols: l.sidebar_min_cols?, width: l.sidebar_width? })
+            }),
         })
+    }
+
+    pub fn sidebar_crop(&self) -> Option<crate::tui::types::SidebarCrop> {
+        self.sidebar
     }
 
     pub fn idle_after(&self) -> Duration {
