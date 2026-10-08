@@ -121,3 +121,119 @@ fn resume_argv_contains_session() {
     assert_eq!(spec.args, ["run", "--format", "json", "--agent", "ask", "--", "-dash task"]);
     assert!(spec.read_only_enforced);
 }
+
+// ---- visible mode (T23): real captures of the kilo 7.8.8 TUI --------------------------------
+
+const TUI_IDLE: &str = include_str!("../fixtures/kilo/tui_idle.txt");
+const TUI_WORKING: &str = include_str!("../fixtures/kilo/tui_working.txt");
+const TUI_PERMISSION: &str = include_str!("../fixtures/kilo/tui_permission.txt");
+const TUI_REPLY: &str = include_str!("../fixtures/kilo/tui_reply.txt");
+
+/// A capture without its `# capture:` header line.
+fn screen(fixture: &str) -> &str {
+    assert!(fixture.starts_with("# capture: kilo 7.8.8"), "fixture header records the kilo version");
+    fixture.split_once('\n').unwrap().1
+}
+
+/// Rows of a capture: split at newlines, and rows longer than the 121-column pane (full-width rows
+/// the app's screen text joins together) cut back apart.
+fn rows(fixture: &str) -> Vec<String> {
+    screen(fixture)
+        .split('\n')
+        .flat_map(|piece| {
+            let chars: Vec<char> = piece.chars().collect();
+            chars.chunks(121).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[test]
+fn tui_busy_matches_working_not_idle() {
+    let p = profile();
+    assert_eq!(p.busy_marker(screen(TUI_WORKING)), Some(true), "esc interrupt is in the footer");
+    assert_eq!(p.busy_marker(screen(TUI_PERMISSION)), None, "the dialog replaces the footer: not busy, not idle");
+    assert_eq!(p.busy_marker(screen(TUI_IDLE)), Some(false));
+    assert_eq!(p.busy_marker(screen(TUI_REPLY)), Some(false), "a finished reply is idle");
+    assert_eq!(p.busy_marker("some unrelated output"), None);
+}
+
+#[test]
+fn tui_permission_prompt_detected() {
+    let p = profile();
+    let prompt = p.detect_prompt(screen(TUI_PERMISSION), false).expect("permission dialog");
+    assert_eq!(prompt["kind"], "command_approval");
+    assert_eq!(prompt["agent_type"], "kilo");
+    assert_eq!(prompt["choices"], serde_json::json!(["allow_once", "deny"]));
+    assert_eq!(p.prompt_reply(&prompt, "allow_once", false).unwrap(), crate::tui::types::Reply::key("enter"));
+    assert_eq!(p.prompt_reply(&prompt, "deny", false).unwrap(), crate::tui::types::Reply::key("escape"));
+    assert!(p.looks_like_menu(screen(TUI_PERMISSION)), "select/confirm hints mark an open menu");
+    // the same turn after it was answered (dialog gone) is not a prompt, nor is any other capture
+    for other in [TUI_IDLE, TUI_WORKING, TUI_REPLY] {
+        assert!(p.detect_prompt(screen(other), true).is_none());
+        assert!(!p.looks_like_menu(screen(other)));
+    }
+}
+
+#[test]
+fn tui_reply_tidied() {
+    let p = profile();
+    // chrome: the footer hint row, sidebar headings/totals and the model row are never reply text
+    let idle_rows = rows(TUI_IDLE);
+    assert!(idle_rows.iter().any(|r| p.is_chrome_line(&r.trim().to_lowercase())), "footer hint row is chrome");
+    assert!(p.is_chrome_line("tab agents  ctrl+p commands"));
+    assert!(p.is_chrome_line("\u{2b1d}\u{2b1d}\u{25a0}\u{25a0}\u{25a0}\u{25a0}\u{25a0}  esc interrupt"));
+    assert!(p.is_chrome_line("\u{25bc} context"));
+    assert!(p.is_chrome_line("22,450 tokens"));
+    assert!(p.is_chrome_line("9% used"));
+    assert!(p.is_chrome_line("$0.00 spent"));
+    assert!(p.is_chrome_line("\u{25a3}  code \u{b7} auto free \u{b7} nemotron 3 ultra (free) \u{b7} 19.0s"));
+    // tool rows
+    assert!(p.is_tool_activity_line("+ thought: 343ms \u{b7} nemotron 3 ultra (free)"));
+    assert!(p.is_tool_activity_line("\u{2192} read .env  \u{b7} approved by you"));
+    assert!(p.is_tool_activity_line("\u{2826} read .env"));
+    // the answer is neither chrome nor a tool row
+    for answer in ["the variable name is secret_fixture_value.", "alpha", "tuipong"] {
+        assert!(!p.is_chrome_line(answer) && !p.is_tool_activity_line(answer), "{answer}");
+    }
+    // what is left of the real reply screen keeps the answer
+    let kept: Vec<String> = rows(TUI_REPLY)
+        .into_iter()
+        .filter(|r| {
+            let lower = r.trim().to_lowercase();
+            !lower.is_empty() && !p.is_chrome_line(&lower) && !p.is_tool_activity_line(&lower)
+        })
+        .collect();
+    assert!(kept.iter().any(|r| r.contains("The variable name is SECRET_FIXTURE_VALUE.")), "{kept:#?}");
+    // dedupe/dialogs tables are absent: both pass text through
+    assert_eq!(p.tidy_reply("a\na\n"), "a\na\n");
+    assert_eq!(p.strip_dialogs(screen(TUI_REPLY)), screen(TUI_REPLY));
+}
+
+#[test]
+fn tui_footer_model_comes_from_the_reply_row() {
+    let p = profile();
+    assert_eq!(p.detect_footer_model(screen(TUI_REPLY)).as_deref(), Some("Nemotron 3 Ultra (free)"));
+    assert_eq!(p.detect_footer_model(screen(TUI_WORKING)), None, "no model is shown while the turn runs");
+    assert_eq!(p.detect_footer_model(screen(TUI_IDLE)), None);
+}
+
+#[test]
+fn tui_launch_argv_and_idle_windows() {
+    let p = profile();
+    let spec = p
+        .spawn_command(&crate::tui::types::SpawnRequest {
+            cwd: ".",
+            extra_args: &["-m".to_string(), "kilo/kilo-auto/free".to_string()],
+            cols: 121,
+            rows: 36,
+            read_only: false,
+        })
+        .map(|s| s.args);
+    // the real kilo is resolved on this machine; a CI box without it gets None
+    if let Some(args) = spec {
+        assert_eq!(args, ["-m", "kilo/kilo-auto/free"]);
+    }
+    assert_eq!(p.clear_input_sequence(), Some("\u{15}"));
+    assert_eq!(p.idle_after(), std::time::Duration::from_millis(2500));
+    assert_eq!(p.quiet_idle_after(), std::time::Duration::from_millis(1200));
+}

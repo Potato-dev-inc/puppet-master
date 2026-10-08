@@ -1,6 +1,6 @@
 # Kilo Code (@kilocode/cli), headless half. Built from the facts verified in
 # docs/specs/agent-definitions/AGENT-CHOICE.md ("Verified in T05") and re-checked on kilo 7.8.8
-# (T21 fixtures in src/tui/declarative/fixtures/kilo/). The TUI half arrives with T23.
+# (T21 fixtures in src/tui/declarative/fixtures/kilo/). The [tui] tables are from real kilo 7.8.8 captures (T23).
 #
 # Install: copy this file to <app data>/agents/kilo.toml, then approve it (Settings > Agents, or
 # POST /agents/definitions/approve from the app session). Always pass a model, for example
@@ -85,6 +85,69 @@ pick = "last"
 where = { type = "error" }
 path = "error.data.message"
 pick = "last"
+
+# Visible mode. Every regex below is checked against real kilo 7.8.8 captures (T23):
+# src/tui/declarative/fixtures/kilo/tui_{idle,working,permission,reply}.txt.
+# The 121-column pane shows kilo's sidebar, and the app's screen text joins full-width rows, so
+# patterns match anywhere in the tail instead of anchoring whole rows (except line tables, which
+# are matched against single rows when a row is on its own).
+[tui]
+argv = []
+idle_after_ms = 2500
+quiet_idle_after_ms = 1200
+clear_input_keys = "\u0015"
+
+[[tui.optional]]
+when = "model"
+args = ["-m", "{model}"]
+
+[[tui.optional]]
+when = "resume"
+args = ["-s", "{session}"]
+
+# `esc interrupt` sits in the footer for the whole turn (animated bar before it) and is gone once
+# the reply is done. The footer `ctrl+p commands` shows in both states, so it only counts as idle
+# when no working marker is present (working wins).
+[tui.busy]
+working_regex = ["esc\\s+interrupt"]
+idle_regex = ["ctrl\\+p\\s+commands"]
+
+# Footer hint row, sidebar headings and totals, and the model/timing row under a reply.
+[tui.chrome]
+line_regex = [
+  "^\\s*tab agents\\s+ctrl\\+p commands",
+  "^\\s*(?:[⠀-⣿⬝■]+\\s+)?esc interrupt",
+  "^\\s*▼\\s",
+  "^\\s*[\\d.,]+k?\\s+tokens\\s*$",
+  "^\\s*\\d+%\\s+used\\s*$",
+  "^\\s*\\$[\\d.]+\\s+spent\\s*$",
+  "^\\s*▣\\s+code\\s+·",
+]
+
+# Rows above a reply: `+ Thought: 1.3s`, `→ Read .env · approved by you`, spinner `⠋ Read .env`.
+[tui.tool_activity]
+line_regex = [
+  "^\\s*\\+ thought:",
+  "^\\s*→ \\S",
+  "^\\s*[⠀-⣿] \\S",
+]
+
+# The permission dialog's choice row.
+[tui.menu]
+regex = ["⇆\\s*select\\s+enter"]
+
+# `▣  Code · Auto Free · Nemotron 3 Ultra (free) · 19.0s`: the model is the third field.
+[tui.footer_model]
+regex = "▣\\s+code\\s+·\\s+[^·\\n]+?\\s+·\\s+(?P<model>[^·\\n]+?)\\s+·\\s+\\d"
+
+# The dialog opens on "Allow once", so Enter allows once; Escape rejects.
+[[tui.prompt]]
+kind = "command_approval"
+detect_regex = "permission required"
+choices = [
+  { id = "allow_once", key = "enter" },
+  { id = "deny", key = "escape" },
+]
 
 [model]
 source = "output_path"

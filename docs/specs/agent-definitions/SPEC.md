@@ -563,10 +563,18 @@ are ignored and counted for diagnostics. `plain_text`: `result.regex` and `resul
 
 ### 7.2 Complete example 1: Kilo Code (the proof agent)
 
-Flags verified with `kilo` 7.0.50 on this machine; see `AGENT-CHOICE.md`. The `[tui]` regexes are DRAFT
-and are replaced by fixture-backed ones in Phase 2 (PLAN task P2-14).
+This is `packages/app/src-tauri/tests/agent-definitions/kilo.toml` verbatim. Headless flags verified with `kilo`
+7.0.50 and re-checked on 7.8.8 (`AGENT-CHOICE.md`); the `[tui]` tables are backed by real 7.8.8 screen captures
+(`src/tui/declarative/fixtures/kilo/tui_*.txt`, phase T23).
 
 ```toml
+# Kilo Code (@kilocode/cli), headless half. Built from the facts verified in
+# docs/specs/agent-definitions/AGENT-CHOICE.md ("Verified in T05") and re-checked on kilo 7.8.8
+# (T21 fixtures in src/tui/declarative/fixtures/kilo/). The [tui] tables are from real kilo 7.8.8 captures (T23).
+#
+# Install: copy this file to <app data>/agents/kilo.toml, then approve it (Settings > Agents, or
+# POST /agents/definitions/approve from the app session). Always pass a model, for example
+# kilo/kilo-auto/free: the default model on a fresh machine can be rejected.
 schema_version = 1
 
 [agent]
@@ -578,22 +586,32 @@ description = "Kilo Code CLI (@kilocode/cli), an OpenCode-derived agent with a J
 [binary]
 names = ["kilo", "kilocode"]
 windows_extensions = ["exe", "cmd"]
-# npm installs only .cmd/.ps1 shims on Windows; the real binary sits in a platform package next to them.
 shim_native_globs = ["node_modules/@kilocode/cli/node_modules/@kilocode/cli-windows-x64*/bin/kilo.exe"]
 version_args = ["--version"]
 install_hint = "npm install -g @kilocode/cli"
 
 [features]
 dispatchable = true
-read_only_headless = false      # flip to true after `--agent plan` is verified read-only
+# `--agent ask` is read-only by configuration (T05 check 5): bash/edit/write are off and every other
+# permission is denied. `--agent plan` is NOT read-only and is never used for this.
+read_only_headless = true
+read_only_note = "Read-only runs use `--agent ask`: no shell, edit or write tools. It can still reach the network (webfetch, websearch)."
 resumable_headless = true
 
 [run_options]
-allow_shell = true              # maps to --auto, see [[headless.optional]]
+# Shell and edit tools run in the project directory without any flag (T05 checks 1-2), so
+# allow_shell is an accepted no-op. `--auto` only approves `ask`-level permissions (outside the
+# project dir, `.env` reads); it is deliberately not mapped to allow_shell.
+allow_shell = true
+shell_default_on = true
 
 [headless]
 argv = ["run", "--format", "json"]
 task_separator = "--"
+
+[[headless.optional]]
+when = "read_only"
+args = ["--agent", "ask"]
 
 [[headless.optional]]
 when = "model"
@@ -603,15 +621,14 @@ args = ["-m", "{model}"]
 when = "resume"
 args = ["-s", "{session}"]
 
-[[headless.optional]]
-when = "allow_shell"
-args = ["--auto"]
-
 [headless.output]
 format = "json_lines"
 
+# The answer is the LAST non-blank text event: a tool-call step can emit a whitespace-only text
+# before the final one, and an auto-rejected permission leaves the last text empty (T05 check 3).
 [headless.output.result]
 where = { type = "text" }
+where_regex = { "part.text" = "\\S" }
 path = "part.text"
 pick = "last"
 
@@ -620,16 +637,30 @@ where = { "~sessionID" = true }
 path = "sessionID"
 pick = "first"
 
+# A turn is over at the first step_finish with reason "stop". The process may not exit after it
+# (T05 check 4), so the runner stops the child shortly after this line instead of waiting for exit.
+# A turn that ends on `tool-calls` (a rejected permission) has no `stop`; process exit ends it.
 [headless.output.done]
 where = { type = "step_finish", "part.reason" = "stop" }
 
+# kilo 7.8.x reports the model that ran in step_finish.
+[headless.output.model]
+where = { type = "step_finish" }
+path = "part.model.modelID"
+pick = "last"
+
+# Two error lines can arrive (a generic one, then the specific one): the last message is the useful
+# one. The exit code is no signal: 0, 1 or never (T05 check 6).
 [headless.output.error]
 where = { type = "error" }
 path = "error.data.message"
+pick = "last"
 
-[model]
-source = "none"
-
+# Visible mode. Every regex below is checked against real kilo 7.8.8 captures (T23):
+# src/tui/declarative/fixtures/kilo/tui_{idle,working,permission,reply}.txt.
+# The 121-column pane shows kilo's sidebar, and the app's screen text joins full-width rows, so
+# patterns match anywhere in the tail instead of anchoring whole rows (except line tables, which
+# are matched against single rows when a row is on its own).
 [tui]
 argv = []
 idle_after_ms = 2500
@@ -644,12 +675,42 @@ args = ["-m", "{model}"]
 when = "resume"
 args = ["-s", "{session}"]
 
+# `esc interrupt` sits in the footer for the whole turn (animated bar before it) and is gone once
+# the reply is done. The footer `ctrl+p commands` shows in both states, so it only counts as idle
+# when no working marker is present (working wins).
 [tui.busy]
 working_regex = ["esc\\s+interrupt"]
+idle_regex = ["ctrl\\+p\\s+commands"]
 
+# Footer hint row, sidebar headings and totals, and the model/timing row under a reply.
 [tui.chrome]
-line_regex = ["^ctrl\\+[a-z] ", "^tab agents"]
+line_regex = [
+  "^\\s*tab agents\\s+ctrl\\+p commands",
+  "^\\s*(?:[⠀-⣿⬝■]+\\s+)?esc interrupt",
+  "^\\s*▼\\s",
+  "^\\s*[\\d.,]+k?\\s+tokens\\s*$",
+  "^\\s*\\d+%\\s+used\\s*$",
+  "^\\s*\\$[\\d.]+\\s+spent\\s*$",
+  "^\\s*▣\\s+code\\s+·",
+]
 
+# Rows above a reply: `+ Thought: 1.3s`, `→ Read .env · approved by you`, spinner `⠋ Read .env`.
+[tui.tool_activity]
+line_regex = [
+  "^\\s*\\+ thought:",
+  "^\\s*→ \\S",
+  "^\\s*[⠀-⣿] \\S",
+]
+
+# The permission dialog's choice row.
+[tui.menu]
+regex = ["⇆\\s*select\\s+enter"]
+
+# `▣  Code · Auto Free · Nemotron 3 Ultra (free) · 19.0s`: the model is the third field.
+[tui.footer_model]
+regex = "▣\\s+code\\s+·\\s+[^·\\n]+?\\s+·\\s+(?P<model>[^·\\n]+?)\\s+·\\s+\\d"
+
+# The dialog opens on "Allow once", so Enter allows once; Escape rejects.
 [[tui.prompt]]
 kind = "command_approval"
 detect_regex = "permission required"
@@ -658,10 +719,13 @@ choices = [
   { id = "deny", key = "escape" },
 ]
 
+[model]
+source = "output_path"
+
 [context]
 smartness = 6
 strengths = ["implementation", "debugging"]
-notes = ["Model is chosen as provider/model, for example kilo/kilo-auto/free; the JSON stream does not echo it."]
+notes = ["Model is chosen as provider/model, for example kilo/kilo-auto/free."]
 ```
 
 ### 7.2b Complete example 2: minimal TUI-only agent
