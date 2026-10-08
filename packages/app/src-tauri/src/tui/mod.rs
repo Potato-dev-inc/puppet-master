@@ -211,6 +211,16 @@ pub(crate) fn executable(name: &str) -> Result<String, String> {
     }
 }
 
+/// Program path for a declarative definition (SPEC 7.3): scans `PATH` without the current or the
+/// project directory and follows npm `.cmd` shims to the native binary. `executable` is untouched.
+#[allow(dead_code)] // the declarative profile (T16) calls it
+pub(crate) fn resolve_binary(
+    binary: &declarative::schema::BinaryTable,
+    project_dir: &std::path::Path,
+) -> Result<PathBuf, declarative::resolve::ResolveError> {
+    declarative::resolve::resolve_binary(binary, project_dir)
+}
+
 #[cfg(test)]
 mod conformance;
 

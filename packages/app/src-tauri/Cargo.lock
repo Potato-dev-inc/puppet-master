@@ -2529,6 +2529,7 @@ dependencies = [
  "arc-swap",
  "base64 0.22.1",
  "ed25519-dalek",
+ "glob",
  "once_cell",
  "parking_lot",
  "portable-pty",

@@ -1,4 +1,6 @@
+mod resolve;
 mod schema;
+mod template;
 mod validate;
 
 /// SPEC 7.2: the Kilo Code proof agent.
