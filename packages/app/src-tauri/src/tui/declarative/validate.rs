@@ -422,6 +422,11 @@ fn check_tui(def: &Definition, e: &mut Errors, regexes: &mut Regexes) {
             if let Some(text) = &choice.text {
                 check_string(&format!("{here}.text"), text, e);
             }
+            if let Some(key) = &choice.key {
+                if let Err(message) = crate::pty::keys::sequence(key) {
+                    e.add("AGENT_DEF_INCONSISTENT", &format!("{here}.key"), message);
+                }
+            }
         }
     }
 }

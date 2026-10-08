@@ -1,7 +1,7 @@
 //! `DeclarativeProfile`: a validated `Definition` behind the `TuiProfile` trait (headless half).
 //!
 //! Headless methods map onto `[headless]` (argv via `template`, parsing via `output`), the binary
-//! via `resolve`. Everything TUI-shaped keeps the trait default until the table engine (T22).
+//! via `resolve`; everything screen-shaped goes through the `[tui]` table engine (`screen`).
 //! Constructible from any parsed definition; nothing here loads files or registers anything.
 
 use std::collections::HashSet;
@@ -16,7 +16,10 @@ use crate::tui::types::{
     DefinitionRef, Features, GateError, HeadlessLaunch, Kind, LaunchSpec, RunOptionSupport,
     StandbySupport,
 };
-use crate::tui::{AgentId, TuiProfile};
+use crate::pty::status::PaneStatus;
+use crate::tui::types::{Reply, StandbyScreen};
+use crate::tui::{generic, AgentId, TuiProfile};
+use serde_json::Value;
 
 use super::approvals::{ApprovalState, Approvals};
 use super::loader::load_text;
@@ -24,6 +27,7 @@ use super::output::OutputParser;
 use super::sources::{source_name, Origin};
 use super::validate::Source;
 use super::resolve::resolve_binary;
+use super::screen::TuiEngine;
 use super::schema::{Cwd, DefError, Definition, ModelSource};
 use super::template;
 
@@ -60,6 +64,7 @@ pub struct DeclarativeProfile {
     not_dispatchable_reason: &'static str,
     warning_code: Option<&'static str>,
     parser: Option<OutputParser>,
+    engine: Option<TuiEngine>,
 }
 
 impl DeclarativeProfile {
@@ -77,7 +82,15 @@ impl DeclarativeProfile {
             .and_then(|o| o.rejected.as_ref())
             .and_then(|r| r.warning_code.as_deref())
             .map(intern);
+        let engine = match &def.tui {
+            Some(tui) => {
+                let clear = tui.clear_input_sequence.as_deref().or(tui.clear_input_keys.as_deref());
+                Some(TuiEngine::compile(&def.agent.id, tui, clear.map(intern))?)
+            }
+            None => None,
+        };
         Ok(Self {
+            engine,
             origin: None,
             id: intern(&def.agent.id),
             not_dispatchable_reason: intern(&def.features.not_dispatchable_reason),
@@ -370,6 +383,93 @@ impl TuiProfile for DeclarativeProfile {
             model: None,
         };
         template::render_stdin(headless, &launch)
+    }
+
+    fn idle_after(&self) -> std::time::Duration {
+        match &self.engine {
+            Some(engine) => engine.idle_after(),
+            None => crate::pty::registry::DEFAULT_IDLE_AFTER,
+        }
+    }
+
+    fn quiet_idle_after(&self) -> std::time::Duration {
+        match &self.engine {
+            Some(engine) => engine.quiet_idle_after(),
+            None => self.idle_after(),
+        }
+    }
+
+    fn busy_marker(&self, visible_tail: &str) -> Option<bool> {
+        self.engine.as_ref()?.busy_marker(visible_tail)
+    }
+
+    fn classify_screen(&self, visible_tail: &str) -> Option<PaneStatus> {
+        self.engine.as_ref()?.classify_screen(visible_tail)
+    }
+
+    fn standby_screen(&self, screen: &str) -> StandbyScreen {
+        match &self.engine {
+            Some(engine) => engine.standby_screen(screen),
+            None => StandbyScreen::NotReady,
+        }
+    }
+
+    fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<Value> {
+        if let Some(engine) = &self.engine {
+            if let Some(prompt) = engine.detect_prompt(screen, allow_broad) {
+                return Some(prompt);
+            }
+            if engine.claims(screen) {
+                // The definition recognised the screen and suppressed it (an answered dialog).
+                return None;
+            }
+        }
+        generic::detect_prompt(self.id, screen, allow_broad)
+    }
+
+    fn prompt_reply(&self, prompt: &Value, choice: &str, allow_broad: bool) -> Result<Reply, String> {
+        match self.engine.as_ref().and_then(|engine| engine.prompt_reply(prompt, choice, allow_broad)) {
+            Some(reply) => reply,
+            None => generic::prompt_reply(prompt, choice, allow_broad),
+        }
+    }
+
+    fn looks_like_menu(&self, text: &str) -> bool {
+        self.engine.as_ref().is_some_and(|engine| engine.looks_like_menu(text))
+    }
+
+    fn clear_input_sequence(&self) -> Option<&'static str> {
+        self.engine.as_ref()?.clear_input_sequence()
+    }
+
+    fn verifies_prompt_delivery(&self) -> bool {
+        self.engine.as_ref().is_some_and(|engine| engine.verifies_prompt_delivery())
+    }
+
+    fn is_chrome_line(&self, lower: &str) -> bool {
+        self.engine.as_ref().is_some_and(|engine| engine.is_chrome_line(lower))
+    }
+
+    fn is_tool_activity_line(&self, lower: &str) -> bool {
+        self.engine.as_ref().is_some_and(|engine| engine.is_tool_activity_line(lower))
+    }
+
+    fn strip_dialogs(&self, text: &str) -> String {
+        match &self.engine {
+            Some(engine) => engine.strip_dialogs(text),
+            None => text.to_string(),
+        }
+    }
+
+    fn tidy_reply(&self, text: &str) -> String {
+        match &self.engine {
+            Some(engine) => engine.tidy_reply(text),
+            None => text.to_string(),
+        }
+    }
+
+    fn detect_footer_model(&self, buffer: &str) -> Option<String> {
+        self.engine.as_ref()?.detect_footer_model(buffer)
     }
 
     fn capability_notes(&self, _has_pane: bool) -> Vec<String> {

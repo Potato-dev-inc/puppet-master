@@ -1,0 +1,20 @@
+# expect: prompts_round_trip
+# The only choice is allow_all, which needs allow_broad: a detected prompt that cannot be answered.
+schema_version = 1
+
+[agent]
+id = "badbroad"
+label = "Bad Broad"
+
+[binary]
+names = ["bad-fixture-not-installed"]
+install_hint = "fixture only"
+
+[tui]
+argv = []
+
+[[tui.prompt]]
+kind = "broad_approval"
+detect_regex = "allow once"
+broad = true
+choices = [{ id = "allow_all", key = "y" }]

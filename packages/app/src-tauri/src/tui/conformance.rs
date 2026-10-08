@@ -4,6 +4,198 @@
 use super::*;
 use std::collections::HashSet;
 
+/// Rules that hold for any `TuiProfile`, code or declarative, as checks that report instead of
+/// asserting so a deliberately bad definition can be shown to fail them
+/// (`declarative::tests::conformance`).
+pub(crate) mod rules {
+    use super::*;
+    use std::time::Duration;
+
+    pub type Rule = fn(&dyn TuiProfile) -> Result<(), String>;
+
+    /// Every rule by name (the bad-definition fixtures name the rule they must fail).
+    pub const ALL: &[(&str, Rule)] = &[
+        ("feature_flags_agree_with_methods", feature_flags_agree_with_methods),
+        ("extract_result_rejects_garbage_and_failed_exits", extract_result_rejects_garbage_and_failed_exits),
+        ("prompts_round_trip", prompts_round_trip),
+        ("empty_screen_never_blocked", empty_screen_never_blocked),
+        ("idle_windows_are_sane", idle_windows_are_sane),
+        ("screen_methods_survive_huge_input", screen_methods_survive_huge_input),
+    ];
+
+    pub fn feature_flags_agree_with_methods(profile: &dyn TuiProfile) -> Result<(), String> {
+        let id = profile.id();
+        let features = profile.features();
+        let launch = HeadlessLaunch::new(".", "task");
+        if features.read_only_headless {
+            // A CLI missing from PATH is an environment error; "unsupported" is a contract failure.
+            if let Err(error) = profile.headless_command(&launch) {
+                if error.contains("unsupported") {
+                    return Err(format!("{id}: read_only_headless needs a headless command: {error}"));
+                }
+            }
+        }
+        if features.read_only_headless && profile.is_installed() && profile.headless_command(&launch).is_err() {
+            return Err(format!("{id}: is_installed() is true but the headless launch fails"));
+        }
+        if features.resumable_headless && features.kind != Kind::Cli {
+            return Err(format!("{id}: only CLI backends resume headless sessions"));
+        }
+        if !features.dispatchable && profile.not_dispatchable_reason().is_empty() {
+            return Err(format!("{id}: a non-dispatchable profile must say why"));
+        }
+        if features.kind != Kind::Shell && profile.prompt_visible("anything") {
+            return Err(format!("{id}: prompt_visible is for shells"));
+        }
+        Ok(())
+    }
+
+    pub fn extract_result_rejects_garbage_and_failed_exits(profile: &dyn TuiProfile) -> Result<(), String> {
+        let id = profile.id();
+        if profile.extract_result("not json at all", 0).is_some() {
+            return Err(format!("{id}: garbage output produced a result"));
+        }
+        if profile.extract_result("{}", 1).is_some() {
+            return Err(format!("{id}: a failed exit produced a result"));
+        }
+        if profile.extract_provider_session("not json").is_some() {
+            return Err(format!("{id}: garbage produced a provider session"));
+        }
+        if profile.detect_headless_trust("unrelated failure").is_some() {
+            return Err(format!("{id}: unrelated failure detected as a trust screen"));
+        }
+        if profile.rejected_call_warning("all good").is_some() {
+            return Err(format!("{id}: clean output produced a rejected-call warning"));
+        }
+        Ok(())
+    }
+
+    /// Whatever a profile detects, it must answer with at least one advertised choice.
+    pub fn prompts_round_trip(profile: &dyn TuiProfile) -> Result<(), String> {
+        let id = profile.id();
+        let screens = [
+            "Allow once?\n",
+            "Trust this workspace?\n",
+            "Run this command?\n",
+            "Approve this command?\n",
+            "Always allow this command?\n",
+            "permission required\n",
+        ];
+        for screen in screens {
+            for allow_broad in [false, true] {
+                let Some(prompt) = profile.detect_prompt(screen, allow_broad) else { continue };
+                let Some(choices) = prompt["choices"].as_array() else {
+                    return Err(format!("{id}: prompt without a choices array for {screen:?}"));
+                };
+                if choices.is_empty() {
+                    return Err(format!("{id}: prompt with no choices for {screen:?}"));
+                }
+                let answerable = choices
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|choice| profile.prompt_reply(&prompt, choice, allow_broad).is_ok());
+                if !answerable {
+                    return Err(format!("{id}: no advertised choice produces a reply for {screen:?}"));
+                }
+                if prompt["agent_type"] != id {
+                    return Err(format!("{id}: prompt agent_type is {}", prompt["agent_type"]));
+                }
+                // SEC-7: allow_all is never accepted without allow_broad.
+                if !allow_broad && profile.prompt_reply(&prompt, "allow_all", false).is_ok() {
+                    return Err(format!("{id}: allow_all accepted without allow_broad"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn empty_screen_never_blocked(profile: &dyn TuiProfile) -> Result<(), String> {
+        let id = profile.id();
+        for blank in ["", "\n\n", "   \n"] {
+            if profile.detect_prompt(blank, true).is_some() {
+                return Err(format!("{id}: a blank screen {blank:?} reads as a prompt"));
+            }
+            if profile.classify_screen(blank) == Some(PaneStatus::WaitingInput) {
+                return Err(format!("{id}: a blank screen {blank:?} reads as waiting_input"));
+            }
+            if profile.standby_screen(blank) == StandbyScreen::Dialog {
+                return Err(format!("{id}: a blank screen {blank:?} reads as a dialog"));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn idle_windows_are_sane(profile: &dyn TuiProfile) -> Result<(), String> {
+        let id = profile.id();
+        let window = profile.idle_after();
+        if window < Duration::from_millis(1500) {
+            return Err(format!("{id}: {window:?} is too short to ride out a quiet spinner frame"));
+        }
+        if window > Duration::from_secs(5) {
+            return Err(format!("{id}: {window:?} is longer than the default"));
+        }
+        let quiet = profile.quiet_idle_after();
+        if quiet > window {
+            return Err(format!("{id}: the quiet window {quiet:?} must not exceed {window:?}"));
+        }
+        if quiet < Duration::from_millis(500) {
+            return Err(format!("{id}: {quiet:?} would flip between spinner frames"));
+        }
+        Ok(())
+    }
+
+    /// A 300 KiB screen must not panic or hang any screen method.
+    pub fn screen_methods_survive_huge_input(profile: &dyn TuiProfile) -> Result<(), String> {
+        let huge = "a line of screen text \u{2022} \u{1b}[31mred\u{1b}[0m\n".repeat(7000);
+        let _ = profile.busy_marker(&huge);
+        let _ = profile.classify_screen(&huge);
+        let _ = profile.detect_prompt(&huge, false);
+        let _ = profile.looks_like_menu(&huge);
+        let _ = profile.strip_dialogs(&huge);
+        let _ = profile.tidy_reply(&huge);
+        let _ = profile.detect_footer_model(&huge);
+        let _ = profile.standby_screen(&huge);
+        let _ = profile.is_chrome_line(&huge);
+        let _ = profile.is_tool_activity_line(&huge);
+        Ok(())
+    }
+
+    /// Code profiles plus every test definition under `declarative/fixtures/definitions/`.
+    pub fn subjects() -> Vec<Arc<dyn TuiProfile>> {
+        let mut all = profiles();
+        all.extend(super::definition_subjects());
+        all
+    }
+}
+
+/// One `DeclarativeProfile` per file in `declarative/fixtures/definitions/`, sorted by name; each
+/// must parse, validate clean and build.
+pub(crate) fn definition_subjects() -> Vec<Arc<dyn TuiProfile>> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui/declarative/fixtures/definitions");
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+        .collect();
+    files.sort();
+    assert!(files.len() >= 3, "kilo-like, minimal-tui and generic test definitions");
+    files
+        .iter()
+        .map(|path| {
+            let text = std::fs::read_to_string(path).unwrap();
+            let built = declarative::build_for_test(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            Arc::new(built) as Arc<dyn TuiProfile>
+        })
+        .collect()
+}
+
+fn check_all(rule: &str, run: rules::Rule) {
+    for profile in rules::subjects() {
+        run(&*profile).unwrap_or_else(|e| panic!("rule {rule}: {e}"));
+    }
+}
+
 #[test]
 fn ids_are_unique_and_lowercase() {
     let mut seen = HashSet::new();
@@ -64,44 +256,12 @@ fn lookup_is_case_insensitive_and_unknown_is_generic() {
 
 #[test]
 fn feature_flags_agree_with_the_methods_they_promise() {
+    check_all("feature_flags_agree_with_methods", rules::feature_flags_agree_with_methods);
     for profile in profiles() {
-        let id = profile.id();
-        let features = profile.features();
-        let launch = HeadlessLaunch::new(".", "task");
-
-        if features.read_only_headless {
-            // A CLI missing from PATH is an environment error; "unsupported" is a contract failure.
-            if let Err(error) = profile.headless_command(&launch) {
-                assert!(!error.contains("unsupported"), "{id}: read_only_headless needs a headless command: {error}");
-            }
-        }
-        if features.read_only_headless && profile.is_installed() {
-            // is_installed must agree with the launcher: a CLI it calls installed must launch.
-            assert!(
-                profile.headless_command(&launch).is_ok(),
-                "{id}: is_installed() is true but the headless launch fails"
-            );
-        }
-        if features.resumable_headless {
-            assert!(
-                features.kind == Kind::Cli,
-                "{id}: only CLI backends resume headless sessions"
-            );
-        }
-        if !features.dispatchable {
-            assert!(
-                !profile.not_dispatchable_reason().is_empty(),
-                "{id}: a non-dispatchable profile must say why"
-            );
-        }
-        if features.kind == Kind::Shell {
-            assert!(!features.dispatchable, "{id}: shells are not agent backends");
+        if profile.features().kind == Kind::Shell {
+            let id = profile.id();
+            assert!(!profile.features().dispatchable, "{id}: shells are not agent backends");
             assert!(!is_agent_backend(id));
-        } else {
-            assert!(
-                !profile.prompt_visible("anything"),
-                "{id}: prompt_visible is for shells"
-            );
         }
     }
 }
@@ -130,54 +290,22 @@ fn headless_launch_enforces_the_shared_policy() {
 
 #[test]
 fn output_parsers_reject_garbage_and_failed_exits() {
-    for profile in profiles() {
-        let id = profile.id();
-        assert_eq!(profile.extract_result("not json at all", 0), None, "{id}");
-        assert_eq!(profile.extract_result("{}", 1), None, "{id}");
-        assert_eq!(profile.extract_provider_session("not json"), None, "{id}");
-        assert!(profile.detect_headless_trust("unrelated failure").is_none(), "{id}");
-        assert!(profile.rejected_call_warning("all good").is_none(), "{id}");
-    }
+    check_all("extract_result_rejects_garbage_and_failed_exits", rules::extract_result_rejects_garbage_and_failed_exits);
 }
 
 #[test]
 fn prompts_round_trip_through_their_own_reply() {
-    // Whatever a profile detects, it must be able to answer with at least one advertised choice.
-    let screens = [
-        "Allow once?\n",
-        "Trust this workspace?\n",
-        "Run this command?\n",
-        "Approve this command?\n",
-    ];
-    for profile in profiles() {
-        let id = profile.id();
-        for screen in screens {
-            let Some(prompt) = profile.detect_prompt(screen, false) else {
-                continue;
-            };
-            let choices = prompt["choices"].as_array().expect("choices array");
-            assert!(!choices.is_empty(), "{id}: prompt with no choices");
-            assert!(
-                choices
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .any(|choice| profile.prompt_reply(&prompt, choice, false).is_ok()),
-                "{id}: no advertised choice produces a reply for {screen:?}"
-            );
-            assert_eq!(prompt["agent_type"], id, "{id}");
-        }
-    }
+    check_all("prompts_round_trip", rules::prompts_round_trip);
 }
 
 #[test]
 fn an_empty_screen_is_never_blocked() {
-    for profile in profiles() {
-        let id = profile.id();
-        assert!(profile.detect_prompt("", true).is_none(), "{id}");
-        if let Some(status) = profile.classify_screen("") {
-            assert_ne!(status, PaneStatus::WaitingInput, "{id}");
-        }
-    }
+    check_all("empty_screen_never_blocked", rules::empty_screen_never_blocked);
+}
+
+#[test]
+fn screen_methods_survive_huge_input() {
+    check_all("screen_methods_survive_huge_input", rules::screen_methods_survive_huge_input);
 }
 
 #[test]
@@ -190,16 +318,7 @@ fn shell_helper_agrees_with_kind() {
 
 #[test]
 fn idle_windows_are_sane_and_only_animated_tuis_shorten_them() {
-    use std::time::Duration;
-    for profile in profiles() {
-        let id = profile.id();
-        let window = profile.idle_after();
-        assert!(window >= Duration::from_millis(1500), "{id}: {window:?} is too short to ride out a quiet spinner frame");
-        assert!(window <= Duration::from_secs(5), "{id}: {window:?} is longer than the default");
-        let quiet = profile.quiet_idle_after();
-        assert!(quiet <= window, "{id}: the quiet window {quiet:?} must not exceed {window:?}");
-        assert!(quiet >= Duration::from_millis(500), "{id}: {quiet:?} would flip between spinner frames");
-    }
+    check_all("idle_windows_are_sane", rules::idle_windows_are_sane);
 }
 
 #[test]

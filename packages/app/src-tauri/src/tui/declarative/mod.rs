@@ -11,6 +11,7 @@ pub mod loader;
 pub mod output;
 pub mod resolve;
 pub mod schema;
+pub mod screen;
 pub mod select;
 pub mod service;
 pub mod sources;
@@ -21,6 +22,22 @@ mod profile;
 
 #[cfg(test)]
 mod tests;
+
+/// Parse, validate (as a user definition) and build; every problem becomes one message.
+#[cfg(test)]
+pub(crate) fn build_for_test(text: &str) -> Result<DeclarativeProfile, String> {
+    let def = parse_definition(text).map_err(|e| e.to_string())?;
+    let ctx = ValidationContext {
+        source: Source::User,
+        code_ids: &["claude", "codex", "cursor_agent", "opencode", "shell"],
+        raw_len: text.len(),
+    };
+    let errors = validate(&def, &ctx);
+    if !errors.is_empty() {
+        return Err(errors.iter().map(|e| format!("{} {}", e.code, e.path)).collect::<Vec<_>>().join("; "));
+    }
+    DeclarativeProfile::new(def).map_err(|e| e.to_string())
+}
 
 // `tui::declarative::kilo` (phase T21 verification filter).
 #[cfg(test)]
