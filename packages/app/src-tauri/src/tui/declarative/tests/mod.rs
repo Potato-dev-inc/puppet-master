@@ -1,5 +1,7 @@
+mod output;
 mod resolve;
 mod schema;
+mod select;
 mod template;
 mod validate;
 

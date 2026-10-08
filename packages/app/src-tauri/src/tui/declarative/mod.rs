@@ -5,8 +5,10 @@
 // Consumers (loader, template, selectors) land in later phases.
 #![allow(dead_code)]
 
+pub mod output;
 pub mod resolve;
 pub mod schema;
+pub mod select;
 pub mod template;
 pub mod validate;
 
