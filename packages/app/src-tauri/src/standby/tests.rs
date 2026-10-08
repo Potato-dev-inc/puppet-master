@@ -523,3 +523,29 @@ fn loads_legacy_pool_file() {
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_dir(&dir);
 }
+
+#[test]
+fn fingerprint_change_discards_workers() {
+    let host = Arc::new(FakeHost::default());
+    let pool = pool(&host, config(&[("claude", true, false), ("cursor_agent", true, false)]));
+    let claude = key("claude", "/w");
+    let cursor = key("cursor_agent", "/w");
+    pool.note_run(&claude, "/w", 0);
+    pool.note_run(&cursor, "/w", 0);
+    let now = warm_up(&pool, 0);
+    assert_eq!(pool.status(now).counts.ready, 2);
+
+    // The definition of one agent changed: only its workers go.
+    assert_eq!(pool.discard_agent("CLAUDE", "definition_changed"), 1);
+    let kills = host.kills();
+    assert_eq!(kills.len(), 1);
+    assert_eq!(kills[0].1, "definition_changed");
+    assert_eq!(pool.status(now).counts.total, 1);
+    assert!(matches!(pool.claim(&claude, now), ClaimOutcome::Miss(MissReason::NoStandby)));
+    hit(pool.claim(&cursor, now)).commit();
+    assert_eq!(pool.discard_agent("nothing_here", "definition_changed"), 0);
+
+    // The key stays allowed: the next pass warms a replacement.
+    let later = warm_up(&pool, now + 1_000);
+    hit(pool.claim(&claude, later)).commit();
+}

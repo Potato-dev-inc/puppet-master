@@ -592,6 +592,28 @@ impl Pool {
         result
     }
 
+    /// Shut down every standby of `agent_type` (its definition changed or went away, so a warm
+    /// worker would run the old one). Returns how many were discarded; their keys stay allowed
+    /// and the next `reconcile` spawns fresh ones.
+    pub fn discard_agent(&self, agent_type: &str, reason: &str) -> usize {
+        let doomed: Vec<Entry> = {
+            let mut inner = self.shared.inner.lock();
+            let (doomed, keep): (Vec<Entry>, Vec<Entry>) = std::mem::take(&mut inner.entries)
+                .into_iter()
+                .partition(|entry| entry.key.agent_type.eq_ignore_ascii_case(agent_type));
+            inner.entries = keep;
+            inner.stats.discarded += doomed.len() as u64;
+            doomed
+        };
+        for entry in &doomed {
+            self.host.kill(&entry.handle, reason);
+        }
+        if !doomed.is_empty() {
+            self.shared.wake.notify();
+        }
+        doomed.len()
+    }
+
     /// Shut every standby down and refuse new ones (app exit).
     pub fn shutdown(&self) {
         let entries = {

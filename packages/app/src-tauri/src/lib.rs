@@ -137,6 +137,7 @@ pub fn run() {
         .setup(|app| {
             // Register approved declarative agent definitions before anything resolves a profile.
             tui::declarative::loader::reload();
+            bridge::start_definitions_watcher(app.handle().clone());
             if let Ok(resource) = app
                 .path()
                 .resolve("mcp-stdio.bundle.cjs", BaseDirectory::Resource)

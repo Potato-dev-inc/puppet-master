@@ -123,6 +123,11 @@ fn pool() -> Option<&'static Arc<Pool>> {
     GLOBAL.get().map(|global| &global.pool)
 }
 
+/// An agent's definition changed or was removed: drop its warm workers (T33).
+pub fn discard_agent(agent_type: &str) -> usize {
+    pool().map_or(0, |pool| pool.discard_agent(agent_type, "definition_changed"))
+}
+
 /// Save new settings and apply them at once (standbys that are no longer allowed are shut down).
 pub fn set_config(config: StandbyConfig) -> Result<StandbyConfig, String> {
     let pool = pool().ok_or("the standby pool is not running")?;

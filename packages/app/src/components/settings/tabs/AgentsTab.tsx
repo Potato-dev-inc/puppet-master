@@ -16,7 +16,7 @@ import {
   type DraftsListing,
   type FixtureResult,
 } from '../../../lib/agentDefinitions';
-import { resetAgentRegistryCache } from '../../../lib/agentRegistry';
+import { onAgentDefinitionsChanged, resetAgentRegistryCache } from '../../../lib/agentRegistry';
 import { SettingBlock, SettingsSection } from '../settings-ui';
 
 const STATE_TONE: Record<string, string> = {
@@ -73,6 +73,8 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
   useEffect(() => {
     void load();
     void loadDrafts();
+    // The backend pushes a change when a definition file is saved: no polling.
+    return onAgentDefinitionsChanged(() => void load());
   }, [load, loadDrafts]);
 
   const run = async (action: () => Promise<void>) => {

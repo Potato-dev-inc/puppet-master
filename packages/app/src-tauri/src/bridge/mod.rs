@@ -35,7 +35,7 @@ pub(crate) use locks::{
 };
 pub use sse::{
     push_pane_resize_sse, push_pane_status_sse, push_panes_sse, push_settings_sse, push_sse,
-    push_terminal_sse,
+    push_terminal_sse, start_definitions_watcher,
 };
 
 use parking_lot::Mutex;

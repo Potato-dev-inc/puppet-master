@@ -326,6 +326,11 @@ pub fn last_entries() -> Vec<Entry> {
     LAST.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
+/// Remember `entries` as the rows of the last reload (the watcher swaps the registry itself).
+pub fn store_last(entries: Vec<Entry>) {
+    *LAST.write().unwrap_or_else(|e| e.into_inner()) = entries;
+}
+
 /// `reload_into` the process-wide registry and remember the rows (see `last_entry_for`).
 pub fn reload_global(inputs: &LoadInputs<'_>, approvals_path: &Path) -> Built {
     let built = reload_into(crate::tui::registry::registry(), inputs, approvals_path);

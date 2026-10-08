@@ -18,6 +18,7 @@ pub mod service;
 pub mod sources;
 pub mod template;
 pub mod validate;
+pub mod watch;
 
 mod profile;
 

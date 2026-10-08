@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invoke = vi.fn();
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
 import {
@@ -8,7 +9,9 @@ import {
   fallbackListing,
   isTuiAgentId,
   launchMenuEntries,
+  handleDefinitionsChanged,
   listAgentRegistry,
+  onAgentDefinitionsChanged,
   resetAgentRegistryCache,
 } from './agentRegistry';
 
@@ -117,5 +120,24 @@ describe('spawn menu entries (launchMenuEntries)', () => {
     await Promise.resolve();
     expect(isTuiAgentId('kilo')).toBe(true);
     setTauri(false);
+  });
+  it('a definitions change refetches the listing and notifies subscribers', async () => {
+    setTauri(true);
+    const body = (ids: string[]) => ({
+      agents: ids.map((id) => ({ id })),
+      dispatchable_ids: ids,
+    });
+    invoke.mockResolvedValueOnce(body(['claude']));
+    expect((await listAgentRegistry()).agents.map((a) => a.id)).toEqual(['claude']);
+    const seen = vi.fn();
+    const off = onAgentDefinitionsChanged(seen);
+    invoke.mockResolvedValueOnce(body(['claude', 'kilo']));
+    await handleDefinitionsChanged();
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect((await listAgentRegistry()).agents.map((a) => a.id)).toEqual(['claude', 'kilo']);
+    off();
+    invoke.mockResolvedValueOnce(body(['claude']));
+    await handleDefinitionsChanged();
+    expect(seen).toHaveBeenCalledTimes(1);
   });
 });

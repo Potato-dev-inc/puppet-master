@@ -122,3 +122,31 @@ pub fn push_panes_sse(registry: &Arc<Mutex<PaneRegistry>>) {
         push_sse(format!("event: panes\ndata: {json}\n\n"));
     }
 }
+
+/// Broadcast `agent_definitions_changed` with the diff `{added, removed, changed}` (SSE clients).
+pub fn push_agent_definitions_changed_sse(diff: &serde_json::Value) {
+    if let Ok(json) = serde_json::to_string(diff) {
+        push_sse(format!("event: agent_definitions_changed\ndata: {json}\n\n"));
+    }
+}
+
+/// Start the definitions watcher (T33): every applied change is sent to SSE clients and to the
+/// Tauri UI as `agent_definitions_changed`, and drops the warm standby workers of every agent
+/// whose definition changed or went away.
+pub fn start_definitions_watcher(app: AppHandle) {
+    use tauri::Emitter;
+    let result = crate::tui::declarative::watch::start(move |diff| {
+        for id in diff.invalidated() {
+            let dropped = crate::standby::discard_agent(id);
+            if dropped > 0 {
+                tracing::info!(agent = %id, dropped, "standby workers dropped: definition changed");
+            }
+        }
+        let body = diff.to_json();
+        push_agent_definitions_changed_sse(&body);
+        let _ = app.emit("agent_definitions_changed", body);
+    });
+    if let Err(error) = result {
+        tracing::warn!(%error, "agent definitions watcher not started");
+    }
+}

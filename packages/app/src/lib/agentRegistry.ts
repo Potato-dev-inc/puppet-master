@@ -2,6 +2,7 @@
 // `GET /agents/types`), cached, with the compiled code agents as the offline fallback.
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { listLaunchPresets, presetFor, type AgentType } from '@puppet-master/shared';
 
 export type AgentKind = 'cli' | 'native_protocol' | 'shell' | 'unknown';
@@ -166,6 +167,41 @@ export function peekAgentRegistry(): AgentRegistryListing {
   return resolved ?? fallbackListing();
 }
 
+const changeListeners = new Set<() => void>();
+let listening = false;
+
+/** What `agent_definitions_changed` carries: the ids that were added, removed or changed. */
+export interface DefinitionsDiff {
+  added: string[];
+  removed: string[];
+  changed: string[];
+}
+
+/** The backend reloaded definitions (file watcher, reload, approve): refetch and tell subscribers. */
+export async function handleDefinitionsChanged(): Promise<void> {
+  await listAgentRegistry({ refresh: true });
+  for (const listener of [...changeListeners]) listener();
+}
+
+function ensureListening(): void {
+  if (listening || !isTauriRuntime()) return;
+  listening = true;
+  void listen('agent_definitions_changed', () => {
+    void handleDefinitionsChanged();
+  }).catch(() => {
+    listening = false;
+  });
+}
+
+/** Run `listener` after every definitions change (no polling: the backend pushes the event). */
+export function onAgentDefinitionsChanged(listener: () => void): () => void {
+  changeListeners.add(listener);
+  ensureListening();
+  return () => {
+    changeListeners.delete(listener);
+  };
+}
+
 /** React hook: the compiled fallback on first render, then the registry listing once it resolves. */
 export function useAgentRegistry(): AgentRegistryListing {
   const [listing, setListing] = useState<AgentRegistryListing>(peekAgentRegistry);
@@ -174,8 +210,14 @@ export function useAgentRegistry(): AgentRegistryListing {
     void listAgentRegistry().then((next) => {
       if (live) setListing(next);
     });
+    const off = onAgentDefinitionsChanged(() => {
+      void listAgentRegistry().then((next) => {
+        if (live) setListing(next);
+      });
+    });
     return () => {
       live = false;
+      off();
     };
   }, []);
   return listing;
