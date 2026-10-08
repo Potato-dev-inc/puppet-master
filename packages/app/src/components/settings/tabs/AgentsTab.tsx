@@ -13,6 +13,7 @@ import {
   type DefinitionPreview,
   type DefinitionRow,
   type DefinitionsListing,
+  type FixtureResult,
 } from '../../../lib/agentDefinitions';
 import { resetAgentRegistryCache } from '../../../lib/agentRegistry';
 import { SettingBlock, SettingsSection } from '../settings-ui';
@@ -39,6 +40,8 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<Reviewing | null>(null);
+  const [fixturesDir, setFixturesDir] = useState('');
+  const [checks, setChecks] = useState<{ file: string; results: FixtureResult[] } | null>(null);
 
   const apply = useCallback((next: DefinitionsListing) => {
     setListing(next);
@@ -83,6 +86,11 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
           ].filter(Boolean)
         : [];
       setNote(parts.length ? `Reloaded: ${parts.join('; ')}` : 'Reloaded: no changes');
+    });
+
+  const check = (row: DefinitionRow) =>
+    run(async () => {
+      setChecks({ file: row.file, results: await api.checkFile(row.file, fixturesDir.trim() || undefined) });
     });
 
   const review = (row: DefinitionRow) =>
@@ -135,9 +143,27 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
         {listing && listing.definitions.length === 0 && (
           <p className="text-sm text-pm-muted">No definition files found.</p>
         )}
+        <label className="mb-3 block text-xs text-pm-muted">
+          Fixtures folder for Check with fixtures (empty: a folder named after the file, next to it)
+          <input
+            type="text"
+            value={fixturesDir}
+            onChange={(e) => setFixturesDir(e.target.value)}
+            placeholder="C:\path\to\captures"
+            className="mt-1 block w-full rounded-lg border border-pm-border bg-transparent px-2 py-1 text-xs"
+          />
+        </label>
         <ul className="space-y-3">
           {listing?.definitions.map((row) => (
-            <DefinitionItem key={row.file} row={row} busy={busy} onReview={review} onRevoke={revoke} />
+            <DefinitionItem
+              key={row.file}
+              row={row}
+              busy={busy}
+              onReview={review}
+              onRevoke={revoke}
+              onCheck={check}
+              results={checks?.file === row.file ? checks.results : null}
+            />
           ))}
         </ul>
       </SettingBlock>
@@ -205,11 +231,15 @@ function DefinitionItem({
   busy,
   onReview,
   onRevoke,
+  onCheck,
+  results,
 }: {
   row: DefinitionRow;
   busy: boolean;
   onReview: (row: DefinitionRow) => void;
   onRevoke: (row: DefinitionRow) => void;
+  onCheck: (row: DefinitionRow) => void;
+  results: FixtureResult[] | null;
 }) {
   return (
     <li data-testid="definition-row" className="rounded-lg border border-pm-border p-3">
@@ -225,6 +255,9 @@ function DefinitionItem({
           {stateLabel(row.state)}
         </span>
         <span className="ml-auto flex gap-2">
+          <button type="button" className={BTN} disabled={busy} onClick={() => onCheck(row)}>
+            Check with fixtures
+          </button>
           {row.state === 'unapproved' && row.fingerprint && (
             <button type="button" className={BTN} disabled={busy} onClick={() => onReview(row)}>
               Review and approve
@@ -238,6 +271,22 @@ function DefinitionItem({
         </span>
       </div>
       <p className="mt-1 break-all text-xs text-pm-muted">{row.file}</p>
+      {results && (
+        <ul data-testid="fixture-results" className="mt-2 space-y-1">
+          {results.length === 0 && <li className="text-xs text-pm-muted">No fixtures found.</li>}
+          {results.map((r) => (
+            <li key={r.fixture} data-testid="fixture-result" className="text-xs">
+              <span className={r.passed ? 'text-emerald-400' : 'text-red-400'}>{r.passed ? 'PASS' : 'FAIL'}</span>{' '}
+              <span className="font-mono">{r.fixture}</span>
+              {r.failures.map((f, i) => (
+                <div key={i} className="ml-6 text-red-400">
+                  {f}
+                </div>
+              ))}
+            </li>
+          ))}
+        </ul>
+      )}
       {row.shadowed_by && (
         <p className="mt-1 text-xs text-pm-muted">Shadowed by {fileName(row.shadowed_by)}</p>
       )}

@@ -274,16 +274,31 @@ deliver the task through `[headless.stdin]`; this is refused for project and ext
      idle, working, permission dialog, finished reply. Save as `tui_idle.txt`, `tui_working.txt`,
      `tui_permission.txt`, `tui_reply.txt`.
    - Also capture an error (wrong model, no network) and a garbage case (random text).
-3. **Describe expectations** next to each capture in `<name>.expect.toml`:
+3. **Describe expectations** next to each capture in `<name>.expect.toml` (every capture needs one; a
+   capture without it, or an expect file without a capture, is reported as a failure). Headless captures
+   (`headless*`, or `kind = "headless"`):
    ```toml
-   result = "pong"
-   session = "ses_example"
-   done = true
-   error = ""
+   result = "pong"          # extracted result; "" means none
+   session = "ses_example"  # provider session; "" means none
+   model = "provider/model" # optional
+   done = true              # headless_result_ready
+   exit = 0                 # optional exit code given to the parser (default 0)
+   error_code = "AGENT_REPORTED_ERROR"   # classified failure, for captures that fail
+   error = "Model not found: x."         # its message
    ```
-   For screens: `busy = true`, `chrome_lines = ["ctrl+p commands"]`, `prompt_kind = "command_approval"`.
-4. **Run the check**: Settings > Agents > Check with fixtures (point at your folder), or put the files in
-   `packages/app/src-tauri/tests/agent-definitions/<id>/` and run `cargo test --lib tui::declarative`.
+   Screen captures (`tui*`, or `kind = "screen"`; a leading `# capture:` comment line is ignored):
+   ```toml
+   busy = true                      # true, false, or "unknown" (no footer: not busy, not idle)
+   menu = false
+   prompt_kind = "command_approval" # "" means no prompt
+   model = "Nemotron 3 Ultra (free)"
+   chrome_lines = ["9% used"]       # must be chrome rows
+   not_chrome_lines = ["the answer"]
+   ```
+4. **Run the check**: Settings > Agents > Check with fixtures (set the folder, or leave it empty to use a
+   folder named after the file next to it), or put the files under
+   `packages/app/src-tauri/src/tui/declarative/fixtures/<id>/` next to `tests/agent-definitions/<id>.toml`
+   and run `cargo test --lib tui::declarative::expect`. Only regular files directly inside the folder are read.
 5. The shared conformance rules run on every definition automatically: unique id, parsers reject garbage and
    non-zero exits, every detected prompt can be answered, an empty screen is never "blocked", idle windows are in
    range. A failure names the rule.

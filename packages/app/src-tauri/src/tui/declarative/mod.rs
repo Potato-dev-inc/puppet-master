@@ -6,6 +6,7 @@
 #![allow(dead_code)]
 
 pub mod approvals;
+pub mod check;
 pub mod fingerprint;
 pub mod loader;
 pub mod output;
@@ -50,3 +51,8 @@ pub use schema::{parse_definition, DefError, Definition, SUPPORTED_SCHEMA_VERSIO
 pub use validate::{validate, Source, ValidationContext};
 #[allow(unused_imports)]
 pub use profile::{DeclarativeProfile, DefinitionOrigin};
+
+// `tui::declarative::expect` (phase T27 verification filter).
+#[cfg(test)]
+#[path = "tests/expect.rs"]
+mod expect;

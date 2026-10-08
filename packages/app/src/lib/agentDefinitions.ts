@@ -43,7 +43,15 @@ export interface DefinitionPreview {
 }
 
 /** The backend the tab talks to; tests pass a mock. */
+export interface FixtureResult {
+  fixture: string;
+  passed: boolean;
+  failures: string[];
+}
+
 export interface AgentDefinitionsApi {
+  /** Runs the definition file against a folder of captures with *.expect.toml files. */
+  checkFile(path: string, fixturesDir?: string): Promise<FixtureResult[]>;
   list(): Promise<DefinitionsListing>;
   reload(): Promise<DefinitionsListing>;
   preview(file: string): Promise<DefinitionPreview>;
@@ -53,6 +61,7 @@ export interface AgentDefinitionsApi {
 }
 
 export const tauriAgentDefinitionsApi: AgentDefinitionsApi = {
+  checkFile: (path, fixturesDir) => invoke<FixtureResult[]>('agents_check_file', { path, fixturesDir: fixturesDir || null }),
   list: () => invoke<DefinitionsListing>('agents_definitions_list', undefined),
   reload: () => invoke<DefinitionsListing>('agents_definitions_reload', undefined),
   preview: (file) => invoke<DefinitionPreview>('agents_definition_preview', { file }),

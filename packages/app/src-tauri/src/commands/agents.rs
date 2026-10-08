@@ -51,6 +51,20 @@ pub fn agents_definition_preview(file: String) -> Result<Value, String> {
     crate::tui::declarative::service::validate_global(&text, entry.source).map_err(command_error)
 }
 
+/// Runs a definition file against a folder of captures with `*.expect.toml` files (P3-2). Reads the
+/// definition and the regular files directly inside the folder; nothing is registered or approved.
+#[tauri::command]
+pub fn agents_check_file(path: String, fixtures_dir: Option<String>) -> Result<Value, String> {
+    let file = PathBuf::from(&path);
+    if file.extension().and_then(|e| e.to_str()) != Some("toml") {
+        return Err("AGENT_DEF_NOT_FOUND: a definition file ends in .toml".into());
+    }
+    let dir = fixtures_dir.filter(|d| !d.trim().is_empty()).map(PathBuf::from);
+    let ids = crate::tui::registry::registry().code_ids();
+    let results = crate::tui::declarative::check::check_file(&file, dir.as_deref(), &ids)?;
+    serde_json::to_value(results).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn agents_definition_revoke(id: String) -> Result<Value, String> {
     crate::tui::declarative::service::revoke_global(&id).map_err(command_error)
@@ -65,6 +79,15 @@ pub fn agents_definitions_consent(kind: String, path: String, enabled: bool) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_file_refuses_non_toml_and_reports_fixtures() {
+        assert!(agents_check_file("C:/x/notes.txt".into(), None).unwrap_err().starts_with("AGENT_DEF_NOT_FOUND"));
+        let kilo = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/agent-definitions/kilo.toml");
+        let fixtures = concat!(env!("CARGO_MANIFEST_DIR"), "/src/tui/declarative/fixtures/kilo");
+        let body = agents_check_file(kilo.into(), Some(fixtures.into())).unwrap();
+        assert!(body.as_array().unwrap().iter().all(|r| r["passed"] == true), "{body}");
+    }
 
     #[test]
     fn preview_refuses_a_file_the_scan_did_not_list() {

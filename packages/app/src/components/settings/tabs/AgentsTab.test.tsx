@@ -45,6 +45,10 @@ function mockApi(listing: DefinitionsListing = fixture()): AgentDefinitionsApi &
     approve: vi.fn(async () => ({ ok: true, id: 'kilo', state: 'active' })),
     revoke: vi.fn(async () => ({ ok: true })),
     consent: vi.fn(async () => ({ ok: true })),
+    checkFile: vi.fn(async () => [
+      { fixture: 'headless_success.jsonl', passed: true, failures: [] },
+      { fixture: 'tui_reply.txt', passed: false, failures: ['busy: expected true, got false'] },
+    ]),
   } as never;
 }
 
@@ -168,5 +172,18 @@ describe('AgentsTab source toggle / extra dir / consent controls', () => {
     await render(mockApi());
     expect(host.querySelector('[data-source="bundled"] [role="switch"]')).toBeNull();
     expect(host.querySelector('[data-source="user"] [role="switch"]')).toBeNull();
+  });
+
+  it('AgentsTab check button shows per-fixture results', async () => {
+    const api = mockApi();
+    await render(api);
+    await click(button('Check with fixtures'));
+    expect(api.checkFile).toHaveBeenCalledWith(KILO, undefined);
+    const rows = Array.from(host.querySelectorAll('[data-testid="fixture-result"]'));
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain('PASS');
+    expect(rows[0].textContent).toContain('headless_success.jsonl');
+    expect(rows[1].textContent).toContain('FAIL');
+    expect(rows[1].textContent).toContain('busy: expected true, got false');
   });
 });
