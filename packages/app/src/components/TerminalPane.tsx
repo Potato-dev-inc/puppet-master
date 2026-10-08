@@ -1,5 +1,5 @@
 import type { HTMLAttributes } from 'react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AgentType } from '@puppet-master/shared';
 import {
   agentLabel,
@@ -8,6 +8,7 @@ import {
   type AgentRegistryListing,
   type LaunchEntry,
 } from '../lib/agentRegistry';
+import { errorMessage, tauriRecorderApi } from '../lib/agentDefinitions';
 import { useTerminalSession } from '../hooks/useTerminalSession';
 import type { PaneData } from '../hooks/usePaneRegistry';
 
@@ -49,6 +50,8 @@ export function TerminalPane({
   reflowKey,
 }: Props) {
   const [switching, setSwitching] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recorderNote, setRecorderNote] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const { containerRef, nudgeReflow } = useTerminalSession({
     paneId: pane.info.id,
@@ -62,6 +65,35 @@ export function TerminalPane({
   const listing = useAgentRegistry();
   const presets = switchPresetsFor(listing, agent);
   const preset = presets.find((p) => p.type === agent);
+
+  useEffect(() => {
+    let cancelled = false;
+    void tauriRecorderApi
+      .status(pane.info.id)
+      .then((s) => {
+        if (!cancelled) setRecording(s.recording);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [pane.info.id]);
+
+  const toggleRecording = async () => {
+    try {
+      if (recording) {
+        const done = await tauriRecorderApi.stop(pane.info.id);
+        setRecording(false);
+        setRecorderNote(`Draft saved: ${done.path}`);
+      } else {
+        await tauriRecorderApi.start(pane.info.id);
+        setRecording(true);
+        setRecorderNote(null);
+      }
+    } catch (e) {
+      setRecorderNote(errorMessage(e));
+    }
+  };
 
   const handleAgentChange = async (next: AgentType) => {
     if (next === agent || switching) return;
@@ -110,6 +142,24 @@ export function TerminalPane({
           {preset?.label ?? pane.info.agent_type} · pid {pane.info.pid}
         </span>
         <div className="flex-1" />
+        {recorderNote && (
+          <span className="max-w-[40%] truncate text-pm-muted" title={recorderNote}>
+            {recorderNote}
+          </span>
+        )}
+        <button
+          type="button"
+          className={`px-1.5 py-0.5 rounded hover:bg-pm-border/40 ${recording ? 'text-pm-err' : 'text-pm-muted hover:text-pm-text'}`}
+          title={
+            recording
+              ? 'Stop recording and write a draft agent definition'
+              : 'Record this session to draft an agent definition (screens are redacted and kept in memory only)'
+          }
+          aria-pressed={recording}
+          onClick={() => void toggleRecording()}
+        >
+          {recording ? '■ Stop rec' : '● Rec'}
+        </button>
         <button
           className="px-1.5 py-0.5 rounded text-pm-muted hover:text-pm-text hover:bg-pm-border/40"
           title="Pop out pane"

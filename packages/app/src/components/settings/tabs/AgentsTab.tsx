@@ -13,6 +13,7 @@ import {
   type DefinitionPreview,
   type DefinitionRow,
   type DefinitionsListing,
+  type DraftsListing,
   type FixtureResult,
 } from '../../../lib/agentDefinitions';
 import { resetAgentRegistryCache } from '../../../lib/agentRegistry';
@@ -43,6 +44,8 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
   const [fixturesDir, setFixturesDir] = useState('');
   const [genericCommand, setGenericCommand] = useState('');
   const [checks, setChecks] = useState<{ file: string; results: FixtureResult[] } | null>(null);
+  const [drafts, setDrafts] = useState<DraftsListing | null>(null);
+  const [draftCheck, setDraftCheck] = useState<{ path: string; preview: DefinitionPreview } | null>(null);
 
   const apply = useCallback((next: DefinitionsListing) => {
     setListing(next);
@@ -58,9 +61,19 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
     }
   }, [api, apply]);
 
+  const loadDrafts = useCallback(async () => {
+    if (!api.draftsList) return;
+    try {
+      setDrafts(await api.draftsList());
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }, [api]);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadDrafts();
+  }, [load, loadDrafts]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -101,6 +114,12 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
   const check = (row: DefinitionRow) =>
     run(async () => {
       setChecks({ file: row.file, results: await api.checkFile(row.file, fixturesDir.trim() || undefined) });
+    });
+
+  const validateDraft = (path: string) =>
+    run(async () => {
+      if (!api.draftValidate) return;
+      setDraftCheck({ path, preview: await api.draftValidate(path) });
     });
 
   const review = (row: DefinitionRow) =>
@@ -194,6 +213,46 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
           ))}
         </ul>
       </SettingBlock>
+      {api.draftsList && (
+        <SettingBlock
+          label="Drafts"
+          description="Definitions drafted from a recorded pane session (the Rec button in a pane header). A draft is never loaded or approved: review it, copy it to the agents folder, then approve it above."
+          implemented
+        >
+          <div className="mb-3 flex items-center gap-2">
+            <button type="button" className={BTN} disabled={busy} onClick={() => void loadDrafts()}>
+              Refresh drafts
+            </button>
+            {drafts && <span className="break-all text-xs text-pm-muted">{drafts.dir}</span>}
+          </div>
+          {drafts && drafts.drafts.length === 0 && <p className="text-sm text-pm-muted">No drafts yet.</p>}
+          <ul className="space-y-2">
+            {drafts?.drafts.map((draft) => (
+              <li key={draft.path} data-testid="draft-row" className="rounded-lg border border-pm-border p-3">
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">{draft.name}</span>
+                  <button type="button" className={BTN} disabled={busy} onClick={() => void validateDraft(draft.path)}>
+                    Validate draft
+                  </button>
+                </div>
+                <p className="mt-1 break-all text-xs text-pm-muted">{draft.path}</p>
+                {draftCheck?.path === draft.path && (
+                  <div role="status" className="mt-2 text-xs">
+                    <p className={draftCheck.preview.ok ? 'text-emerald-400' : 'text-red-400'}>
+                      {draftCheck.preview.ok ? 'Draft is valid.' : 'Draft has errors:'}
+                    </p>
+                    {draftCheck.preview.errors.map((err, i) => (
+                      <p key={i} className="text-red-400">
+                        {err.code} {err.path ?? ''}: {err.message}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </SettingBlock>
+      )}
       <SettingBlock
         label="Sources"
         description="Where definitions are read from. Project and extra directories only load after you consent to that location."

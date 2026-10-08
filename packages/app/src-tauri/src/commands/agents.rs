@@ -85,6 +85,120 @@ pub fn agents_definitions_consent(kind: String, path: String, enabled: bool) -> 
         .map_err(command_error)
 }
 
+/// Record-session toolbar (REC-1): start recording a pane. Refused for a standby-pool pane.
+#[tauri::command]
+pub fn recorder_start(state: State<'_, AppState>, pane_id: String) -> Result<Value, String> {
+    let (agent_type, status) = {
+        let reg = state.registry.lock();
+        let pane = reg.get(&pane_id).ok_or_else(|| format!("PANE_NOT_FOUND: {pane_id}"))?;
+        let status = *pane.status.lock();
+        (pane.info.agent_type.clone(), status)
+    };
+    let screen = crate::pty::registry::read_snapshot(&state.registry, &pane_id).unwrap_or_default();
+    crate::agent_definitions_recorder::start(
+        &pane_id,
+        &agent_type,
+        crate::pty::hidden::is_hidden(&pane_id),
+        Some((status, screen.as_str())),
+    )?;
+    Ok(recorder_status_json(&pane_id))
+}
+
+fn recorder_status_json(pane_id: &str) -> Value {
+    let session = crate::agent_definitions_recorder::session(pane_id);
+    serde_json::json!({
+        "recording": crate::agent_definitions_recorder::is_recording(pane_id),
+        "snapshots": session.as_ref().map_or(0, |s| s.snapshots.len()),
+    })
+}
+
+#[tauri::command]
+pub fn recorder_status(pane_id: String) -> Value {
+    recorder_status_json(&pane_id)
+}
+
+/// Stop recording and write the draft to `<app data>/agents/drafts/<id>.toml` (REC-4); the draft is
+/// never loaded or approved. `command` defaults to the pane agent type.
+#[tauri::command]
+pub fn recorder_stop(pane_id: String, id: Option<String>, label: Option<String>, command: Option<String>) -> Result<Value, String> {
+    let session = crate::agent_definitions_recorder::stop(&pane_id)
+        .ok_or_else(|| "RECORDER_NOT_RECORDING: this pane is not being recorded".to_string())?;
+    write_session_draft(&session, id, label, command, &crate::agent_definitions_recorder::draft::drafts_dir())
+}
+
+fn write_session_draft(
+    session: &crate::agent_definitions_recorder::Session,
+    id: Option<String>,
+    label: Option<String>,
+    command: Option<String>,
+    dir: &std::path::Path,
+) -> Result<Value, String> {
+    use crate::agent_definitions_recorder::draft;
+    let command = command.filter(|c| !c.trim().is_empty()).unwrap_or_else(|| session.agent_type.clone());
+    let id = id.filter(|c| !c.trim().is_empty()).unwrap_or_else(|| format!("{}_draft", session.agent_type));
+    let label = label.filter(|c| !c.trim().is_empty()).unwrap_or_else(|| format!("{} (draft)", session.agent_type));
+    let input = draft::DraftInput::from_session(session, &id, &label, &command, None);
+    let generated = draft::generate(&input);
+    let path = draft::write_draft(dir, &generated)?;
+    Ok(serde_json::json!({
+        "path": path.display().to_string(),
+        "id": generated.id,
+        "notes": generated.notes,
+        "snapshots": session.snapshots.len(),
+    }))
+}
+
+/// The drafts folder and the draft files in it, newest first.
+#[tauri::command]
+pub fn agents_drafts_list() -> Value {
+    let dir = crate::agent_definitions_recorder::draft::drafts_dir();
+    let mut rows: Vec<(i64, Value)> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let path = e.path();
+            if path.extension().and_then(|x| x.to_str()) != Some("toml") {
+                continue;
+            }
+            let Ok(meta) = e.metadata() else { continue };
+            if !meta.is_file() {
+                continue;
+            }
+            let modified = meta
+                .modified()
+                .ok()
+                .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_millis() as i64);
+            rows.push((
+                modified,
+                serde_json::json!({
+                    "name": e.file_name().to_string_lossy(),
+                    "path": path.display().to_string(),
+                    "modified_ms": modified,
+                    "size": meta.len(),
+                }),
+            ));
+        }
+    }
+    rows.sort_by_key(|(m, _)| std::cmp::Reverse(*m));
+    serde_json::json!({"dir": dir.display().to_string(), "drafts": rows.into_iter().map(|(_, v)| v).collect::<Vec<_>>()})
+}
+
+/// "Validate draft": same result as `POST /agents/definitions/validate` for a file in the drafts folder.
+#[tauri::command]
+pub fn agents_draft_validate(path: String) -> Result<Value, String> {
+    validate_draft_in(&crate::agent_definitions_recorder::draft::drafts_dir(), &path)
+}
+
+fn validate_draft_in(dir: &std::path::Path, path: &str) -> Result<Value, String> {
+    let root = std::fs::canonicalize(dir).map_err(|_| "AGENT_DEF_NOT_FOUND: there is no drafts folder yet".to_string())?;
+    let file = std::fs::canonicalize(path).map_err(|_| format!("AGENT_DEF_NOT_FOUND: {path}"))?;
+    if file.parent() != Some(root.as_path()) || file.extension().and_then(|e| e.to_str()) != Some("toml") {
+        return Err("AGENT_DEF_NOT_FOUND: only a .toml file directly in the drafts folder can be validated here".into());
+    }
+    let text = std::fs::read_to_string(&file).map_err(|e| format!("AGENT_DEF_NOT_FOUND: {e}"))?;
+    crate::tui::declarative::service::validate_global(&text, "user").map_err(command_error)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,5 +243,36 @@ mod tests {
         );
         assert_eq!(body["agents"][0]["label"], "Claude Code");
         assert_eq!(body["dispatchable_ids"].as_array().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn draft_validation_is_limited_to_the_drafts_folder() {
+        let dir = std::env::temp_dir().join(format!("pm-drafts-cmd-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let inside = dir.join("a.toml");
+        std::fs::write(&inside, "schema_version = 1\n[agent]\nid = \"zz_draft\"\nlabel = \"Z\"\n[binary]\nnames = [\"zz\"]\n").unwrap();
+        let body = validate_draft_in(&dir, inside.to_str().unwrap()).unwrap();
+        assert!(body.get("ok").is_some());
+        let outside = std::env::temp_dir().join(format!("pm-drafts-outside-{}.toml", std::process::id()));
+        std::fs::write(&outside, "x = 1").unwrap();
+        assert!(validate_draft_in(&dir, outside.to_str().unwrap()).unwrap_err().starts_with("AGENT_DEF_NOT_FOUND"));
+        std::fs::remove_file(&inside).unwrap();
+        std::fs::remove_file(&outside).unwrap();
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn recorder_stop_writes_a_draft_that_validates() {
+        let pane = "cmd-rec-test-pane";
+        crate::agent_definitions_recorder::start(pane, "kilo", false, Some((crate::pty::status::PaneStatus::Idle, "ready  ctrl+p commands  tab agents"))).unwrap();
+        let session = crate::agent_definitions_recorder::stop(pane).unwrap();
+        let dir = std::env::temp_dir().join(format!("pm-rec-cmd-{}", std::process::id()));
+        let out = write_session_draft(&session, None, None, None, &dir).unwrap();
+        let path = out["path"].as_str().unwrap().to_string();
+        assert!(path.contains("kilo_draft"));
+        let body = validate_draft_in(&dir, &path).unwrap();
+        assert_eq!(body["ok"], true, "{body}");
+        std::fs::remove_file(&path).unwrap();
+        let _ = std::fs::remove_dir(&dir);
     }
 }

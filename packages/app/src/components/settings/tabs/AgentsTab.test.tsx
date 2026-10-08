@@ -130,6 +130,26 @@ describe('AgentsTab', () => {
     expect(host.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it('lists recorder drafts and validates one through the api', async () => {
+    const api = mockApi();
+    api.draftsList = vi.fn(async () => ({
+      dir: 'C:/data/agents/drafts',
+      drafts: [{ name: 'kilo_draft.toml', path: 'C:/data/agents/drafts/kilo_draft.toml', modified_ms: 1, size: 10 }],
+    }));
+    api.draftValidate = vi.fn(async () => ({
+      ok: false,
+      errors: [{ code: 'AGENT_DEF_BAD_REGEX', message: 'bad', path: 'tui.busy', line: null, column: null }],
+      rendered: { headless_argv: null, tui_argv: null },
+    }));
+    await render(api);
+    const row = host.querySelector('[data-testid="draft-row"]');
+    expect(row?.textContent).toContain('kilo_draft.toml');
+    expect(host.textContent).toContain('C:/data/agents/drafts');
+    await click(button('Validate draft'));
+    expect(api.draftValidate).toHaveBeenCalledWith('C:/data/agents/drafts/kilo_draft.toml');
+    expect(host.querySelector('[role="status"]')?.textContent).toContain('AGENT_DEF_BAD_REGEX');
+  });
+
   it('escapes hostile label', async () => {
     const listing = fixture();
     listing.definitions[0].id = '<img src=x onerror="window.__pwned=1">';

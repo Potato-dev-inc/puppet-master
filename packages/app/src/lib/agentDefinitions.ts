@@ -49,7 +49,30 @@ export interface FixtureResult {
   failures: string[];
 }
 
+export interface DraftFile {
+  name: string;
+  path: string;
+  modified_ms: number;
+  size: number;
+}
+
+export interface DraftsListing {
+  dir: string;
+  drafts: DraftFile[];
+}
+
+export interface RecorderStopResult {
+  path: string;
+  id: string;
+  notes: string[];
+  snapshots: number;
+}
+
 export interface AgentDefinitionsApi {
+  /** Draft definitions written by the session recorder (never loaded, never approved). */
+  draftsList?(): Promise<DraftsListing>;
+  /** Validates a draft through the same checks as /agents/definitions/validate. */
+  draftValidate?(path: string): Promise<DefinitionPreview>;
   /** Writes an UNAPPROVED experimental generic definition for a bare command name, then rescans. */
   addGeneric(command: string): Promise<DefinitionsListing>;
   /** Runs the definition file against a folder of captures with *.expect.toml files. */
@@ -71,6 +94,21 @@ export const tauriAgentDefinitionsApi: AgentDefinitionsApi = {
   approve: (file, fingerprint) => invoke('agents_definition_approve', { file, fingerprint }),
   revoke: (id) => invoke('agents_definition_revoke', { id }),
   consent: (kind, path, enabled) => invoke('agents_definitions_consent', { kind, path, enabled }),
+  draftsList: () => invoke<DraftsListing>('agents_drafts_list', undefined),
+  draftValidate: (path) => invoke<DefinitionPreview>('agents_draft_validate', { path }),
+};
+
+/** Pane toolbar: record a session, then stop to get a draft file path (REC-1, REC-4). */
+export interface RecorderApi {
+  start(paneId: string): Promise<{ recording: boolean; snapshots: number }>;
+  status(paneId: string): Promise<{ recording: boolean; snapshots: number }>;
+  stop(paneId: string): Promise<RecorderStopResult>;
+}
+
+export const tauriRecorderApi: RecorderApi = {
+  start: (paneId) => invoke('recorder_start', { paneId }),
+  status: (paneId) => invoke('recorder_status', { paneId }),
+  stop: (paneId) => invoke('recorder_stop', { paneId }),
 };
 
 const STATE_LABELS: Record<string, string> = {
