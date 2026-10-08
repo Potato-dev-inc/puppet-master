@@ -1,4 +1,5 @@
 mod output;
+mod profile;
 mod resolve;
 mod schema;
 mod select;

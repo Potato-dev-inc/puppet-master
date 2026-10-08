@@ -12,6 +12,8 @@ pub mod select;
 pub mod template;
 pub mod validate;
 
+mod profile;
+
 #[cfg(test)]
 mod tests;
 
@@ -19,3 +21,5 @@ mod tests;
 pub use schema::{parse_definition, DefError, Definition, SUPPORTED_SCHEMA_VERSIONS};
 #[allow(unused_imports)]
 pub use validate::{validate, Source, ValidationContext};
+#[allow(unused_imports)]
+pub use profile::DeclarativeProfile;
