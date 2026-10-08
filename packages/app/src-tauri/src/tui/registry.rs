@@ -61,6 +61,14 @@ impl Registry {
     }
 }
 
+/// Serializes tests that swap profiles into the process-wide registry with tests that assert on
+/// its exact contents. Hold the guard for the whole swap window / assertion.
+#[cfg(test)]
+pub(crate) fn test_serial() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// The process-wide registry, seeded with the code profiles on first use.
 pub fn registry() -> &'static Registry {
     static REGISTRY: OnceLock<Registry> = OnceLock::new();

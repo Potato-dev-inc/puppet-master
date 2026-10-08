@@ -172,6 +172,7 @@ fn test_profile_spawns_without_agent_type() {
     };
 
     // Inject, resolve, restore: other tests read the process-wide registry, keep the window short.
+    let _serial = registry::test_serial();
     let before = registry::snapshot();
     let mut with_probe: Vec<Arc<dyn TuiProfile>> = before.iter().cloned().collect();
     with_probe.push(Arc::new(EchoProfile));

@@ -11,6 +11,7 @@ fn lists_all_agent_profiles() {
 /// The list is the registry snapshot (registry order), not a hand-kept array.
 #[test]
 fn list_follows_registry_order() {
+    let _serial = crate::tui::registry::test_serial();
     let listed: Vec<String> = list_agent_context_profiles()
         .iter()
         .map(|profile| profile.agent_type.as_str().to_string())

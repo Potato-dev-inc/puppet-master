@@ -707,6 +707,7 @@ mod tests {
 
         // Inject, probe the gates, restore: other tests read the same process-wide registry, so
         // keep the window with the extra profile as short as possible.
+        let _serial = registry::test_serial();
         let before = registry::snapshot();
         let mut with_probe: Vec<Arc<dyn TuiProfile>> = before.iter().cloned().collect();
         with_probe.push(Arc::new(GateProbe));

@@ -232,6 +232,7 @@ mod scoping {
 
     #[test]
     fn require_registered_lists_nine_valid_ids() {
+        let _serial = registry::test_serial();
         let err = match require_registered("not-a-real-agent") {
             Err(err) => err,
             Ok(_) => panic!("expected unknown agent type"),
@@ -287,6 +288,7 @@ mod descriptor {
 
     #[test]
     fn descriptor_builds_all_nine() {
+        let _serial = registry::test_serial();
         let all = descriptors();
         assert_eq!(all.len(), 9);
         let ids: Vec<&str> = all.iter().map(|d| d.id).collect();
@@ -302,6 +304,7 @@ mod descriptor {
 
     #[test]
     fn descriptor_modes_follow_features() {
+        let _serial = registry::test_serial();
         for profile in profiles() {
             let d = Descriptor::of(profile.as_ref());
             let features = profile.features();
