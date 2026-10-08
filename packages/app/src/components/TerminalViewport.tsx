@@ -1,6 +1,7 @@
 // One terminal pane as used by the standalone / detached pane window: xterm host, optional title bar,
 // and floating controls (move back to app, API key tray, reflow nudge).
 import { useTerminalSession } from '../hooks/useTerminalSession';
+import { agentLabel, useAgentRegistry } from '../lib/agentRegistry';
 import type { PaneData, PaneRegistryApi } from '../hooks/usePaneRegistry';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -10,7 +11,7 @@ const STATUS_COLOR: Record<string, string> = {
   error: 'bg-pm-err',
 };
 
-function paneTitle(agentType: string): string {
+function paneTitle(agentType: string, registryLabel: (id: string) => string): string {
   switch (agentType) {
     case 'cmd':
       return 'Command Prompt';
@@ -27,7 +28,7 @@ function paneTitle(agentType: string): string {
     case 'opencode_native':
       return 'OpenCode (API)';
     default:
-      return agentType;
+      return registryLabel(agentType);
   }
 }
 
@@ -52,6 +53,7 @@ export function TerminalViewport({
   workerTrayOpen?: boolean;
   onToggleWorkerTray?: () => void;
 }) {
+  const listing = useAgentRegistry();
   const { containerRef, nudgeReflow } = useTerminalSession({
     paneId: pane.info.id,
     sessionKey: pane.info.created_at,
@@ -69,7 +71,7 @@ export function TerminalViewport({
       {chrome && (
         <div className="pm-terminal-titlebar">
           <span className={`pm-terminal-status ${STATUS_COLOR[pane.status] ?? 'bg-pm-muted'}`} />
-          <strong>{paneTitle(pane.info.agent_type)}</strong>
+          <strong>{paneTitle(pane.info.agent_type, (id) => agentLabel(listing, id))}</strong>
           <span>pid {pane.info.pid}</span>
           <span>{pane.info.cols}x{pane.info.rows}</span>
         </div>

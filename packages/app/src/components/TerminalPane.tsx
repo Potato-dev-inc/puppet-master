@@ -1,6 +1,13 @@
 import type { HTMLAttributes } from 'react';
 import { useRef, useState } from 'react';
-import { listLaunchPresets, getPreset, type AgentPreset, type AgentType } from '@puppet-master/shared';
+import type { AgentType } from '@puppet-master/shared';
+import {
+  agentLabel,
+  launchMenuEntries,
+  useAgentRegistry,
+  type AgentRegistryListing,
+  type LaunchEntry,
+} from '../lib/agentRegistry';
 import { useTerminalSession } from '../hooks/useTerminalSession';
 import type { PaneData } from '../hooks/usePaneRegistry';
 
@@ -23,12 +30,12 @@ const STATUS_COLOR: Record<string, string> = {
   error: 'bg-pm-err',
 };
 
-function switchPresetsFor(agent: AgentType): AgentPreset[] {
-  const launchPresets = listLaunchPresets();
+function switchPresetsFor(listing: AgentRegistryListing, agent: AgentType): LaunchEntry[] {
+  const launchPresets = launchMenuEntries(listing);
   if (launchPresets.some((preset) => preset.type === agent)) {
     return launchPresets;
   }
-  return [getPreset(agent), ...launchPresets];
+  return [{ type: agent, label: agentLabel(listing, agent), icon: null }, ...launchPresets];
 }
 
 export function TerminalPane({
@@ -52,7 +59,8 @@ export function TerminalPane({
   });
 
   const agent = pane.info.agent_type as AgentType;
-  const presets = switchPresetsFor(agent);
+  const listing = useAgentRegistry();
+  const presets = switchPresetsFor(listing, agent);
   const preset = presets.find((p) => p.type === agent);
 
   const handleAgentChange = async (next: AgentType) => {

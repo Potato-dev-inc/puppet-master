@@ -1,4 +1,5 @@
 // Warm standby pool settings helpers (pure; the settings tab and its tests share them).
+import { peekAgentRegistry } from './agentRegistry';
 import type { StandbyConfig, StandbyStatus } from './tauri-types';
 
 export type StandbyKind = 'visible' | 'headless';
@@ -19,7 +20,11 @@ export const STANDBY_BACKEND_LABELS: Record<string, string> = {
 };
 
 export function backendLabel(agentType: string): string {
-  return STANDBY_BACKEND_LABELS[agentType] ?? agentType;
+  return (
+    STANDBY_BACKEND_LABELS[agentType] ??
+    peekAgentRegistry().agents.find((agent) => agent.id === agentType)?.label ??
+    agentType
+  );
 }
 
 /** Is this kind of standby switched on for the backend? */

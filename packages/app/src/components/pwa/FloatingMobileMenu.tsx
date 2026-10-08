@@ -2,12 +2,12 @@
 import {
   DEFAULT_LLM_MODELS,
   ORCHESTRATOR_BACKEND_LABELS,
-  listLaunchPresets,
   modelKey,
   type AgentType,
   type OrchestratorBackend,
   type PaneInfo,
 } from '@puppet-master/shared';
+import { launchMenuEntries, useAgentRegistry } from '../../lib/agentRegistry';
 import type { PublicSettings } from '../../lib/bridge-settings';
 
 export function FloatingMobileMenu({
@@ -46,7 +46,7 @@ export function FloatingMobileMenu({
   spawnError: string | null;
 }) {
   const models = DEFAULT_LLM_MODELS;
-  const presets = listLaunchPresets();
+  const presets = launchMenuEntries(useAgentRegistry());
   const backend = settings.orchestrator_backend ?? 'api';
   const activeModel =
     models.find((m) => m.provider === settings.default_provider && m.model_id === settings.default_model) ??

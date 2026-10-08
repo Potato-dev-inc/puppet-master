@@ -224,9 +224,9 @@ children are themselves directories: `headless/`, `runtime/`, `routes/`.
 
 See `tui/README.md` for the full layout; summary: `profile.rs` = the `TuiProfile` trait (~30 methods with
 generic defaults), `types.rs` = `Features`/`Kind`/`RunOptionSupport`, `LaunchSpec`/`HeadlessLaunch` and
-the other shared data types, `mod.rs` = registry `PROFILES` + free-function dispatchers (`profile_for`,
+the other shared data types, `registry.rs` = the runtime `Registry` (an `ArcSwap` snapshot of `Arc<dyn TuiProfile>`, seeded with the nine code profiles in `read_only_backends` order; `registry()`, `snapshot()`, `profile_for_arc()`, `swap()`), `mod.rs` = free-function dispatchers over it (`profile_for` -> `Arc<dyn TuiProfile>`, `require_registered` -> `UnknownAgentType` / HTTP 400 `UNKNOWN_AGENT_TYPE`,
 `headless_launch`, `is_chrome_line`, `tidy_reply`, `strip_dialogs`, `read_only_backends`,
-`program_on_path`). `generic.rs` = default prompt handling + fallback profile. `conformance.rs` = rules
+`program_on_path`). The UI reads the same registry through the `agents_list` Tauri command (same body as `GET /agents/types`) and `packages/app/src/lib/agentRegistry.ts` (compiled nine-agent fallback offline); the spawn menus, pane titles, standby labels and `ansi.ts::isTuiAgent` consume it. `generic.rs` = default prompt handling + fallback profile. `conformance.rs` = rules
 every registered profile must pass.
 Per agent: `cursor/` (`mod.rs`, `launch.rs`, `headless.rs`, `screen.rs`, `chrome/` (`mod.rs`, `tests.rs`),
 `approval.rs`, `fixtures/`), `claude/` (`mod.rs`, `headless.rs`), `codex/` (`mod.rs`, `headless.rs`),

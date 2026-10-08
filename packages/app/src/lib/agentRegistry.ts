@@ -1,7 +1,8 @@
 // Runtime agent registry for the UI (SPEC UI-2): the `agents_list` Tauri command (same body as
 // `GET /agents/types`), cached, with the compiled code agents as the offline fallback.
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { presetFor, type AgentType } from '@puppet-master/shared';
+import { listLaunchPresets, presetFor, type AgentType } from '@puppet-master/shared';
 
 export type AgentKind = 'cli' | 'native_protocol' | 'shell' | 'unknown';
 
@@ -141,13 +142,80 @@ async function fetchListing(): Promise<AgentRegistryListing> {
 }
 
 let cached: Promise<AgentRegistryListing> | null = null;
+let resolved: AgentRegistryListing | null = null;
 
 /** Registered agents; cached until `refresh` (or `resetAgentRegistryCache`). Never rejects. */
 export function listAgentRegistry(options: { refresh?: boolean } = {}): Promise<AgentRegistryListing> {
-  if (!cached || options.refresh) cached = fetchListing();
+  if (!cached || options.refresh) {
+    const pending = fetchListing();
+    cached = pending;
+    void pending.then((listing) => {
+      if (cached === pending) resolved = listing;
+    });
+  }
   return cached;
 }
 
 export function resetAgentRegistryCache(): void {
   cached = null;
+  resolved = null;
+}
+
+/** The last resolved listing (synchronous), or the compiled fallback before the first fetch settles. */
+export function peekAgentRegistry(): AgentRegistryListing {
+  return resolved ?? fallbackListing();
+}
+
+/** React hook: the compiled fallback on first render, then the registry listing once it resolves. */
+export function useAgentRegistry(): AgentRegistryListing {
+  const [listing, setListing] = useState<AgentRegistryListing>(peekAgentRegistry);
+  useEffect(() => {
+    let live = true;
+    void listAgentRegistry().then((next) => {
+      if (live) setListing(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return listing;
+}
+
+export interface LaunchEntry {
+  type: AgentType;
+  label: string;
+  icon: string | null;
+}
+
+/**
+ * Spawn-menu entries: the compiled launch presets (OpenCode API, PowerShell) that the registry still
+ * lists, followed by any registered agent that is not a code profile and can open a visible pane.
+ */
+export function launchMenuEntries(listing: AgentRegistryListing): LaunchEntry[] {
+  const byId = new Map(listing.agents.map((agent) => [agent.id, agent]));
+  const entries: LaunchEntry[] = [];
+  for (const preset of listLaunchPresets()) {
+    const agent = byId.get(preset.type);
+    if (agent) entries.push({ type: agent.id, label: agent.label || preset.label, icon: agent.icon });
+  }
+  for (const agent of listing.agents) {
+    if (agent.source === 'code' || !agent.modes.visible || entries.some((e) => e.type === agent.id)) continue;
+    entries.push({ type: agent.id, label: agent.label, icon: agent.icon });
+  }
+  return entries;
+}
+
+/** Display label for an agent id; the id itself when the registry does not know it. */
+export function agentLabel(listing: AgentRegistryListing, id: string): string {
+  return listing.agents.find((agent) => agent.id === id)?.label ?? id;
+}
+
+const COMPILED_TUI = new Set<string>(['claude', 'codex', 'opencode', 'opencode_native']);
+
+/** Does this agent drive a TUI (permission prompts, ready detection)? Registry-aware, compiled set as base. */
+export function isTuiAgentId(id: string): boolean {
+  if (COMPILED_TUI.has(id)) return true;
+  if (FALLBACK_AGENT_IDS.includes(id)) return false;
+  const agent = peekAgentRegistry().agents.find((a) => a.id === id);
+  return !!agent && (agent.kind === 'cli' || agent.kind === 'native_protocol');
 }

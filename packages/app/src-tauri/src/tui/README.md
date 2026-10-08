@@ -5,7 +5,8 @@ lives here, so a break in one TUI is fixed in one place and cannot disturb the r
 
 ```
 tui/
-  mod.rs          registry (PROFILES), profile_for, shared helpers
+  mod.rs          profile_for, require_registered, shared helpers (read the registry)
+  registry.rs     runtime Registry: ArcSwap snapshot of Arc<dyn TuiProfile>, seeded with the nine code profiles
   profile.rs      TuiProfile trait (every per-agent behaviour, with generic defaults)
   types.rs        Kind, Features, LaunchSpec, HeadlessLaunch, Reply, Warning, RunFacts
   generic.rs      default prompt handling + the profile for unregistered agent types
@@ -32,9 +33,14 @@ method (with a generic default) to `TuiProfile` instead.
 
 ## Adding a TUI (e.g. a new CLI called `foo`)
 
-1. **Enum**: add `AgentType::Foo` in `pty/agents.rs` (`as_str`, `parse`, the three
-   `resolve_*` launch commands) and mirror it in `packages/shared/src/agents.ts`. Add its
-   `AgentContextProfile` in `agent_contexts.rs`.
+1. **Id and PTY launch**: a profile reports its id from `TuiProfile::id()`. A code TUI that
+   `pty/agents.rs` should launch directly also gets an `AgentType::Foo` variant (`as_str`,
+   `parse`, the `resolve_*` launch commands), mirrored in `packages/shared/src/agents.ts`
+   (`BUILTIN_AGENT_TYPES`, used only as the offline fallback). A profile that is not an
+   `AgentType` spawns its PTY through `TuiProfile::spawn_command` instead. Gates read the
+   registry, never the enum: `tui::require_registered` (HTTP 400 `UNKNOWN_AGENT_TYPE`).
+   The UI lists agents from `agents_list` / `lib/agentRegistry.ts`; no frontend list needs
+   editing for a new registered agent.
 2. **Profile**: create `tui/foo/mod.rs` with a unit struct implementing `TuiProfile`, and split
    it into `launch.rs`/`headless.rs`/`screen.rs`/`chrome.rs` as logic appears (see `claude/`
    for the smallest example, `cursor/` for the fullest). Override only what differs. Start from:
@@ -51,7 +57,7 @@ method (with a generic default) to `TuiProfile` instead.
        // capability_notes                                              → caveats in the contract
    }
    ```
-3. **Register**: `pub mod foo;` and add `&foo::Foo` to `PROFILES` in `mod.rs`. Keep the order
+3. **Register**: `pub mod foo;` and add `Arc::new(foo::Foo)` to the code list in `Registry::seeded()` (`registry.rs`). Keep the order
    stable: `read_only_backends()` reports it in registration order.
 4. **Fixtures + tests**: put real captures in `tui/foo/fixtures/` and replay them in that
    profile's tests. Prefer a real capture over a hand-written screen.

@@ -2,12 +2,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getDefaultTerminalAgentType,
-  listLaunchPresets,
   type AgentType,
 } from '@puppet-master/shared';
 import { useBridge } from './hooks/useBridge';
 import { usePaneRegistry } from './hooks/usePaneRegistry';
 import { useProjectPath } from './hooks/useProjectPath';
+import { launchMenuEntries, useAgentRegistry } from './lib/agentRegistry';
 import { tauri } from './lib/tauri';
 import { detachedWindowSizeFromGrid, openDetachedPaneWindow } from './lib/detached-pane-window';
 import { TerminalViewport } from './components/TerminalViewport';
@@ -48,7 +48,8 @@ export default function TerminalApp() {
   const panes = registry.paneList;
   const selectedPane = selectedPaneId ? registry.panes.get(selectedPaneId) ?? null : null;
   const apiBaseUrl = bridge.client?.baseUrl ?? 'http://127.0.0.1:17321';
-  const presets = useMemo(() => listLaunchPresets(), []);
+  const registryListing = useAgentRegistry();
+  const presets = useMemo(() => launchMenuEntries(registryListing), [registryListing]);
 
   const selectOrSpawnTerminal = useCallback(async () => {
     if (lockedPaneId || !registry.initialReady || selectedPaneId) return;

@@ -6,6 +6,8 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(
 import {
   FALLBACK_AGENT_IDS,
   fallbackListing,
+  isTuiAgentId,
+  launchMenuEntries,
   listAgentRegistry,
   resetAgentRegistryCache,
 } from './agentRegistry';
@@ -77,5 +79,43 @@ describe('agentRegistry', () => {
     setTauri(true);
     invoke.mockResolvedValue({ nope: true });
     expect((await listAgentRegistry()).source).toBe('fallback');
+  });
+});
+
+describe('spawn menu entries (launchMenuEntries)', () => {
+  beforeEach(() => resetAgentRegistryCache());
+
+  it('renders the unchanged launch entries from the compiled fallback (nine agents registered)', async () => {
+    const listing = fallbackListing();
+    expect(listing.agents).toHaveLength(9);
+    const entries = launchMenuEntries(listing);
+    expect(entries.map((e) => e.type)).toEqual(['opencode_native', 'powershell']);
+    expect(entries.map((e) => e.label)).toEqual(['OpenCode (API)', 'PowerShell']);
+  });
+
+  it('renders the same entries from a mocked registry and appends non-code visible agents', () => {
+    const base = fallbackListing();
+    const extra = { ...base.agents[0], id: 'kilo', label: 'Kilo Code', source: 'declarative' };
+    const hidden = { ...base.agents[0], id: 'headlessonly', source: 'declarative', modes: { headless: true, visible: false } };
+    const entries = launchMenuEntries({ ...base, agents: [...base.agents, extra, hidden], source: 'registry' });
+    expect(entries.map((e) => e.type)).toEqual(['opencode_native', 'powershell', 'kilo']);
+    expect(entries[2].label).toBe('Kilo Code');
+  });
+
+  it('isTuiAgentId keeps the compiled answers and treats registered cli agents as TUIs', async () => {
+    expect(isTuiAgentId('claude')).toBe(true);
+    expect(isTuiAgentId('cursor_agent')).toBe(false);
+    expect(isTuiAgentId('powershell')).toBe(false);
+    expect(isTuiAgentId('nope')).toBe(false);
+    setTauri(true);
+    const base = fallbackListing();
+    invoke.mockResolvedValue({
+      agents: [...base.agents, { ...base.agents[0], id: 'kilo', kind: 'cli', source: 'declarative' }],
+      dispatchable_ids: ['kilo'],
+    });
+    await listAgentRegistry();
+    await Promise.resolve();
+    expect(isTuiAgentId('kilo')).toBe(true);
+    setTauri(false);
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { listLaunchPresets, type AgentType } from '@puppet-master/shared';
+import type { AgentType } from '@puppet-master/shared';
+import { launchMenuEntries, useAgentRegistry } from '../lib/agentRegistry';
 import { TerminalPane } from './TerminalPane';
 import type { PaneRegistryApi } from '../hooks/usePaneRegistry';
 import { isOrchestratorPaneId } from '../lib/orchestrator-panes';
@@ -33,6 +34,7 @@ export function TerminalGrid({
     [workerPanes],
   );
   const [showAdd, setShowAdd] = useState(false);
+  const launchEntries = launchMenuEntries(useAgentRegistry());
   const [paneOrder, setPaneOrder] = useState<string[]>([]);
   const [draggingPaneId, setDraggingPaneId] = useState<string | null>(null);
   // Bumped whenever the set of panes in the grid changes (e.g. a pane returning
@@ -206,7 +208,7 @@ export function TerminalGrid({
           </button>
           {showAdd && (
             <div className="absolute top-full left-0 mt-1 z-10 w-48 rounded-md border border-pm-border bg-pm-panel shadow-lg">
-              {listLaunchPresets().map((p) => (
+              {launchEntries.map((p) => (
                 <button
                   key={p.type}
                   onClick={() => addPane(p.type)}
