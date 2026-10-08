@@ -1,9 +1,12 @@
 //! Session recorder (SPEC 5.13): sanitized screen snapshots from a pane the user chose to record,
 //! the raw material for a draft definition (`draft`, T32). Drafts are never loaded (REC-4).
 
+pub mod draft;
 pub mod redact;
 pub mod snapshots;
 
+#[cfg(test)]
+mod draft_tests;
 #[cfg(test)]
 mod tests;
 

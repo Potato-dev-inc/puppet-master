@@ -79,6 +79,10 @@ static STORE: Lazy<Mutex<Store>> = Lazy::new(|| Mutex::new(Store::default()));
 static ACTIVE_COUNT: AtomicUsize = AtomicUsize::new(0);
 static CTX: Lazy<RedactContext> = Lazy::new(RedactContext::from_process);
 
+pub(super) fn process_ctx() -> &'static RedactContext {
+    &CTX
+}
+
 /// Cheap check for the reader thread: is any pane being recorded at all?
 pub fn any_recording() -> bool {
     ACTIVE_COUNT.load(Ordering::Relaxed) > 0
