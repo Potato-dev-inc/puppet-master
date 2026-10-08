@@ -136,3 +136,37 @@ describe('AgentsTab', () => {
     expect(host.textContent).toContain('boom');
   });
 });
+
+describe('AgentsTab source toggle / extra dir / consent controls', () => {
+  it('lists every source with its enabled state and path', async () => {
+    await render(mockApi());
+    const rows = host.querySelectorAll('[data-testid="source-row"]');
+    expect(Array.from(rows).map((r) => r.getAttribute('data-source'))).toEqual(['bundled', 'user', 'project', 'extra']);
+    expect(rows[1].textContent).toContain('C:/data/agents');
+    expect(rows[0].textContent).toContain('Enabled');
+  });
+
+  it('consent switch invokes the consent command with kind, path and the new value', async () => {
+    const api = mockApi();
+    await render(api);
+    const sw = host.querySelector('[data-source="project"] [role="switch"]');
+    expect(sw?.getAttribute('aria-checked')).toBe('false');
+    await click(sw);
+    expect(api.consent).toHaveBeenCalledWith('project', '', true);
+    expect(api.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the backend error when consent is refused', async () => {
+    const api = mockApi();
+    (api.consent as ReturnType<typeof vi.fn>).mockRejectedValueOnce('AGENT_DEF_CONSENT_UNSUPPORTED: not enabled yet');
+    await render(api);
+    await click(host.querySelector('[data-source="extra"] [role="switch"]'));
+    expect(host.textContent).toContain('AGENT_DEF_CONSENT_UNSUPPORTED');
+  });
+
+  it('bundled and user sources have no consent switch', async () => {
+    await render(mockApi());
+    expect(host.querySelector('[data-source="bundled"] [role="switch"]')).toBeNull();
+    expect(host.querySelector('[data-source="user"] [role="switch"]')).toBeNull();
+  });
+});

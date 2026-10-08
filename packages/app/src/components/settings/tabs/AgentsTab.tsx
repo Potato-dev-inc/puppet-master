@@ -102,6 +102,12 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
       apply(await api.list());
     });
 
+  const setConsent = (kind: string, path: string, enabled: boolean) =>
+    run(async () => {
+      await api.consent(kind, path, enabled);
+      apply(await api.list());
+    });
+
   const revoke = (row: DefinitionRow) =>
     run(async () => {
       if (!row.id) return;
@@ -132,6 +138,53 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
         <ul className="space-y-3">
           {listing?.definitions.map((row) => (
             <DefinitionItem key={row.file} row={row} busy={busy} onReview={review} onRevoke={revoke} />
+          ))}
+        </ul>
+      </SettingBlock>
+      <SettingBlock
+        label="Sources"
+        description="Where definitions are read from. Project and extra directories only load after you consent to that location."
+        implemented
+      >
+        <ul className="space-y-2">
+          {listing?.sources.map((source) => (
+            <li
+              key={source.name}
+              data-testid="source-row"
+              data-source={source.name}
+              className="flex items-center gap-3 rounded-lg border border-pm-border p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  {sourceLabel(source.name)}
+                  <span className={`${BADGE} border-pm-border text-pm-muted`}>
+                    {source.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+                {source.path && <p className="mt-1 break-all text-xs text-pm-muted">{source.path}</p>}
+              </div>
+              {source.consent !== null && (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={source.consent}
+                  aria-label={`Consent to ${sourceLabel(source.name)} definitions`}
+                  disabled={busy}
+                  onClick={() => void setConsent(source.name, source.path ?? '', !source.consent)}
+                  className={[
+                    'relative h-7 w-12 shrink-0 rounded-full transition',
+                    source.consent ? 'bg-pm-accent' : 'bg-pm-border',
+                  ].join(' ')}
+                >
+                  <span
+                    className={[
+                      'absolute top-1 h-5 w-5 rounded-full bg-pm-bg shadow-sm transition',
+                      source.consent ? 'left-6' : 'left-1',
+                    ].join(' ')}
+                  />
+                </button>
+              )}
+            </li>
           ))}
         </ul>
       </SettingBlock>
