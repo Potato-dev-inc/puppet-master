@@ -275,6 +275,10 @@ fn check_headless(def: &Definition, e: &mut Errors, regexes: &mut Regexes) {
     if deliveries > 1 {
         e.add("AGENT_DEF_BAD_PLACEHOLDER", "headless", "exactly one task delivery is allowed: one {task} in argv, task_flag, or [headless.stdin]");
     }
+    // HDL-7: a positional task must be separated from flags (or delivered by flag/stdin).
+    if deliveries == 0 && headless.task_separator.is_none() {
+        e.add("AGENT_DEF_BAD_PLACEHOLDER", "headless", "a positional task needs `task_separator` (or use task_flag, a {task} placeholder, or [headless.stdin])");
+    }
     if let Some(stdin) = &headless.stdin {
         check_string("headless.stdin.template", &stdin.template, e);
         let found = placeholders(&stdin.template);

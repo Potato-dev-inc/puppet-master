@@ -274,3 +274,13 @@ fn other_consistency_rules() {
     d.binary.allow_cmd_shim = true;
     has_at(&d, "AGENT_DEF_INCONSISTENT", "binary.allow_cmd_shim");
 }
+
+#[test]
+fn positional_task_needs_separator() {
+    let mut d = kilo();
+    d.headless.as_mut().unwrap().task_separator = None;
+    has_at(&d, "AGENT_DEF_BAD_PLACEHOLDER", "headless");
+    // a flag, an explicit placeholder or stdin delivers the task without a separator
+    d.headless.as_mut().unwrap().task_flag = Some("--prompt".into());
+    assert_eq!(codes(&d), vec![]);
+}
