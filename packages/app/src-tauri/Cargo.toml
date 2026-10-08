@@ -41,6 +41,8 @@ sha2 = "0.10"
 base64 = "0.22"
 anyhow = "1"
 ureq = { version = "2", features = ["json"] }
+toml = "0.8"
+serde_path_to_error = "0.1"
 
 [features]
 default = ["custom-protocol"]
