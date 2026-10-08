@@ -22,6 +22,11 @@ mod profile;
 #[cfg(test)]
 mod tests;
 
+// `tui::declarative::kilo` (phase T21 verification filter).
+#[cfg(test)]
+#[path = "tests/kilo.rs"]
+mod kilo;
+
 #[allow(unused_imports)]
 pub use schema::{parse_definition, DefError, Definition, SUPPORTED_SCHEMA_VERSIONS};
 #[allow(unused_imports)]
