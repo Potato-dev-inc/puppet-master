@@ -80,6 +80,9 @@ pub(super) fn build_receipt(
     if terminal && snapshot.worker.requested_model.is_some() && model_verified != Some(true) {
         not_verified.push("model not confirmed".to_string());
     }
+    if crate::tui::profile_for(&snapshot.agent_type).experimental() {
+        not_verified.push("experimental agent: screen heuristics only".to_string());
+    }
     if read_only == "unenforced" {
         not_verified.push("read_only not enforced".to_string());
     }

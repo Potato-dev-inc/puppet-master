@@ -189,7 +189,7 @@ impl EntryMeta {
             label: def.agent.label.clone(),
             icon: def.agent.icon_or_default(),
             install_hint: (!hint.is_empty()).then(|| hint.to_string()),
-            has_tui: def.tui.is_some(),
+            has_tui: def.tui.is_some() || def.agent.kind == super::schema::Kind::Generic,
         }
     }
 }
@@ -331,6 +331,57 @@ pub fn reload_global(inputs: &LoadInputs<'_>, approvals_path: &Path) -> Built {
     let built = reload_into(crate::tui::registry::registry(), inputs, approvals_path);
     *LAST.write().unwrap_or_else(|e| e.into_inner()) = built.entries.clone();
     built
+}
+
+/// P4-2 "Add as generic agent": writes `<dir>/<id>.toml` for a bare command name. The file is only
+/// written, never approved: it shows up as `unapproved` after the next reload. Returns the path.
+pub fn write_generic(dir: &Path, command: &str, code_ids: &[&str]) -> Result<PathBuf, String> {
+    let command = command.trim();
+    let safe = !command.is_empty()
+        && command.len() <= 64
+        && command.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '+'));
+    if !safe || command.starts_with('.') {
+        return Err("AGENT_DEF_BAD_BINARY: enter a bare command name such as `mycoder` (letters, digits, . _ - +)".into());
+    }
+    let stem = command.rsplit_once('.').filter(|(_, ext)| ["exe", "cmd", "bat", "ps1", "com"].contains(ext)).map_or(command, |(s, _)| s);
+    let mut id: String = stem.to_ascii_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    if !id.chars().next().is_some_and(|c| c.is_ascii_lowercase()) {
+        id.insert(0, 'a');
+    }
+    id.truncate(32);
+    let label: String = stem.chars().take(40).collect();
+    let text = format!(
+        "# Generic experimental agent added from Settings > Agents. It runs `{command}` in a visible pane
+         # and reads the screen with shared heuristics only. Review it, then approve it.
+         schema_version = 1
+
+[agent]
+id = \"{id}\"
+label = \"{label}\"
+kind = \"generic\"
+experimental = true
+
+         [binary]
+names = [\"{command}\"]
+install_hint = \"install {command} and make sure it is on PATH\"
+"
+    );
+    let loaded = load_text(Path::new(&format!("{id}.toml")), &text, text.len(), Origin::new(Source::User), None, code_ids);
+    if let Some(error) = loaded.errors.first() {
+        return Err(format!("{}: {}", error.code, error.message));
+    }
+    std::fs::create_dir_all(dir).map_err(|e| format!("cannot create the agents folder: {e}"))?;
+    let path = dir.join(format!("{id}.toml"));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => format!("AGENT_DEF_DUPLICATE_ID: {} already exists", path.display()),
+            _ => format!("cannot write {}: {e}", path.display()),
+        })?;
+    std::io::Write::write_all(&mut file, text.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(path)
 }
 
 /// Startup / manual reload against the process-wide registry and the app data dir. Bundled

@@ -45,6 +45,13 @@ function mockApi(listing: DefinitionsListing = fixture()): AgentDefinitionsApi &
     approve: vi.fn(async () => ({ ok: true, id: 'kilo', state: 'active' })),
     revoke: vi.fn(async () => ({ ok: true })),
     consent: vi.fn(async () => ({ ok: true })),
+    addGeneric: vi.fn(async () => ({
+      ...listing,
+      definitions: [
+        ...listing.definitions,
+        { id: 'mycoder', file: 'C:/data/agents/mycoder.toml', source: 'user', state: 'unapproved', errors: [], fingerprint: 'sha256:gen', shadowed_by: null },
+      ],
+    })),
     checkFile: vi.fn(async () => [
       { fixture: 'headless_success.jsonl', passed: true, failures: [] },
       { fixture: 'tui_reply.txt', passed: false, failures: ['busy: expected true, got false'] },
@@ -185,5 +192,22 @@ describe('AgentsTab source toggle / extra dir / consent controls', () => {
     expect(rows[0].textContent).toContain('headless_success.jsonl');
     expect(rows[1].textContent).toContain('FAIL');
     expect(rows[1].textContent).toContain('busy: expected true, got false');
+  });
+
+  it('AgentsTab add generic creates unapproved file', async () => {
+    const api = mockApi();
+    await render(api);
+    const input = host.querySelector('input[aria-label="Command name"]') as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(input, 'mycoder');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(button('Add as generic agent'));
+    expect(api.addGeneric).toHaveBeenCalledWith('mycoder');
+    const rows = Array.from(host.querySelectorAll('[data-testid="definition-row"]'));
+    const added = rows.find((r) => r.textContent?.includes('mycoder'));
+    expect(added?.querySelector('[data-testid="state-badge"]')?.textContent).toBe('Needs approval');
+    expect(api.approve).not.toHaveBeenCalled();
   });
 });

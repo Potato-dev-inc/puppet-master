@@ -218,6 +218,11 @@ pub trait TuiProfile: Send + Sync {
         false
     }
 
+    /// Labelled "experimental" in every surface (GEN-3): generic zero-config agents.
+    fn experimental(&self) -> bool {
+        false
+    }
+
     /// A right-hand sidebar the screen readers should crop away (see `SidebarCrop`).
     fn sidebar_crop(&self) -> Option<crate::tui::types::SidebarCrop> {
         None

@@ -28,6 +28,7 @@ use super::sources::{source_name, Origin};
 use super::validate::Source;
 use super::resolve::resolve_binary;
 use super::screen::TuiEngine;
+use super::schema;
 use super::schema::{Cwd, DefError, Definition, ModelSource};
 use super::template;
 
@@ -70,7 +71,12 @@ pub struct DeclarativeProfile {
 impl DeclarativeProfile {
     /// Build from a definition that passed `validate`. Fails only when a selector regex does not
     /// compile (which `validate` already rules out).
-    pub fn new(def: Definition) -> Result<Self, DefError> {
+    pub fn new(mut def: Definition) -> Result<Self, DefError> {
+        // GEN-1/GEN-2: a generic agent has no tables of its own; an empty `[tui]` (no argv, no
+        // regexes) makes it a visible pane that runs on the shared heuristics.
+        if def.agent.kind == schema::Kind::Generic && def.tui.is_none() {
+            def.tui = Some(Default::default());
+        }
         let parser = match def.headless.as_ref().filter(|h| h.output.is_some()) {
             Some(headless) => Some(OutputParser::compile(headless)?),
             None => None,
@@ -264,7 +270,8 @@ impl TuiProfile for DeclarativeProfile {
         Features {
             // `generic` definitions behave as CLIs; native_protocol/shell are rejected by validate.
             kind: Kind::Cli,
-            dispatchable: f.dispatchable,
+            // GEN-1: a generic agent is dispatchable only when it is marked experimental.
+            dispatchable: f.dispatchable && (self.def.agent.kind != schema::Kind::Generic || self.def.agent.experimental),
             read_only_headless: f.read_only_headless,
             read_only_spawned_pane: f.read_only_spawned_pane,
             resumable_headless: f
@@ -273,7 +280,14 @@ impl TuiProfile for DeclarativeProfile {
         }
     }
 
+    fn experimental(&self) -> bool {
+        self.def.agent.experimental || self.def.agent.kind == schema::Kind::Generic
+    }
+
     fn not_dispatchable_reason(&self) -> &'static str {
+        if self.def.agent.kind == schema::Kind::Generic && !self.def.agent.experimental {
+            return "a generic agent can run delegated work only when it is marked experimental = true";
+        }
         if self.not_dispatchable_reason.is_empty() {
             "this backend cannot run delegated work"
         } else {

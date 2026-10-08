@@ -104,7 +104,10 @@ fn check_agent(def: &Definition, ctx: &ValidationContext<'_>, e: &mut Errors) {
     if agent.allow_interpreter && matches!(ctx.source, Source::Project | Source::Extra) {
         e.add("AGENT_DEF_SHELL_INTERPRETER", "agent.allow_interpreter", "allow_interpreter is rejected for project and extra sources");
     }
-    if def.headless.is_none() && def.tui.is_none() {
+    if matches!(agent.kind, Kind::Generic) && def.headless.is_some() {
+        e.add("AGENT_DEF_INCONSISTENT", "headless", "a generic agent is visible-pane only: remove [headless]");
+    }
+    if def.headless.is_none() && def.tui.is_none() && !matches!(agent.kind, Kind::Generic) {
         e.add("AGENT_DEF_INCONSISTENT", "", "a definition needs a [headless] or a [tui] table");
     }
 }

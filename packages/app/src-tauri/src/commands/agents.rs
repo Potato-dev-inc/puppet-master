@@ -65,6 +65,15 @@ pub fn agents_check_file(path: String, fixtures_dir: Option<String>) -> Result<V
     serde_json::to_value(results).map_err(|e| e.to_string())
 }
 
+/// "Add as generic agent" (P4-2): writes an unapproved generic definition for `command` into the
+/// user agents folder and rescans. The listing shows it as `unapproved`; nothing is approved here.
+#[tauri::command]
+pub fn agents_add_generic(command: String) -> Result<Value, String> {
+    let ids = crate::tui::registry::registry().code_ids();
+    crate::tui::declarative::loader::write_generic(&crate::app_paths::agents_dir(), &command, &ids)?;
+    Ok(crate::tui::declarative::service::reload_global_with_diff())
+}
+
 #[tauri::command]
 pub fn agents_definition_revoke(id: String) -> Result<Value, String> {
     crate::tui::declarative::service::revoke_global(&id).map_err(command_error)

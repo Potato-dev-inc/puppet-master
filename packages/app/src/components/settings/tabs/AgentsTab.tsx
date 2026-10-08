@@ -41,6 +41,7 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
   const [note, setNote] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<Reviewing | null>(null);
   const [fixturesDir, setFixturesDir] = useState('');
+  const [genericCommand, setGenericCommand] = useState('');
   const [checks, setChecks] = useState<{ file: string; results: FixtureResult[] } | null>(null);
 
   const apply = useCallback((next: DefinitionsListing) => {
@@ -86,6 +87,15 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
           ].filter(Boolean)
         : [];
       setNote(parts.length ? `Reloaded: ${parts.join('; ')}` : 'Reloaded: no changes');
+    });
+
+  const addGeneric = () =>
+    run(async () => {
+      const command = genericCommand.trim();
+      if (!command) return;
+      apply(await api.addGeneric(command));
+      setGenericCommand('');
+      setNote(`Added ${command} as an experimental generic agent. Review and approve it below.`);
     });
 
   const check = (row: DefinitionRow) =>
@@ -143,6 +153,23 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
         {listing && listing.definitions.length === 0 && (
           <p className="text-sm text-pm-muted">No definition files found.</p>
         )}
+        <div className="mb-3 flex items-center gap-2">
+          <input
+            type="text"
+            aria-label="Command name"
+            value={genericCommand}
+            onChange={(e) => setGenericCommand(e.target.value)}
+            placeholder="command name, e.g. mycoder"
+            className="min-w-0 flex-1 rounded-lg border border-pm-border bg-transparent px-2 py-1 text-xs"
+          />
+          <button type="button" className={BTN} disabled={busy || !genericCommand.trim()} onClick={() => void addGeneric()}>
+            Add as generic agent
+          </button>
+        </div>
+        <p className="mb-3 text-xs text-pm-muted">
+          Experimental: runs the command in a visible pane and reads its screen with shared heuristics. It stays
+          inactive until you approve it.
+        </p>
         <label className="mb-3 block text-xs text-pm-muted">
           Fixtures folder for Check with fixtures (empty: a folder named after the file, next to it)
           <input

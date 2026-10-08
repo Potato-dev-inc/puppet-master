@@ -61,3 +61,8 @@ mod expect;
 #[cfg(test)]
 #[path = "tests/parity_claude.rs"]
 mod parity_claude;
+
+// `tui::declarative::generic` (phase T30 verification filter).
+#[cfg(test)]
+#[path = "tests/generic.rs"]
+mod generic;

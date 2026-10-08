@@ -50,6 +50,8 @@ export interface FixtureResult {
 }
 
 export interface AgentDefinitionsApi {
+  /** Writes an UNAPPROVED experimental generic definition for a bare command name, then rescans. */
+  addGeneric(command: string): Promise<DefinitionsListing>;
   /** Runs the definition file against a folder of captures with *.expect.toml files. */
   checkFile(path: string, fixturesDir?: string): Promise<FixtureResult[]>;
   list(): Promise<DefinitionsListing>;
@@ -61,6 +63,7 @@ export interface AgentDefinitionsApi {
 }
 
 export const tauriAgentDefinitionsApi: AgentDefinitionsApi = {
+  addGeneric: (command) => invoke<DefinitionsListing>('agents_add_generic', { command }),
   checkFile: (path, fixturesDir) => invoke<FixtureResult[]>('agents_check_file', { path, fixturesDir: fixturesDir || null }),
   list: () => invoke<DefinitionsListing>('agents_definitions_list', undefined),
   reload: () => invoke<DefinitionsListing>('agents_definitions_reload', undefined),

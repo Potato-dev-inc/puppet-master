@@ -252,7 +252,7 @@ impl Descriptor {
             icon: None,
             kind: features.kind.as_str(),
             source: "code",
-            experimental: false,
+            experimental: profile.experimental(),
             dispatchable: features.dispatchable,
             not_dispatchable_reason: (!features.dispatchable)
                 .then(|| profile.not_dispatchable_reason()),
