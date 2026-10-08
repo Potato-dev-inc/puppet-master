@@ -957,10 +957,18 @@ argv and flags like `--auto`; it cannot judge the CLI.
    `node_modules/@kilocode/cli/node_modules/@kilocode/cli-windows-x64*/bin/`. The glob depends on npm's
    global layout (verified here; pnpm, bun or a different prefix may differ). Fallback is
    `AGENT_DEF_SHIM_NEEDS_NATIVE` with a clear message.
-3. **Kilo's visible TUI resembles OpenCode's** (`esc interrupt`, Enter/Escape on permission dialogs). NOT
-   verified; it needs a PTY capture. The `[tui]` regexes are drafts and visible mode may need iteration.
-4. **`--auto` is needed for shell tool use in `kilo run`, and `--agent plan` is read-only.** Both
-   unverified. A `read` tool call worked with no flag. Until verified, `read_only_headless = false`.
+3. **Kilo's visible TUI** (verified in T23/T24 on kilo 7.8.8 with real PTY captures; `kilo.toml` `[tui]`
+   tables come from `fixtures/kilo/tui_{idle,working,permission,reply}.txt`). Two facts differ from the OpenCode
+   guess: the first turn is lost unless `[tui.delivery]` waits for the input to be ready, and permission
+   replies must be raw key bytes (the answer routes append Enter themselves).
+4. **CORRECTED (T05, AGENT-CHOICE.md):** `--auto` is NOT needed for shell tool use in `kilo run`: bash and edit
+   run in the project directory with no flag. `--auto` only approves `ask`-level permissions (outside the project
+   dir, `.env` reads, doom-loop), so it is not mapped to `allow_shell` (which is an accepted no-op for Kilo).
+   `--agent plan` is NOT read-only; `--agent ask` is (bash/edit/write off, the rest denied), so
+   `read_only_headless = true` rides on `[[headless.optional]] when = "read_only"` with `--agent ask`. `ask` can
+   still use the network. A turn whose tool call was auto-rejected ends with `reason="tool-calls"`; `stop` is
+   not always emitted and the process may not exit after it, so the runner treats process exit as end of turn and
+   stops the child after `stop`. The result is the last NON-EMPTY `text`. The exit code is no signal (0, 1 or never).
 5. **The default model fails on this machine** (OpenRouter 404 "No endpoints found that support tool use";
    an `error` event is printed). In a second attempt the process had not exited after 60 s (timeout hit), so
    an error can leave Kilo running: HDL-5/HDL-6 therefore treat a matched `error` selector as a finished

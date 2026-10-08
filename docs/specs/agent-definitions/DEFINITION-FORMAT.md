@@ -23,6 +23,15 @@ A definition can describe two ways to drive the agent:
 
 You can provide either or both.
 
+> **Implementation status (T26, checked against the code).** Working now: bundled (empty) and user sources,
+> validation with line/column errors, approval pinned to the fingerprint and resolved binary, reload with a diff,
+> Settings > Agents (list, errors, Reload, Approve dialog with rendered argv, Revoke). Not yet (T34): project and
+> extra sources (the table above describes the target; `consent` answers 501 `AGENT_DEF_CONSENT_UNSUPPORTED`,
+> and the Sources list shows them disabled), adding extra folders in Settings, the approval diff view
+> and "Check with fixtures" in the UI (section 10 step 4: use `cargo test --lib tui::declarative`). The validate
+> request body is `{"toml": ..., "source": ...}`; `rendered.headless_argv` omits the program name. The
+> routes other than the list (validate, reload, approve, revoke, consent) are refused for MCP sessions and remote devices.
+
 ## 2. Where to put the file
 
 | Source | Folder | Default | Needs |

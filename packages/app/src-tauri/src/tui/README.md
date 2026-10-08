@@ -11,6 +11,7 @@ tui/
   types.rs        Kind, Features, LaunchSpec, HeadlessLaunch, Reply, Warning, RunFacts
   generic.rs      default prompt handling + the profile for unregistered agent types
   conformance.rs  rules every registered profile must pass (runs for new profiles automatically)
+  declarative/    agents defined by TOML files (schema, loader, approvals, DeclarativeProfile); see "Adding an agent without code"
   cursor/         Cursor Agent CLI + Cursor IDE launcher
     launch.rs       headless command line, default model lookup
     headless.rs     reading headless output (result, rejected calls, trust screen)
@@ -64,6 +65,22 @@ method (with a generic default) to `TuiProfile` instead.
 5. `cargo test --lib tui::` — `conformance.rs` checks the new profile against the shared rules
    (unique id, `AgentType` round-trip, shared launch policy, parsers reject garbage, every
    detected prompt can be answered, an empty screen is never "blocked").
+
+## Adding an agent without code
+
+If the CLI can be driven by an argument list, a TOML file replaces steps 1-4 above: no Rust, no rebuild.
+
+1. Write `<app data>/agents/foo.toml` (Windows: `%APPDATA%\com.puppetmaster.app\agents\`). Format and examples:
+   `docs/specs/agent-definitions/DEFINITION-FORMAT.md`; the worked example is `kilo.toml` (SPEC 7.2).
+2. Check it without registering anything: `POST /agents/definitions/validate` with `{"toml": "...", "source": "user"}`
+   returns `{ok, errors, rendered}` (rendered argv with placeholders). Settings > Agents lists errors with file and line.
+3. Approve it in Settings > Agents (the dialog shows the argv). A new or changed file stays `unapproved` until then.
+4. Fixtures: real captures go in `tui/declarative/fixtures/<name>/`; `conformance.rs` runs its `rules` over every
+   definition in `fixtures/definitions`. Run `cargo test --lib tui::declarative`.
+
+Code stays the right choice when the agent needs a protocol client (OpenCode native) or logic a table cannot express.
+Declarative profiles live in `tui/declarative/` (`DeclarativeProfile` implements `TuiProfile`; generic code never
+sees the difference) and register through `loader::reload`.
 
 ## Where a fix for an existing TUI goes
 
