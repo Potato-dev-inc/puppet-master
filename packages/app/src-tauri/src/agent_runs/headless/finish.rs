@@ -241,20 +241,19 @@ mod tests {
     /// agent while the turn runs; the turn finishes with the profile it holds.
     #[test]
     fn turn_keeps_its_profile_when_the_registry_is_swapped_mid_turn() {
-        let _serial = crate::tui::registry::test_serial();
+        // A private registry, so the process-wide one (read by every other test) is never swapped.
+        let registry = crate::tui::registry::Registry::seeded();
         let (project, path, id) = running_cursor_turn("swap", 0);
-        let held = crate::tui::profile_for("cursor_agent");
+        let held = registry.profile_for_arc("cursor_agent");
         transcript::append(
             &path,
             &id,
             "stdout",
             r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s-swap"}"#,
         );
-        let before = crate::tui::registry::snapshot();
-        crate::tui::registry::registry().swap(Vec::new());
-        assert_eq!(crate::tui::profile_for("cursor_agent").id(), "unknown", "control: agent is gone");
+        registry.swap(Vec::new());
+        assert_eq!(registry.profile_for_arc("cursor_agent").id(), "unknown", "control: agent is gone");
         finish_from_output(&path, &id, &held, "agent", 0);
-        crate::tui::registry::registry().swap((*before).clone());
         let done = operations::get_operation(&path, &id).unwrap();
         assert_eq!(done.status, OperationStatus::Completed, "{:?}", done.error);
         assert_eq!(done.result.as_deref(), Some("PONG"));
