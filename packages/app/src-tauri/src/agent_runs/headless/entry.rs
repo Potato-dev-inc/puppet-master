@@ -113,6 +113,9 @@ pub fn run_agent(
             false,
         ));
     }
+    if let Some(error) = crate::tui::registry::unavailable(&request.agent_type) {
+        return Err(error);
+    }
     // A backend that enforces read-only on a pane it spawns itself (opencode_native) may run in a
     // pane; every other backend needs a headless run. An explicitly named pane must itself have
     // been spawned read-only, and the dispatch re-checks adopted worker panes.

@@ -95,6 +95,35 @@ pub fn admit(
         .map_err(|e| crate::operations::OperationError::new(e.code, e.message, false))
 }
 
+/// Why `agent_type` is not registered although a definition for it exists on disk: the specific
+/// SPEC 7.4 refusal (`AGENT_DEF_APPROVAL_STALE`, `AGENT_DEF_UNAPPROVED`, `AGENT_DEF_BINARY_CHANGED`)
+/// instead of the generic "cannot run delegated work". `None` when the id is registered or truly
+/// unknown (those keep their own errors).
+pub fn unavailable(agent_type: &str) -> Option<crate::operations::OperationError> {
+    use super::declarative::loader::DefState;
+    if crate::tui::is_registered(agent_type) {
+        return None;
+    }
+    let entry = super::declarative::loader::last_entry_for(agent_type)?;
+    let id = entry.id.clone().unwrap_or_else(|| agent_type.to_string());
+    let (code, message) = match entry.state {
+        DefState::ApprovalStale => (
+            "AGENT_DEF_APPROVAL_STALE",
+            format!("the definition of {id} changed after it was approved ({}); review and approve it again in Settings > Agents before starting new runs. Runs already started are not affected.", entry.path.display()),
+        ),
+        DefState::NeedsApproval => (
+            "AGENT_DEF_UNAPPROVED",
+            format!("the definition of {id} ({}) has not been approved; approve it in Settings > Agents before running it.", entry.path.display()),
+        ),
+        _ if entry.binary_changed => (
+            "AGENT_DEF_BINARY_CHANGED",
+            format!("the program for {id} now resolves to a different file than the one approved; approve it again in Settings > Agents."),
+        ),
+        _ => return None,
+    };
+    Some(crate::operations::OperationError::new(code, message, false))
+}
+
 /// Serializes tests that swap profiles into the process-wide registry with tests that assert on
 /// its exact contents. Hold the guard for the whole swap window / assertion.
 #[cfg(test)]
@@ -123,6 +152,43 @@ pub fn profile_for_arc(agent_type: &str) -> Arc<dyn TuiProfile> {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    fn entry(id: &str, state: super::super::declarative::loader::DefState, binary_changed: bool) -> super::super::declarative::loader::Entry {
+        super::super::declarative::loader::Entry {
+            path: std::path::PathBuf::from(format!("C:/agents/{id}.toml")),
+            id: Some(id.into()),
+            source: "user",
+            state,
+            approval: None,
+            fingerprint: None,
+            errors: Vec::new(),
+            shadowed_by: None,
+            meta: None,
+            binary_changed,
+        }
+    }
+
+    /// A stale/unapproved/binary-changed definition is refused with its own code, not the generic
+    /// "cannot run delegated work"; unknown ids and registered ids are not this function's business.
+    #[test]
+    fn unavailable_names_the_specific_refusal() {
+        use super::super::declarative::loader::{last_entries, store_last, DefState};
+        let _serial = test_serial();
+        let saved = last_entries();
+        store_last(vec![
+            entry("zz_stale", DefState::ApprovalStale, false),
+            entry("zz_new", DefState::NeedsApproval, false),
+            entry("zz_bin", DefState::Invalid, true),
+        ]);
+        let stale = unavailable("ZZ_STALE").expect("stale is refused");
+        assert_eq!(stale.code, "AGENT_DEF_APPROVAL_STALE");
+        assert!(stale.message.contains("approve it again") && !stale.message.contains("cannot run delegated work"), "{}", stale.message);
+        assert_eq!(unavailable("zz_new").unwrap().code, "AGENT_DEF_UNAPPROVED");
+        assert_eq!(unavailable("zz_bin").unwrap().code, "AGENT_DEF_BINARY_CHANGED");
+        assert!(unavailable("zz_nothing").is_none());
+        assert!(unavailable("claude").is_none());
+        store_last(saved);
+    }
 
     #[test]
     fn seeded_in_code_order() {

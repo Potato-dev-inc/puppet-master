@@ -129,6 +129,9 @@ fn ensure_agent_dispatchable(
     operation: &OperationSnapshot,
     agent_type: &str,
 ) -> Result<(), OperationError> {
+    if let Some(error) = crate::tui::registry::unavailable(agent_type) {
+        return Err(error);
+    }
     let profile = crate::tui::require_registered(agent_type).map_err(|unknown| {
         OperationError::unknown_agent_type(unknown.id, unknown.valid)
     })?;
