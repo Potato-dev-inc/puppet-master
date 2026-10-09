@@ -253,6 +253,33 @@ Find the path with `dir %APPDATA%\npm\node_modules\<pkg>\node_modules` on your m
 to the folder holding the wrapper. If an agent only has a wrapper, set `[binary] allow_cmd_shim = true` and
 deliver the task through `[headless.stdin]`; this is refused for project and extra sources.
 
+### 8.1 Editing, consent, sharing and `[mcp_host]`
+
+- **Live edits.** Saving a definition reloads it within about a second (an `agent_definitions_changed` event updates
+  Settings > Agents). A run that is already going is not affected. If the edit changed anything the fingerprint covers
+  (argv, binary, env, `mcp_host`), the file shows `approval_stale` and the next run is refused until you approve it again.
+  If an active file becomes invalid, the previous version stays registered and the error is listed.
+- **Consent.** Project and extra folders are off until you consent to that exact folder in Settings > Agents. Consent
+  only lets the folder be read; every file still needs approval.
+- **Export / import.** Export writes one definition to a `.toml` you choose (and `<name>.fixtures.zip` if the file has
+  an `<id>.fixtures/` folder next to it). Import checks a `.toml`, copies it to the user folder as `<id>.toml` and leaves
+  it unapproved. It never overwrites a file and nothing is downloaded.
+- **`[mcp_host]`** (optional) registers Puppet Master's MCP server in another tool's config:
+
+  ```toml
+  [mcp_host]
+  config_path = "~/.mytool/mcp.json"      # under your home or the project; no `..`
+  format = "json"                         # json | toml | yaml
+  key_path = "mcpServers.puppet-master"   # dotted; only this key is written
+  [mcp_host.entry]
+  command = "{command}"
+  args = "{args}"                         # whole value only
+  env = "{env}"                           # whole value only
+  ```
+
+  The writer needs an approved definition, copies the file to `<file>.bak` before the first change, and a second run
+  changes nothing. YAML entries are written as one-line flow mappings.
+
 ## 9. Things that are refused (on purpose)
 
 - Shells and interpreters as the program (`bash`, `cmd`, `powershell`, `python`, `node`, ...) unless

@@ -132,6 +132,21 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
       setNote(`Added ${command} as an experimental generic agent. Review and approve it below.`);
     });
 
+  const exportRow = (row: DefinitionRow) =>
+    run(async () => {
+      if (!row.id) return;
+      const done = await api.exportDefinition(row.id);
+      if (done) setNote(`Exported ${row.id} to ${done.path}${done.fixtures_zip ? ` and ${done.fixtures_zip}` : ''}`);
+    });
+
+  const importFile = () =>
+    run(async () => {
+      const next = await api.importDefinition();
+      if (!next) return;
+      apply(next);
+      setNote('Imported. The definition is unapproved: review it and approve it below before it can run.');
+    });
+
   const check = (row: DefinitionRow) =>
     run(async () => {
       setChecks({ file: row.file, results: await api.checkFile(row.file, fixturesDir.trim() || undefined) });
@@ -205,6 +220,9 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
           <button type="button" className={BTN} disabled={busy} onClick={() => void reload()}>
             Reload
           </button>
+          <button type="button" className={BTN} disabled={busy} onClick={() => void importFile()}>
+            Import
+          </button>
           {note && <span className="text-xs text-pm-muted">{note}</span>}
         </div>
         {error && (
@@ -251,6 +269,7 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
               onReview={review}
               onRevoke={revoke}
               onCheck={check}
+              onExport={exportRow}
               results={checks?.file === row.file ? checks.results : null}
             />
           ))}
@@ -484,6 +503,7 @@ function DefinitionItem({
   onReview,
   onRevoke,
   onCheck,
+  onExport,
   results,
 }: {
   row: DefinitionRow;
@@ -491,6 +511,7 @@ function DefinitionItem({
   onReview: (row: DefinitionRow) => void;
   onRevoke: (row: DefinitionRow) => void;
   onCheck: (row: DefinitionRow) => void;
+  onExport: (row: DefinitionRow) => void;
   results: FixtureResult[] | null;
 }) {
   return (
@@ -510,6 +531,11 @@ function DefinitionItem({
           <button type="button" className={BTN} disabled={busy} onClick={() => onCheck(row)}>
             Check with fixtures
           </button>
+          {row.source === 'user' && row.id && (
+            <button type="button" className={BTN} disabled={busy} onClick={() => onExport(row)}>
+              Export
+            </button>
+          )}
           {canReview(row) && (
             <button type="button" className={BTN} disabled={busy} onClick={() => onReview(row)}>
               Review and approve

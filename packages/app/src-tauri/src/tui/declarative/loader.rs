@@ -483,3 +483,167 @@ pub fn reload() -> Built {
     }
     built
 }
+
+// ---------------------------------------------------------------------------------------------
+// Sharing (P5-6): export / import one definition. Local files only; there is no network code here.
+// ---------------------------------------------------------------------------------------------
+
+/// What `export_definition` wrote.
+#[derive(Debug, Clone)]
+pub struct Exported {
+    pub toml_path: PathBuf,
+    /// `<target stem>.fixtures.zip`, written only when `<id>.fixtures/` exists next to the definition.
+    pub fixtures_zip: Option<PathBuf>,
+}
+
+const MAX_FIXTURE_FILES: usize = 200;
+const MAX_FIXTURE_BYTES: usize = 8 * 1024 * 1024;
+
+/// Copy the user-dir definition `id` to `target` (a `.toml` file the user chose). If a sibling
+/// folder `<id>.fixtures/` exists, its files are also written as a stored zip next to `target`.
+/// Only the chosen target files are written.
+pub fn export_definition(user_dir: &Path, id: &str, target: &Path) -> Result<Exported, String> {
+    let (path, text) = scan_dir(user_dir)
+        .files
+        .into_iter()
+        .find_map(|raw| (parse_definition(&raw.text).ok()?.agent.id == id).then_some((raw.path, raw.text)))
+        .ok_or_else(|| format!("AGENT_DEF_NOT_FOUND: no definition with id {id} in {}", user_dir.display()))?;
+    if target.extension().is_none_or(|e| !e.eq_ignore_ascii_case("toml")) {
+        return Err("INVALID_ARGUMENT: choose a target file ending in .toml".into());
+    }
+    if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+    }
+    std::fs::write(target, &text).map_err(|e| format!("cannot write {}: {e}", target.display()))?;
+    let fixtures_dir = path.with_file_name(format!("{id}.fixtures"));
+    let mut fixtures_zip = None;
+    if fixtures_dir.is_dir() {
+        let entries = collect_fixture_files(&fixtures_dir)?;
+        if !entries.is_empty() {
+            let stem = target.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| id.to_string());
+            let zip_path = target.with_file_name(format!("{stem}.fixtures.zip"));
+            std::fs::write(&zip_path, stored_zip(&entries))
+                .map_err(|e| format!("cannot write {}: {e}", zip_path.display()))?;
+            fixtures_zip = Some(zip_path);
+        }
+    }
+    Ok(Exported { toml_path: target.to_path_buf(), fixtures_zip })
+}
+
+fn collect_fixture_files(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let mut total = 0usize;
+    let mut stack = vec![(dir.to_path_buf(), String::new())];
+    while let Some((current, prefix)) = stack.pop() {
+        let mut items: Vec<_> = std::fs::read_dir(&current)
+            .map_err(|e| format!("cannot read {}: {e}", current.display()))?
+            .filter_map(Result::ok)
+            .collect();
+        items.sort_by_key(|e| e.file_name());
+        for item in items {
+            let name = format!("{prefix}{}", item.file_name().to_string_lossy());
+            let Ok(meta) = std::fs::symlink_metadata(item.path()) else { continue };
+            if meta.is_dir() {
+                stack.push((item.path(), format!("{name}/")));
+            } else if meta.is_file() {
+                total += meta.len() as usize;
+                if out.len() >= MAX_FIXTURE_FILES || total > MAX_FIXTURE_BYTES {
+                    return Err("INVALID_ARGUMENT: the fixtures folder is too large to export".into());
+                }
+                out.push((name, std::fs::read(item.path()).map_err(|e| e.to_string())?));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFFu32;
+    for &byte in data {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+        }
+    }
+    !crc
+}
+
+/// A zip with every file stored (no compression), written without a dependency.
+pub fn stored_zip(files: &[(String, Vec<u8>)]) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::new();
+    let mut central: Vec<u8> = Vec::new();
+    for (name, data) in files {
+        let offset = out.len() as u32;
+        let crc = crc32(data);
+        let (size, name_len) = (data.len() as u32, name.len() as u16);
+        let header = |sig: u32, is_central: bool| {
+            let mut h: Vec<u8> = Vec::new();
+            h.extend(sig.to_le_bytes());
+            if is_central {
+                h.extend(20u16.to_le_bytes()); // made by
+            }
+            h.extend(20u16.to_le_bytes()); // needed
+            h.extend(0x0800u16.to_le_bytes()); // utf-8 names
+            h.extend(0u16.to_le_bytes()); // stored
+            h.extend(0u16.to_le_bytes()); // time
+            h.extend(0x21u16.to_le_bytes()); // date 1980-01-01
+            h.extend(crc.to_le_bytes());
+            h.extend(size.to_le_bytes());
+            h.extend(size.to_le_bytes());
+            h.extend(name_len.to_le_bytes());
+            h.extend(0u16.to_le_bytes()); // extra
+            if is_central {
+                h.extend([0u8; 2 + 2 + 2 + 4]); // comment, disk, internal attrs, external attrs
+                h.extend(offset.to_le_bytes());
+            }
+            h.extend(name.as_bytes());
+            h
+        };
+        out.extend(header(0x0403_4b50, false));
+        out.extend(data);
+        central.extend(header(0x0201_4b50, true));
+    }
+    let central_offset = out.len() as u32;
+    let central_len = central.len() as u32;
+    out.extend(central);
+    out.extend(0x0605_4b50u32.to_le_bytes());
+    out.extend([0u8; 4]);
+    out.extend((files.len() as u16).to_le_bytes());
+    out.extend((files.len() as u16).to_le_bytes());
+    out.extend(central_len.to_le_bytes());
+    out.extend(central_offset.to_le_bytes());
+    out.extend(0u16.to_le_bytes());
+    out
+}
+
+/// Validate `source` (a `.toml` file) as a user definition and place it as `<user_dir>/<id>.toml`.
+/// Nothing is approved here: approvals are keyed by file path + fingerprint, so a new file has none
+/// and shows up as `unapproved` after the next reload. Never overwrites an existing file.
+pub fn import_definition(user_dir: &Path, source: &Path, code_ids: &[&str]) -> Result<PathBuf, String> {
+    if source.extension().is_none_or(|e| !e.eq_ignore_ascii_case("toml")) {
+        return Err("INVALID_ARGUMENT: choose a definition file ending in .toml".into());
+    }
+    let meta = std::fs::metadata(source).map_err(|e| format!("AGENT_DEF_NOT_FOUND: cannot read {}: {e}", source.display()))?;
+    let limit = super::validate::MAX_DEFINITION_BYTES;
+    if !meta.is_file() || meta.len() as usize > limit {
+        return Err(format!("AGENT_DEF_TOO_LARGE: a definition file is at most {limit} bytes"));
+    }
+    let text = std::fs::read_to_string(source).map_err(|e| format!("AGENT_DEF_INVALID_TOML: {e}"))?;
+    let loaded = load_text(Path::new("import.toml"), &text, text.len(), Origin::new(Source::User), None, code_ids);
+    if let Some(error) = loaded.errors.first() {
+        return Err(format!("{}: {}", error.code, error.message));
+    }
+    let id = loaded.id.ok_or_else(|| "AGENT_DEF_INVALID_TOML: no agent id".to_string())?;
+    std::fs::create_dir_all(user_dir).map_err(|e| format!("cannot create the agents folder: {e}"))?;
+    let path = user_dir.join(format!("{id}.toml"));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => format!("AGENT_DEF_DUPLICATE_ID: {} already exists", path.display()),
+            _ => format!("cannot write {}: {e}", path.display()),
+        })?;
+    std::io::Write::write_all(&mut file, text.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(path)
+}

@@ -6,6 +6,8 @@
 //! path must stay under the user's home or the project directory (HST-3) and the definition must
 //! be approved. TOML and YAML are edited line-wise so comments and unrelated keys survive.
 
+#![allow(dead_code)] // the writer has no route yet (T35 is library-only); validation and tests use it
+
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Component, Path, PathBuf};

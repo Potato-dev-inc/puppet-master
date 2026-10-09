@@ -56,6 +56,14 @@ function mockApi(listing: DefinitionsListing = fixture()): AgentDefinitionsApi &
         { id: 'mycoder', file: 'C:/data/agents/mycoder.toml', source: 'user', state: 'needs_approval', errors: [], fingerprint: 'sha256:gen', shadowed_by: null },
       ],
     })),
+    exportDefinition: vi.fn(async (id: string) => ({ path: `C:/out/${id}.toml`, fixtures_zip: null })),
+    importDefinition: vi.fn(async () => ({
+      ...listing,
+      definitions: [
+        ...listing.definitions,
+        { id: 'shared', file: 'C:/data/agents/shared.toml', source: 'user', state: 'needs_approval', errors: [], fingerprint: 'sha256:imp', shadowed_by: null },
+      ],
+    })),
     checkFile: vi.fn(async () => [
       { fixture: 'headless_success.jsonl', passed: true, failures: [] },
       { fixture: 'tui_reply.txt', passed: false, failures: ['busy: expected true, got false'] },
@@ -169,6 +177,35 @@ describe('AgentsTab', () => {
     (api.list as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
     await render(api);
     expect(host.textContent).toContain('boom');
+  });
+});
+
+describe('AgentsTab export/import buttons', () => {
+  it('Export calls exportDefinition for a user definition and reports the path', async () => {
+    const api = mockApi();
+    await render(api);
+    await click(button('Export'));
+    expect(api.exportDefinition).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Exported');
+    expect(host.textContent).toContain('.toml');
+  });
+
+  it('Import calls importDefinition, lists the new row unapproved and says it needs approval', async () => {
+    const api = mockApi();
+    await render(api);
+    await click(button('Import'));
+    expect(api.importDefinition).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('shared');
+    expect(host.textContent).toContain('unapproved');
+  });
+
+  it('a cancelled Import changes nothing', async () => {
+    const api = mockApi();
+    (api.importDefinition as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    await render(api);
+    await click(button('Import'));
+    expect(host.querySelectorAll('[data-testid="definition-row"]')).toHaveLength(2);
+    expect(host.textContent).not.toContain('Imported.');
   });
 });
 

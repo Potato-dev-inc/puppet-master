@@ -371,3 +371,89 @@ mod approvals_cases {
         assert_eq!(only_bundled.profiles.len(), 1);
     }
 }
+
+mod share {
+    use super::*;
+    use crate::tui::declarative::approvals::{ApprovalState, Approvals};
+    use crate::tui::declarative::loader::{build, export_definition, import_definition, stored_zip, DefState, LoadInputs};
+
+    fn state_of(user_dir: &Path, approvals: &Path) -> Vec<(String, DefState, Option<ApprovalState>)> {
+        let inputs = LoadInputs {
+            bundled: &[],
+            user_dir: Some(user_dir),
+            code_ids: &["claude"],
+            projects: &[],
+            extra: &[],
+        };
+        build(&inputs, &Approvals::load(approvals))
+            .entries
+            .into_iter()
+            .map(|e| (e.id.unwrap_or_default(), e.state, e.approval))
+            .collect()
+    }
+
+    #[test]
+    fn import_is_unapproved() {
+        let mut t = Tree::new();
+        let user = t.dir("user");
+        let src = t.file("shared.toml", &with_id("sharedagent"));
+        let placed = import_definition(&user, &src, &["claude"]).expect("import");
+        t.files.push(placed.clone());
+        assert_eq!(placed, user.join("sharedagent.toml"));
+        let rows = state_of(&user, &t.root.join("approvals.json"));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "sharedagent");
+        assert_eq!(rows[0].1, DefState::NeedsApproval, "{rows:?}");
+    }
+
+    #[test]
+    fn import_validates_and_never_overwrites() {
+        let mut t = Tree::new();
+        let user = t.dir("user");
+        let bad = t.file("bad.toml", "schema_version = 1\n[agent]\nid = \"claude\"\n");
+        assert!(import_definition(&user, &bad, &["claude"]).is_err());
+        let not_toml = t.file("x.txt", MINIMAL);
+        assert!(import_definition(&user, &not_toml, &["claude"]).unwrap_err().contains("INVALID_ARGUMENT"));
+        let good = t.file("good.toml", &with_id("goodagent"));
+        let placed = import_definition(&user, &good, &["claude"]).unwrap();
+        t.files.push(placed);
+        let again = import_definition(&user, &good, &["claude"]).unwrap_err();
+        assert!(again.contains("AGENT_DEF_DUPLICATE_ID"), "{again}");
+        assert_eq!(fs::read_dir(&user).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn export_writes_toml_and_fixtures_zip_only_at_target() {
+        let mut t = Tree::new();
+        let user = t.dir("user");
+        let out = t.dir("out");
+        t.file("user/exp.toml", &with_id("expagent"));
+        t.dir("user/expagent.fixtures");
+        t.file("user/expagent.fixtures/idle.txt", "hello");
+        let done = export_definition(&user, "expagent", &out.join("shared.toml")).expect("export");
+        t.files.push(done.toml_path.clone());
+        assert_eq!(fs::read_to_string(&done.toml_path).unwrap(), with_id("expagent"));
+        let zip = done.fixtures_zip.expect("zip");
+        t.files.push(zip.clone());
+        assert_eq!(zip, out.join("shared.fixtures.zip"));
+        let bytes = fs::read(&zip).unwrap();
+        assert_eq!(&bytes[..4], b"PK\x03\x04");
+        assert!(bytes.windows(9).any(|w| w == b"idle.txt\x00" || &w[..8] == b"idle.txt"));
+        assert!(bytes.windows(5).any(|w| w == b"hello"));
+        assert_eq!(fs::read_dir(&out).unwrap().count(), 2);
+        // Re-import of the exported TOML round-trips.
+        let user2 = t.dir("user2");
+        let placed = import_definition(&user2, &done.toml_path, &["claude"]).unwrap();
+        t.files.push(placed);
+        assert!(export_definition(&user, "missing", &out.join("m.toml")).unwrap_err().contains("AGENT_DEF_NOT_FOUND"));
+        assert!(export_definition(&user, "expagent", &out.join("m.txt")).is_err());
+    }
+
+    #[test]
+    fn stored_zip_has_valid_crc_and_directory() {
+        let zip = stored_zip(&[("a.txt".into(), b"123456789".to_vec())]);
+        // CRC-32 of "123456789" is 0xCBF43926.
+        assert!(zip.windows(4).any(|w| w == 0xCBF4_3926u32.to_le_bytes()));
+        assert_eq!(&zip[zip.len() - 22..zip.len() - 18], b"PK\x05\x06");
+    }
+}

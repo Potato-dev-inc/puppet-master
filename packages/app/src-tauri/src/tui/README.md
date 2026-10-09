@@ -78,6 +78,17 @@ If the CLI can be driven by an argument list, a TOML file replaces steps 1-4 abo
 4. Fixtures: real captures go in `tui/declarative/fixtures/<name>/`; `conformance.rs` runs its `rules` over every
    definition in `fixtures/definitions`. Run `cargo test --lib tui::declarative`.
 
+5. Editing a definition while the app runs is safe: `declarative/watch.rs` reloads on save (150 ms debounce) and emits
+   `agent_definitions_changed`. Runs already in flight keep the argv they started with; the next run is refused
+   (`approval_stale`) until the changed file is re-approved. If an active file becomes invalid the previous
+   registration is kept.
+6. Project (`<project>/.puppet-master/agents`) and extra folders load only after per-path consent in Settings > Agents
+   (consent never replaces approval).
+7. A definition may carry `[mcp_host]` (config_path under home/project, format json/toml/yaml, key_path, entry with
+   `{command}`/`{args}`/`{env}`); `mcp_install/declarative.rs` writes only that key, makes a `.bak`, and is idempotent.
+8. Share one definition: Settings > Agents > Export (TOML, plus `<name>.fixtures.zip` when `<id>.fixtures/` exists) and
+   Import (validated, placed in the user folder unapproved; never overwrites; no network).
+
 Code stays the right choice when the agent needs a protocol client (OpenCode native) or logic a table cannot express.
 Declarative profiles live in `tui/declarative/` (`DeclarativeProfile` implements `TuiProfile`; generic code never
 sees the difference) and register through `loader::reload`.

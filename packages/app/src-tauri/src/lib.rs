@@ -85,6 +85,8 @@ pub fn run() {
             commands::agents_definition_preview,
             commands::agents_check_file,
             commands::agents_add_generic,
+            commands::agents_export_definition,
+            commands::agents_import_definition,
             commands::agents_definition_revoke,
             commands::agents_definitions_consent,
             commands::agents_source_set,

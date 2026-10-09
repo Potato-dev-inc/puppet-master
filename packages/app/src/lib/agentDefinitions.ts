@@ -120,6 +120,10 @@ export interface AgentDefinitionsApi {
   draftValidate?(path: string): Promise<DefinitionPreview>;
   /** Writes an UNAPPROVED experimental generic definition for a bare command name, then rescans. */
   addGeneric(command: string): Promise<DefinitionsListing>;
+  /** Sharing (P5-6): asks for a .toml target, writes the definition (+ fixtures zip). null = cancelled. */
+  exportDefinition(id: string): Promise<{ path: string; fixtures_zip: string | null } | null>;
+  /** Sharing (P5-6): asks for a .toml file, places it in the user dir UNAPPROVED. null = cancelled. */
+  importDefinition(): Promise<DefinitionsListing | null>;
   /** Runs the definition file against a folder of captures with *.expect.toml files. */
   checkFile(path: string, fixturesDir?: string): Promise<FixtureResult[]>;
   list(): Promise<DefinitionsListing>;
@@ -140,6 +144,18 @@ export interface AgentDefinitionsApi {
 
 export const tauriAgentDefinitionsApi: AgentDefinitionsApi = {
   addGeneric: (command) => invoke<DefinitionsListing>('agents_add_generic', { command }),
+  exportDefinition: async (id) => {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const target = await save({ defaultPath: `${id}.toml`, filters: [{ name: 'Agent definition', extensions: ['toml'] }] });
+    if (!target) return null;
+    return invoke<{ path: string; fixtures_zip: string | null }>('agents_export_definition', { id, target });
+  },
+  importDefinition: async () => {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const source = await open({ multiple: false, filters: [{ name: 'Agent definition', extensions: ['toml'] }] });
+    if (!source || Array.isArray(source)) return null;
+    return invoke<DefinitionsListing>('agents_import_definition', { source });
+  },
   checkFile: (path, fixturesDir) => invoke<FixtureResult[]>('agents_check_file', { path, fixturesDir: fixturesDir || null }),
   list: () => invoke<DefinitionsListing>('agents_definitions_list', undefined),
   reload: () => invoke<DefinitionsListing>('agents_definitions_reload', undefined),

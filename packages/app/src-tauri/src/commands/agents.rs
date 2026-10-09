@@ -301,3 +301,42 @@ mod tests {
         let _ = std::fs::remove_dir(&dir);
     }
 }
+
+/// Sharing (P5-6): copy the user definition `id` to `target` (+ `<stem>.fixtures.zip` when it has
+/// fixtures). Writes only the chosen target files; no network.
+#[tauri::command]
+pub fn agents_export_definition(id: String, target: String) -> Result<Value, String> {
+    let done = crate::tui::declarative::loader::export_definition(
+        &crate::app_paths::agents_dir(),
+        &id,
+        std::path::Path::new(&target),
+    )?;
+    Ok(serde_json::json!({
+        "path": done.toml_path.to_string_lossy(),
+        "fixtures_zip": done.fixtures_zip.map(|p| p.to_string_lossy().to_string()),
+    }))
+}
+
+/// Sharing (P5-6): validate `source` and place it in the user agents folder UNAPPROVED, then
+/// rescan. An old approval record for the same path and fingerprint is dropped first so an import
+/// can never come back already active.
+#[tauri::command]
+pub fn agents_import_definition(source: String) -> Result<Value, String> {
+    let ids = crate::tui::registry::registry().code_ids();
+    let placed = crate::tui::declarative::loader::import_definition(
+        &crate::app_paths::agents_dir(),
+        std::path::Path::new(&source),
+        &ids,
+    )?;
+    let file = placed.to_string_lossy().to_string();
+    if !crate::tui::declarative::service::approved_snapshot_global(&file).is_null() {
+        let id = placed.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let shared = crate::tui::declarative::loader::last_entries()
+            .iter()
+            .any(|e| e.id.as_deref() == Some(id.as_str()) && e.path != placed);
+        if !shared {
+            let _ = crate::tui::declarative::service::revoke_global(&id);
+        }
+    }
+    Ok(crate::tui::declarative::service::reload_global_with_diff())
+}
