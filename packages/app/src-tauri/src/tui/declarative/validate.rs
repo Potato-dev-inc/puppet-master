@@ -72,6 +72,7 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
     check_model_and_context(def, &mut e, &mut regexes);
     check_features(def, &mut e);
     check_run_options(def, &mut e);
+    check_mcp_host(def, &mut e);
     check_regexes(&regexes, &mut e);
     e.0
 }
@@ -522,6 +523,57 @@ fn check_features(def: &Definition, e: &mut Errors) {
             );
         }
     }
+}
+
+fn check_mcp_host(def: &Definition, e: &mut Errors) {
+    let Some(m) = &def.mcp_host else { return };
+    if m.config_path.trim().is_empty() || m.config_path.contains("..") {
+        e.add("AGENT_DEF_INCONSISTENT", "mcp_host.config_path", "must be a non-empty path under home or the project, without `..` (HST-3)");
+    }
+    if crate::mcp_install::declarative::key_segments(&m.key_path).is_err() {
+        e.add("AGENT_DEF_INCONSISTENT", "mcp_host.key_path", "must be dotted segments of [A-Za-z0-9_-], for example mcpServers.puppet-master");
+    }
+    if m.entry.is_empty() {
+        e.add("AGENT_DEF_INCONSISTENT", "mcp_host.entry", "must not be empty");
+    }
+    let mut strings = Vec::new();
+    collect_strings(&toml::Value::Table(m.entry.clone()), &mut strings);
+    for s in strings {
+        for name in placeholder_names(&s) {
+            if !crate::mcp_install::declarative::PLACEHOLDERS.contains(&name.as_str()) {
+                e.add("AGENT_DEF_BAD_PLACEHOLDER", "mcp_host.entry", format!("unknown placeholder {{{name}}}; allowed: command, args, env"));
+            }
+        }
+        let whole = s == "{args}" || s == "{env}";
+        if !whole && (s.contains("{args}") || s.contains("{env}")) {
+            e.add("AGENT_DEF_BAD_PLACEHOLDER", "mcp_host.entry", "{args} and {env} must be a whole value, not part of a longer string");
+        }
+    }
+}
+
+fn collect_strings(v: &toml::Value, out: &mut Vec<String>) {
+    match v {
+        toml::Value::String(s) => out.push(s.clone()),
+        toml::Value::Array(a) => a.iter().for_each(|x| collect_strings(x, out)),
+        toml::Value::Table(t) => t.values().for_each(|x| collect_strings(x, out)),
+        _ => {}
+    }
+}
+
+fn placeholder_names(s: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut rest = s;
+    while let Some(i) = rest.find('{') {
+        let after = &rest[i + 1..];
+        match after.find('}') {
+            Some(j) => {
+                names.push(after[..j].to_string());
+                rest = &after[j + 1..];
+            }
+            None => break,
+        }
+    }
+    names
 }
 
 fn check_run_options(def: &Definition, e: &mut Errors) {

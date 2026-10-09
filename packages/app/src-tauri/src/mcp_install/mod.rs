@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 mod claude;
 mod codex;
+pub mod declarative;
 mod opencode;
 
 use claude::*;
