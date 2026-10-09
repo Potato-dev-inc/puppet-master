@@ -23,6 +23,9 @@ pub(in crate::agent_runs) fn execute_headless(
     registry: Arc<Mutex<crate::pty::PaneRegistry>>,
     app: tauri::AppHandle,
 ) {
+    // A turn runs with the profile it was admitted under: editing or unregistering the definition
+    // mid-run must not change how this turn is launched, parsed or finished.
+    let profile = crate::tui::profile_for(&agent_type);
     transcript::append(&project, &operation_id, "user_task", &task);
     let snapshot = operations::get_operation(&project, &operation_id).ok();
     let resume_session = snapshot
@@ -43,7 +46,7 @@ pub(in crate::agent_runs) fn execute_headless(
         .as_ref()
         .and_then(|current| current.worker.requested_model.clone())
         .filter(|model| !model.trim().is_empty());
-    if crate::tui::profile_for(&agent_type).probes_default_model()
+    if profile.probes_default_model()
         && snapshot
             .as_ref()
             .is_some_and(|current| current.worker.resolved_model.is_none())
@@ -51,17 +54,18 @@ pub(in crate::agent_runs) fn execute_headless(
         // Some headless CLIs never say which model ran; record the CLI's configured default so
         // resolved_model is a real answer instead of null. Off-thread: it may shell out.
         let (project, operation_id) = (project.clone(), operation_id.clone());
-        let probe_type = agent_type.clone();
+        let probe_profile = profile.clone();
         let _ = thread::Builder::new()
             .name("puppet-default-model".into())
             .spawn(move || {
-                if let Some(model) = crate::tui::profile_for(&probe_type).default_model() {
+                if let Some(model) = probe_profile.default_model() {
                     // A configured default is a best guess, not a confirmation of what ran.
                     let _ = operations::record_unconfirmed_model(&project, &operation_id, &model);
                 }
             });
     }
-    let spec = match crate::tui::headless_launch(
+    let spec = match crate::tui::headless_launch_with(
+        &*profile,
         &agent_type,
         &crate::tui::HeadlessLaunch {
             project: &project,
@@ -131,7 +135,7 @@ pub(in crate::agent_runs) fn execute_headless(
         operations::dispatch_input_if_active(&project, &operation_id, |_| {
             let from_standby = standby
                 .take()
-                .and_then(|process| hand_task_to_standby(process, &agent_type, &task));
+                .and_then(|process| hand_task_to_standby(process, &profile, &task));
             if from_standby.is_some() {
                 operations::mark_standby_claimed(&project, &operation_id);
             }
@@ -225,7 +229,7 @@ pub(in crate::agent_runs) fn execute_headless(
             last_result_poll = Instant::now();
             if result_seen_at.is_none() {
                 let stdout = stream_text(&project, &operation_id, "stdout");
-                if crate::tui::profile_for(&agent_type).headless_result_ready(&stdout) {
+                if profile.headless_result_ready(&stdout) {
                     result_seen_at = Some(Instant::now());
                 }
             }
@@ -281,7 +285,7 @@ pub(in crate::agent_runs) fn execute_headless(
         return;
     }
     if let Some(code) = exit_status {
-        finish_from_output(&project, &operation_id, &agent_type, &spec.program, code);
+        finish_from_output(&project, &operation_id, &profile, &spec.program, code);
     }
     children().lock().remove(&operation_id);
     publish(&project, &operation_id, &registry, &app);
@@ -292,11 +296,11 @@ pub(in crate::agent_runs) fn execute_headless(
 /// bad standby is never a user-visible failure.
 fn hand_task_to_standby(
     mut process: crate::standby::StandbyProcess,
-    agent_type: &str,
+    profile: &Arc<dyn crate::tui::TuiProfile>,
     task: &str,
 ) -> Option<std::process::Child> {
     use std::io::Write;
-    let Some(input) = crate::tui::profile_for(agent_type).headless_standby_input(task) else {
+    let Some(input) = profile.headless_standby_input(task) else {
         let _ = process.child.kill();
         let _ = process.child.wait();
         return None;

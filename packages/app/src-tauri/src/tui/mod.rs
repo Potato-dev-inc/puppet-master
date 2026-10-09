@@ -159,10 +159,19 @@ pub fn standby_backends() -> Vec<(&'static str, StandbySupport)> {
 
 /// Headless command line for `agent_type`, after the checks every backend shares.
 pub fn headless_launch(agent_type: &str, launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
+    headless_launch_with(&*profile_for(agent_type), agent_type, launch)
+}
+
+/// `headless_launch` with the profile the caller already holds (a turn keeps the profile it was
+/// admitted under, whatever the registry becomes meanwhile).
+pub fn headless_launch_with(
+    profile: &dyn TuiProfile,
+    agent_type: &str,
+    launch: &HeadlessLaunch,
+) -> Result<LaunchSpec, String> {
     if launch.allow_shell && launch.read_only {
         return Err("allow_shell cannot be combined with read_only".into());
     }
-    let profile = profile_for(agent_type);
     if launch.read_only && !profile.features().read_only_headless {
         return Err(format!(
             "READ_ONLY_UNSUPPORTED: read-only headless execution is unsupported for agent type: {agent_type}"

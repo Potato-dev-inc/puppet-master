@@ -215,9 +215,12 @@ pub fn visible_mismatch(
 /// Status a persisted run reports when its `agent_type` is no longer registered (SPEC 9).
 pub const AGENT_GONE: &str = "agent_gone";
 
-/// A persisted run whose agent definition is gone: it stays viewable but is never resumed.
+/// A persisted run whose agent definition is gone: it stays viewable but is never resumed. An agent
+/// whose definition still exists but is stale/unapproved is not gone: new runs are refused with
+/// `AGENT_DEF_*`, and a turn in flight keeps the profile it started under.
 pub fn agent_gone(snapshot: &OperationSnapshot) -> bool {
     !crate::tui::is_registered(&snapshot.agent_type)
+        && crate::tui::declarative::loader::last_entry_for(&snapshot.agent_type).is_none()
 }
 
 pub fn snapshot_can_resume(snapshot: &OperationSnapshot) -> bool {

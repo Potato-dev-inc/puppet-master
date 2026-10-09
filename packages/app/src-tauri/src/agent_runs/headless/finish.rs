@@ -9,22 +9,22 @@ use crate::operations::{self, OperationError, OperationStatus, StateSource};
 pub(super) fn finish_from_output(
     project: &str,
     operation_id: &str,
-    agent_type: &str,
+    profile: &std::sync::Arc<dyn crate::tui::TuiProfile>,
     program: &str,
     code: i32,
 ) {
     let transcript = stream_text(project, operation_id, "stdout");
     let stderr = stream_text(project, operation_id, "stderr");
     if let Some(session) =
-        crate::tui::profile_for(agent_type).extract_provider_session(&transcript)
+        profile.extract_provider_session(&transcript)
     {
         let _ = operations::set_provider_session(project, operation_id, &session);
     }
     // A model the CLI itself reported is a confirmation; record it even when the turn failed.
-    if let Some(model) = crate::tui::profile_for(agent_type).extract_model(&transcript) {
+    if let Some(model) = profile.extract_model(&transcript) {
         let _ = operations::record_terminal_pane_state(project, operation_id, Some(model), false);
     }
-    if let Some(result) = crate::tui::profile_for(agent_type).extract_result(&transcript, code) {
+    if let Some(result) = profile.extract_result(&transcript, code) {
         if result.trim().is_empty() {
             // The worker reported an empty result: that is an honest, authoritative answer.
             // Completion with no evidence text is refused by mark_operation_completed.
@@ -33,7 +33,7 @@ pub(super) fn finish_from_output(
         }
         // A rejected shell call means the task may not have done what it says: keep the run
         // `completed`, but do not call its result verified (an explicit check can still verify).
-        let rejected = crate::tui::profile_for(agent_type).rejected_call_warning(&transcript);
+        let rejected = profile.rejected_call_warning(&transcript);
         let result = match rejected {
             Some(warning) => format!("{result}\n\n{warning}"),
             None => result,
@@ -58,7 +58,7 @@ pub(super) fn finish_from_output(
             &result,
             rejected.is_none(),
         );
-    } else if let Some(mut prompt) = crate::tui::profile_for(agent_type)
+    } else if let Some(mut prompt) = profile
         .detect_headless_trust(&format!("{stderr}\n{transcript}"))
     {
         if let Some(id) = native::stable_prompt_id(&prompt) {
@@ -74,7 +74,7 @@ pub(super) fn finish_from_output(
             tracing::warn!(operation_id = %operation_id, code = %error.code, message = %error.message, "could not park headless run on workspace trust prompt");
         }
     } else if let Some((error_code, message)) =
-        crate::tui::profile_for(agent_type).classify_headless_failure(&transcript, code)
+        profile.classify_headless_failure(&transcript, code)
     {
         // The definition says what went wrong: the CLI reported an error, or exited cleanly with
         // output nothing in it could read. The run fails rather than guessing a result.
@@ -237,6 +237,31 @@ mod tests {
         (project, project_path, op.operation_id)
     }
 
+    /// SPEC: editing a definition never changes a run already started. The registry loses the
+    /// agent while the turn runs; the turn finishes with the profile it holds.
+    #[test]
+    fn turn_keeps_its_profile_when_the_registry_is_swapped_mid_turn() {
+        let _serial = crate::tui::registry::test_serial();
+        let (project, path, id) = running_cursor_turn("swap", 0);
+        let held = crate::tui::profile_for("cursor_agent");
+        transcript::append(
+            &path,
+            &id,
+            "stdout",
+            r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s-swap"}"#,
+        );
+        let before = crate::tui::registry::snapshot();
+        crate::tui::registry::registry().swap(Vec::new());
+        assert_eq!(crate::tui::profile_for("cursor_agent").id(), "unknown", "control: agent is gone");
+        finish_from_output(&path, &id, &held, "agent", 0);
+        crate::tui::registry::registry().swap((*before).clone());
+        let done = operations::get_operation(&path, &id).unwrap();
+        assert_eq!(done.status, OperationStatus::Completed, "{:?}", done.error);
+        assert_eq!(done.result.as_deref(), Some("PONG"));
+        assert_eq!(done.result_capture, Some(ResultCapture::Authoritative));
+        let _ = std::fs::remove_dir_all(project);
+    }
+
     #[test]
     fn empty_result_event_completes_the_turn_honestly() {
         let (project, path, id) = running_cursor_turn("empty", 1);
@@ -246,7 +271,7 @@ mod tests {
             "stdout",
             r#"{"type":"result","subtype":"success","is_error":false,"result":"","session_id":"s-empty"}"#,
         );
-        finish_from_output(&path, &id, "cursor_agent", "agent", 0);
+        finish_from_output(&path, &id, &crate::tui::profile_for("cursor_agent"), "agent", 0);
         let done = operations::get_operation(&path, &id).unwrap();
         assert_eq!(done.status, OperationStatus::Completed, "{:?}", done.error);
         assert_eq!(done.result.as_deref(), None);
@@ -270,7 +295,7 @@ mod tests {
             "stdout",
             r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s1"}"#,
         );
-        finish_from_output(&path, &id, "cursor_agent", "agent", 0);
+        finish_from_output(&path, &id, &crate::tui::profile_for("cursor_agent"), "agent", 0);
         let done = operations::get_operation(&path, &id).unwrap();
         assert_eq!(done.status, OperationStatus::Completed, "{:?}", done.error);
         assert_eq!(done.result.as_deref(), Some("PONG"));
@@ -287,7 +312,7 @@ mod tests {
             "stdout",
             r#"{"result":"PONG","session_id":"s2","modelUsage":{"claude-sonnet-5-5":{"outputTokens":14}}}"#,
         );
-        finish_from_output(&path, &id, "claude", "claude", 0);
+        finish_from_output(&path, &id, &crate::tui::profile_for("claude"), "claude", 0);
         let done = operations::get_operation(&path, &id).unwrap();
         assert_eq!(done.status, OperationStatus::Completed, "{:?}", done.error);
         assert_eq!(done.worker.resolved_model.as_deref(), Some("claude-sonnet-5-5"));
@@ -304,7 +329,7 @@ mod tests {
             "stdout",
             r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s3"}"#,
         );
-        finish_from_output(&path, &id, "cursor_agent", "agent", 0);
+        finish_from_output(&path, &id, &crate::tui::profile_for("cursor_agent"), "agent", 0);
         let done = operations::get_operation(&path, &id).unwrap();
         assert!(done.worker.resolved_model.is_none());
         let warnings = crate::agent_runs::runtime::run_warnings_for_tests(&done);
