@@ -185,3 +185,32 @@ fn revoked_approval_blocks_new_run() {
     assert!(f.approvals.revoke("gate_x"));
     assert_eq!(gate(&f).unwrap_err().code, "AGENT_DEF_UNAPPROVED");
 }
+
+/// A run whose definition went stale/removed mid-run still reports what it ran with.
+#[test]
+fn receipt_read_only_uses_the_profile_the_turn_ran_with() {
+    use crate::operations::RunFeatures;
+    let registry = crate::tui::registry::Registry::seeded();
+    let held = registry.profile_for_arc("claude");
+    assert!(held.features().read_only_headless, "control: claude enforces read_only headless");
+    registry.swap(Vec::new());
+    assert!(!registry.profile_for_arc("claude").features().read_only_headless, "control: gone from the registry");
+    let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+    snapshot.agent_type = "claude".into();
+    snapshot.worker.run_features = Some(RunFeatures::of(held.as_ref()));
+    assert_eq!(receipt_of(snapshot.clone()).read_only, "enforced");
+    // an agent the live registry does not know at all (removed definition) keeps the recorded value
+    snapshot.agent_type = "removed_def".into();
+    let receipt = receipt_of(snapshot.clone());
+    assert_eq!(receipt.read_only, "enforced");
+    assert!(!receipt.not_verified.iter().any(|entry| entry.contains("read_only")));
+    // old snapshots without the field fall back to the live registry
+    snapshot.worker.run_features = None;
+    assert_eq!(receipt_of(snapshot).read_only, "unenforced");
+    // the field round-trips
+    let mut stored = parked_snapshot(OperationStatus::Completed, "none");
+    stored.worker.run_features = Some(RunFeatures::of(held.as_ref()));
+    let back: crate::operations::OperationSnapshot =
+        serde_json::from_value(serde_json::to_value(&stored).unwrap()).unwrap();
+    assert_eq!(back.worker.run_features, stored.worker.run_features);
+}

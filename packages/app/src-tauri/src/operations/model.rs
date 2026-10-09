@@ -366,12 +366,35 @@ pub struct WorkerPersist {
     /// turn's spawn, so a later edit to the file never rewrites an earlier run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_definition: Option<crate::tui::DefinitionRef>,
+    /// What the profile this turn started under could enforce, recorded at spawn so the receipt
+    /// never re-reads a registry that an edit may have changed mid-run. Absent on old snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_features: Option<RunFeatures>,
     /// Programs pre-authorised for allow-once on Cursor shell prompts (see approval_policy).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_commands: Vec<String>,
     /// Stage entries for the current turn, oldest first (capped), for startup diagnosis.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stage_log: Vec<StageMark>,
+}
+
+/// Facts about the profile a turn ran under that the receipt reports (see `WorkerPersist::run_features`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunFeatures {
+    pub read_only_headless: bool,
+    pub read_only_spawned_pane: bool,
+    pub experimental: bool,
+}
+
+impl RunFeatures {
+    pub fn of(profile: &dyn crate::tui::TuiProfile) -> Self {
+        let features = profile.features();
+        Self {
+            read_only_headless: features.read_only_headless,
+            read_only_spawned_pane: features.read_only_spawned_pane,
+            experimental: profile.experimental(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

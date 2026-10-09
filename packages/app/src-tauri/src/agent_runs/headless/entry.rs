@@ -286,6 +286,9 @@ pub fn run_agent(
     // APR-4/SEC-4: the file must still be what was approved and the binary the pinned one; the
     // reference is recorded on this turn (OBS-2).
     worker.agent_definition = crate::tui::registry::admit(&agent_type, &project_path)?;
+    // The receipt reports what the profile held HERE could enforce, not whatever the live registry
+    // says when the turn ends (the definition may have been edited or removed mid-run).
+    worker.run_features = Some(crate::operations::RunFeatures::of(profile.as_ref()));
     let supported = profile.run_options();
     if request.trust_workspace {
         if !supported.trust_workspace {

@@ -43,11 +43,14 @@ pub(super) fn build_receipt(
     result_capture: &str,
 ) -> RunReceipt {
     let terminal = snapshot.status.terminal();
-    let features = crate::tui::profile_for(&snapshot.agent_type).features();
+    // Prefer the facts recorded when the turn started; old snapshots fall back to the live registry.
+    let held = snapshot.worker.run_features.unwrap_or_else(|| {
+        crate::operations::RunFeatures::of(crate::tui::profile_for(&snapshot.agent_type).as_ref())
+    });
     let read_only = if !snapshot.read_only {
         "off"
-    } else if features.read_only_headless
-        || (features.read_only_spawned_pane
+    } else if held.read_only_headless
+        || (held.read_only_spawned_pane
             && snapshot
                 .pane_id
                 .as_deref()
@@ -80,7 +83,7 @@ pub(super) fn build_receipt(
     if terminal && snapshot.worker.requested_model.is_some() && model_verified != Some(true) {
         not_verified.push("model not confirmed".to_string());
     }
-    if crate::tui::profile_for(&snapshot.agent_type).experimental() {
+    if held.experimental {
         not_verified.push("experimental agent: screen heuristics only".to_string());
     }
     if read_only == "unenforced" {
