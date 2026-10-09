@@ -31,6 +31,21 @@ fn main() {
         }
     }
     println!("cargo:rerun-if-changed=src");
+    // Anything else that changes what a dev rebuild produces must also re-stamp the id, or live
+    // evidence cannot tell which code ran: manifests, Tauri config, capabilities, the tests dir,
+    // and the frontend sources.
+    for path in [
+        "Cargo.toml",
+        "Cargo.lock",
+        "tauri.conf.json",
+        "tauri.dev.local.json",
+        "capabilities",
+        "resources",
+        "tests",
+        "../src",
+    ] {
+        println!("cargo:rerun-if-changed={path}");
+    }
     // A release build (the app and the MCP exe people retest) must carry a fresh build id every
     // time, even when nothing changed. A rerun-if-changed path that does not exist is always
     // considered stale, so cargo re-runs this script (and re-stamps the id) on every release
