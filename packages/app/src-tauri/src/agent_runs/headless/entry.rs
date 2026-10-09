@@ -116,6 +116,9 @@ pub fn run_agent(
     if let Some(error) = crate::tui::registry::unavailable(&request.agent_type) {
         return Err(error);
     }
+    // An unregistered id is UNKNOWN_AGENT_TYPE (with the valid ids), not the fallback profile's
+    // "cannot run delegated work".
+    registered_profile(&request.agent_type)?;
     // A backend that enforces read-only on a pane it spawns itself (opencode_native) may run in a
     // pane; every other backend needs a headless run. An explicitly named pane must itself have
     // been spawned read-only, and the dispatch re-checks adopted worker panes.
@@ -505,5 +508,26 @@ mod tests {
         );
         assert!(wrap_acceptance_criteria("task", Some(criteria.as_slice()))
             .contains("Acceptance criteria:\n- return GREEN ORBIT-42"));
+    }
+}
+
+/// The registered profile for `agent_type`, or `UNKNOWN_AGENT_TYPE` listing the valid ids.
+fn registered_profile(
+    agent_type: &str,
+) -> Result<std::sync::Arc<dyn crate::tui::TuiProfile>, OperationError> {
+    crate::tui::require_registered(agent_type)
+        .map_err(|unknown| OperationError::unknown_agent_type(unknown.id, unknown.valid))
+}
+
+#[cfg(test)]
+mod registered_tests {
+    use super::registered_profile;
+
+    #[test]
+    fn unknown_agent_is_unknown_agent_type_with_valid_ids_not_not_dispatchable() {
+        let error = registered_profile("nope_agent").err().expect("unknown id is refused");
+        assert_eq!(error.code, "UNKNOWN_AGENT_TYPE");
+        assert!(error.context["valid"].as_array().unwrap().iter().any(|id| id == "claude"), "{:?}", error.context);
+        assert!(registered_profile("claude").is_ok());
     }
 }
