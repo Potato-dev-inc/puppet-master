@@ -978,13 +978,15 @@ argv and flags like `--auto`; it cannot judge the CLI.
 6. `--` before the message is accepted (VERIFIED: `kilo run --format json -m <m> -- "-reply ..."` ran the
    dash-leading task as text). `task_separator = "--"` is therefore safe for Kilo.
 7. **ArcSwap reads are safe on the PTY reader threads** (profile resolution on the reader and idle threads
-   in `pty/registry/spawn.rs`). Believed true; Phase 1 includes a stress test.
+   in `pty/registry/spawn.rs`). VERIFIED (T06): `registry.rs` has a concurrent swap/read stress test; a turn also
+   holds its `Arc` profile, so a swap never changes a run that already started (T36b).
 8. Rust `regex` (no look-around) is enough for TUI patterns. True for Cursor's rules by inspection of
    `tui/cursor/chrome/`, not exhaustively.
-9. Changing `id()` to a borrowed `&str` is mechanical for the nine code profiles, but about 50
-   `profile_for(` call sites outside `tui/` may rely on `&'static`. Estimated one compile-fix pass.
-10. An embedding crate for bundled definitions (`include_dir` or `include_str!` per file) adds no problems to
-    the existing `scripts/ensure-tauri-resources.mjs` flow.
+9. CORRECTED: `TuiProfile::id()` stayed `-> &'static str`. Declarative profiles intern their id, warning and reason
+   strings with `Box::leak` once per loaded definition (T16), so no call site changed; the cost is a small leak per
+   reload of a changed definition.
+10. Bundled definitions: the loader accepts embedded `(name, text)` pairs (trusted, SRC-1) but none ship;
+    `kilo.toml` stays a user-dir file so the approval flow remains the proof (open question 1, default taken).
 
 ## 11. Open questions
 
