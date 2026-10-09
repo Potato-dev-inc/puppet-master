@@ -41,7 +41,9 @@ method (with a generic default) to `TuiProfile` instead.
    `AgentType` spawns its PTY through `TuiProfile::spawn_command` instead. Gates read the
    registry, never the enum: `tui::require_registered` (HTTP 400 `UNKNOWN_AGENT_TYPE`).
    The UI lists agents from `agents_list` / `lib/agentRegistry.ts`; no frontend list needs
-   editing for a new registered agent.
+   editing for a new registered agent. A turn holds the `Arc` profile it started with (and the
+   receipt's `read_only` comes from `WorkerPersist::run_features`, recorded at spawn), so a
+   registry swap or a definition edit never changes a run in flight.
 2. **Profile**: create `tui/foo/mod.rs` with a unit struct implementing `TuiProfile`, and split
    it into `launch.rs`/`headless.rs`/`screen.rs`/`chrome.rs` as logic appears (see `claude/`
    for the smallest example, `cursor/` for the fullest). Override only what differs. Start from:
