@@ -136,6 +136,7 @@ fn fixture() -> Fixture {
         fingerprint,
         binary: binary.clone(),
         approved_at: "2026-10-09T00:00:00Z".into(),
+        ..Default::default()
     });
     Fixture { tree, path, profile, approvals, binary }
 }

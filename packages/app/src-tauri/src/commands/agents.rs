@@ -48,7 +48,10 @@ pub fn agents_definition_preview(file: String) -> Result<Value, String> {
         .find(|e| std::fs::canonicalize(&e.path).unwrap_or_else(|_| e.path.clone()) == wanted)
         .ok_or_else(|| format!("AGENT_DEF_NOT_FOUND: no listed definition file {file}"))?;
     let text = std::fs::read_to_string(&entry.path).map_err(|e| format!("AGENT_DEF_NOT_FOUND: {e}"))?;
-    crate::tui::declarative::service::validate_global(&text, entry.source).map_err(command_error)
+    let mut preview = crate::tui::declarative::service::validate_global(&text, entry.source).map_err(command_error)?;
+    preview["approved"] = crate::tui::declarative::service::approved_snapshot_global(&entry.path.to_string_lossy());
+    preview["binary_changed"] = serde_json::json!(entry.binary_changed);
+    Ok(preview)
 }
 
 /// Runs a definition file against a folder of captures with `*.expect.toml` files (P3-2). Reads the
@@ -83,6 +86,28 @@ pub fn agents_definition_revoke(id: String) -> Result<Value, String> {
 pub fn agents_definitions_consent(kind: String, path: String, enabled: bool) -> Result<Value, String> {
     crate::tui::declarative::service::consent(&serde_json::json!({"kind": kind, "path": path, "enabled": enabled}))
         .map_err(command_error)
+}
+
+/// SRC-5: switch the user / project / extra source on or off.
+#[tauri::command]
+pub fn agents_source_set(name: String, enabled: bool) -> Result<Value, String> {
+    crate::tui::declarative::service::set_source(&serde_json::json!({"name": name, "enabled": enabled}))
+        .map_err(command_error)
+}
+
+/// SRC-4: add (`"add"`) or remove (`"remove"`) an extra definition directory. A new one has no
+/// consent and loads nothing until `agents_definitions_consent` allows it.
+#[tauri::command]
+pub fn agents_extra_dir(action: String, path: String) -> Result<Value, String> {
+    crate::tui::declarative::service::extra_dir(&serde_json::json!({"action": action, "path": path}))
+        .map_err(command_error)
+}
+
+/// Consent banner (P5-3): the definition file names found in `<project>/.puppet-master/agents`
+/// and whether this canonical path is consented. Reads names only, never the files.
+#[tauri::command]
+pub fn agents_project_scan(project: String) -> Value {
+    crate::tui::declarative::service::project_scan(&project)
 }
 
 /// Record-session toolbar (REC-1): start recording a pane. Refused for a standby-pool pane.

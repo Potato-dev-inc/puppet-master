@@ -135,6 +135,15 @@ impl DeclarativeProfile {
         if origin.source == Source::Bundled {
             return Ok(Some(reference));
         }
+        // SRC-7: a project definition runs only for the project it was consented for.
+        if origin.source == Source::Project
+            && origin.project.as_deref().map(canonical_project) != Some(canonical_project(project))
+        {
+            return Err(GateError {
+                code: "AGENT_DEF_NO_CONSENT",
+                message: format!("{} belongs to another project and is not available in {project}", self.id),
+            });
+        }
         let stale = |message: String| GateError { code: "AGENT_DEF_APPROVAL_STALE", message };
         let text = std::fs::read_to_string(&origin.path).map_err(|e| {
             stale(format!("definition file {} cannot be read: {e}", origin.path.display()))

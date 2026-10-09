@@ -1,4 +1,5 @@
-//! `/agents/definitions` routes (SPEC 7.5): list, reload, validate, approve, revoke, consent.
+//! `/agents/definitions` routes (SPEC 7.5): list, reload, validate, approve, revoke, consent, plus
+//! `source` (switch a source on/off) and `extra` (add/remove an extra directory) for Settings.
 //!
 //! These belong to the app's own session only (APR-7). An MCP session (any request carrying the
 //! session header) is refused here as well as by `mcp_sessions::authorize`, so the gate does not
@@ -52,7 +53,7 @@ pub(in crate::bridge) fn respond(
         ("GET", ["agents", "definitions"]) => "list",
         (
             "POST",
-            ["agents", "definitions", action @ ("reload" | "validate" | "approve" | "revoke" | "consent")],
+            ["agents", "definitions", action @ ("reload" | "validate" | "approve" | "revoke" | "consent" | "source" | "extra")],
         ) => *action,
         _ => return None,
     };
@@ -82,6 +83,8 @@ pub(in crate::bridge) fn respond(
             service::approve_global(file, fingerprint).map(|v| (200, v)).map_err(fail)
         }),
         "revoke" => text(body, "id").and_then(|id| service::revoke_global(id).map(|v| (200, v)).map_err(fail)),
+        "source" => service::set_source(body).map(|v| (200, v)).map_err(fail),
+        "extra" => service::extra_dir(body).map(|v| (200, v)).map_err(fail),
         _ => service::consent(body).map(|v| (200, v)).map_err(fail),
     })
 }

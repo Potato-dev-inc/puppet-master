@@ -135,3 +135,194 @@ fn read_capped(path: &Path) -> std::io::Result<Vec<u8>> {
     fs::File::open(path)?.take(MAX_DEFINITION_BYTES as u64 + 1).read_to_end(&mut bytes)?;
     Ok(bytes)
 }
+
+// ---- source switches and consent (SRC-3..5, SEC-2) -------------------------------------------
+
+use serde::{Deserialize, Serialize};
+
+use crate::standby::key::canonical_project;
+
+/// `<app data>/agent-definitions.json` (SPEC 7.6): the source switches, the project consents and
+/// the extra directories. A missing, malformed or wrong-version file means the defaults, which
+/// load nothing beyond the bundled and user sources.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SourceSettings {
+    pub version: u32,
+    pub sources: SourceSwitches,
+    pub watch: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SourceSwitches {
+    pub bundled: Switch,
+    pub user: Switch,
+    pub project: ProjectSwitch,
+    pub extra: ExtraSwitch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Switch {
+    pub enabled: bool,
+}
+
+impl Default for Switch {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProjectSwitch {
+    pub enabled: bool,
+    /// Canonical project paths (`canonical_project`) the user allowed. Path only (SPEC 11 Q3).
+    pub consented_projects: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExtraSwitch {
+    pub enabled: bool,
+    pub dirs: Vec<ExtraDirSetting>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtraDirSetting {
+    pub path: String,
+    #[serde(default)]
+    pub consented: bool,
+}
+
+impl Default for SourceSettings {
+    fn default() -> Self {
+        Self { version: 1, sources: SourceSwitches::default(), watch: true }
+    }
+}
+
+pub fn settings_path() -> PathBuf {
+    crate::app_paths::app_data_dir().join("agent-definitions.json")
+}
+
+impl SourceSettings {
+    pub fn load(path: &Path) -> Self {
+        let Ok(text) = fs::read_to_string(path) else { return Self::default() };
+        match serde_json::from_str::<Self>(&text) {
+            Ok(settings) if settings.version == 1 => settings,
+            _ => Self::default(),
+        }
+    }
+
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let tmp = path.with_extension("json.tmp");
+        fs::write(&tmp, text).map_err(|e| e.to_string())?;
+        fs::rename(&tmp, path).map_err(|e| e.to_string())
+    }
+
+    /// Enable or disable `user`, `project` or `extra` (`bundled` is always on).
+    pub fn set_enabled(&mut self, name: &str, enabled: bool) -> Result<(), String> {
+        match name {
+            "user" => self.sources.user.enabled = enabled,
+            "project" => self.sources.project.enabled = enabled,
+            "extra" => self.sources.extra.enabled = enabled,
+            "bundled" => return Err("the bundled source cannot be switched off".into()),
+            other => return Err(format!("unknown source: {other}")),
+        }
+        Ok(())
+    }
+
+    /// Record or withdraw consent for one project path (keyed by its canonical spelling, so a
+    /// clone at another path asks again).
+    pub fn set_project_consent(&mut self, project: &str, consented: bool) {
+        let key = canonical_project(project);
+        let list = &mut self.sources.project.consented_projects;
+        list.retain(|p| *p != key);
+        if consented {
+            list.push(key);
+        }
+    }
+
+    pub fn project_consented(&self, project: &str) -> bool {
+        let key = canonical_project(project);
+        self.sources.project.consented_projects.iter().any(|p| *p == key)
+    }
+
+    /// Add an extra directory (not consented yet). A repeat of the same canonical path is a no-op.
+    pub fn add_extra(&mut self, path: &str) -> Result<(), String> {
+        let path = path.trim();
+        if path.is_empty() {
+            return Err("a directory path is required".into());
+        }
+        let key = canonical_project(path);
+        if !self.sources.extra.dirs.iter().any(|d| canonical_project(&d.path) == key) {
+            self.sources.extra.dirs.push(ExtraDirSetting { path: path.to_string(), consented: false });
+        }
+        Ok(())
+    }
+
+    pub fn remove_extra(&mut self, path: &str) -> bool {
+        let key = canonical_project(path);
+        let before = self.sources.extra.dirs.len();
+        self.sources.extra.dirs.retain(|d| canonical_project(&d.path) != key);
+        self.sources.extra.dirs.len() != before
+    }
+
+    pub fn set_extra_consent(&mut self, path: &str, consented: bool) -> Result<(), String> {
+        let key = canonical_project(path);
+        let dir = self
+            .sources
+            .extra
+            .dirs
+            .iter_mut()
+            .find(|d| canonical_project(&d.path) == key)
+            .ok_or_else(|| format!("{path} is not in the extra directory list"))?;
+        dir.consented = consented;
+        Ok(())
+    }
+
+    /// Project directories that may be scanned: the source is on and the path was consented.
+    pub fn active_projects(&self) -> Vec<PathBuf> {
+        if !self.sources.project.enabled {
+            return Vec::new();
+        }
+        self.sources.project.consented_projects.iter().map(PathBuf::from).collect()
+    }
+
+    /// Extra directories that may be scanned, in list order (their index is the REG-8 rank):
+    /// the source is on and the directory was consented. Unconsented slots keep their index.
+    pub fn active_extra(&self) -> Vec<(usize, PathBuf)> {
+        if !self.sources.extra.enabled {
+            return Vec::new();
+        }
+        self.sources
+            .extra
+            .dirs
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| d.consented)
+            .map(|(i, d)| (i, PathBuf::from(&d.path)))
+            .collect()
+    }
+}
+
+/// What the consent banner shows for a project: the `*.toml` file names that sit in
+/// `<project>/.puppet-master/agents`, listed without reading or parsing any of them.
+pub fn project_candidates(project: &Path) -> Vec<String> {
+    let dir = project_agents_dir(project);
+    let Ok(entries) = fs::read_dir(&dir) else { return Vec::new() };
+    let mut names: Vec<String> = entries
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("toml")))
+        .filter(|e| e.metadata().is_ok_and(|m| m.is_file()))
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    names.sort();
+    names.truncate(MAX_FILES_PER_DIR);
+    names
+}

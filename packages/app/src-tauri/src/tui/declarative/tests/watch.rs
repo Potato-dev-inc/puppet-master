@@ -47,7 +47,7 @@ impl Drop for Tree {
 const CODE_IDS: &[&str] = &["claude", "codex", "cursor_agent", "opencode", "shell"];
 
 fn inputs(dir: &Path) -> LoadInputs<'_> {
-    LoadInputs { bundled: &[], user_dir: Some(dir), code_ids: CODE_IDS }
+    LoadInputs { bundled: &[], user_dir: Some(dir), code_ids: CODE_IDS, projects: &[], extra: &[] }
 }
 
 /// Approve whatever currently parses in the tree's agents dir.
@@ -62,6 +62,7 @@ fn approve_all(tree: &Tree) {
                 fingerprint: fp.clone(),
                 binary: "x".into(),
                 approved_at: "2026-01-01T00:00:00Z".into(),
+                ..Default::default()
             });
         }
     }

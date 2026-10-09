@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   approvalWarnings,
+  argvDiff,
+  canReview,
   errorMessage,
   fileName,
   formatArgv,
@@ -15,6 +17,7 @@ import {
   type DefinitionsListing,
   type DraftsListing,
   type FixtureResult,
+  type ProjectScan,
 } from '../../../lib/agentDefinitions';
 import { onAgentDefinitionsChanged, resetAgentRegistryCache } from '../../../lib/agentRegistry';
 import { SettingBlock, SettingsSection } from '../settings-ui';
@@ -22,6 +25,8 @@ import { SettingBlock, SettingsSection } from '../settings-ui';
 const STATE_TONE: Record<string, string> = {
   active: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400',
   unapproved: 'border-amber-500/40 bg-amber-500/10 text-amber-400',
+  needs_approval: 'border-amber-500/40 bg-amber-500/10 text-amber-400',
+  approval_stale: 'border-amber-500/40 bg-amber-500/10 text-amber-400',
   invalid: 'border-red-500/40 bg-red-500/10 text-red-400',
 };
 
@@ -46,6 +51,9 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
   const [checks, setChecks] = useState<{ file: string; results: FixtureResult[] } | null>(null);
   const [drafts, setDrafts] = useState<DraftsListing | null>(null);
   const [draftCheck, setDraftCheck] = useState<{ path: string; preview: DefinitionPreview } | null>(null);
+  const [projectScan, setProjectScan] = useState<ProjectScan | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [extraPath, setExtraPath] = useState('');
 
   const apply = useCallback((next: DefinitionsListing) => {
     setListing(next);
@@ -70,12 +78,23 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
     }
   }, [api]);
 
+  // The consent banner (P5-3): the open project's definition files, listed by name only.
+  const loadProjectScan = useCallback(async () => {
+    try {
+      const project = (await api.projectPath())?.trim();
+      setProjectScan(project ? await api.projectScan(project) : null);
+    } catch {
+      setProjectScan(null);
+    }
+  }, [api]);
+
   useEffect(() => {
     void load();
     void loadDrafts();
+    void loadProjectScan();
     // The backend pushes a change when a definition file is saved: no polling.
     return onAgentDefinitionsChanged(() => void load());
-  }, [load, loadDrafts]);
+  }, [load, loadDrafts, loadProjectScan]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -145,6 +164,20 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
     run(async () => {
       await api.consent(kind, path, enabled);
       apply(await api.list());
+      await loadProjectScan();
+    });
+
+  const setSource = (name: string, enabled: boolean) =>
+    run(async () => {
+      await api.sourceSet(name, enabled);
+      apply(await api.list());
+    });
+
+  const extraDir = (action: 'add' | 'remove', path: string) =>
+    run(async () => {
+      await api.extraDir(action, path);
+      if (action === 'add') setExtraPath('');
+      apply(await api.list());
     });
 
   const revoke = (row: DefinitionRow) =>
@@ -159,6 +192,14 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
       title="Agents"
       description="Agents defined by TOML files. A definition runs a program, so a new or changed one stays inactive until you review and approve it here."
     >
+      {projectScan && projectScan.files.length > 0 && !projectScan.consented && !bannerDismissed && (
+        <ConsentBanner
+          scan={projectScan}
+          busy={busy}
+          onAllow={() => void setConsent('project', projectScan.project, true)}
+          onDismiss={() => setBannerDismissed(true)}
+        />
+      )}
       <SettingBlock label="Definitions" implemented>
         <div className="mb-3 flex items-center gap-2">
           <button type="button" className={BTN} disabled={busy} onClick={() => void reload()}>
@@ -277,30 +318,80 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
                 </div>
                 {source.path && <p className="mt-1 break-all text-xs text-pm-muted">{source.path}</p>}
               </div>
-              {source.consent !== null && (
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={source.consent}
-                  aria-label={`Consent to ${sourceLabel(source.name)} definitions`}
+              {source.name !== 'bundled' && (
+                <Switch
+                  checked={source.enabled}
+                  label={`Enable ${sourceLabel(source.name)} definitions`}
                   disabled={busy}
-                  onClick={() => void setConsent(source.name, source.path ?? '', !source.consent)}
-                  className={[
-                    'relative h-7 w-12 shrink-0 rounded-full transition',
-                    source.consent ? 'bg-pm-accent' : 'bg-pm-border',
-                  ].join(' ')}
-                >
-                  <span
-                    className={[
-                      'absolute top-1 h-5 w-5 rounded-full bg-pm-bg shadow-sm transition',
-                      source.consent ? 'left-6' : 'left-1',
-                    ].join(' ')}
-                  />
-                </button>
+                  onToggle={() => void setSource(source.name, !source.enabled)}
+                />
               )}
             </li>
           ))}
         </ul>
+        <h4 className="mb-1 mt-4 text-xs font-semibold">Consented projects</h4>
+        {(listing?.projects ?? []).length === 0 && (
+          <p className="text-xs text-pm-muted">No project is allowed to load definitions.</p>
+        )}
+        <ul className="space-y-2">
+          {(listing?.projects ?? []).map((project) => (
+            <li key={project.path} data-testid="project-consent-row" className="flex items-center gap-3 rounded-lg border border-pm-border p-3">
+              <div className="min-w-0 flex-1">
+                <p className="break-all text-xs">{project.path}</p>
+                <p className="text-xs text-pm-muted">{project.files.length ? project.files.join(', ') : 'no definition files'}</p>
+              </div>
+              <button
+                type="button"
+                className={BTN}
+                disabled={busy}
+                onClick={() => void setConsent('project', project.path, false)}
+              >
+                Revoke consent
+              </button>
+            </li>
+          ))}
+        </ul>
+        <h4 className="mb-1 mt-4 text-xs font-semibold">Extra directories</h4>
+        <ul className="space-y-2">
+          {(listing?.extra_dirs ?? []).map((dir) => (
+            <li key={dir.path} data-testid="extra-dir-row" className="flex items-center gap-3 rounded-lg border border-pm-border p-3">
+              <div className="min-w-0 flex-1">
+                <p className="break-all text-xs">{dir.path}</p>
+                {!dir.exists && <p className="text-xs text-amber-400">This folder does not exist.</p>}
+              </div>
+              <Switch
+                checked={dir.consent}
+                label={`Consent to definitions in ${dir.path}`}
+                disabled={busy}
+                onToggle={() => void setConsent('extra', dir.path, !dir.consent)}
+              />
+              <button type="button" className={BTN} disabled={busy} onClick={() => void extraDir('remove', dir.path)}>
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            type="text"
+            aria-label="Extra directory"
+            value={extraPath}
+            onChange={(e) => setExtraPath(e.target.value)}
+            placeholder="D:\team-agents"
+            className="min-w-0 flex-1 rounded-lg border border-pm-border bg-transparent px-2 py-1 text-xs"
+          />
+          <button
+            type="button"
+            className={BTN}
+            disabled={busy || !extraPath.trim()}
+            onClick={() => void extraDir('add', extraPath.trim())}
+          >
+            Add directory
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-pm-muted">
+          A new directory loads nothing until you consent to it, and every file in it still needs your approval.
+        </p>
       </SettingBlock>
       {reviewing && (
         <ApproveDialog
@@ -311,6 +402,79 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
         />
       )}
     </SettingsSection>
+  );
+}
+
+function Switch({
+  checked,
+  label,
+  disabled,
+  onToggle,
+}: {
+  checked: boolean;
+  label: string;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onToggle}
+      className={['relative h-7 w-12 shrink-0 rounded-full transition', checked ? 'bg-pm-accent' : 'bg-pm-border'].join(' ')}
+    >
+      <span
+        className={[
+          'absolute top-1 h-5 w-5 rounded-full bg-pm-bg shadow-sm transition',
+          checked ? 'left-6' : 'left-1',
+        ].join(' ')}
+      />
+    </button>
+  );
+}
+
+/** Inline (not modal) notice that the open project ships its own agent definitions. */
+function ConsentBanner({
+  scan,
+  busy,
+  onAllow,
+  onDismiss,
+}: {
+  scan: ProjectScan;
+  busy: boolean;
+  onAllow: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      role="region"
+      aria-label="Project agent definitions"
+      data-testid="consent-banner"
+      className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3"
+    >
+      <p className="text-sm font-semibold">This project contains agent definitions</p>
+      <p className="mt-1 break-all text-xs text-pm-muted">{scan.project}</p>
+      <ul className="mt-2 list-disc pl-5 text-xs">
+        {scan.files.map((file) => (
+          <li key={file}>{file}</li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-pm-muted">
+        A definition tells Puppet Master which program to run. Nothing is loaded until you allow this project, and
+        each file still needs your approval. A copy of the project in another folder asks again.
+      </p>
+      <div className="mt-3 flex gap-2">
+        <button type="button" className={BTN} disabled={busy} onClick={onAllow}>
+          Allow for this project
+        </button>
+        <button type="button" className={BTN} onClick={onDismiss}>
+          Not now
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -346,7 +510,7 @@ function DefinitionItem({
           <button type="button" className={BTN} disabled={busy} onClick={() => onCheck(row)}>
             Check with fixtures
           </button>
-          {row.state === 'unapproved' && row.fingerprint && (
+          {canReview(row) && (
             <button type="button" className={BTN} disabled={busy} onClick={() => onReview(row)}>
               Review and approve
             </button>
@@ -427,6 +591,7 @@ function ApproveDialog({
             <ArgvBlock title="Visible pane command" argv={rendered.tui_argv} />
           </div>
         )}
+        <ChangesSinceApproval preview={preview} />
         <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-amber-400">
           {approvalWarnings(row, preview).map((w) => (
             <li key={w}>{w}</li>
@@ -446,6 +611,41 @@ function ApproveDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ChangesSinceApproval({ preview }: { preview: DefinitionPreview | null }) {
+  const approved = preview?.approved;
+  if (!preview || !approved) return null;
+  const blocks = [
+    { title: 'Headless command', before: approved.headless_argv, after: preview.rendered.headless_argv },
+    { title: 'Visible pane command', before: approved.tui_argv, after: preview.rendered.tui_argv },
+  ].filter((b) => b.before && b.after && b.before.join('\u0000') !== b.after.join('\u0000'));
+  if (blocks.length === 0 && !preview.binary_changed) return null;
+  return (
+    <div data-testid="approval-diff" className="mt-3 rounded-lg border border-amber-500/40 p-2">
+      <div className="text-xs font-medium">Changed since you approved it</div>
+      {blocks.map((block) => (
+        <div key={block.title} className="mt-2">
+          <div className="text-xs text-pm-muted">{block.title}</div>
+          <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-pm-bg p-2 text-xs">
+            {argvDiff(block.before ?? [], block.after ?? []).map((line, i) => (
+              <div
+                key={i}
+                data-diff={line.kind}
+                className={line.kind === 'added' ? 'text-emerald-400' : line.kind === 'removed' ? 'text-red-400' : ''}
+              >
+                {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
+                {line.text}
+              </div>
+            ))}
+          </pre>
+        </div>
+      ))}
+      {preview.binary_changed && (
+        <p className="mt-2 break-all text-xs text-amber-400">Approved program: {approved.binary}</p>
+      )}
     </div>
   );
 }

@@ -191,21 +191,36 @@ pub fn watch_dirs(
 
 // ---- the app's own watcher -------------------------------------------------------------------
 
+type Notify = Arc<dyn Fn(&Diff) + Send + Sync>;
+
 static HANDLE: std::sync::Mutex<Option<WatchHandle>> = std::sync::Mutex::new(None);
+static NOTIFY: std::sync::Mutex<Option<Notify>> = std::sync::Mutex::new(None);
 
 /// Watch the enabled source dirs of this app and keep the process-wide registry current. Call
 /// once at startup after the first `loader::reload()`. `notify_change` receives each applied
 /// non-empty diff (the app broadcasts it as `agent_definitions_changed`).
-pub fn start(notify_change: impl Fn(&Diff) + Send + 'static) -> Result<(), String> {
-    let dir = crate::app_paths::agents_dir();
-    let _ = std::fs::create_dir_all(&dir);
-    let handle = watch_dirs(vec![dir], DEBOUNCE, move || {
+pub fn start(notify_change: impl Fn(&Diff) + Send + Sync + 'static) -> Result<(), String> {
+    *NOTIFY.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(notify_change));
+    rewatch()
+}
+
+/// Re-aim the watcher at the directories the settings enable now (after a source switch, a
+/// consent or an extra directory changed). Dropping the old handle stops its thread.
+pub fn rewatch() -> Result<(), String> {
+    let Some(notify_change) = NOTIFY.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return Ok(()) };
+    let owned = super::loader::OwnedInputs::current();
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(user) = &owned.user_dir {
+        let _ = std::fs::create_dir_all(user);
+        dirs.push(user.clone());
+    }
+    dirs.extend(owned.projects.iter().map(|p| super::sources::project_agents_dir(p)));
+    dirs.extend(owned.extra.iter().map(|(_, d)| d.clone()));
+    let handle = watch_dirs(dirs, DEBOUNCE, move || {
         let registry = crate::tui::registry::registry();
         let previous = super::loader::last_entries();
-        let code_ids = registry.code_ids();
-        let user_dir = crate::app_paths::agents_dir();
-        let inputs = LoadInputs { bundled: &[], user_dir: Some(&user_dir), code_ids: &code_ids };
-        match refresh(registry, &inputs, &super::approvals::default_path(), &previous) {
+        let owned = super::loader::OwnedInputs::current();
+        match refresh(registry, &owned.inputs(), &super::approvals::default_path(), &previous) {
             Refresh::KeptPrevious => {
                 tracing::warn!("agent definition unreadable (half-written?); keeping the previous registry");
                 true
@@ -222,6 +237,16 @@ pub fn start(notify_change: impl Fn(&Diff) + Send + 'static) -> Result<(), Strin
     })?;
     *HANDLE.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
     Ok(())
+}
+
+/// Announce a diff produced outside the watcher (reload, approve, consent) the same way.
+pub fn announce(diff: &Diff) {
+    if diff.is_empty() {
+        return;
+    }
+    if let Some(notify_change) = NOTIFY.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        notify_change(diff);
+    }
 }
 
 #[cfg(test)]

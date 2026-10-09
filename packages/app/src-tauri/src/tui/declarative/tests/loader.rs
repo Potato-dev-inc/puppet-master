@@ -255,6 +255,7 @@ mod approvals_cases {
             fingerprint: file.fingerprint.clone().unwrap(),
             binary: "C:/bin/kilo.exe".to_string(),
             approved_at: "2026-10-09T00:00:00Z".to_string(),
+            ..Default::default()
         }
     }
 
@@ -297,7 +298,7 @@ mod approvals_cases {
     }
 
     fn inputs<'a>(dir: &'a Path, code_ids: &'a [&'a str]) -> LoadInputs<'a> {
-        LoadInputs { bundled: &[], user_dir: Some(dir), code_ids }
+        LoadInputs { bundled: &[], user_dir: Some(dir), code_ids, projects: &[], extra: &[] }
     }
 
     #[test]
@@ -352,7 +353,7 @@ mod approvals_cases {
         t.file("agents/broken.toml", "schema_version = 1\n[agent]\n");
         let bundled = with_id("dup");
         let built = build(
-            &LoadInputs { bundled: &[("dup.toml", &bundled)], user_dir: Some(&dir), code_ids: &["claude"] },
+            &LoadInputs { bundled: &[("dup.toml", &bundled)], user_dir: Some(&dir), code_ids: &["claude"], projects: &[], extra: &[] },
             &Approvals::default(),
         );
         let by_state = |s: DefState| built.entries.iter().filter(|e| e.state == s).count();
@@ -363,7 +364,7 @@ mod approvals_cases {
         assert!(built.profiles.is_empty());
 
         let only_bundled = build(
-            &LoadInputs { bundled: &[("dup.toml", &bundled)], user_dir: None, code_ids: &["claude"] },
+            &LoadInputs { bundled: &[("dup.toml", &bundled)], user_dir: None, code_ids: &["claude"], projects: &[], extra: &[] },
             &Approvals::default(),
         );
         assert_eq!(only_bundled.entries[0].state, DefState::Active);

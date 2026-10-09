@@ -16,7 +16,7 @@ use crate::standby::key::canonical_project;
 
 pub const FILE_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Approval {
     pub id: String,
     pub source: String,
@@ -27,6 +27,12 @@ pub struct Approval {
     pub binary: String,
     /// RFC 3339, UTC.
     pub approved_at: String,
+    /// The headless / visible argv the user saw when approving (APR-3), kept so a later change
+    /// can be shown as a diff against what was approved (P5-4). Absent in older records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headless_argv: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tui_argv: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -171,6 +171,9 @@ pub struct Entry {
     pub shadowed_by: Option<PathBuf>,
     /// Display facts of the parsed definition, for `GET /agents/types` (absent when it did not parse).
     pub meta: Option<EntryMeta>,
+    /// Approved, but the binary now resolves elsewhere than the path pinned at approval (SEC-4):
+    /// the next spawn fails with `AGENT_DEF_BINARY_CHANGED` until the user approves again.
+    pub binary_changed: bool,
 }
 
 /// What `GET /agents/types` shows about a declarative agent beyond the profile's own features.
@@ -201,6 +204,73 @@ pub struct LoadInputs<'a> {
     pub user_dir: Option<&'a Path>,
     /// Ids of the compiled-in profiles (VAL-1, REG-7).
     pub code_ids: &'a [&'a str],
+    /// Consented project roots whose `.puppet-master/agents` is scanned (SRC-3). The caller
+    /// passes only paths the user consented to; nothing else is ever read.
+    pub projects: &'a [PathBuf],
+    /// Consented extra directories with their position in the settings list (SRC-4).
+    pub extra: &'a [(usize, PathBuf)],
+}
+
+/// `LoadInputs` backing storage for the real app: the settings decide which dirs exist at all.
+pub struct OwnedInputs {
+    pub user_dir: Option<PathBuf>,
+    pub projects: Vec<PathBuf>,
+    pub extra: Vec<(usize, PathBuf)>,
+    pub code_ids: Vec<&'static str>,
+}
+
+impl OwnedInputs {
+    pub fn from_settings(settings: &super::sources::SourceSettings, code_ids: Vec<&'static str>) -> Self {
+        Self {
+            user_dir: settings.sources.user.enabled.then(crate::app_paths::agents_dir),
+            projects: settings.active_projects(),
+            extra: settings.active_extra(),
+            code_ids,
+        }
+    }
+
+    /// The settings file and the process registry, as they are now.
+    pub fn current() -> Self {
+        let settings = super::sources::SourceSettings::load(&super::sources::settings_path());
+        Self::from_settings(&settings, crate::tui::registry::registry().code_ids())
+    }
+
+    pub fn inputs(&self) -> LoadInputs<'_> {
+        LoadInputs {
+            bundled: &[],
+            user_dir: self.user_dir.as_deref(),
+            code_ids: &self.code_ids,
+            projects: &self.projects,
+            extra: &self.extra,
+        }
+    }
+}
+
+/// Every file of every enabled, consented source, unresolved (also what `approve` searches).
+pub fn load_all(inputs: &LoadInputs<'_>) -> (Vec<LoadedFile>, Vec<ScanIssue>) {
+    let mut files = Vec::new();
+    let mut issues = Vec::new();
+    for (name, text) in inputs.bundled {
+        let path = PathBuf::from(format!("bundled/{name}"));
+        files.push(load_text(&path, text, text.len(), Origin::new(Source::Bundled), None, inputs.code_ids));
+    }
+    let mut dirs: Vec<(PathBuf, Origin, Option<String>)> = Vec::new();
+    for project in inputs.projects {
+        let key = crate::standby::key::canonical_project(&project.to_string_lossy());
+        dirs.push((super::sources::project_agents_dir(project), Origin::new(Source::Project), Some(key)));
+    }
+    for (index, dir) in inputs.extra {
+        dirs.push((dir.clone(), Origin::extra(*index), None));
+    }
+    if let Some(dir) = inputs.user_dir {
+        dirs.push((dir.to_path_buf(), Origin::new(Source::User), None));
+    }
+    for (dir, origin, project) in dirs {
+        let loaded = load_dir(&dir, origin, project.as_deref(), inputs.code_ids);
+        files.extend(loaded.files);
+        issues.extend(loaded.issues);
+    }
+    (files, issues)
 }
 
 pub struct Built {
@@ -213,17 +283,7 @@ pub struct Built {
 /// Load every enabled source, resolve precedence and approvals, and build the profiles that may be
 /// registered. Pure: reads files, registers nothing.
 pub fn build(inputs: &LoadInputs<'_>, approvals: &Approvals) -> Built {
-    let mut files = Vec::new();
-    let mut issues = Vec::new();
-    for (name, text) in inputs.bundled {
-        let path = PathBuf::from(format!("bundled/{name}"));
-        files.push(load_text(&path, text, text.len(), Origin::new(Source::Bundled), None, inputs.code_ids));
-    }
-    if let Some(dir) = inputs.user_dir {
-        let loaded = load_dir(dir, Origin::new(Source::User), None, inputs.code_ids);
-        files.extend(loaded.files);
-        issues.extend(loaded.issues);
-    }
+    let (files, issues) = load_all(inputs);
     let resolution = resolve(files);
     let mut entries = Vec::new();
     let mut profiles: Vec<Arc<dyn TuiProfile>> = Vec::new();
@@ -261,6 +321,7 @@ pub fn build(inputs: &LoadInputs<'_>, approvals: &Approvals) -> Built {
                 None => state = DefState::Invalid,
             }
         }
+        let binary_changed = state == DefState::Active && file.origin.source != Source::Bundled && pinned_binary_moved(&file, approvals);
         entries.push(Entry {
             path: file.path.clone(),
             id: file.id.clone(),
@@ -271,6 +332,7 @@ pub fn build(inputs: &LoadInputs<'_>, approvals: &Approvals) -> Built {
             errors,
             shadowed_by: None,
             meta: file.definition.as_ref().map(EntryMeta::of),
+            binary_changed,
         });
     }
     for shadowed in resolution.shadowed {
@@ -284,6 +346,7 @@ pub fn build(inputs: &LoadInputs<'_>, approvals: &Approvals) -> Built {
             errors: Vec::new(),
             shadowed_by: Some(shadowed.shadowed_by),
             meta: shadowed.file.definition.as_ref().map(EntryMeta::of),
+            binary_changed: false,
         });
     }
     for file in resolution.invalid {
@@ -297,9 +360,23 @@ pub fn build(inputs: &LoadInputs<'_>, approvals: &Approvals) -> Built {
             errors: file.errors,
             shadowed_by: None,
             meta: None,
+            binary_changed: false,
         });
     }
     Built { entries, profiles, issues }
+}
+
+/// SEC-4 at list time: does the binary resolve to a different path than the approval pinned?
+fn pinned_binary_moved(file: &LoadedFile, approvals: &Approvals) -> bool {
+    let (Some(def), Some(record)) = (&file.definition, approvals.get(&file.path)) else { return false };
+    let here = file.path.parent().unwrap_or_else(|| Path::new("."));
+    match super::resolve::resolve_binary(&def.binary, here) {
+        Ok(now) => {
+            let canon = crate::standby::key::canonical_project;
+            canon(&now.to_string_lossy()) != canon(&record.binary)
+        }
+        Err(_) => false,
+    }
 }
 
 /// Build from the real app dirs and approvals file, then swap the result into `registry`.
@@ -392,11 +469,8 @@ install_hint = \"install {command} and make sure it is on PATH\"
 /// Startup / manual reload against the process-wide registry and the app data dir. Bundled
 /// definitions arrive with T21; until then only user definitions can register.
 pub fn reload() -> Built {
-    let registry = crate::tui::registry::registry();
-    let code_ids = registry.code_ids();
-    let user_dir = crate::app_paths::agents_dir();
-    let inputs = LoadInputs { bundled: &[], user_dir: Some(&user_dir), code_ids: &code_ids };
-    let built = reload_global(&inputs, &super::approvals::default_path());
+    let owned = OwnedInputs::current();
+    let built = reload_global(&owned.inputs(), &super::approvals::default_path());
     for entry in &built.entries {
         tracing::info!(
             file = %entry.path.display(),

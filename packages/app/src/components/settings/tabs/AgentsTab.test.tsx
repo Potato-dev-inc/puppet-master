@@ -19,7 +19,7 @@ function fixture(): DefinitionsListing {
       { name: 'extra', enabled: false, path: null, consent: false },
     ],
     definitions: [
-      { id: 'kilo', file: KILO, source: 'user', state: 'unapproved', errors: [], fingerprint: 'sha256:abc', shadowed_by: null },
+      { id: 'kilo', file: KILO, source: 'user', state: 'needs_approval', errors: [], fingerprint: 'sha256:abc', shadowed_by: null },
       {
         id: null,
         file: BAD,
@@ -45,11 +45,15 @@ function mockApi(listing: DefinitionsListing = fixture()): AgentDefinitionsApi &
     approve: vi.fn(async () => ({ ok: true, id: 'kilo', state: 'active' })),
     revoke: vi.fn(async () => ({ ok: true })),
     consent: vi.fn(async () => ({ ok: true })),
+    sourceSet: vi.fn(async () => ({ ok: true })),
+    extraDir: vi.fn(async () => ({ ok: true })),
+    projectPath: vi.fn(async () => ''),
+    projectScan: vi.fn(async (project: string) => ({ project, files: [], consented: false, enabled: false })),
     addGeneric: vi.fn(async () => ({
       ...listing,
       definitions: [
         ...listing.definitions,
-        { id: 'mycoder', file: 'C:/data/agents/mycoder.toml', source: 'user', state: 'unapproved', errors: [], fingerprint: 'sha256:gen', shadowed_by: null },
+        { id: 'mycoder', file: 'C:/data/agents/mycoder.toml', source: 'user', state: 'needs_approval', errors: [], fingerprint: 'sha256:gen', shadowed_by: null },
       ],
     })),
     checkFile: vi.fn(async () => [
@@ -177,28 +181,99 @@ describe('AgentsTab source toggle / extra dir / consent controls', () => {
     expect(rows[0].textContent).toContain('Enabled');
   });
 
-  it('consent switch invokes the consent command with kind, path and the new value', async () => {
+  it('source switch calls sourceSet and reloads the listing', async () => {
     const api = mockApi();
     await render(api);
     const sw = host.querySelector('[data-source="project"] [role="switch"]');
     expect(sw?.getAttribute('aria-checked')).toBe('false');
     await click(sw);
-    expect(api.consent).toHaveBeenCalledWith('project', '', true);
+    expect(api.sourceSet).toHaveBeenCalledWith('project', true);
     expect(api.list).toHaveBeenCalledTimes(2);
   });
 
-  it('shows the backend error when consent is refused', async () => {
+  it('shows the backend error when a source change is refused', async () => {
     const api = mockApi();
-    (api.consent as ReturnType<typeof vi.fn>).mockRejectedValueOnce('AGENT_DEF_CONSENT_UNSUPPORTED: not enabled yet');
+    (api.sourceSet as ReturnType<typeof vi.fn>).mockRejectedValueOnce('INVALID_ARGUMENT: nope');
     await render(api);
     await click(host.querySelector('[data-source="extra"] [role="switch"]'));
-    expect(host.textContent).toContain('AGENT_DEF_CONSENT_UNSUPPORTED');
+    expect(host.textContent).toContain('INVALID_ARGUMENT');
   });
 
-  it('bundled and user sources have no consent switch', async () => {
+  it('bundled has no switch', async () => {
     await render(mockApi());
     expect(host.querySelector('[data-source="bundled"] [role="switch"]')).toBeNull();
-    expect(host.querySelector('[data-source="user"] [role="switch"]')).toBeNull();
+  });
+
+  it('adds, consents and removes an extra directory', async () => {
+    const listing = fixture();
+    listing.extra_dirs = [{ path: 'D:/team', consent: false, exists: true }];
+    const api = mockApi(listing);
+    await render(api);
+    const input = host.querySelector('input[aria-label="Extra directory"]') as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, 'E:/more');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(button('Add directory'));
+    expect(api.extraDir).toHaveBeenCalledWith('add', 'E:/more');
+    const row = host.querySelector('[data-testid="extra-dir-row"]');
+    expect(row?.textContent).toContain('D:/team');
+    await click(row?.querySelector('[role="switch"]'));
+    expect(api.consent).toHaveBeenCalledWith('extra', 'D:/team', true);
+    await click(Array.from(row?.querySelectorAll('button') ?? []).find((b) => b.textContent === 'Remove'));
+    expect(api.extraDir).toHaveBeenCalledWith('remove', 'D:/team');
+  });
+
+  it('lists consented projects and revokes consent', async () => {
+    const listing = fixture();
+    listing.projects = [{ path: 'c:/work/app', files: ['evil.toml'] }];
+    const api = mockApi(listing);
+    await render(api);
+    const row = host.querySelector('[data-testid="project-consent-row"]');
+    expect(row?.textContent).toContain('evil.toml');
+    await click(button('Revoke consent'));
+    expect(api.consent).toHaveBeenCalledWith('project', 'c:/work/app', false);
+  });
+
+  it('consent banner lists the project files and is not a modal', async () => {
+    const api = mockApi();
+    (api.projectPath as ReturnType<typeof vi.fn>).mockResolvedValue('C:/work/app');
+    (api.projectScan as ReturnType<typeof vi.fn>).mockResolvedValue({
+      project: 'c:/work/app',
+      files: ['evil.toml', 'helper.toml'],
+      consented: false,
+      enabled: false,
+    });
+    await render(api);
+    const banner = host.querySelector('[data-testid="consent-banner"]');
+    expect(banner?.textContent).toContain('evil.toml');
+    expect(banner?.textContent).toContain('helper.toml');
+    expect(banner?.textContent).toContain('Nothing is loaded until you allow');
+    expect(host.querySelector('[aria-modal="true"]')).toBeNull();
+    await click(button('Allow for this project'));
+    expect(api.consent).toHaveBeenCalledWith('project', 'c:/work/app', true);
+  });
+
+  it('consent banner can be dismissed and is absent for a consented or empty project', async () => {
+    const api = mockApi();
+    (api.projectPath as ReturnType<typeof vi.fn>).mockResolvedValue('C:/work/app');
+    (api.projectScan as ReturnType<typeof vi.fn>).mockResolvedValue({ project: 'c:/work/app', files: ['a.toml'], consented: false, enabled: false });
+    await render(api);
+    await click(button('Not now'));
+    expect(host.querySelector('[data-testid="consent-banner"]')).toBeNull();
+    expect(api.consent).not.toHaveBeenCalled();
+
+    for (const scan of [
+      { project: 'c:/x', files: ['a.toml'], consented: true, enabled: true },
+      { project: 'c:/x', files: [], consented: false, enabled: false },
+    ]) {
+      await act(async () => root.unmount());
+      root = createRoot(host);
+      (api.projectScan as ReturnType<typeof vi.fn>).mockResolvedValue(scan);
+      await render(api);
+      expect(host.querySelector('[data-testid="consent-banner"]')).toBeNull();
+    }
   });
 
   it('AgentsTab check button shows per-fixture results', async () => {
@@ -229,5 +304,57 @@ describe('AgentsTab source toggle / extra dir / consent controls', () => {
     const added = rows.find((r) => r.textContent?.includes('mycoder'));
     expect(added?.querySelector('[data-testid="state-badge"]')?.textContent).toBe('Needs approval');
     expect(api.approve).not.toHaveBeenCalled();
+  });
+});
+
+describe('AgentsTab approval hardening', () => {
+  it('AgentsTab diff view and warnings', async () => {
+    const listing = fixture();
+    listing.definitions[0].state = 'approval_stale';
+    const api = mockApi(listing);
+    (api.preview as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      errors: [],
+      rendered: { headless_argv: ['run', '--yolo', '<task>'], tui_argv: null },
+      warnings: ['The command passes `--yolo`, which usually skips every confirmation.'],
+      approved: {
+        headless_argv: ['run', '<task>'],
+        tui_argv: null,
+        binary: 'C:/bin/kilo.exe',
+        approved_at: '2026-10-09T00:00:00Z',
+        fingerprint: 'sha256:old',
+      },
+    });
+    await render(api);
+    expect(host.querySelector('[data-testid="state-badge"]')?.textContent).toBe('Changed since approval');
+    await click(button('Review and approve'));
+    const dialog = host.querySelector('[role="dialog"]');
+    const diff = dialog?.querySelector('[data-testid="approval-diff"]');
+    expect(diff?.textContent).toContain('Changed since you approved it');
+    expect(diff?.querySelector('[data-diff="added"]')?.textContent).toContain('--yolo');
+    expect(diff?.querySelector('[data-diff="removed"]')).toBeNull();
+    expect(dialog?.textContent).toContain('--yolo');
+    expect(dialog?.textContent).toContain('skips every confirmation');
+  });
+
+  it('an active definition whose binary moved asks for re-approval', async () => {
+    const listing = fixture();
+    listing.definitions[0].state = 'active';
+    listing.definitions[0].binary_changed = true;
+    const api = mockApi(listing);
+    (api.preview as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      errors: [],
+      rendered: { headless_argv: ['run'], tui_argv: null },
+      binary_changed: true,
+      approved: { headless_argv: ['run'], tui_argv: null, binary: 'C:/old/kilo.exe', approved_at: 'x', fingerprint: 'sha256:abc' },
+    });
+    await render(api);
+    await click(button('Review and approve'));
+    const dialog = host.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain('resolves to a different file');
+    expect(dialog?.textContent).toContain('C:/old/kilo.exe');
+    await click(button('Approve'));
+    expect(api.approve).toHaveBeenCalledWith(KILO, 'sha256:abc');
   });
 });

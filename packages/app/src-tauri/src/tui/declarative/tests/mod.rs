@@ -1,4 +1,5 @@
 mod conformance;
+mod consent;
 mod loader;
 mod output;
 mod profile;

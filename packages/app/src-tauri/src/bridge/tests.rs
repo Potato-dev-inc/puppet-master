@@ -470,7 +470,7 @@ mod definitions {
     }
 
     fn inputs<'a>(dir: &'a Path, code_ids: &'a [&'a str]) -> LoadInputs<'a> {
-        LoadInputs { bundled: &[], user_dir: Some(dir), code_ids }
+        LoadInputs { bundled: &[], user_dir: Some(dir), code_ids, projects: &[], extra: &[] }
     }
 
     #[test]
