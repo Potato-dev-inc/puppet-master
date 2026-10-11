@@ -63,6 +63,30 @@ pub fn orphaned_labels(window_labels: &[String], live_pane_ids: &[String]) -> Ve
         .collect()
 }
 
+/// True when a close request on `label` must be honoured by the backend itself: a detached pane
+/// window whose pane no longer exists. The webview normally answers the request (it destroys the
+/// window), but a window showing a dead pane can be wedged, so the X must never depend on it.
+pub fn close_is_forced(label: &str, live_pane_ids: &[String]) -> bool {
+    !orphaned_labels(&[label.to_string()], live_pane_ids).is_empty()
+}
+
+#[cfg(test)]
+pub fn on_close_requested(_app: &AppHandle, _label: &str) {}
+
+/// Runtime hook for `CloseRequested` on any window: destroys an orphan pane window directly.
+#[cfg(not(test))]
+pub fn on_close_requested(app: &AppHandle, label: &str) {
+    use tauri::Manager;
+    let Some((_, registry)) = CONTEXT.get() else { return };
+    let live: Vec<String> = registry.lock().list().into_iter().map(|p| p.id).collect();
+    if close_is_forced(label, &live) {
+        if let Some(window) = app.get_webview_window(label) {
+            let result = window.destroy();
+            tracing::info!(%label, ?result, "closed orphan pane window on close request");
+        }
+    }
+}
+
 /// Destroy the detached windows of panes that are gone, after the grace period. Only
 /// `detached-pane-*` windows are touched, so a worker host's own main window is safe; destroying
 /// (unlike closing) skips the worker-host close handler that would kill the pane and quit the
@@ -99,6 +123,14 @@ pub fn schedule_sweep(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
                         Some(window) => {
                             let result = window.destroy();
                             tracing::info!(%label, ?result, "destroyed orphan pane window");
+                            // Destroy only queues the request; if the window is still registered
+                            // shortly after, escalate so nothing empty stays on screen.
+                            thread::sleep(Duration::from_millis(500));
+                            if let Some(window) = app.get_webview_window(&label) {
+                                let closed = window.close();
+                                let hidden = window.hide();
+                                tracing::warn!(%label, ?closed, ?hidden, "orphan pane window survived destroy; closed and hid it");
+                            }
                         }
                         None => tracing::warn!(%label, "orphan pane window vanished before destroy"),
                     }
@@ -125,6 +157,14 @@ mod tests {
             vec!["detached-pane-1b078cd4-gone".to_string()]
         );
         assert_eq!(window_label("odd id/1"), "detached-pane-odd_id/1");
+    }
+
+    #[test]
+    fn x_on_an_orphan_pane_window_is_forced_closed_but_live_and_main_are_not() {
+        let live = vec!["aaaa1111-live".to_string()];
+        assert!(close_is_forced(&window_label("bbbb2222-gone"), &live));
+        assert!(!close_is_forced(&window_label("aaaa1111-live"), &live));
+        assert!(!close_is_forced("main", &live));
     }
 
     #[test]

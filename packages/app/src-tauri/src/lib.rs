@@ -281,6 +281,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
+            if let tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::CloseRequested { .. }, .. } = &event {
+                pane_windows::on_close_requested(app_handle, label);
+            }
             if matches!(event, tauri::RunEvent::Exit) {
                 standby::shutdown();
                 if let Some(state) = app_handle.try_state::<AppState>() {

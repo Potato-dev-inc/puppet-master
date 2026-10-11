@@ -10,6 +10,7 @@ import { useProjectPath } from './hooks/useProjectPath';
 import { launchMenuEntries, useAgentRegistry } from './lib/agentRegistry';
 import { tauri } from './lib/tauri';
 import { detachedWindowSizeFromGrid, openDetachedPaneWindow } from './lib/detached-pane-window';
+import { detachedCloseAction } from './lib/detached-close';
 import { TerminalViewport } from './components/TerminalViewport';
 import { WorkerOpenCodeAuthPanel } from './components/WorkerOpenCodeAuthPanel';
 
@@ -132,7 +133,9 @@ export default function TerminalApp() {
     let unlisten: (() => void) | null = null;
     let disposed = false;
     void tauri.onCurrentWindowCloseRequested(() => {
-      if (workerHost) {
+      const action = detachedCloseAction({ workerHost, paneExists: registry.panes.has(selectedPaneId) });
+      if (action === 'close') return; // nothing to reattach: the default close destroys the window
+      if (action === 'kill-and-exit') {
         void (async () => {
           try {
             await registry.killPane(selectedPaneId);
