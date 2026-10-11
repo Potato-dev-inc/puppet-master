@@ -61,7 +61,9 @@ pub fn maybe_dispose_on_dispatch_failure(
     snapshot: &OperationSnapshot,
     registry: &Arc<Mutex<PaneRegistry>>,
 ) -> Result<(), OperationError> {
-    if !spawned_by_run(snapshot) {
+    // keep_pane=true means the caller keeps the pane until close_agent, failures included
+    // (a PROMPT_NOT_SUBMITTED pane is exactly what they want to look at and retry in).
+    if !spawned_by_run(snapshot) || snapshot.keep_pane {
         return Ok(());
     }
     let pane_id = match snapshot.pane_id.as_deref() {
@@ -319,6 +321,25 @@ mod tests {
             "spawned pane should be disposed when keep_pane is false"
         );
         let _ = std::fs::remove_dir_all(&project);
+    }
+
+    #[test]
+    fn dispatch_failure_keeps_a_spawned_pane_when_keep_pane_is_true_and_kills_it_otherwise() {
+        for (keep, survives) in [(true, true), (false, false)] {
+            let project = std::env::temp_dir()
+                .join(format!("pm-keep-dispatch-{}", uuid::Uuid::new_v4()))
+                .to_string_lossy()
+                .into_owned();
+            let registry = Arc::new(Mutex::new(PaneRegistry::default()));
+            registry
+                .lock()
+                .panes
+                .insert("p".to_string(), PaneRegistry::test_pane_stub("p"));
+            let snapshot = snapshot_with_pane(&project, "p", true, keep);
+            maybe_dispose_on_dispatch_failure(&snapshot, &registry).unwrap();
+            assert_eq!(registry.lock().panes.contains_key("p"), survives, "keep_pane={keep}");
+            let _ = std::fs::remove_dir_all(&project);
+        }
     }
 
     #[test]

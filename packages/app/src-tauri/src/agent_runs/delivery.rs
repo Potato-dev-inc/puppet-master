@@ -23,7 +23,7 @@ const TAIL_CHECK_MAX: usize = 300;
 /// Shortest prefix that is distinctive enough to trust.
 const MIN_HEAD_CHARS: usize = 8;
 /// Bottom screen rows that count as "the input area" (box, hint row, footer).
-const INPUT_AREA_ROWS: usize = 12;
+const INPUT_AREA_ROWS: usize = 16;
 
 /// The windows below are time budgets (polls x interval), kept at 2s to type, 3s to start and a
 /// second Enter at 1.5s; only the interval is short so a healthy pane is confirmed within ~100ms
@@ -196,6 +196,8 @@ pub fn deliver_prompt_traced(
         if let Some(clear) = clear {
             let _ = io.write(clear, false);
         }
+        trace.push(format!("not visible; bottom rows at give-up:
+{}", bottom_rows(&io.screen(), 20)));
         return Delivery::NotVisible;
     }
     let before = io.screen();
@@ -234,7 +236,7 @@ impl DeliveryIo for PaneIo<'_> {
     }
 
     fn screen(&mut self) -> String {
-        crate::pty::registry_read_snapshot(self.registry.as_ref(), self.pane_id).unwrap_or_default()
+        crate::pty::registry_read_snapshot_full(self.registry.as_ref(), self.pane_id).unwrap_or_default()
     }
 
     fn busy(&mut self) -> bool {
@@ -502,5 +504,42 @@ working
         // The second Enter still goes out, once.
         let enters = stuck.writes.iter().filter(|(_, enter)| *enter).count();
         assert_eq!(enters, 2);
+    }
+    // ---- regression: kilo home screen on a 121-column pane (visible run_agent, PROMPT_NOT_SUBMITTED) ----
+
+    const KILO_HOME_TYPED: &str = include_str!("fixtures/kilo_home_typed_121.txt");
+    const KILO_TASK: &str = "Demo for a video: in two short sentences, say what Puppet Master is based on the README in this folder. Do not edit any files.";
+
+    /// The fixture painted into a real 121x36 terminal emulator, then read the way the app reads panes.
+    fn painted(keep_cols: Option<u16>) -> String {
+        let body = KILO_HOME_TYPED.split_once('\n').unwrap().1.split_once('\n').unwrap().1;
+        let mut parser = vt100::Parser::new(36, 121, 0);
+        parser.process(body.replace('\n', "\r\n").as_bytes());
+        crate::pty::registry::snapshot_text(parser.screen(), keep_cols)
+    }
+
+    #[test]
+    fn kilo_home_screen_prompt_is_visible_on_the_uncropped_screen() {
+        assert!(prompt_visible_in_input(&painted(None), KILO_TASK));
+    }
+
+    #[test]
+    fn kilo_home_screen_sidebar_crop_hides_the_prompt_tail() {
+        // Why delivery must not read the cropped snapshot: kilo's home screen has no sidebar, so the
+        // 42-column crop of a 121-column pane cut the box and the end of the prompt was lost.
+        assert!(!prompt_visible_in_input(&painted(Some(121 - 42)), KILO_TASK));
+    }
+
+    #[test]
+    fn kilo_home_screen_delivers_with_the_notice_under_the_box() {
+        let mut pane = pane(|pane, text, enter| {
+            if enter {
+                pane.screen = "Thinking\n  esc interrupt".into();
+                pane.busy = true;
+            } else if text == KILO_TASK {
+                pane.screen = painted(None);
+            }
+        });
+        assert_eq!(deliver_prompt(&mut pane, Some("\u{15}"), KILO_TASK), Delivery::Started);
     }
 }

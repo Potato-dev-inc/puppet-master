@@ -123,6 +123,22 @@ pub fn read_buffer(
     Ok(strip_ansi(&text))
 }
 
+/// The whole screen, never cropped. Prompt delivery reads this: the sidebar crop assumes a wide
+/// pane shows a sidebar, but a TUI's home screen (no session yet) is centred over the full width,
+/// so cropping cut the input box and the typed prompt looked missing.
+pub fn read_snapshot_full(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {
+    let screen = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        pane.screen.clone()
+    };
+    let parser = screen.lock();
+    Ok(snapshot_text(parser.screen(), None))
+}
+
 pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {
     let screen = {
         let reg = registry.lock();
