@@ -142,7 +142,7 @@ pub fn validate_text(text: &str, source: &str, code_ids: &[&str]) -> Result<Valu
             };
             (
                 template::render_headless(def, &launch).map(|argv| json!(argv)).unwrap_or(Value::Null),
-                def.tui.as_ref().map(|t| json!(t.argv)).unwrap_or(Value::Null),
+                tui_argv_preview(def).map(|a| json!(a)).unwrap_or(Value::Null),
             )
         }
         None => (Value::Null, Value::Null),
@@ -244,6 +244,20 @@ pub fn approve(
     Ok(json!({"ok": true, "id": def.agent.id, "state": state}))
 }
 
+/// The visible-pane command the Approve dialog shows. A generic agent has no `[tui]` table (it is
+/// just its binary in a pane), so it renders as the binary name followed by any `[tui]` args.
+pub(crate) fn tui_argv_preview(def: &super::schema::Definition) -> Option<Vec<String>> {
+    match (&def.tui, def.agent.kind == super::schema::Kind::Generic) {
+        (tui, true) => {
+            let mut argv = vec![def.binary.names.first()?.clone()];
+            argv.extend(tui.as_ref().map(|t| t.argv.clone()).unwrap_or_default());
+            Some(argv)
+        }
+        (Some(t), false) => Some(t.argv.clone()),
+        (None, false) => None,
+    }
+}
+
 /// The argv templates the Approve dialog shows, so the record can later be diffed against them.
 fn rendered_argv(def: &super::schema::Definition) -> (Option<Vec<String>>, Option<Vec<String>>) {
     let launch = HeadlessLaunch {
@@ -255,7 +269,7 @@ fn rendered_argv(def: &super::schema::Definition) -> (Option<Vec<String>>, Optio
         allow_shell: false,
         model: Some("<model>"),
     };
-    (template::render_headless(def, &launch), def.tui.as_ref().map(|t| t.argv.clone()))
+    (template::render_headless(def, &launch), tui_argv_preview(def))
 }
 
 /// What the Approve dialog needs for one listed file beyond `validate_text`: the argv the user

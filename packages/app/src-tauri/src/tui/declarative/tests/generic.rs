@@ -87,3 +87,10 @@ fn add_generic_writes_an_unapproved_valid_file() {
     assert!(write_generic(&dir, "claude", &["claude"]).unwrap_err().contains("AGENT_DEF_RESERVED_ID"));
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn validate_renders_the_visible_command_of_a_generic_definition() {
+    let v = crate::tui::declarative::service::validate_text(THREE_LINES, "user", &["claude"]).unwrap();
+    assert_eq!(v["rendered"]["tui_argv"], serde_json::json!(["mycli-fixture-not-installed"]));
+    assert!(v["rendered"]["headless_argv"].is_null(), "generic stays visible-only");
+}
