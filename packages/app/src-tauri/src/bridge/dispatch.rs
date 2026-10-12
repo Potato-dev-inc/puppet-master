@@ -331,7 +331,7 @@ fn assign_pane(
         crate::standby::note_run(key, &operation.project_path);
     }
     if pane_created && standby_claim.is_none() {
-        present_spawned_pane(registry, app, &pane_id);
+        present_spawned_pane(registry, app, &pane_id, operation.placement.as_deref());
     }
     operation.pane_created = pane_created;
     operation.pane_id = Some(pane_id.clone());
@@ -362,7 +362,7 @@ fn assign_pane(
     let standby = standby_claim.is_some();
     if let Some(claim) = standby_claim {
         claim.commit();
-        present_spawned_pane(registry, app, &pane_id);
+        present_spawned_pane(registry, app, &pane_id, operation.placement.as_deref());
     }
     drop(pane_assignment_guard);
     Ok((pane_id, pane_created, standby))
@@ -696,6 +696,7 @@ mod tests {
             timeout_ms: 60_000,
             read_only: false,
             keep_pane: false,
+            placement: None,
             owner_session_id: Some("gates".into()),
             worker_has_mcp_tools: false,
             agent_run_id: None,

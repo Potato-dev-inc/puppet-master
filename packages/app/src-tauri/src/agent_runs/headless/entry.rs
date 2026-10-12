@@ -368,6 +368,7 @@ pub fn run_agent(
         timeout_ms: request.timeout_ms,
         read_only: request.read_only,
         keep_pane: request.keep_pane,
+        placement: request.placement.clone(),
         owner_session_id: session_id,
         worker_has_mcp_tools: false,
         agent_run_id: request.agent_run_id.clone(),

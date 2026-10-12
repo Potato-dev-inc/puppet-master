@@ -104,10 +104,13 @@ fn spawn(cx: &Ctx) -> RouteResult {
         ))
     })?;
     let agent_type = req.agent_type.clone();
+    let placement = serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("placement").and_then(|p| p.as_str().map(str::to_string)));
     let pane_id =
         registry_spawn_pane(registry, app, req).map_err(|err| (500, json!({ "error": err })))?;
     register_spawned_pane(session, &agent_type, &pane_id).map_err(operation_http_error)?;
-    present_spawned_pane(registry, app, &pane_id);
+    present_spawned_pane(registry, app, &pane_id, placement.as_deref());
     Ok((
         201,
         crate::mcp_hints::mutate_ok(

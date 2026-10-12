@@ -198,6 +198,7 @@ fn closing_a_run_parked_on_workspace_trust_does_not_claim_an_interrupted_turn() 
         timeout_ms: 900_000,
         read_only: true,
         keep_pane: false,
+        placement: None,
         owner_session_id: Some("trust-session".into()),
         worker_has_mcp_tools: false,
         agent_run_id: Some("trusty".into()),

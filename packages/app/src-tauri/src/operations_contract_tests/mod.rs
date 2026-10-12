@@ -54,6 +54,7 @@ fn request(project: &Project, key: &str) -> DelegateWorkRequest {
         timeout_ms: 900_000,
         read_only: false,
         keep_pane: false,
+        placement: None,
         owner_session_id: None,
         worker_has_mcp_tools: false,
         agent_run_id: None,

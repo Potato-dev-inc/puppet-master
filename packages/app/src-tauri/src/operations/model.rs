@@ -56,6 +56,9 @@ pub struct DelegateWorkRequest {
     /// Keep a worker pane after its operation ends.
     #[serde(default)]
     pub keep_pane: bool,
+    /// Where a visible pane opens: `auto` | `grid` | `window` (`None` = auto).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<String>,
     /// MCP client session that owns this run, when supplied by the host.
     #[serde(default)]
     pub owner_session_id: Option<String>,
@@ -91,6 +94,7 @@ impl Default for DelegateWorkRequest {
             timeout_ms: default_timeout_ms(),
             read_only: false,
             keep_pane: false,
+            placement: None,
             owner_session_id: None,
             worker_has_mcp_tools: false,
             agent_run_id: None,
@@ -226,6 +230,8 @@ pub struct OperationSnapshot {
     /// to release the pane. `None` on operations stored before this field existed.
     #[serde(default)]
     pub keep_pane_requested: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<String>,
     #[serde(default)]
     pub owner_session_id: Option<String>,
     #[serde(default)]

@@ -124,6 +124,7 @@ pub(super) fn present_spawned_pane(
     registry: &Arc<Mutex<PaneRegistry>>,
     app: &AppHandle,
     pane_id: &str,
+    placement: Option<&str>,
 ) {
     if pane_id.starts_with("puppet-master-orchestrator-") {
         emit_panes_changed(registry, app);
@@ -138,6 +139,16 @@ pub(super) fn present_spawned_pane(
         emit_panes_changed(registry, app);
         return;
     };
+    let target = crate::pane_windows::decide_placement(
+        placement,
+        crate::pane_windows::main_window_usable(),
+    );
+    if target == crate::pane_windows::Placement::Grid {
+        // The grid lists every registered pane: just make sure the main window shows it.
+        let _ = app.emit("pane://show-in-grid", json!({ "pane_id": pane.id }));
+        emit_panes_changed(registry, app);
+        return;
+    }
     let title = format!(
         "{} · {}",
         pane.agent_type,

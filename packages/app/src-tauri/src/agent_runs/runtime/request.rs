@@ -77,6 +77,9 @@ pub struct AgentRunRequest {
     pub read_only: bool,
     #[serde(default)]
     pub keep_pane: bool,
+    /// `auto` | `grid` | `window`: where a visible pane opens.
+    #[serde(default)]
+    pub placement: Option<String>,
     #[serde(default)]
     pub worker_has_mcp_tools: bool,
     #[serde(default = "default_timeout")]

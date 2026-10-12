@@ -37,6 +37,44 @@ pub fn notify_pane_removed() {
     }
 }
 
+/// Where a visible agent-run pane is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placement {
+    /// Inside the main window's terminal grid.
+    Grid,
+    /// In its own pop-out OS window.
+    Window,
+}
+
+/// Decide where a visible run's pane goes. `requested` is the caller's `placement`
+/// (`auto` | `grid` | `window`; anything else means `auto`). `auto` and `grid` use the main
+/// window grid when it exists and is visible (not closed, hidden or minimized); otherwise the pane
+/// pops out so it is never invisible. `window` always pops out.
+pub fn decide_placement(requested: Option<&str>, main_window_usable: bool) -> Placement {
+    match requested.map(|r| r.trim().to_ascii_lowercase()).as_deref() {
+        Some("window") => Placement::Window,
+        _ if main_window_usable => Placement::Grid,
+        _ => Placement::Window,
+    }
+}
+
+/// True when the main window exists, is visible and not minimized. Always false before `init`
+/// and in unit tests (window APIs need the application manifest).
+#[cfg(test)]
+pub fn main_window_usable() -> bool {
+    false
+}
+
+#[cfg(not(test))]
+pub fn main_window_usable() -> bool {
+    use tauri::Manager;
+    let Some((app, _)) = CONTEXT.get() else { return false };
+    match app.get_webview_window("main") {
+        Some(w) => w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(true),
+        None => false,
+    }
+}
+
 /// Label the frontend gives a detached pane window (mirrors `detachedPaneLabel` in
 /// `src/lib/detached-pane-window.ts`).
 pub fn window_label(pane_id: &str) -> String {
@@ -142,6 +180,18 @@ pub fn schedule_sweep(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn placement_decision() {
+        assert_eq!(decide_placement(None, true), Placement::Grid);
+        assert_eq!(decide_placement(Some("auto"), true), Placement::Grid);
+        assert_eq!(decide_placement(Some("grid"), true), Placement::Grid);
+        assert_eq!(decide_placement(Some("window"), true), Placement::Window);
+        assert_eq!(decide_placement(Some("WINDOW"), true), Placement::Window);
+        assert_eq!(decide_placement(None, false), Placement::Window);
+        assert_eq!(decide_placement(Some("grid"), false), Placement::Window);
+        assert_eq!(decide_placement(Some("junk"), true), Placement::Grid);
+    }
 
     #[test]
     fn windows_of_closed_panes_are_swept_and_live_ones_kept() {

@@ -279,6 +279,7 @@ fn agent_run_view_json_includes_required_catalog_fields() {
         timeout_ms: 900_000,
         read_only: false,
         keep_pane: false,
+        placement: None,
         keep_pane_requested: None,
         owner_session_id: None,
         worker_has_mcp_tools: false,
@@ -398,7 +399,7 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "66-4cd8e0886d0f544a");
+    assert_eq!(catalog_version(), "66-a0d8d3fd211a33ce");
 }
 
 /// Every tool input that names an agent (`agent_type`, or `backend` on quick_ask) uses the one
@@ -431,5 +432,15 @@ fn agent_type_schema_has_pattern_not_enum() {
     }
     for name in ["quick_ask", "run_agent", "delegate_work", "read_agent_context", "spawn_agent"] {
         assert!(seen.contains(&name), "{name} lost its agent_type/backend property");
+    }
+}
+
+#[test]
+fn visible_run_tools_advertise_placement() {
+    for name in ["run_agent", "delegate_work", "spawn_agent"] {
+        let tool = tools().into_iter().find(|t| t.name == name).expect(name);
+        let schema = tool.input_schema.to_string();
+        assert!(schema.contains("\"placement\""), "{name} lacks placement");
+        assert!(schema.contains("\"grid\"") && schema.contains("\"window\""), "{name} enum");
     }
 }

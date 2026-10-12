@@ -262,6 +262,8 @@ export const tauri = {
     safeListen<PanesChangedEvent>('pty://panes-changed', cb),
   onPaneDetach: (cb: (e: PaneDetachEvent) => void): Promise<UnlistenFn> =>
     safeListen<PaneDetachEvent>('pane://detach', cb),
+  onPaneShowInGrid: (cb: (e: { pane_id: string }) => void): Promise<UnlistenFn> =>
+    safeListen<{ pane_id: string }>('pane://show-in-grid', cb),
   onPaneReattach: (cb: (e: PaneReattachEvent) => void): Promise<UnlistenFn> =>
     safeListen<PaneReattachEvent>('pane://reattach', cb),
   emitPaneReattach: (paneId: string) => safeEmit<PaneReattachEvent>('pane://reattach', { pane_id: paneId }),

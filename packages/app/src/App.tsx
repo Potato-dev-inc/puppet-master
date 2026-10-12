@@ -65,6 +65,7 @@ export default function App() {
     let unlistenApply: (() => void) | null = null;
     let unlistenDetach: (() => void) | null = null;
     let unlistenReattach: (() => void) | null = null;
+    let unlistenShowInGrid: (() => void) | null = null;
 
     void (async () => {
       unlistenDetach = await tauri.onPaneDetach((event) => {
@@ -82,6 +83,10 @@ export default function App() {
             console.error('[App] failed to detach pane', err);
           }
         })();
+      });
+      // An agent run's visible pane lives in the left grid: show the Workspace (no focus steal).
+      unlistenShowInGrid = await tauri.onPaneShowInGrid(() => {
+        setScreen('workspace');
       });
       unlistenReattach = await tauri.onPaneReattach((event) => {
         markPaneAttached(event.pane_id);
@@ -114,6 +119,7 @@ export default function App() {
       cancelled = true;
       unlistenDetach?.();
       unlistenReattach?.();
+      unlistenShowInGrid?.();
       unlistenApply?.();
     };
   }, [bumpSettings, markPaneAttached, markPaneDetached]);

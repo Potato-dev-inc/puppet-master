@@ -80,6 +80,7 @@ pub fn send_agent(
         background: opts.background,
         read_only: previous.read_only,
         keep_pane: previous.keep_pane,
+        placement: None,
         worker_has_mcp_tools: false,
         timeout_ms: previous.timeout_ms,
         wait_ms: if opts.background {
@@ -202,6 +203,7 @@ pub(in crate::agent_runs) fn enqueue_followup(
         timeout_ms: previous.timeout_ms,
         read_only: previous.read_only,
         keep_pane: previous.keep_pane,
+        placement: None,
         owner_session_id: session_id.or(previous.owner_session_id.clone()),
         worker_has_mcp_tools: false,
         agent_run_id: Some(handle.to_string()),
