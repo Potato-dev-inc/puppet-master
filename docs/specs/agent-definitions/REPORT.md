@@ -107,3 +107,22 @@ consent, and approve/consent are only accepted from the local desktop app.
 | T35–T36 (Phase 5 gate) | ca7c0dd, 17d650a, 124fe2e, 34e6901, 72fb7bd, afcaee6, 3cfeab5 |
 | T37 | dc0a4ad, d6e8d37, ea27a7f |
 | window placement | eb62c3e, 3f9db5e, 75821a0, a3d2775 |
+
+## After T37
+
+Commits after T37 (`git log 74fc57f..HEAD`, oldest first). Feature/test docs: `docs/FEATURES.md`, `docs/TEST-PLAN.md`.
+
+| Commit | What |
+|---|---|
+| db71c99 | visible kilo delivery reads the uncropped screen (sidebar crop hid the prompt on the home screen); a dispatch failure keeps a keep_pane=true pane |
+| 987513c | generic agent definitions render their visible command (binary name) in the approve preview and validate route |
+| 5543216 | orphan detached pane window closes: backend honours X on a window whose pane is gone; the sweep escalates if destroy did not take |
+| 1e3957f | UI: headless-only and experimental agents show in the spawn menu (disabled with reason), Overview Agents card, live registry refresh + no-restart toast, experimental badge on definition rows |
+| 64cb604 | visible agent-run panes open in the main window grid by default; `placement` auto/grid/window on run_agent/delegate_work/spawn_agent |
+| 4108522 | grid run panes get a wide tile; narrow sidebar-profile panes read per row so visible kilo results stay clean below 121 cols |
+| 10d38df | visible prompt delivery waits for a slow-starting TUI to draw before typing; blank screens do not burn typing attempts (up to 20 s) |
+| 8f36afa | one pop-out window per pane: dedupe concurrent opens per label, stop the StrictMode-leaked `pane://detach` listener |
+| 773d283 | single-instance guard; bridge port file removed on exit only if it names our port; MCP client probes 17321-17330 |
+| eacd325 | pane exit detected by an exit watcher, not only ConPTY EOF, so a dead pane's pop-out closes immediately |
+
+Resolved from the earlier "What is left" list: item 6 (spawn menu lists registered agents, headless-only greyed) and the experimental badge in item 7.

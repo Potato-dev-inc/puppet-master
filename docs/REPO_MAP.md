@@ -17,6 +17,9 @@ Existing docs this file links to rather than repeats:
 | `docs/plans/wp7-ownership-lifecycle.md`, `wp8-watcher-contract.md`, `wp9-pane-close.md`, `agent-parity-plan.md` | design notes behind ownership/leases, the watch contract, pane close policy |
 | `packages/app/src-tauri/src/tui/README.md` | TUI profile folder layout, add-a-TUI checklist, symptom-to-file table |
 | `packages/mcp-server/README.md` | MCP package/launcher |
+| [`docs/FEATURES.md`](FEATURES.md) | full user-facing feature list with where-it-lives and status |
+| [`docs/TEST-PLAN.md`](TEST-PLAN.md) | automated suites (commands, expected counts) + manual/live test cases, known flaky tests and gaps |
+| `docs/specs/agent-definitions/` | declarative agent spec: `SPEC.md`, `DEFINITION-FORMAT.md`, `AGENT-CHOICE.md`, `PLAN.md`, `REPORT.md` (+ "After T37"), `phases/` |
 
 ---
 
@@ -106,6 +109,9 @@ puppet-master/
     design/                 static HTML demo
     mobile-terminal-bugs-and-fixes.md
     REPO_MAP.md             this file
+    FEATURES.md TEST-PLAN.md  feature list; what to test and how
+    specs/agent-definitions/  declarative agents spec, phases, REPORT.md
+    perf/                   latency baseline (perf-latency.mjs output)
     wiki/                   developer/agent handbook (overview, architecture, developing, extending)
   packages/
     app/                    Tauri app
@@ -118,6 +124,8 @@ puppet-master/
         Cargo.toml          crate puppet_master_app, lib puppet_master_app_lib, bin puppet-master-mcp
         build.rs            stamps PM_BUILD_ID, then tauri_build
         tauri.conf.json     bundle resources, beforeDevCommand (scripts/vite-dev.mjs)
+        tauri.dev.local.json  dev-only window override (secondary monitor x=-1660,y=60, focus=false); machine-specific
+        tests/agent-definitions/kilo.toml  proof definition copy (bundled set is empty; install into <app data>/agents/)
         capabilities/ icons/ gen/ (gen is gitignored)
         resources/          bin/ (cloudflared, staged puppet-master-mcp), mcp-stdio.bundle.cjs,
                             puppet-master-cli.bundle.mjs (CLI bundle), pwa-dist/ (staged PWA)
@@ -134,13 +142,15 @@ puppet-master/
     build-rust-mcp.mjs      cargo build of puppet-master-mcp -> packages/mcp-server/dist
     bundle-mcp.mjs          stages MCP exe + esbuilds CLI bundle and mcp-stdio bundle into resources/
     bundle-cloudflared.mjs, stage-pwa-dist.mjs, ensure-tauri-resources.mjs, ensure-workspace-built.mjs
-    with-cargo-path.mjs / cargo-with-path.mjs   run cargo/tauri with ~/.cargo/bin on PATH
+    with-cargo-path.mjs / cargo-with-path.mjs   run cargo/tauri with ~/.cargo/bin on PATH (`npm run dev` goes through with-cargo-path.mjs)
+    check-window-monitor.ps1  lists visible puppet_master_app windows, exits 1 if any is on the primary monitor (run after live visible-pane tests)
     run-tauri-dev.ps1, vite-dev.mjs, dev-tunnel.mjs   dev server helpers
     test-mcp-operations.mjs mock-bridge stdio smoke test; test-mcp-package.mjs packaging test;
     test-bridge.ps1 test-e2e.ps1 test-mcp.ps1   PowerShell live checks
     pm-regression.mjs       LIVE regression + benchmark suite against the running app (entry point);
                             modules in pm-regression/: context.mjs (args, rpc), scenarios.mjs,
-                            bench.mjs, bench-fixture.mjs, bench-stats.mjs, bench-tasks.mjs
+                            bench.mjs, bench-fixture.mjs, bench-stats.mjs, bench-tasks.mjs,
+                            readonly-check.mjs (live read-only enforcement parity: claude/kilo + a write control)
     perf-latency.mjs        delegation latency measurement (PONG x backend x visible/headless, cold + follow-ups;
                             stage_log + 40ms pane-screen polling); perf-summarize.mjs / perf-frames.mjs turn the
                             raw JSON into the breakdown table in docs/perf/latency-baseline.md
@@ -229,6 +239,18 @@ the other shared data types, `registry.rs` = the runtime `Registry` (an `ArcSwap
 `program_on_path`). The UI reads the same registry through the `agents_list` Tauri command (same body as `GET /agents/types`) and `packages/app/src/lib/agentRegistry.ts` (compiled nine-agent fallback offline); the spawn menus, pane titles, standby labels and `ansi.ts::isTuiAgent` consume it. `generic.rs` = default prompt handling + fallback profile. `conformance.rs` = rules
 every registered profile must pass.
 Declarative agents (`tui/declarative/`, spec in `docs/specs/agent-definitions/`): `schema.rs`/`validate.rs` (TOML -> `Definition`, path-carrying errors), `template.rs` (argv/stdin rendering, `render_tui`), `resolve.rs` (`resolve_binary`: PATH scan excluding cwd, npm shim -> native exe), `select.rs` + `output.rs` (selectors, `OutputParser`), `screen.rs` (`TuiEngine` for `[tui]` tables), `profile.rs` (`DeclarativeProfile`, one `TuiProfile` per definition), `sources.rs`/`loader.rs` (scan, REG-8 precedence, `build`/`reload_global`, `Entry` rows), `fingerprint.rs` + `approvals.rs` (APR fingerprints, `approvals.json`), `service.rs` (list/validate/reload/approve/revoke/consent, pure over dirs, `*_global` wrappers). HTTP: `bridge/routes/definitions.rs` (`/agents/definitions[/reload|validate|approve|revoke|consent]`; mutations are local-app-only, MCP sessions get 403). Tauri: `commands/agents.rs` (`agents_definitions_list/reload/validate`, `agents_definition_approve/revoke/preview`, `agents_definitions_consent`). UI: Settings > Agents = `components/settings/tabs/AgentsTab.tsx` + `lib/agentDefinitions.ts`. Spawn gate: `TuiProfile::spawn_gate` / `registry::admit` re-checks fingerprint, approval and the pinned binary before every run. The bundled proof agent is `kilo.toml` (installed in `<app data>/agents/`). Project and extra sources load only with per-path consent (`sources.rs` `SourceSettings`, stored in `agent-definitions.json`; `service.rs` consent/source/extra/project_scan; consent is not approval). `watch.rs` is the hot-reload watcher (notify, 150 ms debounce; a still-valid previous registry is kept if an active file turns invalid; emits `agent_definitions_changed` over SSE + Tauri; running panes and runs are never touched, the spawn gate refuses the next run until re-approval). `mcp_install/declarative.rs` is the `[mcp_host]` writer (JSON/TOML/YAML key-path set, `.bak`, home/project-only paths, idempotent; library-only, no route yet). Sharing: `loader::{export_definition, import_definition}` + Tauri `agents_export_definition` / `agents_import_definition` (import lands UNAPPROVED in the user dir, no network).
+**Added on this branch (declarative agents, windows, resilience), by file**
+- `tui/registry.rs`: runtime `Registry`; `set_declarative`/`code_ids`, `admit` (spawn gate), `test_serial()` (tests that swap the global registry must take it).
+- `tui/declarative/`: `schema.rs`, `validate.rs` (interpreter denylist, prompt keys, `[mcp_host]` check), `template.rs` (argv/stdin/`render_tui`), `resolve.rs`, `select.rs`, `output.rs`, `profile.rs` (`DeclarativeProfile`), `loader.rs` (`build`, `reload`, `export/import_definition`, `write_generic`), `sources.rs` (`SourceSettings`, consent), `fingerprint.rs`, `approvals.rs`, `service.rs`, `screen.rs` (`TuiEngine`), `check.rs` (fixture runner for `*.expect.toml`), `watch.rs` (hot reload), `fixtures/` (kilo captures, `definitions{,-bad}`), `tests/` (per module, plus `conformance.rs`, `parity_claude.rs`, `consent.rs`, `expect.rs`).
+- `agent_definitions_recorder/` (`mod.rs` start/status/stop per pane, `snapshots.rs`, `draft.rs` generator, `redact.rs`, `*_tests.rs`, `fixtures/`): the Rec button; drafts go to `<agents dir>/drafts/`, never loaded or approved. Tauri `recorder_start/status/stop` in `commands/agents.rs`.
+- `bridge/routes/definitions.rs`: `/agents/definitions[/reload|validate|approve|revoke|consent|...]`; mutations local-app-only.
+- `bridge/port_file.rs`: bridge port file (`write_owned`, remove on exit only if it still names our port). The MCP client (`bin/puppet_master_mcp/`) probes 17321-17330 when the file's port is dead.
+- `pane_windows.rs`: `decide_placement(requested, main_window_usable)` -> grid or window (`placement` auto|grid|window on `run_agent`/`delegate_work`/`spawn_agent`), `window_label` (one pop-out per pane), `orphaned_labels`, `close_is_forced`, `on_close_requested`, `schedule_sweep` (escalates if destroy did not take), `notify_pane_removed`.
+- `pty/registry/spawn.rs`: exit watcher (a dead pane is detected without waiting for ConPTY EOF).
+- `lib.rs`: `tauri_plugin_single_instance` guard (second launch focuses the main window and exits).
+- `mcp_install/declarative.rs`: `[mcp_host]` writer (library-only).
+- UI: `lib/agentRegistry.ts` (registry + `onAgentDefinitionsChanged`, nine-agent offline fallback), `lib/agentDefinitions.ts` (injectable api, `tauriRecorderApi`), `components/settings/tabs/AgentsTab.tsx` (rows, review/approve, check, import/export, drafts, sources/consent), `components/AgentsOverviewCard.tsx` (on `HomeDashboard.tsx`), `components/TerminalPane.tsx` (Rec button), `lib/detached-pane-window.ts` + `lib/detached-close.ts` (pop-out open dedupe, close on pane exit); spawn menus read the registry (headless-only/experimental greyed with reason).
+- Docs: [`FEATURES.md`](FEATURES.md), [`TEST-PLAN.md`](TEST-PLAN.md), `docs/specs/agent-definitions/`.
 Per agent: `cursor/` (`mod.rs`, `launch.rs`, `headless.rs`, `screen.rs`, `chrome/` (`mod.rs`, `tests.rs`),
 `approval.rs`, `fixtures/`), `claude/` (`mod.rs`, `headless.rs`), `codex/` (`mod.rs`, `headless.rs`),
 `opencode/` (`mod.rs`, `screen.rs`, `read_only.rs`; covers `opencode_native` TUI-facing part),
@@ -241,7 +263,7 @@ Per agent: `cursor/` (`mod.rs`, `launch.rs`, `headless.rs`, `screen.rs`, `chrome
 | `pty/registry/` | `PaneRegistry` (`mod.rs`: owns live PTY sessions + per-pane `PaneClassifier`, `registry_read_full_text`); `spawn.rs` (spawn PTY, reader + idle threads, pane events; output that changes no visible cell neither reclassifies nor postpones idle); `idle.rs` (`IdleClock`, `idle_window`: a pane reads `idle` once its SCREEN held still for the profile's `idle_after`, or `quiet_idle_after` while `busy_marker` says no work is showing; polled every 100ms); `pane_io.rs` (write/read/resize, `is_pty_control_input`); `command.rs` (`CommandBuilder` per agent type, Windows PowerShell hosting for `cursor-agent.ps1`). `pty/agents.rs` = `AgentType` enum + per-OS launch commands; `pty/status.rs` = `PaneStatus`, `classify_pane_state`, `PaneClassifier`; `pty/keys.rs` named keys (`press_key`); `pty/ansi.rs`, `pty/scrollback.rs`, `pty/proc_tree.rs`; `pty/mod.rs` re-exports. |
 | `pane_prompt/` | Structured approval prompt blocking a pane: `detect`, `detect_in_screen`, `dispatch_blocker` (`PANE_BLOCKED_BY_PROMPT`), `prompt_id_for` (the id handed to callers; command-based), `required_action[_from_prompt]`, `answer` (`STALE_PROMPT`, `PROMPT_REPLY_FAILED`, `INVALID_PROMPT_CHOICE`), `reply_key`. |
 | `pane_wait/` + `pane_wait_notify.rs` | Long-poll waits. `mod.rs`: `wait_for_panes`, `WaitUntil`, `WaitForPanesRequest/Result`; `check.rs`: `check_pane`, settled/state/model/key-swap conditions and hints (`agent_hint_for_reason`); `model_task.rs`: `wait_for_model`, `wait_for_task`; `worker.rs`: `wait_for_worker`, spawn-readiness checks (`worker_settled_reason` lives in `check.rs`). `pane_wait_notify.rs`: `bump_waiters`, `wait_for_change[_ms]`. |
-| `pane_windows.rs` | Destroys detached pane windows when their pane leaves the registry (`orphaned_labels`, `schedule_sweep`). |
+| `pane_windows.rs` | Pop-out pane windows: placement decision (`decide_placement`: grid vs window), one window per pane (`window_label`), destroys windows when their pane leaves the registry (`orphaned_labels`, `schedule_sweep` with escalation, `close_is_forced`). |
 | `shell_exec.rs` (+`shell_exec/command.rs`, `tests.rs`) | `shell_exec`: run a command in an explicitly selected shell pane (`SHELL_PANE_REQUIRED`, `COMMAND_TIMEOUT`, `PANE_NOT_READY`). |
 | `agent_adapters/{claude,codex,opencode,bash}.rs` | Older per-agent `signals()` priors for the pane-state classifier (separate from `tui/`). |
 | `projections.rs` (+`projections/summary.rs`, `tests.rs`), `event_log.rs` (+`event_log/recent.rs`, `tests.rs`; `find_last_entry` scans the log from its end, so a pane's last event never parses the whole file), `events.rs`, `actors.rs` | Event stream (`SystemEvent`), append-only event log per project (recent-event queries in `event_log/recent.rs`), read models (`WorkspaceAttention`, `GET /workspace/state`; audit summaries in `projections/summary.rs`), actor/role bookkeeping. |
@@ -319,6 +341,11 @@ JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WA
 | Delegation latency (measure first: `scripts/perf-latency.mjs`, results in `docs/perf/latency-baseline.md`) | per-stage: `operations/store.rs::bump` (stage_log), `startup_timing.rs`, `bridge/dispatch.rs`, `agent_runs/delivery.rs`, `pty/registry/idle.rs` | whole-file scans on hot paths (`event_log::find_last_entry`, `agent_runs/headless/bind.rs::worker_lookup_key`), `mcp_sessions/state.rs` writer |
 | Windows-specific spawn quirks | `pty/registry/command.rs`, `pty/agents.rs`, `project_path.rs`, `shell_env.rs` | |
 | UI | `packages/app/src` (components/, hooks/, lib/); settings tabs in `components/settings/tabs/`, sidebar in `components/sidebar/`, styles in `styles/` | Tauri command called from the UI: `lib/tauri.ts` + `commands/` + `lib.rs` `invoke_handler` |
+| Visible pane placement (grid vs pop-out), pop-out lifecycle | `pane_windows.rs` (`decide_placement`, `schedule_sweep`), `lib/detached-pane-window.ts`, `lib/detached-close.ts` | `placement` in `tool_registry/catalog/agents.rs`; `App.tsx` `pane://detach` listener |
+| Dev window position / focus | `packages/app/src-tauri/tauri.dev.local.json` | verify with `scripts/check-window-monitor.ps1` |
+| Single instance / bridge port discovery | `lib.rs` (single-instance plugin), `bridge/port_file.rs`, MCP client port probing in `bin/puppet_master_mcp/` | |
+| Settings > Agents UI / Rec button | `components/settings/tabs/AgentsTab.tsx`, `lib/agentDefinitions.ts`, `components/TerminalPane.tsx` | `agent_definitions_recorder/`, `commands/agents.rs` |
+| Agent registry in the UI (spawn menu, Overview card) | `lib/agentRegistry.ts`, `components/AgentsOverviewCard.tsx` | `GET /agents/types` |
 | Add a Tauri command | `commands/<area>.rs` + register in `lib.rs` `invoke_handler` | `packages/app/src/lib/tauri.ts` wrapper |
 
 ---
@@ -598,3 +625,4 @@ validation unless noted.
   the older classifier-prior path.
 - Frontend (`packages/app/src`) is only sketched; it mirrors Rust enums in `lib/tauri.ts` and
   `packages/shared/src/protocol.ts`.
+- Declarative agents: env/stdin launches, `[mcp_host]` route/UI, `extract_model` parity and a recorder bridge route are not implemented (see `FEATURES.md` section 8 and `TEST-PLAN.md` section 4).
