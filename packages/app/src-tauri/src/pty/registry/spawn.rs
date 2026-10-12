@@ -9,6 +9,67 @@ pub fn unknown_pane_message(pane_id: &str) -> String {
     )
 }
 
+/// Mark a pane's process as gone: status Error, `pty://exit` event. Runs once per pane, from the
+/// reader thread (EOF) or from the exit watcher, whichever notices first. On Windows ConPTY the
+/// reader can stay blocked after the child exits, so the watcher must not depend on EOF.
+fn finish_exit(
+    pane_id: &str,
+    app: &AppHandle,
+    status: &Arc<Mutex<PaneStatus>>,
+    exited: &Arc<Mutex<bool>>,
+) {
+    {
+        let mut done = exited.lock();
+        if *done {
+            return;
+        }
+        *done = true;
+    }
+    *status.lock() = PaneStatus::Error;
+    crate::event_log::append_system_event(SystemEvent::PaneStatusChanged {
+        pane_id: PaneId(pane_id.to_string()),
+        status: PaneStatus::Error.as_str().to_string(),
+    });
+    let _ = app.emit(
+        "pty://exit",
+        PaneExitEvent {
+            pane_id: pane_id.to_string(),
+        },
+    );
+}
+
+/// True while process `pid` is running. Unknown pids (0) count as alive so nothing is declared dead
+/// without evidence.
+#[cfg(windows)]
+pub(super) fn process_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return true;
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
+        fn GetExitCodeProcess(handle: *mut core::ffi::c_void, code: *mut u32) -> i32;
+        fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
+    }
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const STILL_ACTIVE: u32 = 259;
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return false; // no such process
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(handle, &mut code);
+        CloseHandle(handle);
+        ok == 0 || code == STILL_ACTIVE
+    }
+}
+
+#[cfg(not(windows))]
+pub(super) fn process_alive(_pid: u32) -> bool {
+    true
+}
+
 /// The PTY command for a registered profile: its `spawn_command` when it has one, otherwise the
 /// code launch path (`AgentType` + `resolve_command`), which only the built-in ids have.
 pub(super) fn launch_command(
@@ -288,20 +349,33 @@ pub fn spawn_pane(
                         }
                     }
                 }
-                *exited.lock() = true;
-                *status.lock() = PaneStatus::Error;
-                crate::event_log::append_system_event(SystemEvent::PaneStatusChanged {
-                    pane_id: PaneId(pane_id.clone()),
-                    status: PaneStatus::Error.as_str().to_string(),
-                });
-                let _ = app.emit(
-                    "pty://exit",
-                    PaneExitEvent {
-                        pane_id: pane_id.clone(),
-                    },
-                );
+                finish_exit(&pane_id, &app, &status, &exited);
             })
             .map_err(|e| format!("spawn reader thread: {e}"))?;
+    }
+
+    // Exit watcher: the reader only sees EOF when ConPTY closes, which on Windows can lag the
+    // child's exit indefinitely. Poll the process so a dead pane is reported (and its pop-out
+    // window closed) right away.
+    if pid != 0 {
+        let pane_id = pane_id.clone();
+        let app = app.clone();
+        let status = status.clone();
+        let exited = exited.clone();
+        let _ = thread::Builder::new()
+            .name(format!("pty-exit-watch-{pane_id}"))
+            .spawn(move || loop {
+                thread::sleep(Duration::from_millis(250));
+                if *exited.lock() {
+                    break;
+                }
+                if !process_alive(pid) {
+                    // Let the reader drain the child's last output before declaring it gone.
+                    thread::sleep(Duration::from_millis(400));
+                    finish_exit(&pane_id, &app, &status, &exited);
+                    break;
+                }
+            });
     }
 
     // Idle watcher thread: flips Running -> Idle once the screen has held still for the profile's idle_after.
@@ -389,4 +463,19 @@ pub(super) struct TerminalSnapshotEvent {
 pub(super) struct TerminalDataEvent {
     pane_id: String,
     data: Vec<u8>,
+}
+
+#[cfg(all(test, windows))]
+mod exit_watch_tests {
+    use super::process_alive;
+
+    #[test]
+    fn process_alive_tells_running_from_gone() {
+        assert!(process_alive(std::process::id()));
+        assert!(process_alive(0), "unknown pid is never declared dead");
+        let mut child = std::process::Command::new("cmd").args(["/C", "exit 0"]).spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert!(!process_alive(pid));
+    }
 }
