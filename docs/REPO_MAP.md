@@ -115,7 +115,7 @@ puppet-master/
     wiki/                   developer/agent handbook (overview, architecture, developing, extending)
   packages/
     app/                    Tauri app
-      src/                  React UI (App.tsx = LEGACY main window, unreachable since PF3; SettingsApp.tsx + lib/settings-entry.ts = Settings window route `?settings=1&tab=`; PwaApp.tsx mobile PWA shell, TerminalApp.tsx worker window,
+      src/                  React UI (App.tsx = LEGACY main window, unreachable since PF3; SettingsApp.tsx + lib/settings-entry.ts = Settings window route `?settings=1&tab=`; PwaApp.tsx mobile PWA (agent tabs, components/mobile/), PwaLegacyApp.tsx old orchestrator PWA kept at `?pwa=legacy`, TerminalApp.tsx worker window,
                             WorkerHostBootstrap.tsx; components/ (+ settings/tabs/*Tab.tsx, sidebar/,
                             coordination/, pwa/ tabs), hooks/ (usePaneRegistry, useBridge*), lib/ (bridge.ts +
                             bridge-*.ts split, tauri.ts, mcp-tools.ts, mcp-config.ts, pane-state.ts, ...),

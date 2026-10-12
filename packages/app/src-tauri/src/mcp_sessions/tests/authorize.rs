@@ -127,6 +127,14 @@ fn missing_session_cannot_use_agent_apis_even_for_unowned_handles() {
 }
 
 #[test]
+fn missing_session_may_read_the_agent_type_list_only() {
+    assert!(authorize(None, "GET", "/agents/types", &Value::Null).is_ok());
+    assert!(authorize(None, "GET", "/agents/types?x=1", &Value::Null).is_ok());
+    let error = authorize(None, "POST", "/agents/types", &Value::Null).unwrap_err();
+    assert_eq!(error.code, "SESSION_REQUIRED");
+}
+
+#[test]
 fn readonly_operation_wait_allowed_without_session_for_managed_runs() {
     let owner = id();
     register_owned_agent(&owner, "managed-op").unwrap();

@@ -36,7 +36,9 @@ Rows marked **obsolete** describe the legacy main-window UI: still in the tree, 
 | Standalone Settings window on the Agents tab | `app_windows.rs`, UI `SettingsApp.tsx`, `lib/settings-entry.ts` | stable |
 | Window anchor for pane windows: `PM_WINDOW_ANCHOR` > `settings.json` `pane_window_position` > primary monitor, then cascade | `app_windows.rs`, `settings_store.rs`, `scripts/with-cargo-path.mjs` | stable |
 | Dev windows (Settings, panes) open on the secondary (left) monitor via the anchor in gitignored `packages/app/src-tauri/pm-dev.local.json` -> `PM_WINDOW_ANCHOR` (`tauri.dev.local.json` is the legacy main-window override) | `scripts/with-cargo-path.mjs`, `app_windows.rs` | stable (machine-specific coordinates) |
-| Mobile PWA shell and pairing/tunnel (cloudflared) | UI `PwaApp.tsx`, `components/pwa/`, `MobilePairingPanel.tsx`; `mobile_pairing/`, `mobile_tunnel.rs`, `pwa_server.rs` | present; not re-verified on this branch |
+| Mobile PWA: agent tabs ("All" overview with status + last screen lines, one tab per pane with the live terminal and input box, open/close agents on the PC; no orchestrator control) | UI `PwaApp.tsx`, `components/mobile/`, `lib/mobile-agent-tabs.ts`; bridge `GET /agents/types` (sessionless read) | new; verified in a phone-size browser, not on a real phone |
+| Legacy mobile PWA (orchestrator chat / Panes), kept as a backup at `?pwa=legacy` | `PwaLegacyApp.tsx`, `components/pwa/` | backup; waits for an orchestrator pane nothing starts since PF3 |
+| Mobile pairing/tunnel (cloudflared) | `MobilePairingPanel.tsx`; `mobile_pairing/`, `mobile_tunnel.rs`, `pwa_server.rs` | present; not re-verified on this branch |
 | Home dashboard with an Agents overview card | UI `components/HomeDashboard.tsx`, `AgentsOverviewCard.tsx` | **obsolete** (Overview unreachable) |
 
 ## 2. Orchestrator sidebar and coordination

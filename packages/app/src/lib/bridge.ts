@@ -28,8 +28,15 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
   return {
     baseUrl,
     listPanes: () => call('GET', '/panes'),
-    spawnPane: (args) => call('POST', '/panes', args),
+    spawnPane: async (args) => {
+      // The route answers `{ ok, snapshot: { pane_id }, suggested_wait }` (MCP hint envelope).
+      const res = await call<{ pane_id?: string; snapshot?: { pane_id?: string } }>('POST', '/panes', args);
+      const paneId = res.snapshot?.pane_id ?? res.pane_id;
+      if (!paneId) throw new Error('spawn returned no pane id');
+      return { pane_id: paneId };
+    },
     killPane: (id) => call('DELETE', `/panes/${encodeURIComponent(id)}`),
+    listAgentTypes: () => call('GET', '/agents/types'),
     readBuffer: async (id, lines) => {
       const res = await call<{ content: string }>('GET', `/panes/${encodeURIComponent(id)}/buffer?lines=${lines}`);
       return res.content;

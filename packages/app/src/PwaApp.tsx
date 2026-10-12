@@ -1,38 +1,38 @@
-// Mobile PWA root: owns the bridge connection, live pane/settings/chat state and routes between
-// the pairing/setup screens and the Orchestrator / Panes tabs (components/pwa/*).
+// Mobile PWA root: watch and reply to the agents running on the PC, one tab per agent pane (like
+// terminal tabs) plus an "All" overview. It does not drive the orchestrator. The previous
+// orchestrator-centric mobile UI is kept as PwaLegacyApp.tsx (open with `?pwa=legacy`).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentType, OrchestratorChatEvent, PaneInfo } from '@puppet-master/shared';
+import type { AgentType, PaneInfo } from '@puppet-master/shared';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
-import { useOrchestratorViewportReporter } from './hooks/useOrchestratorViewportReporter';
-import { usePaneTunnel } from './hooks/usePaneTunnel';
 import { useVisualViewportSync } from './hooks/useVisualViewport';
 import { makeBridgeClient, subscribeBridgeEvents, type BridgeClient } from './lib/bridge';
-import { routeBridgeEventToPaneTunnel } from './lib/bridge-pane-tunnel';
 import { DEFAULT_PUBLIC_SETTINGS, type PublicSettings } from './lib/bridge-settings';
 import { ngrokRequestHeaders } from './lib/bridge-ngrok';
 import { mergeBridgeHeaders } from './lib/mobile-pairing-auth';
 import { LS_BRIDGE_URL, resolveBridgeBaseUrl } from './lib/bridge-url';
-import {
-  findOrchestratorPane,
-  isCliOrchestratorBackend,
-  isOrchestratorPaneId,
-} from './lib/orchestrator-panes';
+import { listingFromBody, type LaunchEntry } from './lib/agentRegistry';
+import { ALL_TAB, orderPanes, phoneLaunchEntries, tabLabels } from './lib/mobile-agent-tabs';
 import {
   PairInviteScreen,
   readPairingInviteCode,
   clearPairingInviteFromUrl,
 } from './components/PairInviteScreen';
-import { FloatingMobileMenu } from './components/pwa/FloatingMobileMenu';
-import { OrchestratorTab } from './components/pwa/OrchestratorTab';
-import { PanesTab } from './components/pwa/PanesTab';
+import { BridgePaneTerminal, useBridgePaneTransport } from './components/BridgePaneTerminal';
+import { AgentTabBar } from './components/mobile/AgentTabBar';
+import { AgentsOverview } from './components/mobile/AgentsOverview';
+import { MenuSheet, NewAgentSheet } from './components/mobile/MobileSheet';
 import { SetupScreen } from './components/pwa/SetupScreen';
 
-async function syncBridgePanes(
-  client: BridgeClient,
-  apply: (panes: PaneInfo[]) => void,
-): Promise<void> {
-  const list = await client.listPanes();
-  apply(list);
+const LS_ACTIVE_TAB = 'pm.mobile.activeTab';
+/** Health re-check and pane list refresh: the SSE stream can drop silently on a phone. */
+const RESYNC_MS = 5000;
+
+function readActiveTab(): string {
+  try {
+    return localStorage.getItem(LS_ACTIVE_TAB) || ALL_TAB;
+  } catch {
+    return ALL_TAB;
+  }
 }
 
 export default function PwaApp() {
@@ -44,193 +44,160 @@ export default function PwaApp() {
   );
   const [bridge, setBridge] = useState<BridgeClient | null>(null);
   const [bridgeReady, setBridgeReady] = useState(false);
-  const [chatEvents, setChatEvents] = useState<OrchestratorChatEvent[]>([]);
   const [panes, setPanes] = useState<PaneInfo[]>([]);
+  const [panesLoaded, setPanesLoaded] = useState(false);
   const [settings, setSettings] = useState<PublicSettings>(DEFAULT_PUBLIC_SETTINGS);
-  const [settingsHydrated, setSettingsHydrated] = useState(false);
-  const [tab, setTab] = useState<'chat' | 'panes'>('chat');
+  const [active, setActive] = useState<string>(readActiveTab);
   const [editingUrl, setEditingUrl] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [selectedPaneId, setSelectedPaneId] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<'menu' | 'new' | null>(null);
   const [spawning, setSpawning] = useState(false);
   const [spawnError, setSpawnError] = useState<string | null>(null);
+  const [launchEntries, setLaunchEntries] = useState<LaunchEntry[] | null>(null);
   const registry = useBridgePaneRegistry(bridge);
   const registryRef = useRef(registry);
   registryRef.current = registry;
 
-  /** Single entry point for a fresh pane list: React state plus the terminal registry. */
   const applyPanes = useCallback((list: PaneInfo[]) => {
-    setPanes(list);
+    setPanes(orderPanes(list));
+    setPanesLoaded(true);
     registryRef.current.setPanesFromList(list);
   }, []);
 
-  const orchestratorBackend = settings.orchestrator_backend ?? 'api';
-  const cliOrchestratorBackend = isCliOrchestratorBackend(orchestratorBackend)
-    ? orchestratorBackend
-    : null;
-  const orchestratorPaneId = useMemo(() => {
-    if (!cliOrchestratorBackend) return null;
-    const info = findOrchestratorPane(panes, cliOrchestratorBackend);
-    return info?.id ?? null;
-  }, [cliOrchestratorBackend, panes]);
-
-  const orchestratorReady = useMemo(() => {
-    if (!cliOrchestratorBackend) return true;
-    return !!findOrchestratorPane(panes, cliOrchestratorBackend);
-  }, [cliOrchestratorBackend, panes]);
-
-  const mobileOrchestratorTunnel = usePaneTunnel(bridge, orchestratorPaneId, 'mobile');
-  const orchestratorTunnelRef = useRef(mobileOrchestratorTunnel);
-  orchestratorTunnelRef.current = mobileOrchestratorTunnel;
-
   useVisualViewportSync(!!bridge);
-  useOrchestratorViewportReporter(bridge, tab === 'chat' && !!cliOrchestratorBackend);
 
   useEffect(() => {
     if (!bridgeUrl) return;
-    const c = makeBridgeClient(bridgeUrl);
-    setBridge(c);
+    const client = makeBridgeClient(bridgeUrl);
+    setBridge(client);
     setBridgeReady(false);
-    setSettingsHydrated(false);
+    setPanesLoaded(false);
+    let live = true;
 
-    fetch(`${bridgeUrl}/health`, {
-      signal: AbortSignal.timeout(3000),
-      headers: mergeBridgeHeaders(ngrokRequestHeaders(bridgeUrl)),
-    })
-      .then((r) => { if (r.ok) setBridgeReady(true); })
-      .catch(() => {});
-
-    void c
-      .getSettings()
-      .then((next) => {
-        setSettings(next);
-        setSettingsHydrated(true);
-        return syncBridgePanes(c, applyPanes);
+    const resync = () => {
+      fetch(`${bridgeUrl}/health`, {
+        signal: AbortSignal.timeout(3000),
+        headers: mergeBridgeHeaders(ngrokRequestHeaders(bridgeUrl)),
       })
-      .catch(() => {
-        setSettingsHydrated(true);
-      });
+        .then((r) => {
+          if (live) setBridgeReady(r.ok);
+        })
+        .catch(() => {
+          if (live) setBridgeReady(false);
+        });
+      client
+        .listPanes()
+        .then((list) => {
+          if (live) applyPanes(list);
+        })
+        .catch(() => {});
+    };
+    resync();
+    void client.getSettings().then((next) => live && setSettings(next)).catch(() => {});
+    const timer = window.setInterval(resync, RESYNC_MS);
 
-    const unsub = subscribeBridgeEvents(
-      bridgeUrl,
-      (ev) => {
-        if (ev.type === 'chat') {
-          setChatEvents((prev) => [...prev, ev.event].slice(-500));
-        }
-        if (ev.type === 'panes') {
-          applyPanes(ev.panes);
-        }
-        if (ev.type === 'terminal') {
-          if (isOrchestratorPaneId(ev.pane_id)) {
-            routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
-          } else {
-            registryRef.current.ingestTerminalData(ev.pane_id, ev.data);
-          }
-        }
-        if (ev.type === 'pane-status') {
-          registryRef.current.updatePaneStatus(ev.pane_id, ev.status);
-        }
-        if (ev.type === 'pane-resize') {
-          if (isOrchestratorPaneId(ev.pane_id)) {
-            routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
-          } else {
-            registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows);
-          }
-        }
-        if (ev.type === 'settings') {
-          setSettings(ev.settings);
-        }
-      },
-    );
+    const unsub = subscribeBridgeEvents(bridgeUrl, (ev) => {
+      if (ev.type === 'panes') applyPanes(ev.panes);
+      if (ev.type === 'terminal') registryRef.current.ingestTerminalData(ev.pane_id, ev.data);
+      if (ev.type === 'pane-status') {
+        registryRef.current.updatePaneStatus(ev.pane_id, ev.status);
+        setPanes((prev) => prev.map((p) => (p.id === ev.pane_id ? { ...p, status: ev.status } : p)));
+      }
+      if (ev.type === 'pane-resize') registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows);
+      if (ev.type === 'settings') setSettings(ev.settings);
+    });
 
-    return unsub;
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+      unsub();
+    };
   }, [bridgeUrl, applyPanes]);
 
+  // A closed agent's tab falls back to All (only once the real pane list has arrived).
   useEffect(() => {
-    if (tab !== 'panes') return;
-    if (selectedPaneId && panes.some((pane) => pane.id === selectedPaneId)) return;
-    setSelectedPaneId(panes[0]?.id ?? null);
-  }, [panes, selectedPaneId, tab]);
+    if (panesLoaded && active !== ALL_TAB && !panes.some((p) => p.id === active)) setActive(ALL_TAB);
+  }, [active, panes, panesLoaded]);
 
-  const patchSettings = useCallback(async (patch: Partial<PublicSettings>) => {
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_ACTIVE_TAB, active);
+    } catch {
+      /* private mode */
+    }
+  }, [active]);
+
+  const labels = useMemo(() => tabLabels(panes), [panes]);
+  const activePane = active === ALL_TAB ? undefined : registry.panes.get(active);
+  const transport = useBridgePaneTransport(registry.makeTransport, activePane ? active : 'pane-placeholder');
+
+  const patchSettings = useCallback(
+    (patch: Partial<PublicSettings>) => {
+      if (!bridge) return;
+      void bridge.patchSettings(patch).then(setSettings).catch(() => {});
+    },
+    [bridge],
+  );
+
+  const spawnAgent = useCallback(
+    async (agentType: AgentType) => {
+      if (!bridge) return;
+      setSpawning(true);
+      setSpawnError(null);
+      try {
+        const { pane_id } = await bridge.spawnPane({ agent_type: agentType, cols: 120, rows: 30 });
+        applyPanes(await bridge.listPanes());
+        setActive(pane_id);
+        setSheet(null);
+      } catch (e) {
+        setSpawnError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setSpawning(false);
+      }
+    },
+    [bridge, applyPanes],
+  );
+
+  const openNewAgentSheet = useCallback(() => {
+    setSpawnError(null);
+    setSheet('new');
     if (!bridge) return;
-    const updated = await bridge.patchSettings(patch);
-    setSettings(updated);
+    bridge
+      .listAgentTypes()
+      .then((body) => {
+        const listing = listingFromBody(body);
+        if (listing) setLaunchEntries(phoneLaunchEntries(listing));
+        else setSpawnError('Could not read the agent list from your PC.');
+      })
+      .catch((e) => setSpawnError(e instanceof Error ? e.message : String(e)));
   }, [bridge]);
 
-  const refreshPanes = useCallback(async () => {
-    if (!bridge) return;
-    applyPanes(await bridge.listPanes());
-  }, [bridge, applyPanes]);
-
-  const spawnPane = useCallback(async (agentType: AgentType) => {
-    if (!bridge) return;
-    setSpawning(true);
-    setSpawnError(null);
+  const closeActive = useCallback(async () => {
+    if (!bridge || active === ALL_TAB) return;
     try {
-      const { pane_id } = await bridge.spawnPane({ agent_type: agentType, cols: 120, rows: 30 });
-      await refreshPanes();
-      setSelectedPaneId(pane_id);
-      setTab('panes');
-      setMenuOpen(false);
+      await bridge.killPane(active);
+      setActive(ALL_TAB);
+      setSheet(null);
+      applyPanes(await bridge.listPanes());
     } catch (e) {
-      setSpawnError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSpawning(false);
+      window.alert(e instanceof Error ? e.message : String(e));
     }
-  }, [bridge, refreshPanes]);
-
-  const killSelectedPane = useCallback(async () => {
-    if (!bridge || !selectedPaneId) return;
-    setSpawnError(null);
-    try {
-      await bridge.killPane(selectedPaneId);
-      setSelectedPaneId(null);
-      await refreshPanes();
-    } catch (e) {
-      setSpawnError(e instanceof Error ? e.message : String(e));
-    }
-  }, [bridge, refreshPanes, selectedPaneId]);
-
-  useEffect(() => {
-    if (!bridge || !bridgeReady || !settingsHydrated || !cliOrchestratorBackend || orchestratorReady) {
-      return;
-    }
-
-    let cancelled = false;
-    const tick = () => {
-      void syncBridgePanes(bridge, (list) => {
-        if (!cancelled) applyPanes(list);
-      }).catch(() => {});
-    };
-
-    tick();
-    const id = window.setInterval(tick, 1500);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [bridge, bridgeReady, settingsHydrated, cliOrchestratorBackend, orchestratorReady, applyPanes]);
-
-  const handleInviteConnected = useCallback((url: string) => {
-    clearPairingInviteFromUrl();
-    setInviteCode(null);
-    setBridgeUrl(url);
-    setEditingUrl(false);
-  }, []);
-
-  const handleInviteGiveUp = useCallback(() => {
-    clearPairingInviteFromUrl();
-    setInviteCode(null);
-  }, []);
+  }, [bridge, active, applyPanes]);
 
   if (inviteCode) {
     return (
       <div className="pwa-shell bg-pm-bg text-zinc-100">
         <PairInviteScreen
           pairingCode={inviteCode}
-          onConnected={handleInviteConnected}
-          onGiveUp={handleInviteGiveUp}
+          onConnected={(url) => {
+            clearPairingInviteFromUrl();
+            setInviteCode(null);
+            setBridgeUrl(url);
+            setEditingUrl(false);
+          }}
+          onGiveUp={() => {
+            clearPairingInviteFromUrl();
+            setInviteCode(null);
+          }}
         />
       </div>
     );
@@ -251,66 +218,68 @@ export default function PwaApp() {
 
   return (
     <div className="pwa-shell bg-pm-bg text-zinc-100">
-      <main className="pwa-main" aria-label="Puppet Master mobile workspace">
-        {bridge && tab === 'chat' && (
-          <section className="pwa-stage" aria-label="Orchestrator">
-            <OrchestratorTab
+      <div className="flex h-full min-h-0 min-w-0 flex-col">
+        <AgentTabBar
+          panes={panes}
+          labels={labels}
+          active={active}
+          bridgeReady={bridgeReady}
+          onSelect={setActive}
+          onNew={openNewAgentSheet}
+          onMenu={() => setSheet('menu')}
+        />
+        <main className="relative flex min-h-0 flex-1 flex-col bg-pm-panel" aria-label="Agent">
+          {bridge && active === ALL_TAB && (
+            <AgentsOverview
               bridge={bridge}
-              chatEvents={chatEvents}
               bridgeReady={bridgeReady}
-              settings={settings}
-              registry={registry}
-              orchestratorTunnel={mobileOrchestratorTunnel}
-              settingsHydrated={settingsHydrated}
-            />
-          </section>
-        )}
-        {bridge && tab === 'panes' && (
-          <section className="pwa-stage" aria-label="Panes">
-            <PanesTab
               panes={panes}
-              bridgeReady={bridgeReady}
-              registry={registry}
+              labels={labels}
+              onOpen={setActive}
+              onNew={openNewAgentSheet}
+            />
+          )}
+          {activePane && (
+            <BridgePaneTerminal
+              key={active}
+              pane={activePane.info}
+              status={activePane.status}
+              subscribePaneData={registry.subscribePaneData}
+              transport={transport}
+              title={`${labels.get(active) ?? activePane.info.agent_type}`}
               mobileInputDelayMs={settings.mobile_input_delay_ms}
               mobileInputVisible={settings.mobile_input_visible}
-              selected={selectedPaneId}
-              onSelect={setSelectedPaneId}
             />
-          </section>
-        )}
-        {!bridge && (
-          <div className="flex items-center justify-center h-full text-xs text-pm-muted">
-            Connecting…
-          </div>
-        )}
-      </main>
-      <FloatingMobileMenu
-        open={menuOpen}
-        onOpenChange={setMenuOpen}
-        bridgeReady={bridgeReady}
-        tab={tab}
-        onTabChange={(next) => {
-          setTab(next);
-          setMenuOpen(false);
-        }}
-        onEditConnection={() => {
-          setEditingUrl(true);
-          setMenuOpen(false);
-        }}
-        settings={settings}
-        onPatchSettings={patchSettings}
-        panes={panes}
-        selectedPaneId={selectedPaneId}
-        onSelectPane={(paneId) => {
-          setSelectedPaneId(paneId);
-          setMenuOpen(false);
-        }}
-        onRefreshPanes={refreshPanes}
-        onSpawnPane={spawnPane}
-        onKillSelectedPane={killSelectedPane}
-        spawning={spawning}
-        spawnError={spawnError}
-      />
+          )}
+          {active !== ALL_TAB && !activePane && (
+            <div className="py-10 text-center text-xs text-pm-muted">Loading agent…</div>
+          )}
+        </main>
+      </div>
+      {sheet === 'new' && (
+        <NewAgentSheet
+          entries={launchEntries}
+          onClose={() => setSheet(null)}
+          onSpawn={(type) => void spawnAgent(type)}
+          spawning={spawning}
+          error={spawnError}
+        />
+      )}
+      {sheet === 'menu' && (
+        <MenuSheet
+          onClose={() => setSheet(null)}
+          bridgeUrl={bridgeUrl}
+          bridgeReady={bridgeReady}
+          settings={settings}
+          onPatchSettings={patchSettings}
+          activeLabel={activePane ? labels.get(active) ?? activePane.info.agent_type : null}
+          onCloseActive={() => void closeActive()}
+          onEditConnection={() => {
+            setEditingUrl(true);
+            setSheet(null);
+          }}
+        />
+      )}
     </div>
   );
 }

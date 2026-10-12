@@ -86,8 +86,8 @@ Expect Codex to call `run_agent` and return the handle/result. Also `wait_agents
 ### 2.6 Preload (opt-in)
 Settings > Preload: switch on, tick Claude Code and Kilo (keep 1). `GET /standby` shows ready workers within ~10 s and `scripts/check-window-monitor.ps1` shows no new window. `app.exe --new-pane kilo` (only while /health is up) shows the pane in ~0.3 s with the agent already idle (cold: ~4.7 s to idle); a replacement is ready ~10 s later and tray New pane lists "(ready)". An MCP visible `run_agent` for Claude in the default project claims the warm worker (`receipt.standby_used`, window shown unfocused). Also `node scripts/perf-latency.mjs --scenarios claude_visible --fixed-dir <default project> --cold-gap 25000` (warm) vs preload off (cold). Switch off again; off by default.
 
-### 2.7 Mobile PWA
-Unverified on this branch. If testing: Settings > Mobile, pair a phone, open the PWA, list panes, send a prompt.
+### 2.7 Mobile PWA (agent tabs)
+Open `http://localhost:1420/?pwa=1` at phone size (or pair a phone in Settings > Mobile). With two visible panes open (e.g. `run_agent` kilo and claude with `keep_pane: true`): the tab strip shows All, kilo, claude; All shows a card per agent with status (working / needs you / idle / error), project, last output age and the last screen lines (not the TUI footer). An agent stopped at one of its own prompts shows "needs you" and a count on All. Tap a tab: the live terminal mirrors the pane; type in the input box and press Enter (an empty Enter answers a TUI menu). "+" lists every registered agent (headless-only greyed); opening one switches to its new tab and opens its window on the PC. Menu > Close stops the agent; the tab goes away and so does the PC window. No horizontal page scroll (`document.documentElement.scrollWidth` = viewport width). `?pwa=legacy` still loads the old orchestrator UI.
 
 ## 3. Known flaky tests (collected from the progress log and T37 evidence)
 - `tui::descriptor::descriptor_builds_all_nine` - global registry race (fixed by `registry::test_serial()`; tests that swap/count the global registry must take it).
@@ -106,5 +106,5 @@ Unverified on this branch. If testing: Settings > Mobile, pair a phone, open the
 - Visible declarative results are screen-inferred (flagged); free models may refuse.
 - Env/stdin launches, `[mcp_host]` writer UI/route, SPEC Q6/Q7, T29 (blocked), `extract_model` parity: not implemented.
 - `npm run test:mcp-package` / `test:mcp-operations` were not run at T37.
-- Mobile PWA and standby pool were not re-verified on this branch.
+- Mobile PWA agent tabs: verified in a 375x812 emulated browser against the live bridge; not on a real phone or through the cloudflared tunnel.
 - The removed legacy UI (grid, Overview, orchestrator sidebar) has no live tests by design; its code is unreachable. The Settings > Agents cases in 2.1 run in the tray Settings window.

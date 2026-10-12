@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import PwaApp from './PwaApp';
+import PwaLegacyApp from './PwaLegacyApp';
 import SettingsApp from './SettingsApp';
 import TerminalApp from './TerminalApp';
 import { isSettingsEntry } from './lib/settings-entry';
@@ -12,6 +13,8 @@ const params = new URLSearchParams(window.location.search);
 const isTerminalApp = params.has('terminal') || params.has('cmd') || window.location.hash === '#terminal';
 const isStandaloneWorker =
   params.has('worker') || import.meta.env.VITE_PUPPET_MASTER_WORKER === '1';
+/** Backup of the old orchestrator-centric mobile UI. */
+const isLegacyPwa = params.get('pwa') === 'legacy';
 const isMobileOrPwa =
   params.has('pwa') ||
   window.matchMedia('(display-mode: standalone)').matches ||
@@ -21,7 +24,7 @@ async function resolveRoot(): Promise<typeof App> {
   if (isSettingsEntry(window.location.search)) return SettingsApp;
   if (isTerminalApp) return TerminalApp;
   if (isStandaloneWorker) return WorkerHostBootstrap;
-  if (isMobileOrPwa) return PwaApp;
+  if (isMobileOrPwa) return isLegacyPwa ? PwaLegacyApp : PwaApp;
   try {
     const workerLaunch = await import('./lib/tauri').then((mod) => mod.tauri.getWorkerLaunch());
     if (workerLaunch) return WorkerHostBootstrap;

@@ -43,8 +43,10 @@ pub fn authorize(
         let clean_path = path.split('?').next().unwrap_or(path);
         // The app's own session (webview, local tools) carries no MCP header; it is the only
         // caller `/agents/definitions` serves (APR-7). MCP sessions are refused further down.
-        let app_route =
-            clean_path == "/agents/definitions" || clean_path.starts_with("/agents/definitions/");
+        // `GET /agents/types` is the read-only agent list the mobile PWA's "new agent" sheet needs.
+        let app_route = clean_path == "/agents/definitions"
+            || clean_path.starts_with("/agents/definitions/")
+            || (method == "GET" && clean_path == "/agents/types");
         if !app_route && (clean_path == "/agents" || clean_path.starts_with("/agents/")) {
             return Err(OperationError::new(
                 "SESSION_REQUIRED",

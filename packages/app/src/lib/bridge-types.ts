@@ -254,6 +254,8 @@ export interface BridgeClient {
     pane_id?: string;
   }): Promise<{ pane_id: string }>;
   killPane(paneId: string): Promise<void>;
+  /** `GET /agents/types`: the registered agents (body of the desktop `agents_list`). */
+  listAgentTypes(): Promise<unknown>;
   readBuffer(paneId: string, lines: number): Promise<string>;
   readRawBuffer(paneId: string, lines: number): Promise<number[]>;
   readSnapshot(paneId: string): Promise<string>;

@@ -131,6 +131,12 @@ function isListingBody(value: unknown): value is Omit<AgentRegistryListing, 'sou
   );
 }
 
+/** A listing from a bridge `GET /agents/types` body (same shape as `agents_list`), or null. */
+export function listingFromBody(body: unknown): AgentRegistryListing | null {
+  if (!isListingBody(body)) return null;
+  return { agents: body.agents, dispatchable_ids: body.dispatchable_ids, source: 'registry' };
+}
+
 async function fetchListing(): Promise<AgentRegistryListing> {
   if (!isTauriRuntime()) return fallbackListing();
   try {

@@ -10,6 +10,17 @@ describe('makeBridgeClient session routes', () => {
     vi.unstubAllGlobals();
   });
 
+  it('reads the new pane id out of the spawn envelope', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, snapshot: { pane_id: 'p-1' }, suggested_wait: {} }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const bridge = makeBridgeClient('http://127.0.0.1:17321');
+    await expect(bridge.spawnPane({ agent_type: 'powershell' })).resolves.toEqual({ pane_id: 'p-1' });
+  });
+
   it('fetches MCP registry tools', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
