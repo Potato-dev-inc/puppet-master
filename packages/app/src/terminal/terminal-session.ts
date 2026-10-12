@@ -55,6 +55,8 @@ export class TerminalSession {
   private resizeFrame: number | null = null;
   private refreshFrame: number | null = null;
   private lastSentCols = 0;
+  /** Owner with followPtySize: the PTY is held at another size (phone); draw that size. */
+  private sizeHeldElsewhere = false;
   private lastSentRows = 0;
   private ptyCols: number;
   private ptyRows: number;
@@ -155,7 +157,17 @@ export class TerminalSession {
     }
     this.ptyCols = cols;
     this.ptyRows = rows;
-    this.applyPtyDimensions();
+    if (!this.options.followPtySize) {
+      this.applyPtyDimensions();
+      return;
+    }
+    this.sizeHeldElsewhere =
+      this.lastSentCols > 0 && (cols !== this.lastSentCols || rows !== this.lastSentRows);
+    if (this.sizeHeldElsewhere) {
+      this.applyPtyDimensions();
+    } else {
+      this.fitAndNotify();
+    }
   }
 
   private isMobileMirror(): boolean {
@@ -617,6 +629,20 @@ export class TerminalSession {
     const fitAddon = this.fitAddon;
     if (!terminal || !fitAddon) return;
 
+    if (this.options.followPtySize && this.sizeHeldElsewhere) {
+      // Still ask for the window's size (the backend remembers it for later), but keep drawing
+      // the size the PTY really has until it is given back.
+      const proposed = fitAddon.proposeDimensions();
+      if (proposed && proposed.cols > 0 && proposed.rows > 0
+        && (proposed.cols !== this.lastSentCols || proposed.rows !== this.lastSentRows)) {
+        this.lastSentCols = proposed.cols;
+        this.lastSentRows = proposed.rows;
+        this.options.onResize(proposed.cols, proposed.rows);
+      }
+      this.applyPtyDimensions();
+      return;
+    }
+
     try {
       fitAddon.fit();
     } catch {
@@ -681,6 +707,10 @@ export class TerminalSession {
     const terminal = this.term;
     if (!terminal) return;
     this.scheduleRefresh();
+
+    // The nudge resizes the PTY by a row and back; while a phone holds the size that would record
+    // the phone's size as this window's own and leave the window small afterwards.
+    if (this.sizeHeldElsewhere) return;
 
     if (terminal.buffer.active.type !== 'alternate') return;
     const { cols, rows } = terminal;

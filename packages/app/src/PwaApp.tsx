@@ -124,7 +124,8 @@ export default function PwaApp() {
         registryRef.current.updatePaneStatus(ev.pane_id, ev.status);
         setPanes((prev) => prev.map((p) => (p.id === ev.pane_id ? { ...p, status: ev.status } : p)));
       }
-      if (ev.type === 'pane-resize') registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows);
+      // Panes are sized to this phone and resized in place: keep the live stream connected.
+      if (ev.type === 'pane-resize') registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows, true);
       if (ev.type === 'settings') setSettings(ev.settings);
     });
 

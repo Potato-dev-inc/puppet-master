@@ -61,6 +61,10 @@ export function TerminalViewport({
     syncPTYResize: true,
     disableMobileInput,
     reflowKey,
+    // A phone viewing this pane may hold it at the phone's size: show that, not a stale grid.
+    ptyCols: pane.info.cols,
+    ptyRows: pane.info.rows,
+    followPtySize: true,
   });
 
   return (
