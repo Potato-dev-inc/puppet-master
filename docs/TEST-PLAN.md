@@ -95,7 +95,7 @@ Unverified on this branch. If testing: Settings > Mobile, pair a phone, open the
 ## 4. Known gaps / not proven live
 - Clean-state Kilo approval flow (delete approvals, re-approve) was skipped at T37 (classifier denied); needs_approval -> approve and the stale-edit refusal were proven live at T36/T36b and by unit tests.
 - Remote/tunnel behaviour tested with headers on loopback only (no real tunnel).
-- Kiro runs, the Kiro approve flow in the UI, and Rec to approved definition were not exercised live in this documentation pass.
+- Kiro runs and the Kiro import/approve flow were exercised live (demo videos, Codex runs). Rec -> draft was exercised live ("Draft saved" in the pane header); turning a recorded draft into an approved definition was not.
 - Visible declarative results are screen-inferred (flagged); free models may refuse.
 - Env/stdin launches, `[mcp_host]` writer UI/route, SPEC Q6/Q7, T29 (blocked), `extract_model` parity: not implemented.
 - `npm run test:mcp-package` / `test:mcp-operations` were not run at T37.
