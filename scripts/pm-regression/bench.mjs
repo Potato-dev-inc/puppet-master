@@ -85,7 +85,7 @@ export function createBench(ctx) {
             freshFixture(dir, task);
             const cold = await benchPhase({
               backend, task, round, phase: 'cold', dir, limitMs, checks: task.checks,
-              begin: () => tool('run_agent', { agent_type: backend, project_path: dir, task: task.prompt, checks: task.checks, background: true, wait_ms: 0, keep_pane: Boolean(task.size === 'small' && task.warm), ...extra }),
+              begin: () => tool('run_agent', { headless: true, agent_type: backend, project_path: dir, task: task.prompt, checks: task.checks, background: true, wait_ms: 0, keep_pane: Boolean(task.size === 'small' && task.warm), ...extra }),
             });
             runs.push(cold.row);
             handle = cold.handle;

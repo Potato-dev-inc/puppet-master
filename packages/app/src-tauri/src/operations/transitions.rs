@@ -255,3 +255,36 @@ pub fn add_warning(
     bump(&mut op)?;
     Ok(op)
 }
+
+/// Turn an active visible operation into a queued headless one (fallback `from: visible`): the
+/// pane binding and the failed attempt's state are dropped, the same operation and handle stay.
+/// Refused (None) for a terminal or cancelling operation and when a fallback already happened.
+pub fn convert_to_headless_fallback(
+    project: &str,
+    id: &str,
+    reason: &str,
+) -> Option<OperationSnapshot> {
+    let _serial = update_lock();
+    let mut op = get_operation(project, id).ok()?;
+    let convertible = matches!(
+        op.status,
+        OperationStatus::Starting | OperationStatus::Running | OperationStatus::WaitingInput
+    );
+    if !convertible || op.worker.fallback.is_some() {
+        return None;
+    }
+    op.worker.fallback = Some(RunFallback::to_headless(reason));
+    op.status = OperationStatus::Queued;
+    op.pane_id = None;
+    op.pane_created = false;
+    op.pane_state = None;
+    op.required_action = None;
+    op.output_baseline = None;
+    op.message_baseline_ids = Vec::new();
+    op.started_at_ms = None;
+    op.error = None;
+    op.progress_pct = None;
+    op.stage = Some("fallback_headless".into());
+    bump(&mut op).ok()?;
+    Some(op)
+}

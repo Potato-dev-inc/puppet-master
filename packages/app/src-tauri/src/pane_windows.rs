@@ -52,7 +52,8 @@ pub enum Placement {
 /// pops out so it is never invisible. `window` always pops out.
 pub fn decide_placement(requested: Option<&str>, main_window_usable: bool) -> Placement {
     match requested.map(|r| r.trim().to_ascii_lowercase()).as_deref() {
-        Some("window") => Placement::Window,
+        // Panes-first: an unspecified placement is its own pop-out window.
+        None | Some("") | Some("window") => Placement::Window,
         _ if main_window_usable => Placement::Grid,
         _ => Placement::Window,
     }
@@ -183,7 +184,8 @@ mod tests {
 
     #[test]
     fn placement_decision() {
-        assert_eq!(decide_placement(None, true), Placement::Grid);
+        assert_eq!(decide_placement(None, true), Placement::Window);
+        assert_eq!(decide_placement(Some(""), true), Placement::Window);
         assert_eq!(decide_placement(Some("auto"), true), Placement::Grid);
         assert_eq!(decide_placement(Some("grid"), true), Placement::Grid);
         assert_eq!(decide_placement(Some("window"), true), Placement::Window);

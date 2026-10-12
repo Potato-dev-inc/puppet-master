@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 pub use super::headless::{run_agent, supervise_existing};
+pub(crate) use super::headless::{convert_to_fallback, start_fallback_headless};
 pub(super) use access::check_snapshot_mutate_access;
 pub use access::{
     current_agent_for_read, current_agent_for_wait, record_user_task, transcript_for_handle,

@@ -469,6 +469,16 @@ impl Supervisor {
                 None,
             );
         }
+        // Visible-first: the turn never started, so a headless-capable agent retries headless.
+        if super::fallback::convert(current, Some("PROMPT_NOT_SUBMITTED"), &self.registry) {
+            super::fallback::start_headless(
+                &current.project_path,
+                &current.operation_id,
+                &self.registry,
+                &self.app,
+            );
+            return true;
+        }
         let error = OperationError::new(
             "PROMPT_NOT_SUBMITTED",
             "the pane stayed idle and showed no output for this turn; the prompt was probably not submitted; the input box was cleared, so retrying is safe",

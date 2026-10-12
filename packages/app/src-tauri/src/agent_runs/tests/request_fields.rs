@@ -9,7 +9,7 @@ fn run_defaults_to_bounded_foreground_with_safe_worker_tools() {
     let request: AgentRunRequest = serde_json::from_value(json!({"task":"inspect"})).unwrap();
     assert_eq!(request.timeout_ms, 900_000);
     assert_eq!(request.wait_ms, 120_000);
-    assert!(request.headless);
+    assert!(!request.headless, "visible-first: a run opens a pane unless headless=true is passed");
     assert!(!request.background);
     assert!(!request.worker_has_mcp_tools);
 }
@@ -231,4 +231,12 @@ fn allow_shell_is_a_noop_for_opencode_native_and_rejected_for_read_only_and_unsu
     let claude = crate::tui::profile_for("claude").run_options();
     let error = allow_shell_applies(&claude, "claude", true, false).unwrap_err();
     assert!(error.message.contains("not supported by claude"), "{}", error.message);
+}
+
+#[test]
+fn explicit_headless_true_stays_headless_and_placement_defaults_to_unset() {
+    let request: AgentRunRequest =
+        serde_json::from_value(json!({"task":"inspect","headless":true})).unwrap();
+    assert!(request.headless);
+    assert_eq!(request.placement, None, "unset placement means the pop-out window");
 }

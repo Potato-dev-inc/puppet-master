@@ -119,6 +119,17 @@ pub fn run_agent(
     // An unregistered id is UNKNOWN_AGENT_TYPE (with the valid ids), not the fallback profile's
     // "cannot run delegated work".
     registered_profile(&request.agent_type)?;
+    // Visible-first: an agent with no visible mode (but a headless one) runs headless, recorded
+    // as `fallback.reason = no_visible_mode`. Decided before the read-only / option checks, which
+    // depend on the mode the run will really use.
+    let no_visible_mode = super::fallback::no_visible_mode(
+        crate::tui::run_modes(&request.agent_type),
+        request.headless,
+        request.pane_id.is_some(),
+    );
+    if no_visible_mode {
+        request.headless = true;
+    }
     // A backend that enforces read-only on a pane it spawns itself (opencode_native) may run in a
     // pane; every other backend needs a headless run. An explicitly named pane must itself have
     // been spawned read-only, and the dispatch re-checks adopted worker panes.
@@ -292,6 +303,11 @@ pub fn run_agent(
     // The receipt reports what the profile held HERE could enforce, not whatever the live registry
     // says when the turn ends (the definition may have been edited or removed mid-run).
     worker.run_features = Some(crate::operations::RunFeatures::of(profile.as_ref()));
+    if no_visible_mode {
+        worker.fallback = Some(crate::operations::RunFallback::to_headless(
+            super::fallback::NO_VISIBLE_MODE,
+        ));
+    }
     let supported = profile.run_options();
     if request.trust_workspace {
         if !supported.trust_workspace {

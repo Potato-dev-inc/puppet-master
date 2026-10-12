@@ -12,6 +12,7 @@
 mod bind;
 mod control;
 mod entry;
+mod fallback;
 mod finish;
 mod output;
 mod pane_turn;
@@ -23,6 +24,7 @@ pub use entry::run_agent;
 #[cfg(test)]
 pub(crate) use entry::allow_shell_applies;
 pub use supervise::supervise_existing;
+pub(crate) use fallback::{convert as convert_to_fallback, start_headless as start_fallback_headless};
 
 pub(super) use control::{blocked_on_trust, cancel_headless};
 #[cfg(test)]

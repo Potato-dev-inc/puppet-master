@@ -77,6 +77,14 @@ fn overlay_definition(descriptor: &mut Descriptor) {
     }));
 }
 
+/// How `agent_type` can run (visible pane / headless process), as `GET /agents/types` reports it.
+pub fn run_modes(agent_type: &str) -> Modes {
+    let profile = profile_for(agent_type);
+    let mut descriptor = Descriptor::of(profile.as_ref());
+    overlay_definition(&mut descriptor);
+    descriptor.modes
+}
+
 /// Body of `GET /agents/types`: `{agents, dispatchable_ids}` (SPEC 7.5).
 pub fn agent_types_listing() -> Value {
     let agents = descriptors();

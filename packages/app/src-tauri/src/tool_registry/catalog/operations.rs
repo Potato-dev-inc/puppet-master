@@ -30,13 +30,13 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "delegate_work",
-            description: "Create an asynchronous agent operation. Returns an operation_id; use wait_for_operation to wait for revision-based progress, get_operation to inspect state, or cancel_operation to request cancellation. This call creates work and is not automatically retried.",
+            description: "Create an asynchronous agent operation in a visible pane (its own pop-out window by default; an agent with no visible mode, or a pane that fails before the turn starts, runs headless instead). Returns an operation_id; use wait_for_operation to wait for revision-based progress, get_operation to inspect state, or cancel_operation to request cancellation. This call creates work and is not automatically retried.",
             input_schema: object_schema(json!({
                 "project_path": { "type": "string" },
                 "task": { "type": "string", "description": "Work to delegate" },
                 "idempotency_key": { "type": "string", "description": "Caller-supplied key to make retries safe" },
                 "pane_id": { "type": "string" },
-                "placement": { "type": "string", "enum": ["auto", "grid", "window"], "default": "auto", "description": "Where the visible pane opens: auto/grid = main window left terminal grid when the main window is open and visible (else pop-out window); window = always a separate pop-out OS window." },
+                "placement": { "type": "string", "enum": ["auto", "grid", "window"], "default": "window", "description": "Where the visible pane opens: window (default) = its own pop-out OS window; auto/grid = main window terminal grid when the main window is open and visible (else pop-out window)." },
                 "agent_type": agent_type_schema(),
                 "acceptance_criteria": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Optional free-text guidance for the worker; NOT machine-checked (a text mismatch never fails a run and acceptance_status stays not_checked). For verified acceptance pass `checks` (file_exists / file_contains / file_absent evaluated against disk, result_contains against the reply text, command_exits runs an argv and compares its exit code, all at completion); acceptance_status then reflects the checks." },
                 "context_policy": { "type": "string", "enum": ["fresh", "packet", "parent_summary", "resume", "selected_history"] },

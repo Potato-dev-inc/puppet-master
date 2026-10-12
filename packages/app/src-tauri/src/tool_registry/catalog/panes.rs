@@ -97,7 +97,7 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
             input_schema: object_schema(
                 json!({
                     "agent_type": agent_type_schema(),
-                    "placement": { "type": "string", "enum": ["auto", "grid", "window"], "default": "auto", "description": "Where the visible pane opens: auto/grid = main window left terminal grid when the main window is open and visible (else pop-out window); window = always a separate pop-out OS window." },
+                    "placement": { "type": "string", "enum": ["auto", "grid", "window"], "default": "window", "description": "Where the visible pane opens: window (default) = its own pop-out OS window; auto/grid = main window terminal grid when the main window is open and visible (else pop-out window)." },
                     "cwd": { "type": "string", "description": "Working directory; defaults to current project root" },
                     "cols": { "type": "number", "description": "Terminal columns (default 120)" },
                     "rows": { "type": "number", "description": "Terminal rows (default 30)" },

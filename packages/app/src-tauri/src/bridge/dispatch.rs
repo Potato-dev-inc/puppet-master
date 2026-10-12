@@ -57,13 +57,42 @@ pub fn dispatch_existing_operation(
     let app_for_cleanup = app.clone();
     thread::spawn(move || {
         tracing::info!(operation_id = %operation_id, "operation dispatch started");
+        let fell_back = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let fell_back_in_dispatch = fell_back.clone();
+        let registry_for_fallback = registry_for_cleanup.clone();
         let result = crate::operations::run_operation_dispatch(
             &operation_project,
             &operation_id,
             move |operation| {
-                dispatch_operation(operation, &registry_for_dispatch, &app_for_dispatch)
+                // Visible-first: no visible mode, or a pane that fails before the turn starts,
+                // re-queues this operation headless instead of failing it.
+                if crate::agent_runs::convert_to_fallback(operation, None, &registry_for_fallback) {
+                    fell_back_in_dispatch.store(true, std::sync::atomic::Ordering::SeqCst);
+                    return Err(OperationError::new("FALLBACK_HEADLESS", "re-queued headless", false));
+                }
+                let outcome =
+                    dispatch_operation(operation, &registry_for_dispatch, &app_for_dispatch);
+                if let Err(error) = &outcome {
+                    if crate::agent_runs::convert_to_fallback(
+                        operation,
+                        Some(&error.code),
+                        &registry_for_fallback,
+                    ) {
+                        fell_back_in_dispatch.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+                outcome
             },
         );
+        if fell_back.load(std::sync::atomic::Ordering::SeqCst) {
+            crate::agent_runs::start_fallback_headless(
+                &operation_project,
+                &operation_id,
+                &registry_for_cleanup,
+                &app_for_cleanup,
+            );
+            return;
+        }
         match result {
             Ok(updated) => push_operation_sse(&updated),
             Err(_) => {

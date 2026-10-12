@@ -55,6 +55,7 @@ pub(super) fn receipt_schema() -> Value {
         "checks":{"type":"string","description":"`none configured` or `<passed>/<total> passed`."},
         "result_capture":{"type":"string","enum":["authoritative","inferred","missing","pending"]},
         "not_verified":{"type":"array","items":{"type":"string"}},"outcome":{"type":"string","enum":["passed_checks","completed_unchecked","failed_checks","failed","cancelled","needs_input","in_progress"],"description":"The one field for did-it-work. Only passed_checks means the requested behaviour was proven by acceptance checks; completed_unchecked means the worker finished but nothing verified it."},"build_id":{"type":"string","description":"Puppet Master build that produced this run."},
+        "fallback":{"type":["object","null"],"description":"Null when the run used the mode that was asked for. {from:\"visible\",to:\"headless\",reason} when a visible run ran headless: reason no_visible_mode (the agent has no visible mode) or visible_failed (the pane failed to launch or the prompt could not be delivered before the turn started; the failed pane was closed and the task ran once, headless).","properties":{"from":{"type":"string"},"to":{"type":"string"},"reason":{"type":"string","enum":["no_visible_mode","visible_failed"]}}},
         "standby_used":{"type":"boolean","description":"Present and true when a warm standby worker (opt-in pool) ran this turn, so no pane spawn or CLI startup was paid for it."}
     },"required":["backend","read_only","checks","result_capture","not_verified"]})
 }
@@ -62,6 +63,7 @@ pub(super) fn receipt_schema() -> Value {
 pub(super) fn agent_run_schema() -> Value {
     let mut schema = json!({"type":"object","properties":{
         "handle":{"type":"string"},"operation_id":{"type":"string"},"turn_id":{"type":"string"},
+        "fallback":{"type":["object","null"],"description":"Null when the run used the mode that was asked for. {from:\"visible\",to:\"headless\",reason} when a visible run ran headless: reason no_visible_mode (the agent has no visible mode) or visible_failed (the pane failed to launch or the prompt could not be delivered before the turn started; the failed pane was closed and the task ran once, headless).","properties":{"from":{"type":"string"},"to":{"type":"string"},"reason":{"type":"string","enum":["no_visible_mode","visible_failed"]}}},
         "status":{"type":"string","enum":["running","needs_input","completed","failed","cancelled","timeout","interrupted","closed"]},
         "result":{"type":["string","null"]},"result_capture":{"type":"string","enum":["authoritative","inferred","missing","pending"]},
         "watch_command":{"type":"string"},

@@ -10,7 +10,7 @@ export function createScenarios(ctx) {
 
   /** Run to a terminal state, following watch/wait when the first call returns still running. */
   async function runToEnd(runArgs) {
-    let view = await tool('run_agent', { project_path: sandbox, wait_ms: 90_000, ...runArgs });
+    let view = await tool('run_agent', { headless: true, project_path: sandbox, wait_ms: 90_000, ...runArgs });
     if (view.handle) handlesSeen.push(view.handle);
     for (let i = 0; view.status === 'running' && i < 12 && view.handle; i += 1) {
       view = await tool('wait_agents', { handles: [view.handle], timeout_ms: 60_000, project_path: sandbox });
@@ -85,7 +85,7 @@ export function createScenarios(ctx) {
     // Steering: opencode takes live steers and the receipt must reach `processed`; a backend without
     // live steering must say so up front and never claim `accepted`.
     async steer(backend, extra) {
-      const started = await tool('run_agent', { agent_type: backend, project_path: sandbox, task: STEER_TASK, background: true, wait_ms: 0, ...extra });
+      const started = await tool('run_agent', { headless: true, agent_type: backend, project_path: sandbox, task: STEER_TASK, background: true, wait_ms: 0, ...extra });
       if (started.handle) handlesSeen.push(started.handle);
       if (!check('steer: run started', started.handle, started._error)) return started;
       // A steer sent while the pane is still spawning has no session to land in and is (correctly)
@@ -116,7 +116,7 @@ export function createScenarios(ctx) {
     // delivered live once the prompt dispatches, not queued and lost.
     async steer_early(backend, extra) {
       if (backend !== 'opencode_native') return {};
-      const started = await tool('run_agent', { agent_type: backend, project_path: sandbox, task: STEER_TASK, background: true, wait_ms: 0, ...extra });
+      const started = await tool('run_agent', { headless: true, agent_type: backend, project_path: sandbox, task: STEER_TASK, background: true, wait_ms: 0, ...extra });
       if (started.handle) handlesSeen.push(started.handle);
       if (!check('steer_early: run started', started.handle, started._error)) return started;
       const receipt = await tool('send_message', { handle: started.handle, message: 'Correction: reply with only the word STEERED instead of PONG.', project_path: sandbox });
@@ -157,7 +157,7 @@ export function createScenarios(ctx) {
     /** The same idempotency_key must never start a second execution. */
     async duplicate(backend, extra) {
       const key = `dup-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-      const start = () => tool('run_agent', { agent_type: backend, task: PONG, project_path: sandbox, idempotency_key: key, background: true, wait_ms: 0, ...extra });
+      const start = () => tool('run_agent', { headless: true, agent_type: backend, task: PONG, project_path: sandbox, idempotency_key: key, background: true, wait_ms: 0, ...extra });
       const first = await start();
       const second = await start();
       if (first.handle) handlesSeen.push(first.handle);
@@ -193,7 +193,7 @@ export function createScenarios(ctx) {
     async duplicate_named(backend, extra) {
       const key = `dupn-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
       const name = `worker-${Math.random().toString(16).slice(2, 8)}`;
-      const body = { agent_type: backend, task: PONG, project_path: sandbox, idempotency_key: key, name, checks: [{ type: 'result_contains', text: 'PONG' }], locks: [`file:dupn-${key}.txt`], acceptance_criteria: ['be brief'], background: true, wait_ms: 0, ...extra };
+      const body = { headless: true, agent_type: backend, task: PONG, project_path: sandbox, idempotency_key: key, name, checks: [{ type: 'result_contains', text: 'PONG' }], locks: [`file:dupn-${key}.txt`], acceptance_criteria: ['be brief'], background: true, wait_ms: 0, ...extra };
       const first = await tool('run_agent', body);
       const second = await tool('run_agent', body);
       if (first.handle) handlesSeen.push(first.handle);
@@ -211,7 +211,7 @@ export function createScenarios(ctx) {
   
     /** cancel_agent must end a running turn as cancelled, never as a success. */
     async cancel(backend, extra) {
-      const view = await tool('run_agent', { agent_type: backend, project_path: sandbox, task: SLOW_TASK, background: true, wait_ms: 0, ...(backend === 'cursor_agent' ? { allow_shell: true } : {}), ...extra });
+      const view = await tool('run_agent', { headless: true, agent_type: backend, project_path: sandbox, task: SLOW_TASK, background: true, wait_ms: 0, ...(backend === 'cursor_agent' ? { allow_shell: true } : {}), ...extra });
       if (view.handle) handlesSeen.push(view.handle);
       if (!check('cancel: run started', Boolean(view.handle), JSON.stringify(view).slice(0, 160))) return;
       await new Promise((resolve) => setTimeout(resolve, 9_000));
@@ -234,7 +234,7 @@ export function createScenarios(ctx) {
   
     /** A run that exceeds timeout_ms fails with a recoverable TIMEOUT and stays inspectable. */
     async timeout(backend, extra) {
-      const view = await tool('run_agent', { agent_type: backend, project_path: sandbox, task: SLOW_TASK, timeout_ms: 12_000, background: true, wait_ms: 0, ...(backend === 'cursor_agent' ? { allow_shell: true } : {}), ...extra });
+      const view = await tool('run_agent', { headless: true, agent_type: backend, project_path: sandbox, task: SLOW_TASK, timeout_ms: 12_000, background: true, wait_ms: 0, ...(backend === 'cursor_agent' ? { allow_shell: true } : {}), ...extra });
       if (view.handle) handlesSeen.push(view.handle);
       if (!check('timeout: run started', Boolean(view.handle), JSON.stringify(view).slice(0, 160))) return;
       let final = view;

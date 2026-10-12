@@ -93,6 +93,9 @@ pub struct AgentRunView {
     /// `standby_claimed`). Absent for a freshly spawned worker.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub standby_used: bool,
+    /// Present when the run wanted a visible pane and ran headless (same as `receipt.fallback`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<crate::operations::RunFallback>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,6 +289,7 @@ impl From<OperationSnapshot> for AgentRunView {
             warnings,
             receipt: Some(receipt),
             standby_used: snapshot.worker.standby_used,
+            fallback: snapshot.worker.fallback.clone(),
         }
     }
 }

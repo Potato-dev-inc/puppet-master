@@ -31,6 +31,10 @@ pub struct RunReceipt {
     /// paid for it. Absent when the run used a freshly spawned worker.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub standby_used: bool,
+    /// Set when the run wanted a visible pane and ran headless instead: `{from, to, reason}` with
+    /// reason `no_visible_mode` or `visible_failed`. Null otherwise.
+    #[serde(default)]
+    pub fallback: Option<crate::operations::RunFallback>,
     /// The definition (id, source, fingerprint, pinned binary) a declarative agent ran from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_definition: Option<crate::tui::DefinitionRef>,
@@ -83,6 +87,12 @@ pub(super) fn build_receipt(
     if terminal && snapshot.worker.requested_model.is_some() && model_verified != Some(true) {
         not_verified.push("model not confirmed".to_string());
     }
+    if let Some(fallback) = &snapshot.worker.fallback {
+        not_verified.push(format!(
+            "ran headless, not in a visible pane ({})",
+            fallback.reason
+        ));
+    }
     if held.experimental {
         not_verified.push("experimental agent: screen heuristics only".to_string());
     }
@@ -110,6 +120,7 @@ pub(super) fn build_receipt(
         outcome: outcome.into(),
         build_id: env!("PM_BUILD_ID").to_string(),
         standby_used: snapshot.worker.standby_used,
+        fallback: snapshot.worker.fallback.clone(),
         agent_definition: snapshot.worker.agent_definition.clone(),
     }
 }

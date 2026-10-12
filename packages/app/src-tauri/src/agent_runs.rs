@@ -33,6 +33,7 @@ pub use routes::handle_request;
 pub(crate) use routes::latest_handle_for_pane;
 #[cfg(test)]
 pub(crate) use routes::visible_runs;
+pub(crate) use runtime::{convert_to_fallback, start_fallback_headless};
 pub use runtime::{record_user_task, supervise_existing, AgentRunRequest, AgentRunView};
 pub use capabilities::{read_only_supported, read_only_supported_for, read_only_unsupported_message};
 

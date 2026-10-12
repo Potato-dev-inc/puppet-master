@@ -376,12 +376,31 @@ pub struct WorkerPersist {
     /// never re-reads a registry that an edit may have changed mid-run. Absent on old snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_features: Option<RunFeatures>,
+    /// This turn asked for a visible pane but ran headless (see `agent_runs::fallback`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<RunFallback>,
     /// Programs pre-authorised for allow-once on Cursor shell prompts (see approval_policy).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_commands: Vec<String>,
     /// Stage entries for the current turn, oldest first (capped), for startup diagnosis.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stage_log: Vec<StageMark>,
+}
+
+/// A run that wanted a visible pane and ran headless instead. `reason` is `no_visible_mode` (the
+/// agent has no visible mode) or `visible_failed` (the pane failed to launch or the prompt could
+/// not be delivered before the turn started).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunFallback {
+    pub from: String,
+    pub to: String,
+    pub reason: String,
+}
+
+impl RunFallback {
+    pub fn to_headless(reason: &str) -> Self {
+        Self { from: "visible".into(), to: "headless".into(), reason: reason.into() }
+    }
 }
 
 /// Facts about the profile a turn ran under that the receipt reports (see `WorkerPersist::run_features`).

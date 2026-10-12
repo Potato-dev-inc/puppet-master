@@ -30,9 +30,10 @@ mod tool_names;
 pub use delegation::{delegate_operation, publish_operation, stop_operation_worker_with_kill};
 pub use dispatch::dispatch_existing_operation;
 #[cfg(test)]
-pub(crate) use locks::{acquire_operation_locks, release_operation_locks};
+pub(crate) use locks::acquire_operation_locks;
 pub(crate) use locks::{
     fail_operation_on_lock_conflict, recover_interrupted_operations_on_startup,
+    release_operation_locks,
 };
 pub use sse::{
     push_pane_resize_sse, push_pane_status_sse, push_panes_sse, push_settings_sse, push_sse,

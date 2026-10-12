@@ -194,3 +194,26 @@ fn receipt_outcome_is_the_single_answer_to_did_it_work() {
         "cancelled"
     );
 }
+
+#[test]
+fn receipt_and_view_carry_the_visible_to_headless_fallback() {
+    let plain = receipt_of(parked_snapshot(OperationStatus::Completed, "none"));
+    assert!(plain.fallback.is_none());
+    assert!(!plain.not_verified.iter().any(|item| item.contains("headless")));
+    assert_eq!(serde_json::to_value(&plain).unwrap()["fallback"], serde_json::Value::Null);
+
+    for reason in ["no_visible_mode", "visible_failed"] {
+        let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+        snapshot.worker.fallback = Some(operations::RunFallback::to_headless(reason));
+        let view = crate::agent_runs::runtime::AgentRunView::from(snapshot);
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["fallback"], serde_json::json!({"from":"visible","to":"headless","reason":reason}));
+        assert_eq!(json["receipt"]["fallback"], json["fallback"]);
+        let receipt = view.receipt.expect("receipt");
+        assert!(
+            receipt.not_verified.iter().any(|item| item.contains("ran headless") && item.contains(reason)),
+            "{:?}",
+            receipt.not_verified
+        );
+    }
+}

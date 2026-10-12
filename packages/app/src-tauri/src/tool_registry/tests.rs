@@ -399,7 +399,7 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "66-a0d8d3fd211a33ce");
+    assert_eq!(catalog_version(), "66-46d53ccddbd2b4dc");
 }
 
 /// Every tool input that names an agent (`agent_type`, or `backend` on quick_ask) uses the one
@@ -442,5 +442,18 @@ fn visible_run_tools_advertise_placement() {
         let schema = tool.input_schema.to_string();
         assert!(schema.contains("\"placement\""), "{name} lacks placement");
         assert!(schema.contains("\"grid\"") && schema.contains("\"window\""), "{name} enum");
+        let placement = &tool.input_schema["properties"]["placement"];
+        assert_eq!(placement["default"], "window", "{name}: pop-out window is the default placement");
     }
+}
+
+#[test]
+fn run_agent_is_visible_first_and_describes_the_headless_backup() {
+    let tool = tools().into_iter().find(|t| t.name == "run_agent").expect("run_agent");
+    let headless = &tool.input_schema["properties"]["headless"];
+    assert_eq!(headless["default"], false, "visible is the default");
+    assert!(headless["description"].as_str().unwrap().contains("fallback"));
+    assert!(tool.description.contains("visible by default") && tool.description.contains("no_visible_mode"));
+    let schema = tool.output_schema.as_ref().expect("output schema").to_string();
+    assert!(schema.contains("\"fallback\"") && schema.contains("visible_failed"), "{schema}");
 }

@@ -17,8 +17,10 @@ fn default_timeout() -> u64 {
 fn default_wait() -> u64 {
     persist::FOREGROUND_WAIT_MS
 }
+/// Visible-first: a run opens a pane unless the caller passes `headless: true` (or the run falls
+/// back to headless, see `headless::fallback`).
 fn default_headless() -> bool {
-    true
+    false
 }
 
 /// Merge `context_mode` (alias) into `context_policy` before deserializing bodies.
