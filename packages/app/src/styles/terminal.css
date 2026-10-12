@@ -316,3 +316,27 @@
 .resize-both {
   resize: both;
 }
+
+/*
+ * The page already ends at the software keyboard (mobile agent tabs): nothing here reserves room
+ * for it. Hidden input: the terminal keeps the whole area. Visible input: a one-line bar.
+ */
+.terminal-host--keyboard-outside {
+  --pm-mobile-keyboard-panel-height: 0px;
+  --pm-mobile-input-bar-height: 0px;
+}
+
+.terminal-host--keyboard-outside:not(.terminal-host--mobile-input-hidden) {
+  --pm-mobile-input-bar-height: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+
+.terminal-host--keyboard-outside:not(.terminal-host--mobile-input-hidden) .terminal-mobile-command-form {
+  height: auto;
+  min-height: 0;
+}
+
+.terminal-host--keyboard-outside:not(.terminal-host--mobile-input-hidden) .terminal-mobile-command-input {
+  flex: none;
+  height: 44px;
+  padding: 10px 12px;
+}

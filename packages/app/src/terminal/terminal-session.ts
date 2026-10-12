@@ -496,6 +496,8 @@ export class TerminalSession {
         scrollToCursor: () => this.scrollToCursor(),
         bufferDelayMs: this.options.mobileInputDelayMs,
         inputVisible: this.options.mobileInputVisible,
+        // Phone-sized panes live in a shell that already ends at the keyboard (PwaApp).
+        reserveKeyboardSpace: !this.options.sizesPane,
       });
       requestAnimationFrame(() => {
         if (this.disposed) return;

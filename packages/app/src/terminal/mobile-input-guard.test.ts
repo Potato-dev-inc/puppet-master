@@ -4,6 +4,7 @@ import {
   MobileInputGuard,
   MOBILE_INPUT_ENGAGED_CLASS,
   MOBILE_INPUT_HIDDEN_CLASS,
+  MOBILE_KEYBOARD_OUTSIDE_CLASS,
   MOBILE_LONG_PRESS_MS,
   type MobileInputDelivery,
 } from './mobile-input-guard';
@@ -31,7 +32,7 @@ describe('MobileInputGuard', () => {
     vi.useRealTimers();
   });
 
-  function createGuard(bufferDelayMs = TEST_BUFFER_MS, inputVisible?: boolean) {
+  function createGuard(bufferDelayMs = TEST_BUFFER_MS, inputVisible?: boolean, reserveKeyboardSpace?: boolean) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const emitted: Array<{ text: string; delivery: MobileInputDelivery }> = [];
@@ -41,6 +42,7 @@ describe('MobileInputGuard', () => {
       container,
       bufferDelayMs,
       inputVisible,
+      reserveKeyboardSpace,
       emitInput: (text, delivery) => emitted.push({ text, delivery }),
       scrollToCursor,
       onBufferChange: (text) => buffer.push(text),
@@ -470,6 +472,22 @@ describe('MobileInputGuard', () => {
     expect(container.style.getPropertyValue('--pm-mobile-keyboard-panel-height')).toBe('');
     expect(scrollToCursor).toHaveBeenCalled();
     cleanup();
+  });
+
+  it('leaves room for the keyboard to the page when the page already ends at the keyboard', () => {
+    // iPhone: 812px layout, keyboard covers 380px. The PWA shell is already 432px tall, so the
+    // guard must not take another 380px off the terminal (that left it ~0px high).
+    const visualViewport = { height: 432, offsetTop: 0, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 812 });
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: visualViewport });
+
+    const { cleanup, container } = createGuard(TEST_BUFFER_MS, false, false);
+    expect(container.classList.contains(MOBILE_KEYBOARD_OUTSIDE_CLASS)).toBe(true);
+    container.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
+    expect(container.style.getPropertyValue('--pm-mobile-keyboard-panel-height')).toBe('');
+    cleanup();
+    expect(container.classList.contains(MOBILE_KEYBOARD_OUTSIDE_CLASS)).toBe(false);
   });
 
   it('captures hidden-mode long presses from terminal children before xterm handles them', () => {

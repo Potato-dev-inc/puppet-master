@@ -65,7 +65,16 @@ interface MobileInputGuardOptions {
   /** Hold typed text in memory this long; each new keystroke resets the timer. */
   bufferDelayMs?: number;
   inputVisible?: boolean;
+  /**
+   * False when the page itself already ends at the software keyboard (mobile agent tabs: the
+   * shell follows the visual viewport). The terminal is then not shortened by the keyboard
+   * height again, and a visible input is a plain bar instead of a keyboard-tall panel.
+   */
+  reserveKeyboardSpace?: boolean;
 }
+
+/** Container class when the page, not this guard, makes room for the keyboard. */
+export const MOBILE_KEYBOARD_OUTSIDE_CLASS = 'terminal-host--keyboard-outside';
 
 /**
  * Standard HTML command field (form + text input). The browser owns typing,
@@ -102,6 +111,7 @@ export class MobileInputGuard implements Disposable {
   private keyboardOpen = false;
   private hiddenInputFocusedAt = 0;
   private keyboardHeightCleanup: (() => void) | null = null;
+  private readonly reserveKeyboardSpace: boolean;
 
   constructor(options: MobileInputGuardOptions) {
     this.container = options.container;
@@ -110,12 +120,14 @@ export class MobileInputGuard implements Disposable {
     this.onBufferChange = options.onBufferChange;
     this.bufferDelayMs = options.bufferDelayMs ?? DEFAULT_MOBILE_BUFFER_MS;
     this.hiddenInput = options.inputVisible === false;
+    this.reserveKeyboardSpace = options.reserveKeyboardSpace ?? true;
 
     if (getComputedStyle(this.container).position === 'static') {
       this.container.style.position = 'relative';
     }
     this.container.classList.add('terminal-host--mobile-input');
     this.container.classList.toggle(MOBILE_INPUT_HIDDEN_CLASS, this.hiddenInput);
+    this.container.classList.toggle(MOBILE_KEYBOARD_OUTSIDE_CLASS, !this.reserveKeyboardSpace);
 
     this.tapZone = document.createElement('div');
     this.tapZone.className = 'terminal-mobile-tap-zone';
@@ -241,6 +253,7 @@ export class MobileInputGuard implements Disposable {
     }
     this.inputZone.remove();
     this.container.classList.remove('terminal-host--mobile-input');
+    this.container.classList.remove(MOBILE_KEYBOARD_OUTSIDE_CLASS);
     this.container.classList.remove(MOBILE_INPUT_HIDDEN_CLASS);
     this.container.classList.remove(MOBILE_INPUT_ENGAGED_CLASS);
   }
@@ -274,7 +287,9 @@ export class MobileInputGuard implements Disposable {
       const obscured = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
       if (obscured >= MOBILE_KEYBOARD_MIN_OBSCURED_PX) {
         this.keyboardOpen = true;
-        this.container.style.setProperty('--pm-mobile-keyboard-panel-height', `${obscured}px`);
+        if (this.reserveKeyboardSpace) {
+          this.container.style.setProperty('--pm-mobile-keyboard-panel-height', `${obscured}px`);
+        }
         this.scheduleScrollToCursor();
         return;
       }
@@ -287,10 +302,12 @@ export class MobileInputGuard implements Disposable {
       }
 
       if (document.activeElement === this.input) {
-        this.container.style.setProperty(
-          '--pm-mobile-keyboard-panel-height',
-          MOBILE_KEYBOARD_PANEL_FALLBACK,
-        );
+        if (this.reserveKeyboardSpace) {
+          this.container.style.setProperty(
+            '--pm-mobile-keyboard-panel-height',
+            MOBILE_KEYBOARD_PANEL_FALLBACK,
+          );
+        }
         this.scheduleScrollToCursor();
       }
     };
