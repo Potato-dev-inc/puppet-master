@@ -28,8 +28,6 @@ interface UseTerminalSessionOptions {
    * changes size (debounced, duplicates dropped). Used by the phone to size the pane to itself.
    */
   onFitGrid?: (grid: { cols: number; rows: number }) => void;
-  /** Desktop window: draw the PTY's real size while a phone holds it (see TerminalSessionOptions). */
-  followPtySize?: boolean;
 }
 
 const FIT_GRID_DEBOUNCE_MS = 250;
@@ -52,7 +50,6 @@ export function useTerminalSession({
   disableMobileInput,
   reflowKey,
   onFitGrid,
-  followPtySize = false,
 }: UseTerminalSessionOptions): {
   containerRef: RefObject<HTMLDivElement>;
   nudgeReflow: () => void;
@@ -88,7 +85,6 @@ export function useTerminalSession({
       mobileInputVisible,
       disableMobileInput,
       sizesPane,
-      followPtySize,
       onResize: (cols, rows) => {
         void activeTransport.resize(cols, rows);
       },
@@ -103,13 +99,13 @@ export function useTerminalSession({
       session.dispose();
       sessionRef.current = null;
     };
-  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, renderMode, mobileInputDelayMs, mobileInputVisible, disableMobileInput, sizesPane, followPtySize]);
+  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, renderMode, mobileInputDelayMs, mobileInputVisible, disableMobileInput, sizesPane]);
 
   useEffect(() => {
-    if (syncPTYResize && !followPtySize) return;
+    if (syncPTYResize) return;
     if (ptyCols === undefined || ptyRows === undefined) return;
     sessionRef.current?.setPtyDimensions(ptyCols, ptyRows);
-  }, [syncPTYResize, followPtySize, ptyCols, ptyRows]);
+  }, [syncPTYResize, ptyCols, ptyRows]);
 
   useEffect(() => {
     if (reflowKey === undefined) return;

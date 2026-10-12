@@ -26,11 +26,6 @@ export interface TerminalSessionOptions {
    * gets fewer rows, so the mirror always fits its whole height and never shifts up.
    */
   sizesPane?: boolean;
-  /**
-   * Desktop owner window: when the PTY is held at a size it did not ask for (a phone views the
-   * pane), draw that real size instead of the window's fit; fit the window again once it is back.
-   */
-  followPtySize?: boolean;
 }
 
 export interface Disposable {

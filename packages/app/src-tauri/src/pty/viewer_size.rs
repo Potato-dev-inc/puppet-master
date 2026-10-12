@@ -101,10 +101,10 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Resize the PTY and tell the phone and the desktop window. Errors (pane gone) are ignored.
+/// Resize the PTY and tell viewers (`pane-resize` SSE). Errors (pane gone) are ignored.
 fn apply(registry: &Mutex<PaneRegistry>, pane_id: &str, (cols, rows): Size) {
     if let Ok(true) = super::registry_resize(registry, pane_id, cols, rows) {
-        crate::bridge::notify_pane_resized(pane_id, cols, rows);
+        crate::bridge::push_pane_resize_sse(pane_id, cols, rows);
     }
 }
 

@@ -16,11 +16,7 @@ export interface BridgePaneRegistryApi {
   subscribePaneData: (paneId: string, cb: (data: Uint8Array) => void) => () => void;
   ingestTerminalData: (paneId: string, data: number[] | Uint8Array) => void;
   updatePaneStatus: (paneId: string, status: PaneInfo['status']) => void;
-  /**
-   * `keepStream`: the viewer resizes its terminal in place (phone-sized panes) and keeps reading
-   * the live stream; without it the stream is reset so a remounted mirror replays the scrollback.
-   */
-  updatePaneDimensions: (paneId: string, cols: number, rows: number, keepStream?: boolean) => void;
+  updatePaneDimensions: (paneId: string, cols: number, rows: number) => void;
   setPanesFromList: (list: PaneInfo[]) => void;
   makeTransport: (paneId: string) => TerminalTransport;
 }
@@ -54,12 +50,12 @@ export function useBridgePaneRegistry(bridge: BridgeClient | null): BridgePaneRe
     });
   }, []);
 
-  const updatePaneDimensions = useCallback((paneId: string, cols: number, rows: number, keepStream = false) => {
+  const updatePaneDimensions = useCallback((paneId: string, cols: number, rows: number) => {
     setPanes((prev) => {
       const existing = prev.get(paneId);
       if (!existing) return prev;
       if (existing.info.cols === cols && existing.info.rows === rows) return prev;
-      if (!keepStream) streamsRef.current.reset(paneId);
+      streamsRef.current.reset(paneId);
       const next = new Map(prev);
       next.set(paneId, {
         ...existing,

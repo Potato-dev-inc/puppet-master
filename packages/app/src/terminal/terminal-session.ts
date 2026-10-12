@@ -55,8 +55,6 @@ export class TerminalSession {
   private resizeFrame: number | null = null;
   private refreshFrame: number | null = null;
   private lastSentCols = 0;
-  /** Owner with followPtySize: the PTY is held at another size (phone); draw that size. */
-  private sizeHeldElsewhere = false;
   private lastSentRows = 0;
   private ptyCols: number;
   private ptyRows: number;
@@ -104,47 +102,23 @@ export class TerminalSession {
    * the phone. Null until xterm has measured its cells.
    */
   measureFitGrid(): { cols: number; rows: number } | null {
-    const metrics = this.gridMetrics();
-    const host = this.scaleViewport ?? this.mountContainer;
-    if (!metrics || !host) return null;
-    const cols = Math.floor((host.clientWidth - metrics.padX) / metrics.cellWidth);
-    const rows = Math.floor((host.clientHeight - metrics.padY) / metrics.cellHeight);
-    return cols > 0 && rows > 0 ? { cols, rows } : null;
-  }
-
-  /**
-   * Cell size and the padding xterm draws around the grid. Arithmetic only: the rendered boxes
-   * (`.xterm`, `.xterm-screen`, the scale stage) can keep an old size between frames or while
-   * rendering is paused, and sizing from them fed back into the next size.
-   */
-  private gridMetrics(): { cellWidth: number; cellHeight: number; padX: number; padY: number } | null {
     const terminal = this.term;
-    if (!terminal?.element) return null;
+    const host = this.scaleViewport ?? this.mountContainer;
+    if (!terminal || !host) return null;
     // Same private measurement FitAddon.proposeDimensions uses.
     const core = (terminal as unknown as {
       _core?: { _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } } };
     })._core;
     const cell = core?._renderService?.dimensions?.css?.cell;
     if (!cell || cell.width <= 0 || cell.height <= 0) return null;
-    const style = getComputedStyle(terminal.element);
-    const px = (value: string) => Number.parseFloat(value) || 0;
-    return {
-      cellWidth: cell.width,
-      cellHeight: cell.height,
-      padX: px(style.paddingLeft) + px(style.paddingRight),
-      padY: px(style.paddingTop) + px(style.paddingBottom),
-    };
-  }
-
-  /** Pixel size of the current grid (cells plus padding), for the scale controller. */
-  private gridContentSize(): { width: number; height: number } | null {
-    const metrics = this.gridMetrics();
-    const terminal = this.term;
-    if (!metrics || !terminal) return null;
-    return {
-      width: terminal.cols * metrics.cellWidth + metrics.padX,
-      height: terminal.rows * metrics.cellHeight + metrics.padY,
-    };
+    // What xterm draws around the cell grid (scrollbar gutter, padding) must fit too, or the
+    // mirror is scaled down a little to make room.
+    const element = terminal.element;
+    const extraX = element ? Math.max(0, element.offsetWidth - terminal.cols * cell.width) : 0;
+    const extraY = element ? Math.max(0, element.offsetHeight - terminal.rows * cell.height) : 0;
+    const cols = Math.floor((host.clientWidth - extraX) / cell.width);
+    const rows = Math.floor((host.clientHeight - extraY) / cell.height);
+    return cols > 0 && rows > 0 ? { cols, rows } : null;
   }
 
   setPtyDimensions(cols: number, rows: number): void {
@@ -157,17 +131,7 @@ export class TerminalSession {
     }
     this.ptyCols = cols;
     this.ptyRows = rows;
-    if (!this.options.followPtySize) {
-      this.applyPtyDimensions();
-      return;
-    }
-    this.sizeHeldElsewhere =
-      this.lastSentCols > 0 && (cols !== this.lastSentCols || rows !== this.lastSentRows);
-    if (this.sizeHeldElsewhere) {
-      this.applyPtyDimensions();
-    } else {
-      this.fitAndNotify();
-    }
+    this.applyPtyDimensions();
   }
 
   private isMobileMirror(): boolean {
@@ -237,9 +201,7 @@ export class TerminalSession {
         this.scaleController = new TerminalScaleController(
           this.scaleViewport,
           mountTarget,
-          this.options.sizesPane
-            ? { keyboardPushUp: false, measureContent: () => this.gridContentSize() }
-            : {},
+          { keyboardPushUp: !this.options.sizesPane },
         );
       }
       this.inputBatcher = new InputBatcher((text) => {
@@ -261,7 +223,12 @@ export class TerminalSession {
 
         // Hardware keyboard — local echo immediately; PTY echo is deduped on ingest. Muted:
         // echoing an escape key re-enters xterm's input, which would fire onData again forever.
-        this.applyLocalEcho(terminal, data);
+        this.muteOnData = true;
+        try {
+          applyMirrorLocalEcho(terminal, data, this.mirrorEchoFilter);
+        } finally {
+          this.muteOnData = false;
+        }
         this.inputBatcher?.push(data);
         this.scrollToCursor();
         this.scheduleRefresh();
@@ -270,7 +237,6 @@ export class TerminalSession {
       this.unlistenData = subscribePaneData(this.options.paneId, (data) => {
         if (
           this.mirrorPTY &&
-          !this.options.sizesPane &&
           isMobileInputDevice() &&
           this.mirrorEchoFilter.shouldSkipInbound(data)
         ) {
@@ -508,7 +474,12 @@ export class TerminalSession {
         }
 
         // Local echo only erases chars we echoed; filter tracks outbound for dedupe.
-        this.applyLocalEcho(terminal, text);
+        this.muteOnData = true;
+        try {
+          applyMirrorLocalEcho(terminal, text, this.mirrorEchoFilter);
+        } finally {
+          this.muteOnData = false;
+        }
 
         if (delivery === 'immediate') {
           this.options.onInput(text, false);
@@ -533,22 +504,6 @@ export class TerminalSession {
         this.applyMirrorDimensions();
         this.scrollToCursor();
       });
-    }
-  }
-
-  /**
-   * Draw typed text before the PTY echoes it (mirrors over a slow link feel instant). Not for
-   * phone-sized panes: the grid is the agent's own, and a full-screen agent redraws its input box
-   * its own way, so guessed characters land in the wrong cells and survive (a stray "1" after
-   * typing 123456 and erasing it); there the agent's echo is the only truth.
-   */
-  private applyLocalEcho(terminal: Terminal, text: string): void {
-    if (this.options.sizesPane) return;
-    this.muteOnData = true;
-    try {
-      applyMirrorLocalEcho(terminal, text, this.mirrorEchoFilter);
-    } finally {
-      this.muteOnData = false;
     }
   }
 
@@ -629,20 +584,6 @@ export class TerminalSession {
     const fitAddon = this.fitAddon;
     if (!terminal || !fitAddon) return;
 
-    if (this.options.followPtySize && this.sizeHeldElsewhere) {
-      // Still ask for the window's size (the backend remembers it for later), but keep drawing
-      // the size the PTY really has until it is given back.
-      const proposed = fitAddon.proposeDimensions();
-      if (proposed && proposed.cols > 0 && proposed.rows > 0
-        && (proposed.cols !== this.lastSentCols || proposed.rows !== this.lastSentRows)) {
-        this.lastSentCols = proposed.cols;
-        this.lastSentRows = proposed.rows;
-        this.options.onResize(proposed.cols, proposed.rows);
-      }
-      this.applyPtyDimensions();
-      return;
-    }
-
     try {
       fitAddon.fit();
     } catch {
@@ -707,10 +648,6 @@ export class TerminalSession {
     const terminal = this.term;
     if (!terminal) return;
     this.scheduleRefresh();
-
-    // The nudge resizes the PTY by a row and back; while a phone holds the size that would record
-    // the phone's size as this window's own and leave the window small afterwards.
-    if (this.sizeHeldElsewhere) return;
 
     if (terminal.buffer.active.type !== 'alternate') return;
     const { cols, rows } = terminal;
