@@ -30,6 +30,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsRevision, setSettingsRevision] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(360);
+  const [runPaneIds, setRunPaneIds] = useState<Set<string>>(() => new Set());
   const [detachedPaneIds, setDetachedPaneIds] = useState<Set<string>>(() => new Set());
   const bumpSettings = useCallback(() => setSettingsRevision((n) => n + 1), []);
   const markPaneDetached = useCallback((paneId: string) => {
@@ -85,7 +86,8 @@ export default function App() {
         })();
       });
       // An agent run's visible pane lives in the left grid: show the Workspace (no focus steal).
-      unlistenShowInGrid = await tauri.onPaneShowInGrid(() => {
+      unlistenShowInGrid = await tauri.onPaneShowInGrid((event) => {
+        setRunPaneIds((prev) => new Set(prev).add(event.pane_id));
         setScreen('workspace');
       });
       unlistenReattach = await tauri.onPaneReattach((event) => {
@@ -177,6 +179,7 @@ export default function App() {
               projectPath={projectPath}
               onClosePane={handleClose}
               detachedPaneIds={detachedPaneIds}
+              runPaneIds={runPaneIds}
               onDetachPane={markPaneDetached}
             />
             <div

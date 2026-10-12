@@ -167,11 +167,34 @@ pub(crate) fn snapshot_text(screen: &vt100::Screen, keep_cols: Option<u16>) -> S
     }
 }
 
-/// Columns left after the profile's right sidebar is cropped, `None` when the pane is not wide
-/// enough to show one (or the profile has none).
+/// Columns to keep per row for a profile that declares a right sidebar: the columns left after
+/// the sidebar is cropped, or every column when the pane is too narrow to show one (a narrow grid
+/// tile). Either way the text is one entry per row, because `contents()` glues a full-width row
+/// to the next one and its reply parsing then fails. `None` when the profile has no sidebar.
 pub(super) fn sidebar_keep_cols(agent_type: &str, cols: u16) -> Option<u16> {
-    let crop = crate::tui::profile_for(agent_type).sidebar_crop()?;
-    (cols >= crop.min_cols && cols > crop.width).then(|| cols - crop.width)
+    keep_cols_for(crate::tui::profile_for(agent_type).sidebar_crop()?, cols)
+}
+
+fn keep_cols_for(crop: crate::tui::SidebarCrop, cols: u16) -> Option<u16> {
+    if cols >= crop.min_cols && cols > crop.width {
+        Some(cols - crop.width)
+    } else {
+        Some(cols)
+    }
+}
+
+#[cfg(test)]
+mod sidebar_keep_tests {
+    use super::keep_cols_for;
+    use crate::tui::SidebarCrop;
+
+    #[test]
+    fn narrow_panes_keep_every_column_and_wide_ones_crop_the_sidebar() {
+        let crop = || SidebarCrop { min_cols: 121, width: 42 };
+        assert_eq!(keep_cols_for(crop(), 121), Some(79));
+        assert_eq!(keep_cols_for(crop(), 101), Some(101));
+        assert_eq!(keep_cols_for(crop(), 48), Some(48));
+    }
 }
 
 /// The pane's text with its scrollback: up to `FULL_TEXT_MAX_LINES` of history above the visible

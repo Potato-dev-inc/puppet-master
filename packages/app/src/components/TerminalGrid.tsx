@@ -11,6 +11,8 @@ interface Props {
   projectPath: string | null;
   onClosePane: (paneId: string) => void;
   detachedPaneIds?: Set<string>;
+  /** Panes an agent run opened in the grid: given a wide, tall tile so the TUI keeps a readable PTY size. */
+  runPaneIds?: Set<string>;
   onDetachPane?: (paneId: string) => void;
 }
 
@@ -19,6 +21,7 @@ export function TerminalGrid({
   projectPath,
   onClosePane,
   detachedPaneIds = new Set(),
+  runPaneIds = new Set(),
   onDetachPane,
 }: Props) {
   const { paneList, spawnPane, replacePaneAgent } = registry;
@@ -177,7 +180,9 @@ export function TerminalGrid({
               setDraggingPaneId(null);
             }}
             onDragEnd={() => setDraggingPaneId(null)}
-            className={`resize-both min-w-[320px] min-h-[240px] h-[280px] overflow-hidden rounded border border-pm-border/40 ${
+            className={`resize-both min-w-[320px] min-h-[240px] overflow-hidden rounded border border-pm-border/40 ${
+              runPaneIds.has(pane.info.id) ? 'xl:col-span-2 h-[580px]' : 'h-[280px]'
+            } ${
               draggingPaneId === pane.info.id ? 'opacity-60' : ''
             }`}
             title="Drag the header grip to reorder, or drag the lower-right corner to resize this pane"
