@@ -25,7 +25,10 @@ pub(crate) fn read_bridge_endpoint_from_candidates(
     let mut last_error = String::new();
     for candidate in candidates {
         match fs::read_to_string(candidate) {
-            Ok(raw) => return parse_bridge_endpoint(&raw),
+            Ok(raw) => {
+                let endpoint = parse_bridge_endpoint(&raw)?;
+                return Ok(live_endpoint_or_probe(endpoint));
+            }
             Err(err) => last_error = format!("{}: {err}", candidate.display()),
         }
     }
@@ -37,6 +40,25 @@ pub(crate) fn read_bridge_endpoint_from_candidates(
             .collect::<Vec<_>>()
             .join(", ")
     ))
+}
+
+/// The port file can be stale (an instance exited and left it behind). When its port refuses
+/// connections, fall back to the first port in the bridge range that accepts one.
+pub(crate) fn live_endpoint_or_probe(endpoint: BridgeEndpoint) -> BridgeEndpoint {
+    let accepts = |host: &str, port: u16| {
+        use std::net::{SocketAddr, TcpStream};
+        let Ok(ip) = host.parse::<std::net::IpAddr>() else { return true };
+        TcpStream::connect_timeout(&SocketAddr::new(ip, port), Duration::from_millis(250)).is_ok()
+    };
+    if accepts(&endpoint.host, endpoint.port) {
+        return endpoint;
+    }
+    for port in 17321..=17330 {
+        if accepts(&endpoint.host, port) {
+            return BridgeEndpoint { host: endpoint.host, port };
+        }
+    }
+    endpoint
 }
 
 pub(crate) fn bridge_port_candidates() -> Vec<PathBuf> {

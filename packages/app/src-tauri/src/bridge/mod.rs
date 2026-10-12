@@ -8,6 +8,7 @@
 //! `delegation`/`dispatch`/`locks`/`handoff` implement operations, and the rest are helpers.
 
 mod approvals;
+pub mod port_file;
 mod delegation;
 mod dispatch;
 mod errors;

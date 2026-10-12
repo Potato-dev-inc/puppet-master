@@ -65,6 +65,15 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
+        // A second launch focuses the running app's main window and exits, so it never starts
+        // another bridge or rewrites the bridge port file.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AppState::new())
@@ -286,6 +295,7 @@ pub fn run() {
             }
             if matches!(event, tauri::RunEvent::Exit) {
                 standby::shutdown();
+                bridge::port_file::release_owned(&app_paths::bridge_port_file());
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     pty::registry_kill_all(&state.registry);
                 }

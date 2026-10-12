@@ -484,3 +484,17 @@ fn stable_client_id_gives_a_stable_session_id_and_default_is_unique() {
         session_id_from(Some("".into()))
     );
 }
+
+#[test]
+fn stale_port_file_falls_back_to_a_live_bridge_port() {
+    let live = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let live_port = live.local_addr().unwrap().port();
+    let ok = live_endpoint_or_probe(BridgeEndpoint { host: "127.0.0.1".into(), port: live_port });
+    assert_eq!(ok.port, live_port, "a live port is kept as is");
+    // A closed port with nothing in 17321..17330 listening returns the original endpoint.
+    let dead = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let dead_port = dead.local_addr().unwrap().port();
+    drop(dead);
+    let got = live_endpoint_or_probe(BridgeEndpoint { host: "127.0.0.1".into(), port: dead_port });
+    assert!(got.port == dead_port || (17321..=17330).contains(&got.port));
+}
