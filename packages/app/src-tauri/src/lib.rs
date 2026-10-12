@@ -24,7 +24,9 @@ pub mod operations;
 #[cfg(test)]
 mod operations_contract_tests;
 mod pane_prompt;
+mod app_windows;
 mod pane_windows;
+mod tray;
 mod pane_wait;
 mod pane_wait_notify;
 mod platform;
@@ -67,11 +69,16 @@ pub fn run() {
     tauri::Builder::default()
         // A second launch focuses the running app's main window and exits, so it never starts
         // another bridge or rewrites the bridge port file.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            use tauri::Manager;
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // Panes-first: a second launch opens the Settings window. `--new-pane <agent>` also
+            // opens a pop-out pane through the same code path as the tray's "New pane" menu.
+            app_windows::open_settings_window(app, None, true);
+            if let Some(agent) = args.iter().position(|a| a == "--new-pane").and_then(|i| args.get(i + 1)) {
+                let (app, agent) = (app.clone(), agent.clone());
+                std::thread::spawn(move || match tray::new_pane(&app, &agent) {
+                    Ok(id) => tracing::info!(%agent, pane = %id, "second launch: opened new pane"),
+                    Err(e) => tracing::warn!(%agent, error = %e, "second launch: new pane failed"),
+                });
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -270,6 +277,9 @@ pub fn run() {
 
             let registry_for_panes = app.state::<AppState>().registry.clone();
             pane_windows::init(app.handle(), registry_for_panes.clone());
+            if let Err(e) = tray::init(app.handle()) {
+                tracing::warn!(error = %e, "tray icon failed to start");
+            }
             standby::init(registry_for_panes.clone(), app.handle().clone());
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
@@ -291,7 +301,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::CloseRequested { .. }, .. } = &event {
+            if let tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::CloseRequested { api, .. }, .. } = &event {
+                if app_windows::on_close_requested(app_handle, label) {
+                    api.prevent_close();
+                }
                 pane_windows::on_close_requested(app_handle, label);
             }
             if matches!(event, tauri::RunEvent::Exit) {

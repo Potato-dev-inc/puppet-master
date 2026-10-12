@@ -14,6 +14,8 @@ import {
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** Tab shown first (the standalone Settings window opens on Agents). */
+  initialTab?: SettingsTabId;
   onSaved?: () => void;
   projectPath?: string | null;
   onProjectPathChange?: (path: string) => Promise<void>;
@@ -28,6 +30,7 @@ interface Props {
 export function SettingsPanel({
   open,
   onClose,
+  initialTab = 'general',
   onSaved,
   projectPath = null,
   onProjectPathChange,
@@ -38,7 +41,7 @@ export function SettingsPanel({
   onCheckForUpdates,
   onOpenRelease,
 }: Props) {
-  const [tab, setTab] = useState<SettingsTabId>('general');
+  const [tab, setTab] = useState<SettingsTabId>(initialTab);
   const [search, setSearch] = useState('');
   const [settings, setSettings] = useState<Settings>({
     default_provider: 'anthropic',

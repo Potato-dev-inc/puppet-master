@@ -1,0 +1,301 @@
+//! Tray icon and its menu (panes-first PF2). The menu model is pure data built from the agent
+//! registry listing and the open panes, so it is unit-tested without a window system; the Tauri
+//! menu is just a rendering of it.
+
+use serde_json::Value;
+
+/// One entry of the tray menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Item {
+    Action { id: String, label: String, enabled: bool },
+    Submenu { label: String, items: Vec<Item> },
+    Separator,
+}
+
+/// An open pane as the menu needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneRow {
+    pub id: String,
+    pub agent: String,
+}
+
+pub const ID_SETTINGS: &str = "settings";
+pub const ID_QUIT: &str = "quit";
+pub const PREFIX_NEW: &str = "new:";
+pub const PREFIX_PANE: &str = "pane:";
+
+/// What a clicked menu id means.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Command {
+    Settings,
+    Quit,
+    NewPane(String),
+    FocusPane(String),
+}
+
+pub fn parse_command(id: &str) -> Option<Command> {
+    match id {
+        ID_SETTINGS => Some(Command::Settings),
+        ID_QUIT => Some(Command::Quit),
+        _ => id
+            .strip_prefix(PREFIX_NEW)
+            .map(|a| Command::NewPane(a.to_string()))
+            .or_else(|| id.strip_prefix(PREFIX_PANE).map(|p| Command::FocusPane(p.to_string()))),
+    }
+}
+
+/// `agents` is the `agents` array of `GET /agents/types`. An agent that can open a visible pane is
+/// an enabled entry; a headless-only one stays listed but disabled.
+pub fn new_pane_items(agents: &[Value]) -> Vec<Item> {
+    let mut items = Vec::new();
+    for agent in agents {
+        let Some(id) = agent.get("id").and_then(Value::as_str) else { continue };
+        let label = agent.get("label").and_then(Value::as_str).unwrap_or(id);
+        let visible = agent.pointer("/modes/visible").and_then(Value::as_bool).unwrap_or(false);
+        let headless = agent.pointer("/modes/headless").and_then(Value::as_bool).unwrap_or(false);
+        if visible {
+            items.push(Item::Action { id: format!("{PREFIX_NEW}{id}"), label: label.to_string(), enabled: true });
+        } else if headless {
+            items.push(Item::Action {
+                id: format!("{PREFIX_NEW}{id}"),
+                label: format!("{label} (headless only)"),
+                enabled: false,
+            });
+        }
+    }
+    if items.is_empty() {
+        items.push(Item::Action { id: "none".into(), label: "(no agents)".into(), enabled: false });
+    }
+    items
+}
+
+pub fn pane_items(panes: &[PaneRow]) -> Vec<Item> {
+    if panes.is_empty() {
+        return vec![Item::Action { id: "none".into(), label: "(no open panes)".into(), enabled: false }];
+    }
+    panes
+        .iter()
+        .map(|p| Item::Action {
+            id: format!("{PREFIX_PANE}{}", p.id),
+            label: format!("{} \u{b7} {}", p.agent, p.id.chars().take(8).collect::<String>()),
+            enabled: true,
+        })
+        .collect()
+}
+
+pub fn build_model(agents: &[Value], panes: &[PaneRow]) -> Vec<Item> {
+    vec![
+        Item::Submenu { label: "New pane".into(), items: new_pane_items(agents) },
+        Item::Submenu { label: "Panes".into(), items: pane_items(panes) },
+        Item::Separator,
+        Item::Action { id: ID_SETTINGS.into(), label: "Settings\u{2026}".into(), enabled: true },
+        Item::Action { id: ID_QUIT.into(), label: "Quit Puppet Master".into(), enabled: true },
+    ]
+}
+
+mod runtime {
+    use super::*;
+    use crate::AppState;
+    use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tauri::{AppHandle, Listener, Manager, Wry};
+
+    const TRAY_ID: &str = "puppet-master-tray";
+
+    fn render_items(app: &AppHandle, items: &[Item]) -> tauri::Result<Vec<Box<dyn IsMenuItem<Wry>>>> {
+        let mut out: Vec<Box<dyn IsMenuItem<Wry>>> = Vec::new();
+        for item in items {
+            match item {
+                Item::Action { id, label, enabled } => {
+                    out.push(Box::new(MenuItem::with_id(app, id, label, *enabled, None::<&str>)?))
+                }
+                Item::Separator => out.push(Box::new(PredefinedMenuItem::separator(app)?)),
+                Item::Submenu { label, items } => {
+                    let children = render_items(app, items)?;
+                    let refs: Vec<&dyn IsMenuItem<Wry>> = children.iter().map(|c| c.as_ref()).collect();
+                    out.push(Box::new(Submenu::with_items(app, label, true, &refs)?));
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn current_model(app: &AppHandle) -> Vec<Item> {
+        let listing = crate::tui::agent_types_listing();
+        let agents = listing.get("agents").and_then(Value::as_array).cloned().unwrap_or_default();
+        let panes: Vec<PaneRow> = app
+            .try_state::<AppState>()
+            .map(|s| {
+                s.registry
+                    .lock()
+                    .list()
+                    .into_iter()
+                    .map(|p| PaneRow { id: p.id, agent: p.agent_type })
+                    .collect()
+            })
+            .unwrap_or_default();
+        build_model(&agents, &panes)
+    }
+
+    fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+        let items = render_items(app, &current_model(app))?;
+        let refs: Vec<&dyn IsMenuItem<Wry>> = items.iter().map(|c| c.as_ref()).collect();
+        Menu::with_items(app, &refs)
+    }
+
+    /// Rebuild the menu so it reflects the current panes and agents.
+    pub fn refresh(app: &AppHandle) {
+        let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
+        match build_menu(app) {
+            Ok(menu) => {
+                let _ = tray.set_menu(Some(menu));
+            }
+            Err(e) => tracing::warn!(error = %e, "tray menu rebuild failed"),
+        }
+    }
+
+    /// Spawn a visible pane for `agent` in the default project folder and pop it out.
+    pub fn new_pane(app: &AppHandle, agent: &str) -> Result<String, String> {
+        use tauri::Emitter;
+        let state = app.state::<AppState>();
+        let pane_id = crate::pty::registry_spawn_pane(
+            &state.registry,
+            app,
+            crate::pty::SpawnPaneArgs {
+                agent_type: agent.to_string(),
+                cwd: None,
+                cols: None,
+                rows: None,
+                extra_args: None,
+                pane_id: None,
+                read_only: false,
+            },
+        )?;
+        let info = state.registry.lock().list().into_iter().find(|p| p.id == pane_id);
+        let (cols, rows) = info.map(|p| (p.cols, p.rows)).unwrap_or((120, 30));
+        crate::app_windows::open_pane_window(app, &pane_id, agent, cols, rows, false);
+        let _ = app.emit("pty://panes-changed", ());
+        Ok(pane_id)
+    }
+
+    fn handle(app: &AppHandle, id: &str) {
+        match parse_command(id) {
+            Some(Command::Settings) => crate::app_windows::open_settings_window(app, None, true),
+            Some(Command::Quit) => app.exit(0),
+            Some(Command::NewPane(agent)) => {
+                let app = app.clone();
+                std::thread::spawn(move || match new_pane(&app, &agent) {
+                    Ok(id) => tracing::info!(%agent, pane = %id, "tray: opened new pane"),
+                    Err(e) => tracing::warn!(%agent, error = %e, "tray: new pane failed"),
+                });
+            }
+            Some(Command::FocusPane(pane_id)) => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let found = app
+                        .state::<AppState>()
+                        .registry
+                        .lock()
+                        .list()
+                        .into_iter()
+                        .find(|p| p.id == pane_id)
+                        .map(|p| (p.agent_type, p.cols, p.rows));
+                    if let Some((agent, cols, rows)) = found {
+                        crate::app_windows::open_pane_window(&app, &pane_id, &agent, cols, rows, false);
+                    }
+                });
+            }
+            None => {}
+        }
+    }
+
+    pub fn init(app: &AppHandle) -> tauri::Result<()> {
+        let menu = build_menu(app)?;
+        let mut builder = TrayIconBuilder::with_id(TRAY_ID)
+            .tooltip("Puppet Master")
+            .menu(&menu)
+            .show_menu_on_left_click(false)
+            .on_menu_event(|app, event| handle(app, event.id().as_ref()))
+            .on_tray_icon_event(|tray, event| {
+                if let TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } = event
+                {
+                    crate::app_windows::open_settings_window(tray.app_handle(), None, true);
+                }
+            });
+        if let Some(icon) = app.default_window_icon() {
+            builder = builder.icon(icon.clone());
+        }
+        builder.build(app)?;
+        tracing::info!("tray icon created (tooltip \"Puppet Master\")");
+        for event in ["pty://panes-changed", "agent_definitions_changed"] {
+            let handle = app.clone();
+            app.listen(event, move |_| refresh(&handle));
+        }
+        Ok(())
+    }
+}
+
+pub use runtime::{init, new_pane};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn agent(id: &str, label: &str, visible: bool, headless: bool) -> Value {
+        json!({"id": id, "label": label, "modes": {"visible": visible, "headless": headless}})
+    }
+
+    #[test]
+    fn visible_agents_are_enabled_and_headless_only_ones_are_disabled_and_marked() {
+        let items = new_pane_items(&[
+            agent("kilo", "Kilo", true, true),
+            agent("kiro", "Kiro", false, true),
+            agent("ghost", "Ghost", false, false),
+        ]);
+        assert_eq!(items.len(), 2, "an agent with no mode at all is omitted");
+        assert_eq!(items[0], Item::Action { id: "new:kilo".into(), label: "Kilo".into(), enabled: true });
+        assert_eq!(
+            items[1],
+            Item::Action { id: "new:kiro".into(), label: "Kiro (headless only)".into(), enabled: false }
+        );
+    }
+
+    #[test]
+    fn empty_lists_show_a_disabled_placeholder() {
+        assert!(matches!(&new_pane_items(&[])[0], Item::Action { enabled: false, .. }));
+        assert!(matches!(&pane_items(&[])[0], Item::Action { enabled: false, .. }));
+    }
+
+    #[test]
+    fn panes_are_listed_with_agent_and_short_id() {
+        let items = pane_items(&[PaneRow { id: "abcdef012345".into(), agent: "kilo".into() }]);
+        assert_eq!(
+            items,
+            vec![Item::Action { id: "pane:abcdef012345".into(), label: "kilo \u{b7} abcdef01".into(), enabled: true }]
+        );
+    }
+
+    #[test]
+    fn model_has_the_four_top_level_entries_in_order() {
+        let model = build_model(&[agent("kilo", "Kilo", true, true)], &[]);
+        assert!(matches!(&model[0], Item::Submenu { label, .. } if label == "New pane"));
+        assert!(matches!(&model[1], Item::Submenu { label, .. } if label == "Panes"));
+        assert_eq!(model[2], Item::Separator);
+        assert!(matches!(&model[3], Item::Action { id, .. } if id == "settings"));
+        assert!(matches!(&model[4], Item::Action { id, label, .. } if id == "quit" && label == "Quit Puppet Master"));
+    }
+
+    #[test]
+    fn menu_ids_parse_to_commands() {
+        assert_eq!(parse_command("settings"), Some(Command::Settings));
+        assert_eq!(parse_command("quit"), Some(Command::Quit));
+        assert_eq!(parse_command("new:kilo"), Some(Command::NewPane("kilo".into())));
+        assert_eq!(parse_command("pane:abc"), Some(Command::FocusPane("abc".into())));
+        assert_eq!(parse_command("none"), None);
+    }
+}

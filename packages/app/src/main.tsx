@@ -2,7 +2,9 @@ import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import PwaApp from './PwaApp';
+import SettingsApp from './SettingsApp';
 import TerminalApp from './TerminalApp';
+import { isSettingsEntry } from './lib/settings-entry';
 import WorkerHostBootstrap from './WorkerHostBootstrap';
 import './styles/index.css';
 
@@ -16,6 +18,7 @@ const isMobileOrPwa =
   /Android|iPhone|iPad/i.test(navigator.userAgent);
 
 async function resolveRoot(): Promise<typeof App> {
+  if (isSettingsEntry(window.location.search)) return SettingsApp;
   if (isTerminalApp) return TerminalApp;
   if (isStandaloneWorker) return WorkerHostBootstrap;
   if (isMobileOrPwa) return PwaApp;
