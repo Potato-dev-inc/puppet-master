@@ -116,6 +116,11 @@ pub fn claim(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str, cols: u16, rows
         (pane.info.cols, pane.info.rows)
     };
     let size = LEASES.lock().claim(pane_id, cols, rows, current, now_ms());
+    if size != current {
+        tracing::info!(pane = %pane_id, from = ?current, to = ?size, "phone size lease: resizing pane for the phone");
+    } else {
+        tracing::debug!(pane = %pane_id, size = ?size, "phone size lease renewed");
+    }
     apply(registry, pane_id, size);
     ensure_sweeper(registry.clone());
     Ok(size)
@@ -124,6 +129,7 @@ pub fn claim(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str, cols: u16, rows
 /// `POST /panes/{id}/viewport` with `active: false`: give the pane back to the desktop size.
 pub fn release(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Option<Size> {
     let desktop = LEASES.lock().release(pane_id)?;
+    tracing::info!(pane = %pane_id, to = ?desktop, "phone size lease released; restoring desktop size");
     apply(registry, pane_id, desktop);
     Some(desktop)
 }

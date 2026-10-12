@@ -45,11 +45,15 @@ export function BridgePaneTerminal({
     renderMode ?? 'mirror-same-grid';
   const { containerRef } = useTerminalSession({
     paneId: pane.id,
-    sessionKey: mirrorLayoutSessionKey(
-      pane.created_at,
-      mobileMirror ? layout.cols : pane.cols,
-      mobileMirror ? layout.rows : pane.rows,
-    ),
+    // A phone that sizes the pane resizes this terminal in place: remounting on every size change
+    // (keyboard up/down) would destroy the focused input and close the keyboard again.
+    sessionKey: onFitGrid
+      ? pane.created_at
+      : mirrorLayoutSessionKey(
+          pane.created_at,
+          mobileMirror ? layout.cols : pane.cols,
+          mobileMirror ? layout.rows : pane.rows,
+        ),
     subscribePaneData,
     transport,
     syncPTYResize,
