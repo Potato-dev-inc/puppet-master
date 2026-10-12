@@ -119,6 +119,14 @@ fn code_profiles_command_unchanged() {
 
     for (id, argv) in expected {
         let cmd = spawn_command_for(id, &cwd, &extra);
+        if id.starts_with("cursor") {
+            // Cursor's launcher depends on what is installed (`agent` alias preferred): the
+            // choice itself is tested in tui/cursor/binary.rs; here only that --extra reaches it.
+            let got = argv_of(&cmd);
+            assert!(got.iter().any(|arg| arg.contains("--extra")), "{id}: {got:?}");
+            assert!(!got.iter().any(|arg| arg.contains("cursor.cmd")), "{id} must not launch the IDE: {got:?}");
+            continue;
+        }
         assert_eq!(argv_of(&cmd), argv, "{id}: argv");
         assert_eq!(cmd.get_cwd().map(|c| c.to_string_lossy().into_owned()), Some(cwd.clone()), "{id}: cwd");
         let path = crate::shell_env::path_for_spawn();
@@ -210,4 +218,21 @@ fn test_profile_spawns_without_agent_type() {
     let _ = child.child.kill();
     let _ = child.child.wait();
     assert!(echoed, "child output reached the PTY");
+}
+
+/// A launcher that exported NO_COLOR (npm does when its output is redirected) must not make
+/// Claude Code render monochrome in a pane: the pane env keeps color-capable TERM/COLORTERM and
+/// drops every color-disabling variable.
+#[test]
+fn pane_env_enables_color_and_drops_no_color() {
+    let mut cmd = CommandBuilder::new("claude");
+    for name in COLOR_DISABLING_ENV {
+        cmd.env(name, "1");
+    }
+    apply_common_pty_env(&mut cmd);
+    for name in COLOR_DISABLING_ENV {
+        assert!(cmd.get_env(name).is_none(), "{name} must not reach the pane");
+    }
+    assert_eq!(cmd.get_env("TERM").and_then(|v| v.to_str()), Some("xterm-256color"));
+    assert_eq!(cmd.get_env("COLORTERM").and_then(|v| v.to_str()), Some("truecolor"));
 }

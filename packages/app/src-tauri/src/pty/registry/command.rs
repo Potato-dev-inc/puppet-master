@@ -5,6 +5,16 @@ use super::*;
 /// Build a CommandBuilder for the given agent, using the given cwd.
 /// On Windows, `.cmd`/`.bat` shims must run under `cmd.exe /C`.
 pub(super) fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) -> CommandBuilder {
+    if matches!(agent, AgentType::Cursor | AgentType::CursorAgent) {
+        if let Some(cli) = crate::tui::cursor::binary::installed() {
+            let (program, args) = crate::tui::cursor::binary::visible_launch(&cli, extra_args);
+            let mut cmd_builder = CommandBuilder::new(program);
+            cmd_builder.args(args);
+            cmd_builder.cwd(cwd);
+            apply_common_pty_env(&mut cmd_builder);
+            return cmd_builder;
+        }
+    }
     let (cmd, base_args) = resolve_command(agent);
 
     #[cfg(windows)]
@@ -86,7 +96,16 @@ pub(super) fn apply_common_pty_env(cmd_builder: &mut CommandBuilder) {
     cmd_builder.env("Path", crate::shell_env::path_for_spawn());
     cmd_builder.env("TERM", "xterm-256color");
     cmd_builder.env("COLORTERM", "truecolor");
+    // The pane is a real terminal that renders ANSI colors. Variables inherited from whatever
+    // launched the app (`npm run dev > log` makes npm export NO_COLOR=1 / COLOR=0) switch
+    // Claude Code and other TUIs to monochrome output, so drop them.
+    for name in COLOR_DISABLING_ENV {
+        cmd_builder.env_remove(name);
+    }
 }
+
+/// Environment variables that tell a program not to emit color; never forwarded to a pane PTY.
+pub(super) const COLOR_DISABLING_ENV: &[&str] = &["NO_COLOR", "NODE_DISABLE_COLORS", "COLOR"];
 
 #[cfg(windows)]
 pub(super) fn powershell_agent_command(
