@@ -78,9 +78,16 @@ pub(super) fn route(
         })?
     };
     let route_path = format!("/{}", segments.join("/"));
-    crate::mcp_sessions::authorize(session, method, &route_path, &request_body)
-        .map_err(|error| enrich_handle_error(error, registry))
-        .map_err(operation_http_error)?;
+    // A paired phone (it got past the pairing token check above) is the user at another screen:
+    // like the desktop pane window, it may type into any pane, including ones an MCP run manages.
+    let paired_phone_typing = session.is_none()
+        && mobile_pairing::requires_pairing_token(headers, peer_loopback)
+        && is_pane_typing_route(method, segments);
+    if !paired_phone_typing {
+        crate::mcp_sessions::authorize(session, method, &route_path, &request_body)
+            .map_err(|error| enrich_handle_error(error, registry))
+            .map_err(operation_http_error)?;
+    }
 
     let cx = Ctx {
         method,
@@ -103,4 +110,24 @@ pub(super) fn route(
             }),
         ))
     })
+}
+
+/// `POST /panes/{id}/input` and `POST /panes/{id}/key`: typing into a pane.
+fn is_pane_typing_route(method: &str, segments: &[&str]) -> bool {
+    method == "POST" && matches!(segments, ["panes", _, "input" | "key"])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_pane_typing_route;
+
+    #[test]
+    fn only_pane_input_and_keys_count_as_typing() {
+        assert!(is_pane_typing_route("POST", &["panes", "p1", "input"]));
+        assert!(is_pane_typing_route("POST", &["panes", "p1", "key"]));
+        assert!(!is_pane_typing_route("GET", &["panes", "p1", "input"]));
+        assert!(!is_pane_typing_route("DELETE", &["panes", "p1"]));
+        assert!(!is_pane_typing_route("POST", &["panes", "p1", "viewport"]));
+        assert!(!is_pane_typing_route("POST", &["agents", "run"]));
+    }
 }

@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentType, PaneInfo } from '@puppet-master/shared';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
+import { usePaneViewportLease } from './hooks/usePaneViewportLease';
 import { useVisualViewportSync } from './hooks/useVisualViewport';
 import { makeBridgeClient, subscribeBridgeEvents, type BridgeClient } from './lib/bridge';
 import { DEFAULT_PUBLIC_SETTINGS, type PublicSettings } from './lib/bridge-settings';
@@ -53,6 +54,8 @@ export default function PwaApp() {
   const [spawning, setSpawning] = useState(false);
   const [spawnError, setSpawnError] = useState<string | null>(null);
   const [launchEntries, setLaunchEntries] = useState<LaunchEntry[] | null>(null);
+  /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
+  const [fitGrid, setFitGrid] = useState<{ cols: number; rows: number } | null>(null);
   const registry = useBridgePaneRegistry(bridge);
   const registryRef = useRef(registry);
   registryRef.current = registry;
@@ -129,6 +132,8 @@ export default function PwaApp() {
   const labels = useMemo(() => tabLabels(panes), [panes]);
   const activePane = active === ALL_TAB ? undefined : registry.panes.get(active);
   const transport = useBridgePaneTransport(registry.makeTransport, activePane ? active : 'pane-placeholder');
+  useEffect(() => setFitGrid(null), [active]);
+  usePaneViewportLease(bridge, activePane ? active : null, fitGrid);
 
   const patchSettings = useCallback(
     (patch: Partial<PublicSettings>) => {
@@ -249,6 +254,7 @@ export default function PwaApp() {
               title={`${labels.get(active) ?? activePane.info.agent_type}`}
               mobileInputDelayMs={settings.mobile_input_delay_ms}
               mobileInputVisible={settings.mobile_input_visible}
+              onFitGrid={setFitGrid}
             />
           )}
           {active !== ALL_TAB && !activePane && (

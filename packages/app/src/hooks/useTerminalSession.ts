@@ -23,7 +23,15 @@ interface UseTerminalSessionOptions {
   disableMobileInput?: boolean;
   /** Bump to force a tiny resize/repaint (e.g. when re-entering the grid). */
   reflowKey?: number | string;
+  /**
+   * Called with the grid that fits the terminal's on-screen area, on mount and when that area
+   * changes size (debounced, duplicates dropped). Used by the phone to size the pane to itself.
+   */
+  onFitGrid?: (grid: { cols: number; rows: number }) => void;
 }
+
+const FIT_GRID_DEBOUNCE_MS = 250;
+const FIT_GRID_FIRST_TRIES = 20;
 
 /**
  * React lifecycle wrapper around {@link TerminalSession}.
@@ -41,6 +49,7 @@ export function useTerminalSession({
   mobileInputVisible,
   disableMobileInput,
   reflowKey,
+  onFitGrid,
 }: UseTerminalSessionOptions): {
   containerRef: RefObject<HTMLDivElement>;
   nudgeReflow: () => void;
@@ -116,6 +125,41 @@ export function useTerminalSession({
       cancelAnimationFrame(frame);
     };
   }, [reflowKey]);
+
+  const onFitGridRef = useRef(onFitGrid);
+  onFitGridRef.current = onFitGrid;
+  const wantsFitGrid = !!onFitGrid;
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!wantsFitGrid || !container) return;
+    let last = '';
+    let timer = 0;
+    let tries = 0;
+    const report = (): boolean => {
+      const grid = sessionRef.current?.measureFitGrid();
+      if (!grid) return false;
+      const key = `${grid.cols}x${grid.rows}`;
+      if (key !== last) {
+        last = key;
+        onFitGridRef.current?.(grid);
+      }
+      return true;
+    };
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        // xterm measures its cells a frame or two after mount: retry until it has.
+        if (!report() && ++tries < FIT_GRID_FIRST_TRIES) schedule();
+      }, FIT_GRID_DEBOUNCE_MS);
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(container);
+    schedule();
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timer);
+    };
+  }, [wantsFitGrid, paneId, sessionKey]);
 
   return { containerRef: containerRef as RefObject<HTMLDivElement>, nudgeReflow };
 }

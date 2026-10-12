@@ -36,6 +36,7 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       return { pane_id: paneId };
     },
     killPane: (id) => call('DELETE', `/panes/${encodeURIComponent(id)}`),
+    setPaneViewport: (id, view) => call('POST', `/panes/${encodeURIComponent(id)}/viewport`, view),
     listAgentTypes: () => call('GET', '/agents/types'),
     readBuffer: async (id, lines) => {
       const res = await call<{ content: string }>('GET', `/panes/${encodeURIComponent(id)}/buffer?lines=${lines}`);

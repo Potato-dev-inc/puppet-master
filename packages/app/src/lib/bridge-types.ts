@@ -254,6 +254,11 @@ export interface BridgeClient {
     pane_id?: string;
   }): Promise<{ pane_id: string }>;
   killPane(paneId: string): Promise<void>;
+  /**
+   * `POST /panes/{id}/viewport`: while `active`, the pane is sized to this phone's grid (renew
+   * every few seconds or it lapses); `active: false` gives it back to the desktop size.
+   */
+  setPaneViewport(paneId: string, view: { cols: number; rows: number; active: boolean }): Promise<unknown>;
   /** `GET /agents/types`: the registered agents (body of the desktop `agents_list`). */
   listAgentTypes(): Promise<unknown>;
   readBuffer(paneId: string, lines: number): Promise<string>;

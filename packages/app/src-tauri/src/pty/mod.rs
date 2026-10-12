@@ -8,6 +8,7 @@ pub mod proc_tree;
 pub mod registry;
 pub mod scrollback;
 pub mod status;
+pub mod viewer_size;
 
 pub use registry::{
     get_project_path as registry_get_project_path, kill_all as registry_kill_all,

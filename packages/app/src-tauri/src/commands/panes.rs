@@ -109,6 +109,10 @@ pub async fn resize_pane(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    // A phone viewing this pane holds its size; the desktop size is applied when it lets go.
+    if crate::pty::viewer_size::desktop_resize(&pane_id, cols, rows) {
+        return Ok(());
+    }
     let changed = registry_resize(&state.registry, &pane_id, cols, rows)?;
     if changed {
         crate::bridge::push_pane_resize_sse(&pane_id, cols, rows);

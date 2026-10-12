@@ -43,6 +43,17 @@ struct PressKeyBody {
     key: String,
 }
 
+/// `POST /panes/{id}/viewport`: the phone's grid size while it shows the pane (`active`), or
+/// `active: false` when it stops (see `pty::viewer_size`).
+#[derive(Debug, Deserialize)]
+struct ViewportBody {
+    #[serde(default)]
+    cols: u16,
+    #[serde(default)]
+    rows: u16,
+    active: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct ResizeBody {
@@ -78,6 +89,7 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
         ("GET", ["digest", ..]) => session::pane_digest_get(cx, pane_id),
         ("POST", ["digest", ..]) => session::pane_digest_set(cx, pane_id),
         ("POST", ["resize", ..]) => resize(cx),
+        ("POST", ["viewport"]) => viewport(cx, pane_id),
         ("POST", ["model", ..]) => switch_model(cx, pane_id),
         ("GET", ["model", ..]) => inspect_model(cx, pane_id),
         ("GET", ["agent-context", ..]) => agent_context(cx, pane_id),
@@ -245,6 +257,17 @@ fn resize(cx: &Ctx) -> RouteResult {
     // Remote bridge clients must not resize the shared PTY — only desktop does.
     let _ = parse_json::<ResizeBody>(body)?;
     Ok((200, json!({ "ok": true, "ignored": true })))
+}
+
+fn viewport(cx: &Ctx, pane_id: &str) -> RouteResult {
+    let req: ViewportBody = parse_json(cx.body)?;
+    if !req.active {
+        let restored = crate::pty::viewer_size::release(cx.registry, pane_id);
+        return Ok((200, json!({ "ok": true, "leased": false, "restored": restored.map(|(cols, rows)| json!({ "cols": cols, "rows": rows })) })));
+    }
+    let (cols, rows) = crate::pty::viewer_size::claim(cx.registry, pane_id, req.cols, req.rows)
+        .map_err(|err| (404, json!({ "error": err })))?;
+    Ok((200, json!({ "ok": true, "leased": true, "cols": cols, "rows": rows })))
 }
 
 fn switch_model(cx: &Ctx, pane_id: &str) -> RouteResult {

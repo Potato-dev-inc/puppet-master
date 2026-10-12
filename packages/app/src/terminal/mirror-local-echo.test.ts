@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MirrorEchoFilter } from './mirror-echo-filter';
 import {
+  isTerminalReport,
   applyMirrorLocalEcho,
   BACKSPACE_VISUAL_ERASE,
   backspaceVisualErase,
@@ -82,5 +83,14 @@ describe('mirror-local-echo', () => {
     applyMirrorLocalEcho(terminal, '你\x7f', filter);
 
     expect(calls).toEqual(['write:你', `write:${BACKSPACE_VISUAL_ERASE.repeat(2)}`]);
+  });
+
+  it('tells xterm query replies apart from typed keys', () => {
+    for (const report of ['\x1b[12;40R', '\x1b[?1;2c', '\x1b[>0;276;0c', '\x1b[?2026;2$y', '\x1b]11;rgb:0000/0000/0000\x1b\\','\x1b]10;rgb:ffff/ffff/ffff\x07', '\x1b[I', '\x1b[O', '\x1b[?1;2c\x1b[12;40R']) {
+      expect(isTerminalReport(report), JSON.stringify(report)).toBe(true);
+    }
+    for (const key of ['a', '\r', '\x1b', '\x1b[A', '\x1b[B', '\x1b[3~', '\x1b[1;5C', 'hello', '\x7f']) {
+      expect(isTerminalReport(key), JSON.stringify(key)).toBe(false);
+    }
   });
 });

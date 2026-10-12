@@ -4,7 +4,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { InputBatcher } from './input-batcher';
 import { MirrorEchoFilter } from './mirror-echo-filter';
-import { applyMirrorLocalEcho } from './mirror-local-echo';
+import { applyMirrorLocalEcho, isTerminalReport } from './mirror-local-echo';
 import {
   configureXtermTextareaForMobileMirror,
   isMobileInputDevice,
@@ -94,6 +94,31 @@ export class TerminalSession {
       this.applyMirrorDimensions();
     }
     return true;
+  }
+
+  /**
+   * The grid (cols x rows) that fits this terminal's on-screen area at the current font: what a
+   * phone asks the PC to size the pane to (`POST /panes/{id}/viewport`) so the agent redraws for
+   * the phone. Null until xterm has measured its cells.
+   */
+  measureFitGrid(): { cols: number; rows: number } | null {
+    const terminal = this.term;
+    const host = this.scaleViewport ?? this.mountContainer;
+    if (!terminal || !host) return null;
+    // Same private measurement FitAddon.proposeDimensions uses.
+    const core = (terminal as unknown as {
+      _core?: { _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } } };
+    })._core;
+    const cell = core?._renderService?.dimensions?.css?.cell;
+    if (!cell || cell.width <= 0 || cell.height <= 0) return null;
+    // What xterm draws around the cell grid (scrollbar gutter, padding) must fit too, or the
+    // mirror is scaled down a little to make room.
+    const element = terminal.element;
+    const extraX = element ? Math.max(0, element.offsetWidth - terminal.cols * cell.width) : 0;
+    const extraY = element ? Math.max(0, element.offsetHeight - terminal.rows * cell.height) : 0;
+    const cols = Math.floor((host.clientWidth - extraX) / cell.width);
+    const rows = Math.floor((host.clientHeight - extraY) / cell.height);
+    return cols > 0 && rows > 0 ? { cols, rows } : null;
   }
 
   setPtyDimensions(cols: number, rows: number): void {
@@ -191,8 +216,18 @@ export class TerminalSession {
           return;
         }
 
-        // Hardware keyboard — local echo immediately; PTY echo is deduped on ingest.
-        applyMirrorLocalEcho(terminal, data, this.mirrorEchoFilter);
+        // xterm answering the agent's own queries (cursor position, device attributes): the
+        // desktop window that owns the pane answers those; a mirror must not type them too.
+        if (isTerminalReport(data)) return;
+
+        // Hardware keyboard — local echo immediately; PTY echo is deduped on ingest. Muted:
+        // echoing an escape key re-enters xterm's input, which would fire onData again forever.
+        this.muteOnData = true;
+        try {
+          applyMirrorLocalEcho(terminal, data, this.mirrorEchoFilter);
+        } finally {
+          this.muteOnData = false;
+        }
         this.inputBatcher?.push(data);
         this.scrollToCursor();
         this.scheduleRefresh();

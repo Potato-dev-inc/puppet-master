@@ -23,6 +23,8 @@ interface Props {
   renderMode?: TerminalRenderMode;
   mobileInputDelayMs?: number;
   mobileInputVisible?: boolean;
+  /** The grid that fits this view (the phone sizes the pane to it). */
+  onFitGrid?: (grid: { cols: number; rows: number }) => void;
 }
 
 export function BridgePaneTerminal({
@@ -35,6 +37,7 @@ export function BridgePaneTerminal({
   renderMode,
   mobileInputDelayMs,
   mobileInputVisible,
+  onFitGrid,
 }: Props) {
   const mobileMirror = !syncPTYResize && isMobileInputDevice();
   const layout = useDebouncedMirrorLayout(pane.cols, pane.rows);
@@ -55,6 +58,7 @@ export function BridgePaneTerminal({
     ptyRows: pane.rows,
     mobileInputDelayMs,
     mobileInputVisible,
+    onFitGrid,
   });
 
   const label = title ?? pane.agent_type;
