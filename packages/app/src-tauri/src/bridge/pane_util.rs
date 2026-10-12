@@ -119,50 +119,23 @@ pub(super) fn emit_panes_changed(registry: &Arc<Mutex<PaneRegistry>>, app: &AppH
     crate::pane_windows::schedule_sweep(registry, app);
 }
 
-/// Pop out a worker pane so MCP/bridge spawns are visible even when the home screen is open.
+/// Open a visible run's pane in its own pop-out window, created from Rust (no main webview is
+/// involved). Never takes focus: agents open these. `_placement` is accepted for older callers;
+/// every pane is a window now (panes-first).
 pub(super) fn present_spawned_pane(
     registry: &Arc<Mutex<PaneRegistry>>,
     app: &AppHandle,
     pane_id: &str,
-    placement: Option<&str>,
+    _placement: Option<&str>,
 ) {
     if pane_id.starts_with("puppet-master-orchestrator-") {
         emit_panes_changed(registry, app);
         return;
     }
-    let Some(pane) = registry
-        .lock()
-        .list()
-        .into_iter()
-        .find(|pane| pane.id == pane_id)
-    else {
-        emit_panes_changed(registry, app);
-        return;
-    };
-    let target = crate::pane_windows::decide_placement(
-        placement,
-        crate::pane_windows::main_window_usable(),
-    );
-    if target == crate::pane_windows::Placement::Grid {
-        // The grid lists every registered pane: just make sure the main window shows it.
-        let _ = app.emit("pane://show-in-grid", json!({ "pane_id": pane.id }));
-        emit_panes_changed(registry, app);
-        return;
+    let pane = registry.lock().list().into_iter().find(|pane| pane.id == pane_id);
+    if let Some(pane) = pane {
+        crate::app_windows::open_pane_window(app, &pane.id, &pane.agent_type, pane.cols, pane.rows, false);
     }
-    let title = format!(
-        "{} · {}",
-        pane.agent_type,
-        pane.id.chars().take(8).collect::<String>()
-    );
-    let _ = app.emit(
-        "pane://detach",
-        json!({
-            "pane_id": pane.id,
-            "title": title,
-            "cols": pane.cols,
-            "rows": pane.rows,
-        }),
-    );
     emit_panes_changed(registry, app);
 }
 

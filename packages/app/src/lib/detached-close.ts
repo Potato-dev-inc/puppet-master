@@ -1,10 +1,10 @@
-export type DetachedCloseAction = 'kill-and-exit' | 'reattach' | 'close';
+export type DetachedCloseAction = 'kill-and-exit' | 'close';
 
 /**
- * What the X of a detached pane window does. A window whose pane no longer exists has nothing
- * to reattach, so it simply closes (the default after the handler returns).
+ * What the X of a detached pane window does. Panes-first: there is no grid to reattach to, so a
+ * pane window just closes, and the Rust side kills the pane it showed. Worker hosts (a standalone
+ * `--worker` terminal) kill their pane and quit the app.
  */
-export function detachedCloseAction(opts: { workerHost: boolean; paneExists: boolean }): DetachedCloseAction {
-  if (opts.workerHost) return 'kill-and-exit';
-  return opts.paneExists ? 'reattach' : 'close';
+export function detachedCloseAction(opts: { workerHost: boolean }): DetachedCloseAction {
+  return opts.workerHost ? 'kill-and-exit' : 'close';
 }

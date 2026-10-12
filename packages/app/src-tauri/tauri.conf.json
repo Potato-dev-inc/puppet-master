@@ -10,19 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Puppet Master",
-        "width": 1400,
-        "height": 900,
-        "minWidth": 1000,
-        "minHeight": 600,
-        "resizable": true,
-        "decorations": true,
-        "transparent": false,
-        "fullscreen": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

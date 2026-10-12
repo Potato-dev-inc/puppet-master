@@ -37,45 +37,6 @@ pub fn notify_pane_removed() {
     }
 }
 
-/// Where a visible agent-run pane is shown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Placement {
-    /// Inside the main window's terminal grid.
-    Grid,
-    /// In its own pop-out OS window.
-    Window,
-}
-
-/// Decide where a visible run's pane goes. `requested` is the caller's `placement`
-/// (`auto` | `grid` | `window`; anything else means `auto`). `auto` and `grid` use the main
-/// window grid when it exists and is visible (not closed, hidden or minimized); otherwise the pane
-/// pops out so it is never invisible. `window` always pops out.
-pub fn decide_placement(requested: Option<&str>, main_window_usable: bool) -> Placement {
-    match requested.map(|r| r.trim().to_ascii_lowercase()).as_deref() {
-        // Panes-first: an unspecified placement is its own pop-out window.
-        None | Some("") | Some("window") => Placement::Window,
-        _ if main_window_usable => Placement::Grid,
-        _ => Placement::Window,
-    }
-}
-
-/// True when the main window exists, is visible and not minimized. Always false before `init`
-/// and in unit tests (window APIs need the application manifest).
-#[cfg(test)]
-pub fn main_window_usable() -> bool {
-    false
-}
-
-#[cfg(not(test))]
-pub fn main_window_usable() -> bool {
-    use tauri::Manager;
-    let Some((app, _)) = CONTEXT.get() else { return false };
-    match app.get_webview_window("main") {
-        Some(w) => w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(true),
-        None => false,
-    }
-}
-
 /// Label the frontend gives a detached pane window (mirrors `detachedPaneLabel` in
 /// `src/lib/detached-pane-window.ts`).
 pub fn window_label(pane_id: &str) -> String {
@@ -109,15 +70,40 @@ pub fn close_is_forced(label: &str, live_pane_ids: &[String]) -> bool {
     !orphaned_labels(&[label.to_string()], live_pane_ids).is_empty()
 }
 
+/// The live pane a pop-out window belongs to (labels are a lossy encoding of the pane id, so the
+/// match goes through `window_label`).
+pub fn pane_for_label(label: &str, live_pane_ids: &[String]) -> Option<String> {
+    live_pane_ids.iter().find(|id| window_label(id) == label).cloned()
+}
+
+/// Panes-first: the X of a pane window closes (kills) its pane; there is no grid to reattach to.
+/// Calls `kill` with the pane id when `label` is the window of a live pane and returns whether it did.
+pub fn kill_pane_of_closed_window(label: &str, live_pane_ids: &[String], kill: impl FnOnce(&str)) -> bool {
+    match pane_for_label(label, live_pane_ids) {
+        Some(id) => {
+            kill(&id);
+            true
+        }
+        None => false,
+    }
+}
+
 #[cfg(test)]
 pub fn on_close_requested(_app: &AppHandle, _label: &str) {}
 
-/// Runtime hook for `CloseRequested` on any window: destroys an orphan pane window directly.
+/// Runtime hook for `CloseRequested` on any window. A pane window of a live pane kills that pane
+/// (the window then closes normally); a window showing a dead pane is destroyed directly.
 #[cfg(not(test))]
 pub fn on_close_requested(app: &AppHandle, label: &str) {
     use tauri::Manager;
     let Some((_, registry)) = CONTEXT.get() else { return };
     let live: Vec<String> = registry.lock().list().into_iter().map(|p| p.id).collect();
+    if kill_pane_of_closed_window(label, &live, |id| {
+        let result = crate::pty::registry::kill_pane_with_reason(registry, id, Some("pane window closed"));
+        tracing::info!(%label, pane = %id, ?result, "pane window closed: killed its pane");
+    }) {
+        return;
+    }
     if close_is_forced(label, &live) {
         if let Some(window) = app.get_webview_window(label) {
             let result = window.destroy();
@@ -183,19 +169,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn placement_decision() {
-        assert_eq!(decide_placement(None, true), Placement::Window);
-        assert_eq!(decide_placement(Some(""), true), Placement::Window);
-        assert_eq!(decide_placement(Some("auto"), true), Placement::Grid);
-        assert_eq!(decide_placement(Some("grid"), true), Placement::Grid);
-        assert_eq!(decide_placement(Some("window"), true), Placement::Window);
-        assert_eq!(decide_placement(Some("WINDOW"), true), Placement::Window);
-        assert_eq!(decide_placement(None, false), Placement::Window);
-        assert_eq!(decide_placement(Some("grid"), false), Placement::Window);
-        assert_eq!(decide_placement(Some("junk"), true), Placement::Grid);
-    }
-
-    #[test]
     fn windows_of_closed_panes_are_swept_and_live_ones_kept() {
         let live = vec!["11f5b783-aaaa".to_string(), "odd id/1".to_string()];
         let windows = vec![
@@ -217,6 +190,18 @@ mod tests {
         assert!(close_is_forced(&window_label("bbbb2222-gone"), &live));
         assert!(!close_is_forced(&window_label("aaaa1111-live"), &live));
         assert!(!close_is_forced("main", &live));
+    }
+
+    #[test]
+    fn closing_a_pane_window_kills_exactly_its_pane() {
+        let live = vec!["aaaa1111-live".to_string(), "odd id/1".to_string()];
+        let killed = std::cell::RefCell::new(Vec::new());
+        assert!(kill_pane_of_closed_window(&window_label("odd id/1"), &live, |id| killed.borrow_mut().push(id.to_string())));
+        assert_eq!(*killed.borrow(), vec!["odd id/1".to_string()]);
+        // Windows that are not the window of a live pane kill nothing.
+        assert!(!kill_pane_of_closed_window(&window_label("gone"), &live, |_| panic!("must not kill")));
+        assert!(!kill_pane_of_closed_window("settings", &live, |_| panic!("must not kill")));
+        assert!(!kill_pane_of_closed_window("main", &live, |_| panic!("must not kill")));
     }
 
     #[test]

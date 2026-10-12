@@ -133,8 +133,10 @@ export default function TerminalApp() {
     let unlisten: (() => void) | null = null;
     let disposed = false;
     void tauri.onCurrentWindowCloseRequested(() => {
-      const action = detachedCloseAction({ workerHost, paneExists: registry.panes.has(selectedPaneId) });
-      if (action === 'close') return; // nothing to reattach: the default close destroys the window
+      const action = detachedCloseAction({ workerHost });
+      // Panes-first: closing a pane window kills its pane (the Rust CloseRequested hook does it),
+      // so the default close that follows this handler is all that is needed.
+      if (action === 'close') return;
       if (action === 'kill-and-exit') {
         void (async () => {
           try {
@@ -146,7 +148,6 @@ export default function TerminalApp() {
         })();
         return;
       }
-      void tauri.emitPaneReattach(selectedPaneId);
     }).then((next) => {
       if (disposed) {
         next();
@@ -298,17 +299,6 @@ export default function TerminalApp() {
     }
   };
 
-  const reattachSelected = async () => {
-    if (!selectedPaneId) return;
-    setError(null);
-    try {
-      await tauri.emitPaneReattach(selectedPaneId);
-      await tauri.closeCurrentWindow();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
   return (
     <div className="pm-terminal-app">
       <main className={detached ? 'pm-terminal-shell pm-terminal-shell--detached' : 'pm-terminal-shell'}>
@@ -330,7 +320,6 @@ export default function TerminalApp() {
                   workerHost={workerHost}
                   workerTrayOpen={workerTrayOpen}
                   onToggleWorkerTray={() => setWorkerTrayOpen((open) => !open)}
-                  onReattach={workerHost ? undefined : () => void reattachSelected()}
                   reflowKey={`detached:${selectedPane.info.id}:${selectedPane.info.cols}:${selectedPane.info.rows}`}
                 />
               </>

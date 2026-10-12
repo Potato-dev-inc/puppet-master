@@ -62,3 +62,4 @@ plan.md
 
 # per-machine dev window overrides (see scripts/with-cargo-path.mjs)
 packages/app/src-tauri/tauri.dev.local.json
+packages/app/src-tauri/pm-dev.local.json

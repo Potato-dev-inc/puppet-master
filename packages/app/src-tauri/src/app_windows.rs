@@ -36,6 +36,43 @@ pub fn pane_window_size(cols: u16, rows: u16) -> (f64, f64) {
     )
 }
 
+/// Top-left corner (logical pixels) new windows are placed relative to.
+pub type Anchor = (f64, f64);
+
+/// Horizontal/vertical offset between consecutive windows, and how many steps before wrapping.
+pub const CASCADE_STEP: f64 = 28.0;
+pub const CASCADE_SLOTS: usize = 8;
+const CASCADE_ORIGIN: (f64, f64) = (40.0, 60.0);
+
+/// Parse `"x,y"` (the dev anchor in `PM_WINDOW_ANCHOR`). Negative values are valid (a monitor to
+/// the left of the primary one).
+pub fn parse_anchor(text: &str) -> Option<Anchor> {
+    let (x, y) = text.split_once(',')?;
+    let (x, y) = (x.trim().parse::<f64>().ok()?, y.trim().parse::<f64>().ok()?);
+    (x.is_finite() && y.is_finite()).then_some((x, y))
+}
+
+/// `settings.pane_window_position` = `{ "x": n, "y": n }` from the app's `settings.json`
+/// (`{"settings": {...}}`, written by the frontend store plugin).
+pub fn anchor_from_settings(file: &serde_json::Value) -> Option<Anchor> {
+    let pos = file.get("settings")?.get("pane_window_position")?;
+    let (x, y) = (pos.get("x")?.as_f64()?, pos.get("y")?.as_f64()?);
+    (x.is_finite() && y.is_finite()).then_some((x, y))
+}
+
+/// Where windows go: the dev anchor wins (it keeps dev windows on the secondary monitor), then
+/// the user's setting, then the primary monitor's origin. `None` means "OS default".
+pub fn resolve_anchor(dev: Option<Anchor>, setting: Option<Anchor>, primary: Option<Anchor>) -> Option<Anchor> {
+    dev.or(setting).or(primary)
+}
+
+/// Position of the `slot`-th window opened from `anchor`: just inside the anchor, each next window
+/// offset by `CASCADE_STEP`, wrapping after `CASCADE_SLOTS` so a long session never walks off screen.
+pub fn cascade_position(anchor: Anchor, slot: usize) -> Anchor {
+    let step = (slot % CASCADE_SLOTS) as f64 * CASCADE_STEP;
+    (anchor.0 + CASCADE_ORIGIN.0 + step, anchor.1 + CASCADE_ORIGIN.1 + step)
+}
+
 mod runtime {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -43,14 +80,19 @@ mod runtime {
 
     static STAGGER: AtomicUsize = AtomicUsize::new(0);
 
-    /// Logical x/y just inside the main window (so a dev window lands on the monitor the app is
-    /// on), staggered so windows do not stack exactly. `None` when there is no main window.
-    fn near_main(app: &AppHandle) -> Option<(f64, f64)> {
-        let main = app.get_webview_window("main")?;
-        let pos = main.outer_position().ok()?;
-        let scale = main.scale_factor().ok()?;
-        let step = (STAGGER.fetch_add(1, Ordering::Relaxed) % 8) as f64 * 28.0;
-        Some((f64::from(pos.x) / scale + 40.0 + step, f64::from(pos.y) / scale + 60.0 + step))
+    /// Logical x/y for the next window (cascaded), or `None` to let the OS choose.
+    fn next_position(app: &AppHandle) -> Option<(f64, f64)> {
+        let dev = std::env::var("PM_WINDOW_ANCHOR").ok().and_then(|v| parse_anchor(&v));
+        let setting = std::fs::read_to_string(crate::app_paths::app_data_dir().join("settings.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|json| anchor_from_settings(&json));
+        let primary = app.primary_monitor().ok().flatten().map(|m| {
+            let scale = m.scale_factor();
+            (f64::from(m.position().x) / scale, f64::from(m.position().y) / scale)
+        });
+        let anchor = resolve_anchor(dev, setting, primary)?;
+        Some(cascade_position(anchor, STAGGER.fetch_add(1, Ordering::Relaxed)))
     }
 
     fn show(window: &tauri::WebviewWindow, focus: bool) {
@@ -77,7 +119,7 @@ mod runtime {
                 .min_inner_size(720.0, 480.0)
                 .resizable(true)
                 .focused(focus);
-            if let Some((x, y)) = near_main(&app) {
+            if let Some((x, y)) = next_position(&app) {
                 builder = builder.position(x, y);
             }
             match builder.build() {
@@ -94,7 +136,7 @@ mod runtime {
     pub fn open_pane_window(app: &AppHandle, pane_id: &str, agent: &str, cols: u16, rows: u16, focus: bool) {
         let label = crate::pane_windows::window_label(pane_id);
         if let Some(window) = app.get_webview_window(&label) {
-            show(&window, true);
+            show(&window, focus);
             return;
         }
         let (w, h) = pane_window_size(cols, rows);
@@ -105,12 +147,28 @@ mod runtime {
             .min_inner_size(260.0, 140.0)
             .resizable(true)
             .focused(focus);
-        if let Some((x, y)) = near_main(app) {
+        if let Some((x, y)) = next_position(app) {
             builder = builder.position(x, y);
         }
         match builder.build() {
             Ok(_) => tracing::info!(pane = %pane_id, "pane window opened"),
             Err(e) => tracing::warn!(pane = %pane_id, error = %e, "pane window failed to open"),
+        }
+    }
+
+    /// The standalone worker host (`--worker`) window, label `main` (the frontend routes it to the
+    /// worker-host bootstrap). Only created in worker mode; the normal app has no main window.
+    pub fn open_worker_host_window(app: &AppHandle) {
+        if app.get_webview_window("main").is_some() {
+            return;
+        }
+        let built = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            .title("Puppet Master")
+            .inner_size(1000.0, 700.0)
+            .resizable(true)
+            .build();
+        if let Err(e) = built {
+            tracing::warn!(error = %e, "worker host window failed to open");
         }
     }
 
@@ -126,7 +184,7 @@ mod runtime {
     }
 }
 
-pub use runtime::{on_close_requested, open_pane_window, open_settings_window};
+pub use runtime::{on_close_requested, open_pane_window, open_settings_window, open_worker_host_window};
 
 #[cfg(test)]
 mod tests {
@@ -138,6 +196,38 @@ mod tests {
         assert_eq!(settings_url(Some("mcp")), "index.html?settings=1&tab=mcp");
         assert_eq!(settings_url(Some("a&b=c")), "index.html?settings=1&tab=agents");
         assert_eq!(settings_url(Some("")), "index.html?settings=1&tab=agents");
+    }
+
+    #[test]
+    fn anchors_parse_from_dev_env_and_settings_file() {
+        assert_eq!(parse_anchor("-1660,60"), Some((-1660.0, 60.0)));
+        assert_eq!(parse_anchor(" 10 , 20.5 "), Some((10.0, 20.5)));
+        assert_eq!(parse_anchor("10"), None);
+        assert_eq!(parse_anchor("a,b"), None);
+        let file = serde_json::json!({"settings": {"pane_window_position": {"x": -100, "y": 5}}});
+        assert_eq!(anchor_from_settings(&file), Some((-100.0, 5.0)));
+        assert_eq!(anchor_from_settings(&serde_json::json!({"settings": {}})), None);
+        assert_eq!(anchor_from_settings(&serde_json::json!({"settings": {"pane_window_position": {"x": 1}}})), None);
+    }
+
+    #[test]
+    fn anchor_priority_is_dev_then_setting_then_primary() {
+        let (d, s, p) = (Some((1.0, 1.0)), Some((2.0, 2.0)), Some((3.0, 3.0)));
+        assert_eq!(resolve_anchor(d, s, p), d);
+        assert_eq!(resolve_anchor(None, s, p), s);
+        assert_eq!(resolve_anchor(None, None, p), p);
+        assert_eq!(resolve_anchor(None, None, None), None);
+    }
+
+    #[test]
+    fn cascade_offsets_each_window_and_wraps() {
+        let anchor = (-1660.0, 60.0);
+        assert_eq!(cascade_position(anchor, 0), (-1620.0, 120.0));
+        assert_eq!(cascade_position(anchor, 1), (-1592.0, 148.0));
+        assert_eq!(cascade_position(anchor, CASCADE_SLOTS), cascade_position(anchor, 0));
+        let all: std::collections::HashSet<_> =
+            (0..CASCADE_SLOTS).map(|i| format!("{:?}", cascade_position(anchor, i))).collect();
+        assert_eq!(all.len(), CASCADE_SLOTS);
     }
 
     #[test]

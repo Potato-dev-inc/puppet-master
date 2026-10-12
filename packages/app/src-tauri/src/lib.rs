@@ -67,7 +67,7 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
-        // A second launch focuses the running app's main window and exits, so it never starts
+        // A second launch opens the running app's Settings window and exits, so it never starts
         // another bridge or rewrites the bridge port file.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Panes-first: a second launch opens the Settings window. `--new-pane <agent>` also
@@ -277,6 +277,12 @@ pub fn run() {
 
             let registry_for_panes = app.state::<AppState>().registry.clone();
             pane_windows::init(app.handle(), registry_for_panes.clone());
+            settings_store::load_saved_public_settings(app.handle());
+            // Panes-first: no main window. A standalone worker host (`--worker`) is the one
+            // exception: it is a user-launched single-terminal window and needs its webview.
+            if worker_launch::worker_launch().is_some() {
+                app_windows::open_worker_host_window(app.handle());
+            }
             if let Err(e) = tray::init(app.handle()) {
                 tracing::warn!(error = %e, "tray icon failed to start");
             }
@@ -301,6 +307,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
+            // Tray-only: closing the last window (a pane, Settings) must not end the app.
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+                if code.is_none() {
+                    api.prevent_exit();
+                }
+            }
             if let tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::CloseRequested { api, .. }, .. } = &event {
                 if app_windows::on_close_requested(app_handle, label) {
                     api.prevent_close();
