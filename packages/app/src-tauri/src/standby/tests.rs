@@ -15,9 +15,13 @@ struct FakeHost {
     default_health: Mutex<Option<Health>>,
     fail_spawn: Mutex<bool>,
     counter: Mutex<u32>,
+    project: Mutex<Option<String>>,
 }
 
 impl FakeHost {
+    fn set_project(&self, project: &str) {
+        *self.project.lock() = Some(project.to_string());
+    }
     fn set_health(&self, handle: &Handle, health: Health) {
         self.health.lock().insert(handle.clone(), health);
     }
@@ -52,6 +56,9 @@ impl Host for FakeHost {
     fn kill(&self, handle: &Handle, reason: &str) {
         self.killed.lock().push((handle.clone(), reason.to_string()));
     }
+    fn default_project(&self) -> Option<String> {
+        Some(self.project.lock().clone().unwrap_or_else(|| "/w".to_string()))
+    }
 }
 
 fn config(backends: &[(&str, bool, bool)]) -> StandbyConfig {
@@ -60,7 +67,11 @@ fn config(backends: &[(&str, bool, bool)]) -> StandbyConfig {
         idle_timeout_secs: 60,
         ..Default::default()
     };
+    config.preload.enabled = true;
     for (agent, visible, headless) in backends {
+        if *visible {
+            config.preload.providers.insert((*agent).into(), 1);
+        }
         config.backends.insert(
             (*agent).into(),
             BackendToggle {
@@ -107,8 +118,8 @@ fn miss(outcome: ClaimOutcome) -> MissReason {
 fn a_matching_key_claims_the_warm_standby() {
     let host = Arc::new(FakeHost::default());
     let pool = pool(&host, config(&[("cursor_agent", true, false)]));
-    let key = key("cursor_agent", "/work/a");
-    pool.note_run(&key, "/work/a", 0);
+    let key = key("cursor_agent", "/w");
+    pool.note_run(&key, "/w", 0);
     let now = warm_up(&pool, 0);
     assert_eq!(pool.status(now).counts.ready, 1);
     let claim = hit(pool.claim(&key, now));
@@ -248,19 +259,20 @@ fn claiming_schedules_a_replacement() {
 }
 
 #[test]
-fn only_the_most_recent_projects_inside_the_window_are_warmed() {
+fn headless_standbys_warm_only_the_most_recent_projects_inside_the_window() {
     let host = Arc::new(FakeHost::default());
-    let mut cfg = config(&[("claude", true, false)]);
+    let mut cfg = config(&[("claude", false, true)]);
     cfg.recent_projects = 2;
     cfg.recent_hours = 1;
     cfg.max_total = 8;
     let pool = pool(&host, cfg);
     let hour = 3_600_000;
     let now = 10 * hour;
-    pool.note_run(&key("claude", "/old"), "/old", now - 2 * hour); // outside the window
-    pool.note_run(&key("claude", "/third"), "/third", now - 3_000);
-    pool.note_run(&key("claude", "/second"), "/second", now - 2_000);
-    pool.note_run(&key("claude", "/first"), "/first", now - 1_000);
+    let hl = |project: &str| PoolKey::new("claude", project, None, false, false, true);
+    pool.note_run(&hl("/old"), "/old", now - 2 * hour); // outside the window
+    pool.note_run(&hl("/third"), "/third", now - 3_000);
+    pool.note_run(&hl("/second"), "/second", now - 2_000);
+    pool.note_run(&hl("/first"), "/first", now - 1_000);
     pool.reconcile(now);
     let mut warmed: Vec<String> = host.spawned.lock().iter().map(|(key, _)| key.project.clone()).collect();
     warmed.sort();
@@ -270,22 +282,89 @@ fn only_the_most_recent_projects_inside_the_window_are_warmed() {
 #[test]
 fn the_global_cap_bounds_standbys_across_keys() {
     let host = Arc::new(FakeHost::default());
-    let mut cfg = config(&[("claude", true, false), ("cursor_agent", true, false)]);
+    let mut cfg = config(&[("claude", false, true)]);
     cfg.max_total = 2;
-    cfg.recent_projects = 2;
+    cfg.recent_projects = 3;
     let pool = pool(&host, cfg);
-    for (agent, project, at) in [
-        ("claude", "/a", 1),
-        ("cursor_agent", "/a", 2),
-        ("claude", "/b", 3),
-        ("cursor_agent", "/b", 4),
-    ] {
-        pool.note_run(&key(agent, project), project, at);
+    for (project, at) in [("/a", 1), ("/b", 2), ("/c", 3)] {
+        pool.note_run(&PoolKey::new("claude", project, None, false, false, true), project, at);
     }
     pool.reconcile(10);
     pool.reconcile(10);
     assert_eq!(host.spawn_count(), 2);
     assert_eq!(pool.status(10).counts.total, 2);
+}
+
+#[test]
+fn preload_warms_each_ticked_provider_in_the_default_project_without_any_run() {
+    let host = Arc::new(FakeHost::default());
+    host.set_project("/home/proj");
+    let pool = pool(&host, config(&[("claude", true, false), ("cursor_agent", true, false)]));
+    let spawned = pool.reconcile(0).spawned;
+    assert_eq!(spawned.len(), 2);
+    assert!(spawned.iter().all(|k| k.project == "/home/proj" && !k.headless));
+    assert!(pool.reconcile(0).spawned.is_empty(), "one each");
+    assert!(pool.ready_agents().is_empty(), "still starting");
+    let now = warm_up(&pool, 1_000);
+    assert_eq!(pool.ready_agents(), vec!["claude".to_string(), "cursor_agent".to_string()]);
+    hit(pool.claim(&key("claude", "/home/proj"), now)).commit();
+    assert_eq!(pool.ready_agents(), vec!["cursor_agent".to_string()]);
+}
+
+#[test]
+fn preload_keeps_the_requested_count_per_provider_and_replaces_after_a_claim() {
+    let host = Arc::new(FakeHost::default());
+    let mut cfg = config(&[("claude", true, false)]);
+    cfg.preload.providers.insert("claude".into(), 2);
+    let pool = pool(&host, cfg.clamped());
+    pool.reconcile(0);
+    assert_eq!(host.spawn_count(), 2, "two warm workers for count 2");
+    let now = warm_up(&pool, 1_000);
+    assert_eq!(pool.status(now).counts.ready, 2);
+    hit(pool.claim(&key("claude", "/w"), now)).commit();
+    // Replacement scheduling: the claim woke the loop and the next pass tops it back up to 2.
+    assert!(pool.wake_handle().wait(std::time::Duration::from_millis(1)));
+    assert_eq!(pool.reconcile(now).spawned.len(), 1);
+    assert_eq!(host.spawn_count(), 3);
+    assert!(pool.reconcile(now).spawned.is_empty());
+}
+
+#[test]
+fn a_claim_takes_the_ready_worker_even_when_a_sibling_is_still_starting() {
+    let host = Arc::new(FakeHost::default());
+    let mut cfg = config(&[("claude", true, false)]);
+    cfg.preload.providers.insert("claude".into(), 2);
+    let pool = pool(&host, cfg.clamped());
+    pool.reconcile(0); // two spawned
+    let first = host.spawned.lock()[0].1.clone();
+    let second = host.spawned.lock()[1].1.clone();
+    host.set_health(&second, Health::Starting);
+    let now = warm_up(&pool, 1_000);
+    let claim = hit(pool.claim(&key("claude", "/w"), now));
+    assert_eq!(claim.handle(), &first);
+    claim.commit();
+}
+
+#[test]
+fn preload_off_or_without_a_default_project_warms_nothing() {
+    struct NoProject;
+    impl Host for NoProject {
+        fn spawn(&self, _: &PoolKey, _: &str) -> Result<Handle, String> {
+            panic!("must not spawn")
+        }
+        fn check(&self, _: &PoolKey, _: &Handle, _: i64) -> Health {
+            Health::Dead
+        }
+        fn kill(&self, _: &Handle, _: &str) {}
+    }
+    let pool = Pool::new(Arc::new(NoProject), None, config(&[("claude", true, false)]), Vec::new(), 0);
+    assert!(pool.reconcile(0).spawned.is_empty(), "no default project");
+    let host = Arc::new(FakeHost::default());
+    let mut off = config(&[("claude", true, false)]);
+    off.preload.enabled = false;
+    let pool = Pool::new(host.clone(), None, off, Vec::new(), 0);
+    assert!(pool.reconcile(0).spawned.is_empty());
+    assert_eq!(host.spawn_count(), 0);
 }
 
 #[test]
@@ -334,12 +413,12 @@ fn disabling_the_pool_or_a_backend_kills_its_standbys() {
     warm_up(&pool, 10);
     assert_eq!(pool.status(20).counts.total, 2);
     let mut only_claude = cfg.clone();
-    only_claude.backends.get_mut("cursor_agent").unwrap().visible = false;
+    only_claude.preload.providers.remove("cursor_agent");
     pool.set_config(only_claude);
     assert_eq!(pool.status(20).counts.total, 1);
     assert_eq!(host.kills().len(), 1);
     let mut off = cfg;
-    off.enabled = false;
+    off.preload.enabled = false;
     pool.set_config(off);
     assert_eq!(pool.status(20).counts.total, 0);
     assert_eq!(host.kills().len(), 2);
@@ -365,6 +444,7 @@ fn a_claim_given_back_unused_shuts_the_worker_down() {
 fn a_folder_that_shows_a_dialog_is_not_pooled_and_goes_cold_after_repeated_failures() {
     let host = Arc::new(FakeHost::default());
     *host.default_health.lock() = Some(Health::Dialog);
+    host.set_project("/untrusted");
     let pool = pool(&host, config(&[("cursor_agent", true, false)]));
     let key = key("cursor_agent", "/untrusted");
     pool.note_run(&key, "/untrusted", 0);
@@ -502,12 +582,15 @@ fn loads_legacy_pool_file() {
 
     let (loaded, recent) = super::config::load(&path);
     assert!(loaded.enabled);
+    assert!(loaded.preload.enabled, "the old master switch becomes Preload's");
+    assert_eq!(loaded.preload.providers.get("claude"), Some(&1));
+    assert_eq!(loaded.preload.providers.get("cursor_agent"), Some(&1));
     assert_eq!(
         loaded.backends.keys().map(String::as_str).collect::<Vec<_>>(),
         ["claude", "cursor_agent"]
     );
-    assert_eq!(loaded.backends["claude"], BackendToggle { visible: true, headless: true });
-    assert_eq!(loaded.backends["cursor_agent"], BackendToggle { visible: true, headless: false });
+    assert_eq!(loaded.backends["claude"], BackendToggle { visible: false, headless: true });
+    assert_eq!(loaded.backends["cursor_agent"], BackendToggle { visible: false, headless: false });
     assert_eq!(
         recent.iter().map(|r| r.key.clone()).collect::<Vec<_>>(),
         [
@@ -517,9 +600,9 @@ fn loads_legacy_pool_file() {
     );
     assert!(loaded.allows(&recent[0].key));
 
-    // Saving what was loaded writes the same file back, byte for byte.
+    // The migration is stable: what was loaded saves and loads back equal (no second migration).
     super::config::save(&path, &loaded, &recent).unwrap();
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), LEGACY_POOL_FILE);
+    assert_eq!(super::config::load(&path), (loaded, recent));
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_dir(&dir);
 }
@@ -548,4 +631,19 @@ fn fingerprint_change_discards_workers() {
     // The key stays allowed: the next pass warms a replacement.
     let later = warm_up(&pool, now + 1_000);
     hit(pool.claim(&claude, later)).commit();
+}
+
+#[test]
+fn a_warm_worker_whose_project_is_no_longer_the_default_is_replaced() {
+    let host = Arc::new(FakeHost::default());
+    host.set_project("/old");
+    let pool = pool(&host, config(&[("claude", true, false)]));
+    pool.reconcile(0);
+    let stranded = host.last_handle();
+    host.set_project("/new");
+    let outcome = pool.reconcile(10);
+    assert_eq!(outcome.killed, 1);
+    assert_eq!(host.kills(), vec![(stranded, "project_changed".to_string())]);
+    assert_eq!(outcome.spawned.len(), 1);
+    assert_eq!(outcome.spawned[0].project, "/new");
 }

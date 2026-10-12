@@ -268,3 +268,16 @@ fn tui_sidebar_is_cropped_so_the_reply_is_just_the_answer() {
         .collect();
     assert_eq!(kept, ["The variable name is SECRET_FIXTURE_VALUE."], "{cropped}");
 }
+
+#[test]
+fn kilo_standby_is_ready_only_at_the_empty_input_box() {
+    use crate::tui::types::StandbyScreen;
+    let p = profile();
+    assert!(p.standby_support().visible, "kilo.toml declares [standby] visible and [tui.ready]");
+    let idle = include_str!("../fixtures/kilo/tui_idle.txt");
+    let working = include_str!("../fixtures/kilo/tui_working.txt");
+    let permission = include_str!("../fixtures/kilo/tui_permission.txt");
+    assert_eq!(p.standby_screen(idle), StandbyScreen::Ready);
+    assert_ne!(p.standby_screen(working), StandbyScreen::Ready, "a turn in flight is not a warm worker");
+    assert_eq!(p.standby_screen(permission), StandbyScreen::Dialog, "a dialog is never answered by the pool");
+}

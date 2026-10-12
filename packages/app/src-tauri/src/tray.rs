@@ -64,7 +64,7 @@ pub fn second_launch_action(args: &[String]) -> SecondLaunch {
 
 /// `agents` is the `agents` array of `GET /agents/types`. An agent that can open a visible pane is
 /// an enabled entry; a headless-only one stays listed but disabled.
-pub fn new_pane_items(agents: &[Value]) -> Vec<Item> {
+pub fn new_pane_items(agents: &[Value], ready: &[String]) -> Vec<Item> {
     let mut items = Vec::new();
     for agent in agents {
         let Some(id) = agent.get("id").and_then(Value::as_str) else { continue };
@@ -72,7 +72,9 @@ pub fn new_pane_items(agents: &[Value]) -> Vec<Item> {
         let visible = agent.pointer("/modes/visible").and_then(Value::as_bool).unwrap_or(false);
         let headless = agent.pointer("/modes/headless").and_then(Value::as_bool).unwrap_or(false);
         if visible {
-            items.push(Item::Action { id: format!("{PREFIX_NEW}{id}"), label: label.to_string(), enabled: true });
+            // A Preload worker is waiting for this provider: opening it is instant.
+            let label = if ready.iter().any(|r| r == id) { format!("{label} (ready)") } else { label.to_string() };
+            items.push(Item::Action { id: format!("{PREFIX_NEW}{id}"), label, enabled: true });
         } else if headless {
             items.push(Item::Action {
                 id: format!("{PREFIX_NEW}{id}"),
@@ -101,9 +103,9 @@ pub fn pane_items(panes: &[PaneRow]) -> Vec<Item> {
         .collect()
 }
 
-pub fn build_model(agents: &[Value], panes: &[PaneRow]) -> Vec<Item> {
+pub fn build_model(agents: &[Value], panes: &[PaneRow], ready: &[String]) -> Vec<Item> {
     vec![
-        Item::Submenu { label: "New pane".into(), items: new_pane_items(agents) },
+        Item::Submenu { label: "New pane".into(), items: new_pane_items(agents, ready) },
         Item::Submenu { label: "Panes".into(), items: pane_items(panes) },
         Item::Separator,
         Item::Action { id: ID_SETTINGS.into(), label: "Settings\u{2026}".into(), enabled: true },
@@ -152,7 +154,7 @@ mod runtime {
                     .collect()
             })
             .unwrap_or_default();
-        build_model(&agents, &panes)
+        build_model(&agents, &panes, &crate::standby::ready_agents())
     }
 
     fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
@@ -172,16 +174,36 @@ mod runtime {
         }
     }
 
-    /// Spawn a visible pane for `agent` in the default project folder and pop it out.
+    /// Open a visible pane for `agent` in the default project folder and pop it out. A Preload worker
+    /// for that provider is claimed when one is warm (its hidden window is just shown); otherwise
+    /// the pane is spawned cold. A person asked for it, so the window takes focus.
     pub fn new_pane(app: &AppHandle, agent: &str) -> Result<String, String> {
         use tauri::Emitter;
+        let started = std::time::Instant::now();
         let state = app.state::<AppState>();
+        let project = crate::standby::default_project(&state.registry);
+        let key = crate::standby::preload_key(agent, &project);
+        let claim = key.as_ref().and_then(crate::standby::claim_visible);
+        if let Some(key) = &key {
+            // Counts as a use of this provider: lifts idle/backoff holds and warms a replacement.
+            crate::standby::note_run(key, &project);
+        }
+        if let Some(claim) = claim {
+            let warm_ms = claim.age_ms();
+            let pane_id = claim.commit();
+            let info = state.registry.lock().list().into_iter().find(|p| p.id == pane_id);
+            let (cols, rows) = info.map(|p| (p.cols, p.rows)).unwrap_or((120, 30));
+            crate::app_windows::open_pane_window(app, &pane_id, agent, cols, rows, true);
+            let _ = app.emit("pty://panes-changed", ());
+            tracing::info!(%agent, pane = %pane_id, warm_ms, took_ms = started.elapsed().as_millis() as u64, "tray: opened new pane from a warm worker");
+            return Ok(pane_id);
+        }
         let pane_id = crate::pty::registry_spawn_pane(
             &state.registry,
             app,
             crate::pty::SpawnPaneArgs {
                 agent_type: agent.to_string(),
-                cwd: None,
+                cwd: Some(project.clone()),
                 cols: None,
                 rows: None,
                 extra_args: None,
@@ -191,8 +213,9 @@ mod runtime {
         )?;
         let info = state.registry.lock().list().into_iter().find(|p| p.id == pane_id);
         let (cols, rows) = info.map(|p| (p.cols, p.rows)).unwrap_or((120, 30));
-        crate::app_windows::open_pane_window(app, &pane_id, agent, cols, rows, false);
+        crate::app_windows::open_pane_window(app, &pane_id, agent, cols, rows, true);
         let _ = app.emit("pty://panes-changed", ());
+        tracing::info!(%agent, pane = %pane_id, took_ms = started.elapsed().as_millis() as u64, "tray: opened new pane cold");
         Ok(pane_id)
     }
 
@@ -249,7 +272,7 @@ mod runtime {
         }
         builder.build(app)?;
         tracing::info!("tray icon created (tooltip \"Puppet Master\")");
-        for event in ["pty://panes-changed", "agent_definitions_changed"] {
+        for event in ["pty://panes-changed", "agent_definitions_changed", crate::standby::READY_EVENT] {
             let handle = app.clone();
             app.listen(event, move |_| refresh(&handle));
         }
@@ -270,11 +293,14 @@ mod tests {
 
     #[test]
     fn visible_agents_are_enabled_and_headless_only_ones_are_disabled_and_marked() {
-        let items = new_pane_items(&[
-            agent("kilo", "Kilo", true, true),
-            agent("kiro", "Kiro", false, true),
-            agent("ghost", "Ghost", false, false),
-        ]);
+        let items = new_pane_items(
+            &[
+                agent("kilo", "Kilo", true, true),
+                agent("kiro", "Kiro", false, true),
+                agent("ghost", "Ghost", false, false),
+            ],
+            &[],
+        );
         assert_eq!(items.len(), 2, "an agent with no mode at all is omitted");
         assert_eq!(items[0], Item::Action { id: "new:kilo".into(), label: "Kilo".into(), enabled: true });
         assert_eq!(
@@ -299,8 +325,18 @@ mod tests {
     }
 
     #[test]
+    fn agents_with_a_warm_worker_are_marked_ready() {
+        let items = new_pane_items(
+            &[agent("claude", "Claude Code", true, true), agent("kilo", "Kilo", true, true)],
+            &["kilo".to_string()],
+        );
+        assert_eq!(items[0], Item::Action { id: "new:claude".into(), label: "Claude Code".into(), enabled: true });
+        assert_eq!(items[1], Item::Action { id: "new:kilo".into(), label: "Kilo (ready)".into(), enabled: true });
+    }
+
+    #[test]
     fn empty_lists_show_a_disabled_placeholder() {
-        assert!(matches!(&new_pane_items(&[])[0], Item::Action { enabled: false, .. }));
+        assert!(matches!(&new_pane_items(&[], &[])[0], Item::Action { enabled: false, .. }));
         assert!(matches!(&pane_items(&[])[0], Item::Action { enabled: false, .. }));
     }
 
@@ -315,7 +351,7 @@ mod tests {
 
     #[test]
     fn model_has_the_four_top_level_entries_in_order() {
-        let model = build_model(&[agent("kilo", "Kilo", true, true)], &[]);
+        let model = build_model(&[agent("kilo", "Kilo", true, true)], &[], &[]);
         assert!(matches!(&model[0], Item::Submenu { label, .. } if label == "New pane"));
         assert!(matches!(&model[1], Item::Submenu { label, .. } if label == "Panes"));
         assert_eq!(model[2], Item::Separator);

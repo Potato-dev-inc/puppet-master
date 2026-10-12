@@ -48,6 +48,10 @@ struct Global {
 
 static GLOBAL: OnceCell<Global> = OnceCell::new();
 
+/// Emitted (payload: provider ids) when the set of providers with a claimable warm worker changes;
+/// the tray menu listens to mark them "(ready)".
+pub const READY_EVENT: &str = "standby://ready-changed";
+
 /// The pool does not start spawning until the app has had this long to come up.
 const STARTUP_GRACE_MS: i64 = 8_000;
 /// Maintenance cadence when nothing wakes the loop sooner.
@@ -65,7 +69,7 @@ pub fn init(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle) {
 
 fn init_with_path(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle, path: std::path::PathBuf) {
     let _ = CONFIG_PATH.set(path.clone());
-    let host = Arc::new(LiveHost::new(registry, app));
+    let host = Arc::new(LiveHost::new(registry, app.clone()));
     let (config, recent) = config::load(&path);
     let pool = Arc::new(Pool::new(
         host.clone(),
@@ -84,10 +88,12 @@ fn init_with_path(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle, path: std:
         return;
     }
     let path = config_path_for_loop();
+    let app_for_loop = app;
     let _ = std::thread::Builder::new()
         .name("standby-pool".into())
         .spawn(move || {
             let mut seen_mtime = mtime(&path);
+            let mut seen_ready: Vec<String> = Vec::new();
             loop {
                 pool.wake_handle().wait(TICK);
                 if pool.is_shut_down() {
@@ -105,6 +111,11 @@ fn init_with_path(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle, path: std:
                     }
                 }
                 pool.reconcile(now_ms());
+                let ready = pool.ready_agents();
+                if ready != seen_ready {
+                    seen_ready = ready;
+                    let _ = tauri::Emitter::emit(&app_for_loop, READY_EVENT, &seen_ready);
+                }
             }
         });
 }
@@ -152,6 +163,51 @@ pub fn status() -> StatusView {
 /// Counts only, for `/health`. `None` before the pool is initialised.
 pub fn health_summary() -> Option<HealthSummary> {
     pool().map(|pool| pool.health_summary())
+}
+
+/// `settings.project_path` from the app's `settings.json` (`{"settings": {...}}`).
+pub fn project_from_settings(file: &serde_json::Value) -> Option<String> {
+    let path = file.get("settings")?.get("project_path")?.as_str()?.trim();
+    (!path.is_empty()).then(|| path.to_string())
+}
+
+/// The folder Preload warms in and the tray opens panes in: the "project folder" setting when it
+/// names an existing directory, else the registry's current project. The registry's own project
+/// follows whatever workspace a run last selected, which would make warm workers chase it.
+pub fn default_project(registry: &Mutex<PaneRegistry>) -> String {
+    let from_settings = std::fs::read_to_string(crate::app_paths::app_data_dir().join("settings.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|json| project_from_settings(&json))
+        .map(|path| crate::project_path::expand_user_path(std::path::Path::new(&path)))
+        .filter(|path| path.is_dir());
+    match from_settings {
+        Some(path) => path.to_string_lossy().into_owned(),
+        None => crate::pty::registry_get_project_path(registry),
+    }
+}
+
+/// Providers with a claimable warm visible worker right now.
+pub fn ready_agents() -> Vec<String> {
+    pool().map(|pool| pool.ready_agents()).unwrap_or_default()
+}
+
+/// The pool key Preload warms for `agent_type`: default project, no model, default options.
+#[cfg(test)]
+mod project_tests {
+    use super::*;
+    #[test]
+    fn the_default_project_is_the_project_folder_setting() {
+        let file = serde_json::json!({"settings": {"project_path": " C:/work/app "}});
+        assert_eq!(project_from_settings(&file).as_deref(), Some("C:/work/app"));
+        assert_eq!(project_from_settings(&serde_json::json!({"settings": {"project_path": ""}})), None);
+        assert_eq!(project_from_settings(&serde_json::json!({"settings": {}})), None);
+        assert_eq!(project_from_settings(&serde_json::json!({})), None);
+    }
+}
+
+pub fn preload_key(agent_type: &str, default_project: &str) -> Option<PoolKey> {
+    key_for_run(agent_type, default_project, None, false, false, false)
 }
 
 /// A run of `key` started: remember it so the next one can find a warm worker.

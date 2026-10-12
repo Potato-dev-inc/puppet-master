@@ -97,7 +97,8 @@ pub fn on_close_requested(_app: &AppHandle, _label: &str) {}
 pub fn on_close_requested(app: &AppHandle, label: &str) {
     use tauri::Manager;
     let Some((_, registry)) = CONTEXT.get() else { return };
-    let live: Vec<String> = registry.lock().list().into_iter().map(|p| p.id).collect();
+    // Hidden warm panes count as live: their windows exist (hidden) until a claim shows them.
+    let live: Vec<String> = registry.lock().list_all().into_iter().map(|p| p.id).collect();
     if kill_pane_of_closed_window(label, &live, |id| {
         let result = crate::pty::registry::kill_pane_with_reason(registry, id, Some("pane window closed"));
         tracing::info!(%label, pane = %id, ?result, "pane window closed: killed its pane");
@@ -134,7 +135,7 @@ pub fn schedule_sweep(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) {
                 thread::sleep(delay);
                 let live: Vec<String> = registry
                     .lock()
-                    .list()
+                    .list_all()
                     .into_iter()
                     .map(|pane| pane.id)
                     .collect();

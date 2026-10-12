@@ -64,7 +64,19 @@ impl LiveHost {
                 read_only: key.read_only,
             },
         ) {
-            Ok(id) => Ok(Handle::Pane(id)),
+            Ok(id) => {
+                // Preload: the pane's window is created now, hidden, so a claim only shows it.
+                let (cols, rows) = self
+                    .registry
+                    .lock()
+                    .list_all()
+                    .into_iter()
+                    .find(|pane| pane.id == id)
+                    .map(|pane| (pane.cols, pane.rows))
+                    .unwrap_or((120, 30));
+                crate::app_windows::open_warm_pane_window(&self.app, &id, &key.agent_type, cols, rows);
+                Ok(Handle::Pane(id))
+            }
             Err(error) => {
                 crate::pty::hidden::forget(&pane_id);
                 Err(error)
@@ -168,15 +180,21 @@ impl Host for LiveHost {
         }
     }
 
+    fn default_project(&self) -> Option<String> {
+        Some(super::default_project(&self.registry))
+    }
+
     fn kill(&self, handle: &Handle, reason: &str) {
         tracing::info!(?handle, reason, "standby shut down");
         match handle {
             Handle::Pane(id) => {
                 // Taking the pane out of the registry is quick; stopping its process tree is not.
                 let (registry, id, reason) = (self.registry.clone(), id.clone(), reason.to_string());
+                let app = self.app.clone();
                 let _ = std::thread::Builder::new()
                     .name("standby-kill".into())
                     .spawn(move || {
+                        crate::app_windows::close_warm_pane_window(&app, &id);
                         let _ = crate::pty::registry_kill_pane_with_reason(
                             &registry,
                             &id,

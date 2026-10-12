@@ -61,6 +61,10 @@ pub trait Host: Send + Sync {
     fn check(&self, key: &PoolKey, handle: &Handle, age_ms: i64) -> Health;
     /// Shut a standby down. Must not block for long (called under no lock, but on hot paths).
     fn kill(&self, handle: &Handle, reason: &str);
+    /// The folder Preload warms workers in (the default project folder). `None`: nothing to warm.
+    fn default_project(&self) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -343,12 +347,16 @@ impl Pool {
             }
             // Over the new cap: shut the youngest down first.
             keep.sort_by_key(|entry| entry.created_ms);
-            while keep.len() > inner.config.max_total {
+            let cap = inner.config.cap();
+            while keep.len() > cap {
                 if let Some(entry) = keep.pop() {
                     doomed.push(entry);
                 }
             }
             inner.entries = keep;
+            // Changed settings are a fresh start: keys held back by failures or idle expiry retry now.
+            inner.backoff.clear();
+            inner.suppressed.clear();
             (doomed, (inner.config.clone(), inner.recent.clone()))
         };
         for entry in &doomed {
@@ -365,7 +373,7 @@ impl Pool {
     pub fn note_run(&self, key: &PoolKey, cwd: &str, now_ms: i64) {
         let snapshot = {
             let mut inner = self.shared.inner.lock();
-            if !inner.config.enabled {
+            if !inner.config.enabled && !inner.config.preload.enabled {
                 // A disabled pool keeps no history and writes nothing.
                 return;
             }
@@ -403,14 +411,18 @@ impl Pool {
             if inner.shut_down || !inner.config.allows(key) {
                 return ClaimOutcome::Miss(MissReason::Disabled);
             }
-            let Some(index) = inner.entries.iter().position(|entry| entry.key == *key) else {
+            if !inner.entries.iter().any(|entry| entry.key == *key) {
                 inner.stats.missed += 1;
                 return ClaimOutcome::Miss(MissReason::NoStandby);
-            };
-            if inner.entries[index].state != EntryState::Ready {
+            }
+            let Some(index) = inner
+                .entries
+                .iter()
+                .position(|entry| entry.key == *key && entry.state == EntryState::Ready)
+            else {
                 inner.stats.missed += 1;
                 return ClaimOutcome::Miss(MissReason::NotReady);
-            }
+            };
             inner.stats.claimed += 1;
             inner.entries.remove(index)
         };
@@ -443,6 +455,7 @@ impl Pool {
     pub fn reconcile(&self, now_ms: i64) -> Reconciled {
         let mut result = Reconciled::default();
         // A: expiry and disallowed entries.
+        let default_project = self.host.default_project().map(|p| super::key::canonical_project(&p));
         let (doomed, observe) = {
             let mut inner = self.shared.inner.lock();
             if inner.shut_down {
@@ -454,6 +467,11 @@ impl Pool {
             for entry in std::mem::take(&mut inner.entries) {
                 if !inner.config.allows(&entry.key) {
                     doomed.push((entry, "pool_config_changed"));
+                } else if !entry.key.headless
+                    && default_project.as_deref().is_some_and(|project| project != entry.key.project)
+                {
+                    // Preload warms the default project only; it moved, so this worker is stranded.
+                    doomed.push((entry, "project_changed"));
                 } else if entry
                     .ready_since_ms
                     .is_some_and(|since| now_ms - since >= idle_ms)
@@ -538,13 +556,14 @@ impl Pool {
         if now_ms < self.spawn_not_before_ms {
             return result;
         }
+        let default_project = self.host.default_project();
         loop {
             let next = {
                 let mut inner = self.shared.inner.lock();
                 if inner.shut_down {
                     break;
                 }
-                match wanted(&inner, now_ms) {
+                match wanted(&inner, now_ms, default_project.as_deref()) {
                     Some((key, cwd)) => {
                         inner.spawning.insert(key.clone());
                         Some((key, cwd))
@@ -631,11 +650,25 @@ impl Pool {
         self.shared.inner.lock().shut_down
     }
 
+    /// Provider ids with at least one claimable visible worker (the tray's "(ready)" marker).
+    pub fn ready_agents(&self) -> Vec<String> {
+        let inner = self.shared.inner.lock();
+        let mut agents: Vec<String> = inner
+            .entries
+            .iter()
+            .filter(|entry| !entry.key.headless && entry.state == EntryState::Ready)
+            .map(|entry| entry.key.agent_type.clone())
+            .collect();
+        agents.sort();
+        agents.dedup();
+        agents
+    }
+
     pub fn health_summary(&self) -> HealthSummary {
         let inner = self.shared.inner.lock();
         let counts = counts(&inner);
         HealthSummary {
-            enabled: inner.config.enabled,
+            enabled: inner.config.enabled || inner.config.preload.enabled,
             total: counts.total,
             ready: counts.ready,
             starting: counts.starting,
@@ -690,7 +723,7 @@ impl Pool {
         }
         blocked.sort_by(|a, b| a.key.cmp(&b.key));
         StatusView {
-            enabled: inner.config.enabled,
+            enabled: inner.config.enabled || inner.config.preload.enabled,
             config: inner.config.clone(),
             counts: counts(&inner),
             standbys,
@@ -747,15 +780,38 @@ fn fail(inner: &mut Inner, key: &PoolKey, reason: &str, now_ms: i64) {
     }
 }
 
-/// The next key worth warming, if any: a recent key of a recent project, allowed by the config,
-/// not already warm or being spawned, not backing off or cold, while the global cap has room.
-fn wanted(inner: &Inner, now_ms: i64) -> Option<(PoolKey, String)> {
-    if !inner.config.enabled || inner.entries.len() + inner.spawning.len() >= inner.config.max_total {
+/// The next key worth warming, if any: a Preload provider short of its count in the default
+/// project, or a recent headless key of a recent project. Allowed by the config, not being spawned,
+/// not backing off or cold, while the global cap has room.
+fn wanted(inner: &Inner, now_ms: i64, default_project: Option<&str>) -> Option<(PoolKey, String)> {
+    if inner.entries.len() + inner.spawning.len() >= inner.config.cap() {
+        return None;
+    }
+    let usable = |key: &PoolKey| {
+        inner.config.allows(key)
+            && !inner.suppressed.contains(key)
+            && !inner.spawning.contains(key)
+            && inner
+                .backoff
+                .get(key)
+                .map_or(true, |backoff| backoff.retry_at_ms <= now_ms)
+    };
+    if let Some(project) = default_project.filter(|p| !p.trim().is_empty()) {
+        for (agent, count) in &inner.config.preload.providers {
+            let key = PoolKey::new(agent, project, None, false, false, false);
+            let have = inner.entries.iter().filter(|existing| existing.key == key).count();
+            if inner.config.preload.count_for(agent) > have && usable(&key) {
+                return Some((key, project.to_string()));
+            }
+            let _ = count;
+        }
+    }
+    if !inner.config.enabled {
         return None;
     }
     let horizon = inner.config.recent_hours as i64 * 3_600_000;
     let mut projects: Vec<&str> = Vec::new();
-    let mut recent: Vec<&RecentUse> = inner.recent.iter().collect();
+    let mut recent: Vec<&RecentUse> = inner.recent.iter().filter(|r| r.key.headless).collect();
     recent.sort_by_key(|entry| std::cmp::Reverse(entry.at_ms));
     for entry in &recent {
         if now_ms - entry.at_ms > horizon {
@@ -770,14 +826,8 @@ fn wanted(inner: &Inner, now_ms: i64) -> Option<(PoolKey, String)> {
         let key = &entry.key;
         let eligible = projects.contains(&key.project.as_str())
             && now_ms - entry.at_ms <= horizon
-            && inner.config.allows(key)
-            && !inner.suppressed.contains(key)
-            && !inner.spawning.contains(key)
-            && !inner.entries.iter().any(|existing| existing.key == *key)
-            && inner
-                .backoff
-                .get(key)
-                .map_or(true, |backoff| backoff.retry_at_ms <= now_ms);
+            && usable(key)
+            && !inner.entries.iter().any(|existing| existing.key == *key);
         eligible.then(|| (key.clone(), entry.cwd.clone()))
     })
 }

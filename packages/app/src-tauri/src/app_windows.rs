@@ -17,6 +17,33 @@ pub fn pane_url(pane_id: &str) -> String {
     format!("index.html?terminal=1&pane={safe}&detached=1")
 }
 
+/// URL of a pre-created (hidden) warm pane window: same route plus `warm=1`, which tells the window
+/// its pane is not in any list yet (a warm worker is unlisted until a run or the tray claims it), so
+/// it must not close itself as "pane gone".
+pub fn warm_pane_url(pane_id: &str) -> String {
+    format!("{}&warm=1", pane_url(pane_id))
+}
+
+/// What opening a pane's window has to do, given the window that may already exist (a Preload warm
+/// window is created hidden and only needs placing and showing when its pane is claimed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenPlan {
+    /// No window yet: build one (placed and shown at creation).
+    Create,
+    /// A window exists but is hidden (warm): place it like a new window and show it.
+    PlaceAndShow,
+    /// A visible window exists: just bring it forward.
+    Show,
+}
+
+pub fn open_plan(window_exists: bool, window_visible: bool) -> OpenPlan {
+    match (window_exists, window_visible) {
+        (false, _) => OpenPlan::Create,
+        (true, false) => OpenPlan::PlaceAndShow,
+        (true, true) => OpenPlan::Show,
+    }
+}
+
 fn url_encode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
@@ -132,27 +159,64 @@ mod runtime {
         });
     }
 
-    /// Open (or show) the pop-out window of a pane. Does not take focus unless `focus`.
+    /// Open (or show) the pop-out window of a pane. Does not take focus unless `focus`. A hidden
+    /// warm window (Preload) is placed like a new one and shown: that is the whole cost of a claim.
     pub fn open_pane_window(app: &AppHandle, pane_id: &str, agent: &str, cols: u16, rows: u16, focus: bool) {
         let label = crate::pane_windows::window_label(pane_id);
-        if let Some(window) = app.get_webview_window(&label) {
-            show(&window, focus);
-            return;
+        let existing = app.get_webview_window(&label);
+        let visible = existing.as_ref().map(|w| w.is_visible().unwrap_or(true)).unwrap_or(false);
+        match (open_plan(existing.is_some(), visible), existing) {
+            (OpenPlan::Show, Some(window)) => show(&window, focus),
+            (OpenPlan::PlaceAndShow, Some(window)) => {
+                if let Some((x, y)) = next_position(app) {
+                    let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+                }
+                show(&window, focus);
+                tracing::info!(pane = %pane_id, focus, "warm pane window shown");
+            }
+            _ => build_pane_window(app, &label, pane_id, agent, cols, rows, focus, false),
         }
+    }
+
+    /// Create the hidden window of a warm worker. Nothing is shown and nothing is placed yet.
+    pub fn open_warm_pane_window(app: &AppHandle, pane_id: &str, agent: &str, cols: u16, rows: u16) {
+        let label = crate::pane_windows::window_label(pane_id);
+        if app.get_webview_window(&label).is_none() {
+            build_pane_window(app, &label, pane_id, agent, cols, rows, false, true);
+        }
+    }
+
+    /// Destroy the window of a warm worker that is shut down unused (a window already shown belongs
+    /// to a run and is left to the normal pane-removed sweep).
+    pub fn close_warm_pane_window(app: &AppHandle, pane_id: &str) {
+        let label = crate::pane_windows::window_label(pane_id);
+        if let Some(window) = app.get_webview_window(&label) {
+            if !window.is_visible().unwrap_or(true) {
+                let _ = window.destroy();
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_pane_window(app: &AppHandle, label: &str, pane_id: &str, agent: &str, cols: u16, rows: u16, focus: bool, warm: bool) {
         let (w, h) = pane_window_size(cols, rows);
         let title = format!("{agent} \u{b7} {}", pane_id.chars().take(8).collect::<String>());
-        let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(pane_url(pane_id).into()))
+        let url = if warm { warm_pane_url(pane_id) } else { pane_url(pane_id) };
+        let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
             .title(title)
             .inner_size(w, h)
             .min_inner_size(260.0, 140.0)
             .resizable(true)
-            .focused(focus);
-        if let Some((x, y)) = next_position(app) {
-            builder = builder.position(x, y);
+            .focused(focus && !warm)
+            .visible(!warm);
+        if !warm {
+            if let Some((x, y)) = next_position(app) {
+                builder = builder.position(x, y);
+            }
         }
         match builder.build() {
-            Ok(_) => tracing::info!(pane = %pane_id, "pane window opened"),
-            Err(e) => tracing::warn!(pane = %pane_id, error = %e, "pane window failed to open"),
+            Ok(_) => tracing::info!(pane = %pane_id, warm, "pane window opened"),
+            Err(e) => tracing::warn!(pane = %pane_id, warm, error = %e, "pane window failed to open"),
         }
     }
 
@@ -184,7 +248,10 @@ mod runtime {
     }
 }
 
-pub use runtime::{on_close_requested, open_pane_window, open_settings_window, open_worker_host_window};
+pub use runtime::{
+    close_warm_pane_window, on_close_requested, open_pane_window, open_settings_window, open_warm_pane_window,
+    open_worker_host_window,
+};
 
 #[cfg(test)]
 mod tests {
@@ -234,6 +301,18 @@ mod tests {
     fn pane_url_matches_the_frontend_route() {
         assert_eq!(pane_url("abc-123"), "index.html?terminal=1&pane=abc-123&detached=1");
         assert_eq!(pane_url("a b/c"), "index.html?terminal=1&pane=a%20b%2Fc&detached=1");
+    }
+
+    #[test]
+    fn warm_windows_use_the_pane_route_with_a_warm_flag() {
+        assert_eq!(warm_pane_url("abc-123"), "index.html?terminal=1&pane=abc-123&detached=1&warm=1");
+    }
+
+    #[test]
+    fn claiming_a_warm_pane_places_and_shows_its_hidden_window_instead_of_building_one() {
+        assert_eq!(open_plan(false, false), OpenPlan::Create);
+        assert_eq!(open_plan(true, false), OpenPlan::PlaceAndShow, "hidden warm window: show only");
+        assert_eq!(open_plan(true, true), OpenPlan::Show);
     }
 
     #[test]

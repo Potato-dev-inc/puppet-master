@@ -59,8 +59,11 @@ pub(super) fn standby_screen(screen: &str) -> StandbyScreen {
     if shows_work_in_progress(screen) {
         return StandbyScreen::NotReady;
     }
+    // vt100 joins a soft-wrapped row to the next one: when the box's top rule fills the pane width
+    // the prompt arrives glued to it ("----> Try ..."), so leading rule characters are skipped.
     let empty_prompt = screen.lines().any(|line| {
         line.trim()
+            .trim_start_matches('\u{2500}')
             .strip_prefix('\u{276f}')
             .is_some_and(|rest| rest.trim().is_empty() || rest.trim().starts_with("Try \""))
     });
@@ -106,6 +109,11 @@ mod tests {
         assert_eq!(standby_screen(STARTED), StandbyScreen::Ready);
         assert_eq!(standby_screen(READY), StandbyScreen::Ready);
         assert_eq!(standby_screen(TRUST_DIALOG), StandbyScreen::Dialog, "the dialog's own selector is not a prompt");
+        assert_eq!(
+            standby_screen("Claude Code v2\n\u{2500}\u{2500}\u{2500}\u{2500}\u{276f}\u{a0}Try \"fix typecheck errors\"\n  auto mode on"),
+            StandbyScreen::Ready,
+            "a rule glued to the prompt by a soft wrap is still the empty box"
+        );
         assert_eq!(standby_screen(WORKING), StandbyScreen::NotReady);
         assert_eq!(standby_screen("\u{276f} half typed text\n Claude Code"), StandbyScreen::NotReady);
         assert_eq!(standby_screen(""), StandbyScreen::NotReady);

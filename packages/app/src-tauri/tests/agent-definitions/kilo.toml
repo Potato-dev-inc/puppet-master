@@ -129,6 +129,15 @@ line_regex = [
   "^\\s*[\\d.,]+k?\\s+\\(\\d+%\\)\\s+ctrl\\+p\\s+commands",
 ]
 
+# Preload (warm standby): kilo is launched ahead of time at its empty input box. "Ask anything" is the
+# placeholder of the empty box (gone once text is typed); a turn in flight or a permission dialog is never ready.
+[standby]
+visible = true
+
+[tui.ready]
+regex = "ask anything"
+not_regex = ["esc\\s+interrupt", "permission required"]
+
 # Rows above a reply: `+ Thought: 1.3s`, `→ Read .env · approved by you`, spinner `⠋ Read .env`.
 [tui.tool_activity]
 line_regex = [
