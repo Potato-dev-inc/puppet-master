@@ -12,7 +12,7 @@ tui/
   generic.rs      default prompt handling + the profile for unregistered agent types
   conformance.rs  rules every registered profile must pass (runs for new profiles automatically)
   declarative/    agents defined by TOML files (schema, loader, approvals, DeclarativeProfile); see "Adding an agent without code"
-  cursor/         Cursor Agent CLI + Cursor IDE launcher
+  cursor/         Cursor Agent CLI (`agent` alias preferred) + interactive `cursor` alias
     launch.rs       headless command line, default model lookup
     headless.rs     reading headless output (result, rejected calls, trust screen)
     screen.rs       interactive TUI: status, approval/trust prompts, footer model

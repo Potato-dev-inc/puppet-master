@@ -31,16 +31,15 @@ fn cli_args(launch: &HeadlessLaunch) -> Vec<String> {
     args.into_iter().map(str::to_string).collect()
 }
 
-/// `cursor-agent` is reachable: the `.ps1` shim on Windows, the binary elsewhere.
+/// The Cursor agent CLI (`agent`, else `cursor-agent`) is reachable.
 pub(super) fn is_installed() -> bool {
-    #[cfg(windows)]
-    {
-        crate::tui::find_path_file("cursor-agent.ps1").is_some()
-    }
-    #[cfg(not(windows))]
-    {
-        crate::tui::program_on_path("cursor-agent")
-    }
+    super::binary::installed().is_some()
+}
+
+/// The `.ps1` script behind Cursor's Windows shims (`agent.cmd` and `cursor-agent.cmd` both run it).
+#[cfg(windows)]
+fn windows_script() -> Option<PathBuf> {
+    super::binary::installed().and_then(|cli| super::binary::ps1_script(&cli))
 }
 
 pub(super) fn headless_command(launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
@@ -49,8 +48,8 @@ pub(super) fn headless_command(launch: &HeadlessLaunch) -> Result<LaunchSpec, St
     // asking ConPTY to execute the `.ps1` directly.
     #[cfg(windows)]
     {
-        let shim = crate::tui::find_path_file("cursor-agent.ps1")
-            .ok_or_else(|| "cursor-agent.ps1 was not found on PATH".to_string())?;
+        let shim = windows_script()
+            .ok_or_else(|| "the Cursor agent CLI (agent / cursor-agent) was not found on PATH".to_string())?;
         let mut full = vec![
             "-NoProfile".to_string(),
             "-File".to_string(),
@@ -66,7 +65,10 @@ pub(super) fn headless_command(launch: &HeadlessLaunch) -> Result<LaunchSpec, St
     }
     #[cfg(not(windows))]
     Ok(LaunchSpec {
-        program: "cursor-agent".into(),
+        program: match super::binary::installed() {
+            Some(super::binary::CursorCli::Named(name)) => name.into(),
+            _ => "cursor-agent".into(),
+        },
         args,
         cwd: PathBuf::from(launch.project),
         read_only_enforced: launch.read_only,
@@ -112,13 +114,17 @@ pub(super) fn default_model() -> Option<String> {
             let mut command;
             #[cfg(windows)]
             {
-                let shim = crate::tui::find_path_file("cursor-agent.ps1")?;
+                let shim = windows_script()?;
                 command = std::process::Command::new("powershell.exe");
                 command.args(["-NoProfile", "-File"]).arg(shim).arg("about");
             }
             #[cfg(not(windows))]
             {
-                command = std::process::Command::new("cursor-agent");
+                let program = match super::binary::installed()? {
+                    super::binary::CursorCli::Named(name) => name,
+                    _ => "cursor-agent",
+                };
+                command = std::process::Command::new(program);
                 command.arg("about");
             }
             command

@@ -217,7 +217,7 @@ const NINE_PROFILES_JSON: &str = r#"[
   },
   {
     "agent_type": "cursor",
-    "label": "Cursor IDE",
+    "label": "Cursor (agent)",
     "default_model": null,
     "model_detection": "unknown",
     "smartness": 6,
@@ -226,15 +226,14 @@ const NINE_PROFILES_JSON: &str = r#"[
       "implementation"
     ],
     "context_notes": [
-      "IDE launcher rather than a terminal TUI. Treat model information as unavailable unless a future Cursor bridge reports it."
+      "Interactive pane running the Cursor agent CLI (`agent`, falling back to `cursor-agent`), the same CLI as cursor_agent. Not a delegated-work backend: use cursor_agent for run_agent."
     ],
     "best_for": [
-      "opening the workspace visually",
+      "interactive Cursor agent session",
       "manual user-guided edits"
     ],
     "planned_sidebar_actions": [
-      "open project",
-      "focus editor",
+      "open pane",
       "handoff manual review"
     ]
   },

@@ -1,6 +1,7 @@
-//! Cursor: the headless/interactive Cursor Agent CLI (`cursor_agent`) and the Cursor IDE
-//! launcher (`cursor`). Everything Cursor-specific lives in this folder:
+//! Cursor: the headless/interactive Cursor Agent CLI (`cursor_agent`) and its interactive-only
+//! alias (`cursor`). Everything Cursor-specific lives in this folder:
 //!
+//! - `binary`   — which launcher is used (`agent` preferred, `cursor-agent` fallback)
 //! - `launch`   — command lines for headless runs and the CLI's configured default model
 //! - `headless` — reading a headless run's output (result, rejected calls, trust screen)
 //! - `screen`   — the interactive TUI: status classification, approval/trust prompts, footer model
@@ -8,6 +9,7 @@
 //! - `fixtures` — real captures the tests replay
 
 pub(crate) mod approval;
+pub(crate) mod binary;
 mod chrome;
 mod headless;
 mod launch;
@@ -231,8 +233,10 @@ impl TuiProfile for CursorAgent {
     }
 }
 
-/// The Cursor IDE launcher. It opens the editor, so it is not a delegated-work backend, but its
-/// panes share the CLI's screen heuristics.
+/// The `cursor` choice. Interactive panes run the same agent CLI as `cursor_agent` (the Cursor IDE
+/// launcher `cursor.cmd` is not an agent and exits straight away in a pane); it is not a
+/// delegated-work backend (`run_agent` uses `cursor_agent`), and its panes share the CLI's screen
+/// heuristics.
 pub struct CursorIde;
 
 impl TuiProfile for CursorIde {
@@ -249,7 +253,7 @@ impl TuiProfile for CursorIde {
     }
 
     fn not_dispatchable_reason(&self) -> &'static str {
-        "cursor opens the IDE and cannot run delegated work; use cursor_agent for agent runs"
+        "cursor is an interactive pane of the Cursor agent CLI and cannot run delegated work; use cursor_agent for agent runs"
     }
 
     fn classify_screen(&self, visible_tail: &str) -> Option<PaneStatus> {
