@@ -115,7 +115,7 @@ puppet-master/
     wiki/                   developer/agent handbook (overview, architecture, developing, extending)
   packages/
     app/                    Tauri app
-      src/                  React UI (App.tsx, PwaApp.tsx mobile PWA shell, TerminalApp.tsx worker window,
+      src/                  React UI (App.tsx = LEGACY main window, unreachable since PF3; SettingsApp.tsx + lib/settings-entry.ts = Settings window route `?settings=1&tab=`; PwaApp.tsx mobile PWA shell, TerminalApp.tsx worker window,
                             WorkerHostBootstrap.tsx; components/ (+ settings/tabs/*Tab.tsx, sidebar/,
                             coordination/, pwa/ tabs), hooks/ (usePaneRegistry, useBridge*), lib/ (bridge.ts +
                             bridge-*.ts split, tauri.ts, mcp-tools.ts, mcp-config.ts, pane-state.ts, ...),
@@ -124,7 +124,8 @@ puppet-master/
         Cargo.toml          crate puppet_master_app, lib puppet_master_app_lib, bin puppet-master-mcp
         build.rs            stamps PM_BUILD_ID, then tauri_build
         tauri.conf.json     bundle resources, beforeDevCommand (scripts/vite-dev.mjs)
-        tauri.dev.local.json  dev-only window override (secondary monitor x=-1660,y=60, focus=false); machine-specific
+        tauri.dev.local.json  legacy dev main-window override (the main window no longer exists); machine-specific
+        pm-dev.local.json     gitignored dev window anchor {x,y} (secondary monitor); with-cargo-path.mjs exports it as PM_WINDOW_ANCHOR
         tests/agent-definitions/kilo.toml  proof definition copy (bundled set is empty; install into <app data>/agents/)
         capabilities/ icons/ gen/ (gen is gitignored)
         resources/          bin/ (cloudflared, staged puppet-master-mcp), mcp-stdio.bundle.cjs,
@@ -246,9 +247,11 @@ Declarative agents (`tui/declarative/`, spec in `docs/specs/agent-definitions/`)
 - `bridge/routes/definitions.rs`: `/agents/definitions[/reload|validate|approve|revoke|consent|...]`; mutations local-app-only.
 - `bridge/port_file.rs`: bridge port file (`write_owned`, remove on exit only if it still names our port). The MCP client (`bin/puppet_master_mcp/`) probes 17321-17330 when the file's port is dead.
 - `agent_runs/headless/fallback.rs`: visible-first fallback. Runs default to `headless=false` + `placement=window`; `plan` decides `no_visible_mode` / `visible_failed` (pre-turn codes only), `convert` re-queues the same operation headless (`operations::convert_to_headless_fallback`, kills the failed pane), `start_headless` launches the child; hooked in `headless/entry.rs` (no visible mode), `bridge/dispatch.rs` (dispatch failure) and `headless/supervise.rs` (`PROMPT_NOT_SUBMITTED`). Recorded as `WorkerPersist.fallback`, `RunReceipt.fallback`, `AgentRunView.fallback`.
-- `pane_windows.rs`: `decide_placement(requested, main_window_usable)` -> grid or window (default `window`; `placement` auto|grid|window on `run_agent`/`delegate_work`/`spawn_agent`), `window_label` (one pop-out per pane), `orphaned_labels`, `close_is_forced`, `on_close_requested`, `schedule_sweep` (escalates if destroy did not take), `notify_pane_removed`.
+- `tray.rs`: tray icon + menu (`build_model` -> New pane submenu from registered agents, Panes, Settings..., Quit; `parse_command`; left-click opens Settings). The pure model is unit-tested.
+- `app_windows.rs`: Rust-created windows: Settings window (`?settings=1&tab=agents`), pane windows (no main webview needed), anchor resolution (`PM_WINDOW_ANCHOR` > `settings.json` `pane_window_position` > primary monitor), cascade offsets with wrap. `settings_store.rs` keeps `pane_window_position` in the saved-settings load and strips it from the public mirror.
+- `pane_windows.rs`: placement is always a window since PF3 (`placement` auto|grid|window is accepted on `run_agent`/`delegate_work`/`spawn_agent` and ignored; `decide_placement(requested, main_window_usable)` is legacy); closing a pane window kills exactly its pane; `window_label` (one pop-out per pane), `orphaned_labels`, `close_is_forced`, `on_close_requested`, `schedule_sweep` (escalates if destroy did not take), `notify_pane_removed`.
 - `pty/registry/spawn.rs`: exit watcher (a dead pane is detected without waiting for ConPTY EOF).
-- `lib.rs`: `tauri_plugin_single_instance` guard (second launch focuses the main window and exits).
+- `lib.rs`: `tauri_plugin_single_instance` guard (second launch opens the Settings window, handles `--new-pane <agent>`, and exits); starts the tray; no startup webview (`tauri.conf.json` `windows = []`; the `--worker` host still creates label `main` from Rust).
 - `mcp_install/declarative.rs`: `[mcp_host]` writer (library-only).
 - UI: `lib/agentRegistry.ts` (registry + `onAgentDefinitionsChanged`, nine-agent offline fallback), `lib/agentDefinitions.ts` (injectable api, `tauriRecorderApi`), `components/settings/tabs/AgentsTab.tsx` (rows, review/approve, check, import/export, drafts, sources/consent), `components/AgentsOverviewCard.tsx` (on `HomeDashboard.tsx`), `components/TerminalPane.tsx` (Rec button), `lib/detached-pane-window.ts` + `lib/detached-close.ts` (pop-out open dedupe, close on pane exit); spawn menus read the registry (headless-only/experimental greyed with reason).
 - Docs: [`FEATURES.md`](FEATURES.md), [`TEST-PLAN.md`](TEST-PLAN.md), `docs/specs/agent-definitions/`.
@@ -341,12 +344,14 @@ JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WA
 | Warm standby pool (what is kept warm, claim rules, why a key is held back) | `standby/pool.rs` (rules), `standby/host.rs` (live spawn/health), `GET /standby` for state | profile `standby_screen` / `headless_standby_*` in `tui/<agent>/`; claim sites `bridge/dispatch.rs::assign_pane`, `headless/process.rs`; `scripts/perf-latency.mjs --fixed-dir --cold-gap` to measure |
 | Delegation latency (measure first: `scripts/perf-latency.mjs`, results in `docs/perf/latency-baseline.md`) | per-stage: `operations/store.rs::bump` (stage_log), `startup_timing.rs`, `bridge/dispatch.rs`, `agent_runs/delivery.rs`, `pty/registry/idle.rs` | whole-file scans on hot paths (`event_log::find_last_entry`, `agent_runs/headless/bind.rs::worker_lookup_key`), `mcp_sessions/state.rs` writer |
 | Windows-specific spawn quirks | `pty/registry/command.rs`, `pty/agents.rs`, `project_path.rs`, `shell_env.rs` | |
-| UI | `packages/app/src` (components/, hooks/, lib/); settings tabs in `components/settings/tabs/`, sidebar in `components/sidebar/`, styles in `styles/` | Tauri command called from the UI: `lib/tauri.ts` + `commands/` + `lib.rs` `invoke_handler` |
-| Visible pane placement (grid vs pop-out), pop-out lifecycle | `pane_windows.rs` (`decide_placement`, `schedule_sweep`), `lib/detached-pane-window.ts`, `lib/detached-close.ts` | `placement` in `tool_registry/catalog/agents.rs`; `App.tsx` `pane://detach` listener |
-| Dev window position / focus | `packages/app/src-tauri/tauri.dev.local.json` | verify with `scripts/check-window-monitor.ps1` |
+| UI | `packages/app/src` (components/, hooks/, lib/); settings tabs in `components/settings/tabs/` (shown in the Settings window); `App.tsx`, `TerminalGrid.tsx`, `HomeDashboard.tsx` and the orchestrator sidebar `components/sidebar/` are **unreachable legacy** since PF3; styles in `styles/` | Tauri command called from the UI: `lib/tauri.ts` + `commands/` + `lib.rs` `invoke_handler` |
+| Pane window creation, position, close-kills-pane, lifecycle | `app_windows.rs` (anchor, cascade, creation), `pane_windows.rs` (`schedule_sweep`, close handling), `lib/detached-close.ts` | `placement` in `tool_registry/catalog/agents.rs` (ignored); legacy `lib/detached-pane-window.ts`, `App.tsx` `pane://detach` |
+| Tray menu / Settings window / second launch / `--new-pane` | `tray.rs`, `app_windows.rs`, `lib.rs` single-instance callback; UI `SettingsApp.tsx`, `lib/settings-entry.ts` | `components/settings/tabs/*Tab.tsx` |
+| Visible-first fallback to headless | `agent_runs/headless/fallback.rs` (`plan`, `convert`, `start_headless`) | hooks in `headless/entry.rs`, `bridge/dispatch.rs`, `headless/supervise.rs` |
+| Dev window position / focus | `packages/app/src-tauri/pm-dev.local.json` (anchor) read by `scripts/with-cargo-path.mjs` -> `PM_WINDOW_ANCHOR`; `app_windows.rs` | verify with `scripts/check-window-monitor.ps1` |
 | Single instance / bridge port discovery | `lib.rs` (single-instance plugin), `bridge/port_file.rs`, MCP client port probing in `bin/puppet_master_mcp/` | |
 | Settings > Agents UI / Rec button | `components/settings/tabs/AgentsTab.tsx`, `lib/agentDefinitions.ts`, `components/TerminalPane.tsx` | `agent_definitions_recorder/`, `commands/agents.rs` |
-| Agent registry in the UI (spawn menu, Overview card) | `lib/agentRegistry.ts`, `components/AgentsOverviewCard.tsx` | `GET /agents/types` |
+| Agent registry in the UI (tray New pane, Settings; legacy spawn menu/Overview card) | `lib/agentRegistry.ts`, `tray.rs` (legacy: `components/AgentsOverviewCard.tsx`) | `GET /agents/types` |
 | Add a Tauri command | `commands/<area>.rs` + register in `lib.rs` `invoke_handler` | `packages/app/src/lib/tauri.ts` wrapper |
 
 ---

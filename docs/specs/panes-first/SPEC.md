@@ -24,3 +24,20 @@ Decided by the user on 2026-10-12.
 | PF2 | Tray icon + Settings window | Tray icon with menu (New pane ▸ visible agents, Panes ▸ focus, Settings, Quit); Settings window reuses the existing Settings UI (Agents tab first); second launch opens Settings; tests; live check. |
 | PF3 | Remove the main window | App starts tray-only (no main window); pane windows created from Rust; orchestrator sidebar pane no longer spawned at startup; grid/Overview unreachable; closing a pane window closes the pane; pm-regression and vitest/cargo green (tests updated/removed for grid/main); live: Codex run opens a pop-out, closes it at the end, no main window ever appears. |
 | PF4 | Docs + demo | FEATURES.md, TEST-PLAN.md, REPO_MAP.md updated; new demo video. |
+
+## Status (2026-10-12)
+
+PF1-PF3 implemented; PF4 docs are in the commit named below. Commits on `refactor/tui-profiles`:
+
+| Phase | Commit | Summary |
+|---|---|---|
+| PF1 | `b687905` (docs `ee71274`) | Visible-first defaults (`headless=false`, window), headless fallback `no_visible_mode` / `visible_failed`, `fallback` in view + receipt, catalog `66-46d53ccddbd2b4dc`, dist MCP exe swapped |
+| PF2 | `27760a6` (kiro fixtures), `199355a` | `tray.rs` tray icon + menu model, `app_windows.rs` Settings window, second launch opens Settings, `--new-pane <agent>` |
+| PF3 | `7c0a665` | Main window removed (tray-only), pane windows from Rust, closing a pane window kills the pane, `PM_WINDOW_ANCHOR` / `pane_window_position` anchor + cascade |
+| PF4 | docs commit (`git log -- docs/specs/panes-first/SPEC.md`) | FEATURES, TEST-PLAN, REPO_MAP, this Status |
+
+Tests at PF3: cargo lib 927 passed / 2 ignored, MCP bin 30, vitest 239, pm-regression 27/28 (`cursor_agent timeout` `WORKER_STOP_FAILED`, known flaky; passed on rerun).
+
+Verified live: a kilo run with no `headless` opens an unfocused pop-out on the secondary monitor and closes it after the run; Kiro without `headless` falls back with `no_visible_mode`; a Codex external `run_agent` (result `pf3-ok`, `fallback: null`, no main window ever); app start shows no window and `GET /panes` = `[]`; second launch opens Settings; `--new-pane kilo` opens cascaded windows; WM_CLOSE on a pane window removes the pane; `check-window-monitor.ps1` OK throughout.
+
+Not verified: a human clicking the tray icon/menu entries; the `visible_failed` fallback live (unit tests only). The demo video (second half of PF4) is separate from the docs commit.
