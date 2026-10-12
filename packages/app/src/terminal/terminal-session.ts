@@ -201,6 +201,7 @@ export class TerminalSession {
         this.scaleController = new TerminalScaleController(
           this.scaleViewport,
           mountTarget,
+          { keyboardPushUp: !this.options.sizesPane },
         );
       }
       this.inputBatcher = new InputBatcher((text) => {

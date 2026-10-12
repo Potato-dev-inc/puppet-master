@@ -21,6 +21,11 @@ export interface TerminalSessionOptions {
   mobileInputDelayMs?: number;
   mobileInputVisible?: boolean;
   disableMobileInput?: boolean;
+  /**
+   * The viewer sizes the pane to itself (phone-sized panes): when the keyboard opens the grid
+   * gets fewer rows, so the mirror always fits its whole height and never shifts up.
+   */
+  sizesPane?: boolean;
 }
 
 export interface Disposable {

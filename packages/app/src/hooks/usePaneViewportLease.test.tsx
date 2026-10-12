@@ -40,4 +40,33 @@ describe('usePaneViewportLease', () => {
     expect(setPaneViewport).toHaveBeenLastCalledWith('p1', { cols: 0, rows: 0, active: false });
     await act(async () => root.unmount());
   });
+
+  it('keeps the pane through a brief hide and gives it back after a long one', async () => {
+    const setPaneViewport = vi.fn().mockResolvedValue({});
+    const bridge = { setPaneViewport } as unknown as BridgeClient;
+    const root = createRoot(document.createElement('div'));
+    let state: DocumentVisibilityState = 'visible';
+    const spy = vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => state);
+    const flip = (next: DocumentVisibilityState) => {
+      state = next;
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    await act(async () => root.render(<Probe bridge={bridge} paneId="p1" grid={{ cols: 48, rows: 38 }} />));
+
+    await act(async () => {
+      flip('hidden');
+      vi.advanceTimersByTime(1000);
+      flip('visible');
+      vi.advanceTimersByTime(5000);
+    });
+    expect(setPaneViewport.mock.calls.some(([, view]) => view.active === false)).toBe(false);
+
+    await act(async () => {
+      flip('hidden');
+      vi.advanceTimersByTime(3000);
+    });
+    expect(setPaneViewport).toHaveBeenLastCalledWith('p1', { cols: 0, rows: 0, active: false });
+    await act(async () => root.unmount());
+    spy.mockRestore();
+  });
 });

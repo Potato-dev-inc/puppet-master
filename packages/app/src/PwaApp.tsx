@@ -25,6 +25,24 @@ import { MenuSheet, NewAgentSheet } from './components/mobile/MobileSheet';
 import { SetupScreen } from './components/pwa/SetupScreen';
 
 const LS_ACTIVE_TAB = 'pm.mobile.activeTab';
+const RESIZES_CONTENT = 'interactive-widget=resizes-content';
+
+/**
+ * Android Chrome: let the software keyboard shrink the page (layout viewport) instead of panning
+ * it up. Only while this UI is mounted, so the legacy PWA keeps its own keyboard behaviour.
+ * Browsers that ignore the hint (iOS Safari) are covered by `.pwa-shell--fit-visual`.
+ */
+function useKeyboardResizesContent(): void {
+  useEffect(() => {
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    if (!meta || meta.content.includes('interactive-widget')) return;
+    const original = meta.content;
+    meta.content = `${original}, ${RESIZES_CONTENT}`;
+    return () => {
+      meta.content = original;
+    };
+  }, []);
+}
 /** Health re-check and pane list refresh: the SSE stream can drop silently on a phone. */
 const RESYNC_MS = 5000;
 
@@ -67,6 +85,7 @@ export default function PwaApp() {
   }, []);
 
   useVisualViewportSync(!!bridge);
+  useKeyboardResizesContent();
 
   useEffect(() => {
     if (!bridgeUrl) return;
@@ -222,7 +241,7 @@ export default function PwaApp() {
   }
 
   return (
-    <div className="pwa-shell bg-pm-bg text-zinc-100">
+    <div className="pwa-shell pwa-shell--fit-visual bg-pm-bg text-zinc-100">
       <div className="flex h-full min-h-0 min-w-0 flex-col">
         <AgentTabBar
           panes={panes}

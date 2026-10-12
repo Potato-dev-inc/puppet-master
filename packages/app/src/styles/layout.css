@@ -31,3 +31,14 @@
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/*
+ * Mobile agent tabs (PwaApp): the shell is exactly the part of the screen above the software
+ * keyboard (vars from useVisualViewportSync), so opening the keyboard shortens the terminal
+ * instead of pushing the page up. offset-top follows a visual viewport the browser panned anyway.
+ */
+.pwa-shell--fit-visual {
+  top: var(--pm-visual-viewport-offset-top, 0px);
+  bottom: auto;
+  height: var(--pm-visual-viewport-height, 100%);
+}

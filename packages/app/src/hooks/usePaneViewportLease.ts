@@ -3,6 +3,9 @@ import type { BridgeClient } from '../lib/bridge';
 
 /** Renew well inside the bridge's 15 s lease (`pty::viewer_size::LEASE_TTL_MS`). */
 const RENEW_MS = 5000;
+/** Hidden this long before the pane is given back: a glance at the app switcher or notification
+ * shade (or a host that flips visibility) must not bounce the agent between sizes. */
+const HIDDEN_RELEASE_MS = 3000;
 
 /**
  * Mobile PWA: while the phone shows `paneId` and the app is visible, size that pane to the phone's
@@ -23,9 +26,11 @@ export function usePaneViewportLease(
   useEffect(() => {
     if (!bridge || !paneId) return;
     let holding = false;
+    let hiddenTimer = 0;
     const claim = () => {
       const g = gridRef.current;
       if (!g || document.visibilityState !== 'visible') return;
+      window.clearTimeout(hiddenTimer);
       holding = true;
       void bridge.setPaneViewport(paneId, { ...g, active: true }).catch(() => {});
     };
@@ -34,7 +39,16 @@ export function usePaneViewportLease(
       holding = false;
       void bridge.setPaneViewport(paneId, { cols: 0, rows: 0, active: false }).catch(() => {});
     };
-    const onVisibility = () => (document.visibilityState === 'visible' ? claim() : release());
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        claim();
+        return;
+      }
+      window.clearTimeout(hiddenTimer);
+      hiddenTimer = window.setTimeout(() => {
+        if (document.visibilityState !== 'visible') release();
+      }, HIDDEN_RELEASE_MS);
+    };
     claimRef.current = claim;
     const timer = window.setInterval(claim, RENEW_MS);
     document.addEventListener('visibilitychange', onVisibility);
@@ -42,6 +56,7 @@ export function usePaneViewportLease(
     return () => {
       claimRef.current = null;
       window.clearInterval(timer);
+      window.clearTimeout(hiddenTimer);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', release);
       release();

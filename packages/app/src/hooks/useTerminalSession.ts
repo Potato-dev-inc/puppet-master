@@ -56,6 +56,7 @@ export function useTerminalSession({
 } {
   const containerRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<TerminalSession | null>(null);
+  const sizesPane = !!onFitGrid;
   const nudgeReflow = useCallback(() => {
     sessionRef.current?.nudgeReflow();
   }, []);
@@ -83,6 +84,7 @@ export function useTerminalSession({
       mobileInputDelayMs,
       mobileInputVisible,
       disableMobileInput,
+      sizesPane,
       onResize: (cols, rows) => {
         void activeTransport.resize(cols, rows);
       },
@@ -97,7 +99,7 @@ export function useTerminalSession({
       session.dispose();
       sessionRef.current = null;
     };
-  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, renderMode, mobileInputDelayMs, mobileInputVisible, disableMobileInput]);
+  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, renderMode, mobileInputDelayMs, mobileInputVisible, disableMobileInput, sizesPane]);
 
   useEffect(() => {
     if (syncPTYResize) return;
