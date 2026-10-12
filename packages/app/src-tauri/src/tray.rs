@@ -44,6 +44,24 @@ pub fn parse_command(id: &str) -> Option<Command> {
     }
 }
 
+/// What a second launch of the executable asks for, from its command-line arguments.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SecondLaunch {
+    /// Plain relaunch: open the Settings window.
+    Settings,
+    /// `--new-pane <agent>`: open just that pane, no Settings window.
+    NewPane(String),
+}
+
+pub fn second_launch_action(args: &[String]) -> SecondLaunch {
+    args.iter()
+        .position(|a| a == "--new-pane")
+        .and_then(|i| args.get(i + 1))
+        .filter(|a| !a.is_empty() && !a.starts_with("--"))
+        .map(|a| SecondLaunch::NewPane(a.clone()))
+        .unwrap_or(SecondLaunch::Settings)
+}
+
 /// `agents` is the `agents` array of `GET /agents/types`. An agent that can open a visible pane is
 /// an enabled entry; a headless-only one stays listed but disabled.
 pub fn new_pane_items(agents: &[Value]) -> Vec<Item> {
@@ -262,6 +280,21 @@ mod tests {
         assert_eq!(
             items[1],
             Item::Action { id: "new:kiro".into(), label: "Kiro (headless only)".into(), enabled: false }
+        );
+    }
+
+    #[test]
+    fn second_launch_with_new_pane_opens_only_the_pane() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(second_launch_action(&a(&["app.exe"])), SecondLaunch::Settings);
+        assert_eq!(
+            second_launch_action(&a(&["app.exe", "--new-pane", "claude"])),
+            SecondLaunch::NewPane("claude".into())
+        );
+        assert_eq!(second_launch_action(&a(&["app.exe", "--new-pane"])), SecondLaunch::Settings);
+        assert_eq!(
+            second_launch_action(&a(&["app.exe", "--new-pane", "--other"])),
+            SecondLaunch::Settings
         );
     }
 

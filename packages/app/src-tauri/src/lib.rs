@@ -70,15 +70,17 @@ pub fn run() {
         // A second launch opens the running app's Settings window and exits, so it never starts
         // another bridge or rewrites the bridge port file.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            // Panes-first: a second launch opens the Settings window. `--new-pane <agent>` also
-            // opens a pop-out pane through the same code path as the tray's "New pane" menu.
-            app_windows::open_settings_window(app, None, true);
-            if let Some(agent) = args.iter().position(|a| a == "--new-pane").and_then(|i| args.get(i + 1)) {
-                let (app, agent) = (app.clone(), agent.clone());
-                std::thread::spawn(move || match tray::new_pane(&app, &agent) {
-                    Ok(id) => tracing::info!(%agent, pane = %id, "second launch: opened new pane"),
-                    Err(e) => tracing::warn!(%agent, error = %e, "second launch: new pane failed"),
-                });
+            // Panes-first: a second launch opens the Settings window; `--new-pane <agent>` opens only
+            // a pop-out pane (no Settings) through the same code path as the tray's "New pane" menu.
+            match tray::second_launch_action(args.as_slice()) {
+                tray::SecondLaunch::Settings => app_windows::open_settings_window(app, None, true),
+                tray::SecondLaunch::NewPane(agent) => {
+                    let app = app.clone();
+                    std::thread::spawn(move || match tray::new_pane(&app, &agent) {
+                        Ok(id) => tracing::info!(%agent, pane = %id, "second launch: opened new pane"),
+                        Err(e) => tracing::warn!(%agent, error = %e, "second launch: new pane failed"),
+                    });
+                }
             }
         }))
         .plugin(tauri_plugin_dialog::init())
