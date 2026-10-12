@@ -8,6 +8,7 @@ import {
 } from '@puppet-master/shared';
 import type { PaneRegistryApi } from '../hooks/usePaneRegistry';
 import { loadSettings, resolveSettingsFilePath } from '../lib/settings';
+import { AgentsOverviewCard } from './AgentsOverviewCard';
 import logoUrl from '../assets/branding/logo.svg';
 
 interface Props {
@@ -240,6 +241,8 @@ export function HomeDashboard({
                 </ul>
               )}
             </section>
+
+            <AgentsOverviewCard onOpenSettings={onOpenSettings} />
 
             <section className="pm-home-panel">
               <div className="pm-home-panel-head">

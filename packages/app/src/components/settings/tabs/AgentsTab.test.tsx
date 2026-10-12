@@ -142,6 +142,23 @@ describe('AgentsTab', () => {
     expect(host.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it('approve shows a no-restart toast and never a restart prompt', async () => {
+    const api = mockApi();
+    await render(api);
+    await click(button('Review and approve'));
+    await click(button('Approve'));
+    const toast = host.querySelector('[data-testid="agent-toast"]');
+    expect(toast?.textContent).toMatch(/kilo is approved - no restart needed/);
+    expect(host.textContent).not.toMatch(/restart Puppet Master/i);
+  });
+
+  it('shows an experimental badge on experimental rows only', async () => {
+    const listing = fixture();
+    listing.definitions[0] = { ...listing.definitions[0], experimental: true };
+    await render(mockApi(listing));
+    expect(host.querySelectorAll('[data-testid="experimental-badge"]')).toHaveLength(1);
+  });
+
   it('lists recorder drafts and validates one through the api', async () => {
     const api = mockApi();
     api.draftsList = vi.fn(async () => ({

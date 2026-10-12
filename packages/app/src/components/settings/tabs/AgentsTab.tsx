@@ -19,7 +19,13 @@ import {
   type FixtureResult,
   type ProjectScan,
 } from '../../../lib/agentDefinitions';
-import { onAgentDefinitionsChanged, resetAgentRegistryCache } from '../../../lib/agentRegistry';
+import {
+  agentReadyMessage,
+  handleDefinitionsChanged,
+  onAgentDefinitionsChanged,
+  resetAgentRegistryCache,
+  listAgentRegistry,
+} from '../../../lib/agentRegistry';
 import { SettingBlock, SettingsSection } from '../settings-ui';
 
 const STATE_TONE: Record<string, string> = {
@@ -144,6 +150,7 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
       const next = await api.importDefinition();
       if (!next) return;
       apply(next);
+      await handleDefinitionsChanged();
       setNote('Imported. The definition is unapproved: review it and approve it below before it can run.');
     });
 
@@ -167,12 +174,17 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
       }
     });
 
+  // The registry is live (backend watcher + `agent_definitions_changed`): no restart is needed after
+  // any change here. Refetch now so the spawn menu / Overview update without waiting for the event.
   const approve = () =>
     run(async () => {
       if (!reviewing?.row.fingerprint) return;
+      const id = reviewing.row.id;
       await api.approve(reviewing.row.file, reviewing.row.fingerprint);
       setReviewing(null);
       apply(await api.list());
+      await handleDefinitionsChanged();
+      if (id) setNote(agentReadyMessage(await listAgentRegistry(), id));
     });
 
   const setConsent = (kind: string, path: string, enabled: boolean) =>
@@ -200,6 +212,8 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
       if (!row.id) return;
       await api.revoke(row.id);
       apply(await api.list());
+      await handleDefinitionsChanged();
+      setNote(`${row.id} was revoked - removed from the New session menu. No restart needed.`);
     });
 
   return (
@@ -223,7 +237,11 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
           <button type="button" className={BTN} disabled={busy} onClick={() => void importFile()}>
             Import
           </button>
-          {note && <span className="text-xs text-pm-muted">{note}</span>}
+          {note && (
+            <span role="status" data-testid="agent-toast" className="text-xs text-pm-muted">
+              {note}
+            </span>
+          )}
         </div>
         {error && (
           <p role="alert" className="mb-3 text-sm text-red-400">
@@ -527,6 +545,15 @@ function DefinitionItem({
         >
           {stateLabel(row.state)}
         </span>
+        {row.experimental && (
+          <span
+            data-testid="experimental-badge"
+            title="Experimental: runs a generic command with no verified behavior"
+            className={`${BADGE} border-amber-500/40 bg-amber-500/10 text-amber-400`}
+          >
+            experimental
+          </span>
+        )}
         <span className="ml-auto flex gap-2">
           <button type="button" className={BTN} disabled={busy} onClick={() => onCheck(row)}>
             Check with fixtures

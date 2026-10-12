@@ -183,6 +183,7 @@ pub struct EntryMeta {
     pub icon: String,
     pub install_hint: Option<String>,
     pub has_tui: bool,
+    pub experimental: bool,
 }
 
 impl EntryMeta {
@@ -193,6 +194,7 @@ impl EntryMeta {
             icon: def.agent.icon_or_default(),
             install_hint: (!hint.is_empty()).then(|| hint.to_string()),
             has_tui: def.tui.is_some() || def.agent.kind == super::schema::Kind::Generic,
+            experimental: def.agent.experimental || def.agent.kind == super::schema::Kind::Generic,
         }
     }
 }

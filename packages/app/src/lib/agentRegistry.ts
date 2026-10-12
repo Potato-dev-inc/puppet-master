@@ -227,11 +227,20 @@ export interface LaunchEntry {
   type: AgentType;
   label: string;
   icon: string | null;
+  /** Registered but cannot open a visible pane: shown greyed out in the spawn menu. */
+  disabled?: boolean;
+  /** Why the entry is disabled (tooltip / small text). */
+  disabledReason?: string;
+  experimental?: boolean;
 }
+
+export const HEADLESS_ONLY_REASON =
+  'Headless only - run it from the orchestrator or MCP (run_agent)';
 
 /**
  * Spawn-menu entries: the compiled launch presets (OpenCode API, PowerShell) that the registry still
- * lists, followed by any registered agent that is not a code profile and can open a visible pane.
+ * lists, followed by every other registered, approved agent. Agents that cannot open a visible pane
+ * (headless-only definitions) are included as `disabled` with a reason, so they are discoverable.
  */
 export function launchMenuEntries(listing: AgentRegistryListing): LaunchEntry[] {
   const byId = new Map(listing.agents.map((agent) => [agent.id, agent]));
@@ -241,10 +250,31 @@ export function launchMenuEntries(listing: AgentRegistryListing): LaunchEntry[] 
     if (agent) entries.push({ type: agent.id, label: agent.label || preset.label, icon: agent.icon });
   }
   for (const agent of listing.agents) {
-    if (agent.source === 'code' || !agent.modes.visible || entries.some((e) => e.type === agent.id)) continue;
-    entries.push({ type: agent.id, label: agent.label, icon: agent.icon });
+    if (agent.source === 'code' || entries.some((e) => e.type === agent.id)) continue;
+    const entry: LaunchEntry = { type: agent.id, label: agent.label || agent.id, icon: agent.icon };
+    if (agent.experimental) entry.experimental = true;
+    if (!agent.modes.visible) {
+      entry.disabled = true;
+      entry.disabledReason = HEADLESS_ONLY_REASON;
+    }
+    entries.push(entry);
   }
   return entries;
+}
+
+/** Entries that can actually open a pane (for places that must not offer headless-only agents). */
+export function openableLaunchEntries(entries: LaunchEntry[]): LaunchEntry[] {
+  return entries.filter((entry) => !entry.disabled);
+}
+
+/** Toast after an approve: where the agent now shows up. No restart is ever needed. */
+export function agentReadyMessage(listing: AgentRegistryListing, id: string): string {
+  const agent = listing.agents.find((a) => a.id === id);
+  if (!agent) return `${id} is approved - no restart needed.`;
+  const where = agent.modes.visible
+    ? "it's in the New session menu"
+    : "it's in the New session menu (headless only)";
+  return `${agent.label || id} is ready - ${where}.`;
 }
 
 /** Display label for an agent id; the id itself when the registry does not know it. */

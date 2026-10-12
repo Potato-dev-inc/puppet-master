@@ -9,6 +9,9 @@ import {
   fallbackListing,
   isTuiAgentId,
   launchMenuEntries,
+  openableLaunchEntries,
+  agentReadyMessage,
+  HEADLESS_ONLY_REASON,
   handleDefinitionsChanged,
   listAgentRegistry,
   onAgentDefinitionsChanged,
@@ -96,13 +99,27 @@ describe('spawn menu entries (launchMenuEntries)', () => {
     expect(entries.map((e) => e.label)).toEqual(['OpenCode (API)', 'PowerShell']);
   });
 
-  it('renders the same entries from a mocked registry and appends non-code visible agents', () => {
+  it('lists visible agents clickable and headless-only agents disabled with a reason; marks experimental', () => {
     const base = fallbackListing();
-    const extra = { ...base.agents[0], id: 'kilo', label: 'Kilo Code', source: 'declarative' };
-    const hidden = { ...base.agents[0], id: 'headlessonly', source: 'declarative', modes: { headless: true, visible: false } };
-    const entries = launchMenuEntries({ ...base, agents: [...base.agents, extra, hidden], source: 'registry' });
-    expect(entries.map((e) => e.type)).toEqual(['opencode_native', 'powershell', 'kilo']);
-    expect(entries[2].label).toBe('Kilo Code');
+    const kilo = { ...base.agents[0], id: 'kilo', label: 'Kilo Code', source: 'declarative' };
+    const kiro = { ...base.agents[0], id: 'kiro', label: 'Kiro', source: 'user', modes: { headless: true, visible: false } };
+    const gen = { ...base.agents[0], id: 'mycoder', label: 'mycoder', source: 'user', experimental: true };
+    const entries = launchMenuEntries({ ...base, agents: [...base.agents, kilo, kiro, gen], source: 'registry' });
+    expect(entries.map((e) => e.type)).toEqual(['opencode_native', 'powershell', 'kilo', 'kiro', 'mycoder']);
+    expect(entries[2].disabled).toBeUndefined();
+    expect(entries[3]).toMatchObject({ label: 'Kiro', disabled: true, disabledReason: HEADLESS_ONLY_REASON });
+    expect(HEADLESS_ONLY_REASON).toMatch(/Headless only/);
+    expect(entries[4].experimental).toBe(true);
+    expect(openableLaunchEntries(entries).map((e) => e.type)).toEqual(['opencode_native', 'powershell', 'kilo', 'mycoder']);
+  });
+
+  it('agentReadyMessage says where the approved agent shows up, never asks for a restart', () => {
+    const base = fallbackListing();
+    const kiro = { ...base.agents[0], id: 'kiro', label: 'Kiro', source: 'user', modes: { headless: true, visible: false } };
+    const listing = { ...base, agents: [...base.agents, kiro] };
+    expect(agentReadyMessage(listing, 'kiro')).toBe("Kiro is ready - it's in the New session menu (headless only).");
+    expect(agentReadyMessage(listing, 'claude')).toBe(`${base.agents[0].label} is ready - it's in the New session menu.`);
+    expect(agentReadyMessage(listing, 'ghost')).not.toMatch(/restart Puppet/i);
   });
 
   it('isTuiAgentId keeps the compiled answers and treats registered cli agents as TUIs', async () => {

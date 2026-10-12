@@ -4,6 +4,7 @@ import type { AgentType } from '@puppet-master/shared';
 import {
   agentLabel,
   launchMenuEntries,
+  openableLaunchEntries,
   useAgentRegistry,
   type AgentRegistryListing,
   type LaunchEntry,
@@ -32,7 +33,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 function switchPresetsFor(listing: AgentRegistryListing, agent: AgentType): LaunchEntry[] {
-  const launchPresets = launchMenuEntries(listing);
+  const launchPresets = openableLaunchEntries(launchMenuEntries(listing));
   if (launchPresets.some((preset) => preset.type === agent)) {
     return launchPresets;
   }

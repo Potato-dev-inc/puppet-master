@@ -57,6 +57,7 @@ fn entry_json(entry: &Entry) -> Value {
         "fingerprint": entry.fingerprint,
         "shadowed_by": entry.shadowed_by.as_ref().map(|p| p.to_string_lossy().into_owned()),
         "binary_changed": entry.binary_changed,
+        "experimental": entry.meta.as_ref().is_some_and(|m| m.experimental),
     })
 }
 

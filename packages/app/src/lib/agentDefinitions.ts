@@ -30,6 +30,8 @@ export interface DefinitionRow {
   shadowed_by: string | null;
   /** Approved, but the program now resolves elsewhere than the path pinned at approval. */
   binary_changed?: boolean;
+  /** Experimental or generic agent (warn before relying on it). */
+  experimental?: boolean;
 }
 
 export interface ProjectConsentRow {

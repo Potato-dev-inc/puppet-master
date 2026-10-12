@@ -382,8 +382,10 @@ export default function TerminalApp() {
                 onChange={(event) => setAgentType(event.target.value as AgentType)}
               >
                 {presets.map((preset) => (
-                  <option key={preset.type} value={preset.type}>
+                  <option key={preset.type} value={preset.type} disabled={preset.disabled} title={preset.disabledReason}>
                     {preset.label}
+                    {preset.experimental ? ' (experimental)' : ''}
+                    {preset.disabled ? ' - headless only' : ''}
                   </option>
                 ))}
               </select>

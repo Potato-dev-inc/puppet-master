@@ -197,11 +197,14 @@ export function FloatingMobileMenu({
                     <button
                       key={preset.type}
                       type="button"
-                      disabled={!bridgeReady || spawning}
+                      disabled={!bridgeReady || spawning || preset.disabled}
+                      title={preset.disabledReason}
                       onClick={() => void onSpawnPane(preset.type)}
                       className="rounded border border-pm-border px-2 py-2 text-left text-zinc-100 hover:bg-pm-border/40 disabled:opacity-40"
                     >
                       <span className="block truncate">{preset.label}</span>
+                      {preset.experimental && <span className="block text-[10px] text-pm-warn">experimental</span>}
+                      {preset.disabled && <span className="block text-[10px] text-pm-muted">Headless only</span>}
                     </button>
                   ))}
                 </div>
