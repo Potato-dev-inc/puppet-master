@@ -9,7 +9,7 @@ import { GeneralTab } from './tabs/GeneralTab';
 import { McpTab } from './tabs/McpTab';
 import { MobileTab } from './tabs/MobileTab';
 import { OrchestratorTab } from './tabs/OrchestratorTab';
-import { PerformanceTab } from './tabs/PerformanceTab';
+import { PreloadTab } from './tabs/PreloadTab';
 import {
   AutomationTab,
   BackupTab,
@@ -37,7 +37,7 @@ export function SettingsTabPanel({ tab, ctx }: { tab: SettingsTabId; ctx: Settin
     case 'api': return <ApiTab ctx={ctx} />;
     case 'mcp': return <McpTab ctx={ctx} />;
     case 'mobile': return <MobileTab ctx={ctx} />;
-    case 'performance': return <PerformanceTab />;
+    case 'preload': return <PreloadTab />;
     case 'agents': return <AgentsTab />;
     case 'security': return <SecurityTab />;
     case 'storage': return <StorageTab ctx={ctx} />;

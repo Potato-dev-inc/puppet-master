@@ -277,8 +277,8 @@ Per agent: `cursor/` (`mod.rs`, `launch.rs`, `headless.rs`, `screen.rs`, `chrome
 
 Off by default. Per backend and kind (visible pane / headless process) a worker for a recently used project is
 started ahead of time; `run_agent` claims it instead of spawning. Settings + history live in
-`<app data>/standby-pool.json` (hand edits are applied within a second); UI: Settings > Performance
-(`PerformanceTab.tsx`, `lib/standby.ts`, Tauri commands `standby_get_status` / `standby_set_config`).
+`<app data>/standby-pool.json` (hand edits are applied within a second); UI: Settings > Preload
+(`PreloadTab.tsx`, `lib/standby.ts`, Tauri commands `standby_get_status` / `standby_set_config`). **Preload** = `config.rs::PreloadConfig` (master + per-provider count 0-2): the pool warms those providers in `standby::default_project` (settings `project_path`, not the registry's volatile project) without waiting for a run, creates the pane's hidden window in `host.rs` (`app_windows::open_warm_pane_window`, `?warm=1`), and a claim (`tray::new_pane` or `bridge/dispatch.rs`) reveals the pane and `open_pane_window` places + shows that window; `pane_windows.rs` sweeps use `list_all()` so hidden warm windows survive.
 
 | File | Purpose / key items |
 |---|---|

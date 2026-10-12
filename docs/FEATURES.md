@@ -28,7 +28,7 @@ Rows marked **obsolete** describe the legacy main-window UI: still in the tree, 
 | Loopback HTTP bridge (default 127.0.0.1:17321, scans upward) shared by GUI and MCP | `bridge/` | stable |
 | Bridge port file; removed on exit only if it still names our port | `bridge/port_file.rs` | stable |
 | Single-instance guard: a second launch opens the Settings window (and handles `--new-pane <agent>`) and exits | `lib.rs` (`tauri_plugin_single_instance`) | stable (live-proven PF2/PF3) |
-| Settings tabs: General, Appearance, Agents, Orchestrator, MCP, Mobile, Session, Storage, API, Advanced, Performance, Developer | `components/settings/tabs/*Tab.tsx` | stable |
+| Settings tabs: General, Appearance, Agents, Orchestrator, MCP, Mobile, Session, Storage, API, Advanced, Preload, Developer | `components/settings/tabs/*Tab.tsx` | stable |
 | Pane exit is detected by an exit watcher as well as ConPTY EOF, so a dead pane closes at once | `pty/registry/spawn.rs` (exit watcher) | stable |
 | Pane windows: one per pane, created from Rust (no main webview needed), unfocused for agent runs, anchor + cascade placement, close when the pane exits; closing the window kills the pane; backend sweeps stragglers | `pane_windows.rs`, `app_windows.rs`, UI `lib/detached-close.ts`, `TerminalApp.tsx` | stable |
 | Pop-out opened through the main window's `pane://detach` listener | UI `lib/detached-pane-window.ts`, `App.tsx` | **obsolete** (replaced by Rust-created windows) |
@@ -48,7 +48,8 @@ The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main
 | Orchestrator backend selection (API vs CLI), OpenCode key profiles a/b | UI `OrchestratorTab.tsx`, `OrchestratorBackendSelect.tsx`; `opencode/` | stable (see `ROUTING.md`) |
 | Coordination panel: tasks, locks, pane roles, digests, session context | UI `components/CoordinationPanel.tsx`; `session_context.rs`, `bridge/routes/tasks.rs`, `locks.rs` | stable |
 | Operations hub: revisioned, restart-surviving run snapshots under `<project>/.puppet-master/operations/` | `operations.rs`, `operations/` | stable |
-| Standby pool (opt-in warm workers: hidden visible Cursor/Claude panes, headless Claude stdin stream); bridge-owned, polling policy via `read/update_orchestrator_state` | `standby/` (`pool.rs`, `config.rs`, `host.rs`), `bridge/routes/standby.rs` | experimental (off by default; Cursor headless cannot be pre-launched) |
+| **Preload** (Settings > Preload; replaces the Performance/standby UI): master switch + per-provider checklist (Claude Code, Cursor Agent, Kilo; others listed greyed until they declare a standby mode), keep 0-2 warm each in the default project folder (the "project folder" setting), idle timeout in minutes; each warm worker is the CLI at its input box in a hidden pane **plus a pre-built hidden pane window** (`warm=1`), so tray "New pane" / a visible run only shows it (tray marks warm agents "(ready)"); a replacement warms after every claim; old `standby-pool.json` visible toggles migrate into it | `standby/` (`config.rs` PreloadConfig, `pool.rs`, `host.rs`), `app_windows.rs` (`open_warm_pane_window`), `tray.rs`, `components/settings/tabs/PreloadTab.tsx` | experimental (off by default) |
+| Standby pool (the engine under Preload; also opt-in warm headless Claude stdin stream by hand-edited `backends[..].headless`); bridge-owned, polling policy via `read/update_orchestrator_state` bridge-owned, polling policy via `read/update_orchestrator_state` | `standby/` (`pool.rs`, `config.rs`, `host.rs`), `bridge/routes/standby.rs` | experimental (off by default; Cursor headless cannot be pre-launched) |
 
 ## 3. MCP server and tools
 

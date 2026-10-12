@@ -106,7 +106,16 @@ export interface StandbyBackendToggle {
   headless: boolean;
 }
 
+/** Settings > Preload: warm visible workers per provider in the default project folder. */
+export interface PreloadConfig {
+  enabled: boolean;
+  /** agent id -> warm workers wanted (0-2); missing or 0 = not warmed. */
+  providers: Record<string, number>;
+}
+
 export interface StandbyConfig {
+  preload: PreloadConfig;
+  /** Legacy master switch for the hand-edited headless toggles in `backends`. */
   enabled: boolean;
   backends: Record<string, StandbyBackendToggle>;
   max_total: number;

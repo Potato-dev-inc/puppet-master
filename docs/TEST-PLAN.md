@@ -15,7 +15,7 @@ Editing files under `packages/app/src-tauri` restarts the dev app (~1 min; poll 
 | Rust lib | `cd packages/app/src-tauri; $env:CARGO_TARGET_DIR='C:\Users\Ren-pc\cargo-target-shared'; cargo test --lib` | 927 passed, 0 failed, 2 ignored (PF3) |
 | Rust: TUI only | `cargo test --lib tui::` (same dir/env) | about 252+ passed, 1 ignored |
 | Rust: tool registry | `cargo test --lib tool_registry` | about 22 passed (includes the pinned `catalog_version`) |
-| Rust: standby | `cargo test --lib standby` | about 36 passed |
+| Rust: standby / preload | `cargo test --lib standby` (+ `app_windows`, `tray`) | about 50 passed (PreloadConfig, migration, default-project warming, count 2, replacement, project change) |
 | MCP shim bin | `cargo test --bin puppet-master-mcp` (same dir/env) | 30 passed |
 | App unit tests | `cd packages/app; npx vitest run` | 239 passed (36 files) |
 | Typecheck | `npm run typecheck` (workspaces) | clean for shared, app, mcp-server |
@@ -83,8 +83,8 @@ codex exec -m gpt-6-luna -c model_reasoning_effort=low -c 'mcp_servers.puppet-ma
 ```
 Expect Codex to call `run_agent` and return the handle/result. Also `wait_agents`, `followup_task`. Check `list_agents` shows panes created.
 
-### 2.6 Standby pool (opt-in)
-Enable standby for Claude/Cursor in Settings (Performance/Orchestrator). Run a task twice; the second run claims the warm worker (faster first turn, no hidden-pane leak: `list_panes` after close). Disable again. Skip if not needed; off by default.
+### 2.6 Preload (opt-in)
+Settings > Preload: switch on, tick Claude Code and Kilo (keep 1). `GET /standby` shows ready workers within ~10 s and `scripts/check-window-monitor.ps1` shows no new window. `app.exe --new-pane kilo` (only while /health is up) shows the pane in ~0.3 s with the agent already idle (cold: ~4.7 s to idle); a replacement is ready ~10 s later and tray New pane lists "(ready)". An MCP visible `run_agent` for Claude in the default project claims the warm worker (`receipt.standby_used`, window shown unfocused). Also `node scripts/perf-latency.mjs --scenarios claude_visible --fixed-dir <default project> --cold-gap 25000` (warm) vs preload off (cold). Switch off again; off by default.
 
 ### 2.7 Mobile PWA
 Unverified on this branch. If testing: Settings > Mobile, pair a phone, open the PWA, list panes, send a prompt.

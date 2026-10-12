@@ -1,10 +1,12 @@
-// Warm standby pool settings helpers (pure; the settings tab and its tests share them).
-import { peekAgentRegistry } from './agentRegistry';
+// Preload (warm standby) settings helpers (pure; the Preload tab and its tests share them).
+import { peekAgentRegistry, type AgentDescriptor } from './agentRegistry';
 import type { StandbyConfig, StandbyStatus } from './tauri-types';
 
-export type StandbyKind = 'visible' | 'headless';
+/** Most warm workers one provider may keep (mirrors the backend clamp). */
+export const MAX_WARM_PER_PROVIDER = 2;
 
 export const DEFAULT_STANDBY_CONFIG: StandbyConfig = {
+  preload: { enabled: false, providers: {} },
   enabled: false,
   backends: {},
   max_total: 3,
@@ -13,37 +15,47 @@ export const DEFAULT_STANDBY_CONFIG: StandbyConfig = {
   idle_timeout_secs: 1200,
 };
 
-/** Human labels for the backends that can have a standby worker. */
-export const STANDBY_BACKEND_LABELS: Record<string, string> = {
-  cursor_agent: 'Cursor Agent',
-  claude: 'Claude Code',
-};
-
 export function backendLabel(agentType: string): string {
-  return (
-    STANDBY_BACKEND_LABELS[agentType] ??
-    peekAgentRegistry().agents.find((agent) => agent.id === agentType)?.label ??
-    agentType
-  );
+  return peekAgentRegistry().agents.find((agent) => agent.id === agentType)?.label ?? agentType;
 }
 
-/** Is this kind of standby switched on for the backend? */
-export function isBackendEnabled(config: StandbyConfig, agentType: string, kind: StandbyKind): boolean {
-  return config.backends[agentType]?.[kind] ?? false;
+/** One row of the provider checklist. */
+export interface PreloadProvider {
+  id: string;
+  label: string;
+  /** False: the agent can open a visible pane but has no warm mode yet (its row is disabled). */
+  supported: boolean;
 }
 
-/** A new config with one backend/kind toggled; the input is not mutated. */
-export function withBackendToggle(
-  config: StandbyConfig,
-  agentType: string,
-  kind: StandbyKind,
-  value: boolean,
-): StandbyConfig {
-  const current = config.backends[agentType] ?? { visible: false, headless: false };
-  return {
-    ...config,
-    backends: { ...config.backends, [agentType]: { ...current, [kind]: value } },
-  };
+/** Agents that can open a visible pane, in registry order. */
+export function preloadProviders(agents: readonly AgentDescriptor[]): PreloadProvider[] {
+  return agents
+    .filter((agent) => agent.modes.visible)
+    .map((agent) => ({ id: agent.id, label: agent.label, supported: agent.standby.visible }));
+}
+
+/** Warm workers wanted for a provider (0 when unticked). */
+export function preloadCount(config: StandbyConfig, agentId: string): number {
+  return config.preload.providers[agentId] ?? 0;
+}
+
+/** A new config with one provider's warm count set (0 unticks it); the input is not mutated. */
+export function withPreloadCount(config: StandbyConfig, agentId: string, count: number): StandbyConfig {
+  const next = { ...config.preload.providers };
+  const n = Math.min(MAX_WARM_PER_PROVIDER, Math.max(0, Math.round(Number.isFinite(count) ? count : 0)));
+  if (n === 0) delete next[agentId];
+  else next[agentId] = n;
+  return { ...config, preload: { ...config.preload, providers: next } };
+}
+
+export function withPreloadEnabled(config: StandbyConfig, enabled: boolean): StandbyConfig {
+  return { ...config, preload: { ...config.preload, enabled } };
+}
+
+/** Idle timeout is edited in minutes and stored in seconds. */
+export function withIdleMinutes(config: StandbyConfig, minutes: number): StandbyConfig {
+  const m = clampInt(minutes, 1, 24 * 60, Math.round(config.idle_timeout_secs / 60));
+  return { ...config, idle_timeout_secs: m * 60 };
 }
 
 /** Clamp an edited number into the range the backend accepts (it clamps too; this keeps the UI honest). */
@@ -60,11 +72,12 @@ export function formatDuration(ms: number | null | undefined): string {
   return minutes < 60 ? `${minutes}m ${seconds % 60}s` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** One line for the status strip: "2 standby (1 ready, 1 starting)" or why nothing is warm. */
-export function summarizeStandbys(status: StandbyStatus | null): string {
-  if (!status) return 'Standby pool status is unavailable outside the desktop app.';
-  if (!status.enabled) return 'Off: no standby workers are kept.';
+/** One line for the status strip: "2 warm (1 ready, 1 starting)" or why nothing is warm. */
+export function summarizePreload(status: StandbyStatus | null): string {
+  if (!status) return 'Preload status is unavailable outside the desktop app.';
+  if (!status.config.preload.enabled) return 'Off: no agents are kept warm.';
   const { total, ready, starting } = status.counts;
-  if (total === 0) return 'On: no standby workers yet. One is started after your next run in a project.';
-  return `${total} standby (${ready} ready, ${starting} starting)`;
+  if (Object.keys(status.config.preload.providers).length === 0) return 'On, but no provider is ticked.';
+  if (total === 0) return 'On: warm agents start in a few seconds.';
+  return `${total} warm (${ready} ready, ${starting} starting)`;
 }

@@ -116,7 +116,14 @@ export default function TerminalApp() {
   // selected." A short grace period covers the window opening a moment before the registry
   // learns about its pane. Worker hosts keep theirs: they explain the exit and quit the app.
   const lockedPane = lockedPaneId ? registry.panes.get(lockedPaneId) ?? null : null;
-  const lockedPaneGone = registry.initialReady && lockedPaneId !== null && lockedPane === null;
+  // A Preload warm window (`warm=1`) is built hidden while its pane is still unlisted (a warm worker
+  // is in no pane list until it is claimed), so "not in the list" only means "gone" once the pane
+  // has been seen at least once.
+  const warm = params.has('warm');
+  const seenLockedPaneRef = useRef(false);
+  if (lockedPane !== null) seenLockedPaneRef.current = true;
+  const lockedPaneGone =
+    registry.initialReady && lockedPaneId !== null && lockedPane === null && (!warm || seenLockedPaneRef.current);
   const lockedPaneDead = lockedPane !== null && lockedPane.status === 'error';
   useEffect(() => {
     if (!detached || workerHost || !(lockedPaneGone || lockedPaneDead)) return;

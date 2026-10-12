@@ -45,4 +45,4 @@ Not verified: a human clicking the tray icon/menu entries; the `visible_failed` 
 ## Backlog (planned later, not started)
 
 - **Bind panes together** (requested 2026-10-12): let the user link existing pane windows into a group (e.g. move/arrange/close together, or route one pane's output to another). Design to be planned with the user before any work.
-- **Preload** (next, after the fixes): a Settings feature that keeps one warm agent + hidden pane window per selected provider so opening a pane is instant; replaces the opt-in standby pool UI.
+- **Preload** (implemented, see docs/FEATURES.md): Settings > Preload keeps warm agents + hidden pane windows per selected provider so opening a pane is instant; replaces the opt-in standby pool UI. Warm `--new-pane` is idle in ~0.3 s vs 2.7-4.8 s cold.

@@ -1,34 +1,43 @@
-// Settings > Performance: the opt-in warm standby pool (workers started ahead of the next run).
+// Settings > Preload: keep a warm agent (CLI at its input box + a hidden pane window) per ticked
+// provider, so opening a pane for it is instant. Backed by the standby pool (`standby-pool.json`).
 import { useCallback, useEffect, useState } from 'react';
 import { tauri, type StandbyConfig, type StandbyStatus } from '../../../lib/tauri';
+import { useAgentRegistry } from '../../../lib/agentRegistry';
 import {
   DEFAULT_STANDBY_CONFIG,
-  backendLabel,
-  clampInt,
+  MAX_WARM_PER_PROVIDER,
   formatDuration,
-  isBackendEnabled,
-  summarizeStandbys,
-  withBackendToggle,
-  type StandbyKind,
+  preloadCount,
+  preloadProviders,
+  summarizePreload,
+  withIdleMinutes,
+  withPreloadCount,
+  withPreloadEnabled,
 } from '../../../lib/standby';
 import { FieldInput, FieldLabel, SettingBlock, SettingToggle, SettingsSection } from '../settings-ui';
 
-const KINDS: { kind: StandbyKind; label: string }[] = [
-  { kind: 'visible', label: 'Visible panes' },
-  { kind: 'headless', label: 'Headless' },
-];
+export interface PreloadApi {
+  getStatus: () => Promise<StandbyStatus | null>;
+  setConfig: (config: StandbyConfig) => Promise<StandbyStatus | null>;
+}
 
-export function PerformanceTab() {
+const DEFAULT_API: PreloadApi = {
+  getStatus: () => tauri.standbyGetStatus(),
+  setConfig: (config) => tauri.standbySetConfig(config),
+};
+
+export function PreloadTab({ api = DEFAULT_API }: { api?: PreloadApi }) {
+  const registry = useAgentRegistry();
   const [status, setStatus] = useState<StandbyStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await tauri.standbyGetStatus());
+      setStatus(await api.getStatus());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     void refresh();
@@ -40,100 +49,109 @@ export function PerformanceTab() {
   const save = async (next: StandbyConfig) => {
     setError(null);
     try {
-      setStatus(await tauri.standbySetConfig(next));
+      setStatus(await api.setConfig(next));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
-  const setNumber = (key: 'max_total' | 'recent_projects' | 'recent_hours', min: number, max: number, raw: string) =>
-    void save({ ...config, [key]: clampInt(Number(raw), min, max, config[key]) });
+  const providers = preloadProviders(registry.agents);
 
   return (
     <SettingsSection
-      title="Performance"
-      description="Warm standby workers: a CLI for a project you keep using is started ahead of time, so the first turn of the next run skips its startup. Off by default; each standby is a real CLI process that uses memory until it is used or times out."
+      title="Preload"
+      description="Keep a warm agent ready so opening a pane feels instant: the CLI is already started at its input box and its pane window is already built, hidden. Opening that agent from the tray (or a visible agent run) just shows it, and a replacement warms up in the background."
     >
       <SettingToggle
-        label="Keep standby workers"
-        description="Start one hidden worker per enabled backend for your most recently used projects. A run claims a matching one and shows it like any pane; a replacement is started afterwards. Turning this off shuts every standby down."
-        checked={config.enabled}
+        label="Preload agents"
+        description="Master switch. Off by default. Each warm agent is a running CLI process that uses memory, and some providers count it as an open session. Turning this off closes every warm agent."
+        checked={config.preload.enabled}
         implemented
-        onChange={(value) => void save({ ...config, enabled: value })}
+        onChange={(value) => void save(withPreloadEnabled(config, value))}
       />
       <SettingBlock
-        label="Backends"
+        label="Agents to keep warm"
         implemented
-        description="Choose which backends may have a standby. Cursor headless cannot be pre-launched (it takes its prompt as an argument). Visible standbys only start in folders the CLI already trusts: the pool never answers a trust prompt."
+        description="Warm agents start in your default project folder; a pane for another project starts normally. They never answer a trust or login prompt: an agent that shows one is dropped (open it once yourself first)."
       >
-        <div className="space-y-2">
-          {(status?.supported ?? []).map((backend) => (
-            <div key={backend.agent_type} className="flex flex-wrap items-center gap-4 text-sm">
-              <span className="w-32 font-medium">{backendLabel(backend.agent_type)}</span>
-              {KINDS.map(({ kind, label }) => (
-                <label key={kind} className="flex items-center gap-2 text-pm-muted">
+        <div className="space-y-2" data-testid="preload-providers">
+          {providers.map((provider) => {
+            const count = preloadCount(config, provider.id);
+            return (
+              <div key={provider.id} className="flex flex-wrap items-center gap-4 text-sm">
+                <label className="flex w-56 items-center gap-2 font-medium">
                   <input
                     type="checkbox"
-                    disabled={!backend[kind]}
-                    checked={isBackendEnabled(config, backend.agent_type, kind)}
-                    onChange={(event) => void save(withBackendToggle(config, backend.agent_type, kind, event.target.checked))}
+                    aria-label={`Keep ${provider.label} warm`}
+                    disabled={!provider.supported || !status}
+                    checked={count > 0}
+                    onChange={(event) => void save(withPreloadCount(config, provider.id, event.target.checked ? 1 : 0))}
                   />
-                  {label}
-                  {!backend[kind] && <span className="text-xs">(not supported)</span>}
+                  {provider.label}
                 </label>
-              ))}
-            </div>
-          ))}
+                {provider.supported ? (
+                  <label className="flex items-center gap-2 text-pm-muted">
+                    keep
+                    <select
+                      aria-label={`Warm ${provider.label} count`}
+                      disabled={count === 0}
+                      value={count || 1}
+                      onChange={(event) => void save(withPreloadCount(config, provider.id, Number(event.target.value)))}
+                    >
+                      {Array.from({ length: MAX_WARM_PER_PROVIDER }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                    warm
+                  </label>
+                ) : (
+                  <span className="text-xs text-pm-muted">(no warm mode yet)</span>
+                )}
+              </div>
+            );
+          })}
           {!status && <p className="text-sm text-pm-muted">Available in the desktop app.</p>}
         </div>
       </SettingBlock>
       <SettingBlock
-        label="Limits"
+        label="Idle timeout"
         implemented
-        description={`Idle standbys are shut down after ${formatDuration(config.idle_timeout_secs * 1000)} and stay off until your next run in that project.`}
+        description={`A warm agent nobody used for ${formatDuration(config.idle_timeout_secs * 1000)} is closed; it warms again the next time you open that agent.`}
       >
-        <div className="grid max-w-xl grid-cols-3 gap-3">
-          <div>
-            <FieldLabel>Max standbys</FieldLabel>
-            <FieldInput type="number" min={0} max={8} value={config.max_total} onChange={(e) => setNumber('max_total', 0, 8, e.target.value)} />
-          </div>
-          <div>
-            <FieldLabel>Recent projects</FieldLabel>
-            <FieldInput type="number" min={1} max={5} value={config.recent_projects} onChange={(e) => setNumber('recent_projects', 1, 5, e.target.value)} />
-          </div>
-          <div>
-            <FieldLabel>Used within (hours)</FieldLabel>
-            <FieldInput type="number" min={1} max={336} value={config.recent_hours} onChange={(e) => setNumber('recent_hours', 1, 336, e.target.value)} />
-          </div>
+        <div className="max-w-xs">
+          <FieldLabel>Minutes</FieldLabel>
+          <FieldInput
+            type="number"
+            min={1}
+            max={1440}
+            aria-label="Preload idle timeout (minutes)"
+            value={Math.round(config.idle_timeout_secs / 60)}
+            onChange={(e) => void save(withIdleMinutes(config, Number(e.target.value)))}
+          />
         </div>
       </SettingBlock>
-      <SettingBlock label="Status" implemented description={summarizeStandbys(status)}>
+      <SettingBlock label="Status" implemented description={summarizePreload(status)}>
         <div className="space-y-2 text-sm">
           {error && <p className="text-red-400">{error}</p>}
-          {status?.standbys.map((standby) => (
-            <div key={standby.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pm-border px-3 py-2">
-              <span className="font-medium">
-                {backendLabel(standby.agent_type)}
-                {standby.headless ? ' (headless)' : ''}
-              </span>
-              <span className="font-mono text-xs text-pm-muted">{standby.project}</span>
-              <span>{standby.state}</span>
-              <span className="text-pm-muted">age {formatDuration(standby.age_ms)}</span>
-              {standby.idle_expires_in_ms != null && (
-                <span className="text-pm-muted">expires in {formatDuration(standby.idle_expires_in_ms)}</span>
-              )}
-            </div>
-          ))}
+          {status?.standbys
+            .filter((standby) => !standby.headless)
+            .map((standby) => (
+              <div key={standby.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pm-border px-3 py-2">
+                <span className="font-medium">{registry.agents.find((a) => a.id === standby.agent_type)?.label ?? standby.agent_type}</span>
+                <span className="font-mono text-xs text-pm-muted">{standby.project}</span>
+                <span>{standby.state}</span>
+                {standby.idle_expires_in_ms != null && (
+                  <span className="text-pm-muted">closes in {formatDuration(standby.idle_expires_in_ms)} if unused</span>
+                )}
+              </div>
+            ))}
           {status?.blocked.map((blocked) => (
             <p key={blocked.key} className="text-xs text-pm-muted">
               Held back: {blocked.key} ({blocked.reason}
-              {blocked.cold ? ', waits for your next run' : `, retry in ${formatDuration(blocked.retry_in_ms)}`})
+              {blocked.cold ? ', warms again when you open it' : `, retry in ${formatDuration(blocked.retry_in_ms)}`})
             </p>
           ))}
-          {status && (
-            <p className="text-xs text-pm-muted">
-              claimed {status.stats.claimed} · missed {status.stats.missed} · discarded {status.stats.discarded} · expired {status.stats.expired}
-            </p>
-          )}
         </div>
       </SettingBlock>
     </SettingsSection>
