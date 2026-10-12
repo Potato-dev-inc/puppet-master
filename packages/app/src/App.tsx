@@ -114,7 +114,14 @@ export default function App() {
 
         bumpSettings();
       });
-      if (cancelled) unlistenApply?.();
+      if (cancelled) {
+        // StrictMode / hot reload can run cleanup before these async listeners resolve:
+        // a leaked pane://detach listener opens a second window for every pane.
+        unlistenDetach?.();
+        unlistenReattach?.();
+        unlistenShowInGrid?.();
+        unlistenApply?.();
+      }
     })();
 
     return () => {

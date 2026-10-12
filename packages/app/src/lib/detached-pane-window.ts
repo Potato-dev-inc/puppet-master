@@ -62,7 +62,36 @@ export function detachedWindowSizeFromGrid(cols?: number, rows?: number): Detach
   };
 }
 
-export async function openDetachedPaneWindow(
+const inFlightOpens = new Map<string, Promise<void>>();
+
+/**
+ * Run `task` once per key at a time: concurrent callers share the running promise. Several
+ * webviews (and a StrictMode double mount) can hear the same `pane://detach` event and each
+ * checks `getByLabel` before any of them has created the window, so without this every listener
+ * creates its own window for one pane; the extra one is unreachable by label and outlives the pane.
+ */
+export function runOncePerKey(key: string, task: () => Promise<void>): Promise<void> {
+  const running = inFlightOpens.get(key);
+  if (running) return running;
+  const next = task().finally(() => {
+    if (inFlightOpens.get(key) === next) inFlightOpens.delete(key);
+  });
+  inFlightOpens.set(key, next);
+  return next;
+}
+
+export function openDetachedPaneWindow(
+  paneId: string,
+  title = 'Terminal pane',
+  size?: DetachedPaneWindowSize,
+  options?: DetachedPaneWindowOptions,
+): Promise<void> {
+  return runOncePerKey(detachedPaneLabel(paneId), () =>
+    openDetachedPaneWindowOnce(paneId, title, size, options),
+  );
+}
+
+async function openDetachedPaneWindowOnce(
   paneId: string,
   title = 'Terminal pane',
   size?: DetachedPaneWindowSize,
