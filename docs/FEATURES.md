@@ -34,11 +34,11 @@ Paths are relative to `packages/app/src-tauri/src` (Rust) or `packages/app/src` 
 ## 3. MCP server and tools
 
 The stdio shim `puppet-master-mcp` (`bin/puppet-master-mcp.rs`, `bin/puppet_master_mcp/`) advertises the catalog in `tool_registry/catalog/` and
-maps each tool to a bridge route; `catalog_version` is pinned (`66-4cd8e0886d0f544a`). `set_mode` limits a connection to agent, shell or both.
+maps each tool to a bridge route; `catalog_version` is pinned (`66-46d53ccddbd2b4dc`). `set_mode` limits a connection to agent, shell or both.
 Port discovery: the shim reads the port file and, if that port is dead, probes 17321-17330.
 
 **Agent mode (`catalog/agents.rs`)**
-- `run_agent` - start or adopt a worker with a task, returns a handle; options `headless`, `read_only`, `keep_pane`, `checks`, `locks`, `model`, `context_policy`, and **`placement` = `auto|grid|window`**: visible panes open in the main window's left grid by default; `window` forces one pop-out; auto/grid fall back to a pop-out when the main window is closed/hidden; ignored when headless. `placement` is also on `delegate_work` and `spawn_agent`.
+- `run_agent` - start or adopt a worker with a task, returns a handle; options `headless`, `read_only`, `keep_pane`, `checks`, `locks`, `model`, `context_policy`, and **`placement` = `auto|grid|window`**: runs are visible by default (`headless=false`) and the pane opens in its own pop-out window (`placement` default `window`); `grid`/`auto` use the main window's grid when it is open and visible; ignored when headless. `headless=true` is the explicit opt-out and the automatic backup: a run falls back to headless once, recorded as `fallback: {from: "visible", to: "headless", reason}` on the view and the receipt, when the agent has no visible mode (`no_visible_mode`, e.g. Kiro) or the pane fails to launch / take the prompt before the turn starts (`visible_failed`; the failed pane is closed, the same operation re-queued headless). `placement` is also on `delegate_work` and `spawn_agent`.
 - `quick_ask` - one-shot read-only headless question, answer plus receipt.
 - `wait_agents` - wait on handles (completed/failed/cancelled/needs_input). `send_message` - steer the current turn. `followup_task` - next turn on the same worker/conversation. `send_agent` - compat wrapper for followup_task.
 - `answer_prompt` - answer a blocking approval prompt (handle or pane_id). `interrupt_agent` / `cancel_agent` - stop the turn, keep the handle. `close_agent` - end the session.
@@ -102,7 +102,7 @@ The New-session spawn menu is built from the registry (`lib/agentRegistry.ts`); 
 
 | Feature | Where | Status |
 |---|---|---|
-| Headless (default) vs visible (`headless=false`) runs; the visible pane lands in the main-window grid (wide tile for run panes) | `agent_runs/headless/entry.rs`, `pane_windows::decide_placement` | stable |
+| Visible-first runs (`headless=false` default, pop-out window per pane) with automatic headless fallback (`fallback` in view + receipt) | `agent_runs/headless/entry.rs`, `agent_runs/headless/fallback.rs`, `operations::convert_to_headless_fallback`, `pane_windows::decide_placement` | stable |
 | Receipts: `agent_definition` {id, fingerprint, binary}, `read_only` (enforced/...), `experimental`, authoritative vs inferred result | `agent_runs/`, `RunReceipt` | stable |
 | `read_only=true` per profile capability (`READ_ONLY_UNSUPPORTED` otherwise) | `tui` `features()` | stable |
 | `followup_task` / resume on the same provider session (`continuity: resume`) | `agent_runs/runtime/followup.rs` | stable |
