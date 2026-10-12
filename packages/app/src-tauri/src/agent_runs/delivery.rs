@@ -32,6 +32,11 @@ const POLL_INTERVAL: Duration = Duration::from_millis(80);
 const VISIBLE_POLLS: u32 = 25;
 const STARTED_POLLS: u32 = 38;
 const RESUBMIT_AT_POLL: u32 = 19;
+/// Longest total wait for a slow-starting TUI to draw anything (cold kilo can take >5s). The
+/// budget is shared by the wait before the first keystroke and any later blank-screen waits.
+const READY_BUDGET_POLLS: u32 = 250;
+/// Consecutive identical non-blank polls that count as "the TUI has drawn and settled".
+const READY_STABLE_POLLS: u32 = 2;
 /// Pause after the clear sequence so the TUI has processed it before the text arrives.
 const CLEAR_PAUSE: Duration = Duration::from_millis(120);
 
@@ -158,6 +163,33 @@ fn trace_rows(screen: &str) -> String {
         .join(" | ")
 }
 
+/// Polls until the screen has non-whitespace content that held still for a few polls. Keys typed
+/// before a TUI's input handler exists are lost, so nothing is typed while the pane is blank.
+/// Spends from `budget`; returns false when the budget ran out with the screen still blank.
+fn wait_for_screen(io: &mut dyn DeliveryIo, budget: &mut u32) -> bool {
+    let mut last = String::new();
+    let mut stable = 0;
+    while *budget > 0 {
+        let screen = io.screen();
+        if screen.trim().is_empty() {
+            stable = 0;
+        } else {
+            if screen == last {
+                stable += 1;
+            } else {
+                stable = 1;
+            }
+            if stable >= READY_STABLE_POLLS {
+                return true;
+            }
+        }
+        last = screen;
+        *budget -= 1;
+        io.pause(POLL_INTERVAL);
+    }
+    false
+}
+
 /// [`deliver_prompt`] that also records what it saw, so a delivery that claimed success without a
 /// turn can be diagnosed from the operation transcript.
 pub fn deliver_prompt_traced(
@@ -167,7 +199,19 @@ pub fn deliver_prompt_traced(
     trace: &mut Vec<String>,
 ) -> Delivery {
     let mut visible = false;
-    for attempt in 0..2 {
+    let mut ready_budget = READY_BUDGET_POLLS;
+    let mut attempt = 0;
+    let mut typed_any = false;
+    while attempt < 2 {
+        if !wait_for_screen(io, &mut ready_budget) {
+            trace.push("screen stayed empty: the TUI drew nothing within the startup budget".to_string());
+            if typed_any {
+                if let Some(clear) = clear {
+                    let _ = io.write(clear, false);
+                }
+            }
+            return Delivery::NotVisible;
+        }
         if let Some(clear) = clear {
             if let Err(error) = io.write(clear, false) {
                 return Delivery::WriteFailed(error);
@@ -178,6 +222,7 @@ pub fn deliver_prompt_traced(
         if let Err(error) = io.write(prompt, false) {
             return Delivery::WriteFailed(error);
         }
+        typed_any = true;
         for poll in 0..VISIBLE_POLLS {
             io.pause(POLL_INTERVAL);
             let screen = io.screen();
@@ -191,6 +236,13 @@ pub fn deliver_prompt_traced(
         if visible {
             break;
         }
+        if io.screen().trim().is_empty() && ready_budget > 0 {
+            // The TUI had not drawn when the keys went in (they are lost), so this attempt does
+            // not count: wait for the screen and type again.
+            trace.push(format!("attempt {attempt}: screen blank after typing, waiting for the TUI and retyping"));
+            continue;
+        }
+        attempt += 1;
     }
     if !visible {
         if let Some(clear) = clear {
@@ -342,8 +394,8 @@ mod tests {
             "Enter must not be sent over an unverified input box: {:?}",
             pane.writes
         );
-        // It typed the prompt twice (one automatic retry) and left the box cleared.
-        assert_eq!(pane.writes.iter().filter(|(text, _)| text == PROMPT).count(), 2);
+        // Blank after typing: retyping only while the startup budget lasts; box left cleared.
+        assert!(pane.writes.iter().filter(|(text, _)| text == PROMPT).count() >= 1);
         assert_eq!(pane.writes.last().unwrap().0, "\u{15}");
     }
 
@@ -489,8 +541,8 @@ working
 
     #[test]
     fn polling_faster_does_not_shrink_the_time_given_to_a_slow_tui() {
-        // Never shows the typed text: each of the two attempts must still wait about 2s for it.
-        let mut blank = pane(|pane, _, _| pane.screen = String::new());
+        // Never shows the typed text (TUI drawn): each of the two attempts waits about 2s for it.
+        let mut blank = pane(|pane, _, _| pane.screen = "Composer 2.5\n→ Plan".into());
         assert_eq!(deliver_prompt(&mut blank, Some("\u{15}"), PROMPT), Delivery::NotVisible);
         assert!(blank.paused >= Duration::from_secs(4), "paused {:?}", blank.paused);
         // Types fine, but the turn never starts: about 3s of polling before giving up.
@@ -541,5 +593,63 @@ working
             }
         });
         assert_eq!(deliver_prompt(&mut pane, Some("\u{15}"), KILO_TASK), Delivery::Started);
+    }
+
+    // ---- regression: slow-starting TUI (kilo cold start) must not burn the typing attempts ----
+
+    struct Late {
+        inner: FakePane,
+        blank_polls: u32,
+    }
+
+    impl DeliveryIo for Late {
+        fn write(&mut self, t: &str, e: bool) -> Result<(), String> {
+            self.inner.write(t, e)
+        }
+        fn screen(&mut self) -> String {
+            if self.blank_polls > 0 {
+                self.blank_polls -= 1;
+                return String::new();
+            }
+            self.inner.screen()
+        }
+        fn busy(&mut self) -> bool {
+            self.inner.busy()
+        }
+        fn pause(&mut self, d: Duration) {
+            self.inner.pause(d)
+        }
+    }
+
+    #[test]
+    fn a_tui_that_draws_late_gets_the_prompt_after_it_appears() {
+        // Blank for 200 polls (16s), far longer than the two old 2s attempts, then the idle box.
+        let mut inner = pane(|pane, text, enter| {
+            if enter {
+                pane.screen = format!("→ {PROMPT}\nworking");
+                pane.busy = true;
+            } else if text == PROMPT {
+                pane.screen = format!("│ {PROMPT} │\nComposer 2.5");
+            }
+        });
+        inner.screen = "Composer 2.5\n→ Plan, search, build anything".into();
+        let mut late = Late { inner, blank_polls: 200 };
+        let mut trace = Vec::new();
+        assert_eq!(deliver_prompt_traced(&mut late, Some("\u{15}"), PROMPT, &mut trace), Delivery::Started);
+        // Nothing was typed into the blank pane: the first write is the clear, after it drew.
+        assert_eq!(late.inner.writes[0], ("\u{15}".to_string(), false));
+        assert_eq!(late.inner.writes.iter().filter(|(t, _)| t == PROMPT).count(), 1);
+        assert!(late.inner.paused >= Duration::from_secs(10), "paused {:?}", late.inner.paused);
+    }
+
+    #[test]
+    fn a_pane_that_stays_blank_is_not_typed_into_and_says_why() {
+        let mut p = pane(|_, _, _| {});
+        p.screen = "  \n \n".into();
+        let mut trace = Vec::new();
+        assert_eq!(deliver_prompt_traced(&mut p, Some("\u{15}"), PROMPT, &mut trace), Delivery::NotVisible);
+        assert!(p.writes.is_empty(), "{:?}", p.writes);
+        assert!(trace.iter().any(|l| l.contains("screen stayed empty")), "{trace:?}");
+        assert!(p.paused >= Duration::from_secs(19), "paused {:?}", p.paused);
     }
 }
