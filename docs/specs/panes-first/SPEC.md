@@ -41,3 +41,8 @@ Tests at PF3: cargo lib 927 passed / 2 ignored, MCP bin 30, vitest 239, pm-regre
 Verified live: a kilo run with no `headless` opens an unfocused pop-out on the secondary monitor and closes it after the run; Kiro without `headless` falls back with `no_visible_mode`; a Codex external `run_agent` (result `pf3-ok`, `fallback: null`, no main window ever); app start shows no window and `GET /panes` = `[]`; second launch opens Settings; `--new-pane kilo` opens cascaded windows; WM_CLOSE on a pane window removes the pane; `check-window-monitor.ps1` OK throughout.
 
 Not verified: a human clicking the tray icon/menu entries; the `visible_failed` fallback live (unit tests only). The demo video (second half of PF4) is separate from the docs commit.
+
+## Backlog (planned later, not started)
+
+- **Bind panes together** (requested 2026-10-12): let the user link existing pane windows into a group (e.g. move/arrange/close together, or route one pane's output to another). Design to be planned with the user before any work.
+- **Preload** (next, after the fixes): a Settings feature that keeps one warm agent + hidden pane window per selected provider so opening a pane is instant; replaces the opt-in standby pool UI.
