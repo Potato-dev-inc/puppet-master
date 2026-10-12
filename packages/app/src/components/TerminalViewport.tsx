@@ -77,6 +77,17 @@ export function TerminalViewport({
         </div>
       )}
       <div ref={containerRef} className="terminal-host pm-terminal-host" />
+      {pane.info.viewer_held && (
+        // The PTY is sized to a phone that is viewing this pane: this window's grid does not match,
+        // so say so instead of drawing a broken (often black) screen. Ends when the phone leaves.
+        <div className="pm-terminal-viewer-held" role="status">
+          <strong>Sized for your phone</strong>
+          <span>
+            {pane.info.cols}×{pane.info.rows} while the phone has this agent open. This window comes back when
+            you leave the tab on the phone.
+          </span>
+        </div>
+      )}
       {!chrome && (onReattach || workerHost || onToggleWorkerTray) && (
         <div className="pm-terminal-floating-controls">
           {onReattach && (

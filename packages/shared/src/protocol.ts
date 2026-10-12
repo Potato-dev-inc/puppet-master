@@ -14,6 +14,8 @@ export const PaneInfoSchema = z.object({
   cwd: z.string(),
   cols: z.number().int(),
   rows: z.number().int(),
+  /** A phone viewing this pane holds its size; desktop windows show a notice meanwhile. */
+  viewer_held: z.boolean().optional(),
 });
 export type PaneInfo = z.infer<typeof PaneInfoSchema>;
 

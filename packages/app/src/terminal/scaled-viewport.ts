@@ -126,10 +126,21 @@ export class TerminalScaleController implements Disposable {
   /** False: always fit width and height, never push the stage up for the keyboard. */
   private readonly keyboardPushUp: boolean;
 
-  constructor(viewport: HTMLElement, stage: HTMLElement, options: { keyboardPushUp?: boolean } = {}) {
+  /** Content size from the caller (grid arithmetic) instead of measuring the rendered stage. */
+  private readonly measureContent?: () => { width: number; height: number } | null;
+
+  constructor(
+    viewport: HTMLElement,
+    stage: HTMLElement,
+    options: {
+      keyboardPushUp?: boolean;
+      measureContent?: () => { width: number; height: number } | null;
+    } = {},
+  ) {
     this.viewport = viewport;
     this.stage = stage;
     this.keyboardPushUp = options.keyboardPushUp ?? true;
+    this.measureContent = options.measureContent;
     this.onAuthorityChange = () => {
       this.scheduleFit();
     };
@@ -153,7 +164,8 @@ export class TerminalScaleController implements Disposable {
   }
 
   fitNow(): void {
-    const { width: contentWidth, height: contentHeight } = measureTerminalContent(this.stage);
+    const { width: contentWidth, height: contentHeight } =
+      this.measureContent?.() ?? measureTerminalContent(this.stage);
     const { width: containerWidth, height: containerHeight } = containerFitDimensions(this.viewport);
     const keyboardOpen = this.keyboardPushUp && isMobileKeyboardTransitionActive(this.viewport);
     const { scale, translateY } = computeContainerFitTransform(

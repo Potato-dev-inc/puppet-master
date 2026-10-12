@@ -87,6 +87,23 @@ pub(super) fn handle_connection(
     let raw_segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
     let segments = mobile_pairing::normalize_bridge_segments(&raw_segments).to_vec();
 
+    // Long-poll twin of `/events` for tunnels that buffer server-sent events (Cloudflare quick
+    // tunnels): returns the SSE payloads after `cursor` as JSON `{cursor, data, gap}`.
+    if segments == ["events", "poll"] && method == "GET" {
+        if let Err((status, value)) =
+            mobile_pairing::authorize_bridge_request(&headers_raw, peer_loopback, &segments, method)
+        {
+            return write_json(&mut stream, status, &value);
+        }
+        let cursor = query_param(query, "cursor").and_then(|v| v.parse::<u64>().ok());
+        let wait_ms = query_param(query, "wait_ms")
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(20_000)
+            .min(super::event_log::MAX_WAIT_MS);
+        let poll = super::event_log::poll(cursor, std::time::Duration::from_millis(wait_ms));
+        return write_json(&mut stream, 200, &serde_json::to_value(poll).unwrap_or_default());
+    }
+
     if segments == ["events"] && method == "GET" {
         if let Err((status, value)) =
             mobile_pairing::authorize_bridge_request(&headers_raw, peer_loopback, &segments, method)

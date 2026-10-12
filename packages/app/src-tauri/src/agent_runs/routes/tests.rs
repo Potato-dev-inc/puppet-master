@@ -25,6 +25,7 @@ fn pane_worker_entry_exposes_adoption_fields() {
         cwd: "C:/work/puppet-master/packages/app/src-tauri".into(),
         cols: 80,
         rows: 24,
+        viewer_held: false,
     };
     let entry = pane_worker_entry(&pane, Some("mcp-session"));
     assert_eq!(entry["worker_id"], pane.id);

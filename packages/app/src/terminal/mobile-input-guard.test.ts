@@ -490,6 +490,35 @@ describe('MobileInputGuard', () => {
     expect(container.classList.contains(MOBILE_KEYBOARD_OUTSIDE_CLASS)).toBe(false);
   });
 
+  it('notices an Android keyboard closing when it resizes the page itself (resizes-content)', () => {
+    // Android with interactive-widget=resizes-content: the layout (innerHeight) shrinks with the
+    // keyboard and the visual viewport always equals it, so only the drop in page height tells.
+    const listeners = new Map<string, EventListener>();
+    let layout = 800;
+    const visualViewport = {
+      get height() { return layout; },
+      offsetTop: 0,
+      addEventListener: vi.fn((type: string, listener: EventListener) => listeners.set(type, listener)),
+      removeEventListener: vi.fn((type: string) => listeners.delete(type)),
+    };
+    Object.defineProperty(window, 'innerHeight', { configurable: true, get: () => layout });
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: visualViewport });
+
+    const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false, false);
+    const blurSpy = vi.spyOn(input, 'blur');
+    container.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
+
+    layout = 450; // keyboard up
+    listeners.get('resize')?.(new Event('resize'));
+    layout = 800; // closed with the system's own key
+    listeners.get('resize')?.(new Event('resize'));
+
+    expect(blurSpy).toHaveBeenCalled();
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(false);
+    cleanup();
+  });
+
   it('captures hidden-mode long presses from terminal children before xterm handles them', () => {
     const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false);
     const terminalChild = document.createElement('canvas');

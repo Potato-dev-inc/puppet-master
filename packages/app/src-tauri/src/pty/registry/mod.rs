@@ -58,6 +58,10 @@ pub struct PaneInfo {
     pub cwd: String,
     pub cols: u16,
     pub rows: u16,
+    /// A phone viewing this pane holds its size (`pty::viewer_size`); desktop windows show a notice
+    /// instead of drawing a grid that is not theirs.
+    #[serde(default)]
+    pub viewer_held: bool,
 }
 
 /// Internal handle — owns the PTY master and the reader thread handle.
@@ -97,6 +101,7 @@ impl PaneState {
         } else {
             info.last_output_at = None;
         }
+        info.viewer_held = crate::pty::viewer_size::is_held(&info.id);
         info
     }
 }
@@ -259,6 +264,7 @@ impl PaneRegistry {
             cwd: ".".into(),
             cols: 10,
             rows: 3,
+            viewer_held: false,
         };
         PaneState {
             info,

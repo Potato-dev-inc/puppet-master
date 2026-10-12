@@ -115,7 +115,8 @@ pub async fn resize_pane(
     }
     let changed = registry_resize(&state.registry, &pane_id, cols, rows)?;
     if changed {
-        crate::bridge::push_pane_resize_sse(&pane_id, cols, rows);
+        // Phone viewers (SSE / long-poll) and desktop windows (re-read pane info) see the size.
+        crate::bridge::notify_pane_resized(&pane_id, cols, rows);
     }
     Ok(())
 }

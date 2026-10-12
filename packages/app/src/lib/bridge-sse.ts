@@ -1,4 +1,5 @@
-// Bridge event stream (SSE): native EventSource for loopback, fetch-streaming for remote/ngrok hosts.
+// Bridge event stream: native EventSource (SSE) for loopback, long-polling `/events/poll` for remote
+// hosts (Cloudflare quick tunnels do not pass SSE through at all).
 import type { McpLogEntry, OrchestratorChatEvent, PaneInfo } from '@puppet-master/shared';
 import type { PublicSettings } from './bridge-settings';
 import { isNgrokHost, ngrokRequestHeaders } from './bridge-ngrok';
@@ -125,6 +126,65 @@ export function subscribeBridgeEventsViaFetch(
   };
 }
 
+interface EventPoll {
+  cursor: number;
+  data: string;
+  gap: boolean;
+}
+
+/** How long one `/events/poll` request waits for events before answering empty. */
+const POLL_WAIT_MS = 20_000;
+
+/**
+ * Long-poll `GET /events/poll`: same payloads as the SSE stream, delivered as ordinary requests
+ * that any proxy or tunnel passes through. Each request returns as soon as there are events after
+ * the cursor; `gap` (events dropped while away) is surfaced as a `resync` event.
+ */
+export function subscribeBridgeEventsViaPoll(
+  baseUrl: string,
+  onEvent: (e: BridgeEvent) => void,
+  onError?: (err: unknown) => void,
+): () => void {
+  let cancelled = false;
+  let retryDelay = 500;
+  let abort: AbortController | null = null;
+  let cursor: number | null = null;
+
+  async function loop() {
+    while (!cancelled) {
+      abort = new AbortController();
+      try {
+        const query = cursor === null ? `wait_ms=${POLL_WAIT_MS}` : `cursor=${cursor}&wait_ms=${POLL_WAIT_MS}`;
+        const res = await fetch(`${baseUrl}/events/poll?${query}`, {
+          headers: mergeBridgeHeaders(ngrokRequestHeaders(baseUrl)),
+          signal: abort.signal,
+          cache: 'no-store',
+        });
+        if (!res.ok) throw new Error(`bridge event poll failed: ${res.status}`);
+        const body = (await res.json()) as EventPoll;
+        if (body.gap && cursor !== null) onEvent({ type: 'resync' });
+        cursor = body.cursor;
+        if (body.data) parseSseChunk(body.data, onEvent);
+        retryDelay = 500;
+      } catch (err) {
+        if (cancelled) return;
+        onError?.(err);
+        await new Promise((r) => setTimeout(r, retryDelay));
+        retryDelay = Math.min(retryDelay * 2, 5000);
+      } finally {
+        abort = null;
+      }
+    }
+  }
+
+  void loop();
+
+  return () => {
+    cancelled = true;
+    abort?.abort();
+  };
+}
+
 const BRIDGE_EVENT_NAMES = [
   'panes',
   'log',
@@ -158,7 +218,7 @@ export function subscribeBridgeEvents(
   onError?: (err: unknown) => void,
 ): () => void {
   if (shouldUseFetchBridgeSse(baseUrl)) {
-    return subscribeBridgeEventsViaFetch(baseUrl, onEvent, onError);
+    return subscribeBridgeEventsViaPoll(baseUrl, onEvent, onError);
   }
 
   let es: EventSource | null = null;

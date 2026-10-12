@@ -111,6 +111,8 @@ export class MobileInputGuard implements Disposable {
   private keyboardOpen = false;
   private hiddenInputFocusedAt = 0;
   private keyboardHeightCleanup: (() => void) | null = null;
+  /** Tallest layout height seen at the current width: the page without a keyboard. */
+  private layoutBaseline = { width: 0, height: 0 };
   private readonly reserveKeyboardSpace: boolean;
 
   constructor(options: MobileInputGuardOptions) {
@@ -121,6 +123,7 @@ export class MobileInputGuard implements Disposable {
     this.bufferDelayMs = options.bufferDelayMs ?? DEFAULT_MOBILE_BUFFER_MS;
     this.hiddenInput = options.inputVisible === false;
     this.reserveKeyboardSpace = options.reserveKeyboardSpace ?? true;
+    this.layoutBaseline = { width: window.innerWidth, height: window.innerHeight };
 
     if (getComputedStyle(this.container).position === 'static') {
       this.container.style.position = 'relative';
@@ -284,7 +287,7 @@ export class MobileInputGuard implements Disposable {
       const vv = window.visualViewport;
       if (!vv) return;
 
-      const obscured = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      const obscured = this.keyboardObscuredPx(vv);
       if (obscured >= MOBILE_KEYBOARD_MIN_OBSCURED_PX) {
         this.keyboardOpen = true;
         if (this.reserveKeyboardSpace) {
@@ -337,6 +340,18 @@ export class MobileInputGuard implements Disposable {
     };
   }
 
+  /**
+   * How much of the page the software keyboard covers. iOS (and Android by default) shrink only
+   * the visual viewport; with `interactive-widget=resizes-content` (mobile agent tabs) Android
+   * shrinks the layout itself, which is seen as the page getting shorter than its usual height.
+   */
+  private keyboardObscuredPx(vv: VisualViewport): number {
+    const { innerWidth, innerHeight } = window;
+    if (innerWidth !== this.layoutBaseline.width) this.layoutBaseline = { width: innerWidth, height: innerHeight };
+    this.layoutBaseline.height = Math.max(this.layoutBaseline.height, innerHeight);
+    return Math.max(0, innerHeight - vv.height - vv.offsetTop, this.layoutBaseline.height - innerHeight);
+  }
+
   private engageInput(): void {
     if (!this.hiddenInput) return;
     this.engaged = true;
@@ -387,6 +402,20 @@ export class MobileInputGuard implements Disposable {
     if (!this.hiddenInput || !this.isLongPressTarget(event.target)) return false;
     if (this.engaged || document.activeElement === this.input) {
       if (Date.now() - this.hiddenInputFocusedAt < 350) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.suppressClick = true;
+        return true;
+      }
+      // Focused but no keyboard on screen (closed with the system's own key, or never shown):
+      // this tap means "type", so focus again inside the gesture, which shows the keyboard.
+      const vv = window.visualViewport;
+      if (vv && this.keyboardObscuredPx(vv) < MOBILE_KEYBOARD_MIN_OBSCURED_PX) {
+        this.input.blur();
+        this.engageInput();
+        this.focus();
+        this.hiddenInputFocusedAt = Date.now();
+        this.scheduleScrollToCursor();
         event.preventDefault();
         event.stopPropagation();
         this.suppressClick = true;

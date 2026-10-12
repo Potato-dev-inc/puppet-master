@@ -28,6 +28,8 @@ pub fn get_sse_clients() -> SseClients {
 
 /// Push a raw SSE payload (e.g. "event: chat\ndata: {...}\n\n") to all connected clients.
 pub fn push_sse(payload: String) {
+    // Also kept for `GET /events/poll` (phones on a tunnel that does not pass SSE through).
+    super::event_log::record(&payload);
     let clients = get_sse_clients();
     let mut guard = clients.lock();
     guard.retain(|sender| sender.try_send(payload.clone()).is_ok());

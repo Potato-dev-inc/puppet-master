@@ -86,6 +86,10 @@ impl Leases {
             .collect()
     }
 
+    pub fn holds(&self, pane_id: &str) -> bool {
+        self.by_pane.contains_key(pane_id)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.by_pane.is_empty()
     }
@@ -101,10 +105,10 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Resize the PTY and tell viewers (`pane-resize` SSE). Errors (pane gone) are ignored.
+/// Resize the PTY and tell the phone and the desktop window. Errors (pane gone) are ignored.
 fn apply(registry: &Mutex<PaneRegistry>, pane_id: &str, (cols, rows): Size) {
     if let Ok(true) = super::registry_resize(registry, pane_id, cols, rows) {
-        crate::bridge::push_pane_resize_sse(pane_id, cols, rows);
+        crate::bridge::notify_pane_resized(pane_id, cols, rows);
     }
 }
 
@@ -132,6 +136,11 @@ pub fn release(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Option<Size> {
     tracing::info!(pane = %pane_id, to = ?desktop, "phone size lease released; restoring desktop size");
     apply(registry, pane_id, desktop);
     Some(desktop)
+}
+
+/// A phone currently holds this pane's size.
+pub fn is_held(pane_id: &str) -> bool {
+    LEASES.lock().holds(pane_id)
 }
 
 /// The desktop pane window asks for a size: true when a phone holds the pane (remembered only).

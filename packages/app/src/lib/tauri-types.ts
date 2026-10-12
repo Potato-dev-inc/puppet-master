@@ -10,6 +10,8 @@ export type PaneInfo = {
   cwd: string;
   cols: number;
   rows: number;
+  /** A phone viewing this pane holds its size (desktop windows show a notice). */
+  viewer_held?: boolean;
 };
 
 export type TerminalSnapshotEvent = { pane_id: string; snapshot: string };

@@ -12,6 +12,7 @@ pub mod port_file;
 mod delegation;
 mod dispatch;
 mod errors;
+mod event_log;
 mod handoff;
 mod http;
 mod locks;
@@ -52,6 +53,16 @@ use crate::mobile_pairing;
 use crate::pty::PaneRegistry;
 use sse::push_operation_sse;
 use state::{BRIDGE_APP, BRIDGE_REGISTRY};
+
+/// A pane's PTY size changed outside its desktop window (phone-sized panes): tell bridge viewers
+/// (`pane-resize` SSE) and the desktop windows, which re-read pane info on `pty://panes-changed`.
+pub fn notify_pane_resized(pane_id: &str, cols: u16, rows: u16) {
+    push_pane_resize_sse(pane_id, cols, rows);
+    if let Some(app) = BRIDGE_APP.get() {
+        use tauri::Emitter;
+        let _ = app.emit("pty://panes-changed", serde_json::json!({ "changed": true }));
+    }
+}
 
 const HOST: &str = "127.0.0.1";
 const PORT_MIN: u16 = 17321;

@@ -363,4 +363,6 @@ export type BridgeEvent =
   | { type: 'opencode-worker'; event: OpenCodeWorkerEvent }
   | { type: 'pane-resize'; pane_id: string; cols: number; rows: number }
   | { type: 'settings'; settings: PublicSettings }
-  | { type: 'orchestrator-viewport'; width: number; height: number; active: boolean };
+  | { type: 'orchestrator-viewport'; width: number; height: number; active: boolean }
+  /** Long-poll only: events were missed (phone asleep, app restarted); re-read pane state. */
+  | { type: 'resync' };

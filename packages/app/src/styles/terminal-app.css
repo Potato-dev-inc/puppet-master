@@ -339,3 +339,29 @@
   white-space: pre-wrap;
 }
 
+
+/* A phone viewing this pane holds its size (TerminalViewport): cover the mismatched grid. */
+.pm-terminal-stage {
+  position: relative;
+}
+
+.pm-terminal-viewer-held {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: rgb(var(--pm-muted));
+  background: rgb(var(--pm-bg) / 0.94);
+}
+
+.pm-terminal-viewer-held strong {
+  font-size: 15px;
+  color: rgb(var(--pm-text));
+}

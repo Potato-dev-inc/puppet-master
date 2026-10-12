@@ -200,6 +200,7 @@ pub fn spawn_pane(
         cwd: cwd.clone(),
         cols,
         rows,
+        viewer_held: false,
     };
 
     let pane = PaneState {

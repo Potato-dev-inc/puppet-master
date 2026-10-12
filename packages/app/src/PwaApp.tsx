@@ -72,6 +72,8 @@ export default function PwaApp() {
   const [spawning, setSpawning] = useState(false);
   const [spawnError, setSpawnError] = useState<string | null>(null);
   const [launchEntries, setLaunchEntries] = useState<LaunchEntry[] | null>(null);
+  /** Bumped when the event stream missed events: the open terminal is rebuilt from scrollback. */
+  const [resyncKey, setResyncKey] = useState(0);
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
   const [fitGrid, setFitGrid] = useState<{ cols: number; rows: number } | null>(null);
   const registry = useBridgePaneRegistry(bridge);
@@ -124,8 +126,14 @@ export default function PwaApp() {
         registryRef.current.updatePaneStatus(ev.pane_id, ev.status);
         setPanes((prev) => prev.map((p) => (p.id === ev.pane_id ? { ...p, status: ev.status } : p)));
       }
-      if (ev.type === 'pane-resize') registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows);
+      // Panes are sized to this phone and resized in place: keep the live stream connected.
+      if (ev.type === 'pane-resize') registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows, true);
       if (ev.type === 'settings') setSettings(ev.settings);
+      if (ev.type === 'resync') {
+        registryRef.current.resetStreams();
+        client.listPanes().then((list) => live && applyPanes(list)).catch(() => {});
+        setResyncKey((n) => n + 1);
+      }
     });
 
     return () => {
@@ -265,7 +273,7 @@ export default function PwaApp() {
           )}
           {activePane && (
             <BridgePaneTerminal
-              key={active}
+              key={`${active}:${resyncKey}`}
               pane={activePane.info}
               status={activePane.status}
               subscribePaneData={registry.subscribePaneData}
