@@ -93,6 +93,7 @@ pub fn run() {
             commands::agents_definition_approve,
             commands::agents_definition_preview,
             commands::agents_check_file,
+            commands::agents_create_fixtures_dir,
             commands::agents_add_generic,
             commands::agents_export_definition,
             commands::agents_import_definition,

@@ -210,9 +210,26 @@ pub fn check_dir(profile: &DeclarativeProfile, dir: &Path) -> Vec<FixtureResult>
     out
 }
 
-/// Loads the definition at `file` (validated as a user definition) and checks it against
-/// `fixtures_dir`, default: a folder named after the file (`kilo.toml` -> `kilo/`) next to it.
-pub fn check_file(file: &Path, fixtures_dir: Option<&Path>, code_ids: &[&str]) -> Result<Vec<FixtureResult>, String> {
+/// Outcome of "Check with fixtures". A missing or empty folder is the normal state of a new
+/// definition, so it is `no_fixtures` (neutral), never a failed result.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CheckReport {
+    /// `"ran"` or `"no_fixtures"`.
+    pub status: &'static str,
+    /// The resolved fixtures folder.
+    pub dir: String,
+    /// True when the caller typed the folder instead of using the default next to the file.
+    pub explicit: bool,
+    /// `kind = "generic"`: captures are optional for experimental agents.
+    pub generic: bool,
+    /// For `no_fixtures`: `"missing"`, `"empty"` or `"not_a_folder"`.
+    pub reason: Option<&'static str>,
+    /// The definition's id (the default folder name is the file stem).
+    pub name: String,
+    pub results: Vec<FixtureResult>,
+}
+
+fn load_profile(file: &Path, code_ids: &[&str]) -> Result<DeclarativeProfile, String> {
     let text = read_regular(file).map_err(|e| format!("{}: {e}", file.display()))?;
     let loaded = load_text(file, &text, text.len(), Origin::new(Source::User), None, code_ids);
     if !loaded.errors.is_empty() {
@@ -220,13 +237,56 @@ pub fn check_file(file: &Path, fixtures_dir: Option<&Path>, code_ids: &[&str]) -
         return Err(format!("the definition does not validate: {}", list.join("; ")));
     }
     let def = loaded.definition.ok_or("the definition did not load")?;
-    let profile = DeclarativeProfile::new(def).map_err(|e| e.to_string())?;
-    let dir: PathBuf = match fixtures_dir {
+    DeclarativeProfile::new(def).map_err(|e| e.to_string())
+}
+
+/// The folder `check_file` reads: the given one, else a folder named after the file next to it.
+pub fn resolve_fixtures_dir(file: &Path, fixtures_dir: Option<&Path>) -> PathBuf {
+    match fixtures_dir {
         Some(d) => d.to_path_buf(),
         None => {
             let stem = file.file_stem().map(PathBuf::from).unwrap_or_default();
             file.parent().map(|p| p.join(&stem)).unwrap_or(stem)
         }
+    }
+}
+
+/// Loads the definition at `file` (validated as a user definition) and checks it against
+/// `fixtures_dir`, default: a folder named after the file (`kilo.toml` -> `kilo/`) next to it.
+pub fn check_file(file: &Path, fixtures_dir: Option<&Path>, code_ids: &[&str]) -> Result<Vec<FixtureResult>, String> {
+    let profile = load_profile(file, code_ids)?;
+    Ok(check_dir(&profile, &resolve_fixtures_dir(file, fixtures_dir)))
+}
+
+/// Like `check_file`, but a folder that is missing, not a folder, or holds no files is reported as
+/// `no_fixtures` instead of a failure. Real expectation failures stay failed results.
+pub fn check_report(file: &Path, fixtures_dir: Option<&Path>, code_ids: &[&str]) -> Result<CheckReport, String> {
+    let profile = load_profile(file, code_ids)?;
+    let dir = resolve_fixtures_dir(file, fixtures_dir);
+    let generic = matches!(profile.definition().agent.kind, super::schema::Kind::Generic);
+    let name = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let reason = match std::fs::metadata(&dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some("missing"),
+        Err(_) => None,
+        Ok(m) if !m.is_dir() => Some("not_a_folder"),
+        Ok(_) => {
+            let has_files = std::fs::read_dir(&dir)
+                .map(|rd| rd.flatten().any(|e| e.file_type().is_ok_and(|t| t.is_file())))
+                .unwrap_or(true);
+            if has_files { None } else { Some("empty") }
+        }
     };
-    Ok(check_dir(&profile, &dir))
+    let mut report = CheckReport {
+        status: if reason.is_some() { "no_fixtures" } else { "ran" },
+        dir: dir.display().to_string(),
+        explicit: fixtures_dir.is_some(),
+        generic,
+        reason,
+        name,
+        results: Vec::new(),
+    };
+    if reason.is_none() {
+        report.results = check_dir(&profile, &dir);
+    }
+    Ok(report)
 }

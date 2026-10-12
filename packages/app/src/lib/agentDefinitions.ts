@@ -96,6 +96,17 @@ export interface FixtureResult {
   failures: string[];
 }
 
+/** Result of "Check with fixtures": `no_fixtures` (missing or empty folder) is neutral, not a failure. */
+export interface FixtureCheck {
+  status: 'ran' | 'no_fixtures';
+  dir: string;
+  explicit: boolean;
+  generic: boolean;
+  reason: 'missing' | 'empty' | 'not_a_folder' | null;
+  name: string;
+  results: FixtureResult[];
+}
+
 export interface DraftFile {
   name: string;
   path: string;
@@ -127,7 +138,9 @@ export interface AgentDefinitionsApi {
   /** Sharing (P5-6): asks for a .toml file, places it in the user dir UNAPPROVED. null = cancelled. */
   importDefinition(): Promise<DefinitionsListing | null>;
   /** Runs the definition file against a folder of captures with *.expect.toml files. */
-  checkFile(path: string, fixturesDir?: string): Promise<FixtureResult[]>;
+  checkFile(path: string, fixturesDir?: string): Promise<FixtureCheck>;
+  /** Creates only the fixtures folder `checkFile` reads; resolves to its path. */
+  createFixturesDir(path: string, fixturesDir?: string): Promise<string>;
   list(): Promise<DefinitionsListing>;
   reload(): Promise<DefinitionsListing>;
   preview(file: string): Promise<DefinitionPreview>;
@@ -158,7 +171,9 @@ export const tauriAgentDefinitionsApi: AgentDefinitionsApi = {
     if (!source || Array.isArray(source)) return null;
     return invoke<DefinitionsListing>('agents_import_definition', { source });
   },
-  checkFile: (path, fixturesDir) => invoke<FixtureResult[]>('agents_check_file', { path, fixturesDir: fixturesDir || null }),
+  checkFile: (path, fixturesDir) => invoke<FixtureCheck>('agents_check_file', { path, fixturesDir: fixturesDir || null }),
+  createFixturesDir: (path, fixturesDir) =>
+    invoke<string>('agents_create_fixtures_dir', { path, fixturesDir: fixturesDir || null }),
   list: () => invoke<DefinitionsListing>('agents_definitions_list', undefined),
   reload: () => invoke<DefinitionsListing>('agents_definitions_reload', undefined),
   preview: (file) => invoke<DefinitionPreview>('agents_definition_preview', { file }),

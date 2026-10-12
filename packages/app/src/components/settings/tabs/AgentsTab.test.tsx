@@ -64,10 +64,19 @@ function mockApi(listing: DefinitionsListing = fixture()): AgentDefinitionsApi &
         { id: 'shared', file: 'C:/data/agents/shared.toml', source: 'user', state: 'needs_approval', errors: [], fingerprint: 'sha256:imp', shadowed_by: null },
       ],
     })),
-    checkFile: vi.fn(async () => [
-      { fixture: 'headless_success.jsonl', passed: true, failures: [] },
-      { fixture: 'tui_reply.txt', passed: false, failures: ['busy: expected true, got false'] },
-    ]),
+    checkFile: vi.fn(async () => ({
+      status: 'ran',
+      dir: 'C:/data/agents/kilo',
+      explicit: false,
+      generic: false,
+      reason: null,
+      name: 'kilo',
+      results: [
+        { fixture: 'headless_success.jsonl', passed: true, failures: [] },
+        { fixture: 'tui_reply.txt', passed: false, failures: ['busy: expected true, got false'] },
+      ],
+    })),
+    createFixturesDir: vi.fn(async () => 'C:/data/agents/kilo'),
   } as never;
 }
 
@@ -328,6 +337,58 @@ describe('AgentsTab source toggle / extra dir / consent controls', () => {
       await render(api);
       expect(host.querySelector('[data-testid="consent-banner"]')).toBeNull();
     }
+  });
+
+  it('AgentsTab shows a neutral message and a Create folder button when there are no fixtures', async () => {
+    const api = mockApi();
+    (api.checkFile as unknown as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        status: 'no_fixtures',
+        dir: 'C:/data/agents/kilo',
+        explicit: false,
+        generic: true,
+        reason: 'missing',
+        name: 'kilo',
+        results: [],
+      })
+      .mockResolvedValueOnce({
+        status: 'no_fixtures',
+        dir: 'C:/data/agents/kilo',
+        explicit: false,
+        generic: true,
+        reason: 'empty',
+        name: 'kilo',
+        results: [],
+      });
+    await render(api);
+    await click(button('Check with fixtures'));
+    const none = host.querySelector('[data-testid="fixtures-none"]')!;
+    expect(none.textContent).toContain('No captures yet for kilo.');
+    expect(none.textContent).toContain('C:/data/agents/kilo');
+    expect(none.textContent).toContain('optional for experimental');
+    expect(host.textContent).not.toContain('FAIL');
+    expect(host.querySelector('[data-testid="fixture-result"]')).toBeNull();
+    await click(button('Create folder'));
+    expect(api.createFixturesDir).toHaveBeenCalledWith(KILO, undefined);
+    expect(host.querySelector('[data-testid="fixtures-none"]')!.textContent).toContain('exists but has no captures');
+  });
+
+  it('AgentsTab explains an explicit fixtures folder that does not exist', async () => {
+    const api = mockApi();
+    (api.checkFile as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'no_fixtures',
+      dir: 'D:/nope',
+      explicit: true,
+      generic: false,
+      reason: 'missing',
+      name: 'kilo',
+      results: [],
+    });
+    await render(api);
+    await click(button('Check with fixtures'));
+    const text = host.querySelector('[data-testid="fixtures-none"]')!.textContent!;
+    expect(text).toContain('does not exist: D:/nope');
+    expect(text).not.toContain('os error');
   });
 
   it('AgentsTab check button shows per-fixture results', async () => {

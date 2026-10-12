@@ -64,8 +64,22 @@ pub fn agents_check_file(path: String, fixtures_dir: Option<String>) -> Result<V
     }
     let dir = fixtures_dir.filter(|d| !d.trim().is_empty()).map(PathBuf::from);
     let ids = crate::tui::registry::registry().code_ids();
-    let results = crate::tui::declarative::check::check_file(&file, dir.as_deref(), &ids)?;
-    serde_json::to_value(results).map_err(|e| e.to_string())
+    let report = crate::tui::declarative::check::check_report(&file, dir.as_deref(), &ids)?;
+    serde_json::to_value(report).map_err(|e| e.to_string())
+}
+
+/// "Create folder" on the no-fixtures message: creates only the folder `agents_check_file` would
+/// read for this definition file (the typed one, else the folder named after the file).
+#[tauri::command]
+pub fn agents_create_fixtures_dir(path: String, fixtures_dir: Option<String>) -> Result<String, String> {
+    let file = PathBuf::from(&path);
+    if file.extension().and_then(|e| e.to_str()) != Some("toml") {
+        return Err("AGENT_DEF_NOT_FOUND: a definition file ends in .toml".into());
+    }
+    let dir = fixtures_dir.filter(|d| !d.trim().is_empty()).map(PathBuf::from);
+    let dir = crate::tui::declarative::check::resolve_fixtures_dir(&file, dir.as_deref());
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    Ok(dir.display().to_string())
 }
 
 /// "Add as generic agent" (P4-2): writes an unapproved generic definition for `command` into the
@@ -234,7 +248,26 @@ mod tests {
         let kilo = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/agent-definitions/kilo.toml");
         let fixtures = concat!(env!("CARGO_MANIFEST_DIR"), "/src/tui/declarative/fixtures/kilo");
         let body = agents_check_file(kilo.into(), Some(fixtures.into())).unwrap();
-        assert!(body.as_array().unwrap().iter().all(|r| r["passed"] == true), "{body}");
+        assert_eq!(body["status"], "ran", "{body}");
+        assert!(body["results"].as_array().unwrap().iter().all(|r| r["passed"] == true), "{body}");
+    }
+
+    #[test]
+    fn check_file_with_no_fixtures_folder_is_neutral_not_a_failure() {
+        let kilo = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/agent-definitions/kilo.toml");
+        let missing = std::env::temp_dir().join(format!("pm-no-such-fixtures-{}", std::process::id()));
+        let body = agents_check_file(kilo.into(), Some(missing.display().to_string())).unwrap();
+        assert_eq!(body["status"], "no_fixtures", "{body}");
+        assert_eq!(body["reason"], "missing");
+        assert_eq!(body["explicit"], true);
+        assert_eq!(body["dir"], missing.display().to_string());
+        assert!(body["results"].as_array().unwrap().is_empty());
+        // An empty folder is the same state; creating the folder touches only that folder.
+        let made = agents_create_fixtures_dir(kilo.into(), Some(missing.display().to_string())).unwrap();
+        assert_eq!(made, missing.display().to_string());
+        let body = agents_check_file(kilo.into(), Some(missing.display().to_string())).unwrap();
+        assert_eq!((body["status"].as_str(), body["reason"].as_str()), (Some("no_fixtures"), Some("empty")));
+        let _ = std::fs::remove_dir(&missing);
     }
 
     #[test]

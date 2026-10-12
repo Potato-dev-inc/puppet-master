@@ -16,7 +16,7 @@ import {
   type DefinitionRow,
   type DefinitionsListing,
   type DraftsListing,
-  type FixtureResult,
+  type FixtureCheck,
   type ProjectScan,
 } from '../../../lib/agentDefinitions';
 import {
@@ -54,7 +54,7 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
   const [reviewing, setReviewing] = useState<Reviewing | null>(null);
   const [fixturesDir, setFixturesDir] = useState('');
   const [genericCommand, setGenericCommand] = useState('');
-  const [checks, setChecks] = useState<{ file: string; results: FixtureResult[] } | null>(null);
+  const [checks, setChecks] = useState<{ file: string; check: FixtureCheck } | null>(null);
   const [drafts, setDrafts] = useState<DraftsListing | null>(null);
   const [draftCheck, setDraftCheck] = useState<{ path: string; preview: DefinitionPreview } | null>(null);
   const [projectScan, setProjectScan] = useState<ProjectScan | null>(null);
@@ -156,7 +156,13 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
 
   const check = (row: DefinitionRow) =>
     run(async () => {
-      setChecks({ file: row.file, results: await api.checkFile(row.file, fixturesDir.trim() || undefined) });
+      setChecks({ file: row.file, check: await api.checkFile(row.file, fixturesDir.trim() || undefined) });
+    });
+
+  const createFixtures = (row: DefinitionRow) =>
+    run(async () => {
+      await api.createFixturesDir(row.file, fixturesDir.trim() || undefined);
+      setChecks({ file: row.file, check: await api.checkFile(row.file, fixturesDir.trim() || undefined) });
     });
 
   const validateDraft = (path: string) =>
@@ -288,7 +294,8 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
               onRevoke={revoke}
               onCheck={check}
               onExport={exportRow}
-              results={checks?.file === row.file ? checks.results : null}
+              check={checks?.file === row.file ? checks.check : null}
+              onCreateFixtures={createFixtures}
             />
           ))}
         </ul>
@@ -515,6 +522,23 @@ function ConsentBanner({
   );
 }
 
+function noFixturesMessage(check: FixtureCheck): string {
+  const name = check.name || 'this definition';
+  if (check.reason === 'not_a_folder') {
+    return `The fixtures path ${check.dir} is not a folder. Point the field at a folder of captures, or clear it to use the default.`;
+  }
+  const lead = check.explicit
+    ? check.reason === 'empty'
+      ? `The fixtures folder ${check.dir} has no captures.`
+      : `The fixtures folder you entered does not exist: ${check.dir}.`
+    : check.reason === 'empty'
+      ? `The folder for ${name} exists but has no captures yet.`
+      : `No captures yet for ${name}.`;
+  const how = `Put captured screens or JSON output in ${check.dir} (each with a <name>.expect.toml), or use Rec on a pane to record a session.`;
+  const optional = check.generic ? ' Captures are optional for experimental (generic) agents.' : '';
+  return `${lead} ${how}${optional}`;
+}
+
 function DefinitionItem({
   row,
   busy,
@@ -522,7 +546,8 @@ function DefinitionItem({
   onRevoke,
   onCheck,
   onExport,
-  results,
+  check,
+  onCreateFixtures,
 }: {
   row: DefinitionRow;
   busy: boolean;
@@ -530,7 +555,8 @@ function DefinitionItem({
   onRevoke: (row: DefinitionRow) => void;
   onCheck: (row: DefinitionRow) => void;
   onExport: (row: DefinitionRow) => void;
-  results: FixtureResult[] | null;
+  check: FixtureCheck | null;
+  onCreateFixtures: (row: DefinitionRow) => void;
 }) {
   return (
     <li data-testid="definition-row" className="rounded-lg border border-pm-border p-3">
@@ -576,10 +602,25 @@ function DefinitionItem({
         </span>
       </div>
       <p className="mt-1 break-all text-xs text-pm-muted">{row.file}</p>
-      {results && (
+      {check && check.status === 'no_fixtures' && (
+        <div data-testid="fixtures-none" className="mt-2 text-xs text-pm-muted">
+          <p>{noFixturesMessage(check)}</p>
+          {check.reason !== 'not_a_folder' && (
+            <button
+              type="button"
+              className={`${BTN} mt-2`}
+              disabled={busy || check.reason === 'empty'}
+              onClick={() => onCreateFixtures(row)}
+            >
+              {check.reason === 'empty' ? 'Folder exists' : 'Create folder'}
+            </button>
+          )}
+        </div>
+      )}
+      {check && check.status === 'ran' && (
         <ul data-testid="fixture-results" className="mt-2 space-y-1">
-          {results.length === 0 && <li className="text-xs text-pm-muted">No fixtures found.</li>}
-          {results.map((r) => (
+          {check!.results.length === 0 && <li className="text-xs text-pm-muted">No fixtures found.</li>}
+          {check!.results.map((r) => (
             <li key={r.fixture} data-testid="fixture-result" className="text-xs">
               <span className={r.passed ? 'text-emerald-400' : 'text-red-400'}>{r.passed ? 'PASS' : 'FAIL'}</span>{' '}
               <span className="font-mono">{r.fixture}</span>
