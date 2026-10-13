@@ -16,8 +16,9 @@ export interface BridgePaneRegistryApi {
   paneList: BridgePaneData[];
   subscribePaneData: PaneDataSubscriber;
   /** A `pane-resize` event, passed to the open terminal in order with the pane's output. */
-  ingestPaneResize: (paneId: string, cols: number, rows: number) => void;
-  ingestTerminalData: (paneId: string, data: number[] | Uint8Array) => void;
+  ingestPaneResize: (paneId: string, cols: number, rows: number, offset?: number) => void;
+  /** `offset`: where the chunk starts in the pane's byte stream (`terminal` event), when the backend sends it. */
+  ingestTerminalData: (paneId: string, data: number[] | Uint8Array, offset?: number) => void;
   updatePaneStatus: (paneId: string, status: PaneInfo['status']) => void;
   /**
    * `keepStream`: the viewer resizes its terminal in place (phone-sized panes) and keeps reading
@@ -38,11 +39,18 @@ export type SocketInputSender = (paneId: string, text: string, appendNewline: bo
 export function useBridgePaneRegistry(
   bridge: BridgeClient | null,
   sendViaSocket?: SocketInputSender,
+  /** Output went missing in transit (offsets show a hole): the viewer should redraw from the PC. */
+  onStreamGap?: (paneId: string) => void,
 ): BridgePaneRegistryApi {
   const [panes, setPanes] = useState<Map<string, BridgePaneData>>(EMPTY);
   const panesRef = useRef(panes);
   panesRef.current = panes;
-  const streamsRef = useRef(new PaneStreamManager());
+  const onStreamGapRef = useRef(onStreamGap);
+  onStreamGapRef.current = onStreamGap;
+  const streamsRef = useRef<PaneStreamManager | null>(null);
+  if (!streamsRef.current) {
+    streamsRef.current = new PaneStreamManager({ onGap: (paneId) => onStreamGapRef.current?.(paneId) });
+  }
 
   const setPanesFromList = useCallback((list: PaneInfo[]) => {
     const next = new Map<string, BridgePaneData>();
@@ -52,8 +60,8 @@ export function useBridgePaneRegistry(
     setPanes(next);
   }, []);
 
-  const ingestTerminalData = useCallback((paneId: string, data: number[] | Uint8Array) => {
-    streamsRef.current.ingest(paneId, data);
+  const ingestTerminalData = useCallback((paneId: string, data: number[] | Uint8Array, offset?: number) => {
+    streamsRef.current!.ingest(paneId, data, offset);
   }, []);
 
   const updatePaneStatus = useCallback((paneId: string, status: PaneInfo['status']) => {
@@ -72,7 +80,7 @@ export function useBridgePaneRegistry(
       const existing = prev.get(paneId);
       if (!existing) return prev;
       if (existing.info.cols === cols && existing.info.rows === rows) return prev;
-      if (!keepStream) streamsRef.current.reset(paneId);
+      if (!keepStream) streamsRef.current!.reset(paneId);
       const next = new Map(prev);
       next.set(paneId, {
         ...existing,
@@ -90,17 +98,17 @@ export function useBridgePaneRegistry(
       const replay = onResize
         ? (id: string, lines: number) => bridge.readScreen(id).catch(() => bridge.readRawBuffer(id, lines))
         : (id: string, lines: number) => bridge.readRawBuffer(id, lines);
-      return streamsRef.current.subscribe(paneId, cb, replay, onResize);
+      return streamsRef.current!.subscribe(paneId, cb, replay, onResize);
     },
     [bridge],
   );
 
-  const ingestPaneResize = useCallback((paneId: string, cols: number, rows: number) => {
-    streamsRef.current.ingestResize(paneId, cols, rows);
+  const ingestPaneResize = useCallback((paneId: string, cols: number, rows: number, offset?: number) => {
+    streamsRef.current!.ingestResize(paneId, cols, rows, offset);
   }, []);
 
   const resetStreams = useCallback(() => {
-    for (const paneId of panesRef.current.keys()) streamsRef.current.reset(paneId);
+    for (const paneId of panesRef.current.keys()) streamsRef.current!.reset(paneId);
   }, []);
 
   const makeTransport = useCallback(

@@ -2,7 +2,7 @@
 // the typed BridgeClient. Wire types live in ./bridge-types, SSE subscription in ./bridge-sse.
 import type { AgentContextProfile } from '@puppet-master/shared';
 import { ngrokRequestHeaders } from './bridge-ngrok';
-import { decodeBase64 } from './bridge-sse';
+import { decodeBase64, streamOffset } from './bridge-sse';
 import type { BridgeClient, PaneViewportResponse } from './bridge-types';
 import type { Question } from './questions';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
@@ -63,11 +63,12 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       return res.data;
     },
     readScreen: async (id) => {
-      const res = await call<{ b64: string; cols: number; rows: number }>(
+      const res = await call<{ b64: string; cols: number; rows: number; offset?: number }>(
         'GET',
         `/panes/${encodeURIComponent(id)}/screen`,
       );
-      return { data: decodeBase64(res.b64), cols: res.cols, rows: res.rows };
+      // `offset`: where in the pane's byte stream the screen was taken (absent from older backends).
+      return { data: decodeBase64(res.b64), cols: res.cols, rows: res.rows, ...streamOffset(res.offset) };
     },
     readSnapshot: async (id) => {
       const res = await call<{ content: string }>('GET', `/panes/${encodeURIComponent(id)}/snapshot`);

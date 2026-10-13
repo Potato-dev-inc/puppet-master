@@ -21,6 +21,21 @@ export interface PaneStream {
   backlogOffsets: Array<number | undefined>;
   /** Resizes that arrived while the replay was loading, with how many chunks preceded each. */
   resizeLog: Array<{ cols: number; rows: number; offset?: number; after: number }>;
+  /**
+   * Live: where the next chunk should start (end of the last one delivered). A chunk that starts
+   * later means bytes were lost in transit (see `PaneStreamManagerOptions.onGap`). Undefined while
+   * the stream carries no offsets.
+   */
+  liveEnd?: number;
+}
+
+export interface PaneStreamManagerOptions {
+  /**
+   * A live chunk started past the end of the previous one: output went missing between them (an
+   * event filter that took effect late, a dropped connection, a tunnel hiccup). The viewer should
+   * redraw from the source, which is what the phone's nudge does.
+   */
+  onGap?: (paneId: string) => void;
 }
 
 /** The pane redrawn at its current size (`GET /panes/{id}/screen`): replayed after a resize to it. */
@@ -45,6 +60,18 @@ function isScreenReplay(value: number[] | Uint8Array | PaneScreenReplay): value 
   return !Array.isArray(value) && !(value instanceof Uint8Array);
 }
 
+/** True when the buffered chunks do not join the snapshot end (`snapshotAt`) without a hole. */
+function hasGapAfter(stream: PaneStream, snapshotAt: number): boolean {
+  let expected = snapshotAt;
+  for (let i = 0; i < stream.backlog.length; i++) {
+    const start = stream.backlogOffsets[i];
+    if (start === undefined) continue;
+    if (start > expected) return true;
+    expected = Math.max(expected, start + stream.backlog[i].length);
+  }
+  return false;
+}
+
 function copyBytes(data: Uint8Array | number[]): Uint8Array {
   return data instanceof Uint8Array ? new Uint8Array(data) : Uint8Array.from(data);
 }
@@ -57,13 +84,18 @@ function copyBytes(data: Uint8Array | number[]): Uint8Array {
 export class PaneStreamManager {
   private readonly streams = new Map<string, PaneStream>();
 
+  constructor(private readonly options: PaneStreamManagerOptions = {}) {}
+
   /** `offset`: where this chunk starts in the pane's byte stream (bytes since the pane started). */
   ingest(paneId: string, data: Uint8Array | number[], offset?: number): void {
     const chunk = copyBytes(data);
     const stream = this.streamFor(paneId);
 
     if (stream.mode === 'live') {
+      const expected = stream.liveEnd;
+      stream.liveEnd = offset === undefined ? undefined : offset + chunk.length;
       stream.listener?.(chunk);
+      if (offset !== undefined && expected !== undefined && offset > expected) this.options.onGap?.(paneId);
       return;
     }
 
@@ -136,6 +168,13 @@ export class PaneStreamManager {
             load(attempt + 1);
             return;
           }
+          // The chunks that arrived while the screen loaded must start where the snapshot ends. If
+          // the first one starts later, output in between never reached us (a filter that took
+          // effect after the snapshot was taken): take the screen again, now that it is flowing.
+          if (snapshotAt !== undefined && attempt < MAX_REPLAY_ATTEMPTS && hasGapAfter(current, snapshotAt)) {
+            load(attempt + 1);
+            return;
+          }
           // Size the viewer to the grid the screen was drawn for, then draw it.
           current.resizeListener?.(replay.cols, replay.rows);
           if (replay.data.length > 0) cb(replay.data);
@@ -182,6 +221,7 @@ export class PaneStreamManager {
       pendingResize: null,
       backlogOffsets: [],
       resizeLog: [],
+      liveEnd: undefined,
     };
   }
 
@@ -210,6 +250,12 @@ export class PaneStreamManager {
       }
     }
     applyResizesBefore(Number.MAX_SAFE_INTEGER);
+    let end = snapshotAt;
+    for (let i = 0; i < backlog.length; i++) {
+      const start = backlogOffsets[i];
+      if (start !== undefined) end = Math.max(end, start + backlog[i].length);
+    }
+    stream.liveEnd = end;
     stream.backlog = [];
     stream.backlogOffsets = [];
     stream.resizeLog = [];
@@ -220,6 +266,7 @@ export class PaneStreamManager {
     stream.backlog = [];
     stream.backlogOffsets = [];
     stream.resizeLog = [];
+    stream.liveEnd = undefined;
     stream.mode = 'live';
   }
 
@@ -230,6 +277,7 @@ export class PaneStreamManager {
         current.listener = null;
         current.resizeListener = null;
         current.mode = 'buffering';
+        current.liveEnd = undefined;
       }
     };
   }
