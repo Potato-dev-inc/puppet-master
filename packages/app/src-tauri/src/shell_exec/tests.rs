@@ -174,6 +174,7 @@ fn disposable_powershell_registry() -> Arc<Mutex<PaneRegistry>> {
                 cols: 120,
                 rows: 30,
                 viewer_held: false,
+                reprints_on_resize: false,
             },
             scrollback: scrollback.clone(),
             screen: screen.clone(),

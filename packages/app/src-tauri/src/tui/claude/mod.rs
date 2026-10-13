@@ -24,6 +24,12 @@ impl TuiProfile for Claude {
         }
     }
 
+    /// Claude Code reprints the whole conversation after a resize and never sends `ESC[3J`
+    /// (recorded under ConPTY and replayed into xterm.js, 2026-10-13).
+    fn reprints_on_resize(&self) -> bool {
+        true
+    }
+
     fn is_installed(&self) -> bool {
         super::program_on_path("claude")
     }

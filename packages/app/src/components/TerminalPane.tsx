@@ -60,6 +60,7 @@ export function TerminalPane({
     subscribePaneData,
     syncPTYResize,
     reflowKey,
+    reprintsOnResize: pane.info.reprints_on_resize,
   });
 
   const agent = pane.info.agent_type as AgentType;

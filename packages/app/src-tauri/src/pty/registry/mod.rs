@@ -62,6 +62,10 @@ pub struct PaneInfo {
     /// instead of drawing a grid that is not theirs.
     #[serde(default)]
     pub viewer_held: bool,
+    /// The agent reprints its whole conversation on every resize (`TuiProfile::reprints_on_resize`):
+    /// viewers wipe their scrollback at each resize in the byte stream. Derived from the profile.
+    #[serde(default)]
+    pub reprints_on_resize: bool,
 }
 
 /// Internal handle — owns the PTY master and the reader thread handle.
@@ -102,6 +106,7 @@ impl PaneState {
             info.last_output_at = None;
         }
         info.viewer_held = crate::pty::viewer_size::is_held(&info.id);
+        info.reprints_on_resize = crate::tui::profile_for(&info.agent_type).reprints_on_resize();
         info
     }
 }
@@ -265,6 +270,7 @@ impl PaneRegistry {
             cols: 10,
             rows: 3,
             viewer_held: false,
+            reprints_on_resize: false,
         };
         PaneState {
             info,

@@ -40,6 +40,8 @@ interface UseTerminalSessionOptions {
    * True reports the measured grid as is. Only the phone sizes the pane with this.
    */
   keyboardResizesAgent?: boolean;
+  /** The agent reprints its conversation on every resize: wipe scrollback at each resize (PaneInfo flag). */
+  reprintsOnResize?: boolean;
 }
 
 /** Before the first successful measurement (xterm still settling after mount). */
@@ -74,6 +76,7 @@ export function useTerminalSession({
   heldPtySize,
   onFitGrid,
   keyboardResizesAgent = true,
+  reprintsOnResize = false,
 }: UseTerminalSessionOptions): {
   containerRef: RefObject<HTMLDivElement>;
   nudgeReflow: () => void;
@@ -112,6 +115,7 @@ export function useTerminalSession({
       mobileInputVisible,
       disableMobileInput,
       sizesPane,
+      reprintsOnResize,
       onResize: (cols, rows) => {
         void activeTransport.resize(cols, rows);
       },
@@ -127,6 +131,11 @@ export function useTerminalSession({
       sessionRef.current = null;
     };
   }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, renderMode, mobileInputDelayMs, mobileInputVisible, disableMobileInput, sizesPane]);
+
+  // The flag arrives with the pane list, possibly after mount: no remount, only the setting.
+  useEffect(() => {
+    sessionRef.current?.setReprintsOnResize(reprintsOnResize);
+  }, [reprintsOnResize, paneId, sessionKey]);
 
   // A window opened while a phone already holds the pane gets no resize event: follow the held size.
   const heldCols = heldPtySize?.cols;

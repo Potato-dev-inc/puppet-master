@@ -16,6 +16,8 @@ export const PaneInfoSchema = z.object({
   rows: z.number().int(),
   /** A phone viewing this pane holds its size; desktop windows show a notice meanwhile. */
   viewer_held: z.boolean().optional(),
+  /** The agent reprints its whole conversation on every resize; viewers wipe scrollback at each one. */
+  reprints_on_resize: z.boolean().optional(),
 });
 export type PaneInfo = z.infer<typeof PaneInfoSchema>;
 

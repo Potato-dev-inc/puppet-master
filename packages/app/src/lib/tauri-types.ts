@@ -12,6 +12,8 @@ export type PaneInfo = {
   rows: number;
   /** A phone viewing this pane holds its size (desktop windows show a notice). */
   viewer_held?: boolean;
+  /** The agent reprints its whole conversation on every resize: viewers wipe scrollback at each one. */
+  reprints_on_resize?: boolean;
 };
 
 export type TerminalSnapshotEvent = { pane_id: string; snapshot: string };

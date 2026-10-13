@@ -72,6 +72,7 @@ export function BridgePaneTerminal({
     onFitGrid,
     keyboardResizesAgent,
     refreshSignal,
+    reprintsOnResize: pane.reprints_on_resize,
   });
 
   const label = title ?? pane.agent_type;

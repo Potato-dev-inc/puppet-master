@@ -203,3 +203,17 @@ fn failed_turns_are_classified_by_the_definition() {
     // a profile with no parser never classifies
     assert_eq!(profile(MINIMAL).classify_headless_failure(error, 0), None);
 }
+
+#[test]
+fn reprints_on_resize_defaults_false_and_follows_the_definition() {
+    assert!(!kilo().reprints_on_resize());
+    let text = KILO.replace("dispatchable = true", "dispatchable = true\nreprints_on_resize = true");
+    assert!(profile(&text).reprints_on_resize());
+}
+
+#[test]
+fn only_claude_reprints_on_resize_among_the_code_profiles() {
+    for (id, expected) in [("claude", true), ("codex", false), ("powershell", false), ("cmd", false), ("opencode", false)] {
+        assert_eq!(crate::tui::profile_for(id).reprints_on_resize(), expected, "{id}");
+    }
+}

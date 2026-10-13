@@ -200,6 +200,7 @@ pub fn spawn_native_pane(
         cols,
         rows,
         viewer_held: false,
+        reprints_on_resize: false,
     };
 
     let opencode = OpenCodeLink::new(

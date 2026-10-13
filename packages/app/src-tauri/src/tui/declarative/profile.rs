@@ -289,6 +289,10 @@ impl TuiProfile for DeclarativeProfile {
         }
     }
 
+    fn reprints_on_resize(&self) -> bool {
+        self.def.features.reprints_on_resize
+    }
+
     fn experimental(&self) -> bool {
         self.def.agent.experimental || self.def.agent.kind == schema::Kind::Generic
     }

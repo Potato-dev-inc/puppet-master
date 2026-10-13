@@ -133,6 +133,10 @@ pub struct FeaturesTable {
     pub read_only_headless: bool,
     #[serde(default)]
     pub read_only_spawned_pane: bool,
+    /// The TUI reprints its whole conversation on every resize without clearing scrollback, so
+    /// viewers wipe their history at the resize point. Default false.
+    #[serde(default)]
+    pub reprints_on_resize: bool,
     /// Derived (HDL-9) when absent; an explicit value must agree with the session selector.
     pub resumable_headless: Option<bool>,
     #[serde(default)]
@@ -146,6 +150,7 @@ impl Default for FeaturesTable {
             not_dispatchable_reason: String::new(),
             read_only_headless: false,
             read_only_spawned_pane: false,
+            reprints_on_resize: false,
             resumable_headless: None,
             read_only_note: String::new(),
         }

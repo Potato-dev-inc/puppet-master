@@ -86,7 +86,7 @@ Puppet Master looks for the program on `PATH` only. It never runs something foun
 the current directory.
 
 ### `[features]`
-`dispatchable` (default true), `read_only_headless`, `read_only_spawned_pane`, `resumable_headless` (derived;
+`dispatchable` (default true), `read_only_headless`, `read_only_spawned_pane`, `reprints_on_resize` (default false: the TUI reprints its whole conversation on every resize, so viewers wipe scrollback at the resize point), `resumable_headless` (derived;
 do not set it unless you want the check), `read_only_note`.
 Only claim read-only if the CLI has a documented read-only mode AND you map it in argv with
 `when = "read_only"`. You must also fill `read_only_note` with one sentence saying how.

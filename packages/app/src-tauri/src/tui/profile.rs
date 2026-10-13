@@ -12,6 +12,14 @@ pub trait TuiProfile: Send + Sync {
         Features::CLI
     }
 
+    /// This TUI reprints its whole conversation on every PTY resize without clearing scrollback
+    /// (`ESC[3J`), so each resize leaves another copy in a viewer's history. Viewers wipe their
+    /// scrollback at the resize point for such agents; plain shells and TUIs that only redraw
+    /// their screen keep their history. Default false.
+    fn reprints_on_resize(&self) -> bool {
+        false
+    }
+
     /// Why this backend cannot be dispatched; shown to the caller. Only read when
     /// `features().dispatchable` is false.
     fn not_dispatchable_reason(&self) -> &'static str {

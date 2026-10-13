@@ -320,6 +320,24 @@ mod full_text_tests {
         assert!(viewer.screen().contents().contains("visible"));
     }
 
+    #[test]
+    fn wipe_history_keeps_the_screen_and_drops_the_scrollback() {
+        let mut parser = vt100::Parser::new(5, 40, 1000);
+        for n in 1..=30 {
+            parser.process(format!("line {n:02}\r\n").as_bytes());
+        }
+        parser.process(b"prompt> ");
+        let screen_before = parser.screen().contents();
+        let cursor = parser.screen().cursor_position();
+        super::wipe_history(&mut parser);
+        assert_eq!(parser.screen().contents(), screen_before);
+        assert_eq!(parser.screen().cursor_position(), cursor);
+        parser.screen_mut().set_scrollback(usize::MAX);
+        assert_eq!(parser.screen().scrollback(), 0);
+        let replay = super::screen_replay_of(&mut parser, 1000);
+        assert!(!String::from_utf8_lossy(&replay).contains("line 01"));
+    }
+
     use super::full_text_of;
 
     #[test]
@@ -367,13 +385,22 @@ pub fn read_raw_buffer(
     Ok(raw)
 }
 
+/// Drops the emulator's scrollback and keeps the screen, cursor and modes.
+pub(super) fn wipe_history(parser: &mut vt100::Parser) {
+    let (rows, cols) = parser.screen().size();
+    let state = parser.screen().state_formatted();
+    let mut fresh = vt100::Parser::new(rows, cols, SCROLLBACK_CAP);
+    fresh.process(&state);
+    *parser = fresh;
+}
+
 pub fn resize(
     registry: &Mutex<PaneRegistry>,
     pane_id: &str,
     cols: u16,
     rows: u16,
 ) -> Result<bool, String> {
-    let (master, screen) = {
+    let (master, screen, reprints) = {
         let mut reg = registry.lock();
         let pane = reg
             .panes
@@ -382,7 +409,8 @@ pub fn resize(
         if pane.info.cols == cols && pane.info.rows == rows {
             return Ok(false);
         }
-        (pane.master.clone(), pane.screen.clone())
+        let reprints = crate::tui::profile_for(&pane.info.agent_type).reprints_on_resize();
+        (pane.master.clone(), pane.screen.clone(), reprints)
     };
     // ponytail: ConPTY resize can block; holding PaneRegistry across it
     // freezes list_panes and keyboard input the same way write_all did.
@@ -397,7 +425,16 @@ pub fn resize(
         .map_err(|e| format!("resize: {e}"))?;
     // Keep the headless emulator's grid the same shape as the PTY so a later
     // screen reconstruction matches the live geometry.
-    screen.lock().screen_mut().set_size(rows, cols);
+    {
+        let mut parser = screen.lock();
+        parser.screen_mut().set_size(rows, cols);
+        // The agent reprints its whole conversation after this resize: keeping the history it
+        // already drew would replay a second copy to a viewer that mounts later (viewers wipe
+        // their own scrollback at the resize point, see `terminal/reprint-wipe.ts`).
+        if reprints {
+            wipe_history(&mut parser);
+        }
+    }
     if let Some(pane) = registry.lock().panes.get_mut(pane_id) {
         pane.info.cols = cols;
         pane.info.rows = rows;

@@ -36,6 +36,8 @@ export interface TerminalSessionOptions {
    * gets fewer rows, so the mirror always fits its whole height and never shifts up.
    */
   sizesPane?: boolean;
+  /** The agent reprints its whole conversation on every resize (`PaneInfo.reprints_on_resize`). */
+  reprintsOnResize?: boolean;
 }
 
 export interface Disposable {

@@ -24,6 +24,7 @@ import {
   createTerminalScaleMount,
   TerminalScaleController,
 } from './scaled-viewport';
+import { ReprintWipe } from './reprint-wipe';
 import type { PaneDataSubscriber, TerminalRenderMode, TerminalSessionOptions } from './types';
 import '@xterm/xterm/css/xterm.css';
 
@@ -83,6 +84,8 @@ export class TerminalSession {
   private ownerStreamResizeSeen = false;
   /** Owner window: the size a phone holds, from the registry; applied once the grid is open. */
   private heldPty: { cols: number; rows: number } | null = null;
+  /** Wipes scrollback at the stream position of a resize, for agents that reprint on resize. */
+  private readonly reprintWipe = new ReprintWipe();
   private readonly syncPTYResize: boolean;
   private readonly mirrorPTY: boolean;
   private readonly renderMode: TerminalRenderMode;
@@ -100,6 +103,7 @@ export class TerminalSession {
     this.mirrorPTY = !this.syncPTYResize;
     this.renderMode = options.renderMode ?? (this.syncPTYResize ? 'owner' : 'mirror-same-grid');
     this.mobileInputDisabled = options.disableMobileInput === true;
+    this.reprintWipe.enabled = options.reprintsOnResize === true;
     this.ptyCols = options.ptyCols ?? 80;
     this.ptyRows = options.ptyRows ?? 24;
   }
@@ -129,9 +133,15 @@ export class TerminalSession {
     }
     this.unlistenData();
     terminal.reset();
+    this.reprintWipe.reset();
     this.unlistenData = subscribe(this.options.paneId, onData, this.paneResizeHandler ?? undefined);
     this.scheduleRefresh();
     return true;
+  }
+
+  /** The agent reprints its conversation on every resize: wipe scrollback at each one. */
+  setReprintsOnResize(enabled: boolean): void {
+    this.reprintWipe.enabled = enabled;
   }
 
   /** Text currently selected in the terminal ("" when nothing is). */
@@ -241,6 +251,8 @@ export class TerminalSession {
   applyStreamResize(cols: number, rows: number): void {
     const terminal = this.term;
     if (!terminal || cols <= 0 || rows <= 0) return;
+    // Queued here, in order with the bytes: the reprint that follows becomes the only copy.
+    this.reprintWipe.resizeTo(terminal, cols, rows);
     if (this.syncPTYResize) {
       this.ownerStreamResizeSeen = true;
       terminal.write(new Uint8Array(0), () => {
@@ -842,6 +854,7 @@ export class TerminalSession {
       return;
     }
 
+    const before = { cols: terminal.cols, rows: terminal.rows };
     try {
       fitAddon.fit();
     } catch {
@@ -849,6 +862,8 @@ export class TerminalSession {
     }
 
     const { cols, rows } = terminal;
+    // The owner resizes its grid locally and gets no echo: wipe now, before any later byte.
+    if (cols > 0 && rows > 0) this.reprintWipe.resizeTo(terminal, cols, rows, before);
     if (cols > 0 && rows > 0 && (cols !== this.lastSentCols || rows !== this.lastSentRows)) {
       this.lastSentCols = cols;
       this.lastSentRows = rows;

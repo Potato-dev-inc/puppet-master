@@ -6,6 +6,7 @@ export { PaneStreamManager, MAX_BACKLOG_CHUNKS, RAW_REPLAY_LINES } from './pane-
 export type { PaneScreenReplay, PaneStream, PaneStreamMode, ReadRawBufferFn } from './pane-stream';
 export { createOwnerReplayReader } from './pane-replay';
 export type { OwnerReplayDeps } from './pane-replay';
+export { CLEAR_SCROLLBACK, ReprintWipe } from './reprint-wipe';
 export { SnapshotBatcher } from './snapshot-batcher';
 export { TerminalSession } from './terminal-session';
 export {
