@@ -26,6 +26,7 @@ import { PreviewNote } from './components/mobile/PreviewNote';
 import type { PreviewUrl } from './lib/pane-preview';
 import { AgentsOverview } from './components/mobile/AgentsOverview';
 import { QuestionsList } from './components/mobile/QuestionsList';
+import { usePushPresence } from './hooks/usePushPresence';
 import { MenuSheet, NewAgentSheet, type TypingEchoStats } from './components/mobile/MobileSheet';
 import { SetupScreen } from './components/pwa/SetupScreen';
 
@@ -241,6 +242,8 @@ export default function PwaApp() {
       stream.unsubscribe();
     };
   }, [bridgeUrl, applyPanes, publishEcho]);
+
+  usePushPresence(bridgeUrl, setActive);
 
   // A closed agent's tab falls back to All (only once the real pane list has arrived).
   useEffect(() => {

@@ -22,6 +22,7 @@ pub mod mcp_sessions;
 mod mcp_status;
 mod mobile_pairing;
 mod mobile_tunnel;
+mod tunnel_config;
 mod opencode;
 pub mod operations;
 #[cfg(test)]
@@ -33,6 +34,8 @@ mod panic;
 mod pane_prompt;
 mod prompt_risk;
 pub mod questions;
+mod push;
+mod secure_file;
 mod app_windows;
 mod cockpit;
 mod ui_mode;
@@ -172,6 +175,10 @@ pub fn run() {
             commands::list_paired_mobile_devices,
             commands::revoke_paired_mobile_device,
             commands::get_mobile_tunnel_info,
+            commands::get_tunnel_status,
+            commands::set_tunnel_config,
+            commands::restart_tunnel,
+            commands::test_tunnel_connection,
             app_lifecycle::get_app_install_info,
             app_lifecycle::open_external_url,
             app_lifecycle::launch_uninstall,
@@ -307,6 +314,8 @@ pub fn run() {
                     None
                 }
             };
+
+            push::init(app.state::<AppState>().registry.clone());
 
             #[cfg(debug_assertions)]
             let _ = &bridge_url;

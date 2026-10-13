@@ -29,6 +29,9 @@ import type {
   AppInstallInfo,
   StandbyConfig,
   StandbyStatus,
+  TunnelConfigInput,
+  TunnelConnectionTest,
+  TunnelStatus,
 } from './tauri-types';
 
 export type * from './tauri-types';
@@ -321,6 +324,12 @@ export const tauri = {
       bridgeDirectUrl?: string | null;
       updatedAt: number;
     } | null>('get_mobile_tunnel_info', undefined, null, true),
+
+  getTunnelStatus: () => safeInvoke<TunnelStatus | null>('get_tunnel_status', undefined, null, true),
+  setTunnelConfig: (input: TunnelConfigInput) => safeInvoke<TunnelStatus>('set_tunnel_config', { input }),
+  restartTunnel: () => safeInvoke<TunnelStatus>('restart_tunnel'),
+  testTunnelConnection: (url?: string) =>
+    safeInvoke<TunnelConnectionTest>('test_tunnel_connection', { url: url ?? null }),
 
   standbyGetStatus: () => safeInvoke<StandbyStatus | null>('standby_get_status', undefined, null, true),
   standbySetConfig: (config: StandbyConfig) =>

@@ -280,3 +280,42 @@ fn proxy_sends_exactly_one_marker_of_its_own_and_keeps_the_query_string() {
     let (_, body) = send(r.pwa, &upgrade("/bridge/events/ws", &[&protocols, "X-PM-Proxied: 0"]));
     assert_eq!(json(&body)["proxied_markers"], serde_json::json!(["1"]));
 }
+
+fn post(path: &str, body: &str, extra_headers: &[&str]) -> String {
+    let mut request = format!(
+        "POST {path} HTTP/1.1\r\nHost: tunnel.example\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        body.len()
+    );
+    for header in extra_headers {
+        request.push_str(header);
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
+    request.push_str(body);
+    request
+}
+
+#[test]
+fn push_act_passes_the_tunnel_gate_without_a_bearer_but_the_other_push_routes_do_not() {
+    let r = rig();
+    // The Allow/Deny tap from a notification carries its own one-shot token, no device bearer.
+    let act = r#"{"token":"one-shot-token","choice":"allow"}"#;
+    let (status, body) = send(r.pwa, &post("/bridge/push/act", act, &[]));
+    assert_eq!(status, 200, "push/act must get past the gate with no bearer: {body}");
+    assert_eq!(json(&body)["authorized"], true);
+
+    // Everything else under /push still needs a paired device, through the proxy.
+    let subscribe = r#"{"endpoint":"https://fcm.googleapis.com/x","keys":{"p256dh":"a","auth":"b"}}"#;
+    let (status, body) = send(r.pwa, &post("/bridge/push/subscribe", subscribe, &[]));
+    assert_eq!(status, 401, "subscribe without a bearer: {body}");
+    assert_eq!(json(&body)["error"], "pairing_required");
+    let (status, _) = send(r.pwa, &get("/bridge/push/key", &[]));
+    assert_eq!(status, 401);
+    let (status, _) = send(r.pwa, &post("/bridge/push/presence", r#"{"visible":true}"#, &[]));
+    assert_eq!(status, 401);
+
+    // With a paired bearer the same subscribe request is authorized at the gate.
+    let auth = format!("Authorization: Bearer {}", r.token);
+    let (status, body) = send(r.pwa, &post("/bridge/push/subscribe", subscribe, &[&auth]));
+    assert_eq!(status, 200, "{body}");
+}

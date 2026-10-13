@@ -23,6 +23,7 @@ mod accounts;
 mod questions;
 mod standby;
 mod worktrees;
+mod tunnel;
 
 pub use agent_models::*;
 pub use agents::*;
@@ -40,6 +41,7 @@ pub use accounts::*;
 pub use questions::*;
 pub use standby::*;
 pub use worktrees::*;
+pub use tunnel::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{

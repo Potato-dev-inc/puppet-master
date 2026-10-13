@@ -34,6 +34,20 @@ fn invite_route_is_not_public() {
 }
 
 #[test]
+fn push_act_is_public_but_every_other_push_route_needs_a_bearer() {
+    // The Allow/Deny tap carries its own one-shot token instead of a bearer.
+    assert!(is_public_bridge_path(&["push", "act"], "POST"));
+    assert!(is_public_bridge_path(&["bridge", "push", "act"], "POST"));
+    assert!(!is_public_bridge_path(&["push", "act"], "GET"));
+    for (method, path) in [("GET", "key"), ("POST", "subscribe"), ("DELETE", "subscribe"), ("POST", "presence")] {
+        let err = authorize_bridge_request("X-PM-Proxied: 1\r\n", true, &["push", path], method)
+            .expect_err("push routes require a paired device");
+        assert_eq!(err.0, 401, "{method} /push/{path}");
+    }
+}
+
+#[test]
+
 fn any_forwarding_header_on_a_loopback_peer_requires_a_token() {
     for header in [
         "X-PM-Proxied: 1",

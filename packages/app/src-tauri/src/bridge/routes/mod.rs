@@ -13,6 +13,7 @@ mod operations;
 mod pairing;
 mod panes;
 pub(super) mod previews;
+mod push;
 mod session;
 mod shell;
 mod standby;
@@ -54,6 +55,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| shell::handle(cx))
         .or_else(|| mcp::handle_agents(cx))
         .or_else(|| pairing::handle(cx))
+        .or_else(|| push::handle(cx))
         .or_else(|| workspace::handle(cx))
         .or_else(|| operations::handle(cx))
         .or_else(|| tasks::handle(cx))

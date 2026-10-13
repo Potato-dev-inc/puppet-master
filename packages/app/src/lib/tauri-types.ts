@@ -174,3 +174,35 @@ export interface StandbyStatus {
   };
   supported: { agent_type: string; visible: boolean; headless: boolean; experimental: boolean }[];
 }
+
+export type TunnelMode = 'quick' | 'named' | 'custom';
+
+/** Saved tunnel setting as the UI may see it: never the token, only whether one is stored. */
+export interface TunnelConfigView {
+  mode: TunnelMode;
+  hostname: string | null;
+  url: string | null;
+  has_token: boolean;
+}
+
+export interface TunnelStatus {
+  /** Effective mode: `env` when PUPPET_MASTER_PUBLIC_URL overrides the saved setting. */
+  mode: TunnelMode | 'env';
+  public_url: string | null;
+  state: 'stopped' | 'starting' | 'running' | 'error';
+  error: string | null;
+  config: TunnelConfigView;
+}
+
+export type TunnelConfigInput =
+  | { mode: 'quick' }
+  | { mode: 'named'; hostname: string; token?: string | null }
+  | { mode: 'custom'; url: string };
+
+export interface TunnelConnectionTest {
+  ok: boolean;
+  url: string;
+  http_status: number | null;
+  latency_ms: number;
+  message: string;
+}

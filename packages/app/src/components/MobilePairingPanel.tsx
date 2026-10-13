@@ -13,6 +13,7 @@ import {
   isLoopbackOrigin,
 } from '../lib/public-bridge-url';
 import { watchTunnelDevInfo } from '../lib/load-tunnel-dev-info';
+import { originNotice } from '../lib/origin-notice';
 
 interface Props {
   publicPwaUrl: string;
@@ -175,6 +176,17 @@ export function MobilePairingPanel({
         </p>
       </div>
 
+      {(() => {
+        const notice = originNotice(pwaOrigin);
+        if (!notice) return null;
+        return (
+          <div className="rounded border border-pm-border p-2 text-xs" data-testid="pairing-origin">
+            <span className="text-pm-muted">Your phone will connect to </span>
+            <strong className="font-mono break-all">{notice.host}</strong>
+            {notice.warning && <p className="mt-1 text-pm-muted">{notice.warning}</p>}
+          </div>
+        );
+      })()}
       <div className="flex flex-col sm:flex-row gap-4 items-start">
         <div className="rounded-lg border border-pm-border bg-pm-bg p-2 shrink-0">
           <canvas ref={canvasRef} className="block" aria-label="Mobile pairing QR code" />

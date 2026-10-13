@@ -12,15 +12,12 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['app-icon.svg', 'icon-192.png', 'icon-512.png'],
-      workbox: {
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        // Same precache set as the old generateSW config.
         globPatterns: ['**/*.{js,css,html,woff2}'],
-        navigateFallbackDenylist: [/^\/bridge/, /^\/__puppet_master_dev__/],
-        runtimeCaching: [
-          {
-            urlPattern: /^\/bridge\//,
-            handler: 'NetworkOnly',
-          },
-        ],
       },
       manifest: {
         name: 'Puppet Master',

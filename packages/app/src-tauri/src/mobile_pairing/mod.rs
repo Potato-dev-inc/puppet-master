@@ -192,6 +192,7 @@ impl MobilePairingStore {
             return Ok(false);
         }
         self.persist()?;
+        crate::push::on_device_revoked(device_id);
         Ok(true)
     }
 
@@ -289,6 +290,13 @@ impl MobilePairingStore {
             server_public_key: self.server_public_b64.clone(),
             server_signature: encode_b64(signature.to_bytes().as_slice()),
         })
+    }
+
+    /// The device that owns `token`, if any (push routes act on behalf of exactly this device).
+    pub fn device_id_for_token(&self, token: &str) -> Option<String> {
+        let bytes = decode_b64(token).ok()?;
+        let hash_b64 = encode_b64(Sha256::digest(&bytes).as_slice());
+        self.devices.iter().find(|d| d.token_hash_b64 == hash_b64).map(|d| d.id.clone())
     }
 
     pub fn validate_bearer_token(&self, token: &str) -> bool {
