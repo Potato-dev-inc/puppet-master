@@ -1,0 +1,961 @@
+<title>Puppet Master Glass</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: three proposals stacked (Home, Settings, Phone). Each is a window over an ambient
+   "stage light" wallpaper; every surface is frosted glass with a specular top edge. */
+:root {
+  --page: #eceff5;
+  --fg: #1c1c1e;
+  --fg-2: rgba(60, 60, 67, .74);
+  --fg-3: rgba(60, 60, 67, .46);
+  --accent: #007aff;
+  --accent-soft: rgba(0, 122, 255, .12);
+  --ok: #28b14c;
+  --warn: #f08a00;
+  --err: #e5352b;
+  --idle: #8e8e93;
+  --wall-base: #e7e9f2;
+  --blob-a: rgba(255, 176, 92, .55);
+  --blob-b: rgba(96, 214, 196, .50);
+  --blob-c: rgba(255, 120, 160, .40);
+  --blob-d: rgba(140, 150, 255, .42);
+  --glass: rgba(255, 255, 255, .52);
+  --glass-strong: rgba(255, 255, 255, .74);
+  --glass-edge: rgba(255, 255, 255, .78);
+  --glass-hi: rgba(255, 255, 255, .9);
+  --hairline: rgba(30, 30, 60, .09);
+  --well: rgba(118, 118, 128, .10);
+  --shadow: rgba(30, 34, 60, .12);
+  --term: rgba(20, 20, 28, .86);
+  --term-fg: #e9e9ef;
+  --font: "Geist", -apple-system, "SF Pro Text", "Segoe UI Variable Text", system-ui, sans-serif;
+  --mono: "Geist Mono", "SF Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --r-win: 22px;
+  --r-card: 18px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0b0b10;
+    --fg: #f5f5f7;
+    --fg-2: rgba(235, 235, 245, .70);
+    --fg-3: rgba(235, 235, 245, .42);
+    --accent: #0a84ff;
+    --accent-soft: rgba(10, 132, 255, .20);
+    --ok: #30d158;
+    --warn: #ff9f0a;
+    --err: #ff453a;
+    --idle: #98989f;
+    --wall-base: #13111c;
+    --blob-a: rgba(255, 149, 0, .38);
+    --blob-b: rgba(40, 190, 175, .32);
+    --blob-c: rgba(255, 55, 110, .28);
+    --blob-d: rgba(94, 92, 230, .34);
+    --glass: rgba(38, 38, 48, .46);
+    --glass-strong: rgba(44, 44, 54, .70);
+    --glass-edge: rgba(255, 255, 255, .13);
+    --glass-hi: rgba(255, 255, 255, .16);
+    --hairline: rgba(255, 255, 255, .08);
+    --well: rgba(118, 118, 128, .22);
+    --shadow: rgba(0, 0, 0, .40);
+    --term: rgba(8, 8, 12, .72);
+    --term-fg: #e9e9ef;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0b0b10;
+  --fg: #f5f5f7;
+  --fg-2: rgba(235, 235, 245, .70);
+  --fg-3: rgba(235, 235, 245, .42);
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, .20);
+  --ok: #30d158;
+  --warn: #ff9f0a;
+  --err: #ff453a;
+  --idle: #98989f;
+  --wall-base: #13111c;
+  --blob-a: rgba(255, 149, 0, .38);
+  --blob-b: rgba(40, 190, 175, .32);
+  --blob-c: rgba(255, 55, 110, .28);
+  --blob-d: rgba(94, 92, 230, .34);
+  --glass: rgba(38, 38, 48, .46);
+  --glass-strong: rgba(44, 44, 54, .70);
+  --glass-edge: rgba(255, 255, 255, .13);
+  --glass-hi: rgba(255, 255, 255, .16);
+  --hairline: rgba(255, 255, 255, .08);
+  --well: rgba(118, 118, 128, .22);
+  --shadow: rgba(0, 0, 0, .40);
+  --term: rgba(8, 8, 12, .72);
+  --term-fg: #e9e9ef;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--page);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 clamp(16px, 3vw, 40px) 64px;
+}
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+.mono { font-family: var(--mono); font-feature-settings: "zero" 0; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---------- page chrome ---------- */
+.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  margin: 0 calc(-1 * clamp(16px, 3vw, 40px));
+  padding: 12px clamp(16px, 3vw, 40px);
+  background: color-mix(in srgb, var(--page) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  border-bottom: 1px solid var(--hairline);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -.01em; }
+.brand-mark { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center;
+  background: linear-gradient(145deg, #ffb35c, #ff5f8a 55%, #6a5cff); color: #fff; }
+.brand small { color: var(--fg-3); font-weight: 500; margin-left: 4px; }
+.top-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.jump { display: flex; gap: 4px; }
+.jump a { color: var(--fg-2); text-decoration: none; padding: 6px 10px; border-radius: 999px; font-weight: 500; }
+.jump a:hover { background: var(--well); color: var(--fg); }
+
+.seg { display: inline-flex; padding: 2px; border-radius: 10px; background: var(--well); gap: 2px; }
+.seg button { border: 0; background: transparent; padding: 5px 11px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--fg-2); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--glass-strong); color: var(--fg); box-shadow: 0 1px 3px var(--shadow), inset 0 0.5px 0 var(--glass-hi); }
+
+.intro { max-width: 760px; padding-block: 48px 28px; }
+.intro h1 { font-size: clamp(30px, 4.4vw, 46px); line-height: 1.05; letter-spacing: -.035em; margin: 0 0 14px; text-wrap: balance; font-weight: 650; }
+.intro p { color: var(--fg-2); font-size: 16px; margin: 0; max-width: 64ch; }
+.intro-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.tag { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--well); color: var(--fg-2); font-size: 12.5px; font-weight: 500; }
+
+.proposal { padding-block: 40px 8px; scroll-margin-top: 70px; }
+.p-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.p-head h2 { margin: 0; font-size: 24px; letter-spacing: -.025em; font-weight: 650; }
+.p-head .eyebrow { display: block; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-3); font-weight: 600; margin-bottom: 4px; }
+.p-head p { margin: 0; color: var(--fg-2); max-width: 60ch; }
+
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 28px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--hairline); }
+.notes div { min-width: 0; }
+.notes h4 { margin: 0 0 4px; font-size: 13px; font-weight: 600; }
+.notes p { margin: 0; color: var(--fg-2); font-size: 13px; }
+.notes code { font-family: var(--mono); font-size: 12px; background: var(--well); padding: 1px 5px; border-radius: 5px; }
+
+/* ---------- wallpaper + glass ---------- */
+.win { position: relative; border-radius: var(--r-win); overflow: hidden; isolation: isolate;
+  box-shadow: 0 30px 80px -20px var(--shadow), 0 0 0 1px var(--hairline); }
+.wall { position: absolute; inset: 0; z-index: -1; background: var(--wall-base); overflow: hidden; }
+.wall i { position: absolute; border-radius: 50%; filter: blur(60px); animation: drift 26s ease-in-out infinite alternate; }
+.wall i:nth-child(1) { width: 46%; aspect-ratio: 1; left: -8%; top: -18%; background: var(--blob-a); }
+.wall i:nth-child(2) { width: 42%; aspect-ratio: 1; right: -10%; top: 4%; background: var(--blob-b); animation-delay: -8s; }
+.wall i:nth-child(3) { width: 38%; aspect-ratio: 1; left: 30%; bottom: -24%; background: var(--blob-c); animation-delay: -15s; }
+.wall i:nth-child(4) { width: 30%; aspect-ratio: 1; left: 8%; bottom: -10%; background: var(--blob-d); animation-delay: -4s; }
+@keyframes drift { to { transform: translate(6%, 5%) scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .wall i { animation: none; } }
+
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 8px 24px -8px var(--shadow);
+  border-radius: var(--r-card);
+}
+.glass-strong { background: var(--glass-strong); }
+/* Reduce transparency: same layout, opaque surfaces (Apple accessibility setting) */
+.solid .glass, .solid .titlebar { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--page); }
+.solid .wall i { display: none; }
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .titlebar { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background: var(--page) !important; }
+}
+
+.titlebar { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; position: relative;
+  background: color-mix(in srgb, var(--glass) 60%, transparent);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--hairline); }
+.lights { display: flex; gap: 7px; }
+.lights span { width: 12px; height: 12px; border-radius: 50%; background: var(--well); box-shadow: inset 0 0 0 .5px var(--hairline); }
+.titlebar .t { position: absolute; left: 50%; transform: translateX(-50%); font-size: 12.5px; font-weight: 600; color: var(--fg-2); white-space: nowrap; }
+
+/* ---------- shared atoms ---------- */
+.ico { width: 16px; height: 16px; flex: none; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.s-run { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+.s-wait { color: var(--warn); background: color-mix(in srgb, var(--warn) 17%, transparent); }
+.s-idle { color: var(--idle); background: color-mix(in srgb, var(--idle) 16%, transparent); }
+.s-err { color: var(--err); background: color-mix(in srgb, var(--err) 15%, transparent); }
+.s-run::before { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .s-run::before { animation: none; } }
+
+.btn { border: 0; cursor: pointer; padding: 7px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.btn-primary { background: var(--accent); color: #fff; box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 rgba(255,255,255,.25); }
+.btn-glass { background: var(--glass-strong); border: 1px solid var(--glass-edge); box-shadow: inset 0 1px 0 var(--glass-hi); }
+.btn-tint { background: var(--accent-soft); color: var(--accent); }
+.btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+.btn:hover { filter: brightness(1.06); }
+
+.switch { position: relative; width: 44px; height: 26px; border-radius: 999px; border: 0; padding: 0; cursor: pointer; background: var(--well); transition: background .2s; flex: none; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(0,0,0,.22); transition: transform .22s cubic-bezier(.3,.7,.4,1.2); }
+.switch[aria-checked="true"] { background: var(--ok); }
+.switch[aria-checked="true"]::after { transform: translateX(18px); }
+.switch:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ================= 1. HOME ================= */
+.home { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: 760px; }
+.rail { margin: 12px 0 12px 12px; padding: 14px 10px; display: flex; flex-direction: column; gap: 4px; }
+.rail .brand { padding: 4px 8px 14px; font-size: 14px; }
+.rail-link { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; color: var(--fg-2); font-weight: 500; border: 0; background: transparent; width: 100%; text-align: left; cursor: pointer; }
+.rail-link:hover { background: var(--well); color: var(--fg); }
+.rail-link.on { background: var(--glass-strong); color: var(--fg); box-shadow: inset 0 1px 0 var(--glass-hi), 0 1px 3px var(--shadow); }
+.rail-link .count { margin-left: auto; font-size: 11px; font-weight: 700; background: var(--warn); color: #fff; border-radius: 999px; padding: 1px 7px; }
+.rail-foot { margin-top: auto; padding: 10px; border-radius: 12px; background: var(--well); font-size: 12px; color: var(--fg-2); display: grid; gap: 4px; }
+.rail-foot b { color: var(--fg); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.rail-foot b::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+
+.main { padding: 18px 18px 18px 16px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bar h3 { margin: 0; font-size: 26px; letter-spacing: -.03em; font-weight: 650; }
+.proj { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; font-size: 12.5px; color: var(--fg-2); min-width: 0; }
+.proj .mono { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch { color: var(--accent); }
+.search { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 12px; color: var(--fg-3); min-width: 200px; font-size: 13px; }
+.search kbd { margin-left: auto; font-family: var(--font); font-size: 11px; background: var(--well); padding: 1px 6px; border-radius: 5px; color: var(--fg-2); }
+
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.kpi { padding: 14px 16px; display: grid; gap: 6px; min-width: 0; }
+.kpi .lbl { font-size: 12px; color: var(--fg-2); font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.kpi .val { font-size: 30px; font-weight: 650; letter-spacing: -.035em; line-height: 1; display: flex; align-items: baseline; gap: 6px; }
+.kpi .val small { font-size: 14px; color: var(--fg-3); font-weight: 500; letter-spacing: 0; }
+.kpi .sub { font-size: 12px; color: var(--fg-3); }
+.stack { display: flex; height: 6px; border-radius: 999px; overflow: hidden; gap: 2px; }
+.stack span { display: block; height: 100%; border-radius: 2px; }
+
+.bento { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.card { padding: 16px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.card-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.card-h h4 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+.card-h .meta { font-size: 12px; color: var(--fg-3); }
+.span2 { grid-column: span 2; }
+.row2 { grid-row: span 2; }
+
+.panes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pane { border-radius: 14px; background: var(--glass-strong); border: 1px solid var(--glass-edge); padding: 10px; display: grid; gap: 8px; min-width: 0; box-shadow: inset 0 1px 0 var(--glass-hi); cursor: pointer; transition: transform .15s; }
+.pane:hover { transform: translateY(-1px); }
+.pane-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.avatar { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; flex: none; }
+.pane-name { font-weight: 600; font-size: 13px; line-height: 1.15; min-width: 0; }
+.pane-name small { display: block; font-weight: 500; color: var(--fg-3); font-size: 11px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane-top .chip { margin-left: auto; }
+.term { background: var(--term); color: var(--term-fg); border-radius: 9px; padding: 8px 10px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.term .dim { opacity: .5; }
+.term .g { color: #6ee7a8; } .term .y { color: #ffd479; } .term .b { color: #8ec5ff; } .term .r { color: #ff8a80; }
+.pane-foot { display: flex; justify-content: space-between; font-size: 11px; color: var(--fg-3); }
+.pane.attn { border-color: color-mix(in srgb, var(--warn) 55%, transparent); box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 0 3px color-mix(in srgb, var(--warn) 14%, transparent); }
+
+.ask { display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: var(--glass-strong); border: 1px solid var(--glass-edge); }
+.ask-q { font-size: 13px; }
+.ask-q b { font-weight: 600; }
+.ask-q .mono { font-size: 12px; background: var(--well); padding: 1px 5px; border-radius: 5px; }
+.ask-who { font-size: 11.5px; color: var(--fg-3); display: flex; align-items: center; gap: 6px; }
+.ask-act { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart text { fill: var(--fg-3); font-size: 10px; font-family: var(--font); }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--fg-2); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 8px; height: 8px; border-radius: 3px; display: inline-block; }
+
+.kv { display: grid; gap: 0; }
+.kv div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--hairline); font-size: 13px; }
+.kv div:last-child { border-bottom: 0; }
+.kv dt { color: var(--fg-2); }
+.kv dd { margin: 0; font-weight: 500; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hosts { display: flex; gap: 6px; flex-wrap: wrap; }
+.host { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 9px; border-radius: 8px; background: var(--well); }
+.host::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.host.off::before { background: var(--idle); }
+
+.warm { display: flex; align-items: center; gap: 14px; }
+.warm svg { width: 64px; height: 64px; flex: none; }
+.warm ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 12.5px; flex: 1; min-width: 0; }
+.warm li { display: flex; justify-content: space-between; gap: 8px; }
+.warm li span:last-child { color: var(--fg-3); }
+
+/* ================= 2. SETTINGS ================= */
+.settings { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 720px; }
+.side { margin: 10px 0 10px 10px; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; overflow: auto; max-height: 700px; }
+.side-search { display: flex; align-items: center; gap: 7px; margin: 0 4px 10px; padding: 6px 9px; border-radius: 9px; background: var(--well); color: var(--fg-3); font-size: 13px; }
+.side-search input { border: 0; outline: 0; background: transparent; font: inherit; color: var(--fg); width: 100%; }
+.me { display: flex; align-items: center; gap: 10px; padding: 8px; margin: 0 2px 8px; border-radius: 12px; }
+.me .brand-mark { width: 36px; height: 36px; border-radius: 11px; }
+.me b { display: block; font-size: 13px; }
+.me small { color: var(--fg-3); font-size: 11.5px; font-family: var(--mono); }
+.grp { font-size: 11px; font-weight: 600; color: var(--fg-3); padding: 12px 10px 4px; letter-spacing: .02em; }
+.nav { display: flex; align-items: center; gap: 9px; padding: 5px 8px; border-radius: 8px; border: 0; background: transparent; width: 100%; text-align: left; cursor: pointer; font-size: 13px; font-weight: 500; }
+.nav:hover { background: var(--well); }
+.nav.on { background: var(--accent); color: #fff; }
+.nav .sq { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: #fff; flex: none; box-shadow: inset 0 0.5px 0 rgba(255,255,255,.35); }
+.nav .sq svg { width: 13px; height: 13px; }
+.nav.planned { color: var(--fg-3); }
+.nav.planned .sq { filter: grayscale(1); opacity: .55; }
+.nav .soon { margin-left: auto; font-size: 10px; font-weight: 600; color: var(--fg-3); }
+details.later summary { list-style: none; cursor: pointer; }
+details.later summary::-webkit-details-marker { display: none; }
+details.later summary .grp { display: flex; justify-content: space-between; align-items: center; }
+details.later summary .grp::after { content: "Show"; font-weight: 500; color: var(--accent); }
+details.later[open] summary .grp::after { content: "Hide"; }
+
+.pane-r { padding: 0 0 24px; min-width: 0; }
+.pane-r .titlebar { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: 0; padding-left: 20px; }
+.crumb { display: flex; align-items: center; gap: 4px; color: var(--fg-3); }
+.crumb button { border: 0; background: transparent; width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; cursor: pointer; color: var(--fg-2); }
+.crumb button:hover { background: var(--well); }
+.content { padding: 4px clamp(16px, 4vw, 44px) 0; max-width: 720px; display: grid; gap: 22px; }
+.hero-s { display: flex; align-items: center; gap: 14px; }
+.hero-s .sq { width: 46px; height: 46px; border-radius: 13px; display: grid; place-items: center; color: #fff; flex: none; box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 6px 16px -6px var(--shadow); }
+.hero-s .sq svg { width: 24px; height: 24px; }
+.hero-s h3 { margin: 0; font-size: 22px; letter-spacing: -.025em; font-weight: 650; }
+.hero-s p { margin: 2px 0 0; color: var(--fg-2); font-size: 13px; max-width: 60ch; }
+
+.group { display: grid; gap: 6px; }
+.group > h5 { margin: 0 12px; font-size: 12px; font-weight: 600; color: var(--fg-2); }
+.group > .foot { margin: 0 12px; font-size: 12px; color: var(--fg-3); }
+.list { border-radius: 14px; overflow: hidden; padding: 0; }
+.list .glass { border-radius: 14px; }
+.r { display: flex; align-items: center; gap: 14px; padding: 11px 14px; min-height: 48px; position: relative; }
+.r + .r::before { content: ""; position: absolute; top: 0; left: 14px; right: 0; height: 1px; background: var(--hairline); }
+.r-text { flex: 1; min-width: 0; }
+.r-text b { display: block; font-weight: 500; font-size: 13.5px; }
+.r-text span { display: block; color: var(--fg-3); font-size: 12px; margin-top: 1px; }
+.r-val { color: var(--fg-2); font-size: 13px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%; }
+.r.planned .r-text b { color: var(--fg-3); }
+.r.planned::after { content: "Planned"; font-size: 10.5px; font-weight: 600; color: var(--fg-3); border: 1px solid var(--hairline); border-radius: 999px; padding: 1px 7px; order: 2; }
+.r.planned .switch { order: 3; }
+
+.stepper { display: inline-flex; align-items: center; border-radius: 9px; background: var(--well); overflow: hidden; flex: none; }
+.stepper button { border: 0; background: transparent; width: 30px; height: 28px; cursor: pointer; font-size: 16px; color: var(--fg-2); }
+.stepper button:hover { background: var(--well); color: var(--fg); }
+.stepper output { min-width: 22px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; font-size: 13px; }
+.pips { display: flex; gap: 4px; }
+.pips i { width: 8px; height: 8px; border-radius: 50%; background: var(--well); }
+.pips i.ready { background: var(--ok); }
+.pips i.warming { background: var(--warn); animation: pulse 1.2s infinite; }
+@media (prefers-reduced-motion: reduce) { .pips i.warming { animation: none; } }
+
+.swatches { display: flex; gap: 8px; }
+.swatches button { width: 22px; height: 22px; border-radius: 50%; border: 0; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.swatches button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--page), 0 0 0 4px currentColor; }
+input[type="range"] { accent-color: var(--accent); width: 160px; }
+
+.bridge-card { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; padding: 14px; }
+.bridge-dot { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.bridge-card b { font-size: 15px; }
+.bridge-card span { display: block; color: var(--fg-3); font-size: 12px; }
+.snippet { margin: 0; padding: 12px 14px; font-family: var(--mono); font-size: 11.5px; line-height: 1.6; background: var(--term); color: var(--term-fg); border-radius: 12px; overflow-x: auto; white-space: pre; }
+
+/* ================= 3. PHONE ================= */
+.phones { display: flex; gap: clamp(20px, 4vw, 48px); justify-content: center; flex-wrap: wrap; padding: 36px 16px; }
+.phone { width: 340px; max-width: 100%; aspect-ratio: 390 / 844; border-radius: 52px; padding: 10px; background: #0d0d10; box-shadow: 0 0 0 1.5px #3a3a40, 0 40px 80px -24px rgba(0,0,0,.5); position: relative; }
+.screen { position: relative; height: 100%; border-radius: 43px; overflow: hidden; isolation: isolate; display: flex; flex-direction: column; }
+.island { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 96px; height: 28px; border-radius: 20px; background: #000; z-index: 5; }
+.status { display: flex; justify-content: space-between; padding: 14px 26px 0; font-size: 13px; font-weight: 600; height: 44px; }
+.ph-head { padding: 6px 18px 10px; }
+.ph-head small { color: var(--fg-3); font-size: 12px; font-family: var(--mono); }
+.ph-head h3 { margin: 2px 0 0; font-size: 30px; letter-spacing: -.035em; font-weight: 700; }
+.ph-tabs { margin: 0 14px 10px; display: flex; padding: 3px; border-radius: 12px; }
+.ph-tabs button { flex: 1; border: 0; background: transparent; padding: 6px 0; border-radius: 9px; font-size: 12.5px; font-weight: 600; color: var(--fg-2); }
+.ph-tabs button.on { background: var(--glass-strong); color: var(--fg); box-shadow: 0 1px 4px var(--shadow); }
+.ph-list { flex: 1; overflow: hidden; padding: 0 14px; display: grid; gap: 10px; align-content: start; }
+.ph-card { padding: 12px; display: grid; gap: 8px; border-radius: 18px; }
+.ph-card .pane-top .chip { font-size: 10.5px; }
+.ph-card .term { font-size: 10.5px; }
+.tabbar { position: absolute; left: 12px; right: 12px; bottom: 14px; display: flex; justify-content: space-around; padding: 8px 6px; border-radius: 26px; z-index: 4; }
+.tabbar span { display: grid; justify-items: center; gap: 2px; font-size: 10px; font-weight: 600; color: var(--fg-3); position: relative; }
+.tabbar span.on { color: var(--accent); }
+.tabbar svg { width: 22px; height: 22px; }
+.tabbar .badge { position: absolute; top: -4px; right: 2px; background: var(--err); color: #fff; font-size: 9.5px; border-radius: 999px; padding: 0 5px; line-height: 15px; }
+.ph-term { flex: 1; margin: 0 10px; border-radius: 16px; background: var(--term); color: var(--term-fg); font-family: var(--mono); font-size: 10.5px; line-height: 1.55; padding: 12px; white-space: pre-wrap; overflow: hidden; }
+.ph-term .y { color: #ffd479; } .ph-term .g { color: #6ee7a8; } .ph-term .dim { opacity: .5; }
+.sheet { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 10px 12px 18px; border-radius: 30px 30px 36px 36px; z-index: 4; display: grid; gap: 10px; }
+.grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--fg-3); opacity: .5; margin: 0 auto; }
+.keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.keys span { display: grid; place-items: center; height: 38px; border-radius: 11px; background: var(--glass-strong); border: 1px solid var(--glass-edge); font-size: 12px; font-weight: 600; box-shadow: inset 0 1px 0 var(--glass-hi); }
+.keys span.accent { background: var(--accent); color: #fff; border-color: transparent; }
+.keys-label { font-size: 10.5px; font-weight: 600; color: var(--fg-3); letter-spacing: .04em; text-transform: uppercase; padding-left: 2px; }
+.quick { display: flex; gap: 6px; }
+.quick span { flex: 1; padding: 9px 0; border-radius: 12px; text-align: center; font-size: 12.5px; font-weight: 600; }
+.quick .yes { background: var(--ok); color: #fff; }
+.quick .no { background: var(--well); }
+.input { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 20px; background: var(--well); font-size: 12.5px; color: var(--fg-3); }
+.input .send { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; }
+.ph-cap { text-align: center; margin-top: 14px; font-size: 13px; color: var(--fg-2); }
+.ph-cap b { display: block; color: var(--fg); font-weight: 600; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1080px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .row2 { grid-row: auto; }
+}
+@media (max-width: 820px) {
+  .home, .settings { grid-template-columns: 1fr; }
+  .rail { display: none; }
+  .main { padding: 12px; }
+  .side { margin: 10px 10px 0; max-height: 260px; }
+  .bento { grid-template-columns: 1fr; }
+  .span2 { grid-column: auto; }
+  .panes { grid-template-columns: 1fr; }
+  .search { margin-left: 0; width: 100%; }
+  .jump { display: none; }
+}
+@media (max-width: 480px) {
+  .kpis { grid-template-columns: 1fr; }
+  .r { flex-wrap: wrap; }
+  .r-val { max-width: 100%; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+    <symbol id="i-term" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="16" rx="3"/><path d="m7 10 3 2-3 2M13 15h4"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="4"/><path d="M12 4v4M9 14h.01M15 14h.01"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 21h4"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-brush" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 3l3 3-9 9-3-3z"/><path d="M9 12c-3 0-5 2-5 5 0 1-1 2-2 2 2 2 7 2 8-1 .6-1.8.4-3.4-1-6z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-disk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="i-flow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.5 8 11 16M16.5 8 13 16"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0zM12 17v5"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></symbol>
+    <symbol id="i-chev-l" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m15 6-6 6 6 6"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="i-kbd" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="6" width="20" height="12" rx="3"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  </defs>
+</svg>
+
+<header class="top">
+  <div class="brand"><span class="brand-mark"><svg class="ico" style="width:14px;height:14px"><use href="#i-flow"/></svg></span>Puppet Master <small>Glass proposals</small></div>
+  <div class="top-right">
+    <nav class="jump" aria-label="Proposals"><a href="#home">Home</a><a href="#settings">Settings</a><a href="#phone">Phone</a></nav>
+    <div class="seg" role="group" aria-label="Theme">
+      <button type="button" data-theme-set="system" aria-pressed="true">Auto</button>
+      <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+      <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+    </div>
+    <div class="seg" role="group" aria-label="Transparency">
+      <button type="button" data-glass="on" aria-pressed="true">Glass</button>
+      <button type="button" data-glass="off" aria-pressed="false">Solid</button>
+    </div>
+  </div>
+</header>
+
+<section class="intro">
+  <h1>Frosted glass over a stage of live agents</h1>
+  <p>Three redesign proposals for the desktop Home screen, the Settings window and the phone PWA. They borrow the bento grids, big-number tiles and pill navigation from the Muzli 2025 dashboard roundup, and Apple's materials: translucent layers, a specular top edge, system status colours, grouped inset lists and a Solid fallback for Reduce Transparency. All agent and pane data is example data.</p>
+  <div class="intro-row">
+    <span class="tag">Home: <span class="mono">HomeDashboard.tsx</span></span>
+    <span class="tag">Settings: <span class="mono">settings-ui.tsx</span> + <span class="mono">tabs/*</span></span>
+    <span class="tag">Phone: <span class="mono">PwaApp.tsx</span> + <span class="mono">components/mobile</span></span>
+  </div>
+</section>
+
+<!-- ===================== 1. HOME ===================== -->
+<section class="proposal" id="home">
+  <div class="p-head">
+    <div><span class="eyebrow">Proposal 1 · Desktop</span><h2>Home: Control room</h2></div>
+    <p>One glance answers three questions: is the bridge up, who needs me, and what is every pane doing right now.</p>
+  </div>
+
+  <div class="win">
+    <div class="wall"><i></i><i></i><i></i><i></i></div>
+    <div class="titlebar"><div class="lights"><span></span><span></span><span></span></div><span class="t">Puppet Master</span></div>
+    <div class="home">
+      <aside class="rail glass">
+        <div class="brand"><span class="brand-mark"><svg class="ico" style="width:14px;height:14px"><use href="#i-flow"/></svg></span>Puppet Master</div>
+        <button type="button" class="rail-link on"><svg class="ico"><use href="#i-grid"/></svg>Overview</button>
+        <button type="button" class="rail-link"><svg class="ico"><use href="#i-term"/></svg>Workspace</button>
+        <button type="button" class="rail-link"><svg class="ico"><use href="#i-bell"/></svg>Needs you<span class="count">2</span></button>
+        <button type="button" class="rail-link"><svg class="ico"><use href="#i-bot"/></svg>Agents</button>
+        <button type="button" class="rail-link"><svg class="ico"><use href="#i-phone"/></svg>Phone</button>
+        <button type="button" class="rail-link"><svg class="ico"><use href="#i-gear"/></svg>Settings</button>
+        <div class="rail-foot">
+          <b>Bridge online</b>
+          <span class="mono">127.0.0.1:17321</span>
+          <span>HTTP + SSE · 4 ms</span>
+        </div>
+      </aside>
+
+      <div class="main">
+        <div class="bar">
+          <h3>Good evening</h3>
+          <span class="proj glass"><svg class="ico"><use href="#i-folder"/></svg><span class="mono">~/Desktop/work2/puppet-master</span><span class="mono branch">refactor/tui-profiles</span></span>
+          <span class="search glass"><svg class="ico"><use href="#i-search"/></svg>Find a pane, agent or setting<kbd>Ctrl K</kbd></span>
+          <button type="button" class="btn btn-primary"><svg class="ico"><use href="#i-term"/></svg>Open workspace</button>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi glass">
+            <span class="lbl"><svg class="ico"><use href="#i-term"/></svg>Panes</span>
+            <span class="val num">6 <small>open</small></span>
+            <div class="stack" aria-label="2 running, 2 need you, 1 idle, 1 error">
+              <span style="flex:2;background:var(--ok)"></span><span style="flex:2;background:var(--warn)"></span><span style="flex:1;background:var(--idle)"></span><span style="flex:1;background:var(--err)"></span>
+            </div>
+            <span class="sub">2 running · 2 need you · 1 idle · 1 error</span>
+          </div>
+          <div class="kpi glass">
+            <span class="lbl"><svg class="ico"><use href="#i-flow"/></svg>Turns today</span>
+            <span class="val num">48 <small>+12 vs yesterday</small></span>
+            <svg viewBox="0 0 120 22" preserveAspectRatio="none" style="width:100%;height:22px" aria-hidden="true">
+              <defs><linearGradient id="spk" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".35"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+              <path d="M0 18 L11 16 L22 19 L33 21 L44 21 L55 20 L66 15 L77 10 L88 6 L99 12 L110 8 L120 4 L120 22 L0 22Z" fill="url(#spk)"/>
+              <path d="M0 18 L11 16 L22 19 L33 21 L44 21 L55 20 L66 15 L77 10 L88 6 L99 12 L110 8 L120 4" fill="none" stroke="var(--accent)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+              <circle cx="119" cy="4" r="2.4" fill="var(--accent)"/>
+            </svg>
+          </div>
+          <div class="kpi glass">
+            <span class="lbl"><svg class="ico"><use href="#i-bolt"/></svg>Warm standby</span>
+            <span class="val num">3<small>/ 4 ready</small></span>
+            <span class="sub">Claude Code, Codex, OpenCode ready · 1 warming</span>
+          </div>
+          <div class="kpi glass">
+            <span class="lbl"><svg class="ico"><use href="#i-bot"/></svg>Orchestrator</span>
+            <span class="val" style="font-size:20px;letter-spacing:-.02em">Claude API</span>
+            <span class="sub mono">claude-opus-5-5</span>
+          </div>
+        </div>
+
+        <div class="bento">
+          <section class="card glass span2 row2">
+            <div class="card-h"><h4>Live panes</h4><span class="meta">Click a pane to focus it in the workspace</span></div>
+            <div class="panes">
+              <article class="pane">
+                <div class="pane-top"><span class="avatar" style="background:#d97757">CC</span><span class="pane-name">Claude Code<small>claude-opus-5-5 · pane 3</small></span><span class="chip s-run">Running tool</span></div>
+                <div class="term"><span class="g">●</span> Bash(cargo test -p puppet_master_app_lib tui::)
+<span class="dim">  ⎿ running 41 tests…</span></div>
+                <div class="pane-foot"><span>~/puppet-master</span><span class="num">4m 12s</span></div>
+              </article>
+              <article class="pane attn">
+                <div class="pane-top"><span class="avatar" style="background:#10a37f">CX</span><span class="pane-name">Codex<small>gpt-5.5-codex · pane 5</small></span><span class="chip s-wait">Needs you</span></div>
+                <div class="term"><span class="y">?</span> Allow edit to src/tui/registry.rs
+<span class="dim">  [y] yes  [a] always  [n] no</span></div>
+                <div class="pane-foot"><span>~/puppet-master</span><span class="num">0m 48s</span></div>
+              </article>
+              <article class="pane">
+                <div class="pane-top"><span class="avatar" style="background:#3b3b46">OC</span><span class="pane-name">OpenCode<small>kilo · native · pane 2</small></span><span class="chip s-run">Thinking</span></div>
+                <div class="term"><span class="b">◇</span> Planning changes to watch_command.rs
+<span class="dim">  reading operations/wait.rs</span></div>
+                <div class="pane-foot"><span>~/puppet-master</span><span class="num">1m 05s</span></div>
+              </article>
+              <article class="pane attn">
+                <div class="pane-top"><span class="avatar" style="background:#c96442">CC</span><span class="pane-name">Claude Code<small>claude-sonnet-5-5 · pane 6</small></span><span class="chip s-wait">Needs you</span></div>
+                <div class="term">Do you want to proceed?
+<span class="y">❯ 1. Yes</span>  <span class="dim">2. No, tell Claude…</span></div>
+                <div class="pane-foot"><span>~/pm-docs</span><span class="num">2m 31s</span></div>
+              </article>
+              <article class="pane">
+                <div class="pane-top"><span class="avatar" style="background:#5a5a66">PS</span><span class="pane-name">Shell<small>pwsh · pane 1</small></span><span class="chip s-idle">Idle</span></div>
+                <div class="term"><span class="dim">PS C:\…\puppet-master&gt;</span> █</div>
+                <div class="pane-foot"><span>~/puppet-master</span><span class="num">18m</span></div>
+              </article>
+              <article class="pane">
+                <div class="pane-top"><span class="avatar" style="background:#1f1f24">CU</span><span class="pane-name">Cursor Agent<small>auto · pane 4</small></span><span class="chip s-err">Error</span></div>
+                <div class="term"><span class="r">✗</span> Rate limited by provider
+<span class="dim">  retry in 30s</span></div>
+                <div class="pane-foot"><span>~/puppet-master</span><span class="num">6m 40s</span></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="card glass">
+            <div class="card-h"><h4>Needs you</h4><span class="chip s-wait">2 waiting</span></div>
+            <div class="ask">
+              <span class="ask-who"><span class="avatar" style="background:#10a37f;width:18px;height:18px;font-size:8px;border-radius:5px">CX</span>Codex · pane 5 · 48s</span>
+              <span class="ask-q"><b>Allow edit</b> to <span class="mono">src/tui/registry.rs</span>?</span>
+              <div class="ask-act"><button type="button" class="btn btn-primary btn-sm">Approve</button><button type="button" class="btn btn-glass btn-sm">Deny</button><button type="button" class="btn btn-tint btn-sm">Open pane</button></div>
+            </div>
+            <div class="ask">
+              <span class="ask-who"><span class="avatar" style="background:#c96442;width:18px;height:18px;font-size:8px;border-radius:5px">CC</span>Claude Code · pane 6 · 2m</span>
+              <span class="ask-q"><b>Proceed</b> with <span class="mono">npm run build</span>?</span>
+              <div class="ask-act"><button type="button" class="btn btn-primary btn-sm">Yes</button><button type="button" class="btn btn-glass btn-sm">No</button><button type="button" class="btn btn-tint btn-sm">Open pane</button></div>
+            </div>
+          </section>
+
+          <section class="card glass">
+            <div class="card-h"><h4>Bridge &amp; hosts</h4><span class="chip s-run">Online</span></div>
+            <dl class="kv">
+              <div><dt>Address</dt><dd class="mono">127.0.0.1:17321</dd></div>
+              <div><dt>MCP sessions</dt><dd class="num">3</dd></div>
+              <div><dt>Open operations</dt><dd class="num">4</dd></div>
+            </dl>
+            <div class="hosts"><span class="host">Claude Code</span><span class="host">Cursor</span><span class="host off">Codex</span></div>
+          </section>
+
+          <section class="card glass span2">
+            <div class="card-h"><h4>Turns completed</h4><span class="meta">Last 12 hours, by agent</span></div>
+            <div class="chart" id="chart"></div>
+            <div class="legend"><span><i style="background:var(--accent)"></i>Claude Code</span><span><i style="background:var(--ok)"></i>Codex</span><span><i style="background:var(--warn)"></i>OpenCode</span></div>
+          </section>
+
+          <section class="card glass">
+            <div class="card-h"><h4>Warm standby</h4><span class="meta">Preload pool</span></div>
+            <div class="warm">
+              <svg viewBox="0 0 64 64" aria-label="3 of 4 ready">
+                <circle cx="32" cy="32" r="26" fill="none" stroke="var(--well)" stroke-width="7"/>
+                <circle cx="32" cy="32" r="26" fill="none" stroke="var(--ok)" stroke-width="7" stroke-linecap="round" stroke-dasharray="122.5 163.4" transform="rotate(-90 32 32)"/>
+                <text x="32" y="37" text-anchor="middle" font-size="15" font-weight="700" fill="var(--fg)" font-family="Geist, system-ui">3/4</text>
+              </svg>
+              <ul>
+                <li><span>Claude Code</span><span>ready</span></li>
+                <li><span>Codex</span><span>ready</span></li>
+                <li><span>OpenCode</span><span>ready</span></li>
+                <li><span>Kilo</span><span>warming</span></li>
+              </ul>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div><h4>Replaces the hero band</h4><p>The marketing headline and decorative mini panes go. The space goes to live pane tiles that show the last terminal line and the classifier state from <code>pane-state.ts</code>.</p></div>
+    <div><h4>“Needs you” first</h4><p>Approval prompts get their own card with Approve and Deny, wired to <code>answer_prompt</code>. Attention panes get an orange halo so they read at a glance.</p></div>
+    <div><h4>KPIs that move</h4><p>Four tiles replace the static Bridge, Panes, Orchestrator and Model cards. The pane tile becomes a status bar, and Preload status lands on the Home screen.</p></div>
+    <div><h4>Glass rules</h4><p>Wallpaper sits at z −1, cards use <code>backdrop-filter: blur(28px) saturate(180%)</code> and a 1px inner highlight. Solid mode turns all of that off.</p></div>
+  </div>
+</section>
+
+<!-- ===================== 2. SETTINGS ===================== -->
+<section class="proposal" id="settings">
+  <div class="p-head">
+    <div><span class="eyebrow">Proposal 2 · Settings window</span><h2>Settings: System Settings layout</h2></div>
+    <p>22 flat tabs become four groups with icon tiles. Planned tabs fold away under “Coming later”, so the live settings are easier to find. Click the sidebar to try it.</p>
+  </div>
+
+  <div class="win">
+    <div class="wall"><i></i><i></i><i></i><i></i></div>
+    <div class="settings">
+      <aside class="side glass glass-strong" aria-label="Settings sections">
+        <div class="lights" style="padding:2px 8px 12px"><span></span><span></span><span></span></div>
+        <label class="side-search"><svg class="ico"><use href="#i-search"/></svg><input id="set-search" type="search" placeholder="Search" aria-label="Search settings"></label>
+        <div class="me"><span class="brand-mark"><svg class="ico"><use href="#i-flow"/></svg></span><div><b>Puppet Master</b><small>v0.1.4 · dev build</small></div></div>
+        <div id="navlist"></div>
+      </aside>
+
+      <div class="pane-r">
+        <div class="titlebar"><div class="crumb"><button type="button" aria-label="Back"><svg class="ico"><use href="#i-chev-l"/></svg></button><button type="button" aria-label="Forward"><svg class="ico"><use href="#i-chev-r"/></svg></button></div></div>
+        <div class="content" id="setcontent"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div><h4>Groups, not a 22-item list</h4><p><code>SETTINGS_TABS</code> gains a <code>group</code> and an <code>icon</code>. The <code>planned: true</code> tabs collapse into one disclosure instead of showing a red “Not implemented” badge on every row.</p></div>
+    <div><h4>Inset grouped rows</h4><p><code>SettingBlock</code> and <code>SettingToggle</code> become rows in one glass list per group: label and hint on the left, control on the right, with hairline dividers.</p></div>
+    <div><h4>Native-feeling controls</h4><p>Theme becomes a segmented control with System added. Toggles become iOS-style switches. Preload counts become steppers with status dots that show warm agents.</p></div>
+    <div><h4>Reduce transparency</h4><p>Appearance gets glass intensity and Reduce transparency settings, and the app honours <code>prefers-reduced-transparency</code>.</p></div>
+  </div>
+</section>
+
+<!-- ===================== 3. PHONE ===================== -->
+<section class="proposal" id="phone">
+  <div class="p-head">
+    <div><span class="eyebrow">Proposal 3 · Mobile PWA</span><h2>Phone: Agent tabs and Keys sheet</h2></div>
+    <p>The same material on the phone: a floating glass tab bar, cards for each agent, and the Keys panel as a bottom sheet with one-tap answers.</p>
+  </div>
+
+  <div class="win">
+    <div class="wall"><i></i><i></i><i></i><i></i></div>
+    <div class="phones">
+      <div>
+        <div class="phone"><div class="screen">
+          <div class="wall"><i></i><i></i><i></i><i></i></div>
+          <div class="island"></div>
+          <div class="status"><span>21:42</span><span>5G ▮▮▮</span></div>
+          <div class="ph-head"><small>puppet-master · via tunnel</small><h3>Agents</h3></div>
+          <div class="ph-tabs glass"><button type="button" class="on">All 6</button><button type="button">Needs you 2</button><button type="button">Running 2</button></div>
+          <div class="ph-list">
+            <div class="ph-card glass">
+              <div class="pane-top"><span class="avatar" style="background:#10a37f">CX</span><span class="pane-name">Codex<small>pane 5 · 48s</small></span><span class="chip s-wait">Needs you</span></div>
+              <div class="term"><span class="y">?</span> Allow edit to src/tui/registry.rs</div>
+            </div>
+            <div class="ph-card glass">
+              <div class="pane-top"><span class="avatar" style="background:#d97757">CC</span><span class="pane-name">Claude Code<small>pane 3 · 4m</small></span><span class="chip s-run">Running</span></div>
+              <div class="term"><span class="g">●</span> Bash(cargo test …)</div>
+            </div>
+            <div class="ph-card glass">
+              <div class="pane-top"><span class="avatar" style="background:#3b3b46">OC</span><span class="pane-name">OpenCode<small>pane 2 · 1m</small></span><span class="chip s-run">Thinking</span></div>
+            </div>
+            <div class="ph-card glass">
+              <div class="pane-top"><span class="avatar" style="background:#5a5a66">PS</span><span class="pane-name">Shell<small>pane 1 · 18m</small></span><span class="chip s-idle">Idle</span></div>
+            </div>
+          </div>
+          <nav class="tabbar glass glass-strong">
+            <span class="on"><svg><use href="#i-grid"/></svg>Agents</span>
+            <span><svg><use href="#i-bell"/></svg>Needs you<b class="badge">2</b></span>
+            <span><svg><use href="#i-kbd"/></svg>Keys</span>
+            <span><svg><use href="#i-gear"/></svg>Settings</span>
+          </nav>
+        </div></div>
+        <p class="ph-cap"><b>Agent list</b>Status chips match the desktop</p>
+      </div>
+
+      <div>
+        <div class="phone"><div class="screen">
+          <div class="wall"><i></i><i></i><i></i><i></i></div>
+          <div class="island"></div>
+          <div class="status"><span>21:42</span><span>5G ▮▮▮</span></div>
+          <div class="ph-head" style="display:flex;align-items:center;gap:10px"><span class="avatar" style="background:#10a37f">CX</span><div><h3 style="font-size:20px">Codex</h3><small>pane 5 · 46 × 32</small></div><span class="chip s-wait" style="margin-left:auto">Needs you</span></div>
+          <div class="ph-term"><span class="dim">• Explored</span>
+<span class="dim">  └ Read registry.rs, profile.rs</span>
+• Updating Registry::load to
+  merge TOML definitions
+
+<span class="y">? Allow edit to</span>
+<span class="y">  src/tui/registry.rs</span>
+  [y] yes  [a] always  [n] no</div>
+          <div class="sheet glass glass-strong">
+            <div class="grabber"></div>
+            <div class="quick"><span class="yes">Yes</span><span class="no">Always</span><span class="no">No</span></div>
+            <span class="keys-label">Keys</span>
+            <div class="keys"><span>Esc</span><span>Tab</span><span>↑</span><span>Ctrl C</span><span>⇧ Tab</span><span>←</span><span>↓</span><span>→</span></div>
+            <div class="input">Message Codex…<span class="send"><svg class="ico"><use href="#i-up"/></svg></span></div>
+          </div>
+        </div></div>
+        <p class="ph-cap"><b>Pane with Keys sheet</b>Detected prompt becomes big answer buttons</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div><h4>Floating tab bar</h4><p>The tab bar floats above the terminal as a glass capsule. The Needs you tab shows a count badge driven by the same attention tracking as the desktop sidebar.</p></div>
+    <div><h4>Prompt-aware sheet</h4><p>When the classifier sees a y/n or numbered prompt, the Keys sheet leads with answer buttons. The special keys stay one row below.</p></div>
+    <div><h4>Grid shown, not hidden</h4><p>The pane header shows the phone-sized grid (<code>46 × 32</code>) so a size lease is visible, matching <code>usePaneViewportLease</code>.</p></div>
+  </div>
+</section>
+
+<script>
+(function () {
+  const root = document.documentElement;
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+
+  // ---- theme + transparency ----
+  function applyTheme(t) {
+    if (t === 'system') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', t);
+    document.querySelectorAll('[data-theme-set]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeSet === t)));
+    store.set('pmg-theme', t);
+  }
+  function applyGlass(on) {
+    document.body.classList.toggle('solid', !on);
+    document.querySelectorAll('[data-glass]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.glass === 'on') === on)));
+    const sw = document.getElementById('sw-reduce');
+    if (sw) sw.setAttribute('aria-checked', String(!on));
+    store.set('pmg-glass', on ? 'on' : 'off');
+  }
+  document.querySelectorAll('[data-theme-set]').forEach(b => b.addEventListener('click', () => applyTheme(b.dataset.themeSet)));
+  document.querySelectorAll('[data-glass]').forEach(b => b.addEventListener('click', () => applyGlass(b.dataset.glass === 'on')));
+  applyTheme(store.get('pmg-theme') || 'system');
+
+  // ---- activity chart (stacked bars, one scale) ----
+  const hours = ['10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21'];
+  const data = [
+    [2, 1, 0], [3, 1, 1], [1, 0, 1], [0, 0, 0], [0, 0, 0], [1, 0, 0],
+    [2, 1, 1], [4, 2, 1], [5, 2, 2], [3, 2, 1], [4, 3, 1], [3, 1, 1]
+  ];
+  const colors = ['var(--accent)', 'var(--ok)', 'var(--warn)'];
+  const W = 560, H = 150, pl = 22, pb = 18, pt = 6, max = 10;
+  const bw = (W - pl) / hours.length;
+  const y = v => pt + (H - pt - pb) * (1 - v / max);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Turns completed per hour, last 12 hours, peak 9 at 18:00">`;
+  [0, 5, 10].forEach(t => {
+    s += `<line x1="${pl}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="var(--hairline)" stroke-width="1"/>`;
+    s += `<text x="${pl - 6}" y="${y(t) + 3}" text-anchor="end">${t}</text>`;
+  });
+  data.forEach((d, i) => {
+    let acc = 0;
+    const x = pl + i * bw + bw * 0.22, w = bw * 0.56;
+    d.forEach((v, k) => {
+      if (!v) return;
+      const y0 = y(acc), y1 = y(acc + v);
+      s += `<rect x="${x}" y="${y1 + 1}" width="${w}" height="${Math.max(0, y0 - y1 - 1)}" rx="3" fill="${colors[k]}" opacity="${i === data.length - 1 ? 1 : .82}"/>`;
+      acc += v;
+    });
+    s += `<text x="${x + w / 2}" y="${H - 4}" text-anchor="middle">${hours[i]}</text>`;
+  });
+  s += '</svg>';
+  document.getElementById('chart').innerHTML = s;
+
+  // ---- settings window ----
+  const groups = [
+    { name: 'Workspace', items: [
+      ['general', 'General', '#8e8e93', 'i-gear'],
+      ['appearance', 'Appearance', '#5e5ce6', 'i-brush'],
+      ['session', 'Sessions', '#ff9f0a', 'i-clock'],
+      ['storage', 'Storage', '#64748b', 'i-disk'] ] },
+    { name: 'Agents', items: [
+      ['agents', 'Agents', '#30b0c7', 'i-bot'],
+      ['preload', 'Preload', '#34c759', 'i-bolt'],
+      ['orchestrator', 'Orchestrator', '#af52de', 'i-flow'],
+      ['api', 'API keys', '#ff9500', 'i-key'] ] },
+    { name: 'Connections', items: [
+      ['mcp', 'MCP & bridge', '#007aff', 'i-plug'],
+      ['mobile', 'Mobile PWA', '#ff375f', 'i-phone'] ] },
+    { name: 'Developer', items: [
+      ['developer', 'Developer', '#48484a', 'i-code'],
+      ['advanced', 'Advanced', '#636366', 'i-sliders'] ] }
+  ];
+  const planned = ['Security', 'Notifications', 'Backup & sync', 'Agent marketplace', 'Rules & guardrails', 'Cost controls', 'Team workspace', 'Automation', 'Observability', 'Plugins'];
+  const meta = {};
+  groups.forEach(g => g.items.forEach(([id, label, color, icon]) => meta[id] = { label, color, icon }));
+  let current = store.get('pmg-tab') || 'preload';
+  if (!meta[current]) current = 'preload';
+
+  const navlist = document.getElementById('navlist');
+  function renderNav(filter) {
+    const f = (filter || '').toLowerCase();
+    let h = '';
+    groups.forEach(g => {
+      const items = g.items.filter(it => it[1].toLowerCase().includes(f));
+      if (!items.length) return;
+      h += `<div class="grp">${g.name}</div>`;
+      items.forEach(([id, label, color, icon]) => {
+        h += `<button type="button" class="nav${id === current ? ' on' : ''}" data-tab="${id}"><span class="sq" style="background:${color}"><svg><use href="#${icon}"/></svg></span>${label}</button>`;
+      });
+    });
+    const pl = planned.filter(p => p.toLowerCase().includes(f));
+    if (pl.length) {
+      h += `<details class="later"${f ? ' open' : ''}><summary><div class="grp">Coming later · ${pl.length}</div></summary>`;
+      pl.forEach(p => { h += `<button type="button" class="nav planned" disabled><span class="sq" style="background:#8e8e93"><svg><use href="#i-shield"/></svg></span>${p}<span class="soon">Planned</span></button>`; });
+      h += '</details>';
+    }
+    navlist.innerHTML = h;
+    navlist.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { current = b.dataset.tab; store.set('pmg-tab', current); renderNav(document.getElementById('set-search').value); renderContent(); }));
+  }
+  document.getElementById('set-search').addEventListener('input', e => renderNav(e.target.value));
+
+  const sw = (on, id, dis) => `<button type="button" class="switch" role="switch" aria-checked="${on}"${id ? ` id="${id}"` : ''}${dis ? ' disabled' : ''} aria-label="Toggle"></button>`;
+  const row = (title, hint, control, cls) => `<div class="r${cls ? ' ' + cls : ''}"><div class="r-text"><b>${title}</b>${hint ? `<span>${hint}</span>` : ''}</div>${control}</div>`;
+  const group = (title, rows, foot) => `<div class="group">${title ? `<h5>${title}</h5>` : ''}<div class="list glass">${rows.join('')}</div>${foot ? `<p class="foot">${foot}</p>` : ''}</div>`;
+  const seg = (opts, on) => `<div class="seg" role="group">${opts.map(o => `<button type="button" aria-pressed="${o === on}">${o}</button>`).join('')}</div>`;
+  const stepper = (n, max = 4, step = 1, min = 0) => `<div class="stepper" data-min="${min}" data-max="${max}" data-inc="${step}"><button type="button" aria-label="Fewer" data-step="-1">−</button><output>${n}</output><button type="button" aria-label="More" data-step="1">+</button></div>`;
+  const pips = (ready, warming, n) => `<div class="pips" aria-label="${ready} ready, ${warming} warming">${Array.from({ length: n }, (_, i) => `<i class="${i < ready ? 'ready' : i < ready + warming ? 'warming' : ''}"></i>`).join('')}</div>`;
+  const hero = (id, desc) => `<div class="hero-s"><span class="sq" style="background:${meta[id].color}"><svg><use href="#${meta[id].icon}"/></svg></span><div><h3>${meta[id].label}</h3><p>${desc}</p></div></div>`;
+
+  const pages = {
+    general: () => hero('general', 'Launch behaviour, defaults and updates.') +
+      group('Project', [
+        row('Default project folder', 'Workspace root for new panes and orchestrator tools', '<span class="r-val">~/Desktop/work2/puppet-master</span><button type="button" class="btn btn-glass btn-sm">Browse…</button>'),
+        row('Settings file', '', '<span class="r-val">%APPDATA%/puppet-master/settings.json</span>')
+      ]) +
+      group('Theme', [ row('Appearance', 'Desktop chrome theme', seg(['System', 'Light', 'Dark'], 'Dark')) ]) +
+      group('Updates', [ row('Puppet Master v0.1.4', 'You are on the latest release', '<button type="button" class="btn btn-glass btn-sm">Check now</button>') ]) +
+      group('Workspace memory', [
+        row('Auto-save workspace state', 'Panes, scrollback, layout and summaries', sw(true, '', true), 'planned'),
+        row('Semantic repository index', 'Local index for cross-pane agent context', sw(true, '', true), 'planned'),
+        row('Auto session summaries', 'Summarise when a session closes', sw(false, '', true), 'planned')
+      ], 'Planned settings show what is coming. They are not wired to the backend yet.'),
+
+    appearance: () => hero('appearance', 'How the desktop app and panes look.') +
+      group('Material', [
+        row('Glass intensity', 'Blur and translucency of panels', '<input id="rng-glass" type="range" min="0" max="2" value="2" aria-label="Glass intensity">'),
+        row('Reduce transparency', 'Use solid panels. Follows the system setting when available.', sw(document.body.classList.contains('solid'), 'sw-reduce')),
+        row('Accent colour', '', '<div class="swatches"><button type="button" aria-pressed="true" style="background:#0a84ff;color:#0a84ff" aria-label="Blue"></button><button type="button" aria-pressed="false" style="background:#bf5af2;color:#bf5af2" aria-label="Purple"></button><button type="button" aria-pressed="false" style="background:#ff9f0a;color:#ff9f0a" aria-label="Orange"></button><button type="button" aria-pressed="false" style="background:#30d158;color:#30d158" aria-label="Green"></button><button type="button" aria-pressed="false" style="background:#8e8e93;color:#8e8e93" aria-label="Graphite"></button></div>')
+      ]) +
+      group('Terminal', [
+        row('Font size', 'Applies to every pane', stepper(13, 22, 1, 9)),
+        row('Font', '', '<span class="r-val">Cascadia Mono</span>'),
+        row('Cursor style', '', seg(['Block', 'Bar', 'Underline'], 'Block'))
+      ]),
+
+    preload: () => hero('preload', 'Keep a warm agent at its input box so opening a pane feels instant.') +
+      group('', [ row('Preload agents', 'Each warm agent is a running CLI process. Turning this off closes them all.', sw(true)) ]) +
+      group('Agents to keep warm', [
+        row('Claude Code', 'claude · ready', pips(1, 0, 1) + stepper(1)),
+        row('Codex', 'codex · ready', pips(1, 0, 1) + stepper(1)),
+        row('OpenCode', 'opencode · ready', pips(1, 0, 1) + stepper(1)),
+        row('Kilo', 'custom definition · warming', pips(0, 1, 1) + stepper(1)),
+        row('Cursor Agent', 'cursor-agent', pips(0, 0, 0) + stepper(0)),
+        row('PowerShell', 'pwsh', pips(0, 0, 0) + stepper(0))
+      ], 'Warm agents start in your default project folder. An agent that shows a trust or login prompt is dropped, so open it once yourself first.') +
+      group('Lifecycle', [
+        row('Close idle warm agents after', 'Minutes without being opened', stepper(30, 240, 5, 5)),
+        row('Pool file', '', '<span class="r-val">standby-pool.json</span>')
+      ]),
+
+    mcp: () => hero('mcp', 'The local bridge that orchestrators reach through the MCP shim.') +
+      `<div class="list glass bridge-card"><span class="bridge-dot"><svg class="ico" style="width:20px;height:20px"><use href="#i-plug"/></svg></span><div><b>Bridge online</b><span class="mono">127.0.0.1:17321 · HTTP + SSE · 3 sessions</span></div><button type="button" class="btn btn-glass btn-sm">Restart</button></div>` +
+      group('Hosts', [
+        row('Claude Code', 'Registered · last call 12s ago', '<span class="chip s-run">Connected</span><button type="button" class="btn btn-tint btn-sm" data-copy><svg class="ico"><use href="#i-copy"/></svg>Copy config</button>'),
+        row('Cursor', 'Registered · last call 3m ago', '<span class="chip s-run">Connected</span><button type="button" class="btn btn-tint btn-sm" data-copy><svg class="ico"><use href="#i-copy"/></svg>Copy config</button>'),
+        row('Codex', 'Registered · no calls this session', '<span class="chip s-idle">Idle</span><button type="button" class="btn btn-tint btn-sm" data-copy><svg class="ico"><use href="#i-copy"/></svg>Copy config</button>')
+      ]) +
+      `<div class="group"><h5>Config snippet</h5><pre class="snippet">{
+  "mcpServers": {
+    "puppet-master": {
+      "command": "puppet-master-mcp.exe",
+      "args": ["--mode", "agent"]
+    }
+  }
+}</pre></div>`
+  };
+
+  const content = document.getElementById('setcontent');
+  function renderContent() {
+    const page = pages[current];
+    content.innerHTML = page ? page() : hero(current, 'This mockup fills in General, Appearance, Preload and MCP & bridge. The other tabs use the same row components.') +
+      group('', [ row('Same building blocks', 'Rows, switches, steppers and segmented controls', '<span class="r-val">settings-ui.tsx</span>') ]);
+    content.querySelectorAll('.switch:not(:disabled)').forEach(b => b.addEventListener('click', () => {
+      const on = b.getAttribute('aria-checked') !== 'true';
+      b.setAttribute('aria-checked', String(on));
+      if (b.id === 'sw-reduce') applyGlass(!on);
+    }));
+    content.querySelectorAll('.seg').forEach(g => g.querySelectorAll('button').forEach(b => b.addEventListener('click', () => g.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))))));
+    content.querySelectorAll('.swatches').forEach(g => g.querySelectorAll('button').forEach(b => b.addEventListener('click', () => g.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))))));
+    content.querySelectorAll('.stepper').forEach(st => {
+      const out = st.querySelector('output');
+      st.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => {
+        const n = Number(out.textContent) + Number(b.dataset.step) * Number(st.dataset.inc);
+        out.textContent = Math.max(Number(st.dataset.min), Math.min(Number(st.dataset.max), n));
+      }));
+    });
+    content.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', async () => {
+      const text = content.querySelector('.snippet')?.textContent || '';
+      try { await navigator.clipboard.writeText(text); b.lastChild.textContent = 'Copied'; } catch (e) { b.lastChild.textContent = 'Copy blocked'; }
+    }));
+    const rng = document.getElementById('rng-glass');
+    if (rng) rng.addEventListener('input', () => {
+      const v = Number(rng.value);
+      document.querySelectorAll('.glass').forEach(el => {
+        const f = v === 0 ? 'none' : v === 1 ? 'blur(12px) saturate(140%)' : '';
+        el.style.backdropFilter = f; el.style.webkitBackdropFilter = f;
+      });
+    });
+  }
+
+  renderNav('');
+  applyGlass(store.get('pmg-glass') !== 'off');
+  renderContent();
+})();
+</script>
