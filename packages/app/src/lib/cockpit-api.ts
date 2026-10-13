@@ -7,6 +7,17 @@ export type UiMode = 'orchestration' | 'individual';
 export interface PromptChoice {
   id: string;
   label: string;
+  /** "Don't ask again" / "allow all" style answer (set by the backend; older builds omit it). */
+  broad?: boolean;
+}
+
+export type RiskLevel = 'low' | 'medium' | 'high';
+
+/** Plain-language risk of what saying yes would do (backend `prompt_risk`). */
+export interface PromptRisk {
+  level: RiskLevel;
+  headline: string;
+  reasons: string[];
 }
 
 export interface PanePrompt {
@@ -15,6 +26,8 @@ export interface PanePrompt {
   text: string;
   summary?: string;
   choices: PromptChoice[];
+  /** Absent on older backends: the UI then shows the plain question. */
+  risk?: PromptRisk;
 }
 
 export interface PaneRunInfo {
@@ -65,7 +78,16 @@ export const cockpitApi = {
 
   onModeChanged: (cb: (e: { mode: UiMode }) => void) => on('ui://mode-changed', cb),
   onSelect: (cb: (e: { pane_id: string }) => void) => on('cockpit://select', cb),
-  onPrompt: (cb: (e: { pane_id: string; prompt: PanePrompt | null }) => void) => on('pty://prompt', cb),
+  // The event is built where the pane's folder is unknown, so its risk cannot say "outside this
+  // project". Re-read the prompt through the command (which knows the folder) before showing it.
+  onPrompt: (cb: (e: { pane_id: string; prompt: PanePrompt | null }) => void) =>
+    on<{ pane_id: string; prompt: PanePrompt | null }>('pty://prompt', (e) => {
+      if (!e.prompt) return cb(e);
+      const id = e.prompt.promptId;
+      call<PanePrompt | null>('pane_prompt', { paneId: e.pane_id })
+        .then((fresh) => cb(fresh && fresh.promptId === id ? { pane_id: e.pane_id, prompt: fresh } : e))
+        .catch(() => cb(e));
+    }),
   onSpawnStage: (cb: (e: SpawnStageEvent) => void) => on('pane://spawn-stage', cb),
   onStandbyChanged: (cb: (e: unknown) => void) => on('standby://ready-changed', cb),
 

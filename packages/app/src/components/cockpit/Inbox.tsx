@@ -1,6 +1,7 @@
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { hasEverSpawned } from '../../lib/agent-health';
+import { ApprovalPrompt } from './ApprovalPrompt';
 import { DotSpinner } from './DotSpinner';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
 
@@ -51,9 +52,13 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
                   <span className="ck-row-sub">{projectName(p.info.cwd)}</span>
                   <span className="ck-row-time">{since ? `waiting ${formatElapsed(c.now - since)}` : ''}</span>
                 </div>
-                {prompt && <p className="ck-inbox-q">{promptSummary(prompt)}</p>}
+                {prompt?.risk && prompt.choices.length > 0 ? (
+                  <ApprovalPrompt variant="card" prompt={prompt} onAnswer={(ch) => void c.answer(id, prompt.promptId, ch.id, ch.label)} />
+                ) : (
+                  prompt && <p className="ck-inbox-q">{promptSummary(prompt)}</p>
+                )}
                 <div className="ck-inbox-actions">
-                  {prompt && prompt.choices.length > 0 ? (
+                  {prompt && !prompt.risk && prompt.choices.length > 0 ? (
                     prompt.choices.map((ch, i) => (
                       <button
                         key={ch.id}

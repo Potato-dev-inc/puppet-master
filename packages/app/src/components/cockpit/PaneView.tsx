@@ -7,6 +7,7 @@ import '../../styles/pane-activity.css';
 import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
 import { IconClose, IconCopy, IconMore, IconReflow, IconStop } from './Icons';
+import { ApprovalPrompt } from './ApprovalPrompt';
 import { formatElapsed, promptSummary, receiptRows, spinnerStatus, stateText } from './model';
 import { SegTabs } from './SegTabs';
 
@@ -207,9 +208,10 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
 
       {pane.status === 'waiting_input' && prompt && prompt.choices.length > 0 && (
         <div className="ck-ask" role="group" aria-label="Agent question">
-          <span className="ck-ask-q">{promptSummary(prompt)}</span>
+          {prompt.risk && <ApprovalPrompt variant="bar" prompt={prompt} onAnswer={(ch) => void c.answer(paneId, prompt.promptId, ch.id, ch.label)} />}
+          {!prompt.risk && <span className="ck-ask-q">{promptSummary(prompt)}</span>}
           <span className="ck-ask-actions">
-            {prompt.choices.map((ch, i) => (
+            {!prompt.risk && prompt.choices.map((ch, i) => (
               <button
                 key={ch.id}
                 type="button"

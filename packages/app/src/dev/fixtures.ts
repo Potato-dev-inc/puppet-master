@@ -66,6 +66,32 @@ export const EXAMPLE_PROMPT: PanePrompt = {
     { id: 'yes-always', label: 'Yes, and do not ask again for npm test' },
     { id: 'no', label: 'No, tell Claude what to do differently' },
   ],
+  risk: {
+    level: 'low',
+    headline: 'Run tests',
+    reasons: ["It runs your project's tests and does not change anything else."],
+  },
+};
+
+/** A fixture, not real agent output: a high-risk command prompt for the approval-card scenarios. */
+export const HIGH_RISK_PROMPT: PanePrompt = {
+  promptId: 'prompt-2',
+  kind: 'command_approval',
+  text: 'Run this command?\n  rm -rf ../old-site',
+  summary: 'Run command: rm -rf ../old-site (in C:\\Users\\dev\\work\\billing-service)',
+  choices: [
+    { id: 'allow_once', label: 'Allow once' },
+    { id: 'allow_all', label: 'Always allow', broad: true },
+    { id: 'deny', label: 'Deny' },
+  ],
+  risk: {
+    level: 'high',
+    headline: 'Delete a folder outside this project',
+    reasons: [
+      'It deletes ../old-site and everything in it, and that is outside this project.',
+      'It cannot be undone.',
+    ],
+  },
 };
 
 export const EXAMPLE_RUN: PaneRunInfo = {

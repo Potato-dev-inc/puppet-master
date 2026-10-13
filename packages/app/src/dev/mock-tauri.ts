@@ -4,6 +4,8 @@ import type { HarnessScenario } from './types';
 import {
   EXAMPLE_PANES,
   EXAMPLE_PROMPT,
+  HIGH_RISK_PROMPT,
+  PANE_CODEX,
   EXAMPLE_RUN,
   EXAMPLE_TRANSCRIPT,
   PANE_CLAUDE,
@@ -32,7 +34,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'list_panes':
           return panes;
         case 'pane_prompt':
-          return a.paneId === PANE_CLAUDE ? EXAMPLE_PROMPT : null;
+          return a.paneId === PANE_CLAUDE ? EXAMPLE_PROMPT : a.paneId === PANE_CODEX ? HIGH_RISK_PROMPT : null;
         case 'get_ui_mode':
           return 'orchestration';
         case 'standby_get_status':
