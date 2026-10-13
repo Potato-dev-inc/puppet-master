@@ -18,17 +18,35 @@ const MAX_BUFFER_CHARS: usize = 600;
 /// Submissions discarded at a secret prompt before capture gives up for the pane.
 pub const MAX_SECRET_PROMPT_REFUSALS: u8 = 3;
 
-/// Whole-word secret prompts, case-insensitive: "Password:", "Enter API key:", "Verification code:".
-static SECRET_PROMPT: Lazy<Regex> = Lazy::new(|| {
+/// Whole-word secret keywords, case-insensitive: "password", "API key", "verification code"...
+static SECRET_KEYWORD: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"(?i)\b(?:passwords?|passphrase|passcode|pin|tokens?|secret|api[\s_-]?key|apikey|otp|2fa|verification code|enter (?:the )?code|private key)\b",
     )
-    .expect("secret prompt pattern is valid")
+    .expect("secret keyword pattern is valid")
 });
 
-/// True when the screen line asks for a secret, so the line typed after it must not become a title.
+/// A prompt terminator at the end of the trimmed line: `:`, `?` or `>`, optionally followed by an
+/// empty default such as `[]` or `(input hidden)`.
+static PROMPT_END: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"[:?>]\s*(?:\[\]|\(input hidden\))?$").expect("prompt terminator pattern is valid")
+});
+
+/// How far from the end of the line a secret keyword may end and still count, in characters.
+const KEYWORD_WINDOW_CHARS: usize = 40;
+
+/// True when the screen line is a prompt asking for a secret, so the line typed after it must not
+/// become a title. The line must look like a prompt: it ends in a terminator (`:` `?` `>`, optionally
+/// with `[]` or `(input hidden)` after it), and a secret keyword ends within the last
+/// [`KEYWORD_WINDOW_CHARS`] characters. Status lines such as "12.4k tokens" do not qualify.
 pub fn is_secret_prompt(screen_line: &str) -> bool {
-    SECRET_PROMPT.is_match(screen_line)
+    let line = screen_line.trim();
+    if !PROMPT_END.is_match(line) {
+        return false;
+    }
+    SECRET_KEYWORD
+        .find_iter(line)
+        .any(|found| line[found.end()..].chars().count() <= KEYWORD_WINDOW_CHARS)
 }
 
 /// The last non-blank line of a screen dump (empty when the screen is blank).

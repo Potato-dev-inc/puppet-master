@@ -181,16 +181,16 @@ fn every_secret_prompt_pattern_is_recognised_case_insensitively() {
         "Passcode:",
         "Enter PIN:",
         "Token:",
-        "Paste your token",
+        "Paste your token:",
         "Client SECRET:",
         "Enter API key:",
-        "Enter your apikey",
+        "Enter your apikey:",
         "api_key:",
         "OTP:",
         "2FA code:",
         "Verification code:",
         "Enter code:",
-        "enter the code",
+        "enter the code?",
         "Private key:",
     ];
     for prompt in prompts {
@@ -242,4 +242,34 @@ fn token_like_strings_are_still_rejected_on_a_normal_screen() {
     let mut cap = LineCapture::new();
     assert_eq!(cap.feed("ghp1234567890abcdefghijkl\r", false, "> "), None);
     assert!(!cap.gave_up());
+}
+
+#[test]
+fn secret_prompt_table_matches_real_prompts_only() {
+    let cases: &[(&str, bool)] = &[
+        // Must match: a keyword near the end, then a prompt terminator.
+        ("Password:", true),
+        ("[sudo] password for ren:", true),
+        ("Enter passphrase for key '/c/Users/x/.ssh/id_ed25519':", true),
+        ("Paste your API key:", true),
+        ("Token?", true),
+        ("Verification code >", true),
+        ("PIN:", true),
+        ("Password: []", true),
+        ("Password: (input hidden)", true),
+        ("Password:   ", true),
+        // Must not match: status lines and sentences that mention a keyword without asking.
+        ("12.4k tokens", false),
+        ("\u{2727} Thinking\u{2026} (3s \u{b7} 1.2k tokens)", false),
+        ("context: 45% \u{b7} 98k tokens left", false),
+        ("Using API key from env", false),
+        ("Token usage summary", false),
+        ("tokens: 3,200 used", false),
+        // Keyword too far from the terminator to be the prompt's question.
+        ("Enter the secret name of the release bucket for the nightly build job now:", false),
+        ("", false),
+    ];
+    for &(line, expected) in cases {
+        assert_eq!(is_secret_prompt(line), expected, "is_secret_prompt({line:?})");
+    }
 }
