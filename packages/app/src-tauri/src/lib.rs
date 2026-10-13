@@ -35,6 +35,8 @@ mod project_path;
 mod projections;
 mod pty;
 mod pwa_server;
+#[cfg(test)]
+mod tunnel_auth_tests;
 mod session_context;
 mod settings_store;
 mod shell_env;
