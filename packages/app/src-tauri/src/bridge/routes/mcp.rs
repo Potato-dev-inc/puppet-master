@@ -20,6 +20,9 @@ pub(super) fn handle_session(cx: &Ctx) -> Option<RouteResult> {
 /// agent-run router and the shell route.
 pub(super) fn handle_agents(cx: &Ctx) -> Option<RouteResult> {
     Some(match (cx.method, cx.segments) {
+        ("GET", ["agents", "types"]) => {
+            Ok((200, types_route(cx.session, cx.headers, cx.peer_loopback)))
+        }
         ("POST", ["agents", "take-over"]) => handoff(cx, false),
         ("POST", ["agents", "release"]) => handoff(cx, true),
         ("POST", ["agents", "attach"]) => attach(cx),
@@ -55,6 +58,35 @@ pub(in crate::bridge) fn registry_route(
         ("GET", ["agents", "types"]) => Some((200, crate::tui::agent_types_listing())),
         _ => None,
     }
+}
+
+/// `GET /agents/types` body. The listing is readable without a session (the phone's "new agent"
+/// sheet), but a definition's absolute `path` can reveal the user name, so only the desktop app
+/// itself (no MCP session, local peer) gets it; everyone else gets the fingerprint and state only.
+/// The body of `GET /agents/types` for this caller: the full listing only for the desktop app
+/// itself (no MCP session, local peer, no device token).
+pub(in crate::bridge) fn types_route(session: Option<&str>, headers: &str, peer_loopback: bool) -> serde_json::Value {
+    let app_session = session.is_none_or(|s| s.trim().is_empty())
+        && super::definitions::is_local_app(headers, peer_loopback);
+    agent_types_for(app_session)
+}
+
+pub(in crate::bridge) fn agent_types_for(app_session: bool) -> serde_json::Value {
+    redact_definition_paths(crate::tui::agent_types_listing(), app_session)
+}
+
+pub(in crate::bridge) fn redact_definition_paths(mut listing: serde_json::Value, keep: bool) -> serde_json::Value {
+    if keep {
+        return listing;
+    }
+    if let Some(agents) = listing.get_mut("agents").and_then(serde_json::Value::as_array_mut) {
+        for agent in agents {
+            if let Some(definition) = agent.get_mut("definition").and_then(serde_json::Value::as_object_mut) {
+                definition.remove("path");
+            }
+        }
+    }
+    listing
 }
 
 fn tools(cx: &Ctx) -> RouteResult {

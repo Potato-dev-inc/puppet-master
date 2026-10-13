@@ -13,7 +13,14 @@ import { clientsClaim } from 'workbox-core';
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
 import { NavigationRoute, registerRoute } from 'workbox-routing';
 import { NetworkOnly } from 'workbox-strategies';
-import { OPEN_PANE_MESSAGE, clickIntent, openUrl, parsePushPayload, planNotification } from './pwa/push-core';
+import {
+  OPEN_PANE_MESSAGE,
+  OPEN_VIEW_MESSAGE,
+  clickIntent,
+  openUrl,
+  parsePushPayload,
+  planNotification,
+} from './pwa/push-core';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -48,22 +55,23 @@ async function answer(url: string, token: string, choice: 'allow' | 'deny'): Pro
   }
 }
 
-async function openPane(paneId: string | null): Promise<void> {
+async function openPane(paneId: string | null, view?: 'questions'): Promise<void> {
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   const existing = windows.find((client) => 'focus' in client) as WindowClient | undefined;
   if (existing) {
     await existing.focus();
-    if (paneId) existing.postMessage({ type: OPEN_PANE_MESSAGE, pane_id: paneId });
+    if (view) existing.postMessage({ type: OPEN_VIEW_MESSAGE, view });
+    else if (paneId) existing.postMessage({ type: OPEN_PANE_MESSAGE, pane_id: paneId });
     return;
   }
-  await self.clients.openWindow(new URL(openUrl(paneId), self.registration.scope).href);
+  await self.clients.openWindow(new URL(openUrl(paneId, view), self.registration.scope).href);
 }
 
 self.addEventListener('notificationclick', (event) => {
   const intent = clickIntent(event.action, event.notification.data);
   event.notification.close();
   if (intent.type === 'open') {
-    event.waitUntil(openPane(intent.paneId));
+    event.waitUntil(openPane(intent.paneId, intent.view));
     return;
   }
   event.waitUntil(

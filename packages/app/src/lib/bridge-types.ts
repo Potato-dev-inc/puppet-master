@@ -405,5 +405,7 @@ export type BridgeEvent =
   | { type: 'loop-signal'; pane_id: string; signal: LoopSignalInfo | null }
   | { type: 'settings'; settings: PublicSettings }
   | { type: 'orchestrator-viewport'; width: number; height: number; active: boolean }
+  /** Pending `ask_user` questions changed; refetch the list. `revision` increases with each change. */
+  | { type: 'questions'; revision: number }
   /** Long-poll only: events were missed (phone asleep, app restarted); re-read pane state. */
   | { type: 'resync' };

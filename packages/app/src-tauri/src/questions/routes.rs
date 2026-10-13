@@ -118,6 +118,7 @@ fn ask(body: &Value, session: Option<&str>) -> RouteReply {
                 now_ms(),
             )
             .map_err(error)?;
+        crate::push::notify_question(&created);
         created.id
     };
     match store().wait_resolved(&id, wait) {

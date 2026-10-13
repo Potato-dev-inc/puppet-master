@@ -15,6 +15,7 @@ pub const MAX_BODY_CHARS: usize = 120;
 pub const SETTLE_MS: u64 = 1200;
 
 const MAX_REMEMBERED_OPERATIONS: usize = 256;
+const MAX_REMEMBERED_KEYS: usize = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
@@ -22,6 +23,8 @@ pub enum Kind {
     Error,
     RunFinished,
     RunFailed,
+    /// An agent asked the human a question (`ask_user`). Answered in the app, never from the lock screen.
+    Question,
 }
 
 impl Kind {
@@ -31,6 +34,7 @@ impl Kind {
             Self::Error => "error",
             Self::RunFinished => "run_finished",
             Self::RunFailed => "run_failed",
+            Self::Question => "question",
         }
     }
 }
@@ -84,6 +88,9 @@ impl Gate {
             if now_ms.saturating_sub(*last) < RATE_LIMIT_MS {
                 return Verdict::RateLimited;
             }
+        }
+        if self.last_sent_ms.len() >= MAX_REMEMBERED_KEYS {
+            self.last_sent_ms.retain(|_, last| now_ms.saturating_sub(*last) < RATE_LIMIT_MS);
         }
         self.last_sent_ms.insert(key.to_string(), now_ms);
         if kind == Kind::WaitingInput {
@@ -196,6 +203,13 @@ pub fn copy_for(kind: Kind, label: &str, prompt: Option<&PromptInfo>) -> Words {
         },
         Kind::RunFinished => Words { title: format!("{} finished", sanitize(label)), body: "The run is done".into() },
         Kind::RunFailed => Words { title: format!("{} failed", sanitize(label)), body: "The run did not finish".into() },
+        Kind::Question => Words {
+            title: format!("{} asks", sanitize(label)),
+            body: prompt
+                .map(|p| truncate_chars(&p.text, MAX_BODY_CHARS))
+                .filter(|text| !text.is_empty())
+                .unwrap_or_else(|| "Has a question for you".into()),
+        },
     }
 }
 
@@ -268,6 +282,18 @@ mod tests {
         assert_eq!(copy_for(Kind::Error, "Codex", None).title, "Codex hit an error");
         assert_eq!(copy_for(Kind::RunFinished, "Codex", None).title, "Codex finished");
         assert_eq!(copy_for(Kind::RunFailed, "Codex", None).title, "Codex failed");
+    }
+
+    #[test]
+    fn question_copy_is_the_truncated_sanitised_question() {
+        let text = format!("Deploy\u{202E} now?\n{}", "z".repeat(500));
+        let q = PromptInfo { prompt_id: String::new(), text, actionable: false };
+        let words = copy_for(Kind::Question, "Ki\u{202E}lo", Some(&q));
+        assert_eq!(words.title, "Kilo asks");
+        assert_eq!(words.body.chars().count(), MAX_BODY_CHARS);
+        assert!(words.body.starts_with("Deploy now? zzz") && words.body.ends_with('…'));
+        assert!(!words.body.chars().any(is_hidden_or_control));
+        assert_eq!(copy_for(Kind::Question, "X", None).body, "Has a question for you");
     }
 
     #[test]

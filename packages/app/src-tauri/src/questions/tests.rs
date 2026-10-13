@@ -333,3 +333,39 @@ fn router_transcript_list_answer_dismiss_with_auth() {
     let missing = call("POST", "/questions/nope/dismiss", json!({}), local, true, None, &notified).unwrap_err();
     assert_eq!(missing.0, 404);
 }
+
+#[test]
+fn a_new_question_triggers_one_push_and_polling_or_cancelling_triggers_none() {
+    let notified = AtomicUsize::new(0);
+    let local = "Host: 127.0.0.1\r\n";
+    let count = |id: &str| crate::push::NOTIFIED_QUESTIONS.lock().iter().filter(|x| x.as_str() == id).count();
+    let (_, first) = call(
+        "POST",
+        "/questions/ask",
+        json!({ "question": "Push me once?", "wait_ms": 1 }),
+        local,
+        true,
+        Some("agent-push-1"),
+        &notified,
+    )
+    .unwrap();
+    let id = first["question_id"].as_str().unwrap().to_string();
+    assert_eq!(count(&id), 1, "creating the question pushes once");
+    // The shim's long-poll repeats the call with the id: no new question, no new push.
+    for _ in 0..3 {
+        call("POST", "/questions/ask", json!({ "question_id": id, "wait_ms": 1 }), local, true, Some("agent-push-1"), &notified).unwrap();
+    }
+    assert_eq!(count(&id), 1);
+    // Listing, answering and cancelling never push.
+    call("GET", "/questions", json!({}), local, true, None, &notified).unwrap();
+    call("POST", &format!("/questions/{id}/answer"), json!({ "text": "ok" }), local, true, None, &notified).unwrap();
+    assert_eq!(count(&id), 1);
+    // A second question is its own notification.
+    let (_, second) = call("POST", "/questions/ask", json!({ "question": "And me?", "wait_ms": 1 }), local, true, Some("agent-push-1"), &notified).unwrap();
+    let id2 = second["question_id"].as_str().unwrap().to_string();
+    assert_eq!((count(&id), count(&id2)), (1, 1));
+    // A rejected question (empty) pushes nothing.
+    let before = crate::push::NOTIFIED_QUESTIONS.lock().len();
+    assert!(call("POST", "/questions/ask", json!({ "question": "  " }), local, true, Some("agent-push-1"), &notified).is_err());
+    assert_eq!(crate::push::NOTIFIED_QUESTIONS.lock().len(), before);
+}

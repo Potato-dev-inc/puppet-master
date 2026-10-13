@@ -227,6 +227,7 @@ pub fn migrate_on_startup() {
         Err(e) => tracing::warn!(error = %e, "API key migration failed"),
     }
     crate::opencode::keys::migrate_profiles_to_secret_store();
+    crate::toolbelt::store::migrate_on_startup();
 }
 
 #[cfg(test)]

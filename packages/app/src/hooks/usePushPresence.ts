@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { reportPresence } from '../lib/push-client';
-import { isOpenPaneMessage, paneFromSearch } from '../pwa/push-core';
+import { isOpenPaneMessage, isOpenViewMessage, paneFromSearch, viewFromSearch } from '../pwa/push-core';
 
 const HEARTBEAT_MS = 20_000;
 
@@ -9,17 +9,28 @@ const HEARTBEAT_MS = 20_000;
  * - while the app is on screen, tell the PC every 20 s (and on every show/hide) so it does not
  *   notify a phone that is already looking;
  * - open the pane a tapped notification points at (service worker message, or `?pane=` on a
- *   fresh launch).
+ *   fresh launch);
+ * - open the question list a tapped question notification points at (`?view=questions` on a
+ *   fresh launch, or the view message from the service worker).
  */
-export function usePushPresence(bridgeUrl: string | null, onOpenPane: (paneId: string) => void): void {
+export function usePushPresence(
+  bridgeUrl: string | null,
+  onOpenPane: (paneId: string) => void,
+  onOpenQuestions?: () => void,
+): void {
   useEffect(() => {
     const launchPane = paneFromSearch(window.location.search);
+    const launchView = viewFromSearch(window.location.search);
     if (launchPane) {
       onOpenPane(launchPane);
+      window.history.replaceState(null, '', window.location.pathname);
+    } else if (launchView) {
+      onOpenQuestions?.();
       window.history.replaceState(null, '', window.location.pathname);
     }
     const onMessage = (event: MessageEvent) => {
       if (isOpenPaneMessage(event.data)) onOpenPane(event.data.pane_id);
+      else if (isOpenViewMessage(event.data)) onOpenQuestions?.();
     };
     navigator.serviceWorker?.addEventListener('message', onMessage);
     return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
