@@ -165,7 +165,7 @@ export function ToolbeltGroup({ api = toolbeltApi, projectPath }: { api?: Toolbe
       </div>
 
       <p className="mt-3 text-xs leading-5 text-pm-muted">
-        Keys, tokens and passwords are saved on this computer and hidden here. Each agent&apos;s config file needs the real
+        Keys, tokens and passwords are kept in your system's secure storage and hidden here. Each agent&apos;s config file needs the real
         value, so Puppet Master writes it there as plain text.
       </p>
 

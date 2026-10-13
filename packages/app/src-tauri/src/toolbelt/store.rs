@@ -1,18 +1,25 @@
 //! The toolbelt list: `<app data>/toolbelt.json`.
 //!
-//! Secrets. This build has no OS keyring helper, so values of secret-looking env vars and headers
-//! (names containing key, token, secret, password, auth, ...) are stored in this file as typed, in
-//! the user's own app data folder, and are never sent back to the UI: lists show `********` and an
-//! edit that leaves `********` keeps the stored value. Agent config files need the real value, so
-//! the sync writes it there. The UI says so.
+//! Secrets. Values of secret-looking env vars and headers (names containing key, token, secret,
+//! password, auth, ...) live in the OS credential store (`crate::secrets`), not in this file. The
+//! file keeps only a reference, `pm-keyring://toolbelt/<vault>/<server id>/<env|headers>/<NAME>`.
+//! A value goes to the store first and is read back; only if it matches does the file get the
+//! reference, so when the store is unusable the value stays in the file (as before) instead of
+//! being lost. `load_servers` resolves references, so callers (the sync) see real values. Values
+//! are never sent back to the UI: lists show `********` and an edit that leaves `********` keeps
+//! the stored value. Agent config files need the real value, so the sync writes it there. The UI
+//! says so. `migrate` moves plain values an older version wrote (idempotent, run at startup).
 
+use crate::secrets::{self, SecretBackend};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const FILE_VERSION: u32 = 1;
 pub const MASK: &str = "********";
+/// Start of a value in `toolbelt.json` that points into the credential store.
+pub const REF_PREFIX: &str = "pm-keyring://";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -67,6 +74,9 @@ pub struct ToolServer {
 struct FileDoc {
     #[serde(default)]
     version: u32,
+    /// Random id naming this file's entries in the credential store. Made with the first secret.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    vault: String,
     #[serde(default)]
     servers: Vec<ToolServer>,
 }
@@ -109,26 +119,169 @@ fn valid_id(id: &str) -> bool {
         && !id.starts_with('-')
 }
 
-pub fn load_servers(path: &Path) -> Result<Vec<ToolServer>, String> {
+fn read_doc(path: &Path) -> Result<FileDoc, String> {
     match fs::read_to_string(path) {
-        Ok(text) if text.trim().is_empty() => Ok(Vec::new()),
+        Ok(text) if text.trim().is_empty() => Ok(FileDoc::default()),
         Ok(text) => serde_json::from_str::<FileDoc>(&text)
-            .map(|d| d.servers)
             .map_err(|e| format!("toolbelt.json is not readable ({e}); fix or delete it")),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(FileDoc::default()),
         Err(e) => Err(format!("could not read {}: {e}", path.display())),
     }
 }
 
-fn save(path: &Path, servers: &[ToolServer]) -> Result<(), String> {
+fn secret_name(vault: &str, id: &str, section: &str, key: &str) -> String {
+    format!("toolbelt/{vault}/{id}/{section}/{key}")
+}
+
+fn ref_of(name: &str) -> String {
+    format!("{REF_PREFIX}{name}")
+}
+
+fn name_of_ref(value: &str) -> Option<&str> {
+    value.strip_prefix(REF_PREFIX)
+}
+
+fn is_plain_secret(key: &str, value: &str) -> bool {
+    is_secret_key(key) && !value.is_empty() && value != MASK && name_of_ref(value).is_none()
+}
+
+/// The servers with every credential-store reference replaced by its real value.
+pub fn load_servers(path: &Path) -> Result<Vec<ToolServer>, String> {
+    load_servers_with(secrets::backend(), path)
+}
+
+pub fn load_servers_with(b: &dyn SecretBackend, path: &Path) -> Result<Vec<ToolServer>, String> {
+    let mut servers = read_doc(path)?.servers;
+    for server in &mut servers {
+        for map in [&mut server.env, &mut server.headers] {
+            for (key, value) in map.iter_mut() {
+                let Some(name) = name_of_ref(value) else { continue };
+                match b.get(name) {
+                    Ok(Some(real)) => *value = real,
+                    Ok(None) => {
+                        tracing::warn!(server = %server.id, %key, "toolbelt secret is missing from the credential store");
+                        value.clear();
+                    }
+                    Err(e) => {
+                        return Err(format!("could not read a stored secret from {} ({e})", b.label()));
+                    }
+                }
+            }
+        }
+    }
+    Ok(servers)
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct MigrationReport {
+    /// Values now held in the credential store (the file keeps a reference).
+    pub moved: usize,
+    /// Secret values left in the file because the store was unusable or did not read back.
+    pub kept_in_file: usize,
+}
+
+/// Move every plain secret value of `servers` into the store and replace it by a reference. A
+/// value is only replaced after reading it back. Existing references are left alone.
+fn externalize(b: &dyn SecretBackend, vault: &str, servers: &mut [ToolServer]) -> MigrationReport {
+    let mut report = MigrationReport::default();
+    let usable = b.available();
+    for server in servers.iter_mut() {
+        let id = server.id.clone();
+        for (section, map) in [("env", &mut server.env), ("headers", &mut server.headers)] {
+            for (key, value) in map.iter_mut() {
+                if !is_plain_secret(key, value) {
+                    continue;
+                }
+                let name = secret_name(vault, &id, section, key);
+                let stored = usable
+                    && b.set(&name, value).is_ok()
+                    && b.get(&name).ok().flatten().as_deref() == Some(value.as_str());
+                if stored {
+                    *value = ref_of(&name);
+                    report.moved += 1;
+                } else {
+                    report.kept_in_file += 1;
+                }
+            }
+        }
+    }
+    report
+}
+
+fn refs_in(servers: &[ToolServer]) -> BTreeSet<String> {
+    servers
+        .iter()
+        .flat_map(|s| s.env.values().chain(s.headers.values()))
+        .filter_map(|v| name_of_ref(v).map(str::to_string))
+        .collect()
+}
+
+fn has_plain_secret(servers: &[ToolServer]) -> bool {
+    servers
+        .iter()
+        .any(|s| s.env.iter().chain(s.headers.iter()).any(|(k, v)| is_plain_secret(k, v)))
+}
+
+fn new_vault() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+fn write_doc(path: &Path, doc: &FileDoc) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("could not create {}: {e}", parent.display()))?;
     }
-    let doc = FileDoc { version: FILE_VERSION, servers: servers.to_vec() };
-    let text = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())? + "\n";
+    let text = serde_json::to_string_pretty(doc).map_err(|e| e.to_string())? + "\n";
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, text).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
     fs::rename(&tmp, path).map_err(|e| format!("could not write {}: {e}", path.display()))
+}
+
+/// Write `servers` (real values) with secrets externalised, then drop store entries that nothing
+/// in the file points at any more.
+pub fn save_with(b: &dyn SecretBackend, path: &Path, servers: &[ToolServer]) -> Result<MigrationReport, String> {
+    let old = read_doc(path).unwrap_or_default();
+    let mut vault = old.vault.clone();
+    if vault.is_empty() && has_plain_secret(servers) {
+        vault = new_vault();
+    }
+    let mut stored = servers.to_vec();
+    let report = externalize(b, &vault, &mut stored);
+    write_doc(path, &FileDoc { version: FILE_VERSION, vault, servers: stored.clone() })?;
+    let keep = refs_in(&stored);
+    for name in refs_in(&old.servers).difference(&keep) {
+        let _ = b.delete(name);
+    }
+    Ok(report)
+}
+
+fn save(path: &Path, servers: &[ToolServer]) -> Result<(), String> {
+    save_with(secrets::backend(), path, servers).map(|_| ())
+}
+
+/// One-time, idempotent: move plain secret values an older version left in `toolbelt.json` into
+/// the credential store. Each is blanked in the file only after it reads back identically.
+pub fn migrate(b: &dyn SecretBackend, path: &Path) -> Result<MigrationReport, String> {
+    let doc = read_doc(path)?;
+    let mut servers = doc.servers;
+    if !has_plain_secret(&servers) {
+        return Ok(MigrationReport::default());
+    }
+    let vault = if doc.vault.is_empty() { new_vault() } else { doc.vault };
+    let report = externalize(b, &vault, &mut servers);
+    if report.moved > 0 {
+        write_doc(path, &FileDoc { version: FILE_VERSION, vault, servers })?;
+    }
+    Ok(report)
+}
+
+/// Startup hook (see `secrets::migrate_on_startup`).
+pub fn migrate_on_startup() {
+    match migrate(secrets::backend(), &default_path()) {
+        Ok(r) if r.moved > 0 => tracing::info!(moved = r.moved, "toolbelt secrets moved to the OS credential store"),
+        Ok(r) if r.kept_in_file > 0 => tracing::warn!("OS credential store unavailable: toolbelt secrets stay in toolbelt.json"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "toolbelt secret migration failed"),
+    }
 }
 
 fn check(server: &ToolServer) -> Result<(), String> {

@@ -366,7 +366,9 @@ fn store_validates_masks_and_keeps_secrets_on_edit() {
     assert_eq!(added.id, "my-browser");
     assert_eq!(added.env["API_KEY"], MASK);
     assert_eq!(store::add(&p, s).unwrap().id, "my-browser-2");
-    assert!(read(&p).contains("sekret-value"), "stored as typed; see the module doc");
+    let file = read(&p);
+    assert!(!file.contains("sekret-value"), "the value is in the credential store, not the file: {file}");
+    assert!(file.contains(store::REF_PREFIX), "the file keeps a reference: {file}");
     assert_eq!(store::list(&p).unwrap()[0].env["API_KEY"], MASK);
 
     let mut edit_it = store::list(&p).unwrap().remove(0);
@@ -376,6 +378,122 @@ fn store_validates_masks_and_keeps_secrets_on_edit() {
     assert_eq!(store::load_servers(&p).unwrap()[0].env["API_KEY"], "sekret-value", "******** kept the stored value");
     assert!(store::remove(&p, "my-browser").unwrap() && !store::remove(&p, "my-browser").unwrap());
     assert_eq!(store::load_servers(&p).unwrap().len(), 1);
+}
+
+// --- secrets in the credential store ---------------------------------------------------------
+
+mod secrets_in_keyring {
+    use super::*;
+    use crate::secrets::{MemoryBackend, SecretBackend};
+
+    const TOKEN: &str = "ghp_plaintext_token_0123456789";
+
+    fn legacy_file(name: &str) -> PathBuf {
+        let p = home(name).join("toolbelt.json");
+        let mut gh = stdio("github", "GitHub", "npx");
+        gh.env.insert("GITHUB_TOKEN".into(), TOKEN.into());
+        gh.env.insert("GITHUB_HOST".into(), "github.com".into());
+        let mut docs = http("docs", "Docs", "https://d.example/mcp");
+        docs.headers.insert("Authorization".into(), "Bearer abc-123-secret".into());
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        let doc = json!({"version": 1, "servers": [gh, docs]});
+        fs::write(&p, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+        p
+    }
+
+    #[test]
+    fn migration_moves_plain_values_to_the_store_and_blanks_the_file_after_read_back() {
+        let b = MemoryBackend::new();
+        let p = legacy_file("kr-migrate");
+        let r = store::migrate(&b, &p).unwrap();
+        assert_eq!((r.moved, r.kept_in_file), (2, 0));
+        let file = read(&p);
+        assert!(!file.contains(TOKEN) && !file.contains("abc-123-secret"), "{file}");
+        assert!(file.contains("github.com"), "non-secret values stay: {file}");
+        let servers = store::load_servers_with(&b, &p).unwrap();
+        assert_eq!(servers[0].env["GITHUB_TOKEN"], TOKEN, "references resolve to the real value");
+        assert_eq!(servers[1].headers["Authorization"], "Bearer abc-123-secret");
+        // Idempotent: a second run changes nothing.
+        let after = read(&p);
+        assert_eq!(store::migrate(&b, &p).unwrap(), store::MigrationReport::default());
+        assert_eq!(read(&p), after);
+    }
+
+    #[test]
+    fn migration_keeps_the_value_in_the_file_when_the_store_is_unusable_or_does_not_read_back() {
+        let p = legacy_file("kr-down");
+        let r = store::migrate(&MemoryBackend::unavailable(), &p).unwrap();
+        assert_eq!((r.moved, r.kept_in_file), (0, 2));
+        assert!(read(&p).contains(TOKEN), "nothing is lost when there is no store");
+
+        struct Lossy(MemoryBackend);
+        impl SecretBackend for Lossy {
+            fn get(&self, n: &str) -> Result<Option<String>, String> {
+                self.0.get(n).map(|v| v.map(|_| "different".into()))
+            }
+            fn set(&self, n: &str, v: &str) -> Result<(), String> {
+                self.0.set(n, v)
+            }
+            fn delete(&self, n: &str) -> Result<(), String> {
+                self.0.delete(n)
+            }
+            fn label(&self) -> &'static str {
+                "lossy"
+            }
+            fn available(&self) -> bool {
+                true
+            }
+        }
+        let p = legacy_file("kr-lossy");
+        let r = store::migrate(&Lossy(MemoryBackend::new()), &p).unwrap();
+        assert_eq!((r.moved, r.kept_in_file), (0, 2));
+        assert!(read(&p).contains(TOKEN));
+    }
+
+    #[test]
+    fn save_stores_secrets_updates_them_and_cleans_up_removed_ones() {
+        let b = MemoryBackend::new();
+        let p = home("kr-save").join("toolbelt.json");
+        let mut s = stdio("one", "One", "npx");
+        s.env.insert("API_KEY".into(), "first-secret".into());
+        store::save_with(&b, &p, &[s.clone()]).unwrap();
+        assert!(!read(&p).contains("first-secret"));
+        let name = read(&p).split("pm-keyring://").nth(1).unwrap().split('"').next().unwrap().to_string();
+        assert_eq!(b.get(&name).unwrap().as_deref(), Some("first-secret"));
+
+        // Changing the value reuses the entry; dropping the variable deletes it.
+        s.env.insert("API_KEY".into(), "second-secret".into());
+        store::save_with(&b, &p, &[s.clone()]).unwrap();
+        assert_eq!(b.get(&name).unwrap().as_deref(), Some("second-secret"));
+        s.env.clear();
+        store::save_with(&b, &p, &[s]).unwrap();
+        assert_eq!(b.get(&name).unwrap(), None, "an entry nothing points at is deleted");
+        assert!(!read(&p).contains("pm-keyring://"));
+    }
+
+    #[test]
+    fn a_missing_entry_reads_as_empty_and_an_unreadable_store_is_an_error() {
+        let b = MemoryBackend::new();
+        let p = legacy_file("kr-missing");
+        store::migrate(&b, &p).unwrap();
+        let fresh = MemoryBackend::new(); // the entries are gone (user cleared the credential manager)
+        assert_eq!(store::load_servers_with(&fresh, &p).unwrap()[0].env["GITHUB_TOKEN"], "");
+        let err = store::load_servers_with(&MemoryBackend::unavailable(), &p).unwrap_err();
+        assert!(err.contains("could not read a stored secret"), "{err}");
+    }
+
+    #[test]
+    fn the_sync_still_writes_the_real_value_into_each_agents_config() {
+        let b = MemoryBackend::new();
+        let h = home("kr-sync");
+        let p = legacy_file("kr-sync-file");
+        store::migrate(&b, &p).unwrap();
+        let servers = store::load_servers_with(&b, &p).unwrap();
+        let (hosts, a, _) = two_hosts(&h);
+        sync::run(&servers[..1], &hosts, vec![], &opts(&h), true);
+        assert!(read(&a).contains(TOKEN), "agents need the real value");
+        assert!(!read(&p).contains(TOKEN), "but the toolbelt file does not keep it");
+    }
 }
 
 #[test]
