@@ -8,7 +8,8 @@ import { makeBridgeExecutor, makeTauriExecutor } from '../../lib/mcp-executor';
 import { isCliOrchestratorBackend } from '../../lib/orchestrator-panes';
 import { runPuppetMasterLoop } from '../../lib/puppet-master';
 import { runPuppetMasterCliLoop } from '../../lib/puppet-master-cli';
-import { getApiKey, loadSettings } from '../../lib/settings';
+import { loadSettings } from '../../lib/settings';
+import { resolveApiKey } from '../../lib/secrets';
 import {
   appendStreamedText,
   builtinToolLog,
@@ -61,7 +62,7 @@ export function useOrchestratorSession({ bridge, backend, model, externalLogs }:
 
     if (activeBackend === 'api') {
       const activeModel = modelRef.current;
-      const apiKey = getApiKey(settings, activeModel.provider);
+      const apiKey = await resolveApiKey(settings, activeModel.provider);
       if (!apiKey) {
         setMessages((m) => [
           ...m,

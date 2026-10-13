@@ -14,6 +14,7 @@ import {
   publicOriginFromBridgeUrl,
   readStoredPublicBridgeUrl,
 } from './public-bridge-url';
+import { withoutSecrets } from './secrets';
 import { tauri } from './tauri';
 
 /** Canonical on-disk settings file (app config dir). */
@@ -168,7 +169,14 @@ export async function saveSettings(s: Settings): Promise<void> {
     /* not in Tauri, or command missing: keep the stored value */
   }
   applyTheme(normalized.theme ?? 'dark');
-  await store().set(SETTINGS_KEY, normalized);
+  // Keys never go back into settings.json while a credential store holds them.
+  let toWrite = normalized;
+  try {
+    if ((await invoke<{ secure: boolean }>('secret_storage_info')).secure) toWrite = withoutSecrets(normalized);
+  } catch {
+    /* not in Tauri: keep as is */
+  }
+  await store().set(SETTINGS_KEY, toWrite);
   await store().save();
   await syncPublicSettingsToBridge();
   void tauri.pushSettingsEvent(JSON.stringify(toPublicSettings(normalized)));

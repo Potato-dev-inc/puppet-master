@@ -1,6 +1,7 @@
 // Settings > Advanced: in-app uninstall, settings export, power-user placeholders.
 import { useEffect, useState } from 'react';
 import { ask } from '@tauri-apps/plugin-dialog';
+import { redactSettings } from '../../../lib/secrets';
 import { tauri, type AppInstallInfo } from '../../../lib/tauri';
 import { FieldInput, SettingBlock, SettingToggle, SettingsSection } from '../settings-ui';
 import type { SettingsTabContext } from './tab-context';
@@ -12,12 +13,7 @@ export function AdvancedTab({ ctx }: { ctx: SettingsTabContext }) {
   const [uninstalling, setUninstalling] = useState(false);
   useEffect(() => { void tauri.getAppInstallInfo().then(setInstallInfo); }, []);
   const exportSettings = () => {
-    const redacted = {
-      ...settings,
-      anthropic_api_key: settings.anthropic_api_key ? '***' : undefined,
-      openai_api_key: settings.openai_api_key ? '***' : undefined,
-      openrouter_api_key: settings.openrouter_api_key ? '***' : undefined,
-    };
+    const redacted = redactSettings(settings);
     const blob = new Blob([JSON.stringify(redacted, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
