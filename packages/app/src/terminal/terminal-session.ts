@@ -49,6 +49,10 @@ export class TerminalSession {
   private fitAddon: FitAddon | null = null;
   private inputBatcher: InputBatcher | null = null;
   private unlistenData: (() => void) | null = null;
+  /** The pane stream subscription parts, kept so `refreshFromSource` can subscribe again. */
+  private paneSubscriber: PaneDataSubscriber | null = null;
+  private paneDataHandler: ((data: Uint8Array) => void) | null = null;
+  private paneResizeHandler: ((cols: number, rows: number) => void) | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private intersectionObserver: IntersectionObserver | null = null;
   private imeObserver: MutationObserver | null = null;
@@ -107,6 +111,29 @@ export class TerminalSession {
    * shrink-and-restore animation on the cell (see `pm-pane-settle`), which drives
    * the ResizeObserver every frame; this call just guarantees a final clean fit.
    */
+  /**
+   * Nudge for a viewer of someone else's PTY (phone): redraw from the PC's current screen, in
+   * place. Leaving the stream puts it back to buffering, so subscribing again replays the pane's
+   * screen at its current size (what reopening the tab did) without rebuilding the terminal or
+   * the input box. Never resizes the PTY, so the agent does not reprint. With `skipIfScrolledUp`
+   * nothing happens while the user reads history above the screen.
+   */
+  refreshFromSource(options: { skipIfScrolledUp?: boolean } = {}): boolean {
+    const terminal = this.term;
+    const subscribe = this.paneSubscriber;
+    const onData = this.paneDataHandler;
+    if (!terminal || !subscribe || !onData || !this.unlistenData || this.syncPTYResize) return false;
+    if (options.skipIfScrolledUp) {
+      const buffer = terminal.buffer.active;
+      if (buffer.viewportY < buffer.baseY) return false;
+    }
+    this.unlistenData();
+    terminal.reset();
+    this.unlistenData = subscribe(this.options.paneId, onData, this.paneResizeHandler ?? undefined);
+    this.scheduleRefresh();
+    return true;
+  }
+
   nudgeReflow(): boolean {
     if (!this.term) return false;
     if (this.syncPTYResize) {
@@ -409,7 +436,7 @@ export class TerminalSession {
         this.scheduleWriteFollowUp();
       });
 
-      this.unlistenData = subscribePaneData(this.options.paneId, (data) => {
+      this.paneDataHandler = (data) => {
         if (
           this.mirrorPTY &&
           !this.options.sizesPane &&
@@ -422,7 +449,10 @@ export class TerminalSession {
           this.scrollToCursor();
           this.scheduleWriteFollowUp();
         });
-      }, (cols, rows) => this.applyStreamResize(cols, rows));
+      };
+      this.paneResizeHandler = (cols, rows) => this.applyStreamResize(cols, rows);
+      this.paneSubscriber = subscribePaneData;
+      this.unlistenData = subscribePaneData(this.options.paneId, this.paneDataHandler, this.paneResizeHandler);
       this.installFileLinkProvider(terminal);
       this.installTextareaGuards(container, terminal, this.inputBatcher);
       if (mobileMirror) {

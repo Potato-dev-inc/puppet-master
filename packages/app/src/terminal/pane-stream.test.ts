@@ -178,4 +178,25 @@ describe('PaneStreamManager', () => {
 
     await vi.waitFor(() => expect(events).toEqual(['RAW', 'resize 46x45']));
   });
+
+  it('a nudge (leave the stream, subscribe again with the same handlers) replays the current screen', async () => {
+    const manager = new PaneStreamManager();
+    const events: string[] = [];
+    let n = 0;
+    const readScreen = vi.fn(async () => {
+      n += 1;
+      return { data: bytes(`SCREEN${n}`), cols: 46, rows: 45 };
+    });
+    const onData = (c: Uint8Array) => events.push(dec.decode(c));
+    const onResize = (c: number, r: number) => events.push(`resize ${c}x${r}`);
+    const unsub = manager.subscribe('pane-1', onData, readScreen, onResize);
+    await vi.waitFor(() => expect(events).toEqual(['resize 46x45', 'SCREEN1']));
+
+    unsub();
+    manager.ingest('pane-1', bytes('missed while away'));
+    manager.subscribe('pane-1', onData, readScreen, onResize);
+    await vi.waitFor(() => expect(events).toEqual(['resize 46x45', 'SCREEN1', 'resize 46x45', 'SCREEN2']));
+    manager.ingest('pane-1', bytes('LIVE'));
+    expect(events.at(-1)).toBe('LIVE');
+  });
 });

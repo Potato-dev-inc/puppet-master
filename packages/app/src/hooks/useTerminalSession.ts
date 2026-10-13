@@ -25,6 +25,8 @@ interface UseTerminalSessionOptions {
   disableMobileInput?: boolean;
   /** Bump to force a tiny resize/repaint (e.g. when re-entering the grid). */
   reflowKey?: number | string;
+  /** Bump `n` to redraw a mirror from the PC's current screen (phone nudge after an action). */
+  refreshSignal?: { n: number; skipIfScrolledUp: boolean };
   /** Owner window: the PTY size a phone holds right now (null when no phone holds the pane). */
   heldPtySize?: { cols: number; rows: number } | null;
   /**
@@ -68,6 +70,7 @@ export function useTerminalSession({
   mobileInputVisible,
   disableMobileInput,
   reflowKey,
+  refreshSignal,
   heldPtySize,
   onFitGrid,
   keyboardResizesAgent = true,
@@ -156,6 +159,14 @@ export function useTerminalSession({
       cancelAnimationFrame(frame);
     };
   }, [reflowKey]);
+
+  const refreshN = refreshSignal?.n ?? 0;
+  const refreshSkipRef = useRef(false);
+  refreshSkipRef.current = refreshSignal?.skipIfScrolledUp ?? false;
+  useEffect(() => {
+    if (!refreshN) return;
+    sessionRef.current?.refreshFromSource({ skipIfScrolledUp: refreshSkipRef.current });
+  }, [refreshN]);
 
   const onFitGridRef = useRef(onFitGrid);
   onFitGridRef.current = onFitGrid;

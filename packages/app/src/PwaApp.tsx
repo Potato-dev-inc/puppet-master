@@ -62,6 +62,13 @@ function medianOf(values: number[]): number | null {
 }
 
 const LS_LAST_FIT_GRID = 'pm.mobile.lastFitGrid';
+/** Nudge timing: wait this long after the last action (lets a size claim land first)... */
+const NUDGE_SETTLE_MS = 350;
+/** ...and never redraw more often than this. */
+const NUDGE_MIN_GAP_MS = 1500;
+/** A touch that moves less than this and lifts within TAP_MAX_MS is a tap, not a swipe. */
+const TAP_MAX_MOVE_PX = 10;
+const TAP_MAX_MS = 500;
 
 /** The last grid that fit this phone's terminal area, so a spawn right after a reload is phone-sized. */
 function readLastFitGrid(): { cols: number; rows: number } | null {
@@ -261,9 +268,58 @@ export default function PwaApp() {
   useEffect(() => {
     if (active !== ALL_TAB) claimOnOpenRef.current = active;
   }, [active]);
+  // Nudge: after a phone action (not typing) redraw the open agent from the PC's current screen,
+  // in place. Actions close together share one redraw; at most one per NUDGE_MIN_GAP_MS. A tap
+  // while reading history above the screen does not jump back to the bottom.
+  const [refreshSignal, setRefreshSignal] = useState({ n: 0, skipIfScrolledUp: false });
+  const nudgeTimerRef = useRef(0);
+  const lastNudgeAtRef = useRef(0);
+  const nudgeSkipRef = useRef(true);
+  const requestNudge = useCallback((skipIfScrolledUp: boolean) => {
+    nudgeSkipRef.current = nudgeSkipRef.current && skipIfScrolledUp;
+    window.clearTimeout(nudgeTimerRef.current);
+    const wait = Math.max(NUDGE_SETTLE_MS, NUDGE_MIN_GAP_MS - (Date.now() - lastNudgeAtRef.current));
+    nudgeTimerRef.current = window.setTimeout(() => {
+      lastNudgeAtRef.current = Date.now();
+      const skip = nudgeSkipRef.current;
+      nudgeSkipRef.current = true;
+      setRefreshSignal((prev) => ({ n: prev.n + 1, skipIfScrolledUp: skip }));
+    }, wait);
+  }, []);
+  useEffect(() => () => window.clearTimeout(nudgeTimerRef.current), []);
+  const tapRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const onAgentPointerDown = useCallback(
+    (event: React.PointerEvent) => {
+      claimPaneSize(true);
+      tapRef.current = { x: event.clientX, y: event.clientY, t: Date.now() };
+    },
+    [claimPaneSize],
+  );
+  const onAgentPointerUp = useCallback(
+    (event: React.PointerEvent) => {
+      const start = tapRef.current;
+      tapRef.current = null;
+      if (!start || Date.now() - start.t > TAP_MAX_MS) return;
+      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > TAP_MAX_MOVE_PX) return;
+      // The Keys panel, the input box and the jump-to-bottom button are typing / their own actions.
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[data-mobile-terminal-arrows],[data-mobile-terminal-input-zone],[data-mobile-terminal-input],[data-terminal-scroll-bottom]')) return;
+      requestNudge(true);
+    },
+    [requestNudge],
+  );
+  const selectTab = useCallback(
+    (id: string) => {
+      setActive(id);
+      if (id !== ALL_TAB) requestNudge(false);
+    },
+    [requestNudge],
+  );
+
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible' || active === ALL_TAB) return;
+      requestNudge(false);
       claimOnOpenRef.current = active;
       if (fitGrid) {
         claimOnOpenRef.current = null;
@@ -272,7 +328,7 @@ export default function PwaApp() {
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [active, fitGrid, claimPaneSize]);
+  }, [active, fitGrid, claimPaneSize, requestNudge]);
   useEffect(() => {
     if (!fitGrid || !activePane || claimOnOpenRef.current !== active) return;
     claimOnOpenRef.current = null;
@@ -393,14 +449,15 @@ export default function PwaApp() {
           labels={labels}
           active={active}
           bridgeReady={bridgeReady}
-          onSelect={setActive}
+          onSelect={selectTab}
           onNew={openNewAgentSheet}
           onMenu={() => setSheet('menu')}
         />
         <main
           className="relative flex min-h-0 flex-1 flex-col bg-pm-panel"
           aria-label="Agent"
-          onPointerDownCapture={activePane ? () => claimPaneSize(true) : undefined}
+          onPointerDownCapture={activePane ? onAgentPointerDown : undefined}
+          onPointerUpCapture={activePane ? onAgentPointerUp : undefined}
         >
           {bridge && active === ALL_TAB && (
             <AgentsOverview
@@ -423,6 +480,7 @@ export default function PwaApp() {
               mobileInputDelayMs={settings.mobile_input_delay_ms}
               mobileInputVisible={settings.mobile_input_visible}
               onFitGrid={setFitGrid}
+              refreshSignal={refreshSignal}
               keyboardResizesAgent={settings.mobile_keyboard_resizes_agent ?? false}
             />
           )}
