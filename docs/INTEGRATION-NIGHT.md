@@ -179,3 +179,114 @@ scenario scrolls to its settings.
    - **Last turn and away digest**: Receipt tab "Last turn"; leave the desktop idle for the away time (General settings),
      come back to the digest.
    - **Terminal**: the lossless handoff and reclaim fixes are in the terminal; try taking a pane back from the phone.
+
+---
+
+# Round 3
+
+Backup: `backup/integration-round3-start` (`5bdcfd3`).
+
+## Merged branches
+
+| # | Branch | Head | Merge commit |
+|---|---|---|---|
+| 16 | `fix/flaky-recovery-test` | `cbe2da5` | `11ac882` |
+| 17 | `feat/settings-redesign` | `cfb1c06` | `f5968f8` |
+| 18 | `feat/phone-restyle` | `a274958` | `48ff6bf` |
+| 19 | `feat/ask-bar` (on top of loop-guard) | `b3e99d6` | `812a96f` |
+
+Follow-up: `fix(cockpit): focusTerminal timer tolerates a torn-down document` (see below).
+
+## Conflicts and how they were resolved
+
+- **fix/flaky-recovery-test**: one conflict, the CRLF normalisation in `tui/declarative/tests/screen.rs` (both sides had the
+  same fix). Kept one copy. `cargo test --lib` is now **0 failures** (1396 passed at this point).
+- **feat/settings-redesign**: merged with no conflicts. Git carried the earlier branches' settings work into the new files;
+  I checked it by hand: loop guard, away digest, checkpoints, shared memory, confirm-close and animated tray (General),
+  Accounts and Preload (Agents), masked API keys and OpenCode keys (Keys), Toolbelt and runtime status (Bridge & MCP),
+  Public address, notifications and pairing (Phone) are all in `components/settings/sections` and `blocks`.
+  `settings/tabs` is gone, `saveSettings` is gone (`patchSettings` only), and `settings_patch` is registered.
+- **feat/phone-restyle**: merged with no conflicts (phone harness route, sizes per scenario, screenshot script changes).
+- **feat/ask-bar**: conflicts in `Cargo.toml`, `Cargo.lock`, `commands/mod.rs`, `lib.rs`, `Inbox.tsx`, `dev/harness.tsx`,
+  `dev/mock-tauri.ts`, `dev/types.ts`, plus a modify/delete on the deleted `settings/tabs/GeneralTab.tsx`.
+  - Kept both sides everywhere. The harness `route` is now `cockpit | settings | phone | askbar`.
+  - `Cargo.toml`: a naive "keep both" put `arboard` under the Linux target table (compile error); it now sits in
+    `[dependencies]`. `Cargo.lock` was re-resolved by cargo.
+  - Inbox order: questions, ask notices, approval cards, stuck cards.
+  - Settings: dropped `tabs/GeneralTab.tsx`. The Ask bar controls are `blocks/AskBarSettings.tsx` (ported to the new
+    `SettingRow` / `SettingToggle`; it saves through its own `askbar_settings_*` commands and flashes the row tick) and one
+    `RowDef` (`ask-bar`, group "Ask bar") in `sections/GeneralSection.tsx`: enable, shortcut, default agent, "Attach
+    clipboard by default" (off). Its tests pass unchanged.
+  - The `askbar` window is in `capabilities/default.json`. Its harness route and both scenarios are kept.
+- **Flaky vitest error found and fixed.** About 1 run in 8, vitest reported `ReferenceError: document is not defined`
+  (an unhandled error that makes `npm test` exit 1). Cause: loop-guard's `focusTerminal()` timer in `StuckCard.tsx` fired
+  after jsdom was torn down. It now returns early when there is no `document`. 20 consecutive runs since: clean.
+
+## MCP catalog
+
+Unchanged: 68 tools, `68-e4687e50f1687299` (the pin test passes). None of the four branches touches the catalog.
+
+## Results
+
+```
+npm run build --workspace=@puppet-master/shared        -> tsc -p tsconfig.json (no errors)
+npx tsc --noEmit -p packages/app                       -> exit 0, no output
+npm test --workspace=@puppet-master/app                -> Test Files 99 passed (99); Tests 854 passed (854); no errors
+cargo test --lib   (src-tauri)                         -> test result: ok. 1432 passed; 0 failed; 2 ignored
+cargo test --bins  (src-tauri)                         -> ok. 33 passed (puppet-master-mcp); ok. 0 passed (app)
+npm run build --workspace=@puppet-master/app           -> built (vite, PWA stage, Rust MCP release, bundles);
+                                                          tracked files under src-tauri/resources reverted, not committed
+```
+
+All 149 `#[tauri::command]` functions are registered in `lib.rs`.
+
+## Screenshots (round 3: `D:\pm-night\evidence\integration-r3`, 50 PNGs, all opened and checked)
+
+Run: `node scripts/evidence/screenshot.mjs --out D:\pm-night\evidence\integration-r3` (headless; phone scenarios at 390x844).
+The 30 cockpit shots from round 2 are byte-identical to round 2 (same table above). New or changed:
+
+| File | Shows |
+|---|---|
+| settings-general | Settings > General: Project, Appearance (animated tray), While agents work (confirm close, stuck warning, shortcut, away digest), Ask bar |
+| settings-general-more | General scrolled: Undo and memory (checkpoints, keep N, shared memory), Storage, About, Uninstall |
+| settings-checkpoints | General scrolled to the Ask bar rows (enable, shortcut, agent, clipboard off) and the groups around them |
+| settings-light | General in the light theme |
+| settings | Agents section: Accounts (logins per agent), Preload agents, agents to keep warm |
+| settings-accounts | Agents section with accounts listed |
+| settings-models | Orchestrator & Models: default orchestrator, OpenCode, API model and custom models |
+| api-keys | Keys: masked Anthropic key in Credential Manager, OpenCode A/B keys, key automation, Remove all keys |
+| settings-confirm | Keys with the in-app "Remove all keys?" confirm sheet |
+| settings-search | Search "key": matching rows from General and Keys |
+| settings-toolbelt | Bridge & MCP: Toolbelt servers, Bridge endpoint, Runtime status |
+| settings-toolbelt-preview | Toolbelt "Apply to all agents" preview with per-agent changes |
+| settings-bridge-more | Bridge & MCP scrolled: Install MCP runtime, Claude Desktop and Codex config, Uninstall MCP |
+| settings-mobile | Phone: Public address (Cloudflare tunnel, Online), Notifications, typing delay, pairing |
+| settings-later | "Coming later": nine not-yet-built items marked Not available yet |
+| askbar-empty | The Ask bar window: agent chip, "Ask anything...", + Clipboard |
+| askbar-answer | Ask bar with an answer, code block, Copy / Continue in a pane / Close |
+| phone-agents-list | Phone: Agents list with the question card and Needs you / Working / Idle groups |
+| phone-agents | Phone: question card and the "While you were away" digest |
+| phone-menu | Phone menu sheet: connection, notifications, terminal options, Stop all agents |
+| phone-confirm | Phone "Stop all agents?" confirm over the menu |
+| phone-new-agent | Phone "Open an agent on your PC" sheet (Cursor Agent: Not installed) |
+| phone-terminal | Phone terminal with the "Looks stuck" strip, the key panel and the command box |
+
+## Known issues (additions)
+
+- Nothing from round 3 was run in the real app either: Settings writes (`settings_patch`), the Ask bar window and global
+  shortcut, and the phone restyle on a real phone are verified by tests and mocked screenshots only.
+- The Ask bar adds the `arboard` crate (MIT or Apache-2.0) for the clipboard.
+- The General page is long (Project, Appearance, While agents work, Ask bar, Undo and memory, Storage, About). Search finds rows.
+
+## How to try it (additions)
+
+- **Settings** (sidebar bottom): six sections (General, Agents, Orchestrator & Models, Keys, Bridge & MCP, Phone), a search
+  box, and "Coming later". Every control saves as you change it and shows a small "Saved" tick; nothing needs a Save button.
+  Try: flip a toggle, type "key" in search, and in Keys press "Remove..." to see the confirm sheet.
+- **Ask bar**: Settings > General > Ask bar: turn it on, pick a shortcut (default Ctrl+Alt+Space) and an agent, leave
+  "Attach clipboard by default" off. Then press the shortcut from any window, type a question, press Enter.
+  "Continue in a pane" opens the answer in a normal pane. The app must be running (tray).
+- **Phone**: pair as before (Settings > Phone) and open the PWA. New look: the Agents list with questions and the away
+  digest on top, a bottom-sheet menu (notifications, terminal options, Stop all agents), an "Open an agent on your PC"
+  sheet, and a "Looks stuck" strip on a stuck agent's terminal.
+- **Tests**: `cargo test --lib` should now end with 0 failures.
