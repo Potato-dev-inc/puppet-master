@@ -5,14 +5,14 @@ import {
   type CheckpointList,
   type CheckpointsApi,
   type FileChange,
-  type RestoreReport,
 } from "../../lib/cockpit-api";
 import {
   checkpointTitle,
   formatAgo,
   formatDelta,
-  sharedFolderWarning,
 } from "./history-model";
+import { RestoreSheet } from "./RestoreSheet";
+import { restoreWithUndo, type Notify } from "./restore-flow";
 
 const errText = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
@@ -32,7 +32,7 @@ export function History({
   paneId: string;
   status: string;
   now: number;
-  notify: (text: string) => void;
+  notify: Notify;
   api?: CheckpointsApi;
   /** Labels of the other live panes working in this pane's folder. */
   sharedWith?: string[];
@@ -99,26 +99,13 @@ export function History({
     if (!pending) return;
     const target = pending;
     setBusy(true);
-    try {
-      const report: RestoreReport = await api.checkpointRestore(
-        paneId,
-        target.id,
-      );
-      setPending(null);
-      const failed = report.failed.length
-        ? ` ${report.failed.length} file(s) could not be changed.`
-        : "";
-      notify(
-        `Files restored to "${checkpointTitle(target)}". Your previous files are saved in History.${failed}`,
-      );
+    const report = await restoreWithUndo(api, paneId, target, notify);
+    setPending(null);
+    if (report) {
       setDiffs({});
       await load();
-    } catch (e) {
-      setPending(null);
-      notify(errText(e));
-    } finally {
-      setBusy(false);
     }
+    if (alive.current) setBusy(false);
   };
 
   if (error) {
@@ -235,49 +222,13 @@ export function History({
       </div>
 
       {pending && (
-        <div className="ck-scrim" onMouseDown={() => !busy && setPending(null)}>
-          <div
-            className="ck-sheet"
-            role="alertdialog"
-            aria-labelledby="ck-restore-t"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <h2 className="ck-section" id="ck-restore-t">
-              Restore "{checkpointTitle(pending)}"?
-            </h2>
-            <p className="ck-sub">
-              This restores your files. It doesn't change what the agent
-              remembers. Files created since then are removed, and files in
-              .gitignore are left alone.
-            </p>
-            <p className="ck-sub">
-              Your current files are saved first, so you can undo this from
-              History.
-            </p>
-            {sharedFolderWarning(sharedWith) && (
-              <p className="ck-sub">{sharedFolderWarning(sharedWith)}</p>
-            )}
-            <div className="ck-sheet-actions">
-              <button
-                type="button"
-                className="ck-btn ck-btn--secondary"
-                autoFocus
-                disabled={busy}
-                onClick={() => setPending(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="ck-btn ck-btn--primary"
-                disabled={busy}
-                onClick={() => void confirmRestore()}
-              >
-                {busy ? "Restoring…" : "Restore files"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <RestoreSheet
+          title={`Restore "${checkpointTitle(pending)}"?`}
+          sharedWith={sharedWith}
+          busy={busy}
+          onCancel={() => setPending(null)}
+          onConfirm={() => void confirmRestore()}
+        />
       )}
     </>
   );

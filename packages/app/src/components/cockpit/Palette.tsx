@@ -24,12 +24,15 @@ export function Palette({
   onOpenDoctor,
   onStopAll,
   onOpenMemory,
+  onUndoLastTurn,
 }: {
   c: CockpitApi;
   onClose: () => void;
   onOpenDoctor?: () => void;
   onStopAll?: () => void;
   onOpenMemory?: () => void;
+  /** Opens the restore confirmation for the pane's last turn (never restores by itself). */
+  onUndoLastTurn?: (paneId: string) => void;
 }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
@@ -72,18 +75,16 @@ export function Palette({
         hint: '⌃C',
         run: () => void c.interrupt(sel),
       });
-      out.push({
-        id: 'act:undo',
-        group: 'Actions',
-        title: 'Undo last turn',
-        desc: 'Restore files to before the last turn. The agent keeps its memory.',
-        icon: <IconReflow />,
-        run: () =>
-          void cockpitApi
-            .checkpointUndoLast(sel)
-            .then(() => c.notify('Files restored to before the last turn. Your previous files are saved in History.'))
-            .catch((err) => c.notify(err instanceof Error ? err.message : String(err))),
-      });
+      if (onUndoLastTurn) {
+        out.push({
+          id: 'act:undo',
+          group: 'Actions',
+          title: 'Undo last turn…',
+          desc: 'Restore files to before the last turn. The agent keeps its memory.',
+          icon: <IconReflow />,
+          run: () => onUndoLastTurn(sel),
+        });
+      }
     }
     for (const p of c.registry.paneList) {
       const id = p.info.id;
@@ -162,7 +163,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onUndoLastTurn]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.group}`, query)),

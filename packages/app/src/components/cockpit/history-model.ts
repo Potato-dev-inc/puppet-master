@@ -65,3 +65,15 @@ export function sharedFolderWarning(labels: string[]): string | null {
     ? `${names} also works in this folder. Its changes since then will be undone too.`
     : `${names} also work in this folder. Their changes since then will be undone too.`;
 }
+
+/**
+ * The checkpoint that marks the start of the latest turn: the earliest "before" checkpoint of the
+ * highest turn number. Mirrors Rust `checkpoints::runtime::last_turn_start` (items are newest first).
+ */
+export function lastTurnStart<T extends Pick<Checkpoint, 'turn' | 'kind'>>(items: T[]): T | undefined {
+  const turns = items.filter((c) => c.kind !== 'undo').map((c) => c.turn);
+  if (turns.length === 0) return undefined;
+  const turn = Math.max(...turns);
+  // Rust `find` walks newest first too, so the first match in list order is the same item.
+  return items.find((c) => c.turn === turn && c.kind === 'before');
+}

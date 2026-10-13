@@ -24,6 +24,8 @@ export interface SpawnState {
 export interface Toast {
   id: number;
   text: string;
+  /** A button on the toast (for example "Undo"). The toast stays longer so it can be reached. */
+  action?: { label: string; run: () => void };
 }
 
 function errText(err: unknown): string {
@@ -52,7 +54,7 @@ export interface CockpitApi {
   spawn: SpawnState | null;
   dismissSpawn: () => void;
   toasts: Toast[];
-  notify: (text: string) => void;
+  notify: (text: string, action?: Toast['action']) => void;
   setMode: (mode: UiMode) => Promise<void>;
   toggleTheme: () => Promise<void>;
   newAgent: (agentId: string, accountId?: string, isolated?: boolean) => Promise<void>;
@@ -94,10 +96,13 @@ export function useCockpit(): CockpitApi {
   const toastId = useRef(0);
   const lastStatus = useRef(new Map<string, string>());
 
-  const notify = useCallback((text: string) => {
+  const notify = useCallback((text: string, action?: Toast['action']) => {
     const id = ++toastId.current;
-    setToasts((t) => [...t.slice(-2), { id, text }]);
-    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+    const dismiss = () => setToasts((t) => t.filter((x) => x.id !== id));
+    // Using the action closes its toast, so Undo cannot be pressed twice.
+    const wrapped = action && { label: action.label, run: () => (dismiss(), action.run()) };
+    setToasts((t) => [...t.slice(-2), { id, text, action: wrapped }]);
+    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), action ? 12000 : 3200);
   }, []);
 
   const names = useMemo(() => paneNames(paneList, (id) => agentLabel(listing, id)), [paneList, listing]);

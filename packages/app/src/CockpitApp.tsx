@@ -10,6 +10,8 @@ import { AwayDigest } from './components/cockpit/AwayDigest';
 import { Inbox } from './components/cockpit/Inbox';
 import { PaneView } from './components/cockpit/PaneView';
 import { Palette } from './components/cockpit/Palette';
+import { UndoSheet } from './components/cockpit/UndoSheet';
+import { panesSharingFolder } from './components/cockpit/history-model';
 import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
 import { SpawnView } from './components/cockpit/SpawnView';
@@ -21,6 +23,8 @@ export default function CockpitApp() {
   const c = useCockpit();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [doctorOpen, setDoctorOpen] = useState(false);
+  // Pane whose last turn the person is being asked to undo (opened from the palette).
+  const [undoPane, setUndoPane] = useState<string | null>(null);
   const loop = useLoopSignals();
   const [stopReport, setStopReport] = useState<StopReport | null>(null);
   const stopAll = () => {
@@ -134,13 +138,27 @@ export default function CockpitApp() {
           onOpenDoctor={() => setDoctorOpen(true)}
           onStopAll={stopAll}
           onOpenMemory={() => setMemoryOpen(true)}
+          onUndoLastTurn={setUndoPane}
+        />
+      )}
+      {undoPane && (
+        <UndoSheet
+          paneId={undoPane}
+          sharedWith={panesSharingFolder(c.registry.paneList, c.names, undoPane)}
+          notify={c.notify}
+          onClose={() => setUndoPane(null)}
         />
       )}
       {stopReport && <PanicSheet report={stopReport} names={c.names} onClose={() => setStopReport(null)} />}
       <div className="ck-toasts" aria-live="polite">
         {c.toasts.map((t) => (
           <div className="ck-toast" key={t.id}>
-            {t.text}
+            <span>{t.text}</span>
+            {t.action && (
+              <button type="button" className="ck-toast-action" onClick={t.action.run}>
+                {t.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>

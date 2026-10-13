@@ -704,6 +704,27 @@
   border: 1px solid var(--sep);
   box-shadow: var(--float-shadow);
   animation: ck-pop 280ms var(--ease-sheet);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cockpit .ck-toast-action {
+  pointer-events: auto;
+  border: 0;
+  background: transparent;
+  color: var(--label-1);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+.cockpit .ck-toast-action:hover {
+  background: var(--fill-2, rgba(128, 128, 128, 0.18));
+}
+.cockpit .ck-toast-action:focus-visible {
+  outline: 2px solid var(--label-2);
+  outline-offset: 1px;
 }
 .cockpit .ck-palette-input {
   width: 100%;
