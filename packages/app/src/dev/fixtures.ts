@@ -194,7 +194,7 @@ export const TOOLBELT_PREVIEW: SyncReport = {
     {
       agents: [{ id: 'claude', label: 'Claude Code' }],
       scope: 'global',
-      path: 'C:\Users\dev\.claude.json',
+      path: 'C:/Users/dev/.claude.json',
       format: 'json',
       status: 'ready',
       reason: null,
@@ -211,7 +211,7 @@ export const TOOLBELT_PREVIEW: SyncReport = {
     {
       agents: [{ id: 'codex', label: 'Codex' }],
       scope: 'global',
-      path: 'C:\Users\dev\.codex\config.toml',
+      path: 'C:/Users/dev/.codex/config.toml',
       format: 'toml',
       status: 'ready',
       reason: null,
@@ -232,7 +232,7 @@ export const TOOLBELT_PREVIEW: SyncReport = {
         { id: 'opencode_native', label: 'OpenCode (API)' },
       ],
       scope: 'global',
-      path: 'C:\Users\dev\.config\opencode\opencode.json',
+      path: 'C:/Users/dev/.config/opencode/opencode.json',
       format: 'json',
       status: 'unchanged',
       reason: null,
@@ -245,7 +245,7 @@ export const TOOLBELT_PREVIEW: SyncReport = {
     {
       agents: [{ id: 'cursor_agent', label: 'Cursor Agent' }],
       scope: 'global',
-      path: 'C:\Users\dev\.cursor\mcp.json',
+      path: 'C:/Users/dev/.cursor/mcp.json',
       format: 'json',
       status: 'skipped',
       reason: 'Not installed on this computer, and it has no config file yet.',
