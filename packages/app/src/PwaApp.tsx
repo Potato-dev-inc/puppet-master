@@ -23,6 +23,7 @@ import {
 import { BridgePaneTerminal, useBridgePaneTransport } from './components/BridgePaneTerminal';
 import { AgentTabBar } from './components/mobile/AgentTabBar';
 import { AgentsOverview } from './components/mobile/AgentsOverview';
+import { QuestionsList } from './components/mobile/QuestionsList';
 import { MenuSheet, NewAgentSheet, type TypingEchoStats } from './components/mobile/MobileSheet';
 import { SetupScreen } from './components/pwa/SetupScreen';
 
@@ -467,6 +468,7 @@ export default function PwaApp() {
               labels={labels}
               onOpen={setActive}
               onNew={openNewAgentSheet}
+              header={<QuestionsList bridge={bridge} bridgeReady={bridgeReady} labels={labels} />}
             />
           )}
           {activePane && (

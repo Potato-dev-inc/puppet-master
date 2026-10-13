@@ -2,10 +2,12 @@ import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { DotSpinner } from './DotSpinner';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
+import { QuestionCard } from './QuestionCard';
 
 export function Inbox({ c }: { c: CockpitApi }) {
   const waiting = c.registry.paneList.filter((p) => p.status === 'waiting_input');
-  const count = waiting.length;
+  const asked = c.asked.questions;
+  const count = waiting.length + asked.length;
 
   return (
     <div className="ck-inbox">
@@ -21,7 +23,23 @@ export function Inbox({ c }: { c: CockpitApi }) {
         </p>
       </header>
 
-      {count > 0 && (
+      {asked.length > 0 && (
+        <ul className="ck-list ck-q-list" aria-label="Questions from agents">
+          {asked.map((q) => (
+            <QuestionCard
+              key={q.id}
+              q={q}
+              paneName={q.pane_id ? c.names.get(q.pane_id) : undefined}
+              now={c.now}
+              onAnswer={(answer) => void c.asked.answerQuestion(q.id, answer)}
+              onDismiss={() => void c.asked.dismissQuestion(q.id)}
+              onOpenPane={q.pane_id && c.registry.panes.has(q.pane_id) ? () => c.select(q.pane_id!) : undefined}
+            />
+          ))}
+        </ul>
+      )}
+
+      {waiting.length > 0 && (
         <ul className="ck-list">
           {waiting.map((p) => {
             const id = p.info.id;

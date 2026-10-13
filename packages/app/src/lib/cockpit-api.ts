@@ -37,6 +37,8 @@ export interface SpawnStageEvent {
   message?: string;
 }
 
+import type { Question } from './questions';
+
 const noop: UnlistenFn = () => {};
 
 export const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -68,6 +70,12 @@ export const cockpitApi = {
   onPrompt: (cb: (e: { pane_id: string; prompt: PanePrompt | null }) => void) => on('pty://prompt', cb),
   onSpawnStage: (cb: (e: SpawnStageEvent) => void) => on('pane://spawn-stage', cb),
   onStandbyChanged: (cb: (e: unknown) => void) => on('standby://ready-changed', cb),
+
+  questionsList: () => call<Question[]>('questions_list'),
+  answerQuestion: (id: string, answer: { choice_id?: string; text?: string }) =>
+    call<{ accepted: boolean; question: Question }>('question_answer', { id, choiceId: answer.choice_id, text: answer.text }),
+  dismissQuestion: (id: string) => call<{ accepted: boolean; question: Question }>('question_dismiss', { id }),
+  onQuestionsChanged: (cb: () => void) => on('questions://changed', cb),
 
   openSettings: (tab?: string) => call<void>('open_settings', { tab }),
 };

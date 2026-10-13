@@ -4,6 +4,7 @@ import type { AgentContextProfile } from '@puppet-master/shared';
 import { ngrokRequestHeaders } from './bridge-ngrok';
 import { decodeBase64 } from './bridge-sse';
 import type { BridgeClient, PaneViewportResponse } from './bridge-types';
+import type { Question } from './questions';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
 
 export type * from './bridge-types';
@@ -37,6 +38,9 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       return { pane_id: paneId };
     },
     killPane: (id) => call('DELETE', `/panes/${encodeURIComponent(id)}`),
+    listQuestions: async () => (await call<{ questions: Question[] }>('GET', '/questions')).questions,
+    answerQuestion: (id, answer) => call('POST', `/questions/${encodeURIComponent(id)}/answer`, answer),
+    dismissQuestion: (id) => call('POST', `/questions/${encodeURIComponent(id)}/dismiss`, {}),
     setPaneViewport: (id, view) =>
       call<PaneViewportResponse>('POST', `/panes/${encodeURIComponent(id)}/viewport`, view),
     listAgentTypes: () => call('GET', '/agents/types'),

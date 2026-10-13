@@ -8,8 +8,9 @@ import { SegTabs } from './SegTabs';
 
 export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: () => void }) {
   const list = c.registry.paneList;
-  const groups = groupPanes(list);
-  const waiting = list.filter((p) => p.status === 'waiting_input').length;
+  const questionPanes = new Set(c.asked.questions.flatMap((q) => (q.pane_id ? [q.pane_id] : [])));
+  const groups = groupPanes(list, questionPanes);
+  const waiting = list.filter((p) => p.status === 'waiting_input').length + c.asked.questions.length;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -39,7 +40,7 @@ export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: ()
             <button
               key={id}
               type="button"
-              className={`ck-row${active ? ' is-active' : ''}${p.status === 'waiting_input' ? ' is-needs' : ''}`}
+              className={`ck-row${active ? ' is-active' : ''}${p.status === 'waiting_input' || questionPanes.has(id) ? ' is-needs' : ''}`}
               onClick={() => c.select(id)}
               aria-current={active ? 'true' : undefined}
             >

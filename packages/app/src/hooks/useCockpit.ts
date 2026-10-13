@@ -8,6 +8,7 @@ import { cockpitApi, type PanePrompt, type SpawnStageEvent, type UiMode } from '
 import { applyTheme, loadSettings, saveSettings, type AppTheme } from '../lib/settings';
 import { tauri } from '../lib/tauri';
 import { useBridge } from './useBridge';
+import { useQuestions, type QuestionsApi } from './useQuestions';
 import { paneNames } from '../components/cockpit/model';
 
 export interface SpawnState {
@@ -27,6 +28,8 @@ function errText(err: unknown): string {
 }
 
 export interface CockpitApi {
+  /** Questions agents asked the human through `ask_user`. */
+  asked: QuestionsApi;
   registry: PaneRegistryApi;
   names: Map<string, string>;
   launchEntries: LaunchEntry[];
@@ -358,7 +361,10 @@ export function useCockpit(): CockpitApi {
     }
   }, [notify]);
 
+  const asked = useQuestions(notify, now);
+
   return {
+    asked,
     registry,
     names,
     launchEntries,

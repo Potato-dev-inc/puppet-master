@@ -8,6 +8,7 @@ import type {
   PaneInfo,
 } from '@puppet-master/shared';
 import type { PublicSettings } from './bridge-settings';
+import type { Question, QuestionAnswer } from './questions';
 
 export interface WriteInputOptions {
   viaOpencodeApi?: boolean;
@@ -266,6 +267,10 @@ export interface BridgeClient {
     viewer?: string;
   }): Promise<{ pane_id: string }>;
   killPane(paneId: string): Promise<void>;
+  /** Pending `ask_user` questions. */
+  listQuestions(): Promise<Question[]>;
+  answerQuestion(id: string, answer: QuestionAnswer): Promise<{ accepted: boolean }>;
+  dismissQuestion(id: string): Promise<{ accepted: boolean }>;
   /**
    * `POST /panes/{id}/viewport`: while `active`, the pane is sized to this phone's grid (renew
    * every few seconds or it lapses); `active: false` releases this phone's hold (the pane keeps the
