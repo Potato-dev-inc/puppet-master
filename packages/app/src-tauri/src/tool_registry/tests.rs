@@ -399,7 +399,7 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "66-46d53ccddbd2b4dc");
+    assert_eq!(catalog_version(), "66-335bc4af8cd69435");
 }
 
 /// Every tool input that names an agent (`agent_type`, or `backend` on quick_ask) uses the one
@@ -456,4 +456,13 @@ fn run_agent_is_visible_first_and_describes_the_headless_backup() {
     assert!(tool.description.contains("visible by default") && tool.description.contains("no_visible_mode"));
     let schema = tool.output_schema.as_ref().expect("output schema").to_string();
     assert!(schema.contains("\"fallback\"") && schema.contains("visible_failed"), "{schema}");
+}
+
+/// `run_agent` takes one optional `account` (a user account id); it is never required.
+#[test]
+fn run_agent_advertises_an_optional_account() {
+    let tool = tools().into_iter().find(|tool| tool.name == "run_agent").expect("run_agent");
+    assert_eq!(tool.input_schema["properties"]["account"]["type"], "string");
+    let required = tool.input_schema["required"].as_array().cloned().unwrap_or_default();
+    assert!(!required.iter().any(|name| name == "account"));
 }
