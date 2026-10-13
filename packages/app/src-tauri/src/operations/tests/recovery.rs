@@ -4,6 +4,7 @@ use super::*;
 
 #[test]
 fn recover_all_visits_nonselected_indexed_projects() {
+    let _index = IsolatedIndex::new();
     let selected = temp();
     let other_project = temp();
     let (queued, _) = create_operation(request(&selected, "recover-selected")).unwrap();
@@ -44,6 +45,9 @@ fn recover_all_visits_nonselected_indexed_projects() {
 
 #[test]
 fn recover_all_skips_project_removed_after_indexing() {
+    // The index is process-wide by default; scan only this test's projects, not those of
+    // concurrently running tests that are creating and deleting theirs.
+    let _index = IsolatedIndex::new();
     let removed_project = temp();
     create_operation(request(&removed_project, "removed-project-indexed")).unwrap();
     fs::remove_dir_all(&removed_project).unwrap();
