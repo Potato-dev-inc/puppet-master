@@ -5,6 +5,8 @@ import {
   EXAMPLE_PANES,
   EXAMPLE_PROMPT,
   EXAMPLE_RUN,
+  EXAMPLE_WORKTREE,
+  EXAMPLE_WORKTREE_DIFF,
   EXAMPLE_TRANSCRIPT,
   PANE_CLAUDE,
   SCREEN_REPLAY,
@@ -34,6 +36,10 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return agentsListing();
         case 'pane_run_info':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_RUN : null;
+        case 'pane_worktree':
+          return a.paneId === PANE_CLAUDE ? EXAMPLE_WORKTREE : null;
+        case 'worktree_diff':
+          return EXAMPLE_WORKTREE_DIFF;
         case 'pane_transcript':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_TRANSCRIPT : null;
         case 'read_pane_screen_replay':
