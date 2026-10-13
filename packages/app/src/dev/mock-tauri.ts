@@ -36,7 +36,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
   // In-memory plugin-store (one store, rid 1), keyed as the app writes it.
   const store = new Map<string, unknown>([['settings', { theme: scenario.theme ?? 'dark' }]]);
 
-  mockWindows(scenario.route === 'settings' ? 'settings' : 'cockpit');
+  mockWindows(scenario.route === 'settings' ? 'settings' : scenario.route === 'askbar' ? 'askbar' : 'cockpit');
   mockIPC(
     (cmd, args) => {
       const a = (args ?? {}) as Record<string, unknown>;
@@ -197,6 +197,54 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return memoryView(typeof a.text === 'string' ? a.text : undefined);
         case 'memory_global_enabled':
           return true;
+        case 'askbar_settings_get':
+          return { enabled: true, shortcut: 'Ctrl+Alt+Space', default_agent: 'claude', last_agent: null, attach_clipboard_default: false };
+        case 'askbar_settings_set':
+          return a.settings;
+        case 'askbar_agents':
+          return [
+            { id: 'claude', label: 'Claude Code', ready: true },
+            { id: 'codex', label: 'Codex', ready: false },
+            { id: 'cursor_agent', label: 'Cursor Agent', ready: false },
+          ];
+        case 'askbar_clipboard':
+          return { text: 'x'.repeat(1200), chars: 1200, truncated: false };
+        case 'askbar_resize': {
+          // The real window is 640 wide and 64 or 420 tall; mimic it so screenshots look like the window.
+          const root = document.getElementById('root');
+          if (root) {
+            root.style.width = '640px';
+            root.style.height = a.expanded ? '420px' : '64px';
+            root.style.margin = '48px auto 0';
+          }
+          return null;
+        }
+        case 'askbar_hide':
+        case 'askbar_continue':
+        case 'askbar_notice_dismiss':
+        case 'askbar_notice_open':
+          return null;
+        case 'askbar_notices':
+          return [];
+        case 'askbar_ask': {
+          const req = a.request as { ask_id: string; question: string };
+          return new Promise((resolve) =>
+            window.setTimeout(
+              () =>
+                resolve({
+                  ask_id: req.ask_id,
+                  agent: 'claude',
+                  agent_label: 'Claude Code',
+                  question: req.question,
+                  ok: true,
+                  answer:
+                    'Short answer: use a `Mutex<HashMap<..>>` only for the index and keep the rows in an `Arc`.\n\n```rust\nlet index = Arc::new(Mutex::new(HashMap::new()));\nindex.lock().insert(id, row);\n```\n\nThat keeps the lock short and the reads cheap.',
+                  error: null,
+                }),
+              400,
+            ),
+          );
+        }
         case 'resize_pane':
         case 'set_ui_mode':
         case 'interrupt_pane':

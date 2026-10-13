@@ -1,5 +1,6 @@
 // Dev-only UI evidence harness: `?harness=<scenario>` renders the real cockpit/settings UI in a
 // plain browser with Tauri mocked. Imported only behind `import.meta.env.DEV` (see main.tsx).
+import AskBarApp from '../components/askbar/AskBarApp';
 import CockpitApp from '../CockpitApp';
 import PwaApp from '../PwaApp';
 import SettingsApp from '../SettingsApp';
@@ -77,6 +78,8 @@ export async function bootHarness(name: string): Promise<() => JSX.Element> {
   } else if (scenario.route === 'settings') {
     q.set('settings', '1');
     if (scenario.settingsTab) q.set('tab', scenario.settingsTab);
+  } else if (scenario.route === 'askbar') {
+    q.set('askbar', '1');
   } else {
     q.set('cockpit', '1');
     if (scenario.select) q.set('select', scenario.select);
@@ -100,5 +103,6 @@ export async function bootHarness(name: string): Promise<() => JSX.Element> {
     window.setTimeout(ready, 1500);
   }
   if (scenario.route === 'phone') return PwaApp;
+  if (scenario.route === 'askbar') return AskBarApp;
   return scenario.route === 'settings' ? SettingsApp : CockpitApp;
 }

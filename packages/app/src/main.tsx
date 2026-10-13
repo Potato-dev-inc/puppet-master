@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import AskBarApp from './components/askbar/AskBarApp';
 import CockpitApp from './CockpitApp';
 import PwaApp from './PwaApp';
 import PwaLegacyApp from './PwaLegacyApp';
@@ -29,6 +30,7 @@ async function resolveRoot(): Promise<typeof App> {
   }
   if (isSettingsEntry(window.location.search)) return SettingsApp;
   if (params.get('cockpit') === '1') return CockpitApp;
+  if (params.get('askbar') === '1') return AskBarApp as typeof App;
   if (isTerminalApp) return TerminalApp;
   if (isStandaloneWorker) return WorkerHostBootstrap;
   if (isMobileOrPwa) return isLegacyPwa ? PwaLegacyApp : PwaApp;

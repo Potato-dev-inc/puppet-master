@@ -1,0 +1,43 @@
+/* Ask bar answers waiting in the Inbox. Grayscale only; uses the cockpit tokens. */
+.cockpit .ck-ask-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+}
+.cockpit .ck-ask {
+  margin: 10px 16px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi), 0 0 0 1px var(--sep);
+}
+.cockpit .ck-ask-title {
+  margin: 0;
+  font-size: 12px;
+  color: var(--label-3);
+}
+.cockpit .ck-ask-q {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-ask-a {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--label-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cockpit .ck-ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}

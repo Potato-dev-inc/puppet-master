@@ -7,7 +7,7 @@ export interface HarnessScenario {
   /** `?harness=<name>`; unique across scenarios. */
   name: string;
   /** Which window to render. */
-  route: 'cockpit' | 'settings' | 'phone';
+  route: 'cockpit' | 'settings' | 'phone' | 'askbar';
   /**
    * Window size in CSS px for the screenshot. `scripts/evidence/screenshot.mjs` reads this literal
    * from the scenario file; the default is 1440x900, or 390x844 for route `phone`.

@@ -10,6 +10,7 @@ import { redactSettings } from '../../../lib/secrets';
 import { resolveSettingsFilePath } from '../../../lib/settings';
 import { tauri, type AppInstallInfo, type CoordinationStorageInfo } from '../../../lib/tauri';
 import { AmbientSettings } from '../blocks/AmbientSettings';
+import { AskBarSettingsBlock } from '../blocks/AskBarSettings';
 import { LoopGuardSettingsBlock } from '../blocks/LoopGuardSettings';
 import { SharedMemoryToggle } from '../blocks/SharedMemoryToggle';
 import { NumberControl, TextControl } from '../controls';
@@ -261,6 +262,14 @@ export const generalRows: RowDef[] = [
         />
       </SettingRow>
     ),
+  },
+  {
+    id: 'ask-bar',
+    label: 'Ask bar',
+    hint: 'Open a small bar from anywhere in Windows to ask an agent a quick question. Off by default.',
+    keywords: 'ask bar shortcut quick question default agent clipboard attach global',
+    group: 'Ask bar',
+    render: (env) => <AskBarSettingsBlock onSaved={env.markSaved} />,
   },
   {
     id: 'checkpoints',

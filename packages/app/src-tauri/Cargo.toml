@@ -51,6 +51,8 @@ serde_path_to_error = "0.1"
 glob = "0.3"
 notify = "6"
 tauri-plugin-global-shortcut = "2"
+# Clipboard text for the Ask bar (MIT OR Apache-2.0).
+arboard = { version = "3", default-features = false }
 # OS credential store for provider API keys (MIT OR Apache-2.0). 3.x: no default stores, pick per OS.
 keyring = "3.6"
 

@@ -5,6 +5,7 @@ import { ApprovalPrompt } from './ApprovalPrompt';
 import { DotSpinner } from './DotSpinner';
 import { useLoopGuard } from '../../lib/loop-guard';
 import { PaneStuckCard } from './StuckCard';
+import { AskNotices } from './AskNotices';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
 import { QuestionCard } from './QuestionCard';
 import { paneHeading } from './titles';
@@ -57,6 +58,8 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
           ))}
         </ul>
       )}
+
+      <AskNotices />
 
       {waiting.length > 0 && (
         <ul className="ck-list">
