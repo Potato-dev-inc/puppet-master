@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { DotSpinner } from './DotSpinner';
-import { IconInbox, IconMoon, IconPlus, IconSearch, IconSettings, IconSun } from './Icons';
+import { IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun } from './Icons';
 import { formatElapsed, groupPanes, spinnerStatus } from './model';
 import { SegTabs } from './SegTabs';
 
-export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: () => void }) {
+export function Sidebar({ c, onOpenPalette, onOpenMemory }: { c: CockpitApi; onOpenPalette: () => void; onOpenMemory?: () => void }) {
   const list = c.registry.paneList;
   const groups = groupPanes(list);
   const waiting = list.filter((p) => p.status === 'waiting_input').length;
@@ -133,6 +133,12 @@ export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: ()
           ]}
           small
         />
+        {onOpenMemory && (
+          <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenMemory}>
+            <IconNote />
+            Project memory
+          </button>
+        )}
         <div className="ck-foot-row">
           <button type="button" className="ck-btn ck-btn--plain" onClick={() => void c.openSettings()}>
             <IconSettings />

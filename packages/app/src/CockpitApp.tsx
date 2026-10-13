@@ -4,6 +4,7 @@ import { useCockpit } from './hooks/useCockpit';
 import { Inbox } from './components/cockpit/Inbox';
 import { PaneView } from './components/cockpit/PaneView';
 import { Palette } from './components/cockpit/Palette';
+import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
 import { SpawnView } from './components/cockpit/SpawnView';
 import './styles/cockpit.css';
@@ -11,6 +12,9 @@ import './styles/cockpit.css';
 export default function CockpitApp() {
   const c = useCockpit();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  // Picking a pane or starting an agent leaves the memory view.
+  useEffect(() => setMemoryOpen(false), [c.selectedId, c.spawn]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -25,7 +29,7 @@ export default function CockpitApp() {
 
   return (
     <div className="cockpit" data-theme={c.theme}>
-      <Sidebar c={c} onOpenPalette={() => setPaletteOpen(true)} />
+      <Sidebar c={c} onOpenPalette={() => setPaletteOpen(true)} onOpenMemory={() => setMemoryOpen(true)} />
       <main className="ck-main">
         {c.mode === 'individual' ? (
           <div className="ck-spawn ck-spawn--plain">
@@ -35,6 +39,11 @@ export default function CockpitApp() {
               Switch to Orchestration
             </button>
           </div>
+        ) : memoryOpen ? (
+          <ProjectMemory
+            project={c.selectedId ? c.registry.panes.get(c.selectedId)?.info.cwd : undefined}
+            onClose={() => setMemoryOpen(false)}
+          />
         ) : c.spawn ? (
           <SpawnView spawn={c.spawn} onDismiss={c.dismissSpawn} />
         ) : c.selectedId ? (
@@ -43,7 +52,7 @@ export default function CockpitApp() {
           <Inbox c={c} />
         )}
       </main>
-      {paletteOpen && <Palette c={c} onClose={() => setPaletteOpen(false)} />}
+      {paletteOpen && <Palette c={c} onClose={() => setPaletteOpen(false)} onOpenMemory={() => setMemoryOpen(true)} />}
       <div className="ck-toasts" aria-live="polite">
         {c.toasts.map((t) => (
           <div className="ck-toast" key={t.id}>

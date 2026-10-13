@@ -97,3 +97,9 @@ export const IconPane = () => (
     <path d="M2.5 6.5h11" />
   </Icon>
 );
+
+export const IconNote = () => (
+  <Icon>
+    <path d="M3.5 2.5h7l2 2v9h-9zM10.5 2.5v2h2M5.5 7.5h5M5.5 10h5" />
+  </Icon>
+);

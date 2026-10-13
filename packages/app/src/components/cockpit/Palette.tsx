@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { DotSpinner } from './DotSpinner';
-import { IconLayers, IconMoon, IconPlus, IconSettings, IconStop, IconSun } from './Icons';
+import { IconLayers, IconMoon, IconNote, IconPlus, IconSettings, IconStop, IconSun } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
 
 interface Item {
@@ -15,7 +15,7 @@ interface Item {
   run: () => void;
 }
 
-export function Palette({ c, onClose }: { c: CockpitApi; onClose: () => void }) {
+export function Palette({ c, onClose, onOpenMemory }: { c: CockpitApi; onClose: () => void; onOpenMemory?: () => void }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -57,6 +57,16 @@ export function Palette({ c, onClose }: { c: CockpitApi; onClose: () => void }) 
         run: () => void c.interrupt(sel),
       });
     }
+    if (onOpenMemory) {
+      out.push({
+        id: 'act:memory',
+        group: 'Actions',
+        title: 'Project memory…',
+        desc: 'What every agent in this project reads',
+        icon: <IconNote />,
+        run: onOpenMemory,
+      });
+    }
     out.push(
       {
         id: 'act:settings',
@@ -82,7 +92,7 @@ export function Palette({ c, onClose }: { c: CockpitApi; onClose: () => void }) 
       },
     );
     return out;
-  }, [c]);
+  }, [c, onOpenMemory]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.group}`, query)),
