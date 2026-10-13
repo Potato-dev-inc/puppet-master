@@ -78,6 +78,7 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
     match (cx.method, cx.segments) {
         ("GET", ["panes"]) => return Some(list(cx)),
         ("POST", ["panes"]) => return Some(spawn(cx)),
+        ("POST", ["panes", "stop-all"]) => return Some(stop_all(cx)),
         _ => {}
     }
     let ["panes", pane_id, rest @ ..] = cx.segments else {
@@ -106,6 +107,14 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
         ("GET", ["agent-context", ..]) => agent_context(cx, pane_id),
         _ => return None,
     })
+}
+
+/// Panic button for the phone: interrupt every running agent pane. Authorised like every other
+/// bridge route (loopback app, or a paired device's bearer token); MCP sessions are refused because
+/// the route is not part of the tool catalog.
+fn stop_all(cx: &Ctx) -> RouteResult {
+    let report = crate::panic::stop_all(cx.registry, cx.app);
+    Ok((200, serde_json::to_value(report).unwrap_or_default()))
 }
 
 fn list(cx: &Ctx) -> RouteResult {

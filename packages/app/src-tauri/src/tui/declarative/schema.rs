@@ -322,6 +322,9 @@ pub struct TuiTable {
     /// named group `text`, else group 1, else the whole match.
     #[serde(default)]
     pub activity_regex: Vec<String>,
+    /// Extra error-line patterns for the loop guard, on top of the generic set.
+    #[serde(default)]
+    pub error_regex: Vec<String>,
     pub menu: Option<MenuTable>,
     pub dialogs: Option<DialogsTable>,
     pub tidy: Option<TidyTable>,

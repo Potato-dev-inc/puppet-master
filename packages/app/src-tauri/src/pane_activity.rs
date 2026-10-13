@@ -87,6 +87,7 @@ pub fn tick_with(
             continue; // screen and status unchanged: nothing to reclassify
         }
         recomputed += 1;
+        crate::loop_guard::observe_pane(&id, &pane.agent_type, &tail, pane.status);
         let Some(activity) = crate::tui::profile_for(&pane.agent_type).activity(&tail, pane.status) else {
             STATE.lock().last.remove(&id);
             continue;
@@ -125,6 +126,7 @@ pub fn init(registry: Arc<Mutex<PaneRegistry>>, app: tauri::AppHandle) {
                 crate::bridge::push_pane_activity_sse(id, activity);
             };
             tick_with(&read, &alive, &emit);
+            crate::loop_guard::tick(&alive);
         })
         .ok();
 }

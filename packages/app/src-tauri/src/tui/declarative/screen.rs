@@ -114,6 +114,7 @@ pub struct TuiEngine {
     chrome: Vec<Regex>,
     tool_activity: Vec<Regex>,
     activity: Vec<Regex>,
+    error: Vec<Regex>,
     menu: Vec<Regex>,
     strip_blocks: Vec<StripBlock>,
     dedupe: bool,
@@ -196,6 +197,7 @@ impl TuiEngine {
             chrome: line_table(&tui.chrome, "tui.chrome.line_regex")?,
             tool_activity: line_table(&tui.tool_activity, "tui.tool_activity.line_regex")?,
             activity: build_all(&tui.activity_regex, "tui.activity_regex")?,
+            error: build_all(&tui.error_regex, "tui.error_regex")?,
             menu: match &tui.menu {
                 Some(m) => build_all(&m.regex, "tui.menu.regex")?,
                 None => Vec::new(),
@@ -272,6 +274,11 @@ impl TuiEngine {
 
     pub fn is_chrome_line(&self, lower: &str) -> bool {
         Self::line_matches(&self.chrome, lower)
+    }
+
+    /// True when a declared `error_regex` matches the line (case-insensitive like the other tables).
+    pub fn is_error_line(&self, line: &str) -> bool {
+        !self.error.is_empty() && self.error.iter().any(|re| re.is_match(line))
     }
 
     pub fn is_tool_activity_line(&self, lower: &str) -> bool {

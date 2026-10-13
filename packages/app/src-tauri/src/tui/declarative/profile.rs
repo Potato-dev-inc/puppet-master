@@ -539,6 +539,10 @@ impl TuiProfile for DeclarativeProfile {
         activity::default_activity(self, visible_tail, status)
     }
 
+    fn is_error_line(&self, line: &str) -> bool {
+        crate::loop_guard::default_error_line(line) || self.engine.as_ref().is_some_and(|engine| engine.is_error_line(line))
+    }
+
     fn is_tool_activity_line(&self, lower: &str) -> bool {
         self.engine.as_ref().is_some_and(|engine| engine.is_tool_activity_line(lower))
     }

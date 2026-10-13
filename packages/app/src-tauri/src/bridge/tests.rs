@@ -650,3 +650,43 @@ fn agents_health_route_lists_cli_agents_with_hints() {
     assert_eq!(claude["install_hint"], "npm i -g @anthropic-ai/claude-code");
     assert!(super::routes::health::static_route("POST", &["agents", "health"]).is_none());
 }
+
+#[test]
+fn stop_all_route_is_authorised_like_other_remote_control_routes() {
+    use crate::mobile_pairing::authorize_bridge_request;
+    let segs = ["panes", "stop-all"];
+    // Remote peer without a pairing token: refused.
+    let (status, body) = authorize_bridge_request("", false, &segs, "POST").unwrap_err();
+    assert_eq!((status, body["error"].as_str()), (401, Some("pairing_required")));
+    // The phone PWA arrives through the loopback proxy: the proxy marker still demands a token.
+    let (status, _) = authorize_bridge_request("X-PM-Proxied: 1\r\n", true, &segs, "POST").unwrap_err();
+    assert_eq!(status, 401);
+    // A wrong token is refused too.
+    let (status, _) =
+        authorize_bridge_request("Authorization: Bearer nope\r\n", false, &segs, "POST").unwrap_err();
+    assert!(status == 401 || status == 503, "{status}");
+    // The desktop app itself (loopback, no proxy marker) is allowed.
+    assert!(authorize_bridge_request("", true, &segs, "POST").is_ok());
+}
+
+#[test]
+fn stop_all_route_is_not_exposed_to_mcp_sessions() {
+    // Agents must not be able to stop their siblings through the bridge: the route is not a tool.
+    let session = uuid::Uuid::new_v4().to_string();
+    let err = crate::mcp_sessions::authorize(Some(&session), "POST", "/panes/stop-all", &json!({}))
+        .expect_err("MCP session refused");
+    assert_eq!(err.code, "AUTHORIZATION_DENIED");
+    assert!(crate::mcp_sessions::authorize(None, "POST", "/panes/stop-all", &json!({})).is_ok());
+}
+
+#[test]
+fn stop_report_wire_shape() {
+    let report = crate::panic::StopReport {
+        stopped: vec![crate::panic::StoppedPane { pane_id: "p1".into(), agent_type: "claude".into(), cwd: "/w".into() }],
+        failed: vec![],
+    };
+    assert_eq!(
+        serde_json::to_value(report).unwrap(),
+        json!({"stopped":[{"pane_id":"p1","agent_type":"claude","cwd":"/w"}],"failed":[]})
+    );
+}
