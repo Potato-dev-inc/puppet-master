@@ -1,11 +1,14 @@
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
+import { hasEverSpawned } from '../../lib/agent-health';
 import { DotSpinner } from './DotSpinner';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
 
-export function Inbox({ c }: { c: CockpitApi }) {
+export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
   const waiting = c.registry.paneList.filter((p) => p.status === 'waiting_input');
   const count = waiting.length;
+  const noPanes = c.registry.paneList.length === 0 && c.registry.initialReady;
+  const firstRun = noPanes && !hasEverSpawned();
 
   return (
     <div className="ck-inbox">
@@ -13,12 +16,23 @@ export function Inbox({ c }: { c: CockpitApi }) {
         <div className="ck-doto" aria-label={`${count} waiting`}>
           {String(count).padStart(2, '0')}
         </div>
-        <h1 className="ck-title">{count === 0 ? 'Nothing needs you' : count === 1 ? 'Agent waiting for you' : 'Agents waiting for you'}</h1>
+        <h1 className="ck-title">{firstRun ? 'Welcome to Puppet Master' : count === 0 ? 'Nothing needs you' : count === 1 ? 'Agent waiting for you' : 'Agents waiting for you'}</h1>
         <p className="ck-sub">
-          {count === 0
+          {firstRun
+            ? 'Your AI agents live here. Start by checking which ones work on this computer.'
+            : count === 0
             ? 'Agents that stop to ask a question will show up here.'
             : 'Answer here or open the terminal.'}
         </p>
+        {noPanes && onOpenDoctor && (
+          <button
+            type="button"
+            className={`ck-btn ${firstRun ? 'ck-btn--primary' : 'ck-btn--secondary'}`}
+            onClick={onOpenDoctor}
+          >
+            Set up your agents
+          </button>
+        )}
       </header>
 
       {count > 0 && (
