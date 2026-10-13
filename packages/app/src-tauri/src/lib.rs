@@ -160,6 +160,7 @@ pub fn run() {
             commands::secret_get_masked,
             commands::secret_delete,
             commands::secret_get_for_llm,
+            commands::confirm_pane_window_close,
             commands::set_opencode_automation_settings,
             commands::set_opencode_key_settings,
             commands::set_opencode_key_profile,
@@ -341,7 +342,9 @@ pub fn run() {
                 if app_windows::on_close_requested(app_handle, label) {
                     api.prevent_close();
                 }
-                pane_windows::on_close_requested(app_handle, label);
+                if pane_windows::on_close_requested(app_handle, label) {
+                    api.prevent_close();
+                }
             }
             if matches!(event, tauri::RunEvent::Exit) {
                 standby::shutdown();

@@ -16,6 +16,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "mobile_keyboard_resizes_agent",
     "developer_use_rust_mcp",
     "librarian_indexer_path",
+    "confirm_close_running_pane",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -30,6 +31,7 @@ pub fn default_public_settings() -> Value {
         "mobile_keyboard_resizes_agent": false,
         "developer_use_rust_mcp": false,
         "librarian_indexer_path": null,
+        "confirm_close_running_pane": true,
     })
 }
 

@@ -88,22 +88,127 @@ pub fn kill_pane_of_closed_window(label: &str, live_pane_ids: &[String], kill: i
     }
 }
 
-#[cfg(test)]
-pub fn on_close_requested(_app: &AppHandle, _label: &str) {}
+/// What closing a pane window (or quitting the app) does while agents may still be working.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseDecision {
+    /// Close right away.
+    Close,
+    /// Stop the close and ask the user first.
+    Confirm,
+}
 
-/// Runtime hook for `CloseRequested` on any window. A pane window of a live pane kills that pane
-/// (the window then closes normally); a window showing a dead pane is destroyed directly.
+/// A pane in these states is doing, or about to do, work that closing would throw away.
+pub fn is_busy_status(status: &str) -> bool {
+    matches!(status, "running" | "waiting_input")
+}
+
+/// Close-decision for one pane. `confirm_setting` is the `confirm_close_running_pane` setting.
+pub fn close_decision(status: &str, confirm_setting: bool) -> CloseDecision {
+    if confirm_setting && is_busy_status(status) {
+        CloseDecision::Confirm
+    } else {
+        CloseDecision::Close
+    }
+}
+
+/// Close-decision for quitting the whole app: confirm when any pane is busy.
+pub fn quit_decision(statuses: &[String], confirm_setting: bool) -> CloseDecision {
+    if statuses.iter().any(|s| close_decision(s, confirm_setting) == CloseDecision::Confirm) {
+        CloseDecision::Confirm
+    } else {
+        CloseDecision::Close
+    }
+}
+
+/// Event a pane window's React listens to: the X was pressed while its pane is busy.
+pub const CONFIRM_CLOSE_EVENT: &str = "pane-window://confirm-close";
+
 #[cfg(not(test))]
-pub fn on_close_requested(app: &AppHandle, label: &str) {
+fn confirm_setting(app: &AppHandle) -> bool {
+    crate::settings_store::read_public_settings(app)
+        .get("confirm_close_running_pane")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+}
+
+/// Tray "Quit Puppet Master": quits at once, or asks first when any agent is still working.
+#[cfg(test)]
+pub fn request_quit(_app: &AppHandle) {}
+
+#[cfg(not(test))]
+pub fn request_quit(app: &AppHandle) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let statuses: Vec<String> = CONTEXT
+        .get()
+        .map(|(_, registry)| registry.lock().list_all().into_iter().map(|p| p.status).collect())
+        .unwrap_or_default();
+    if quit_decision(&statuses, confirm_setting(app)) == CloseDecision::Close {
+        app.exit(0);
+        return;
+    }
+    let busy = statuses.iter().filter(|s| is_busy_status(s)).count();
+    let message = if busy == 1 {
+        "1 agent is still working. Quit and stop it?".to_string()
+    } else {
+        format!("{busy} agents are still working. Quit and stop them?")
+    };
+    let handle = app.clone();
+    app.dialog()
+        .message(message)
+        .title("Quit Puppet Master?")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom("Stop and quit".to_string(), "Keep open".to_string()))
+        .show(move |stop| {
+            if stop {
+                handle.exit(0);
+            }
+        });
+}
+
+/// The user chose "Stop and close" in a pane window's sheet: kill the pane and close the window.
+#[cfg(not(test))]
+pub fn close_confirmed(app: &AppHandle, pane_id: &str) {
     use tauri::Manager;
     let Some((_, registry)) = CONTEXT.get() else { return };
+    let result = crate::pty::registry::kill_pane_with_reason(registry, pane_id, Some("pane window closed (confirmed)"));
+    tracing::info!(pane = %pane_id, ?result, "pane window close confirmed: killed its pane");
+    if let Some(window) = app.get_webview_window(&window_label(pane_id)) {
+        let _ = window.destroy();
+    }
+}
+
+#[cfg(test)]
+pub fn close_confirmed(_app: &AppHandle, _pane_id: &str) {}
+
+/// Returns true when the close must be prevented (waiting for the user's answer).
+#[cfg(test)]
+pub fn on_close_requested(_app: &AppHandle, _label: &str) -> bool {
+    false
+}
+
+/// Runtime hook for `CloseRequested` on any window; returns true when the close must be prevented.
+/// A pane window of a busy pane asks first (the window's React shows the sheet); an idle one kills
+/// its pane and closes normally; a window showing a dead pane is destroyed directly.
+#[cfg(not(test))]
+pub fn on_close_requested(app: &AppHandle, label: &str) -> bool {
+    use tauri::Manager;
+    let Some((_, registry)) = CONTEXT.get() else { return false };
     // Hidden warm panes count as live: their windows exist (hidden) until a claim shows them.
-    let live: Vec<String> = registry.lock().list_all().into_iter().map(|p| p.id).collect();
+    let panes = registry.lock().list_all();
+    let live: Vec<String> = panes.iter().map(|p| p.id.clone()).collect();
+    if let Some(pane_id) = pane_for_label(label, &live) {
+        let status = panes.iter().find(|p| p.id == pane_id).map(|p| p.status.as_str()).unwrap_or("idle");
+        if close_decision(status, confirm_setting(app)) == CloseDecision::Confirm {
+            let _ = app.emit_to(label, CONFIRM_CLOSE_EVENT, serde_json::json!({ "pane_id": pane_id }));
+            tracing::info!(%label, pane = %pane_id, status, "pane window close held: pane is busy");
+            return true;
+        }
+    }
     if kill_pane_of_closed_window(label, &live, |id| {
         let result = crate::pty::registry::kill_pane_with_reason(registry, id, Some("pane window closed"));
         tracing::info!(%label, pane = %id, ?result, "pane window closed: killed its pane");
     }) {
-        return;
+        return false;
     }
     if close_is_forced(label, &live) {
         if let Some(window) = app.get_webview_window(label) {
@@ -111,6 +216,7 @@ pub fn on_close_requested(app: &AppHandle, label: &str) {
             tracing::info!(%label, ?result, "closed orphan pane window on close request");
         }
     }
+    false
 }
 
 /// Destroy the detached windows of panes that are gone, after the grace period. Only
@@ -203,6 +309,26 @@ mod tests {
         assert!(!kill_pane_of_closed_window(&window_label("gone"), &live, |_| panic!("must not kill")));
         assert!(!kill_pane_of_closed_window("settings", &live, |_| panic!("must not kill")));
         assert!(!kill_pane_of_closed_window("main", &live, |_| panic!("must not kill")));
+    }
+
+    #[test]
+    fn busy_panes_ask_before_closing_and_idle_ones_do_not() {
+        for busy in ["running", "waiting_input"] {
+            assert_eq!(close_decision(busy, true), CloseDecision::Confirm, "{busy}");
+            assert_eq!(close_decision(busy, false), CloseDecision::Close, "{busy} with the setting off");
+        }
+        for calm in ["idle", "error", "exited", ""] {
+            assert_eq!(close_decision(calm, true), CloseDecision::Close, "{calm}");
+        }
+    }
+
+    #[test]
+    fn quitting_asks_when_any_pane_is_busy() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(quit_decision(&s(&["idle", "running"]), true), CloseDecision::Confirm);
+        assert_eq!(quit_decision(&s(&["idle", "error"]), true), CloseDecision::Close);
+        assert_eq!(quit_decision(&s(&["running"]), false), CloseDecision::Close);
+        assert_eq!(quit_decision(&[], true), CloseDecision::Close);
     }
 
     #[test]

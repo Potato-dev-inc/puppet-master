@@ -323,7 +323,7 @@ mod runtime {
     fn handle(app: &AppHandle, id: &str) {
         match parse_command(id) {
             Some(Command::Settings) => crate::app_windows::open_settings_window(app, None, true),
-            Some(Command::Quit) => app.exit(0),
+            Some(Command::Quit) => crate::pane_windows::request_quit(app),
             Some(Command::Cockpit) => crate::cockpit::open_cockpit(app, None),
             Some(Command::SetMode(mode)) => {
                 if let Err(e) = crate::cockpit::set_mode(app, mode) {
