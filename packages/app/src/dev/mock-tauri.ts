@@ -47,6 +47,20 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return 'C:\\Users\\dev\\work\\puppet-master';
         case 'list_agent_contexts':
           return [];
+        case 'get_tunnel_status':
+          return {
+            mode: 'named',
+            public_url: 'https://pm.example.com',
+            state: 'running',
+            error: null,
+            config: { mode: 'named', hostname: 'pm.example.com', url: null, has_token: true },
+          };
+        case 'test_tunnel_connection':
+          return { ok: true, url: 'https://pm.example.com/bridge/health', http_status: 200, latency_ms: 84, message: 'Connected in 84 ms.' };
+        case 'list_paired_mobile_devices':
+          return [];
+        case 'get_mobile_tunnel_info':
+          return { localUrl: 'http://127.0.0.1:1420', pwaUrl: 'http://127.0.0.1:1420', tunnelUrl: 'https://pm.example.com', bridgeProxyUrl: 'https://pm.example.com/bridge', updatedAt: 0 };
         case 'resize_pane':
         case 'set_ui_mode':
         case 'interrupt_pane':
