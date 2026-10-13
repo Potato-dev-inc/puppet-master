@@ -90,10 +90,22 @@ fn agent_label(agent_type: &str) -> String {
         .unwrap_or_else(|| agent_type.to_string())
 }
 
+/// Send what a "hidden" presence report released (see `PushHub::set_visible`), off-thread.
+pub fn flush_outbox(hub: &Arc<PushHub>) {
+    let deliveries = hub.take_outbox();
+    if deliveries.is_empty() {
+        return;
+    }
+    let hub = hub.clone();
+    let _ = std::thread::Builder::new()
+        .name("push-rearm".into())
+        .spawn(move || send_deliveries(&hub, deliveries));
+}
+
 /// Hook for `push_pane_status_sse`. Cheap when nobody subscribed.
 pub fn notify_pane_status(pane_id: &str, status: &str) {
     let Some(ctx) = CTX.get() else { return };
-    let Some(kind) = ctx.hub.gate().lock().entered(pane_id, status) else { return };
+    let Some(kind) = ctx.hub.note_pane_status(pane_id, status) else { return };
     if !ctx.hub.has_subscribers() {
         return;
     }
@@ -165,11 +177,16 @@ fn dispatch(ctx: &Ctx, candidate: Candidate) {
         tracing::debug!(?verdict, key = %candidate.key, "push notification not sent");
         return;
     }
+    send_deliveries(&ctx.hub, deliveries);
+}
+
+/// Encrypt and POST each delivery (blocking; call from a worker thread).
+pub fn send_deliveries(hub: &PushHub, deliveries: Vec<hub::Delivery>) {
     let subject = sender::vapid_subject();
     for delivery in deliveries {
         let request = match sender::build_request(
             &delivery.subscription,
-            ctx.hub.vapid(),
+            hub.vapid(),
             &subject,
             &delivery.payload,
             delivery.urgent,
@@ -183,7 +200,7 @@ fn dispatch(ctx: &Ctx, candidate: Candidate) {
         match sender::send(&request) {
             sender::Outcome::Delivered => {}
             sender::Outcome::Gone => {
-                let _ = ctx.hub.store().lock().remove_endpoint(&delivery.subscription.endpoint);
+                let _ = hub.store().lock().remove_endpoint(&delivery.subscription.endpoint);
             }
             other => tracing::warn!(?other, "push service did not accept the notification"),
         }

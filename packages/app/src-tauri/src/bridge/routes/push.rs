@@ -16,7 +16,10 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
     if cx.method == "POST" && cx.segments == ["push", "act"] {
         return Some(act(cx, &hub, now));
     }
-    crate::push::routes::handle(&hub, cx.method, cx.segments, cx.headers, cx.body, now).map(
+    let reply = crate::push::routes::handle(&hub, cx.method, cx.segments, cx.headers, cx.body, now);
+    // A phone that just went hidden may release a notification held back while it was visible.
+    crate::push::flush_outbox(&hub);
+    reply.map(
         |(status, body)| {
             if status < 400 {
                 Ok((status, body))

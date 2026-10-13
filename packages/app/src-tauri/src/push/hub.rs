@@ -52,6 +52,9 @@ pub struct Delivery {
     pub subscription: Subscription,
     pub payload: Vec<u8>,
     pub urgent: bool,
+    /// The pane the message is about (for dropping it when the prompt is gone).
+    pub pane_id: Option<String>,
+    pub kind: Kind,
 }
 
 pub struct PushHub {
@@ -60,6 +63,10 @@ pub struct PushHub {
     visible_until: Mutex<HashMap<String, u64>>,
     grants: Mutex<HashMap<String, Grant>>,
     gate: Mutex<Gate>,
+    /// The last notification held back per device because its PWA was on screen.
+    suppressed: Mutex<HashMap<String, (Delivery, u64)>>,
+    /// Held-back notifications released by "hidden" presence reports, waiting to be sent.
+    outbox: Mutex<Vec<Delivery>>,
     directory: Box<dyn DeviceDirectory>,
 }
 
@@ -71,6 +78,8 @@ impl PushHub {
             visible_until: Mutex::new(HashMap::new()),
             grants: Mutex::new(HashMap::new()),
             gate: Mutex::new(Gate::default()),
+            suppressed: Mutex::new(HashMap::new()),
+            outbox: Mutex::new(Vec::new()),
             directory,
         }
     }
@@ -99,13 +108,44 @@ impl PushHub {
 
     /// The phone says whether its PWA is on screen. A `true` expires on its own, so a phone that
     /// dies without saying goodbye stops suppressing notifications within `VISIBLE_TTL_MS`.
-    pub fn set_visible(&self, device_id: &str, visible: bool, now_ms: u64) {
-        let mut map = self.visible_until.lock();
+    /// Returns a notification that was held back while the phone was on screen, if the phone just
+    /// went hidden within `RATE_LIMIT_MS` of it (so a prompt that arrived a moment before the user
+    /// switched away is not lost). It is also queued in the outbox for the sender.
+    pub fn set_visible(&self, device_id: &str, visible: bool, now_ms: u64) -> Option<Delivery> {
         if visible {
-            map.insert(device_id.to_string(), now_ms + VISIBLE_TTL_MS);
-        } else {
-            map.remove(device_id);
+            self.visible_until.lock().insert(device_id.to_string(), now_ms + VISIBLE_TTL_MS);
+            return None;
         }
+        let was_visible = self.visible_until.lock().remove(device_id).is_some();
+        let held = self.suppressed.lock().remove(device_id);
+        let (delivery, at) = held?;
+        if !was_visible || now_ms.saturating_sub(at) > super::triggers::RATE_LIMIT_MS {
+            return None;
+        }
+        self.outbox.lock().push(delivery.clone());
+        Some(delivery)
+    }
+
+    /// Notifications released by the phone going hidden; the caller sends them.
+    pub fn take_outbox(&self) -> Vec<Delivery> {
+        std::mem::take(&mut *self.outbox.lock())
+    }
+
+    /// Feed a pane status update through the gate. Leaving `waiting_input` invalidates everything
+    /// that could still answer or announce that prompt: open Allow/Deny grants and held-back pushes.
+    pub fn note_pane_status(&self, pane_id: &str, status: &str) -> Option<Kind> {
+        let kind = self.gate.lock().entered(pane_id, status);
+        if status != "waiting_input" {
+            self.drop_pane_prompts(pane_id);
+        }
+        kind
+    }
+
+    fn drop_pane_prompts(&self, pane_id: &str) {
+        self.grants.lock().retain(|_, g| g.pane_id != pane_id);
+        self.suppressed
+            .lock()
+            .retain(|_, (d, _)| !(d.kind == Kind::WaitingInput && d.pane_id.as_deref() == Some(pane_id)));
     }
 
     pub fn is_visible(&self, device_id: &str, now_ms: u64) -> bool {
@@ -139,6 +179,8 @@ impl PushHub {
     /// Redeem a grant. It is consumed whatever happens next, so a token can answer at most once.
     pub fn redeem_grant(&self, token: &str, now_ms: u64) -> Result<Grant, &'static str> {
         let grant = self.grants.lock().remove(token).ok_or("unknown_or_used_token")?;
+        // Answering once settles the prompt: no other grant for this pane may answer a later one.
+        self.grants.lock().retain(|_, g| g.pane_id != grant.pane_id);
         if grant.expires_ms <= now_ms {
             return Err("expired_token");
         }
@@ -177,9 +219,6 @@ impl PushHub {
             && candidate.pane_id.is_some();
         let mut deliveries = Vec::new();
         for (device_id, subscription) in self.store.lock().all() {
-            if self.is_visible(&device_id, now_ms) {
-                continue;
-            }
             let mut payload = json!({
                 "v": 1,
                 "kind": candidate.kind.as_str(),
@@ -201,12 +240,20 @@ impl PushHub {
                     "token": self.issue_grant(&device_id, pane_id, prompt_id, now_ms),
                 });
             }
-            deliveries.push(Delivery {
-                device_id,
+            let delivery = Delivery {
+                device_id: device_id.clone(),
                 subscription,
                 payload: payload.to_string().into_bytes(),
                 urgent: matches!(candidate.kind, Kind::WaitingInput | Kind::Error),
-            });
+                pane_id: candidate.pane_id.clone(),
+                kind: candidate.kind,
+            };
+            if self.is_visible(&device_id, now_ms) {
+                // The phone is looking: hold it back, release it if the phone goes hidden soon.
+                self.suppressed.lock().insert(device_id, (delivery, now_ms));
+            } else {
+                deliveries.push(delivery);
+            }
         }
         (verdict, deliveries)
     }
@@ -316,7 +363,9 @@ mod tests {
         let grant = hub.redeem_grant(&ta, 2_000).unwrap();
         assert_eq!((grant.device_id.as_str(), grant.pane_id.as_str(), grant.prompt_id.as_str()), ("dev-a", "pane-1", "pid-1"));
         assert_eq!(hub.redeem_grant(&ta, 2_001), Err("unknown_or_used_token"), "single use");
-        assert_eq!(hub.redeem_grant(&tb, 1_000 + GRANT_TTL_MS), Err("expired_token"));
+        assert_eq!(hub.redeem_grant(&tb, 2_002), Err("unknown_or_used_token"), "siblings die with the redeemed grant");
+        let (_, later) = hub.plan(&waiting("pane-2", Some(command_prompt("pid-2"))), 1_000);
+        assert_eq!(hub.redeem_grant(&token_of(&later[0]), 1_000 + GRANT_TTL_MS), Err("expired_token"));
         assert_eq!(hub.redeem_grant("nonsense", 2_000), Err("unknown_or_used_token"));
     }
 
@@ -340,6 +389,58 @@ mod tests {
         let token = serde_json::from_slice::<Value>(&d[0].payload).unwrap()["act"]["token"].as_str().unwrap().to_string();
         dir2.tokens.lock().clear();
         assert_eq!(hub2.redeem_grant(&token, 2_000), Err("device_revoked"));
+    }
+
+    #[test]
+    fn leaving_waiting_input_kills_the_panes_grants_so_an_old_allow_cannot_hit_a_later_prompt() {
+        let hub = two_device_hub("stale-grant");
+        let token = |d: &Delivery| serde_json::from_slice::<Value>(&d.payload).unwrap()["act"]["token"].as_str().unwrap().to_string();
+        assert_eq!(hub.note_pane_status("p1", "waiting_input"), Some(Kind::WaitingInput));
+        let (_, d) = hub.plan(&waiting("p1", Some(command_prompt("same-hash"))), 1_000);
+        let (ta, tb) = (token(&d[0]), token(&d[1]));
+        // The user denied it at the PC; the pane runs on and later asks the identical question.
+        assert_eq!(hub.note_pane_status("p1", "running"), None);
+        assert_eq!(hub.redeem_grant(&ta, 2_000), Err("unknown_or_used_token"));
+        assert_eq!(hub.redeem_grant(&tb, 2_000), Err("unknown_or_used_token"));
+        // Another pane has its own grants, untouched by p1 leaving.
+        let (_, other) = hub.plan(&waiting("p2", Some(command_prompt("x"))), 1_000);
+        hub.note_pane_status("p1", "idle");
+        assert!(hub.redeem_grant(&token(&other[0]), 2_000).is_ok());
+    }
+
+    #[test]
+    fn redeeming_one_grant_drops_the_panes_other_grants() {
+        let hub = two_device_hub("redeem-siblings");
+        let token = |d: &Delivery| serde_json::from_slice::<Value>(&d.payload).unwrap()["act"]["token"].as_str().unwrap().to_string();
+        let (_, d) = hub.plan(&waiting("p1", Some(command_prompt("h"))), 1_000);
+        assert!(hub.redeem_grant(&token(&d[0]), 2_000).is_ok());
+        assert_eq!(hub.redeem_grant(&token(&d[1]), 2_001), Err("unknown_or_used_token"));
+    }
+
+    #[test]
+    fn a_prompt_held_back_while_visible_is_released_when_the_phone_goes_hidden_soon_after() {
+        let hub = two_device_hub("rearm");
+        hub.set_visible("dev-a", true, 1_000);
+        let (_, d) = hub.plan(&waiting("p1", Some(command_prompt("h"))), 2_000);
+        assert_eq!(d.iter().map(|x| x.device_id.as_str()).collect::<Vec<_>>(), ["dev-b"]);
+        let released = hub.set_visible("dev-a", false, 10_000).expect("released on hide");
+        assert_eq!(released.device_id, "dev-a");
+        assert_eq!(hub.take_outbox().len(), 1);
+        assert!(hub.take_outbox().is_empty());
+        assert!(hub.set_visible("dev-a", false, 11_000).is_none(), "only once");
+    }
+
+    #[test]
+    fn nothing_is_released_after_the_window_or_once_the_prompt_is_gone() {
+        let hub = two_device_hub("rearm-late");
+        hub.set_visible("dev-a", true, 1_000);
+        hub.plan(&waiting("p1", Some(command_prompt("h"))), 2_000);
+        assert!(hub.set_visible("dev-a", false, 2_000 + super::super::triggers::RATE_LIMIT_MS + 1).is_none(), "too late");
+        hub.set_visible("dev-a", true, 100_000);
+        hub.plan(&waiting("p2", Some(command_prompt("h2"))), 101_000);
+        hub.note_pane_status("p2", "waiting_input");
+        hub.note_pane_status("p2", "running"); // answered at the PC meanwhile
+        assert!(hub.set_visible("dev-a", false, 102_000).is_none(), "the prompt is gone");
     }
 
     #[test]
