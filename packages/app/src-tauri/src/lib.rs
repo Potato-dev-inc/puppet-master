@@ -34,6 +34,7 @@ mod pane_preview;
 mod loop_guard;
 mod panic;
 mod askbar;
+mod second_opinion;
 mod pane_prompt;
 mod prompt_risk;
 pub mod questions;
@@ -257,6 +258,11 @@ pub fn run() {
             commands::pane_worktree,
             commands::worktree_list,
             commands::worktree_diff,
+            commands::second_opinion_agents,
+            commands::second_opinion_start,
+            commands::second_opinion_poll,
+            commands::second_opinion_cancel,
+            commands::second_opinion_send,
             commands::worktree_merge,
             commands::worktree_discard,
             commands::pane_transcript,

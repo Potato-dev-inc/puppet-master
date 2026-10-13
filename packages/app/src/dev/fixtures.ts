@@ -1,6 +1,7 @@
 // Realistic example data answered by the mocked Tauri commands.
 import type { PaneInfo } from '../lib/tauri-types';
 import type { PanePrompt, PaneRunInfo, PaneTranscript } from '../lib/cockpit-api';
+import type { ReviewerEntry, ReviewPoll, ReviewStart } from '../lib/second-opinion';
 
 const now = Date.now();
 
@@ -479,4 +480,60 @@ export const EXAMPLE_DIGEST = {
     { paneId: PANE_CLAUDE, agent: 'Claude Code', status: 'waiting_input', prompt: 'Allow `npm test` in puppet-master?' },
     { paneId: PANE_PWSH, agent: 'PowerShell', status: 'error' },
   ],
+};
+
+// Second opinion: a reviewer's answer to the Claude pane's worktree changes (dev harness only).
+export const EXAMPLE_REVIEWERS: ReviewerEntry[] = [
+  { id: 'claude', label: 'Claude Code', ready: false, same: true },
+  { id: 'codex', label: 'Codex', ready: true, same: false },
+  { id: 'cursor_agent', label: 'Cursor Agent', ready: false, same: false },
+];
+
+export const EXAMPLE_REVIEW_START: ReviewStart = {
+  paneId: PANE_CLAUDE,
+  handle: 'review-1',
+  project: 'C:\Users\dev\work\puppet-master',
+  reviewer: 'codex',
+  reviewerLabel: 'Codex',
+  source: 'worktree',
+  sourceLabel: 'the worktree changes',
+  patch: EXAMPLE_WORKTREE_DIFF.patch,
+  patchTruncated: false,
+  files: 3,
+  additions: 14,
+  deletions: 3,
+  authorLabel: 'Claude Code',
+};
+
+export const EXAMPLE_REVIEW_POLL: ReviewPoll = {
+  state: 'done',
+  error: null,
+  review: {
+    verdict: { level: 'concerns', text: 'Two things to fix before merging.' },
+    unstructured: null,
+    findings: [
+      {
+        id: 'f1',
+        file: 'src/auth/session.ts',
+        line: 15,
+        severity: 'high',
+        text: 'audit.record can throw after the token is stored, leaving a session nobody got. Move it after the return value is safe.',
+      },
+      {
+        id: 'f2',
+        file: 'src/auth/session.ts',
+        line: 13,
+        severity: 'medium',
+        text: 'issueToken uses the clock passed in; a skewed clock gives tokens that expire at once.',
+      },
+      { id: 'f3', file: 'src/auth/token.ts', line: 1, severity: 'low', text: 'Only iat is set. Add an exp claim.' },
+      {
+        id: 'f4',
+        file: 'src/auth/middleware.ts',
+        line: 40,
+        severity: 'info',
+        text: 'Callers of legacyToken in middleware.ts were not updated.',
+      },
+    ],
+  },
 };

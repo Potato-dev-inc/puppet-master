@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { cockpitApi, type WorktreeDiff, type WorktreeItem } from '../../lib/cockpit-api';
 import { lineKind, plural, splitPatch, statusMark } from './diff';
+import { secondOpinionApi, type SecondOpinionApi } from '../../lib/second-opinion';
+import { AnnotatedDiff } from './AnnotatedDiff';
+import { anchorFindings } from './review-diff';
+import { sendToAuthor, useReviewRun } from './second-opinion-store';
 import '../../styles/cockpit-changes.css';
 
 /** The slice of the cockpit API this section needs (a test double can stand in for it). */
@@ -19,10 +23,13 @@ export function Changes({
   paneId,
   status,
   api = cockpitApi,
+  reviewApi = secondOpinionApi,
 }: {
   paneId: string;
   status: string;
   api?: ChangesApi;
+  /** Where "Send to <agent>" on a second-opinion note goes (a test double can stand in). */
+  reviewApi?: SecondOpinionApi;
 }) {
   const [item, setItem] = useState<WorktreeItem | null>(null);
   const [diff, setDiff] = useState<WorktreeDiff | null>(null);
@@ -31,6 +38,10 @@ export function Changes({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A finished second opinion on this worktree: its notes are pinned to the lines below.
+  const review = useReviewRun(paneId);
+  const reviewDone = review?.phase === 'done' && review.start?.source === 'worktree' ? review : null;
+  const reviewHandle = reviewDone?.start?.handle;
 
   const load = useCallback(() => {
     let cancelled = false;
@@ -62,12 +73,22 @@ export function Changes({
     return load();
   }, [load, status]);
 
+  // Open the first file with a note once per review, so the notes are in view when they arrive.
+  const openedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!reviewHandle || !diff || !reviewDone?.review || openedFor.current === reviewHandle) return;
+    openedFor.current = reviewHandle;
+    const first = [...anchorFindings(reviewDone.review.findings, splitPatch(diff.patch)).byFile.keys()][0];
+    if (first) setOpen(first);
+  }, [reviewHandle, diff, reviewDone]);
+
   if (!item) return notice ? <p className="ck-sub ck-pad">{notice}</p> : null;
 
   const files = diff?.changes.files ?? [];
   const bodies = diff ? splitPatch(diff.patch) : new Map<string, string[]>();
   const working = item.state === 'active';
   const total = diff?.changes;
+  const notes = reviewDone?.review ? anchorFindings(reviewDone.review.findings, bodies).byFile : null;
 
   const run = async (action: 'merge' | 'discard') => {
     setBusy(true);
@@ -132,21 +153,35 @@ export function Changes({
                 </span>
                 <span className="ck-changes-path">{f.path}</span>
                 <span className="ck-changes-counts">{f.binary ? 'binary' : `+${f.additions} −${f.deletions}`}</span>
+                {(notes?.get(f.path)?.length ?? 0) > 0 && (
+                  <span className="ck-changes-notes">{plural(notes?.get(f.path)?.length ?? 0, 'note')}</span>
+                )}
               </button>
-              {isOpen && (
-                <pre className="ck-diff" aria-label={`Diff of ${f.path}`}>
-                  {lines && lines.length > 0 ? (
-                    lines.map((line, i) => (
-                      <span key={i} className={`ck-diff-line ck-diff-${lineKind(line)}`}>
-                        {line || ' '}
+              {isOpen && reviewDone?.start ? (
+                <AnnotatedDiff
+                  file={f.path}
+                  lines={lines ?? []}
+                  findings={notes?.get(f.path) ?? []}
+                  agentLabel={reviewDone.start.authorLabel}
+                  onSend={(file, line, text) => sendToAuthor(paneId, file, line, text, reviewApi).then(() => undefined)}
+                  emptyText={diff?.patch_truncated ? 'Diff too large to show here.' : 'No textual changes.'}
+                />
+              ) : (
+                isOpen && (
+                  <pre className="ck-diff" aria-label={`Diff of ${f.path}`}>
+                    {lines && lines.length > 0 ? (
+                      lines.map((line, i) => (
+                        <span key={i} className={`ck-diff-line ck-diff-${lineKind(line)}`}>
+                          {line || ' '}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="ck-diff-line ck-diff-ctx">
+                        {diff?.patch_truncated ? 'Diff too large to show here.' : 'No textual changes.'}
                       </span>
-                    ))
-                  ) : (
-                    <span className="ck-diff-line ck-diff-ctx">
-                      {diff?.patch_truncated ? 'Diff too large to show here.' : 'No textual changes.'}
-                    </span>
-                  )}
-                </pre>
+                    )}
+                  </pre>
+                )
               )}
             </li>
           );

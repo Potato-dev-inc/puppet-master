@@ -506,3 +506,33 @@ fn turn_changes_is_empty_when_nothing_changed() {
     let none = engine::turn_changes(t.p(), "p1", 1_000).unwrap().expect("baseline exists");
     assert!(none.is_empty());
 }
+
+#[test]
+fn last_turn_patch_is_the_newest_after_against_where_that_turn_started() {
+    let t = Tmp::new("turnpatch");
+    t.write("a.txt", "one\ntwo\n");
+    assert!(engine::last_turn_patch(t.p(), "p1", 1 << 20).unwrap().is_none(), "never snapshotted");
+    snap(&t, "p1", Kind::Before, 1_000);
+    t.write("a.txt", "one\ntwo\nthree\n");
+    // Still running: no "after" yet.
+    assert!(engine::last_turn_patch(t.p(), "p1", 1 << 20).unwrap().is_none());
+    snap(&t, "p1", Kind::After, 20_000);
+    let one = engine::last_turn_patch(t.p(), "p1", 1 << 20).unwrap().expect("a finished turn");
+    assert!(one.patch.contains("diff --git a/a.txt b/a.txt") && one.patch.contains("+three"));
+    assert!(!one.truncated);
+
+    // Turn 2: its "before" is skipped (nothing changed since turn 1 ended) but the patch must be
+    // turn 2's change only.
+    assert!(matches!(engine::snapshot(t.p(), "p1", Kind::Before, None, 40_000, &limits()).unwrap(), Snapshot::Unchanged(_)));
+    t.write("b.txt", "new file\n");
+    snap(&t, "p1", Kind::After, 60_000);
+    let two = engine::last_turn_patch(t.p(), "p1", 1 << 20).unwrap().expect("a finished turn");
+    assert!(two.patch.contains("b/b.txt") && two.patch.contains("+new file"));
+    assert!(!two.patch.contains("a.txt"), "turn 1's change is not part of turn 2");
+
+    // The cap cuts and says so.
+    let cut = engine::last_turn_patch(t.p(), "p1", 20).unwrap().unwrap();
+    assert!(cut.truncated && cut.patch.len() <= 20);
+    // Another pane has none.
+    assert!(engine::last_turn_patch(t.p(), "p2", 1 << 20).unwrap().is_none());
+}

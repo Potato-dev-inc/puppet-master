@@ -166,6 +166,12 @@ impl Runtime {
         engine::turn_changes(&project, pane_id, started_at_ms)
     }
 
+    /// The unified diff of the pane's latest finished turn (`None` = no before/after pair).
+    pub fn last_turn_patch(&self, pane_id: &str, max_bytes: usize) -> Result<Option<engine::TurnPatch>, CheckpointError> {
+        let (project, _) = self.project_of(pane_id)?;
+        engine::last_turn_patch(&project, pane_id, max_bytes)
+    }
+
     /// Restore files to checkpoint `id`. Refused while the pane is running.
     pub fn restore(&self, pane_id: &str, id: &str) -> Result<RestoreReport, CheckpointError> {
         let (project, pane) = self.project_of(pane_id)?;

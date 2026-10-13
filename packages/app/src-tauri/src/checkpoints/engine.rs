@@ -496,6 +496,52 @@ pub fn turn_changes(project: &Path, pane: &str, started_at_ms: u64) -> Result<Op
     changes_between(&shadow, &before.tree, &after.tree).map(Some)
 }
 
+/// The patch of the newest finished turn of `pane`.
+#[derive(Debug, Clone)]
+pub struct TurnPatch {
+    pub turn: u32,
+    /// Unified diff of "before turn n" against "after turn n" (paths relative to the project).
+    pub patch: String,
+    /// Cut at `max_bytes`.
+    pub truncated: bool,
+}
+
+/// The unified diff of the latest finished turn: the newest "after" checkpoint against the
+/// newest "before" or "after" checkpoint taken earlier (the state the turn started from; a turn
+/// whose "before" was skipped because nothing had changed since the previous "after" starts there).
+/// `None` when there is no such pair (never snapshotted, the turn is still running, or nothing
+/// changed). Used by "Second opinion" to show a reviewer what the turn did.
+pub fn last_turn_patch(project: &Path, pane: &str, max_bytes: usize) -> Result<Option<TurnPatch>, CheckpointError> {
+    if !git_available() {
+        return Err(CheckpointError::GitMissing);
+    }
+    let shadow = Shadow::new(project);
+    if !shadow.exists() {
+        return Ok(None);
+    }
+    let items = list_in(&shadow, pane)?;
+    let Some(at) = items.iter().rposition(|c| c.kind == "after") else { return Ok(None) };
+    let after = &items[at];
+    let Some(before) = items[..at].iter().rev().find(|c| c.kind == "before" || c.kind == "after") else {
+        return Ok(None);
+    };
+    if before.tree == after.tree {
+        return Ok(None);
+    }
+    let turn = after.turn;
+    let out = shadow.run(&["diff", "--no-color", "--no-renames", "-U3", before.tree.as_str(), after.tree.as_str()], None, None, &[])?;
+    let mut patch = String::from_utf8_lossy(&out.stdout).into_owned();
+    let truncated = patch.len() > max_bytes;
+    if truncated {
+        let mut end = max_bytes;
+        while end > 0 && !patch.is_char_boundary(end) {
+            end -= 1;
+        }
+        patch.truncate(end);
+    }
+    Ok(Some(TurnPatch { turn, patch, truncated }))
+}
+
 fn name_status(shadow: &Shadow, from: &str, to: &str) -> Result<Vec<(char, String)>, CheckpointError> {
     let out = shadow.run(&["diff-tree", "-r", "-z", "--name-status", "--no-renames", from, to], None, None, &[])?;
     let parts: Vec<String> = out.stdout.split(|b| *b == 0).map(|p| String::from_utf8_lossy(p).to_string()).collect();

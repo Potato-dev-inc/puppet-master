@@ -14,6 +14,7 @@ import { IconClose, IconGlobe, IconCopy, IconMore, IconReflow, IconRename, IconS
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { formatElapsed, promptSummary, receiptRows, spinnerStatus, stateText } from './model';
 import { Changes } from './Changes';
+import { SecondOpinion } from './SecondOpinion';
 import { History } from './History';
 import { panesSharingFolder } from './history-model';
 import { RenameTitle } from './RenameTitle';
@@ -339,6 +340,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         {tab === 'receipt' && (
           <div className="ck-scroll ck-fade-in" key="receipt">
             <Changes paneId={paneId} status={pane?.status ?? ''} />
+            <SecondOpinion paneId={paneId} status={pane?.status ?? ''} />
             <LastTurn summary={lastTurn} now={c.now} />
             {run.error ? (
               <Empty title="Receipt unavailable" body={run.error} />

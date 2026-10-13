@@ -11,7 +11,7 @@ use super::runtime::{self, AgentRunView};
 
 /// The (project, handle) of the latest run bound to `pane_id`, searching the default project and
 /// the pane's own working directory (the same candidates `/agents/answer` uses).
-fn run_of_pane(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<(String, String)> {
+pub(crate) fn run_of_pane(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<(String, String)> {
     let (default_project, cwd) = {
         let guard = registry.lock();
         (guard.project_path.clone(), guard.panes.get(pane_id).map(|pane| pane.info.cwd.clone()))

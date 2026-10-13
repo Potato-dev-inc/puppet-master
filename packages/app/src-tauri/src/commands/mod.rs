@@ -27,6 +27,7 @@ mod accounts;
 mod questions;
 mod standby;
 mod worktrees;
+mod second_opinion;
 mod tunnel;
 mod toolbelt;
 
@@ -50,6 +51,7 @@ pub use accounts::*;
 pub use questions::*;
 pub use standby::*;
 pub use worktrees::*;
+pub use second_opinion::*;
 pub use tunnel::*;
 pub use toolbelt::*;
 
