@@ -1039,3 +1039,6 @@
     animation: none;
   }
 }
+.cockpit .ck-lastturn .ck-caption {
+  padding-left: 0;
+}
