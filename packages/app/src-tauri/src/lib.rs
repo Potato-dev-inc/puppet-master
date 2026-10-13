@@ -1,6 +1,7 @@
 #![recursion_limit = "512"]
 
 mod actors;
+mod ambient;
 mod agent_definitions_recorder;
 mod agent_adapters;
 mod agent_contexts;
@@ -164,6 +165,9 @@ pub fn run() {
             commands::get_ui_mode,
             commands::set_ui_mode,
             commands::open_cockpit,
+            commands::pane_set_title,
+            commands::ambient_get_prefs,
+            commands::ambient_set_animated_tray,
             commands::open_settings,
             commands::pane_prompt,
             commands::answer_pane_prompt,
@@ -303,6 +307,7 @@ pub fn run() {
             if let Err(e) = tray::init(app.handle()) {
                 tracing::warn!(error = %e, "tray icon failed to start");
             }
+            ambient::init(app.handle());
             standby::init(registry_for_panes.clone(), app.handle().clone());
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);

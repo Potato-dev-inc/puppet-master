@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, State};
 
 mod agent_models;
 mod agents;
+mod ambient;
 mod app;
 mod cockpit;
 mod coordination;
@@ -19,6 +20,7 @@ mod standby;
 
 pub use agent_models::*;
 pub use agents::*;
+pub use ambient::*;
 pub use app::*;
 pub use cockpit::*;
 pub use coordination::*;

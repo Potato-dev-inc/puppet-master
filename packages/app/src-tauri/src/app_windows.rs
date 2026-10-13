@@ -283,7 +283,7 @@ mod runtime {
     #[allow(clippy::too_many_arguments)]
     fn build_pane_window(app: &AppHandle, label: &str, pane_id: &str, agent: &str, cols: u16, rows: u16, focus: bool, warm: bool) {
         let (w, h) = pane_window_size(cols, rows);
-        let title = format!("{agent} \u{b7} {}", pane_id.chars().take(8).collect::<String>());
+        let title = crate::ambient::window_title(agent, pane_id, crate::ambient::store::get(pane_id).as_deref());
         let url = if warm { warm_pane_url(pane_id) } else { pane_url(pane_id) };
         let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
             .title(title)

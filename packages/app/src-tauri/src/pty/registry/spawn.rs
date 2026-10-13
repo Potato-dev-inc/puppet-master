@@ -202,6 +202,7 @@ pub fn spawn_pane(
         rows,
         viewer_held: false,
         reprints_on_resize: false,
+        title: None,
     };
 
     let pane = PaneState {

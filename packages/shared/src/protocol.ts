@@ -18,6 +18,8 @@ export const PaneInfoSchema = z.object({
   viewer_held: z.boolean().optional(),
   /** The agent reprints its whole conversation on every resize; viewers wipe scrollback at each one. */
   reprints_on_resize: z.boolean().optional(),
+  /** Human title (user name, else derived from the first task); absent until the pane has one. */
+  title: z.string().nullable().optional(),
 });
 export type PaneInfo = z.infer<typeof PaneInfoSchema>;
 
