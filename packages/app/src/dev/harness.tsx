@@ -59,6 +59,11 @@ export async function bootHarness(name: string): Promise<() => JSX.Element> {
   if (!scenario) return () => <UnknownScenario name={name} />;
 
   blockNetwork();
+  // Screenshots are taken under virtual time, so a CSS fade can be caught half way. Land every
+  // animation and transition on its final frame so the PNG shows the settled UI.
+  const settle = document.createElement('style');
+  settle.textContent = '*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition-duration:0s!important;transition-delay:0s!important}';
+  document.head.appendChild(settle);
   installTauriMock(scenario);
   const q = new URLSearchParams();
   if (scenario.route === 'settings') {
