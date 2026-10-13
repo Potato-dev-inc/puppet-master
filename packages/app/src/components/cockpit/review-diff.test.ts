@@ -5,6 +5,8 @@ import {
   matchFile,
   newLineNumbers,
   normalizePath,
+  reconcileVerdictText,
+  reviewHasConcerns,
   severityGlyph,
   severityLabel,
   type ReviewFinding,
@@ -126,5 +128,34 @@ describe('labels and follow-up text', () => {
   it('formats a follow-up with and without a line', () => {
     expect(formatFollowup('src/a.ts', 12, 'Null check missing')).toBe('src/a.ts:12 — Null check missing');
     expect(formatFollowup('src/a.ts', null, 'Split this file')).toBe('src/a.ts — Split this file');
+  });
+});
+
+describe('reconcileVerdictText', () => {
+  it('replaces a stated count that disagrees with the notes (Two things vs 4 notes)', () => {
+    expect(reconcileVerdictText('Two things to fix before merging.', 4)).toBe('4 notes below.');
+    expect(reconcileVerdictText('3 issues found', 1)).toBe('1 note below.');
+    expect(reconcileVerdictText('One gap.', 0)).toBe('One gap.'); // no noun, so no count claim
+    expect(reconcileVerdictText('Two things to fix.', 0)).toBe('No notes.');
+  });
+
+  it('keeps text whose count matches, or that counts nothing', () => {
+    expect(reconcileVerdictText('Two things to fix before merging.', 2)).toBe('Two things to fix before merging.');
+    expect(reconcileVerdictText('Looks good to me.', 5)).toBe('Looks good to me.');
+    expect(reconcileVerdictText('Fix the 3 failing tests first.', 1)).toBe('Fix the 3 failing tests first.');
+  });
+});
+
+describe('reviewHasConcerns', () => {
+  const f = (severity: string) => ({ severity });
+  it('follows the verdict when there is one', () => {
+    expect(reviewHasConcerns({ verdict: { level: 'concerns' }, findings: [] })).toBe(true);
+    expect(reviewHasConcerns({ verdict: { level: 'changes' }, findings: [] })).toBe(true);
+    expect(reviewHasConcerns({ verdict: { level: 'approve' }, findings: [f('high')] })).toBe(false);
+    expect(reviewHasConcerns(null)).toBe(false);
+  });
+  it('without a verdict, a high or medium note counts', () => {
+    expect(reviewHasConcerns({ verdict: null, findings: [f('low'), f('info')] })).toBe(false);
+    expect(reviewHasConcerns({ verdict: null, findings: [f('medium')] })).toBe(true);
   });
 });

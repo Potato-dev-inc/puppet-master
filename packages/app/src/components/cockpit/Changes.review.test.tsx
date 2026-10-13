@@ -174,6 +174,52 @@ describe('Changes with a second opinion of the worktree', () => {
   });
 });
 
+describe('Changes: the review comes before the decision', () => {
+  const marker = <section aria-label="Second opinion block">review</section>;
+
+  async function mountWithBlock(api: ChangesApi, reviewApi: SecondOpinionApi) {
+    await act(async () => {
+      root.render(<Changes paneId="p1" status="idle" api={api} reviewApi={reviewApi} secondOpinion={marker} />);
+    });
+    await act(async () => {});
+    await act(async () => {});
+  }
+
+  it('renders the Second opinion block above Merge and Discard', async () => {
+    await mountWithBlock(fakeApi(), fakeReviewApi());
+    const block = host.querySelector('[aria-label="Second opinion block"]')!;
+    const actions = host.querySelector('.ck-changes-actions')!;
+    expect(block.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows the block on its own when there is no worktree to merge', async () => {
+    const api = fakeApi({ paneWorktree: vi.fn().mockResolvedValue(null) });
+    await mountWithBlock(api, fakeReviewApi());
+    expect(host.querySelector('[aria-label="Second opinion block"]')).not.toBeNull();
+    expect(button('Merge')).toBeNull();
+  });
+
+  it('a review with concerns turns Merge into a secondary "Merge anyway"', async () => {
+    const reviewApi = fakeReviewApi(); // verdict: concerns
+    await finishReview(reviewApi);
+    await mount(fakeApi(), reviewApi);
+    expect(button('Merge')).toBeNull();
+    const merge = button('Merge anyway')!;
+    expect(merge.className).toContain('ck-btn--secondary');
+    expect(merge.className).not.toContain('ck-btn--primary');
+    await click(merge);
+    expect(host.querySelector('[role="alertdialog"]')?.textContent).toContain('Merge into main?');
+  });
+
+  it('a clean review (or none) keeps the primary Merge', async () => {
+    const approve = fakeReviewApi(WORKTREE_START, { findings: [], verdict: { level: 'approve', text: 'Looks fine.' }, unstructured: null });
+    await finishReview(approve);
+    await mount(fakeApi(), approve);
+    expect(button('Merge')?.className).toContain('ck-btn--primary');
+    expect(button('Merge anyway')).toBeNull();
+  });
+});
+
 describe('Changes without an annotating review', () => {
   it('a checkpoint review does not annotate Changes: the diff stays plain and carries no notes', async () => {
     const reviewApi = fakeReviewApi({ ...WORKTREE_START, source: 'checkpoint', sourceLabel: 'the last turn' });
