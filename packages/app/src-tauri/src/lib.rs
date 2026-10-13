@@ -56,6 +56,7 @@ mod tunnel_auth_tests;
 mod session_context;
 mod secrets;
 mod settings_store;
+mod settings_patch;
 mod shell_env;
 mod startup_timing;
 pub mod shell_exec;
@@ -227,6 +228,7 @@ pub fn run() {
             commands::memory_global_enabled,
             commands::memory_set_global_enabled,
             commands::open_settings,
+            settings_patch::settings_patch,
             commands::pane_prompt,
             commands::answer_pane_prompt,
             commands::checkpoints_list,

@@ -16,7 +16,7 @@ vi.mock('./settings', () => ({
     mobile_keyboard_resizes_agent: false,
     dev_server_port: 1420,
   })),
-  saveSettings: vi.fn(async () => {}),
+  patchSettings: vi.fn(async () => ({})),
 }));
 
 describe('orchestrator-provider-sync', () => {
@@ -51,14 +51,9 @@ describe('orchestrator-provider-sync', () => {
         backend: 'opencode_cli',
       });
       expect(result.backend).toBe('opencode_cli');
-      const { saveSettings } = await import('./settings');
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          orchestrator_backend: 'opencode_cli',
-          default_provider: 'anthropic',
-          default_model: 'claude-sonnet-4-6',
-        }),
-      );
+      const { patchSettings } = await import('./settings');
+      // Only the changed key is written; the rest of the settings are never sent back.
+      expect(patchSettings).toHaveBeenCalledWith({ orchestrator_backend: 'opencode_cli' });
     });
   });
 

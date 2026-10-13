@@ -1,10 +1,10 @@
 import type { HarnessScenario } from '../types';
 
-// Settings > Mobile PWA with a stable named tunnel; clicks "Test connection" to show the result.
+// Settings > Phone with a stable named tunnel; clicks "Test connection" to show the result.
 const s: HarnessScenario = {
   name: 'settings-mobile',
   route: 'settings',
-  settingsTab: 'mobile',
+  settingsTab: 'phone',
   after: async (api) => {
     await api.waitFor('section[aria-label="Public address"]');
     await api.sleep(300);

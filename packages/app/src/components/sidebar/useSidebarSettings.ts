@@ -2,7 +2,7 @@
 // kept in sync with the settings store and the "settings changed" desktop event.
 import { useCallback, useEffect, useState } from 'react';
 import { DEFAULT_LLM_MODELS, type LlmModel, type OrchestratorBackend } from '@puppet-master/shared';
-import { findModel, invalidateSettingsCache, listModels, loadSettings, saveSettings } from '../../lib/settings';
+import { findModel, invalidateSettingsCache, listModels, loadSettings, patchSettings } from '../../lib/settings';
 import { tauri } from '../../lib/tauri';
 
 export function useSidebarSettings(settingsRevision: number) {
@@ -46,21 +46,18 @@ export function useSidebarSettings(settingsRevision: number) {
 
   const changeBackend = useCallback(async (next: OrchestratorBackend) => {
     setBackend(next);
-    const s = await loadSettings();
-    await saveSettings({ ...s, orchestrator_backend: next });
+    await patchSettings({ orchestrator_backend: next });
   }, []);
 
   const changeModel = useCallback(async (next: LlmModel) => {
     setModel(next);
-    const s = await loadSettings();
-    await saveSettings({ ...s, default_provider: next.provider, default_model: next.model_id });
+    await patchSettings({ default_provider: next.provider, default_model: next.model_id });
   }, []);
 
   const toggleTheme = useCallback(async () => {
     const next = theme === 'dark' ? 'light' : 'dark';
     setTheme(next);
-    const current = await loadSettings();
-    await saveSettings({ ...current, theme: next });
+    await patchSettings({ theme: next });
   }, [theme]);
 
   return { model, availableModels, backend, theme, changeBackend, changeModel, toggleTheme };

@@ -19,6 +19,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "confirm_close_running_pane",
     "checkpoints_enabled",
     "checkpoints_keep",
+    "away_minutes",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -36,6 +37,7 @@ pub fn default_public_settings() -> Value {
         "confirm_close_running_pane": true,
         "checkpoints_enabled": true,
         "checkpoints_keep": 50,
+        "away_minutes": 5,
     })
 }
 
@@ -66,15 +68,14 @@ pub fn read_public_settings(app: &AppHandle) -> Value {
         .unwrap_or_else(default_public_settings)
 }
 
-pub fn patch_public_settings(app: &AppHandle, patch: Value) -> Value {
+/// Merge `patch` into the public mirror (bridge state + mobile SSE) without any window event.
+/// `settings_patch` uses this and emits its own `settings://changed`.
+pub fn mirror_public_patch(app: &AppHandle, patch: &Value) -> Value {
     let current = read_public_settings(app);
-    let merged = merge_public_settings(&current, &patch);
+    let merged = merge_public_settings(&current, patch);
     if let Some(state) = app.try_state::<AppState>() {
         *state.public_settings.lock() = merged.clone();
     }
-
-    let _ = app.emit("settings://apply", patch);
-    let _ = app.emit("settings://changed", merged.clone());
     crate::bridge::push_settings_sse(&merged);
 
     if let Some(backend) = merged.get("orchestrator_backend").and_then(Value::as_str) {
@@ -83,6 +84,13 @@ pub fn patch_public_settings(app: &AppHandle, patch: Value) -> Value {
         }
     }
 
+    merged
+}
+
+pub fn patch_public_settings(app: &AppHandle, patch: Value) -> Value {
+    let merged = mirror_public_patch(app, &patch);
+    let _ = app.emit("settings://apply", patch);
+    let _ = app.emit("settings://changed", merged.clone());
     merged
 }
 

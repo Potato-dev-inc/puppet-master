@@ -1,4 +1,4 @@
-// Standalone Settings window (label "settings"): the existing Settings UI rendered full-window.
+// Standalone Settings window (label "settings"): the Settings panel rendered full-window.
 // Closing it closes only this window; the Rust side hides it and the app keeps running in the tray.
 // There is no main window, so the update check (and its banner) lives here.
 import { useMemo } from 'react';

@@ -6,7 +6,8 @@ import { usePaneRegistry, type PaneRegistryApi } from './usePaneRegistry';
 import { paneMenuEntries, useAgentRegistry, agentLabel, type LaunchEntry } from '../lib/agentRegistry';
 import { usePanePreviews, type PreviewMap } from '../lib/pane-preview';
 import { cockpitApi, type PanePrompt, type SpawnStageEvent, type UiMode } from '../lib/cockpit-api';
-import { applyTheme, loadSettings, saveSettings, type AppTheme } from '../lib/settings';
+import { applyTheme, loadSettings, patchSettings, type AppTheme } from '../lib/settings';
+import { subscribeSettingsTheme } from '../lib/settings-sync';
 import { tauri } from '../lib/tauri';
 import { useBridge } from './useBridge';
 import { useQuestions, type QuestionsApi } from './useQuestions';
@@ -149,9 +150,15 @@ export function useCockpit(): CockpitApi {
         applyTheme(s.theme ?? 'dark');
       })
       .catch(() => {});
+    // A theme chosen in Settings (or any other window) applies here at once.
+    const offTheme = subscribeSettingsTheme((next) => {
+      setTheme(next);
+      applyTheme(next);
+    });
     return () => {
       disposed = true;
       off?.();
+      offTheme();
     };
   }, []);
 
@@ -304,8 +311,7 @@ export function useCockpit(): CockpitApi {
     setTheme(next);
     applyTheme(next);
     try {
-      const s = await loadSettings();
-      await saveSettings({ ...s, theme: next });
+      await patchSettings({ theme: next });
     } catch (err) {
       notify(`Theme not saved: ${errText(err)}`);
     }

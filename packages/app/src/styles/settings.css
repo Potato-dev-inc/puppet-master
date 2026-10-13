@@ -1,0 +1,616 @@
+/* Settings window. macOS System Settings look in the monochrome tokens of mockups/ui-proposal/STYLE.md.
+   Everything is scoped under .settings. Grayscale only: no hue, no badges, no gradients. */
+
+.settings {
+  --window: #0a0a0b;
+  --bg-side: #111112;
+  --list: #18181a;
+  --fill: rgba(255, 255, 255, 0.05);
+  --fill-hover: rgba(255, 255, 255, 0.08);
+  --fill-active: rgba(255, 255, 255, 0.12);
+  --sep: rgba(255, 255, 255, 0.08);
+  --label: #f5f5f7;
+  --label-2: rgba(245, 245, 247, 0.64);
+  --label-3: rgba(245, 245, 247, 0.4);
+  --label-4: rgba(245, 245, 247, 0.22);
+  --primary-bg: #f5f5f7;
+  --primary-fg: #0a0a0b;
+  --focus: 0 0 0 3px rgba(245, 245, 247, 0.28);
+  --raise-hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --float-bg: rgba(28, 28, 30, 0.82);
+  --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI Variable Text', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+  /* The older Tailwind blocks inside rows (agent definitions, toolbelt, pairing) read these. */
+  --pm-bg: 10 10 11;
+  --pm-panel: 30 30 32;
+  --pm-raised: 36 36 38;
+  --pm-border: 52 52 56;
+  --pm-accent: 245 245 247;
+  --pm-text: 245 245 247;
+  --pm-muted: 150 150 156;
+  --pm-ok: 214 214 214;
+  --pm-warn: 180 180 180;
+  --pm-err: 245 245 247;
+}
+
+[data-theme='light'] .settings {
+  --window: #f5f5f7;
+  --bg-side: #ececef;
+  --list: #ffffff;
+  --fill: rgba(0, 0, 0, 0.04);
+  --fill-hover: rgba(0, 0, 0, 0.06);
+  --fill-active: rgba(0, 0, 0, 0.09);
+  --sep: rgba(0, 0, 0, 0.09);
+  --label: #1d1d1f;
+  --label-2: rgba(29, 29, 31, 0.64);
+  --label-3: rgba(29, 29, 31, 0.5);
+  --label-4: rgba(29, 29, 31, 0.28);
+  --primary-bg: #1d1d1f;
+  --primary-fg: #ffffff;
+  --focus: 0 0 0 3px rgba(0, 0, 0, 0.18);
+  --raise-hi: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --float-bg: rgba(250, 250, 252, 0.86);
+  --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.14);
+  --pm-bg: 255 255 255;
+  --pm-panel: 245 245 247;
+  --pm-raised: 250 250 252;
+  --pm-border: 218 218 222;
+  --pm-accent: 29 29 31;
+  --pm-text: 29 29 31;
+  --pm-muted: 110 110 115;
+  --pm-ok: 56 56 56;
+  --pm-warn: 86 86 86;
+  --pm-err: 29 29 31;
+}
+
+.settings {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  background: var(--window);
+  color: var(--label);
+  font-family: var(--font-ui);
+  font-feature-settings: 'cv11', 'ss01';
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+.settings *,
+.settings *::before,
+.settings *::after {
+  box-sizing: border-box;
+}
+/* :where() keeps these resets at zero specificity so the Tailwind classes on older blocks still win. */
+:where(.settings) button {
+  font: inherit;
+  color: inherit;
+  cursor: default;
+}
+.settings button:focus-visible,
+.settings input:focus-visible,
+.settings select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+/* ---------- sidebar ---------- */
+.settings .st-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-side);
+  border-right: 1px solid var(--sep);
+}
+.settings .st-side-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px 8px;
+}
+.settings .st-back {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: none;
+  border: 0;
+  color: var(--label-2);
+  transition: background-color 160ms var(--ease), color 160ms var(--ease);
+}
+.settings .st-back:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.settings .st-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label-3);
+}
+.settings .st-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  color: var(--label);
+  font: inherit;
+}
+.settings .st-search input::placeholder {
+  color: var(--label-3);
+}
+.settings .st-search:focus-within {
+  box-shadow: var(--focus);
+}
+.settings .st-nav {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.settings .st-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--label-2);
+  text-align: left;
+  font-weight: 500;
+  transition: background-color 160ms var(--ease), color 160ms var(--ease);
+}
+.settings .st-nav-row:hover {
+  background: var(--fill);
+  color: var(--label);
+}
+.settings .st-nav-row[aria-current='page'] {
+  background: var(--fill-active);
+  color: var(--label);
+}
+.settings .st-side-foot {
+  padding: 8px 10px 12px;
+  border-top: 1px solid var(--sep);
+}
+.settings .st-side-foot .st-nav-row {
+  color: var(--label-3);
+  font-weight: 400;
+}
+
+/* ---------- main ---------- */
+.settings .st-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.settings .st-title {
+  flex: none;
+  padding: 22px max(32px, calc((100% - 680px) / 2)) 10px;
+}
+.settings .st-title h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.settings .st-title p {
+  margin: 2px 0 0;
+  color: var(--label-3);
+}
+.settings .st-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px max(32px, calc((100% - 680px) / 2)) 40px;
+}
+.settings .st-page {
+  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.settings .st-group h2,
+.settings .st-results h2 {
+  margin: 0 0 6px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label-2);
+}
+.settings .st-results > section + section {
+  margin-top: 22px;
+}
+.settings .st-empty {
+  margin: 8px 4px;
+  color: var(--label-3);
+}
+
+/* ---------- grouped inset list ---------- */
+.settings .st-list {
+  border-radius: 10px;
+  background: var(--list);
+  box-shadow: var(--raise-hi);
+  border: 1px solid var(--sep);
+  overflow: hidden;
+}
+.settings .st-rowwrap {
+  position: relative;
+}
+.settings .st-rowwrap + .st-rowwrap,
+.settings .st-rowwrap > .st-row + .st-row {
+  border-top: 1px solid var(--sep);
+}
+/* A row that rendered nothing (for example Accounts without the desktop shell) leaves no line behind. */
+.settings .st-rowwrap:not(:has(> .st-row)):not(:has(> section)) {
+  display: none;
+}
+/* A whole group whose rows all rendered nothing (Accounts outside the desktop shell) hides with its heading. */
+.settings .st-group:not(:has(.st-rowwrap > .st-row, .st-rowwrap > section)) {
+  display: none;
+}
+/* Older blocks size their text in Tailwind steps; keep them on the window's 13/11 scale. */
+.settings .text-sm {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.settings .leading-6 {
+  line-height: 1.5;
+}
+/* Older self-contained sections (Toolbelt, Public address) were cards: here they are plain rows. */
+.settings .st-rowwrap > section.rounded-xl {
+  margin: 0;
+  padding: 10px 14px 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.settings .st-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 40px;
+  padding: 8px 14px;
+}
+.settings .st-row.is-block {
+  display: block;
+  padding: 10px 14px 12px;
+}
+.settings .st-label {
+  flex: 1;
+  min-width: 0;
+}
+.settings .st-label span {
+  display: block;
+}
+.settings .st-label small {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--label-3);
+}
+.settings .st-control {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 55%;
+}
+.settings .st-body {
+  margin-top: 10px;
+}
+.settings .st-value {
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.settings .st-saved {
+  position: absolute;
+  top: 3px;
+  right: 14px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--label-3);
+  opacity: 0;
+  transition: opacity 280ms var(--ease);
+  pointer-events: none;
+}
+.settings .st-saved.is-on {
+  opacity: 1;
+}
+.settings .st-rowerr {
+  margin: 0;
+  padding: 0 14px 10px;
+  font-size: 11px;
+  color: var(--label);
+}
+.settings .st-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--label-3);
+}
+.settings .st-field-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--label-3);
+}
+
+/* ---------- controls ---------- */
+.settings .st-switch {
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill-active);
+  transition: background-color 160ms var(--ease);
+}
+.settings .st-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--label);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 160ms var(--ease), background-color 160ms var(--ease);
+}
+.settings .st-switch.is-on {
+  background: var(--label);
+}
+.settings .st-switch.is-on i {
+  background: var(--window);
+  transform: translateX(16px);
+}
+.settings .st-switch:disabled {
+  opacity: 0.4;
+}
+.settings .st-popup,
+.settings .st-field {
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background-color: var(--fill);
+  color: var(--label);
+  font: inherit;
+  transition: background-color 160ms var(--ease);
+}
+.settings .st-popup {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 22px;
+  max-width: 260px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14' fill='none' stroke='%23999' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5.5L5 2.5L8 5.5M2 8.5L5 11.5L8 8.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+}
+.settings input[type='checkbox'],
+.settings input[type='radio'] {
+  accent-color: var(--label);
+}
+/* Every select in the window (including the older blocks') is a popup button. */
+.settings select:not(.st-popup) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 24px;
+  border-color: transparent;
+  background-color: var(--fill);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14' fill='none' stroke='%23999' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5.5L5 2.5L8 5.5M2 8.5L5 11.5L8 8.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  color: var(--label);
+}
+.settings .st-popup:hover,
+.settings .st-field:hover {
+  background-color: var(--fill-hover);
+}
+.settings .st-popup option {
+  background: var(--list);
+  color: var(--label);
+}
+.settings .st-field {
+  width: 100%;
+  min-width: 0;
+}
+.settings .st-field::placeholder {
+  color: var(--label-3);
+}
+.settings .st-field.is-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.settings .st-field:disabled,
+.settings .st-popup:disabled {
+  opacity: 0.45;
+}
+.settings .st-control .st-field {
+  width: 220px;
+}
+.settings .st-control .st-field.is-number {
+  width: 76px;
+  text-align: right;
+}
+.settings .st-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings .st-suffix {
+  color: var(--label-3);
+}
+.settings .st-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 160ms var(--ease), transform 160ms var(--ease);
+}
+.settings .st-btn:hover {
+  background: var(--fill-hover);
+}
+.settings .st-btn:active {
+  transform: scale(0.97);
+}
+.settings .st-btn.is-primary {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+.settings .st-btn.is-small {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.settings .st-btn:disabled {
+  opacity: 0.45;
+}
+.settings .st-code {
+  position: relative;
+}
+.settings .st-code .st-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+.settings .st-code pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label-2);
+  font: 12px/1.6 var(--font-mono);
+}
+
+/* ---------- confirm sheet ---------- */
+.settings .st-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.32);
+  animation: st-fade 200ms var(--ease);
+}
+.settings .st-sheet {
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--float-bg);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--sep);
+  box-shadow: var(--float-shadow);
+  animation: st-pop 280ms var(--ease-sheet);
+}
+.settings .st-sheet h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings .st-sheet p {
+  margin: 0;
+  color: var(--label-2);
+}
+.settings .st-sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+@keyframes st-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes st-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+/* ---------- loading ---------- */
+.settings .st-skel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 14px;
+}
+.settings .st-skel span {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--fill);
+  animation: st-pulse 1.4s ease-in-out infinite;
+}
+@keyframes st-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* ---------- older blocks inside rows (Tailwind): same shape language ---------- */
+.settings .st-body .rounded-lg,
+.settings .st-body .rounded-xl,
+.settings .st-body .rounded {
+  border-radius: 8px;
+}
+.settings .st-body input:not([type='checkbox']),
+.settings .st-body select,
+.settings .st-body textarea {
+  color: var(--label);
+}
+.settings .st-body button.rounded-lg,
+.settings .st-body button.rounded {
+  background: var(--fill);
+  border-color: transparent;
+}
+.settings .st-body button.rounded-lg:hover,
+.settings .st-body button.rounded:hover {
+  background: var(--fill-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings *,
+  .settings *::before,
+  .settings *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -56,7 +56,6 @@ export function AccountsGroup({ api = tauriAccountsApi }: { api?: AccountsApi })
     <SettingBlock
       label="Accounts"
       description="Use the same agent with more than one login, and pick one per pane. Each account is a folder you control; Puppet Master only points the agent at it and never reads or shares what is inside. Check your provider's terms before using several accounts."
-      implemented
     >
       {error && (
         <p role="alert" className="mb-3 text-sm text-pm-muted">

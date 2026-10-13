@@ -8,7 +8,7 @@ import { HomeDashboard } from './components/HomeDashboard';
 import { usePaneRegistry } from './hooks/usePaneRegistry';
 import { useProjectPath } from './hooks/useProjectPath';
 import { useBridge } from './hooks/useBridge';
-import { clampSidebarWidth, loadSettings, saveSettings, syncPublicSettingsToBridge } from './lib/settings';
+import { clampSidebarWidth, loadSettings, patchSettings, syncPublicSettingsToBridge } from './lib/settings';
 import {
   applyRemoteOrchestratorProviderPatch,
   publicSettingsToProviderPatch,
@@ -101,15 +101,10 @@ export default function App() {
         }
 
         if (typeof patch.mobile_input_delay_ms === 'number' || typeof patch.mobile_input_visible === 'boolean') {
-          const current = await loadSettings();
-          const merged = { ...current };
-          if (typeof patch.mobile_input_delay_ms === 'number') {
-            merged.mobile_input_delay_ms = patch.mobile_input_delay_ms;
-          }
-          if (typeof patch.mobile_input_visible === 'boolean') {
-            merged.mobile_input_visible = patch.mobile_input_visible;
-          }
-          await saveSettings(merged);
+          const changed: { mobile_input_delay_ms?: number; mobile_input_visible?: boolean } = {};
+          if (typeof patch.mobile_input_delay_ms === 'number') changed.mobile_input_delay_ms = patch.mobile_input_delay_ms;
+          if (typeof patch.mobile_input_visible === 'boolean') changed.mobile_input_visible = patch.mobile_input_visible;
+          await patchSettings(changed);
         }
 
         bumpSettings();
@@ -205,7 +200,7 @@ export default function App() {
                   const delta = startX - moveEvent.clientX;
                   const next = clampSidebarWidth(startWidth + delta);
                   setSidebarWidth(next);
-                  void loadSettings().then((current) => saveSettings({ ...current, sidebar_width: next }));
+                  void patchSettings({ sidebar_width: next });
                 };
                 const up = (upEvent: globalThis.PointerEvent) => {
                   target.releasePointerCapture(upEvent.pointerId);
@@ -238,8 +233,6 @@ export default function App() {
         onSaved={bumpSettings}
         projectPath={projectPath}
         onProjectPathChange={setProjectPath}
-        onSidebarWidthChange={setSidebarWidth}
-        currentSidebarWidth={sidebarWidth}
         onCheckForUpdates={() => void appUpdate.refresh()}
         updateCheck={appUpdate.result}
         updateChecking={appUpdate.checking}

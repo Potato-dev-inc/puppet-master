@@ -13,6 +13,7 @@ import { tauri } from './lib/tauri';
 import { detachedWindowSizeFromGrid, openDetachedPaneWindow } from './lib/detached-pane-window';
 import { detachedCloseAction } from './lib/detached-close';
 import { applyTheme, loadSettings } from './lib/settings';
+import { subscribeSettingsTheme } from './lib/settings-sync';
 import { ClosePaneConfirm } from './components/ClosePaneConfirm';
 import { TerminalViewport } from './components/TerminalViewport';
 import { WorkerOpenCodeAuthPanel } from './components/WorkerOpenCodeAuthPanel';
@@ -93,8 +94,10 @@ export default function TerminalApp() {
       .catch(() => {
         /* keep the default theme */
       });
+    const offTheme = subscribeSettingsTheme((next) => applyTheme(next));
     return () => {
       cancelled = true;
+      offTheme();
     };
   }, []);
 

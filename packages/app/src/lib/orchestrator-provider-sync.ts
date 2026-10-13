@@ -1,6 +1,6 @@
 import type { LlmProvider, OrchestratorBackend } from '@puppet-master/shared';
 import type { BridgeClient } from './bridge';
-import { loadSettings, saveSettings } from './settings';
+import { loadSettings, patchSettings } from './settings';
 
 /**
  * The orchestrator "provider" state that must stay in sync between the desktop
@@ -19,7 +19,7 @@ export interface OrchestratorProvider {
  * over the bridge SSE stream) to the desktop settings store.
  *
  * This also re-broadcasts the updated public settings back over the bridge SSE
- * stream via `saveSettings`, so every connected client — including the mobile
+ * stream via `patchSettings`, so every connected client — including the mobile
  * PWA that sent the change — stays in sync.
  */
 export async function applyRemoteOrchestratorProviderPatch(
@@ -38,7 +38,11 @@ export async function applyRemoteOrchestratorProviderPatch(
     next.default_model = patch.model;
   }
 
-  await saveSettings(next);
+  const changed: Record<string, string> = {};
+  if (patch.backend) changed.orchestrator_backend = patch.backend;
+  if (patch.provider) changed.default_provider = patch.provider;
+  if (patch.model) changed.default_model = patch.model;
+  if (Object.keys(changed).length > 0) await patchSettings(changed);
 
   return {
     backend: next.orchestrator_backend,

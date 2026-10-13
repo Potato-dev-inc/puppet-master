@@ -56,6 +56,20 @@ async function type(input: HTMLInputElement, value: string) {
   });
 }
 
+async function blur(input: HTMLInputElement) {
+  await act(async () => {
+    input.focus();
+    input.blur();
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+  });
+}
+
+async function pressEnter(input: HTMLInputElement) {
+  await act(async () => {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+}
+
 beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -79,14 +93,66 @@ describe('ApiKeyField', () => {
     expect(button('Remove')).toBeTruthy();
   });
 
-  it('saves a new key through the store, then shows it masked', async () => {
+  it('saves a new key through the store on blur, then shows it masked', async () => {
     const api = mockApi(SECURE, { set: false, last4: null });
-    await render(<ApiKeyField label="Anthropic API key" name="anthropic_api_key" placeholder="sk-ant" api={api} />);
-    await type(host.querySelector('input')!, FULL_KEY);
-    await click(button('Save'));
-    expect(api.set).toHaveBeenCalledWith('anthropic_api_key', FULL_KEY);
+    const onSaved = vi.fn();
+    await render(<ApiKeyField label="Anthropic API key" name="anthropic_api_key" placeholder="sk-ant" api={api} onSaved={onSaved} />);
+    expect(button('Save')).toBeUndefined();
+    const input = host.querySelector<HTMLInputElement>('input')!;
+    await type(input, FULL_KEY);
+    expect(api.set).not.toHaveBeenCalled(); // nothing is saved while typing
+    await blur(input);
+    expect(api.set).toHaveBeenCalledExactlyOnceWith('anthropic_api_key', FULL_KEY);
     expect(host.querySelector('[data-testid="key-state"]')!.textContent).toContain('WXYZ');
     expect(host.textContent).not.toContain('abcdefghijklmnop');
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves on Enter, and a blur afterwards does not save the same key twice', async () => {
+    const api = mockApi(SECURE, { set: false, last4: null });
+    await render(<ApiKeyField label="K" name="openai_api_key" placeholder="sk" api={api} />);
+    const input = host.querySelector<HTMLInputElement>('input')!;
+    await type(input, FULL_KEY);
+    await pressEnter(input);
+    await blur(input);
+    expect(api.set).toHaveBeenCalledTimes(1);
+  });
+
+  it('a blur with an empty field saves nothing', async () => {
+    const api = mockApi(SECURE, { set: false, last4: null });
+    await render(<ApiKeyField label="K" name="openai_api_key" placeholder="sk" api={api} />);
+    await blur(host.querySelector<HTMLInputElement>('input')!);
+    expect(api.set).not.toHaveBeenCalled();
+  });
+
+  it('Remove asks first when asked, and keeps the key when the person says no', async () => {
+    const api = mockApi(SECURE, { set: true, last4: 'WXYZ' });
+    const onConfirmRemove = vi.fn(async () => false);
+    await render(<ApiKeyField label="K" name="openai_api_key" placeholder="sk" api={api} onConfirmRemove={onConfirmRemove} />);
+    await click(button('Remove'));
+    expect(onConfirmRemove).toHaveBeenCalledTimes(1);
+    expect(api.remove).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="key-state"]')!.textContent).toContain('WXYZ');
+  });
+
+  it('Remove deletes the stored key once the person confirms', async () => {
+    const api = mockApi(SECURE, { set: true, last4: 'WXYZ' });
+    const onSaved = vi.fn();
+    await render(<ApiKeyField label="K" name="openai_api_key" placeholder="sk" api={api} onConfirmRemove={async () => true} onSaved={onSaved} />);
+    await click(button('Remove'));
+    expect(api.remove).toHaveBeenCalledWith('openai_api_key');
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it('Cancel while replacing discards what was typed without saving it', async () => {
+    const api = mockApi(SECURE, { set: true, last4: 'WXYZ' });
+    await render(<ApiKeyField label="K" name="openai_api_key" placeholder="sk" api={api} />);
+    await click(button('Replace'));
+    await type(host.querySelector<HTMLInputElement>('input')!, FULL_KEY);
+    await click(button('Cancel'));
+    expect(api.set).not.toHaveBeenCalled();
+    expect(button('Save')).toBeUndefined();
+    expect(host.querySelector('[data-testid="key-state"]')!.textContent).toContain('WXYZ');
   });
 
   it('Replace opens an empty field and Remove deletes the stored key', async () => {
