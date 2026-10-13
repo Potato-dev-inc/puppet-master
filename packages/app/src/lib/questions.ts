@@ -34,3 +34,19 @@ export function askerName(q: Question, paneName?: string): string {
 export function isLive(q: Question, now: number): boolean {
   return q.state === 'pending' && q.expires_at_ms > now;
 }
+
+/** "8 min", "under a minute", "2 h": a short, rounded-up time left. */
+export function timeLeftText(ms: number): string {
+  if (ms <= 60_000) return 'under a minute';
+  const minutes = Math.ceil(ms / 60_000);
+  if (minutes <= 90) return `${minutes} min`;
+  return `${Math.round(minutes / 60)} h`;
+}
+
+/** "Claude Code stops waiting in 8 min": how long the asking agent will still wait for an answer. */
+export function waitCaption(q: Question, now: number, paneName?: string): string {
+  const who = q.agent?.trim() || paneName || 'The agent';
+  const left = q.expires_at_ms - now;
+  if (left <= 0) return `${who} has stopped waiting`;
+  return `${who} stops waiting in ${timeLeftText(left)}`;
+}

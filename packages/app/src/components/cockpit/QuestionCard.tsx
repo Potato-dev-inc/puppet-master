@@ -1,7 +1,7 @@
 // One `ask_user` question in the Inbox: the agent's question, its choices as buttons, a text field
 // when free text is allowed, and Dismiss. Rendered like a prompt card, marked "Question from <agent>".
 import { useState } from 'react';
-import { askerName, type Question, type QuestionAnswer } from '../../lib/questions';
+import { askerName, waitCaption, type Question, type QuestionAnswer } from '../../lib/questions';
 import '../../styles/cockpit-questions.css';
 import { DotSpinner } from './DotSpinner';
 import { formatElapsed } from './model';
@@ -43,11 +43,12 @@ export function QuestionCard({
       {q.context && <p className="ck-q-ctx">{q.context}</p>}
       {q.choices.length > 0 && (
         <div className="ck-inbox-actions">
-          {q.choices.map((c, i) => (
+          {/* Equal weight on purpose: the agent wrote the choices, so none is made the easy default. */}
+          {q.choices.map((c) => (
             <button
               key={c.id}
               type="button"
-              className={`ck-btn ${i === 0 ? 'ck-btn--primary' : 'ck-btn--secondary'}`}
+              className="ck-btn ck-btn--secondary"
               onClick={() => onAnswer({ choice_id: c.id })}
             >
               {c.label}
@@ -55,6 +56,9 @@ export function QuestionCard({
           ))}
         </div>
       )}
+      <p className="ck-q-wait" data-testid="question-wait">
+        {waitCaption(q, now, paneName)}
+      </p>
       {q.allow_free_text && (
         <form
           className="ck-q-field"
