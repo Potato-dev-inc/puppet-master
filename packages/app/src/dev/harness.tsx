@@ -1,7 +1,9 @@
 // Dev-only UI evidence harness: `?harness=<scenario>` renders the real cockpit/settings UI in a
 // plain browser with Tauri mocked. Imported only behind `import.meta.env.DEV` (see main.tsx).
 import CockpitApp from '../CockpitApp';
+import PwaApp from '../PwaApp';
 import SettingsApp from '../SettingsApp';
+import { installMockBridge } from './mock-bridge';
 import { blockNetwork } from './block-network';
 import { installTauriMock } from './mock-tauri';
 import { scenarios } from './scenarios';
@@ -64,9 +66,15 @@ export async function bootHarness(name: string): Promise<() => JSX.Element> {
   const settle = document.createElement('style');
   settle.textContent = '*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition-duration:0s!important;transition-delay:0s!important}';
   document.head.appendChild(settle);
-  installTauriMock(scenario);
+  if (scenario.route === 'phone') {
+    installMockBridge(scenario);
+  } else {
+    installTauriMock(scenario);
+  }
   const q = new URLSearchParams();
-  if (scenario.route === 'settings') {
+  if (scenario.route === 'phone') {
+    q.set('pwa', '1');
+  } else if (scenario.route === 'settings') {
     q.set('settings', '1');
     if (scenario.settingsTab) q.set('tab', scenario.settingsTab);
   } else {
@@ -76,11 +84,21 @@ export async function bootHarness(name: string): Promise<() => JSX.Element> {
   window.history.replaceState(null, '', `${window.location.pathname}?${q.toString()}`);
   document.documentElement.dataset.theme = scenario.theme ?? 'dark';
 
+  // Screenshots that are not taken under virtual time (narrow phone viewports) wait for this flag.
+  (window as unknown as { __harnessReady?: boolean }).__harnessReady = false;
+  const ready = () => {
+    (window as unknown as { __harnessReady?: boolean }).__harnessReady = true;
+  };
   if (scenario.after) {
     // Let the first render and mocked list_panes settle, then drive the UI.
     window.setTimeout(() => {
-      void Promise.resolve(scenario.after!(dom)).catch((err) => console.error('[harness] after() failed', err));
+      void Promise.resolve(scenario.after!(dom))
+        .catch((err) => console.error('[harness] after() failed', err))
+        .finally(ready);
     }, 150);
+  } else {
+    window.setTimeout(ready, 1500);
   }
+  if (scenario.route === 'phone') return PwaApp;
   return scenario.route === 'settings' ? SettingsApp : CockpitApp;
 }

@@ -4,7 +4,7 @@ import type { McpLogEntry, OrchestratorChatEvent, PaneInfo } from '@puppet-maste
 import type { PublicSettings } from './bridge-settings';
 import { isNgrokHost, ngrokRequestHeaders } from './bridge-ngrok';
 import { mergeBridgeHeaders, mobilePairingAuthHeaders } from './mobile-pairing-auth';
-import type { BridgeEvent, OpenCodeWorkerEvent } from './bridge-types';
+import type { BridgeEvent, LoopSignalInfo, OpenCodeWorkerEvent } from './bridge-types';
 import type { PreviewUrl } from './pane-preview';
 
 /** Decode a base64 terminal chunk into raw bytes. */
@@ -37,6 +37,9 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
   } else if (eventName === 'pane-preview') {
     const payload = parsed as { pane_id: string; urls: PreviewUrl[] };
     onEvent({ type: 'pane-preview', pane_id: payload.pane_id, urls: payload.urls ?? [] });
+  } else if (eventName === 'loop-signal') {
+    const payload = parsed as { pane_id: string; signal: LoopSignalInfo | null };
+    onEvent({ type: 'loop-signal', pane_id: payload.pane_id, signal: payload.signal ?? null });
   } else if (eventName === 'opencode-worker') {
     onEvent({ type: 'opencode-worker', event: parsed as OpenCodeWorkerEvent });
   } else if (eventName === 'pane-resize') {
@@ -209,6 +212,7 @@ const BRIDGE_EVENT_NAMES = [
   'pane-preview',
   'opencode-worker',
   'pane-resize',
+  'loop-signal',
   'settings',
   'orchestrator-viewport',
 ] as const;

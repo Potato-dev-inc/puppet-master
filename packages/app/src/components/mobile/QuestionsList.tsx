@@ -49,24 +49,22 @@ export function QuestionsList({
   };
 
   return (
-    <section aria-label="Questions from agents" className="mb-2 flex flex-col gap-2">
+    <section aria-label="Questions from agents" className="ph-cards">
       {live.map((q) => (
-        <div key={q.id} className="rounded-lg border border-pm-warn/60 bg-pm-panel p-3" data-question-id={q.id}>
-          <div className="text-[11px] text-pm-muted">
+        <div key={q.id} className="ph-card" data-question-id={q.id}>
+          <div className="ph-card-cap">
             Question from {askerName(q, q.pane_id ? labels.get(q.pane_id) : undefined)}
           </div>
-          <p className="mt-1 whitespace-pre-wrap break-words text-sm font-medium text-zinc-100">{q.question}</p>
-          {q.context && <p className="mt-1 whitespace-pre-wrap break-words text-xs text-pm-muted">{q.context}</p>}
+          <p className="ph-card-q">{q.question}</p>
+          {q.context && <p className="ph-card-body">{q.context}</p>}
           {q.choices.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="ph-answers">
               {q.choices.map((c, i) => (
                 <button
                   key={c.id}
                   type="button"
                   onClick={() => void run(bridge.answerQuestion(q.id, { choice_id: c.id }))}
-                  className={`min-h-[44px] rounded px-3 text-xs ${
-                    i === 0 ? 'bg-zinc-100 text-zinc-900' : 'border border-pm-border text-zinc-100 active:bg-pm-raised'
-                  }`}
+                  className={i === 0 ? 'ph-btn ph-btn--primary' : 'ph-btn'}
                 >
                   {c.label}
                 </button>
@@ -75,7 +73,7 @@ export function QuestionsList({
           )}
           {q.allow_free_text && (
             <form
-              className="mt-2 flex gap-2"
+              className="ph-reply"
               onSubmit={(e) => {
                 e.preventDefault();
                 const text = (drafts[q.id] ?? '').trim();
@@ -90,12 +88,9 @@ export function QuestionsList({
                 placeholder={q.choices.length > 0 ? 'Or type an answer' : 'Type an answer'}
                 aria-label="Your answer"
                 maxLength={4000}
-                className="min-h-[44px] min-w-0 flex-1 rounded border border-pm-border bg-pm-bg px-2 text-base text-zinc-100"
+                className="ph-field"
               />
-              <button
-                type="submit"
-                className="min-h-[44px] rounded border border-pm-border px-3 text-xs text-zinc-100 active:bg-pm-raised"
-              >
+              <button type="submit" className="ph-btn">
                 Send
               </button>
             </form>
@@ -103,13 +98,14 @@ export function QuestionsList({
           <button
             type="button"
             onClick={() => void run(bridge.dismissQuestion(q.id))}
-            className="mt-2 min-h-[44px] text-xs text-pm-muted active:text-zinc-100"
+            className="ph-btn ph-btn--plain"
+            style={{ marginTop: 4 }}
           >
             Dismiss
           </button>
         </div>
       ))}
-      {error && <div className="text-xs text-pm-err">{error}</div>}
+      {error && <div className="ph-error">{error}</div>}
     </section>
   );
 }

@@ -1,7 +1,7 @@
 // Pure helpers for the mobile agent tabs (PwaApp.tsx): tab order and labels, status display and the
 // short "what is it doing" preview shown on the All overview.
 import type { PaneInfo } from '@puppet-master/shared';
-import type { AgentRegistryListing, LaunchEntry } from './agentRegistry';
+import { agentLabel, fallbackListing, type AgentRegistryListing, type LaunchEntry } from './agentRegistry';
 
 export const ALL_TAB = 'all';
 
@@ -35,8 +35,12 @@ export function projectName(cwd: string): string {
   return parts[parts.length - 1] ?? cwd;
 }
 
-/** Tab title: the pane's title when it has one, else the agent id, numbered when several panes run the same agent (`claude 2`). */
-export function tabLabels(panes: PaneInfo[]): Map<string, string> {
+/**
+ * Tab title: the pane's title when it has one, else the agent's display name from the registry
+ * listing (`Claude Code`, `PowerShell`; the raw id when no label is known), numbered when several
+ * panes run the same agent (`Claude Code 2`). Without a listing, the compiled agents' labels apply.
+ */
+export function tabLabels(panes: PaneInfo[], listing: AgentRegistryListing = fallbackListing()): Map<string, string> {
   const ordered = orderPanes(panes);
   const totals = new Map<string, number>();
   for (const pane of ordered) totals.set(pane.agent_type, (totals.get(pane.agent_type) ?? 0) + 1);
@@ -46,7 +50,8 @@ export function tabLabels(panes: PaneInfo[]): Map<string, string> {
     const n = (seen.get(pane.agent_type) ?? 0) + 1;
     seen.set(pane.agent_type, n);
     const title = pane.title?.trim();
-    labels.set(pane.id, title || ((totals.get(pane.agent_type) ?? 0) > 1 ? `${pane.agent_type} ${n}` : pane.agent_type));
+    const name = agentLabel(listing, pane.agent_type) || pane.agent_type;
+    labels.set(pane.id, title || ((totals.get(pane.agent_type) ?? 0) > 1 ? `${name} ${n}` : name));
   }
   return labels;
 }
@@ -111,4 +116,35 @@ export function phoneLaunchEntries(listing: AgentRegistryListing): LaunchEntry[]
     return entry;
   });
   return [...entries.filter((e) => !e.disabled), ...entries.filter((e) => e.disabled)];
+}
+
+/** The four states the unified dot glyph (DotSpinner) draws; anything else reads as idle. */
+export type GlyphStatus = 'running' | 'waiting_input' | 'idle' | 'error';
+
+export function glyphStatus(status: string): GlyphStatus {
+  return status === 'running' || status === 'waiting_input' || status === 'error' ? status : 'idle';
+}
+
+export interface PaneGroup {
+  id: 'needs' | 'working' | 'idle';
+  title: string;
+  panes: PaneInfo[];
+}
+
+/**
+ * The phone's Agents list: "Needs you" (waiting at a prompt, or failed), "Working", then "Idle".
+ * Empty groups are left out; the order inside a group is the tab order.
+ */
+export function groupPanes(panes: PaneInfo[]): PaneGroup[] {
+  const groups: PaneGroup[] = [
+    { id: 'needs', title: 'Needs you', panes: panes.filter((p) => statusMeta(p.status).attention) },
+    { id: 'working', title: 'Working', panes: panes.filter((p) => glyphStatus(p.status) === 'running') },
+    { id: 'idle', title: 'Idle', panes: panes.filter((p) => !statusMeta(p.status).attention && glyphStatus(p.status) !== 'running') },
+  ];
+  return groups.filter((g) => g.panes.length > 0);
+}
+
+/** Two-digit waiting counter for the large title ("02"). */
+export function waitingCount(panes: PaneInfo[]): string {
+  return String(panes.filter((p) => statusMeta(p.status).attention).length).padStart(2, '0');
 }

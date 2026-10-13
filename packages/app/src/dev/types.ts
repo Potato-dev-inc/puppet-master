@@ -7,7 +7,26 @@ export interface HarnessScenario {
   /** `?harness=<name>`; unique across scenarios. */
   name: string;
   /** Which window to render. */
-  route: 'cockpit' | 'settings';
+  route: 'cockpit' | 'settings' | 'phone';
+  /**
+   * Window size in CSS px for the screenshot. `scripts/evidence/screenshot.mjs` reads this literal
+   * from the scenario file; the default is 1440x900, or 390x844 for route `phone`.
+   */
+  window?: { width: number; height: number };
+  /** Phone route: what the mocked PC bridge answers and how the page starts. */
+  phone?: {
+    /** Tab opened first: a pane id; default is the Agents list. */
+    activeTab?: string;
+    /** `false` hides the question card / the away digest. */
+    questions?: boolean;
+    digest?: boolean;
+    /** Spoof navigator.userAgent (e.g. an iPhone, for the Add to Home Screen hint). */
+    userAgent?: string;
+    /** Bridge events delivered once the stream opens (`event: <name>`). */
+    events?: { name: string; data: unknown }[];
+  };
+  /** Phone route: override the panes the mocked bridge lists. */
+  phonePanes?: PaneInfo[];
   /** App theme the mocked settings store reports (default dark). */
   theme?: 'dark' | 'light';
   /** Cockpit: pane id preselected through `?select=`. */

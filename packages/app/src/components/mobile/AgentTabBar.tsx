@@ -1,8 +1,10 @@
-// Top tab strip of the mobile PWA, like terminal tabs: "All" plus one tab per agent pane, a "+" to
-// open a new agent on the PC and the "⋯" menu. Scrolls sideways when the tabs do not fit.
+// Top bar of the mobile PWA, like terminal tabs: "Agents" plus one tab per agent pane (titled with the
+// pane's title), a "+" to open a new agent on the PC and the "⋯" menu. Scrolls sideways when the tabs
+// do not fit. Monochrome: the state glyph is the unified dot glyph; the open tab is a filled pill.
 import { useEffect, useRef } from 'react';
 import type { PaneInfo } from '@puppet-master/shared';
-import { ALL_TAB, statusMeta } from '../../lib/mobile-agent-tabs';
+import { ALL_TAB, glyphStatus, statusMeta } from '../../lib/mobile-agent-tabs';
+import { DotSpinner } from '../cockpit/DotSpinner';
 
 export function AgentTabBar({
   panes,
@@ -27,35 +29,25 @@ export function AgentTabBar({
   useEffect(() => {
     stripRef.current
       ?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(active)}"]`)
-      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }, [active, panes.length]);
 
-  const tabClass = (selected: boolean) =>
-    `relative flex h-10 shrink-0 items-center gap-1.5 rounded-t-md px-3 text-xs ${
-      selected
-        ? 'bg-pm-panel text-zinc-100 before:absolute before:inset-x-2 before:top-0 before:h-0.5 before:rounded-full before:bg-pm-accent'
-        : 'text-pm-muted active:bg-pm-raised'
-    }`;
-
   return (
-    <nav
-      className="flex shrink-0 items-end gap-1 border-b border-pm-border bg-pm-bg pl-1 pr-1 pt-[env(safe-area-inset-top,0px)]"
-      aria-label="Agents"
-    >
-      <div ref={stripRef} role="tablist" className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto no-scrollbar">
+    <nav className="ph-nav" aria-label="Agents">
+      <div ref={stripRef} role="tablist" className="ph-tabs">
         <button
           type="button"
           role="tab"
           data-tab={ALL_TAB}
           aria-selected={active === ALL_TAB}
           onClick={() => onSelect(ALL_TAB)}
-          className={tabClass(active === ALL_TAB)}
+          className="ph-tab"
         >
-          <span className={`h-2 w-2 rounded-full ${bridgeReady ? 'bg-pm-ok' : 'bg-pm-warn'}`} />
-          <span className="font-medium">All</span>
-          {attention > 0 && (
-            <span className="rounded-full bg-pm-warn px-1.5 text-[10px] font-semibold leading-4 text-pm-bg">{attention}</span>
-          )}
+          <span className="ph-tab-in">
+            <span className={`ph-conn${bridgeReady ? '' : ' ph-conn--off'}`} role="img" aria-label={bridgeReady ? 'Connected' : 'Connecting'} />
+            <span>All</span>
+            {attention > 0 && <span className="ph-count">{attention}</span>}
+          </span>
         </button>
         {panes.map((pane) => {
           const meta = statusMeta(pane.status);
@@ -68,30 +60,27 @@ export function AgentTabBar({
               aria-selected={active === pane.id}
               title={`${labels.get(pane.id)} · ${meta.label}`}
               onClick={() => onSelect(pane.id)}
-              className={tabClass(active === pane.id)}
+              className="ph-tab"
             >
-              <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot} ${meta.pulse ? 'animate-pulse' : ''}`} />
-              <span className="max-w-[9rem] truncate font-mono">{labels.get(pane.id) ?? pane.agent_type}</span>
+              <span className="ph-tab-in">
+                <DotSpinner status={glyphStatus(pane.status)} />
+                <span className="ph-tab-label">{labels.get(pane.id) ?? pane.agent_type}</span>
+              </span>
             </button>
           );
         })}
       </div>
-      <button
-        type="button"
-        aria-label="Open a new agent"
-        onClick={onNew}
-        disabled={!bridgeReady}
-        className="mb-1 flex h-8 w-8 shrink-0 items-center justify-center rounded text-lg text-pm-muted active:bg-pm-raised disabled:opacity-40"
-      >
-        +
+      <button type="button" aria-label="Open a new agent" onClick={onNew} disabled={!bridgeReady} className="ph-iconbtn">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
       </button>
-      <button
-        type="button"
-        aria-label="Menu"
-        onClick={onMenu}
-        className="mb-1 flex h-8 w-8 shrink-0 items-center justify-center rounded text-lg text-pm-muted active:bg-pm-raised"
-      >
-        ⋯
+      <button type="button" aria-label="Menu" onClick={onMenu} className="ph-iconbtn">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="5.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="18.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+        </svg>
       </button>
     </nav>
   );

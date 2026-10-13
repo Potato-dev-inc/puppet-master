@@ -1,0 +1,153 @@
+// @vitest-environment jsdom
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PaneInfo } from '@puppet-master/shared';
+import type { BridgeClient } from '../../lib/bridge';
+import type { LoopSignalInfo } from '../../lib/bridge-types';
+import { AgentsOverview } from './AgentsOverview';
+import { resetDigestCardForTests } from './DigestCard';
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const pane = (id: string, status: string, created_at: number, extra = {}) =>
+  ({
+    id,
+    status,
+    created_at,
+    agent_type: 'claude',
+    cwd: 'C:\\work\\proj',
+    pid: 1,
+    last_output_at: Date.now() - 120000,
+    cols: 44,
+    rows: 30,
+    ...extra,
+  }) as unknown as PaneInfo;
+
+const fakeBridge = {
+  readBuffer: async () => 'Working on the thing\nsecond meaningful line here',
+  digest: async () => ({ empty: true }),
+} as unknown as BridgeClient;
+
+const labels = new Map([
+  ['a', 'Fix login'],
+  ['c', 'powershell'],
+  ['b', 'Billing tests'],
+  ['d', 'opencode'],
+]);
+
+const panes = [
+  pane('a', 'waiting_input', 1),
+  pane('c', 'error', 2),
+  pane('b', 'running', 3),
+  pane('d', 'idle', 4),
+];
+
+let host: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  resetDigestCardForTests();
+  host = document.createElement('div');
+  document.body.appendChild(host);
+  root = createRoot(host);
+});
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+});
+
+async function mount(
+  props: Partial<{
+    panes: PaneInfo[];
+    bridgeReady: boolean;
+    onOpen: (id: string) => void;
+    onNew: () => void;
+    stuck: Map<string, LoopSignalInfo>;
+  }> = {},
+) {
+  const onOpen = props.onOpen ?? vi.fn();
+  const onNew = props.onNew ?? vi.fn();
+  await act(async () => {
+    root.render(
+      <AgentsOverview
+        bridge={fakeBridge}
+        bridgeReady={props.bridgeReady ?? true}
+        panes={props.panes ?? panes}
+        labels={labels}
+        onOpen={onOpen}
+        onNew={onNew}
+        stuck={props.stuck}
+      />,
+    );
+  });
+  // Let the preview poll resolve.
+  for (let i = 0; i < 3; i++) {
+    await act(async () => {});
+  }
+  return { onOpen, onNew };
+}
+
+const sections = () => Array.from(host.querySelectorAll<HTMLElement>('section'));
+const section = (name: string) => sections().find((s) => s.getAttribute('aria-label') === name)!;
+const row = (title: string) =>
+  Array.from(host.querySelectorAll<HTMLButtonElement>('button.ph-row')).find(
+    (b) => b.querySelector('.ph-t')?.textContent === title,
+  )!;
+
+describe('phone AgentsOverview', () => {
+  it('shows the Agents title and the waiting counter', async () => {
+    await mount();
+    expect(host.querySelector('h1')?.textContent).toBe('Agents');
+    expect(host.querySelector('.ph-doto')?.textContent).toBe('02');
+  });
+
+  it('groups the panes into Needs you, Working and Idle, in that order', async () => {
+    await mount();
+    const captions = Array.from(host.querySelectorAll('.ph-sec')).map((h) => h.textContent);
+    expect(captions).toEqual(['Needs you', 'Working', 'Idle']);
+  });
+
+  it('puts waiting and error panes under Needs you as hot rows', async () => {
+    await mount();
+    const needs = section('Needs you');
+    const titles = Array.from(needs.querySelectorAll('.ph-t')).map((t) => t.textContent);
+    expect(titles).toEqual(['Fix login', 'powershell']);
+    for (const r of needs.querySelectorAll('button.ph-row')) {
+      expect(r.classList.contains('ph-row--hot')).toBe(true);
+    }
+    expect(section('Working').textContent).toContain('Billing tests');
+    expect(section('Idle').textContent).toContain('opencode');
+  });
+
+  it('opens the pane when its row is tapped', async () => {
+    const { onOpen } = await mount();
+    act(() => row('Billing tests').click());
+    expect(onOpen).toHaveBeenCalledWith('b');
+  });
+
+  it('shows a stalled signal in place of the last output line', async () => {
+    const stuck = new Map([['b', { kind: 'stalled', summary: 'no output for 20 minutes' } as unknown as LoopSignalInfo]]);
+    await mount({ stuck });
+    expect(row('Billing tests').textContent).toContain('Looks stuck: no output for 20 minutes');
+  });
+
+  it('shows the last preview line of the screen when nothing is stuck', async () => {
+    await mount();
+    expect(row('Billing tests').textContent).toContain('second meaningful line here');
+  });
+
+  it('renders the empty state with an Open an agent button when there are no panes', async () => {
+    const { onNew } = await mount({ panes: [] });
+    expect(host.textContent).toContain('No agents running');
+    const open = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Open an agent')!;
+    expect(open).toBeTruthy();
+    act(() => open.click());
+    expect(onNew).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the connecting message until the bridge is ready', async () => {
+    await mount({ bridgeReady: false });
+    expect(host.textContent).toContain('Connecting to your PC');
+    expect(host.querySelector('h1')).toBeNull();
+  });
+});

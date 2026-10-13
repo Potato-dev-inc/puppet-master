@@ -384,6 +384,13 @@ export interface BridgeClient {
   }): Promise<void>;
 }
 
+/** What the phone shows for a stuck agent (a subset of the loop guard's signal). */
+export interface LoopSignalInfo {
+  kind: string;
+  summary: string;
+  evidence_lines?: string[];
+}
+
 export type BridgeEvent =
   | { type: 'panes'; panes: PaneInfo[] }
   | { type: 'log'; entry: McpLogEntry }
@@ -394,6 +401,8 @@ export type BridgeEvent =
   | { type: 'pane-preview'; pane_id: string; urls: PreviewUrl[] }
   | { type: 'opencode-worker'; event: OpenCodeWorkerEvent }
   | { type: 'pane-resize'; pane_id: string; cols: number; rows: number }
+  /** A pane looks stuck (`signal`) or the warning cleared (`null`). Sent by the loop guard. */
+  | { type: 'loop-signal'; pane_id: string; signal: LoopSignalInfo | null }
   | { type: 'settings'; settings: PublicSettings }
   | { type: 'orchestrator-viewport'; width: number; height: number; active: boolean }
   /** Long-poll only: events were missed (phone asleep, app restarted); re-read pane state. */

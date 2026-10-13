@@ -5,10 +5,10 @@ import type { PreviewUrl } from '../../lib/pane-preview';
 
 export function PreviewNote({ preview }: { preview: PreviewUrl }) {
   return (
-    <div className="pwa-preview-note" role="note" style={{ padding: '6px 16px', fontSize: 13, color: 'var(--label-2, #a1a1aa)', borderBottom: '1px solid var(--sep, rgba(255,255,255,.08))' }}>
-      <span style={{ fontWeight: 600 }}>Preview </span>
-      <code style={{ fontFamily: 'ui-monospace, monospace' }}>{preview.url}</code>
-      <span> · Open on your PC</span>
+    <div className="ph-note" role="note">
+      <b>Preview</b>
+      <code>{preview.url}</code>
+      <span>Open on your PC</span>
     </div>
   );
 }

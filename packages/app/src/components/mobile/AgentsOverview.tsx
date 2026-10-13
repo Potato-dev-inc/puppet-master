@@ -1,12 +1,25 @@
-// "All" tab of the mobile PWA: one card per agent pane with its status, project, last activity and
-// the last lines on its screen. Tapping a card opens that agent's tab.
+// "All" tab of the mobile PWA: a large "Agents" title with the number waiting for you (Doto), then
+// the agent panes grouped Needs you / Working / Idle as an inset list. Each row shows the state glyph,
+// the pane's title, its project and last line, and how long ago it printed. Tapping opens that tab.
 import { useEffect, useState, type ReactNode } from 'react';
 import type { PaneInfo } from '@puppet-master/shared';
 import type { BridgeClient } from '../../lib/bridge';
-import { ago, previewLines, projectName, statusMeta } from '../../lib/mobile-agent-tabs';
+import type { LoopSignalInfo } from '../../lib/bridge-types';
+import { ago, glyphStatus, groupPanes, previewLines, projectName, waitingCount } from '../../lib/mobile-agent-tabs';
+import { DotSpinner } from '../cockpit/DotSpinner';
 import { DigestCard } from './DigestCard';
 
 const PREVIEW_POLL_MS = 4000;
+
+function Chevron() {
+  return (
+    <span className="ph-chev" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <path d="m9 5 7 7-7 7" />
+      </svg>
+    </span>
+  );
+}
 
 export function AgentsOverview({
   bridge,
@@ -16,6 +29,7 @@ export function AgentsOverview({
   onOpen,
   onNew,
   header,
+  stuck,
 }: {
   bridge: BridgeClient;
   bridgeReady: boolean;
@@ -23,8 +37,10 @@ export function AgentsOverview({
   labels: Map<string, string>;
   onOpen: (paneId: string) => void;
   onNew: () => void;
-  /** Rendered above the cards (pending agent questions). */
+  /** Rendered above the list (pending agent questions). */
   header?: ReactNode;
+  /** Panes the loop guard flagged as stuck, by pane id. */
+  stuck?: Map<string, LoopSignalInfo>;
 }) {
   const [previews, setPreviews] = useState<Record<string, string[]>>({});
   const [now, setNow] = useState(() => Date.now());
@@ -60,71 +76,72 @@ export function AgentsOverview({
   }, [bridge, bridgeReady, ids]);
 
   if (!bridgeReady) {
-    return <div className="py-10 text-center text-xs text-pm-muted">Connecting to your PC…</div>;
+    return <div className="ph-connecting">Connecting to your PC…</div>;
   }
+
+  const title = (
+    <header className="ph-large">
+      <h1>Agents</h1>
+      <div className="ph-counter" aria-label={`${Number(waitingCount(panes))} waiting`}>
+        <span className="ph-doto">{waitingCount(panes)}</span>
+        <span className="ph-counter-label">waiting</span>
+      </div>
+    </header>
+  );
 
   if (panes.length === 0) {
     return (
-      <div className="h-full overflow-y-auto p-2">
+      <div className="ph-scroll">
+        {title}
         {header}
-        <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
-        <div className="text-sm text-zinc-200">No agents running on your PC</div>
-        <div className="text-xs text-pm-muted">
-          Agents you open on the PC, or that another agent starts through Puppet Master, show up here as tabs.
-        </div>
-        <button
-          type="button"
-          onClick={onNew}
-          className="mt-2 rounded border border-pm-border px-3 py-2 text-xs text-zinc-100 active:bg-pm-raised"
-        >
-          Open an agent
-        </button>
+        <DigestCard bridge={bridge} bridgeReady={bridgeReady} onOpen={onOpen} />
+        <div className="ph-empty">
+          <div className="ph-dotgrid" aria-hidden="true" />
+          <DotSpinner status="idle" size={5} />
+          <b>No agents running</b>
+          <p>Agents you open on the PC, or that another agent starts through Puppet Master, show up here.</p>
+          <button type="button" onClick={onNew} className="ph-btn ph-btn--primary">
+            Open an agent
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto overscroll-contain p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]">
+    <div className="ph-scroll">
+      {title}
       {header}
       <DigestCard bridge={bridge} bridgeReady={bridgeReady} onOpen={onOpen} />
-      <ul className="flex flex-col gap-2">
-        {panes.map((pane) => {
-          const meta = statusMeta(pane.status);
-          const lines = previews[pane.id] ?? [];
-          const last = ago(pane.last_output_at, now);
-          return (
-            <li key={pane.id}>
-              <button
-                type="button"
-                onClick={() => onOpen(pane.id)}
-                className={`w-full rounded-lg border bg-pm-panel p-3 text-left active:bg-pm-raised ${
-                  meta.attention ? 'border-pm-warn/60' : 'border-pm-border'
-                }`}
-              >
-                <div className="flex items-center gap-2 text-xs">
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot} ${meta.pulse ? 'animate-pulse' : ''}`} />
-                  <span className="truncate font-mono text-zinc-100">{labels.get(pane.id) ?? pane.agent_type}</span>
-                  <span className="truncate text-pm-muted">{projectName(pane.cwd)}</span>
-                  <span className={`ml-auto shrink-0 ${meta.attention ? 'text-pm-warn' : 'text-pm-muted'}`}>{meta.label}</span>
-                </div>
-                <div className="mt-2 min-h-[2.5rem] rounded bg-pm-bg/70 px-2 py-1.5 font-mono text-[11px] leading-snug text-zinc-300">
-                  {lines.length > 0 ? (
-                    lines.map((line, i) => (
-                      <div key={i} className="truncate">
-                        {line}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-pm-muted">No output yet</div>
-                  )}
-                </div>
-                {last && <div className="mt-1.5 text-[10px] text-pm-muted">last output {last}</div>}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      {groupPanes(panes).map((group) => (
+        <section key={group.id} aria-label={group.title}>
+          <h2 className="ph-sec">{group.title}</h2>
+          <ul className="ph-group">
+            {group.panes.map((pane) => {
+              const lines = previews[pane.id] ?? [];
+              const last = ago(pane.last_output_at, now);
+              const signal = stuck?.get(pane.id);
+              const sub = signal ? `Looks stuck: ${signal.summary}` : (lines[lines.length - 1] ?? 'No output yet');
+              return (
+                <li key={pane.id}>
+                  <button type="button" onClick={() => onOpen(pane.id)} className={`ph-row${group.id === 'needs' ? ' ph-row--hot' : ''}`}>
+                    <span className="ph-glyph">
+                      <DotSpinner status={glyphStatus(pane.status)} />
+                    </span>
+                    <span className="ph-txt">
+                      <span className="ph-t">{labels.get(pane.id) ?? pane.agent_type}</span>
+                      <span className="ph-s">{projectName(pane.cwd)}</span>
+                      <span className="ph-s ph-s--mono">{sub}</span>
+                    </span>
+                    {last && <span className="ph-meta">{last}</span>}
+                    <Chevron />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 }
