@@ -14,7 +14,6 @@ import {
   publicOriginFromBridgeUrl,
   readStoredPublicBridgeUrl,
 } from './public-bridge-url';
-import { withoutSecrets } from './secrets';
 import { tauri } from './tauri';
 
 /** Canonical on-disk settings file (app config dir). */
@@ -160,33 +159,70 @@ export async function loadSettings(): Promise<Settings> {
   }
 }
 
+/** A partial settings object. `null` (or `undefined`) removes a key. */
+export type SettingsPatch = { [K in keyof Settings]?: Settings[K] | null };
+
+/** RFC 7386 JSON merge patch: objects merge, `null` removes a key, everything else replaces. */
+export function mergePatch<T extends Record<string, unknown>>(target: T, patch: Record<string, unknown>): T {
+  const out: Record<string, unknown> = { ...target };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null || value === undefined) delete out[key];
+    else if (typeof value === 'object' && !Array.isArray(value) && typeof out[key] === 'object' && out[key] !== null && !Array.isArray(out[key])) {
+      out[key] = mergePatch(out[key] as Record<string, unknown>, value as Record<string, unknown>);
+    } else out[key] = value;
+  }
+  return out as T;
+}
+
+function normalizePatch(patch: SettingsPatch): Record<string, unknown> {
+  const wire: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) wire[key] = value === undefined ? null : value;
+  if (typeof wire.sidebar_width === 'number') wire.sidebar_width = clampSidebarWidth(wire.sidebar_width);
+  if (typeof wire.mobile_input_delay_ms === 'number') wire.mobile_input_delay_ms = clampMobileInputDelayMs(wire.mobile_input_delay_ms);
+  if ('dev_server_port' in wire && wire.dev_server_port !== null) wire.dev_server_port = parseDevServerPort(wire.dev_server_port as number);
+  return wire;
+}
+
+function inTauri(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+/**
+ * Save only the keys in `patch`. Rust merges them into the file under a lock, so a window that
+ * holds an older copy of the settings can never write old values back (the old read-modify-write of
+ * the whole object did). `ui_mode` is ignored here: it belongs to `set_ui_mode`. Returns the
+ * settings as saved. Outside Tauri (a plain browser) it falls back to the store.
+ */
+export async function patchSettings(patch: SettingsPatch): Promise<Settings> {
+  const wire = normalizePatch(patch);
+  let saved: Settings;
+  if (inTauri()) {
+    saved = mergeLoadedSettings(await invoke<Settings>('settings_patch', { patch: wire }));
+  } else {
+    const current = (await store().get<Settings>(SETTINGS_KEY)) ?? ({} as Settings);
+    const rest = { ...wire };
+    delete rest.ui_mode;
+    const next = mergePatch(current as unknown as Record<string, unknown>, rest) as unknown as Settings;
+    await store().set(SETTINGS_KEY, next);
+    await store().save();
+    saved = mergeLoadedSettings(next);
+  }
+  if (typeof wire.theme === 'string') applyTheme(saved.theme ?? 'dark');
+  return saved;
+}
+
+/**
+ * Compatibility shim for callers that still hold a whole settings object: only the keys that differ
+ * from what is on disk right now are written, as a patch. New code calls `patchSettings` directly.
+ */
 export async function saveSettings(s: Settings): Promise<void> {
-  const normalized: Settings = {
-    ...s,
-    sidebar_width: clampSidebarWidth(s.sidebar_width ?? 360),
-    theme: s.theme ?? 'dark',
-    mobile_input_delay_ms: clampMobileInputDelayMs(s.mobile_input_delay_ms),
-    dev_server_port: parseDevServerPort(s.dev_server_port),
-    developer_use_rust_mcp: s.developer_use_rust_mcp ?? false,
-  };
-  // Rust owns ui_mode (set_ui_mode): never write back a stale snapshot of it.
-  try {
-    normalized.ui_mode = await invoke<'orchestration' | 'individual'>('get_ui_mode');
-  } catch {
-    /* not in Tauri, or command missing: keep the stored value */
+  const fresh = await loadSettings();
+  const patch: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(s)) {
+    if (key === 'ui_mode') continue;
+    if (JSON.stringify(value) !== JSON.stringify((fresh as unknown as Record<string, unknown>)[key])) patch[key] = value;
   }
-  applyTheme(normalized.theme ?? 'dark');
-  // Keys never go back into settings.json while a credential store holds them.
-  let toWrite = normalized;
-  try {
-    if ((await invoke<{ secure: boolean }>('secret_storage_info')).secure) toWrite = withoutSecrets(normalized);
-  } catch {
-    /* not in Tauri: keep as is */
-  }
-  await store().set(SETTINGS_KEY, toWrite);
-  await store().save();
-  await syncPublicSettingsToBridge();
-  void tauri.pushSettingsEvent(JSON.stringify(toPublicSettings(normalized)));
+  if (Object.keys(patch).length > 0) await patchSettings(patch as SettingsPatch);
 }
 
 export async function syncPublicSettingsToBridge(): Promise<void> {
