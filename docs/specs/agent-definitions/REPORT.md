@@ -68,7 +68,7 @@ consent, and approve/consent are only accepted from the local desktop app.
   unit/fixture tests pass (draft validates, 7/9 Kilo fixtures as generated, 9/9 after two small blocks).
 - **Generic "Add as generic agent"** and **export/import**: unit-tested only (not run against your real agents folder).
 - `[mcp_host]` writer: library only, tested on temp dirs; nothing in the app calls it yet.
-- `LaunchSpec` has no env/stdin channel → `env.set/unset` and stdin-task definitions not supported (Kilo doesn't need them).
+- `LaunchSpec` had no env channel, so `[env] set/unset` was parsed, validated and fingerprinted but never applied. **Fixed on `feat/account-profiles`**: `LaunchSpec.env` / `env_remove` are applied by every launch path (see `docs/features/account-profiles.md`). There is still no stdin channel → stdin-task definitions are not supported (Kilo doesn't need them).
 - Known flakes (not seen at the end): `startup_recovery_releases_locks_held_by_interrupted_operations` (Access denied),
   `recover_all_visits_nonselected_indexed_projects`, cursor `timeout` `WORKER_STOP_FAILED` once.
 
@@ -77,7 +77,7 @@ consent, and approve/consent are only accepted from the local desktop app.
 1. **Scope project agents to their project.** They are in the one global registry and only gated at spawn, so two
    consented projects with the same id shadow each other and the spawn menu can show another project's agent.
 2. **Finish the "stale profile" cleanup:** `run_warnings()` still reads the live registry (same class of bug as the receipt fix).
-3. **Add env/stdin to `LaunchSpec`** — needed for most other CLIs (API keys via env, long prompts via stdin).
+3. **Add env/stdin to `LaunchSpec`** — env is done (`feat/account-profiles`); stdin (long prompts) is still open.
 4. **Second proof agent (SPEC Q7)** so the format isn't Kilo-shaped; also add the Q6 cost/concurrency note.
 5. **Give the recorder a bridge route** (local-app only) so record→draft can be tested end to end, and wire the
    `[mcp_host]` writer to a Settings action.

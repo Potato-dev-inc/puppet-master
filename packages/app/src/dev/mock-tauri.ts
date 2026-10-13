@@ -8,6 +8,7 @@ import {
   EXAMPLE_TRANSCRIPT,
   PANE_CLAUDE,
   SCREEN_REPLAY,
+  ACCOUNT_AGENTS,
   agentsListing,
   standbyStatus,
 } from './fixtures';
@@ -24,6 +25,10 @@ export function installTauriMock(scenario: HarnessScenario): void {
       switch (cmd) {
         case 'list_panes':
           return panes;
+        case 'accounts_list':
+          return { agents: ACCOUNT_AGENTS, accounts: scenario.accounts ?? [] };
+        case 'new_pane':
+          return 'pane-new-1';
         case 'pane_prompt':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_PROMPT : null;
         case 'get_ui_mode':
