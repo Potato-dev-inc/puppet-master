@@ -202,6 +202,12 @@ pub trait TuiProfile: Send + Sync {
         activity::default_activity(self, visible_tail, status)
     }
 
+    /// True when a screen line reports an error. Feeds the loop guard ("the same error 4 times").
+    /// The default is the generic pattern set; a profile extends it for its own wording.
+    fn is_error_line(&self, line: &str) -> bool {
+        crate::loop_guard::default_error_line(line)
+    }
+
     /// Classify the last visible lines when this TUI has screens the generic prompt heuristic
     /// misreads. `None` falls through to the generic heuristic.
     fn classify_screen(&self, _visible_tail: &str) -> Option<PaneStatus> {

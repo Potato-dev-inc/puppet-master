@@ -25,6 +25,7 @@ pub struct PaneRow {
 pub const ID_SETTINGS: &str = "settings";
 pub const ID_QUIT: &str = "quit";
 pub const ID_COCKPIT: &str = "cockpit";
+pub const ID_STOP_ALL: &str = "stop-all";
 pub const PREFIX_MODE: &str = "mode:";
 pub const PREFIX_NEW: &str = "new:";
 pub const PREFIX_PANE: &str = "pane:";
@@ -35,6 +36,7 @@ pub enum Command {
     Settings,
     Quit,
     Cockpit,
+    StopAll,
     SetMode(UiMode),
     NewPane(String),
     FocusPane(String),
@@ -45,6 +47,7 @@ pub fn parse_command(id: &str) -> Option<Command> {
         ID_SETTINGS => Some(Command::Settings),
         ID_QUIT => Some(Command::Quit),
         ID_COCKPIT => Some(Command::Cockpit),
+        ID_STOP_ALL => Some(Command::StopAll),
         _ if id.starts_with(PREFIX_MODE) => UiMode::parse(&id[PREFIX_MODE.len()..]).map(Command::SetMode),
         _ => id
             .strip_prefix(PREFIX_NEW)
@@ -158,6 +161,7 @@ pub fn build_model(agents: &[Value], panes: &[PaneRow], ready: &[String], mode: 
         Item::Separator,
         Item::Action { id: ID_COCKPIT.into(), label: "Open cockpit".into(), enabled: true },
         Item::Submenu { label: "Mode".into(), items: mode_items(mode) },
+        Item::Action { id: ID_STOP_ALL.into(), label: "Stop all agents".into(), enabled: true },
         Item::Action { id: ID_SETTINGS.into(), label: "Settings\u{2026}".into(), enabled: true },
         Item::Action { id: ID_QUIT.into(), label: "Quit Puppet Master".into(), enabled: true },
     ]
@@ -325,6 +329,12 @@ mod runtime {
             Some(Command::Settings) => crate::app_windows::open_settings_window(app, None, true),
             Some(Command::Quit) => app.exit(0),
             Some(Command::Cockpit) => crate::cockpit::open_cockpit(app, None),
+            Some(Command::StopAll) => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    crate::panic::stop_all_and_show(&app);
+                });
+            }
             Some(Command::SetMode(mode)) => {
                 if let Err(e) = crate::cockpit::set_mode(app, mode) {
                     tracing::warn!(error = %e, "tray: mode switch failed");
@@ -469,8 +479,9 @@ mod tests {
         assert_eq!(model[2], Item::Separator);
         assert!(matches!(&model[3], Item::Action { id, label, .. } if id == "cockpit" && label == "Open cockpit"));
         assert!(matches!(&model[4], Item::Submenu { label, .. } if label == "Mode"));
-        assert!(matches!(&model[5], Item::Action { id, .. } if id == "settings"));
-        assert!(matches!(&model[6], Item::Action { id, label, .. } if id == "quit" && label == "Quit Puppet Master"));
+        assert!(matches!(&model[5], Item::Action { id, label, .. } if id == "stop-all" && label == "Stop all agents"));
+        assert!(matches!(&model[6], Item::Action { id, .. } if id == "settings"));
+        assert!(matches!(&model[7], Item::Action { id, label, .. } if id == "quit" && label == "Quit Puppet Master"));
     }
 
     #[test]
@@ -512,6 +523,7 @@ mod tests {
     fn menu_ids_parse_to_commands() {
         assert_eq!(parse_command("settings"), Some(Command::Settings));
         assert_eq!(parse_command("quit"), Some(Command::Quit));
+        assert_eq!(parse_command("stop-all"), Some(Command::StopAll));
         assert_eq!(parse_command("cockpit"), Some(Command::Cockpit));
         assert_eq!(parse_command("mode:individual"), Some(Command::SetMode(UiMode::Individual)));
         assert_eq!(parse_command("mode:grid"), None);

@@ -23,6 +23,11 @@ export function Sidebar({
   const waiting = list.filter((p) => p.status === 'waiting_input').length;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const open = () => setMenuOpen(true);
+    window.addEventListener('pm:open-new-menu', open);
+    return () => window.removeEventListener('pm:open-new-menu', open);
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;

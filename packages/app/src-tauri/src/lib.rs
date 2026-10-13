@@ -26,6 +26,8 @@ pub mod operations;
 mod operations_contract_tests;
 mod pane_activity;
 mod pane_preview;
+mod loop_guard;
+mod panic;
 mod pane_prompt;
 mod prompt_risk;
 mod app_windows;
@@ -91,6 +93,7 @@ pub fn run() {
                 }
             }
         }))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AppState::new())
@@ -107,6 +110,12 @@ pub fn run() {
             commands::agents_list,
             commands::pane_activities,
             commands::pane_previews,
+            commands::loop_status,
+            commands::loop_signals,
+            commands::loop_dismiss,
+            commands::loop_settings_get,
+            commands::loop_settings_set,
+            commands::stop_all_agents,
             commands::agents_health,
             commands::agents_health_test,
             commands::agents_definitions_list,
@@ -315,6 +324,8 @@ pub fn run() {
             }
             standby::init(registry_for_panes.clone(), app.handle().clone());
             pane_activity::init(registry_for_panes.clone(), app.handle().clone());
+            loop_guard::init(app.handle().clone());
+            panic::init_shortcut(app.handle());
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
             });

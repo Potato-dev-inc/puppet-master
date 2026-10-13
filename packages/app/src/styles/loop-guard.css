@@ -1,0 +1,60 @@
+/* Stuck-agent card and panic sheet. Grayscale only; uses the cockpit tokens. */
+.cockpit .ck-stuck {
+  margin: 10px 16px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi), 0 0 0 1px var(--sep);
+}
+.cockpit .ck-stuck-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-stuck-evidence {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  list-style: none;
+  border-radius: 8px;
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--label-2);
+}
+.cockpit .ck-stuck-evidence li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-stuck-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.cockpit .ck-stuck-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+}
+.cockpit .ck-panic-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+.cockpit .ck-panic-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--sep);
+  font-size: 13px;
+}
+.cockpit .ck-panic-sub {
+  color: var(--label-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

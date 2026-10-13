@@ -8,12 +8,35 @@ import { PaneView } from './components/cockpit/PaneView';
 import { Palette } from './components/cockpit/Palette';
 import { Sidebar } from './components/cockpit/Sidebar';
 import { SpawnView } from './components/cockpit/SpawnView';
+import { PanicSheet } from './components/cockpit/PanicSheet';
+import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
 import './styles/cockpit.css';
 
 export default function CockpitApp() {
   const c = useCockpit();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [doctorOpen, setDoctorOpen] = useState(false);
+  const loop = useLoopSignals();
+  const [stopReport, setStopReport] = useState<StopReport | null>(null);
+  const stopAll = () => {
+    tauriLoopApi
+      .stopAll()
+      .then(setStopReport)
+      .catch(() => c.notify('Could not stop the agents'));
+  };
+  // Tray item and global shortcut stop the agents in Rust and send the result here.
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let disposed = false;
+    tauriLoopApi
+      .onPanic(setStopReport)
+      .then((u) => (disposed ? u() : (off = u)))
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      off?.();
+    };
+  }, []);
   // Any navigation (a pane, a spawn) leaves the "Set up agents" view.
   const nav: typeof c = {
     ...c,
@@ -41,6 +64,7 @@ export default function CockpitApp() {
   }, []);
 
   return (
+    <LoopGuardContext.Provider value={loop}>
     <div className="cockpit" data-theme={c.theme}>
       <Sidebar c={nav} onOpenPalette={() => setPaletteOpen(true)} onOpenDoctor={() => setDoctorOpen(true)} />
       <main className="ck-main">
@@ -66,7 +90,10 @@ export default function CockpitApp() {
           <Inbox c={nav} onOpenDoctor={() => setDoctorOpen(true)} />
         )}
       </main>
-      {paletteOpen && <Palette c={nav} onClose={() => setPaletteOpen(false)} onOpenDoctor={() => setDoctorOpen(true)} />}
+      {paletteOpen && (
+        <Palette c={nav} onClose={() => setPaletteOpen(false)} onOpenDoctor={() => setDoctorOpen(true)} onStopAll={stopAll} />
+      )}
+      {stopReport && <PanicSheet report={stopReport} names={c.names} onClose={() => setStopReport(null)} />}
       <div className="ck-toasts" aria-live="polite">
         {c.toasts.map((t) => (
           <div className="ck-toast" key={t.id}>
@@ -75,5 +102,6 @@ export default function CockpitApp() {
         ))}
       </div>
     </div>
+    </LoopGuardContext.Provider>
   );
 }

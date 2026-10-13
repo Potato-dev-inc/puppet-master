@@ -5,6 +5,7 @@ import { projectName } from '../../lib/mobile-agent-tabs';
 import { activityText } from '../../lib/pane-activity';
 import '../../styles/pane-activity.css';
 import '../../styles/live-preview.css';
+import { PaneStuckCard } from './StuckCard';
 import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
 import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
@@ -219,6 +220,8 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
           )}
         </div>
       </header>
+
+      <PaneStuckCard c={c} paneId={paneId} />
 
       {pane.status === 'waiting_input' && prompt && prompt.choices.length > 0 && (
         <div className="ck-ask" role="group" aria-label="Agent question">

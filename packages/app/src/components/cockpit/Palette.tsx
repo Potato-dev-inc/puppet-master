@@ -20,10 +20,12 @@ export function Palette({
   c,
   onClose,
   onOpenDoctor,
+  onStopAll,
 }: {
   c: CockpitApi;
   onClose: () => void;
   onOpenDoctor?: () => void;
+  onStopAll?: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
@@ -80,6 +82,16 @@ export function Palette({
         });
       }
     }
+    if (onStopAll) {
+      out.push({
+        id: 'act:stop-all',
+        group: 'Actions',
+        title: 'Stop all agents',
+        desc: 'Interrupt every agent that is working',
+        icon: <IconStop />,
+        run: onStopAll,
+      });
+    }
     if (onOpenDoctor) {
       out.push({
         id: 'act:doctor',
@@ -115,7 +127,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor]);
+  }, [c, onOpenDoctor, onStopAll]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.group}`, query)),

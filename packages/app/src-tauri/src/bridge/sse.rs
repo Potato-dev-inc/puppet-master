@@ -119,6 +119,17 @@ data: {json}
     }
 }
 
+/// Tell mobile clients a pane looks stuck (`Some`) or that the warning cleared (`None`).
+pub fn push_loop_signal_sse(signal: Option<&crate::loop_guard::LoopSignal>, pane_id: &str) {
+    let payload = json!({ "pane_id": pane_id, "signal": signal });
+    if let Ok(json) = serde_json::to_string(&payload) {
+        push_sse(format!("event: loop-signal
+data: {json}
+
+"));
+    }
+}
+
 /// Forward PTY geometry changes so remote viewers can mirror without resizing the PTY.
 pub fn push_pane_resize_sse(pane_id: &str, cols: u16, rows: u16) {
     let payload = json!({ "pane_id": pane_id, "cols": cols, "rows": rows });

@@ -89,6 +89,7 @@ pub fn tick_with(
         recomputed += 1;
         // Dev-server URLs ride on the same throttle: only panes whose screen changed, once per tick.
         crate::pane_preview::observe(&id, &tail);
+        crate::loop_guard::observe_pane(&id, &pane.agent_type, &tail, pane.status);
         let Some(activity) = crate::tui::profile_for(&pane.agent_type).activity(&tail, pane.status) else {
             STATE.lock().last.remove(&id);
             continue;
@@ -135,6 +136,7 @@ pub fn init(registry: Arc<Mutex<PaneRegistry>>, app: tauri::AppHandle) {
             };
             tick_with(&read, &alive, &emit);
             crate::pane_preview::retain_alive(&running);
+            crate::loop_guard::tick(&alive);
         })
         .ok();
 }
