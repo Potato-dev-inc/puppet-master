@@ -382,6 +382,29 @@ fn delegate_work_unknown_type_keeps_invalid_agent_type() {
 }
 
 #[test]
+fn agents_types_hides_definition_paths_from_callers_without_an_app_session() {
+    use super::routes::mcp::{agent_types_for, redact_definition_paths};
+    let listing = json!({"agents": [
+        {"id": "code", "definition": null},
+        {"id": "kilo", "definition": {"path": "C:/Users/someone/.puppet-master/agents/kilo.toml", "fingerprint": "sha256:x", "state": "approved"}},
+    ], "dispatchable_ids": []});
+    let phone = redact_definition_paths(listing.clone(), false);
+    assert!(phone["agents"][1]["definition"].get("path").is_none(), "{phone}");
+    assert_eq!(phone["agents"][1]["definition"]["fingerprint"], "sha256:x");
+    assert_eq!(phone["agents"][1]["definition"]["state"], "approved");
+    assert!(phone["agents"][0]["definition"].is_null());
+    assert!(!phone.to_string().contains("someone"));
+    let app = redact_definition_paths(listing, true);
+    assert_eq!(app["agents"][1]["definition"]["path"], "C:/Users/someone/.puppet-master/agents/kilo.toml");
+    // The real listing keeps its shape either way.
+    let _serial = crate::tui::registry::test_serial();
+    assert_eq!(
+        agent_types_for(false)["agents"].as_array().map(Vec::len),
+        agent_types_for(true)["agents"].as_array().map(Vec::len)
+    );
+}
+
+#[test]
 fn agents_types_lists_every_code_profile() {
     let _serial = crate::tui::registry::test_serial();
     let (status, body) = mcp_registry_route("GET", &["agents", "types"]).expect("route exists");
@@ -627,6 +650,13 @@ mod definitions {
         reload_global(&inp, &approvals);
         let after: Value = crate::tui::agent_types_listing();
         let row = after["agents"].as_array().unwrap().iter().find(|a| a["id"] == "defe_x").cloned();
+        // The phone (no app session) gets no absolute path; the desktop app still does.
+        let find = |v: &Value| v["agents"].as_array().unwrap().iter().find(|a| a["id"] == "defe_x").cloned().unwrap();
+        let phone = find(&crate::bridge::routes::mcp::agent_types_for(false));
+        let app = find(&crate::bridge::routes::mcp::agent_types_for(true));
+        assert!(phone["definition"].get("path").is_none(), "{phone}");
+        assert_eq!(phone["definition"]["state"], "active");
+        assert!(app["definition"]["path"].as_str().is_some_and(|p| p.ends_with("a.toml")), "{app}");
         reload_global(&inputs(&t.root.join("none"), &code), &approvals);
 
         let row = row.expect("approved definition is listed");
