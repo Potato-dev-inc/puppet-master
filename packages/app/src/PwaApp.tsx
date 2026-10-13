@@ -14,7 +14,7 @@ import { DEFAULT_PUBLIC_SETTINGS, type PublicSettings } from './lib/bridge-setti
 import { ngrokRequestHeaders } from './lib/bridge-ngrok';
 import { mergeBridgeHeaders } from './lib/mobile-pairing-auth';
 import { LS_BRIDGE_URL, resolveBridgeBaseUrl } from './lib/bridge-url';
-import { listingFromBody, type LaunchEntry } from './lib/agentRegistry';
+import { fallbackListing, listingFromBody, type AgentRegistryListing, type LaunchEntry } from './lib/agentRegistry';
 import { ALL_TAB, orderPanes, phoneLaunchEntries, tabLabels } from './lib/mobile-agent-tabs';
 import {
   PairInviteScreen,
@@ -118,6 +118,8 @@ export default function PwaApp() {
   const [spawning, setSpawning] = useState(false);
   const [spawnError, setSpawnError] = useState<string | null>(null);
   const [launchEntries, setLaunchEntries] = useState<LaunchEntry[] | null>(null);
+  /** The agent registry from the PC: display names for tabs and rows (compiled agents until it answers). */
+  const [agentListing, setAgentListing] = useState<AgentRegistryListing>(() => fallbackListing());
   /** Bumped when the event stream missed events: the open terminal is rebuilt from scrollback. */
   const [resyncKey, setResyncKey] = useState(0);
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
@@ -195,6 +197,13 @@ export default function PwaApp() {
     };
     resync();
     void client.getSettings().then((next) => live && setSettings(next)).catch(() => {});
+    void client
+      .listAgentTypes()
+      .then((body) => {
+        const listing = listingFromBody(body);
+        if (live && listing) setAgentListing(listing);
+      })
+      .catch(() => {});
     const timer = window.setInterval(resync, RESYNC_MS);
 
     const stream = subscribeBridgeEventsHandle(bridgeUrl, (ev) => {
@@ -270,7 +279,7 @@ export default function PwaApp() {
     }
   }, [active]);
 
-  const labels = useMemo(() => tabLabels(panes), [panes]);
+  const labels = useMemo(() => tabLabels(panes, agentListing), [panes, agentListing]);
   const activePane = active === ALL_TAB ? undefined : registry.panes.get(active);
   const transport = useBridgePaneTransport(registry.makeTransport, activePane ? active : 'pane-placeholder');
   // Only the open agent's terminal is streamed; the All overview reads previews by polling.
@@ -412,7 +421,10 @@ export default function PwaApp() {
       .listAgentTypes()
       .then((body) => {
         const listing = listingFromBody(body);
-        if (listing) setLaunchEntries(phoneLaunchEntries(listing));
+        if (listing) {
+          setAgentListing(listing);
+          setLaunchEntries(phoneLaunchEntries(listing));
+        }
         else setSpawnError('Could not read the agent list from your PC.');
       })
       .catch((e) => setSpawnError(e instanceof Error ? e.message : String(e)));

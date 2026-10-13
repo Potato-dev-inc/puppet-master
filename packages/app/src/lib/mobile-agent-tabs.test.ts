@@ -12,9 +12,34 @@ describe('mobile agent tabs', () => {
     const panes = [pane('c', 'claude', 30), pane('a', 'claude', 10), pane('k', 'kilo', 20)];
     expect(orderPanes(panes).map((p) => p.id)).toEqual(['a', 'k', 'c']);
     const labels = tabLabels(panes);
-    expect(labels.get('a')).toBe('claude 1');
-    expect(labels.get('c')).toBe('claude 2');
+    expect(labels.get('a')).toBe('Claude Code 1');
+    expect(labels.get('c')).toBe('Claude Code 2');
     expect(labels.get('k')).toBe('kilo');
+  });
+
+  it('labels tabs with the agent display names, numbering duplicates', () => {
+    const panes = [pane('s2', 'powershell', 30), pane('s1', 'powershell', 10), pane('o', 'opencode', 20), pane('c', 'claude', 40)];
+    const labels = tabLabels(panes);
+    expect(labels.get('s1')).toBe('PowerShell 1');
+    expect(labels.get('s2')).toBe('PowerShell 2');
+    expect(labels.get('o')).toBe('OpenCode');
+    expect(labels.get('c')).toBe('Claude Code');
+  });
+
+  it('takes display names from the registry listing and keeps the raw id for unknown agents', () => {
+    const agent = (id: string, label: string) => ({ id, label }) as unknown as AgentDescriptor;
+    const listing = { agents: [agent('kilo', 'Kilo Gateway'), agent('claude', 'Claude (custom)')], dispatchable_ids: [], source: 'registry' as const };
+    const labels = tabLabels([pane('k', 'kilo', 10), pane('c', 'claude', 20), pane('x', 'mystery', 30)], listing);
+    expect(labels.get('k')).toBe('Kilo Gateway');
+    expect(labels.get('c')).toBe('Claude (custom)');
+    expect(labels.get('x')).toBe('mystery');
+  });
+
+  it('numbers duplicate display names from the listing', () => {
+    const listing = { agents: [{ id: 'kilo', label: 'Kilo Gateway' } as unknown as AgentDescriptor], dispatchable_ids: [], source: 'registry' as const };
+    const labels = tabLabels([pane('a', 'kilo', 10), pane('b', 'kilo', 20)], listing);
+    expect(labels.get('a')).toBe('Kilo Gateway 1');
+    expect(labels.get('b')).toBe('Kilo Gateway 2');
   });
 
   it('names the project folder', () => {
