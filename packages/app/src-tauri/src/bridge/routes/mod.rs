@@ -4,6 +4,7 @@
 
 pub(super) mod definitions;
 mod checkpoints;
+mod digest;
 mod locks;
 pub(super) mod mcp;
 mod opencode;
@@ -57,6 +58,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| standby::handle(cx))
         .or_else(|| opencode::handle(cx))
         .or_else(|| checkpoints::handle(cx))
+        .or_else(|| digest::handle(cx))
         .or_else(|| panes::handle(cx))
 }
 

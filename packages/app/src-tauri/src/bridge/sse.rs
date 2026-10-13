@@ -89,6 +89,7 @@ mod tests {
 pub fn push_pane_status_sse(pane_id: &str, status: &str) {
     observe_operation_pane_status(pane_id, status);
     crate::checkpoints::on_pane_status(pane_id, status);
+    crate::turn_summary::on_pane_status(pane_id, status);
     let payload = json!({ "pane_id": pane_id, "status": status });
     if let Ok(json) = serde_json::to_string(&payload) {
         push_sse(format!("event: pane-status\ndata: {json}\n\n"));

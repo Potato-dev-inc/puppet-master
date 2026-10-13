@@ -1,0 +1,287 @@
+//! Deterministic turn summaries (no LLM) and the "While you were away" digest.
+//! See `docs/features/turn-summary-and-away-digest.md`.
+//!
+//! - `model`: `TurnSummary` and the one-line sentence.
+//! - `tracker`: finds turns from pane status, keeps answered prompts, builds and stores summaries.
+//! - `store`: last 100 per pane in memory plus a JSON ring file per project.
+//! - `digest`, `presence`: the away digest and the idle/focus state machine.
+//! - `http`: `GET /digest?since=` for the phone.
+//!
+//! This file is the glue to the running app (registry, checkpoints, Tauri events, SSE).
+
+pub mod digest;
+pub mod http;
+pub mod model;
+pub mod presence;
+pub mod store;
+pub mod tracker;
+#[cfg(test)]
+mod sentence_tests;
+#[cfg(test)]
+mod tests;
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use once_cell::sync::Lazy;
+use parking_lot::{Condvar, Mutex};
+use serde_json::Value;
+use tauri::Emitter;
+
+pub use digest::{Digest, NeedsYou};
+pub use model::{Approval, FileStats, ReceiptFacts, TurnSummary};
+use tracker::{Env, PaneInfo, Tracker};
+
+/// How long a finished turn waits for its "after" checkpoint before the summary is built anyway.
+const SETTLE_TIMEOUT: Duration = Duration::from_secs(25);
+/// A checkpoint that settled this long before the status event was processed still counts.
+const SETTLE_SLACK: Duration = Duration::from_millis(250);
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+struct LiveEnv;
+
+impl Env for LiveEnv {
+    fn now_ms(&self) -> u64 {
+        now_ms()
+    }
+
+    fn pane(&self, pane_id: &str) -> Option<PaneInfo> {
+        let facts = crate::bridge::checkpoint_pane_facts(pane_id)?;
+        let profile = crate::tui::profile_for(&facts.agent_type);
+        let label = profile
+            .context()
+            .map(|c| c.label.to_string())
+            .filter(|l| !l.is_empty())
+            .unwrap_or_else(|| facts.agent_type.clone());
+        Some(PaneInfo { cwd: facts.cwd, label, has_turns: profile.features().kind != crate::tui::Kind::Shell })
+    }
+
+    fn files(&self, pane_id: &str, started_at_ms: u64) -> Option<FileStats> {
+        let changes = crate::checkpoints::live().turn_changes(pane_id, started_at_ms).ok().flatten()?;
+        Some(FileStats::from_changes(&changes))
+    }
+
+    fn end_prompt(&self, pane_id: &str) -> Option<String> {
+        let registry = crate::bridge::live_registry()?;
+        describe_prompt(&registry, pane_id).map(|(_, text)| text)
+    }
+
+    fn receipt(&self, pane_id: &str) -> Option<ReceiptFacts> {
+        let registry = crate::bridge::live_registry()?;
+        let info = crate::agent_runs::pane_api::pane_run_info(&registry, pane_id).ok().flatten()?;
+        let receipt = info.get("receipt")?;
+        let text = |key: &str| receipt.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
+        let (checks, outcome) = (text("checks"), text("outcome"));
+        (!outcome.is_empty()).then_some(ReceiptFacts { checks, outcome })
+    }
+}
+
+static TRACKER: Lazy<Tracker> = Lazy::new(|| Tracker::new(Arc::new(LiveEnv)));
+
+pub fn tracker() -> &'static Tracker {
+    &TRACKER
+}
+
+/// `(kind, short text)` of the prompt a pane shows right now: `command` for a command approval.
+fn describe_prompt(
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    pane_id: &str,
+) -> Option<(String, String)> {
+    let prompt = crate::pane_prompt::detect(registry, pane_id, false)?;
+    let text = |key: &str| prompt.get(key).and_then(Value::as_str).filter(|t| !t.trim().is_empty()).map(str::to_string);
+    let kind = if text("command").is_some() { "command".to_string() } else { text("kind").unwrap_or_else(|| "request".into()) };
+    let body = text("summary").or_else(|| text("text")).or_else(|| text("command")).unwrap_or_default();
+    Some((kind, model::shorten(&body)))
+}
+
+// ---- turn boundaries ----
+
+/// When the last "after" checkpoint capture per pane finished (the summary waits for it).
+static SETTLED: Lazy<(Mutex<HashMap<String, Instant>>, Condvar)> = Lazy::new(|| (Mutex::new(HashMap::new()), Condvar::new()));
+
+/// Called by the checkpoints worker when an "after" capture is done (or skipped).
+pub fn checkpoint_settled(pane_id: &str) {
+    SETTLED.0.lock().insert(pane_id.to_string(), Instant::now());
+    SETTLED.1.notify_all();
+}
+
+fn wait_settled(pane_id: &str, since: Instant) {
+    let deadline = since + SETTLE_TIMEOUT;
+    let floor = since.checked_sub(SETTLE_SLACK).unwrap_or(since);
+    let mut map = SETTLED.0.lock();
+    while !map.get(pane_id).is_some_and(|at| *at >= floor) {
+        if SETTLED.1.wait_until(&mut map, deadline).timed_out() {
+            break;
+        }
+    }
+}
+
+/// Hook for `bridge/sse.rs::push_pane_status_sse` (called after the checkpoints hook). Cheap on
+/// the caller's thread: the summary is built on a short-lived worker.
+pub fn on_pane_status(pane_id: &str, status: &str) {
+    let seen = Instant::now();
+    let Some(ended) = tracker().on_status(pane_id, status) else { return };
+    let spawned = std::thread::Builder::new().name("pm-turn-summary".into()).spawn(move || {
+        if ended.from_running {
+            wait_settled(&ended.pane_id, seen);
+        }
+        if let Some(summary) = tracker().finish(ended) {
+            publish(&summary);
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!(error = %e, "could not start turn summary thread");
+    }
+}
+
+/// `turn://summary` (Tauri) and `event: turn-summary` (SSE for the phone).
+fn publish(summary: &TurnSummary) {
+    if let Some(app) = crate::bridge::live_app() {
+        let _ = app.emit("turn://summary", summary);
+    }
+    if let Ok(json) = serde_json::to_string(summary) {
+        crate::bridge::push_sse(format!("event: turn-summary\ndata: {json}\n\n"));
+    }
+}
+
+/// Record that the user answered the prompt on `pane_id`. `shown` is what the pane displayed
+/// just before the answer was sent (`before_answer_snapshot`).
+pub fn record_answer(pane_id: &str, prompt_id: &str, choice: &str, shown: Option<(String, String)>) {
+    let (kind, prompt) = shown.unwrap_or_else(|| ("request".into(), String::new()));
+    let decision = match choice {
+        "deny" | "reject" | "no" => "deny",
+        _ if kind.contains("question") => "answer",
+        _ => "allow",
+    };
+    tracker().record_approval(
+        pane_id,
+        Approval { at_ms: now_ms(), prompt_id: prompt_id.to_string(), prompt, kind, decision: decision.into() },
+    );
+}
+
+/// What the pane shows right now, captured before an answer is sent (the answer clears it).
+pub fn prompt_before_answer(pane_id: &str) -> Option<(String, String)> {
+    describe_prompt(&crate::bridge::live_registry()?, pane_id)
+}
+
+// ---- digest ----
+
+/// Agents that need the user right now (waiting on a prompt, or failed).
+pub fn needs_you() -> Vec<NeedsYou> {
+    let Some(registry) = crate::bridge::live_registry() else { return Vec::new() };
+    let panes: Vec<(String, String, String)> = {
+        let guard = registry.lock();
+        guard
+            .panes
+            .values()
+            .filter(|p| matches!(p.info.status.as_str(), "waiting_input" | "error"))
+            .map(|p| (p.info.id.clone(), p.info.agent_type.clone(), p.info.status.clone()))
+            .collect()
+    };
+    let mut out: Vec<NeedsYou> = panes
+        .into_iter()
+        .map(|(pane_id, agent_type, status)| {
+            let profile = crate::tui::profile_for(&agent_type);
+            let agent = profile.context().map(|c| c.label.to_string()).filter(|l| !l.is_empty()).unwrap_or(agent_type);
+            let prompt = (status == "waiting_input")
+                .then(|| describe_prompt(&registry, &pane_id).map(|(_, t)| t))
+                .flatten()
+                .filter(|t| !t.is_empty());
+            NeedsYou { pane_id, agent, status, prompt }
+        })
+        .collect();
+    out.sort_by(|a, b| a.pane_id.cmp(&b.pane_id));
+    out
+}
+
+/// The digest for `since_ms..now` from the live tracker.
+pub fn current_digest(since_ms: u64) -> Digest {
+    let now = now_ms();
+    digest::build(&tracker().since(since_ms), needs_you(), since_ms, now)
+}
+
+// ---- desktop presence ----
+
+struct Desk {
+    presence: presence::Presence,
+    /// A digest waiting for the cockpit (shown when it is opened or focused).
+    pending: Option<Digest>,
+}
+
+static DESK: Lazy<Mutex<Desk>> =
+    Lazy::new(|| Mutex::new(Desk { presence: presence::Presence::new(presence::DEFAULT_AWAY_MS), pending: None }));
+
+/// The setting `away_minutes` (public settings; default 5, 0 = off) in milliseconds.
+fn away_threshold_ms() -> u64 {
+    let minutes = crate::bridge::checkpoint_public_settings()
+        .and_then(|v| v.get("away_minutes").and_then(Value::as_u64))
+        .unwrap_or(presence::DEFAULT_AWAY_MS / 60_000);
+    minutes.min(24 * 60) * 60_000
+}
+
+fn on_return(ret: presence::Return) {
+    let digest = current_digest(ret.since_ms);
+    if digest.is_empty() {
+        return;
+    }
+    DESK.lock().pending = Some(digest.clone());
+    if let Some(app) = crate::bridge::live_app() {
+        let _ = app.emit("digest://ready", &digest);
+    }
+}
+
+/// Start the idle poller (call once from `setup`).
+pub fn start_presence() {
+    let spawned = std::thread::Builder::new().name("pm-presence".into()).spawn(|| loop {
+        std::thread::sleep(Duration::from_secs(5));
+        let Some(idle) = presence::system_idle_ms() else { continue };
+        let threshold = away_threshold_ms();
+        let ret = {
+            let mut desk = DESK.lock();
+            desk.presence.set_threshold(threshold);
+            desk.presence.tick(now_ms(), idle)
+        };
+        if let Some(ret) = ret {
+            on_return(ret);
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!(error = %e, "could not start presence thread");
+    }
+}
+
+/// The cockpit window gained or lost focus (or was just opened: `true`).
+pub fn cockpit_focus(focused: bool) {
+    let ret = DESK.lock().presence.set_focus(focused);
+    if let Some(ret) = ret {
+        on_return(ret);
+    }
+}
+
+/// The digest waiting for the cockpit, if any (a cockpit that opens after the return fetches it).
+pub fn pending_digest() -> Option<Digest> {
+    DESK.lock().pending.clone()
+}
+
+pub fn dismiss_digest() {
+    DESK.lock().pending = None;
+}
+
+// ---- phone: per-device "last seen" ----
+
+static LAST_SEEN: Lazy<Mutex<digest::LastSeen>> = Lazy::new(|| {
+    let path: PathBuf = crate::app_paths::app_data_dir().join("digest-last-seen.json");
+    Mutex::new(digest::LastSeen::load(&path))
+});
+
+pub fn last_seen() -> &'static Mutex<digest::LastSeen> {
+    &LAST_SEEN
+}

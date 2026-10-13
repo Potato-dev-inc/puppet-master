@@ -300,6 +300,13 @@ impl MobilePairingStore {
         let hash_b64 = encode_b64(hash.as_slice());
         self.devices.iter().any(|d| d.token_hash_b64 == hash_b64)
     }
+
+    /// The paired device a bearer token belongs to (for per-device state such as "last seen").
+    pub fn device_id_for_token(&self, token: &str) -> Option<String> {
+        let bytes = decode_b64(token).ok()?;
+        let hash_b64 = encode_b64(Sha256::digest(&bytes).as_slice());
+        self.devices.iter().find(|d| d.token_hash_b64 == hash_b64).map(|d| d.id.clone())
+    }
 }
 
 pub type SharedPairingStore = Arc<Mutex<MobilePairingStore>>;

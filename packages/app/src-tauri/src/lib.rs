@@ -46,6 +46,7 @@ pub mod shell_exec;
 mod standby;
 pub mod tool_registry;
 mod tui;
+mod turn_summary;
 mod worker_launch;
 pub mod watch_command;
 pub mod env_probe;
@@ -172,6 +173,10 @@ pub fn run() {
             commands::checkpoint_diff,
             commands::checkpoint_restore,
             commands::checkpoint_undo_last,
+            commands::turn_summaries,
+            commands::presence_cockpit_focus,
+            commands::away_digest_pending,
+            commands::away_digest_dismiss,
             commands::interrupt_pane,
             commands::new_pane,
             commands::pane_run_info,
@@ -309,6 +314,7 @@ pub fn run() {
                 tracing::warn!(error = %e, "tray icon failed to start");
             }
             standby::init(registry_for_panes.clone(), app.handle().clone());
+            turn_summary::start_presence();
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
             });

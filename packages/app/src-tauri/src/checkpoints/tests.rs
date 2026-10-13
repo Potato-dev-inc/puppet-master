@@ -461,3 +461,48 @@ fn profiles_decide_participation_not_agent_names() {
         assert!(crate::tui::profile_for(agent).checkpoints(), "{agent}");
     }
 }
+
+#[test]
+fn turn_changes_diffs_before_turn_against_after_turn() {
+    let t = Tmp::new("turnchanges");
+    t.write("a.txt", "one\ntwo\n");
+    t.write("keep.txt", "same");
+    // Turn 1: the baseline, then edits during the turn, then the end-of-turn snapshot.
+    snap(&t, "p1", Kind::Before, 1_000);
+    t.write("a.txt", "one\ntwo\nthree\nfour\n");
+    t.write("new.txt", "fresh\n");
+    snap(&t, "p1", Kind::Answer, 5_000);
+    t.write("new.txt", "fresh\nmore\n");
+    snap(&t, "p1", Kind::After, 20_000);
+    // Asked at the end of turn 1, as the app does.
+    let one = engine::turn_changes(t.p(), "p1", 1_000).unwrap().expect("baseline exists");
+    let paths: Vec<&str> = one.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(paths, vec!["a.txt", "new.txt"], "turn 1 touched exactly these files");
+    assert_eq!(one.iter().map(|c| c.added).sum::<u32>(), 4);
+
+    // Turn 2 changes one more file; its summary must not include turn 1's files.
+    // The tree has not changed since the last "after", so this snapshot is skipped (no checkpoint).
+    assert!(matches!(engine::snapshot(t.p(), "p1", Kind::Before, None, 40_000, &limits()).unwrap(), Snapshot::Unchanged(_)));
+    t.write("keep.txt", "changed");
+    snap(&t, "p1", Kind::After, 60_000);
+
+    let two = engine::turn_changes(t.p(), "p1", 40_000).unwrap().expect("baseline exists");
+    assert_eq!(two.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(), vec!["keep.txt"]);
+
+    // No checkpoint at or before the start (checkpoints off, or a pane never snapshotted): unknown.
+    assert!(engine::turn_changes(t.p(), "other-pane", 1_000).unwrap().is_none());
+    // A turn that started well before the pane's first checkpoint has no baseline either.
+    let late = Tmp::new("turnlate");
+    late.write("a.txt", "one");
+    snap(&late, "p1", Kind::Before, 50_000);
+    assert!(engine::turn_changes(late.p(), "p1", 10_000).unwrap().is_none());
+}
+
+#[test]
+fn turn_changes_is_empty_when_nothing_changed() {
+    let t = Tmp::new("turnnochange");
+    t.write("a.txt", "one");
+    snap(&t, "p1", Kind::Before, 1_000);
+    let none = engine::turn_changes(t.p(), "p1", 1_000).unwrap().expect("baseline exists");
+    assert!(none.is_empty());
+}

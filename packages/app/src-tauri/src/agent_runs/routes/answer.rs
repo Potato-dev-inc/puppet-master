@@ -36,8 +36,29 @@ pub(crate) fn answer_for_pane(
     )
 }
 
-/// Answers by run handle, or by bare pane id (routed through the owning run when one exists).
+/// Answers by run handle, or by bare pane id (routed through the owning run when one exists). A
+/// delivered answer is also noted on the pane's open turn (turn summaries: "you approved 1 command").
 pub(super) fn route_answer(
+    request: AnswerPromptRequest,
+    query: &str,
+    session_id: Option<&str>,
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &AppHandle,
+) -> Result<Value, OperationError> {
+    let pane_id = request.pane_id.clone().filter(|id| !id.is_empty());
+    let shown = pane_id.as_deref().and_then(crate::turn_summary::prompt_before_answer);
+    let (prompt_id, choice) = (request.prompt_id.clone(), request.choice.clone());
+    let result = route_answer_inner(request, query, session_id, registry, app);
+    if let Ok(value) = &result {
+        let pane = pane_id.or_else(|| value.get("pane_id").and_then(Value::as_str).map(str::to_string));
+        if let Some(pane) = pane {
+            crate::turn_summary::record_answer(&pane, &prompt_id, &choice, shown);
+        }
+    }
+    result
+}
+
+fn route_answer_inner(
     request: AnswerPromptRequest,
     query: &str,
     session_id: Option<&str>,
