@@ -182,3 +182,31 @@ Notifications toggle is evidenced by component tests only.
 - Merge hot-spots: `lib.rs` (3 lines), `commands/mod.rs`, `bridge/routes/mod.rs`, `bridge/sse.rs`,
   `mobile_pairing/{mod,auth}.rs`, `vite.config.ts`, `tsconfig.json` (excludes `src/sw.ts`; own `tsconfig.sw.json`),
   `package.json` / `package-lock.json`, `PwaApp.tsx` (2 lines), `MobileSheet.tsx` (2 lines).
+
+## 5. Security review fixes
+
+Independent review of this branch; F1 (the `pwa_server` proxy not marking requests) was fixed on
+`fix/tunnel-auth` and is merged here. Final results after the fixes and the merge:
+`cargo test --lib` 1084 passed, 1 failed (known `approve_requires_app_session`), 2 ignored;
+`npm test --workspace=@puppet-master/app` 52 files, 400 tests passed; `tsc --noEmit -p packages/app` clean.
+
+| Finding | Fix | Tests |
+|---|---|---|
+| F2 Allow could approve more than the notification shows | `act` buttons only when the sanitized prompt text (command plus cwd) is shown in full: no hidden character stripped, at most 120 characters. Otherwise the push is open-only. Control and bidi/invisible characters (U+200B-200F, 202A-202E, 2060-2064, 2066-2069, 061C, FEFF, 00AD, 180E) are stripped from title and body. | `hub::a_long_padded_command_gets_no_allow_deny_but_still_notifies`, `triggers::bidi_and_control_characters_never_reach_the_notification`, `shown_in_full_needs_everything_visible_and_short` |
+| F3 SSRF through the subscribe endpoint | Endpoint host must match an allowlist of push services (`fcm.googleapis.com`, `push.apple.com`, `push.services.mozilla.com`, `notify.windows.com`, `wns.windows.com`, subdomains only at a dot boundary; `PUPPET_MASTER_PUSH_HOSTS` adds more). Refused: trailing dot, any decimal/octal/hex numeric label, ports other than 443. Send uses `redirects(0)` and a resolver that drops loopback, private, link-local, unspecified, multicast, CGNAT and v4-mapped addresses; ureq connects to exactly those checked addresses (no second lookup). | `store::ssrf_bypasses_are_refused` (trailing dot, `0x7f.0.0.1`, `0177.0.0.1`, `2130706433`, `127.1`, suffix tricks, port), `real_push_services_and_their_subdomains_pass`, `sender::forbidden_addresses_cover_loopback_private_linklocal_cgnat_and_mapped`, `resolver_refuses_a_name_that_points_at_loopback`, `redirects_are_not_followed` |
+| F4 stale Allow grant | `PushHub::note_pane_status` drops a pane's grants (and held-back pushes) when it leaves `waiting_input`; redeeming a grant drops the pane's other grants. | `hub::leaving_waiting_input_kills_the_panes_grants_...`, `redeeming_one_grant_drops_the_panes_other_grants` |
+| F5 secret file permissions | `secure_file::write_private`: temp file created with mode 0600 and directories 0700 on Unix (no window with default permissions), atomic rename. Used for the tunnel token file, VAPID key and `push.json`. On Windows the files sit under `%APPDATA%`, which the user profile ACL restricts to the user, so no extra ACL is set. | `secure_file::tests::writes_atomically_and_overwrites` (mode asserted on Unix) |
+| F6 custom tunnel URL | `http://` refused unless the host is this machine. The pairing panel shows the host the phone will connect to, with a warning for http, an IP address, or loopback. | `tunnel_config::custom_urls_must_be_https_unless_they_are_this_machine`, `origin-notice.test.ts` |
+| F7 lock-screen preview, hidden-after-visible | Docs and copy now say previews may show the command (Settings Mobile tab, Notifications toggle hint). A push held back while the PWA was visible is released if the phone reports hidden within 30 s, unless that prompt is already gone. | `hub::a_prompt_held_back_while_visible_is_released_...`, `nothing_is_released_after_the_window_or_once_the_prompt_is_gone`; copy via `push-client.test.ts` |
+
+Allowlist caveat: the Apple and Edge suffixes are from memory and the web search did not confirm
+them; the review-given list was used. Verify against a live subscription on each browser and extend
+with `PUPPET_MASTER_PUSH_HOSTS` if a real endpoint is refused.
+
+Merge of `fix/tunnel-auth`: the `/push/act` public-route exception in `mobile_pairing/auth.rs` survived
+(the only conflict was both sides appending tests in `mobile_pairing/tests.rs`). New e2e test
+`tunnel_auth_tests::push_act_passes_the_tunnel_gate_without_a_bearer_but_the_other_push_routes_do_not`:
+through the `pwa_server` proxy, `POST /bridge/push/act` with no bearer passes the gate, while
+`/push/subscribe`, `/push/key` and `/push/presence` without a bearer are 401 and `/push/subscribe` with a paired
+bearer is authorized. (The route dispatch in that rig is a stub, so it proves the gate, not `redeem_act`;
+that is covered by `push::routes::tests`.)
