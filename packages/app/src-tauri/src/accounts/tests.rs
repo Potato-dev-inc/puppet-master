@@ -108,3 +108,10 @@ fn removing_never_deletes_the_home_unless_asked_and_only_app_owned_ones() {
     let _ = std::fs::remove_dir_all(user_dir);
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_run_naming_an_unsupported_agent_or_unknown_account_is_refused_before_spawning() {
+    assert!(validate_for_run("opencode", "acc_x").unwrap_err().contains("does not support accounts"));
+    assert!(validate_for_run("claude", "acc_does_not_exist").unwrap_err().contains("unknown account"));
+    assert!(validate_for_run("no_such_agent", "acc_x").unwrap_err().contains("unknown agent"));
+}

@@ -244,5 +244,15 @@ pub fn validate_for_run(agent_id: &str, id: &str) -> Result<String, String> {
     Store::default_location().launch_env(agent_id, id).map(|_| id.to_string())
 }
 
+/// Everything the Settings screen shows: agents that support accounts, and the accounts.
+pub fn overview(store: &Store) -> serde_json::Value {
+    serde_json::json!({ "agents": supporting_agents(), "accounts": store.list() })
+}
+
+/// Shared by the Tauri commands and the bridge routes.
+pub fn overview_default() -> serde_json::Value {
+    overview(&Store::default_location())
+}
+
 #[cfg(test)]
 mod tests;

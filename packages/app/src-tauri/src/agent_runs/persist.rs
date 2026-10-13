@@ -477,3 +477,27 @@ mod tests {
         let _ = std::fs::remove_file(&file);
     }
 }
+
+#[cfg(test)]
+mod account_key_tests {
+    use super::worker_key;
+
+    #[test]
+    fn named_worker_keys_are_folded_with_the_account() {
+        assert_eq!(worker_key(None, None, Some("planner"), None).as_deref(), Some("planner"));
+        assert_eq!(worker_key(None, None, Some("planner"), Some("acc_1")).as_deref(), Some("planner@acc_1"));
+        assert_ne!(
+            worker_key(None, None, Some("planner"), Some("acc_1")),
+            worker_key(None, None, Some("planner"), Some("acc_2")),
+            "the same name under two accounts is two workers"
+        );
+        assert_eq!(worker_key(None, None, Some("planner"), Some("  ")).as_deref(), Some("planner"));
+    }
+
+    #[test]
+    fn an_explicit_handle_is_never_folded() {
+        assert_eq!(worker_key(Some("run-7"), None, Some("planner"), Some("acc_1")).as_deref(), Some("run-7"));
+        assert_eq!(worker_key(None, Some("pane-9"), None, Some("acc_1")).as_deref(), Some("pane-9"));
+        assert_eq!(worker_key(None, None, None, Some("acc_1")), None);
+    }
+}

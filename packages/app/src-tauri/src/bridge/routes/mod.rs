@@ -2,6 +2,7 @@
 //! `None` for requests it does not own, and `dispatch` tries the groups in a fixed order
 //! (the order matters where a literal path such as `/panes/wait` overlaps a parameterised one).
 
+mod accounts;
 pub(super) mod definitions;
 mod locks;
 pub(super) mod mcp;
@@ -54,6 +55,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| session::handle(cx))
         .or_else(|| wait::handle(cx))
         .or_else(|| standby::handle(cx))
+        .or_else(|| accounts::handle(cx))
         .or_else(|| opencode::handle(cx))
         .or_else(|| panes::handle(cx))
 }

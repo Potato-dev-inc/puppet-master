@@ -47,8 +47,8 @@ pub async fn interrupt_pane(app: AppHandle, state: State<'_, AppState>, pane_id:
 }
 
 #[tauri::command]
-pub async fn new_pane(app: AppHandle, agent_id: String) -> Result<String, String> {
-    crate::tray::new_pane_for(&app, &agent_id, crate::cockpit::Origin::CockpitUi)
+pub async fn new_pane(app: AppHandle, agent_id: String, account_id: Option<String>) -> Result<String, String> {
+    crate::tray::new_pane_for_account(&app, &agent_id, crate::cockpit::Origin::CockpitUi, account_id.as_deref())
 }
 
 #[tauri::command]

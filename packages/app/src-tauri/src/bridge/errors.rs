@@ -31,6 +31,7 @@ pub(super) fn operation_http_error(
         | "OPERATION_CANCELLED"
         | "DISPATCH_CANCELLED"
         | "PANE_BUSY"
+        | "ACCOUNT_MISMATCH"
         | "OPERATION_ALREADY_DISPATCHED"
         | "CANCELLATION_IN_PROGRESS"
         | "CANCELLATION_REQUIRES_WORKER_CONTROL"
