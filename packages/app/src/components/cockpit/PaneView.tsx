@@ -7,6 +7,7 @@ import { DotSpinner } from './DotSpinner';
 import { IconClose, IconCopy, IconMore, IconReflow, IconStop } from './Icons';
 import { formatElapsed, promptSummary, receiptRows, spinnerStatus, stateText } from './model';
 import { History } from './History';
+import { panesSharingFolder } from './history-model';
 import { SegTabs } from './SegTabs';
 
 type Tab = 'terminal' | 'transcript' | 'receipt' | 'history';
@@ -264,7 +265,15 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             )}
           </div>
         )}
-        {tab === 'history' && <History paneId={paneId} status={pane.status} now={c.now} notify={c.notify} />}
+        {tab === 'history' && (
+          <History
+            paneId={paneId}
+            status={pane.status}
+            now={c.now}
+            notify={c.notify}
+            sharedWith={panesSharingFolder(c.registry.paneList, c.names, paneId)}
+          />
+        )}
         {tab === 'receipt' && (
           <div className="ck-scroll ck-fade-in" key="receipt">
             {run.error ? (

@@ -4,7 +4,14 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mocked } from 'vitest';
 import type { Checkpoint, CheckpointList, CheckpointsApi } from '../../lib/cockpit-api';
 import { History } from './History';
-import { checkpointTitle, formatAgo, formatDelta } from './history-model';
+import {
+  checkpointTitle,
+  folderKey,
+  formatAgo,
+  formatDelta,
+  panesSharingFolder,
+  sharedFolderWarning,
+} from './history-model';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -178,5 +185,70 @@ describe('history-model', () => {
     expect(checkpointTitle({ label: '' })).toBe('Checkpoint');
     expect(formatDelta({ files: 1, added: 2, deleted: 3 })).toBe('1 file +2 −3');
     expect(formatDelta({ files: 0, added: 0, deleted: 0 })).toBe('No file changes');
+  });
+});
+
+describe('Restore warns when another pane works in the same folder', () => {
+  const open = async (sharedWith: string[]) => {
+    const api = mockApi();
+    await act(async () => {
+      root.render(<History paneId="p1" status="idle" now={NOW} notify={vi.fn()} api={api} sharedWith={sharedWith} />);
+    });
+    await click(host.querySelectorAll('.ck-hist-row .ck-btn')[0]);
+    return host.querySelector('[role="alertdialog"]');
+  };
+
+  it('shows the line naming the other agent when a pane shares the folder', async () => {
+    const sheet = await open(['Codex']);
+    expect(sheet!.textContent).toContain('Codex also works in this folder. Its changes since then will be undone too.');
+  });
+
+  it('names up to two agents, then "and N more"', async () => {
+    expect((await open(['Codex', 'Claude']))!.textContent).toContain(
+      'Codex and Claude also work in this folder. Their changes since then will be undone too.',
+    );
+    expect((await open(['Codex', 'Claude', 'Kilo', 'Gemini']))!.textContent).toContain(
+      'Codex, Claude and 2 more also work in this folder.',
+    );
+  });
+
+  it('shows nothing extra when no other pane shares the folder', async () => {
+    const sheet = await open([]);
+    expect(sheet!.textContent).not.toContain('also work');
+    expect(sheet!.textContent).not.toContain('also works');
+  });
+});
+
+describe('panes sharing a folder', () => {
+  const pane = (id: string, cwd: string | null) => ({ info: { id, cwd } });
+  const names = new Map([
+    ['a', 'Codex'],
+    ['b', 'Claude'],
+    ['c', 'Kilo'],
+  ]);
+
+  it('matches the same folder despite case and slash differences on Windows paths', () => {
+    const panes = [
+      pane('a', 'D:\\Work\\billing-service\\'),
+      pane('b', 'd:/work/billing-service'),
+      pane('c', 'D:/work/other'),
+    ];
+    expect(panesSharingFolder(panes, names, 'a')).toEqual(['Claude']);
+    expect(folderKey('D:\\Work\\billing-service\\')).toBe(folderKey('d:/work/billing-service'));
+  });
+
+  it('returns nothing when no other pane has the folder, or the folder is unknown', () => {
+    const panes = [pane('a', 'C:/x'), pane('b', 'C:/y'), pane('c', null)];
+    expect(panesSharingFolder(panes, names, 'a')).toEqual([]);
+    expect(panesSharingFolder(panes, names, 'c')).toEqual([]);
+  });
+
+  it('keeps case significant for non-Windows paths', () => {
+    expect(folderKey('/home/Me/app')).not.toBe(folderKey('/home/me/app'));
+    expect(folderKey('/home/me/app/')).toBe(folderKey('/home/me/app'));
+  });
+
+  it('builds no warning for an empty list', () => {
+    expect(sharedFolderWarning([])).toBeNull();
   });
 });

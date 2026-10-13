@@ -22,3 +22,46 @@ export function formatDelta(c: Pick<Checkpoint, 'files' | 'added' | 'deleted'>):
   if (c.files === 0) return 'No file changes';
   return `${c.files} ${c.files === 1 ? 'file' : 'files'} +${c.added} −${c.deleted}`;
 }
+
+/**
+ * Folder key for comparing two pane working directories: forward slashes, no trailing separator,
+ * and lower case for Windows paths (drive letter or UNC), which are case-insensitive.
+ */
+export function folderKey(cwd: string | null | undefined): string | null {
+  if (!cwd || !cwd.trim()) return null;
+  const slashed = cwd.trim().replace(/\\/g, "/");
+  const trimmed = slashed.replace(/\/+$/, "") || "/";
+  const windows = /^[a-zA-Z]:/.test(trimmed) || trimmed.startsWith("//");
+  return windows ? trimmed.toLowerCase() : trimmed;
+}
+
+/** Display labels of the other panes whose folder is the same as this pane's folder. */
+export function panesSharingFolder(
+  panes: { info: { id: string; cwd: string | null } }[],
+  names: Map<string, string>,
+  paneId: string,
+): string[] {
+  const self = panes.find((p) => p.info.id === paneId);
+  const key = folderKey(self?.info.cwd);
+  if (!key) return [];
+  return panes
+    .filter((p) => p.info.id !== paneId && folderKey(p.info.cwd) === key)
+    .map((p) => names.get(p.info.id) ?? p.info.id);
+}
+
+/**
+ * The restore warning line, or null when no other pane shares the folder. Names up to two
+ * labels, then "and N more".
+ */
+export function sharedFolderWarning(labels: string[]): string | null {
+  if (labels.length === 0) return null;
+  const shown = labels.slice(0, 2);
+  const rest = labels.length - shown.length;
+  let names: string;
+  if (rest > 0) names = `${shown.join(", ")} and ${rest} more`;
+  else if (shown.length === 2) names = `${shown[0]} and ${shown[1]}`;
+  else names = shown[0];
+  return labels.length === 1
+    ? `${names} also works in this folder. Its changes since then will be undone too.`
+    : `${names} also work in this folder. Their changes since then will be undone too.`;
+}

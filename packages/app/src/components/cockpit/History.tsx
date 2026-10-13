@@ -7,7 +7,12 @@ import {
   type FileChange,
   type RestoreReport,
 } from "../../lib/cockpit-api";
-import { checkpointTitle, formatAgo, formatDelta } from "./history-model";
+import {
+  checkpointTitle,
+  formatAgo,
+  formatDelta,
+  sharedFolderWarning,
+} from "./history-model";
 
 const errText = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
@@ -22,12 +27,15 @@ export function History({
   now,
   notify,
   api = cockpitApi,
+  sharedWith = [],
 }: {
   paneId: string;
   status: string;
   now: number;
   notify: (text: string) => void;
   api?: CheckpointsApi;
+  /** Labels of the other live panes working in this pane's folder. */
+  sharedWith?: string[];
 }) {
   const [listing, setListing] = useState<CheckpointList | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -246,6 +254,9 @@ export function History({
               Your current files are saved first, so you can undo this from
               History.
             </p>
+            {sharedFolderWarning(sharedWith) && (
+              <p className="ck-sub">{sharedFolderWarning(sharedWith)}</p>
+            )}
             <div className="ck-sheet-actions">
               <button
                 type="button"
