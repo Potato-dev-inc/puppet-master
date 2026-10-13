@@ -181,6 +181,7 @@ pub fn spawn_pane(
     // Mirror the live screen at the PTY's dimensions with a matching scrollback
     // depth so reattach can reconstruct a coherent grid.
     let screen = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, SCROLLBACK_CAP)));
+    let stream_pos = crate::pty::stream_pos::start(&pane_id);
     let status = Arc::new(Mutex::new(PaneStatus::Running));
     let last_output = Arc::new(Mutex::new(Instant::now()));
     let idle_clock = Arc::new(idle::IdleClock::new(Instant::now()));
@@ -226,6 +227,7 @@ pub fn spawn_pane(
         let mut adapter = crate::agent_adapters::adapter_for(&args.agent_type);
         let scrollback = scrollback.clone();
         let screen = screen.clone();
+        let stream_pos = stream_pos.clone();
         let status = status.clone();
         let last_output = last_output.clone();
         let idle_clock = idle_clock.clone();
@@ -237,6 +239,7 @@ pub fn spawn_pane(
                 let mut reader = reader;
                 let mut buf = [0u8; 4096];
                 let mut last_snapshot = String::new();
+                let mut stream_total: u64 = 0;
                 let mut prompt_track = crate::pane_prompt::PromptTrack::default();
                 loop {
                     match reader.read(&mut buf) {
@@ -268,11 +271,20 @@ pub fn spawn_pane(
                                 TerminalDataEvent {
                                     pane_id: pane_id.clone(),
                                     data: chunk,
+                                    offset: Some(stream_total),
                                 },
                             );
+                            stream_total += n as u64;
+                            stream_pos
+                                .emitted
+                                .store(stream_total, std::sync::atomic::Ordering::SeqCst);
                             let snapshot = {
                                 let mut parser = screen.lock();
                                 parser.process(&buf[..n]);
+                                // Under the emulator lock: a screen replay reads both together.
+                                stream_pos
+                                    .processed
+                                    .store(stream_total, std::sync::atomic::Ordering::SeqCst);
                                 parser.screen().contents()
                             };
                             *last_output.lock() = Instant::now();
@@ -479,6 +491,9 @@ pub(super) struct TerminalSnapshotEvent {
 pub(super) struct TerminalDataEvent {
     pane_id: String,
     data: Vec<u8>,
+    /// Where this chunk starts in the pane's byte stream (see `pty::stream_pos`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offset: Option<u64>,
 }
 
 #[cfg(all(test, windows))]

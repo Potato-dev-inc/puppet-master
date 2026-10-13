@@ -111,6 +111,8 @@ pub struct PaneScreenReplay {
     pub data: Vec<u8>,
     pub cols: u16,
     pub rows: u16,
+    /// Stream offset the snapshot was taken at (`pty::stream_pos`).
+    pub offset: Option<u64>,
 }
 
 #[tauri::command]
@@ -118,8 +120,8 @@ pub async fn read_pane_screen_replay(
     state: State<'_, AppState>,
     pane_id: String,
 ) -> Result<PaneScreenReplay, String> {
-    let (data, cols, rows) = registry_read_screen_replay(&state.registry, &pane_id)?;
-    Ok(PaneScreenReplay { data, cols, rows })
+    let (data, cols, rows, offset) = registry_read_screen_replay_at(&state.registry, &pane_id)?;
+    Ok(PaneScreenReplay { data, cols, rows, offset })
 }
 
 #[tauri::command]
