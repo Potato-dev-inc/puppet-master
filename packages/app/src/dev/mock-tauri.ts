@@ -9,6 +9,9 @@ import {
   PANE_CLAUDE,
   SCREEN_REPLAY,
   agentsListing,
+  TOOLBELT_IMPORT,
+  TOOLBELT_LISTING,
+  TOOLBELT_PREVIEW,
   standbyStatus,
 } from './fixtures';
 
@@ -47,6 +50,16 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return 'C:\\Users\\dev\\work\\puppet-master';
         case 'list_agent_contexts':
           return [];
+        case 'toolbelt_list':
+          return TOOLBELT_LISTING;
+        case 'toolbelt_sync_preview':
+          return TOOLBELT_PREVIEW;
+        case 'toolbelt_sync_apply':
+          return { ...TOOLBELT_PREVIEW, dry_run: false };
+        case 'toolbelt_import_preview':
+          return { candidates: TOOLBELT_IMPORT };
+        case 'toolbelt_import_apply':
+          return { added: [] };
         case 'resize_pane':
         case 'set_ui_mode':
         case 'interrupt_pane':

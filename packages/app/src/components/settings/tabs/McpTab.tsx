@@ -12,6 +12,7 @@ import {
   type McpStatusReport,
 } from '../../../lib/mcp-config';
 import { CodeBlock, FieldInput, SettingBlock, SettingToggle, SettingsSection } from '../settings-ui';
+import { ToolbeltGroup } from '../toolbelt/ToolbeltGroup';
 import type { SettingsTabContext } from './tab-context';
 
 const CLAUDE_DESKTOP_MCP = JSON.stringify({ mcpServers: { 'puppet-master': PUPPET_MASTER_MCP_COMMAND } }, null, 2);
@@ -150,6 +151,7 @@ export function McpTab({ ctx }: { ctx: SettingsTabContext }) {
 
   return (
     <SettingsSection title="MCP & bridge" description="External host integration for Cursor, Claude Desktop, Codex, OpenCode, and automation scripts.">
+      <ToolbeltGroup projectPath={installPath || null} />
       <SettingBlock label="Runtime status" implemented description={`Checks the local bridge, ${selectedRuntime}, and orchestrator MCP configs. Use Recheck & repair to fix project configs.`}>
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">

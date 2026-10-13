@@ -4,6 +4,7 @@ import { projectName } from '../../lib/mobile-agent-tabs';
 import { DotSpinner } from './DotSpinner';
 import { IconLayers, IconMoon, IconPlus, IconSettings, IconStop, IconSun } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
+import { cockpitApi } from '../../lib/cockpit-api';
 
 interface Item {
   id: string;
@@ -64,6 +65,14 @@ export function Palette({ c, onClose }: { c: CockpitApi; onClose: () => void }) 
         title: 'Open settings',
         icon: <IconSettings />,
         run: () => void c.openSettings(),
+      },
+      {
+        id: 'act:toolbelt',
+        group: 'Actions',
+        title: 'Toolbelt…',
+        desc: 'MCP servers for every agent',
+        icon: <IconLayers />,
+        run: () => void cockpitApi.openSettings('mcp').catch(() => {}),
       },
       {
         id: 'act:mode',
