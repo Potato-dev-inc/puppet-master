@@ -216,3 +216,96 @@ fn broad_choices_are_recognised_by_meaning() {
         assert!(!choice_is_broad(id, label), "{id}");
     }
 }
+
+// ---- wiring: detected prompts, serialisation, TOML ---------------------------------------
+
+const CURSOR_APPROVAL: &str = include_str!("../tui/cursor/fixtures/command_approval_visible.txt");
+
+#[test]
+fn a_detected_prompt_carries_its_risk_everywhere_it_is_returned() {
+    let prompt = crate::pane_prompt::detect_in_screen("cursor_agent", CURSOR_APPROVAL, false).expect("prompt");
+    assert_eq!(prompt["risk"]["level"], "medium", "{}", prompt["risk"]);
+    assert!(prompt["risk"]["headline"].is_string());
+    // the UI shape: camelCase, choices flagged broad or not
+    let ui = crate::pane_prompt::PanePrompt::from_detected(&prompt).expect("ui prompt");
+    let json = serde_json::to_value(&ui).unwrap();
+    assert_eq!(json["risk"]["level"], prompt["risk"]["level"]);
+    assert!(json["risk"]["reasons"].is_array());
+    assert!(json["choices"].as_array().unwrap().iter().all(|c| c["broad"] == false), "{json}");
+    // the bridge / MCP shape (`required_action`) keeps it too
+    let action = crate::pane_prompt::required_action_from_prompt(prompt.clone());
+    assert_eq!(action["risk"], prompt["risk"]);
+}
+
+#[test]
+fn a_prompt_without_risk_still_serialises_for_old_uis() {
+    let bare = serde_json::json!({"prompt_id": "p1", "kind": "command_approval", "text": "t", "choices": ["allow_once", "deny"]});
+    let ui = crate::pane_prompt::PanePrompt::from_detected(&bare).expect("ui prompt");
+    let json = serde_json::to_value(&ui).unwrap();
+    assert!(json.get("risk").is_none());
+}
+
+#[test]
+fn allow_all_is_flagged_broad_for_the_ui() {
+    let prompt = serde_json::json!({"prompt_id": "p2", "kind": "broad_approval", "text": "t", "choices": ["allow_once", "deny", "allow_all"]});
+    let ui = crate::pane_prompt::PanePrompt::from_detected(&prompt).unwrap();
+    let broad: Vec<(&str, bool)> = ui.choices.iter().map(|c| (c.id.as_str(), c.broad)).collect();
+    assert_eq!(broad, vec![("allow_once", false), ("deny", false), ("allow_all", true)]);
+}
+
+const RISKY_AGENT: &str = r##"
+schema_version = 1
+
+[agent]
+id = "shipper"
+label = "Shipper"
+experimental = true
+
+[binary]
+names = ["shipper"]
+
+[tui]
+argv = []
+
+[[risk.patterns]]
+match = '\bship-it\b'
+level = "high"
+headline = "Ship to production"
+reason = "It sends this project to the live site."
+
+[[risk.patterns]]
+match = '^\./safe\.sh$'
+level = "low"
+headline = "Run the safe script"
+"##;
+
+#[test]
+fn a_toml_risk_table_extends_the_built_in_rules_for_that_agent_only() {
+    use crate::tui::declarative::{parse_definition, DeclarativeProfile};
+    use crate::tui::TuiProfile;
+    let profile = DeclarativeProfile::new(parse_definition(RISKY_AGENT).unwrap()).unwrap();
+    let rules = profile.risk_rules();
+    assert_eq!(rules.len(), 2);
+    let ask = |command: &str, rules: &[RiskRule]| assess(&RiskInput { kind: "command_approval", command: Some(command), workspace: Some(NIX), ..Default::default() }, rules);
+    let risk = ask("ship-it --now", &rules);
+    assert_eq!((risk.level, risk.headline.as_str()), (RiskLevel::High, "Ship to production"));
+    assert_eq!(risk.reasons, vec!["It sends this project to the live site."]);
+    assert_eq!(ask("./safe.sh", &rules).level, RiskLevel::Low);
+    // an agent without the table sees the command as unknown
+    let plain = ask("ship-it --now", &[]);
+    assert_eq!((plain.level, plain.headline.as_str()), (RiskLevel::Medium, "Run a command"));
+    // code profiles add nothing
+    assert!(crate::tui::profile_for("claude").risk_rules().is_empty());
+}
+
+#[test]
+fn a_bad_risk_pattern_or_headline_is_rejected_at_load() {
+    use crate::tui::declarative::{parse_definition, validate, Source, ValidationContext};
+    let bad = RISKY_AGENT.replace(r"'\bship-it\b'", "'(unclosed'");
+    let def = parse_definition(&bad).unwrap();
+    let errors = validate(&def, &ValidationContext { source: Source::User, code_ids: &["claude", "codex"], raw_len: 1000 });
+    assert!(errors.iter().any(|e| e.code == "AGENT_DEF_BAD_REGEX" && e.path == "risk.patterns.0.match"), "{errors:?}");
+    let long = RISKY_AGENT.replace("Ship to production", &"x".repeat(80));
+    let errors = validate(&parse_definition(&long).unwrap(), &ValidationContext { source: Source::User, code_ids: &["claude", "codex"], raw_len: 1000 });
+    assert!(errors.iter().any(|e| e.path == "risk.patterns.0.headline"), "{errors:?}");
+}

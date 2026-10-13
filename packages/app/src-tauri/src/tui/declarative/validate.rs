@@ -73,8 +73,27 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
     check_features(def, &mut e);
     check_run_options(def, &mut e);
     check_mcp_host(def, &mut e);
+    check_risk(def, &mut e, &mut regexes);
     check_regexes(&regexes, &mut e);
     e.0
+}
+
+fn check_risk(def: &Definition, e: &mut Errors, regexes: &mut Regexes) {
+    let Some(risk) = &def.risk else { return };
+    if risk.patterns.len() > 32 {
+        e.add("AGENT_DEF_TOO_LARGE", "risk.patterns", "at most 32 risk patterns");
+    }
+    for (i, p) in risk.patterns.iter().enumerate() {
+        let here = format!("risk.patterns.{i}");
+        add_regex(regexes, format!("{here}.match"), &p.pattern);
+        let headline_len = p.headline.chars().count();
+        if headline_len == 0 || headline_len > 60 || p.headline.chars().any(char::is_control) {
+            e.add("AGENT_DEF_INCONSISTENT", &format!("{here}.headline"), "headline must be 1-60 characters without control characters");
+        }
+        if p.reason.chars().count() > 200 {
+            e.add("AGENT_DEF_TOO_LARGE", &format!("{here}.reason"), "reason is limited to 200 characters");
+        }
+    }
 }
 
 fn check_agent(def: &Definition, ctx: &ValidationContext<'_>, e: &mut Errors) {

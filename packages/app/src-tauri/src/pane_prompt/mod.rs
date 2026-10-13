@@ -49,13 +49,38 @@ pub fn detect(
     pane_id: &str,
     allow_broad: bool,
 ) -> Option<Value> {
-    let (agent_type, screen) = {
+    let (agent_type, screen, workspace) = {
         let reg = registry.lock();
         let pane = reg.panes.get(pane_id)?;
         let contents = pane.screen.lock().screen().contents();
-        (pane.info.agent_type.clone(), contents)
+        (pane.info.agent_type.clone(), contents, pane.info.cwd.clone())
     };
-    detect_in_screen(&agent_type, &screen, allow_broad)
+    let mut prompt = detect_in_screen(&agent_type, &screen, allow_broad)?;
+    // The pane's folder is known here, so "outside this project" can be judged properly.
+    attach_risk(&mut prompt, Some(&workspace));
+    Some(prompt)
+}
+
+/// Put the plain-language `risk` (see `prompt_risk`) on a detected prompt. Without a workspace,
+/// absolute paths cannot be judged and relative ones count as inside.
+pub(crate) fn attach_risk(prompt: &mut Value, workspace: Option<&str>) {
+    let agent_type = prompt.get("agent_type").and_then(Value::as_str).unwrap_or_default().to_string();
+    let text_of = |key: &str| prompt.get(key).and_then(Value::as_str).map(str::to_string);
+    let (kind, command, cwd, text) = (text_of("kind"), text_of("command"), text_of("cwd"), text_of("text"));
+    let extra = crate::tui::profile_for(&agent_type).risk_rules();
+    let risk = crate::prompt_risk::assess(
+        &crate::prompt_risk::RiskInput {
+            kind: kind.as_deref().unwrap_or_default(),
+            command: command.as_deref(),
+            cwd: cwd.as_deref(),
+            workspace: workspace.filter(|w| !w.is_empty()),
+            text: text.as_deref().unwrap_or_default(),
+        },
+        &extra,
+    );
+    if let Ok(value) = serde_json::to_value(&risk) {
+        prompt["risk"] = value;
+    }
 }
 
 pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool) -> Option<Value> {
@@ -81,6 +106,7 @@ pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool
     }
     let id = prompt_id_for(&prompt)?;
     prompt["prompt_id"] = Value::String(id);
+    attach_risk(&mut prompt, None);
     Some(prompt)
 }
 
@@ -178,7 +204,7 @@ pub(crate) fn required_action_from_prompt(prompt: Value) -> Value {
         "options": options,
         "raw_prompt": prompt,
     });
-    for key in ["command", "cwd"] {
+    for key in ["command", "cwd", "risk"] {
         if let Some(value) = action["raw_prompt"].get(key).cloned() {
             action[key] = value;
         }
@@ -272,12 +298,17 @@ pub struct PanePrompt {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     pub choices: Vec<PromptChoice>,
+    /// What saying yes would do and how risky it is. Optional so older UIs keep working.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk: Option<crate::prompt_risk::Risk>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PromptChoice {
     pub id: String,
     pub label: String,
+    /// "Don't ask again" / "allow all" style answer: the UI keeps it out of the way on risky prompts.
+    pub broad: bool,
 }
 
 fn choice_label(id: &str) -> String {
@@ -299,7 +330,10 @@ impl PanePrompt {
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
-            .map(|id| PromptChoice { id: id.to_string(), label: choice_label(id) })
+            .map(|id| {
+                let label = choice_label(id);
+                PromptChoice { broad: crate::prompt_risk::choice_is_broad(id, &label), id: id.to_string(), label }
+            })
             .collect();
         Some(Self {
             prompt_id: text_of("prompt_id")?,
@@ -307,6 +341,7 @@ impl PanePrompt {
             text: text_of("text").unwrap_or_default(),
             summary: text_of("summary"),
             choices,
+            risk: prompt.get("risk").and_then(|v| serde_json::from_value(v.clone()).ok()),
         })
     }
 }

@@ -26,7 +26,7 @@ pub enum RiskLevel {
 }
 
 /// The result shown on approval cards (`risk` on `PanePrompt` / the bridge prompt objects).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Risk {
     pub level: RiskLevel,

@@ -219,7 +219,7 @@ fn pane_prompt_serializes_camel_case_and_prettifies_choice_labels() {
 
 #[test]
 fn prompt_events_fire_on_enter_change_and_leave_only() {
-    let p = |id: &str| PanePrompt { prompt_id: id.into(), kind: "k".into(), text: String::new(), summary: None, choices: vec![] };
+    let p = |id: &str| PanePrompt { prompt_id: id.into(), kind: "k".into(), text: String::new(), summary: None, choices: vec![], risk: None };
     let mut t = PromptTrack::default();
     assert_eq!(next_prompt_event(&mut t, false, || panic!("no detect when not waiting")), None);
     assert_eq!(next_prompt_event(&mut t, true, || Some(p("a"))), Some(Some(p("a"))));
