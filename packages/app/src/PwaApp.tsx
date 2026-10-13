@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentType, PaneInfo } from '@puppet-master/shared';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
+import type { TerminalTransport } from './hooks/useTerminalSession';
 import { usePaneViewportLease } from './hooks/usePaneViewportLease';
 import { useVisualViewportSync } from './hooks/useVisualViewport';
 import { makeBridgeClient, type BridgeClient } from './lib/bridge';
@@ -179,7 +180,18 @@ export default function PwaApp() {
     streamRef.current?.setWatchedPanes(watchedPane ? [watchedPane] : []);
   }, [watchedPane, bridgeUrl]);
   useEffect(() => setFitGrid(null), [active]);
-  usePaneViewportLease(bridge, activePane ? active : null, fitGrid);
+  const claimPaneSize = usePaneViewportLease(bridge, activePane ? active : null, fitGrid);
+  // Typing into the pane is what takes the phone size; viewing or scrolling does not.
+  const leasedTransport = useMemo<TerminalTransport>(
+    () => ({
+      ...transport,
+      writeInput: (text, appendNewline) => {
+        claimPaneSize();
+        return transport.writeInput(text, appendNewline);
+      },
+    }),
+    [transport, claimPaneSize],
+  );
 
   const patchSettings = useCallback(
     (patch: Partial<PublicSettings>) => {
@@ -296,7 +308,7 @@ export default function PwaApp() {
               pane={activePane.info}
               status={activePane.status}
               subscribePaneData={registry.subscribePaneData}
-              transport={transport}
+              transport={leasedTransport}
               title={`${labels.get(active) ?? activePane.info.agent_type}`}
               mobileInputDelayMs={settings.mobile_input_delay_ms}
               mobileInputVisible={settings.mobile_input_visible}

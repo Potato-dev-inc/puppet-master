@@ -121,6 +121,13 @@ pub async fn resize_pane(
     Ok(())
 }
 
+/// The desktop pane window takes its size back from a phone (see `pty::viewer_size::reclaim`).
+#[tauri::command]
+pub async fn reclaim_pane_size(state: State<'_, AppState>, pane_id: String) -> Result<(), String> {
+    crate::pty::viewer_size::reclaim(&state.registry, &pane_id);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn set_project_path(state: State<'_, AppState>, path: String) -> Result<(), String> {
     let normalized = crate::project_path::normalize_project_path(std::path::Path::new(&path))?;

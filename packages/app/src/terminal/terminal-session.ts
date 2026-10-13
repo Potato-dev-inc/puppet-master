@@ -27,6 +27,9 @@ import {
 import type { PaneDataSubscriber, TerminalRenderMode, TerminalSessionOptions } from './types';
 import '@xterm/xterm/css/xterm.css';
 
+/** Rows shown under the cursor row on a phone mirror (e.g. Claude's status line). */
+const CURSOR_ROWS_BELOW = 2;
+
 function isWindowsRuntime(): boolean {
   return navigator.userAgent.includes('Windows');
 }
@@ -157,6 +160,22 @@ export class TerminalSession {
       width: terminal.cols * metrics.cellWidth + metrics.padX,
       height: terminal.rows * metrics.cellHeight + metrics.padY,
     };
+  }
+
+  /**
+   * Px from the top of the grid to the bottom of the cursor row plus a few rows below it (clamped
+   * to the grid). Null when the view is scrolled back into history, so the caller bottom-anchors.
+   */
+  private cursorBottomPx(): number | null {
+    const metrics = this.gridMetrics();
+    const terminal = this.term;
+    if (!metrics || !terminal) return null;
+    const buffer = terminal.buffer.active;
+    if (buffer.viewportY !== buffer.baseY) return null;
+    const contentHeight = terminal.rows * metrics.cellHeight + metrics.padY;
+    const rowBottom =
+      metrics.padY / 2 + (buffer.cursorY + 1 + CURSOR_ROWS_BELOW) * metrics.cellHeight;
+    return Math.min(rowBottom, contentHeight);
   }
 
   setPtyDimensions(cols: number, rows: number): void {
@@ -336,6 +355,7 @@ export class TerminalSession {
             ? {
                 keyboardPushUp: false,
                 measureContent: () => this.gridContentSize(),
+                measureCursorBottom: () => this.cursorBottomPx(),
                 noScale: true,
               }
             : {},
@@ -608,6 +628,8 @@ export class TerminalSession {
     if (mobileMirror) {
       const emitMobileInput = (text: string, delivery: MobileInputDelivery) => {
         if (!text) return;
+        // Typing brings the view back to the line being typed on after a swipe.
+        this.scaleController?.resetPan();
         if (delivery === 'immediate') {
           inputBatcher.flushNow();
         }

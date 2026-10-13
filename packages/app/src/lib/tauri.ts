@@ -129,6 +129,8 @@ export const tauri = {
     ),
   resize: (paneId: string, cols: number, rows: number) =>
     safeInvoke<void>('resize_pane', { paneId, cols, rows }, undefined, true),
+  /** Take the pane back from a phone: the PTY returns to the size this window last asked for. */
+  reclaimPaneSize: (paneId: string) => safeInvoke<void>('reclaim_pane_size', { paneId }, undefined, true),
   setProjectPath: (path: string) => safeInvoke<void>('set_project_path', { path }, undefined, true),
   getProjectPath: () => safeInvoke<string>('get_project_path_cmd', undefined, '', true),
   getCoordinationStorageInfo: () =>

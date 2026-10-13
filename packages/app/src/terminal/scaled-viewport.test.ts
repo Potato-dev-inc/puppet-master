@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyPanDelta,
+  clampTranslateY,
   computeBottomAnchoredTranslateY,
   computeContainerFitScale,
   computeContainerFitTransform,
+  computeCursorAnchoredTranslateY,
+  computeNoScaleWidthScale,
   isMobileKeyboardTransitionActive,
-  applyPanDelta,
-  clampPanY,
-  maxPanY,
+  translateYBounds,
 } from './scaled-viewport';
 
 describe('computeBottomAnchoredTranslateY', () => {
@@ -94,31 +96,80 @@ describe('computeContainerFitScale', () => {
   });
 });
 
-describe('pan clamping', () => {
-  it('allows no pan when the content fits', () => {
-    expect(maxPanY(300, 500)).toBe(0);
-    expect(clampPanY(120, 300, 500)).toBe(0);
+describe('computeCursorAnchoredTranslateY', () => {
+  it('keeps the top at 0 when the content fits', () => {
+    expect(computeCursorAnchoredTranslateY(300, 500, 100)).toBe(0);
+    expect(computeCursorAnchoredTranslateY(500, 500, 500)).toBe(0);
   });
 
-  it('clamps the pan to the cropped part of the content', () => {
-    expect(maxPanY(800, 500)).toBe(300);
-    expect(clampPanY(-50, 800, 500)).toBe(0);
-    expect(clampPanY(120, 800, 500)).toBe(120);
-    expect(clampPanY(900, 800, 500)).toBe(300);
+  it('keeps the top when the cursor is near the top (bottom of the content is cut)', () => {
+    // 1000px of rows in a 500px area, cursor row ends at 120px.
+    expect(computeCursorAnchoredTranslateY(1000, 500, 120)).toBe(0);
   });
 
-  it('pans within the limit and returns the unconsumed part of the delta', () => {
-    expect(applyPanDelta(0, 100, 800, 500)).toEqual({ panY: 100, leftoverPx: 0 });
-    expect(applyPanDelta(250, 100, 800, 500)).toEqual({ panY: 300, leftoverPx: 50 });
-    expect(applyPanDelta(300, 40, 800, 500)).toEqual({ panY: 300, leftoverPx: 40 });
+  it('bottom-anchors when the cursor is at the bottom', () => {
+    expect(computeCursorAnchoredTranslateY(1000, 500, 1000)).toBe(-500);
   });
 
-  it('un-pans and returns the rest when dragged back past the bottom', () => {
-    expect(applyPanDelta(100, -40, 800, 500)).toEqual({ panY: 60, leftoverPx: 0 });
-    expect(applyPanDelta(30, -50, 800, 500)).toEqual({ panY: 0, leftoverPx: -20 });
+  it('slides up just far enough to keep the cursor row in view in between', () => {
+    // Cursor row ends at 700px: the bottom of the view (500px) must reach 700px.
+    expect(computeCursorAnchoredTranslateY(1000, 500, 700)).toBe(-200);
+    // Cursor ends at 900px: the view shows 400px..900px.
+    expect(computeCursorAnchoredTranslateY(1000, 500, 900)).toBe(-400);
+  });
+
+  it('clamps the cursor position to the content', () => {
+    expect(computeCursorAnchoredTranslateY(1000, 500, 5000)).toBe(-500);
+    expect(computeCursorAnchoredTranslateY(1000, 500, -20)).toBe(0);
+  });
+
+  it('returns 0 for invalid measurements', () => {
+    expect(computeCursorAnchoredTranslateY(0, 500, 100)).toBe(0);
+    expect(computeCursorAnchoredTranslateY(900, 0, 100)).toBe(0);
+  });
+});
+
+describe('computeNoScaleWidthScale', () => {
+  it('shrinks a grid wider than the container to fit its width', () => {
+    expect(computeNoScaleWidthScale(540, 270)).toBeCloseTo(0.5, 5);
+  });
+
+  it('stays 1 when the grid fits the width', () => {
+    expect(computeNoScaleWidthScale(385, 385)).toBe(1);
+    expect(computeNoScaleWidthScale(200, 385)).toBe(1);
+  });
+
+  it('stays 1 for invalid measurements', () => {
+    expect(computeNoScaleWidthScale(0, 385)).toBe(1);
+    expect(computeNoScaleWidthScale(540, 0)).toBe(1);
+  });
+});
+
+describe('translate bounds and pan', () => {
+  it('allows no movement when the content fits', () => {
+    expect(translateYBounds(300, 500)).toEqual({ min: 0, max: 0 });
+    expect(clampTranslateY(120, 300, 500)).toBe(0);
+  });
+
+  it('bounds the translate between the bottom and the top of the content', () => {
+    expect(translateYBounds(800, 500)).toEqual({ min: -300, max: 0 });
+    expect(clampTranslateY(-400, 800, 500)).toBe(-300);
+    expect(clampTranslateY(50, 800, 500)).toBe(0);
+    expect(clampTranslateY(-120, 800, 500)).toBe(-120);
+  });
+
+  it('pans toward the top and returns the unconsumed part of the delta', () => {
+    expect(applyPanDelta(-200, 100, 800, 500)).toEqual({ translateY: -100, leftoverPx: 0 });
+    expect(applyPanDelta(-100, 150, 800, 500)).toEqual({ translateY: 0, leftoverPx: 50 });
+    expect(applyPanDelta(0, 40, 800, 500)).toEqual({ translateY: 0, leftoverPx: 40 });
+  });
+
+  it('pans toward the bottom and returns the rest past the limit', () => {
+    expect(applyPanDelta(-100, -250, 800, 500)).toEqual({ translateY: -300, leftoverPx: -50 });
+    expect(applyPanDelta(-200, -40, 800, 500)).toEqual({ translateY: -240, leftoverPx: 0 });
   });
 
   it('takes nothing when the content fits', () => {
-    expect(applyPanDelta(0, 40, 300, 500)).toEqual({ panY: 0, leftoverPx: 40 });
+    expect(applyPanDelta(0, 40, 300, 500)).toEqual({ translateY: 0, leftoverPx: 40 });
   });
 });

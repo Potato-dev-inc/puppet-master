@@ -243,6 +243,16 @@ export interface ProjectIrStatus {
   indexer_command: string;
 }
 
+/** Answer of `POST /panes/{id}/viewport`. `held`: whether this viewer holds the pane's size now. */
+export interface PaneViewportResponse {
+  ok?: boolean;
+  leased?: boolean;
+  held?: boolean;
+  cols?: number;
+  rows?: number;
+  restored?: { cols: number; rows: number } | null;
+}
+
 export interface BridgeClient {
   baseUrl: string;
   listPanes(): Promise<PaneInfo[]>;
@@ -256,9 +266,14 @@ export interface BridgeClient {
   killPane(paneId: string): Promise<void>;
   /**
    * `POST /panes/{id}/viewport`: while `active`, the pane is sized to this phone's grid (renew
-   * every few seconds or it lapses); `active: false` gives it back to the desktop size.
+   * every few seconds or it lapses); `active: false` releases this phone's hold (the pane keeps the
+   * size). `renew_only: true` only extends an existing hold and never resizes; its `held` answer says
+   * whether this phone still holds the pane (false: the desktop took it back).
    */
-  setPaneViewport(paneId: string, view: { cols: number; rows: number; active: boolean; viewer?: string }): Promise<unknown>;
+  setPaneViewport(
+    paneId: string,
+    view: { cols: number; rows: number; active: boolean; viewer?: string; renew_only?: boolean },
+  ): Promise<PaneViewportResponse>;
   /** `GET /agents/types`: the registered agents (body of the desktop `agents_list`). */
   listAgentTypes(): Promise<unknown>;
   readBuffer(paneId: string, lines: number): Promise<string>;

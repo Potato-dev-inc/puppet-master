@@ -359,6 +359,7 @@
   font-size: 13px;
   color: rgb(var(--pm-muted));
   background: rgb(var(--pm-bg) / 0.94);
+  cursor: pointer;
 }
 
 .pm-terminal-viewer-held strong {

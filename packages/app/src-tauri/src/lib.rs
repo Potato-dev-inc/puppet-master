@@ -129,6 +129,7 @@ pub fn run() {
             commands::get_audit,
             commands::build_context_pack,
             commands::resize_pane,
+            commands::reclaim_pane_size,
             commands::set_project_path,
             commands::get_project_path_cmd,
             commands::ensure_orchestrator_mcp,

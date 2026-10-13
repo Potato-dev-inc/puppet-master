@@ -55,6 +55,9 @@ struct ViewportBody {
     /// Which phone (one id per open page); several phones share the smallest size.
     #[serde(default = "default_viewer")]
     viewer: String,
+    /// Renew only: extend this phone's lease if it holds one; never claim, never resize.
+    #[serde(default)]
+    renew_only: bool,
 }
 
 fn default_viewer() -> String {
@@ -279,12 +282,16 @@ fn resize(cx: &Ctx) -> RouteResult {
 fn viewport(cx: &Ctx, pane_id: &str) -> RouteResult {
     let req: ViewportBody = parse_json(cx.body)?;
     if !req.active {
-        let restored = crate::pty::viewer_size::release(cx.registry, pane_id, &req.viewer);
-        return Ok((200, json!({ "ok": true, "leased": false, "restored": restored.map(|(cols, rows)| json!({ "cols": cols, "rows": rows })) })));
+        let applied = crate::pty::viewer_size::release(cx.registry, pane_id, &req.viewer);
+        return Ok((200, json!({ "ok": true, "leased": false, "held": false, "restored": applied.map(|(cols, rows)| json!({ "cols": cols, "rows": rows })) })));
+    }
+    if req.renew_only {
+        let held = crate::pty::viewer_size::renew(pane_id, &req.viewer);
+        return Ok((200, json!({ "ok": true, "leased": held, "held": held })));
     }
     let (cols, rows) = crate::pty::viewer_size::claim(cx.registry, pane_id, &req.viewer, req.cols, req.rows)
         .map_err(|err| (404, json!({ "error": err })))?;
-    Ok((200, json!({ "ok": true, "leased": true, "cols": cols, "rows": rows })))
+    Ok((200, json!({ "ok": true, "leased": true, "held": true, "cols": cols, "rows": rows })))
 }
 
 fn switch_model(cx: &Ctx, pane_id: &str) -> RouteResult {

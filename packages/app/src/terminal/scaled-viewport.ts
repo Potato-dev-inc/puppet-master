@@ -95,35 +95,71 @@ export function computeBottomAnchoredTranslateY(
   return Math.min(0, containerHeight - contentHeight);
 }
 
-/** How far a bottom-anchored stage can be panned down to reveal its top (0 when it fits). */
-export function maxPanY(contentHeight: number, containerHeight: number): number {
+/**
+ * Vertical offset that keeps the cursor line visible: the top of the grid stays on screen and the
+ * bottom is cut, unless that would hide the cursor (then the stage slides up just far enough).
+ * `cursorBottomPx` is measured from the top of the content, already clamped to the content height.
+ * Result is within `[containerHeight - contentHeight, 0]`.
+ */
+export function computeCursorAnchoredTranslateY(
+  contentHeight: number,
+  containerHeight: number,
+  cursorBottomPx: number,
+): number {
   if (contentHeight <= 0 || containerHeight <= 0) return 0;
-  return Math.max(0, contentHeight - containerHeight);
+  if (contentHeight <= containerHeight) return 0;
+  const bottom = Math.min(Math.max(cursorBottomPx, 0), contentHeight);
+  const wanted = Math.min(0, containerHeight - bottom);
+  return Math.max(wanted, containerHeight - contentHeight);
+}
+
+/** Allowed range for a stage's translateY: `[containerHeight - contentHeight, 0]` (0 when it fits). */
+export function translateYBounds(
+  contentHeight: number,
+  containerHeight: number,
+): { min: number; max: number } {
+  if (contentHeight <= 0 || containerHeight <= 0) return { min: 0, max: 0 };
+  return { min: Math.min(0, containerHeight - contentHeight), max: 0 };
+}
+
+/** translateY clamped to `translateYBounds`. Non-finite values clamp to the top (0). */
+export function clampTranslateY(
+  translateY: number,
+  contentHeight: number,
+  containerHeight: number,
+): number {
+  const { min, max } = translateYBounds(contentHeight, containerHeight);
+  if (!Number.isFinite(translateY)) return max;
+  return Math.min(Math.max(translateY, min), max);
 }
 
 /**
- * Applies a pan delta (px, positive = content moves down to reveal the top) to a pan offset,
- * clamped to what the content allows. Returns the new offset and the part of the delta that
- * was not consumed (for the caller to scroll with instead).
+ * Applies a pan delta (px, positive = content moves down to reveal the top) to an absolute
+ * translateY, clamped to the allowed range. Returns the new translateY and the part of the delta
+ * that was not consumed (for the caller to scroll with instead).
  */
 export function applyPanDelta(
-  panY: number,
+  translateY: number,
   dyPx: number,
   contentHeight: number,
   containerHeight: number,
-): { panY: number; leftoverPx: number } {
+): { translateY: number; leftoverPx: number } {
+  const current = clampTranslateY(translateY, contentHeight, containerHeight);
   if (!Number.isFinite(dyPx) || dyPx === 0) {
-    return { panY: clampPanY(panY, contentHeight, containerHeight), leftoverPx: 0 };
+    return { translateY: current, leftoverPx: 0 };
   }
-  const current = clampPanY(panY, contentHeight, containerHeight);
-  const next = clampPanY(current + dyPx, contentHeight, containerHeight);
-  return { panY: next, leftoverPx: dyPx - (next - current) };
+  const next = clampTranslateY(current + dyPx, contentHeight, containerHeight);
+  return { translateY: next, leftoverPx: dyPx - (next - current) };
 }
 
-/** Pan offset clamped to `[0, maxPanY]` for the given content and container sizes. */
-export function clampPanY(panY: number, contentHeight: number, containerHeight: number): number {
-  if (!Number.isFinite(panY)) return panY > 0 ? maxPanY(contentHeight, containerHeight) : 0;
-  return Math.min(Math.max(0, panY), maxPanY(contentHeight, containerHeight));
+/**
+ * Uniform scale for a never-scaled stage that is wider than its container: shrinks it to the
+ * container width. Never upscales; 1 when the content fits or a size is unknown.
+ */
+export function computeNoScaleWidthScale(contentWidth: number, containerWidth: number): number {
+  if (contentWidth <= 0 || containerWidth <= 0) return 1;
+  if (contentWidth <= containerWidth) return 1;
+  return containerWidth / contentWidth;
 }
 
 function measureTerminalContent(stage: HTMLElement): { width: number; height: number } {
@@ -173,16 +209,20 @@ export class TerminalScaleController implements Disposable {
   private readonly measureContent?: () => { width: number; height: number } | null;
 
   /**
-   * Never scale the stage: scale stays 1 and, when the content is taller than the viewport,
-   * the stage is shifted so its bottom rows stay visible. Width is left-aligned, not shifted.
+   * Never scale the stage by height: the stage is shifted vertically so the cursor line stays
+   * visible (top kept, bottom cut when possible). A stage wider than the container is shrunk to
+   * the container width. Width is otherwise left-aligned.
    */
   private readonly noScale: boolean;
 
+  /** noScale only: cursor bottom (px from the content top, clamped), or null to bottom-anchor. */
+  private readonly measureCursorBottom?: () => number | null;
+
   /**
-   * noScale only: how far the cropped stage is panned down to reveal its top rows
-   * (0 = bottom-anchored). Re-clamped on every fit, so it resets once the content fits.
+   * noScale only: user's absolute translateY while panned away from the default anchor, or null
+   * when unpanned (the anchor then follows the cursor). Re-clamped on every fit.
    */
-  private panY = 0;
+  private pannedTranslateY: number | null = null;
 
   constructor(
     viewport: HTMLElement,
@@ -190,6 +230,7 @@ export class TerminalScaleController implements Disposable {
     options: {
       keyboardPushUp?: boolean;
       measureContent?: () => { width: number; height: number } | null;
+      measureCursorBottom?: () => number | null;
       noScale?: boolean;
     } = {},
   ) {
@@ -197,6 +238,7 @@ export class TerminalScaleController implements Disposable {
     this.stage = stage;
     this.keyboardPushUp = options.keyboardPushUp ?? true;
     this.measureContent = options.measureContent;
+    this.measureCursorBottom = options.measureCursorBottom;
     this.noScale = options.noScale ?? false;
     this.onAuthorityChange = () => {
       this.scheduleFit();
@@ -227,53 +269,97 @@ export class TerminalScaleController implements Disposable {
    */
   panBy(dyPx: number): number {
     if (!this.noScale) return dyPx;
-    const { height: contentHeight } = this.measureContent?.() ?? measureTerminalContent(this.stage);
-    const { height: containerHeight } = containerFitDimensions(this.viewport);
-    const { panY, leftoverPx } = applyPanDelta(this.panY, dyPx, contentHeight, containerHeight);
-    this.panY = panY;
+    const layout = this.noScaleLayout();
+    const current = this.pannedTranslateY ?? layout.anchor;
+    const { translateY, leftoverPx } = applyPanDelta(
+      current,
+      dyPx,
+      layout.scaledHeight,
+      layout.containerHeight,
+    );
+    this.pannedTranslateY = translateY === layout.anchor ? null : translateY;
     this.fitNow();
     return leftoverPx;
   }
 
-  /** True while the cropped stage is panned away from its bottom-anchored position. */
+  /** True while the stage is panned away from its cursor-anchored position. */
   isPanned(): boolean {
-    return this.noScale && this.panY > 0;
+    return this.noScale && this.pannedTranslateY !== null;
   }
 
-  /** Returns the pan to the bottom-anchored position (the stage's own bottom rows). */
+  /** Returns the stage to its default (cursor-anchored) position. */
   resetPan(): void {
-    if (this.panY === 0) return;
-    this.panY = 0;
+    if (this.pannedTranslateY === null) return;
+    this.pannedTranslateY = null;
     this.fitNow();
   }
 
+  /** noScale layout: scale from width, vertical anchor and bounds, all in screen px. */
+  private noScaleLayout(): {
+    scale: number;
+    contentWidth: number;
+    contentHeight: number;
+    scaledHeight: number;
+    containerHeight: number;
+    anchor: number;
+  } {
+    const { width: contentWidth, height: contentHeight } =
+      this.measureContent?.() ?? measureTerminalContent(this.stage);
+    const { width: containerWidth, height: containerHeight } = containerFitDimensions(this.viewport);
+    const scale = computeNoScaleWidthScale(contentWidth, containerWidth);
+    const scaledHeight = contentHeight * scale;
+    const cursorBottom = this.measureCursorBottom?.() ?? null;
+    const anchor =
+      cursorBottom === null
+        ? computeBottomAnchoredTranslateY(scaledHeight, containerHeight)
+        : computeCursorAnchoredTranslateY(scaledHeight, containerHeight, cursorBottom * scale);
+    return { scale, contentWidth, contentHeight, scaledHeight, containerHeight, anchor };
+  }
+
   fitNow(): void {
+    if (this.noScale) {
+      const layout = this.noScaleLayout();
+      if (this.pannedTranslateY !== null) {
+        // Re-clamp on every fit: the pan resets by itself once it matches the default anchor.
+        this.pannedTranslateY = clampTranslateY(
+          this.pannedTranslateY,
+          layout.scaledHeight,
+          layout.containerHeight,
+        );
+        if (this.pannedTranslateY === layout.anchor) this.pannedTranslateY = null;
+      }
+      this.applyStage(
+        layout.contentWidth,
+        layout.contentHeight,
+        layout.scale,
+        this.pannedTranslateY ?? layout.anchor,
+      );
+      return;
+    }
     const { width: contentWidth, height: contentHeight } =
       this.measureContent?.() ?? measureTerminalContent(this.stage);
     const { width: containerWidth, height: containerHeight } = containerFitDimensions(this.viewport);
     const keyboardOpen = this.keyboardPushUp && isMobileKeyboardTransitionActive(this.viewport);
-    if (this.noScale) {
-      // Re-clamp on every fit: the pan resets by itself once the content fits the container.
-      this.panY = clampPanY(this.panY, contentHeight, containerHeight);
-    }
-    const { scale, translateY } = this.noScale
-      ? {
-          scale: 1,
-          translateY:
-            computeBottomAnchoredTranslateY(contentHeight, containerHeight) + this.panY,
-        }
-      : computeContainerFitTransform(
-          contentWidth,
-          contentHeight,
-          containerWidth,
-          containerHeight,
-          {
-            ignoreHeight: keyboardOpen,
-            pushUp: keyboardOpen,
-            maxPushUpPx: getKeyboardObscuredPx(),
-          },
-        );
+    const { scale, translateY } = computeContainerFitTransform(
+      contentWidth,
+      contentHeight,
+      containerWidth,
+      containerHeight,
+      {
+        ignoreHeight: keyboardOpen,
+        pushUp: keyboardOpen,
+        maxPushUpPx: getKeyboardObscuredPx(),
+      },
+    );
+    this.applyStage(contentWidth, contentHeight, scale, translateY);
+  }
 
+  private applyStage(
+    contentWidth: number,
+    contentHeight: number,
+    scale: number,
+    translateY: number,
+  ): void {
     if (contentWidth > 0 && contentHeight > 0) {
       this.stage.style.width = `${contentWidth}px`;
       this.stage.style.height = `${contentHeight}px`;
