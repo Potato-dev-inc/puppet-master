@@ -2,6 +2,8 @@ import type { PaneDataListener, PaneResizeListener } from './types';
 
 export const MAX_BACKLOG_CHUNKS = 128;
 export const RAW_REPLAY_LINES = 10_000;
+/** Screen fetches per subscribe when the PTY keeps resizing while one is in flight. */
+const MAX_REPLAY_ATTEMPTS = 3;
 
 export type PaneStreamMode = 'buffering' | 'live';
 
@@ -11,6 +13,8 @@ export interface PaneStream {
   truncated: boolean;
   listener: PaneDataListener | null;
   resizeListener: PaneResizeListener | null;
+  /** The latest resize that arrived while the replay was loading. */
+  pendingResize: { cols: number; rows: number } | null;
 }
 
 /** The pane redrawn at its current size (`GET /panes/{id}/screen`): replayed after a resize to it. */
@@ -58,12 +62,15 @@ export class PaneStreamManager {
   }
 
   /**
-   * A pane resize, delivered between the chunks it came between. Ignored while buffering: the
-   * replay is drawn at the size the viewer mounts with.
+   * A pane resize, delivered between the chunks it came between. While the replay is loading it is
+   * remembered: opening a tab claims the pane for the phone, so the PTY often resizes while the
+   * screen is in flight, and a snapshot taken before that resize must not set the viewer's size.
    */
   ingestResize(paneId: string, cols: number, rows: number): void {
     const stream = this.streams.get(paneId);
-    if (stream?.mode === 'live') stream.resizeListener?.(cols, rows);
+    if (!stream) return;
+    if (stream.mode === 'live') stream.resizeListener?.(cols, rows);
+    else stream.pendingResize = { cols, rows };
   }
 
   subscribe(
@@ -82,19 +89,32 @@ export class PaneStreamManager {
 
     stream.truncated = false;
     stream.backlog = [];
+    stream.pendingResize = null;
 
-    void readRawBuffer(paneId, RAW_REPLAY_LINES).then((replay) => {
-      const current = this.streams.get(paneId);
-      if (!current || current.listener !== cb || current.mode === 'live') return;
-      if (isScreenReplay(replay)) {
-        // Size the viewer to the grid the screen was drawn for, then draw it.
-        current.resizeListener?.(replay.cols, replay.rows);
-        if (replay.data.length > 0) cb(replay.data);
-      } else if (replay.length > 0) {
-        cb(Uint8Array.from(replay));
-      }
-      this.discardBacklogAndGoLive(current);
-    });
+    const load = (attempt: number): void => {
+      void readRawBuffer(paneId, RAW_REPLAY_LINES).then((replay) => {
+        const current = this.streams.get(paneId);
+        if (!current || current.listener !== cb || current.mode === 'live') return;
+        const pending = current.pendingResize;
+        current.pendingResize = null;
+        if (isScreenReplay(replay)) {
+          // The PTY resized after this snapshot was taken: it shows the old grid, and the repaint
+          // for the new one is in the backlog that going live drops. Take the screen again.
+          if (pending && (pending.cols !== replay.cols || pending.rows !== replay.rows) && attempt < MAX_REPLAY_ATTEMPTS) {
+            load(attempt + 1);
+            return;
+          }
+          // Size the viewer to the grid the screen was drawn for, then draw it.
+          current.resizeListener?.(replay.cols, replay.rows);
+          if (replay.data.length > 0) cb(replay.data);
+        } else {
+          if (replay.length > 0) cb(Uint8Array.from(replay));
+          if (pending) current.resizeListener?.(pending.cols, pending.rows);
+        }
+        this.discardBacklogAndGoLive(current);
+      });
+    };
+    load(1);
 
     return this.makeUnsub(paneId, cb);
   }
@@ -123,6 +143,7 @@ export class PaneStreamManager {
       truncated: false,
       listener: null,
       resizeListener: null,
+      pendingResize: null,
     };
   }
 

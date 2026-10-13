@@ -132,4 +132,50 @@ describe('PaneStreamManager', () => {
 
     expect(onResize).not.toHaveBeenCalled();
   });
+
+  it('takes the screen again when the PTY resized while a snapshot was in flight', async () => {
+    const manager = new PaneStreamManager();
+    const events: string[] = [];
+    let call = 0;
+    const readScreen = vi.fn(async () => {
+      call += 1;
+      if (call === 1) {
+        // Opening the tab claimed the pane: the resize arrives before this old snapshot.
+        manager.ingestResize('pane-1', 46, 45);
+        return { data: bytes('OLD'), cols: 121, rows: 36 };
+      }
+      return { data: bytes('NEW'), cols: 46, rows: 45 };
+    });
+    manager.subscribe('pane-1', (c) => events.push(dec.decode(c)), readScreen, (c, r) => events.push(`resize ${c}x${r}`));
+
+    await vi.waitFor(() => expect(events).toEqual(['resize 46x45', 'NEW']));
+    expect(readScreen).toHaveBeenCalledTimes(2);
+    manager.ingestResize('pane-1', 46, 20);
+    expect(events).toEqual(['resize 46x45', 'NEW', 'resize 46x20']);
+  });
+
+  it('does not take the screen again when the snapshot already has the new size', async () => {
+    const manager = new PaneStreamManager();
+    const events: string[] = [];
+    const readScreen = vi.fn(async () => {
+      manager.ingestResize('pane-1', 46, 45);
+      return { data: bytes('NEW'), cols: 46, rows: 45 };
+    });
+    manager.subscribe('pane-1', (c) => events.push(dec.decode(c)), readScreen, (c, r) => events.push(`resize ${c}x${r}`));
+
+    await vi.waitFor(() => expect(events).toEqual(['resize 46x45', 'NEW']));
+    expect(readScreen).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a resize that arrived during a raw replay after drawing it', async () => {
+    const manager = new PaneStreamManager();
+    const events: string[] = [];
+    const readRaw = vi.fn(async () => {
+      manager.ingestResize('pane-1', 46, 45);
+      return Array.from(bytes('RAW'));
+    });
+    manager.subscribe('pane-1', (c) => events.push(dec.decode(c)), readRaw, (c, r) => events.push(`resize ${c}x${r}`));
+
+    await vi.waitFor(() => expect(events).toEqual(['RAW', 'resize 46x45']));
+  });
 });
