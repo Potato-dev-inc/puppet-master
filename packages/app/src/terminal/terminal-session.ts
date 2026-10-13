@@ -13,7 +13,7 @@ import {
 } from './mobile-input-guard';
 import { configureDesktopXtermTextarea, isTerminalPasteShortcut } from './xterm-textarea';
 import { TouchScrollController } from './touch-scroll';
-import { ownerResizeDecision } from './owner-follow';
+import { OwnerGrid } from './owner-follow';
 import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
@@ -40,6 +40,8 @@ function isWindowsRuntime(): boolean {
 function openExternalUrl(uri: string): void {
   window.open(uri, '_blank', 'noopener,noreferrer');
 }
+
+const SETTLE_MIN_INTERVAL_MS = 1500;
 
 /**
  * Owns one xterm.js instance for a pane: raw PTY rendering, resize, input
@@ -69,8 +71,9 @@ export class TerminalSession {
   /** Cell size and padding, measured once and reset on resize, theme, container and font changes. */
   private gridMetricsCache: GridMetrics | null = null;
   private fontsListener: (() => void) | null = null;
-  private lastSentCols = 0;
-  private lastSentRows = 0;
+  private lastSettleAt = 0;
+  /** What this owner window asked of the PTY, what it has, and whether a phone holds it. */
+  private readonly ownerGrid = new OwnerGrid();
   private ptyCols: number;
   private ptyRows: number;
   /**
@@ -78,8 +81,6 @@ export class TerminalSession {
    * React prop path (`setPtyDimensions`) must not resize ahead of bytes still being parsed.
    */
   private streamSized = false;
-  /** Owner window: the PTY size while a phone holds it (null when it is the size this window asked for). */
-  private followPty: { cols: number; rows: number } | null = null;
   /** Owner window: a PTY resize has arrived in stream order, so a size seen at mount is stale. */
   private ownerStreamResizeSeen = false;
   /** Owner window: the size a phone holds, from the registry; applied once the grid is open. */
@@ -273,13 +274,9 @@ export class TerminalSession {
   private applyOwnerFollow(cols: number, rows: number): void {
     const terminal = this.term;
     if (!terminal) return;
-    const decision = ownerResizeDecision(
-      { cols, rows },
-      { cols: this.lastSentCols, rows: this.lastSentRows },
-      { cols: terminal.cols, rows: terminal.rows },
-    );
-    this.followPty = decision.follow;
+    const decision = this.ownerGrid.onStreamResize({ cols, rows }, { cols: terminal.cols, rows: terminal.rows });
     if (decision.resizeTo) terminal.resize(decision.resizeTo.cols, decision.resizeTo.rows);
+    if (decision.refit) this.refitAndRedraw();
     this.scheduleRefresh();
   }
 
@@ -300,6 +297,44 @@ export class TerminalSession {
     terminal.write(new Uint8Array(0), () => {
       if (this.term !== terminal || this.disposed || this.ownerStreamResizeSeen) return;
       this.applyOwnerFollow(held.cols, held.rows);
+    });
+  }
+
+  /**
+   * This window asked the app to take the pane back from the phone (`reclaim_pane_size`, resolved).
+   * What the PTY is given back is the size remembered while the phone held it: after a mode switch
+   * that is the previous window's, and `lastSent` (what this window sent, ignored meanwhile) says
+   * nothing about it, so the dedupe in `fitAndNotify` would keep a wrong grid. Forget `lastSent`,
+   * stop following, fit to the container and tell the PTY once; the app ignores a size the PTY
+   * already has, so a PTY that is already right is not resized and Claude does not reprint.
+   */
+  afterReclaim(): void {
+    const terminal = this.term;
+    if (!terminal || !this.syncPTYResize) return;
+    // After the bytes and resizes already queued, so a `pty://resized` of the reclaim is applied first.
+    terminal.write(new Uint8Array(0), () => {
+      if (this.term !== terminal || this.disposed) return;
+      this.ownerGrid.reclaimed();
+      this.refitAndRedraw();
+    });
+  }
+
+  private refitAndRedraw(): void {
+    const terminal = this.term;
+    if (!terminal) return;
+    requestAnimationFrame(() => {
+      if (this.disposed || this.term !== terminal || this.ownerGrid.following) return;
+      const buffer = terminal.buffer.active;
+      const atBottom = buffer.viewportY >= buffer.baseY;
+      this.fitAndNotify();
+      // The grid changed under a reader at the bottom: keep the newest rows (and the top of the
+      // screen) in view instead of leaving rows above the visible area.
+      if (atBottom) terminal.scrollToBottom();
+      if (!atBottom) return;
+      const now = Date.now();
+      if (now - this.lastSettleAt < SETTLE_MIN_INTERVAL_MS) return;
+      this.lastSettleAt = now;
+      this.scheduleRefresh();
     });
   }
 
@@ -838,7 +873,7 @@ export class TerminalSession {
     const fitAddon = this.fitAddon;
     if (!terminal || !fitAddon) return;
 
-    if (this.followPty !== null) {
+    if (this.ownerGrid.following) {
       // A phone holds the PTY: the grid stays at the PTY size; the PC learns this window's own size.
       let dims: { cols: number; rows: number } | undefined;
       try {
@@ -846,11 +881,8 @@ export class TerminalSession {
       } catch {
         return;
       }
-      if (dims && dims.cols > 0 && dims.rows > 0 && (dims.cols !== this.lastSentCols || dims.rows !== this.lastSentRows)) {
-        this.lastSentCols = dims.cols;
-        this.lastSentRows = dims.rows;
-        this.options.onResize(dims.cols, dims.rows);
-      }
+      const send = dims ? this.ownerGrid.fitted(dims.cols, dims.rows) : null;
+      if (send) this.options.onResize(send.cols, send.rows);
       return;
     }
 
@@ -864,11 +896,8 @@ export class TerminalSession {
     const { cols, rows } = terminal;
     // The owner resizes its grid locally and gets no echo: wipe now, before any later byte.
     if (cols > 0 && rows > 0) this.reprintWipe.resizeTo(terminal, cols, rows, before);
-    if (cols > 0 && rows > 0 && (cols !== this.lastSentCols || rows !== this.lastSentRows)) {
-      this.lastSentCols = cols;
-      this.lastSentRows = rows;
-      this.options.onResize(cols, rows);
-    }
+    const send = this.ownerGrid.fitted(cols, rows);
+    if (send) this.options.onResize(send.cols, send.rows);
   }
 
   private applyPtyDimensions(): void {
@@ -929,7 +958,7 @@ export class TerminalSession {
   private refreshAndNudgeAltBuffer(): void {
     const terminal = this.term;
     // While following a phone-held PTY, the fake resize below would fight the lease.
-    if (!terminal || this.followPty !== null) return;
+    if (!terminal || this.ownerGrid.following) return;
     this.scheduleRefresh();
 
     if (terminal.buffer.active.type !== 'alternate') return;

@@ -28,7 +28,7 @@ describe('ownerResizeDecision', () => {
       { cols: 121, rows: 36 },
       { cols: 121, rows: 36 },
     );
-    expect(decision).toEqual({ follow: null, resizeTo: null });
+    expect(decision).toEqual({ follow: null, resizeTo: null, refit: false });
   });
 
   it('keeps following without resizing when the grid already shows the held size', () => {
@@ -37,7 +37,7 @@ describe('ownerResizeDecision', () => {
       { cols: 121, rows: 36 },
       { cols: 46, rows: 45 },
     );
-    expect(decision).toEqual({ follow: { cols: 46, rows: 45 }, resizeTo: null });
+    expect(decision).toEqual({ follow: { cols: 46, rows: 45 }, resizeTo: null, refit: false });
   });
 
   it('does not alias the event object into the follow state', () => {

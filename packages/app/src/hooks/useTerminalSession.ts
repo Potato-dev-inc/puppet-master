@@ -80,6 +80,7 @@ export function useTerminalSession({
 }: UseTerminalSessionOptions): {
   containerRef: RefObject<HTMLDivElement>;
   nudgeReflow: () => void;
+  afterReclaim: () => void;
   getSelection: () => string;
 } {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -87,6 +88,10 @@ export function useTerminalSession({
   const sizesPane = !!onFitGrid;
   const nudgeReflow = useCallback(() => {
     sessionRef.current?.nudgeReflow();
+  }, []);
+
+  const afterReclaim = useCallback(() => {
+    sessionRef.current?.afterReclaim();
   }, []);
 
   const getSelection = useCallback(() => sessionRef.current?.getSelection() ?? '', []);
@@ -236,5 +241,5 @@ export function useTerminalSession({
     };
   }, [wantsFitGrid, keyboardResizesAgent, paneId, sessionKey]);
 
-  return { containerRef: containerRef as RefObject<HTMLDivElement>, nudgeReflow, getSelection };
+  return { containerRef: containerRef as RefObject<HTMLDivElement>, nudgeReflow, afterReclaim, getSelection };
 }

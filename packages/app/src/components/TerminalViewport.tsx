@@ -62,7 +62,7 @@ export function TerminalViewport({
   getSelectionRef?: MutableRefObject<(() => string) | null>;
 }) {
   const listing = useAgentRegistry();
-  const { containerRef, nudgeReflow, getSelection } = useTerminalSession({
+  const { containerRef, nudgeReflow, afterReclaim, getSelection } = useTerminalSession({
     paneId: pane.info.id,
     sessionKey: pane.info.created_at,
     subscribePaneData: registry.subscribePaneData,
@@ -84,8 +84,8 @@ export function TerminalViewport({
     const now = Date.now();
     if (now - lastReclaimRef.current < RECLAIM_THROTTLE_MS) return;
     lastReclaimRef.current = now;
-    void tauri.reclaimPaneSize(paneId);
-  }, [held, paneId]);
+    void tauri.reclaimPaneSize(paneId).then(afterReclaim, () => {});
+  }, [held, paneId, afterReclaim]);
   useEffect(() => {
     if (!held) return;
     window.addEventListener('focus', reclaimIfHeld);
