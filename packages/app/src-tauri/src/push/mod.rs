@@ -171,6 +171,38 @@ pub fn notify_operation(snapshot: &crate::operations::OperationSnapshot) {
     });
 }
 
+/// Hook for `ask_user`: a question was just created. Fires once per question (the caller only
+/// invokes it on creation). Tapping the notification opens the phone's question list.
+pub fn notify_question(question: &crate::questions::Question) {
+    let Some(ctx) = CTX.get() else { return };
+    if !ctx.hub.has_subscribers() {
+        return;
+    }
+    // The registry's label is trusted; the agent-supplied one is only a fallback (and sanitised).
+    let from_pane = question.pane_id.as_deref().and_then(|id| {
+        let reg = ctx.registry.lock();
+        reg.panes.get(id).map(|pane| pane.info.agent_type.clone())
+    });
+    let given = question.agent.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let label = match (from_pane, given) {
+        (Some(agent_type), _) => agent_label(&agent_type),
+        (None, Some(given)) => triggers::truncate_chars(given, 40),
+        (None, None) => String::new(),
+    };
+    let candidate = Candidate {
+        kind: Kind::Question,
+        key: format!("q-{}", question.id),
+        pane_id: None,
+        agent_label: if label.is_empty() { "An agent".to_string() } else { label },
+        prompt: Some(PromptInfo { prompt_id: String::new(), text: question.question.clone(), actionable: false }),
+    };
+    let _ = std::thread::Builder::new().name("push-question".into()).spawn(move || {
+        if let Some(ctx) = CTX.get() {
+            dispatch(ctx, candidate);
+        }
+    });
+}
+
 fn dispatch(ctx: &Ctx, candidate: Candidate) {
     let (verdict, deliveries) = ctx.hub.plan(&candidate, now_ms());
     if verdict != Verdict::Send {

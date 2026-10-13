@@ -268,7 +268,7 @@ export default function PwaApp() {
     };
   }, [bridgeUrl, applyPanes, publishEcho]);
 
-  usePushPresence(bridgeUrl, setActive);
+  usePushPresence(bridgeUrl, setActive, () => setActive(ALL_TAB));
 
   // A closed agent's tab falls back to All (only once the real pane list has arrived).
   useEffect(() => {

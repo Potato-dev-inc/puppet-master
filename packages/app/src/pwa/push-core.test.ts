@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { clickIntent, isOpenPaneMessage, openUrl, paneFromSearch, parsePushPayload, planNotification } from './push-core';
+import {
+  clickIntent,
+  isOpenPaneMessage,
+  isOpenViewMessage,
+  openUrl,
+  paneFromSearch,
+  parsePushPayload,
+  planNotification,
+  viewFromSearch,
+} from './push-core';
 
 describe('parsePushPayload', () => {
   it('reads the server payload', () => {
@@ -20,6 +29,12 @@ describe('parsePushPayload', () => {
   it('refuses an act url that leaves the origin', () => {
     expect(parsePushPayload(JSON.stringify({ act: { url: 'https://evil.example/x', token: 'T' } })).act).toBeUndefined();
   });
+
+  it('keeps target "questions" and drops any other value', () => {
+    expect(parsePushPayload('{"target":"questions"}').target).toBe('questions');
+    expect(parsePushPayload('{"target":"panes"}').target).toBeUndefined();
+    expect(parsePushPayload('{"target":5}').target).toBeUndefined();
+  });
 });
 
 describe('planNotification', () => {
@@ -29,6 +44,14 @@ describe('planNotification', () => {
     expect(plain.options.renotify).toBe(true);
     const actionable = planNotification(parsePushPayload('{"title":"t","body":"b","tag":"x","pane_id":"p","act":{"url":"/bridge/push/act","token":"T"}}'));
     expect(actionable.options.actions?.map((a) => a.action)).toEqual(['allow', 'deny']);
+  });
+
+  it('plans a question notification without buttons and carries the target', () => {
+    const question = planNotification(
+      parsePushPayload('{"v":1,"kind":"question","title":"Kilo asks","body":"Deploy?","tag":"pm-q-xyz","target":"questions"}'),
+    );
+    expect(question.options.actions).toBeUndefined();
+    expect(question.options.data.target).toBe('questions');
   });
 });
 
@@ -44,6 +67,10 @@ describe('clickIntent', () => {
     expect(clickIntent('allow', { pane_id: 'p9' })).toEqual({ type: 'open', paneId: 'p9' });
     expect(clickIntent('', undefined)).toEqual({ type: 'open', paneId: null });
   });
+
+  it('opens the question list for a question target', () => {
+    expect(clickIntent('', { target: 'questions' })).toEqual({ type: 'open', paneId: null, view: 'questions' });
+  });
 });
 
 describe('deep links', () => {
@@ -55,5 +82,16 @@ describe('deep links', () => {
     expect(isOpenPaneMessage({ type: 'pm-open-pane', pane_id: 'p' })).toBe(true);
     expect(isOpenPaneMessage({ type: 'other' })).toBe(false);
     expect(isOpenPaneMessage(null)).toBe(false);
+  });
+
+  it('opens the question list from a launch url or a focus message', () => {
+    expect(openUrl(null, 'questions')).toBe('/?view=questions');
+    expect(viewFromSearch('?view=questions')).toBe('questions');
+    expect(viewFromSearch('?view=x')).toBeNull();
+    expect(viewFromSearch('?pane=p')).toBeNull();
+    expect(isOpenViewMessage({ type: 'pm-open-view', view: 'questions' })).toBe(true);
+    expect(isOpenViewMessage({ type: 'pm-open-view', view: 'x' })).toBe(false);
+    expect(isOpenViewMessage({ type: 'pm-open-pane', pane_id: 'p' })).toBe(false);
+    expect(isOpenViewMessage(null)).toBe(false);
   });
 });

@@ -229,7 +229,11 @@ impl PushHub {
             if let Some(pane_id) = &candidate.pane_id {
                 payload["pane_id"] = Value::String(pane_id.clone());
             }
-            if let Some(prompt) = &candidate.prompt {
+            if candidate.kind == Kind::Question {
+                // Questions need the app: tapping opens the phone's question list. No buttons.
+                payload["target"] = Value::String("questions".into());
+            }
+            if let (Some(prompt), true) = (&candidate.prompt, candidate.kind != Kind::Question) {
                 payload["prompt_id"] = Value::String(prompt.prompt_id.clone());
             }
             if actionable {
@@ -244,7 +248,7 @@ impl PushHub {
                 device_id: device_id.clone(),
                 subscription,
                 payload: payload.to_string().into_bytes(),
-                urgent: matches!(candidate.kind, Kind::WaitingInput | Kind::Error),
+                urgent: matches!(candidate.kind, Kind::WaitingInput | Kind::Error | Kind::Question),
                 pane_id: candidate.pane_id.clone(),
                 kind: candidate.kind,
             };
@@ -481,5 +485,43 @@ mod tests {
         assert_eq!((v, d.len()), (Verdict::Send, 2));
         let (v, d) = hub.plan(&waiting("p", Some(command_prompt("c"))), 100_002);
         assert_eq!((v, d.len()), (Verdict::RateLimited, 0));
+    }
+
+    fn question(id: &str, text: &str) -> Candidate {
+        Candidate {
+            kind: Kind::Question,
+            key: format!("q-{id}"),
+            pane_id: None,
+            agent_label: "Kilo".into(),
+            prompt: Some(PromptInfo { prompt_id: String::new(), text: text.into(), actionable: false }),
+        }
+    }
+
+    #[test]
+    fn a_question_notifies_once_with_no_action_buttons_and_opens_the_question_list() {
+        let hub = two_device_hub("question");
+        let (verdict, d) = hub.plan(&question("q1", "Deploy to staging?"), 1_000);
+        assert_eq!((verdict, d.len()), (Verdict::Send, 2));
+        let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
+        assert_eq!(payload["title"], "Kilo asks");
+        assert_eq!(payload["body"], "Deploy to staging?");
+        assert_eq!(payload["target"], "questions");
+        assert!(payload.get("act").is_none(), "questions have no Allow / Deny");
+        let mut keys: Vec<&str> = payload.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["body", "kind", "tag", "target", "title", "v"]);
+        assert!(d[0].urgent);
+        // The same question never notifies twice; the next question does.
+        let (v, d) = hub.plan(&question("q1", "Deploy to staging?"), 2_000);
+        assert_eq!((v, d.len()), (Verdict::RateLimited, 0));
+        assert_eq!(hub.plan(&question("q2", "And production?"), 2_000).1.len(), 2);
+    }
+
+    #[test]
+    fn a_question_is_held_back_while_the_phone_is_looking() {
+        let hub = two_device_hub("question-visible");
+        hub.set_visible("dev-a", true, 1_000);
+        let (_, d) = hub.plan(&question("q1", "Deploy?"), 2_000);
+        assert_eq!(d.iter().map(|x| x.device_id.as_str()).collect::<Vec<_>>(), ["dev-b"]);
     }
 }
