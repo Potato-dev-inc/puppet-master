@@ -115,10 +115,10 @@ pub fn notify_pane_status(pane_id: &str, status: &str) {
         let Some(ctx) = CTX.get() else { return };
         // Let the dialog finish drawing and flickers settle, then make sure it is still true.
         std::thread::sleep(Duration::from_millis(triggers::SETTLE_MS));
-        let (agent_type, current) = {
+        let (agent_type, pane_title, current) = {
             let reg = ctx.registry.lock();
             match reg.panes.get(&pane_id) {
-                Some(pane) => (pane.info.agent_type.clone(), pane.status.lock().as_str().to_string()),
+                Some(pane) => (pane.info.agent_type.clone(), pane.info.title.clone(), pane.status.lock().as_str().to_string()),
                 None => return,
             }
         };
@@ -136,6 +136,7 @@ pub fn notify_pane_status(pane_id: &str, status: &str) {
                 key: pane_id.clone(),
                 pane_id: Some(pane_id),
                 agent_label: agent_label(&agent_type),
+                pane_title,
                 prompt,
             },
         );
@@ -162,6 +163,7 @@ pub fn notify_operation(snapshot: &crate::operations::OperationSnapshot) {
         key: snapshot.pane_id.clone().unwrap_or_else(|| snapshot.operation_id.clone()),
         pane_id: snapshot.pane_id.clone(),
         agent_label: agent_label(&snapshot.agent_type),
+        pane_title: None,
         prompt: None,
     };
     let _ = std::thread::Builder::new().name("push-op".into()).spawn(move || {
@@ -200,7 +202,8 @@ pub fn notify_question(question: &crate::questions::Question) {
         key: format!("q-{}", question.id),
         pane_id: None,
         agent_label: if label.is_empty() { "An agent".to_string() } else { label },
-        prompt: Some(PromptInfo { prompt_id: String::new(), text: question.question.clone(), actionable: false }),
+        pane_title: None,
+        prompt: Some(PromptInfo { prompt_id: String::new(), text: question.question.clone(), actionable: false, risk: None }),
     };
     let _ = std::thread::Builder::new().name("push-question".into()).spawn(move || {
         if let Some(ctx) = CTX.get() {
