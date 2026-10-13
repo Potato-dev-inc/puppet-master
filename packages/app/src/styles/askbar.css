@@ -8,6 +8,10 @@ html.askbar-root #root {
   overflow: hidden;
 }
 
+html.askbar-root #root {
+  height: 100vh;
+}
+
 .askbar {
   --bg: #0a0a0b;
   --bg-side: #111112;
@@ -57,8 +61,8 @@ html.askbar-root #root {
 .askbar {
   position: relative;
   box-sizing: border-box;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   border-radius: 12px;
@@ -81,7 +85,7 @@ html.askbar-root #root {
   box-sizing: border-box;
 }
 
-.askbar button {
+:where(.askbar) button {
   font: inherit;
   color: inherit;
   background: none;
@@ -92,10 +96,15 @@ html.askbar-root #root {
   transition: background-color 160ms var(--ease), box-shadow 160ms var(--ease), transform 160ms var(--ease);
 }
 
-.askbar button:focus-visible,
-.askbar input:focus-visible {
+.askbar button:focus-visible {
   outline: none;
   box-shadow: var(--focus);
+}
+
+.askbar input:focus,
+.askbar input:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .askbar button:disabled {

@@ -106,7 +106,16 @@ export function installTauriMock(scenario: HarnessScenario): void {
           ];
         case 'askbar_clipboard':
           return { text: 'x'.repeat(1200), chars: 1200, truncated: false };
-        case 'askbar_resize':
+        case 'askbar_resize': {
+          // The real window is 640 wide and 64 or 420 tall; mimic it so screenshots look like the window.
+          const root = document.getElementById('root');
+          if (root) {
+            root.style.width = '640px';
+            root.style.height = a.expanded ? '420px' : '64px';
+            root.style.margin = '48px auto 0';
+          }
+          return null;
+        }
         case 'askbar_hide':
         case 'askbar_continue':
         case 'askbar_notice_dismiss':
