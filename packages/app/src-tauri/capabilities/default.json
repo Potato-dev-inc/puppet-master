@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default permissions for Puppet Master",
-  "windows": ["main", "settings", "cockpit", "detached-pane-*"],
+  "windows": ["main", "settings", "cockpit", "detached-pane-*", "askbar"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

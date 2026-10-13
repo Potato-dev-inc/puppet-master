@@ -49,6 +49,7 @@ serde_path_to_error = "0.1"
 glob = "0.3"
 notify = "6"
 tauri-plugin-global-shortcut = "2"
+arboard = { version = "3", default-features = false }
 
 [features]
 default = ["custom-protocol"]

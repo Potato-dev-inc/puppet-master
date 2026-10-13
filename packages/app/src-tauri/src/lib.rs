@@ -27,6 +27,7 @@ mod operations_contract_tests;
 mod pane_activity;
 mod loop_guard;
 mod panic;
+mod askbar;
 mod pane_prompt;
 mod app_windows;
 mod cockpit;
@@ -111,6 +112,17 @@ pub fn run() {
             commands::loop_settings_get,
             commands::loop_settings_set,
             commands::stop_all_agents,
+            commands::askbar_settings_get,
+            commands::askbar_settings_set,
+            commands::askbar_agents,
+            commands::askbar_clipboard,
+            commands::askbar_hide,
+            commands::askbar_resize,
+            commands::askbar_ask,
+            commands::askbar_continue,
+            commands::askbar_notices,
+            commands::askbar_notice_dismiss,
+            commands::askbar_notice_open,
             commands::agents_health,
             commands::agents_health_test,
             commands::agents_definitions_list,
@@ -321,6 +333,7 @@ pub fn run() {
             pane_activity::init(registry_for_panes.clone(), app.handle().clone());
             loop_guard::init(app.handle().clone());
             panic::init_shortcut(app.handle());
+            askbar::glue::init(app.handle());
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
             });
