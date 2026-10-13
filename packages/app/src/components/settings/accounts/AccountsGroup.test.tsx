@@ -3,9 +3,17 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Account, AccountsApi, AccountsOverview } from '../../../lib/accounts';
+import { fallbackListing } from '../../../lib/agentRegistry';
 import { AccountsGroup } from './AccountsGroup';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// Offline compiled registry: gives the display labels ("Claude Code", "Codex") without Tauri.
+const REGISTRY = fallbackListing();
+vi.mock('../../../lib/agentRegistry', async (orig) => ({
+  ...(await orig<typeof import('../../../lib/agentRegistry')>()),
+  useAgentRegistry: () => REGISTRY,
+}));
 
 const AGENTS = [
   { agent_id: 'claude', home_env: 'CLAUDE_CONFIG_DIR', login_hint: 'Run `claude` and log in, then close it.' },
@@ -61,6 +69,14 @@ describe('AccountsGroup', () => {
     expect(host.querySelector('[data-testid="accounts-codex"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="accounts-opencode"]')).toBeNull();
     expect(host.textContent).toContain('never reads or shares');
+  });
+
+  it('headings show the agent display name, not the raw id', async () => {
+    await render(fakeApi());
+    const headings = Array.from(host.querySelectorAll('h4')).map((h) => h.textContent?.trim());
+    expect(headings).toEqual(['Claude Code', 'Codex CLI']);
+    expect(host.querySelector('[data-testid="accounts-claude"] h4')?.textContent).toBe('Claude Code');
+    expect(host.querySelector('[data-testid="accounts-codex"] h4')?.textContent).toBe('Codex CLI');
   });
 
   it('adds an account for one agent', async () => {

@@ -10,6 +10,7 @@ import {
   type AccountsApi,
   type AccountsOverview,
 } from '../../../lib/accounts';
+import { agentLabel, useAgentRegistry } from '../../../lib/agentRegistry';
 import { SettingBlock } from '../settings-ui';
 
 const BTN = 'rounded-lg border border-pm-border px-3 py-1.5 text-xs font-medium hover:bg-pm-border/40 disabled:opacity-50';
@@ -20,6 +21,7 @@ export function AccountsGroup({ api = tauriAccountsApi }: { api?: AccountsApi })
   const [note, setNote] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const registry = useAgentRegistry();
 
   const refresh = useCallback(async () => {
     try {
@@ -72,7 +74,7 @@ export function AccountsGroup({ api = tauriAccountsApi }: { api?: AccountsApi })
           const draft = drafts[agent.agent_id] ?? '';
           return (
             <section key={agent.agent_id} aria-label={`${agent.agent_id} accounts`} data-testid={`accounts-${agent.agent_id}`}>
-              <h4 className="text-sm font-medium">{agent.agent_id}</h4>
+              <h4 className="text-sm font-medium">{agentLabel(registry, agent.agent_id)}</h4>
               <p className="mt-0.5 text-xs text-pm-muted">{agent.login_hint}</p>
               {mine.length === 0 && <p className="mt-2 text-xs text-pm-muted">No accounts yet. It uses its own login.</p>}
               <ul className="mt-2 divide-y divide-pm-border rounded-lg border border-pm-border">
