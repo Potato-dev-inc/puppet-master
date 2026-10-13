@@ -20,12 +20,17 @@ export type PaneInfo = {
 };
 
 export type TerminalSnapshotEvent = { pane_id: string; snapshot: string };
-export type TerminalDataEvent = { pane_id: string; data: number[] };
+export type TerminalDataEvent = {
+  pane_id: string;
+  data: number[];
+  /** Where this chunk starts in the pane's byte stream (see `PaneScreenReplay.offset`). */
+  offset?: number;
+};
 export type PaneStatusEvent = { pane_id: string; status: PaneInfo['status'] };
 export type PaneExitEvent = { pane_id: string };
 export type PanesChangedEvent = { changed: boolean };
 /** A phone lease changed a pane's PTY size; ordered with `terminal-data` (desktop owner windows follow it). */
-export type PtyResizedEvent = { pane_id: string; cols: number; rows: number };
+export type PtyResizedEvent = { pane_id: string; cols: number; rows: number; offset?: number };
 export type PaneDetachEvent = { pane_id: string; title?: string; cols?: number; rows?: number };
 export type PaneReattachEvent = { pane_id: string };
 

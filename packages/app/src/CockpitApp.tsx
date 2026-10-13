@@ -1,4 +1,5 @@
 // Cockpit window (`index.html?cockpit=1`): one window that orchestrates every agent pane.
+import { useNudgeOnAction } from './lib/desktop-nudge';
 import { useEffect, useState } from 'react';
 import { AgentDoctor } from './components/cockpit/AgentDoctor';
 import { markSpawned } from './lib/agent-health';
@@ -63,9 +64,11 @@ export default function CockpitApp() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
+  const { onClickCapture } = useNudgeOnAction();
+
   return (
     <LoopGuardContext.Provider value={loop}>
-    <div className="cockpit" data-theme={c.theme}>
+    <div className="cockpit" data-theme={c.theme} onClickCapture={onClickCapture}>
       <Sidebar c={nav} onOpenPalette={() => setPaletteOpen(true)} onOpenDoctor={() => setDoctorOpen(true)} />
       <main className="ck-main">
         {c.mode === 'individual' ? (

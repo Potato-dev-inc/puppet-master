@@ -220,6 +220,15 @@ pub fn read_full_text(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<S
 /// raw byte history, which was written for whatever sizes the pane had back then and came out
 /// wrapped and overlapping when replayed at the phone's size.
 pub fn read_screen_replay(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<(Vec<u8>, u16, u16), String> {
+    read_screen_replay_at(registry, pane_id).map(|(bytes, cols, rows, _)| (bytes, cols, rows))
+}
+
+/// `read_screen_replay` plus the stream offset the snapshot was taken at (`pty::stream_pos`): every
+/// byte before it is drawn in the replay, so a viewer writes only live bytes from there on.
+pub fn read_screen_replay_at(
+    registry: &Mutex<PaneRegistry>,
+    pane_id: &str,
+) -> Result<(Vec<u8>, u16, u16, Option<u64>), String> {
     let screen = {
         let reg = registry.lock();
         let pane = reg
@@ -229,8 +238,10 @@ pub fn read_screen_replay(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Resu
         pane.screen.clone()
     };
     let mut parser = screen.lock();
+    let offset = crate::pty::stream_pos::get(pane_id)
+        .map(|pos| pos.processed.load(std::sync::atomic::Ordering::SeqCst));
     let (rows, cols) = parser.screen().size();
-    Ok((screen_replay_of(&mut parser, 3000), cols, rows))
+    Ok((screen_replay_of(&mut parser, 3000), cols, rows, offset))
 }
 
 pub(super) fn screen_replay_of(parser: &mut vt100::Parser, max_history: usize) -> Vec<u8> {

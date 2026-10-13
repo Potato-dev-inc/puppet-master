@@ -46,7 +46,7 @@ pub use tunnel::*;
 use crate::pty::agents::AgentType;
 use crate::pty::{
     registry_get_project_path, registry_kill_all, registry_kill_pane, registry_read_buffer,
-    registry_read_raw_buffer, registry_read_screen_replay, registry_read_snapshot, registry_resize, registry_set_project_path,
+    registry_read_raw_buffer, registry_read_screen_replay_at, registry_read_snapshot, registry_resize, registry_set_project_path,
     registry_spawn_pane, registry_write_input, PaneInfo, PaneRegistry, SpawnPaneArgs,
 };
 use crate::settings_store;

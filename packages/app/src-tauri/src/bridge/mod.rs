@@ -85,7 +85,12 @@ pub fn notify_pty_resized_by_lease(pane_id: &str, cols: u16, rows: u16) {
         use tauri::Emitter;
         let _ = app.emit(
             "pty://resized",
-            serde_json::json!({ "pane_id": pane_id, "cols": cols, "rows": rows }),
+            serde_json::json!({
+                "pane_id": pane_id,
+                "cols": cols,
+                "rows": rows,
+                "offset": crate::pty::stream_pos::emitted(pane_id),
+            }),
         );
     }
 }

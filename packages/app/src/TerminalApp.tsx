@@ -1,4 +1,5 @@
 // Standalone terminal window (?terminal=1 / detached pane / worker host): pane dashboard or a single pane.
+import { useNudgeOnAction } from './lib/desktop-nudge';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getDefaultTerminalAgentType,
@@ -323,8 +324,10 @@ export default function TerminalApp() {
     }
   };
 
+  const { onClickCapture } = useNudgeOnAction();
+
   return (
-    <div className="pm-terminal-app">
+    <div className="pm-terminal-app" onClickCapture={onClickCapture}>
       <main className={detached ? 'pm-terminal-shell pm-terminal-shell--detached' : 'pm-terminal-shell'}>
         <section className="pm-terminal-main">
           {selectedPane && detached ? (

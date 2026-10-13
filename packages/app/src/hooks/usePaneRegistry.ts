@@ -81,11 +81,11 @@ export function usePaneRegistry(): PaneRegistryApi {
         void refresh();
       });
       const ingestData = (e: TerminalDataEvent) => {
-        streamsRef.current.ingest(e.pane_id, e.data);
+        streamsRef.current.ingest(e.pane_id, e.data, e.offset);
       };
       unsubData = await tauri.onTerminalData(ingestData);
       unsubResized = await tauri.onPtyResized((e) => {
-        streamsRef.current.ingestResize(e.pane_id, e.cols, e.rows);
+        streamsRef.current.ingestResize(e.pane_id, e.cols, e.rows, e.offset);
       });
       unsubSnapshot = await tauri.onTerminalSnapshot((e: TerminalSnapshotEvent) => {
         // Snapshot events are retained for MCP/debug consumers; xterm rendering

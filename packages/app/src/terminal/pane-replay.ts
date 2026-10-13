@@ -2,7 +2,7 @@ import type { PaneScreenReplay, ReadRawBufferFn } from './pane-stream';
 
 export interface OwnerReplayDeps {
   /** The pane redrawn at its current size, or null when the backend has no such command. */
-  readScreen: (paneId: string) => Promise<{ data: number[] | Uint8Array; cols: number; rows: number } | null>;
+  readScreen: (paneId: string) => Promise<{ data: number[] | Uint8Array; cols: number; rows: number; offset?: number } | null>;
   readRaw: ReadRawBufferFn;
   /** This window's own resize of the pane that is still in flight (the PTY has not applied it yet). */
   pendingResize: (paneId: string) => Promise<unknown> | undefined;
@@ -32,6 +32,7 @@ export function createOwnerReplayReader(deps: OwnerReplayDeps): ReadRawBufferFn 
           data: screen.data instanceof Uint8Array ? screen.data : Uint8Array.from(screen.data),
           cols: screen.cols,
           rows: screen.rows,
+          offset: screen.offset,
         };
         return replay;
       }

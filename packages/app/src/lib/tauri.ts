@@ -133,7 +133,7 @@ export const tauri = {
       { paneId, args },
     ),
   readScreenReplay: (paneId: string) =>
-    safeInvoke<{ data: number[]; cols: number; rows: number } | null>(
+    safeInvoke<{ data: number[]; cols: number; rows: number; offset?: number } | null>(
       'read_pane_screen_replay',
       { paneId },
       null,

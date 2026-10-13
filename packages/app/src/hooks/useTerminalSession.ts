@@ -42,6 +42,10 @@ interface UseTerminalSessionOptions {
   keyboardResizesAgent?: boolean;
   /** The agent reprints its conversation on every resize: wipe scrollback at each resize (PaneInfo flag). */
   reprintsOnResize?: boolean;
+  /** Bump to rebuild the session in place: the same steps as a fresh mount (the desktop nudge). */
+  remountEpoch?: number;
+  /** With `remountEpoch` > 0: the PTY's grid right now, so the remount's first fit sends nothing if it matches. */
+  assumePtyGrid?: { cols: number; rows: number };
 }
 
 /** Before the first successful measurement (xterm still settling after mount). */
@@ -77,16 +81,28 @@ export function useTerminalSession({
   onFitGrid,
   keyboardResizesAgent = true,
   reprintsOnResize = false,
+  remountEpoch = 0,
+  assumePtyGrid,
 }: UseTerminalSessionOptions): {
   containerRef: RefObject<HTMLDivElement>;
   nudgeReflow: () => void;
+  afterReclaim: () => void;
+  isScrolledUp: () => boolean;
   getSelection: () => string;
 } {
   const containerRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<TerminalSession | null>(null);
   const sizesPane = !!onFitGrid;
+  const assumePtyGridRef = useRef(assumePtyGrid);
+  assumePtyGridRef.current = assumePtyGrid;
   const nudgeReflow = useCallback(() => {
     sessionRef.current?.nudgeReflow();
+  }, []);
+
+  const isScrolledUp = useCallback(() => sessionRef.current?.isScrolledUp() ?? false, []);
+
+  const afterReclaim = useCallback(() => {
+    sessionRef.current?.afterReclaim();
   }, []);
 
   const getSelection = useCallback(() => sessionRef.current?.getSelection() ?? '', []);
@@ -116,6 +132,7 @@ export function useTerminalSession({
       disableMobileInput,
       sizesPane,
       reprintsOnResize,
+      assumePtyGrid: remountEpoch > 0 ? assumePtyGridRef.current : undefined,
       onResize: (cols, rows) => {
         void activeTransport.resize(cols, rows);
       },
@@ -130,7 +147,7 @@ export function useTerminalSession({
       session.dispose();
       sessionRef.current = null;
     };
-  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, renderMode, mobileInputDelayMs, mobileInputVisible, disableMobileInput, sizesPane]);
+  }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, renderMode, mobileInputDelayMs, mobileInputVisible, disableMobileInput, sizesPane, remountEpoch]);
 
   // The flag arrives with the pane list, possibly after mount: no remount, only the setting.
   useEffect(() => {
@@ -236,5 +253,5 @@ export function useTerminalSession({
     };
   }, [wantsFitGrid, keyboardResizesAgent, paneId, sessionKey]);
 
-  return { containerRef: containerRef as RefObject<HTMLDivElement>, nudgeReflow, getSelection };
+  return { containerRef: containerRef as RefObject<HTMLDivElement>, nudgeReflow, afterReclaim, isScrolledUp, getSelection };
 }

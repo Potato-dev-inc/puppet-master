@@ -1,9 +1,11 @@
 // One terminal pane as used by the standalone / detached pane window: xterm host, optional title bar,
 // and floating controls (move back to app, API key tray, reflow nudge).
-import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { useTerminalSession } from '../hooks/useTerminalSession';
 import { agentLabel, useAgentRegistry } from '../lib/agentRegistry';
 import { tauri } from '../lib/tauri';
+import { nudgeDesktop, onDesktopNudge } from '../lib/desktop-nudge';
+import { NUDGE_MIN_GAP_MS } from '../lib/nudge-scheduler';
 import type { PaneData, PaneRegistryApi } from '../hooks/usePaneRegistry';
 
 /** Pointer, key and focus events in a phone-held window come in bursts: one reclaim per window. */
@@ -62,7 +64,13 @@ export function TerminalViewport({
   getSelectionRef?: MutableRefObject<(() => string) | null>;
 }) {
   const listing = useAgentRegistry();
-  const { containerRef, nudgeReflow, getSelection } = useTerminalSession({
+  // Desktop nudge: rebuild the terminal exactly as a fresh mount does (new xterm, fit, screen replay
+  // at the PTY's size, live). Bumping the epoch re-runs the session effect; nothing else differs.
+  const [epoch, setEpoch] = useState(0);
+  const mountedAtRef = useRef(Date.now());
+  const { containerRef, afterReclaim, isScrolledUp, getSelection } = useTerminalSession({
+    remountEpoch: epoch,
+    assumePtyGrid: { cols: pane.info.cols, rows: pane.info.rows },
     paneId: pane.info.id,
     sessionKey: pane.info.created_at,
     subscribePaneData: registry.subscribePaneData,
@@ -75,6 +83,26 @@ export function TerminalViewport({
 
   if (getSelectionRef) getSelectionRef.current = getSelection;
 
+  const remount = useCallback(() => {
+    mountedAtRef.current = Date.now();
+    setEpoch((n) => n + 1);
+  }, []);
+  useEffect(() => {
+    mountedAtRef.current = Date.now();
+    return onDesktopNudge((skipIfScrolledUp) => {
+      // A pane that was mounted a moment ago (the click that selected it) already is a fresh mount.
+      if (Date.now() - mountedAtRef.current < NUDGE_MIN_GAP_MS) return;
+      if (skipIfScrolledUp && isScrolledUp()) return;
+      remount();
+    });
+  }, [isScrolledUp, remount, pane.info.id]);
+  // Coming back to this window is an action too.
+  useEffect(() => {
+    const onFocus = () => nudgeDesktop(true);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
   // A phone holds this pane's size: using this window takes it back (only then, and throttled).
   const held = pane.info.viewer_held;
   const paneId = pane.info.id;
@@ -84,8 +112,11 @@ export function TerminalViewport({
     const now = Date.now();
     if (now - lastReclaimRef.current < RECLAIM_THROTTLE_MS) return;
     lastReclaimRef.current = now;
-    void tauri.reclaimPaneSize(paneId);
-  }, [held, paneId]);
+    void tauri.reclaimPaneSize(paneId).then(() => {
+      afterReclaim();
+      nudgeDesktop(true);
+    }, () => {});
+  }, [held, paneId, afterReclaim]);
   useEffect(() => {
     if (!held) return;
     window.addEventListener('focus', reclaimIfHeld);
@@ -147,9 +178,9 @@ export function TerminalViewport({
           <button
             type="button"
             className="pm-terminal-control-button"
-            title="Nudge layout reflow"
-            aria-label="Nudge layout reflow"
-            onClick={nudgeReflow}
+            title="Redraw from the PC screen"
+            aria-label="Redraw from the PC screen"
+            onClick={remount}
           >
             ↻
           </button>
