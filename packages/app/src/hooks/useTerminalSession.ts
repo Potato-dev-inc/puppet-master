@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { tauri } from '../lib/tauri';
 import { TerminalSession } from '../terminal';
-import type { PaneSnapshotListener, TerminalRenderMode } from '../terminal';
+import type { TerminalRenderMode } from '../terminal';
+import type { PaneDataSubscriber } from '../terminal/types';
 
 export interface TerminalTransport {
   resize: (cols: number, rows: number) => void | Promise<void>;
@@ -12,7 +13,7 @@ interface UseTerminalSessionOptions {
   paneId: string;
   /** Bump when the pane process is replaced (agent switch). */
   sessionKey: number;
-  subscribePaneData: (paneId: string, cb: PaneSnapshotListener) => () => void;
+  subscribePaneData: PaneDataSubscriber;
   transport?: TerminalTransport;
   syncPTYResize?: boolean;
   renderMode?: TerminalRenderMode;

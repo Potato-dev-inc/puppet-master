@@ -215,6 +215,53 @@ pub fn read_full_text(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<S
     Ok(full_text_of_cols(&mut parser, keep))
 }
 
+/// The pane redrawn for a viewer: its scrollback (formatted, at the current width) followed by the
+/// screen and input modes, plus the grid size it was drawn for. A phone replays this instead of the
+/// raw byte history, which was written for whatever sizes the pane had back then and came out
+/// wrapped and overlapping when replayed at the phone's size.
+pub fn read_screen_replay(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<(Vec<u8>, u16, u16), String> {
+    let screen = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        pane.screen.clone()
+    };
+    let mut parser = screen.lock();
+    let (rows, cols) = parser.screen().size();
+    Ok((screen_replay_of(&mut parser, 3000), cols, rows))
+}
+
+pub(super) fn screen_replay_of(parser: &mut vt100::Parser, max_history: usize) -> Vec<u8> {
+    let (rows, cols) = parser.screen().size();
+    let mut out = Vec::new();
+    if parser.screen().alternate_screen() {
+        out.extend_from_slice(b"\x1b[?1049h");
+    } else {
+        parser.screen_mut().set_scrollback(usize::MAX);
+        let total = parser.screen().scrollback().min(max_history);
+        // At offset `n` the first visible row is the n-th line above the live screen.
+        for offset in (1..=total).rev() {
+            parser.screen_mut().set_scrollback(offset);
+            if let Some(row) = parser.screen().rows_formatted(0, cols).next() {
+                out.extend_from_slice(b"\x1b[m");
+                out.extend_from_slice(&row);
+                out.extend_from_slice(b"\x1b[m\r\n");
+            }
+        }
+        parser.screen_mut().set_scrollback(0);
+        // Scroll the history above the viewer's screen before the screen is drawn over it.
+        if total > 0 {
+            for _ in 1..rows {
+                out.extend_from_slice(b"\r\n");
+            }
+        }
+    }
+    out.extend_from_slice(&parser.screen().state_formatted());
+    out
+}
+
 pub(super) fn full_text_of(parser: &mut vt100::Parser) -> String {
     full_text_of_cols(parser, None)
 }
@@ -246,6 +293,33 @@ pub(super) fn full_text_of_cols(parser: &mut vt100::Parser, keep_cols: Option<u1
 
 #[cfg(test)]
 mod full_text_tests {
+    #[test]
+    fn screen_replay_redraws_history_and_screen_at_the_current_size() {
+        let mut parser = vt100::Parser::new(5, 40, 1000);
+        for n in 0..12 {
+            parser.process(format!("line {n:02}\r\n").as_bytes());
+        }
+        let replay = super::screen_replay_of(&mut parser, 1000);
+        let mut viewer = vt100::Parser::new(5, 40, 1000);
+        viewer.process(&replay);
+        assert_eq!(viewer.screen().contents(), parser.screen().contents());
+        viewer.screen_mut().set_scrollback(usize::MAX);
+        parser.screen_mut().set_scrollback(usize::MAX);
+        assert_eq!(viewer.screen().scrollback(), parser.screen().scrollback());
+    }
+
+    #[test]
+    fn screen_replay_of_a_tui_enters_the_alternate_screen() {
+        let mut parser = vt100::Parser::new(5, 40, 1000);
+        parser.process(b"history\r\n\x1b[?1049hvisible");
+        let replay = super::screen_replay_of(&mut parser, 1000);
+        assert!(replay.starts_with(b"\x1b[?1049h"));
+        let mut viewer = vt100::Parser::new(5, 40, 1000);
+        viewer.process(&replay);
+        assert!(viewer.screen().alternate_screen());
+        assert!(viewer.screen().contents().contains("visible"));
+    }
+
     use super::full_text_of;
 
     #[test]

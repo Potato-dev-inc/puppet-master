@@ -100,4 +100,36 @@ describe('PaneStreamManager', () => {
       expect(received).toHaveLength(0);
     });
   });
+
+  it('sizes the viewer to a screen replay before drawing it, then passes resizes in order', async () => {
+    const manager = new PaneStreamManager();
+    const events: string[] = [];
+    const readScreen = vi.fn(async () => ({ data: bytes('SCREEN'), cols: 46, rows: 20 }));
+
+    manager.subscribe(
+      'pane-1',
+      (chunk) => events.push(dec.decode(chunk)),
+      readScreen,
+      (cols, rows) => events.push(`resize ${cols}x${rows}`),
+    );
+
+    await vi.waitFor(() => {
+      expect(events).toEqual(['resize 46x20', 'SCREEN']);
+    });
+
+    manager.ingest('pane-1', bytes('old-size output'));
+    manager.ingestResize('pane-1', 46, 45);
+    manager.ingest('pane-1', bytes('new-size output'));
+    expect(events).toEqual(['resize 46x20', 'SCREEN', 'old-size output', 'resize 46x45', 'new-size output']);
+  });
+
+  it('ignores resizes while the replay is still loading', () => {
+    const manager = new PaneStreamManager();
+    const onResize = vi.fn();
+    manager.subscribe('pane-1', () => {}, () => new Promise<number[]>(() => {}), onResize);
+
+    manager.ingestResize('pane-1', 40, 20);
+
+    expect(onResize).not.toHaveBeenCalled();
+  });
 });

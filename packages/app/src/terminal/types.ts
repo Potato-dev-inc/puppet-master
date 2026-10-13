@@ -1,6 +1,16 @@
 /** Callback invoked when new raw PTY bytes are available. */
 export type PaneDataListener = (data: Uint8Array) => void;
 
+/** A pane resize delivered in order with the pane's output (phone-sized panes). */
+export type PaneResizeListener = (cols: number, rows: number) => void;
+
+/** Subscribe to a pane's raw bytes, and optionally to its resizes in the same order. */
+export type PaneDataSubscriber = (
+  paneId: string,
+  cb: PaneDataListener,
+  onResize?: PaneResizeListener,
+) => () => void;
+
 /** @deprecated Plain snapshots are no longer used by the terminal renderer. */
 export type PaneSnapshotListener = PaneDataListener;
 

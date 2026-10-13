@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PaneInfo } from '@puppet-master/shared';
 import { PaneStreamManager } from '../terminal';
+import type { PaneDataListener, PaneDataSubscriber, PaneResizeListener } from '../terminal/types';
 import type { BridgeClient } from '../lib/bridge';
 import { makePaneTunnelTransport } from '../lib/pane-tunnel';
 import type { TerminalTransport } from './useTerminalSession';
@@ -13,7 +14,9 @@ export interface BridgePaneData {
 export interface BridgePaneRegistryApi {
   panes: Map<string, BridgePaneData>;
   paneList: BridgePaneData[];
-  subscribePaneData: (paneId: string, cb: (data: Uint8Array) => void) => () => void;
+  subscribePaneData: PaneDataSubscriber;
+  /** A `pane-resize` event, passed to the open terminal in order with the pane's output. */
+  ingestPaneResize: (paneId: string, cols: number, rows: number) => void;
   ingestTerminalData: (paneId: string, data: number[] | Uint8Array) => void;
   updatePaneStatus: (paneId: string, status: PaneInfo['status']) => void;
   /**
@@ -80,12 +83,21 @@ export function useBridgePaneRegistry(
   }, []);
 
   const subscribePaneData = useCallback(
-    (paneId: string, cb: (data: Uint8Array) => void) => {
+    (paneId: string, cb: PaneDataListener, onResize?: PaneResizeListener) => {
       if (!bridge) return () => {};
-      return streamsRef.current.subscribe(paneId, cb, (id, lines) => bridge.readRawBuffer(id, lines));
+      // Phone-sized terminals (onResize) replay the pane redrawn at its current size; the raw
+      // history was written for other sizes. An older desktop build without /screen: raw replay.
+      const replay = onResize
+        ? (id: string, lines: number) => bridge.readScreen(id).catch(() => bridge.readRawBuffer(id, lines))
+        : (id: string, lines: number) => bridge.readRawBuffer(id, lines);
+      return streamsRef.current.subscribe(paneId, cb, replay, onResize);
     },
     [bridge],
   );
+
+  const ingestPaneResize = useCallback((paneId: string, cols: number, rows: number) => {
+    streamsRef.current.ingestResize(paneId, cols, rows);
+  }, []);
 
   const resetStreams = useCallback(() => {
     for (const paneId of panesRef.current.keys()) streamsRef.current.reset(paneId);
@@ -107,6 +119,7 @@ export function useBridgePaneRegistry(
     panes,
     paneList,
     subscribePaneData,
+    ingestPaneResize,
     ingestTerminalData,
     updatePaneStatus,
     updatePaneDimensions,

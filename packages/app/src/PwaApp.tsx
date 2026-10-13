@@ -135,7 +135,11 @@ export default function PwaApp() {
         setPanes((prev) => prev.map((p) => (p.id === ev.pane_id ? { ...p, status: ev.status } : p)));
       }
       // Panes are sized to this phone and resized in place: keep the live stream connected.
-      if (ev.type === 'pane-resize') registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows, true);
+      if (ev.type === 'pane-resize') {
+        // The terminal resizes at this point of the output stream; the state update is for the header.
+        registryRef.current.ingestPaneResize(ev.pane_id, ev.cols, ev.rows);
+        registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows, true);
+      }
       if (ev.type === 'settings') setSettings(ev.settings);
       if (ev.type === 'resync') {
         registryRef.current.resetStreams();

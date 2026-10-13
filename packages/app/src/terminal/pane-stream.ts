@@ -1,4 +1,4 @@
-import type { PaneDataListener } from './types';
+import type { PaneDataListener, PaneResizeListener } from './types';
 
 export const MAX_BACKLOG_CHUNKS = 128;
 export const RAW_REPLAY_LINES = 10_000;
@@ -10,9 +10,24 @@ export interface PaneStream {
   backlog: Uint8Array[];
   truncated: boolean;
   listener: PaneDataListener | null;
+  resizeListener: PaneResizeListener | null;
 }
 
-export type ReadRawBufferFn = (paneId: string, lines: number) => Promise<number[]>;
+/** The pane redrawn at its current size (`GET /panes/{id}/screen`): replayed after a resize to it. */
+export interface PaneScreenReplay {
+  data: Uint8Array;
+  cols: number;
+  rows: number;
+}
+
+export type ReadRawBufferFn = (
+  paneId: string,
+  lines: number,
+) => Promise<number[] | Uint8Array | PaneScreenReplay>;
+
+function isScreenReplay(value: number[] | Uint8Array | PaneScreenReplay): value is PaneScreenReplay {
+  return !Array.isArray(value) && !(value instanceof Uint8Array);
+}
 
 function copyBytes(data: Uint8Array | number[]): Uint8Array {
   return data instanceof Uint8Array ? new Uint8Array(data) : Uint8Array.from(data);
@@ -42,9 +57,24 @@ export class PaneStreamManager {
     }
   }
 
-  subscribe(paneId: string, cb: PaneDataListener, readRawBuffer: ReadRawBufferFn): () => void {
+  /**
+   * A pane resize, delivered between the chunks it came between. Ignored while buffering: the
+   * replay is drawn at the size the viewer mounts with.
+   */
+  ingestResize(paneId: string, cols: number, rows: number): void {
+    const stream = this.streams.get(paneId);
+    if (stream?.mode === 'live') stream.resizeListener?.(cols, rows);
+  }
+
+  subscribe(
+    paneId: string,
+    cb: PaneDataListener,
+    readRawBuffer: ReadRawBufferFn,
+    onResize?: PaneResizeListener,
+  ): () => void {
     const stream = this.streamFor(paneId);
     stream.listener = cb;
+    stream.resizeListener = onResize ?? null;
 
     if (stream.mode === 'live') {
       return this.makeUnsub(paneId, cb);
@@ -53,11 +83,15 @@ export class PaneStreamManager {
     stream.truncated = false;
     stream.backlog = [];
 
-    void readRawBuffer(paneId, RAW_REPLAY_LINES).then((raw) => {
+    void readRawBuffer(paneId, RAW_REPLAY_LINES).then((replay) => {
       const current = this.streams.get(paneId);
       if (!current || current.listener !== cb || current.mode === 'live') return;
-      if (raw.length > 0) {
-        cb(Uint8Array.from(raw));
+      if (isScreenReplay(replay)) {
+        // Size the viewer to the grid the screen was drawn for, then draw it.
+        current.resizeListener?.(replay.cols, replay.rows);
+        if (replay.data.length > 0) cb(replay.data);
+      } else if (replay.length > 0) {
+        cb(Uint8Array.from(replay));
       }
       this.discardBacklogAndGoLive(current);
     });
@@ -88,6 +122,7 @@ export class PaneStreamManager {
       backlog: [],
       truncated: false,
       listener: null,
+      resizeListener: null,
     };
   }
 
@@ -101,6 +136,7 @@ export class PaneStreamManager {
       const current = this.streams.get(paneId);
       if (current && current.listener === cb) {
         current.listener = null;
+        current.resizeListener = null;
         current.mode = 'buffering';
       }
     };

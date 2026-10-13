@@ -263,6 +263,8 @@ export interface BridgeClient {
   listAgentTypes(): Promise<unknown>;
   readBuffer(paneId: string, lines: number): Promise<string>;
   readRawBuffer(paneId: string, lines: number): Promise<number[]>;
+  /** `GET /panes/{id}/screen`: the pane redrawn at its current size, for a viewer to replay. */
+  readScreen(paneId: string): Promise<{ data: Uint8Array; cols: number; rows: number }>;
   readSnapshot(paneId: string): Promise<string>;
   listAgentContexts(): Promise<AgentContextProfile[]>;
   readAgentContext(args: { agent_type?: string; pane_id?: string }): Promise<unknown>;

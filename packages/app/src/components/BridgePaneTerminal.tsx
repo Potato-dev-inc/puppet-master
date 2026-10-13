@@ -5,6 +5,7 @@ import { useTerminalSession, type TerminalTransport } from '../hooks/useTerminal
 import { isMobileInputDevice } from '../terminal/mobile-input-guard';
 import { mirrorLayoutSessionKey } from '../terminal/mirror-layout-session';
 import type { TerminalRenderMode } from '../terminal';
+import type { PaneDataSubscriber } from '../terminal/types';
 
 const STATUS_COLOR: Record<string, string> = {
   running: 'bg-pm-ok',
@@ -16,7 +17,7 @@ const STATUS_COLOR: Record<string, string> = {
 interface Props {
   pane: PaneInfo;
   status: PaneInfo['status'];
-  subscribePaneData: (paneId: string, cb: (data: Uint8Array) => void) => () => void;
+  subscribePaneData: PaneDataSubscriber;
   transport: TerminalTransport;
   title?: string;
   syncPTYResize?: boolean;

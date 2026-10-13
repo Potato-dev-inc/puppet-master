@@ -2,6 +2,7 @@
 // the typed BridgeClient. Wire types live in ./bridge-types, SSE subscription in ./bridge-sse.
 import type { AgentContextProfile } from '@puppet-master/shared';
 import { ngrokRequestHeaders } from './bridge-ngrok';
+import { decodeBase64 } from './bridge-sse';
 import type { BridgeClient } from './bridge-types';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
 
@@ -45,6 +46,13 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     readRawBuffer: async (id, lines) => {
       const res = await call<{ data: number[] }>('GET', `/panes/${encodeURIComponent(id)}/raw?lines=${lines}`);
       return res.data;
+    },
+    readScreen: async (id) => {
+      const res = await call<{ b64: string; cols: number; rows: number }>(
+        'GET',
+        `/panes/${encodeURIComponent(id)}/screen`,
+      );
+      return { data: decodeBase64(res.b64), cols: res.cols, rows: res.rows };
     },
     readSnapshot: async (id) => {
       const res = await call<{ content: string }>('GET', `/panes/${encodeURIComponent(id)}/snapshot`);

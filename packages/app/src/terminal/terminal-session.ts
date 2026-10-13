@@ -23,11 +23,8 @@ import {
   createTerminalScaleMount,
   TerminalScaleController,
 } from './scaled-viewport';
-import type { PaneDataListener, TerminalRenderMode, TerminalSessionOptions } from './types';
+import type { PaneDataSubscriber, TerminalRenderMode, TerminalSessionOptions } from './types';
 import '@xterm/xterm/css/xterm.css';
-
-/** How long a local phone-side fit overrides PTY sizes that still reflect an older grid. */
-const LOCAL_FIT_HOLD_MS = 1500;
 
 function isWindowsRuntime(): boolean {
   return navigator.userAgent.includes('Windows');
@@ -62,10 +59,11 @@ export class TerminalSession {
   private lastSentRows = 0;
   private ptyCols: number;
   private ptyRows: number;
-  /** sizesPane: when the last local fit was applied (ms epoch), 0 if never. */
-  private localFitAt = 0;
-  /** sizesPane: a PTY size held back during the hold window, applied when it ends. */
-  private heldPtyTimer: number | null = null;
+  /**
+   * The pane's resizes arrive in order with its output (`applyStreamResize`): from then on the
+   * React prop path (`setPtyDimensions`) must not resize ahead of bytes still being parsed.
+   */
+  private streamSized = false;
   private readonly syncPTYResize: boolean;
   private readonly mirrorPTY: boolean;
   private readonly renderMode: TerminalRenderMode;
@@ -155,19 +153,26 @@ export class TerminalSession {
   }
 
   setPtyDimensions(cols: number, rows: number): void {
+    if (this.streamSized) return;
+    this.resizeToPty(cols, rows);
+  }
+
+  /**
+   * A pane resize from the PC, in order with its output: applied once every byte before it has
+   * been parsed, so output drawn for the old grid is never laid out on the new one (and output
+   * for the new grid never on the old one).
+   */
+  applyStreamResize(cols: number, rows: number): void {
+    const terminal = this.term;
+    if (!terminal || cols <= 0 || rows <= 0) return;
+    this.streamSized = true;
+    terminal.write(new Uint8Array(0), () => {
+      if (this.term === terminal && !this.disposed) this.resizeToPty(cols, rows);
+    });
+  }
+
+  private resizeToPty(cols: number, rows: number): void {
     if (cols <= 0 || rows <= 0) return;
-    // Phone-sized pane: a PTY size that differs from our own fresh local fit is an echo of an
-    // older grid still in flight over the tunnel. Ignore it briefly so the terminal does not bounce.
-    // If it is still the PTY size when the hold ends (another viewer's smaller size), apply it then.
-    if (this.options.sizesPane && this.isStaleAgainstLocalFit(cols, rows)) {
-      this.holdPtyDimensions(cols, rows);
-      return;
-    }
-    // A newer PTY size supersedes one still held back.
-    if (this.heldPtyTimer !== null) {
-      window.clearTimeout(this.heldPtyTimer);
-      this.heldPtyTimer = null;
-    }
     if (this.mirrorPTY) {
       this.ptyCols = cols;
       this.ptyRows = rows;
@@ -181,21 +186,6 @@ export class TerminalSession {
 
   private isMobileMirror(): boolean {
     return !this.mobileInputDisabled && this.mirrorPTY && isMobileInputDevice();
-  }
-
-  private holdPtyDimensions(cols: number, rows: number): void {
-    if (this.heldPtyTimer !== null) window.clearTimeout(this.heldPtyTimer);
-    const wait = Math.max(0, LOCAL_FIT_HOLD_MS - (Date.now() - this.localFitAt)) + 1;
-    this.heldPtyTimer = window.setTimeout(() => {
-      this.heldPtyTimer = null;
-      if (!this.disposed) this.setPtyDimensions(cols, rows);
-    }, wait);
-  }
-
-  /** True while a recent local fit should win over a PTY size that disagrees with it. */
-  private isStaleAgainstLocalFit(cols: number, rows: number): boolean {
-    if (this.localFitAt === 0 || Date.now() - this.localFitAt > LOCAL_FIT_HOLD_MS) return false;
-    return cols !== this.ptyCols || rows !== this.ptyRows;
   }
 
   /** Swipe-to-scroll for the phone mirror. Touch points are mapped to cells through the scale. */
@@ -231,7 +221,7 @@ export class TerminalSession {
 
   mount(
     container: HTMLElement,
-    subscribePaneData: (paneId: string, cb: PaneDataListener) => () => void,
+    subscribePaneData: PaneDataSubscriber,
   ): void {
     const gen = ++this.generation;
     this.disposed = false;
@@ -334,7 +324,7 @@ export class TerminalSession {
           this.scrollToCursor();
           this.scheduleRefresh();
         });
-      });
+      }, (cols, rows) => this.applyStreamResize(cols, rows));
       this.installFileLinkProvider(terminal);
       this.installTextareaGuards(container, terminal, this.inputBatcher);
       if (mobileMirror) {
@@ -362,8 +352,6 @@ export class TerminalSession {
 
   dispose(): void {
     this.disposed = true;
-    if (this.heldPtyTimer !== null) window.clearTimeout(this.heldPtyTimer);
-    this.heldPtyTimer = null;
     this.generation += 1;
 
     if (this.openFrame !== null) {
@@ -671,10 +659,6 @@ export class TerminalSession {
 
   private scheduleFit(): void {
     if (!this.syncPTYResize) {
-      if (this.options.sizesPane) {
-        this.scheduleLocalFit();
-        return;
-      }
       this.applyMirrorDimensions();
       return;
     }
@@ -684,34 +668,6 @@ export class TerminalSession {
       this.fitAndNotify();
       this.scheduleRefresh();
     });
-  }
-
-  /**
-   * sizesPane: resize the local xterm to the grid that fits the host right away (next frame),
-   * instead of waiting for the PC's pane-resize round trip. Does not notify the PTY: the phone's
-   * size goes to the PC through the fit-grid lease, and the PC's echo then matches this grid.
-   */
-  private scheduleLocalFit(): void {
-    if (this.resizeFrame !== null) return;
-    this.resizeFrame = requestAnimationFrame(() => {
-      this.resizeFrame = null;
-      this.fitLocalToHost();
-    });
-  }
-
-  private fitLocalToHost(): void {
-    const terminal = this.term;
-    if (!terminal) return;
-    const grid = this.measureFitGrid();
-    if (grid && (grid.cols !== terminal.cols || grid.rows !== terminal.rows)) {
-      terminal.resize(grid.cols, grid.rows);
-      // Keep the PTY-side state in step, so a later applyPtyDimensions is a no-op.
-      this.ptyCols = grid.cols;
-      this.ptyRows = grid.rows;
-      this.localFitAt = Date.now();
-      terminal.scrollToBottom();
-    }
-    this.scheduleRefresh();
   }
 
   private fitAndNotify(): void {
