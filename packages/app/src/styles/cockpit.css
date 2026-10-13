@@ -963,6 +963,7 @@
 .cockpit .ck-title-input::placeholder {
   color: var(--label-3);
   font-weight: 400;
+}
 
 /* ---------- project memory ---------- */
 .cockpit .ck-memory {
