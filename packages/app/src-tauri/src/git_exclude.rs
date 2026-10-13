@@ -3,8 +3,20 @@
 //! Puppet Master stores checkpoints, isolated worktrees, the operations store, turn summaries and
 //! the event log under `<project>/.puppet-master/`. In a git repository that would show up as
 //! untracked files and could be committed by accident (`events.jsonl` would leak to GitHub). The
-//! first time PM creates that folder inside a git work tree, this appends `.puppet-master/` to the
-//! repository's `info/exclude`:
+//! `.puppet-master/` also holds files meant to be shared through git: `memory.md` (project memory)
+//! and `agents/*.toml` (agent definitions). So the first time PM creates that folder inside a git
+//! work tree, this writes a managed block to the repository's `info/exclude` that hides everything
+//! except those:
+//!
+//! ```text
+//! # Puppet Master runtime data (local, added automatically)
+//! .puppet-master/*
+//! !.puppet-master/memory.md
+//! !.puppet-master/agents/
+//! ```
+//!
+//! An older version wrote the plain line `.puppet-master/`; that line is replaced by the block. No
+//! other line of the file is touched.
 //!
 //! - local only: `info/exclude` is never committed, and the user's `.gitignore` is never touched;
 //! - idempotent: nothing is written when the folder is already covered (by `info/exclude` or by the
@@ -19,8 +31,27 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-/// The line written to `info/exclude`.
-pub const EXCLUDE_LINE: &str = ".puppet-master/";
+/// The comment line that starts the managed block in `info/exclude`.
+pub const BLOCK_HEADER: &str = "# Puppet Master runtime data (local, added automatically)";
+
+/// The managed block written to `info/exclude`, for a project at `rel` below the repository root
+/// (`rel` uses `/`, and is empty when the project IS the root). Runtime data is hidden; the
+/// team-shared files are re-included. Negations only work because the directory is matched by
+/// `.puppet-master/*`, not by `.puppet-master/` (git cannot re-include a file inside an excluded
+/// directory). A pattern with a slash in it is anchored to the root, so a nested project gets its
+/// own path prefix. At the root the block is exactly the three lines of the spec.
+fn block_lines(rel: &str) -> [String; 4] {
+    let dir = if rel.is_empty() { ".puppet-master".to_string() } else { format!("{rel}/.puppet-master") };
+    [
+        BLOCK_HEADER.to_string(),
+        format!("{dir}/*"),
+        format!("!{dir}/memory.md"),
+        format!("!{dir}/agents/"),
+    ]
+}
+
+/// The plain line an earlier version wrote. It hides the shared files too, so it is migrated.
+const LEGACY_LINE: &str = ".puppet-master/";
 
 /// What `ensure_in` did, for tests and logs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,15 +87,26 @@ pub fn ensure_in(project: &Path) -> Outcome {
     let Some(repo) = find_repo(project) else { return Outcome::NotARepo };
     let exclude_file = repo.common_dir.join("info").join("exclude");
     let at_root = same_dir(project, &repo.work_tree);
+    let rel = project
+        .strip_prefix(&repo.work_tree)
+        .map(|p| p.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/"))
+        .unwrap_or_default();
+    let block = block_lines(&rel);
 
     let existing = std::fs::read_to_string(&exclude_file).unwrap_or_default();
-    if covers(&existing, at_root) {
+    if has_block(&existing, &block) {
         return Outcome::AlreadyCovered;
     }
-    // The work tree's own .gitignore may already ignore it. We only ever read that file.
-    if let Ok(gitignore) = std::fs::read_to_string(repo.work_tree.join(".gitignore")) {
-        if covers(&gitignore, at_root) {
+    // A legacy plain line is always migrated, even if some other ignore file also covers it.
+    if !has_legacy_line(&existing) {
+        if covers(&existing, at_root) {
             return Outcome::AlreadyCovered;
+        }
+        // The work tree's own .gitignore may already ignore it. We only ever read that file.
+        if let Ok(gitignore) = std::fs::read_to_string(repo.work_tree.join(".gitignore")) {
+            if covers(&gitignore, at_root) {
+                return Outcome::AlreadyCovered;
+            }
         }
     }
 
@@ -73,16 +115,52 @@ pub fn ensure_in(project: &Path) -> Outcome {
             return Outcome::Failed(format!("create {}: {error}", parent.display()));
         }
     }
-    let mut next = existing;
-    if !next.is_empty() && !next.ends_with('\n') {
-        next.push('\n');
-    }
-    next.push_str(EXCLUDE_LINE);
-    next.push('\n');
-    match std::fs::write(&exclude_file, next) {
+    match std::fs::write(&exclude_file, with_block(&existing, &block)) {
         Ok(()) => Outcome::Added(exclude_file),
         Err(error) => Outcome::Failed(format!("write {}: {error}", exclude_file.display())),
     }
+}
+
+/// Is the managed block already present, exactly as written by `with_block`?
+fn has_block(exclude: &str, block: &[String]) -> bool {
+    let lines: Vec<&str> = exclude.lines().map(str::trim_end).collect();
+    lines.windows(block.len()).any(|window| window.iter().zip(block).all(|(a, b)| *a == b.as_str()))
+}
+
+/// Is the old plain `.puppet-master/` line present (at least once)?
+fn has_legacy_line(exclude: &str) -> bool {
+    exclude.lines().any(|line| line.trim() == LEGACY_LINE)
+}
+
+/// The exclude file with the managed block in place. Every legacy line becomes the block (once);
+/// all other lines are copied byte for byte, including their line endings. With no legacy line the
+/// block is appended. A file that already has the block is returned unchanged.
+fn with_block(existing: &str, block: &[String]) -> String {
+    if has_block(existing, block) {
+        return existing.to_string();
+    }
+    let eol = if existing.contains("\r\n") { "\r\n" } else { "\n" };
+    let text: String = block.iter().map(|line| format!("{line}{eol}")).collect();
+
+    let mut out = String::with_capacity(existing.len() + text.len());
+    let mut placed = false;
+    for raw in existing.split_inclusive('\n') {
+        if raw.trim() == LEGACY_LINE {
+            if !placed {
+                out.push_str(&text);
+                placed = true;
+            }
+            continue;
+        }
+        out.push_str(raw);
+    }
+    if !placed {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push_str(eol);
+        }
+        out.push_str(&text);
+    }
+    out
 }
 
 /// Does an ignore file already ignore `.puppet-master` wherever PM puts it? An anchored pattern
@@ -188,7 +266,58 @@ mod tests {
         assert!(matches!(ensure_in(&dir), Outcome::Added(_)));
         assert_eq!(git(&dir, &["status", "--porcelain"]).trim(), "", "nothing untracked after");
         let exclude = std::fs::read_to_string(dir.join(".git/info/exclude")).unwrap();
-        assert!(exclude.lines().any(|l| l == ".puppet-master/"), "{exclude}");
+        assert!(exclude.lines().any(|l| l == ".puppet-master/*"), "{exclude}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn status_lists_memory_and_agents_but_not_runtime_data() {
+        let dir = repo("shareable");
+        let pm = dir.join(".puppet-master");
+        std::fs::create_dir_all(pm.join("checkpoints.git")).unwrap();
+        std::fs::create_dir_all(pm.join("agents")).unwrap();
+        std::fs::write(pm.join("events.jsonl"), "{}\n").unwrap();
+        std::fs::write(pm.join("checkpoints.git/x"), "x").unwrap();
+        std::fs::write(pm.join("memory.md"), "# memory\n").unwrap();
+        std::fs::write(pm.join("agents/a.toml"), "name = \"a\"\n").unwrap();
+        let status = || git(&dir, &["status", "--porcelain", "--untracked-files=all"]);
+        assert!(status().contains(".puppet-master/events.jsonl"), "control: visible first");
+
+        assert!(matches!(ensure_in(&dir), Outcome::Added(_)));
+        let after = status();
+        assert!(after.contains("?? .puppet-master/memory.md"), "{after}");
+        assert!(after.contains("?? .puppet-master/agents/a.toml"), "{after}");
+        assert!(!after.contains("events.jsonl"), "{after}");
+        assert!(!after.contains("checkpoints.git"), "{after}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_old_single_line_is_migrated_to_the_block_and_other_lines_survive() {
+        let dir = repo("migrate");
+        let exclude_file = dir.join(".git/info/exclude");
+        std::fs::create_dir_all(exclude_file.parent().unwrap()).unwrap();
+        std::fs::write(&exclude_file, "*.log\n.puppet-master/\n# mine\nbuild/\n").unwrap();
+        assert!(matches!(ensure_in(&dir), Outcome::Added(_)));
+        let text = std::fs::read_to_string(&exclude_file).unwrap();
+        let expected = format!("*.log\n{}\n# mine\nbuild/\n", block_lines("").join("\n"));
+        assert_eq!(text, expected);
+        assert!(!text.lines().any(|l| l == ".puppet-master/"), "legacy line gone");
+        assert_eq!(ensure_in(&dir), Outcome::AlreadyCovered, "migration is done once");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_legacy_line_at_the_end_without_newline_is_migrated() {
+        let dir = repo("migrate-eof");
+        let exclude_file = dir.join(".git/info/exclude");
+        std::fs::create_dir_all(exclude_file.parent().unwrap()).unwrap();
+        std::fs::write(&exclude_file, "*.log\n.puppet-master/").unwrap();
+        assert!(matches!(ensure_in(&dir), Outcome::Added(_)));
+        assert_eq!(
+            std::fs::read_to_string(&exclude_file).unwrap(),
+            format!("*.log\n{}\n", block_lines("").join("\n"))
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -200,10 +329,24 @@ mod tests {
         std::fs::write(&exclude_file, "*.log").unwrap(); // no trailing newline on purpose
         assert!(matches!(ensure_in(&dir), Outcome::Added(_)));
         let first = std::fs::read_to_string(&exclude_file).unwrap();
-        assert_eq!(first, "*.log\n.puppet-master/\n");
+        assert_eq!(first, format!("*.log\n{}\n", block_lines("").join("\n")));
         assert_eq!(ensure_in(&dir), Outcome::AlreadyCovered);
         assert_eq!(ensure_in(&dir), Outcome::AlreadyCovered);
-        assert_eq!(std::fs::read_to_string(&exclude_file).unwrap(), first, "no second line");
+        assert_eq!(std::fs::read_to_string(&exclude_file).unwrap(), first, "no second block");
+        assert_eq!(first.matches(BLOCK_HEADER).count(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn crlf_line_endings_are_kept_when_the_block_is_written() {
+        let dir = repo("crlf");
+        let exclude_file = dir.join(".git/info/exclude");
+        std::fs::create_dir_all(exclude_file.parent().unwrap()).unwrap();
+        std::fs::write(&exclude_file, "*.log\r\n.puppet-master/\r\n").unwrap();
+        assert!(matches!(ensure_in(&dir), Outcome::Added(_)));
+        let text = std::fs::read_to_string(&exclude_file).unwrap();
+        assert_eq!(text, format!("*.log\r\n{}\r\n", block_lines("").join("\r\n")));
+        assert_eq!(ensure_in(&dir), Outcome::AlreadyCovered);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -249,8 +392,14 @@ mod tests {
         let sub = dir.join("packages").join("app");
         std::fs::create_dir_all(&sub).unwrap();
         fake_pm_storage(&sub);
+        std::fs::write(sub.join(".puppet-master/memory.md"), "# memory\n").unwrap();
         assert!(matches!(ensure_in(&sub), Outcome::Added(_)));
-        assert_eq!(git(&dir, &["status", "--porcelain"]).trim(), "");
+        let status = git(&dir, &["status", "--porcelain", "--untracked-files=all"]);
+        assert!(status.contains("?? packages/app/.puppet-master/memory.md"), "{status}");
+        assert!(!status.contains("events.jsonl") && !status.contains("worktrees"), "{status}");
+        // The block is anchored to the nested project, so it does not hide other folders' storage.
+        let exclude = std::fs::read_to_string(dir.join(".git/info/exclude")).unwrap();
+        assert!(exclude.lines().any(|l| l == "packages/app/.puppet-master/*"), "{exclude}");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -264,7 +413,7 @@ mod tests {
         assert!(matches!(ensure_in(&linked), Outcome::Added(_)));
         assert_eq!(git(&linked, &["status", "--porcelain"]).trim(), "", "clean in the worktree");
         let exclude = std::fs::read_to_string(main.join(".git/info/exclude")).unwrap();
-        assert!(exclude.lines().any(|l| l == ".puppet-master/"), "{exclude}");
+        assert!(exclude.lines().any(|l| l == ".puppet-master/*"), "{exclude}");
         assert_eq!(ensure_in(&linked), Outcome::AlreadyCovered);
         std::fs::remove_dir_all(&main).ok();
         std::fs::remove_dir_all(linked.parent().unwrap()).ok();
