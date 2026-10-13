@@ -9,6 +9,7 @@ import { applyTheme, loadSettings, saveSettings, type AppTheme } from '../lib/se
 import { tauri } from '../lib/tauri';
 import { useBridge } from './useBridge';
 import { paneNames } from '../components/cockpit/model';
+import { usePaneActivity, type ActivityMap } from '../lib/pane-activity';
 
 export interface SpawnState {
   agentId: string;
@@ -29,6 +30,8 @@ function errText(err: unknown): string {
 export interface CockpitApi {
   registry: PaneRegistryApi;
   names: Map<string, string>;
+  /** Plain-language activity phrase per pane id. */
+  activities: ActivityMap;
   launchEntries: LaunchEntry[];
   /** Agent ids with at least one warm standby ready. */
   readyAgents: Set<string>;
@@ -55,6 +58,7 @@ export interface CockpitApi {
 
 export function useCockpit(): CockpitApi {
   const registry = usePaneRegistry();
+  const activities = usePaneActivity();
   const listing = useAgentRegistry();
   const launchEntries = useMemo(() => paneMenuEntries(listing), [listing]);
   const { paneList, panes, initialReady } = registry;
@@ -361,6 +365,7 @@ export function useCockpit(): CockpitApi {
   return {
     registry,
     names,
+    activities,
     launchEntries,
     readyAgents,
     mode,

@@ -318,6 +318,10 @@ pub struct TuiTable {
     pub busy: Option<BusyTable>,
     pub chrome: Option<LineRegexTable>,
     pub tool_activity: Option<LineRegexTable>,
+    /// Activity line patterns: matched against visible lines, newest first. The phrase is the
+    /// named group `text`, else group 1, else the whole match.
+    #[serde(default)]
+    pub activity_regex: Vec<String>,
     pub menu: Option<MenuTable>,
     pub dialogs: Option<DialogsTable>,
     pub tidy: Option<TidyTable>,

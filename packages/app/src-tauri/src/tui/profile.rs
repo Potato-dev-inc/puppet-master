@@ -187,6 +187,15 @@ pub trait TuiProfile: Send + Sync {
         self.idle_after()
     }
 
+    /// One plain sentence for what the agent is doing right now ("Running npm test", "Waiting:
+    /// allow `npm test`?", "Idle"). `visible_tail` is the ANSI-stripped screen tail and `status` the
+    /// pane's classified status. The default combines status, the last `is_tool_activity_line` row
+    /// and the parsed prompt (`activity::default_activity`); a profile overrides it only to read
+    /// richer phrases off its own screen. `None` shows no activity line.
+    fn activity(&self, visible_tail: &str, status: PaneStatus) -> Option<Activity> {
+        activity::default_activity(self, visible_tail, status)
+    }
+
     /// Classify the last visible lines when this TUI has screens the generic prompt heuristic
     /// misreads. `None` falls through to the generic heuristic.
     fn classify_screen(&self, _visible_tail: &str) -> Option<PaneStatus> {

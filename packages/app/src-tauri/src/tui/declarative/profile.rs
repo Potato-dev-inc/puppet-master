@@ -529,6 +529,16 @@ impl TuiProfile for DeclarativeProfile {
         self.engine.as_ref().is_some_and(|engine| engine.is_chrome_line(lower))
     }
 
+    fn activity(&self, visible_tail: &str, status: PaneStatus) -> Option<crate::tui::Activity> {
+        use crate::tui::{activity, ActivityKind};
+        if status == PaneStatus::Running {
+            if let Some(phrase) = self.engine.as_ref().and_then(|e| e.activity_phrase(visible_tail)) {
+                return Some(crate::tui::Activity::new(ActivityKind::Working, activity::humanize_tool_line(&phrase)));
+            }
+        }
+        activity::default_activity(self, visible_tail, status)
+    }
+
     fn is_tool_activity_line(&self, lower: &str) -> bool {
         self.engine.as_ref().is_some_and(|engine| engine.is_tool_activity_line(lower))
     }

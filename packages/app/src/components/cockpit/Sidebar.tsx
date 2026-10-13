@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
+import { activityText } from '../../lib/pane-activity';
 import { DotSpinner } from './DotSpinner';
 import { IconInbox, IconMoon, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
 import { formatElapsed, groupPanes, spinnerStatus } from './model';
@@ -54,9 +55,11 @@ export function Sidebar({
               <span className="ck-row-glyph">
                 <DotSpinner status={spinnerStatus(p.status)} />
               </span>
-              <span className="ck-row-main">
+              <span className="ck-row-main" title={projectName(p.info.cwd)}>
                 <span className="ck-row-title">{c.names.get(id) ?? p.info.agent_type}</span>
-                <span className="ck-row-sub">{projectName(p.info.cwd)}</span>
+                <span className="ck-row-sub">
+                  {activityText(p.status, c.activities?.[id]) ?? projectName(p.info.cwd)}
+                </span>
               </span>
               <span className="ck-row-time">{since ? formatElapsed(c.now - since) : ''}</span>
             </button>

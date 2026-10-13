@@ -24,6 +24,7 @@ mod opencode;
 pub mod operations;
 #[cfg(test)]
 mod operations_contract_tests;
+mod pane_activity;
 mod pane_prompt;
 mod app_windows;
 mod cockpit;
@@ -100,6 +101,7 @@ pub fn run() {
             commands::read_pane_raw_buffer,
             commands::read_pane_screen_replay,
             commands::agents_list,
+            commands::pane_activities,
             commands::agents_health,
             commands::agents_health_test,
             commands::agents_definitions_list,
@@ -307,6 +309,7 @@ pub fn run() {
                 tracing::warn!(error = %e, "tray icon failed to start");
             }
             standby::init(registry_for_panes.clone(), app.handle().clone());
+            pane_activity::init(registry_for_panes.clone(), app.handle().clone());
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
             });

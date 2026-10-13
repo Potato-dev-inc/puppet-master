@@ -374,6 +374,13 @@ pub fn agents_import_definition(source: String) -> Result<Value, String> {
     Ok(crate::tui::declarative::service::reload_global_with_diff())
 }
 
+/// Current plain-language activity phrase per pane id (`pane_activity`); changes arrive as the
+/// `pty://activity` event `{pane_id, activity}`.
+#[tauri::command]
+pub fn pane_activities() -> Value {
+    serde_json::to_value(crate::pane_activity::snapshot()).unwrap_or(Value::Null)
+}
+
 /// Agent doctor quick check: installed? version? for every CLI agent (no tokens spent).
 #[tauri::command(async)]
 pub fn agents_health() -> Value {

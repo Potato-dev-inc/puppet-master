@@ -4,9 +4,11 @@
 //! on an agent-type string. It asks `profile_for(agent_type)` and calls a `TuiProfile` method, so a
 //! fix for one TUI stays inside that TUI's folder. See `README.md` in this folder for how to add one.
 
+pub mod activity;
 mod profile;
 mod types;
 
+pub use activity::{Activity, ActivityKind};
 pub use profile::*;
 pub use types::*;
 

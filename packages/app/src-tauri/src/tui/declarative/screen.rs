@@ -113,6 +113,7 @@ pub struct TuiEngine {
     idle: Vec<Regex>,
     chrome: Vec<Regex>,
     tool_activity: Vec<Regex>,
+    activity: Vec<Regex>,
     menu: Vec<Regex>,
     strip_blocks: Vec<StripBlock>,
     dedupe: bool,
@@ -194,6 +195,7 @@ impl TuiEngine {
             idle,
             chrome: line_table(&tui.chrome, "tui.chrome.line_regex")?,
             tool_activity: line_table(&tui.tool_activity, "tui.tool_activity.line_regex")?,
+            activity: build_all(&tui.activity_regex, "tui.activity_regex")?,
             menu: match &tui.menu {
                 Some(m) => build_all(&m.regex, "tui.menu.regex")?,
                 None => Vec::new(),
@@ -274,6 +276,22 @@ impl TuiEngine {
 
     pub fn is_tool_activity_line(&self, lower: &str) -> bool {
         Self::line_matches(&self.tool_activity, lower)
+    }
+
+    /// The phrase of the newest visible line an `activity_regex` matches (`text` group, else group
+    /// 1, else the whole match), or `None` when the definition declares none or nothing matches.
+    pub fn activity_phrase(&self, tail: &str) -> Option<String> {
+        if self.activity.is_empty() {
+            return None;
+        }
+        let tail = strip_ansi(cap(tail));
+        tail.lines().rev().map(str::trim).filter(|l| !l.is_empty()).take(TAIL_LINES * 2).find_map(|line| {
+            self.activity.iter().find_map(|re| {
+                let caps = re.captures(line)?;
+                let found = caps.name("text").or_else(|| caps.get(1)).or_else(|| caps.get(0))?;
+                Some(found.as_str().trim().to_string()).filter(|t| !t.is_empty())
+            })
+        })
     }
 
     pub fn looks_like_menu(&self, text: &str) -> bool {
