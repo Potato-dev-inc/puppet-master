@@ -1,4 +1,5 @@
 // Cockpit window (`index.html?cockpit=1`): one window that orchestrates every agent pane.
+import { useNudgeOnAction } from './lib/desktop-nudge';
 import { useEffect, useState } from 'react';
 import { useCockpit } from './hooks/useCockpit';
 import { Inbox } from './components/cockpit/Inbox';
@@ -23,8 +24,10 @@ export default function CockpitApp() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
+  const { onClickCapture } = useNudgeOnAction();
+
   return (
-    <div className="cockpit" data-theme={c.theme}>
+    <div className="cockpit" data-theme={c.theme} onClickCapture={onClickCapture}>
       <Sidebar c={c} onOpenPalette={() => setPaletteOpen(true)} />
       <main className="ck-main">
         {c.mode === 'individual' ? (

@@ -105,6 +105,10 @@ export class TerminalSession {
     this.renderMode = options.renderMode ?? (this.syncPTYResize ? 'owner' : 'mirror-same-grid');
     this.mobileInputDisabled = options.disableMobileInput === true;
     this.reprintWipe.enabled = options.reprintsOnResize === true;
+    if (options.assumePtyGrid) {
+      this.ownerGrid.lastSent = { ...options.assumePtyGrid };
+      this.ownerGrid.pty = { ...options.assumePtyGrid };
+    }
     this.ptyCols = options.ptyCols ?? 80;
     this.ptyRows = options.ptyRows ?? 24;
   }
@@ -143,6 +147,12 @@ export class TerminalSession {
   /** The agent reprints its conversation on every resize: wipe scrollback at each one. */
   setReprintsOnResize(enabled: boolean): void {
     this.reprintWipe.enabled = enabled;
+  }
+
+  /** The user is reading history above the screen. */
+  isScrolledUp(): boolean {
+    const buffer = this.term?.buffer.active;
+    return !!buffer && buffer.viewportY < buffer.baseY;
   }
 
   /** Text currently selected in the terminal ("" when nothing is). */

@@ -38,6 +38,11 @@ export interface TerminalSessionOptions {
   sizesPane?: boolean;
   /** The agent reprints its whole conversation on every resize (`PaneInfo.reprints_on_resize`). */
   reprintsOnResize?: boolean;
+  /**
+   * Owner: the PTY's grid is already known (a nudge remount of a pane that was just on screen), so
+   * the first fit is compared against it and sends nothing when it matches.
+   */
+  assumePtyGrid?: { cols: number; rows: number };
 }
 
 export interface Disposable {

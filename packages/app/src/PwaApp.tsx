@@ -1,6 +1,7 @@
 // Mobile PWA root: watch and reply to the agents running on the PC, one tab per agent pane (like
 // terminal tabs) plus an "All" overview. It does not drive the orchestrator. The previous
 // orchestrator-centric mobile UI is kept as PwaLegacyApp.tsx (open with `?pwa=legacy`).
+import { NudgeScheduler } from './lib/nudge-scheduler';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentType, PaneInfo } from '@puppet-master/shared';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
@@ -62,10 +63,6 @@ function medianOf(values: number[]): number | null {
 }
 
 const LS_LAST_FIT_GRID = 'pm.mobile.lastFitGrid';
-/** Nudge timing: wait this long after the last action (lets a size claim land first)... */
-const NUDGE_SETTLE_MS = 350;
-/** ...and never redraw more often than this. */
-const NUDGE_MIN_GAP_MS = 1500;
 /** A touch that moves less than this and lifts within TAP_MAX_MS is a tap, not a swipe. */
 const TAP_MAX_MOVE_PX = 10;
 const TAP_MAX_MS = 500;
@@ -272,21 +269,16 @@ export default function PwaApp() {
   // in place. Actions close together share one redraw; at most one per NUDGE_MIN_GAP_MS. A tap
   // while reading history above the screen does not jump back to the bottom.
   const [refreshSignal, setRefreshSignal] = useState({ n: 0, skipIfScrolledUp: false });
-  const nudgeTimerRef = useRef(0);
-  const lastNudgeAtRef = useRef(0);
-  const nudgeSkipRef = useRef(true);
+  const nudgeSchedulerRef = useRef<NudgeScheduler | null>(null);
+  if (!nudgeSchedulerRef.current) {
+    nudgeSchedulerRef.current = new NudgeScheduler((skip) =>
+      setRefreshSignal((prev) => ({ n: prev.n + 1, skipIfScrolledUp: skip })),
+    );
+  }
   const requestNudge = useCallback((skipIfScrolledUp: boolean) => {
-    nudgeSkipRef.current = nudgeSkipRef.current && skipIfScrolledUp;
-    window.clearTimeout(nudgeTimerRef.current);
-    const wait = Math.max(NUDGE_SETTLE_MS, NUDGE_MIN_GAP_MS - (Date.now() - lastNudgeAtRef.current));
-    nudgeTimerRef.current = window.setTimeout(() => {
-      lastNudgeAtRef.current = Date.now();
-      const skip = nudgeSkipRef.current;
-      nudgeSkipRef.current = true;
-      setRefreshSignal((prev) => ({ n: prev.n + 1, skipIfScrolledUp: skip }));
-    }, wait);
+    nudgeSchedulerRef.current?.request(skipIfScrolledUp);
   }, []);
-  useEffect(() => () => window.clearTimeout(nudgeTimerRef.current), []);
+  useEffect(() => () => nudgeSchedulerRef.current?.cancel(), []);
   const tapRef = useRef<{ x: number; y: number; t: number } | null>(null);
   const onAgentPointerDown = useCallback(
     (event: React.PointerEvent) => {
