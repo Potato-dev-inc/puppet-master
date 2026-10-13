@@ -42,6 +42,19 @@ Verified live: a kilo run with no `headless` opens an unfocused pop-out on the s
 
 Not verified: a human clicking the tray icon/menu entries; the `visible_failed` fallback live (unit tests only). The demo video (second half of PF4) is separate from the docs commit.
 
+## Mobile follow-up (2026-10-13)
+
+The old phone UI waited for an orchestrator pane that panes-first no longer starts. It is kept at `?pwa=legacy`; the default phone UI shows the agent panes as tabs. Details and test steps: docs/FEATURES.md, docs/TEST-PLAN.md 2.7.
+
+| Commit | Summary |
+|---|---|
+| `b6282a1` | Agent tabs (All overview + one tab per pane), legacy PWA kept, `GET /agents/types` for the phone |
+| `2745820` | Phone-sized panes: the phone leases the PTY size (`POST /panes/{id}/viewport`) |
+| `1d49436`, `486ad4d` | Keyboard shortens the view (shell follows the visual viewport); no double keyboard subtraction |
+| `9fbab46` | Revert of two attempts that were redone step by step (`b1094c2`, `158d668`) |
+| `33c3746` | Long-poll `/events/poll` (quick tunnels never pass SSE), resize in place (keyboard survives), no local echo, Android keyboard close detected, PC "Sized for your phone" notice |
+| `5ba56a5` | Several phones on one pane share the smallest grid |
+
 ## Backlog (planned later, not started)
 
 - **Bind panes together** (requested 2026-10-12): let the user link existing pane windows into a group (e.g. move/arrange/close together, or route one pane's output to another). Design to be planned with the user before any work.
