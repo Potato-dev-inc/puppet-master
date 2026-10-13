@@ -109,7 +109,7 @@ fn handle_connection(
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("GET");
     let target = parts.next().unwrap_or("/");
-    let (path, _query) = split_target(target);
+    let (path, query) = split_target(target);
 
     let content_length = parse_content_length(&headers_raw);
     let body_start = header_end + 4;
@@ -136,6 +136,13 @@ fn handle_connection(
         } else {
             bridge_path
         };
+        // The query string travels with the path (`/events/poll?cursor=...`, `/panes/x/buffer?view=...`).
+        let bridge_path = if query.is_empty() {
+            bridge_path.to_string()
+        } else {
+            format!("{bridge_path}?{query}")
+        };
+        let bridge_path = bridge_path.as_str();
         if is_websocket_upgrade(&headers_raw) {
             // Bytes the client sent after the head belong to the tunnel, not to a body.
             return proxy_upgrade(
@@ -238,9 +245,27 @@ fn is_websocket_upgrade(headers_raw: &str) -> bool {
     })
 }
 
-/// Pass a WebSocket upgrade through untouched: the request head goes upstream as the client sent
-/// it (Connection/Upgrade/Sec-WebSocket-* included), then bytes are copied both ways until either
-/// side closes.
+/// Header the bridge reads as "this request came through the PWA proxy, so it is a remote caller":
+/// it then demands a paired-device bearer token (`mobile_pairing::requires_pairing_token`).
+const PROXY_MARKER: &str = "X-PM-Proxied";
+
+/// True for a request-head line that names `name` (case-insensitive, and tolerant of leading
+/// whitespace the way the bridge's own header lookup is, so an obs-fold trick cannot slip one by).
+fn is_header_line(line: &str, name: &str) -> bool {
+    line.split_once(':')
+        .is_some_and(|(key, _)| key.trim().eq_ignore_ascii_case(name))
+}
+
+/// Append the marker. Every request this server forwards came from outside the machine (the
+/// tunnel), whatever the client claims, so the marker is not optional and not the client's to set.
+fn push_proxy_marker(request: &mut String) {
+    request.push_str(PROXY_MARKER);
+    request.push_str(": 1\r\n");
+}
+
+/// Pass a WebSocket upgrade through: the request head goes upstream as the client sent it
+/// (Connection/Upgrade/Sec-WebSocket-* included) except that any client `X-PM-Proxied` is dropped
+/// and ours is added, then bytes are copied both ways until either side closes.
 fn proxy_upgrade(
     stream: &mut TcpStream,
     bridge_port_file: &Path,
@@ -255,9 +280,13 @@ fn proxy_upgrade(
 
     let mut request = format!("{method} {path} HTTP/1.1\r\n");
     for line in headers_raw.lines().skip(1) {
+        if is_header_line(line, PROXY_MARKER) {
+            continue;
+        }
         request.push_str(line);
         request.push_str("\r\n");
     }
+    push_proxy_marker(&mut request);
     request.push_str("\r\n");
     upstream
         .write_all(request.as_bytes())
@@ -309,6 +338,7 @@ fn proxy_bridge(
             || lower.starts_with("connection:")
             || lower.starts_with("proxy-connection:")
             || lower.starts_with("content-length:")
+            || is_header_line(line, PROXY_MARKER)
         {
             continue;
         }
@@ -316,6 +346,7 @@ fn proxy_bridge(
         request.push_str("\r\n");
     }
     request.push_str(&format!("Host: {bridge_addr}\r\n"));
+    push_proxy_marker(&mut request);
     request.push_str(&format!("Content-Length: {}\r\n", body.len()));
     request.push_str("Connection: close\r\n\r\n");
     upstream
@@ -337,19 +368,22 @@ fn proxy_bridge(
     Ok(())
 }
 
+/// `host:port` of the embedded bridge from its port file (`127.0.0.1:17321`, or just the port).
+/// Bare, not a URL: it goes to `TcpStream::connect` and the upstream `Host` header (it used to be
+/// `http://host:port`, which `connect` cannot resolve, so the proxy never reached the bridge).
 fn read_bridge_addr(bridge_port_file: &Path) -> String {
     match fs::read_to_string(bridge_port_file) {
         Ok(raw) => {
             let trimmed = raw.trim();
             if trimmed.contains(':') {
-                format!("http://{trimmed}")
+                trimmed.to_string()
             } else if !trimmed.is_empty() {
-                format!("http://127.0.0.1:{trimmed}")
+                format!("127.0.0.1:{trimmed}")
             } else {
-                "http://127.0.0.1:17321".into()
+                "127.0.0.1:17321".into()
             }
         }
-        Err(_) => "http://127.0.0.1:17321".into(),
+        Err(_) => "127.0.0.1:17321".into(),
     }
 }
 
@@ -440,6 +474,25 @@ fn write_bytes(
     Ok(())
 }
 
+/// Test hook: serve `handle_connection` on an ephemeral loopback port (the production listener is
+/// pinned to `PWA_PORT`). Returns the address to connect to.
+#[cfg(test)]
+pub(crate) fn spawn_test_server(dist_root: PathBuf, bridge_port_file: PathBuf) -> std::net::SocketAddr {
+    let listener = TcpListener::bind((HOST, 0)).expect("bind test pwa server");
+    let addr = listener.local_addr().expect("test pwa server addr");
+    let dev_info: DevInfoSupplier = Arc::new(|| unreachable!("dev info is not used in tests"));
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let (dist_root, bridge_port_file, dev_info) =
+                (dist_root.clone(), bridge_port_file.clone(), dev_info.clone());
+            thread::spawn(move || {
+                let _ = handle_connection(stream, &dist_root, &bridge_port_file, &dev_info);
+            });
+        }
+    });
+    addr
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -450,7 +503,7 @@ mod tests {
         let _ = fs::create_dir_all(&dir);
         let file = dir.join("port");
         fs::write(&file, "127.0.0.1:17355\n").unwrap();
-        assert_eq!(read_bridge_addr(&file), "http://127.0.0.1:17355");
+        assert_eq!(read_bridge_addr(&file), "127.0.0.1:17355");
         let _ = fs::remove_dir_all(dir);
     }
 

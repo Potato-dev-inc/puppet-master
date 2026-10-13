@@ -45,3 +45,109 @@ fn push_act_is_public_but_every_other_push_route_needs_a_bearer() {
         assert_eq!(err.0, 401, "{method} /push/{path}");
     }
 }
+
+#[test]
+
+fn any_forwarding_header_on_a_loopback_peer_requires_a_token() {
+    for header in [
+        "X-PM-Proxied: 1",
+        "x-pm-proxied: 0",
+        "Cf-Connecting-Ip: 203.0.113.9",
+        "CF-RAY: 8a1b2c3d-AMS",
+        "Cf-Visitor: {\"scheme\":\"https\"}",
+        "Cdn-Loop: cloudflare",
+        "True-Client-Ip: 203.0.113.9",
+        "X-Forwarded-For: 203.0.113.9",
+        "X-Forwarded-Host: example.com",
+        "X-Forwarded-Proto: https",
+        "X-Real-Ip: 203.0.113.9",
+        "Forwarded: for=203.0.113.9",
+    ] {
+        let headers = format!("GET /panes HTTP/1.1\r\nHost: 127.0.0.1:17321\r\n{header}\r\n");
+        assert!(requires_pairing_token(&headers, true), "{header}");
+        assert!(!is_local_only_caller(&headers, true), "{header}");
+    }
+}
+
+#[test]
+fn local_tooling_without_forwarding_headers_stays_trusted() {
+    for headers in [
+        "GET /panes HTTP/1.1\r\nHost: 127.0.0.1:17321\r\nAccept: */*\r\n",
+        "GET /panes HTTP/1.1\r\nHost: localhost:17321\r\nOrigin: http://tauri.localhost\r\n",
+        "GET /panes HTTP/1.1\r\nHost: [::1]:17321\r\n",
+        "GET /panes HTTP/1.1\r\nHost: ::1\r\n",
+        "GET /panes HTTP/1.1\r\nHost: app.localhost\r\nX-Puppet-Master-Session: s1\r\n",
+        // HTTP/1.0-style client with no Host at all
+        "GET /panes HTTP/1.0\r\nAccept: */*\r\n",
+    ] {
+        assert!(!requires_pairing_token(headers, true), "{headers:?}");
+    }
+    // a non-loopback peer always needs one, whatever it claims
+    assert!(requires_pairing_token("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n", false));
+}
+
+#[test]
+fn a_foreign_host_name_on_a_loopback_peer_requires_a_token() {
+    for host in [
+        "evil.example",
+        "evil.example:17321",
+        "localhost.evil.example",
+        "127.0.0.1.evil.example",
+        "192.168.1.20:17321",
+        "",
+    ] {
+        let headers = format!("GET /panes HTTP/1.1\r\nHost: {host}\r\n");
+        assert!(requires_pairing_token(&headers, true), "Host: {host:?}");
+    }
+    // a second Host header cannot hide behind a loopback first one
+    assert!(requires_pairing_token(
+        "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nHost: evil.example\r\n",
+        true
+    ));
+}
+
+#[test]
+fn forwarded_loopback_request_is_refused_without_a_bearer() {
+    let segments = ["panes"];
+    for headers in [
+        "GET /panes HTTP/1.1\r\nHost: 127.0.0.1\r\nCf-Connecting-Ip: 203.0.113.9\r\n",
+        "GET /panes HTTP/1.1\r\nHost: tunnel.example\r\n",
+    ] {
+        let err = authorize_bridge_request(headers, true, &segments, "GET")
+            .expect_err("a forwarded caller needs a token");
+        assert_eq!(err.0, 401, "{headers:?}");
+    }
+    // public paths stay open for the pairing handshake and health checks
+    assert!(authorize_bridge_request("Cf-Ray: x\r\n", true, &["health"], "GET").is_ok());
+}
+
+#[test]
+fn a_web_page_origin_on_a_loopback_peer_requires_a_token() {
+    for origin in [
+        "https://evil.example",
+        "http://evil.example:8080",
+        "null",
+        "https://localhost.evil.example",
+        "file://",
+    ] {
+        let headers = format!("POST /panes/p1/input HTTP/1.1
+Host: 127.0.0.1:17321
+Origin: {origin}
+");
+        assert!(requires_pairing_token(&headers, true), "Origin: {origin}");
+    }
+    for origin in [
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "http://localhost:1420",
+        "http://127.0.0.1:1420",
+        "http://[::1]:4173",
+    ] {
+        let headers = format!("POST /panes/p1/input HTTP/1.1
+Host: 127.0.0.1:17321
+Origin: {origin}
+");
+        assert!(!requires_pairing_token(&headers, true), "Origin: {origin}");
+    }
+}

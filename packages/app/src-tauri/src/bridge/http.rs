@@ -16,11 +16,17 @@ use crate::events::SystemEvent;
 use crate::mobile_pairing;
 use crate::pty::PaneRegistry;
 
-pub(super) fn handle_connection(
-    mut stream: TcpStream,
-    registry: Arc<Mutex<PaneRegistry>>,
-    app: AppHandle,
-) -> Result<(), String> {
+/// One parsed HTTP request: the head as received, the body, and whether the TCP peer is loopback.
+pub(super) struct Request {
+    pub method: String,
+    pub target: String,
+    pub headers_raw: String,
+    pub body: Vec<u8>,
+    pub peer_loopback: bool,
+}
+
+/// Read one request off the socket. `Ok(None)` means the peer closed without sending anything.
+pub(super) fn read_request(stream: &mut TcpStream) -> Result<Option<Request>, String> {
     let mut buf = Vec::new();
     let mut chunk = [0_u8; 4096];
     let header_end;
@@ -29,7 +35,7 @@ pub(super) fn handle_connection(
             .read(&mut chunk)
             .map_err(|err| format!("read request: {err}"))?;
         if n == 0 {
-            return Ok(());
+            return Ok(None);
         }
         buf.extend_from_slice(&chunk[..n]);
         if let Some(pos) = find_header_end(&buf) {
@@ -47,8 +53,8 @@ pub(super) fn handle_connection(
         .next()
         .ok_or_else(|| "missing request line".to_string())?;
     let mut request_parts = request_line.split_whitespace();
-    let method = request_parts.next().unwrap_or("GET");
-    let target = request_parts.next().unwrap_or("/");
+    let method = request_parts.next().unwrap_or("GET").to_string();
+    let target = request_parts.next().unwrap_or("/").to_string();
     let content_length = headers_raw
         .lines()
         .find_map(|line| {
@@ -71,17 +77,77 @@ pub(super) fn handle_connection(
         }
         buf.extend_from_slice(&chunk[..n]);
     }
-    let body =
-        &buf[body_start..body_start + content_length.min(buf.len().saturating_sub(body_start))];
+    let body = buf[body_start..body_start + content_length.min(buf.len().saturating_sub(body_start))]
+        .to_vec();
 
     let peer_loopback = stream
         .peer_addr()
         .map(|addr| addr.ip().is_loopback())
         .unwrap_or(false);
 
-    if method == "OPTIONS" {
+    Ok(Some(Request {
+        method,
+        target,
+        headers_raw,
+        body,
+        peer_loopback,
+    }))
+}
+
+/// The authorization every request passes before any route runs: public paths are open, everything
+/// else needs a paired-device bearer unless it is the local app (see `requires_pairing_token`).
+/// `/events/ws` may carry its bearer in the `pm-bearer.<token>` subprotocol offer.
+pub(super) fn gate(req: &Request) -> Result<(), (u16, serde_json::Value)> {
+    if req.method == "OPTIONS" {
+        return Ok(());
+    }
+    let (path, _) = split_target(&req.target);
+    let raw_segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    let segments = mobile_pairing::normalize_bridge_segments(&raw_segments).to_vec();
+    if segments == ["events", "ws"] {
+        let offer =
+            mobile_pairing::header_value(&req.headers_raw, "Sec-WebSocket-Protocol").unwrap_or("");
+        if let Some(token) = super::ws::bearer_from_protocols(offer) {
+            let headers = format!("{}\r\nAuthorization: Bearer {token}", req.headers_raw);
+            return mobile_pairing::authorize_bridge_request(
+                &headers,
+                req.peer_loopback,
+                &segments,
+                &req.method,
+            );
+        }
+    }
+    mobile_pairing::authorize_bridge_request(
+        &req.headers_raw,
+        req.peer_loopback,
+        &segments,
+        &req.method,
+    )
+}
+
+pub(super) fn handle_connection(
+    mut stream: TcpStream,
+    registry: Arc<Mutex<PaneRegistry>>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let Some(req) = read_request(&mut stream)? else {
+        return Ok(());
+    };
+    if req.method == "OPTIONS" {
         return write_json(&mut stream, 204, &json!({}));
     }
+    // Fail closed before any route, SSE or WebSocket handler runs. Each handler below checks again.
+    if let Err((status, value)) = gate(&req) {
+        return write_json(&mut stream, status, &value);
+    }
+    let Request {
+        method,
+        target,
+        headers_raw,
+        body,
+        peer_loopback,
+    } = req;
+    let (method, target, body) = (method.as_str(), target.as_str(), body.as_slice());
 
     let (path, query) = split_target(target);
     let raw_segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
@@ -268,7 +334,10 @@ pub(super) fn write_json(
         204 => "No Content",
         400 => "Bad Request",
         404 => "Not Found",
+        401 => "Unauthorized",
+        403 => "Forbidden",
         409 => "Conflict",
+        503 => "Service Unavailable",
         500 => "Internal Server Error",
         _ => "OK",
     };
@@ -312,4 +381,48 @@ pub(super) fn request_session(headers: &str) -> Option<&str> {
         crate::mcp_sessions::note_session_pid(session, pid);
     }
     Some(session)
+}
+
+/// Test double for the bridge listener: the real `read_request` + `gate` (the same authorization
+/// `handle_connection` runs before any route), with the `AppHandle`-bound dispatch replaced by a
+/// reply that reports what the real routes would have been told: `{"authorized":true,
+/// "local_app":<bool>, "target", "proxied_markers"}`. `local_app` is what `routes::definitions::is_local_app` says about the
+/// request, i.e. whether the route layer would treat the caller as the desktop app itself.
+#[cfg(test)]
+pub(crate) fn spawn_gate_listener() -> std::net::SocketAddr {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind test bridge");
+    let addr = listener.local_addr().expect("test bridge addr");
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            std::thread::spawn(move || {
+                let mut stream = stream;
+                let Ok(Some(req)) = read_request(&mut stream) else {
+                    return;
+                };
+                let _ = match gate(&req) {
+                    Err((status, value)) => write_json(&mut stream, status, &value),
+                    Ok(()) => write_json(
+                        &mut stream,
+                        200,
+                        &json!({
+                            "authorized": true,
+                            "target": req.target,
+                            "proxied_markers": req
+                                .headers_raw
+                                .lines()
+                                .filter_map(|line| line.split_once(':'))
+                                .filter(|(key, _)| key.trim().eq_ignore_ascii_case("x-pm-proxied"))
+                                .map(|(_, value)| value.trim().to_string())
+                                .collect::<Vec<_>>(),
+                            "local_app": super::routes::definitions::is_local_app(
+                                &req.headers_raw,
+                                req.peer_loopback,
+                            ),
+                        }),
+                    ),
+                };
+            });
+        }
+    });
+    addr
 }
