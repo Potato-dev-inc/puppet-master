@@ -245,7 +245,7 @@ fn code_profiles_declare_only_verified_files() {
 
 #[test]
 fn toml_declares_several_files_with_a_header_and_no_table_means_none() {
-    let none = KILO_TOML.replace("[instructions]\nfile = \"AGENTS.md\"", "");
+    let none = KILO_TOML.replace("\r\n", "\n").replace("[instructions]\nfile = \"AGENTS.md\"", "");
     assert!(!none.contains("[instructions]"));
     assert!(declarative(&none).instruction_files().is_empty(), "an agent without a declaration has no files");
 
