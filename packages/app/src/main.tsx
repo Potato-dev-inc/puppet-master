@@ -22,6 +22,11 @@ const isMobileOrPwa =
   /Android|iPhone|iPad/i.test(navigator.userAgent);
 
 async function resolveRoot(): Promise<typeof App> {
+  // Dev-only UI evidence harness (tree-shaken from production builds).
+  if (import.meta.env.DEV && params.has('harness')) {
+    const { bootHarness } = await import('./dev/harness');
+    return (await bootHarness(params.get('harness') ?? '')) as typeof App;
+  }
   if (isSettingsEntry(window.location.search)) return SettingsApp;
   if (params.get('cockpit') === '1') return CockpitApp;
   if (isTerminalApp) return TerminalApp;
