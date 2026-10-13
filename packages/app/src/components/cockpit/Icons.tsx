@@ -59,6 +59,12 @@ export const IconMoon = () => (
     <path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6Z" />
   </Icon>
 );
+export const IconGlobe = () => (
+  <Icon>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M2.5 8h11M8 2.5c1.6 1.7 2.4 3.5 2.4 5.5S9.6 11.8 8 13.5C6.4 11.8 5.6 10 5.6 8S6.4 4.2 8 2.5Z" />
+  </Icon>
+);
 export const IconTerminal = () => (
   <Icon>
     <rect x="2" y="3" width="12" height="10" rx="2" />

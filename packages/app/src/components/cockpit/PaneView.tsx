@@ -4,9 +4,11 @@ import { cockpitApi, type PaneRunInfo, type PaneTranscript } from '../../lib/coc
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { activityText } from '../../lib/pane-activity';
 import '../../styles/pane-activity.css';
+import '../../styles/live-preview.css';
 import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
-import { IconClose, IconCopy, IconMore, IconReflow, IconStop } from './Icons';
+import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
+import { IconClose, IconGlobe, IconCopy, IconMore, IconReflow, IconStop } from './Icons';
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { formatElapsed, promptSummary, receiptRows, spinnerStatus, stateText } from './model';
 import { SegTabs } from './SegTabs';
@@ -133,6 +135,18 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             {headLine}
           </span>
         </div>
+        {mainPreview(c.previews, paneId) && (
+          <button
+            type="button"
+            className="ck-preview-chip"
+            title={`Open ${mainPreview(c.previews, paneId)!.url} in your browser`}
+            onClick={() => void openPreview(mainPreview(c.previews, paneId)!.url).catch(() => c.notify('Could not open the preview'))}
+          >
+            <IconGlobe />
+            <span>Preview</span>
+            <span className="ck-preview-port">{previewLabel(mainPreview(c.previews, paneId)!)}</span>
+          </button>
+        )}
         <span className="ck-grid-size">
           {info.cols}×{info.rows}
         </span>

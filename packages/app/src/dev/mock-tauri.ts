@@ -65,6 +65,13 @@ export function installTauriMock(scenario: HarnessScenario): void {
                   : { kind: 'idle', text: 'Idle' },
             ]),
           );
+        case 'pane_previews':
+          return {
+            [PANE_CODEX]: [
+              { url: 'http://localhost:5173/', port: 5173, networkUrl: 'http://192.168.1.23:5173/' },
+              { url: 'http://localhost:3000', port: 3000 },
+            ],
+          };
         case 'agents_health':
           return { agents: DOCTOR_ROWS };
         case 'agents_health_test':

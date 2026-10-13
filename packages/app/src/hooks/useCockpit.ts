@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePaneRegistry, type PaneRegistryApi } from './usePaneRegistry';
 import { paneMenuEntries, useAgentRegistry, agentLabel, type LaunchEntry } from '../lib/agentRegistry';
+import { usePanePreviews, type PreviewMap } from '../lib/pane-preview';
 import { cockpitApi, type PanePrompt, type SpawnStageEvent, type UiMode } from '../lib/cockpit-api';
 import { applyTheme, loadSettings, saveSettings, type AppTheme } from '../lib/settings';
 import { tauri } from '../lib/tauri';
@@ -32,6 +33,8 @@ export interface CockpitApi {
   names: Map<string, string>;
   /** Plain-language activity phrase per pane id. */
   activities: ActivityMap;
+  /** Dev-server URLs per pane id (newest first). */
+  previews: PreviewMap;
   launchEntries: LaunchEntry[];
   /** Agent ids with at least one warm standby ready. */
   readyAgents: Set<string>;
@@ -59,6 +62,7 @@ export interface CockpitApi {
 export function useCockpit(): CockpitApi {
   const registry = usePaneRegistry();
   const activities = usePaneActivity();
+  const previews = usePanePreviews();
   const listing = useAgentRegistry();
   const launchEntries = useMemo(() => paneMenuEntries(listing), [listing]);
   const { paneList, panes, initialReady } = registry;
@@ -366,6 +370,7 @@ export function useCockpit(): CockpitApi {
     registry,
     names,
     activities,
+    previews,
     launchEntries,
     readyAgents,
     mode,

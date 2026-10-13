@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { activityText } from '../../lib/pane-activity';
+import { mainPreview, previewLabel } from '../../lib/pane-preview';
+import '../../styles/live-preview.css';
 import { DotSpinner } from './DotSpinner';
-import { IconInbox, IconMoon, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
+import { IconGlobe, IconInbox, IconMoon, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
 import { formatElapsed, groupPanes, spinnerStatus } from './model';
 import { SegTabs } from './SegTabs';
 
@@ -61,6 +63,11 @@ export function Sidebar({
                   {activityText(p.status, c.activities?.[id]) ?? projectName(p.info.cwd)}
                 </span>
               </span>
+              {mainPreview(c.previews, id) && (
+                <span className="ck-row-preview" title={`Preview ${previewLabel(mainPreview(c.previews, id)!)}`} role="img" aria-label="Has a preview">
+                  <IconGlobe />
+                </span>
+              )}
               <span className="ck-row-time">{since ? formatElapsed(c.now - since) : ''}</span>
             </button>
           );
