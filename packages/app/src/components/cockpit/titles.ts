@@ -22,6 +22,41 @@ export function paneOneLine(info: { title?: string | null }, agentName: string):
   return title ? `${agentName} · ${title}` : agentName;
 }
 
+interface LoginInfo {
+  agent_type: string;
+  account?: string | null;
+}
+
+/** Agent types that have panes under more than one login (the CLI's own login counts as one). */
+export function multiLoginAgents(panes: ReadonlyArray<LoginInfo>): Set<string> {
+  const seen = new Map<string, Set<string>>();
+  for (const p of panes) {
+    const logins = seen.get(p.agent_type) ?? new Set<string>();
+    logins.add(p.account ?? '');
+    seen.set(p.agent_type, logins);
+  }
+  return new Set([...seen].filter(([, logins]) => logins.size > 1).map(([agent]) => agent));
+}
+
+/**
+ * The second line of a pane row: who is working and what it is doing, with the login when that
+ * agent runs under several ("Codex · Editing src/app.ts · Work"). An untitled pane already shows
+ * the agent name as its first line, so its second line leads with the detail.
+ */
+export function paneSubline(
+  info: LoginInfo & { title?: string | null; account_label?: string | null },
+  agentName: string,
+  detail: string,
+  multiLogin: ReadonlySet<string>,
+): string {
+  const parts: string[] = [];
+  if (info.title?.trim()) parts.push(agentName);
+  parts.push(detail);
+  const login = info.account_label?.trim();
+  if (login && multiLogin.has(info.agent_type)) parts.push(login);
+  return parts.join(' · ');
+}
+
 /** What the rename box sends: collapsed whitespace, capped. Blank means "clear my name". */
 export function cleanTitleInput(raw: string): string {
   return raw.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE_CHARS).trimEnd();

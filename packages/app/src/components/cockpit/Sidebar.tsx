@@ -10,7 +10,7 @@ import '../../styles/live-preview.css';
 import { DotSpinner } from './DotSpinner';
 import { IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
 import { formatElapsed, groupPanes, spinnerStatus } from './model';
-import { paneHeading } from './titles';
+import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 import { LastTurnContext } from './away-context';
 import { SegTabs } from './SegTabs';
 
@@ -31,6 +31,7 @@ export function Sidebar({
   const questionPanes = needsYouPaneIds(needs);
   const groups = groupPanes(list, questionPanes);
   const waiting = needs.length;
+  const multiLogin = multiLoginAgents(list.map((p) => p.info));
   const lastTurn = useContext(LastTurnContext);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isolated, setIsolated] = useState(false);
@@ -82,8 +83,13 @@ export function Sidebar({
               <span className="ck-row-main" title={projectName(p.info.cwd)}>
                 <span className="ck-row-title">{heading.primary}</span>
                 <span className="ck-row-sub">
-                  {activityText(p.status, c.activities?.[id]) ??
-                    (heading.secondary ? `${heading.secondary} · ${projectName(p.info.cwd)}` : projectName(p.info.cwd))}
+                  {paneSubline(
+                    p.info,
+                    c.names.get(id) ?? p.info.agent_type,
+                    activityText(p.status, c.activities?.[id]) ??
+                      (p.status === 'error' ? `Error · ${projectName(p.info.cwd)}` : projectName(p.info.cwd)),
+                    multiLogin,
+                  )}
                 </span>
               </span>
               {mainPreview(c.previews, id) && (

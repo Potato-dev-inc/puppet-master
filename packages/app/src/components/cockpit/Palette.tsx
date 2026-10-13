@@ -6,7 +6,7 @@ import { openPreview, previewLabel } from '../../lib/pane-preview';
 import { DotSpinner } from './DotSpinner';
 import { IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
-import { paneHeading } from './titles';
+import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 
 interface Item {
   id: string;
@@ -40,14 +40,16 @@ export function Palette({
 
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
+    const multiLogin = multiLoginAgents(c.registry.paneList.map((p) => p.info));
     for (const p of c.registry.paneList) {
       const id = p.info.id;
-      const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
+      const agentName = c.names.get(id) ?? p.info.agent_type;
+      const heading = paneHeading(p.info, agentName);
       out.push({
         id: `pane:${id}`,
         group: 'Panes',
         title: heading.primary,
-        desc: `${heading.secondary ? `${heading.secondary} · ` : ''}${projectName(p.info.cwd)} · ${stateText(p.status)}`,
+        desc: `${paneSubline(p.info, agentName, projectName(p.info.cwd), multiLogin)} · ${stateText(p.status)}`,
         icon: <DotSpinner status={spinnerStatus(p.status)} />,
         run: () => c.select(id),
       });
