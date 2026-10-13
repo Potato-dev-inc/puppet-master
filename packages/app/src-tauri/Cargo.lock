@@ -2902,6 +2902,7 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "sha2",
+ "shlex",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

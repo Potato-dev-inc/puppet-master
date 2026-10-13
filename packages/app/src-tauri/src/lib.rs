@@ -26,6 +26,7 @@ pub mod operations;
 mod operations_contract_tests;
 mod pane_activity;
 mod pane_prompt;
+mod prompt_risk;
 mod app_windows;
 mod cockpit;
 mod ui_mode;
