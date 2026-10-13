@@ -80,11 +80,12 @@ function StorageInfo({ env }: { env: SettingsEnv }) {
   return (
     <>
       <InfoRow
-        label="Task board and locks"
+        label="Coordination storage"
         description="Tasks, file locks and pane events are kept per project."
         value={info ? (info.scope === 'project' ? 'Project folder' : 'Shared fallback') : '…'}
       />
-      <InfoRow label="Tasks and locks" value={info ? `${info.task_count} tasks, ${info.lock_count} locks` : '…'} />
+      <InfoRow label="Tasks" value={info ? String(info.task_count) : '…'} />
+      <InfoRow label="File locks" value={info ? String(info.lock_count) : '…'} />
       <InfoRow
         label="Event log"
         description={info?.event_log_path ?? 'Loading…'}

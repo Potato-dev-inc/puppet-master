@@ -86,7 +86,8 @@
 .settings *::after {
   box-sizing: border-box;
 }
-.settings button {
+/* :where() keeps these resets at zero specificity so the Tailwind classes on older blocks still win. */
+:where(.settings) button {
   font: inherit;
   color: inherit;
   cursor: default;
@@ -206,7 +207,7 @@
 }
 .settings .st-title {
   flex: none;
-  padding: 22px 32px 10px;
+  padding: 22px max(32px, calc((100% - 680px) / 2)) 10px;
 }
 .settings .st-title h1 {
   margin: 0;
@@ -222,7 +223,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 6px 32px 40px;
+  padding: 6px max(32px, calc((100% - 680px) / 2)) 40px;
 }
 .settings .st-page {
   max-width: 680px;
@@ -267,6 +268,14 @@
 /* A whole group whose rows all rendered nothing (Accounts outside the desktop shell) hides with its heading. */
 .settings .st-group:not(:has(.st-rowwrap > .st-row, .st-rowwrap > section)) {
   display: none;
+}
+/* Older blocks size their text in Tailwind steps; keep them on the window's 13/11 scale. */
+.settings .text-sm {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.settings .leading-6 {
+  line-height: 1.5;
 }
 /* Older self-contained sections (Toolbelt, Public address) were cards: here they are plain rows. */
 .settings .st-rowwrap > section.rounded-xl {
@@ -402,6 +411,22 @@
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14' fill='none' stroke='%23999' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5.5L5 2.5L8 5.5M2 8.5L5 11.5L8 8.5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 6px center;
+}
+.settings input[type='checkbox'],
+.settings input[type='radio'] {
+  accent-color: var(--label);
+}
+/* Every select in the window (including the older blocks') is a popup button. */
+.settings select:not(.st-popup) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 24px;
+  border-color: transparent;
+  background-color: var(--fill);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14' fill='none' stroke='%23999' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5.5L5 2.5L8 5.5M2 8.5L5 11.5L8 8.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  color: var(--label);
 }
 .settings .st-popup:hover,
 .settings .st-field:hover {

@@ -48,3 +48,20 @@ export function subscribeSettingsRefresh(onRefresh: (info: SettingsRefreshInfo) 
     unlisteners.forEach((un) => un());
   };
 }
+
+/** Follow theme changes saved from any window (Settings, the cockpit toggle). Returns the unsubscribe function. */
+export function subscribeSettingsTheme(onTheme: (theme: 'dark' | 'light') => void): () => void {
+  if (!inTauri()) return () => undefined;
+  let disposed = false;
+  let unlisten: UnlistenFn | undefined;
+  void listen<{ theme?: unknown } | null>('settings://changed', (event) => {
+    const theme = event.payload?.theme;
+    if (theme === 'dark' || theme === 'light') onTheme(theme);
+  })
+    .then((un) => (disposed ? un() : (unlisten = un)))
+    .catch(() => undefined);
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}

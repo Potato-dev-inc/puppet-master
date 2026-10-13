@@ -220,14 +220,14 @@ export function installTauriMock(scenario: HarnessScenario): void {
             platform: 'windows',
             uninstallAvailable: true,
             uninstallInstructions: 'Removes Puppet Master with the Windows uninstaller.',
-            dataDir: 'C:\Users\dev\AppData\Roaming\com.puppetmaster.app',
+            dataDir: 'C:\\Users\\dev\\AppData\\Roaming\\com.puppetmaster.app',
           };
         case 'get_coordination_storage_info':
           return {
             scope: 'project',
-            project_path: 'C:\Users\dev\work\puppet-master',
-            storage_dir: 'C:\Users\dev\work\puppet-master\.puppet-master',
-            event_log_path: 'C:\Users\dev\work\puppet-master\.puppet-master\events.jsonl',
+            project_path: 'C:\\Users\\dev\\work\\puppet-master',
+            storage_dir: 'C:\\Users\\dev\\work\\puppet-master\\.puppet-master',
+            event_log_path: 'C:\\Users\\dev\\work\\puppet-master\\.puppet-master\\events.jsonl',
             event_count: 148,
             task_count: 3,
             lock_count: 1,

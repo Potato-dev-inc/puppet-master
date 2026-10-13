@@ -19,7 +19,6 @@ export const bridgeRows: RowDef[] = [
     label: 'Toolbelt',
     hint: "Add an MCP server once; Puppet Master writes it into every agent's own config.",
     keywords: 'mcp servers apply to all agents import secrets scope',
-    group: 'Toolbelt',
     render: (env) => <ToolbeltGroup projectPath={installPathOf(env) || null} />,
   },
   {

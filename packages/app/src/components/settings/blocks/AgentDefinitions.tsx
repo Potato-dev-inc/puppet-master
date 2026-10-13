@@ -30,11 +30,11 @@ import {
 import { SettingBlock } from '../settings-ui';
 
 const STATE_TONE: Record<string, string> = {
-  active: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400',
-  unapproved: 'border-amber-500/40 bg-amber-500/10 text-amber-400',
-  needs_approval: 'border-amber-500/40 bg-amber-500/10 text-amber-400',
-  approval_stale: 'border-amber-500/40 bg-amber-500/10 text-amber-400',
-  invalid: 'border-red-500/40 bg-red-500/10 text-red-400',
+  active: 'border-pm-border bg-pm-border/40 text-pm-text',
+  unapproved: 'border-pm-border text-pm-muted',
+  needs_approval: 'border-pm-border text-pm-muted',
+  approval_stale: 'border-pm-border text-pm-muted',
+  invalid: 'border-pm-text text-pm-text',
 };
 
 const BADGE = 'inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-medium';
@@ -251,7 +251,7 @@ export function AgentDefinitions({ api = tauriAgentDefinitionsApi }: { api?: Age
           )}
         </div>
         {error && (
-          <p role="alert" className="mb-3 text-sm text-red-400">
+          <p role="alert" className="mb-3 text-sm text-pm-text">
             {error}
           </p>
         )}
@@ -325,11 +325,11 @@ export function AgentDefinitions({ api = tauriAgentDefinitionsApi }: { api?: Age
                 <p className="mt-1 break-all text-xs text-pm-muted">{draft.path}</p>
                 {draftCheck?.path === draft.path && (
                   <div role="status" className="mt-2 text-xs">
-                    <p className={draftCheck.preview.ok ? 'text-emerald-400' : 'text-red-400'}>
+                    <p className={draftCheck.preview.ok ? 'text-pm-muted' : 'font-semibold text-pm-text'}>
                       {draftCheck.preview.ok ? 'Draft is valid.' : 'Draft has errors:'}
                     </p>
                     {draftCheck.preview.errors.map((err, i) => (
-                      <p key={i} className="text-red-400">
+                      <p key={i} className="text-pm-text">
                         {err.code} {err.path ?? ''}: {err.message}
                       </p>
                     ))}
@@ -400,7 +400,7 @@ export function AgentDefinitions({ api = tauriAgentDefinitionsApi }: { api?: Age
             <li key={dir.path} data-testid="extra-dir-row" className="flex items-center gap-3 rounded-lg border border-pm-border p-3">
               <div className="min-w-0 flex-1">
                 <p className="break-all text-xs">{dir.path}</p>
-                {!dir.exists && <p className="text-xs text-amber-400">This folder does not exist.</p>}
+                {!dir.exists && <p className="text-xs text-pm-muted">This folder does not exist.</p>}
               </div>
               <Switch
                 checked={dir.consent}
@@ -496,7 +496,7 @@ function ConsentBanner({
       role="region"
       aria-label="Project agent definitions"
       data-testid="consent-banner"
-      className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3"
+      className="mb-4 rounded-lg border border-pm-border bg-pm-border/20 p-3"
     >
       <p className="text-sm font-semibold">This project contains agent definitions</p>
       <p className="mt-1 break-all text-xs text-pm-muted">{scan.project}</p>
@@ -574,7 +574,7 @@ function DefinitionItem({
           <span
             data-testid="experimental-badge"
             title="Experimental: runs a generic command with no verified behavior"
-            className={`${BADGE} border-amber-500/40 bg-amber-500/10 text-amber-400`}
+            className={`${BADGE} border-pm-border text-pm-muted`}
           >
             experimental
           </span>
@@ -621,10 +621,10 @@ function DefinitionItem({
           {check!.results.length === 0 && <li className="text-xs text-pm-muted">No fixtures found.</li>}
           {check!.results.map((r) => (
             <li key={r.fixture} data-testid="fixture-result" className="text-xs">
-              <span className={r.passed ? 'text-emerald-400' : 'text-red-400'}>{r.passed ? 'PASS' : 'FAIL'}</span>{' '}
+              <span className={r.passed ? 'text-pm-muted' : 'font-semibold text-pm-text'}>{r.passed ? 'PASS' : 'FAIL'}</span>{' '}
               <span className="font-mono">{r.fixture}</span>
               {r.failures.map((f, i) => (
-                <div key={i} className="ml-6 text-red-400">
+                <div key={i} className="ml-6 text-pm-text">
                   {f}
                 </div>
               ))}
@@ -638,7 +638,7 @@ function DefinitionItem({
       {row.errors.length > 0 && (
         <ul className="mt-2 space-y-1">
           {row.errors.map((e, i) => (
-            <li key={i} className="text-xs text-red-400">
+            <li key={i} className="text-xs text-pm-text">
               <span className="font-mono">{e.code}</span>{' '}
               <span className="font-mono">
                 {fileName(row.file)}
@@ -677,7 +677,7 @@ function ApproveDialog({
       >
         <h3 className="text-sm font-semibold">Approve {row.id ?? fileName(row.file)}</h3>
         <p className="mt-1 break-all text-xs text-pm-muted">{row.file}</p>
-        {reviewing.error && <p className="mt-3 text-sm text-red-400">{reviewing.error}</p>}
+        {reviewing.error && <p className="mt-3 text-sm text-pm-text">{reviewing.error}</p>}
         {rendered && (
           <div className="mt-3 space-y-2">
             <ArgvBlock title="Headless command" argv={rendered.headless_argv} />
@@ -685,13 +685,13 @@ function ApproveDialog({
           </div>
         )}
         <ChangesSinceApproval preview={preview} />
-        <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-amber-400">
+        <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-pm-muted">
           {approvalWarnings(row, preview).map((w) => (
             <li key={w}>{w}</li>
           ))}
         </ul>
         {preview?.errors.map((e, i) => (
-          <p key={i} className="mt-1 text-xs text-red-400">
+          <p key={i} className="mt-1 text-xs text-pm-text">
             <span className="font-mono">{e.code}</span> {e.message}
           </p>
         ))}
@@ -717,7 +717,7 @@ function ChangesSinceApproval({ preview }: { preview: DefinitionPreview | null }
   ].filter((b) => b.before && b.after && b.before.join('\u0000') !== b.after.join('\u0000'));
   if (blocks.length === 0 && !preview.binary_changed) return null;
   return (
-    <div data-testid="approval-diff" className="mt-3 rounded-lg border border-amber-500/40 p-2">
+    <div data-testid="approval-diff" className="mt-3 rounded-lg border border-pm-border p-2">
       <div className="text-xs font-medium">Changed since you approved it</div>
       {blocks.map((block) => (
         <div key={block.title} className="mt-2">
@@ -727,7 +727,7 @@ function ChangesSinceApproval({ preview }: { preview: DefinitionPreview | null }
               <div
                 key={i}
                 data-diff={line.kind}
-                className={line.kind === 'added' ? 'text-emerald-400' : line.kind === 'removed' ? 'text-red-400' : ''}
+                className={line.kind === 'added' ? 'font-medium text-pm-text' : line.kind === 'removed' ? 'text-pm-muted' : ''}
               >
                 {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
                 {line.text}
@@ -737,7 +737,7 @@ function ChangesSinceApproval({ preview }: { preview: DefinitionPreview | null }
         </div>
       ))}
       {preview.binary_changed && (
-        <p className="mt-2 break-all text-xs text-amber-400">Approved program: {approved.binary}</p>
+        <p className="mt-2 break-all text-xs text-pm-muted">Approved program: {approved.binary}</p>
       )}
     </div>
   );

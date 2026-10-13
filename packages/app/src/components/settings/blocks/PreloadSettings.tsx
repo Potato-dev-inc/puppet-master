@@ -136,7 +136,7 @@ export function PreloadSettings({ api = DEFAULT_API, onSaved }: { api?: PreloadA
       </SettingBlock>
       <SettingBlock label="Status" description={summarizePreload(status)}>
         <div className="space-y-2 text-sm">
-          {error && <p className="text-red-400">{error}</p>}
+          {error && <p className="text-pm-text">{error}</p>}
           {status?.standbys
             .filter((standby) => !standby.headless)
             .map((standby) => (

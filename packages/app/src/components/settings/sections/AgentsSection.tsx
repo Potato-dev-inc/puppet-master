@@ -27,7 +27,6 @@ export const agentsRows: RowDef[] = [
     label: 'Agent definitions',
     hint: 'Agents defined by TOML files. A new or changed one stays inactive until you review and approve it.',
     keywords: 'toml consent project sources drafts import export fixtures revoke approve review extra directories generic agent reload',
-    group: 'Definitions',
     render: () => <AgentDefinitions />,
   },
 ];

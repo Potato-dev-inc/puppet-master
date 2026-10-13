@@ -3,7 +3,7 @@
 import { act, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MobilePairingPanel } from './MobilePairingPanel';
+import { DEVICES_CHANGED_EVENT, MobilePairingPanel } from './MobilePairingPanel';
 import { tauri } from '../lib/tauri';
 import { blur, buttonByText, click, hasText, settle, type as typeInto } from './settings/test-utils';
 
@@ -102,10 +102,21 @@ describe('MobilePairingPanel: paired devices and layout', () => {
     expect(tauri.listPairedMobileDevices).toHaveBeenCalledTimes(2);
   });
 
-  it('is a plain settings row with no inner title and no colour classes', async () => {
+  it('reloads the device list when another row (Revoke all devices) changes it', async () => {
+    mocks.devices = [{ id: 'dev-1', name: 'Pixel 8', public_key: 'k1', paired_at: 1 }];
+    await mount();
+    expect(hasText(host, 'Pixel 8')).toBe(true);
+    mocks.devices = [];
+    await act(async () => void window.dispatchEvent(new Event(DEVICES_CHANGED_EVENT)));
+    await settle();
+    expect(hasText(host, 'Pixel 8')).toBe(false);
+    expect(hasText(host, 'No phones paired yet')).toBe(true);
+  });
+
+  it('is a plain settings row that names itself, with no colour classes', async () => {
     await mount();
     expect(host.firstElementChild?.className).toBe('st-row is-block');
-    expect(hasText(host, 'Mobile pairing')).toBe(false);
+    expect(host.querySelector('.st-label span')?.textContent).toBe('Pair a phone');
     expect(host.innerHTML).not.toMatch(/text-pm-(err|amber|accent)|text-(red|emerald|amber)-/);
   });
 });

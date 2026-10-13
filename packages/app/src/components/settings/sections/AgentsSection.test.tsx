@@ -157,10 +157,10 @@ describe('Agents: every row renders', () => {
     expect(buttonByText(m.host, 'Save changes')).toBeUndefined();
   });
 
-  it('groups the rows under three headings: Logins, Speed, Definitions', async () => {
+  it('groups the rows: Logins, Speed, then Definitions (whose own block carries the title)', async () => {
     await mount();
-    const heads = [...m.host.querySelectorAll('section.st-group > h2')].map((h) => h.textContent?.trim());
-    expect(heads).toEqual(['Logins', 'Speed', 'Definitions']);
+    const heads = [...m.host.querySelectorAll('section.st-group')].map((g) => g.querySelector(':scope > h2')?.textContent?.trim() ?? '');
+    expect(heads).toEqual(['Logins', 'Speed', '']);
   });
 });
 
