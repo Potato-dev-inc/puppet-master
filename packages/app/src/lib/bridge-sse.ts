@@ -266,11 +266,17 @@ function bridgeSocketUrl(baseUrl: string): string {
   return url.toString();
 }
 
-/** Browsers cannot set headers on a WebSocket, so the bearer token travels as a subprotocol. */
-function bridgeSocketProtocols(): string[] {
+/**
+ * Browsers cannot set headers on a WebSocket, so the bearer token travels as a subprotocol. A
+ * subprotocol may only hold token characters: the base64 token (`+`, `/`, `=`) made the browser
+ * throw before connecting, so the phone always fell back to polling. It goes hex-encoded instead.
+ */
+export function bridgeSocketProtocols(): string[] {
   const auth = mobilePairingAuthHeaders().Authorization;
   const token = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-  return token ? ['pm-events', `pm-bearer.${token}`] : ['pm-events'];
+  if (!token) return ['pm-events'];
+  const hex = Array.from(new TextEncoder().encode(token), (b) => b.toString(16).padStart(2, '0')).join('');
+  return ['pm-events', `pm-bearer-hex.${hex}`];
 }
 
 /**

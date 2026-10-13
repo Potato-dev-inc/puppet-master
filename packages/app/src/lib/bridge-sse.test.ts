@@ -98,7 +98,9 @@ describe('subscribeBridgeEventsViaWs', () => {
     const handle = subscribeBridgeEventsViaWs(BASE, (e) => events.push(e));
     const sock = MockSocket.instances[0];
     expect(sock.url).toBe('wss://x.trycloudflare.com/bridge/events/ws');
-    expect(sock.protocols).toEqual(['pm-events', 'pm-bearer.tok']);
+    // 'tok' hex-encoded: subprotocols may not hold base64's + / = (the browser throws).
+    expect(sock.protocols).toEqual(['pm-events', 'pm-bearer-hex.746f6b']);
+    for (const p of sock.protocols as string[]) expect(p).toMatch(/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/);
 
     sock.open();
     expect(handle.isOpen()).toBe(true);

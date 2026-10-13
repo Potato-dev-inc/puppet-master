@@ -42,12 +42,31 @@ const BEARER_PREFIX: &str = "pm-bearer.";
 
 /// The bearer token from a `Sec-WebSocket-Protocol` offer (`pm-events, pm-bearer.<token>`).
 pub(crate) fn bearer_from_protocols(offer: &str) -> Option<String> {
-    offer
-        .split(',')
-        .map(str::trim)
+    let items = || offer.split(',').map(str::trim);
+    // `pm-bearer-hex.<hex>`: browsers reject a subprotocol holding base64's `+ / =`.
+    if let Some(token) = items()
+        .find_map(|item| item.strip_prefix(BEARER_HEX_PREFIX))
+        .and_then(decode_hex_utf8)
+    {
+        return Some(token);
+    }
+    items()
         .find_map(|item| item.strip_prefix(BEARER_PREFIX))
         .filter(|token| !token.is_empty())
         .map(str::to_string)
+}
+
+const BEARER_HEX_PREFIX: &str = "pm-bearer-hex.";
+
+fn decode_hex_utf8(hex: &str) -> Option<String> {
+    if hex.is_empty() || hex.len() % 2 != 0 {
+        return None;
+    }
+    let bytes = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
+        .collect::<Option<Vec<u8>>>()?;
+    String::from_utf8(bytes).ok()
 }
 
 /// Whether the client offered the `pm-events` subprotocol (only that one is ever echoed).
@@ -325,6 +344,17 @@ mod tests {
         assert_eq!(bearer_from_protocols("pm-bearer.tok"), Some("tok".into()));
         assert_eq!(bearer_from_protocols("pm-events"), None);
         assert_eq!(bearer_from_protocols("pm-bearer."), None);
+    }
+
+    #[test]
+    fn hex_bearer_carries_base64_tokens() {
+        // "ab+/=" as hex: the characters browsers refuse in a subprotocol.
+        assert_eq!(
+            bearer_from_protocols("pm-events, pm-bearer-hex.61622b2f3d"),
+            Some("ab+/=".into())
+        );
+        assert_eq!(bearer_from_protocols("pm-bearer-hex.6"), None);
+        assert_eq!(bearer_from_protocols("pm-bearer-hex.zz"), None);
     }
 
     #[test]
