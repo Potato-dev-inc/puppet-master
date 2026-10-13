@@ -13,7 +13,7 @@ use crate::bridge::pane_util::{
     emit_panes_changed, pane_buffer_view, present_spawned_pane, register_spawned_pane,
 };
 use crate::pty::{
-    registry_kill_pane, registry_read_buffer, registry_read_raw_buffer, registry_read_screen_replay, registry_read_snapshot,
+    registry_kill_pane, registry_read_buffer, registry_read_raw_buffer, registry_read_screen_replay_at, registry_read_snapshot,
     registry_spawn_pane, registry_write_input, SpawnPaneArgs,
 };
 use crate::settings_store;
@@ -85,6 +85,9 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
         return None;
     };
     let pane_id: &str = pane_id;
+    if let Some(response) = registry_route(cx.method, cx.segments, cx.registry) {
+        return Some(response);
+    }
     if let Some(response) = opencode::handle_pane(cx, pane_id) {
         return Some(response);
     }
@@ -92,7 +95,6 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
         ("DELETE", []) => kill(cx, pane_id),
         ("GET", ["buffer", ..]) => buffer(cx, pane_id),
         ("GET", ["raw", ..]) => raw(cx, pane_id),
-        ("GET", ["screen", ..]) => screen(cx, pane_id),
         ("GET", ["snapshot", ..]) => snapshot(cx, pane_id),
         ("POST", ["input", ..]) => input(cx, pane_id),
         ("POST", ["key", ..]) => key(cx, pane_id),
@@ -216,14 +218,34 @@ fn raw(cx: &Ctx, pane_id: &str) -> RouteResult {
     Ok((200, json!({ "data": raw })))
 }
 
-/// The pane redrawn at its current size (scrollback + screen) for a viewer to replay, base64.
-fn screen(cx: &Ctx, pane_id: &str) -> RouteResult {
+/// The pane redrawn at its current size (scrollback + screen) for a viewer to replay, base64, and
+/// the stream `offset` it was taken at (read under the emulator lock; `terminal` and `pane-resize`
+/// events carry offsets of the same numbering). `offset` is absent for a pane that does not number
+/// its stream: the viewer then falls back to dropping what arrived while the screen loaded.
+pub(super) fn screen_response(registry: &parking_lot::Mutex<crate::pty::PaneRegistry>, pane_id: &str) -> RouteResult {
     use base64::Engine as _;
-    let (bytes, cols, rows) = registry_read_screen_replay(cx.registry, pane_id)
+    let (bytes, cols, rows, offset) = registry_read_screen_replay_at(registry, pane_id)
         .map_err(|err| (404, json!({ "error": err })))?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-    Ok((200, json!({ "b64": b64, "cols": cols, "rows": rows })))
+    let mut body = json!({ "b64": b64, "cols": cols, "rows": rows });
+    if let Some(offset) = offset {
+        body["offset"] = json!(offset);
+    }
+    Ok((200, body))
 }
+
+/// The routes that need only the pane registry (no app handle), so they run in-process in tests.
+pub(in crate::bridge) fn registry_route(
+    method: &str,
+    segments: &[&str],
+    registry: &parking_lot::Mutex<crate::pty::PaneRegistry>,
+) -> Option<RouteResult> {
+    match (method, segments) {
+        ("GET", ["panes", pane_id, "screen", ..]) => Some(screen_response(registry, pane_id)),
+        _ => None,
+    }
+}
+
 
 fn snapshot(cx: &Ctx, pane_id: &str) -> RouteResult {
     let registry = cx.registry;

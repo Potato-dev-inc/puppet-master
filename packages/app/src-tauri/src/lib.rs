@@ -379,7 +379,8 @@ pub fn run() {
                                 .iter()
                                 .filter_map(|v| v.as_u64().map(|n| n as u8))
                                 .collect();
-                            bridge::push_terminal_sse(pane_id, &raw);
+                            let offset = value.get("offset").and_then(|v| v.as_u64());
+                            bridge::push_terminal_sse(pane_id, &raw, offset);
                         }
                     }
                 }

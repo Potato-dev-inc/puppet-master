@@ -69,7 +69,7 @@ pub fn notify_panes_changed() {
 /// A pane's PTY size changed outside its desktop window (phone-sized panes): tell bridge viewers
 /// (`pane-resize` SSE) and the desktop windows, which re-read pane info on `pty://panes-changed`.
 pub fn notify_pane_resized(pane_id: &str, cols: u16, rows: u16) {
-    push_pane_resize_sse(pane_id, cols, rows);
+    push_pane_resize_sse(pane_id, cols, rows, crate::pty::stream_pos::emitted(pane_id));
     if let Some(app) = BRIDGE_APP.get() {
         use tauri::Emitter;
         let _ = app.emit("pty://panes-changed", serde_json::json!({ "changed": true }));
