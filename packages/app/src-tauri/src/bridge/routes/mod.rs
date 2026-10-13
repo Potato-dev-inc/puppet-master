@@ -12,7 +12,7 @@ pub(super) mod mcp;
 mod opencode;
 mod operations;
 mod pairing;
-mod panes;
+pub(super) mod panes;
 pub(super) mod previews;
 mod push;
 mod session;

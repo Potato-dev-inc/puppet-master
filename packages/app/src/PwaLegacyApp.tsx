@@ -125,7 +125,7 @@ export default function PwaLegacyApp() {
           if (isOrchestratorPaneId(ev.pane_id)) {
             routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
           } else {
-            registryRef.current.ingestTerminalData(ev.pane_id, ev.data);
+            registryRef.current.ingestTerminalData(ev.pane_id, ev.data, ev.offset);
           }
         }
         if (ev.type === 'pane-status') {

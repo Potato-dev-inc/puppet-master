@@ -283,27 +283,16 @@ pub fn spawn_pane(
                             // also feeding the headless emulator used by MCP
                             // buffer reads and reattach snapshots.
                             let chunk = buf[..n].to_vec();
-                            let _ = app.emit(
-                                "terminal-data",
-                                TerminalDataEvent {
-                                    pane_id: pane_id.clone(),
-                                    data: chunk,
-                                    offset: Some(stream_total),
-                                },
-                            );
-                            stream_total += n as u64;
-                            stream_pos
-                                .emitted
-                                .store(stream_total, std::sync::atomic::Ordering::SeqCst);
-                            let snapshot = {
-                                let mut parser = screen.lock();
-                                parser.process(&buf[..n]);
-                                // Under the emulator lock: a screen replay reads both together.
-                                stream_pos
-                                    .processed
-                                    .store(stream_total, std::sync::atomic::Ordering::SeqCst);
-                                parser.screen().contents()
-                            };
+                            let snapshot = stream_pos.feed(&screen, &mut stream_total, &buf[..n], |offset| {
+                                let _ = app.emit(
+                                    "terminal-data",
+                                    TerminalDataEvent {
+                                        pane_id: pane_id.clone(),
+                                        data: chunk,
+                                        offset: Some(offset),
+                                    },
+                                );
+                            });
                             *last_output.lock() = Instant::now();
 
                             // Output that leaves every visible cell alone (cursor and

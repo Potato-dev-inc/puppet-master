@@ -137,7 +137,10 @@ export default function PwaApp() {
       streamRef.current?.sendInput(paneId, text, appendNewline) ?? false,
     [],
   );
-  const registry = useBridgePaneRegistry(bridge, socketInput);
+  // Offsets on the live stream show output that never arrived (see PaneStreamManager `onGap`): heal
+  // it with the nudge, which redraws the open agent from the PC's current screen.
+  const streamGapRef = useRef<() => void>(() => {});
+  const registry = useBridgePaneRegistry(bridge, socketInput, () => streamGapRef.current());
   const registryRef = useRef(registry);
   registryRef.current = registry;
   const [linkStats, setLinkStats] = useState<BridgeLinkStats | null>(null);
@@ -211,7 +214,7 @@ export default function PwaApp() {
     const stream = subscribeBridgeEventsHandle(bridgeUrl, (ev) => {
       if (ev.type === 'panes') applyPanes(ev.panes);
       if (ev.type === 'terminal') {
-        registryRef.current.ingestTerminalData(ev.pane_id, ev.data);
+        registryRef.current.ingestTerminalData(ev.pane_id, ev.data, ev.offset);
         const pending = echoPendingRef.current;
         if (pending && pending.paneId === ev.pane_id) {
           echoPendingRef.current = null;
@@ -243,7 +246,7 @@ export default function PwaApp() {
       // Panes are sized to this phone and resized in place: keep the live stream connected.
       if (ev.type === 'pane-resize') {
         // The terminal resizes at this point of the output stream; the state update is for the header.
-        registryRef.current.ingestPaneResize(ev.pane_id, ev.cols, ev.rows);
+        registryRef.current.ingestPaneResize(ev.pane_id, ev.cols, ev.rows, ev.offset);
         registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows, true);
       }
       if (ev.type === 'settings') setSettings(ev.settings);
@@ -321,6 +324,7 @@ export default function PwaApp() {
   const requestNudge = useCallback((skipIfScrolledUp: boolean) => {
     nudgeSchedulerRef.current?.request(skipIfScrolledUp);
   }, []);
+  streamGapRef.current = () => requestNudge(true);
   useEffect(() => () => nudgeSchedulerRef.current?.cancel(), []);
   const tapRef = useRef<{ x: number; y: number; t: number } | null>(null);
   const onAgentPointerDown = useCallback(

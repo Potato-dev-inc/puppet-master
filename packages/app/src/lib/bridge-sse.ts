@@ -15,6 +15,11 @@ export function decodeBase64(text: string): Uint8Array {
   return out;
 }
 
+/** The stream offset of a `terminal` / `pane-resize` event, when the backend numbers its stream. */
+export function streamOffset(value: unknown): { offset?: number } {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? { offset: value } : {};
+}
+
 function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: BridgeEvent) => void): void {
   const parsed = JSON.parse(data) as unknown;
   if (eventName === 'panes') {
@@ -25,9 +30,9 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
     onEvent({ type: 'chat', event: parsed as OrchestratorChatEvent });
   } else if (eventName === 'terminal') {
     // Current servers send `b64`; older builds sent a `data` byte array.
-    const payload = parsed as { pane_id: string; b64?: string; data?: number[] };
+    const payload = parsed as { pane_id: string; b64?: string; data?: number[]; offset?: number };
     const bytes = typeof payload.b64 === 'string' ? decodeBase64(payload.b64) : (payload.data ?? []);
-    onEvent({ type: 'terminal', pane_id: payload.pane_id, data: bytes });
+    onEvent({ type: 'terminal', pane_id: payload.pane_id, data: bytes, ...streamOffset(payload.offset) });
   } else if (eventName === 'terminal-snapshot') {
     const payload = parsed as { pane_id: string; snapshot: string };
     onEvent({ type: 'terminal-snapshot', pane_id: payload.pane_id, snapshot: payload.snapshot });
@@ -46,12 +51,13 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
   } else if (eventName === 'opencode-worker') {
     onEvent({ type: 'opencode-worker', event: parsed as OpenCodeWorkerEvent });
   } else if (eventName === 'pane-resize') {
-    const payload = parsed as { pane_id: string; cols: number; rows: number };
+    const payload = parsed as { pane_id: string; cols: number; rows: number; offset?: number };
     onEvent({
       type: 'pane-resize',
       pane_id: payload.pane_id,
       cols: payload.cols,
       rows: payload.rows,
+      ...streamOffset(payload.offset),
     });
   } else if (eventName === 'settings') {
     onEvent({ type: 'settings', settings: parsed as PublicSettings });

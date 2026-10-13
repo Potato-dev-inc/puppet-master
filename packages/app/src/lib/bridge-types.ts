@@ -293,7 +293,7 @@ export interface BridgeClient {
   readBuffer(paneId: string, lines: number): Promise<string>;
   readRawBuffer(paneId: string, lines: number): Promise<number[]>;
   /** `GET /panes/{id}/screen`: the pane redrawn at its current size, for a viewer to replay. */
-  readScreen(paneId: string): Promise<{ data: Uint8Array; cols: number; rows: number }>;
+  readScreen(paneId: string): Promise<{ data: Uint8Array; cols: number; rows: number; offset?: number }>;
   readSnapshot(paneId: string): Promise<string>;
   listAgentContexts(): Promise<AgentContextProfile[]>;
   readAgentContext(args: { agent_type?: string; pane_id?: string }): Promise<unknown>;
@@ -395,12 +395,14 @@ export type BridgeEvent =
   | { type: 'panes'; panes: PaneInfo[] }
   | { type: 'log'; entry: McpLogEntry }
   | { type: 'chat'; event: OrchestratorChatEvent }
-  | { type: 'terminal'; pane_id: string; data: Uint8Array | number[] }
+  /** `offset`: where the chunk starts in the pane's byte stream (absent from older backends). */
+  | { type: 'terminal'; pane_id: string; data: Uint8Array | number[]; offset?: number }
   | { type: 'terminal-snapshot'; pane_id: string; snapshot: string }
   | { type: 'pane-status'; pane_id: string; status: PaneInfo['status'] }
   | { type: 'pane-preview'; pane_id: string; urls: PreviewUrl[] }
   | { type: 'opencode-worker'; event: OpenCodeWorkerEvent }
-  | { type: 'pane-resize'; pane_id: string; cols: number; rows: number }
+  /** `offset`: the stream position the resize falls after (absent from older backends). */
+  | { type: 'pane-resize'; pane_id: string; cols: number; rows: number; offset?: number }
   /** A pane looks stuck (`signal`) or the warning cleared (`null`). Sent by the loop guard. */
   | { type: 'loop-signal'; pane_id: string; signal: LoopSignalInfo | null }
   | { type: 'settings'; settings: PublicSettings }

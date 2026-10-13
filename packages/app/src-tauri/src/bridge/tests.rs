@@ -777,6 +777,69 @@ fn worktree_refusals_map_to_http_statuses_with_their_context() {
     }
 }
 
+// ---- GET /panes/{id}/screen (phone lossless handoff) -------------------------------------------
+
+mod screen_route {
+    use crate::bridge::routes::panes::registry_route;
+    use crate::pty::PaneRegistry;
+    use base64::Engine as _;
+    use parking_lot::Mutex;
+    use serde_json::json;
+
+    /// Request -> response transcript through the route table, no app handle needed.
+    #[test]
+    fn screen_returns_the_replay_with_the_stream_offset_it_was_taken_at() {
+        let id = "screen-route-pane";
+        let mut registry = PaneRegistry::new();
+        registry.panes.insert(id.into(), PaneRegistry::test_pane_stub(id));
+        let screen = registry.panes.get(id).unwrap().screen.clone();
+        let registry = Mutex::new(registry);
+        let pos = crate::pty::stream_pos::start(id);
+
+        // The PTY reader's step for two chunks (the second ends mid-line).
+        let mut total = 0;
+        pos.feed(&screen, &mut total, b"hello\r\nwor", |offset| assert_eq!(offset, 0));
+        pos.feed(&screen, &mut total, b"ld", |offset| assert_eq!(offset, 10));
+
+        // GET /panes/screen-route-pane/screen
+        let (status, body) = registry_route("GET", &["panes", id, "screen"], &registry).expect("route").expect("200");
+        assert_eq!(status, 200);
+        assert_eq!(body["cols"], 10);
+        assert_eq!(body["rows"], 3);
+        assert_eq!(body["offset"], 12, "offset = bytes the emulator consumed");
+        let replay = base64::engine::general_purpose::STANDARD.decode(body["b64"].as_str().unwrap()).unwrap();
+        let mut viewer = vt100::Parser::new(3, 10, 100);
+        viewer.process(&replay);
+        assert_eq!(viewer.screen().contents(), "hello\nworld");
+
+        // More output moves the offset a later request reports.
+        pos.feed(&screen, &mut total, b"!", |_| {});
+        let (_, body) = registry_route("GET", &["panes", id, "screen"], &registry).unwrap().unwrap();
+        assert_eq!(body["offset"], 13);
+
+        // Unknown pane: 404; other verbs are not this route.
+        let (status, body) = registry_route("GET", &["panes", "nope", "screen"], &registry).unwrap().unwrap_err();
+        assert_eq!(status, 404);
+        assert!(body["error"].is_string(), "{body}");
+        assert!(registry_route("POST", &["panes", id, "screen"], &registry).is_none());
+        assert!(registry_route("GET", &["panes", id, "raw"], &registry).is_none());
+    }
+
+    #[test]
+    fn a_pane_without_a_numbered_stream_answers_without_an_offset() {
+        // Older producers (native OpenCode panes) never start a stream counter: the phone then
+        // falls back to dropping what arrived while the screen loaded, as before.
+        let id = "screen-route-unnumbered";
+        let mut registry = PaneRegistry::new();
+        registry.panes.insert(id.into(), PaneRegistry::test_pane_stub(id));
+        let registry = Mutex::new(registry);
+        let (status, body) = registry_route("GET", &["panes", id, "screen"], &registry).unwrap().unwrap();
+        assert_eq!(status, 200);
+        assert!(body.get("offset").is_none(), "{body}");
+        assert_eq!(body["cols"], json!(10));
+    }
+}
+
 // ---- /toolbelt (Toolbelt) ---------------------------------------------------------------------
 
 mod toolbelt_routes {
