@@ -16,6 +16,7 @@ mod mcp;
 mod opencode_keys;
 mod panes;
 mod standby;
+mod tunnel;
 
 pub use agent_models::*;
 pub use agents::*;
@@ -26,6 +27,7 @@ pub use mcp::*;
 pub use opencode_keys::*;
 pub use panes::*;
 pub use standby::*;
+pub use tunnel::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{

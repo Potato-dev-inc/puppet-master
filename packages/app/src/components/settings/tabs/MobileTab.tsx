@@ -1,6 +1,7 @@
 // Settings > Mobile PWA: input buffer, input box visibility, pairing panel.
 import { parseDevServerPort } from '../../../lib/public-bridge-url';
 import { MobilePairingPanel } from '../../MobilePairingPanel';
+import { TunnelSection } from '../TunnelSection';
 import { FieldInput, SettingBlock, SettingToggle, SettingsSection } from '../settings-ui';
 import type { SettingsTabContext } from './tab-context';
 
@@ -17,6 +18,7 @@ export function MobileTab({ ctx }: { ctx: SettingsTabContext }) {
       <SettingToggle label="Keyboard resizes the agent" description="Off: the agent keeps its size; the keyboard covers the top of the screen (swipe to see it). On: the agent redraws above the keyboard (Claude reprints each time)." checked={settings.mobile_keyboard_resizes_agent ?? false} onChange={(value) => setSettings({ ...settings, mobile_keyboard_resizes_agent: value })} implemented />
       <SettingToggle label="Show mobile input box" description="When disabled, the tap target stays invisible on the phone." checked={settings.mobile_input_visible ?? true} onChange={(value) => setSettings({ ...settings, mobile_input_visible: value })} implemented />
       <SettingToggle label="Require pairing approval" description="Ask for confirmation on desktop before a phone can connect." checked onChange={() => undefined} implemented={false} />
+      <TunnelSection />
       <MobilePairingPanel publicPwaUrl={settings.public_pwa_url ?? ''} devServerPort={parseDevServerPort(settings.dev_server_port)} onPublicPwaUrlChange={(value) => setSettings({ ...settings, public_pwa_url: value.trim() || undefined })} onDevServerPortChange={(port) => setSettings({ ...settings, dev_server_port: port })} />
     </SettingsSection>
   );
