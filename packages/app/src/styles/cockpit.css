@@ -856,10 +856,10 @@
   white-space: nowrap;
 }
 .cockpit .ck-title-input {
-  width: 100%;
-  min-width: 160px;
+  width: 260px;
+  max-width: 40vw;
   padding: 1px 6px;
-  margin: -2px -7px;
+  margin: -2px 2px -2px -7px;
   border: 1px solid var(--sep);
   border-radius: 6px;
   background: var(--fill);
