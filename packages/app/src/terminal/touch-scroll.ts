@@ -111,15 +111,17 @@ export class TouchScrollController {
     const onTouchStart = (event: TouchEvent): void => this.handleTouchStart(event);
     const onTouchMove = (event: TouchEvent): void => this.handleTouchMove(event);
     const onTouchEnd = (event: TouchEvent): void => this.handleTouchEnd(event);
-    container.addEventListener('touchstart', onTouchStart, { passive: true });
-    container.addEventListener('touchmove', onTouchMove, { passive: false });
-    container.addEventListener('touchend', onTouchEnd, { passive: true });
-    container.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    // Capture phase: the input guard stops propagation of the press it handles, and xterm's own
+    // touch scrolling (below us in the tree) must not run as well.
+    container.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    container.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
+    container.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
+    container.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true });
     this.disposers.push(() => {
-      container.removeEventListener('touchstart', onTouchStart);
-      container.removeEventListener('touchmove', onTouchMove);
-      container.removeEventListener('touchend', onTouchEnd);
-      container.removeEventListener('touchcancel', onTouchEnd);
+      container.removeEventListener('touchstart', onTouchStart, { capture: true });
+      container.removeEventListener('touchmove', onTouchMove, { capture: true });
+      container.removeEventListener('touchend', onTouchEnd, { capture: true });
+      container.removeEventListener('touchcancel', onTouchEnd, { capture: true });
     });
 
     const scrollSub = this.terminal.onScroll(() => this.updateBottomButton());
@@ -169,6 +171,8 @@ export class TouchScrollController {
       this.gesture = null;
       return;
     }
+    // One-finger drags are ours: keep them from xterm's own touch scrolling.
+    event.stopPropagation();
     const touch = Array.from(event.touches).find((t) => t.identifier === gesture.id) ?? event.touches[0];
     const dx = touch.clientX - gesture.startX;
     const dy = touch.clientY - gesture.startY;

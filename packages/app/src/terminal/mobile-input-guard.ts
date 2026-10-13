@@ -109,7 +109,12 @@ export class MobileInputGuard implements Disposable {
   private longPressTriggered = false;
   private suppressClick = false;
   private keyboardOpen = false;
-  private hiddenInputFocusedAt = 0;
+  /** Hidden input: a touch is down that will toggle the keyboard on release unless it moves. */
+  private tapPending = false;
+  private tapStartX = 0;
+  private tapStartY = 0;
+  /** Visible input: the press was held long enough; the field is revealed on release. */
+  private longPressReady = false;
   private keyboardHeightCleanup: (() => void) | null = null;
   /** Tallest layout height seen at the current width: the page without a keyboard. */
   private layoutBaseline = { width: 0, height: 0 };
@@ -218,7 +223,8 @@ export class MobileInputGuard implements Disposable {
     this.container.addEventListener('mouseup', this.onContainerMouseUp, { capture: true });
     this.container.addEventListener('touchstart', this.onContainerTouchStart, { capture: true });
     this.container.addEventListener('touchend', this.onContainerTouchEnd, { capture: true });
-    this.container.addEventListener('touchcancel', this.onContainerTouchEnd, { capture: true });
+    this.container.addEventListener('touchmove', this.onContainerTouchMove, { capture: true });
+    this.container.addEventListener('touchcancel', this.onContainerTouchCancel, { capture: true });
     this.container.addEventListener('click', this.onContainerClick, { capture: true });
     this.container.addEventListener('contextmenu', this.onContainerContextMenu, { capture: true });
 
@@ -239,7 +245,8 @@ export class MobileInputGuard implements Disposable {
     this.container.removeEventListener('mouseup', this.onContainerMouseUp, { capture: true });
     this.container.removeEventListener('touchstart', this.onContainerTouchStart, { capture: true });
     this.container.removeEventListener('touchend', this.onContainerTouchEnd, { capture: true });
-    this.container.removeEventListener('touchcancel', this.onContainerTouchEnd, { capture: true });
+    this.container.removeEventListener('touchmove', this.onContainerTouchMove, { capture: true });
+    this.container.removeEventListener('touchcancel', this.onContainerTouchCancel, { capture: true });
     this.container.removeEventListener('click', this.onContainerClick, { capture: true });
     this.container.removeEventListener('contextmenu', this.onContainerContextMenu, { capture: true });
     this.specialToggleButton.removeEventListener('click', this.onSpecialToggleClick);
@@ -275,15 +282,12 @@ export class MobileInputGuard implements Disposable {
   }
 
   /**
-   * The touch turned into a scroll: drop a pending long-press. An open keyboard stays open (the
-   * user may scroll up mid-typing); only a hidden-input focus made by this same touch is undone.
+   * The touch turned into a scroll: the keyboard is not toggled when the finger lifts. An open
+   * keyboard stays open (the user may scroll up mid-typing).
    */
   abandonGesture(): void {
     this.cancelLongPress();
-    if (!this.hiddenInput || Date.now() - this.hiddenInputFocusedAt > 350) return;
-    this.hiddenInputFocusedAt = 0;
-    if (document.activeElement === this.input) this.input.blur();
-    this.disengageInput();
+    this.tapPending = false;
   }
 
   private scheduleScrollToCursor(): void {
@@ -395,6 +399,7 @@ export class MobileInputGuard implements Disposable {
     }
     this.longPressPointerId = null;
     this.longPressTriggered = false;
+    this.longPressReady = false;
   }
 
   private revealInputFromLongPress(): void {
@@ -411,15 +416,51 @@ export class MobileInputGuard implements Disposable {
     this.onBufferChange?.(this.input.value);
   }
 
+  /**
+   * Hidden input, finger (or mouse) down: nothing happens yet. The keyboard is toggled only when a
+   * press is released without moving (`finishHiddenTap`), so a swipe scrolls instead of popping the
+   * keyboard. Called for pointerdown, touchstart and mousedown of the same press (deduped).
+   */
   private captureHiddenInputGesture(event: Event): boolean {
     if (!this.hiddenInput || !this.isLongPressTarget(event.target)) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    this.suppressClick = true;
+    if (!this.tapPending) {
+      this.tapPending = true;
+      const point = eventPoint(event);
+      this.tapStartX = point?.x ?? 0;
+      this.tapStartY = point?.y ?? 0;
+    }
+    return true;
+  }
+
+  private trackTapMove(event: Event): void {
+    if (!this.tapPending) return;
+    const point = eventPoint(event);
+    if (!point) return;
+    if (Math.hypot(point.x - this.tapStartX, point.y - this.tapStartY) > MOBILE_LONG_PRESS_MOVE_THRESHOLD_PX) {
+      this.tapPending = false;
+    }
+  }
+
+  /** Released: a hidden-input press that did not move toggles the keyboard now (inside the gesture). */
+  private finishHiddenTap(event: Event): boolean {
+    if (!this.tapPending) return false;
+    this.tapPending = false;
+    const point = eventPoint(event);
+    if (point && Math.hypot(point.x - this.tapStartX, point.y - this.tapStartY) > MOBILE_LONG_PRESS_MOVE_THRESHOLD_PX) {
+      return false;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.suppressClick = true;
+    this.toggleHiddenInput();
+    return true;
+  }
+
+  private toggleHiddenInput(): void {
     if (this.engaged || document.activeElement === this.input) {
-      if (Date.now() - this.hiddenInputFocusedAt < 350) {
-        event.preventDefault();
-        event.stopPropagation();
-        this.suppressClick = true;
-        return true;
-      }
       // Focused but no keyboard on screen (closed with the system's own key, or never shown):
       // this tap means "type", so focus again inside the gesture, which shows the keyboard.
       const vv = window.visualViewport;
@@ -427,28 +468,16 @@ export class MobileInputGuard implements Disposable {
         this.input.blur();
         this.engageInput();
         this.focus();
-        this.hiddenInputFocusedAt = Date.now();
         this.scheduleScrollToCursor();
-        event.preventDefault();
-        event.stopPropagation();
-        this.suppressClick = true;
-        return true;
+        return;
       }
       this.input.blur();
       this.disengageInput();
-      event.preventDefault();
-      event.stopPropagation();
-      this.suppressClick = true;
-      return true;
+      return;
     }
     this.engageInput();
     this.focus();
-    this.hiddenInputFocusedAt = Date.now();
     this.scheduleScrollToCursor();
-    event.preventDefault();
-    event.stopPropagation();
-    this.suppressClick = true;
-    return true;
   }
 
   private scheduleFlush(): void {
@@ -503,11 +532,13 @@ export class MobileInputGuard implements Disposable {
     this.longPressStartY = event.clientY;
     this.longPressTimer = window.setTimeout(() => {
       this.longPressTimer = null;
-      this.revealInputFromLongPress();
+      // Held long enough: reveal on release, so holding and then swiping still scrolls.
+      this.longPressReady = true;
     }, MOBILE_LONG_PRESS_MS);
   };
 
   private readonly onContainerPointerMove = (event: PointerEvent): void => {
+    this.trackTapMove(event);
     if (this.longPressPointerId !== event.pointerId) return;
 
     if (this.hiddenInput) {
@@ -523,6 +554,10 @@ export class MobileInputGuard implements Disposable {
   };
 
   private readonly onContainerPointerUp = (event: PointerEvent): void => {
+    // A touch press is finished on touchend instead: iOS shows the keyboard for a focus() made
+    // there, and pointerup comes first.
+    const touch = event.pointerType === 'touch';
+    if (!touch) this.finishHiddenTap(event);
     if (this.longPressPointerId !== event.pointerId) return;
 
     if (this.hiddenInput) {
@@ -533,6 +568,11 @@ export class MobileInputGuard implements Disposable {
     if (this.longPressTimer !== null) {
       window.clearTimeout(this.longPressTimer);
       this.longPressTimer = null;
+    }
+
+    if (this.longPressReady && !touch) {
+      this.longPressReady = false;
+      this.revealInputFromLongPress();
     }
 
     if (this.longPressTriggered) {
@@ -550,6 +590,7 @@ export class MobileInputGuard implements Disposable {
   };
 
   private readonly onContainerMouseUp = (event: MouseEvent): void => {
+    if (this.finishHiddenTap(event)) return;
     if (!this.hiddenInput || !this.engaged) return;
     event.preventDefault();
     event.stopPropagation();
@@ -559,10 +600,28 @@ export class MobileInputGuard implements Disposable {
     this.captureHiddenInputGesture(event);
   };
 
+  private readonly onContainerTouchMove = (event: TouchEvent): void => {
+    this.trackTapMove(event);
+  };
+
   private readonly onContainerTouchEnd = (event: TouchEvent): void => {
+    if (this.longPressReady) {
+      this.longPressReady = false;
+      event.preventDefault();
+      event.stopPropagation();
+      this.revealInputFromLongPress();
+      this.longPressTriggered = false;
+      return;
+    }
+    if (this.finishHiddenTap(event)) return;
     if (!this.hiddenInput || !this.engaged) return;
     event.preventDefault();
     event.stopPropagation();
+  };
+
+  private readonly onContainerTouchCancel = (): void => {
+    this.tapPending = false;
+    this.longPressReady = false;
   };
 
   private readonly onContainerClick = (event: MouseEvent): void => {
@@ -573,7 +632,7 @@ export class MobileInputGuard implements Disposable {
   };
 
   private readonly onContainerContextMenu = (event: MouseEvent): void => {
-    if (!this.longPressTriggered && this.longPressTimer === null) return;
+    if (!this.longPressTriggered && !this.longPressReady && this.longPressTimer === null) return;
     event.preventDefault();
     event.stopPropagation();
   };
@@ -680,4 +739,14 @@ export class MobileInputGuard implements Disposable {
       this.emit(control);
     }
   };
+}
+
+/** Where a pointer, mouse or (single) touch event happened. */
+function eventPoint(event: Event): { x: number; y: number } | null {
+  const touches = (event as TouchEvent).changedTouches ?? (event as TouchEvent).touches;
+  if (touches && touches.length > 0) return { x: touches[0].clientX, y: touches[0].clientY };
+  if (typeof (event as MouseEvent).clientX === 'number') {
+    return { x: (event as MouseEvent).clientX, y: (event as MouseEvent).clientY };
+  }
+  return null;
 }

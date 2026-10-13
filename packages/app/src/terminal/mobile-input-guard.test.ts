@@ -11,6 +11,13 @@ import {
 
 const TEST_BUFFER_MS = 25;
 
+/** A phone sends touchend after pointerup; the guard finishes touch presses there. */
+function dispatchTouchEnd(target: HTMLElement): Event {
+  const event = new Event('touchend', { bubbles: true, cancelable: true });
+  target.dispatchEvent(event);
+  return event;
+}
+
 describe('MobileInputGuard', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -86,16 +93,60 @@ describe('MobileInputGuard', () => {
     expect(DEFAULT_MOBILE_BUFFER_MS).toBe(250);
   });
 
-  it('abandonGesture closes the command field that a swipe-to-scroll opened', () => {
-    const { cleanup, container, guard } = createGuard(TEST_BUFFER_MS, false);
+  it('abandonGesture: a press that became a scroll does not open the keyboard on release', () => {
+    const { cleanup, container, guard, input } = createGuard(TEST_BUFFER_MS, false);
+    const focusSpy = vi.spyOn(input, 'focus');
     container.dispatchEvent(
-      new PointerEvent('pointerdown', { pointerId: 1, clientX: 10, clientY: 10, bubbles: true }),
+      new PointerEvent('pointerdown', { pointerId: 1, clientX: 10, clientY: 10, bubbles: true, cancelable: true, pointerType: 'touch' }),
     );
-    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
 
     guard.abandonGesture();
+    container.dispatchEvent(
+      new PointerEvent('pointerup', { pointerId: 1, clientX: 10, clientY: 10, bubbles: true, cancelable: true, pointerType: 'touch' }),
+    );
+    dispatchTouchEnd(container);
 
+    expect(focusSpy).not.toHaveBeenCalled();
     expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(false);
+    cleanup();
+  });
+
+  it('hidden input: a swipe (finger moved) does not open the keyboard', () => {
+    const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false);
+    const focusSpy = vi.spyOn(input, 'focus');
+    container.dispatchEvent(
+      new PointerEvent('pointerdown', { pointerId: 1, clientX: 10, clientY: 10, bubbles: true, cancelable: true, pointerType: 'touch' }),
+    );
+    container.dispatchEvent(
+      new PointerEvent('pointermove', { pointerId: 1, clientX: 10, clientY: 80, bubbles: true, cancelable: true, pointerType: 'touch' }),
+    );
+    container.dispatchEvent(
+      new PointerEvent('pointerup', { pointerId: 1, clientX: 10, clientY: 80, bubbles: true, cancelable: true, pointerType: 'touch' }),
+    );
+    dispatchTouchEnd(container);
+
+    expect(focusSpy).not.toHaveBeenCalled();
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(false);
+    cleanup();
+  });
+
+  it('visible input: holding past the long-press time and then swiping does not focus', () => {
+    const { cleanup, container, input } = createGuard();
+    const focusSpy = vi.spyOn(input, 'focus');
+    container.dispatchEvent(
+      new PointerEvent('pointerdown', { pointerId: 1, clientX: 10, clientY: 10, bubbles: true, cancelable: true, pointerType: 'touch' }),
+    );
+    vi.advanceTimersByTime(MOBILE_LONG_PRESS_MS);
+    expect(focusSpy).not.toHaveBeenCalled();
+    container.dispatchEvent(
+      new PointerEvent('pointermove', { pointerId: 1, clientX: 10, clientY: 80, bubbles: true, cancelable: true, pointerType: 'touch' }),
+    );
+    container.dispatchEvent(
+      new PointerEvent('pointerup', { pointerId: 1, clientX: 10, clientY: 80, bubbles: true, cancelable: true, pointerType: 'touch' }),
+    );
+    dispatchTouchEnd(container);
+
+    expect(focusSpy).not.toHaveBeenCalled();
     cleanup();
   });
 
@@ -302,6 +353,11 @@ describe('MobileInputGuard', () => {
     cleanup();
   });
 
+  function mouseTap(target: HTMLElement, clientX: number, clientY: number): void {
+    target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX, clientY }));
+    target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX, clientY }));
+  }
+
   function dispatchPointerPress(
     container: HTMLElement,
     durationMs: number,
@@ -332,6 +388,7 @@ describe('MobileInputGuard', () => {
         pointerType: 'touch',
       }),
     );
+    dispatchTouchEnd(target);
   }
 
   function dispatchShortTap(container: HTMLElement): void {
@@ -372,7 +429,7 @@ describe('MobileInputGuard', () => {
     cleanup();
   });
 
-  it('focuses hidden input synchronously on pointer down so mobile keyboards can open', () => {
+  it('focuses hidden input when a tap is released (inside the gesture) so mobile keyboards can open', () => {
     const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false);
     const focusSpy = vi.spyOn(input, 'focus');
     const pointerDown = new PointerEvent('pointerdown', {
@@ -388,6 +445,17 @@ describe('MobileInputGuard', () => {
 
     expect(notCancelled).toBe(false);
     expect(pointerDown.defaultPrevented).toBe(true);
+    // Nothing yet while the finger is down: it may still become a scroll.
+    expect(focusSpy).not.toHaveBeenCalled();
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(false);
+
+    container.dispatchEvent(
+      new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: 20, clientY: 20, pointerId: 3, pointerType: 'touch' }),
+    );
+    expect(focusSpy).not.toHaveBeenCalled();
+    const touchEnd = dispatchTouchEnd(container);
+
+    expect(touchEnd.defaultPrevented).toBe(true);
     expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
     expect(focusSpy).toHaveBeenCalled();
     expect(focusSpy.mock.calls[0]?.[0]).toEqual({ preventScroll: true });
@@ -426,14 +494,7 @@ describe('MobileInputGuard', () => {
     const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false);
     const blurSpy = vi.spyOn(input, 'blur');
 
-    container.dispatchEvent(
-      new MouseEvent('mousedown', {
-        bubbles: true,
-        cancelable: true,
-        clientX: 20,
-        clientY: 20,
-      }),
-    );
+    mouseTap(container, 20, 20);
     expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
 
     vi.advanceTimersByTime(400);
@@ -444,6 +505,7 @@ describe('MobileInputGuard', () => {
       clientY: 30,
     });
     const notCancelled = container.dispatchEvent(secondTap);
+    container.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }));
 
     expect(notCancelled).toBe(false);
     expect(secondTap.defaultPrevented).toBe(true);
@@ -476,14 +538,7 @@ describe('MobileInputGuard', () => {
     const { cleanup, container, input, scrollToCursor } = createGuard(TEST_BUFFER_MS, false);
     const blurSpy = vi.spyOn(input, 'blur');
 
-    container.dispatchEvent(
-      new MouseEvent('mousedown', {
-        bubbles: true,
-        cancelable: true,
-        clientX: 20,
-        clientY: 20,
-      }),
-    );
+    mouseTap(container, 20, 20);
     expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
     expect(container.style.getPropertyValue('--pm-mobile-keyboard-panel-height')).toBe('300px');
 
@@ -507,7 +562,7 @@ describe('MobileInputGuard', () => {
 
     const { cleanup, container } = createGuard(TEST_BUFFER_MS, false, false);
     expect(container.classList.contains(MOBILE_KEYBOARD_OUTSIDE_CLASS)).toBe(true);
-    container.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+    mouseTap(container, 20, 20);
     expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
     expect(container.style.getPropertyValue('--pm-mobile-keyboard-panel-height')).toBe('');
     cleanup();
@@ -530,7 +585,7 @@ describe('MobileInputGuard', () => {
 
     const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false, false);
     const blurSpy = vi.spyOn(input, 'blur');
-    container.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+    mouseTap(container, 20, 20);
     expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
 
     layout = 450; // keyboard up
@@ -569,6 +624,7 @@ describe('MobileInputGuard', () => {
         pointerType: 'touch',
       }),
     );
+    dispatchTouchEnd(terminalChild);
 
     expect(notCancelled).toBe(false);
     expect(pointerDown.defaultPrevented).toBe(true);
