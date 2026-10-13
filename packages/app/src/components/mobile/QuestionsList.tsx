@@ -45,6 +45,21 @@ export function QuestionsList({
   revision?: number;
 }) {
   const { questions, refresh } = useQuestionPolling(bridge, bridgeReady, revision);
+  return <QuestionsView bridge={bridge} questions={questions} refresh={refresh} labels={labels} />;
+}
+
+/** The cards for questions someone else fetched (PwaApp also counts them in the waiting number). */
+export function QuestionsView({
+  bridge,
+  questions,
+  refresh,
+  labels,
+}: {
+  bridge: BridgeClient;
+  questions: Question[];
+  refresh: () => void;
+  labels: Map<string, string>;
+}) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   // Re-render twice a minute so the "stops waiting in N min" caption keeps counting down.

@@ -113,6 +113,11 @@
 .cockpit .ck-pad {
   padding: 16px 20px;
 }
+.cockpit .ck-caption-count {
+  margin-left: 6px;
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+}
 .cockpit .ck-caption {
   padding: 8px 10px 4px;
   font-size: 11px;

@@ -10,6 +10,7 @@ import { AwayDigest } from './components/cockpit/AwayDigest';
 import { Inbox } from './components/cockpit/Inbox';
 import { PaneView } from './components/cockpit/PaneView';
 import { Palette } from './components/cockpit/Palette';
+import { NeedsYouContext, useNeedsYouSource } from './hooks/useNeedsYou';
 import { UndoSheet } from './components/cockpit/UndoSheet';
 import { panesSharingFolder } from './components/cockpit/history-model';
 import { ProjectMemory } from './components/cockpit/ProjectMemory';
@@ -77,9 +78,11 @@ export default function CockpitApp() {
   }, []);
 
   const { onClickCapture } = useNudgeOnAction();
+  const needsYou = useNeedsYouSource(c, loop.signals);
 
   return (
     <LoopGuardContext.Provider value={loop}>
+    <NeedsYouContext.Provider value={needsYou}>
     <LastTurnContext.Provider value={away.lastTurn}>
     <div className="cockpit" data-theme={c.theme} onClickCapture={onClickCapture}>
       <Sidebar
@@ -164,6 +167,7 @@ export default function CockpitApp() {
       </div>
     </div>
     </LastTurnContext.Provider>
+    </NeedsYouContext.Provider>
     </LoopGuardContext.Provider>
   );
 }

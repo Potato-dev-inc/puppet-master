@@ -29,7 +29,6 @@ import type { LoopSignalInfo } from './lib/bridge-types';
 import './styles/phone.css';
 import type { PreviewUrl } from './lib/pane-preview';
 import { AgentsOverview } from './components/mobile/AgentsOverview';
-import { QuestionsList } from './components/mobile/QuestionsList';
 import { usePushPresence } from './hooks/usePushPresence';
 import { MenuSheet, NewAgentSheet, type TypingEchoStats } from './components/mobile/MobileSheet';
 import { SetupScreen } from './components/pwa/SetupScreen';
@@ -518,7 +517,7 @@ export default function PwaApp() {
               onOpen={setActive}
               onNew={openNewAgentSheet}
               stuck={stuck}
-              header={<QuestionsList bridge={bridge} bridgeReady={bridgeReady} labels={labels} revision={questionsRev} />}
+              questionsRevision={questionsRev}
             />
           )}
           {activePane && (
