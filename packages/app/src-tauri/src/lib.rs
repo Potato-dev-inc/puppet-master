@@ -25,6 +25,7 @@ pub mod operations;
 #[cfg(test)]
 mod operations_contract_tests;
 mod pane_prompt;
+mod push;
 mod app_windows;
 mod cockpit;
 mod ui_mode;
@@ -266,6 +267,8 @@ pub fn run() {
                     None
                 }
             };
+
+            push::init(app.state::<AppState>().registry.clone());
 
             #[cfg(debug_assertions)]
             let _ = &bridge_url;

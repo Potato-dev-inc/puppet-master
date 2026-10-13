@@ -88,6 +88,7 @@ mod tests {
 /// Forward pane status changes to mobile clients.
 pub fn push_pane_status_sse(pane_id: &str, status: &str) {
     observe_operation_pane_status(pane_id, status);
+    crate::push::notify_pane_status(pane_id, status);
     let payload = json!({ "pane_id": pane_id, "status": status });
     if let Ok(json) = serde_json::to_string(&payload) {
         push_sse(format!("event: pane-status\ndata: {json}\n\n"));
@@ -104,6 +105,7 @@ pub fn push_pane_resize_sse(pane_id: &str, cols: u16, rows: u16) {
 }
 
 pub(super) fn push_operation_sse(snapshot: &crate::operations::OperationSnapshot) {
+    crate::push::notify_operation(snapshot);
     if let Ok(payload) = serde_json::to_string(snapshot) {
         push_sse(format!("event: operation\ndata: {payload}\n\n"));
     }

@@ -43,6 +43,7 @@ base64 = "0.22"
 tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
 anyhow = "1"
 ureq = { version = "2", features = ["json"] }
+web-push-native = "0.4"
 toml = "0.8"
 serde_path_to_error = "0.1"
 glob = "0.3"

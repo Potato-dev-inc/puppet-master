@@ -15,6 +15,8 @@ pub fn is_public_bridge_path(segments: &[&str], method: &str) -> bool {
     let segments = normalize_bridge_segments(segments);
     (segments == ["health"] && method == "GET")
         || (segments == ["pair"] && method == "POST")
+        // An Allow/Deny tap from a notification: authorised by its own one-shot token, not a bearer.
+        || (segments == ["push", "act"] && method == "POST")
         || (segments.len() == 3
             && segments[0] == "pair"
             && segments[1] == "session"
