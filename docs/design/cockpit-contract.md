@@ -97,8 +97,11 @@ Deviations and additions, none of which change the table above:
   `/agents/answer`; `pane_prompt` / `pty://prompt` choices are the non-broad ones. Errors read `CODE: message`.
 - `PanePrompt.choices[].label` is the choice id prettified (`allow_once` -> `Allow once`).
 - `pane://spawn-stage`: `claiming` (pane_id null) -> warm: `attached`+`ready` (warm true); cold: `spawning` ->
-  `attached` -> `ready` once the pane first reads idle/waiting_input; `failed` on error, on the agent exiting
-  early, or after 60 s still starting (the pane is left running). The tray emits the same events.
+  `attached` -> `ready` on the pane's first output or 1.5 s after attach, whichever is first. `ready` never waits
+  for idle (Claude/Codex stay "running" while starting). `failed` only when the spawn errored or the pane vanished
+  from the registry right after attaching; a pane that is alive and listed is never reported failed. The tray emits
+  the same events. `new_pane` returns the pane id as soon as the pane is created (the readiness watch is a
+  separate thread).
 - Orchestration mode creates no warm pop-out windows at all; claims also destroy any hidden one.
 - The `detach` bridge route in orchestration shows the pane in the cockpit (no focus).
 - `pty://prompt` is emitted from the PTY reader on screen changes; `null` prompt is also sent when entering

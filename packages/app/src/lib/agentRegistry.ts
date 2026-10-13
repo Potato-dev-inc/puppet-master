@@ -269,6 +269,27 @@ export function launchMenuEntries(listing: AgentRegistryListing): LaunchEntry[] 
   return entries;
 }
 
+/**
+ * "New pane" entries exactly as the tray lists them: every registered agent in registry order
+ * (built-in `code` agents included). Visible agents are enabled; headless-only ones are listed
+ * disabled; agents with neither mode are left out. `launchMenuEntries` is a curated subset for the
+ * legacy launch menus and must not be used where the full tray list is expected.
+ */
+export function paneMenuEntries(listing: AgentRegistryListing): LaunchEntry[] {
+  const entries: LaunchEntry[] = [];
+  for (const agent of listing.agents) {
+    if (!agent.modes.visible && !agent.modes.headless) continue;
+    const entry: LaunchEntry = { type: agent.id, label: agent.label || agent.id, icon: agent.icon };
+    if (agent.experimental) entry.experimental = true;
+    if (!agent.modes.visible) {
+      entry.disabled = true;
+      entry.disabledReason = HEADLESS_ONLY_REASON;
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+
 /** Entries that can actually open a pane (for places that must not offer headless-only agents). */
 export function openableLaunchEntries(entries: LaunchEntry[]): LaunchEntry[] {
   return entries.filter((entry) => !entry.disabled);

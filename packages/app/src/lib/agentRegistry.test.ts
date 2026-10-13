@@ -9,6 +9,7 @@ import {
   fallbackListing,
   isTuiAgentId,
   launchMenuEntries,
+  paneMenuEntries,
   openableLaunchEntries,
   agentReadyMessage,
   HEADLESS_ONLY_REASON,
@@ -111,6 +112,19 @@ describe('spawn menu entries (launchMenuEntries)', () => {
     expect(HEADLESS_ONLY_REASON).toMatch(/Headless only/);
     expect(entries[4].experimental).toBe(true);
     expect(openableLaunchEntries(entries).map((e) => e.type)).toEqual(['opencode_native', 'powershell', 'kilo', 'mycoder']);
+  });
+
+  it('paneMenuEntries lists every built-in code agent like the tray, headless-only ones disabled', () => {
+    const base = fallbackListing();
+    expect(base.agents.every((a) => a.source === 'code')).toBe(true);
+    const kilo = { ...base.agents[0], id: 'kilo', label: 'Kilo Code', source: 'declarative' };
+    const kiro = { ...base.agents[0], id: 'kiro', label: 'Kiro', source: 'user', modes: { headless: true, visible: false } };
+    const hidden = { ...base.agents[0], id: 'ghost', label: 'Ghost', source: 'user', modes: { headless: false, visible: false } };
+    const entries = paneMenuEntries({ ...base, agents: [...base.agents, kilo, kiro, hidden], source: 'registry' });
+    expect(entries.map((e) => e.type)).toEqual([...base.agents.map((a) => a.id), 'kilo', 'kiro']);
+    expect(entries.find((e) => e.type === 'claude')).toMatchObject({ label: expect.any(String) });
+    expect(entries.find((e) => e.type === 'claude')?.disabled).toBeUndefined();
+    expect(entries.find((e) => e.type === 'kiro')).toMatchObject({ disabled: true, disabledReason: HEADLESS_ONLY_REASON });
   });
 
   it('agentReadyMessage says where the approved agent shows up, never asks for a restart', () => {

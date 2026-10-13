@@ -129,6 +129,28 @@ pub fn spawn_stage_payload(agent_id: &str, pane_id: Option<&str>, stage: &str, w
     v
 }
 
+/// How long after attach a cold pane is called ready even if it printed nothing yet.
+pub const READY_GRACE_MS: u64 = 1500;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReadyDecision {
+    Wait,
+    Ready,
+    Failed,
+}
+
+/// Readiness of a freshly attached cold pane. A pane that is still listed is never "failed": it is
+/// ready on first output or after the grace period, regardless of its status.
+pub fn ready_decision(alive: bool, has_output: bool, elapsed_ms: u64) -> ReadyDecision {
+    if !alive {
+        ReadyDecision::Failed
+    } else if has_output || elapsed_ms >= READY_GRACE_MS {
+        ReadyDecision::Ready
+    } else {
+        ReadyDecision::Wait
+    }
+}
+
 pub fn build_model(agents: &[Value], panes: &[PaneRow], ready: &[String], mode: UiMode) -> Vec<Item> {
     vec![
         Item::Submenu { label: "New pane".into(), items: new_pane_items(agents, ready) },
@@ -217,32 +239,26 @@ mod runtime {
         let _ = app.emit("pane://spawn-stage", spawn_stage_payload(agent, pane_id, stage, warm, message));
     }
 
-    /// Emit `ready` once the pane first reads idle or waiting_input (a cold agent is booting until
-    /// then); `failed` if it errors or never gets there. Runs on its own thread.
+    /// Emit `ready` once the attached pane has produced output or `READY_GRACE_MS` has passed,
+    /// whichever is first. Never waits for idle (agents stay "running" while they start). `failed`
+    /// only if the pane vanished from the registry. Runs on its own thread.
     fn watch_until_ready(app: &AppHandle, agent: &str, pane_id: &str) {
         let (app, agent, pane_id) = (app.clone(), agent.to_string(), pane_id.to_string());
         std::thread::spawn(move || {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-            while std::time::Instant::now() < deadline {
-                let status = app
-                    .state::<AppState>()
-                    .registry
-                    .lock()
-                    .list()
-                    .into_iter()
-                    .find(|p| p.id == pane_id)
-                    .map(|p| p.status);
-                match status.as_deref() {
-                    Some("idle") | Some("waiting_input") => {
-                        return emit_stage(&app, &agent, Some(&pane_id), "ready", false, None)
+            let started = std::time::Instant::now();
+            loop {
+                let registry = app.state::<AppState>().registry.clone();
+                let alive = registry.lock().list().iter().any(|p| p.id == pane_id);
+                let has_output = alive
+                    && crate::pty::registry_read_snapshot(&registry, &pane_id).map(|t| !t.trim().is_empty()).unwrap_or(false);
+                match ready_decision(alive, has_output, started.elapsed().as_millis() as u64) {
+                    ReadyDecision::Wait => std::thread::sleep(std::time::Duration::from_millis(50)),
+                    ReadyDecision::Ready => return emit_stage(&app, &agent, Some(&pane_id), "ready", false, None),
+                    ReadyDecision::Failed => {
+                        return emit_stage(&app, &agent, Some(&pane_id), "failed", false, Some("the agent exited right after it started"))
                     }
-                    Some("error") | None => {
-                        return emit_stage(&app, &agent, Some(&pane_id), "failed", false, Some("the agent exited before it was ready"))
-                    }
-                    _ => std::thread::sleep(std::time::Duration::from_millis(150)),
                 }
             }
-            emit_stage(&app, &agent, Some(&pane_id), "failed", false, Some("still starting after 60s"));
         });
     }
 
@@ -472,6 +488,15 @@ mod tests {
         let model = build_model(&[], &[], &[], UiMode::Individual);
         let Item::Submenu { items, .. } = &model[4] else { panic!("mode submenu") };
         assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn a_listed_pane_is_never_failed_and_readiness_ignores_status() {
+        assert_eq!(ready_decision(true, false, 0), ReadyDecision::Wait);
+        assert_eq!(ready_decision(true, true, 10), ReadyDecision::Ready);
+        assert_eq!(ready_decision(true, false, READY_GRACE_MS), ReadyDecision::Ready);
+        assert_eq!(ready_decision(true, false, 600_000), ReadyDecision::Ready);
+        assert_eq!(ready_decision(false, true, 10), ReadyDecision::Failed);
     }
 
     #[test]

@@ -3,7 +3,7 @@
 // except "status entered at" timestamps, which are measured from what this window observed.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePaneRegistry, type PaneRegistryApi } from './usePaneRegistry';
-import { launchMenuEntries, useAgentRegistry, agentLabel, type LaunchEntry } from '../lib/agentRegistry';
+import { paneMenuEntries, useAgentRegistry, agentLabel, type LaunchEntry } from '../lib/agentRegistry';
 import { cockpitApi, type PanePrompt, type SpawnStageEvent, type UiMode } from '../lib/cockpit-api';
 import { applyTheme, loadSettings, saveSettings, type AppTheme } from '../lib/settings';
 import { tauri } from '../lib/tauri';
@@ -56,7 +56,7 @@ export interface CockpitApi {
 export function useCockpit(): CockpitApi {
   const registry = usePaneRegistry();
   const listing = useAgentRegistry();
-  const launchEntries = useMemo(() => launchMenuEntries(listing), [listing]);
+  const launchEntries = useMemo(() => paneMenuEntries(listing), [listing]);
   const { paneList, panes, initialReady } = registry;
 
   const [mode, setModeState] = useState<UiMode>('orchestration');
