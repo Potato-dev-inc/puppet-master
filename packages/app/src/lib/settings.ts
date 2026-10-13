@@ -8,7 +8,7 @@ import {
   type LlmProvider,
   type Settings,
 } from '@puppet-master/shared';
-import { clampMobileInputDelayMs, toPublicSettings } from './bridge-settings';
+import { clampCheckpointsKeep, clampMobileInputDelayMs, toPublicSettings } from './bridge-settings';
 import {
   parseDevServerPort,
   publicOriginFromBridgeUrl,
@@ -80,6 +80,8 @@ const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   ui_mode: 'orchestration',
   developer_use_rust_mcp: false,
+  checkpoints_enabled: true,
+  checkpoints_keep: 50,
 };
 
 function readLegacySidebarWidth(): number | undefined {
@@ -103,6 +105,8 @@ function mergeLoadedSettings(raw: Settings | null | undefined): Settings {
     sidebar_width: clampSidebarWidth(merged.sidebar_width ?? legacySidebar ?? 360),
     theme: merged.theme ?? 'dark',
     developer_use_rust_mcp: merged.developer_use_rust_mcp ?? false,
+    checkpoints_enabled: merged.checkpoints_enabled ?? true,
+    checkpoints_keep: clampCheckpointsKeep(merged.checkpoints_keep),
     public_pwa_url:
       merged.public_pwa_url?.trim() ||
       (legacyPublic ? publicOriginFromBridgeUrl(legacyPublic) : undefined),

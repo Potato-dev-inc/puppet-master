@@ -56,6 +56,8 @@ export function SettingsPanel({
     theme: 'dark',
     ui_mode: 'orchestration',
     developer_use_rust_mcp: false,
+    checkpoints_enabled: true,
+    checkpoints_keep: 50,
   });
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [draftCustom, setDraftCustom] = useState<LlmModel>(EMPTY_CUSTOM);

@@ -6,9 +6,10 @@ import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
 import { IconClose, IconCopy, IconMore, IconReflow, IconStop } from './Icons';
 import { formatElapsed, promptSummary, receiptRows, spinnerStatus, stateText } from './model';
+import { History } from './History';
 import { SegTabs } from './SegTabs';
 
-type Tab = 'terminal' | 'transcript' | 'receipt';
+type Tab = 'terminal' | 'transcript' | 'receipt' | 'history';
 
 /** Run info + transcript for the Transcript and Receipt tabs. `null` = the pane has no run. */
 function useRunData(paneId: string, active: boolean, status: string) {
@@ -222,6 +223,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             { id: 'terminal', label: 'Terminal' },
             { id: 'transcript', label: 'Transcript' },
             { id: 'receipt', label: 'Receipt' },
+            { id: 'history', label: 'History' },
           ]}
         />
       </div>
@@ -262,6 +264,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             )}
           </div>
         )}
+        {tab === 'history' && <History paneId={paneId} status={pane.status} now={c.now} notify={c.notify} />}
         {tab === 'receipt' && (
           <div className="ck-scroll ck-fade-in" key="receipt">
             {run.error ? (

@@ -96,6 +96,10 @@ export const SettingsSchema = z.object({
   ui_mode: z.enum(['orchestration', 'individual']).default('orchestration'),
   /** Developer option: install MCP configs to launch the bundled Rust binary instead of npm. */
   developer_use_rust_mcp: z.boolean().default(false),
+  /** Save the project's files at each agent turn so a turn can be undone (Rust: checkpoints). */
+  checkpoints_enabled: z.boolean().default(true),
+  /** Checkpoints kept per pane before the oldest are pruned. */
+  checkpoints_keep: z.number().int().min(5).max(500).default(50),
   /** Optional path to the librarian project indexer script (default scripts/project-indexer.py). */
   librarian_indexer_path: z.string().optional(),
   /** Default OpenCode provider for opencode_native API prompts (write_terminal_input). */

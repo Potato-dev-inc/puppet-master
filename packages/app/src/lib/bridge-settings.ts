@@ -7,6 +7,11 @@ export function clampMobileInputDelayMs(value: unknown): number {
   return Math.min(1000, Math.max(50, rounded));
 }
 
+export function clampCheckpointsKeep(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 50;
+  return Math.min(500, Math.max(5, Math.round(value)));
+}
+
 /** Settings fields exposed to the mobile PWA over the HTTP bridge (no API keys). */
 export type PublicSettings = Pick<
   Settings,
@@ -20,6 +25,8 @@ export type PublicSettings = Pick<
   | 'mobile_keyboard_resizes_agent'
   | 'developer_use_rust_mcp'
   | 'librarian_indexer_path'
+  | 'checkpoints_enabled'
+  | 'checkpoints_keep'
 >;
 
 export function toPublicSettings(settings: Settings): PublicSettings {
@@ -34,6 +41,8 @@ export function toPublicSettings(settings: Settings): PublicSettings {
     mobile_keyboard_resizes_agent: settings.mobile_keyboard_resizes_agent ?? false,
     developer_use_rust_mcp: settings.developer_use_rust_mcp ?? false,
     librarian_indexer_path: settings.librarian_indexer_path?.trim() || undefined,
+    checkpoints_enabled: settings.checkpoints_enabled ?? true,
+    checkpoints_keep: clampCheckpointsKeep(settings.checkpoints_keep),
   };
 }
 
@@ -48,4 +57,6 @@ export const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
   mobile_keyboard_resizes_agent: false,
   developer_use_rust_mcp: false,
   librarian_indexer_path: undefined,
+  checkpoints_enabled: true,
+  checkpoints_keep: 50,
 };

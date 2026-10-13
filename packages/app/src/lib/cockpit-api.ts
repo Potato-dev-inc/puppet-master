@@ -37,6 +37,49 @@ export interface SpawnStageEvent {
   message?: string;
 }
 
+export interface Checkpoint {
+  id: string;
+  commit: string;
+  paneId: string;
+  turn: number;
+  kind: 'before' | 'after' | 'answer' | 'undo' | string;
+  label: string;
+  note: string;
+  atMs: number;
+  files: number;
+  added: number;
+  deleted: number;
+}
+
+export interface CheckpointList {
+  state: 'ok' | 'off' | 'no_git';
+  message: string;
+  /** Newest first. */
+  items: Checkpoint[];
+}
+
+export interface FileChange {
+  path: string;
+  status: 'A' | 'M' | 'D' | string;
+  added: number;
+  deleted: number;
+  binary: boolean;
+}
+
+export interface RestoreReport {
+  safetyId: string | null;
+  written: number;
+  removed: number;
+  failed: string[];
+}
+
+export interface CheckpointsApi {
+  checkpointsList: (paneId: string) => Promise<CheckpointList>;
+  checkpointDiff: (paneId: string, id: string) => Promise<FileChange[]>;
+  checkpointRestore: (paneId: string, id: string) => Promise<RestoreReport>;
+  checkpointUndoLast: (paneId: string) => Promise<RestoreReport>;
+}
+
 const noop: UnlistenFn = () => {};
 
 export const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -62,6 +105,10 @@ export const cockpitApi = {
   newPane: (agentId: string) => call<string>('new_pane', { agentId }),
   paneRunInfo: (paneId: string) => call<PaneRunInfo | null>('pane_run_info', { paneId }),
   paneTranscript: (paneId: string) => call<PaneTranscript | null>('pane_transcript', { paneId }),
+  checkpointsList: (paneId: string) => call<CheckpointList>('checkpoints_list', { paneId }),
+  checkpointDiff: (paneId: string, id: string) => call<FileChange[]>('checkpoint_diff', { paneId, id }),
+  checkpointRestore: (paneId: string, id: string) => call<RestoreReport>('checkpoint_restore', { paneId, id }),
+  checkpointUndoLast: (paneId: string) => call<RestoreReport>('checkpoint_undo_last', { paneId }),
 
   onModeChanged: (cb: (e: { mode: UiMode }) => void) => on('ui://mode-changed', cb),
   onSelect: (cb: (e: { pane_id: string }) => void) => on('cockpit://select', cb),

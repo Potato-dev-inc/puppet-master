@@ -846,3 +846,94 @@
   -webkit-mask-image: none;
   mask-image: none;
 }
+
+/* ---------- History (checkpoints) ---------- */
+.cockpit .ck-hist-note {
+  margin: 0;
+  padding: 12px 20px 8px;
+  color: var(--label-3);
+  font-size: 12px;
+}
+.cockpit .ck-hist {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 24px;
+}
+.cockpit .ck-hist-item {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-hist-item:first-child {
+  border-top: 0;
+}
+.cockpit .ck-hist-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+.cockpit .ck-hist-row:hover {
+  background: var(--fill);
+}
+.cockpit .ck-hist-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  height: 36px;
+  text-align: left;
+  border-radius: 6px;
+}
+.cockpit .ck-hist-time,
+.cockpit .ck-hist-delta,
+.cockpit .ck-hist-status {
+  color: var(--label-3);
+  font: 11px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cockpit .ck-hist-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.cockpit .ck-hist-title {
+  font-weight: 500;
+}
+.cockpit .ck-hist-item[data-kind='undo'] .ck-hist-title {
+  color: var(--label-2);
+  font-weight: 400;
+}
+.cockpit .ck-hist-sub {
+  color: var(--label-3);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-hist-files {
+  padding: 0 8px 10px 96px;
+}
+.cockpit .ck-hist-files ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cockpit .ck-hist-files li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 2px 0;
+}
+.cockpit .ck-hist-path {
+  font: 12px var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

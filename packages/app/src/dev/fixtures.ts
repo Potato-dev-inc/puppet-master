@@ -156,3 +156,38 @@ export function standbyStatus() {
     supported: [{ agent_type: 'claude', visible: true, headless: false, experimental: false }],
   };
 }
+
+const ck = (id: string, turn: number, kind: string, label: string, ago: number, files: number, added: number, deleted: number, note = '') => ({
+  id,
+  commit: `c0ffee${id}`,
+  paneId: PANE_CLAUDE,
+  turn,
+  kind,
+  label,
+  note,
+  atMs: now - ago,
+  files,
+  added,
+  deleted,
+});
+
+/** Newest first, as `checkpoints_list` returns it. */
+export const EXAMPLE_CHECKPOINTS = {
+  state: 'ok',
+  message: '',
+  items: [
+    ck('6', 3, 'answer', 'Before answering a prompt (turn 3)', 90_000, 0, 0, 0),
+    ck('5', 3, 'before', 'Before turn 3', 5 * 60_000, 4, 86, 12, 'Add a settings page for notifications'),
+    ck('4', 2, 'undo', 'Before undo', 24 * 60_000, 2, 9, 31),
+    ck('3', 2, 'after', 'After turn 2', 31 * 60_000, 3, 48, 7),
+    ck('2', 2, 'before', 'Before turn 2', 52 * 60_000, 1, 3, 3, 'Fix the failing login test'),
+    ck('1', 1, 'before', 'Before turn 1', 2 * 3_600_000, 12, 410, 0, 'Scaffold the app'),
+  ],
+};
+
+export const EXAMPLE_FILE_CHANGES = [
+  { path: 'src/pages/Settings.tsx', status: 'A', added: 64, deleted: 0, binary: false },
+  { path: 'src/App.tsx', status: 'M', added: 14, deleted: 2, binary: false },
+  { path: 'src/routes.ts', status: 'M', added: 6, deleted: 1, binary: false },
+  { path: 'public/bell.png', status: 'A', added: 0, deleted: 0, binary: true },
+];
