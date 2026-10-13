@@ -12,7 +12,7 @@ mod native;
 pub(crate) mod pane_close;
 pub(crate) mod pane_api;
 pub(crate) mod persist;
-mod quick;
+pub(crate) mod quick;
 mod recovery;
 mod routes;
 mod runtime;

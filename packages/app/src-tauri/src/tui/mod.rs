@@ -4,9 +4,11 @@
 //! on an agent-type string. It asks `profile_for(agent_type)` and calls a `TuiProfile` method, so a
 //! fix for one TUI stays inside that TUI's folder. See `README.md` in this folder for how to add one.
 
+pub mod activity;
 mod profile;
 mod types;
 
+pub use activity::{Activity, ActivityKind};
 pub use profile::*;
 pub use types::*;
 
@@ -68,6 +70,7 @@ fn overlay_definition(descriptor: &mut Descriptor) {
         descriptor.label = meta.label.clone();
         descriptor.icon = Some(meta.icon.clone());
         descriptor.install_hint = meta.install_hint.clone();
+        descriptor.login_hint = meta.login_hint.clone();
         descriptor.modes.visible = meta.has_tui;
     }
     descriptor.definition = Some(serde_json::json!({

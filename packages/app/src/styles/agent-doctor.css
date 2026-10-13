@@ -1,0 +1,89 @@
+/* Agent doctor ("Set up agents"). Uses the cockpit monochrome tokens only. */
+.cockpit .ck-doctor {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 40px 28px 56px;
+  height: 100%;
+  overflow-y: auto;
+}
+.cockpit .ck-doctor-head .ck-sub {
+  max-width: 56ch;
+}
+.cockpit .ck-doctor-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.cockpit .ck-doctor-list {
+  margin-top: 22px;
+}
+.cockpit .ck-doctor-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 4px;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-doctor-row:last-child {
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-doctor-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cockpit .ck-doctor-state {
+  font-size: 11px;
+  color: var(--label-2);
+}
+.cockpit .ck-doctor-row[data-state='ready'] .ck-doctor-state,
+.cockpit .ck-doctor-row[data-state='error'] .ck-doctor-state,
+.cockpit .ck-doctor-row[data-state='needs_login'] .ck-doctor-state {
+  color: var(--label);
+}
+.cockpit .ck-doctor-version {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-doctor-reason,
+.cockpit .ck-doctor-hint {
+  margin: 3px 0 0;
+  color: var(--label-2);
+}
+.cockpit .ck-doctor-cmd {
+  display: block;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+  user-select: all;
+}
+.cockpit .ck-doctor-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.cockpit .ck-doctor-error {
+  color: var(--label);
+}
+.cockpit .ck-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+@media (max-width: 640px) {
+  .cockpit .ck-doctor-row {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+  .cockpit .ck-doctor-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}

@@ -36,6 +36,22 @@ pub trait TuiProfile: Send + Sync {
         true
     }
 
+    /// Command that prints the CLI's version, for the agent doctor. `None` when there is nothing
+    /// to run (not installed, or no CLI).
+    fn version_command(&self) -> Option<VersionCommand> {
+        None
+    }
+
+    /// One plain sentence or command that installs the CLI, shown by the agent doctor.
+    fn install_hint(&self) -> Option<String> {
+        None
+    }
+
+    /// How the user signs in once the CLI is installed, shown by the agent doctor.
+    fn login_hint(&self) -> Option<String> {
+        None
+    }
+
     // ---- visible pane spawn -------------------------------------------------------------
 
     /// Program, arguments and cwd for an interactive PTY pane. `None` (the default) keeps the
@@ -169,6 +185,15 @@ pub trait TuiProfile: Send + Sync {
     /// A screen with no sign of work that holds still this long is a finished turn.
     fn quiet_idle_after(&self) -> std::time::Duration {
         self.idle_after()
+    }
+
+    /// One plain sentence for what the agent is doing right now ("Running npm test", "Waiting:
+    /// allow `npm test`?", "Idle"). `visible_tail` is the ANSI-stripped screen tail and `status` the
+    /// pane's classified status. The default combines status, the last `is_tool_activity_line` row
+    /// and the parsed prompt (`activity::default_activity`); a profile overrides it only to read
+    /// richer phrases off its own screen. `None` shows no activity line.
+    fn activity(&self, visible_tail: &str, status: PaneStatus) -> Option<Activity> {
+        activity::default_activity(self, visible_tail, status)
     }
 
     /// Classify the last visible lines when this TUI has screens the generic prompt heuristic

@@ -217,3 +217,27 @@ fn only_claude_reprints_on_resize_among_the_code_profiles() {
         assert_eq!(crate::tui::profile_for(id).reprints_on_resize(), expected, "{id}");
     }
 }
+
+#[test]
+fn install_and_login_hints_come_from_the_binary_table() {
+    let text = KILO.replace(
+        "install_hint = \"npm install -g @kilocode/cli\"",
+        "install_hint = \"npm install -g @kilocode/cli\"\nlogin_hint = \"  Open Kilo and type /connect  \"",
+    );
+    let k = profile(&text);
+    assert_eq!(k.install_hint().as_deref(), Some("npm install -g @kilocode/cli"));
+    assert_eq!(k.login_hint().as_deref(), Some("Open Kilo and type /connect"));
+    // no login_hint in the file: None, not an empty string
+    assert_eq!(profile(KILO).login_hint(), None);
+}
+
+#[test]
+fn version_command_uses_the_declared_version_args() {
+    let there = KILO
+        .replace("names = [\"kilo\", \"kilocode\"]", "names = [\"cmd\", \"sh\"]")
+        .replace("version_args = [\"--version\"]", "version_args = [\"-v\", \"--x\"]");
+    let command = profile(&there).version_command().expect("resolves");
+    assert_eq!(command.args, vec!["-v".to_string(), "--x".to_string()]);
+    let missing = KILO.replace("names = [\"kilo\", \"kilocode\"]", "names = [\"definitely_not_installed_xyz\"]");
+    assert!(profile(&missing).version_command().is_none());
+}

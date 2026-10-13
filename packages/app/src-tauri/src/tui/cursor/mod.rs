@@ -20,7 +20,7 @@ pub use launch::parse_default_model;
 
 use super::{
     Features, HeadlessLaunch, Kind, LaunchSpec, Reply, RunFacts, RunOptionSupport, StandbyScreen,
-    StandbySupport, TuiProfile, Warning,
+    StandbySupport, TuiProfile, VersionCommand, Warning,
 };
 use crate::pty::status::PaneStatus;
 use serde_json::Value;
@@ -81,6 +81,25 @@ impl TuiProfile for CursorAgent {
 
     fn is_installed(&self) -> bool {
         launch::is_installed()
+    }
+
+    fn version_command(&self) -> Option<VersionCommand> {
+        let cli = binary::installed()?;
+        let (program, args) = binary::visible_launch(&cli, &["--version".to_string()]);
+        Some(VersionCommand { program, args })
+    }
+
+    fn install_hint(&self) -> Option<String> {
+        Some(if cfg!(windows) {
+            "irm 'https://cursor.com/install?win32=true' | iex"
+        } else {
+            "curl https://cursor.com/install -fsS | bash"
+        }
+        .into())
+    }
+
+    fn login_hint(&self) -> Option<String> {
+        Some("Run: agent login".into())
     }
 
     fn headless_command(&self, launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {

@@ -113,3 +113,7 @@ sees the difference) and register through `loader::reload`.
 - `agent_contexts.rs` display labels/strengths per agent.
 - `opencode_native` branches in `bridge.rs`, `agent_runs/*` and `pty/registry.rs`: that is a
   protocol backend, not a screen-scraped TUI, and lives with the OpenCode client.
+
+## Agent doctor and activity hooks
+
+Optional `TuiProfile` methods: `version_command`, `install_hint`, `login_hint` (agent doctor, `agent_health/`) and `activity` (plain-language activity line, default in `activity.rs`). TOML: `binary.login_hint`, `[tui] activity_regex`. See `docs/features/agent-doctor-and-activity.md`.

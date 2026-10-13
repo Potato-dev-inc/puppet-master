@@ -29,6 +29,21 @@ impl TuiProfile for Codex {
         super::program_on_path("codex")
     }
 
+    fn version_command(&self) -> Option<super::VersionCommand> {
+        Some(super::VersionCommand {
+            program: super::executable("codex").ok()?,
+            args: vec!["--version".into()],
+        })
+    }
+
+    fn install_hint(&self) -> Option<String> {
+        Some("npm i -g @openai/codex".into())
+    }
+
+    fn login_hint(&self) -> Option<String> {
+        Some("Run: codex login".into())
+    }
+
     fn headless_command(&self, launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
         headless::command(launch)
     }

@@ -48,6 +48,7 @@ pub(crate) fn terminal_payload(pane_id: &str, data: &[u8]) -> Option<String> {
 
 /// Forward live PTY bytes to mobile xterm.js clients.
 pub fn push_terminal_sse(pane_id: &str, data: &[u8]) {
+    crate::pane_activity::note_output(pane_id);
     if let Some(payload) = terminal_payload(pane_id, data) {
         push_sse(payload);
     }
@@ -87,11 +88,23 @@ mod tests {
 
 /// Forward pane status changes to mobile clients.
 pub fn push_pane_status_sse(pane_id: &str, status: &str) {
+    crate::pane_activity::note_output(pane_id);
     observe_operation_pane_status(pane_id, status);
     let payload = json!({ "pane_id": pane_id, "status": status });
     if let Ok(json) = serde_json::to_string(&payload) {
         push_sse(format!("event: pane-status\ndata: {json}\n\n"));
         crate::pane_wait_notify::bump_waiters();
+    }
+}
+
+/// Forward a pane's plain-language activity phrase (`pane_activity`) to mobile clients.
+pub fn push_pane_activity_sse(pane_id: &str, activity: &crate::tui::Activity) {
+    let payload = json!({ "pane_id": pane_id, "activity": activity });
+    if let Ok(json) = serde_json::to_string(&payload) {
+        push_sse(format!("event: pane-activity
+data: {json}
+
+"));
     }
 }
 

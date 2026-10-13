@@ -112,6 +112,9 @@ pub struct BinaryTable {
     pub version_args: Vec<String>,
     #[serde(default)]
     pub install_hint: String,
+    /// How the user signs in once installed; plain text shown by the agent doctor.
+    #[serde(default)]
+    pub login_hint: String,
 }
 
 fn default_windows_extensions() -> Vec<String> {
@@ -315,6 +318,10 @@ pub struct TuiTable {
     pub busy: Option<BusyTable>,
     pub chrome: Option<LineRegexTable>,
     pub tool_activity: Option<LineRegexTable>,
+    /// Activity line patterns: matched against visible lines, newest first. The phrase is the
+    /// named group `text`, else group 1, else the whole match.
+    #[serde(default)]
+    pub activity_regex: Vec<String>,
     pub menu: Option<MenuTable>,
     pub dialogs: Option<DialogsTable>,
     pub tidy: Option<TidyTable>,

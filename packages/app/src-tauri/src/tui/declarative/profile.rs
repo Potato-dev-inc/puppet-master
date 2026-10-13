@@ -17,7 +17,7 @@ use crate::tui::types::{
     SpawnRequest, StandbySupport,
 };
 use crate::pty::status::PaneStatus;
-use crate::tui::types::{Reply, StandbyScreen};
+use crate::tui::types::{Reply, StandbyScreen, VersionCommand};
 use crate::tui::{generic, AgentId, TuiProfile};
 use serde_json::Value;
 
@@ -348,6 +348,23 @@ impl TuiProfile for DeclarativeProfile {
         })
     }
 
+    fn version_command(&self) -> Option<VersionCommand> {
+        let here = std::env::current_dir().unwrap_or_default();
+        let program = resolve_binary(&self.def.binary, &here).ok()?;
+        Some(VersionCommand {
+            program: program.to_string_lossy().into_owned(),
+            args: self.def.binary.version_args.clone(),
+        })
+    }
+
+    fn install_hint(&self) -> Option<String> {
+        Some(self.def.binary.install_hint.trim().to_string()).filter(|h| !h.is_empty())
+    }
+
+    fn login_hint(&self) -> Option<String> {
+        Some(self.def.binary.login_hint.trim().to_string()).filter(|h| !h.is_empty())
+    }
+
     fn is_installed(&self) -> bool {
         let here = std::env::current_dir().unwrap_or_default();
         resolve_binary(&self.def.binary, &here).is_ok()
@@ -510,6 +527,16 @@ impl TuiProfile for DeclarativeProfile {
 
     fn is_chrome_line(&self, lower: &str) -> bool {
         self.engine.as_ref().is_some_and(|engine| engine.is_chrome_line(lower))
+    }
+
+    fn activity(&self, visible_tail: &str, status: PaneStatus) -> Option<crate::tui::Activity> {
+        use crate::tui::{activity, ActivityKind};
+        if status == PaneStatus::Running {
+            if let Some(phrase) = self.engine.as_ref().and_then(|e| e.activity_phrase(visible_tail)) {
+                return Some(crate::tui::Activity::new(ActivityKind::Working, activity::humanize_tool_line(&phrase)));
+            }
+        }
+        activity::default_activity(self, visible_tail, status)
     }
 
     fn is_tool_activity_line(&self, lower: &str) -> bool {

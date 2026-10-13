@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { cockpitApi, type PaneRunInfo, type PaneTranscript } from '../../lib/cockpit-api';
 import { projectName } from '../../lib/mobile-agent-tabs';
+import { activityText } from '../../lib/pane-activity';
+import '../../styles/pane-activity.css';
 import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
 import { IconClose, IconCopy, IconMore, IconReflow, IconStop } from './Icons';
@@ -110,6 +112,12 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const name = c.names.get(paneId) ?? info.agent_type;
   const stateLine =
     pane.status === 'waiting_input' && since ? `Needs you · ${formatElapsed(c.now - since)}` : stateText(pane.status);
+  const doing = activityText(pane.status, c.activities?.[paneId]);
+  const headLine = doing
+    ? pane.status === 'waiting_input' && since
+      ? `${doing} · ${formatElapsed(c.now - since)}`
+      : doing
+    : stateLine;
 
   return (
     <div className="ck-pane">
@@ -120,7 +128,9 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         </div>
         <div className="ck-pane-state">
           <DotSpinner status={spinnerStatus(pane.status)} />
-          <span>{stateLine}</span>
+          <span className="ck-pane-doing" title={stateLine}>
+            {headLine}
+          </span>
         </div>
         <span className="ck-grid-size">
           {info.cols}×{info.rows}

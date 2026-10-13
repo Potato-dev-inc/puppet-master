@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { DotSpinner } from './DotSpinner';
-import { IconLayers, IconMoon, IconPlus, IconSettings, IconStop, IconSun } from './Icons';
+import { IconLayers, IconMoon, IconPlus, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
 
 interface Item {
@@ -15,7 +15,15 @@ interface Item {
   run: () => void;
 }
 
-export function Palette({ c, onClose }: { c: CockpitApi; onClose: () => void }) {
+export function Palette({
+  c,
+  onClose,
+  onOpenDoctor,
+}: {
+  c: CockpitApi;
+  onClose: () => void;
+  onOpenDoctor?: () => void;
+}) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -57,6 +65,16 @@ export function Palette({ c, onClose }: { c: CockpitApi; onClose: () => void }) 
         run: () => void c.interrupt(sel),
       });
     }
+    if (onOpenDoctor) {
+      out.push({
+        id: 'act:doctor',
+        group: 'Actions',
+        title: 'Set up agents',
+        desc: 'Check which agents work and fix the ones that do not',
+        icon: <IconTerminal />,
+        run: onOpenDoctor,
+      });
+    }
     out.push(
       {
         id: 'act:settings',
@@ -82,7 +100,7 @@ export function Palette({ c, onClose }: { c: CockpitApi; onClose: () => void }) 
       },
     );
     return out;
-  }, [c]);
+  }, [c, onOpenDoctor]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.group}`, query)),

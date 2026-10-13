@@ -19,6 +19,7 @@ windows_extensions = ["exe", "cmd"]
 shim_native_globs = ["node_modules/@kilocode/cli/node_modules/@kilocode/cli-windows-x64*/bin/kilo.exe"]
 version_args = ["--version"]
 install_hint = "npm install -g @kilocode/cli"
+login_hint = "Open Kilo and type /connect"
 
 [features]
 dispatchable = true

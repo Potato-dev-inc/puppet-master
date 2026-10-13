@@ -164,6 +164,9 @@ fn check_binary(def: &Definition, e: &mut Errors) {
     if binary.install_hint.chars().count() > 200 {
         e.add("AGENT_DEF_TOO_LARGE", "binary.install_hint", "install_hint is limited to 200 characters");
     }
+    if binary.login_hint.chars().count() > 200 {
+        e.add("AGENT_DEF_TOO_LARGE", "binary.login_hint", "login_hint is limited to 200 characters");
+    }
     check_argv("binary.version_args", &binary.version_args, &[], e);
     if binary.allow_cmd_shim && def.headless.as_ref().is_none_or(|h| h.stdin.is_none()) {
         e.add("AGENT_DEF_INCONSISTENT", "binary.allow_cmd_shim", "a .cmd shim is only allowed when the task is delivered on stdin ([headless.stdin])");
@@ -373,6 +376,7 @@ fn check_tui(def: &Definition, e: &mut Errors, regexes: &mut Regexes) {
     if let Some(t) = &tui.tool_activity {
         many("tui.tool_activity.line_regex", &t.line_regex);
     }
+    many("tui.activity_regex", &tui.activity_regex);
     if let Some(t) = &tui.menu {
         many("tui.menu.regex", &t.regex);
     }
