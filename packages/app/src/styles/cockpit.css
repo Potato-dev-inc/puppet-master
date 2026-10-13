@@ -204,6 +204,8 @@
   border-right: 1px solid var(--sep);
 }
 .cockpit .ck-side-head {
+  position: relative;
+  z-index: 20;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -378,6 +380,11 @@
   border: 1px solid var(--sep);
   box-shadow: var(--float-shadow);
   animation: ck-pop 160ms var(--ease);
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .cockpit .ck-menu {
+    background: var(--bg-raised);
+  }
 }
 .cockpit .ck-menu--left {
   right: auto;
