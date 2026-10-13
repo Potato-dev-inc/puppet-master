@@ -262,6 +262,8 @@ export interface BridgeClient {
     cols?: number;
     rows?: number;
     pane_id?: string;
+    /** A phone spawning the pane: it holds the pane's size (`cols`x`rows`) from the start. */
+    viewer?: string;
   }): Promise<{ pane_id: string }>;
   killPane(paneId: string): Promise<void>;
   /**

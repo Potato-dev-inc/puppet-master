@@ -127,11 +127,22 @@ fn spawn(cx: &Ctx) -> RouteResult {
         ))
     })?;
     let agent_type = req.agent_type.clone();
-    let placement = serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
+    let extra = serde_json::from_slice::<serde_json::Value>(body).ok();
+    let placement = extra
+        .as_ref()
         .and_then(|v| v.get("placement").and_then(|p| p.as_str().map(str::to_string)));
+    // A phone spawning a pane (`viewer`) holds its size from the start: claimed before the pane
+    // window opens, so the window's own fit is remembered instead of resizing the new agent once
+    // (each resize makes Claude Code reprint).
+    let viewer = extra
+        .as_ref()
+        .and_then(|v| v.get("viewer").and_then(|p| p.as_str().map(str::to_string)));
+    let phone_size = req.cols.zip(req.rows);
     let pane_id =
         registry_spawn_pane(registry, app, req).map_err(|err| (500, json!({ "error": err })))?;
+    if let (Some(viewer), Some((cols, rows))) = (viewer.as_deref(), phone_size) {
+        let _ = crate::pty::viewer_size::claim(registry, &pane_id, viewer, cols, rows);
+    }
     register_spawned_pane(session, &agent_type, &pane_id).map_err(operation_http_error)?;
     present_spawned_pane(registry, app, &pane_id, placement.as_deref());
     Ok((

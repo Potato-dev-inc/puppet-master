@@ -5,7 +5,7 @@ import type { BridgeClient } from '../lib/bridge';
  * This page's id for the bridge: several phones typing into one pane each hold their own lease and
  * the pane takes the smallest of their sizes, instead of them taking turns resizing it.
  */
-const VIEWER_ID = `v-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+export const VIEWER_ID = `v-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 /** Renew well inside the bridge's 15 s lease (`pty::viewer_size::LEASE_TTL_MS`). */
 const RENEW_MS = 5000;

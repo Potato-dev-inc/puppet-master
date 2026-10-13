@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentType, PaneInfo } from '@puppet-master/shared';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
 import type { TerminalTransport } from './hooks/useTerminalSession';
-import { usePaneViewportLease } from './hooks/usePaneViewportLease';
+import { usePaneViewportLease, VIEWER_ID } from './hooks/usePaneViewportLease';
 import { useVisualViewportSync } from './hooks/useVisualViewport';
 import { makeBridgeClient, type BridgeClient } from './lib/bridge';
 import { subscribeBridgeEventsHandle, type BridgeEventsHandle, type BridgeLinkStats } from './lib/bridge-sse';
@@ -61,6 +61,21 @@ function medianOf(values: number[]): number | null {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+const LS_LAST_FIT_GRID = 'pm.mobile.lastFitGrid';
+
+/** The last grid that fit this phone's terminal area, so a spawn right after a reload is phone-sized. */
+function readLastFitGrid(): { cols: number; rows: number } | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LS_LAST_FIT_GRID) ?? 'null') as { cols?: unknown; rows?: unknown } | null;
+    if (parsed && typeof parsed.cols === 'number' && typeof parsed.rows === 'number' && parsed.cols > 0 && parsed.rows > 0) {
+      return { cols: parsed.cols, rows: parsed.rows };
+    }
+  } catch {
+    /* private mode or bad value */
+  }
+  return null;
+}
+
 function readActiveTab(): string {
   try {
     return localStorage.getItem(LS_ACTIVE_TAB) || ALL_TAB;
@@ -92,7 +107,7 @@ export default function PwaApp() {
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
   const [fitGrid, setFitGrid] = useState<{ cols: number; rows: number } | null>(null);
   /** Last grid measured on this phone: a pane spawned from here is created at this size. */
-  const lastFitGridRef = useRef<{ cols: number; rows: number } | null>(null);
+  const lastFitGridRef = useRef<{ cols: number; rows: number } | null>(readLastFitGrid());
   /** A pane this phone spawned: it takes the phone's size as soon as its fitting grid is measured. */
   const claimOnOpenRef = useRef<string | null>(null);
   /** Live event stream handle; input prefers its socket while it is open. */
@@ -232,7 +247,13 @@ export default function PwaApp() {
   useEffect(() => setFitGrid(null), [active]);
   const claimPaneSize = usePaneViewportLease(bridge, activePane ? active : null, fitGrid);
   useEffect(() => {
-    if (fitGrid) lastFitGridRef.current = fitGrid;
+    if (!fitGrid) return;
+    lastFitGridRef.current = fitGrid;
+    try {
+      localStorage.setItem(LS_LAST_FIT_GRID, JSON.stringify(fitGrid));
+    } catch {
+      /* private mode */
+    }
   }, [fitGrid]);
   // A pane spawned from the phone is the phone's: claim it once, when its fitting grid arrives.
   useEffect(() => {
@@ -269,8 +290,13 @@ export default function PwaApp() {
       setSpawning(true);
       setSpawnError(null);
       try {
-        const grid = lastFitGridRef.current ?? { cols: 120, rows: 30 };
-        const { pane_id } = await bridge.spawnPane({ agent_type: agentType, cols: grid.cols, rows: grid.rows });
+        // Known phone grid (kept across reloads): spawn at it and hold it from the start.
+        const grid = lastFitGridRef.current;
+        const { pane_id } = await bridge.spawnPane(
+          grid
+            ? { agent_type: agentType, cols: grid.cols, rows: grid.rows, viewer: VIEWER_ID }
+            : { agent_type: agentType, cols: 120, rows: 30 },
+        );
         claimOnOpenRef.current = pane_id;
         applyPanes(await bridge.listPanes());
         setActive(pane_id);
