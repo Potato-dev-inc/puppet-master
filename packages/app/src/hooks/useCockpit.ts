@@ -45,7 +45,7 @@ export interface CockpitApi {
   notify: (text: string) => void;
   setMode: (mode: UiMode) => Promise<void>;
   toggleTheme: () => Promise<void>;
-  newAgent: (agentId: string) => Promise<void>;
+  newAgent: (agentId: string, accountId?: string) => Promise<void>;
   answer: (paneId: string, promptId: string, choiceId: string, label: string) => Promise<void>;
   interrupt: (paneId: string) => Promise<void>;
   closePane: (paneId: string) => Promise<void>;
@@ -299,11 +299,11 @@ export function useCockpit(): CockpitApi {
   }, [theme, notify]);
 
   const newAgent = useCallback(
-    async (agentId: string) => {
+    async (agentId: string, accountId?: string) => {
       setSelectedId(null);
       setSpawn({ agentId, paneId: null, log: [], failed: null });
       try {
-        const paneId = await cockpitApi.newPane(agentId);
+        const paneId = await cockpitApi.newPane(agentId, accountId);
         setSpawn((s) => (s && s.agentId === agentId ? { ...s, paneId } : s));
         // The pane may already be attached (ready event raced the command): select it once listed.
         if (spawnRef.current === null) setSelectedId(paneId);

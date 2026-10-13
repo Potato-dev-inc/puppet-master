@@ -59,7 +59,7 @@ export const cockpitApi = {
   answerPanePrompt: (paneId: string, promptId: string, choice: string) =>
     call<void>('answer_pane_prompt', { paneId, promptId, choice }),
   interruptPane: (paneId: string) => call<void>('interrupt_pane', { paneId }),
-  newPane: (agentId: string) => call<string>('new_pane', { agentId }),
+  newPane: (agentId: string, accountId?: string) => call<string>('new_pane', { agentId, accountId }),
   paneRunInfo: (paneId: string) => call<PaneRunInfo | null>('pane_run_info', { paneId }),
   paneTranscript: (paneId: string) => call<PaneTranscript | null>('pane_transcript', { paneId }),
 

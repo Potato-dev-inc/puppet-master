@@ -117,6 +117,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         <div className="ck-pane-id">
           <h1 className="ck-title ck-title--sm">{name}</h1>
           <span className="ck-sub-inline">{projectName(info.cwd)}</span>
+          {info.account_label && <span className="ck-sub-inline" data-testid="pane-account">{info.account_label}</span>}
         </div>
         <div className="ck-pane-state">
           <DotSpinner status={spinnerStatus(pane.status)} />
