@@ -208,7 +208,7 @@ mod project_tests {
 }
 
 pub fn preload_key(agent_type: &str, default_project: &str) -> Option<PoolKey> {
-    key_for_run(agent_type, default_project, None, false, false, false)
+    key_for_run(agent_type, default_project, None, false, false, false, None)
 }
 
 /// A run of `key` started: remember it so the next one can find a warm worker.
@@ -305,13 +305,14 @@ pub fn key_for_run(
     read_only: bool,
     allow_shell: bool,
     headless: bool,
+    account: Option<&str>,
 ) -> Option<PoolKey> {
     if model.is_some_and(|model| !model.trim().is_empty()) {
         return None;
     }
     let support = crate::tui::profile_for(agent_type).standby_support();
     let supported = if headless { support.headless } else { support.visible };
-    supported.then(|| PoolKey::new(agent_type, project, model, read_only, allow_shell, headless))
+    supported.then(|| PoolKey::new(agent_type, project, model, read_only, allow_shell, headless).with_account(account))
 }
 
 /// Placeholder host for `status()` before `init`.

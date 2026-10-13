@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { NewAgentMenu } from './NewAgentMenu';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { activityText } from '../../lib/pane-activity';
@@ -101,25 +102,12 @@ export function Sidebar({
           </button>
           {menuOpen && (
             <div className="ck-menu ck-menu--left" role="menu">
-              <div className="ck-menu-cap">New agent</div>
-              {c.launchEntries.map((e) => (
-                <button
-                  key={e.type}
-                  type="button"
-                  role="menuitem"
-                  className="ck-menu-item"
-                  disabled={e.disabled}
-                  title={e.disabledReason}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    void c.newAgent(e.type);
-                  }}
-                >
-                  <span>{e.label}</span>
-                  {!e.disabled && c.readyAgents.has(e.type) && <span className="ck-menu-hint">ready</span>}
-                  {e.disabled && <span className="ck-menu-hint">headless</span>}
-                </button>
-              ))}
+              <NewAgentMenu
+                entries={c.launchEntries}
+                readyAgents={c.readyAgents}
+                onStart={(agent, account) => void c.newAgent(agent, account)}
+                onClose={() => setMenuOpen(false)}
+              />
             </div>
           )}
         </div>

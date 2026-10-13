@@ -105,6 +105,48 @@ pub struct LaunchSpec {
     pub cwd: PathBuf,
     /// True only where the CLI exposes a documented read-only execution policy.
     pub read_only_enforced: bool,
+    /// Environment variables set for the child, on top of the inherited environment (the TOML
+    /// `[env] set` table, for definitions). Every launch path applies them.
+    pub env: Vec<(String, String)>,
+    /// Variables removed from the child's environment (the TOML `[env] unset` list).
+    pub env_remove: Vec<String>,
+}
+
+impl LaunchSpec {
+    /// A launch with no environment changes.
+    pub fn new(program: impl Into<String>, args: Vec<String>, cwd: PathBuf, read_only_enforced: bool) -> Self {
+        Self { program: program.into(), args, cwd, read_only_enforced, env: Vec::new(), env_remove: Vec::new() }
+    }
+
+    /// Apply `env` then `env_remove` to a std `Command` (headless runs and standby processes).
+    pub fn apply_to_command(&self, command: &mut std::process::Command) {
+        for (key, value) in &self.env {
+            command.env(key, value);
+        }
+        for key in &self.env_remove {
+            command.env_remove(key);
+        }
+    }
+}
+
+/// Environment a launch gets on top of the profile's own: what pointing an agent at a user
+/// account adds (`accounts::launch_env`). Applied after `LaunchSpec::env`, so it wins.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LaunchEnv {
+    pub set: Vec<(String, String)>,
+    pub remove: Vec<String>,
+}
+
+/// How an agent is pointed at a different account: declared by the profile, never matched by
+/// agent name in generic code. Only declare one where the env var is documented by the agent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountScheme {
+    /// The env var naming the directory that holds the agent's config and login (`CODEX_HOME`).
+    pub home_env: String,
+    /// Further variables every account of this agent gets.
+    pub extra_env: Vec<(String, String)>,
+    /// Plain-language steps for the one-time login in an account's home.
+    pub login_hint: String,
 }
 
 /// A TUI that draws a fixed-width sidebar on the right once the pane is wider than `min_cols`

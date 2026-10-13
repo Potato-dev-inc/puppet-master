@@ -182,3 +182,15 @@ export function standbyStatus() {
     supported: [{ agent_type: 'claude', visible: true, headless: false, experimental: false }],
   };
 }
+
+/** Two Claude accounts and one Codex account, for the accounts scenarios. */
+export const EXAMPLE_ACCOUNTS = [
+  { id: 'acc_work', agent_id: 'claude', label: 'Work (Max)', home: 'C:\Users\dev\AppData\Roaming\com.puppetmaster.app\accounts\acc_work' },
+  { id: 'acc_home', agent_id: 'claude', label: 'Personal', home: 'C:\Users\dev\AppData\Roaming\com.puppetmaster.app\accounts\acc_home' },
+  { id: 'acc_codex', agent_id: 'codex', label: 'Team seat', home: 'C:\Users\dev\AppData\Roaming\com.puppetmaster.app\accounts\acc_codex' },
+];
+
+export const ACCOUNT_AGENTS = [
+  { agent_id: 'claude', home_env: 'CLAUDE_CONFIG_DIR', login_hint: 'Run `claude` and log in, then close it.' },
+  { agent_id: 'codex', home_env: 'CODEX_HOME', login_hint: 'Run `codex` and sign in, then close it.' },
+];

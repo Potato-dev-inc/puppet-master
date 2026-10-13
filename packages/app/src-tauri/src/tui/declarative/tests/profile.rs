@@ -241,3 +241,62 @@ fn version_command_uses_the_declared_version_args() {
     let missing = KILO.replace("names = [\"kilo\", \"kilocode\"]", "names = [\"definitely_not_installed_xyz\"]");
     assert!(profile(&missing).version_command().is_none());
 }
+
+fn kilo_with_env_and_accounts() -> DeclarativeProfile {
+    let text = KILO.replace(
+        "[headless]\n",
+        "[env]\nset = { PM_T = \"from-toml\" }\nunset = [\"PM_DROP\"]\n\n[accounts]\nhome_env = \"KILO_HOME\"\nextra_env = { KILO_X = \"1\" }\nlogin_hint = \"Run kilo and log in.\"\n\n[headless]\n",
+    );
+    profile(&text)
+}
+
+/// The `[env]` table reaches every launch the profile builds. Before the env channel it was parsed
+/// and fingerprinted but dropped here, so the child never saw it.
+#[test]
+fn toml_env_is_carried_by_the_headless_and_pane_launch_specs() {
+    let p = kilo_with_env_and_accounts();
+    let headless = p.headless_spec(&HeadlessLaunch::new("C:/proj", "do it"), PathBuf::from("kilo-bin")).unwrap();
+    assert_eq!(headless.env, vec![("PM_T".to_string(), "from-toml".to_string())]);
+    assert_eq!(headless.env_remove, vec!["PM_DROP".to_string()]);
+    let tui = p.definition().tui.clone().expect("kilo has a [tui] table");
+    let pane = p.tui_spec(
+        &tui,
+        &crate::tui::types::SpawnRequest { cwd: ".", extra_args: &[], cols: 80, rows: 24, read_only: false },
+        PathBuf::from("kilo-bin"),
+    );
+    assert_eq!(pane.env, headless.env);
+    assert_eq!(pane.env_remove, headless.env_remove);
+    // a definition without [env] adds nothing
+    let plain = kilo().headless_spec(&HeadlessLaunch::new("p", "t"), PathBuf::from("kilo-bin")).unwrap();
+    assert!(plain.env.is_empty() && plain.env_remove.is_empty());
+}
+
+#[test]
+fn accounts_table_becomes_the_account_scheme() {
+    let scheme = kilo_with_env_and_accounts().account_scheme().expect("declared");
+    assert_eq!(scheme.home_env, "KILO_HOME");
+    assert_eq!(scheme.extra_env, vec![("KILO_X".to_string(), "1".to_string())]);
+    assert_eq!(scheme.login_hint, "Run kilo and log in.");
+    assert!(kilo().account_scheme().is_none(), "no [accounts] table, no accounts");
+}
+
+#[test]
+fn accounts_table_is_validated_and_fingerprinted() {
+    use crate::tui::declarative::{fingerprint, validate, Source, ValidationContext};
+    let ctx = ValidationContext { source: Source::User, code_ids: &["claude", "codex", "shell"], raw_len: 1000 };
+    let bad = KILO.replace("[headless]\n", "[accounts]\nhome_env = \"LD_PRELOAD\"\n\n[headless]\n");
+    let def = parse_definition(&bad).unwrap();
+    let errors = validate(&def, &ctx);
+    assert!(errors.iter().any(|e| e.code == "AGENT_DEF_DENIED_ENV" && e.path == "accounts.home_env"), "{errors:?}");
+    let worse = KILO.replace("[headless]\n", "[accounts]\nhome_env = \"A B\"\n\n[headless]\n");
+    let def = parse_definition(&worse).unwrap();
+    assert!(validate(&def, &ctx)
+        .iter()
+        .any(|e| e.path == "accounts.home_env"));
+    // a changed [accounts] changes the fingerprint (it changes what the agent is launched with)
+    let a = parse_definition(&KILO.replace("[headless]\n", "[accounts]\nhome_env = \"A_HOME\"\n\n[headless]\n")).unwrap();
+    let b = parse_definition(&KILO.replace("[headless]\n", "[accounts]\nhome_env = \"B_HOME\"\n\n[headless]\n")).unwrap();
+    let file = std::path::Path::new("kilo.toml");
+    let src = Source::User;
+    assert_ne!(fingerprint::fingerprint(&a, src, None, file), fingerprint::fingerprint(&b, src, None, file));
+}

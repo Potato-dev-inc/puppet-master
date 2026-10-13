@@ -44,6 +44,8 @@ pub struct Definition {
     pub run_options: RunOptionsTable,
     #[serde(default)]
     pub env: EnvTable,
+    /// How this agent is pointed at a different account (`[accounts]`); absent = not offered.
+    pub accounts: Option<AccountsTable>,
     pub headless: Option<HeadlessTable>,
     pub tui: Option<TuiTable>,
     #[serde(default)]
@@ -186,6 +188,17 @@ pub struct EnvTable {
     pub set: BTreeMap<String, String>,
     #[serde(default)]
     pub unset: Vec<String>,
+}
+
+/// `[accounts]`: the env var that names the directory holding this agent's config and login.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountsTable {
+    pub home_env: String,
+    #[serde(default)]
+    pub extra_env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub login_hint: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

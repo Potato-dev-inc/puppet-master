@@ -233,6 +233,7 @@ fn assign_pane(
     // one (the worker there cannot write).
     let eligible = |pane: &&crate::pty::PaneInfo| {
         read_only_pane_matches(agent_type, operation.read_only, &pane.id)
+            && pane.account.as_deref() == operation.worker.account.as_deref()
             && !panes_used_by_runs.contains(&pane.id)
             && (operation
                 .owner_session_id
@@ -280,6 +281,15 @@ fn assign_pane(
                     Vec::new()
                 },
             });
+            return Err(error);
+        }
+        if operation.worker.account.is_some() && pane.account != operation.worker.account {
+            let mut error = crate::operations::OperationError::new(
+                "ACCOUNT_MISMATCH",
+                "requested pane runs under a different account",
+                false,
+            );
+            error.context = json!({"pane_id": pane.id, "pane_account": pane.account});
             return Err(error);
         }
         let pane_cwd = std::path::PathBuf::from(&pane.cwd);
@@ -350,6 +360,7 @@ fn assign_pane(
                 extra_args: None,
                 pane_id: None,
                 read_only: operation.read_only,
+                account: operation.worker.account.clone(),
             },
             Duration::from_secs(45),
         )?;
@@ -407,6 +418,7 @@ fn standby_key(operation: &OperationSnapshot, agent_type: &str) -> Option<crate:
         operation.read_only,
         operation.worker.allow_shell,
         false,
+        operation.worker.account.as_deref(),
     )
 }
 

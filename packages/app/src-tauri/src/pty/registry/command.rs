@@ -4,7 +4,12 @@ use super::*;
 
 /// Build a CommandBuilder for the given agent, using the given cwd.
 /// On Windows, `.cmd`/`.bat` shims must run under `cmd.exe /C`.
-pub(super) fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) -> CommandBuilder {
+pub(super) fn build_command(
+    agent: AgentType,
+    cwd: &str,
+    extra_args: &[String],
+    env: &crate::tui::LaunchEnv,
+) -> CommandBuilder {
     if matches!(agent, AgentType::Cursor | AgentType::CursorAgent) {
         if let Some(cli) = crate::tui::cursor::binary::installed() {
             let (program, args) = crate::tui::cursor::binary::visible_launch(&cli, extra_args);
@@ -12,6 +17,7 @@ pub(super) fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) 
             cmd_builder.args(args);
             cmd_builder.cwd(cwd);
             apply_common_pty_env(&mut cmd_builder);
+            apply_launch_env(&mut cmd_builder, &env.set, &env.remove);
             return cmd_builder;
         }
     }
@@ -32,6 +38,7 @@ pub(super) fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) 
             cmd_builder.arg(invocation);
             cmd_builder.cwd(cwd);
             apply_common_pty_env(&mut cmd_builder);
+            apply_launch_env(&mut cmd_builder, &env.set, &env.remove);
             return cmd_builder;
         }
 
@@ -52,6 +59,7 @@ pub(super) fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) 
         }
         cmd_builder.cwd(cwd);
         apply_common_pty_env(&mut cmd_builder);
+            apply_launch_env(&mut cmd_builder, &env.set, &env.remove);
         cmd_builder
     }
 
@@ -66,20 +74,37 @@ pub(super) fn build_command(agent: AgentType, cwd: &str, extra_args: &[String]) 
         }
         cmd_builder.cwd(cwd);
         apply_common_pty_env(&mut cmd_builder);
+            apply_launch_env(&mut cmd_builder, &env.set, &env.remove);
         cmd_builder
     }
 }
 
 /// Build a CommandBuilder from a profile's `spawn_command`: the program runs directly with its
 /// arguments (no shell, no AgentType), in the spec's cwd, with the common PTY environment.
-pub(super) fn build_launch_spec_command(spec: &crate::tui::LaunchSpec) -> CommandBuilder {
+pub(super) fn build_launch_spec_command(
+    spec: &crate::tui::LaunchSpec,
+    env: &crate::tui::LaunchEnv,
+) -> CommandBuilder {
     let mut cmd_builder = CommandBuilder::new(&spec.program);
     for a in &spec.args {
         cmd_builder.arg(a);
     }
     cmd_builder.cwd(&spec.cwd);
     apply_common_pty_env(&mut cmd_builder);
+    apply_launch_env(&mut cmd_builder, &spec.env, &spec.env_remove);
+    apply_launch_env(&mut cmd_builder, &env.set, &env.remove);
     cmd_builder
+}
+
+/// Set then remove variables on the child (the TOML `[env]` table, or an account's env). The
+/// PowerShell host wrapper inherits them, so the agent it starts sees them too.
+pub(super) fn apply_launch_env(cmd_builder: &mut CommandBuilder, set: &[(String, String)], remove: &[String]) {
+    for (key, value) in set {
+        cmd_builder.env(key, value);
+    }
+    for key in remove {
+        cmd_builder.env_remove(key);
+    }
 }
 
 #[cfg(windows)]
@@ -159,4 +184,7 @@ pub struct SpawnPaneArgs {
     /// Start the pane with enforced read-only permissions (opencode_native only).
     #[serde(default)]
     pub read_only: bool,
+    /// Account (id) to run the agent under; see `crate::accounts`.
+    #[serde(default)]
+    pub account: Option<String>,
 }

@@ -10,6 +10,8 @@ pub(super) fn command(launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
         args: exec_args(launch.task, launch.read_only, launch.resume_session),
         cwd: PathBuf::from(launch.project),
         read_only_enforced: launch.read_only,
+        env: Vec::new(),
+        env_remove: Vec::new(),
     })
 }
 

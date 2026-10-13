@@ -28,6 +28,8 @@ pub(super) fn command(launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
         args,
         cwd: PathBuf::from(launch.project),
         read_only_enforced: launch.read_only,
+        env: Vec::new(),
+        env_remove: Vec::new(),
     })
 }
 
@@ -53,6 +55,8 @@ pub(super) fn standby_command(launch: &HeadlessLaunch) -> Result<LaunchSpec, Str
         args,
         cwd: PathBuf::from(launch.project),
         read_only_enforced: launch.read_only,
+        env: Vec::new(),
+        env_remove: Vec::new(),
     })
 }
 

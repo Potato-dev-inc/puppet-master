@@ -100,6 +100,18 @@ pub(super) fn bind_existing_worker(
         });
         return Err(error);
     }
+    let supplied_account = request.account.as_deref().map(str::trim).filter(|a| !a.is_empty());
+    if supplied_account.is_some() && supplied_account != pane.account.as_deref() {
+        let mut error = OperationError::new(
+            "ACCOUNT_MISMATCH",
+            "that pane runs under a different account; open a new pane for this account",
+            false,
+        );
+        error.context = serde_json::json!({"pane_id": pane.id, "pane_account": pane.account, "supplied": supplied_account});
+        return Err(error);
+    }
+    // The run takes the account the pane was started under.
+    request.account = pane.account.clone();
     request.agent_type = pane.agent_type.clone();
     request.pane_id = Some(pane.id.clone());
     request.project_path = Some(pane.cwd.clone());

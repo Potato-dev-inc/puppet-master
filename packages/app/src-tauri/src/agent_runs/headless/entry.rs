@@ -194,13 +194,34 @@ pub fn run_agent(
                 .or(request.worker_id.as_deref())
                 .or(request.pane_id.as_deref()),
             request.name.as_deref(),
+            request.account.as_deref(),
         );
+        // A named worker is stored under the account-folded key, so the next call with the same
+        // name and account finds it again (`worker_key`).
+        if request.agent_run_id.is_none()
+            && request.handle.is_none()
+            && request.worker_id.is_none()
+            && request.pane_id.is_none()
+            && request.account.as_deref().is_some_and(|a| !a.trim().is_empty())
+        {
+            if let Some(folded) = key.clone() {
+                request.name = Some(folded);
+            }
+        }
         match persist::decide_worker(
             &project_path,
             key.as_deref(),
             request.context_policy == ContextPolicy::Fresh,
         )? {
-            WorkerBind::Adopt { handle, .. } => {
+            WorkerBind::Adopt { handle, previous } => {
+                let wanted = request.account.as_deref().map(str::trim).filter(|a| !a.is_empty());
+                if wanted.is_some() && wanted != previous.worker.account.as_deref() {
+                    return Err(OperationError::new(
+                        "ACCOUNT_MISMATCH",
+                        "this worker runs under a different account; start a new worker for this account",
+                        false,
+                    ));
+                }
                 return runtime::send_agent(
                     &project_path,
                     &handle,
@@ -303,6 +324,22 @@ pub fn run_agent(
     // The receipt reports what the profile held HERE could enforce, not whatever the live registry
     // says when the turn ends (the definition may have been edited or removed mid-run).
     worker.run_features = Some(crate::operations::RunFeatures::of(profile.as_ref()));
+    // The account was folded into the worker name above (so the named worker is per account); the
+    // run itself records the account and refuses a different one on a later turn of this worker.
+    let requested_account = request.account.as_deref().map(str::trim).filter(|a| !a.is_empty());
+    if let Some(account) = requested_account {
+        if previous.as_ref().and_then(|p| p.worker.account.as_deref()).is_some_and(|prior| prior != account) {
+            return Err(OperationError::new(
+                "ACCOUNT_MISMATCH",
+                "this worker runs under a different account; start a new worker for this account",
+                false,
+            ));
+        }
+        worker.account = Some(
+            crate::accounts::validate_for_run(&agent_type, account)
+                .map_err(|message| OperationError::new("INVALID_ARGUMENT", message, false))?,
+        );
+    }
     if no_visible_mode {
         worker.fallback = Some(crate::operations::RunFallback::to_headless(
             super::fallback::NO_VISIBLE_MODE,

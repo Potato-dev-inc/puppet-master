@@ -8,7 +8,7 @@
 mod headless;
 mod screen;
 
-use super::{Features, HeadlessLaunch, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
+use super::{AccountScheme, Features, HeadlessLaunch, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
 
 pub struct Codex;
 
@@ -23,6 +23,15 @@ impl TuiProfile for Codex {
             resumable_headless: true,
             ..Features::CLI
         }
+    }
+
+    /// `CODEX_HOME` is the documented directory for this CLI's config and login.
+    fn account_scheme(&self) -> Option<AccountScheme> {
+        Some(AccountScheme {
+            home_env: "CODEX_HOME".into(),
+            extra_env: Vec::new(),
+            login_hint: "Run `codex` and sign in, then close it.".into(),
+        })
     }
 
     fn is_installed(&self) -> bool {

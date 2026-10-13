@@ -18,6 +18,7 @@ mod opencode_keys;
 mod pane_close;
 mod panes;
 mod secrets;
+mod accounts;
 mod standby;
 
 pub use agent_models::*;
@@ -31,6 +32,7 @@ pub use opencode_keys::*;
 pub use pane_close::*;
 pub use panes::*;
 pub use secrets::*;
+pub use accounts::*;
 pub use standby::*;
 
 use crate::pty::agents::AgentType;

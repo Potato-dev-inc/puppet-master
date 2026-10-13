@@ -1,5 +1,6 @@
 #![recursion_limit = "512"]
 
+mod accounts;
 mod actors;
 mod agent_definitions_recorder;
 mod agent_adapters;
@@ -185,6 +186,10 @@ pub fn run() {
             commands::set_opencode_key_profile,
             commands::capture_opencode_key_profile,
             commands::rotate_opencode_key,
+            commands::accounts_list,
+            commands::accounts_add,
+            commands::accounts_rename,
+            commands::accounts_remove,
             commands::standby_get_status,
             commands::standby_set_config,
             commands::get_ui_mode,

@@ -26,6 +26,7 @@ import {
   resetAgentRegistryCache,
   listAgentRegistry,
 } from '../../../lib/agentRegistry';
+import { AccountsGroup } from '../accounts/AccountsGroup';
 import { SettingBlock, SettingsSection } from '../settings-ui';
 
 const STATE_TONE: Record<string, string> = {
@@ -235,6 +236,7 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
           onDismiss={() => setBannerDismissed(true)}
         />
       )}
+      <AccountsGroup />
       <SettingBlock label="Definitions" implemented>
         <div className="mb-3 flex items-center gap-2">
           <button type="button" className={BTN} disabled={busy} onClick={() => void reload()}>

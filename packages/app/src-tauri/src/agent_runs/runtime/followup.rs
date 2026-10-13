@@ -123,6 +123,7 @@ pub fn send_agent(
         trust_workspace: opts.trust_workspace && headless,
         allow_shell: false,
         allowed_commands: None,
+        account: previous.worker.account.clone(),
     };
     drop(serial);
     run_agent(request, registry, app, session_id)

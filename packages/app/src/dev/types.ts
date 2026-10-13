@@ -1,4 +1,5 @@
 // Scenario contract for the UI evidence harness (dev only).
+import type { Account } from '../lib/accounts';
 import type { PaneInfo } from '../lib/tauri-types';
 
 export interface HarnessScenario {
@@ -12,6 +13,8 @@ export interface HarnessScenario {
   select?: string;
   /** Settings: tab id passed as `?tab=`. */
   settingsTab?: string;
+  /** User accounts the mocked backend reports (Settings > Agents > Accounts, the "+" menu). */
+  accounts?: Account[];
   /** Override the example panes. */
   panes?: PaneInfo[];
   /** Runs once after the first paint (and after the panes loaded); click things, press keys. */

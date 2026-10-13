@@ -8,7 +8,7 @@
 mod headless;
 mod screen;
 
-use super::{Features, HeadlessLaunch, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
+use super::{AccountScheme, Features, HeadlessLaunch, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
 
 pub struct Claude;
 
@@ -28,6 +28,15 @@ impl TuiProfile for Claude {
     /// (recorded under ConPTY and replayed into xterm.js, 2026-10-13).
     fn reprints_on_resize(&self) -> bool {
         true
+    }
+
+    /// `CLAUDE_CONFIG_DIR` is the documented directory for this CLI's config and login.
+    fn account_scheme(&self) -> Option<AccountScheme> {
+        Some(AccountScheme {
+            home_env: "CLAUDE_CONFIG_DIR".into(),
+            extra_env: Vec::new(),
+            login_hint: "Run `claude` and log in, then close it.".into(),
+        })
     }
 
     fn is_installed(&self) -> bool {
