@@ -11,7 +11,7 @@ const s: HarnessScenario = {
     const rows = document.querySelectorAll<HTMLElement>('.ck-hist-row .ck-btn');
     rows[4]?.click();
     await dom.waitFor('[role="alertdialog"]');
-    await dom.sleep(900);
+    await dom.sleep(500);
   },
 };
 export default s;
