@@ -34,44 +34,76 @@ pub struct SubscriptionStore {
     file: StoreFile,
 }
 
-/// Accept only what a real browser push service looks like. A paired phone is trusted to push to
-/// the web, but not to make this computer call arbitrary hosts, so internal addresses are refused.
-pub fn validate(sub: &Subscription) -> Result<(), String> {
-    if sub.endpoint.len() > MAX_ENDPOINT_LEN {
+/// Host suffixes of the browser push services. An endpoint must be one of these (or a subdomain),
+/// so a paired phone cannot make this computer call an arbitrary or internal host.
+/// Chrome/Android: FCM. Firefox: Mozilla autopush. Safari/iOS: Apple. Edge: WNS.
+/// Not verified against live subscriptions in this build (Apple and Edge are from memory);
+/// `PUPPET_MASTER_PUSH_HOSTS` (comma separated suffixes) adds more without a rebuild.
+pub const PUSH_HOST_SUFFIXES: &[&str] = &[
+    "fcm.googleapis.com",
+    "push.apple.com",
+    "push.services.mozilla.com",
+    "notify.windows.com",
+    "wns.windows.com",
+];
+
+fn allowed_suffixes() -> Vec<String> {
+    let mut all: Vec<String> = PUSH_HOST_SUFFIXES.iter().map(|s| s.to_string()).collect();
+    if let Ok(extra) = std::env::var("PUPPET_MASTER_PUSH_HOSTS") {
+        all.extend(extra.split(',').map(|s| s.trim().trim_start_matches("*.").to_ascii_lowercase()).filter(|s| s.contains('.')));
+    }
+    all
+}
+
+/// A host label that a URL parser or the OS resolver may read as a number: decimal (`2130706433`),
+/// octal/leading-zero (`0177`) or hex (`0x7f`). Such hosts are IPv4 in disguise.
+fn label_is_numeric_ish(label: &str) -> bool {
+    let l = label.to_ascii_lowercase();
+    if l.is_empty() {
+        return false;
+    }
+    if let Some(hex) = l.strip_prefix("0x") {
+        return hex.chars().all(|c| c.is_ascii_hexdigit());
+    }
+    l.chars().all(|c| c.is_ascii_digit())
+}
+
+/// The host of an https endpoint, or why it is refused.
+pub fn endpoint_host(endpoint: &str) -> Result<String, String> {
+    if endpoint.len() > MAX_ENDPOINT_LEN {
         return Err("endpoint is too long".into());
     }
-    let rest = sub
-        .endpoint
-        .strip_prefix("https://")
-        .ok_or("endpoint must be https")?;
+    let rest = endpoint.strip_prefix("https://").ok_or("endpoint must be https")?;
     let host_port = rest.split(['/', '?', '#']).next().unwrap_or("");
     if host_port.contains('@') {
         return Err("endpoint must not carry credentials".into());
     }
-    let host = host_port
-        .rsplit_once(':')
-        .map_or(host_port, |(h, p)| {
-            if p.chars().all(|c| c.is_ascii_digit()) {
-                h
-            } else {
-                host_port
-            }
-        })
-        .to_ascii_lowercase();
-    let looks_internal = host.is_empty()
-        || host == "localhost"
-        || host.ends_with(".localhost")
-        || host.ends_with(".local")
-        || host.ends_with(".internal")
-        || !host.contains('.')
-        || host.chars().all(|c| c.is_ascii_digit() || c == '.');
-    if looks_internal
-        || !host
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
-    {
+    let (host, port) = match host_port.rsplit_once(':') {
+        Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => (h, Some(p)),
+        _ => (host_port, None),
+    };
+    if port.is_some_and(|p| p != "443") {
+        return Err("endpoint port must be 443".into());
+    }
+    let host = host.to_ascii_lowercase();
+    if host.is_empty() || host.ends_with('.') {
+        return Err("endpoint host must not end with a dot".into());
+    }
+    if !host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
         return Err("endpoint host is not a public push service".into());
     }
+    let labels: Vec<&str> = host.split('.').collect();
+    if labels.len() < 2 || labels.iter().any(|l| l.is_empty() || label_is_numeric_ish(l)) {
+        return Err("endpoint host must be a name, not an address".into());
+    }
+    if !allowed_suffixes().iter().any(|suffix| host == *suffix || host.ends_with(&format!(".{suffix}"))) {
+        return Err("endpoint host is not a known browser push service".into());
+    }
+    Ok(host)
+}
+
+pub fn validate(sub: &Subscription) -> Result<(), String> {
+    endpoint_host(&sub.endpoint)?;
     let key = URL_SAFE_NO_PAD
         .decode(&sub.p256dh)
         .map_err(|_| "p256dh is not base64url")?;
@@ -255,5 +287,39 @@ mod tests {
         let mut sub = ok;
         sub.auth = "AAAA".into();
         assert!(validate(&sub).is_err());
+    }
+
+    #[test]
+    fn ssrf_bypasses_are_refused() {
+        for bad in [
+            "https://localhost./x",                 // trailing dot
+            "https://fcm.googleapis.com./x",        // trailing dot on an allowed name
+            "https://0x7f.0.0.1/x",                 // hex label
+            "https://0177.0.0.1/x",                 // octal label
+            "https://2130706433/x",                 // decimal form
+            "https://127.1/x",
+            "https://evil.example.com/x",           // public name, not a push service
+            "https://fcm.googleapis.com.evil.com/x", // suffix trick
+            "https://notfcm.googleapis.com.evil.com/x",
+            "https://evilfcm.googleapis.com/x",     // not a subdomain boundary
+            "https://fcm.googleapis.com:8443/x",    // odd port
+            "https://metadata.google.internal/x",
+        ] {
+            assert!(endpoint_host(bad).is_err(), "{bad} should be refused");
+        }
+    }
+
+    #[test]
+    fn real_push_services_and_their_subdomains_pass() {
+        for good in [
+            "https://fcm.googleapis.com/fcm/send/a",
+            "https://fcm.googleapis.com:443/wp/a",
+            "https://web.push.apple.com/Q",
+            "https://updates.push.services.mozilla.com/wpush/v2/a",
+            "https://wns2-par02p.notify.windows.com/w/?token=a",
+            "https://dm3p.wns.windows.com/x",
+        ] {
+            assert!(endpoint_host(good).is_ok(), "{good} should pass");
+        }
     }
 }

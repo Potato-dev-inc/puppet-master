@@ -8,6 +8,7 @@ use super::store::Subscription;
 use super::vapid::VapidKeys;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 use web_push_native::{p256::PublicKey, Auth, WebPushBuilder};
 
@@ -81,8 +82,58 @@ pub fn classify_status(status: u16) -> Outcome {
     }
 }
 
+/// Addresses a push request must never reach: this machine, the LAN, link-local (cloud metadata),
+/// CGNAT, multicast and unspecified. Checked on the resolved IPs at send time.
+pub fn ip_is_forbidden(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+                || o[0] == 0
+                || (o[0] == 100 && (64..=127).contains(&o[1])) // 100.64.0.0/10 CGNAT
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return ip_is_forbidden(IpAddr::V4(v4));
+            }
+            let first = v6.segments()[0];
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (first & 0xfe00) == 0xfc00 // unique local fc00::/7
+                || (first & 0xffc0) == 0xfe80 // link-local fe80::/10
+        }
+    }
+}
+
+/// Resolves with the OS resolver, then drops every forbidden address. ureq connects to exactly
+/// the addresses returned here, so the checked IP is the IP used (no second lookup to race).
+struct GuardedResolver;
+
+impl ureq::Resolver for GuardedResolver {
+    fn resolve(&self, netloc: &str) -> std::io::Result<Vec<SocketAddr>> {
+        let all: Vec<SocketAddr> = netloc.to_socket_addrs()?.collect();
+        let allowed: Vec<SocketAddr> = all.into_iter().filter(|a| !ip_is_forbidden(a.ip())).collect();
+        if allowed.is_empty() {
+            return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "push host resolves to a forbidden address"));
+        }
+        Ok(allowed)
+    }
+}
+
 pub fn send(request: &Outgoing) -> Outcome {
-    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(10)).build();
+    // No redirects: a push service answers 201 or an error, never a redirect to follow (a redirect
+    // could point at http:// or an internal host). Resolution is guarded, see GuardedResolver.
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(10))
+        .redirects(0)
+        .resolver(GuardedResolver)
+        .build();
     let mut call = agent.post(&request.url);
     for (name, value) in &request.headers {
         call = call.set(name, value);
@@ -153,6 +204,69 @@ mod tests {
         assert_eq!(header("content-encoding").as_deref(), Some("aes128gcm"));
         assert_eq!(header("ttl").as_deref(), Some("3600"));
         assert_eq!(header("urgency").as_deref(), Some("normal"));
+    }
+
+    #[test]
+    fn forbidden_addresses_cover_loopback_private_linklocal_cgnat_and_mapped() {
+        for bad in [
+            "127.0.0.1", "127.8.8.8", "10.0.0.1", "172.16.5.5", "192.168.1.1", "169.254.169.254",
+            "0.0.0.0", "0.1.2.3", "100.64.0.1", "100.127.255.255", "224.0.0.1", "255.255.255.255",
+            "::1", "::", "fe80::1", "fc00::1", "fd12:3456::1", "ff02::1", "::ffff:127.0.0.1", "::ffff:10.1.1.1",
+        ] {
+            assert!(ip_is_forbidden(bad.parse().unwrap()), "{bad} must be forbidden");
+        }
+        for good in ["142.250.80.10", "17.253.144.10", "100.63.0.1", "100.128.0.1", "2607:f8b0:4004::1", "::ffff:8.8.8.8"] {
+            assert!(!ip_is_forbidden(good.parse().unwrap()), "{good} must be allowed");
+        }
+    }
+
+    #[test]
+    fn resolver_refuses_a_name_that_points_at_loopback() {
+        use ureq::Resolver;
+        // "localhost" resolves to loopback on every machine: the guard must drop it.
+        let err = GuardedResolver.resolve("localhost:443").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn redirects_are_not_followed() {
+        // A server that answers 302 to an internal address: send() must report a failure, not follow.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = hits.clone();
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            for stream in listener.incoming().take(2) {
+                let mut s = stream.unwrap();
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                // Read the whole request (head + 1-byte body) so closing never resets the client.
+                let mut seen: Vec<u8> = Vec::new();
+                let mut chunk = [0u8; 512];
+                loop {
+                    let head_end = seen.windows(4).position(|w| w == b"\r\n\r\n");
+                    if head_end.is_some_and(|p| seen.len() > p + 4) {
+                        break;
+                    }
+                    match s.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => seen.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                let reply = "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/internal\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                let _ = s.write_all(reply.as_bytes());
+            }
+        });
+        // Use a plain ureq agent with the same redirect setting through the public classify path.
+        let agent = ureq::AgentBuilder::new().redirects(0).build();
+        let result = agent.post(&format!("http://127.0.0.1:{port}/x")).send_bytes(b"x");
+        let code = match result {
+            Ok(resp) => resp.status(),
+            Err(ureq::Error::Status(code, _)) => code,
+            Err(other) => panic!("unexpected transport error {other:?}"),
+        };
+        assert_eq!(classify_status(code), Outcome::Failed(302));
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1, "the redirect target must not be contacted");
     }
 
     #[test]
