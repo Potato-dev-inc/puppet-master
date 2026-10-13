@@ -8,6 +8,7 @@ import type {
   PaneInfo,
 } from '@puppet-master/shared';
 import type { PublicSettings } from './bridge-settings';
+import type { PreviewUrl } from './pane-preview';
 
 export interface WriteInputOptions {
   viaOpencodeApi?: boolean;
@@ -256,6 +257,8 @@ export interface PaneViewportResponse {
 export interface BridgeClient {
   baseUrl: string;
   listPanes(): Promise<PaneInfo[]>;
+  /** Dev-server URLs per pane (display only; ports are never proxied). Absent on old bridges. */
+  listPreviews?(): Promise<Record<string, PreviewUrl[]>>;
   spawnPane(args: {
     agent_type: string;
     cwd?: string;
@@ -379,6 +382,7 @@ export type BridgeEvent =
   | { type: 'terminal'; pane_id: string; data: Uint8Array | number[] }
   | { type: 'terminal-snapshot'; pane_id: string; snapshot: string }
   | { type: 'pane-status'; pane_id: string; status: PaneInfo['status'] }
+  | { type: 'pane-preview'; pane_id: string; urls: PreviewUrl[] }
   | { type: 'opencode-worker'; event: OpenCodeWorkerEvent }
   | { type: 'pane-resize'; pane_id: string; cols: number; rows: number }
   | { type: 'settings'; settings: PublicSettings }

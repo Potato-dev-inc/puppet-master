@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
+import { openPreview, previewLabel } from '../../lib/pane-preview';
 import { DotSpinner } from './DotSpinner';
-import { IconLayers, IconMoon, IconPlus, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
+import { IconGlobe, IconLayers, IconMoon, IconPlus, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
 
 interface Item {
@@ -64,6 +65,20 @@ export function Palette({
         hint: '⌃C',
         run: () => void c.interrupt(sel),
       });
+    }
+    for (const p of c.registry.paneList) {
+      const id = p.info.id;
+      for (const pv of c.previews?.[id] ?? []) {
+        const agent = c.names.get(id) ?? p.info.agent_type;
+        out.push({
+          id: `preview:${id}:${pv.port}`,
+          group: 'Actions',
+          title: `Open preview: ${agent} ${previewLabel(pv)}`,
+          desc: pv.url,
+          icon: <IconGlobe />,
+          run: () => void openPreview(pv.url).catch(() => c.notify('Could not open the preview')),
+        });
+      }
     }
     if (onOpenDoctor) {
       out.push({

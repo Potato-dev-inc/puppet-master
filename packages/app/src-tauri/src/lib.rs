@@ -25,7 +25,9 @@ pub mod operations;
 #[cfg(test)]
 mod operations_contract_tests;
 mod pane_activity;
+mod pane_preview;
 mod pane_prompt;
+mod prompt_risk;
 mod app_windows;
 mod cockpit;
 mod ui_mode;
@@ -104,6 +106,7 @@ pub fn run() {
             commands::read_pane_screen_replay,
             commands::agents_list,
             commands::pane_activities,
+            commands::pane_previews,
             commands::agents_health,
             commands::agents_health_test,
             commands::agents_definitions_list,

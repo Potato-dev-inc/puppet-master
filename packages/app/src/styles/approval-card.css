@@ -1,0 +1,91 @@
+/* Approval card: monochrome. Risk = glyph + weight + wording, never colour. */
+.cockpit .ck-appr {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.cockpit .ck-appr--card {
+  padding-left: 24px;
+}
+.cockpit .ck-appr--high {
+  border-left: 2px solid var(--label);
+  padding-left: 10px;
+}
+.cockpit .ck-appr--card.ck-appr--high {
+  margin-left: 24px;
+  padding-left: 10px;
+}
+.cockpit .ck-appr-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cockpit .ck-appr-glyph {
+  display: inline-grid;
+  color: var(--label-2);
+}
+.cockpit .ck-appr--high .ck-appr-glyph {
+  color: var(--label);
+}
+.cockpit .ck-appr-headline {
+  font-weight: 500;
+  color: var(--label);
+}
+.cockpit .ck-appr--medium .ck-appr-headline {
+  font-weight: 600;
+}
+.cockpit .ck-appr--high .ck-appr-headline {
+  font-weight: 700;
+}
+.cockpit .ck-appr-level {
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-appr-reason,
+.cockpit .ck-appr-caution {
+  margin: 0;
+  color: var(--label-2);
+}
+.cockpit .ck-appr-caution {
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-appr-toggle {
+  align-self: flex-start;
+  padding: 0;
+  font-size: 11px;
+  color: var(--label-3);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cockpit .ck-appr-toggle:hover {
+  color: var(--label-2);
+}
+.cockpit .ck-appr-details {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label-2);
+}
+.cockpit .ck-appr-details ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+.cockpit .ck-appr-cmd {
+  margin: 0;
+  font: 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--label);
+}
+.cockpit .ck-appr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cockpit .ck-appr button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}

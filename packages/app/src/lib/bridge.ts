@@ -5,6 +5,7 @@ import { ngrokRequestHeaders } from './bridge-ngrok';
 import { decodeBase64 } from './bridge-sse';
 import type { BridgeClient, PaneViewportResponse } from './bridge-types';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
+import type { PreviewUrl } from './pane-preview';
 
 export type * from './bridge-types';
 export { subscribeBridgeEvents } from './bridge-sse';
@@ -29,6 +30,7 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
   return {
     baseUrl,
     listPanes: () => call('GET', '/panes'),
+    listPreviews: async () => (await call<{ previews: Record<string, PreviewUrl[]> }>('GET', '/previews')).previews ?? {},
     spawnPane: async (args) => {
       // The route answers `{ ok, snapshot: { pane_id }, suggested_wait }` (MCP hint envelope).
       const res = await call<{ pane_id?: string; snapshot?: { pane_id?: string } }>('POST', '/panes', args);

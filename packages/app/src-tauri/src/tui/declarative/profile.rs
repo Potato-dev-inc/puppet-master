@@ -66,6 +66,7 @@ pub struct DeclarativeProfile {
     warning_code: Option<&'static str>,
     parser: Option<OutputParser>,
     engine: Option<TuiEngine>,
+    risk_rules: Vec<crate::prompt_risk::RiskRule>,
 }
 
 impl DeclarativeProfile {
@@ -95,8 +96,23 @@ impl DeclarativeProfile {
             }
             None => None,
         };
+        let mut risk_rules = Vec::new();
+        for (i, p) in def.risk.iter().flat_map(|r| r.patterns.iter()).enumerate() {
+            let pattern = regex::RegexBuilder::new(&p.pattern)
+                .case_insensitive(true)
+                .size_limit(1 << 20)
+                .build()
+                .map_err(|err| DefError::new("AGENT_DEF_BAD_REGEX", &format!("risk.patterns.{i}.match"), err.to_string()))?;
+            risk_rules.push(crate::prompt_risk::RiskRule {
+                pattern,
+                level: p.level,
+                headline: p.headline.clone(),
+                reason: if p.reason.is_empty() { p.headline.clone() } else { p.reason.clone() },
+            });
+        }
         Ok(Self {
             engine,
+            risk_rules,
             origin: None,
             id: intern(&def.agent.id),
             not_dispatchable_reason: intern(&def.features.not_dispatchable_reason),
@@ -537,6 +553,10 @@ impl TuiProfile for DeclarativeProfile {
             }
         }
         activity::default_activity(self, visible_tail, status)
+    }
+
+    fn risk_rules(&self) -> Vec<crate::prompt_risk::RiskRule> {
+        self.risk_rules.clone()
     }
 
     fn is_tool_activity_line(&self, lower: &str) -> bool {

@@ -108,6 +108,17 @@ data: {json}
     }
 }
 
+/// Forward a pane's dev-server URLs (`pane_preview`) to mobile clients; an empty list clears them.
+pub fn push_pane_preview_sse(pane_id: &str, urls: &[crate::pane_preview::PreviewUrl]) {
+    let payload = json!({ "pane_id": pane_id, "urls": urls });
+    if let Ok(json) = serde_json::to_string(&payload) {
+        push_sse(format!("event: pane-preview
+data: {json}
+
+"));
+    }
+}
+
 /// Forward PTY geometry changes so remote viewers can mirror without resizing the PTY.
 pub fn push_pane_resize_sse(pane_id: &str, cols: u16, rows: u16) {
     let payload = json!({ "pane_id": pane_id, "cols": cols, "rows": rows });

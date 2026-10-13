@@ -381,6 +381,13 @@ pub fn pane_activities() -> Value {
     serde_json::to_value(crate::pane_activity::snapshot()).unwrap_or(Value::Null)
 }
 
+/// Dev-server URLs per pane id (`pane_preview`), newest first; changes arrive as the
+/// `pty://preview` event `{pane_id, urls}` (empty list = cleared).
+#[tauri::command]
+pub fn pane_previews() -> Value {
+    serde_json::to_value(crate::pane_preview::snapshot()).unwrap_or(Value::Null)
+}
+
 /// Agent doctor quick check: installed? version? for every CLI agent (no tokens spent).
 #[tauri::command(async)]
 pub fn agents_health() -> Value {

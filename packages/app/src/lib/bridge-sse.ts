@@ -5,6 +5,7 @@ import type { PublicSettings } from './bridge-settings';
 import { isNgrokHost, ngrokRequestHeaders } from './bridge-ngrok';
 import { mergeBridgeHeaders, mobilePairingAuthHeaders } from './mobile-pairing-auth';
 import type { BridgeEvent, OpenCodeWorkerEvent } from './bridge-types';
+import type { PreviewUrl } from './pane-preview';
 
 /** Decode a base64 terminal chunk into raw bytes. */
 export function decodeBase64(text: string): Uint8Array {
@@ -33,6 +34,9 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
   } else if (eventName === 'pane-status') {
     const payload = parsed as { pane_id: string; status: PaneInfo['status'] };
     onEvent({ type: 'pane-status', pane_id: payload.pane_id, status: payload.status });
+  } else if (eventName === 'pane-preview') {
+    const payload = parsed as { pane_id: string; urls: PreviewUrl[] };
+    onEvent({ type: 'pane-preview', pane_id: payload.pane_id, urls: payload.urls ?? [] });
   } else if (eventName === 'opencode-worker') {
     onEvent({ type: 'opencode-worker', event: parsed as OpenCodeWorkerEvent });
   } else if (eventName === 'pane-resize') {
@@ -202,6 +206,7 @@ const BRIDGE_EVENT_NAMES = [
   'terminal',
   'terminal-snapshot',
   'pane-status',
+  'pane-preview',
   'opencode-worker',
   'pane-resize',
   'settings',

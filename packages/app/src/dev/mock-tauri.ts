@@ -4,6 +4,8 @@ import type { HarnessScenario } from './types';
 import {
   EXAMPLE_PANES,
   EXAMPLE_PROMPT,
+  HIGH_RISK_PROMPT,
+  PANE_CODEX,
   EXAMPLE_RUN,
   EXAMPLE_TRANSCRIPT,
   PANE_CLAUDE,
@@ -32,7 +34,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'list_panes':
           return panes;
         case 'pane_prompt':
-          return a.paneId === PANE_CLAUDE ? EXAMPLE_PROMPT : null;
+          return a.paneId === PANE_CLAUDE ? EXAMPLE_PROMPT : a.paneId === PANE_CODEX ? HIGH_RISK_PROMPT : null;
         case 'get_ui_mode':
           return 'orchestration';
         case 'standby_get_status':
@@ -63,6 +65,13 @@ export function installTauriMock(scenario: HarnessScenario): void {
                   : { kind: 'idle', text: 'Idle' },
             ]),
           );
+        case 'pane_previews':
+          return {
+            [PANE_CODEX]: [
+              { url: 'http://localhost:5173/', port: 5173, networkUrl: 'http://192.168.1.23:5173/' },
+              { url: 'http://localhost:3000', port: 3000 },
+            ],
+          };
         case 'agents_health':
           return { agents: DOCTOR_ROWS };
         case 'agents_health_test':

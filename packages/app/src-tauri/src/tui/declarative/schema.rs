@@ -53,6 +53,8 @@ pub struct Definition {
     #[serde(default)]
     pub context: ContextTable,
     pub mcp_host: Option<McpHostTable>,
+    /// Extra risk patterns for approval cards (can only raise a result).
+    pub risk: Option<RiskTable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -575,4 +577,34 @@ fn toml_error(text: &str, err: &toml::de::Error, path: Option<String>) -> DefErr
 fn unknown_field_name(message: &str) -> Option<String> {
     let rest = message.strip_prefix("unknown field `")?;
     Some(rest.split('`').next()?.to_string())
+}
+
+/// `[risk]`: patterns that add to the plain-language risk of an approval prompt.
+///
+/// ```toml
+/// [[risk.patterns]]
+/// match = 'deploy'
+/// level = "high"
+/// headline = "Deploy to production"
+/// reason = "It sends this project to the live server."
+/// ```
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RiskTable {
+    #[serde(default)]
+    pub patterns: Vec<RiskPattern>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RiskPattern {
+    /// Regex matched case-insensitively against the command text.
+    #[serde(rename = "match")]
+    pub pattern: String,
+    pub level: crate::prompt_risk::RiskLevel,
+    /// At most 60 characters, plain words.
+    pub headline: String,
+    /// At most 200 characters.
+    #[serde(default)]
+    pub reason: String,
 }

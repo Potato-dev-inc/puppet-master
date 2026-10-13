@@ -22,6 +22,8 @@ import {
 } from './components/PairInviteScreen';
 import { BridgePaneTerminal, useBridgePaneTransport } from './components/BridgePaneTerminal';
 import { AgentTabBar } from './components/mobile/AgentTabBar';
+import { PreviewNote } from './components/mobile/PreviewNote';
+import type { PreviewUrl } from './lib/pane-preview';
 import { AgentsOverview } from './components/mobile/AgentsOverview';
 import { MenuSheet, NewAgentSheet, type TypingEchoStats } from './components/mobile/MobileSheet';
 import { SetupScreen } from './components/pwa/SetupScreen';
@@ -102,6 +104,7 @@ export default function PwaApp() {
   const [bridgeReady, setBridgeReady] = useState(false);
   const [panes, setPanes] = useState<PaneInfo[]>([]);
   const [panesLoaded, setPanesLoaded] = useState(false);
+  const [previews, setPreviews] = useState<Record<string, PreviewUrl[]>>({});
   const [settings, setSettings] = useState<PublicSettings>(DEFAULT_PUBLIC_SETTINGS);
   const [active, setActive] = useState<string>(readActiveTab);
   const [editingUrl, setEditingUrl] = useState(false);
@@ -182,6 +185,7 @@ export default function PwaApp() {
           if (live) applyPanes(list);
         })
         .catch(() => {});
+      void client.listPreviews?.().then((m) => live && setPreviews(m)).catch(() => {});
     };
     resync();
     void client.getSettings().then((next) => live && setSettings(next)).catch(() => {});
@@ -199,6 +203,13 @@ export default function PwaApp() {
           if (echoSamplesRef.current.length > ECHO_WINDOW) echoSamplesRef.current.shift();
           publishEcho();
         }
+      }
+      if (ev.type === 'pane-preview') {
+        setPreviews((cur) => {
+          if (ev.urls.length > 0) return { ...cur, [ev.pane_id]: ev.urls };
+          const { [ev.pane_id]: _gone, ...rest } = cur;
+          return rest;
+        });
       }
       if (ev.type === 'pane-status') {
         registryRef.current.updatePaneStatus(ev.pane_id, ev.status);
@@ -453,6 +464,7 @@ export default function PwaApp() {
           onNew={openNewAgentSheet}
           onMenu={() => setSheet('menu')}
         />
+        {active !== ALL_TAB && previews[active]?.[0] && <PreviewNote preview={previews[active][0]} />}
         <main
           className="relative flex min-h-0 flex-1 flex-col bg-pm-panel"
           aria-label="Agent"

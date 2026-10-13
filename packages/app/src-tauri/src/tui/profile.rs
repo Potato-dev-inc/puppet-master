@@ -52,6 +52,12 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// Extra risk patterns for approval cards (`prompt_risk`). They can only raise what the
+    /// built-in rules found. Default: none.
+    fn risk_rules(&self) -> Vec<crate::prompt_risk::RiskRule> {
+        Vec::new()
+    }
+
     // ---- visible pane spawn -------------------------------------------------------------
 
     /// Program, arguments and cwd for an interactive PTY pane. `None` (the default) keeps the

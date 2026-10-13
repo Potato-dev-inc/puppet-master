@@ -650,3 +650,19 @@ fn agents_health_route_lists_cli_agents_with_hints() {
     assert_eq!(claude["install_hint"], "npm i -g @anthropic-ai/claude-code");
     assert!(super::routes::health::static_route("POST", &["agents", "health"]).is_none());
 }
+
+#[test]
+fn previews_route_returns_the_detected_dev_servers_per_pane() {
+    let _serial = crate::pane_activity::TEST_SERIAL.lock();
+    crate::pane_preview::observe("route-pane", "  Local:   http://localhost:5173/
+  Network: http://192.168.1.9:5173/
+");
+    let (status, body) = super::routes::previews::static_route("GET", &["previews"]).expect("route exists");
+    assert_eq!(status, 200);
+    let urls = &body["previews"]["route-pane"];
+    assert_eq!(urls[0]["url"], "http://localhost:5173/");
+    assert_eq!(urls[0]["port"], 5173);
+    assert_eq!(urls[0]["networkUrl"], "http://192.168.1.9:5173/");
+    assert!(super::routes::previews::static_route("POST", &["previews"]).is_none());
+    crate::pane_preview::retain_alive(&|_| false);
+}
