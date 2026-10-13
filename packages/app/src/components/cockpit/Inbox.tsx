@@ -2,6 +2,8 @@ import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { hasEverSpawned } from '../../lib/agent-health';
 import { DotSpinner } from './DotSpinner';
+import { useLoopGuard } from '../../lib/loop-guard';
+import { PaneStuckCard } from './StuckCard';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
 
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
@@ -9,6 +11,7 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
   const count = waiting.length;
   const noPanes = c.registry.paneList.length === 0 && c.registry.initialReady;
   const firstRun = noPanes && !hasEverSpawned();
+  const stuckIds = Object.keys(useLoopGuard().signals).filter((id) => c.registry.panes.has(id));
 
   return (
     <div className="ck-inbox">
@@ -34,6 +37,16 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
           </button>
         )}
       </header>
+
+      {stuckIds.length > 0 && (
+        <ul className="ck-stuck-list" aria-label="Agents that seem stuck">
+          {stuckIds.map((id) => (
+            <li key={id}>
+              <PaneStuckCard c={c} paneId={id} />
+            </li>
+          ))}
+        </ul>
+      )}
 
       {count > 0 && (
         <ul className="ck-list">

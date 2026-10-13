@@ -1,0 +1,59 @@
+import type { CockpitApi } from '../../hooks/useCockpit';
+import { projectName } from '../../lib/mobile-agent-tabs';
+import type { StopReport } from '../../lib/loop-guard';
+import '../../styles/loop-guard.css';
+
+/** "Stopped 2 agents": what the panic button interrupted. */
+export function PanicSheet({
+  report,
+  names,
+  onClose,
+}: {
+  report: StopReport;
+  names: CockpitApi['names'];
+  onClose: () => void;
+}) {
+  const n = report.stopped.length;
+  const title = n === 0 ? 'Nothing was running' : n === 1 ? 'Stopped 1 agent' : `Stopped ${n} agents`;
+  return (
+    <div className="ck-scrim" onMouseDown={onClose}>
+      <div className="ck-sheet ck-panic" role="alertdialog" aria-labelledby="ck-panic-t" onMouseDown={(e) => e.stopPropagation()}>
+        <h2 className="ck-section" id="ck-panic-t">
+          {title}
+        </h2>
+        {n === 0 && report.failed.length === 0 && <p className="ck-sub">No agent was working, so nothing needed stopping.</p>}
+        {n > 0 && (
+          <>
+            <p className="ck-sub">Each one got an interrupt (Ctrl+C). Their sessions are still open.</p>
+            <ul className="ck-panic-list">
+              {report.stopped.map((p) => (
+                <li key={p.pane_id}>
+                  <span className="ck-panic-name">{names.get(p.pane_id) ?? p.agent_type}</span>
+                  <span className="ck-panic-sub">{projectName(p.cwd)}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        {report.failed.length > 0 && (
+          <>
+            <p className="ck-sub">Could not stop:</p>
+            <ul className="ck-panic-list">
+              {report.failed.map(([id, reason]) => (
+                <li key={id}>
+                  <span className="ck-panic-name">{names.get(id) ?? id}</span>
+                  <span className="ck-panic-sub">{reason}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <div className="ck-sheet-actions">
+          <button type="button" className="ck-btn ck-btn--primary" autoFocus onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

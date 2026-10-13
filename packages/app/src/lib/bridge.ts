@@ -37,6 +37,7 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       return { pane_id: paneId };
     },
     killPane: (id) => call('DELETE', `/panes/${encodeURIComponent(id)}`),
+    stopAllPanes: () => call('POST', '/panes/stop-all', {}),
     setPaneViewport: (id, view) =>
       call<PaneViewportResponse>('POST', `/panes/${encodeURIComponent(id)}/viewport`, view),
     listAgentTypes: () => call('GET', '/agents/types'),

@@ -266,6 +266,8 @@ export interface BridgeClient {
     viewer?: string;
   }): Promise<{ pane_id: string }>;
   killPane(paneId: string): Promise<void>;
+  /** Panic button: interrupt every running agent pane. */
+  stopAllPanes(): Promise<{ stopped: { pane_id: string; agent_type: string; cwd: string }[]; failed: [string, string][] }>;
   /**
    * `POST /panes/{id}/viewport`: while `active`, the pane is sized to this phone's grid (renew
    * every few seconds or it lapses); `active: false` releases this phone's hold (the pane keeps the

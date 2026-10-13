@@ -4,6 +4,7 @@ import { cockpitApi, type PaneRunInfo, type PaneTranscript } from '../../lib/coc
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { activityText } from '../../lib/pane-activity';
 import '../../styles/pane-activity.css';
+import { PaneStuckCard } from './StuckCard';
 import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
 import { IconClose, IconCopy, IconMore, IconReflow, IconStop } from './Icons';
@@ -204,6 +205,8 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
           )}
         </div>
       </header>
+
+      <PaneStuckCard c={c} paneId={paneId} />
 
       {pane.status === 'waiting_input' && prompt && prompt.choices.length > 0 && (
         <div className="ck-ask" role="group" aria-label="Agent question">

@@ -95,6 +95,7 @@ export function MenuSheet({
   activeLabel,
   onCloseActive,
   onEditConnection,
+  onStopAll,
 }: {
   onClose: () => void;
   bridgeUrl: string;
@@ -108,6 +109,8 @@ export function MenuSheet({
   activeLabel: string | null;
   onCloseActive: () => void;
   onEditConnection: () => void;
+  /** Panic button: interrupt every running agent on the PC. */
+  onStopAll?: () => void;
 }) {
   const setDelay = (value: number) => {
     const ms = Number.isFinite(value) ? (value <= 0 ? 0 : Math.min(1000, Math.max(50, Math.round(value)))) : 250;
@@ -125,6 +128,21 @@ export function MenuSheet({
       <div className="border-b border-pm-border py-2 font-mono text-[11px] text-pm-muted" aria-label="Connection">
         {connectionLine(link, echo)}
       </div>
+
+      {onStopAll && (
+        <div className="border-b border-pm-border py-3">
+          <button
+            type="button"
+            disabled={!bridgeReady}
+            onClick={() => {
+              if (window.confirm('Stop all agents? Every agent that is working gets an interrupt (Ctrl+C).')) onStopAll();
+            }}
+            className="w-full rounded border border-pm-border px-3 py-2 text-left text-zinc-100 active:bg-pm-raised disabled:opacity-40"
+          >
+            Stop all agents
+          </button>
+        </div>
+      )}
 
       {activeLabel && (
         <div className="border-b border-pm-border py-3">

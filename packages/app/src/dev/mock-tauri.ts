@@ -63,6 +63,31 @@ export function installTauriMock(scenario: HarnessScenario): void {
                   : { kind: 'idle', text: 'Idle' },
             ]),
           );
+        case 'loop_signals':
+          return scenario.name === 'loop-stuck'
+            ? [
+                {
+                  pane_id: PANE_CLAUDE,
+                  kind: 'repeated_error',
+                  evidence_lines: [
+                    'error[E0432]: unresolved import `crate::store::Cache`',
+                    'error: could not compile `app` due to 1 previous error',
+                  ],
+                  turns: 4,
+                  since: 0,
+                  summary: 'the same error 4 times',
+                },
+              ]
+            : [];
+        case 'loop_settings_get':
+          return { enabled: true, turns: 4, stalled_minutes: 20, panic_shortcut: false };
+        case 'stop_all_agents':
+          return {
+            stopped: panes
+              .filter((p) => p.status === 'running')
+              .map((p) => ({ pane_id: p.id, agent_type: p.agent_type, cwd: p.cwd })),
+            failed: [],
+          };
         case 'agents_health':
           return { agents: DOCTOR_ROWS };
         case 'agents_health_test':

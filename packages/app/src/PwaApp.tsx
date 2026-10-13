@@ -509,6 +509,13 @@ export default function PwaApp() {
           echo={echoStats}
           activeLabel={activePane ? labels.get(active) ?? activePane.info.agent_type : null}
           onCloseActive={() => void closeActive()}
+          onStopAll={() => {
+            if (!bridge) return;
+            bridge
+              .stopAllPanes()
+              .then((r) => window.alert(r.stopped.length === 0 ? 'Nothing was running.' : `Stopped ${r.stopped.length} agent${r.stopped.length === 1 ? '' : 's'}.`))
+              .catch((e) => window.alert(e instanceof Error ? e.message : String(e)));
+          }}
           onEditConnection={() => {
             setEditingUrl(true);
             setSheet(null);
