@@ -6,7 +6,7 @@ import { activityText } from '../../lib/pane-activity';
 import { mainPreview, previewLabel } from '../../lib/pane-preview';
 import '../../styles/live-preview.css';
 import { DotSpinner } from './DotSpinner';
-import { IconGlobe, IconInbox, IconMoon, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
+import { IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
 import { formatElapsed, groupPanes, spinnerStatus } from './model';
 import { paneHeading } from './titles';
 import { SegTabs } from './SegTabs';
@@ -15,10 +15,12 @@ export function Sidebar({
   c,
   onOpenPalette,
   onOpenDoctor,
+  onOpenMemory,
 }: {
   c: CockpitApi;
   onOpenPalette: () => void;
   onOpenDoctor?: () => void;
+  onOpenMemory?: () => void;
 }) {
   const list = c.registry.paneList;
   const questionPanes = new Set(c.asked.questions.flatMap((q) => (q.pane_id ? [q.pane_id] : [])));
@@ -157,6 +159,12 @@ export function Sidebar({
           <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenDoctor}>
             <IconTerminal />
             Set up agents
+          </button>
+        )}
+        {onOpenMemory && (
+          <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenMemory}>
+            <IconNote />
+            Project memory
           </button>
         )}
         <div className="ck-foot-row">

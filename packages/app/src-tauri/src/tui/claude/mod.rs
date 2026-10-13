@@ -8,7 +8,7 @@
 mod headless;
 mod screen;
 
-use super::{AccountScheme, Features, HeadlessLaunch, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
+use super::{AccountScheme, Features, HeadlessLaunch, InstructionFile, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
 
 pub struct Claude;
 
@@ -57,6 +57,11 @@ impl TuiProfile for Claude {
             extra_env: Vec::new(),
             login_hint: "Run `claude` and log in, then close it.".into(),
         })
+    }
+
+    /// Claude Code loads `CLAUDE.md` from the project root (code.claude.com/docs/en/memory).
+    fn instruction_files(&self) -> Vec<InstructionFile> {
+        vec![InstructionFile::new("CLAUDE.md")]
     }
 
     fn is_installed(&self) -> bool {

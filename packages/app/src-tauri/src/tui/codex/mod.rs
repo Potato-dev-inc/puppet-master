@@ -8,7 +8,7 @@
 mod headless;
 mod screen;
 
-use super::{AccountScheme, Features, HeadlessLaunch, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
+use super::{AccountScheme, Features, HeadlessLaunch, InstructionFile, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
 
 pub struct Codex;
 
@@ -34,6 +34,11 @@ impl TuiProfile for Codex {
 
     fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
         crate::toolbelt::host_from_toml(MCP_HOST)
+    }
+
+    /// Codex reads `AGENTS.md` from the project root down to the cwd (developers.openai.com/codex/guides/agents-md).
+    fn instruction_files(&self) -> Vec<InstructionFile> {
+        vec![InstructionFile::new("AGENTS.md")]
     }
 
     fn features(&self) -> Features {

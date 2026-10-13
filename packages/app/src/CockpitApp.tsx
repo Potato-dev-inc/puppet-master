@@ -7,6 +7,7 @@ import { useCockpit } from './hooks/useCockpit';
 import { Inbox } from './components/cockpit/Inbox';
 import { PaneView } from './components/cockpit/PaneView';
 import { Palette } from './components/cockpit/Palette';
+import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
@@ -52,6 +53,9 @@ export default function CockpitApp() {
   useEffect(() => {
     if (c.registry.paneList.length > 0) markSpawned();
   }, [c.registry.paneList.length]);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  // Picking a pane or starting an agent leaves the memory view.
+  useEffect(() => setMemoryOpen(false), [c.selectedId, c.spawn]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -69,7 +73,12 @@ export default function CockpitApp() {
   return (
     <LoopGuardContext.Provider value={loop}>
     <div className="cockpit" data-theme={c.theme} onClickCapture={onClickCapture}>
-      <Sidebar c={nav} onOpenPalette={() => setPaletteOpen(true)} onOpenDoctor={() => setDoctorOpen(true)} />
+      <Sidebar
+        c={nav}
+        onOpenPalette={() => setPaletteOpen(true)}
+        onOpenDoctor={() => setDoctorOpen(true)}
+        onOpenMemory={() => setMemoryOpen(true)}
+      />
       <main className="ck-main">
         {c.mode === 'individual' ? (
           <div className="ck-spawn ck-spawn--plain">
@@ -85,6 +94,11 @@ export default function CockpitApp() {
             onNotify={c.notify}
             onClose={() => setDoctorOpen(false)}
           />
+        ) : memoryOpen ? (
+          <ProjectMemory
+            project={c.selectedId ? c.registry.panes.get(c.selectedId)?.info.cwd : undefined}
+            onClose={() => setMemoryOpen(false)}
+          />
         ) : c.spawn ? (
           <SpawnView spawn={c.spawn} onDismiss={c.dismissSpawn} />
         ) : c.selectedId ? (
@@ -94,7 +108,13 @@ export default function CockpitApp() {
         )}
       </main>
       {paletteOpen && (
-        <Palette c={nav} onClose={() => setPaletteOpen(false)} onOpenDoctor={() => setDoctorOpen(true)} onStopAll={stopAll} />
+        <Palette
+          c={nav}
+          onClose={() => setPaletteOpen(false)}
+          onOpenDoctor={() => setDoctorOpen(true)}
+          onStopAll={stopAll}
+          onOpenMemory={() => setMemoryOpen(true)}
+        />
       )}
       {stopReport && <PanicSheet report={stopReport} names={c.names} onClose={() => setStopReport(null)} />}
       <div className="ck-toasts" aria-live="polite">

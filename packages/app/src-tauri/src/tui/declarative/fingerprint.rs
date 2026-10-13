@@ -69,6 +69,11 @@ pub fn canonical_value(def: &Definition, source: Source, project: Option<&str>, 
     if let Some(a) = &def.accounts {
         value["accounts"] = json!({ "home_env": a.home_env, "extra_env": a.extra_env, "login_hint": a.login_hint });
     }
+    // It writes into project files, so it is approved with the definition. Added only when
+    // present: definitions without it keep the fingerprint they were approved under.
+    if let Some(i) = &def.instructions {
+        value["instructions"] = json!({ "paths": i.all_paths(), "header": i.header });
+    }
     value
 }
 

@@ -4,7 +4,7 @@ import { cockpitApi } from '../../lib/cockpit-api';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { openPreview, previewLabel } from '../../lib/pane-preview';
 import { DotSpinner } from './DotSpinner';
-import { IconGlobe, IconLayers, IconMoon, IconPlus, IconReflow, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
+import { IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
 import { paneHeading } from './titles';
 
@@ -23,11 +23,13 @@ export function Palette({
   onClose,
   onOpenDoctor,
   onStopAll,
+  onOpenMemory,
 }: {
   c: CockpitApi;
   onClose: () => void;
   onOpenDoctor?: () => void;
   onStopAll?: () => void;
+  onOpenMemory?: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
@@ -117,6 +119,16 @@ export function Palette({
         run: onOpenDoctor,
       });
     }
+    if (onOpenMemory) {
+      out.push({
+        id: 'act:memory',
+        group: 'Actions',
+        title: 'Project memory…',
+        desc: 'What every agent in this project reads',
+        icon: <IconNote />,
+        run: onOpenMemory,
+      });
+    }
     out.push(
       {
         id: 'act:settings',
@@ -150,7 +162,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.group}`, query)),

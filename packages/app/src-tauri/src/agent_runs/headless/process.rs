@@ -26,6 +26,7 @@ pub(in crate::agent_runs) fn execute_headless(
     // A turn runs with the profile it was admitted under: editing or unregistering the definition
     // mid-run must not change how this turn is launched, parsed or finished.
     let profile = crate::tui::profile_for(&agent_type);
+    crate::one_brain::sync_on_spawn(&project);
     transcript::append(&project, &operation_id, "user_task", &task);
     let snapshot = operations::get_operation(&project, &operation_id).ok();
     let resume_session = snapshot

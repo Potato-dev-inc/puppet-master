@@ -108,3 +108,9 @@ export const IconRename = () => (
     <path d="m10.5 3.5 2 2M3 13l.6-2.6 7-7a1.4 1.4 0 0 1 2 2l-7 7L3 13Z" />
   </Icon>
 );
+
+export const IconNote = () => (
+  <Icon>
+    <path d="M3.5 2.5h7l2 2v9h-9zM10.5 2.5v2h2M5.5 7.5h5M5.5 10h5" />
+  </Icon>
+);

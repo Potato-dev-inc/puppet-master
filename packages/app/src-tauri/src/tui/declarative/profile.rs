@@ -314,6 +314,15 @@ impl TuiProfile for DeclarativeProfile {
         }
     }
 
+    fn instruction_files(&self) -> Vec<crate::tui::InstructionFile> {
+        let Some(table) = &self.def.instructions else { return Vec::new() };
+        table
+            .all_paths()
+            .into_iter()
+            .map(|path| crate::tui::InstructionFile { path, header: table.header.clone() })
+            .collect()
+    }
+
     fn reprints_on_resize(&self) -> bool {
         self.def.features.reprints_on_resize
     }

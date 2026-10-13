@@ -24,6 +24,7 @@ mod mcp_status;
 mod mobile_pairing;
 mod mobile_tunnel;
 mod tunnel_config;
+mod one_brain;
 mod opencode;
 pub mod operations;
 #[cfg(test)]
@@ -218,6 +219,12 @@ pub fn run() {
             commands::pane_set_title,
             commands::ambient_get_prefs,
             commands::ambient_set_animated_tray,
+            commands::memory_get,
+            commands::memory_save,
+            commands::memory_sync,
+            commands::memory_set_project_enabled,
+            commands::memory_global_enabled,
+            commands::memory_set_global_enabled,
             commands::open_settings,
             commands::pane_prompt,
             commands::answer_pane_prompt,

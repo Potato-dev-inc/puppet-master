@@ -962,4 +962,127 @@
 .cockpit .ck-title-input::placeholder {
   color: var(--label-3);
   font-weight: 400;
+
+/* ---------- project memory ---------- */
+.cockpit .ck-memory {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(720px, 100%);
+  margin: 0 auto;
+  padding: 28px 24px 24px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.cockpit .ck-memory-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cockpit .ck-memory-head .ck-sub {
+  margin-top: 4px;
+}
+.cockpit .ck-memory-project {
+  margin: 0;
+  font: 12px/16px var(--font-mono);
+  color: var(--label-3);
+}
+.cockpit .ck-memory-editor {
+  min-height: 220px;
+  resize: vertical;
+  padding: 12px;
+  font: 12.5px/1.5 var(--font-mono);
+  color: var(--label);
+  background: var(--bg-raised);
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+}
+.cockpit .ck-memory-editor::placeholder {
+  color: var(--label-4);
+}
+.cockpit .ck-memory-editor:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-memory-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cockpit .ck-memory-msg {
+  margin-left: 4px;
+  color: var(--label-3);
+  font-size: 12px;
+}
+.cockpit .ck-memory-err {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-memory-off {
+  margin: 4px 0 0;
+}
+.cockpit .ck-memory-files {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  background: var(--bg-raised);
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+}
+.cockpit .ck-memory-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 6px 12px;
+}
+.cockpit .ck-memory-file + .ck-memory-file {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-memory-path {
+  font: 12.5px/16px var(--font-mono);
+}
+.cockpit .ck-memory-agents {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-3);
+}
+.cockpit .ck-memory-tag {
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--label-2);
+  background: var(--fill);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.cockpit .ck-memory-status {
+  min-width: 96px;
+  text-align: right;
+  color: var(--label-2);
+  white-space: nowrap;
+}
+.cockpit .ck-memory-status.is-in_sync {
+  color: var(--label-3);
+}
+.cockpit .ck-memory-status.is-blocked {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-memory-fine {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.cockpit .ck-memory-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--label-2);
+}
+.cockpit .ck-memory-switch input {
+  accent-color: var(--label);
 }

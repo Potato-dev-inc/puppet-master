@@ -166,6 +166,13 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return { candidates: TOOLBELT_IMPORT };
         case 'toolbelt_import_apply':
           return { added: [] };
+        case 'memory_get':
+        case 'memory_sync':
+        case 'memory_save':
+        case 'memory_set_project_enabled':
+          return memoryView(typeof a.text === 'string' ? a.text : undefined);
+        case 'memory_global_enabled':
+          return true;
         case 'resize_pane':
         case 'set_ui_mode':
         case 'interrupt_pane':
@@ -198,4 +205,29 @@ export function installTauriMock(scenario: HarnessScenario): void {
     },
     { shouldMockEvents: true },
   );
+}
+
+const MEMORY_TEXT = [
+  '# puppet-master',
+  '',
+  'Desktop app: Tauri 2 (Rust) + React. Backend logic stays in Rust.',
+  '',
+  '- Run tests: cargo test --lib, npm test --workspace=@puppet-master/app',
+  '- UI is monochrome, see mockups/ui-proposal/STYLE.md',
+  '- Never push; commit small and revertable',
+].join('\n');
+
+function memoryView(text?: string) {
+  return {
+    project: 'C:\\Users\\dev\\work\\puppet-master',
+    memory: text ?? MEMORY_TEXT,
+    global_enabled: true,
+    project_enabled: true,
+    report: null,
+    targets: [
+      { path: 'CLAUDE.md', agents: ['claude'], status: 'in_sync', user_content: true },
+      { path: 'AGENTS.md', agents: ['codex', 'opencode'], status: 'will_update', user_content: true },
+      { path: '.cursor/rules/puppet-master.mdc', agents: ['cursor_agent'], status: 'will_create', user_content: false },
+    ],
+  };
 }

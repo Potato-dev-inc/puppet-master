@@ -7,6 +7,7 @@ import { resolveSettingsFilePath } from '../../../lib/settings';
 import { clampCheckpointsKeep } from '../../../lib/bridge-settings';
 import { tauri, type AppInstallInfo } from '../../../lib/tauri';
 import { FieldInput, FieldSelect, InfoCard, SettingBlock, SettingToggle, SettingsSection } from '../settings-ui';
+import { SharedMemoryToggle } from './SharedMemoryToggle';
 import type { SettingsTabContext } from './tab-context';
 import { LoopGuardSettingsBlock } from './LoopGuardSettings';
 
@@ -47,6 +48,7 @@ export function GeneralTab({ ctx }: { ctx: SettingsTabContext }) {
       <SettingBlock label="Keep last N checkpoints" implemented description="Per agent. Older checkpoints are deleted.">
         <FieldInput type="number" min={5} max={500} step={5} value={settings.checkpoints_keep ?? 50} disabled={settings.checkpoints_enabled === false} onChange={(e) => setSettings({ ...settings, checkpoints_keep: clampCheckpointsKeep(Number(e.target.value)) })} className="font-mono" />
       </SettingBlock>
+      <SharedMemoryToggle />
       <SettingToggle label="Auto-save workspace state" description="Persist panes, scrollback, layout, and summaries after important events." checked onChange={() => undefined} implemented={false} />
       <SettingToggle label="Semantic repository index" description="Build a local index for smarter cross-pane agent context." checked onChange={() => undefined} implemented={false} />
       <SettingToggle label="Auto session summaries" description="Generate a concise summary when a session is closed or restored." checked onChange={() => undefined} implemented={false} />

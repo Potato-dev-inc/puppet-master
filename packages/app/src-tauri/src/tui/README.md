@@ -86,7 +86,8 @@ If the CLI can be driven by an argument list, a TOML file replaces steps 1-4 abo
    registration is kept.
 6. Project (`<project>/.puppet-master/agents`) and extra folders load only after per-path consent in Settings > Agents
    (consent never replaces approval).
-7. A definition may carry `[mcp_host]` (config_path under home/project, format json/toml/yaml, key_path, entry with
+7a. A definition may carry `[instructions]` (`file`/`files` relative to the project root, optional `header`): the files the agent reads its project instructions from; Puppet Master renders the shared project memory into them (`docs/features/one-brain.md`). Code profiles override `TuiProfile::instruction_files`.
+7b. A definition may carry `[mcp_host]` (config_path under home/project, format json/toml/yaml, key_path, entry with
    `{command}`/`{args}`/`{env}`); `mcp_install/declarative.rs` writes only that key, makes a `.bak`, and is idempotent.
 8. Share one definition: Settings > Agents > Export (TOML, plus `<name>.fixtures.zip` when `<id>.fixtures/` exists) and
    Import (validated, placed in the user folder unapproved; never overwrites; no network).

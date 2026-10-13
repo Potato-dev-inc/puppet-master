@@ -75,6 +75,7 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
     check_run_options(def, &mut e);
     check_mcp_host(def, &mut e);
     check_risk(def, &mut e, &mut regexes);
+    check_instructions(def, &mut e);
     check_regexes(&regexes, &mut e);
     e.0
 }
@@ -567,6 +568,23 @@ fn check_features(def: &Definition, e: &mut Errors) {
                 "AGENT_DEF_INCONSISTENT",
                 "features.resumable_headless",
                 "must agree with the definition: resumable needs a when = \"resume\" segment and a [headless.output.session] selector",
+            );
+        }
+    }
+}
+
+fn check_instructions(def: &Definition, e: &mut Errors) {
+    let Some(table) = &def.instructions else { return };
+    let paths = table.all_paths();
+    if paths.is_empty() {
+        e.add("AGENT_DEF_INCONSISTENT", "instructions", "needs `file` or `files`");
+    }
+    for p in paths {
+        if !crate::one_brain::relative_path_ok(&p) {
+            e.add(
+                "AGENT_DEF_INCONSISTENT",
+                "instructions.file",
+                format!("`{p}` must be a relative path inside the project, without `..`, a drive or a leading slash"),
             );
         }
     }
