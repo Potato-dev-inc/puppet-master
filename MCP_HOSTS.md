@@ -327,6 +327,7 @@ The Rust bridge also exposes registry-backed coordination tools for longer-runni
 - `read_pane_digest` / `update_pane_digest` — persist a short pane summary without rereading scrollback.
 - `delegate_task` — validate structured delegation input and render a worker prompt without launching a pane.
 - `delegate_work` / `get_operation` / `wait_for_operation` / `cancel_operation` — create and track durable revisioned work.
+- `ask_user` — ask the human a question (optional `choices` max 6, `allow_free_text`, `context`, `timeout_s` default 600 / max 3600, `urgency`) and block until answered. Returns `{answered:true, choice_id?|text?, answered_by:"desktop"|"phone"}` or `{answered:false, reason:"timeout"|"cancelled"}`. The question shows in the Inbox and on a paired phone. Example: an orchestrator calls `ask_user({question:"Drop the legacy table or keep it behind a flag?", choices:[{id:"drop",label:"Drop it"},{id:"flag",label:"Keep behind a flag"}]})`, then continues with `followup_task` using the answer. See `docs/features/ask-user.md`.
 - `read_orchestrator_state` / `update_orchestrator_state` — inspect or tune Rust-owned standby timing.
 
 ## Architecture note

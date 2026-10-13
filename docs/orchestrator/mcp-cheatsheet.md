@@ -172,6 +172,7 @@ send it with `followup_task` if you still need it.
 | `get_operation` | Read durable operation state when needed |
 | `cancel_operation` | Request cancellation; running cancellation aborts a native session or interrupts the assigned pane |
 | `delegate_task` | Structured handoff (validate + render prompt only; does not dispatch) |
+| `ask_user` | Ask the human (choices or free text) and block until answered; for decisions only a person can make. Returns `{answered, choice_id?, text?, answered_by}` or `{answered:false, reason}` |
 | `spawn_agent` | New pane only when none fits |
 | `wait_for_worker` | **Default wait** after mutations (`settled` + errors) |
 | `wait_for_panes` | Custom `until`: `idle`, `permission`, `model_ready`, `tui_ready`, `task_completed`, … |

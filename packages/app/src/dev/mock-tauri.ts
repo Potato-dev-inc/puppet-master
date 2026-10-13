@@ -47,6 +47,11 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return 'C:\\Users\\dev\\work\\puppet-master';
         case 'list_agent_contexts':
           return [];
+        case 'questions_list':
+          return scenario.questions ?? [];
+        case 'question_answer':
+        case 'question_dismiss':
+          return { accepted: true, question: (scenario.questions ?? []).find((q) => q.id === a.id) };
         case 'resize_pane':
         case 'set_ui_mode':
         case 'interrupt_pane':

@@ -41,7 +41,7 @@
   outline: none;
   box-shadow: var(--focus);
 }
-.cockpit .ck-q-list {
+.cockpit .ck-list.ck-q-list {
   margin-bottom: 16px;
 }
 .cockpit .ck-inbox-item.is-urgent .ck-row-title {

@@ -1,4 +1,5 @@
 // Scenario contract for the UI evidence harness (dev only).
+import type { Question } from '../lib/questions';
 import type { PaneInfo } from '../lib/tauri-types';
 
 export interface HarnessScenario {
@@ -14,6 +15,8 @@ export interface HarnessScenario {
   settingsTab?: string;
   /** Override the example panes. */
   panes?: PaneInfo[];
+  /** Pending `ask_user` questions the mocked `questions_list` returns. */
+  questions?: Question[];
   /** Runs once after the first paint (and after the panes loaded); click things, press keys. */
   after?: (api: HarnessDom) => void | Promise<void>;
 }
