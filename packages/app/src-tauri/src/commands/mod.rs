@@ -25,6 +25,7 @@ mod questions;
 mod standby;
 mod worktrees;
 mod tunnel;
+mod toolbelt;
 
 pub use agent_models::*;
 pub use agents::*;
@@ -44,6 +45,7 @@ pub use questions::*;
 pub use standby::*;
 pub use worktrees::*;
 pub use tunnel::*;
+pub use toolbelt::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{

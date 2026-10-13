@@ -126,6 +126,14 @@ export function Palette({
         run: () => void c.openSettings(),
       },
       {
+        id: 'act:toolbelt',
+        group: 'Actions',
+        title: 'Toolbelt…',
+        desc: 'MCP servers for every agent',
+        icon: <IconLayers />,
+        run: () => void cockpitApi.openSettings('mcp').catch(() => {}),
+      },
+      {
         id: 'act:mode',
         group: 'Actions',
         title: c.mode === 'orchestration' ? 'Switch to Individual mode' : 'Switch to Orchestration mode',

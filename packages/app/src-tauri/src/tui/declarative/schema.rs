@@ -533,6 +533,13 @@ pub struct McpHostTable {
     pub format: McpHostFormat,
     pub key_path: String,
     pub entry: toml::Table,
+    /// Toolbelt (optional): the same host's per-project config, relative to the project.
+    #[serde(default)]
+    pub project_config_path: Option<String>,
+    /// Toolbelt (optional): entry template for URL (http) servers; placeholders `{url}`, `{headers}`.
+    /// Absent means this host cannot take URL servers.
+    #[serde(default)]
+    pub entry_http: Option<toml::Table>,
 }
 
 /// Parse a definition file. Error codes: `AGENT_DEF_INVALID_TOML` (syntax or wrong type, with the

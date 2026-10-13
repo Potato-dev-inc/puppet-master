@@ -12,9 +12,28 @@ use super::{AccountScheme, Features, HeadlessLaunch, LaunchSpec, StandbyScreen, 
 
 pub struct Codex;
 
+/// Where Codex keeps MCP servers (Toolbelt).
+const MCP_HOST: &str = r#"
+config_path = "~/.codex/config.toml"
+format = "toml"
+key_path = "mcp_servers.puppet-master"
+project_config_path = ".codex/config.toml"
+[entry]
+command = "{command}"
+args = "{args}"
+env = "{env}"
+[entry_http]
+url = "{url}"
+http_headers = "{headers}"
+"#;
+
 impl TuiProfile for Codex {
     fn id(&self) -> &'static str {
         "codex"
+    }
+
+    fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
+        crate::toolbelt::host_from_toml(MCP_HOST)
     }
 
     fn features(&self) -> Features {

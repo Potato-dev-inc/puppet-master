@@ -282,3 +282,119 @@ export const EXAMPLE_FILE_CHANGES = [
   { path: 'src/routes.ts', status: 'M', added: 6, deleted: 1, binary: false },
   { path: 'public/bell.png', status: 'A', added: 0, deleted: 0, binary: true },
 ];
+
+// ---- Toolbelt (Settings > MCP & bridge) ----
+import type { ImportCandidate, SyncReport, ToolbeltListing } from '../lib/toolbelt';
+
+export const TOOLBELT_LISTING: ToolbeltListing = {
+  servers: [
+    { id: 'browser', name: 'Browser', transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp'], env: {}, enabled: true, scope: 'global' },
+    {
+      id: 'postgres',
+      name: 'Postgres',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-postgres'],
+      env: { DATABASE_URL: 'postgres://localhost/app', DB_PASSWORD: '********' },
+      enabled: true,
+      scope: 'global',
+    },
+    { id: 'docs', name: 'Library docs', transport: 'http', url: 'https://mcp.context7.com/mcp', headers: {}, enabled: true, scope: 'global' },
+    { id: 'linear', name: 'Linear', transport: 'http', url: 'https://mcp.linear.app/mcp', headers: { Authorization: '********' }, enabled: false, scope: 'project' },
+  ],
+  agents: [
+    { id: 'claude', label: 'Claude Code', installed: true, supports_url: true },
+    { id: 'codex', label: 'Codex', installed: true, supports_url: true },
+    { id: 'opencode', label: 'OpenCode', installed: true, supports_url: true },
+    { id: 'cursor_agent', label: 'Cursor Agent', installed: true, supports_url: true },
+  ],
+  unsupported: [
+    { id: 'kilo', label: 'Kilo', reason: "This agent doesn't declare where it keeps MCP servers, so Puppet Master can't write to it." },
+  ],
+};
+
+export const TOOLBELT_PREVIEW: SyncReport = {
+  dry_run: true,
+  unsupported: TOOLBELT_LISTING.unsupported,
+  hosts: [
+    {
+      agents: [{ id: 'claude', label: 'Claude Code' }],
+      scope: 'global',
+      path: 'C:/Users/dev/.claude.json',
+      format: 'json',
+      status: 'ready',
+      reason: null,
+      changes: [
+        { key: 'pm-toolbelt-browser', name: 'Browser', kind: 'unchanged' },
+        { key: 'pm-toolbelt-postgres', name: 'Postgres', kind: 'add' },
+        { key: 'pm-toolbelt-docs', name: 'Library docs', kind: 'add' },
+      ],
+      notes: [],
+      diff: '+     "pm-toolbelt-postgres": {\n+       "command": "npx",\n+       "env": { "DB_PASSWORD": "********" }\n+     }',
+      written: false,
+      backup: null,
+    },
+    {
+      agents: [{ id: 'codex', label: 'Codex' }],
+      scope: 'global',
+      path: 'C:/Users/dev/.codex/config.toml',
+      format: 'toml',
+      status: 'ready',
+      reason: null,
+      changes: [
+        { key: 'pm-toolbelt-browser', name: 'Browser', kind: 'update' },
+        { key: 'pm-toolbelt-postgres', name: 'Postgres', kind: 'add' },
+        { key: 'pm-toolbelt-docs', name: 'Library docs', kind: 'add' },
+        { key: 'pm-toolbelt-old-search', name: 'Old search', kind: 'remove' },
+      ],
+      notes: [],
+      diff: '',
+      written: false,
+      backup: null,
+    },
+    {
+      agents: [
+        { id: 'opencode', label: 'OpenCode' },
+        { id: 'opencode_native', label: 'OpenCode (API)' },
+      ],
+      scope: 'global',
+      path: 'C:/Users/dev/.config/opencode/opencode.json',
+      format: 'json',
+      status: 'unchanged',
+      reason: null,
+      changes: [{ key: 'pm-toolbelt-browser', name: 'Browser', kind: 'unchanged' }],
+      notes: [],
+      diff: '',
+      written: false,
+      backup: null,
+    },
+    {
+      agents: [{ id: 'cursor_agent', label: 'Cursor Agent' }],
+      scope: 'global',
+      path: 'C:/Users/dev/.cursor/mcp.json',
+      format: 'json',
+      status: 'skipped',
+      reason: 'Not installed on this computer, and it has no config file yet.',
+      changes: [],
+      notes: [],
+      diff: '',
+      written: false,
+      backup: null,
+    },
+  ],
+};
+
+export const TOOLBELT_IMPORT: ImportCandidate[] = [
+  {
+    reference: 'global|claude|github',
+    agents: [{ id: 'claude', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }],
+    server: { id: '', name: 'github', transport: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: '********' }, enabled: true, scope: 'global' },
+    already: false,
+  },
+  {
+    reference: 'global|claude|browser',
+    agents: [{ id: 'claude', label: 'Claude Code' }],
+    server: { id: '', name: 'browser', transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp'], enabled: true, scope: 'global' },
+    already: true,
+  },
+];

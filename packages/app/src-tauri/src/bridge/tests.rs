@@ -726,3 +726,61 @@ fn worktree_refusals_map_to_http_statuses_with_their_context() {
         assert_eq!(status, expected, "{code}");
     }
 }
+
+// ---- /toolbelt (Toolbelt) ---------------------------------------------------------------------
+
+mod toolbelt_routes {
+    use crate::bridge::routes::toolbelt::respond;
+    use serde_json::{json, Value};
+    use std::cell::RefCell;
+
+    fn call_log() -> RefCell<Vec<(String, Value)>> {
+        RefCell::new(Vec::new())
+    }
+
+    #[test]
+    fn routes_map_to_actions_and_only_the_local_app_may_call_them() {
+        let log = call_log();
+        let call = |action: &str, body: &Value| -> Result<Value, String> {
+            log.borrow_mut().push((action.to_string(), body.clone()));
+            if action == "remove" && body.get("id").is_none() {
+                return Err("id is required".into());
+            }
+            Ok(json!({"ok": action}))
+        };
+        let b = json!({"id": "web"});
+        let cases: [(&str, Vec<&str>, &str); 8] = [
+            ("GET", vec!["toolbelt"], "list"),
+            ("POST", vec!["toolbelt"], "add"),
+            ("POST", vec!["toolbelt", "update"], "update"),
+            ("POST", vec!["toolbelt", "remove"], "remove"),
+            ("POST", vec!["toolbelt", "sync", "preview"], "sync_preview"),
+            ("POST", vec!["toolbelt", "sync", "apply"], "sync_apply"),
+            ("POST", vec!["toolbelt", "import", "preview"], "import_preview"),
+            ("POST", vec!["toolbelt", "import", "apply"], "import_apply"),
+        ];
+        for (method, segs, action) in cases {
+            let (status, body) = respond(method, &segs, &b, None, true, &call).unwrap().unwrap();
+            assert_eq!((status, body["ok"].as_str()), (200, Some(action)), "{method} {segs:?}");
+        }
+        // Not ours.
+        assert!(respond("GET", &["agents", "types"], &b, None, true, &call).is_none());
+        assert!(respond("DELETE", &["toolbelt"], &b, None, true, &call).is_none());
+        // MCP sessions and remote devices are refused before any action runs.
+        let before = log.borrow().len();
+        for (session, local) in [(Some("mcp-1"), true), (None, false)] {
+            let (status, body) = respond("POST", &["toolbelt", "sync", "apply"], &b, session, local, &call).unwrap().unwrap_err();
+            assert_eq!((status, body["code"].as_str()), (403, Some("AUTHORIZATION_DENIED")));
+        }
+        assert_eq!(log.borrow().len(), before, "refused requests never reach the toolbelt");
+        // A failed action is a 400 with a plain message.
+        let (status, body) = respond("POST", &["toolbelt", "remove"], &json!({}), None, true, &call).unwrap().unwrap_err();
+        assert_eq!((status, body["message"].as_str()), (400, Some("id is required")));
+    }
+
+    #[test]
+    fn mcp_sessions_cannot_reach_the_toolbelt_through_the_session_gate() {
+        let err = crate::mcp_sessions::authorize(Some("mcp-session-1"), "POST", "/toolbelt/sync/apply", &json!({}));
+        assert!(err.is_err(), "route is not exposed to MCP sessions");
+    }
+}

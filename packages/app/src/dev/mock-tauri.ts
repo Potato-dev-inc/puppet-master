@@ -16,6 +16,9 @@ import {
   SCREEN_REPLAY,
   ACCOUNT_AGENTS,
   agentsListing,
+  TOOLBELT_IMPORT,
+  TOOLBELT_LISTING,
+  TOOLBELT_PREVIEW,
   standbyStatus,
 } from './fixtures';
 
@@ -153,6 +156,16 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'ambient_get_prefs':
           return { animated_tray_icon: true };
         case 'ambient_set_animated_tray':
+        case 'toolbelt_list':
+          return TOOLBELT_LISTING;
+        case 'toolbelt_sync_preview':
+          return TOOLBELT_PREVIEW;
+        case 'toolbelt_sync_apply':
+          return { ...TOOLBELT_PREVIEW, dry_run: false };
+        case 'toolbelt_import_preview':
+          return { candidates: TOOLBELT_IMPORT };
+        case 'toolbelt_import_apply':
+          return { added: [] };
         case 'resize_pane':
         case 'set_ui_mode':
         case 'interrupt_pane':
