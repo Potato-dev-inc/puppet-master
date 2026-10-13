@@ -27,7 +27,7 @@ const DEFAULT_API: PreloadApi = {
   setConfig: (config) => tauri.standbySetConfig(config),
 };
 
-export function PreloadSettings({ api = DEFAULT_API }: { api?: PreloadApi }) {
+export function PreloadSettings({ api = DEFAULT_API, onSaved }: { api?: PreloadApi; onSaved?: () => void }) {
   const registry = useAgentRegistry();
   const [status, setStatus] = useState<StandbyStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +51,7 @@ export function PreloadSettings({ api = DEFAULT_API }: { api?: PreloadApi }) {
     setError(null);
     try {
       setStatus(await api.setConfig(next));
+      onSaved?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }

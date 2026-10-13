@@ -244,7 +244,7 @@ export function SettingsPanel({
       : section?.blurb;
 
   return (
-    <div className="settings" role="dialog" aria-label="Settings">
+    <div className="settings" role="region" aria-label="Settings">
       <aside className="st-side">
         <div className="st-side-top">
           {onClose && (

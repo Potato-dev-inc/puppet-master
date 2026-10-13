@@ -211,20 +211,6 @@ export async function patchSettings(patch: SettingsPatch): Promise<Settings> {
   return saved;
 }
 
-/**
- * Compatibility shim for callers that still hold a whole settings object: only the keys that differ
- * from what is on disk right now are written, as a patch. New code calls `patchSettings` directly.
- */
-export async function saveSettings(s: Settings): Promise<void> {
-  const fresh = await loadSettings();
-  const patch: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(s)) {
-    if (key === 'ui_mode') continue;
-    if (JSON.stringify(value) !== JSON.stringify((fresh as unknown as Record<string, unknown>)[key])) patch[key] = value;
-  }
-  if (Object.keys(patch).length > 0) await patchSettings(patch as SettingsPatch);
-}
-
 export async function syncPublicSettingsToBridge(): Promise<void> {
   try {
     const s = await loadSettings();

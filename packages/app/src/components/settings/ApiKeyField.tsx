@@ -1,5 +1,6 @@
 // One provider API key: masked when stored, with Replace / Remove. The copy matches where the key really is.
-import { useCallback, useEffect, useState } from 'react';
+// Typing a key saves it when the field loses focus or on Enter (never per keystroke, no Save button).
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   NO_SECURE_STORAGE_WARNING,
   describeKeyState,
@@ -10,7 +11,7 @@ import {
   type SecretStorageInfo,
   type SecretsApi,
 } from '../../lib/secrets';
-import { FieldInput } from './settings-ui';
+import { Btn, FieldInput, Note } from './settings-ui';
 
 interface Props {
   label: string;
@@ -19,14 +20,25 @@ interface Props {
   api?: SecretsApi;
   /** Value held in settings.json. Only used when there is no secure storage. */
   fileValue?: string;
-  onFileChange?: (value: string | undefined) => void;
+  /** Fallback mode only: write the key (or `undefined` to remove it) into settings.json. */
+  onFileChange?: (value: string | undefined) => void | Promise<void>;
+  /** Called after a key is saved or removed in secure storage (not for the settings-file fallback). */
+  onSaved?: () => void;
+  /** Asked before a stored key is removed. Resolves false to keep it. */
+  onConfirmRemove?: () => Promise<boolean>;
 }
 
-export function ApiKeyField({ label, name, placeholder, api = secretsApi, fileValue, onFileChange }: Props) {
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+export function ApiKeyField({ label, name, placeholder, api = secretsApi, fileValue, onFileChange, onSaved, onConfirmRemove }: Props) {
   const [info, setInfo] = useState<SecretStorageInfo | null>(null);
   const [mask, setMask] = useState<SecretMask | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  // Mirrors `draft` so a blur right after Enter (or a second blur) cannot save the same key twice.
+  const draftRef = useRef('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +48,7 @@ export function ApiKeyField({ label, name, placeholder, api = secretsApi, fileVa
       setInfo(i);
       setMask(i.secure ? await api.getMasked(name) : null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }, [api, name]);
 
@@ -55,44 +67,60 @@ export function ApiKeyField({ label, name, placeholder, api = secretsApi, fileVa
   const current = info.secure ? (mask ?? { set: false, last4: null }) : maskLocal(fileValue);
   const showInput = editing || !current.set;
 
+  const setDraftText = (text: string) => {
+    draftRef.current = text;
+    setDraft(text);
+  };
+
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
     setError(null);
     try {
       await action();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
   };
 
-  const save = () =>
-    run(async () => {
-      const value = draft.trim();
-      if (!value) return;
-      if (info.secure) {
-        await api.set(name, value);
-        await refresh();
-      } else {
-        onFileChange?.(value);
+  // Same logic as the old Save button: trim, skip when empty, store, then clear the field.
+  // The draft is cleared before the write, so a second blur or Enter finds nothing to save; it is put
+  // back if the write fails so the person can try again.
+  const commitDraft = () => {
+    const value = draftRef.current.trim();
+    if (!value) return;
+    setDraftText('');
+    void run(async () => {
+      try {
+        if (info.secure) {
+          await api.set(name, value);
+          await refresh();
+          onSaved?.();
+        } else {
+          await onFileChange?.(value);
+        }
+        setEditing(false);
+      } catch (e) {
+        setDraftText(value);
+        throw e;
       }
-      setDraft('');
-      setEditing(false);
     });
+  };
 
-  const remove = () =>
-    run(async () => {
+  const remove = async () => {
+    if (onConfirmRemove && !(await onConfirmRemove())) return;
+    await run(async () => {
       if (info.secure) {
         await api.remove(name);
         await refresh();
+        onSaved?.();
       } else {
-        onFileChange?.(undefined);
+        await onFileChange?.(undefined);
       }
       setEditing(false);
     });
-
-  const btn = 'rounded-lg border border-pm-border px-3 py-1.5 text-sm hover:bg-pm-border/40 disabled:opacity-50';
+  };
 
   return (
     <div className="space-y-2" data-testid={`key-${name}`}>
@@ -108,25 +136,26 @@ export function ApiKeyField({ label, name, placeholder, api = secretsApi, fileVa
               type="password"
               aria-label={label}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => setDraftText(e.target.value)}
+              onBlur={commitDraft}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitDraft();
+              }}
               className="font-mono"
               placeholder={placeholder}
               autoComplete="off"
             />
-            <button type="button" className={btn} disabled={busy || !draft.trim()} onClick={() => void save()}>
-              Save
-            </button>
             {editing && (
-              <button
-                type="button"
-                className={btn}
+              <Btn
+                // Keep focus in the field, so clicking Cancel does not first blur-save what was typed.
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   setEditing(false);
-                  setDraft('');
+                  setDraftText('');
                 }}
               >
                 Cancel
-              </button>
+              </Btn>
             )}
           </div>
           {!current.set && (
@@ -140,19 +169,15 @@ export function ApiKeyField({ label, name, placeholder, api = secretsApi, fileVa
           <span className="font-mono text-sm" data-testid="key-state">
             {describeKeyState(current, info)}
           </span>
-          <button type="button" className={btn} disabled={busy} onClick={() => setEditing(true)}>
+          <Btn disabled={busy} onClick={() => setEditing(true)}>
             Replace
-          </button>
-          <button type="button" className={btn} disabled={busy} onClick={() => void remove()}>
+          </Btn>
+          <Btn disabled={busy} onClick={() => void remove()}>
             Remove
-          </button>
+          </Btn>
         </div>
       )}
-      {error && (
-        <p role="alert" className="text-xs text-red-300">
-          {error}
-        </p>
-      )}
+      {error && <Note role="alert">{error}</Note>}
     </div>
   );
 }

@@ -261,8 +261,20 @@
   border-top: 1px solid var(--sep);
 }
 /* A row that rendered nothing (for example Accounts without the desktop shell) leaves no line behind. */
-.settings .st-rowwrap:not(:has(> .st-row)):not(:has(> .st-embed)) {
+.settings .st-rowwrap:not(:has(> .st-row)):not(:has(> section)) {
   display: none;
+}
+/* A whole group whose rows all rendered nothing (Accounts outside the desktop shell) hides with its heading. */
+.settings .st-group:not(:has(.st-rowwrap > .st-row, .st-rowwrap > section)) {
+  display: none;
+}
+/* Older self-contained sections (Toolbelt, Public address) were cards: here they are plain rows. */
+.settings .st-rowwrap > section.rounded-xl {
+  margin: 0;
+  padding: 10px 14px 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
 }
 .settings .st-row {
   display: flex;

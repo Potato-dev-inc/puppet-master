@@ -202,6 +202,37 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'interrupt_pane':
         case 'answer_pane_prompt':
           return null;
+        case 'settings_patch': {
+          // The Rust command in miniature: merge only the patched keys, null removes, ui_mode is not ours.
+          const current = { ...((store.get('settings') as Record<string, unknown> | undefined) ?? {}) };
+          for (const [key, value] of Object.entries((a.patch ?? {}) as Record<string, unknown>)) {
+            if (key === 'ui_mode') continue;
+            if (value === null) delete current[key];
+            else current[key] = value;
+          }
+          store.set('settings', current);
+          return current;
+        }
+        case 'get_app_install_info':
+          return {
+            version: '0.9.0',
+            isPackaged: true,
+            platform: 'windows',
+            uninstallAvailable: true,
+            uninstallInstructions: 'Removes Puppet Master with the Windows uninstaller.',
+            dataDir: 'C:\Users\dev\AppData\Roaming\com.puppetmaster.app',
+          };
+        case 'get_coordination_storage_info':
+          return {
+            scope: 'project',
+            project_path: 'C:\Users\dev\work\puppet-master',
+            storage_dir: 'C:\Users\dev\work\puppet-master\.puppet-master',
+            event_log_path: 'C:\Users\dev\work\puppet-master\.puppet-master\events.jsonl',
+            event_count: 148,
+            task_count: 3,
+            lock_count: 1,
+            exists: true,
+          };
         // plugin-store
         case 'plugin:store|get_store':
         case 'plugin:store|load':

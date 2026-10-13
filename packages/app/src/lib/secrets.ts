@@ -83,12 +83,3 @@ export function redactSettings<T extends object>(settings: T): Record<string, un
   }
   return out;
 }
-
-/** Drop provider keys from a settings object that is about to be written to settings.json. */
-export function withoutSecrets(s: Settings): Settings {
-  const copy = { ...s };
-  delete copy.anthropic_api_key;
-  delete copy.openai_api_key;
-  delete copy.openrouter_api_key;
-  return copy;
-}
