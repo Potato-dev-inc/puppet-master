@@ -38,6 +38,7 @@ mod projections;
 mod pty;
 mod pwa_server;
 mod session_context;
+mod secrets;
 mod settings_store;
 mod shell_env;
 mod startup_timing;
@@ -154,6 +155,11 @@ pub fn run() {
             commands::get_worker_launch,
             commands::exit_app,
             commands::get_opencode_key_status,
+            commands::secret_storage_info,
+            commands::secret_set,
+            commands::secret_get_masked,
+            commands::secret_delete,
+            commands::secret_get_for_llm,
             commands::set_opencode_automation_settings,
             commands::set_opencode_key_settings,
             commands::set_opencode_key_profile,
@@ -293,6 +299,7 @@ pub fn run() {
 
             let registry_for_panes = app.state::<AppState>().registry.clone();
             pane_windows::init(app.handle(), registry_for_panes.clone());
+            secrets::migrate_on_startup();
             settings_store::load_saved_public_settings(app.handle());
             ui_mode::load_saved();
             // Panes-first: no main window. A standalone worker host (`--worker`) is the one

@@ -252,13 +252,69 @@ fn load_store() -> Result<KeyProfilesStore, String> {
         store.version = STORE_VERSION;
     }
     ensure_default_profiles(&mut store);
+    hydrate_from_secret_store(&mut store);
     Ok(store)
+}
+
+fn secret_name(profile_id: &str) -> String {
+    format!("opencode_profile_{profile_id}")
+}
+
+/// Profile credentials are kept in the OS credential store; the file only holds the label and
+/// which profile is active. A profile whose credentials are still in the file (older version, or
+/// no credential store) is used as is.
+fn hydrate_from_secret_store(store: &mut KeyProfilesStore) {
+    let backend = crate::secrets::backend();
+    for (id, profile) in store.profiles.iter_mut() {
+        if profile_configured_value(&profile.auth) {
+            continue;
+        }
+        if let Some(auth) = backend
+            .get(&secret_name(id))
+            .ok()
+            .flatten()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        {
+            profile.auth = auth;
+        }
+    }
+}
+
+/// Copy of the store that is safe to write to disk: credentials that verifiably reached the
+/// credential store are blanked, the rest stay (no store means the file is the only copy).
+fn store_for_disk(store: &KeyProfilesStore) -> KeyProfilesStore {
+    let backend = crate::secrets::backend();
+    let mut out = store.clone();
+    for (id, profile) in out.profiles.iter_mut() {
+        let name = secret_name(id);
+        if !profile_configured_value(&profile.auth) {
+            let _ = backend.delete(&name);
+            continue;
+        }
+        let Ok(raw) = serde_json::to_string(&profile.auth) else { continue };
+        if backend.available()
+            && backend.set(&name, &raw).is_ok()
+            && backend.get(&name).ok().flatten().as_deref() == Some(raw.as_str())
+        {
+            profile.auth = json!({});
+        }
+    }
+    out
+}
+
+/// Startup: move OpenCode key profiles that an older version wrote to disk into the credential store.
+pub fn migrate_profiles_to_secret_store() {
+    if store_path().is_file() {
+        if let Ok(store) = load_store() {
+            let _ = save_store(&store);
+        }
+    }
 }
 
 fn save_store(store: &KeyProfilesStore) -> Result<(), String> {
     crate::app_paths::ensure_app_data_dir()?;
     let path = store_path();
-    let json = serde_json::to_string_pretty(store)
+    let json = serde_json::to_string_pretty(&store_for_disk(store))
         .map_err(|err| format!("serialize opencode key profiles: {err}"))?;
     fs::write(&path, json).map_err(|err| format!("write {}: {err}", path.display()))
 }
@@ -467,6 +523,26 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         std::env::remove_var("PUPPET_MASTER_TEST_OPENCODE_KEYS_STORE");
         std::env::remove_var("PUPPET_MASTER_TEST_OPENCODE_AUTH");
+    }
+
+    #[test]
+    fn profile_keys_are_kept_out_of_the_profile_file() {
+        let _guard = lock();
+        let dir = std::env::temp_dir().join(format!("pm-opencode-keys-secret-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("tempdir");
+        let store_file = dir.join("opencode-key-profiles.json");
+        std::env::set_var("PUPPET_MASTER_TEST_OPENCODE_KEYS_STORE", &store_file);
+
+        set_profile_api_key("a", "oc-secret-key-AAAA1111", None).expect("set");
+        let on_disk = fs::read_to_string(&store_file).unwrap();
+        assert!(!on_disk.contains("oc-secret-key-AAAA1111"), "key must not be written to the file");
+        // Still usable: the store hydrates it back from the credential store.
+        let status = status().expect("status");
+        assert!(status.profiles.iter().any(|p| p.id == "a" && p.configured));
+        assert!(load_store().unwrap().profiles[PROFILE_A].auth.to_string().contains("oc-secret-key-AAAA1111"));
+
+        let _ = fs::remove_dir_all(&dir);
+        std::env::remove_var("PUPPET_MASTER_TEST_OPENCODE_KEYS_STORE");
     }
 
     #[test]
