@@ -87,6 +87,8 @@ pub fn tick_with(
             continue; // screen and status unchanged: nothing to reclassify
         }
         recomputed += 1;
+        // Dev-server URLs ride on the same throttle: only panes whose screen changed, once per tick.
+        crate::pane_preview::observe(&id, &tail);
         let Some(activity) = crate::tui::profile_for(&pane.agent_type).activity(&tail, pane.status) else {
             STATE.lock().last.remove(&id);
             continue;
@@ -106,6 +108,12 @@ pub fn tick_with(
 
 /// Start the ticker. Call once at startup with the shared registry.
 pub fn init(registry: Arc<Mutex<PaneRegistry>>, app: tauri::AppHandle) {
+    let sink_app = app.clone();
+    crate::pane_preview::install_sink(Box::new(move |id, urls| {
+        use tauri::Emitter;
+        let _ = sink_app.emit("pty://preview", serde_json::json!({ "pane_id": id, "urls": urls }));
+        crate::bridge::push_pane_preview_sse(id, urls);
+    }));
     std::thread::Builder::new()
         .name("pane-activity".into())
         .spawn(move || loop {
@@ -118,6 +126,7 @@ pub fn init(registry: Arc<Mutex<PaneRegistry>>, app: tauri::AppHandle) {
                 Some(PaneSnapshot { agent_type: pane.info.agent_type.clone(), screen, status })
             };
             let alive = |id: &str| registry.lock().panes.contains_key(id);
+            let running = |id: &str| registry.lock().panes.get(id).is_some_and(|p| !*p.exited.lock());
             let emit = |id: &str, activity: &Activity| {
                 use tauri::Emitter;
                 let payload = serde_json::json!({ "pane_id": id, "activity": activity });
@@ -125,9 +134,14 @@ pub fn init(registry: Arc<Mutex<PaneRegistry>>, app: tauri::AppHandle) {
                 crate::bridge::push_pane_activity_sse(id, activity);
             };
             tick_with(&read, &alive, &emit);
+            crate::pane_preview::retain_alive(&running);
         })
         .ok();
 }
+
+/// Tests that tick share the process-global state; they take this lock (also used by `pane_preview`).
+#[cfg(test)]
+pub(crate) static TEST_SERIAL: Mutex<()> = parking_lot::const_mutex(());
 
 #[cfg(test)]
 mod tests;

@@ -2,7 +2,7 @@ use super::*;
 use std::cell::{Cell, RefCell};
 
 /// The tracker state is process-global, so tests that tick run one at a time.
-static SERIAL: Mutex<()> = Mutex::new(());
+use super::TEST_SERIAL as SERIAL;
 
 fn snap(screen: &str, status: PaneStatus) -> Option<PaneSnapshot> {
     Some(PaneSnapshot { agent_type: "cursor_agent".into(), screen: screen.into(), status })
