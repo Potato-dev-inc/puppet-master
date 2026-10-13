@@ -33,6 +33,7 @@ fn load_file(project: &Path) -> BTreeMap<String, Vec<TurnSummary>> {
 fn save_file(project: &Path, panes: BTreeMap<String, Vec<TurnSummary>>) -> std::io::Result<()> {
     let path = ring_path(project);
     if let Some(dir) = path.parent() {
+        crate::git_exclude::ensure_project_storage_excluded(project);
         std::fs::create_dir_all(dir)?;
     }
     let body = serde_json::to_vec(&RingFile { version: 1, panes }).map_err(std::io::Error::other)?;

@@ -133,6 +133,7 @@ impl Shadow {
     /// Create the shadow repository if needed and write its private configuration.
     pub fn ensure(&self, extra_excludes: &[String]) -> Result<(), GitError> {
         if !self.exists() {
+            crate::git_exclude::ensure_project_storage_excluded(&self.work_tree);
             std::fs::create_dir_all(&self.git_dir).map_err(|e| GitError(format!("create {}: {e}", self.git_dir.display())))?;
             std::fs::write(self.empty_config(), "").map_err(|e| GitError(e.to_string()))?;
             self.run(&["init", "--quiet", "--template="], None, None, &[])?;

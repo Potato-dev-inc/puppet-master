@@ -71,6 +71,7 @@ pub(super) fn path_for(project: &str, id: &str) -> Result<PathBuf, OperationErro
 pub(super) fn persist(op: &OperationSnapshot) -> Result<(), OperationError> {
     let path = path_for(&op.project_path, &op.operation_id)?;
     let parent = path.parent().unwrap();
+    crate::git_exclude::ensure_project_storage_excluded(Path::new(&op.project_path));
     fs::create_dir_all(parent)
         .map_err(|e| OperationError::io_at("create operations dir", parent, e))?;
     update_indexes(&op.project_path, op.task_id.as_deref(), &op.operation_id)?;

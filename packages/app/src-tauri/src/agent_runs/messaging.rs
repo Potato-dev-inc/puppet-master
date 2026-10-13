@@ -452,6 +452,7 @@ fn upsert_receipt(
     }
     let path = path_for(project, handle);
     if let Some(parent) = path.parent() {
+        crate::git_exclude::ensure_project_storage_excluded(std::path::Path::new(project));
         fs::create_dir_all(parent).map_err(|error| {
             OperationError::new("STORAGE_ERROR", error.to_string(), true)
         })?;

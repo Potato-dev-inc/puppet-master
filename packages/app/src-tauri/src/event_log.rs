@@ -126,6 +126,10 @@ impl EventLogManager {
         if slot.path == path {
             return Ok(slot.log.clone());
         }
+        if let Some(project) = self.active_project_path() {
+            // The project's events.jsonl must not end up in the user's commits.
+            crate::git_exclude::ensure_project_storage_excluded(&project);
+        }
         let log = Arc::new(EventLog::new(path.clone())?);
         *slot = EventLogSlot {
             path,
