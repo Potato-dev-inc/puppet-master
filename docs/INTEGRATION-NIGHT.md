@@ -290,3 +290,73 @@ The 30 cockpit shots from round 2 are byte-identical to round 2 (same table abov
   digest on top, a bottom-sheet menu (notifications, terminal options, Stop all agents), an "Open an agent on your PC"
   sheet, and a "Looks stuck" strip on a stuck agent's terminal.
 - **Tests**: `cargo test --lib` should now end with 0 failures.
+
+---
+
+# Round 4
+
+Backup: `backup/integration-round4-start` (`18c3d0f`).
+
+## Merged branches
+
+| # | Branch | Head | Merge commit |
+|---|---|---|---|
+| 20 | `feat/followups` (question push, toolbelt secrets in the keyring, phone questions over SSE, `/agents/types` path redaction) | `1796721` | `fb600c1` |
+| 21 | `feat/phone-lossless` (stream offsets on terminal, pane-resize and `/screen`; lossless phone handoff; `onGap` nudge) | `6ed77e4` | `df26258` |
+| 22 | `feat/second-opinion` | `6206fa1` | `9448f0d` |
+
+All three merged with **no conflicts**. I still checked the named hot-spots: `PwaApp.tsx` has both the questions SSE
+(`questionsRev`, `ev.type === 'questions'`) and the `onGap` nudge; the checkpoint engine/runtime and `Changes.tsx` /
+`PaneView.tsx` carry the second-opinion additions next to the earlier Changes and Last turn sections.
+
+## MCP catalog
+
+Unchanged: 68 tools, `68-e4687e50f1687299` (the pin test passes).
+
+## Results (once, after all three merges)
+
+```
+npm run build --workspace=@puppet-master/shared        -> tsc -p tsconfig.json (no errors)
+npx tsc --noEmit -p packages/app                       -> exit 0, no output
+npm test --workspace=@puppet-master/app                -> Test Files 106 passed (106); Tests 920 passed (920); no errors
+cargo test --lib   (src-tauri)                         -> test result: ok. 1476 passed; 0 failed; 2 ignored
+cargo test --bins  (src-tauri)                         -> ok. 33 passed (puppet-master-mcp); ok. 0 passed (app)
+npm run build --workspace=@puppet-master/app           -> built; tracked files under src-tauri/resources reverted, not committed
+```
+
+All 154 `#[tauri::command]` functions are registered in `lib.rs`.
+
+## Screenshots (round 4: `D:\pm-night\evidence\integration-r4`, 52 PNGs, all scenarios)
+
+Run: `node scripts/evidence/screenshot.mjs --out D:\pm-night\evidence\integration-r4`. 41 are byte-identical to round 3.
+Changed or new, all opened and checked:
+
+| File | Shows |
+|---|---|
+| second-opinion-changes | Receipt: Changes with review notes pinned to diff lines, "Send to Claude Code" per note, and the Second opinion panel ("Some concerns", Codex reviewed, an elsewhere note, Ask again / Dismiss) |
+| second-opinion-picker | "Who should review?" sheet: Codex (ready) or Cursor Agent, optional "Also allow Claude Code", Start review |
+| cockpit-changes | Receipt with Changes diff, Merge/Discard, a Second opinion button, Last turn |
+| cockpit-changes-merge | Merge confirm over the same Receipt (light theme) |
+| cockpit-receipt | Receipt: Changes, Second opinion button, Last turn, receipt facts |
+| cockpit-last-turn | Receipt with the new Second opinion row above Last turn |
+| cockpit-rename | Pane title being renamed |
+| phone-agents-list | Phone Agents list with the question card (now fed over SSE) |
+| phone-terminal | Phone terminal: "Looks stuck" strip, key panel, command box |
+| settings-toolbelt | Bridge & MCP: Toolbelt copy now says secrets are kept in "your system's secure storage" |
+| settings-toolbelt-preview | Toolbelt apply preview (secret values still masked in the diff) |
+
+## Known issues (additions)
+
+- Not run in the real app: question pushes, the keyring-backed toolbelt secrets, the lossless phone handoff and the second
+  opinion reviewer need a real phone, Credential Manager and real agent CLIs.
+- Second opinion asks another agent to read the worktree; its quality depends on the agent you pick.
+
+## How to try it (additions)
+
+- **Second opinion**: open a pane that ran in a worktree, Receipt tab > "Second opinion" > pick a reviewer (the reviewer can
+  read but not change anything) > Start review. Notes appear on the diff lines; "Send to <agent>" hands a note back.
+- **Questions on the phone**: an `ask_user` question reaches the phone over the live stream, and (with push set up) as a
+  notification.
+- **Toolbelt secrets**: Settings > Bridge & MCP > Toolbelt: tokens and passwords you add are stored in Windows Credential
+  Manager, not in the settings file.
+- **Phone terminal**: scroll and reconnect on the phone; output should no longer repeat or drop lines across a handoff.
