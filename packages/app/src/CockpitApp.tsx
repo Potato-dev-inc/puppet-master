@@ -1,6 +1,9 @@
 // Cockpit window (`index.html?cockpit=1`): one window that orchestrates every agent pane.
 import { useEffect, useState } from 'react';
 import { useCockpit } from './hooks/useCockpit';
+import { useAway } from './hooks/useAway';
+import { LastTurnContext } from './components/cockpit/away-context';
+import { AwayDigest } from './components/cockpit/AwayDigest';
 import { Inbox } from './components/cockpit/Inbox';
 import { PaneView } from './components/cockpit/PaneView';
 import { Palette } from './components/cockpit/Palette';
@@ -11,6 +14,7 @@ import './styles/cockpit.css';
 export default function CockpitApp() {
   const c = useCockpit();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const away = useAway(c.registry.paneList.map((p) => p.info.id));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -24,6 +28,7 @@ export default function CockpitApp() {
   }, []);
 
   return (
+    <LastTurnContext.Provider value={away.lastTurn}>
     <div className="cockpit" data-theme={c.theme}>
       <Sidebar c={c} onOpenPalette={() => setPaletteOpen(true)} />
       <main className="ck-main">
@@ -42,6 +47,21 @@ export default function CockpitApp() {
         ) : (
           <Inbox c={c} />
         )}
+        {away.digest && c.mode !== 'individual' && (
+          <AwayDigest
+            digest={away.digest}
+            now={c.now}
+            onDismiss={away.dismissDigest}
+            onOpenPane={(id) => {
+              away.dismissDigest();
+              c.select(id);
+            }}
+            onOpenInbox={() => {
+              away.dismissDigest();
+              c.select(null);
+            }}
+          />
+        )}
       </main>
       {paletteOpen && <Palette c={c} onClose={() => setPaletteOpen(false)} />}
       <div className="ck-toasts" aria-live="polite">
@@ -52,5 +72,6 @@ export default function CockpitApp() {
         ))}
       </div>
     </div>
+    </LastTurnContext.Provider>
   );
 }

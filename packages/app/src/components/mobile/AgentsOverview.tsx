@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { PaneInfo } from '@puppet-master/shared';
 import type { BridgeClient } from '../../lib/bridge';
 import { ago, previewLines, projectName, statusMeta } from '../../lib/mobile-agent-tabs';
+import { DigestCard } from './DigestCard';
 
 const PREVIEW_POLL_MS = 4000;
 
@@ -79,6 +80,7 @@ export function AgentsOverview({
 
   return (
     <div className="h-full overflow-y-auto overscroll-contain p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]">
+      <DigestCard bridge={bridge} bridgeReady={bridgeReady} onOpen={onOpen} />
       <ul className="flex flex-col gap-2">
         {panes.map((pane) => {
           const meta = statusMeta(pane.status);

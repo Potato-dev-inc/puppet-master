@@ -12,6 +12,8 @@ export interface HarnessScenario {
   select?: string;
   /** Settings: tab id passed as `?tab=`. */
   settingsTab?: string;
+  /** Cockpit: start with the "While you were away" digest showing (as after a return). */
+  awayDigest?: boolean;
   /** Override the example panes. */
   panes?: PaneInfo[];
   /** Runs once after the first paint (and after the panes loaded); click things, press keys. */

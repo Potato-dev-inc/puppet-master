@@ -7,6 +7,8 @@ import { DotSpinner } from './DotSpinner';
 import { IconClose, IconCopy, IconMore, IconReflow, IconStop } from './Icons';
 import { formatElapsed, promptSummary, receiptRows, spinnerStatus, stateText } from './model';
 import { History } from './History';
+import { LastTurn } from './LastTurn';
+import { useLastTurn } from './away-context';
 import { SegTabs } from './SegTabs';
 
 type Tab = 'terminal' | 'transcript' | 'receipt' | 'history';
@@ -61,6 +63,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const getSelectionRef = useRef<(() => string) | null>(null);
   const run = useRunData(paneId, tab !== 'terminal', pane?.status ?? '');
+  const lastTurn = useLastTurn(paneId);
 
   useEffect(() => {
     setTab('terminal');
@@ -267,6 +270,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         {tab === 'history' && <History paneId={paneId} status={pane.status} now={c.now} notify={c.notify} />}
         {tab === 'receipt' && (
           <div className="ck-scroll ck-fade-in" key="receipt">
+            <LastTurn summary={lastTurn} now={c.now} />
             {run.error ? (
               <Empty title="Receipt unavailable" body={run.error} />
             ) : run.info === undefined ? (

@@ -58,6 +58,7 @@ export function SettingsPanel({
     developer_use_rust_mcp: false,
     checkpoints_enabled: true,
     checkpoints_keep: 50,
+    away_minutes: 5,
   });
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [draftCustom, setDraftCustom] = useState<LlmModel>(EMPTY_CUSTOM);

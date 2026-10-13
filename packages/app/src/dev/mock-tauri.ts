@@ -3,6 +3,8 @@ import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { HarnessScenario } from './types';
 import {
   EXAMPLE_CHECKPOINTS,
+  EXAMPLE_DIGEST,
+  EXAMPLE_TURN_SUMMARIES,
   EXAMPLE_FILE_CHANGES,
   EXAMPLE_PANES,
   EXAMPLE_PROMPT,
@@ -45,6 +47,13 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'checkpoint_restore':
         case 'checkpoint_undo_last':
           return { safetyId: '7', written: 4, removed: 1, failed: [] };
+        case 'turn_summaries':
+          return a.paneId === PANE_CLAUDE ? EXAMPLE_TURN_SUMMARIES : [];
+        case 'away_digest_pending':
+          return scenario.awayDigest ? EXAMPLE_DIGEST : null;
+        case 'away_digest_dismiss':
+        case 'presence_cockpit_focus':
+          return null;
         case 'read_pane_screen_replay':
           return SCREEN_REPLAY;
         case 'read_pane_raw_buffer':

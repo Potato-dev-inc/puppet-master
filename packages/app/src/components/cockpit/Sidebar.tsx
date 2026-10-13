@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { DotSpinner } from './DotSpinner';
 import { IconInbox, IconMoon, IconPlus, IconSearch, IconSettings, IconSun } from './Icons';
 import { formatElapsed, groupPanes, spinnerStatus } from './model';
+import { LastTurnContext } from './away-context';
 import { SegTabs } from './SegTabs';
 
 export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: () => void }) {
   const list = c.registry.paneList;
   const groups = groupPanes(list);
   const waiting = list.filter((p) => p.status === 'waiting_input').length;
+  const lastTurn = useContext(LastTurnContext);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -41,6 +43,7 @@ export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: ()
               type="button"
               className={`ck-row${active ? ' is-active' : ''}${p.status === 'waiting_input' ? ' is-needs' : ''}`}
               onClick={() => c.select(id)}
+              title={lastTurn.get(id)?.sentence}
               aria-current={active ? 'true' : undefined}
             >
               <span className="ck-row-glyph">
