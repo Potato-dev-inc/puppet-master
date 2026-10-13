@@ -61,7 +61,7 @@ The in-app orchestrator sidebar and Coordination panel UI are **obsolete** (main
 ## 3. MCP server and tools
 
 The stdio shim `puppet-master-mcp` (`bin/puppet-master-mcp.rs`, `bin/puppet_master_mcp/`) advertises the catalog in `tool_registry/catalog/` and
-maps each tool to a bridge route; `catalog_version` is pinned (`66-46d53ccddbd2b4dc`). `set_mode` limits a connection to agent, shell or both.
+maps each tool to a bridge route; `catalog_version` is pinned (`68-e4687e50f1687299`). `set_mode` limits a connection to agent, shell or both.
 Port discovery: the shim reads the port file and, if that port is dead, probes 17321-17330.
 
 **Agent mode (`catalog/agents.rs`)**
