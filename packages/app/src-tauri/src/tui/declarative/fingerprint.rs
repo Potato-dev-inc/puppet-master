@@ -40,7 +40,7 @@ pub fn canonical_value(def: &Definition, source: Source, project: Option<&str>, 
             "read_only_argv": t.read_only_argv,
         })
     });
-    json!({
+    let mut value = json!({
         "v": 1,
         "source": source_name(source),
         "project": project.map(canonical_project),
@@ -62,7 +62,13 @@ pub fn canonical_value(def: &Definition, source: Source, project: Option<&str>, 
             "key_path": m.key_path,
             "entry": serde_json::to_value(&m.entry).unwrap_or(Value::Null),
         })),
-    })
+    });
+    // It writes into project files, so it is approved with the definition. Added only when
+    // present: definitions without it keep the fingerprint they were approved under.
+    if let Some(i) = &def.instructions {
+        value["instructions"] = json!({ "paths": i.all_paths(), "header": i.header });
+    }
+    value
 }
 
 /// `sha256:<hex>` of `canonical_value`.

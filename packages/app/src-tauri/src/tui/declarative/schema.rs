@@ -53,6 +53,9 @@ pub struct Definition {
     #[serde(default)]
     pub context: ContextTable,
     pub mcp_host: Option<McpHostTable>,
+    /// Project files this agent reads its instructions from; Puppet Master keeps its shared
+    /// project memory in a managed block of each (`crate::one_brain`).
+    pub instructions: Option<InstructionsTable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -495,6 +498,31 @@ pub enum McpHostFormat {
     Json,
     Toml,
     Yaml,
+}
+
+/// `[instructions]`: `file = "AGENTS.md"` or `files = ["AGENTS.md", ".cursor/rules/pm.mdc"]`
+/// (relative to the project root), and an optional `header` written once when the file is created
+/// (front-matter for formats that need it).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstructionsTable {
+    pub file: Option<String>,
+    #[serde(default)]
+    pub files: Vec<String>,
+    pub header: Option<String>,
+}
+
+impl InstructionsTable {
+    /// `file` first, then `files`, without duplicates.
+    pub fn all_paths(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for p in self.file.iter().chain(self.files.iter()) {
+            if !out.contains(p) {
+                out.push(p.clone());
+            }
+        }
+        out
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

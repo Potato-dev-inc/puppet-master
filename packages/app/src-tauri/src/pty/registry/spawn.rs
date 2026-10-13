@@ -141,6 +141,9 @@ pub fn spawn_pane(
     .to_string_lossy()
     .to_string();
 
+    // One brain: the project's shared memory is in every agent's instruction file before it starts.
+    crate::one_brain::sync_on_spawn(&cwd);
+
     let cols = args.cols.unwrap_or(120);
     let rows = args.rows.unwrap_or(30);
     let pane_id = args.pane_id.unwrap_or_else(|| Uuid::new_v4().to_string());

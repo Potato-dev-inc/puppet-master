@@ -8,13 +8,18 @@
 mod headless;
 mod screen;
 
-use super::{Features, HeadlessLaunch, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
+use super::{Features, HeadlessLaunch, InstructionFile, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
 
 pub struct Codex;
 
 impl TuiProfile for Codex {
     fn id(&self) -> &'static str {
         "codex"
+    }
+
+    /// Codex reads `AGENTS.md` from the project root down to the cwd (developers.openai.com/codex/guides/agents-md).
+    fn instruction_files(&self) -> Vec<InstructionFile> {
+        vec![InstructionFile::new("AGENTS.md")]
     }
 
     fn features(&self) -> Features {

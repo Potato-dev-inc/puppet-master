@@ -20,6 +20,13 @@ pub trait TuiProfile: Send + Sync {
         false
     }
 
+    /// Project files this agent reads its instructions from, relative to the project root. Puppet
+    /// Master renders the shared project memory into each (see `crate::one_brain`). Default none:
+    /// only declare a file after verifying the agent really reads it.
+    fn instruction_files(&self) -> Vec<InstructionFile> {
+        Vec::new()
+    }
+
     /// Why this backend cannot be dispatched; shown to the caller. Only read when
     /// `features().dispatchable` is false.
     fn not_dispatchable_reason(&self) -> &'static str {

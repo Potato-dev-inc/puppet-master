@@ -91,6 +91,26 @@ pub enum StandbyScreen {
     NotReady,
 }
 
+/// A file an agent reads its project instructions from (`TuiProfile::instruction_files`). Puppet
+/// Master keeps the shared project memory inside a managed block of each such file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstructionFile {
+    /// Relative to the project root, forward slashes (`AGENTS.md`, `.cursor/rules/x.mdc`).
+    pub path: String,
+    /// Text written once at the top when Puppet Master creates the file (for formats that need
+    /// front-matter). Never added to a file that already exists.
+    pub header: Option<String>,
+}
+
+impl InstructionFile {
+    pub fn new(path: &str) -> Self {
+        Self { path: path.to_string(), header: None }
+    }
+    pub fn with_header(path: &str, header: &str) -> Self {
+        Self { path: path.to_string(), header: Some(header.to_string()) }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchSpec {
     pub program: String,

@@ -19,6 +19,7 @@ pub mod mcp_sessions;
 mod mcp_status;
 mod mobile_pairing;
 mod mobile_tunnel;
+mod one_brain;
 mod opencode;
 pub mod operations;
 #[cfg(test)]
@@ -164,6 +165,12 @@ pub fn run() {
             commands::get_ui_mode,
             commands::set_ui_mode,
             commands::open_cockpit,
+            commands::memory_get,
+            commands::memory_save,
+            commands::memory_sync,
+            commands::memory_set_project_enabled,
+            commands::memory_global_enabled,
+            commands::memory_set_global_enabled,
             commands::open_settings,
             commands::pane_prompt,
             commands::answer_pane_prompt,

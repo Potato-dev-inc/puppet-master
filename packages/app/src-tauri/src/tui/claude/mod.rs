@@ -8,7 +8,7 @@
 mod headless;
 mod screen;
 
-use super::{Features, HeadlessLaunch, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
+use super::{Features, HeadlessLaunch, InstructionFile, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
 
 pub struct Claude;
 
@@ -28,6 +28,11 @@ impl TuiProfile for Claude {
     /// (recorded under ConPTY and replayed into xterm.js, 2026-10-13).
     fn reprints_on_resize(&self) -> bool {
         true
+    }
+
+    /// Claude Code loads `CLAUDE.md` from the project root (code.claude.com/docs/en/memory).
+    fn instruction_files(&self) -> Vec<InstructionFile> {
+        vec![InstructionFile::new("CLAUDE.md")]
     }
 
     fn is_installed(&self) -> bool {

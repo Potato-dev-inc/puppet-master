@@ -19,11 +19,24 @@ mod screen;
 pub use launch::parse_default_model;
 
 use super::{
-    Features, HeadlessLaunch, Kind, LaunchSpec, Reply, RunFacts, RunOptionSupport, StandbyScreen,
+    Features, HeadlessLaunch, InstructionFile, Kind, LaunchSpec, Reply, RunFacts, RunOptionSupport, StandbyScreen,
     StandbySupport, TuiProfile, Warning,
 };
 use crate::pty::status::PaneStatus;
 use serde_json::Value;
+
+/// Cursor loads `.cursor/rules/*.mdc`; a rule needs front-matter, and `alwaysApply: true` puts it in
+/// every session (cursor.com/docs/context/rules; the CLI "supports the same rules system",
+/// cursor.com/docs/cli/using).
+fn cursor_rules() -> Vec<InstructionFile> {
+    vec![InstructionFile::with_header(
+        ".cursor/rules/puppet-master.mdc",
+        "---
+description: Shared project memory kept by Puppet Master
+alwaysApply: true
+---",
+    )]
+}
 
 const NOTE_BOUNDARIES: &str =
     "cursor TUI response boundaries are version-specific screen heuristics, not protocol events";
@@ -60,6 +73,10 @@ pub struct CursorAgent;
 impl TuiProfile for CursorAgent {
     fn id(&self) -> &'static str {
         "cursor_agent"
+    }
+
+    fn instruction_files(&self) -> Vec<InstructionFile> {
+        cursor_rules()
     }
 
     fn features(&self) -> Features {
@@ -243,6 +260,10 @@ pub struct CursorIde;
 impl TuiProfile for CursorIde {
     fn id(&self) -> &'static str {
         "cursor"
+    }
+
+    fn instruction_files(&self) -> Vec<InstructionFile> {
+        cursor_rules()
     }
 
     fn features(&self) -> Features {

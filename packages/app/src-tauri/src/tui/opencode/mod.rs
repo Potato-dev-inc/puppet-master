@@ -9,13 +9,22 @@
 pub mod read_only;
 mod screen;
 
-use super::{Features, Kind, StandbyScreen, StandbySupport, TuiProfile};
+use super::{Features, InstructionFile, Kind, StandbyScreen, StandbySupport, TuiProfile};
+
+/// OpenCode reads `AGENTS.md` (falling back to `CLAUDE.md` only when it is missing): opencode.ai/docs/rules.
+fn agents_md() -> Vec<InstructionFile> {
+    vec![InstructionFile::new("AGENTS.md")]
+}
 
 pub struct OpenCode;
 
 impl TuiProfile for OpenCode {
     fn id(&self) -> &'static str {
         "opencode"
+    }
+
+    fn instruction_files(&self) -> Vec<InstructionFile> {
+        agents_md()
     }
 
     /// Visible panes only: the TUI takes its task typed into the pane, not on stdin.
@@ -41,6 +50,10 @@ pub struct OpenCodeNative;
 impl TuiProfile for OpenCodeNative {
     fn id(&self) -> &'static str {
         "opencode_native"
+    }
+
+    fn instruction_files(&self) -> Vec<InstructionFile> {
+        agents_md()
     }
 
     fn features(&self) -> Features {
