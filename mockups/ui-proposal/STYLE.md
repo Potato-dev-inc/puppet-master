@@ -72,3 +72,65 @@ Needs-you is the only thing allowed to be visually loud, and only through contra
 - **Segmented control**, **switch** (Apple style, monochrome: on = `--label` track, `--bg` knob), **grouped inset list** (System Settings), **popover menu** with ⌘ shortcuts right-aligned in label-3, **command palette** (⌘K, 560px, float bg).
 - **Terminal**: same `--bg` as window, `--label-2` text, prompts/agent bullets in `--label`, diff `+`/`-` lines shown by `--label` vs `--label-3` + a 2px left rule, never red/green.
 - Every mock surface carries a quiet "Example data" caption (11px label-4).
+
+---
+
+# v3 addendum: premium detailing
+
+The v2 rules above still apply: grayscale only, Apple restraint and Cursor density. v3 adds a signature motif and
+motion details on top of v2. Do not add colour. The v2 snapshot lives in `mockups/ui-proposal-v2/`, on branch
+`backup/ui-proposal-v2` and on tag `ui-proposal-v2`.
+
+## Signature: dot matrix (ref: dotmatrix.zzzzshawn.cloud)
+- **State glyphs become dot-matrix loaders.** They use a 3×3 grid at 12px in rows and a 5×5 grid at 36px+ in
+  empty and loading states. Dots are circles, gap ≈ 40% of the dot size. "On" dots are `--label` and "off" dots
+  are `--label-4`. Animate dots with CSS keyframes and per-dot `animation-delay` from row/col custom properties.
+  | State | Pattern |
+  |---|---|
+  | Needs you | the full grid pulses together (1.6s), centre dot always on, the brightest thing on screen |
+  | Running / tool | a diagonal sweep (running) or a column scan (tool) |
+  | Writing | a row sweep, left to right |
+  | Thinking | a spiral from the centre outwards, slow |
+  | Idle | static, corners on only, at `--label-3` |
+  | Error | an X pattern, static, at `--label` |
+  | Done | a check pattern, static, at `--label-3` |
+  With `prefers-reduced-motion`, every glyph shows its static pattern.
+- **Dot-matrix display type**, used sparingly for numbers and one display moment per screen: inbox count hero, phone large-title counter, palette header, empty states.
+  - Font: `Doto` from Google Fonts, weight 600–800. Use it on Next via `next/font/google`, with a CSS fallback to the mono.
+  - Never use it for body copy or controls.
+- **Dot-grid texture**: a radial-gradient dot grid (1px dots, 16px pitch, `--label-4` at 35% opacity) behind empty states and the palette backdrop only. It is masked with a radial fade.
+
+## Motion & components (ref: KokonutUI, rebuilt by hand, monochrome)
+- **Smooth tab**:
+  - Segmented controls get a sliding active pill (shared-layout spring: stiffness 400, damping 32).
+  - Content cross-fades with an 8px y-offset and a 4px→0 blur.
+  - Used for: phone "Needs you / All", the pane view switch "Terminal · Transcript · Receipt", and settings sub-tabs where useful.
+- **Action search bar → ⌘K palette**:
+  - Input debounced at 150ms.
+  - Results are grouped: Agents, Actions, Settings. Each row is icon · title · one-line description in label-3 · right-aligned `kbd` hint.
+  - Rows enter with a 20ms stagger. The highlighted row has a sliding background.
+- **AI prompt → composer**:
+  - The textarea auto-resizes from 1 to 6 lines.
+  - Left: an agent/model selector chip that opens a dropdown, e.g. "Claude Code · Opus 5.5".
+  - Also left: an attach (paperclip) button.
+  - Right: a circular send button that only becomes `--primary-bg` when there is text.
+- **AI input search → steer toggle**:
+  - A pill toggle inside the composer, **Steer ↔ Follow-up**. It maps to send_message vs followup_task.
+  - The pill expands its label on activation (width spring, icon rotate).
+  - The placeholder changes: "Steer the current turn…" / "Start the next turn…".
+- **AI loading → spawn state**:
+  - A new or starting pane shows a 5×5 dot loader with a scrolling mono log under it (masked fade at top and bottom).
+  - The log lines read: "Claiming warm standby…", "Attaching PTY 120×36", "Loading TOML profile kilo", "Ready.".
+- **AI text loading → thinking label**: the "Thinking" state text gets a shimmer sweep (background-clip text, gradient from `--label-3` through `--label` and back to `--label-3`, 2s linear). It cycles "Thinking", "Reading files", "Planning" with Dynamic Text enter and exit (y 6px, blur, 220ms).
+- **Command button**: the topbar "⌘K" button gets a one-shot shimmer sweep on hover and `kbd` keycaps (1px border, inset bottom shadow, 11px mono).
+- **Switch button**: a theme toggle (sun/moon icon that rotates 90° and cross-fades) in the sidebar footer and in Settings → General. It sets `data-theme` on `<html>`, so tokens must also key off `[data-theme=light]`.
+- **Sliced text**: only on the "Puppet Master" wordmark in the sidebar header, on hover.
+
+## Premium finishing checklist
+- 1px inner top highlight on raised surfaces (`inset 0 1px 0 rgba(255,255,255,.06)`) and layered float shadows (`0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.45)`).
+- `kbd` caps everywhere a shortcut exists; hover tooltips with 400ms delay.
+- Tabular numerals for timers that tick live (elapsed counts up every second).
+- Press feedback: scale .97 + fill-active; focus-visible ring only for keyboard.
+- Toasts (bottom-centre, float material) for "Answered Claude Code", "Copied", with an Undo where it makes sense.
+- Skeleton shimmer rows for loading lists, never a bare spinner.
+- Everything still respects `prefers-reduced-motion`.
