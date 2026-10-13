@@ -13,6 +13,7 @@ mod session;
 mod shell;
 mod standby;
 mod tasks;
+pub(super) mod toolbelt;
 mod wait;
 mod workspace;
 
@@ -43,6 +44,7 @@ pub(super) struct Ctx<'a> {
 pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
     mcp::handle_session(cx)
         .or_else(|| definitions::handle(cx))
+        .or_else(|| toolbelt::handle(cx))
         .or_else(|| agent_runs(cx))
         .or_else(|| shell::handle(cx))
         .or_else(|| mcp::handle_agents(cx))

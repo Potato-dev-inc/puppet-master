@@ -527,6 +527,7 @@ fn check_features(def: &Definition, e: &mut Errors) {
 
 fn check_mcp_host(def: &Definition, e: &mut Errors) {
     let Some(m) = &def.mcp_host else { return };
+    check_mcp_host_http(m, e);
     if m.config_path.trim().is_empty() || m.config_path.contains("..") {
         e.add("AGENT_DEF_INCONSISTENT", "mcp_host.config_path", "must be a non-empty path under home or the project, without `..` (HST-3)");
     }
@@ -547,6 +548,30 @@ fn check_mcp_host(def: &Definition, e: &mut Errors) {
         let whole = s == "{args}" || s == "{env}";
         if !whole && (s.contains("{args}") || s.contains("{env}")) {
             e.add("AGENT_DEF_BAD_PLACEHOLDER", "mcp_host.entry", "{args} and {env} must be a whole value, not part of a longer string");
+        }
+    }
+}
+
+fn check_mcp_host_http(m: &crate::tui::declarative::schema::McpHostTable, e: &mut Errors) {
+    if let Some(p) = &m.project_config_path {
+        if p.trim().is_empty() || p.contains("..") || p.starts_with('~') || std::path::Path::new(p).is_absolute() {
+            e.add("AGENT_DEF_INCONSISTENT", "mcp_host.project_config_path", "must be a relative path inside the project, without `..`");
+        }
+    }
+    let Some(http) = &m.entry_http else { return };
+    if http.is_empty() {
+        e.add("AGENT_DEF_INCONSISTENT", "mcp_host.entry_http", "must not be empty");
+    }
+    let mut strings = Vec::new();
+    collect_strings(&toml::Value::Table(http.clone()), &mut strings);
+    for s in strings {
+        for name in placeholder_names(&s) {
+            if !["url", "headers"].contains(&name.as_str()) {
+                e.add("AGENT_DEF_BAD_PLACEHOLDER", "mcp_host.entry_http", format!("unknown placeholder {{{name}}}; allowed: url, headers"));
+            }
+        }
+        if s.contains("{headers}") && s != "{headers}" {
+            e.add("AGENT_DEF_BAD_PLACEHOLDER", "mcp_host.entry_http", "{headers} must be a whole value, not part of a longer string");
         }
     }
 }

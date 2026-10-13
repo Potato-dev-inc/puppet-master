@@ -13,9 +13,31 @@ use super::{Features, Kind, StandbyScreen, StandbySupport, TuiProfile};
 
 pub struct OpenCode;
 
+/// Where OpenCode keeps MCP servers (Toolbelt).
+const MCP_HOST: &str = r#"
+config_path = "~/.config/opencode/opencode.json"
+format = "json"
+key_path = "mcp.puppet-master"
+project_config_path = "opencode.json"
+[entry]
+type = "local"
+command = ["{command}", "{args}"]
+environment = "{env}"
+enabled = true
+[entry_http]
+type = "remote"
+url = "{url}"
+headers = "{headers}"
+enabled = true
+"#;
+
 impl TuiProfile for OpenCode {
     fn id(&self) -> &'static str {
         "opencode"
+    }
+
+    fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
+        crate::toolbelt::host_from_toml(MCP_HOST)
     }
 
     /// Visible panes only: the TUI takes its task typed into the pane, not on stdin.
@@ -41,6 +63,10 @@ pub struct OpenCodeNative;
 impl TuiProfile for OpenCodeNative {
     fn id(&self) -> &'static str {
         "opencode_native"
+    }
+
+    fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
+        crate::toolbelt::host_from_toml(MCP_HOST)
     }
 
     fn features(&self) -> Features {

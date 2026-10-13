@@ -57,9 +57,28 @@ fn capability_notes(has_pane: bool) -> Vec<String> {
 
 pub struct CursorAgent;
 
+/// Where Cursor keeps MCP servers (Toolbelt).
+const MCP_HOST: &str = r#"
+config_path = "~/.cursor/mcp.json"
+format = "json"
+key_path = "mcpServers.puppet-master"
+project_config_path = ".cursor/mcp.json"
+[entry]
+command = "{command}"
+args = "{args}"
+env = "{env}"
+[entry_http]
+url = "{url}"
+headers = "{headers}"
+"#;
+
 impl TuiProfile for CursorAgent {
     fn id(&self) -> &'static str {
         "cursor_agent"
+    }
+
+    fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
+        crate::toolbelt::host_from_toml(MCP_HOST)
     }
 
     fn features(&self) -> Features {

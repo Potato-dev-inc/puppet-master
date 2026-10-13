@@ -12,9 +12,29 @@ use super::{Features, HeadlessLaunch, LaunchSpec, StandbyScreen, StandbySupport,
 
 pub struct Claude;
 
+/// Where Claude Code keeps MCP servers (Toolbelt).
+const MCP_HOST: &str = r#"
+config_path = "~/.claude.json"
+format = "json"
+key_path = "mcpServers.puppet-master"
+project_config_path = ".mcp.json"
+[entry]
+command = "{command}"
+args = "{args}"
+env = "{env}"
+[entry_http]
+type = "http"
+url = "{url}"
+headers = "{headers}"
+"#;
+
 impl TuiProfile for Claude {
     fn id(&self) -> &'static str {
         "claude"
+    }
+
+    fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
+        crate::toolbelt::host_from_toml(MCP_HOST)
     }
 
     fn features(&self) -> Features {

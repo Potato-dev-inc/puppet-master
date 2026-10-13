@@ -15,11 +15,14 @@ use std::path::{Component, Path, PathBuf};
 use crate::tui::declarative::schema::{McpHostFormat, McpHostTable};
 
 /// What replaces `{command}`, `{args}` and `{env}` in the entry template.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct HostLaunch {
     pub command: String,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
+    /// Toolbelt URL (http) servers: replaces `{url}` and, as a whole value, `{headers}`.
+    pub url: Option<String>,
+    pub headers: Vec<(String, String)>,
 }
 
 impl HostLaunch {
@@ -33,6 +36,7 @@ impl HostLaunch {
                 crate::app_paths::BRIDGE_PORT_FILE_ENV.to_string(),
                 crate::app_paths::bridge_port_file_env_value(),
             )],
+            ..Default::default()
         }
     }
 }
@@ -108,12 +112,13 @@ fn within(path: &Path, root: &Path) -> bool {
     real.starts_with(&root_real)
 }
 
-fn substitute(value: &Value, launch: &HostLaunch) -> Value {
+pub(crate) fn substitute(value: &Value, launch: &HostLaunch) -> Value {
     match value {
         Value::String(s) => match s.as_str() {
             "{args}" => json!(launch.args),
+            "{headers}" => Value::Object(launch.headers.iter().map(|(k, v)| (k.clone(), json!(v))).collect()),
             "{env}" => Value::Object(launch.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect()),
-            _ => Value::String(s.replace("{command}", &launch.command)),
+            _ => Value::String(s.replace("{command}", &launch.command).replace("{url}", launch.url.as_deref().unwrap_or(""))),
         },
         Value::Array(items) => Value::Array(
             items
@@ -176,7 +181,7 @@ pub fn write_host_entry(
     Ok(HostWriteResult { path, changed: true, backup })
 }
 
-fn edit_json(text: &str, segs: &[&str], entry: &Value) -> Result<String, String> {
+pub(crate) fn edit_json(text: &str, segs: &[&str], entry: &Value) -> Result<String, String> {
     let mut doc: Value = if text.trim().is_empty() {
         json!({})
     } else {
@@ -207,7 +212,7 @@ fn toml_header(line: &str) -> Option<String> {
     Some(inner.split('.').map(|s| s.trim().trim_matches('"')).collect::<Vec<_>>().join("."))
 }
 
-fn edit_toml(text: &str, segs: &[&str], entry: &Value) -> Result<String, String> {
+pub(crate) fn edit_toml(text: &str, segs: &[&str], entry: &Value) -> Result<String, String> {
     if !text.trim().is_empty() {
         text.parse::<toml::Table>().map_err(|e| format!("existing file is not valid TOML, left untouched: {e}"))?;
     }
@@ -281,7 +286,7 @@ fn find_child(lines: &[String], start: usize, end: usize, seg: &str) -> Option<(
     Some((i, j))
 }
 
-fn edit_yaml(text: &str, segs: &[&str], entry: &Value) -> Result<String, String> {
+pub(crate) fn edit_yaml(text: &str, segs: &[&str], entry: &Value) -> Result<String, String> {
     if text.contains('\t') {
         return Err("YAML file contains tabs; left untouched".into());
     }

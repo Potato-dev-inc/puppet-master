@@ -61,6 +61,8 @@ pub fn canonical_value(def: &Definition, source: Source, project: Option<&str>, 
             "config_path": m.config_path,
             "key_path": m.key_path,
             "entry": serde_json::to_value(&m.entry).unwrap_or(Value::Null),
+            "project_config_path": m.project_config_path,
+            "entry_http": m.entry_http.as_ref().and_then(|t| serde_json::to_value(t).ok()),
         })),
     })
 }

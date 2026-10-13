@@ -44,6 +44,7 @@ mod startup_timing;
 pub mod shell_exec;
 mod standby;
 pub mod tool_registry;
+mod toolbelt;
 mod tui;
 mod worker_launch;
 pub mod watch_command;
@@ -141,6 +142,14 @@ pub fn run() {
             commands::uninstall_npm_mcp_configs,
             commands::uninstall_global_npm_mcp_configs,
             commands::get_mcp_status,
+            commands::toolbelt_list,
+            commands::toolbelt_add,
+            commands::toolbelt_update,
+            commands::toolbelt_remove,
+            commands::toolbelt_sync_preview,
+            commands::toolbelt_sync_apply,
+            commands::toolbelt_import_preview,
+            commands::toolbelt_import_apply,
             commands::push_chat_event,
             commands::push_settings_event,
             commands::sync_public_settings,

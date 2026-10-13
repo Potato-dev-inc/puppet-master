@@ -198,6 +198,7 @@ mod declarative {
             command: "pm-mcp".into(),
             args: vec!["--serve".into(), "--x".into()],
             env: vec![("PM_PORT_FILE".into(), "C:/p/port".into())],
+            ..Default::default()
         }
     }
 
@@ -359,5 +360,54 @@ args = "{args}"
         assert!(codes(&bad).iter().any(|(c, p)| *c == "AGENT_DEF_BAD_PLACEHOLDER" && p == "mcp_host.entry"));
         let bad = FAKE.replace("\"{args}\"", "\"x {args}\"");
         assert!(codes(&bad).iter().any(|(c, _)| *c == "AGENT_DEF_BAD_PLACEHOLDER"));
+    }
+}
+
+mod toolbelt_declaration {
+    use crate::tui::declarative::{parse_definition, validate, Source, ValidationContext};
+
+    const DEF: &str = r##"schema_version = 1
+[agent]
+id = "fakehost"
+label = "Fake Host"
+[binary]
+names = ["fakehost"]
+[features]
+dispatchable = false
+not_dispatchable_reason = "test"
+[mcp_host]
+config_path = "~/.fakehost/mcp.json"
+format = "json"
+key_path = "mcpServers.puppet-master"
+project_config_path = ".fakehost/mcp.json"
+[mcp_host.entry]
+command = "{command}"
+args = "{args}"
+[mcp_host.entry_http]
+url = "{url}"
+headers = "{headers}"
+"##;
+
+    fn bad_paths(text: &str) -> Vec<String> {
+        let def = parse_definition(text).expect("parse");
+        let ctx = ValidationContext { source: Source::User, code_ids: &["claude"], raw_len: text.len() };
+        validate(&def, &ctx).into_iter().filter(|e| e.path.starts_with("mcp_host")).map(|e| e.path).collect()
+    }
+
+    #[test]
+    fn toolbelt_fields_validate() {
+        assert!(bad_paths(DEF).is_empty(), "{:?}", bad_paths(DEF));
+        assert!(bad_paths(&DEF.replace("\".fakehost/mcp.json\"", "\"../x.json\"")).contains(&"mcp_host.project_config_path".to_string()));
+        assert!(bad_paths(&DEF.replace("\".fakehost/mcp.json\"", "\"~/x.json\"")).contains(&"mcp_host.project_config_path".to_string()));
+        assert!(bad_paths(&DEF.replace("{url}", "{nope}")).contains(&"mcp_host.entry_http".to_string()));
+        assert!(bad_paths(&DEF.replace("\"{headers}\"", "\"x {headers}\"")).contains(&"mcp_host.entry_http".to_string()));
+    }
+
+    #[test]
+    fn a_declarative_agent_becomes_a_toolbelt_host_with_no_code() {
+        let def = parse_definition(DEF).unwrap();
+        let table = def.mcp_host.expect("table");
+        assert_eq!(table.project_config_path.as_deref(), Some(".fakehost/mcp.json"));
+        assert!(table.entry_http.is_some());
     }
 }

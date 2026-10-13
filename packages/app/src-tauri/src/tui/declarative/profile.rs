@@ -543,6 +543,10 @@ impl TuiProfile for DeclarativeProfile {
         if note.is_empty() { Vec::new() } else { vec![note.to_string()] }
     }
 
+    fn mcp_host(&self) -> Option<schema::McpHostTable> {
+        self.def.mcp_host.clone()
+    }
+
     fn context(&self) -> Option<AgentContextProfile> {
         let c = &self.def.context;
         Some(AgentContextProfile {

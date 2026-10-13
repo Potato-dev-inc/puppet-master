@@ -266,6 +266,12 @@ pub trait TuiProfile: Send + Sync {
     fn context(&self) -> Option<ContextProfile> {
         crate::agent_contexts::context_profile(self.id())
     }
+
+    /// Where and how this agent reads MCP servers (Toolbelt). `None` means no declared MCP config;
+    /// the toolbelt then lists the agent as "not supported".
+    fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
+        None
+    }
 }
 
 /// What `TuiProfile::context` returns.
