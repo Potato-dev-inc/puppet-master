@@ -20,6 +20,13 @@ pub(super) fn operation_http_error(
         | "AGENT_DEF_UNAPPROVED"
         | "AGENT_DEF_BINARY_CHANGED" => 409,
         "AGENT_NOT_INSTALLED" | "AGENT_DEF_SHIM_NEEDS_NATIVE" => 400,
+        "WORKTREE_NOT_FOUND" => 404,
+        "MERGE_CONFLICT"
+        | "ORIGIN_DIRTY_OVERLAP"
+        | "ORIGIN_DETACHED"
+        | "ORIGIN_MERGE_IN_PROGRESS"
+        | "RUN_ACTIVE" => 409,
+        "NOT_A_GIT_REPO" | "NO_COMMITS" | "GIT_UNAVAILABLE" => 400,
         "INVALID_ARGUMENT"
         | "INVALID_TIMEOUT"
         | "SESSION_REQUIRED"

@@ -233,6 +233,8 @@ fn assign_pane(
     // one (the worker there cannot write).
     let eligible = |pane: &&crate::pty::PaneInfo| {
         read_only_pane_matches(agent_type, operation.read_only, &pane.id)
+            // an isolated run gets its own pane in its own worktree, never a shared one
+            && operation.worker.worktree.is_none()
             && !panes_used_by_runs.contains(&pane.id)
             && (operation
                 .owner_session_id
@@ -344,7 +346,7 @@ fn assign_pane(
             app,
             SpawnPaneArgs {
                 agent_type: agent_type.to_string(),
-                cwd: Some(operation.project_path.clone()),
+                cwd: Some(operation.work_dir().to_string()),
                 cols: None,
                 rows: None,
                 extra_args: None,
@@ -400,6 +402,9 @@ fn assign_pane(
 /// The pool key this run would claim: only a run that spawns its own visible pane for a backend
 /// with a standby mode has one.
 fn standby_key(operation: &OperationSnapshot, agent_type: &str) -> Option<crate::standby::PoolKey> {
+    if operation.worker.worktree.is_some() {
+        return None; // warm workers are launched in the project folder, not a worktree
+    }
     crate::standby::key_for_run(
         agent_type,
         &operation.project_path,

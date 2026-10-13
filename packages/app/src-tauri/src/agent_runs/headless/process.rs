@@ -64,11 +64,19 @@ pub(in crate::agent_runs) fn execute_headless(
                 }
             });
     }
+    // An isolated run launches in its worktree; everything else keeps the project folder.
+    let launch_dir = snapshot
+        .as_ref()
+        .map(|current| current.work_dir().to_string())
+        .unwrap_or_else(|| project.clone());
+    let isolated = snapshot
+        .as_ref()
+        .is_some_and(|current| current.worker.worktree.is_some());
     let spec = match crate::tui::headless_launch_with(
         &*profile,
         &agent_type,
         &crate::tui::HeadlessLaunch {
-            project: &project,
+            project: &launch_dir,
             task: &task,
             read_only,
             resume_session: resume_session.as_deref(),
@@ -99,7 +107,7 @@ pub(in crate::agent_runs) fn execute_headless(
         }
     };
     // Opt-in warm pool: a pre-launched process (startup already paid) takes the task over stdin.
-    let pool_key = (resume_session.is_none() && !trust_workspace)
+    let pool_key = (resume_session.is_none() && !trust_workspace && !isolated)
         .then(|| {
             crate::standby::key_for_run(
                 &agent_type,

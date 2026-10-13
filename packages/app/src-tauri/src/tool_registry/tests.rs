@@ -399,7 +399,7 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "66-46d53ccddbd2b4dc");
+    assert_eq!(catalog_version(), "67-293f032d5ca3f51d");
 }
 
 /// Every tool input that names an agent (`agent_type`, or `backend` on quick_ask) uses the one
@@ -456,4 +456,19 @@ fn run_agent_is_visible_first_and_describes_the_headless_backup() {
     assert!(tool.description.contains("visible by default") && tool.description.contains("no_visible_mode"));
     let schema = tool.output_schema.as_ref().expect("output schema").to_string();
     assert!(schema.contains("\"fallback\"") && schema.contains("visible_failed"), "{schema}");
+}
+
+#[test]
+fn run_agent_advertises_isolation_and_review_worktree_is_exposed() {
+    let run = tools().into_iter().find(|t| t.name == "run_agent").expect("run_agent");
+    let isolation = &run.input_schema["properties"]["isolation"];
+    assert_eq!(isolation["enum"], json!(["none", "worktree"]));
+    assert_eq!(isolation["default"], "none");
+    assert!(run.output_schema.as_ref().unwrap().to_string().contains("worktree"), "receipt schema lacks worktree");
+    let review = tools().into_iter().find(|t| t.name == "review_worktree").expect("review_worktree");
+    assert_eq!(review.input_schema["properties"]["action"]["enum"], json!(["diff", "merge", "discard"]));
+    assert_eq!(review.input_schema["required"], json!(["handle"]));
+    assert_eq!((review.method, review.path), ("POST", "/worktrees/review"));
+    assert!(tool_visible_in_mode("review_worktree", McpMode::Agent));
+    assert!(!tool_visible_in_mode("review_worktree", McpMode::Shell));
 }

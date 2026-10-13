@@ -38,6 +38,27 @@ pub struct RunReceipt {
     /// The definition (id, source, fingerprint, pinned binary) a declarative agent ran from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_definition: Option<crate::tui::DefinitionRef>,
+    /// Set when the run worked in an isolated git worktree (`isolation: "worktree"`): where, on
+    /// which branch, what it changed, and whether the changes were merged. Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<ReceiptWorktree>,
+}
+
+/// The worktree facts of a receipt. `state` is `unreviewed` (still on disk, not merged),
+/// `merged` or `discarded`. The change counts are those recorded when the run finished (absent
+/// for a run that did not complete); `worktree_diff` always reads the live state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReceiptWorktree {
+    pub path: String,
+    pub branch: String,
+    pub base: String,
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files_changed: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additions: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deletions: Option<u32>,
 }
 
 pub(super) fn build_receipt(
@@ -122,6 +143,18 @@ pub(super) fn build_receipt(
         standby_used: snapshot.worker.standby_used,
         fallback: snapshot.worker.fallback.clone(),
         agent_definition: snapshot.worker.agent_definition.clone(),
+        worktree: snapshot.worker.worktree.as_ref().map(|worktree| ReceiptWorktree {
+            path: worktree.path.clone(),
+            branch: worktree.branch.clone(),
+            base: worktree.base.clone(),
+            state: worktree
+                .closed
+                .clone()
+                .unwrap_or_else(|| "unreviewed".to_string()),
+            files_changed: worktree.changes.map(|c| c.files_changed),
+            additions: worktree.changes.map(|c| c.additions),
+            deletions: worktree.changes.map(|c| c.deletions),
+        }),
     }
 }
 

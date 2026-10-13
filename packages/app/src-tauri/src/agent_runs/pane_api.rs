@@ -16,7 +16,9 @@ fn run_of_pane(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<(St
         let guard = registry.lock();
         (guard.project_path.clone(), guard.panes.get(pane_id).map(|pane| pane.info.cwd.clone()))
     };
-    [Some(default_project), cwd]
+    // A pane in an isolated run's worktree belongs to the run keyed on the origin project.
+    let origin = cwd.as_deref().and_then(crate::worktrees::origin_of_cwd);
+    [Some(default_project), origin, cwd]
         .into_iter()
         .flatten()
         .find_map(|project| super::latest_handle_for_pane(&project, pane_id).ok().map(|handle| (project, handle)))

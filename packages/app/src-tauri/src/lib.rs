@@ -171,6 +171,11 @@ pub fn run() {
             commands::interrupt_pane,
             commands::new_pane,
             commands::pane_run_info,
+            commands::pane_worktree,
+            commands::worktree_list,
+            commands::worktree_diff,
+            commands::worktree_merge,
+            commands::worktree_discard,
             commands::pane_transcript,
         ])
         .setup(|app| {

@@ -190,6 +190,7 @@ pub fn authorize(
             | "inspect_agent"
             | "agent_transcript"
             | "close_agent"
+            | "review_worktree"
             | "cancel_operation"
     ) {
         if tool.name == "wait_agents" {

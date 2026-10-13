@@ -100,6 +100,7 @@ fn run(
             )
         }
         "close_agent" => bridge_request("POST", "/agents/close", Some(args.clone())),
+        "review_worktree" => bridge_request("POST", "/worktrees/review", Some(args.clone())),
         "list_agents" | "list_workers" => {
             let mut query = Vec::new();
             if let Some(path) = args.get("project_path").and_then(Value::as_str) {

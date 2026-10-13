@@ -23,6 +23,8 @@
 //!   merge is aborted so the origin is never left mid-merge.
 
 mod git;
+pub mod routes;
+pub mod service;
 #[cfg(test)]
 mod tests;
 
@@ -588,6 +590,17 @@ fn is_internal(path: &str) -> bool {
 /// restored to exactly where it was and the conflicted files are reported. On success the worktree
 /// and its branch are removed.
 pub fn merge(reference: &WorktreeRef) -> Result<MergeOutcome, OperationError> {
+    let outcome = merge_keep(reference)?;
+    if outcome.merged {
+        remove_checkout(reference, true)?;
+    }
+    Ok(outcome)
+}
+
+/// [`merge`] without removing the checkout, for a caller that must first stop processes whose
+/// working directory is inside it (Windows cannot delete a directory in use). Follow a
+/// `merged: true` outcome with [`cleanup_merged`].
+pub fn merge_keep(reference: &WorktreeRef) -> Result<MergeOutcome, OperationError> {
     let wt = require_checkout(reference)?;
     let origin = PathBuf::from(&reference.repo);
     let in_progress = git_raw(&origin, &["rev-parse", "-q", "--verify", "MERGE_HEAD"], &[])?;
@@ -693,7 +706,6 @@ pub fn merge(reference: &WorktreeRef) -> Result<MergeOutcome, OperationError> {
         return Err(error);
     }
     let merge_commit = git_ok(&origin, &["rev-parse", "HEAD"], "GIT_FAILED").ok();
-    remove_checkout(reference, true)?;
     Ok(MergeOutcome {
         merged: true,
         reason: None,
@@ -736,6 +748,26 @@ fn commit_all(wt: &Path, message: &str) -> Result<(), OperationError> {
         Ok(())
     } else {
         Err(err("GIT_FAILED", format!("git commit failed: {}", commit.stderr.trim())))
+    }
+}
+
+/// Remove the checkout and branch of a worktree whose branch was merged by [`merge_keep`].
+pub fn cleanup_merged(reference: &WorktreeRef) -> Result<(), OperationError> {
+    remove_checkout(reference, true)
+}
+
+/// The origin project a working directory belongs to, when it lies inside
+/// `<project>/.puppet-master/worktrees/<name>/...`.
+pub fn origin_of_cwd(cwd: &str) -> Option<String> {
+    let normalized = cwd.replace('\\', "/");
+    let marker = "/.puppet-master/worktrees/";
+    let at = normalized.find(marker)?;
+    let origin = &normalized[..at];
+    if origin.is_empty() {
+        None
+    } else {
+        // keep the platform spelling the caller used for the prefix
+        Some(cwd[..at].to_string())
     }
 }
 

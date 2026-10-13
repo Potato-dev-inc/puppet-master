@@ -52,7 +52,7 @@ use tauri::AppHandle;
 
 use crate::mobile_pairing;
 use crate::pty::PaneRegistry;
-use sse::push_operation_sse;
+pub(crate) use sse::push_operation_sse;
 use state::{BRIDGE_APP, BRIDGE_REGISTRY};
 
 /// Tell the desktop windows to re-read pane info (`pty://panes-changed`) and the bridge viewers.
@@ -124,6 +124,15 @@ pub fn start_embedded_bridge(
             push_operation_sse(&snapshot);
         }
     }
+    // Tidy leftovers of worktree-isolated runs from a previous process (never removes work).
+    let _ = thread::Builder::new().name("worktree-sweep".into()).spawn(|| {
+        for project in crate::operations::indexed_project_paths() {
+            let report = crate::worktrees::sweep(&project);
+            if report != crate::worktrees::SweepReport::default() {
+                tracing::info!(%project, ?report, "swept leftover worktrees");
+            }
+        }
+    });
     mobile_pairing::init_pairing_store(pairing_file)?;
     let _ = crate::app_paths::ensure_app_data_dir();
     let (listener, port) = bind_listener()?;

@@ -369,3 +369,77 @@ fn slugs_are_short_and_safe() {
     assert_eq!(slug("3f2a9c1e-77aa-4b0e-9d11-0123456789ab", 10), "3f2a9c1e-7");
     assert!(slug("../../etc", 40).chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
 }
+
+// ---- the `/worktrees/*` route bodies, driven like the bridge does (request -> response) ----
+
+fn route(
+    method: &str,
+    path: &str,
+    project: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, OperationError> {
+    let registry = std::sync::Arc::new(parking_lot::Mutex::new(crate::pty::PaneRegistry::new()));
+    let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
+    super::routes::handle(method, &segments, Some(project), None, &body, &registry)
+        .expect("route is owned by worktrees")
+}
+
+#[test]
+fn route_transcript_list_diff_conflict_merge_discard() {
+    let repo = repo();
+    let project = repo.path();
+    let a = create(&project, "route-a").unwrap();
+    let b = create(&project, "route-b").unwrap();
+    std::fs::write(Path::new(&a.path).join("a.txt"), "alpha from a\n").unwrap();
+    std::fs::write(Path::new(&b.path).join("a.txt"), "alpha from b\n").unwrap();
+    std::fs::write(Path::new(&b.path).join("only-b.txt"), "b\n").unwrap();
+
+    // GET /worktrees
+    let listed = route("GET", "/worktrees", &project, serde_json::json!({})).unwrap();
+    let items = listed["worktrees"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert!(items.iter().all(|i| i["state"] == "unreviewed" && i["exists"] == true), "{items:?}");
+    let item_a = items.iter().find(|i| i["handle"] == "route-a").unwrap();
+    assert_eq!(item_a["branch"], "pm/route-a");
+    assert_eq!(item_a["summary"]["files_changed"], 1);
+
+    // GET /worktrees/route-b/diff
+    let diff_b = route("GET", "/worktrees/route-b/diff", &project, serde_json::json!({})).unwrap();
+    assert_eq!(diff_b["changes"]["files_changed"], 2);
+    assert!(diff_b["patch"].as_str().unwrap().contains("+alpha from b"));
+
+    // POST /worktrees/route-a/merge -> merged
+    let merged = route("POST", "/worktrees/route-a/merge", &project, serde_json::json!({})).unwrap();
+    assert_eq!(merged["merged"], true);
+    assert_eq!(merged["into"], "main");
+    assert_eq!(repo.read("a.txt"), "alpha from a\n");
+
+    // POST /worktrees/route-b/merge -> MERGE_CONFLICT on a.txt, origin unchanged
+    let head = repo.head();
+    let error = route("POST", "/worktrees/route-b/merge", &project, serde_json::json!({})).unwrap_err();
+    assert_eq!(error.code, "MERGE_CONFLICT");
+    assert_eq!(error.context["files"], serde_json::json!(["a.txt"]));
+    assert_eq!(repo.head(), head);
+    assert_eq!(repo.git(&["status", "--porcelain"]), "");
+
+    // review (MCP) route: diff by default, discard on request
+    let review = route("POST", "/worktrees/review", &project, serde_json::json!({"handle":"route-b"})).unwrap();
+    assert_eq!(review["changes"]["files_changed"], 2);
+    let gone = route("POST", "/worktrees/review", &project, serde_json::json!({"handle":"route-b","action":"discard"})).unwrap();
+    assert_eq!(gone["discarded"], true);
+    let missing = route("POST", "/worktrees/route-b/discard", &project, serde_json::json!({})).unwrap_err();
+    assert_eq!(missing.code, "WORKTREE_NOT_FOUND");
+    assert!(route("GET", "/worktrees", &project, serde_json::json!({})).unwrap()["worktrees"].as_array().unwrap().is_empty());
+    let bad = route("POST", "/worktrees/review", &project, serde_json::json!({"handle":"x","action":"nuke"})).unwrap_err();
+    assert_eq!(bad.code, "INVALID_ARGUMENT");
+}
+
+#[test]
+fn origin_of_cwd_finds_the_project_above_a_worktree() {
+    assert_eq!(
+        origin_of_cwd(r"C:\work\proj\.puppet-master\worktrees\a-1\src").as_deref(),
+        Some(r"C:\work\proj")
+    );
+    assert_eq!(origin_of_cwd("/home/u/p/.puppet-master/worktrees/x").as_deref(), None.or(Some("/home/u/p")));
+    assert_eq!(origin_of_cwd("/home/u/p"), None);
+}
