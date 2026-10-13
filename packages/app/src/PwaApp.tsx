@@ -255,13 +255,29 @@ export default function PwaApp() {
       /* private mode */
     }
   }, [fitGrid]);
-  // A pane spawned from the phone is the phone's: claim it once, when its fitting grid arrives.
+  // Any phone action takes the size: opening the PWA, switching to a tab, bringing the app back
+  // to the front (and spawning, typing, touching the terminal below). Claimed once the tab's
+  // fitting grid is known; the PC window takes it back on a click or focus there.
+  useEffect(() => {
+    if (active !== ALL_TAB) claimOnOpenRef.current = active;
+  }, [active]);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || active === ALL_TAB) return;
+      claimOnOpenRef.current = active;
+      if (fitGrid) {
+        claimOnOpenRef.current = null;
+        claimPaneSize(true);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [active, fitGrid, claimPaneSize]);
   useEffect(() => {
     if (!fitGrid || !activePane || claimOnOpenRef.current !== active) return;
     claimOnOpenRef.current = null;
-    claimPaneSize();
+    claimPaneSize(true);
   }, [fitGrid, activePane, active, claimPaneSize]);
-  // Typing into the pane is what takes the phone size; viewing or scrolling does not.
   const leasedTransport = useMemo<TerminalTransport>(
     () => ({
       ...transport,
@@ -381,7 +397,11 @@ export default function PwaApp() {
           onNew={openNewAgentSheet}
           onMenu={() => setSheet('menu')}
         />
-        <main className="relative flex min-h-0 flex-1 flex-col bg-pm-panel" aria-label="Agent">
+        <main
+          className="relative flex min-h-0 flex-1 flex-col bg-pm-panel"
+          aria-label="Agent"
+          onPointerDownCapture={activePane ? () => claimPaneSize(true) : undefined}
+        >
           {bridge && active === ALL_TAB && (
             <AgentsOverview
               bridge={bridge}

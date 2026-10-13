@@ -15,14 +15,16 @@ const HIDDEN_RELEASE_MS = 3000;
 
 interface LeaseHandle {
   /** Phone input: take the size with the current grid unless this phone already holds it. */
-  claimNow(): void;
+  /** `force`: an explicit phone action claims even if this phone seems to hold the size already
+   * (the desktop may have taken it back since the last renewal). */
+  claimNow(force?: boolean): void;
   /** The fitting grid changed: re-claim with it if this phone holds the size. */
   gridChanged(): void;
 }
 
 /**
- * Mobile PWA: the phone sizes `paneId` to its `grid` only when the user types into it (`claimNow`).
- * Viewing never resizes the pane. While the phone holds the size it renews the lease; the bridge
+ * Mobile PWA: the phone sizes `paneId` to its `grid` when the user acts on the phone (`claimNow`:
+ * opening the PWA or a tab, resuming, touching, typing). While the phone holds the size it renews the lease; the bridge
  * keeps the size after the phone leaves, hides or goes quiet (sticky). The desktop window takes it
  * back, which the renewal notices (`held: false`) and then stops renewing.
  */
@@ -30,7 +32,7 @@ export function usePaneViewportLease(
   bridge: BridgeClient | null,
   paneId: string | null,
   grid: { cols: number; rows: number } | null,
-): () => void {
+): (force?: boolean) => void {
   const gridRef = useRef(grid);
   gridRef.current = grid;
   const gridKey = grid ? `${grid.cols}x${grid.rows}` : '';
@@ -82,11 +84,11 @@ export function usePaneViewportLease(
     };
 
     leaseRef.current = {
-      claimNow: () => {
+      claimNow: (force = false) => {
         const g = gridRef.current;
         if (!g) return;
         // Typing with the size already held costs no request.
-        if (holding && heldKey === `${g.cols}x${g.rows}`) return;
+        if (!force && holding && heldKey === `${g.cols}x${g.rows}`) return;
         claim();
       },
       gridChanged: () => {
@@ -113,5 +115,5 @@ export function usePaneViewportLease(
     if (gridKey) leaseRef.current?.gridChanged();
   }, [gridKey, paneId]);
 
-  return useCallback(() => leaseRef.current?.claimNow(), []);
+  return useCallback((force?: boolean) => leaseRef.current?.claimNow(force === true), []);
 }

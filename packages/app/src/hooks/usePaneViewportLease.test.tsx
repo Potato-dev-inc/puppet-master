@@ -13,7 +13,7 @@ function Probe(props: {
   bridge: BridgeClient;
   paneId: string | null;
   grid: Grid;
-  claim: { current: (() => void) | null };
+  claim: { current: ((force?: boolean) => void) | null };
 }) {
   props.claim.current = usePaneViewportLease(props.bridge, props.paneId, props.grid);
   return null;
@@ -60,6 +60,23 @@ describe('usePaneViewportLease', () => {
     await act(async () => root.render(<Probe bridge={bridge} paneId={null} grid={{ cols: 48, rows: 20 }} claim={claim} />));
     expect(releases(setPaneViewport)).toHaveLength(1);
     expect(setPaneViewport).toHaveBeenLastCalledWith('p1', expect.objectContaining({ cols: 0, rows: 0, active: false }));
+    await act(async () => root.unmount());
+  });
+
+  it('an explicit phone action claims again even while it seems to hold the size', async () => {
+    const setPaneViewport = vi.fn().mockResolvedValue({ held: true });
+    const bridge = { setPaneViewport } as unknown as BridgeClient;
+    const root = createRoot(document.createElement('div'));
+    const claim: { current: ((force?: boolean) => void) | null } = { current: null };
+    await act(async () => root.render(<Probe bridge={bridge} paneId="p1" grid={{ cols: 46, rows: 45 }} claim={claim} />));
+
+    await act(async () => claim.current?.(true));
+    await act(async () => claim.current?.());
+    expect(setPaneViewport).toHaveBeenCalledTimes(1);
+    // The desktop may have taken it back since the last renewal: a tap or tab open claims anyway.
+    await act(async () => claim.current?.(true));
+    expect(setPaneViewport).toHaveBeenCalledTimes(2);
+    expect(setPaneViewport).toHaveBeenLastCalledWith('p1', expect.objectContaining({ cols: 46, rows: 45, active: true }));
     await act(async () => root.unmount());
   });
 
