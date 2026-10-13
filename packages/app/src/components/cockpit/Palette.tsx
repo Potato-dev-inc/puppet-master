@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
+import { cockpitApi } from '../../lib/cockpit-api';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { openPreview, previewLabel } from '../../lib/pane-preview';
 import { DotSpinner } from './DotSpinner';
-import { IconGlobe, IconLayers, IconMoon, IconPlus, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
+import { IconGlobe, IconLayers, IconMoon, IconPlus, IconReflow, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
 
 interface Item {
@@ -66,6 +67,18 @@ export function Palette({
         icon: <IconStop />,
         hint: '⌃C',
         run: () => void c.interrupt(sel),
+      });
+      out.push({
+        id: 'act:undo',
+        group: 'Actions',
+        title: 'Undo last turn',
+        desc: 'Restore files to before the last turn. The agent keeps its memory.',
+        icon: <IconReflow />,
+        run: () =>
+          void cockpitApi
+            .checkpointUndoLast(sel)
+            .then(() => c.notify('Files restored to before the last turn. Your previous files are saved in History.'))
+            .catch((err) => c.notify(err instanceof Error ? err.message : String(err))),
       });
     }
     for (const p of c.registry.paneList) {

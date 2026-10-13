@@ -144,6 +144,9 @@ pub struct FeaturesTable {
     /// viewers wipe their history at the resize point. Default false.
     #[serde(default)]
     pub reprints_on_resize: bool,
+    /// Take part in automatic file checkpoints. Default true.
+    #[serde(default = "default_true")]
+    pub checkpoints: bool,
     /// Derived (HDL-9) when absent; an explicit value must agree with the session selector.
     pub resumable_headless: Option<bool>,
     #[serde(default)]
@@ -158,6 +161,7 @@ impl Default for FeaturesTable {
             read_only_headless: false,
             read_only_spawned_pane: false,
             reprints_on_resize: false,
+            checkpoints: true,
             resumable_headless: None,
             read_only_note: String::new(),
         }

@@ -20,6 +20,13 @@ pub trait TuiProfile: Send + Sync {
         false
     }
 
+    /// Whether this agent takes part in automatic file checkpoints (turn-boundary snapshots and
+    /// undo). Plain shells have no turns, so they default to false; everything else defaults to
+    /// true. Declarative agents can set `features.checkpoints`.
+    fn checkpoints(&self) -> bool {
+        self.features().kind != Kind::Shell
+    }
+
     /// Why this backend cannot be dispatched; shown to the caller. Only read when
     /// `features().dispatchable` is false.
     fn not_dispatchable_reason(&self) -> &'static str {

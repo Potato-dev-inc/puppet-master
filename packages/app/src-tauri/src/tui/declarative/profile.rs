@@ -318,6 +318,10 @@ impl TuiProfile for DeclarativeProfile {
         self.def.features.reprints_on_resize
     }
 
+    fn checkpoints(&self) -> bool {
+        self.def.features.checkpoints
+    }
+
     fn experimental(&self) -> bool {
         self.def.agent.experimental || self.def.agent.kind == schema::Kind::Generic
     }

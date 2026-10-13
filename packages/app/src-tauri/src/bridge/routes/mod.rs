@@ -5,6 +5,7 @@
 mod accounts;
 pub(super) mod definitions;
 pub(super) mod health;
+mod checkpoints;
 mod locks;
 pub(super) mod mcp;
 mod opencode;
@@ -63,6 +64,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| accounts::handle(cx))
         .or_else(|| opencode::handle(cx))
         .or_else(|| worktrees::handle(cx))
+        .or_else(|| checkpoints::handle(cx))
         .or_else(|| panes::handle(cx))
 }
 

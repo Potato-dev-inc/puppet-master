@@ -2,6 +2,8 @@
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { HarnessScenario } from './types';
 import {
+  EXAMPLE_CHECKPOINTS,
+  EXAMPLE_FILE_CHANGES,
   EXAMPLE_PANES,
   EXAMPLE_PROMPT,
   HIGH_RISK_PROMPT,
@@ -56,6 +58,13 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return EXAMPLE_WORKTREE_DIFF;
         case 'pane_transcript':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_TRANSCRIPT : null;
+        case 'checkpoints_list':
+          return a.paneId === PANE_CLAUDE ? EXAMPLE_CHECKPOINTS : { state: 'ok', message: '', items: [] };
+        case 'checkpoint_diff':
+          return EXAMPLE_FILE_CHANGES;
+        case 'checkpoint_restore':
+        case 'checkpoint_undo_last':
+          return { safetyId: '7', written: 4, removed: 1, failed: [] };
         case 'read_pane_screen_replay':
           return SCREEN_REPLAY;
         case 'read_pane_raw_buffer':

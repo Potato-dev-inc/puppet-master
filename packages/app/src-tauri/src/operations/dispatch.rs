@@ -80,6 +80,9 @@ where
         bump(&mut op)?;
     }
     let mut op = get_operation(project, id)?;
+    if let Some(pane_id) = op.pane_id.as_deref() {
+        crate::checkpoints::before_dispatch(pane_id, &op.task);
+    }
     let in_flight = DispatchGuard::enter(id);
     let dispatch_result =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dispatch(&mut op)))

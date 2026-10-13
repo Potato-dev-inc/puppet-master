@@ -300,3 +300,10 @@ fn accounts_table_is_validated_and_fingerprinted() {
     let src = Source::User;
     assert_ne!(fingerprint::fingerprint(&a, src, None, file), fingerprint::fingerprint(&b, src, None, file));
 }
+
+#[test]
+fn checkpoints_default_on_and_follow_the_definition() {
+    assert!(kilo().checkpoints());
+    let text = KILO.replace("dispatchable = true", "dispatchable = true\ncheckpoints = false");
+    assert!(!profile(&text).checkpoints());
+}

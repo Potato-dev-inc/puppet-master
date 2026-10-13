@@ -17,6 +17,8 @@ const PATCHABLE_KEYS: &[&str] = &[
     "developer_use_rust_mcp",
     "librarian_indexer_path",
     "confirm_close_running_pane",
+    "checkpoints_enabled",
+    "checkpoints_keep",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -32,6 +34,8 @@ pub fn default_public_settings() -> Value {
         "developer_use_rust_mcp": false,
         "librarian_indexer_path": null,
         "confirm_close_running_pane": true,
+        "checkpoints_enabled": true,
+        "checkpoints_keep": 50,
     })
 }
 
