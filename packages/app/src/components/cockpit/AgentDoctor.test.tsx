@@ -158,6 +158,7 @@ describe('Inbox first-run hint', () => {
     ({
       registry: { paneList: Array.from({ length: paneCount }, () => ({ status: 'idle', info: { id: 'x', agent_type: 'a', cwd: '' } })), initialReady: ready },
       prompts: {},
+      asked: { questions: [] },
       statusSince: new Map(),
       names: new Map(),
       now: 0,

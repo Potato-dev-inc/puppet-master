@@ -51,6 +51,7 @@ function cockpit(previews: PreviewMap): CockpitApi {
     names: new Map([['p1', 'Agent A'], ['p2', 'Agent B']]),
     activities: {},
     previews,
+    asked: { questions: [] },
     prompts: {},
     statusSince: new Map(),
     now: 0,

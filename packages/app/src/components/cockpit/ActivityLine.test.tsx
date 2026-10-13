@@ -38,6 +38,7 @@ function cockpit(activities: ActivityMap, status = 'running'): CockpitApi {
     registry: { paneList: list, panes: new Map(list.map((p) => [p.info.id, p])), initialReady: true },
     names: new Map([['p1', 'Agent A']]),
     activities,
+    asked: { questions: [] },
     statusSince: new Map(),
     now: 0,
     selectedId: null,

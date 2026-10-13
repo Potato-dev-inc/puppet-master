@@ -49,6 +49,7 @@ const cockpit = (over: Record<string, unknown> = {}) =>
       initialReady: true,
     },
     prompts: {},
+    asked: { questions: [] },
     statusSince: new Map(),
     names: new Map([['p1', 'Claude Code']]),
     launchEntries: [],
