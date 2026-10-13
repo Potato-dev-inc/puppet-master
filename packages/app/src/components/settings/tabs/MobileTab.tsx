@@ -8,7 +8,7 @@ import type { SettingsTabContext } from './tab-context';
 export function MobileTab({ ctx }: { ctx: SettingsTabContext }) {
   const { settings, setSettings } = ctx;
   return (
-    <SettingsSection title="Mobile PWA" description="Pair a phone to mirror panes, send input, and monitor agent progress.">
+    <SettingsSection title="Mobile PWA" description="Pair a phone to mirror panes, send input, and monitor agent progress. Phone notifications can show the command an agent wants to run on the lock screen; turn previews off in your phone settings if that is a concern.">
       <TunnelSection />
       <SettingBlock label="Mobile input buffer (ms)" implemented description="Delay before committing mobile keystrokes to the PTY.">
         <FieldInput type="number" min={0} max={1000} step={10} value={settings.mobile_input_delay_ms ?? 60} onChange={(e) => {

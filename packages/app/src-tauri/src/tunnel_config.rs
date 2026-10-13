@@ -93,7 +93,7 @@ impl TunnelConfig {
 pub fn config_from_input(input: TunnelConfigInput, current: &TunnelConfig) -> Result<TunnelConfig, String> {
     match input {
         TunnelConfigInput::Quick => Ok(TunnelConfig::Quick),
-        TunnelConfigInput::Custom { url } => Ok(TunnelConfig::Custom { url: normalize_origin(&url, false)? }),
+        TunnelConfigInput::Custom { url } => Ok(TunnelConfig::Custom { url: normalize_custom_url(&url)? }),
         TunnelConfigInput::Named { token, hostname } => {
             let origin = normalize_origin(&hostname, true)?;
             let stored = match current {
@@ -142,6 +142,20 @@ pub fn normalize_origin(raw: &str, force_https: bool) -> Result<String, String> 
     }
     let scheme = if force_https { "https" } else { scheme.as_str() };
     Ok(format!("{scheme}://{}", host_port.to_ascii_lowercase()))
+}
+
+/// A custom address is what phones are told to trust and send their token to, so plain `http://`
+/// is only accepted for this machine (localhost / 127.x / ::1). Anything else must be https.
+pub fn normalize_custom_url(raw: &str) -> Result<String, String> {
+    let origin = normalize_origin(raw, false)?;
+    if let Some(rest) = origin.strip_prefix("http://") {
+        let host = rest.rsplit_once(':').map_or(rest, |(h, _)| h);
+        let loopback = host == "localhost" || host == "127.0.0.1" || host.starts_with("127.") || host == "[::1]";
+        if !loopback {
+            return Err("Use an https:// address. Plain http would send your phone token in the clear.".into());
+        }
+    }
+    Ok(origin)
 }
 
 pub fn load(path: &Path) -> TunnelConfig {
@@ -287,6 +301,19 @@ mod tests {
         assert!(normalize_origin("https://user@evil.com", false).is_err());
         assert!(normalize_origin("localhost", true).is_err());
         assert!(normalize_origin("bad host.com", false).is_err());
+    }
+
+    #[test]
+    fn custom_urls_must_be_https_unless_they_are_this_machine() {
+        assert_eq!(normalize_custom_url("https://pm.example.com/").unwrap(), "https://pm.example.com");
+        assert_eq!(normalize_custom_url("pm.example.com").unwrap(), "https://pm.example.com");
+        assert_eq!(normalize_custom_url("http://localhost:3000").unwrap(), "http://localhost:3000");
+        assert_eq!(normalize_custom_url("http://127.0.0.1:8080").unwrap(), "http://127.0.0.1:8080");
+        for bad in ["http://pm.example.com", "http://192.168.1.5:8080", "http://10.0.0.2"] {
+            assert!(normalize_custom_url(bad).is_err(), "{bad}");
+        }
+        let input = TunnelConfigInput::Custom { url: "http://pm.example.com".into() };
+        assert!(config_from_input(input, &TunnelConfig::Quick).is_err());
     }
 
     #[test]

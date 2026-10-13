@@ -44,11 +44,11 @@ export function toggleView(state: ToggleState): ToggleView {
     case 'working':
       return { checked: false, disabled: true, hint: null };
     case 'on':
-      return { checked: true, disabled: false, hint: 'You will get a notification when an agent needs you, errors, or finishes a run.' };
+      return { checked: true, disabled: false, hint: 'You will get a notification when an agent needs you, errors, or finishes a run. Previews may show the command on your lock screen.' };
     case 'error':
       return { checked: false, disabled: false, hint: state.message };
     default:
-      return { checked: false, disabled: false, hint: 'Get a notification when an agent needs you.' };
+      return { checked: false, disabled: false, hint: 'Get a notification when an agent needs you. Previews may show the command on your lock screen.' };
   }
 }
 
