@@ -11,6 +11,12 @@ const P: Record<string, ReactNode> = {
   back: <path d="M10 3L5 8l5 5" />,
   later: <><circle cx="8" cy="8" r="6" /><path d="M8 4.5V8l2.5 1.5" /></>,
   sidebar: <><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M6 3v10" /></>,
+  chev: <path d="M4 6l4 4 4-4" />,
+  clip: <path d="M13 7.5l-4.8 4.8a2.8 2.8 0 0 1-4-4L9 3.5a1.9 1.9 0 0 1 2.7 2.7L7 11a1 1 0 0 1-1.4-1.4L10 5.2" />,
+  steer: <path d="M2 8h9M8 4.5L11.5 8 8 11.5M13.5 3v10" />,
+  user: <><circle cx="8" cy="5.5" r="2.5" /><path d="M3 13.5c.8-2.6 3-3.5 5-3.5s4.2.9 5 3.5" /></>,
+  bolt: <path d="M9 1.5L3.5 9H8l-1 5.5L12.5 7H8z" />,
+  stop: <rect x="4" y="4" width="8" height="8" rx="1.5" />,
   terminal: <><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M5 7l2 1.5L5 10M8.5 10.5H11" /></>,
 };
 

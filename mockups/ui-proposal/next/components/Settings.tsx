@@ -3,19 +3,24 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { Icon } from "./Icon";
 import { Sheet } from "./Sheet";
+import { SegTabs } from "./SegTabs";
+import { ThemeToggle } from "./ThemeToggle";
 
 type Item =
   | { id: string; label: string; sub?: string; kind: "switch"; def: boolean }
   | { id: string; label: string; sub?: string; kind: "popup"; def: string; opts: string[] }
   | { id: string; label: string; sub?: string; kind: "stepper"; def: number; min: number; max: number }
   | { id: string; label: string; sub?: string; kind: "text"; def: string }
-  | { id: string; label: string; sub?: string; kind: "info"; value: string };
+  | { id: string; label: string; sub?: string; kind: "info"; value: string }
+  | { id: string; label: string; sub?: string; kind: "seg"; def: string; opts: string[] }
+  | { id: string; label: string; sub?: string; kind: "theme" };
 type Danger = { id: string; label: string; sub: string; action: string; body: string };
 type Section = { id: string; title: string; groups: { head?: string; items: Item[] }[]; danger?: Danger[] };
 
 const S: Section[] = [
   { id: "general", title: "General", groups: [
     { items: [
+      { id: "theme", label: "Appearance", sub: "Dark or light.", kind: "theme" },
       { id: "login", label: "Open at login", sub: "Starts in the menu bar, no window.", kind: "switch", def: true },
       { id: "notify", label: "Notify when an agent needs you", kind: "switch", def: true },
     ] },
@@ -65,7 +70,7 @@ const S: Section[] = [
   { id: "phone", title: "Phone", groups: [
     { items: [
       { id: "ph", label: "Allow phone access", kind: "switch", def: true },
-      { id: "ps", label: "Resize panes for phone", kind: "popup", def: "Ask each time", opts: ["Ask each time", "Always", "Never"] },
+      { id: "ps", label: "Resize panes for phone", kind: "seg", def: "Ask", opts: ["Ask", "Always", "Never"] },
     ] },
     { head: "Paired", items: [{ id: "d1", label: "Pixel 8", kind: "info", value: "Connected" }, { id: "d2", label: "iPad", kind: "info", value: "2 days ago" }] },
   ], danger: [{ id: "rv", label: "Revoke all devices", sub: "Phones must pair again.", action: "Revoke", body: "Every paired phone will be signed out." }] },
@@ -79,11 +84,13 @@ export function Settings() {
   const [q, setQ] = useState("");
   const [vals, setVals] = useState<Record<string, V>>(() => {
     const v: Record<string, V> = {};
-    S.forEach((s) => s.groups.forEach((g) => g.items.forEach((i) => { if ("def" in i) v[i.id] = i.def; })));
+    S.forEach((s) => s.groups.forEach((g) => g.items.forEach((i) => { if ("def" in i) v[i.id] = i.def as V; })));
     return v;
   });
   const [saved, setSaved] = useState(false);
   const [ask, setAsk] = useState<Danger | null>(null);
+  const [loading, setLoading] = useState(false);
+  const go = (id: string) => { setSec(id); setQ(""); setLoading(true); setTimeout(() => setLoading(false), 300); };
   const timer = useRef<ReturnType<typeof setTimeout>>();
 
   const set = (id: string, v: V) => {
@@ -104,6 +111,8 @@ export function Settings() {
     const v = vals[i.id];
     if (i.kind === "switch")
       return <button role="switch" aria-checked={!!v} aria-label={i.label} className={`switch ${v ? "on" : ""}`} onClick={() => set(i.id, !v)}><i /></button>;
+    if (i.kind === "theme") return <ThemeToggle label />;
+    if (i.kind === "seg") return <SegTabs value={v as string} options={i.opts} onChange={(x) => set(i.id, x)} label={i.label} />;
     if (i.kind === "popup")
       return <select className="popup" aria-label={i.label} value={v as string} onChange={(e) => set(i.id, e.target.value)}>{i.opts.map((o) => <option key={o}>{o}</option>)}</select>;
     if (i.kind === "stepper")
@@ -132,11 +141,11 @@ export function Settings() {
         <div className="searchbox"><Icon n="search" size={14} /><input placeholder="Search" aria-label="Search settings" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <nav className="side-scroll">
           {S.map((s) => (
-            <button key={s.id} className={`row ${!query && sec === s.id ? "active" : ""}`} onClick={() => { setSec(s.id); setQ(""); }}>{s.title}</button>
+            <button key={s.id} className={`row ${!query && sec === s.id ? "active" : ""}`} onClick={() => go(s.id)}>{s.title}</button>
           ))}
         </nav>
         <div className="side-bottom">
-          <button className={`row ${!query && sec === "later" ? "active" : ""}`} onClick={() => { setSec("later"); setQ(""); }}><Icon n="later" size={14} /><span>Coming later</span></button>
+          <button className={`row ${!query && sec === "later" ? "active" : ""}`} onClick={() => go("later")}><Icon n="later" size={14} /><span>Coming later</span></button>
           <div className="example pad">Example data</div>
         </div>
       </aside>
@@ -148,10 +157,11 @@ export function Settings() {
         <div className="setbody">
           {results && results.length === 0 && <p className="label3">No settings match “{q}”.</p>}
           {results?.map(({ s, items }) => (<div key={s.id}><h2>{s.title}</h2>{list(items)}</div>))}
-          {!query && sec === "later" && (
+          {!query && !loading && sec === "later" && (
             <ul className="group">{LATER.map((l) => <li key={l}><div className="lbl"><span>{l}</span></div><span className="label3">Not available yet</span></li>)}</ul>
           )}
-          {!query && cur && (
+          {!query && loading && <ul className="group skel">{[0, 1, 2].map((n) => <li key={n}><span className="sk" style={{ width: 120 + n * 24 }} /><span className="sk" style={{ width: 56 }} /></li>)}</ul>}
+          {!query && !loading && cur && (
             <>
               {cur.groups.map((g, n) => (<div key={n}>{g.head && <h2>{g.head}</h2>}{list(g.items)}</div>))}
               {cur.danger && (
