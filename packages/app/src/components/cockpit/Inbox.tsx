@@ -4,6 +4,7 @@ import { hasEverSpawned } from '../../lib/agent-health';
 import { DotSpinner } from './DotSpinner';
 import { useLoopGuard } from '../../lib/loop-guard';
 import { PaneStuckCard } from './StuckCard';
+import { AskNotices } from './AskNotices';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
 
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
@@ -47,6 +48,8 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
           ))}
         </ul>
       )}
+
+      <AskNotices />
 
       {count > 0 && (
         <ul className="ck-list">

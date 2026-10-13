@@ -8,6 +8,7 @@ import { tauri, type AppInstallInfo } from '../../../lib/tauri';
 import { FieldInput, FieldSelect, InfoCard, SettingBlock, SettingToggle, SettingsSection } from '../settings-ui';
 import type { SettingsTabContext } from './tab-context';
 import { LoopGuardSettingsBlock } from './LoopGuardSettings';
+import { AskBarSettingsBlock } from './AskBarSettings';
 
 export function GeneralTab({ ctx }: { ctx: SettingsTabContext }) {
   const { settings, setSettings, projectPath, onProjectPathChange, updateCheck, updateChecking, onCheckForUpdates, onOpenRelease } = ctx;
@@ -42,6 +43,7 @@ export function GeneralTab({ ctx }: { ctx: SettingsTabContext }) {
         </FieldSelect>
       </SettingBlock>
       <LoopGuardSettingsBlock />
+      <AskBarSettingsBlock />
       <SettingToggle label="Auto-save workspace state" description="Persist panes, scrollback, layout, and summaries after important events." checked onChange={() => undefined} implemented={false} />
       <SettingToggle label="Semantic repository index" description="Build a local index for smarter cross-pane agent context." checked onChange={() => undefined} implemented={false} />
       <SettingToggle label="Auto session summaries" description="Generate a concise summary when a session is closed or restored." checked onChange={() => undefined} implemented={false} />

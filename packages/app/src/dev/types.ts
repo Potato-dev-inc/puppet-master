@@ -5,7 +5,7 @@ export interface HarnessScenario {
   /** `?harness=<name>`; unique across scenarios. */
   name: string;
   /** Which window to render. */
-  route: 'cockpit' | 'settings';
+  route: 'cockpit' | 'settings' | 'askbar';
   /** App theme the mocked settings store reports (default dark). */
   theme?: 'dark' | 'light';
   /** Cockpit: pane id preselected through `?select=`. */
