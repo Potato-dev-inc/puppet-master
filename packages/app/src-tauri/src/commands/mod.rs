@@ -20,6 +20,7 @@ mod panes;
 mod secrets;
 mod accounts;
 mod standby;
+mod worktrees;
 
 pub use agent_models::*;
 pub use agents::*;
@@ -34,6 +35,7 @@ pub use panes::*;
 pub use secrets::*;
 pub use accounts::*;
 pub use standby::*;
+pub use worktrees::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{

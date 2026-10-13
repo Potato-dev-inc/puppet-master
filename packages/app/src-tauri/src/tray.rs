@@ -269,7 +269,7 @@ mod runtime {
     /// Open a pane for `agent` as `origin` asked: warm standby first, else cold; shown by UI mode
     /// (`cockpit::present_pane`). Emits `pane://spawn-stage` events along the way.
     pub fn new_pane_for(app: &AppHandle, agent: &str, origin: crate::cockpit::Origin) -> Result<String, String> {
-        new_pane_for_account(app, agent, origin, None)
+        new_pane_with(app, agent, origin, None, false)
     }
 
     /// `new_pane_for` under a user account (`crate::accounts`): the pane's agent is pointed at that
@@ -280,21 +280,43 @@ mod runtime {
         origin: crate::cockpit::Origin,
         account: Option<&str>,
     ) -> Result<String, String> {
+        new_pane_with(app, agent, origin, account, false)
+    }
+
+    /// `new_pane_for_account`, optionally `isolated`: the pane starts in its own git worktree (a
+    /// cold spawn, never a warm worker, which was launched in the project folder).
+    pub fn new_pane_with(
+        app: &AppHandle,
+        agent: &str,
+        origin: crate::cockpit::Origin,
+        account: Option<&str>,
+        isolated: bool,
+    ) -> Result<String, String> {
         emit_stage(app, agent, None, "claiming", false, None);
-        let result = open_new_pane(app, agent, origin, account);
+        let result = open_new_pane(app, agent, origin, account, isolated);
         if let Err(e) = &result {
             emit_stage(app, agent, None, "failed", false, Some(e));
         }
         result
     }
 
-    fn open_new_pane(app: &AppHandle, agent: &str, origin: crate::cockpit::Origin, account: Option<&str>) -> Result<String, String> {
+    fn open_new_pane(
+        app: &AppHandle,
+        agent: &str,
+        origin: crate::cockpit::Origin,
+        account: Option<&str>,
+        isolated: bool,
+    ) -> Result<String, String> {
         use tauri::Emitter;
         let started = std::time::Instant::now();
         let state = app.state::<AppState>();
         let project = crate::standby::default_project(&state.registry);
         let account = account.map(str::trim).filter(|a| !a.is_empty());
-        let key = crate::standby::preload_key(agent, &project).map(|key| key.with_account(account));
+        let key = if isolated {
+            None
+        } else {
+            crate::standby::preload_key(agent, &project).map(|key| key.with_account(account))
+        };
         let claim = key.as_ref().and_then(crate::standby::claim_visible);
         if let Some(key) = &key {
             // Counts as a use of this provider: lifts idle/backoff holds and warms a replacement.
@@ -313,12 +335,20 @@ mod runtime {
             return Ok(pane_id);
         }
         emit_stage(app, agent, None, "spawning", false, None);
+        let spawn_dir = if isolated {
+            let handle = format!("pane-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+            crate::worktrees::create(&project, &handle)
+                .map_err(|e| format!("{}: {}", e.code, e.message))?
+                .cwd
+        } else {
+            project.clone()
+        };
         let pane_id = crate::pty::registry_spawn_pane(
             &state.registry,
             app,
             crate::pty::SpawnPaneArgs {
                 agent_type: agent.to_string(),
-                cwd: Some(project.clone()),
+                cwd: Some(spawn_dir),
                 cols: None,
                 rows: None,
                 extra_args: None,
@@ -415,7 +445,7 @@ mod runtime {
     }
 }
 
-pub use runtime::{init, new_pane, new_pane_for, new_pane_for_account};
+pub use runtime::{init, new_pane, new_pane_for, new_pane_for_account, new_pane_with};
 
 #[cfg(test)]
 mod tests {

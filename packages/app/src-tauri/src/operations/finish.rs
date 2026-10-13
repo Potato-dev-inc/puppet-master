@@ -123,12 +123,19 @@ fn finish_operation(
     let command_results = match get_operation(project, id) {
         Ok(peek) if !peek.status.terminal() && !peek.checks.is_empty() => {
             crate::agent_runs::checks::run_command_checks(
-                std::path::Path::new(&peek.project_path),
+                std::path::Path::new(peek.work_dir()),
                 &peek.checks,
             )
         }
         _ => Default::default(),
     };
+    // Changed-files summary of an isolated run, read before the global lock (it runs git).
+    let worktree_changes = get_operation(project, id)
+        .ok()
+        .and_then(|peek| peek.worker.worktree)
+        .filter(|worktree| worktree.closed.is_none())
+        .and_then(|worktree| crate::worktrees::changes(&worktree).ok())
+        .map(|changes| changes.summary());
     let _serial = update_lock();
     let mut op = get_operation(project, id)?;
     if op.status.terminal() {
@@ -163,6 +170,9 @@ fn finish_operation(
     };
     op.progress_pct = None;
     op.required_action = None;
+    if let (Some(summary), Some(worktree)) = (worktree_changes, op.worker.worktree.as_mut()) {
+        worktree.changes = Some(summary);
+    }
     evaluate_acceptance_criteria(&mut op);
     if capture == ResultCapture::Inferred && op.checks.is_empty() {
         // Text scraped off a terminal screen with nothing configured to verify it: still
@@ -177,7 +187,7 @@ fn finish_operation(
     }
     if !op.checks.is_empty() {
         let results = crate::agent_runs::checks::evaluate_with_commands(
-            std::path::Path::new(&op.project_path),
+            std::path::Path::new(op.work_dir()),
             &op.checks,
             op.result.as_deref(),
             &command_results,
@@ -265,7 +275,7 @@ fn evaluate_acceptance_criteria(op: &mut OperationSnapshot) {
         return;
     }
     let result = op.result.as_deref().unwrap_or("");
-    let workspace = std::path::Path::new(&op.project_path);
+    let workspace = std::path::Path::new(op.work_dir());
     let mut hard_fail = false;
     let mut all_verified = true;
 

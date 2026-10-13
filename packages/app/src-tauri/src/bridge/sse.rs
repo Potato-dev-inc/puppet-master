@@ -138,7 +138,7 @@ pub fn push_pane_resize_sse(pane_id: &str, cols: u16, rows: u16) {
     }
 }
 
-pub(super) fn push_operation_sse(snapshot: &crate::operations::OperationSnapshot) {
+pub(crate) fn push_operation_sse(snapshot: &crate::operations::OperationSnapshot) {
     if let Ok(payload) = serde_json::to_string(snapshot) {
         push_sse(format!("event: operation\ndata: {payload}\n\n"));
     }

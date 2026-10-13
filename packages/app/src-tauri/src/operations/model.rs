@@ -388,6 +388,21 @@ pub struct WorkerPersist {
     /// Stage entries for the current turn, oldest first (capped), for startup diagnosis.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stage_log: Vec<StageMark>,
+    /// The git worktree this handle works in (`isolation: "worktree"`). The operation's
+    /// `project_path` stays the origin repo; only the spawn cwd moves (see `work_dir`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<crate::worktrees::WorktreeRef>,
+}
+
+impl OperationSnapshot {
+    /// Directory the worker runs in: its worktree while that exists, else the project.
+    pub fn work_dir(&self) -> &str {
+        self.worker
+            .worktree
+            .as_ref()
+            .and_then(|worktree| worktree.active_cwd())
+            .unwrap_or(&self.project_path)
+    }
 }
 
 /// A run that wanted a visible pane and ran headless instead. `reason` is `no_visible_mode` (the

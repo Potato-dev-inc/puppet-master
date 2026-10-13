@@ -18,6 +18,7 @@ mod standby;
 mod tasks;
 mod wait;
 mod workspace;
+mod worktrees;
 
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -61,6 +62,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| standby::handle(cx))
         .or_else(|| accounts::handle(cx))
         .or_else(|| opencode::handle(cx))
+        .or_else(|| worktrees::handle(cx))
         .or_else(|| panes::handle(cx))
 }
 

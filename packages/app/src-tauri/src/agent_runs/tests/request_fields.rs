@@ -240,3 +240,11 @@ fn explicit_headless_true_stays_headless_and_placement_defaults_to_unset() {
     assert!(request.headless);
     assert_eq!(request.placement, None, "unset placement means the pop-out window");
 }
+
+#[test]
+fn run_request_isolation_defaults_to_none_and_parses_worktree() {
+    let request = parse_run_request(json!({"task":"x"}));
+    assert_eq!(request.isolation, None);
+    let request = parse_run_request(json!({"task":"x","isolation":"worktree"}));
+    assert_eq!(request.isolation.as_deref(), Some("worktree"));
+}

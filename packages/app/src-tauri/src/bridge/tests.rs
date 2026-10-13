@@ -706,3 +706,23 @@ fn stop_report_wire_shape() {
         json!({"stopped":[{"pane_id":"p1","agent_type":"claude","cwd":"/w"}],"failed":[]})
     );
 }
+
+#[test]
+fn worktree_refusals_map_to_http_statuses_with_their_context() {
+    let mut conflict = crate::operations::OperationError::new("MERGE_CONFLICT", "2 files conflict", false);
+    conflict.context = json!({"files": ["a.txt", "b.txt"]});
+    let (status, body) = operation_http_error(conflict);
+    assert_eq!(status, 409);
+    assert_eq!(body["code"], "MERGE_CONFLICT");
+    assert_eq!(body["context"]["files"], json!(["a.txt", "b.txt"]));
+    for (code, expected) in [
+        ("NOT_A_GIT_REPO", 400),
+        ("NO_COMMITS", 400),
+        ("WORKTREE_NOT_FOUND", 404),
+        ("ORIGIN_DIRTY_OVERLAP", 409),
+        ("RUN_ACTIVE", 409),
+    ] {
+        let (status, _) = operation_http_error(crate::operations::OperationError::new(code, "x", false));
+        assert_eq!(status, expected, "{code}");
+    }
+}

@@ -81,6 +81,7 @@ pub fn send_agent(
         read_only: previous.read_only,
         keep_pane: previous.keep_pane,
         placement: None,
+        isolation: None,
         worker_has_mcp_tools: false,
         timeout_ms: previous.timeout_ms,
         wait_ms: if opts.background {

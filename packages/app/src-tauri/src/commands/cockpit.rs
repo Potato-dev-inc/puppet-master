@@ -47,8 +47,18 @@ pub async fn interrupt_pane(app: AppHandle, state: State<'_, AppState>, pane_id:
 }
 
 #[tauri::command]
-pub async fn new_pane(app: AppHandle, agent_id: String, account_id: Option<String>) -> Result<String, String> {
-    crate::tray::new_pane_for_account(&app, &agent_id, crate::cockpit::Origin::CockpitUi, account_id.as_deref())
+pub async fn new_pane(
+    app: AppHandle,
+    agent_id: String,
+    account_id: Option<String>,
+    isolation: Option<String>,
+) -> Result<String, String> {
+    let isolated = match isolation.as_deref() {
+        None | Some("") | Some("none") => false,
+        Some("worktree") => true,
+        Some(other) => return Err(format!("INVALID_ARGUMENT: isolation must be \"none\" or \"worktree\", got {other:?}")),
+    };
+    crate::tray::new_pane_with(&app, &agent_id, crate::cockpit::Origin::CockpitUi, account_id.as_deref(), isolated)
 }
 
 #[tauri::command]

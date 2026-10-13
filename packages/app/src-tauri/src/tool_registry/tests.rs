@@ -399,7 +399,7 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "66-335bc4af8cd69435");
+    assert_eq!(catalog_version(), "67-293f032d5ca3f51d");
 }
 
 /// Every tool input that names an agent (`agent_type`, or `backend` on quick_ask) uses the one
@@ -465,4 +465,19 @@ fn run_agent_advertises_an_optional_account() {
     assert_eq!(tool.input_schema["properties"]["account"]["type"], "string");
     let required = tool.input_schema["required"].as_array().cloned().unwrap_or_default();
     assert!(!required.iter().any(|name| name == "account"));
+}
+
+#[test]
+fn run_agent_advertises_isolation_and_review_worktree_is_exposed() {
+    let run = tools().into_iter().find(|t| t.name == "run_agent").expect("run_agent");
+    let isolation = &run.input_schema["properties"]["isolation"];
+    assert_eq!(isolation["enum"], json!(["none", "worktree"]));
+    assert_eq!(isolation["default"], "none");
+    assert!(run.output_schema.as_ref().unwrap().to_string().contains("worktree"), "receipt schema lacks worktree");
+    let review = tools().into_iter().find(|t| t.name == "review_worktree").expect("review_worktree");
+    assert_eq!(review.input_schema["properties"]["action"]["enum"], json!(["diff", "merge", "discard"]));
+    assert_eq!(review.input_schema["required"], json!(["handle"]));
+    assert_eq!((review.method, review.path), ("POST", "/worktrees/review"));
+    assert!(tool_visible_in_mode("review_worktree", McpMode::Agent));
+    assert!(!tool_visible_in_mode("review_worktree", McpMode::Shell));
 }

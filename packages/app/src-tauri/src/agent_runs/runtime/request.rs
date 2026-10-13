@@ -82,6 +82,11 @@ pub struct AgentRunRequest {
     /// `auto` | `grid` | `window`: where a visible pane opens.
     #[serde(default)]
     pub placement: Option<String>,
+    /// `none` (default) | `worktree`: run the worker in its own git worktree on its own branch
+    /// (`pm/<handle>`) so parallel agents never touch the same files. The run's project key stays
+    /// the origin repo. Review, merge or discard through the worktree routes / cockpit.
+    #[serde(default)]
+    pub isolation: Option<String>,
     #[serde(default)]
     pub worker_has_mcp_tools: bool,
     #[serde(default = "default_timeout")]

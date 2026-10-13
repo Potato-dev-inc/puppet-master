@@ -13,6 +13,7 @@ import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
 import { IconClose, IconGlobe, IconCopy, IconMore, IconReflow, IconStop } from './Icons';
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { formatElapsed, promptSummary, receiptRows, spinnerStatus, stateText } from './model';
+import { Changes } from './Changes';
 import { SegTabs } from './SegTabs';
 
 type Tab = 'terminal' | 'transcript' | 'receipt';
@@ -297,6 +298,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         )}
         {tab === 'receipt' && (
           <div className="ck-scroll ck-fade-in" key="receipt">
+            <Changes paneId={paneId} status={pane?.status ?? ''} />
             {run.error ? (
               <Empty title="Receipt unavailable" body={run.error} />
             ) : run.info === undefined ? (

@@ -66,6 +66,7 @@ pub fn run_agent(
             false,
         ));
     }
+    let isolate = parse_isolation(&request)?;
     let explicit_project = request
         .project_path
         .clone()
@@ -219,6 +220,16 @@ pub fn run_agent(
                     return Err(OperationError::new(
                         "ACCOUNT_MISMATCH",
                         "this worker runs under a different account; start a new worker for this account",
+                        false,
+                    ));
+                }
+                if isolate
+                    && operations::latest_agent_run(&project_path, &handle)
+                        .map_or(true, |existing| existing.worker.worktree.is_none())
+                {
+                    return Err(OperationError::new(
+                        "INVALID_ARGUMENT",
+                        "isolation: \"worktree\" applies when a worker is created; this handle already exists without a worktree. Start a new run to isolate it.",
                         false,
                     ));
                 }
@@ -401,6 +412,16 @@ pub fn run_agent(
     let validated_checks = request.checks.clone().unwrap_or_default();
     checks::validate(std::path::Path::new(&project_path), &validated_checks)
         .map_err(|message| OperationError::new("INVALID_ARGUMENT", message, false))?;
+    // Last step that can still be refused: create the worktree for a new isolated worker. A turn
+    // after the first inherits the worktree through `previous` (see `persist::build_worker`).
+    if isolate && request.turn_index == 0 {
+        worker.worktree = Some(
+            crate::worktrees::create(&project_path, &handle).map_err(|mut error| {
+                error.context = serde_json::json!({"isolation": "worktree", "project_path": project_path});
+                error
+            })?,
+        );
+    }
     let requested_criteria = request.acceptance_criteria.as_deref();
     let acceptance_criteria = stored_acceptance_criteria(requested_criteria);
     let task_prompt = wrap_acceptance_criteria(&rendered.prompt, requested_criteria);
@@ -510,6 +531,30 @@ pub fn run_agent(
     }
 }
 
+/// `isolation`: absent/`none` -> false, `worktree` -> true; anything else, or combining it with an
+/// existing pane/worker, is refused.
+fn parse_isolation(request: &AgentRunRequest) -> Result<bool, OperationError> {
+    let wants = match request.isolation.as_deref().map(str::trim) {
+        None | Some("") | Some("none") => false,
+        Some("worktree") => true,
+        Some(other) => {
+            return Err(OperationError::new(
+                "INVALID_ARGUMENT",
+                format!("isolation must be \"none\" or \"worktree\", got {other:?}"),
+                false,
+            ))
+        }
+    };
+    if wants && request.turn_index == 0 && (request.pane_id.is_some() || request.worker_id.is_some()) {
+        return Err(OperationError::new(
+            "INVALID_ARGUMENT",
+            "isolation: \"worktree\" starts a new worker in its own worktree; it cannot be combined with pane_id or worker_id (those adopt an existing worker)",
+            false,
+        ));
+    }
+    Ok(wants)
+}
+
 fn nonempty_criteria(requested: Option<&[String]>) -> Vec<String> {
     requested
         .unwrap_or(&[])
@@ -583,5 +628,34 @@ mod registered_tests {
         assert_eq!(error.code, "UNKNOWN_AGENT_TYPE");
         assert!(error.context["valid"].as_array().unwrap().iter().any(|id| id == "claude"), "{:?}", error.context);
         assert!(registered_profile("claude").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod isolation_tests {
+    use super::parse_isolation;
+    use crate::agent_runs::runtime::AgentRunRequest;
+    use serde_json::json;
+
+    fn request(value: serde_json::Value) -> AgentRunRequest {
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn isolation_none_or_absent_is_off_and_worktree_is_on() {
+        assert!(!parse_isolation(&request(json!({"task":"t"}))).unwrap());
+        assert!(!parse_isolation(&request(json!({"task":"t","isolation":"none"}))).unwrap());
+        assert!(parse_isolation(&request(json!({"task":"t","isolation":"worktree"}))).unwrap());
+    }
+
+    #[test]
+    fn unknown_isolation_and_adopting_a_pane_are_refused() {
+        let error = parse_isolation(&request(json!({"task":"t","isolation":"docker"}))).unwrap_err();
+        assert_eq!(error.code, "INVALID_ARGUMENT");
+        let error = parse_isolation(&request(json!({"task":"t","isolation":"worktree","pane_id":"p"}))).unwrap_err();
+        assert_eq!(error.code, "INVALID_ARGUMENT");
+        assert!(error.message.contains("pane_id"));
+        // a later turn on an isolated handle may carry a pane id
+        assert!(parse_isolation(&request(json!({"task":"t","isolation":"worktree","pane_id":"p","turn_index":1}))).unwrap());
     }
 }

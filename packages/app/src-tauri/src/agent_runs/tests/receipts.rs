@@ -217,3 +217,58 @@ fn receipt_and_view_carry_the_visible_to_headless_fallback() {
         );
     }
 }
+
+fn sample_worktree(project: &str) -> crate::worktrees::WorktreeRef {
+    crate::worktrees::WorktreeRef {
+        path: format!("{project}/.puppet-master/worktrees/h-1a2b"),
+        cwd: format!("{project}/.puppet-master/worktrees/h-1a2b"),
+        branch: "pm/h".into(),
+        base: "main".into(),
+        base_commit: "abc".into(),
+        repo: project.into(),
+        handle: "h".into(),
+        created_at_ms: 1,
+        closed: None,
+        changes: Some(crate::worktrees::ChangeSummary { files_changed: 3, additions: 10, deletions: 2 }),
+    }
+}
+
+#[test]
+fn an_isolated_run_receipt_names_its_worktree_and_stats_and_the_run_keeps_the_origin_project() {
+    let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+    assert!(receipt_of(snapshot.clone()).worktree.is_none(), "plain runs carry no worktree");
+    assert_eq!(snapshot.work_dir(), snapshot.project_path);
+
+    let project = snapshot.project_path.clone();
+    snapshot.worker.worktree = Some(sample_worktree(&project));
+    // the worker runs in the worktree, but the run is still keyed on the origin project
+    assert!(snapshot.work_dir().ends_with("h-1a2b"));
+    assert_eq!(snapshot.project_path, project);
+    let worktree = receipt_of(snapshot.clone()).worktree.expect("worktree on the receipt");
+    assert_eq!(worktree.branch, "pm/h");
+    assert_eq!(worktree.base, "main");
+    assert_eq!(worktree.state, "unreviewed");
+    assert_eq!((worktree.files_changed, worktree.additions, worktree.deletions), (Some(3), Some(10), Some(2)));
+    let json = serde_json::to_value(receipt_of(snapshot.clone())).unwrap();
+    assert_eq!(json["worktree"]["branch"], "pm/h");
+
+    // merged: the receipt says so and later turns fall back to the project folder
+    snapshot.worker.worktree.as_mut().unwrap().closed = Some("merged".into());
+    assert_eq!(receipt_of(snapshot.clone()).worktree.unwrap().state, "merged");
+    assert_eq!(snapshot.work_dir(), snapshot.project_path);
+}
+
+#[test]
+fn the_worktree_survives_a_snapshot_round_trip_so_a_restart_does_not_lose_it() {
+    let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+    let project = snapshot.project_path.clone();
+    snapshot.worker.worktree = Some(sample_worktree(&project));
+    let text = serde_json::to_string(&snapshot).unwrap();
+    let back: operations::OperationSnapshot = serde_json::from_str(&text).unwrap();
+    assert_eq!(back.worker.worktree, snapshot.worker.worktree);
+    // a snapshot written before this feature has no worktree
+    let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
+    old["worker"].as_object_mut().unwrap().remove("worktree");
+    let old: operations::OperationSnapshot = serde_json::from_value(old).unwrap();
+    assert!(old.worker.worktree.is_none());
+}

@@ -26,6 +26,7 @@ mod transitions;
 mod view;
 mod wait;
 mod worker;
+mod worktree;
 
 pub use cancel::*;
 pub use create::*;
@@ -39,6 +40,7 @@ pub use transitions::*;
 pub use view::*;
 pub use wait::*;
 pub use worker::*;
+pub use worktree::*;
 
 #[cfg(test)]
 mod tests;

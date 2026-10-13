@@ -23,6 +23,7 @@ export function Sidebar({
   const groups = groupPanes(list);
   const waiting = list.filter((p) => p.status === 'waiting_input').length;
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isolated, setIsolated] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const open = () => setMenuOpen(true);
@@ -105,9 +106,13 @@ export function Sidebar({
               <NewAgentMenu
                 entries={c.launchEntries}
                 readyAgents={c.readyAgents}
-                onStart={(agent, account) => void c.newAgent(agent, account)}
+                onStart={(agent, account) => void c.newAgent(agent, account, isolated)}
                 onClose={() => setMenuOpen(false)}
               />
+              <label className="ck-menu-toggle" title="Work in a separate git copy so agents never edit the same files. Review and merge later.">
+                <input type="checkbox" checked={isolated} onChange={(e) => setIsolated(e.target.checked)} />
+                <span>Isolated (worktree)</span>
+              </label>
             </div>
           )}
         </div>

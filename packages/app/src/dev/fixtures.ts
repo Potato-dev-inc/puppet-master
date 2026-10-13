@@ -194,3 +194,56 @@ export const ACCOUNT_AGENTS = [
   { agent_id: 'claude', home_env: 'CLAUDE_CONFIG_DIR', login_hint: 'Run `claude` and log in, then close it.' },
   { agent_id: 'codex', home_env: 'CODEX_HOME', login_hint: 'Run `codex` and sign in, then close it.' },
 ];
+
+/** An isolated run's worktree and its changes (Receipt tab "Changes"). */
+export const EXAMPLE_WORKTREE = {
+  handle: 'refactor-auth',
+  branch: 'pm/refactor-auth',
+  base: 'main',
+  repo: 'C:\Users\dev\work\puppet-master',
+  path: 'C:\Users\dev\work\puppet-master\.puppet-master\worktrees\refactor-a-1f2e',
+  exists: true,
+  state: 'unreviewed',
+  summary: { files_changed: 3, additions: 14, deletions: 3 },
+};
+
+export const EXAMPLE_WORKTREE_DIFF = {
+  branch: 'pm/refactor-auth',
+  base: 'main',
+  changes: {
+    files: [
+      { path: 'src/auth/session.ts', status: 'modified', additions: 9, deletions: 3, binary: false },
+      { path: 'src/auth/token.ts', status: 'added', additions: 5, deletions: 0, binary: false },
+      { path: 'src/auth/legacy.ts', status: 'deleted', additions: 0, deletions: 0, binary: false },
+    ],
+    files_changed: 3,
+    additions: 14,
+    deletions: 3,
+    truncated: false,
+  },
+  patch: [
+    'diff --git a/src/auth/session.ts b/src/auth/session.ts',
+    'index 3b1c..9a7e 100644',
+    '--- a/src/auth/session.ts',
+    '+++ b/src/auth/session.ts',
+    '@@ -12,9 +12,15 @@ export function open(user: User) {',
+    '   const now = Date.now();',
+    '-  const token = legacyToken(user);',
+    '-  store.set(user.id, token);',
+    '-  return token;',
+    '+  const token = issueToken(user, now);',
+    '+  store.set(user.id, token);',
+    '+  audit.record("session.open", user.id);',
+    '+  return token;',
+    ' }',
+    'diff --git a/src/auth/token.ts b/src/auth/token.ts',
+    'new file mode 100644',
+    '--- /dev/null',
+    '+++ b/src/auth/token.ts',
+    '@@ -0,0 +1,2 @@',
+    '+export const issueToken = (u: User, at: number) => sign({ sub: u.id, iat: at });',
+    '+',
+    '',
+  ].join('\n'),
+  patch_truncated: false,
+};
