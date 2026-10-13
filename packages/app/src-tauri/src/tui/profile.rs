@@ -36,6 +36,22 @@ pub trait TuiProfile: Send + Sync {
         true
     }
 
+    /// Command that prints the CLI's version, for the agent doctor. `None` when there is nothing
+    /// to run (not installed, or no CLI).
+    fn version_command(&self) -> Option<VersionCommand> {
+        None
+    }
+
+    /// One plain sentence or command that installs the CLI, shown by the agent doctor.
+    fn install_hint(&self) -> Option<String> {
+        None
+    }
+
+    /// How the user signs in once the CLI is installed, shown by the agent doctor.
+    fn login_hint(&self) -> Option<String> {
+        None
+    }
+
     // ---- visible pane spawn -------------------------------------------------------------
 
     /// Program, arguments and cwd for an interactive PTY pane. `None` (the default) keeps the

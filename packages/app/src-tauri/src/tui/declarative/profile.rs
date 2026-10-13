@@ -17,7 +17,7 @@ use crate::tui::types::{
     SpawnRequest, StandbySupport,
 };
 use crate::pty::status::PaneStatus;
-use crate::tui::types::{Reply, StandbyScreen};
+use crate::tui::types::{Reply, StandbyScreen, VersionCommand};
 use crate::tui::{generic, AgentId, TuiProfile};
 use serde_json::Value;
 
@@ -346,6 +346,23 @@ impl TuiProfile for DeclarativeProfile {
                 format!("{} exited cleanly but no result could be read from its output", self.id),
             )
         })
+    }
+
+    fn version_command(&self) -> Option<VersionCommand> {
+        let here = std::env::current_dir().unwrap_or_default();
+        let program = resolve_binary(&self.def.binary, &here).ok()?;
+        Some(VersionCommand {
+            program: program.to_string_lossy().into_owned(),
+            args: self.def.binary.version_args.clone(),
+        })
+    }
+
+    fn install_hint(&self) -> Option<String> {
+        Some(self.def.binary.install_hint.trim().to_string()).filter(|h| !h.is_empty())
+    }
+
+    fn login_hint(&self) -> Option<String> {
+        Some(self.def.binary.login_hint.trim().to_string()).filter(|h| !h.is_empty())
     }
 
     fn is_installed(&self) -> bool {

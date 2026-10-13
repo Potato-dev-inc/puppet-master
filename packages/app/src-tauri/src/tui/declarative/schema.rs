@@ -112,6 +112,9 @@ pub struct BinaryTable {
     pub version_args: Vec<String>,
     #[serde(default)]
     pub install_hint: String,
+    /// How the user signs in once installed; plain text shown by the agent doctor.
+    #[serde(default)]
+    pub login_hint: String,
 }
 
 fn default_windows_extensions() -> Vec<String> {

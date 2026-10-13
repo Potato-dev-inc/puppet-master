@@ -28,6 +28,13 @@ impl Kind {
     }
 }
 
+/// How to ask an agent CLI for its version: a resolved program plus arguments (agent doctor).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionCommand {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
 /// Declarative facts about a profile. Generic code reads these instead of listing agent names.
 #[derive(Debug, Clone, Copy)]
 pub struct Features {
@@ -235,6 +242,7 @@ pub struct Descriptor {
     pub not_dispatchable_reason: Option<&'static str>,
     pub installed: bool,
     pub install_hint: Option<String>,
+    pub login_hint: Option<String>,
     pub modes: Modes,
     pub features: FeatureFlags,
     pub run_options: RunOptionSupport,
@@ -260,7 +268,8 @@ impl Descriptor {
             not_dispatchable_reason: (!features.dispatchable)
                 .then(|| profile.not_dispatchable_reason()),
             installed: profile.is_installed(),
-            install_hint: None,
+            install_hint: profile.install_hint(),
+            login_hint: profile.login_hint(),
             modes: Modes {
                 headless: supports_headless(profile),
                 visible: true,

@@ -3,6 +3,7 @@
 //! (the order matters where a literal path such as `/panes/wait` overlaps a parameterised one).
 
 pub(super) mod definitions;
+pub(super) mod health;
 mod locks;
 pub(super) mod mcp;
 mod opencode;
@@ -43,6 +44,7 @@ pub(super) struct Ctx<'a> {
 pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
     mcp::handle_session(cx)
         .or_else(|| definitions::handle(cx))
+        .or_else(|| health::handle(cx))
         .or_else(|| agent_runs(cx))
         .or_else(|| shell::handle(cx))
         .or_else(|| mcp::handle_agents(cx))

@@ -68,6 +68,7 @@ fn overlay_definition(descriptor: &mut Descriptor) {
         descriptor.label = meta.label.clone();
         descriptor.icon = Some(meta.icon.clone());
         descriptor.install_hint = meta.install_hint.clone();
+        descriptor.login_hint = meta.login_hint.clone();
         descriptor.modes.visible = meta.has_tui;
     }
     descriptor.definition = Some(serde_json::json!({

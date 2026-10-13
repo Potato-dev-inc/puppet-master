@@ -626,3 +626,27 @@ mod definitions {
         assert!(row["definition"]["fingerprint"].as_str().unwrap().starts_with("sha256:"));
     }
 }
+
+#[test]
+fn agents_health_route_lists_cli_agents_with_hints() {
+    let _serial = crate::tui::registry::test_serial();
+    let (status, body) =
+        super::routes::health::static_route("GET", &["agents", "health"]).expect("route exists");
+    assert_eq!(status, 200);
+    let agents = body["agents"].as_array().expect("agents array");
+    let ids: Vec<&str> = agents.iter().map(|a| a["id"].as_str().unwrap()).collect();
+    assert!(ids.contains(&"claude") && ids.contains(&"codex"), "{ids:?}");
+    assert!(!ids.contains(&"bash"), "shells are not agents to set up: {ids:?}");
+    for agent in agents {
+        assert!(
+            ["unchecked", "ready", "not_installed", "needs_login", "error"]
+                .contains(&agent["state"].as_str().unwrap()),
+            "{agent}"
+        );
+        assert!(agent["reason"].as_str().is_some_and(|r| !r.is_empty()), "{agent}");
+        assert!(agent["can_test"].is_boolean(), "{agent}");
+    }
+    let claude = agents.iter().find(|a| a["id"] == "claude").unwrap();
+    assert_eq!(claude["install_hint"], "npm i -g @anthropic-ai/claude-code");
+    assert!(super::routes::health::static_route("POST", &["agents", "health"]).is_none());
+}

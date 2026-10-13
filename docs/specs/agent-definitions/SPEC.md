@@ -438,6 +438,7 @@ All tables use `deny_unknown_fields`. "req" = required. Durations are integer mi
 | `allow_cmd_shim` | bool | `false` | 7.3 step 4 |
 | `version_args` | array<string> | `["--version"]` | used by the on-demand probe |
 | `install_hint` | string | `""` | <= 200 chars, shown when not installed |
+| `login_hint` | string | `""` | <= 200 chars, how to sign in; shown by the agent doctor (display only, not part of the fingerprint) |
 
 #### `[features]`
 

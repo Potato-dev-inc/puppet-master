@@ -18,6 +18,25 @@ impl TuiProfile for OpenCode {
         "opencode"
     }
 
+    fn is_installed(&self) -> bool {
+        super::program_on_path("opencode")
+    }
+
+    fn version_command(&self) -> Option<super::VersionCommand> {
+        Some(super::VersionCommand {
+            program: super::executable("opencode").ok()?,
+            args: vec!["--version".into()],
+        })
+    }
+
+    fn install_hint(&self) -> Option<String> {
+        Some("npm i -g opencode-ai".into())
+    }
+
+    fn login_hint(&self) -> Option<String> {
+        Some("Open OpenCode and type /connect".into())
+    }
+
     /// Visible panes only: the TUI takes its task typed into the pane, not on stdin.
     fn standby_support(&self) -> StandbySupport {
         StandbySupport {

@@ -5,6 +5,7 @@ mod agent_definitions_recorder;
 mod agent_adapters;
 mod agent_contexts;
 pub mod agent_runs;
+mod agent_health;
 mod app_lifecycle;
 mod app_paths;
 mod bridge;
@@ -99,6 +100,8 @@ pub fn run() {
             commands::read_pane_raw_buffer,
             commands::read_pane_screen_replay,
             commands::agents_list,
+            commands::agents_health,
+            commands::agents_health_test,
             commands::agents_definitions_list,
             commands::agents_definitions_reload,
             commands::agents_definitions_validate,
