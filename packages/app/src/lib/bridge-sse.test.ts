@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BridgeEvent } from './bridge-types';
-import { subscribeBridgeEventsViaPoll, subscribeBridgeEventsViaWs } from './bridge-sse';
+import {
+  subscribeBridgeEventsHandle,
+  subscribeBridgeEventsViaPoll,
+  subscribeBridgeEventsViaWs,
+  type BridgeLinkStats,
+} from './bridge-sse';
 
 vi.mock('./mobile-pairing-auth', async (importOriginal) => {
   const mod = await importOriginal<typeof import('./mobile-pairing-auth')>();
@@ -164,6 +169,92 @@ describe('subscribeBridgeEventsViaWs', () => {
     expect(urls.some((u) => u.includes('/events/poll?'))).toBe(true);
     expect(handle.sendInput('p1', 'x', false)).toBe(false);
     expect(MockSocket.instances).toHaveLength(2);
+    handle.unsubscribe();
+  });
+
+  it('keeps retrying the socket from polling and switches back once it opens, with one resync', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn(async () => new Promise(() => {})));
+    const events: BridgeEvent[] = [];
+    const handle = subscribeBridgeEventsViaWs(BASE, (e) => events.push(e));
+    handle.setWatchedPanes(['p1']);
+    MockSocket.instances[0].fail();
+    vi.advanceTimersByTime(500);
+    MockSocket.instances[1].fail();
+    expect(handle.stats().mode).toBe('polling');
+
+    vi.advanceTimersByTime(15_000);
+    expect(MockSocket.instances).toHaveLength(3);
+    MockSocket.instances[2].fail();
+    expect(handle.stats().mode).toBe('polling');
+    expect(events).toEqual([]);
+
+    vi.advanceTimersByTime(15_000);
+    expect(MockSocket.instances).toHaveLength(4);
+    MockSocket.instances[3].open();
+    expect(handle.stats().mode).toBe('socket');
+    expect(handle.stats().reconnects).toBe(1);
+    expect(handle.isOpen()).toBe(true);
+    expect(events.map((e) => e.type)).toEqual(['resync']);
+    expect(MockSocket.instances[3].sent).toEqual([JSON.stringify({ type: 'watch', pane_ids: ['p1'] })]);
+
+    // Socket is the transport again: no further socket attempts are scheduled.
+    vi.advanceTimersByTime(60_000);
+    expect(MockSocket.instances).toHaveLength(4);
+    handle.unsubscribe();
+  });
+
+  it('measures ping/pong round trips, keeps a median of the last ten, and notifies stats listeners', () => {
+    vi.useFakeTimers();
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const handle = subscribeBridgeEventsViaWs(BASE, () => {});
+    const sock = MockSocket.instances[0];
+    const seen: BridgeLinkStats[] = [];
+    const off = handle.onStats((s) => seen.push(s));
+
+    sock.open();
+    expect(handle.stats()).toMatchObject({ mode: 'socket', rttMs: null, rttMedianMs: null, reconnects: 0 });
+    expect(seen.length).toBeGreaterThan(0);
+
+    vi.advanceTimersByTime(5000);
+    expect(JSON.parse(sock.sent[0])).toEqual({ type: 'ping', t: 1000 });
+    now.mockReturnValue(1085);
+    sock.receive(JSON.stringify({ type: 'pong', t: 1000 }));
+    expect(handle.stats().rttMs).toBe(85);
+    expect(handle.stats().rttMedianMs).toBe(85);
+
+    now.mockReturnValue(6000);
+    vi.advanceTimersByTime(5000);
+    now.mockReturnValue(6100);
+    sock.receive(JSON.stringify({ type: 'pong', t: 6000 }));
+    expect(handle.stats().rttMs).toBe(100);
+    expect(handle.stats().rttMedianMs).toBe(92.5);
+
+    off();
+    const count = seen.length;
+    now.mockReturnValue(9000);
+    vi.advanceTimersByTime(5000);
+    now.mockReturnValue(9050);
+    sock.receive(JSON.stringify({ type: 'pong', t: 9000 }));
+    expect(seen.length).toBe(count);
+    now.mockRestore();
+    handle.unsubscribe();
+  });
+});
+
+describe('subscribeBridgeEventsHandle (loopback)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reports stream mode with no round trip for the EventSource path', () => {
+    class MockEventSource {
+      addEventListener() {}
+      close() {}
+      onerror: (() => void) | null = null;
+      onopen: (() => void) | null = null;
+    }
+    vi.stubGlobal('EventSource', MockEventSource);
+    const handle = subscribeBridgeEventsHandle('http://127.0.0.1:1234', () => {});
+    expect(handle.stats()).toEqual({ mode: 'stream', rttMs: null, rttMedianMs: null, reconnects: 0 });
     handle.unsubscribe();
   });
 });

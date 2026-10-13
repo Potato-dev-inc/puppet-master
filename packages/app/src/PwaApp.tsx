@@ -8,7 +8,7 @@ import type { TerminalTransport } from './hooks/useTerminalSession';
 import { usePaneViewportLease } from './hooks/usePaneViewportLease';
 import { useVisualViewportSync } from './hooks/useVisualViewport';
 import { makeBridgeClient, type BridgeClient } from './lib/bridge';
-import { subscribeBridgeEventsHandle, type BridgeEventsHandle } from './lib/bridge-sse';
+import { subscribeBridgeEventsHandle, type BridgeEventsHandle, type BridgeLinkStats } from './lib/bridge-sse';
 import { DEFAULT_PUBLIC_SETTINGS, type PublicSettings } from './lib/bridge-settings';
 import { ngrokRequestHeaders } from './lib/bridge-ngrok';
 import { mergeBridgeHeaders } from './lib/mobile-pairing-auth';
@@ -23,7 +23,7 @@ import {
 import { BridgePaneTerminal, useBridgePaneTransport } from './components/BridgePaneTerminal';
 import { AgentTabBar } from './components/mobile/AgentTabBar';
 import { AgentsOverview } from './components/mobile/AgentsOverview';
-import { MenuSheet, NewAgentSheet } from './components/mobile/MobileSheet';
+import { MenuSheet, NewAgentSheet, type TypingEchoStats } from './components/mobile/MobileSheet';
 import { SetupScreen } from './components/pwa/SetupScreen';
 
 const LS_ACTIVE_TAB = 'pm.mobile.activeTab';
@@ -47,6 +47,19 @@ function useKeyboardResizesContent(): void {
 }
 /** Health re-check and pane list refresh: the SSE stream can drop silently on a phone. */
 const RESYNC_MS = 5000;
+/** Typing-echo samples kept (median over these). */
+const ECHO_WINDOW = 10;
+/** A keystroke still waiting for its echo after this long is dropped (no output came back). */
+const ECHO_PENDING_MAX_MS = 3000;
+/** Echo stats are published to state at most this often. */
+const ECHO_PUBLISH_MS = 1000;
+
+function medianOf(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
 
 function readActiveTab(): string {
   try {
@@ -92,6 +105,26 @@ export default function PwaApp() {
   const registry = useBridgePaneRegistry(bridge, socketInput);
   const registryRef = useRef(registry);
   registryRef.current = registry;
+  const [linkStats, setLinkStats] = useState<BridgeLinkStats | null>(null);
+  const [echoStats, setEchoStats] = useState<TypingEchoStats | null>(null);
+  /** Keystroke waiting for the pane's next output. Refs only; state is published at most once a second. */
+  const echoPendingRef = useRef<{ paneId: string; at: number } | null>(null);
+  const echoSamplesRef = useRef<number[]>([]);
+  const echoLastRef = useRef<number | null>(null);
+  const echoTimerRef = useRef<number | null>(null);
+  const publishEcho = useCallback(() => {
+    if (echoTimerRef.current !== null) return;
+    echoTimerRef.current = window.setTimeout(() => {
+      echoTimerRef.current = null;
+      setEchoStats({ lastMs: echoLastRef.current, medianMs: medianOf(echoSamplesRef.current) });
+    }, ECHO_PUBLISH_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (echoTimerRef.current !== null) window.clearTimeout(echoTimerRef.current);
+    },
+    [],
+  );
 
   const applyPanes = useCallback((list: PaneInfo[]) => {
     setPanes(orderPanes(list));
@@ -134,7 +167,17 @@ export default function PwaApp() {
 
     const stream = subscribeBridgeEventsHandle(bridgeUrl, (ev) => {
       if (ev.type === 'panes') applyPanes(ev.panes);
-      if (ev.type === 'terminal') registryRef.current.ingestTerminalData(ev.pane_id, ev.data);
+      if (ev.type === 'terminal') {
+        registryRef.current.ingestTerminalData(ev.pane_id, ev.data);
+        const pending = echoPendingRef.current;
+        if (pending && pending.paneId === ev.pane_id) {
+          echoPendingRef.current = null;
+          echoLastRef.current = performance.now() - pending.at;
+          echoSamplesRef.current.push(echoLastRef.current);
+          if (echoSamplesRef.current.length > ECHO_WINDOW) echoSamplesRef.current.shift();
+          publishEcho();
+        }
+      }
       if (ev.type === 'pane-status') {
         registryRef.current.updatePaneStatus(ev.pane_id, ev.status);
         setPanes((prev) => prev.map((p) => (p.id === ev.pane_id ? { ...p, status: ev.status } : p)));
@@ -153,14 +196,17 @@ export default function PwaApp() {
       }
     });
     streamRef.current = stream;
+    setLinkStats(stream.stats());
+    const offStats = stream.onStats(setLinkStats);
 
     return () => {
       live = false;
       window.clearInterval(timer);
+      offStats();
       if (streamRef.current === stream) streamRef.current = null;
       stream.unsubscribe();
     };
-  }, [bridgeUrl, applyPanes]);
+  }, [bridgeUrl, applyPanes, publishEcho]);
 
   // A closed agent's tab falls back to All (only once the real pane list has arrived).
   useEffect(() => {
@@ -200,10 +246,13 @@ export default function PwaApp() {
       ...transport,
       writeInput: (text, appendNewline) => {
         claimPaneSize();
+        const now = performance.now();
+        const pending = echoPendingRef.current;
+        if (!pending || now - pending.at > ECHO_PENDING_MAX_MS) echoPendingRef.current = { paneId: active, at: now };
         return transport.writeInput(text, appendNewline);
       },
     }),
-    [transport, claimPaneSize],
+    [transport, claimPaneSize, active],
   );
 
   const patchSettings = useCallback(
@@ -352,6 +401,8 @@ export default function PwaApp() {
           bridgeReady={bridgeReady}
           settings={settings}
           onPatchSettings={patchSettings}
+          link={linkStats}
+          echo={echoStats}
           activeLabel={activePane ? labels.get(active) ?? activePane.info.agent_type : null}
           onCloseActive={() => void closeActive()}
           onEditConnection={() => {

@@ -191,6 +191,35 @@ export function isMobileKeyboardTransitionActive(viewport: HTMLElement): boolean
   );
 }
 
+/** Layout of a never-scaled (noScale) stage in screen px, from the last full measurement. */
+export interface NoScaleLayout {
+  scale: number;
+  contentWidth: number;
+  contentHeight: number;
+  scaledHeight: number;
+  containerHeight: number;
+  /** Cursor bottom, px from the unscaled content top (clamped), or null to bottom-anchor. */
+  cursorBottom: number | null;
+}
+
+/** Default vertical anchor of a noScale stage: cursor-anchored, or bottom-anchored without a cursor. */
+export function computeNoScaleAnchorTranslateY(
+  scaledHeight: number,
+  containerHeight: number,
+  cursorBottom: number | null,
+  scale: number,
+): number {
+  if (cursorBottom === null) {
+    return computeBottomAnchoredTranslateY(scaledHeight, containerHeight);
+  }
+  return computeCursorAnchoredTranslateY(scaledHeight, containerHeight, cursorBottom * scale);
+}
+
+/** Cheap-path decision: the cursor row moved since the last fit, so the anchor must be recomputed. */
+export function cursorMoved(previous: number | null, next: number | null): boolean {
+  return previous !== next;
+}
+
 /**
  * Scales a mirror terminal stage to fit its viewport using CSS transform.
  * The PTY grid stays at desktop cols/rows; only the presentation shrinks.
@@ -200,6 +229,7 @@ export class TerminalScaleController implements Disposable {
   private readonly stage: HTMLElement;
   private resizeObserver: ResizeObserver | null = null;
   private fitFrame: number | null = null;
+  private cursorFrame: number | null = null;
   private readonly onAuthorityChange: () => void;
 
   /** False: always fit width and height, never push the stage up for the keyboard. */
@@ -223,6 +253,12 @@ export class TerminalScaleController implements Disposable {
    * when unpanned (the anchor then follows the cursor). Re-clamped on every fit.
    */
   private pannedTranslateY: number | null = null;
+
+  /** noScale only: layout of the last full fit. The cursor-only path reuses its sizes. */
+  private noScaleLayoutCache: NoScaleLayout | null = null;
+
+  /** Last value written to each stage/viewport style, so an unchanged value is never written. */
+  private readonly written = new Map<string, string>();
 
   constructor(
     viewport: HTMLElement,
@@ -254,6 +290,7 @@ export class TerminalScaleController implements Disposable {
     this.scheduleFit();
   }
 
+  /** Full fit: measures the container and the content, then applies the transform. */
   scheduleFit(): void {
     if (this.fitFrame !== null) return;
     this.fitFrame = requestAnimationFrame(() => {
@@ -263,22 +300,51 @@ export class TerminalScaleController implements Disposable {
   }
 
   /**
+   * Cheap fit for per-write output (noScale only): once per frame, reads just the cursor row and
+   * re-anchors from the cached sizes when it moved. Does nothing when the cursor did not move.
+   */
+  scheduleCursorFit(): void {
+    if (!this.noScale || this.cursorFrame !== null) return;
+    this.cursorFrame = requestAnimationFrame(() => {
+      this.cursorFrame = null;
+      this.cursorFitNow();
+    });
+  }
+
+  private cursorFitNow(): void {
+    const layout = this.noScaleLayoutCache;
+    // No full fit yet: the cached sizes do not exist, so measure in full.
+    if (!layout) {
+      this.fitNow();
+      return;
+    }
+    const cursorBottom = this.measureCursorBottom?.() ?? null;
+    if (!cursorMoved(layout.cursorBottom, cursorBottom)) return;
+    this.commitNoScale({ ...layout, cursorBottom });
+  }
+
+  /**
    * Pans the cropped stage by `dyPx` (positive = reveal the top). Applies at once and returns the
    * part of `dyPx` the stage could not take, so the caller can scroll with the rest. Only the
    * noScale mode pans; otherwise nothing is consumed.
    */
   panBy(dyPx: number): number {
     if (!this.noScale) return dyPx;
-    const layout = this.noScaleLayout();
-    const current = this.pannedTranslateY ?? layout.anchor;
+    const layout = this.measureNoScaleLayout();
+    const anchor = computeNoScaleAnchorTranslateY(
+      layout.scaledHeight,
+      layout.containerHeight,
+      layout.cursorBottom,
+      layout.scale,
+    );
     const { translateY, leftoverPx } = applyPanDelta(
-      current,
+      this.pannedTranslateY ?? anchor,
       dyPx,
       layout.scaledHeight,
       layout.containerHeight,
     );
-    this.pannedTranslateY = translateY === layout.anchor ? null : translateY;
-    this.fitNow();
+    this.pannedTranslateY = translateY === anchor ? null : translateY;
+    this.commitNoScale(layout);
     return leftoverPx;
   }
 
@@ -294,46 +360,51 @@ export class TerminalScaleController implements Disposable {
     this.fitNow();
   }
 
-  /** noScale layout: scale from width, vertical anchor and bounds, all in screen px. */
-  private noScaleLayout(): {
-    scale: number;
-    contentWidth: number;
-    contentHeight: number;
-    scaledHeight: number;
-    containerHeight: number;
-    anchor: number;
-  } {
+  /** noScale layout from a fresh measurement: scale from width, bounds, cursor, all in screen px. */
+  private measureNoScaleLayout(): NoScaleLayout {
     const { width: contentWidth, height: contentHeight } =
       this.measureContent?.() ?? measureTerminalContent(this.stage);
     const { width: containerWidth, height: containerHeight } = containerFitDimensions(this.viewport);
     const scale = computeNoScaleWidthScale(contentWidth, containerWidth);
-    const scaledHeight = contentHeight * scale;
-    const cursorBottom = this.measureCursorBottom?.() ?? null;
-    const anchor =
-      cursorBottom === null
-        ? computeBottomAnchoredTranslateY(scaledHeight, containerHeight)
-        : computeCursorAnchoredTranslateY(scaledHeight, containerHeight, cursorBottom * scale);
-    return { scale, contentWidth, contentHeight, scaledHeight, containerHeight, anchor };
+    return {
+      scale,
+      contentWidth,
+      contentHeight,
+      scaledHeight: contentHeight * scale,
+      containerHeight,
+      cursorBottom: this.measureCursorBottom?.() ?? null,
+    };
+  }
+
+  /** Makes `layout` the cached layout and applies it (keeping any pan, re-clamped). */
+  private commitNoScale(layout: NoScaleLayout): void {
+    this.noScaleLayoutCache = layout;
+    const anchor = computeNoScaleAnchorTranslateY(
+      layout.scaledHeight,
+      layout.containerHeight,
+      layout.cursorBottom,
+      layout.scale,
+    );
+    if (this.pannedTranslateY !== null) {
+      // Re-clamp on every fit: the pan resets by itself once it matches the default anchor.
+      this.pannedTranslateY = clampTranslateY(
+        this.pannedTranslateY,
+        layout.scaledHeight,
+        layout.containerHeight,
+      );
+      if (this.pannedTranslateY === anchor) this.pannedTranslateY = null;
+    }
+    this.applyStage(
+      layout.contentWidth,
+      layout.contentHeight,
+      layout.scale,
+      this.pannedTranslateY ?? anchor,
+    );
   }
 
   fitNow(): void {
     if (this.noScale) {
-      const layout = this.noScaleLayout();
-      if (this.pannedTranslateY !== null) {
-        // Re-clamp on every fit: the pan resets by itself once it matches the default anchor.
-        this.pannedTranslateY = clampTranslateY(
-          this.pannedTranslateY,
-          layout.scaledHeight,
-          layout.containerHeight,
-        );
-        if (this.pannedTranslateY === layout.anchor) this.pannedTranslateY = null;
-      }
-      this.applyStage(
-        layout.contentWidth,
-        layout.contentHeight,
-        layout.scale,
-        this.pannedTranslateY ?? layout.anchor,
-      );
+      this.commitNoScale(this.measureNoScaleLayout());
       return;
     }
     const { width: contentWidth, height: contentHeight } =
@@ -361,11 +432,11 @@ export class TerminalScaleController implements Disposable {
     translateY: number,
   ): void {
     if (contentWidth > 0 && contentHeight > 0) {
-      this.stage.style.width = `${contentWidth}px`;
-      this.stage.style.height = `${contentHeight}px`;
+      this.setStageStyle('width', `${contentWidth}px`);
+      this.setStageStyle('height', `${contentHeight}px`);
     }
 
-    this.stage.style.transformOrigin = 'top left';
+    this.setStageStyle('transformOrigin', 'top left');
     const transforms = [];
     if (translateY !== 0) {
       transforms.push(`translateY(${translateY}px)`);
@@ -373,17 +444,37 @@ export class TerminalScaleController implements Disposable {
     if (scale !== 1) {
       transforms.push(`scale(${scale})`);
     }
-    this.stage.style.transform = transforms.join(' ');
-    this.viewport.style.setProperty('--pm-terminal-scale', String(scale));
-    this.viewport.style.setProperty('--pm-terminal-translate-y', `${translateY}px`);
-    this.viewport.style.setProperty('--pm-terminal-content-width', `${contentWidth}px`);
-    this.viewport.style.setProperty('--pm-terminal-content-height', `${contentHeight}px`);
+    this.setStageStyle('transform', transforms.join(' '));
+    this.setViewportVar('--pm-terminal-scale', String(scale));
+    this.setViewportVar('--pm-terminal-translate-y', `${translateY}px`);
+    this.setViewportVar('--pm-terminal-content-width', `${contentWidth}px`);
+    this.setViewportVar('--pm-terminal-content-height', `${contentHeight}px`);
+  }
+
+  private setStageStyle(
+    prop: 'width' | 'height' | 'transform' | 'transformOrigin',
+    value: string,
+  ): void {
+    const key = `stage:${prop}`;
+    if (this.written.get(key) === value) return;
+    this.written.set(key, value);
+    this.stage.style[prop] = value;
+  }
+
+  private setViewportVar(name: string, value: string): void {
+    if (this.written.get(name) === value) return;
+    this.written.set(name, value);
+    this.viewport.style.setProperty(name, value);
   }
 
   dispose(): void {
     if (this.fitFrame !== null) {
       cancelAnimationFrame(this.fitFrame);
       this.fitFrame = null;
+    }
+    if (this.cursorFrame !== null) {
+      cancelAnimationFrame(this.cursorFrame);
+      this.cursorFrame = null;
     }
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
@@ -397,6 +488,8 @@ export class TerminalScaleController implements Disposable {
     this.viewport.style.removeProperty('--pm-terminal-translate-y');
     this.viewport.style.removeProperty('--pm-terminal-content-width');
     this.viewport.style.removeProperty('--pm-terminal-content-height');
+    this.written.clear();
+    this.noScaleLayoutCache = null;
   }
 }
 

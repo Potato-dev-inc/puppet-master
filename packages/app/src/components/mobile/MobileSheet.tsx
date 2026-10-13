@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import type { AgentType } from '@puppet-master/shared';
 import type { LaunchEntry } from '../../lib/agentRegistry';
 import type { PublicSettings } from '../../lib/bridge-settings';
+import type { BridgeLinkStats } from '../../lib/bridge-sse';
 
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
@@ -65,12 +66,32 @@ export function NewAgentSheet({
   );
 }
 
+/** Keystroke-to-echo delay measured by the phone: the last one and the median of recent ones. */
+export interface TypingEchoStats {
+  lastMs: number | null;
+  medianMs: number | null;
+}
+
+const fmtMs = (ms: number | null | undefined): string => (ms === null || ms === undefined ? '—' : `${Math.round(ms)} ms`);
+
+/** One plain-text line describing the link: socket RTT, typing echo, reconnects. */
+export function connectionLine(link: BridgeLinkStats | null, echo: TypingEchoStats | null): string {
+  const echoPart = `typing echo ${fmtMs(echo?.lastMs)} (median ${fmtMs(echo?.medianMs)})`;
+  if (!link) return `Connecting · ${echoPart}`;
+  if (link.mode === 'polling') return `Polling (slow) · retrying socket… · ${echoPart}`;
+  if (link.mode === 'stream') return `Local stream · ${echoPart}`;
+  if (link.mode === 'connecting') return `Connecting · ${echoPart} · reconnects ${link.reconnects}`;
+  return `Socket · RTT ${fmtMs(link.rttMs)} (median ${fmtMs(link.rttMedianMs)}) · ${echoPart} · reconnects ${link.reconnects}`;
+}
+
 export function MenuSheet({
   onClose,
   bridgeUrl,
   bridgeReady,
   settings,
   onPatchSettings,
+  link,
+  echo,
   activeLabel,
   onCloseActive,
   onEditConnection,
@@ -80,6 +101,9 @@ export function MenuSheet({
   bridgeReady: boolean;
   settings: PublicSettings;
   onPatchSettings: (patch: Partial<PublicSettings>) => void;
+  /** Live link stats from the event stream; null before it has subscribed. */
+  link: BridgeLinkStats | null;
+  echo: TypingEchoStats | null;
   /** Label of the open agent tab, null on All. */
   activeLabel: string | null;
   onCloseActive: () => void;
@@ -97,6 +121,9 @@ export function MenuSheet({
         <button type="button" onClick={onEditConnection} className="rounded border border-pm-border px-2 py-1 text-pm-muted active:bg-pm-raised">
           Change
         </button>
+      </div>
+      <div className="border-b border-pm-border py-2 font-mono text-[11px] text-pm-muted" aria-label="Connection">
+        {connectionLine(link, echo)}
       </div>
 
       {activeLabel && (

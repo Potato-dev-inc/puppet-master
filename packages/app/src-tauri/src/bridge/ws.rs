@@ -239,8 +239,14 @@ fn handle_client_text(
                 ),
             }
         }
+        "ping" => Some(pong_reply(&value)),
         _ => None,
     }
+}
+
+/// `{"type":"pong","t":<same t>}`: the client measures round-trip time with it.
+pub(crate) fn pong_reply(ping: &Value) -> String {
+    json!({"type": "pong", "t": ping.get("t").cloned().unwrap_or(Value::Null)}).to_string()
 }
 
 /// Same path as `POST /panes/{id}/input`, including its authorization: a paired phone (pairing
@@ -344,6 +350,15 @@ mod tests {
         assert!(should_forward("event: panes\ndata: []\n\n", &watch));
         assert!(should_forward("event: pane-status\ndata: {\"pane_id\":\"b\"}\n\n", &watch));
         assert!(should_forward("event: terminal\ndata: not json\n\n", &watch));
+    }
+
+    #[test]
+    fn ping_is_answered_with_the_same_t() {
+        let ping: Value = serde_json::from_str(r#"{"type":"ping","t":12.5}"#).unwrap();
+        let pong: Value = serde_json::from_str(&pong_reply(&ping)).unwrap();
+        assert_eq!(pong, json!({"type": "pong", "t": 12.5}));
+        let bare: Value = serde_json::from_str(r#"{"type":"ping"}"#).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&pong_reply(&bare)).unwrap(), json!({"type": "pong", "t": null}));
     }
 
     #[test]

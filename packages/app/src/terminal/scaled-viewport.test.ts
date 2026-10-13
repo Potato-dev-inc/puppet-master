@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyPanDelta,
   clampTranslateY,
@@ -6,8 +6,11 @@ import {
   computeContainerFitScale,
   computeContainerFitTransform,
   computeCursorAnchoredTranslateY,
+  computeNoScaleAnchorTranslateY,
   computeNoScaleWidthScale,
+  cursorMoved,
   isMobileKeyboardTransitionActive,
+  TerminalScaleController,
   translateYBounds,
 } from './scaled-viewport';
 
@@ -171,5 +174,116 @@ describe('translate bounds and pan', () => {
 
   it('takes nothing when the content fits', () => {
     expect(applyPanDelta(0, 40, 300, 500)).toEqual({ translateY: 0, leftoverPx: 40 });
+  });
+});
+
+describe('computeNoScaleAnchorTranslateY', () => {
+  it('bottom-anchors without a cursor', () => {
+    expect(computeNoScaleAnchorTranslateY(1000, 500, null, 1)).toBe(-500);
+  });
+
+  it('cursor-anchors in screen px (cursor bottom is scaled)', () => {
+    // Cursor bottom 700 unscaled at scale 0.5 is 350 on screen; the view shows the top 500px.
+    expect(computeNoScaleAnchorTranslateY(500, 400, 700, 0.5)).toBe(0);
+  });
+});
+
+describe('cursorMoved', () => {
+  it('is false only when the cursor row is unchanged', () => {
+    expect(cursorMoved(700, 700)).toBe(false);
+    expect(cursorMoved(null, null)).toBe(false);
+    expect(cursorMoved(700, 720)).toBe(true);
+    expect(cursorMoved(700, null)).toBe(true);
+  });
+});
+
+describe('TerminalScaleController cursor path', () => {
+  let frames: FrameRequestCallback[] = [];
+  const flush = () => {
+    const batch = frames;
+    frames = [];
+    batch.forEach((cb) => cb(0));
+  };
+
+  beforeEach(() => {
+    frames = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      frames.push(cb);
+      return frames.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function setup(cursor: { value: number | null }) {
+    const viewport = document.createElement('div');
+    const stage = document.createElement('div');
+    viewport.appendChild(stage);
+    document.body.appendChild(viewport);
+    Object.defineProperty(viewport, 'clientWidth', { value: 400, configurable: true });
+    Object.defineProperty(viewport, 'clientHeight', { value: 500, configurable: true });
+    const measureContent = vi.fn(() => ({ width: 400, height: 1000 }));
+    const controller = new TerminalScaleController(viewport, stage, {
+      noScale: true,
+      measureContent,
+      measureCursorBottom: () => cursor.value,
+    });
+    flush();
+    return { viewport, stage, controller, measureContent };
+  }
+
+  it('moves the stage with the cursor using the cached sizes', () => {
+    const cursor = { value: 700 };
+    const { stage, controller, measureContent } = setup(cursor);
+    expect(stage.style.transform).toBe('translateY(-200px)');
+    const measuredBefore = measureContent.mock.calls.length;
+
+    cursor.value = 900;
+    controller.scheduleCursorFit();
+    flush();
+
+    expect(stage.style.transform).toBe('translateY(-400px)');
+    expect(measureContent.mock.calls.length).toBe(measuredBefore);
+  });
+
+  it('writes no style when the cursor did not move', () => {
+    const cursor = { value: 700 };
+    const { stage, viewport, controller } = setup(cursor);
+    const observer = new MutationObserver(() => {});
+    observer.observe(stage, { attributes: true });
+    observer.observe(viewport, { attributes: true });
+
+    controller.scheduleCursorFit();
+    flush();
+    expect(observer.takeRecords()).toHaveLength(0);
+
+    cursor.value = 900;
+    controller.scheduleCursorFit();
+    flush();
+    expect(observer.takeRecords().length).toBeGreaterThan(0);
+    observer.disconnect();
+  });
+
+  it('keeps a pan through a cursor move, re-clamped to the new anchor', () => {
+    const cursor = { value: 700 };
+    const { stage, controller } = setup(cursor);
+    expect(controller.panBy(100)).toBe(0);
+    expect(stage.style.transform).toBe('translateY(-100px)');
+    expect(controller.isPanned()).toBe(true);
+
+    cursor.value = 900;
+    controller.scheduleCursorFit();
+    flush();
+    expect(stage.style.transform).toBe('translateY(-100px)');
   });
 });

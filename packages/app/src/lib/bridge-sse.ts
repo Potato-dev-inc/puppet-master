@@ -218,7 +218,20 @@ function shouldUseFetchBridgeSse(baseUrl: string): boolean {
   }
 }
 
-/** Live handle to the event stream: watch filter, input over the socket, and teardown. */
+/** How the phone reaches the bridge right now. */
+export type BridgeLinkMode = 'socket' | 'polling' | 'stream' | 'connecting';
+
+export interface BridgeLinkStats {
+  mode: BridgeLinkMode;
+  /** Latest socket round trip (ping to pong), ms. */
+  rttMs: number | null;
+  /** Median of the last 10 round trips, ms. */
+  rttMedianMs: number | null;
+  /** Socket reconnects, including recoveries from polling, since subscribing. */
+  reconnects: number;
+}
+
+/** Live handle to the event stream: watch filter, input over the socket, link stats, and teardown. */
 export interface BridgeEventsHandle {
   unsubscribe(): void;
   /** Only `terminal` events for these panes are sent. `null` leaves the server default untouched. */
@@ -226,11 +239,26 @@ export interface BridgeEventsHandle {
   /** Writes input over the socket. Returns false when the socket is not open (caller falls back to POST). */
   sendInput(paneId: string, text: string, appendNewline: boolean): boolean;
   isOpen(): boolean;
+  stats(): BridgeLinkStats;
+  /** Called with a fresh snapshot when the stats change, at most about once a second. Returns an unsubscribe. */
+  onStats(cb: (stats: BridgeLinkStats) => void): () => void;
 }
 
 const WS_OPEN = 1;
-/** Failed opens in a row, before the socket ever opened, that switch to long-polling for good. */
+/** Failed opens in a row, before the socket ever opened, that switch to long-polling. */
 const WS_FAILS_BEFORE_POLL = 2;
+/** While on long-polling, how often the socket is tried again (one attempt at a time). */
+const WS_RECOVER_EVERY_MS = 15_000;
+const WS_PING_EVERY_MS = 5_000;
+const RTT_WINDOW = 10;
+const STATS_MIN_GAP_MS = 1_000;
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
 
 function bridgeSocketUrl(baseUrl: string): string {
   const url = new URL(`${baseUrl}/events/ws`);
@@ -248,7 +276,9 @@ function bridgeSocketProtocols(): string[] {
 /**
  * Remote event stream over WebSocket `/events/ws`. Reconnects with backoff; every reconnect emits
  * `resync`. After {@link WS_FAILS_BEFORE_POLL} failed opens in a row (old build, proxy without ws)
- * it permanently falls back to {@link subscribeBridgeEventsViaPoll}.
+ * it runs {@link subscribeBridgeEventsViaPoll} and keeps retrying the socket every
+ * {@link WS_RECOVER_EVERY_MS}. When the socket opens again the poll loop stops and a `resync` is emitted.
+ * Pings every {@link WS_PING_EVERY_MS} measure the round trip.
  */
 export function subscribeBridgeEventsViaWs(
   baseUrl: string,
@@ -262,20 +292,80 @@ export function subscribeBridgeEventsViaWs(
   let retryDelay = 500;
   let ws: WebSocket | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let recoverTimer: ReturnType<typeof setInterval> | null = null;
+  let pingTimer: ReturnType<typeof setInterval> | null = null;
   let pollStop: (() => void) | null = null;
   let watched: string[] | null = null;
   let watchedKey = '\0unset';
+
+  let mode: BridgeLinkMode = 'connecting';
+  let reconnects = 0;
+  let rttMs: number | null = null;
+  const rtts: number[] = [];
+  const listeners = new Set<(stats: BridgeLinkStats) => void>();
+  let lastNotify = Number.NEGATIVE_INFINITY;
+  let notifyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function snapshot(): BridgeLinkStats {
+    return { mode, rttMs, rttMedianMs: median(rtts), reconnects };
+  }
+
+  function notifyStats(): void {
+    if (listeners.size === 0) return;
+    const wait = lastNotify + STATS_MIN_GAP_MS - Date.now();
+    if (wait > 0) {
+      if (!notifyTimer) {
+        notifyTimer = setTimeout(() => {
+          notifyTimer = null;
+          notifyStats();
+        }, wait);
+      }
+      return;
+    }
+    lastNotify = Date.now();
+    const next = snapshot();
+    for (const listener of listeners) listener(next);
+  }
+
+  function setMode(next: BridgeLinkMode): void {
+    if (mode === next) return;
+    mode = next;
+    notifyStats();
+  }
 
   function sendWatch(): void {
     if (!ws || ws.readyState !== WS_OPEN || !watched) return;
     ws.send(JSON.stringify({ type: 'watch', pane_ids: watched }));
   }
 
+  function sendPing(): void {
+    if (!ws || ws.readyState !== WS_OPEN) return;
+    try {
+      ws.send(JSON.stringify({ type: 'ping', t: performance.now() }));
+    } catch {
+      /* socket closing; the close handler takes over */
+    }
+  }
+
+  function stopPing(): void {
+    if (pingTimer) clearInterval(pingTimer);
+    pingTimer = null;
+  }
+
+  function recordRtt(ms: number): void {
+    if (!(ms >= 0)) return;
+    rttMs = ms;
+    rtts.push(ms);
+    if (rtts.length > RTT_WINDOW) rtts.shift();
+    notifyStats();
+  }
+
   function handleFrame(text: string): void {
     if (text.startsWith('{')) {
       try {
-        const msg = JSON.parse(text) as { type?: string; pane_id?: string; error?: string };
+        const msg = JSON.parse(text) as { type?: string; pane_id?: string; error?: string; t?: number };
         if (msg.type === 'input-error') console.warn('[bridge] input rejected', msg.pane_id, msg.error);
+        else if (msg.type === 'pong' && typeof msg.t === 'number') recordRtt(performance.now() - msg.t);
       } catch {
         /* ignore malformed control frame */
       }
@@ -286,7 +376,9 @@ export function subscribeBridgeEventsViaWs(
 
   function fallBackToPoll(): void {
     fellBack = true;
+    setMode('polling');
     pollStop = subscribeBridgeEventsViaPoll(baseUrl, onEvent, onError);
+    if (!recoverTimer) recoverTimer = setInterval(() => connect(), WS_RECOVER_EVERY_MS);
   }
 
   function scheduleReconnect(): void {
@@ -299,26 +391,44 @@ export function subscribeBridgeEventsViaWs(
   }
 
   function connect(): void {
-    if (stopped || fellBack) return;
+    // One socket attempt at a time: while one is connecting or open, do nothing.
+    if (stopped || ws) return;
     let sock: WebSocket;
     try {
       sock = new WebSocket(bridgeSocketUrl(baseUrl), bridgeSocketProtocols());
     } catch (err) {
       onError?.(err);
-      failures++;
-      if (!everOpened && failures >= WS_FAILS_BEFORE_POLL) fallBackToPoll();
-      else scheduleReconnect();
+      if (!fellBack) {
+        failures++;
+        if (!everOpened && failures >= WS_FAILS_BEFORE_POLL) fallBackToPoll();
+        else scheduleReconnect();
+      }
       return;
     }
     ws = sock;
     sock.onopen = () => {
       if (sock !== ws) return;
+      const wasPolling = fellBack;
       const reconnect = everOpened;
       everOpened = true;
       failures = 0;
       retryDelay = 500;
+      if (wasPolling) {
+        pollStop?.();
+        pollStop = null;
+        fellBack = false;
+        if (recoverTimer) clearInterval(recoverTimer);
+        recoverTimer = null;
+      }
       sendWatch();
-      if (reconnect) onEvent({ type: 'resync' });
+      stopPing();
+      pingTimer = setInterval(sendPing, WS_PING_EVERY_MS);
+      if (reconnect || wasPolling) {
+        reconnects++;
+        onEvent({ type: 'resync' });
+      }
+      setMode('socket');
+      notifyStats();
     };
     sock.onmessage = (ev) => {
       if (sock !== ws || typeof ev.data !== 'string') return;
@@ -331,8 +441,15 @@ export function subscribeBridgeEventsViaWs(
     sock.onclose = () => {
       if (sock !== ws) return;
       ws = null;
+      stopPing();
       if (stopped) return;
       onError?.(new Error('bridge events socket closed'));
+      if (fellBack) {
+        // The recovery timer tries again; polling keeps the events flowing meanwhile.
+        setMode('polling');
+        return;
+      }
+      setMode('connecting');
       if (!everOpened) {
         failures++;
         if (failures >= WS_FAILS_BEFORE_POLL) {
@@ -351,6 +468,12 @@ export function subscribeBridgeEventsViaWs(
       stopped = true;
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = null;
+      if (recoverTimer) clearInterval(recoverTimer);
+      recoverTimer = null;
+      if (notifyTimer) clearTimeout(notifyTimer);
+      notifyTimer = null;
+      stopPing();
+      listeners.clear();
       const sock = ws;
       ws = null;
       sock?.close();
@@ -375,6 +498,13 @@ export function subscribeBridgeEventsViaWs(
     },
     isOpen() {
       return !!ws && ws.readyState === WS_OPEN;
+    },
+    stats: snapshot,
+    onStats(cb) {
+      listeners.add(cb);
+      return () => {
+        listeners.delete(cb);
+      };
     },
   };
 }
@@ -439,6 +569,8 @@ export function subscribeBridgeEventsHandle(
     setWatchedPanes: () => {},
     sendInput: () => false,
     isOpen: () => false,
+    stats: () => ({ mode: 'stream', rttMs: null, rttMedianMs: null, reconnects: 0 }),
+    onStats: () => () => {},
   };
 }
 

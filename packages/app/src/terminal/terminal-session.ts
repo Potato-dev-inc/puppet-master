@@ -30,6 +30,8 @@ import '@xterm/xterm/css/xterm.css';
 /** Rows shown under the cursor row on a phone mirror (e.g. Claude's status line). */
 const CURSOR_ROWS_BELOW = 2;
 
+type GridMetrics = { cellWidth: number; cellHeight: number; padX: number; padY: number };
+
 function isWindowsRuntime(): boolean {
   return navigator.userAgent.includes('Windows');
 }
@@ -59,6 +61,9 @@ export class TerminalSession {
   private openFrame: number | null = null;
   private resizeFrame: number | null = null;
   private refreshFrame: number | null = null;
+  /** Cell size and padding, measured once and reset on resize, theme, container and font changes. */
+  private gridMetricsCache: GridMetrics | null = null;
+  private fontsListener: (() => void) | null = null;
   private lastSentCols = 0;
   private lastSentRows = 0;
   private ptyCols: number;
@@ -132,7 +137,20 @@ export class TerminalSession {
    * (`.xterm`, `.xterm-screen`, the scale stage) keep an old size after an in-place resize, and
    * sizing from them shrank or scaled the grid wrongly.
    */
-  private gridMetrics(): { cellWidth: number; cellHeight: number; padX: number; padY: number } | null {
+  private gridMetrics(): GridMetrics | null {
+    if (this.gridMetricsCache) return this.gridMetricsCache;
+    const metrics = this.measureGridMetrics();
+    this.gridMetricsCache = metrics;
+    return metrics;
+  }
+
+  /** Forget the cached cell/padding size: the next read measures again. */
+  private invalidateGridMetrics(): void {
+    this.gridMetricsCache = null;
+  }
+
+  /** Reads the cell size and padding (getComputedStyle). Cached by gridMetrics(). */
+  private measureGridMetrics(): GridMetrics | null {
     const terminal = this.term;
     if (!terminal?.element) return null;
     // Same private measurement FitAddon.proposeDimensions uses.
@@ -347,6 +365,12 @@ export class TerminalSession {
 
       this.term = terminal;
       this.fitAddon = fitAddon;
+      terminal.onResize(() => this.invalidateGridMetrics());
+      this.fontsListener = () => {
+        this.invalidateGridMetrics();
+        this.scheduleRefresh();
+      };
+      document.fonts?.addEventListener('loadingdone', this.fontsListener);
       if (this.scaleViewport) {
         this.scaleController = new TerminalScaleController(
           this.scaleViewport,
@@ -370,7 +394,7 @@ export class TerminalSession {
         if (!mobileMirror) {
           this.inputBatcher?.push(data);
           this.scrollToCursor();
-          this.scheduleRefresh();
+          this.scheduleWriteFollowUp();
           return;
         }
 
@@ -382,7 +406,7 @@ export class TerminalSession {
         this.applyLocalEcho(terminal, data);
         this.inputBatcher?.push(data);
         this.scrollToCursor();
-        this.scheduleRefresh();
+        this.scheduleWriteFollowUp();
       });
 
       this.unlistenData = subscribePaneData(this.options.paneId, (data) => {
@@ -396,7 +420,7 @@ export class TerminalSession {
         }
         terminal.write(data, () => {
           this.scrollToCursor();
-          this.scheduleRefresh();
+          this.scheduleWriteFollowUp();
         });
       }, (cols, rows) => this.applyStreamResize(cols, rows));
       this.installFileLinkProvider(terminal);
@@ -441,6 +465,12 @@ export class TerminalSession {
       cancelAnimationFrame(this.refreshFrame);
       this.refreshFrame = null;
     }
+
+    if (this.fontsListener) {
+      document.fonts?.removeEventListener('loadingdone', this.fontsListener);
+      this.fontsListener = null;
+    }
+    this.invalidateGridMetrics();
 
     this.unlistenData?.();
     this.unlistenData = null;
@@ -490,6 +520,7 @@ export class TerminalSession {
   private installResizeObservers(container: HTMLElement): void {
     const observed = this.scaleViewport ?? container;
     this.resizeObserver = new ResizeObserver(() => {
+      this.invalidateGridMetrics();
       this.scheduleFit();
     });
     this.resizeObserver.observe(observed);
@@ -515,6 +546,7 @@ export class TerminalSession {
   private installThemeObserver(terminal: Terminal): void {
     const applyTheme = () => {
       terminal.options.theme = terminalThemeFromCss();
+      this.invalidateGridMetrics();
       this.scheduleRefresh();
     };
     this.themeObserver = new MutationObserver(applyTheme);
@@ -643,7 +675,7 @@ export class TerminalSession {
           inputBatcher.push(text);
         }
         this.scrollToCursor();
-        this.scheduleRefresh();
+        this.scheduleWriteFollowUp();
       };
 
       this.mobileInputGuard = new MobileInputGuard({
@@ -818,6 +850,15 @@ export class TerminalSession {
       return;
     }
     this.fitViewportOnly();
+  }
+
+  /**
+   * After output or local input was written. xterm already repaints the rows that changed, so this
+   * does not refresh the grid or clear the texture atlas; it only re-anchors the scaled stage to the
+   * cursor, coalesced to once per frame by the scale controller.
+   */
+  private scheduleWriteFollowUp(): void {
+    this.scaleController?.scheduleCursorFit();
   }
 
   private scheduleRefresh(): void {
