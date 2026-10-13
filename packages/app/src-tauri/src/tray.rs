@@ -20,6 +20,10 @@ pub enum Item {
 pub struct PaneRow {
     pub id: String,
     pub agent: String,
+    /// Human agent label ("Codex"); empty falls back to `agent`.
+    pub label: String,
+    /// Auto or user title ("auth refactor"), when the pane has one.
+    pub title: Option<String>,
 }
 
 pub const ID_SETTINGS: &str = "settings";
@@ -109,7 +113,10 @@ pub fn pane_items(panes: &[PaneRow]) -> Vec<Item> {
         .iter()
         .map(|p| Item::Action {
             id: format!("{PREFIX_PANE}{}", p.id),
-            label: format!("{} \u{b7} {}", p.agent, p.id.chars().take(8).collect::<String>()),
+            label: match &p.title {
+                Some(title) => format!("{} \u{b7} {}", if p.label.is_empty() { &p.agent } else { &p.label }, title),
+                None => format!("{} \u{b7} {}", p.agent, p.id.chars().take(8).collect::<String>()),
+            },
             enabled: true,
         })
         .collect()
@@ -200,6 +207,10 @@ mod runtime {
     fn current_model(app: &AppHandle) -> Vec<Item> {
         let listing = crate::tui::agent_types_listing();
         let agents = listing.get("agents").and_then(Value::as_array).cloned().unwrap_or_default();
+        let labels: std::collections::HashMap<String, String> = agents
+            .iter()
+            .filter_map(|a| Some((a.get("id")?.as_str()?.to_string(), a.get("label")?.as_str()?.to_string())))
+            .collect();
         let panes: Vec<PaneRow> = app
             .try_state::<AppState>()
             .map(|s| {
@@ -207,7 +218,12 @@ mod runtime {
                     .lock()
                     .list()
                     .into_iter()
-                    .map(|p| PaneRow { id: p.id, agent: p.agent_type })
+                    .map(|p| PaneRow {
+                        label: labels.get(&p.agent_type).cloned().unwrap_or_default(),
+                        id: p.id,
+                        agent: p.agent_type,
+                        title: p.title,
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -507,10 +523,24 @@ mod tests {
 
     #[test]
     fn panes_are_listed_with_agent_and_short_id() {
-        let items = pane_items(&[PaneRow { id: "abcdef012345".into(), agent: "kilo".into() }]);
+        let items = pane_items(&[PaneRow { id: "abcdef012345".into(), agent: "kilo".into(), label: "Kilo".into(), title: None }]);
         assert_eq!(
             items,
             vec![Item::Action { id: "pane:abcdef012345".into(), label: "kilo \u{b7} abcdef01".into(), enabled: true }]
+        );
+    }
+
+    #[test]
+    fn a_titled_pane_is_listed_with_agent_label_and_title() {
+        let items = pane_items(&[PaneRow {
+            id: "abcdef012345".into(),
+            agent: "codex".into(),
+            label: "Codex".into(),
+            title: Some("auth refactor".into()),
+        }]);
+        assert_eq!(
+            items,
+            vec![Item::Action { id: "pane:abcdef012345".into(), label: "Codex \u{b7} auth refactor".into(), enabled: true }]
         );
     }
 

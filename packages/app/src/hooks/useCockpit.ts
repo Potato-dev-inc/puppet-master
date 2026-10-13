@@ -58,6 +58,8 @@ export interface CockpitApi {
   answer: (paneId: string, promptId: string, choiceId: string, label: string) => Promise<void>;
   interrupt: (paneId: string) => Promise<void>;
   closePane: (paneId: string) => Promise<void>;
+  /** Give a pane your own name (blank clears it). */
+  rename: (paneId: string, title: string) => Promise<void>;
   openSettings: () => Promise<void>;
   bridgeLine: string;
 }
@@ -361,6 +363,18 @@ export function useCockpit(): CockpitApi {
     [registry, notify],
   );
 
+  const rename = useCallback(
+    async (paneId: string, title: string) => {
+      try {
+        await cockpitApi.paneSetTitle(paneId, title);
+        await registry.refresh();
+      } catch (err) {
+        notify(errText(err));
+      }
+    },
+    [registry, notify],
+  );
+
   const openSettings = useCallback(async () => {
     try {
       await cockpitApi.openSettings();
@@ -396,6 +410,7 @@ export function useCockpit(): CockpitApi {
     answer,
     interrupt,
     closePane,
+    rename,
     openSettings,
     bridgeLine,
   };

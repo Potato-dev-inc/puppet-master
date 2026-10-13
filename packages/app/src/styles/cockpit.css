@@ -937,3 +937,29 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ---------- pane rename (RenameTitle.tsx) ---------- */
+.cockpit .ck-title--editable {
+  cursor: text;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-title-input {
+  width: 260px;
+  max-width: 40vw;
+  padding: 1px 6px;
+  margin: -2px 2px -2px -7px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+.cockpit .ck-title-input::placeholder {
+  color: var(--label-3);
+  font-weight: 400;
+}

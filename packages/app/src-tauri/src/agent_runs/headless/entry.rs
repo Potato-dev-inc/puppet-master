@@ -453,6 +453,10 @@ pub fn run_agent(
     };
     if !request.headless {
         let snapshot = crate::bridge::delegate_operation(&registry, &app, operation_request)?;
+        // The visible pane now exists: its auto title comes from the task it was started with.
+        if let Some(pane_id) = snapshot.pane_id.as_deref() {
+            crate::ambient::store::set_from_task(pane_id, &snapshot.agent_type, &request.task);
+        }
         return if request.background {
             Ok(present_view(&snapshot, &registry))
         } else {

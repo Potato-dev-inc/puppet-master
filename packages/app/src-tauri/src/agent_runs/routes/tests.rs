@@ -29,6 +29,7 @@ fn pane_worker_entry_exposes_adoption_fields() {
         reprints_on_resize: false,
         account: None,
         account_label: None,
+        title: None,
     };
     let entry = pane_worker_entry(&pane, Some("mcp-session"));
     assert_eq!(entry["worker_id"], pane.id);

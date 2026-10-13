@@ -17,6 +17,15 @@ pub fn write_input(
         .get(pane_id)
         .ok_or_else(|| unknown_pane_message(pane_id))?;
 
+    // Auto-title: the first submitted line of an agent pane becomes its title (`ambient::title`).
+    // The screen's last line tells whether the line answers a secret prompt; shells are not titled.
+    let screen_line = if crate::tui::is_agent_backend(&pane.info.agent_type) {
+        crate::ambient::title::last_line(&pane.screen.lock().screen().contents()).to_string()
+    } else {
+        String::new()
+    };
+    let titled = crate::ambient::store::observe_input(pane_id, &pane.info.agent_type, &screen_line, text, append_newline);
+
     let agent = pane.info.agent_type.clone();
 
     if *pane.exited.lock() {
@@ -31,6 +40,7 @@ pub fn write_input(
         && !is_pty_control_input(text)
     {
         drop(reg);
+        announce_title(app, pane_id, titled);
         crate::opencode::write_native_input(registry, app, pane_id, text, opencode_model.as_ref())?;
         crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
             pane_id: PaneId(pane_id.to_string()),
@@ -49,6 +59,7 @@ pub fn write_input(
     // that freezes list_panes, keyboard input, and the HTTP bridge.
     let writer = pane.writer.clone();
     drop(reg);
+    announce_title(app, pane_id, titled);
 
     {
         let mut writer = writer.lock();
@@ -74,6 +85,13 @@ pub fn write_input(
         append_newline,
     });
     Ok(())
+}
+
+/// A title was just set: tell the windows and the tray (never while the registry lock is held).
+fn announce_title(app: &AppHandle, pane_id: &str, titled: bool) {
+    if titled {
+        crate::ambient::announce_title_change(app, pane_id);
+    }
 }
 
 /// Pause between pasted text and Enter. Multi-line or long text is a bracketed paste that the

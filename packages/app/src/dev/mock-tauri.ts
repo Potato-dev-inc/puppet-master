@@ -148,6 +148,11 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return [];
         case 'get_mobile_tunnel_info':
           return { localUrl: 'http://127.0.0.1:1420', pwaUrl: 'http://127.0.0.1:1420', tunnelUrl: 'https://pm.example.com', bridgeProxyUrl: 'https://pm.example.com/bridge', updatedAt: 0 };
+        case 'pane_set_title':
+          return String(a.title ?? '') || null;
+        case 'ambient_get_prefs':
+          return { animated_tray_icon: true };
+        case 'ambient_set_animated_tray':
         case 'resize_pane':
         case 'set_ui_mode':
         case 'interrupt_pane':

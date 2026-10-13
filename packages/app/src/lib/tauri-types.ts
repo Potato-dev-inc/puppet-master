@@ -17,6 +17,8 @@ export type PaneInfo = {
   /** Account id the agent runs under (absent = the CLI's own login) and its label for the header. */
   account?: string | null;
   account_label?: string | null;
+  /** Human title (user name, else derived from the first task); absent until the pane has one. */
+  title?: string | null;
 };
 
 export type TerminalSnapshotEvent = { pane_id: string; snapshot: string };

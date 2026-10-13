@@ -216,6 +216,7 @@ pub fn spawn_pane(
         reprints_on_resize: false,
         account: args.account.as_deref().map(str::trim).filter(|a| !a.is_empty()).map(str::to_string),
         account_label,
+        title: None,
     };
 
     let pane = PaneState {

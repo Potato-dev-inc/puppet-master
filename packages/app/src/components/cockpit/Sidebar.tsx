@@ -8,6 +8,7 @@ import '../../styles/live-preview.css';
 import { DotSpinner } from './DotSpinner';
 import { IconGlobe, IconInbox, IconMoon, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
 import { formatElapsed, groupPanes, spinnerStatus } from './model';
+import { paneHeading } from './titles';
 import { SegTabs } from './SegTabs';
 
 export function Sidebar({
@@ -54,6 +55,7 @@ export function Sidebar({
           const id = p.info.id;
           const since = c.statusSince.get(id);
           const active = c.selectedId === id && !c.spawn;
+          const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
           return (
             <button
               key={id}
@@ -66,9 +68,10 @@ export function Sidebar({
                 <DotSpinner status={spinnerStatus(p.status)} />
               </span>
               <span className="ck-row-main" title={projectName(p.info.cwd)}>
-                <span className="ck-row-title">{c.names.get(id) ?? p.info.agent_type}</span>
+                <span className="ck-row-title">{heading.primary}</span>
                 <span className="ck-row-sub">
-                  {activityText(p.status, c.activities?.[id]) ?? projectName(p.info.cwd)}
+                  {activityText(p.status, c.activities?.[id]) ??
+                    (heading.secondary ? `${heading.secondary} · ${projectName(p.info.cwd)}` : projectName(p.info.cwd))}
                 </span>
               </span>
               {mainPreview(c.previews, id) && (

@@ -7,6 +7,7 @@ import { useLoopGuard } from '../../lib/loop-guard';
 import { PaneStuckCard } from './StuckCard';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
 import { QuestionCard } from './QuestionCard';
+import { paneHeading } from './titles';
 
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
   const waiting = c.registry.paneList.filter((p) => p.status === 'waiting_input');
@@ -63,14 +64,17 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
             const id = p.info.id;
             const prompt = c.prompts[id];
             const since = c.statusSince.get(id);
+            const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
             return (
               <li key={id} className="ck-inbox-item">
                 <div className="ck-inbox-top">
                   <span className="ck-row-glyph">
                     <DotSpinner status={spinnerStatus(p.status)} />
                   </span>
-                  <span className="ck-row-title">{c.names.get(id) ?? p.info.agent_type}</span>
-                  <span className="ck-row-sub">{projectName(p.info.cwd)}</span>
+                  <span className="ck-row-title">{heading.primary}</span>
+                  <span className="ck-row-sub">
+                    {heading.secondary ? `${heading.secondary} · ${projectName(p.info.cwd)}` : projectName(p.info.cwd)}
+                  </span>
                   <span className="ck-row-time">{since ? `waiting ${formatElapsed(c.now - since)}` : ''}</span>
                 </div>
                 {prompt?.risk && prompt.choices.length > 0 ? (

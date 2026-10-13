@@ -203,6 +203,7 @@ pub fn spawn_native_pane(
         reprints_on_resize: false,
         account: None,
         account_label: None,
+        title: None,
     };
 
     let opencode = OpenCodeLink::new(

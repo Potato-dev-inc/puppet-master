@@ -170,6 +170,10 @@ export const cockpitApi = {
   checkpointDiff: (paneId: string, id: string) => call<FileChange[]>('checkpoint_diff', { paneId, id }),
   checkpointRestore: (paneId: string, id: string) => call<RestoreReport>('checkpoint_restore', { paneId, id }),
   checkpointUndoLast: (paneId: string) => call<RestoreReport>('checkpoint_undo_last', { paneId }),
+  /** Rename a pane; a blank title clears it and automatic titling resumes. */
+  paneSetTitle: (paneId: string, title: string) => call<string | null>('pane_set_title', { paneId, title }),
+  ambientGetPrefs: () => call<{ animated_tray_icon: boolean }>('ambient_get_prefs'),
+  ambientSetAnimatedTray: (enabled: boolean) => call<void>('ambient_set_animated_tray', { enabled }),
 
   onModeChanged: (cb: (e: { mode: UiMode }) => void) => on('ui://mode-changed', cb),
   onSelect: (cb: (e: { pane_id: string }) => void) => on('cockpit://select', cb),

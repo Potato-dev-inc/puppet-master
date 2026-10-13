@@ -72,6 +72,10 @@ pub struct PaneInfo {
     /// That account's label, for the pane header.
     #[serde(default)]
     pub account_label: Option<String>,
+    /// Human title: the user's own, else derived from the first task or typed line
+    /// (`ambient::title`). Filled from the title store by `PaneState::info()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 /// Internal handle — owns the PTY master and the reader thread handle.
@@ -113,6 +117,7 @@ impl PaneState {
         }
         info.viewer_held = crate::pty::viewer_size::is_held(&info.id);
         info.reprints_on_resize = crate::tui::profile_for(&info.agent_type).reprints_on_resize();
+        info.title = crate::ambient::store::get(&info.id);
         info
     }
 }
@@ -279,6 +284,7 @@ impl PaneRegistry {
             reprints_on_resize: false,
             account: None,
             account_label: None,
+            title: None,
         };
         PaneState {
             info,

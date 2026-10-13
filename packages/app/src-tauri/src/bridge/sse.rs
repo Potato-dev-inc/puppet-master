@@ -89,6 +89,7 @@ mod tests {
 /// Forward pane status changes to mobile clients.
 pub fn push_pane_status_sse(pane_id: &str, status: &str) {
     crate::pane_activity::note_output(pane_id);
+    crate::ambient::notify_changed();
     observe_operation_pane_status(pane_id, status);
     crate::checkpoints::on_pane_status(pane_id, status);
     crate::push::notify_pane_status(pane_id, status);

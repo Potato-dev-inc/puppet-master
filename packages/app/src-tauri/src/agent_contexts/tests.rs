@@ -59,6 +59,7 @@ fn builds_complete_pane_agent_context() {
         reprints_on_resize: false,
         account: None,
         account_label: None,
+        title: None,
     };
     let context = build_pane_agent_context(None, pane, "line 1\nmodel: o3\nline 3").unwrap();
     assert_eq!(context.context.agent_type, "codex");

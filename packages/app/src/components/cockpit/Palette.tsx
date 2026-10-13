@@ -6,6 +6,7 @@ import { openPreview, previewLabel } from '../../lib/pane-preview';
 import { DotSpinner } from './DotSpinner';
 import { IconGlobe, IconLayers, IconMoon, IconPlus, IconReflow, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
+import { paneHeading } from './titles';
 
 interface Item {
   id: string;
@@ -36,11 +37,12 @@ export function Palette({
     const out: Item[] = [];
     for (const p of c.registry.paneList) {
       const id = p.info.id;
+      const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
       out.push({
         id: `pane:${id}`,
         group: 'Panes',
-        title: c.names.get(id) ?? p.info.agent_type,
-        desc: `${projectName(p.info.cwd)} · ${stateText(p.status)}`,
+        title: heading.primary,
+        desc: `${heading.secondary ? `${heading.secondary} · ` : ''}${projectName(p.info.cwd)} · ${stateText(p.status)}`,
         icon: <DotSpinner status={spinnerStatus(p.status)} />,
         run: () => c.select(id),
       });
