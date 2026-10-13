@@ -27,6 +27,44 @@ export interface PaneTranscript {
   chunks: { stream: string; text: string }[];
 }
 
+export interface WorktreeItem {
+  handle: string;
+  branch: string;
+  base: string;
+  /** Origin project the worktree belongs to. */
+  repo: string;
+  path: string;
+  exists: boolean;
+  /** `active`: an agent is still working in it. `unreviewed`: finished, not merged or discarded. */
+  state: 'active' | 'unreviewed' | 'missing';
+  summary: { files_changed: number; additions: number; deletions: number } | null;
+}
+
+export interface WorktreeFile {
+  path: string;
+  status: 'added' | 'modified' | 'deleted';
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}
+
+export interface WorktreeDiff {
+  branch: string;
+  base: string;
+  changes: { files: WorktreeFile[]; files_changed: number; additions: number; deletions: number; truncated: boolean };
+  patch: string;
+  patch_truncated: boolean;
+}
+
+export interface WorktreeMergeOutcome {
+  merged: boolean;
+  reason?: string;
+  merge_commit: string | null;
+  files: string[];
+  branch: string;
+  into: string;
+}
+
 export type SpawnStage = 'claiming' | 'spawning' | 'attached' | 'ready' | 'failed';
 
 export interface SpawnStageEvent {
@@ -59,7 +97,15 @@ export const cockpitApi = {
   answerPanePrompt: (paneId: string, promptId: string, choice: string) =>
     call<void>('answer_pane_prompt', { paneId, promptId, choice }),
   interruptPane: (paneId: string) => call<void>('interrupt_pane', { paneId }),
-  newPane: (agentId: string) => call<string>('new_pane', { agentId }),
+  newPane: (agentId: string, isolation?: 'none' | 'worktree') =>
+    call<string>('new_pane', { agentId, isolation: isolation ?? null }),
+  paneWorktree: (paneId: string) => call<WorktreeItem | null>('pane_worktree', { paneId }),
+  worktreeDiff: (projectPath: string | null, handle: string, path?: string) =>
+    call<WorktreeDiff>('worktree_diff', { projectPath, handle, path: path ?? null }),
+  worktreeMerge: (projectPath: string | null, handle: string) =>
+    call<WorktreeMergeOutcome>('worktree_merge', { projectPath, handle }),
+  worktreeDiscard: (projectPath: string | null, handle: string) =>
+    call<void>('worktree_discard', { projectPath, handle }),
   paneRunInfo: (paneId: string) => call<PaneRunInfo | null>('pane_run_info', { paneId }),
   paneTranscript: (paneId: string) => call<PaneTranscript | null>('pane_transcript', { paneId }),
 

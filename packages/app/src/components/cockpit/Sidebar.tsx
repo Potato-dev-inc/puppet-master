@@ -11,6 +11,7 @@ export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: ()
   const groups = groupPanes(list);
   const waiting = list.filter((p) => p.status === 'waiting_input').length;
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isolated, setIsolated] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -89,7 +90,7 @@ export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: ()
                   title={e.disabledReason}
                   onClick={() => {
                     setMenuOpen(false);
-                    void c.newAgent(e.type);
+                    void c.newAgent(e.type, isolated);
                   }}
                 >
                   <span>{e.label}</span>
@@ -97,6 +98,10 @@ export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: ()
                   {e.disabled && <span className="ck-menu-hint">headless</span>}
                 </button>
               ))}
+              <label className="ck-menu-toggle" title="Work in a separate git copy so agents never edit the same files. Review and merge later.">
+                <input type="checkbox" checked={isolated} onChange={(e) => setIsolated(e.target.checked)} />
+                <span>Isolated (worktree)</span>
+              </label>
             </div>
           )}
         </div>
