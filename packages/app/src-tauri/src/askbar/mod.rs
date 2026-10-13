@@ -45,11 +45,19 @@ pub struct Settings {
     pub shortcut: String,
     pub default_agent: Option<String>,
     pub last_agent: Option<String>,
+    /// Off by default: the clipboard is attached only when the user asks. On: each open reads it.
+    pub attach_clipboard_default: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { enabled: false, shortcut: DEFAULT_SHORTCUT.into(), default_agent: None, last_agent: None }
+        Self {
+            enabled: false,
+            shortcut: DEFAULT_SHORTCUT.into(),
+            default_agent: None,
+            last_agent: None,
+            attach_clipboard_default: false,
+        }
     }
 }
 

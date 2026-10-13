@@ -9,6 +9,8 @@ export interface AskbarSettings {
   shortcut: string;
   default_agent: string | null;
   last_agent: string | null;
+  /** Attach the clipboard on every open. Off by default; the clipboard is otherwise read only when the user clicks "+ Clipboard". */
+  attach_clipboard_default: boolean;
 }
 
 /** The fixed choice list the backend accepts. Keep in sync with `askbar::SHORTCUT_CHOICES`. */

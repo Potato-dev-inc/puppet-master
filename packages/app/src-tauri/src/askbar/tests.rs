@@ -104,8 +104,14 @@ fn a_shortcut_the_os_refuses_is_reported_and_not_remembered() {
 
 #[test]
 fn settings_only_accept_the_choice_list_and_trim_agents() {
-    let odd = Settings { enabled: true, shortcut: "Ctrl+Q".into(), default_agent: Some("  ".into()), last_agent: Some(" codex ".into()) }
-        .sanitized();
+    let odd = Settings {
+        enabled: true,
+        shortcut: "Ctrl+Q".into(),
+        default_agent: Some("  ".into()),
+        last_agent: Some(" codex ".into()),
+        ..Settings::default()
+    }
+    .sanitized();
     assert_eq!(odd.shortcut, DEFAULT_SHORTCUT);
     assert_eq!(odd.default_agent, None);
     assert_eq!(odd.last_agent.as_deref(), Some("codex"));
@@ -115,6 +121,9 @@ fn settings_only_accept_the_choice_list_and_trim_agents() {
     // Old or partial files still load.
     let partial: Settings = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
     assert!(partial.enabled && partial.shortcut == DEFAULT_SHORTCUT);
+    // The clipboard is never attached by default, not even when an old file omits the field.
+    assert!(!partial.attach_clipboard_default);
+    assert!(!Settings::default().attach_clipboard_default);
 }
 
 // ------------------------------------------------------------ clipboard

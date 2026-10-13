@@ -45,8 +45,11 @@ async function attempt<T>(f: () => T | Promise<T>, fallback: T): Promise<T> {
 
 export function AskBar({ api = tauriAskbarApi }: { api?: AskbarApi }): JSX.Element {
   const [agents, setAgents] = useState<AskbarAgent[]>([]);
+  /** The attached clipboard. Null until the user attaches it (or the setting attaches it on open). */
   const [clip, setClip] = useState<AskbarClipboard | null>(null);
   const [clipOn, setClipOn] = useState(false);
+  /** The last attach found nothing to attach; the chip says so. */
+  const [clipEmpty, setClipEmpty] = useState(false);
   const [agent, setAgent] = useState<string | null>(null);
   const [question, setQuestion] = useState('');
   const [view, setView] = useState<View>('empty');
@@ -65,7 +68,7 @@ export function AskBar({ api = tauriAskbarApi }: { api?: AskbarApi }): JSX.Eleme
   const agentLabel = agents.find((a) => a.id === agent)?.label ?? agent ?? '';
   const agentReady = agents.find((a) => a.id === agent)?.ready ?? false;
 
-  /** Clear the bar and reload agents, clipboard and settings. Used on mount and when the bar is shown. */
+  /** Clear the bar and reload agents and settings. The clipboard is read here only when the setting attaches it by default. */
   const refresh = useCallback(async () => {
     latestAsk.current = null;
     lastRequest.current = null;
@@ -78,16 +81,19 @@ export function AskBar({ api = tauriAskbarApi }: { api?: AskbarApi }): JSX.Eleme
     ignore(api.resize(false));
     inputRef.current?.focus();
 
-    const [list, clipNow, settings] = await Promise.all([
+    const [list, settings] = await Promise.all([
       attempt(() => api.agents(), [] as AskbarAgent[]),
-      attempt(() => api.clipboard(), null),
       attempt(() => api.settingsGet(), null),
     ]);
+    const attachByDefault = settings?.attach_clipboard_default === true;
+    const clipNow = attachByDefault ? await attempt(() => api.clipboard(), null) : null;
     const listed = (id: string | null | undefined): string | null => (id && list.some((a) => a.id === id) ? id : null);
 
     setAgents(list);
-    setClip(clipNow);
-    setClipOn(!!clipNow && clipNow.text.trim().length > 0);
+    const attach = !!clipNow && clipNow.text.trim().length > 0;
+    setClip(attach ? clipNow : null);
+    setClipOn(attach);
+    setClipEmpty(false);
     setAgent(listed(settings?.default_agent) ?? listed(settings?.last_agent) ?? list[0]?.id ?? null);
     if (list.length === 0) {
       setError(NO_AGENT);
@@ -166,6 +172,26 @@ export function AskBar({ api = tauriAskbarApi }: { api?: AskbarApi }): JSX.Eleme
     const t = window.setTimeout(() => setCopied(false), 1500);
     return () => window.clearTimeout(t);
   }, [copied]);
+
+  /** "+ Clipboard": the only place the clipboard is read when the setting is off. */
+  const attachClipboard = async () => {
+    const next = await attempt(() => api.clipboard(), null);
+    if (next && next.text.trim().length > 0) {
+      setClip(next);
+      setClipOn(true);
+      setClipEmpty(false);
+    } else {
+      setClip(null);
+      setClipOn(false);
+      setClipEmpty(true);
+    }
+  };
+
+  const detachClipboard = () => {
+    setClip(null);
+    setClipOn(false);
+    setClipEmpty(false);
+  };
 
   const submit = async () => {
     const q = question.trim();
@@ -290,16 +316,18 @@ export function AskBar({ api = tauriAskbarApi }: { api?: AskbarApi }): JSX.Eleme
           onKeyDown={onInputKey}
         />
 
-        {clip && clip.text.trim() ? (
-          <button
-            type="button"
-            className={clipOn ? 'askbar-clip' : 'askbar-clip is-off'}
-            aria-pressed={clipOn}
-            onClick={() => setClipOn((on) => !on)}
-          >
-            {clipboardChipLabel(clip)}
+        {clipOn && clip ? (
+          <span className="askbar-clip-wrap">
+            <span className="askbar-clip">{clipboardChipLabel(clip)}</span>
+            <button type="button" className="askbar-clip-x" aria-label="Detach clipboard" onClick={detachClipboard}>
+              ×
+            </button>
+          </span>
+        ) : (
+          <button type="button" className="askbar-clip is-off" onClick={() => void attachClipboard()}>
+            {clipEmpty ? 'Clipboard empty' : '+ Clipboard'}
           </button>
-        ) : null}
+        )}
       </div>
 
       {view === 'running' && (

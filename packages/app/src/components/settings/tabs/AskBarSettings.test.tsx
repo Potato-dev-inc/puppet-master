@@ -37,6 +37,7 @@ const settings = (over: Partial<AskbarSettings> = {}): AskbarSettings => ({
   shortcut: 'Ctrl+Alt+Space',
   default_agent: null,
   last_agent: null,
+  attach_clipboard_default: false,
   ...over,
 });
 
@@ -80,6 +81,16 @@ describe('AskBarSettingsBlock', () => {
     expect(api.settingsSet).toHaveBeenLastCalledWith(expect.objectContaining({ shortcut: 'Ctrl+Shift+Space', enabled: true }));
     await pick(selects()[1], 'codex');
     expect(api.settingsSet).toHaveBeenLastCalledWith(expect.objectContaining({ default_agent: 'codex' }));
+  });
+
+  it('attach clipboard by default is off until the user turns it on, and saves the choice', async () => {
+    const api = fakeApi(settings({ enabled: true }));
+    await mount(api);
+    const attach = host.querySelectorAll('button[role="switch"]')[1] as HTMLButtonElement;
+    expect(attach.getAttribute('aria-checked')).toBe('false');
+    await act(async () => attach.click());
+    expect(api.settingsSet).toHaveBeenLastCalledWith(expect.objectContaining({ attach_clipboard_default: true }));
+    expect(attach.getAttribute('aria-checked')).toBe('true');
   });
 
   it('choosing Last used clears the default agent', async () => {

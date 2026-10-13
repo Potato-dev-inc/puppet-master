@@ -47,6 +47,13 @@ export function AskBarSettingsBlock({ api = tauriAskbarApi }: { api?: AskbarApi 
           ))}
         </FieldSelect>
       </SettingBlock>
+      <SettingToggle
+        label="Attach clipboard by default"
+        description="Off by default. When on, each open reads the clipboard and attaches it to your question. Clipboard text can hold passwords or keys."
+        checked={s.attach_clipboard_default}
+        onChange={(attach_clipboard_default) => save({ ...s, attach_clipboard_default })}
+        implemented
+      />
     </>
   );
 }

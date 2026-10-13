@@ -250,6 +250,28 @@ html.askbar-root #root {
   transform: scale(0.97);
 }
 
+/* Attached: the label plus a small × to detach. */
+.askbar-clip-wrap {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.askbar-clip-x {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: var(--label-3);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.askbar-clip-x:hover {
+  background: var(--fill-hover);
+  color: var(--label-2);
+}
+
 /* ---------- status, answer, error ---------- */
 .askbar-status {
   flex: 0 0 auto;

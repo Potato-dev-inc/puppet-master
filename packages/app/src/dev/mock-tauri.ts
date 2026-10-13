@@ -95,7 +95,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'list_agent_contexts':
           return [];
         case 'askbar_settings_get':
-          return { enabled: true, shortcut: 'Ctrl+Alt+Space', default_agent: 'claude', last_agent: null };
+          return { enabled: true, shortcut: 'Ctrl+Alt+Space', default_agent: 'claude', last_agent: null, attach_clipboard_default: false };
         case 'askbar_settings_set':
           return a.settings;
         case 'askbar_agents':

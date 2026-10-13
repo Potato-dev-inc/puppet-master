@@ -15,7 +15,13 @@ const AGENTS: AskbarAgent[] = [
   { id: 'codex', label: 'Codex', ready: false },
 ];
 
-const SETTINGS: AskbarSettings = { enabled: true, shortcut: 'Alt+Space', default_agent: 'claude', last_agent: null };
+const SETTINGS: AskbarSettings = {
+  enabled: true,
+  shortcut: 'Alt+Space',
+  default_agent: 'claude',
+  last_agent: null,
+  attach_clipboard_default: false,
+};
 
 function fakeApi(): Fake {
   return {
@@ -121,33 +127,89 @@ describe('ask bar', () => {
     expect(api.ask.mock.calls[0][0]).toMatchObject({ agent: 'codex', question: 'Why is the build red?' });
   });
 
-  it('shows the clipboard chip for a short clip and sends the text only while the chip is on', async () => {
+  it('the clipboard is off by default: nothing is read on open and the chip offers "+ Clipboard"', async () => {
+    const api = fakeApi();
+    api.clipboard.mockResolvedValue({ text: 'password=hunter2', chars: 16, truncated: false });
+    api.ask.mockImplementation(async (req: AskRequest) => okResult(req));
+    await renderBar(api);
+
+    expect(api.clipboard).not.toHaveBeenCalled();
+    expect(host.querySelector('.askbar-clip-wrap')).toBeNull();
+    expect(buttonByText('+ Clipboard')).toBeDefined();
+
+    await ask(api, 'Why is the build red?');
+    expect(api.clipboard).not.toHaveBeenCalled();
+    expect(api.ask.mock.calls[0][0].clipboard).toBeNull();
+  });
+
+  it('clicking "+ Clipboard" reads the clipboard and attaches it; the × detaches it and the next ask sends nothing', async () => {
     const api = fakeApi();
     const clip: AskbarClipboard = { text: 'x'.repeat(1200), chars: 1200, truncated: false };
     api.clipboard.mockResolvedValue(clip);
     api.ask.mockImplementation(async (req: AskRequest) => okResult(req));
     await renderBar(api);
 
-    const chip = host.querySelector('.askbar-clip') as HTMLButtonElement;
-    expect(chip.textContent).toBe('Clipboard · 1.2k chars');
-    expect(chip.getAttribute('aria-pressed')).toBe('true');
-
-    act(() => chip.click());
-    expect(chip.getAttribute('aria-pressed')).toBe('false');
-    expect(chip.classList.contains('is-off')).toBe(true);
+    await act(async () => buttonByText('+ Clipboard')!.click());
+    expect(api.clipboard).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('.askbar-clip')!.textContent).toBe('Clipboard · 1.2k chars');
     await ask(api, 'Summarise it');
-    expect(api.ask.mock.calls[0][0].clipboard).toBeNull();
+    expect(api.ask.mock.calls[0][0].clipboard).toBe(clip.text);
 
-    // Answer is shown; toggle back on and ask again.
-    act(() => (host.querySelector('.askbar-clip') as HTMLButtonElement).click());
+    act(() => (host.querySelector('button[aria-label="Detach clipboard"]') as HTMLButtonElement).click());
+    expect(host.querySelector('.askbar-clip-wrap')).toBeNull();
+    expect(buttonByText('+ Clipboard')).toBeDefined();
     await ask(api, 'And the second part?');
-    expect(api.ask.mock.calls[1][0].clipboard).toBe(clip.text);
+    expect(api.ask.mock.calls[1][0].clipboard).toBeNull();
+    expect(api.clipboard).toHaveBeenCalledTimes(1);
+  });
+
+  it('attaching by default (Settings) reads the clipboard on open and attaches it', async () => {
+    const api = fakeApi();
+    api.settingsGet.mockResolvedValue({ ...SETTINGS, attach_clipboard_default: true });
+    api.clipboard.mockResolvedValue({ text: 'log line', chars: 8, truncated: false });
+    api.ask.mockImplementation(async (req: AskRequest) => okResult(req));
+    await renderBar(api);
+
+    expect(api.clipboard).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('.askbar-clip')!.textContent).toBe('Clipboard · 8 chars');
+    await ask(api, 'Why?');
+    expect(api.ask.mock.calls[0][0].clipboard).toBe('log line');
+  });
+
+  it('the default-on attach does not persist across opens once the user detaches', async () => {
+    const api = fakeApi();
+    api.settingsGet.mockResolvedValue({ ...SETTINGS, attach_clipboard_default: true });
+    api.clipboard.mockResolvedValue({ text: 'log line', chars: 8, truncated: false });
+    await renderBar(api);
+
+    act(() => (host.querySelector('button[aria-label="Detach clipboard"]') as HTMLButtonElement).click());
+    expect(buttonByText('+ Clipboard')).toBeDefined();
+
+    // The next open starts from the setting again (on), not from this detach.
+    const onShown = api.onShown.mock.calls[0][0] as () => void;
+    await act(async () => onShown());
+    await flush();
+    expect(host.querySelector('.askbar-clip')!.textContent).toBe('Clipboard · 8 chars');
+  });
+
+  it('an empty clipboard attaches nothing and the chip says so', async () => {
+    const api = fakeApi();
+    api.clipboard.mockResolvedValue(null);
+    api.ask.mockImplementation(async (req: AskRequest) => okResult(req));
+    await renderBar(api);
+
+    await act(async () => buttonByText('+ Clipboard')!.click());
+    expect(buttonByText('Clipboard empty')).toBeDefined();
+    expect(host.querySelector('.askbar-clip-wrap')).toBeNull();
+    await ask(api, 'Anything?');
+    expect(api.ask.mock.calls[0][0].clipboard).toBeNull();
   });
 
   it('labels a cut clip as "8k of 52k chars"', async () => {
     const api = fakeApi();
     api.clipboard.mockResolvedValue({ text: 'y'.repeat(8000), chars: 52000, truncated: true });
     await renderBar(api);
+    await act(async () => buttonByText('+ Clipboard')!.click());
     expect(host.querySelector('.askbar-clip')!.textContent).toBe('Clipboard · 8k of 52k chars');
   });
 
@@ -187,6 +249,7 @@ describe('ask bar', () => {
     api.ask.mockImplementation(async (req: AskRequest) => okResult(req, 'Done.'));
     await renderBar(api);
 
+    await act(async () => buttonByText('+ Clipboard')!.click());
     await ask(api, 'Why?');
     await act(async () => {
       buttonByText('Continue in a pane')!.click();
