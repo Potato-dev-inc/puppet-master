@@ -15,13 +15,21 @@ export function makeDesktopOrchestratorTransport(paneId: string): TerminalTransp
   };
 }
 
-/** Shared bridge mirror transport — viewers must not resize the backend PTY. */
-export function makePaneTunnelTransport(bridge: BridgeClient, paneId: string): TerminalTransport {
+/**
+ * Shared bridge mirror transport — viewers must not resize the backend PTY.
+ * `sendViaSocket` is tried first; when it returns false (socket not open) the POST is used.
+ */
+export function makePaneTunnelTransport(
+  bridge: BridgeClient,
+  paneId: string,
+  sendViaSocket?: (paneId: string, text: string, appendNewline: boolean) => boolean,
+): TerminalTransport {
   return {
     resize: async () => {
       void paneId;
     },
     writeInput: async (text: string, appendNewline = false) => {
+      if (sendViaSocket?.(paneId, text, appendNewline)) return;
       await bridge.writeInput(paneId, text, appendNewline);
     },
   };

@@ -12,6 +12,7 @@ import {
   type MobileInputDelivery,
 } from './mobile-input-guard';
 import { configureDesktopXtermTextarea, isTerminalPasteShortcut } from './xterm-textarea';
+import { TouchScrollController } from './touch-scroll';
 import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
@@ -24,6 +25,9 @@ import {
 } from './scaled-viewport';
 import type { PaneDataListener, TerminalRenderMode, TerminalSessionOptions } from './types';
 import '@xterm/xterm/css/xterm.css';
+
+/** How long a local phone-side fit overrides PTY sizes that still reflect an older grid. */
+const LOCAL_FIT_HOLD_MS = 1500;
 
 function isWindowsRuntime(): boolean {
   return navigator.userAgent.includes('Windows');
@@ -58,6 +62,10 @@ export class TerminalSession {
   private lastSentRows = 0;
   private ptyCols: number;
   private ptyRows: number;
+  /** sizesPane: when the last local fit was applied (ms epoch), 0 if never. */
+  private localFitAt = 0;
+  /** sizesPane: a PTY size held back during the hold window, applied when it ends. */
+  private heldPtyTimer: number | null = null;
   private readonly syncPTYResize: boolean;
   private readonly mirrorPTY: boolean;
   private readonly renderMode: TerminalRenderMode;
@@ -67,6 +75,7 @@ export class TerminalSession {
   private scaleController: TerminalScaleController | null = null;
   private scaleViewport: HTMLElement | null = null;
   private mountContainer: HTMLElement | null = null;
+  private touchScroll: TouchScrollController | null = null;
   private disposed = false;
 
   constructor(private readonly options: TerminalSessionOptions) {
@@ -147,6 +156,18 @@ export class TerminalSession {
 
   setPtyDimensions(cols: number, rows: number): void {
     if (cols <= 0 || rows <= 0) return;
+    // Phone-sized pane: a PTY size that differs from our own fresh local fit is an echo of an
+    // older grid still in flight over the tunnel. Ignore it briefly so the terminal does not bounce.
+    // If it is still the PTY size when the hold ends (another viewer's smaller size), apply it then.
+    if (this.options.sizesPane && this.isStaleAgainstLocalFit(cols, rows)) {
+      this.holdPtyDimensions(cols, rows);
+      return;
+    }
+    // A newer PTY size supersedes one still held back.
+    if (this.heldPtyTimer !== null) {
+      window.clearTimeout(this.heldPtyTimer);
+      this.heldPtyTimer = null;
+    }
     if (this.mirrorPTY) {
       this.ptyCols = cols;
       this.ptyRows = rows;
@@ -160,6 +181,48 @@ export class TerminalSession {
 
   private isMobileMirror(): boolean {
     return !this.mobileInputDisabled && this.mirrorPTY && isMobileInputDevice();
+  }
+
+  private holdPtyDimensions(cols: number, rows: number): void {
+    if (this.heldPtyTimer !== null) window.clearTimeout(this.heldPtyTimer);
+    const wait = Math.max(0, LOCAL_FIT_HOLD_MS - (Date.now() - this.localFitAt)) + 1;
+    this.heldPtyTimer = window.setTimeout(() => {
+      this.heldPtyTimer = null;
+      if (!this.disposed) this.setPtyDimensions(cols, rows);
+    }, wait);
+  }
+
+  /** True while a recent local fit should win over a PTY size that disagrees with it. */
+  private isStaleAgainstLocalFit(cols: number, rows: number): boolean {
+    if (this.localFitAt === 0 || Date.now() - this.localFitAt > LOCAL_FIT_HOLD_MS) return false;
+    return cols !== this.ptyCols || rows !== this.ptyRows;
+  }
+
+  /** Swipe-to-scroll for the phone mirror. Touch points are mapped to cells through the scale. */
+  private createTouchScroll(container: HTMLElement, terminal: Terminal): TouchScrollController {
+    // Screen pixels per layout pixel (the scale-to-fit transform), so drags map to rows on screen.
+    const screenScale = (): number => {
+      const el = terminal.element;
+      if (!el || el.offsetWidth <= 0) return 1;
+      return el.getBoundingClientRect().width / el.offsetWidth || 1;
+    };
+    return new TouchScrollController(container, terminal, {
+      sendInput: (data) => this.options.onInput(data, false),
+      cellHeight: () => (this.gridMetrics()?.cellHeight ?? 0) * screenScale(),
+      cellFromPoint: (clientX, clientY) => {
+        const metrics = this.gridMetrics();
+        const el = terminal.element;
+        if (!metrics || !el) return { col: 1, row: 1 };
+        const rect = el.getBoundingClientRect();
+        const scale = screenScale();
+        const x = (clientX - rect.left) / scale - metrics.padX / 2;
+        const y = (clientY - rect.top) / scale - metrics.padY / 2;
+        const col = Math.min(Math.max(Math.floor(x / metrics.cellWidth) + 1, 1), Math.max(terminal.cols, 1));
+        const row = Math.min(Math.max(Math.floor(y / metrics.cellHeight) + 1, 1), Math.max(terminal.rows, 1));
+        return { col, row };
+      },
+      onScrollStart: () => this.mobileInputGuard?.abandonGesture(),
+    });
   }
 
   private shouldScaleMirrorToContainer(): boolean {
@@ -226,7 +289,11 @@ export class TerminalSession {
           this.scaleViewport,
           mountTarget,
           this.options.sizesPane
-            ? { keyboardPushUp: false, measureContent: () => this.gridContentSize() }
+            ? {
+                keyboardPushUp: false,
+                measureContent: () => this.gridContentSize(),
+                noScale: true,
+              }
             : {},
         );
       }
@@ -270,6 +337,9 @@ export class TerminalSession {
       });
       this.installFileLinkProvider(terminal);
       this.installTextareaGuards(container, terminal, this.inputBatcher);
+      if (mobileMirror) {
+        this.touchScroll = this.createTouchScroll(container, terminal);
+      }
       this.installResizeObservers(container);
       this.installFocusHandlers(container);
       this.installThemeObserver(terminal);
@@ -292,6 +362,8 @@ export class TerminalSession {
 
   dispose(): void {
     this.disposed = true;
+    if (this.heldPtyTimer !== null) window.clearTimeout(this.heldPtyTimer);
+    this.heldPtyTimer = null;
     this.generation += 1;
 
     if (this.openFrame !== null) {
@@ -321,6 +393,9 @@ export class TerminalSession {
 
     this.mobileInputGuard?.dispose();
     this.mobileInputGuard = null;
+
+    this.touchScroll?.dispose();
+    this.touchScroll = null;
 
     this.scaleController?.dispose();
     this.scaleController = null;
@@ -596,6 +671,10 @@ export class TerminalSession {
 
   private scheduleFit(): void {
     if (!this.syncPTYResize) {
+      if (this.options.sizesPane) {
+        this.scheduleLocalFit();
+        return;
+      }
       this.applyMirrorDimensions();
       return;
     }
@@ -605,6 +684,34 @@ export class TerminalSession {
       this.fitAndNotify();
       this.scheduleRefresh();
     });
+  }
+
+  /**
+   * sizesPane: resize the local xterm to the grid that fits the host right away (next frame),
+   * instead of waiting for the PC's pane-resize round trip. Does not notify the PTY: the phone's
+   * size goes to the PC through the fit-grid lease, and the PC's echo then matches this grid.
+   */
+  private scheduleLocalFit(): void {
+    if (this.resizeFrame !== null) return;
+    this.resizeFrame = requestAnimationFrame(() => {
+      this.resizeFrame = null;
+      this.fitLocalToHost();
+    });
+  }
+
+  private fitLocalToHost(): void {
+    const terminal = this.term;
+    if (!terminal) return;
+    const grid = this.measureFitGrid();
+    if (grid && (grid.cols !== terminal.cols || grid.rows !== terminal.rows)) {
+      terminal.resize(grid.cols, grid.rows);
+      // Keep the PTY-side state in step, so a later applyPtyDimensions is a no-op.
+      this.ptyCols = grid.cols;
+      this.ptyRows = grid.rows;
+      this.localFitAt = Date.now();
+      terminal.scrollToBottom();
+    }
+    this.scheduleRefresh();
   }
 
   private fitAndNotify(): void {

@@ -29,7 +29,13 @@ export interface BridgePaneRegistryApi {
 
 const EMPTY: Map<string, BridgePaneData> = new Map();
 
-export function useBridgePaneRegistry(bridge: BridgeClient | null): BridgePaneRegistryApi {
+/** Socket input sender (see BridgeEventsHandle.sendInput); returns false when the socket is not open. */
+export type SocketInputSender = (paneId: string, text: string, appendNewline: boolean) => boolean;
+
+export function useBridgePaneRegistry(
+  bridge: BridgeClient | null,
+  sendViaSocket?: SocketInputSender,
+): BridgePaneRegistryApi {
   const [panes, setPanes] = useState<Map<string, BridgePaneData>>(EMPTY);
   const panesRef = useRef(panes);
   panesRef.current = panes;
@@ -86,8 +92,8 @@ export function useBridgePaneRegistry(bridge: BridgeClient | null): BridgePaneRe
   }, []);
 
   const makeTransport = useCallback(
-    (paneId: string) => makePaneTunnelTransport(bridge!, paneId),
-    [bridge],
+    (paneId: string) => makePaneTunnelTransport(bridge!, paneId, sendViaSocket),
+    [bridge, sendViaSocket],
   );
 
   useEffect(() => {

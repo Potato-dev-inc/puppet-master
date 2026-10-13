@@ -1,9 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeBottomAnchoredTranslateY,
   computeContainerFitScale,
   computeContainerFitTransform,
   isMobileKeyboardTransitionActive,
 } from './scaled-viewport';
+
+describe('computeBottomAnchoredTranslateY', () => {
+  it('keeps the top at 0 when the content fits', () => {
+    expect(computeBottomAnchoredTranslateY(300, 500)).toBe(0);
+    expect(computeBottomAnchoredTranslateY(500, 500)).toBe(0);
+  });
+
+  it('shifts up by the overflow so the bottom rows stay on screen', () => {
+    // 900px of rows in a 500px area: show the bottom 500px.
+    expect(computeBottomAnchoredTranslateY(900, 500)).toBe(-400);
+  });
+
+  it('returns 0 for invalid measurements', () => {
+    expect(computeBottomAnchoredTranslateY(0, 500)).toBe(0);
+    expect(computeBottomAnchoredTranslateY(900, 0)).toBe(0);
+  });
+});
 
 describe('computeContainerFitScale', () => {
   it('fits wide content into a narrow container uniformly', () => {

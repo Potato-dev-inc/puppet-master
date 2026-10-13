@@ -87,6 +87,49 @@ pub(super) fn handle_connection(
     let raw_segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
     let segments = mobile_pairing::normalize_bridge_segments(&raw_segments).to_vec();
 
+    // WebSocket twin of `/events` (see ws.rs). Browsers cannot send Authorization on a socket, so
+    // the bearer token may come in the `pm-bearer.<token>` subprotocol offer instead.
+    if segments == ["events", "ws"]
+        && method == "GET"
+        && mobile_pairing::header_value(&headers_raw, "Upgrade")
+            .is_some_and(|value| value.eq_ignore_ascii_case("websocket"))
+    {
+        let offer = mobile_pairing::header_value(&headers_raw, "Sec-WebSocket-Protocol")
+            .unwrap_or("")
+            .to_string();
+        let auth_headers = match super::ws::bearer_from_protocols(&offer) {
+            Some(token) => format!("{headers_raw}\r\nAuthorization: Bearer {token}"),
+            None => headers_raw.clone(),
+        };
+        if let Err((status, value)) =
+            mobile_pairing::authorize_bridge_request(&auth_headers, peer_loopback, &segments, method)
+        {
+            return write_json(&mut stream, status, &value);
+        }
+        if let Err(error) = crate::mcp_sessions::authorize(
+            request_session(&auth_headers),
+            method,
+            "/events",
+            &json!({}),
+        ) {
+            let (status, value) = operation_http_error(error);
+            return write_json(&mut stream, status, &value);
+        }
+        let Some(key) = mobile_pairing::header_value(&headers_raw, "Sec-WebSocket-Key") else {
+            return write_json(&mut stream, 400, &json!({ "error": "missing Sec-WebSocket-Key" }));
+        };
+        super::ws::serve(
+            stream,
+            key,
+            super::ws::offers_pm_events(&offer),
+            &auth_headers,
+            peer_loopback,
+            registry,
+            &app,
+        );
+        return Ok(());
+    }
+
     // Long-poll twin of `/events` for tunnels that buffer server-sent events (Cloudflare quick
     // tunnels): returns the SSE payloads after `cursor` as JSON `{cursor, data, gap}`.
     if segments == ["events", "poll"] && method == "GET" {

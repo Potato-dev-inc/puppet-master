@@ -274,6 +274,18 @@ export class MobileInputGuard implements Disposable {
     return this.input.value;
   }
 
+  /**
+   * The touch turned into a scroll: drop a pending long-press. An open keyboard stays open (the
+   * user may scroll up mid-typing); only a hidden-input focus made by this same touch is undone.
+   */
+  abandonGesture(): void {
+    this.cancelLongPress();
+    if (!this.hiddenInput || Date.now() - this.hiddenInputFocusedAt > 350) return;
+    this.hiddenInputFocusedAt = 0;
+    if (document.activeElement === this.input) this.input.blur();
+    this.disengageInput();
+  }
+
   private scheduleScrollToCursor(): void {
     this.scrollToCursor();
     requestAnimationFrame(() => {
@@ -372,6 +384,7 @@ export class MobileInputGuard implements Disposable {
     if (target.closest('[data-mobile-terminal-arrows]')) return false;
     if (target.closest('[data-mobile-terminal-input]')) return false;
     if (target.closest('[data-mobile-terminal-input-zone]')) return false;
+    if (target.closest('[data-terminal-scroll-bottom]')) return false;
     return true;
   }
 

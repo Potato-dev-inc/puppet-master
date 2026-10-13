@@ -357,7 +357,7 @@ export type BridgeEvent =
   | { type: 'panes'; panes: PaneInfo[] }
   | { type: 'log'; entry: McpLogEntry }
   | { type: 'chat'; event: OrchestratorChatEvent }
-  | { type: 'terminal'; pane_id: string; data: number[] }
+  | { type: 'terminal'; pane_id: string; data: Uint8Array | number[] }
   | { type: 'terminal-snapshot'; pane_id: string; snapshot: string }
   | { type: 'pane-status'; pane_id: string; status: PaneInfo['status'] }
   | { type: 'opencode-worker'; event: OpenCodeWorkerEvent }

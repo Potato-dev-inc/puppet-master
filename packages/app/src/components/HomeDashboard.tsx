@@ -268,7 +268,7 @@ export function HomeDashboard({
                 </div>
                 <div>
                   <dt>Mobile input delay</dt>
-                  <dd>{settings?.mobile_input_delay_ms ?? 250} ms</dd>
+                  <dd>{settings?.mobile_input_delay_ms ?? 60} ms</dd>
                 </div>
               </dl>
             </section>

@@ -9,7 +9,7 @@ export function MobileTab({ ctx }: { ctx: SettingsTabContext }) {
   return (
     <SettingsSection title="Mobile PWA" description="Pair a phone to mirror panes, send input, and monitor agent progress.">
       <SettingBlock label="Mobile input buffer (ms)" implemented description="Delay before committing mobile keystrokes to the PTY.">
-        <FieldInput type="number" min={0} max={1000} step={50} value={settings.mobile_input_delay_ms ?? 250} onChange={(e) => {
+        <FieldInput type="number" min={0} max={1000} step={10} value={settings.mobile_input_delay_ms ?? 60} onChange={(e) => {
           const value = Number(e.target.value);
           setSettings({ ...settings, mobile_input_delay_ms: Number.isFinite(value) ? value <= 0 ? 0 : Math.min(1000, Math.max(50, Math.round(value))) : 250 });
         }} className="font-mono" />

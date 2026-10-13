@@ -3,8 +3,16 @@
 import type { McpLogEntry, OrchestratorChatEvent, PaneInfo } from '@puppet-master/shared';
 import type { PublicSettings } from './bridge-settings';
 import { isNgrokHost, ngrokRequestHeaders } from './bridge-ngrok';
-import { mergeBridgeHeaders } from './mobile-pairing-auth';
+import { mergeBridgeHeaders, mobilePairingAuthHeaders } from './mobile-pairing-auth';
 import type { BridgeEvent, OpenCodeWorkerEvent } from './bridge-types';
+
+/** Decode a base64 terminal chunk into raw bytes. */
+function decodeBase64(text: string): Uint8Array {
+  const bin = atob(text);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: BridgeEvent) => void): void {
   const parsed = JSON.parse(data) as unknown;
@@ -15,8 +23,10 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
   } else if (eventName === 'chat') {
     onEvent({ type: 'chat', event: parsed as OrchestratorChatEvent });
   } else if (eventName === 'terminal') {
-    const payload = parsed as { pane_id: string; data: number[] };
-    onEvent({ type: 'terminal', pane_id: payload.pane_id, data: payload.data });
+    // Current servers send `b64`; older builds sent a `data` byte array.
+    const payload = parsed as { pane_id: string; b64?: string; data?: number[] };
+    const bytes = typeof payload.b64 === 'string' ? decodeBase64(payload.b64) : (payload.data ?? []);
+    onEvent({ type: 'terminal', pane_id: payload.pane_id, data: bytes });
   } else if (eventName === 'terminal-snapshot') {
     const payload = parsed as { pane_id: string; snapshot: string };
     onEvent({ type: 'terminal-snapshot', pane_id: payload.pane_id, snapshot: payload.snapshot });
@@ -208,19 +218,173 @@ function shouldUseFetchBridgeSse(baseUrl: string): boolean {
   }
 }
 
+/** Live handle to the event stream: watch filter, input over the socket, and teardown. */
+export interface BridgeEventsHandle {
+  unsubscribe(): void;
+  /** Only `terminal` events for these panes are sent. `null` leaves the server default untouched. */
+  setWatchedPanes(ids: string[] | null): void;
+  /** Writes input over the socket. Returns false when the socket is not open (caller falls back to POST). */
+  sendInput(paneId: string, text: string, appendNewline: boolean): boolean;
+  isOpen(): boolean;
+}
+
+const WS_OPEN = 1;
+/** Failed opens in a row, before the socket ever opened, that switch to long-polling for good. */
+const WS_FAILS_BEFORE_POLL = 2;
+
+function bridgeSocketUrl(baseUrl: string): string {
+  const url = new URL(`${baseUrl}/events/ws`);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.toString();
+}
+
+/** Browsers cannot set headers on a WebSocket, so the bearer token travels as a subprotocol. */
+function bridgeSocketProtocols(): string[] {
+  const auth = mobilePairingAuthHeaders().Authorization;
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  return token ? ['pm-events', `pm-bearer.${token}`] : ['pm-events'];
+}
+
 /**
- * Subscribe to the bridge SSE stream. Returns an unlisten function.
- * If the bridge is unreachable, retries forever with exponential backoff.
+ * Remote event stream over WebSocket `/events/ws`. Reconnects with backoff; every reconnect emits
+ * `resync`. After {@link WS_FAILS_BEFORE_POLL} failed opens in a row (old build, proxy without ws)
+ * it permanently falls back to {@link subscribeBridgeEventsViaPoll}.
  */
-export function subscribeBridgeEvents(
+export function subscribeBridgeEventsViaWs(
+  baseUrl: string,
+  onEvent: (e: BridgeEvent) => void,
+  onError?: (err: unknown) => void,
+): BridgeEventsHandle {
+  let stopped = false;
+  let fellBack = false;
+  let everOpened = false;
+  let failures = 0;
+  let retryDelay = 500;
+  let ws: WebSocket | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let pollStop: (() => void) | null = null;
+  let watched: string[] | null = null;
+  let watchedKey = '\0unset';
+
+  function sendWatch(): void {
+    if (!ws || ws.readyState !== WS_OPEN || !watched) return;
+    ws.send(JSON.stringify({ type: 'watch', pane_ids: watched }));
+  }
+
+  function handleFrame(text: string): void {
+    if (text.startsWith('{')) {
+      try {
+        const msg = JSON.parse(text) as { type?: string; pane_id?: string; error?: string };
+        if (msg.type === 'input-error') console.warn('[bridge] input rejected', msg.pane_id, msg.error);
+      } catch {
+        /* ignore malformed control frame */
+      }
+      return;
+    }
+    parseSseChunk(text.endsWith('\n\n') ? text : `${text}\n\n`, onEvent);
+  }
+
+  function fallBackToPoll(): void {
+    fellBack = true;
+    pollStop = subscribeBridgeEventsViaPoll(baseUrl, onEvent, onError);
+  }
+
+  function scheduleReconnect(): void {
+    if (stopped) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      connect();
+    }, retryDelay);
+    retryDelay = Math.min(retryDelay * 2, 5000);
+  }
+
+  function connect(): void {
+    if (stopped || fellBack) return;
+    let sock: WebSocket;
+    try {
+      sock = new WebSocket(bridgeSocketUrl(baseUrl), bridgeSocketProtocols());
+    } catch (err) {
+      onError?.(err);
+      failures++;
+      if (!everOpened && failures >= WS_FAILS_BEFORE_POLL) fallBackToPoll();
+      else scheduleReconnect();
+      return;
+    }
+    ws = sock;
+    sock.onopen = () => {
+      if (sock !== ws) return;
+      const reconnect = everOpened;
+      everOpened = true;
+      failures = 0;
+      retryDelay = 500;
+      sendWatch();
+      if (reconnect) onEvent({ type: 'resync' });
+    };
+    sock.onmessage = (ev) => {
+      if (sock !== ws || typeof ev.data !== 'string') return;
+      try {
+        handleFrame(ev.data);
+      } catch (err) {
+        onError?.(err);
+      }
+    };
+    sock.onclose = () => {
+      if (sock !== ws) return;
+      ws = null;
+      if (stopped) return;
+      onError?.(new Error('bridge events socket closed'));
+      if (!everOpened) {
+        failures++;
+        if (failures >= WS_FAILS_BEFORE_POLL) {
+          fallBackToPoll();
+          return;
+        }
+      }
+      scheduleReconnect();
+    };
+  }
+
+  connect();
+
+  return {
+    unsubscribe() {
+      stopped = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
+      const sock = ws;
+      ws = null;
+      sock?.close();
+      pollStop?.();
+      pollStop = null;
+    },
+    setWatchedPanes(ids) {
+      const key = ids === null ? '\0null' : ids.join('\n');
+      if (key === watchedKey) return;
+      watchedKey = key;
+      watched = ids === null ? null : [...ids];
+      sendWatch();
+    },
+    sendInput(paneId, text, appendNewline) {
+      if (!ws || ws.readyState !== WS_OPEN) return false;
+      try {
+        ws.send(JSON.stringify({ type: 'input', pane_id: paneId, text, append_newline: appendNewline }));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    isOpen() {
+      return !!ws && ws.readyState === WS_OPEN;
+    },
+  };
+}
+
+/** Native EventSource stream (loopback only). Returns an unlisten function. */
+function subscribeBridgeEventsViaSse(
   baseUrl: string,
   onEvent: (e: BridgeEvent) => void,
   onError?: (err: unknown) => void,
 ): () => void {
-  if (shouldUseFetchBridgeSse(baseUrl)) {
-    return subscribeBridgeEventsViaPoll(baseUrl, onEvent, onError);
-  }
-
   let es: EventSource | null = null;
   let cancelled = false;
   let retryDelay = 500;
@@ -255,4 +419,37 @@ export function subscribeBridgeEvents(
     cancelled = true;
     es?.close();
   };
+}
+
+/**
+ * Full event-stream handle for the mobile PWA. Remote hosts use the WebSocket; loopback uses
+ * EventSource, which has no watch filter and no socket input (the handle reports so).
+ */
+export function subscribeBridgeEventsHandle(
+  baseUrl: string,
+  onEvent: (e: BridgeEvent) => void,
+  onError?: (err: unknown) => void,
+): BridgeEventsHandle {
+  if (shouldUseFetchBridgeSse(baseUrl)) {
+    return subscribeBridgeEventsViaWs(baseUrl, onEvent, onError);
+  }
+  const stop = subscribeBridgeEventsViaSse(baseUrl, onEvent, onError);
+  return {
+    unsubscribe: stop,
+    setWatchedPanes: () => {},
+    sendInput: () => false,
+    isOpen: () => false,
+  };
+}
+
+/**
+ * Subscribe to the bridge event stream. Returns an unlisten function.
+ * Remote hosts use the WebSocket (with long-poll fallback); loopback uses EventSource.
+ */
+export function subscribeBridgeEvents(
+  baseUrl: string,
+  onEvent: (e: BridgeEvent) => void,
+  onError?: (err: unknown) => void,
+): () => void {
+  return subscribeBridgeEventsHandle(baseUrl, onEvent, onError).unsubscribe;
 }

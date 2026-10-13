@@ -1,6 +1,7 @@
 //! Server-sent events: the client registry, the `GET /events` stream and the `push_*` helpers
 //! other modules use to broadcast pane, settings and operation updates to mobile clients.
 
+use base64::Engine;
 use parking_lot::Mutex;
 use serde_json::json;
 use std::io::Write;
@@ -35,13 +36,53 @@ pub fn push_sse(payload: String) {
     guard.retain(|sender| sender.try_send(payload.clone()).is_ok());
 }
 
+/// The `event: terminal` SSE payload: the PTY bytes as standard base64 under `b64`
+/// (a JSON number array was 3-4x larger on the wire).
+pub(crate) fn terminal_payload(pane_id: &str, data: &[u8]) -> Option<String> {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(data);
+    let payload = json!({ "pane_id": pane_id, "b64": b64 });
+    serde_json::to_string(&payload)
+        .ok()
+        .map(|json| format!("event: terminal\ndata: {json}\n\n"))
+}
+
 /// Forward live PTY bytes to mobile xterm.js clients.
 pub fn push_terminal_sse(pane_id: &str, data: &[u8]) {
-    let payload = json!({ "pane_id": pane_id, "data": data });
-    if let Ok(json) = serde_json::to_string(&payload) {
-        push_sse(format!("event: terminal\ndata: {json}\n\n"));
+    if let Some(payload) = terminal_payload(pane_id, data) {
+        push_sse(payload);
     }
     crate::pane_wait_notify::bump_waiters();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::terminal_payload;
+    use base64::Engine;
+
+    #[test]
+    fn terminal_payload_carries_base64_not_a_number_array() {
+        let bytes = [0_u8, 27, 91, 255, 10];
+        let payload = terminal_payload("p1", &bytes).expect("payload");
+        let json = payload
+            .strip_prefix("event: terminal\ndata: ")
+            .and_then(|rest| rest.strip_suffix("\n\n"))
+            .expect("frame shape");
+        let value: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(value["pane_id"], "p1");
+        assert!(value.get("data").is_none());
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(value["b64"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(decoded, bytes);
+    }
+
+    #[test]
+    fn terminal_payload_is_compact_for_large_chunks() {
+        let bytes = vec![b'x'; 4096];
+        let payload = terminal_payload("p", &bytes).unwrap();
+        // base64 is 4/3 of the input; a JSON array of numbers would be >= 2x.
+        assert!(payload.len() < 4096 * 2);
+    }
 }
 
 /// Forward pane status changes to mobile clients.

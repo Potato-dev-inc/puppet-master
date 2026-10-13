@@ -83,6 +83,18 @@ export function computeContainerFitTransform(
   };
 }
 
+/**
+ * Vertical offset for a stage that is never scaled: 0 when it fits, otherwise a negative
+ * offset that keeps the bottom edge (the prompt) on the bottom of the container and crops the top.
+ */
+export function computeBottomAnchoredTranslateY(
+  contentHeight: number,
+  containerHeight: number,
+): number {
+  if (contentHeight <= 0 || containerHeight <= 0) return 0;
+  return Math.min(0, containerHeight - contentHeight);
+}
+
 function measureTerminalContent(stage: HTMLElement): { width: number; height: number } {
   const term = stage.querySelector('.xterm');
   if (!(term instanceof HTMLElement)) {
@@ -129,18 +141,26 @@ export class TerminalScaleController implements Disposable {
   /** Content size from the caller (grid arithmetic) instead of measuring the rendered stage. */
   private readonly measureContent?: () => { width: number; height: number } | null;
 
+  /**
+   * Never scale the stage: scale stays 1 and, when the content is taller than the viewport,
+   * the stage is shifted so its bottom rows stay visible. Width is left-aligned, not shifted.
+   */
+  private readonly noScale: boolean;
+
   constructor(
     viewport: HTMLElement,
     stage: HTMLElement,
     options: {
       keyboardPushUp?: boolean;
       measureContent?: () => { width: number; height: number } | null;
+      noScale?: boolean;
     } = {},
   ) {
     this.viewport = viewport;
     this.stage = stage;
     this.keyboardPushUp = options.keyboardPushUp ?? true;
     this.measureContent = options.measureContent;
+    this.noScale = options.noScale ?? false;
     this.onAuthorityChange = () => {
       this.scheduleFit();
     };
@@ -168,17 +188,22 @@ export class TerminalScaleController implements Disposable {
       this.measureContent?.() ?? measureTerminalContent(this.stage);
     const { width: containerWidth, height: containerHeight } = containerFitDimensions(this.viewport);
     const keyboardOpen = this.keyboardPushUp && isMobileKeyboardTransitionActive(this.viewport);
-    const { scale, translateY } = computeContainerFitTransform(
-      contentWidth,
-      contentHeight,
-      containerWidth,
-      containerHeight,
-      {
-        ignoreHeight: keyboardOpen,
-        pushUp: keyboardOpen,
-        maxPushUpPx: getKeyboardObscuredPx(),
-      },
-    );
+    const { scale, translateY } = this.noScale
+      ? {
+          scale: 1,
+          translateY: computeBottomAnchoredTranslateY(contentHeight, containerHeight),
+        }
+      : computeContainerFitTransform(
+          contentWidth,
+          contentHeight,
+          containerWidth,
+          containerHeight,
+          {
+            ignoreHeight: keyboardOpen,
+            pushUp: keyboardOpen,
+            maxPushUpPx: getKeyboardObscuredPx(),
+          },
+        );
 
     if (contentWidth > 0 && contentHeight > 0) {
       this.stage.style.width = `${contentWidth}px`;

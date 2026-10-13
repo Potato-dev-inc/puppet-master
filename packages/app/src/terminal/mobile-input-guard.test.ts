@@ -86,6 +86,30 @@ describe('MobileInputGuard', () => {
     expect(DEFAULT_MOBILE_BUFFER_MS).toBe(250);
   });
 
+  it('abandonGesture closes the command field that a swipe-to-scroll opened', () => {
+    const { cleanup, container, guard } = createGuard(TEST_BUFFER_MS, false);
+    container.dispatchEvent(
+      new PointerEvent('pointerdown', { pointerId: 1, clientX: 10, clientY: 10, bubbles: true }),
+    );
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(true);
+
+    guard.abandonGesture();
+
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(false);
+    cleanup();
+  });
+
+  it('abandonGesture keeps a focused visible command field (keyboard stays open while scrolling)', () => {
+    const { cleanup, guard, input } = createGuard(TEST_BUFFER_MS, true);
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    guard.abandonGesture();
+
+    expect(document.activeElement).toBe(input);
+    cleanup();
+  });
+
   it('uses a textarea command field inside a form', () => {
     const { cleanup, form, input } = createGuard();
 

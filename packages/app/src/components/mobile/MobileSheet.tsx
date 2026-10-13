@@ -130,8 +130,8 @@ export function MenuSheet({
             type="number"
             min={0}
             max={1000}
-            step={50}
-            value={settings.mobile_input_delay_ms ?? 250}
+            step={10}
+            value={settings.mobile_input_delay_ms ?? 60}
             disabled={!bridgeReady}
             onChange={(e) => setDelay(Number(e.target.value))}
             className="w-20 rounded border border-pm-border bg-pm-bg px-2 py-1 font-mono text-pm-text"

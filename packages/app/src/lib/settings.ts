@@ -71,7 +71,7 @@ const DEFAULT_SETTINGS: Settings = {
   default_model: 'claude-sonnet-4-6',
   custom_models: [],
   orchestrator_backend: 'api',
-  mobile_input_delay_ms: 250,
+  mobile_input_delay_ms: 60,
   mobile_input_visible: true,
   dev_server_port: 1420,
   sidebar_width: 360,

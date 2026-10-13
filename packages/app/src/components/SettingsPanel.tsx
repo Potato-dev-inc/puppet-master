@@ -48,7 +48,7 @@ export function SettingsPanel({
     default_model: 'claude-sonnet-4-6',
     custom_models: [],
     orchestrator_backend: 'api',
-    mobile_input_delay_ms: 250,
+    mobile_input_delay_ms: 60,
     mobile_input_visible: true,
     dev_server_port: DEFAULT_DEV_SERVER_PORT,
     sidebar_width: 360,

@@ -6,7 +6,8 @@ import type { AgentType, PaneInfo } from '@puppet-master/shared';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
 import { usePaneViewportLease } from './hooks/usePaneViewportLease';
 import { useVisualViewportSync } from './hooks/useVisualViewport';
-import { makeBridgeClient, subscribeBridgeEvents, type BridgeClient } from './lib/bridge';
+import { makeBridgeClient, type BridgeClient } from './lib/bridge';
+import { subscribeBridgeEventsHandle, type BridgeEventsHandle } from './lib/bridge-sse';
 import { DEFAULT_PUBLIC_SETTINGS, type PublicSettings } from './lib/bridge-settings';
 import { ngrokRequestHeaders } from './lib/bridge-ngrok';
 import { mergeBridgeHeaders } from './lib/mobile-pairing-auth';
@@ -76,7 +77,14 @@ export default function PwaApp() {
   const [resyncKey, setResyncKey] = useState(0);
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
   const [fitGrid, setFitGrid] = useState<{ cols: number; rows: number } | null>(null);
-  const registry = useBridgePaneRegistry(bridge);
+  /** Live event stream handle; input prefers its socket while it is open. */
+  const streamRef = useRef<BridgeEventsHandle | null>(null);
+  const socketInput = useCallback(
+    (paneId: string, text: string, appendNewline: boolean) =>
+      streamRef.current?.sendInput(paneId, text, appendNewline) ?? false,
+    [],
+  );
+  const registry = useBridgePaneRegistry(bridge, socketInput);
   const registryRef = useRef(registry);
   registryRef.current = registry;
 
@@ -119,7 +127,7 @@ export default function PwaApp() {
     void client.getSettings().then((next) => live && setSettings(next)).catch(() => {});
     const timer = window.setInterval(resync, RESYNC_MS);
 
-    const unsub = subscribeBridgeEvents(bridgeUrl, (ev) => {
+    const stream = subscribeBridgeEventsHandle(bridgeUrl, (ev) => {
       if (ev.type === 'panes') applyPanes(ev.panes);
       if (ev.type === 'terminal') registryRef.current.ingestTerminalData(ev.pane_id, ev.data);
       if (ev.type === 'pane-status') {
@@ -135,11 +143,13 @@ export default function PwaApp() {
         setResyncKey((n) => n + 1);
       }
     });
+    streamRef.current = stream;
 
     return () => {
       live = false;
       window.clearInterval(timer);
-      unsub();
+      if (streamRef.current === stream) streamRef.current = null;
+      stream.unsubscribe();
     };
   }, [bridgeUrl, applyPanes]);
 
@@ -159,6 +169,11 @@ export default function PwaApp() {
   const labels = useMemo(() => tabLabels(panes), [panes]);
   const activePane = active === ALL_TAB ? undefined : registry.panes.get(active);
   const transport = useBridgePaneTransport(registry.makeTransport, activePane ? active : 'pane-placeholder');
+  // Only the open agent's terminal is streamed; the All overview reads previews by polling.
+  const watchedPane = activePane ? active : null;
+  useEffect(() => {
+    streamRef.current?.setWatchedPanes(watchedPane ? [watchedPane] : []);
+  }, [watchedPane, bridgeUrl]);
   useEffect(() => setFitGrid(null), [active]);
   usePaneViewportLease(bridge, activePane ? active : null, fitGrid);
 

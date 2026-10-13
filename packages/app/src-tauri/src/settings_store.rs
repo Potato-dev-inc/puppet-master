@@ -24,7 +24,7 @@ pub fn default_public_settings() -> Value {
         "default_model": "claude-sonnet-4-6",
         "opencode_model_provider": null,
         "opencode_model_id": null,
-        "mobile_input_delay_ms": 250,
+        "mobile_input_delay_ms": 60,
         "mobile_input_visible": true,
         "developer_use_rust_mcp": false,
         "librarian_indexer_path": null,

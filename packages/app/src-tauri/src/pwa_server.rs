@@ -136,6 +136,17 @@ fn handle_connection(
         } else {
             bridge_path
         };
+        if is_websocket_upgrade(&headers_raw) {
+            // Bytes the client sent after the head belong to the tunnel, not to a body.
+            return proxy_upgrade(
+                &mut stream,
+                bridge_port_file,
+                method,
+                bridge_path,
+                &headers_raw,
+                &buf[body_start..],
+            );
+        }
         return proxy_bridge(
             &mut stream,
             bridge_port_file,
@@ -216,6 +227,67 @@ fn serve_static(
     let bytes = fs::read(&canonical_file).map_err(|_| "not found".to_string())?;
     let content_type = content_type_for(&canonical_file);
     write_bytes(stream, 200, content_type, &bytes, method == "HEAD")
+}
+
+fn is_websocket_upgrade(headers_raw: &str) -> bool {
+    headers_raw.lines().skip(1).any(|line| {
+        line.split_once(':').is_some_and(|(name, value)| {
+            name.trim().eq_ignore_ascii_case("upgrade")
+                && value.trim().eq_ignore_ascii_case("websocket")
+        })
+    })
+}
+
+/// Pass a WebSocket upgrade through untouched: the request head goes upstream as the client sent
+/// it (Connection/Upgrade/Sec-WebSocket-* included), then bytes are copied both ways until either
+/// side closes.
+fn proxy_upgrade(
+    stream: &mut TcpStream,
+    bridge_port_file: &Path,
+    method: &str,
+    path: &str,
+    headers_raw: &str,
+    leftover: &[u8],
+) -> Result<(), String> {
+    let bridge_addr = read_bridge_addr(bridge_port_file);
+    let mut upstream = TcpStream::connect(&bridge_addr)
+        .map_err(|err| format!("connect bridge {bridge_addr}: {err}"))?;
+
+    let mut request = format!("{method} {path} HTTP/1.1\r\n");
+    for line in headers_raw.lines().skip(1) {
+        request.push_str(line);
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
+    upstream
+        .write_all(request.as_bytes())
+        .map_err(|err| format!("write bridge upgrade request: {err}"))?;
+    if !leftover.is_empty() {
+        upstream
+            .write_all(leftover)
+            .map_err(|err| format!("write bridge upgrade body: {err}"))?;
+    }
+
+    let mut client_reader = stream
+        .try_clone()
+        .map_err(|err| format!("clone client socket: {err}"))?;
+    let mut upstream_writer = upstream
+        .try_clone()
+        .map_err(|err| format!("clone bridge socket: {err}"))?;
+    let client_shutdown = stream
+        .try_clone()
+        .map_err(|err| format!("clone client socket: {err}"))?;
+
+    // client -> bridge; when the client stops, close the bridge side so the other copy ends too.
+    let to_bridge = thread::spawn(move || {
+        let _ = std::io::copy(&mut client_reader, &mut upstream_writer);
+        let _ = upstream_writer.shutdown(std::net::Shutdown::Both);
+    });
+    // bridge -> client; when the bridge stops, close the client side so the other copy ends too.
+    let _ = std::io::copy(&mut upstream, stream);
+    let _ = client_shutdown.shutdown(std::net::Shutdown::Both);
+    let _ = to_bridge.join();
+    Ok(())
 }
 
 fn proxy_bridge(

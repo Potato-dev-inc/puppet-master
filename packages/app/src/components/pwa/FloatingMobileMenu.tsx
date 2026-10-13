@@ -230,7 +230,7 @@ export function FloatingMobileMenu({
                 min={0}
                 max={1000}
                 step={50}
-                value={settings.mobile_input_delay_ms ?? 250}
+                value={settings.mobile_input_delay_ms ?? 60}
                 disabled={!bridgeReady}
                 onChange={(e) => void patchMobileInputDelay(Number(e.target.value))}
                 className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-2 py-1 text-xs font-mono text-pm-text"

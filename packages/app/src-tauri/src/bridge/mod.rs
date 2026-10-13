@@ -27,6 +27,7 @@ mod store;
 #[cfg(test)]
 mod tests;
 mod tool_names;
+mod ws;
 
 pub use delegation::{delegate_operation, publish_operation, stop_operation_worker_with_kill};
 pub use dispatch::dispatch_existing_operation;

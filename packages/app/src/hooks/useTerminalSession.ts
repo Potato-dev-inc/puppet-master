@@ -30,7 +30,10 @@ interface UseTerminalSessionOptions {
   onFitGrid?: (grid: { cols: number; rows: number }) => void;
 }
 
+/** Before the first successful measurement (xterm still settling after mount). */
 const FIT_GRID_DEBOUNCE_MS = 250;
+/** After the first measurement: the grid is already local, so report changes quickly. */
+const FIT_GRID_RESIZE_DEBOUNCE_MS = 50;
 const FIT_GRID_FIRST_TRIES = 20;
 
 /**
@@ -137,9 +140,12 @@ export function useTerminalSession({
     let last = '';
     let timer = 0;
     let tries = 0;
+    let measuredOnce = false;
     const report = (): boolean => {
       const grid = sessionRef.current?.measureFitGrid();
       if (!grid) return false;
+      measuredOnce = true;
+      tries = 0;
       const key = `${grid.cols}x${grid.rows}`;
       if (key !== last) {
         last = key;
@@ -152,7 +158,7 @@ export function useTerminalSession({
       timer = window.setTimeout(() => {
         // xterm measures its cells a frame or two after mount: retry until it has.
         if (!report() && ++tries < FIT_GRID_FIRST_TRIES) schedule();
-      }, FIT_GRID_DEBOUNCE_MS);
+      }, measuredOnce ? FIT_GRID_RESIZE_DEBOUNCE_MS : FIT_GRID_DEBOUNCE_MS);
     };
     const observer = new ResizeObserver(schedule);
     observer.observe(container);
