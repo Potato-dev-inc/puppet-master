@@ -49,6 +49,8 @@ async function safeInvoke<T>(
   return invoke<T>(command, args);
 }
 
+const pendingResizes = new Map<string, Promise<unknown>>();
+
 async function safeListen<T>(event: string, cb: (e: T) => void): Promise<UnlistenFn> {
   if (!isTauriRuntime()) return noopUnlisten;
   return listen<T>(event, (payload) => cb(payload.payload));
@@ -127,8 +129,23 @@ export const tauri = {
       'switch_agent_model',
       { paneId, args },
     ),
-  resize: (paneId: string, cols: number, rows: number) =>
-    safeInvoke<void>('resize_pane', { paneId, cols, rows }, undefined, true),
+  readScreenReplay: (paneId: string) =>
+    safeInvoke<{ data: number[]; cols: number; rows: number } | null>(
+      'read_pane_screen_replay',
+      { paneId },
+      null,
+      true,
+    ),
+  /** This window's latest resize of the pane while the PTY has not applied it yet. */
+  pendingResize: (paneId: string): Promise<unknown> | undefined => pendingResizes.get(paneId),
+  resize: (paneId: string, cols: number, rows: number) => {
+    const call = safeInvoke<void>('resize_pane', { paneId, cols, rows }, undefined, true);
+    const tracked: Promise<unknown> = call.catch(() => undefined).finally(() => {
+      if (pendingResizes.get(paneId) === tracked) pendingResizes.delete(paneId);
+    });
+    pendingResizes.set(paneId, tracked);
+    return call;
+  },
   /** Take the pane back from a phone: the PTY returns to the size this window last asked for. */
   reclaimPaneSize: (paneId: string) => safeInvoke<void>('reclaim_pane_size', { paneId }, undefined, true),
   setProjectPath: (path: string) => safeInvoke<void>('set_project_path', { path }, undefined, true),

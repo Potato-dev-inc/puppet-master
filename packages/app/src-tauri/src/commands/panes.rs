@@ -102,6 +102,26 @@ pub async fn read_pane_raw_buffer(
     registry_read_raw_buffer(&state.registry, &pane_id, lines)
 }
 
+/// The pane redrawn at its current size (scrollback + screen) with the grid it was drawn for. A
+/// desktop window mounting a pane replays this instead of `read_pane_raw_buffer`: the raw history
+/// was written for whatever sizes the PTY had back then (phone lease, pop-out, cockpit), and
+/// replayed into one grid its absolute cursor positions overlay wrapped text on wide text.
+#[derive(serde::Serialize)]
+pub struct PaneScreenReplay {
+    pub data: Vec<u8>,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[tauri::command]
+pub async fn read_pane_screen_replay(
+    state: State<'_, AppState>,
+    pane_id: String,
+) -> Result<PaneScreenReplay, String> {
+    let (data, cols, rows) = registry_read_screen_replay(&state.registry, &pane_id)?;
+    Ok(PaneScreenReplay { data, cols, rows })
+}
+
 #[tauri::command]
 pub async fn resize_pane(
     window: tauri::Window,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PaneStreamManager } from '../terminal';
+import { PaneStreamManager, createOwnerReplayReader } from '../terminal';
 import type { PaneDataSubscriber } from '../terminal/types';
 import {
   tauri,
@@ -28,6 +28,13 @@ export interface PaneRegistryApi {
   refresh: () => Promise<void>;
   subscribePaneData: PaneDataSubscriber;
 }
+
+/** Mount replay for this window: the screen at the PTY's current size, not size-mixed raw history. */
+const readOwnerReplay = createOwnerReplayReader({
+  readScreen: tauri.readScreenReplay,
+  readRaw: tauri.readRawBuffer,
+  pendingResize: tauri.pendingResize,
+});
 
 const EMPTY: Map<string, PaneData> = new Map();
 
@@ -205,7 +212,7 @@ export function usePaneRegistry(): PaneRegistryApi {
   }, []);
 
   const subscribePaneData = useCallback<PaneDataSubscriber>((paneId, cb, onResize) => {
-    return streamsRef.current.subscribe(paneId, cb, tauri.readRawBuffer, onResize);
+    return streamsRef.current.subscribe(paneId, cb, readOwnerReplay, onResize);
   }, []);
 
 

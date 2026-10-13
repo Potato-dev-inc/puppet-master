@@ -97,6 +97,7 @@ pub fn run() {
             commands::read_pane_buffer,
             commands::read_pane_snapshot,
             commands::read_pane_raw_buffer,
+            commands::read_pane_screen_replay,
             commands::agents_list,
             commands::agents_definitions_list,
             commands::agents_definitions_reload,

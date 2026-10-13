@@ -456,6 +456,9 @@ export class TerminalSession {
         });
       };
       this.paneResizeHandler = (cols, rows) => this.applyStreamResize(cols, rows);
+      // Owner: ask for this window's grid before the screen replay is requested, so the replay is
+      // drawn for the grid this window will have (see createOwnerReplayReader).
+      if (this.syncPTYResize) this.fitAndNotify();
       this.paneSubscriber = subscribePaneData;
       this.unlistenData = subscribePaneData(this.options.paneId, this.paneDataHandler, this.paneResizeHandler);
       this.installFileLinkProvider(terminal);
