@@ -13,6 +13,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "opencode_model_id",
     "mobile_input_delay_ms",
     "mobile_input_visible",
+    "mobile_keyboard_resizes_agent",
     "developer_use_rust_mcp",
     "librarian_indexer_path",
 ];
@@ -26,6 +27,7 @@ pub fn default_public_settings() -> Value {
         "opencode_model_id": null,
         "mobile_input_delay_ms": 60,
         "mobile_input_visible": true,
+        "mobile_keyboard_resizes_agent": false,
         "developer_use_rust_mcp": false,
         "librarian_indexer_path": null,
     })
@@ -116,6 +118,7 @@ mod tests {
         assert_eq!(out["mobile_input_delay_ms"], 400);
         assert_eq!(out["default_model"], "m1");
         assert_eq!(out["default_provider"], "anthropic");
+        assert_eq!(out["mobile_keyboard_resizes_agent"], false);
         assert!(out.get("api_key").is_none() && out.get("pane_window_position").is_none());
         assert_eq!(public_settings_from_store_file(&json!({})), default_public_settings());
     }

@@ -132,6 +132,7 @@ fn now_ms() -> u64 {
 fn apply(registry: &Mutex<PaneRegistry>, pane_id: &str, (cols, rows): Size) {
     if let Ok(true) = super::registry_resize(registry, pane_id, cols, rows) {
         crate::bridge::notify_pane_resized(pane_id, cols, rows);
+        crate::bridge::notify_pty_resized_by_lease(pane_id, cols, rows);
     }
 }
 

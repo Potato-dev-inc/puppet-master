@@ -4,6 +4,9 @@ import {
   computeContainerFitScale,
   computeContainerFitTransform,
   isMobileKeyboardTransitionActive,
+  applyPanDelta,
+  clampPanY,
+  maxPanY,
 } from './scaled-viewport';
 
 describe('computeBottomAnchoredTranslateY', () => {
@@ -88,5 +91,34 @@ describe('computeContainerFitScale', () => {
     expect(isMobileKeyboardTransitionActive(viewport)).toBe(true);
 
     host.remove();
+  });
+});
+
+describe('pan clamping', () => {
+  it('allows no pan when the content fits', () => {
+    expect(maxPanY(300, 500)).toBe(0);
+    expect(clampPanY(120, 300, 500)).toBe(0);
+  });
+
+  it('clamps the pan to the cropped part of the content', () => {
+    expect(maxPanY(800, 500)).toBe(300);
+    expect(clampPanY(-50, 800, 500)).toBe(0);
+    expect(clampPanY(120, 800, 500)).toBe(120);
+    expect(clampPanY(900, 800, 500)).toBe(300);
+  });
+
+  it('pans within the limit and returns the unconsumed part of the delta', () => {
+    expect(applyPanDelta(0, 100, 800, 500)).toEqual({ panY: 100, leftoverPx: 0 });
+    expect(applyPanDelta(250, 100, 800, 500)).toEqual({ panY: 300, leftoverPx: 50 });
+    expect(applyPanDelta(300, 40, 800, 500)).toEqual({ panY: 300, leftoverPx: 40 });
+  });
+
+  it('un-pans and returns the rest when dragged back past the bottom', () => {
+    expect(applyPanDelta(100, -40, 800, 500)).toEqual({ panY: 60, leftoverPx: 0 });
+    expect(applyPanDelta(30, -50, 800, 500)).toEqual({ panY: 0, leftoverPx: -20 });
+  });
+
+  it('takes nothing when the content fits', () => {
+    expect(applyPanDelta(0, 40, 300, 500)).toEqual({ panY: 0, leftoverPx: 40 });
   });
 });

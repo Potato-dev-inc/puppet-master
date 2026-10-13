@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PaneStreamManager } from '../terminal';
+import type { PaneDataSubscriber } from '../terminal/types';
 import {
   tauri,
   type PaneInfo,
@@ -25,7 +26,7 @@ export interface PaneRegistryApi {
   writeInput: (paneId: string, text: string, appendNewline?: boolean) => Promise<void>;
   resize: (paneId: string, cols: number, rows: number) => Promise<void>;
   refresh: () => Promise<void>;
-  subscribePaneData: (paneId: string, cb: (data: Uint8Array) => void) => () => void;
+  subscribePaneData: PaneDataSubscriber;
 }
 
 const EMPTY: Map<string, PaneData> = new Map();
@@ -66,6 +67,7 @@ export function usePaneRegistry(): PaneRegistryApi {
     let unsubStatus: (() => void) | undefined;
     let unsubExit: (() => void) | undefined;
     let unsubPanesChanged: (() => void) | undefined;
+    let unsubResized: (() => void) | undefined;
 
     (async () => {
       unsubPanesChanged = await tauri.onPanesChanged(() => {
@@ -75,6 +77,9 @@ export function usePaneRegistry(): PaneRegistryApi {
         streamsRef.current.ingest(e.pane_id, e.data);
       };
       unsubData = await tauri.onTerminalData(ingestData);
+      unsubResized = await tauri.onPtyResized((e) => {
+        streamsRef.current.ingestResize(e.pane_id, e.cols, e.rows);
+      });
       unsubSnapshot = await tauri.onTerminalSnapshot((e: TerminalSnapshotEvent) => {
         // Snapshot events are retained for MCP/debug consumers; xterm rendering
         // consumes raw terminal-data events instead.
@@ -114,6 +119,7 @@ export function usePaneRegistry(): PaneRegistryApi {
 
       if (disposed) {
         unsubData?.();
+        unsubResized?.();
         unsubSnapshot?.();
         unsubStatus?.();
         unsubExit?.();
@@ -124,6 +130,7 @@ export function usePaneRegistry(): PaneRegistryApi {
     return () => {
       disposed = true;
       unsubData?.();
+      unsubResized?.();
       unsubSnapshot?.();
       unsubStatus?.();
       unsubExit?.();
@@ -197,8 +204,8 @@ export function usePaneRegistry(): PaneRegistryApi {
     await tauri.resize(paneId, cols, rows);
   }, []);
 
-  const subscribePaneData = useCallback((paneId: string, cb: (data: Uint8Array) => void) => {
-    return streamsRef.current.subscribe(paneId, cb, tauri.readRawBuffer);
+  const subscribePaneData = useCallback<PaneDataSubscriber>((paneId, cb, onResize) => {
+    return streamsRef.current.subscribe(paneId, cb, tauri.readRawBuffer, onResize);
   }, []);
 
 

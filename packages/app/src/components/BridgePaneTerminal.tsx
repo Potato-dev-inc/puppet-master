@@ -26,6 +26,8 @@ interface Props {
   mobileInputVisible?: boolean;
   /** The grid that fits this view (the phone sizes the pane to it). */
   onFitGrid?: (grid: { cols: number; rows: number }) => void;
+  /** Phone: false keeps the agent's rows while the keyboard is open (see useTerminalSession). */
+  keyboardResizesAgent?: boolean;
 }
 
 export function BridgePaneTerminal({
@@ -39,6 +41,7 @@ export function BridgePaneTerminal({
   mobileInputDelayMs,
   mobileInputVisible,
   onFitGrid,
+  keyboardResizesAgent,
 }: Props) {
   const mobileMirror = !syncPTYResize && isMobileInputDevice();
   const layout = useDebouncedMirrorLayout(pane.cols, pane.rows);
@@ -64,6 +67,7 @@ export function BridgePaneTerminal({
     mobileInputDelayMs,
     mobileInputVisible,
     onFitGrid,
+    keyboardResizesAgent,
   });
 
   const label = title ?? pane.agent_type;

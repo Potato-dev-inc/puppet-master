@@ -17,6 +17,7 @@ export type PublicSettings = Pick<
   | 'opencode_model_id'
   | 'mobile_input_delay_ms'
   | 'mobile_input_visible'
+  | 'mobile_keyboard_resizes_agent'
   | 'developer_use_rust_mcp'
   | 'librarian_indexer_path'
 >;
@@ -30,6 +31,7 @@ export function toPublicSettings(settings: Settings): PublicSettings {
     opencode_model_id: settings.opencode_model_id?.trim() || undefined,
     mobile_input_delay_ms: clampMobileInputDelayMs(settings.mobile_input_delay_ms),
     mobile_input_visible: settings.mobile_input_visible ?? true,
+    mobile_keyboard_resizes_agent: settings.mobile_keyboard_resizes_agent ?? false,
     developer_use_rust_mcp: settings.developer_use_rust_mcp ?? false,
     librarian_indexer_path: settings.librarian_indexer_path?.trim() || undefined,
   };
@@ -43,6 +45,7 @@ export const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
   opencode_model_id: undefined,
   mobile_input_delay_ms: 60,
   mobile_input_visible: true,
+  mobile_keyboard_resizes_agent: false,
   developer_use_rust_mcp: false,
   librarian_indexer_path: undefined,
 };

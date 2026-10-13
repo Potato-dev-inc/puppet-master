@@ -124,6 +124,21 @@ export function MenuSheet({
             className="h-4 w-4 accent-pm-accent"
           />
         </label>
+        <label className="flex items-start justify-between gap-2 text-pm-muted">
+          <span className="flex-1">
+            Keyboard resizes the agent
+            <span className="block text-[11px] text-pm-muted/80">
+              Off: the agent keeps its size; the keyboard covers the top of the screen (swipe to see it). On: the agent redraws above the keyboard (Claude reprints each time).
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={settings.mobile_keyboard_resizes_agent ?? false}
+            disabled={!bridgeReady}
+            onChange={(e) => onPatchSettings({ mobile_keyboard_resizes_agent: e.target.checked })}
+            className="mt-0.5 h-4 w-4 accent-pm-accent"
+          />
+        </label>
         <label className="flex items-center gap-2 text-pm-muted">
           <span className="flex-1">Typing buffer</span>
           <input

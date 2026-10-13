@@ -95,6 +95,37 @@ export function computeBottomAnchoredTranslateY(
   return Math.min(0, containerHeight - contentHeight);
 }
 
+/** How far a bottom-anchored stage can be panned down to reveal its top (0 when it fits). */
+export function maxPanY(contentHeight: number, containerHeight: number): number {
+  if (contentHeight <= 0 || containerHeight <= 0) return 0;
+  return Math.max(0, contentHeight - containerHeight);
+}
+
+/**
+ * Applies a pan delta (px, positive = content moves down to reveal the top) to a pan offset,
+ * clamped to what the content allows. Returns the new offset and the part of the delta that
+ * was not consumed (for the caller to scroll with instead).
+ */
+export function applyPanDelta(
+  panY: number,
+  dyPx: number,
+  contentHeight: number,
+  containerHeight: number,
+): { panY: number; leftoverPx: number } {
+  if (!Number.isFinite(dyPx) || dyPx === 0) {
+    return { panY: clampPanY(panY, contentHeight, containerHeight), leftoverPx: 0 };
+  }
+  const current = clampPanY(panY, contentHeight, containerHeight);
+  const next = clampPanY(current + dyPx, contentHeight, containerHeight);
+  return { panY: next, leftoverPx: dyPx - (next - current) };
+}
+
+/** Pan offset clamped to `[0, maxPanY]` for the given content and container sizes. */
+export function clampPanY(panY: number, contentHeight: number, containerHeight: number): number {
+  if (!Number.isFinite(panY)) return panY > 0 ? maxPanY(contentHeight, containerHeight) : 0;
+  return Math.min(Math.max(0, panY), maxPanY(contentHeight, containerHeight));
+}
+
 function measureTerminalContent(stage: HTMLElement): { width: number; height: number } {
   const term = stage.querySelector('.xterm');
   if (!(term instanceof HTMLElement)) {
@@ -147,6 +178,12 @@ export class TerminalScaleController implements Disposable {
    */
   private readonly noScale: boolean;
 
+  /**
+   * noScale only: how far the cropped stage is panned down to reveal its top rows
+   * (0 = bottom-anchored). Re-clamped on every fit, so it resets once the content fits.
+   */
+  private panY = 0;
+
   constructor(
     viewport: HTMLElement,
     stage: HTMLElement,
@@ -183,15 +220,47 @@ export class TerminalScaleController implements Disposable {
     });
   }
 
+  /**
+   * Pans the cropped stage by `dyPx` (positive = reveal the top). Applies at once and returns the
+   * part of `dyPx` the stage could not take, so the caller can scroll with the rest. Only the
+   * noScale mode pans; otherwise nothing is consumed.
+   */
+  panBy(dyPx: number): number {
+    if (!this.noScale) return dyPx;
+    const { height: contentHeight } = this.measureContent?.() ?? measureTerminalContent(this.stage);
+    const { height: containerHeight } = containerFitDimensions(this.viewport);
+    const { panY, leftoverPx } = applyPanDelta(this.panY, dyPx, contentHeight, containerHeight);
+    this.panY = panY;
+    this.fitNow();
+    return leftoverPx;
+  }
+
+  /** True while the cropped stage is panned away from its bottom-anchored position. */
+  isPanned(): boolean {
+    return this.noScale && this.panY > 0;
+  }
+
+  /** Returns the pan to the bottom-anchored position (the stage's own bottom rows). */
+  resetPan(): void {
+    if (this.panY === 0) return;
+    this.panY = 0;
+    this.fitNow();
+  }
+
   fitNow(): void {
     const { width: contentWidth, height: contentHeight } =
       this.measureContent?.() ?? measureTerminalContent(this.stage);
     const { width: containerWidth, height: containerHeight } = containerFitDimensions(this.viewport);
     const keyboardOpen = this.keyboardPushUp && isMobileKeyboardTransitionActive(this.viewport);
+    if (this.noScale) {
+      // Re-clamp on every fit: the pan resets by itself once the content fits the container.
+      this.panY = clampPanY(this.panY, contentHeight, containerHeight);
+    }
     const { scale, translateY } = this.noScale
       ? {
           scale: 1,
-          translateY: computeBottomAnchoredTranslateY(contentHeight, containerHeight),
+          translateY:
+            computeBottomAnchoredTranslateY(contentHeight, containerHeight) + this.panY,
         }
       : computeContainerFitTransform(
           contentWidth,

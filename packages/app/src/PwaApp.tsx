@@ -301,6 +301,7 @@ export default function PwaApp() {
               mobileInputDelayMs={settings.mobile_input_delay_ms}
               mobileInputVisible={settings.mobile_input_visible}
               onFitGrid={setFitGrid}
+              keyboardResizesAgent={settings.mobile_keyboard_resizes_agent ?? false}
             />
           )}
           {active !== ALL_TAB && !activePane && (

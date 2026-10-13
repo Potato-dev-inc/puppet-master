@@ -13,6 +13,7 @@ import {
 } from './mobile-input-guard';
 import { configureDesktopXtermTextarea, isTerminalPasteShortcut } from './xterm-textarea';
 import { TouchScrollController } from './touch-scroll';
+import { ownerResizeDecision } from './owner-follow';
 import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
@@ -64,6 +65,12 @@ export class TerminalSession {
    * React prop path (`setPtyDimensions`) must not resize ahead of bytes still being parsed.
    */
   private streamSized = false;
+  /** Owner window: the PTY size while a phone holds it (null when it is the size this window asked for). */
+  private followPty: { cols: number; rows: number } | null = null;
+  /** Owner window: a PTY resize has arrived in stream order, so a size seen at mount is stale. */
+  private ownerStreamResizeSeen = false;
+  /** Owner window: the size a phone holds, from the registry; applied once the grid is open. */
+  private heldPty: { cols: number; rows: number } | null = null;
   private readonly syncPTYResize: boolean;
   private readonly mirrorPTY: boolean;
   private readonly renderMode: TerminalRenderMode;
@@ -165,9 +172,53 @@ export class TerminalSession {
   applyStreamResize(cols: number, rows: number): void {
     const terminal = this.term;
     if (!terminal || cols <= 0 || rows <= 0) return;
+    if (this.syncPTYResize) {
+      this.ownerStreamResizeSeen = true;
+      terminal.write(new Uint8Array(0), () => {
+        if (this.term === terminal && !this.disposed) this.applyOwnerFollow(cols, rows);
+      });
+      return;
+    }
     this.streamSized = true;
     terminal.write(new Uint8Array(0), () => {
       if (this.term === terminal && !this.disposed) this.resizeToPty(cols, rows);
+    });
+  }
+
+  /**
+   * Owner window, in stream order: follow the PTY while a phone holds it, and stop following when
+   * the PTY is back at the size this window asked for.
+   */
+  private applyOwnerFollow(cols: number, rows: number): void {
+    const terminal = this.term;
+    if (!terminal) return;
+    const decision = ownerResizeDecision(
+      { cols, rows },
+      { cols: this.lastSentCols, rows: this.lastSentRows },
+      { cols: terminal.cols, rows: terminal.rows },
+    );
+    this.followPty = decision.follow;
+    if (decision.resizeTo) terminal.resize(decision.resizeTo.cols, decision.resizeTo.rows);
+    this.scheduleRefresh();
+  }
+
+  /**
+   * Owner window opened while a phone already holds the pane: no resize event comes for that, so
+   * follow the held size. Ignored once an ordered resize has arrived.
+   */
+  followHeldPty(cols: number, rows: number): void {
+    if (!this.syncPTYResize || cols <= 0 || rows <= 0) return;
+    this.heldPty = { cols, rows };
+    this.applyHeldPty();
+  }
+
+  private applyHeldPty(): void {
+    const terminal = this.term;
+    const held = this.heldPty;
+    if (!terminal || !held || this.ownerStreamResizeSeen) return;
+    terminal.write(new Uint8Array(0), () => {
+      if (this.term !== terminal || this.disposed || this.ownerStreamResizeSeen) return;
+      this.applyOwnerFollow(held.cols, held.rows);
     });
   }
 
@@ -212,6 +263,9 @@ export class TerminalSession {
         return { col, row };
       },
       onScrollStart: () => this.mobileInputGuard?.abandonGesture(),
+      panViewport: (dy) => this.scaleController?.panBy(dy) ?? dy,
+      isPanned: () => this.scaleController?.isPanned() ?? false,
+      resetPan: () => this.scaleController?.resetPan(),
     });
   }
 
@@ -343,6 +397,7 @@ export class TerminalSession {
           if (this.disposed || gen !== this.generation) return;
           this.fitAndNotify();
         });
+        this.applyHeldPty();
       } else {
         this.applyMirrorDimensions();
       }
@@ -679,6 +734,22 @@ export class TerminalSession {
     const fitAddon = this.fitAddon;
     if (!terminal || !fitAddon) return;
 
+    if (this.followPty !== null) {
+      // A phone holds the PTY: the grid stays at the PTY size; the PC learns this window's own size.
+      let dims: { cols: number; rows: number } | undefined;
+      try {
+        dims = fitAddon.proposeDimensions();
+      } catch {
+        return;
+      }
+      if (dims && dims.cols > 0 && dims.rows > 0 && (dims.cols !== this.lastSentCols || dims.rows !== this.lastSentRows)) {
+        this.lastSentCols = dims.cols;
+        this.lastSentRows = dims.rows;
+        this.options.onResize(dims.cols, dims.rows);
+      }
+      return;
+    }
+
     try {
       fitAddon.fit();
     } catch {
@@ -741,7 +812,8 @@ export class TerminalSession {
 
   private refreshAndNudgeAltBuffer(): void {
     const terminal = this.term;
-    if (!terminal) return;
+    // While following a phone-held PTY, the fake resize below would fight the lease.
+    if (!terminal || this.followPty !== null) return;
     this.scheduleRefresh();
 
     if (terminal.buffer.active.type !== 'alternate') return;

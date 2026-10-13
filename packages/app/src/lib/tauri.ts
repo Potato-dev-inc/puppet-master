@@ -17,6 +17,7 @@ import type {
   PaneStatusEvent,
   PaneExitEvent,
   PanesChangedEvent,
+  PtyResizedEvent,
   PaneDetachEvent,
   PaneReattachEvent,
   WorkerLaunchConfig,
@@ -260,6 +261,8 @@ export const tauri = {
     safeListen<PaneExitEvent>('pty://exit', cb),
   onPanesChanged: (cb: (e: PanesChangedEvent) => void): Promise<UnlistenFn> =>
     safeListen<PanesChangedEvent>('pty://panes-changed', cb),
+  onPtyResized: (cb: (e: PtyResizedEvent) => void): Promise<UnlistenFn> =>
+    safeListen<PtyResizedEvent>('pty://resized', cb),
   onPaneDetach: (cb: (e: PaneDetachEvent) => void): Promise<UnlistenFn> =>
     safeListen<PaneDetachEvent>('pane://detach', cb),
   onPaneShowInGrid: (cb: (e: { pane_id: string }) => void): Promise<UnlistenFn> =>

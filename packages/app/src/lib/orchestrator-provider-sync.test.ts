@@ -13,6 +13,7 @@ vi.mock('./settings', () => ({
     orchestrator_backend: 'api',
     mobile_input_delay_ms: 250,
     mobile_input_visible: true,
+    mobile_keyboard_resizes_agent: false,
     dev_server_port: 1420,
   })),
   saveSettings: vi.fn(async () => {}),

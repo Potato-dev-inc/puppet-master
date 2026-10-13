@@ -57,6 +57,16 @@ export interface TouchScrollOptions {
   cellFromPoint: (clientX: number, clientY: number) => { col: number; row: number };
   /** Called once when a drag becomes a scroll (lets the input guard drop its long-press). */
   onScrollStart?: () => void;
+  /**
+   * Pans the cropped (bottom-anchored) screen by a drag, in px (positive = reveal the top). Returns
+   * the part not consumed, which is then scrolled as usual. Called first for every drag, except
+   * when the drag scrolls xterm back down toward its bottom.
+   */
+  panViewport?: (dyPx: number) => number;
+  /** True while the cropped screen is panned (keeps the jump-to-bottom button visible). */
+  isPanned?: () => boolean;
+  /** Returns the cropped screen to its bottom-anchored position. */
+  resetPan?: () => void;
 }
 
 interface Gesture {
@@ -102,6 +112,7 @@ export class TouchScrollController {
     const onBottomClick = (event: MouseEvent): void => {
       event.preventDefault();
       event.stopPropagation();
+      this.options.resetPan?.();
       this.terminal.scrollToBottom();
       this.updateBottomButton();
     };
@@ -214,13 +225,34 @@ export class TouchScrollController {
 
   /** `px` > 0 means the finger moved down: the content moves down, older output comes into view. */
   private applyDelta(px: number): void {
-    const { lines, remainderPx } = linesForDelta(this.remainderPx + px, this.options.cellHeight());
+    const rest = this.takeViewportPan(px);
+    const { lines, remainderPx } = linesForDelta(this.remainderPx + rest, this.options.cellHeight());
     this.remainderPx = remainderPx;
-    if (lines === 0) return;
+    if (lines === 0) {
+      this.updateBottomButton();
+      return;
+    }
     const clamped = Math.max(-MAX_WHEEL_STEPS_PER_FRAME, Math.min(MAX_WHEEL_STEPS_PER_FRAME, lines));
     if (clamped !== lines) this.remainderPx = 0;
     this.scrollRows(clamped);
     this.updateBottomButton();
+  }
+
+  /**
+   * The part of a drag left for scrolling after the cropped screen takes its share. Finger down
+   * (older content): pan first, then scroll. Finger up: scroll xterm back toward its bottom while it
+   * is scrolled up, and only then un-pan. A TUI that captures the mouse has no scrollback to
+   * scroll, so its wheel events always come after the pan.
+   */
+  private takeViewportPan(px: number): number {
+    const pan = this.options.panViewport;
+    if (!pan) return px;
+    const buffer = this.terminal.buffer.active;
+    const mouse = this.terminal.modes.mouseTrackingMode !== 'none';
+    if (px < 0 && !mouse && buffer.type === 'normal' && buffer.viewportY < buffer.baseY) {
+      return px;
+    }
+    return pan(px);
   }
 
   private scrollRows(lines: number): void {
@@ -275,7 +307,9 @@ export class TouchScrollController {
 
   private updateBottomButton(): void {
     const buffer = this.terminal.buffer.active;
-    const show = buffer.type === 'normal' && buffer.viewportY < buffer.baseY;
+    const show =
+      (buffer.type === 'normal' && buffer.viewportY < buffer.baseY) ||
+      (this.options.isPanned?.() ?? false);
     this.bottomButton.classList.toggle(TOUCH_SCROLL_BOTTOM_VISIBLE_CLASS, show);
   }
 }

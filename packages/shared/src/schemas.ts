@@ -81,6 +81,8 @@ export const SettingsSchema = z.object({
   mobile_input_delay_ms: z.number().int().min(0).max(1000).default(250),
   /** Show the mobile terminal command input bar. When false, the tap target remains invisible. */
   mobile_input_visible: z.boolean().default(true),
+  /** Phone: let the keyboard shrink the agent (PTY redraw per open/close). Off keeps the agent at its size. */
+  mobile_keyboard_resizes_agent: z.boolean().default(false),
   project_path: z.string().optional(),
   /** Public HTTPS origin for mobile PWA (reverse proxy target). Used in pairing QR. */
   public_pwa_url: z.string().optional(),

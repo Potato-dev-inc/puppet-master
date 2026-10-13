@@ -65,6 +65,20 @@ pub fn notify_pane_resized(pane_id: &str, cols: u16, rows: u16) {
     }
 }
 
+/// A pane's PTY size was changed by a phone lease (`pty/viewer_size.rs::apply`). Emits the ordered
+/// `pty://resized` event that owner (pop-out) windows follow, so their xterm grid tracks the PTY grid
+/// in stream order. Deliberately separate from `notify_pane_resized`, which the desktop's own
+/// `resize_pane` command also calls: a desktop window must not get echoes of its own resizes.
+pub fn notify_pty_resized_by_lease(pane_id: &str, cols: u16, rows: u16) {
+    if let Some(app) = BRIDGE_APP.get() {
+        use tauri::Emitter;
+        let _ = app.emit(
+            "pty://resized",
+            serde_json::json!({ "pane_id": pane_id, "cols": cols, "rows": rows }),
+        );
+    }
+}
+
 const HOST: &str = "127.0.0.1";
 const PORT_MIN: u16 = 17321;
 const PORT_MAX: u16 = 17399;

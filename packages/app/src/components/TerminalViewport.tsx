@@ -61,6 +61,7 @@ export function TerminalViewport({
     syncPTYResize: true,
     disableMobileInput,
     reflowKey,
+    heldPtySize: pane.info.viewer_held ? { cols: pane.info.cols, rows: pane.info.rows } : null,
   });
 
   return (

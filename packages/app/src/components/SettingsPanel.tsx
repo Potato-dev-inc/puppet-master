@@ -50,6 +50,7 @@ export function SettingsPanel({
     orchestrator_backend: 'api',
     mobile_input_delay_ms: 60,
     mobile_input_visible: true,
+    mobile_keyboard_resizes_agent: false,
     dev_server_port: DEFAULT_DEV_SERVER_PORT,
     sidebar_width: 360,
     theme: 'dark',

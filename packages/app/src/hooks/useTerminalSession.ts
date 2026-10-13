@@ -3,6 +3,7 @@ import { tauri } from '../lib/tauri';
 import { TerminalSession } from '../terminal';
 import type { TerminalRenderMode } from '../terminal';
 import type { PaneDataSubscriber } from '../terminal/types';
+import { isKeyboardLikelyOpen } from '../lib/layout-viewport';
 
 export interface TerminalTransport {
   resize: (cols: number, rows: number) => void | Promise<void>;
@@ -24,11 +25,19 @@ interface UseTerminalSessionOptions {
   disableMobileInput?: boolean;
   /** Bump to force a tiny resize/repaint (e.g. when re-entering the grid). */
   reflowKey?: number | string;
+  /** Owner window: the PTY size a phone holds right now (null when no phone holds the pane). */
+  heldPtySize?: { cols: number; rows: number } | null;
   /**
    * Called with the grid that fits the terminal's on-screen area, on mount and when that area
    * changes size (debounced, duplicates dropped). Used by the phone to size the pane to itself.
    */
   onFitGrid?: (grid: { cols: number; rows: number }) => void;
+  /**
+   * With `onFitGrid`: false keeps the reported rows while the on-screen keyboard is open (the PTY
+   * keeps its height; the terminal is cropped instead of redrawn). Columns still follow.
+   * True reports the measured grid as is. Only the phone sizes the pane with this.
+   */
+  keyboardResizesAgent?: boolean;
 }
 
 /** Before the first successful measurement (xterm still settling after mount). */
@@ -36,6 +45,12 @@ const FIT_GRID_DEBOUNCE_MS = 250;
 /** After the first measurement: the grid is already local, so report changes quickly. */
 const FIT_GRID_RESIZE_DEBOUNCE_MS = 50;
 const FIT_GRID_FIRST_TRIES = 20;
+/**
+ * Rows lost (since the last closed-keyboard measurement) that count as an open keyboard. Covers
+ * Android `interactive-widget=resizes-content`, where neither innerHeight nor the visual viewport
+ * shows the keyboard (about 100 px at phone cell sizes).
+ */
+const KEYBOARD_ROWS_MIN = 5;
 
 /**
  * React lifecycle wrapper around {@link TerminalSession}.
@@ -53,7 +68,9 @@ export function useTerminalSession({
   mobileInputVisible,
   disableMobileInput,
   reflowKey,
+  heldPtySize,
   onFitGrid,
+  keyboardResizesAgent = true,
 }: UseTerminalSessionOptions): {
   containerRef: RefObject<HTMLDivElement>;
   nudgeReflow: () => void;
@@ -105,6 +122,14 @@ export function useTerminalSession({
     };
   }, [paneId, sessionKey, subscribePaneData, transport, syncPTYResize, renderMode, mobileInputDelayMs, mobileInputVisible, disableMobileInput, sizesPane]);
 
+  // A window opened while a phone already holds the pane gets no resize event: follow the held size.
+  const heldCols = heldPtySize?.cols;
+  const heldRows = heldPtySize?.rows;
+  useEffect(() => {
+    if (heldCols === undefined || heldRows === undefined) return;
+    sessionRef.current?.followHeldPty(heldCols, heldRows);
+  }, [heldCols, heldRows, paneId, sessionKey]);
+
   useEffect(() => {
     if (syncPTYResize) return;
     if (ptyCols === undefined || ptyRows === undefined) return;
@@ -142,11 +167,29 @@ export function useTerminalSession({
     let timer = 0;
     let tries = 0;
     let measuredOnce = false;
+    // Rows of the last measurement taken with the keyboard closed, for the current columns.
+    let closedCols = 0;
+    let closedRows: number | null = null;
     const report = (): boolean => {
-      const grid = sessionRef.current?.measureFitGrid();
-      if (!grid) return false;
+      const measured = sessionRef.current?.measureFitGrid();
+      if (!measured) return false;
       measuredOnce = true;
       tries = 0;
+      let grid = measured;
+      if (!keyboardResizesAgent) {
+        if (closedCols !== measured.cols) {
+          closedCols = measured.cols;
+          closedRows = null;
+        }
+        const keyboardOpen =
+          isKeyboardLikelyOpen() ||
+          (closedRows !== null && measured.rows <= closedRows - KEYBOARD_ROWS_MIN);
+        if (keyboardOpen) {
+          grid = { cols: measured.cols, rows: closedRows ?? measured.rows };
+        } else {
+          closedRows = measured.rows;
+        }
+      }
       const key = `${grid.cols}x${grid.rows}`;
       if (key !== last) {
         last = key;
@@ -168,7 +211,7 @@ export function useTerminalSession({
       observer.disconnect();
       window.clearTimeout(timer);
     };
-  }, [wantsFitGrid, paneId, sessionKey]);
+  }, [wantsFitGrid, keyboardResizesAgent, paneId, sessionKey]);
 
   return { containerRef: containerRef as RefObject<HTMLDivElement>, nudgeReflow };
 }
