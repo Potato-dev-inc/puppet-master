@@ -49,8 +49,12 @@ pub fn observe_input(pane_id: &str, agent_type: &str, screen_line: &str, text: &
     }
 }
 
-/// Set the title from a task text directly (run_agent). Does nothing if a title exists.
-pub fn set_from_task(pane_id: &str, task: &str) -> bool {
+/// Set the title from the task a run_agent pane was started with. Does nothing if a title exists,
+/// the pane runs a plain shell, or the task yields no title.
+pub fn set_from_task(pane_id: &str, agent_type: &str, task: &str) -> bool {
+    if !crate::tui::is_agent_backend(agent_type) {
+        return false;
+    }
     let Some(title) = derive_title(task) else { return false };
     let mut store = STORE.lock();
     let entry = store.entry(pane_id.to_string()).or_default();
@@ -159,9 +163,23 @@ mod tests {
     #[test]
     fn task_text_sets_the_title_only_when_none_exists() {
         let id = "store-test-3";
-        assert!(set_from_task(id, "Please add dark mode to settings."));
+        assert!(set_from_task(id, AGENT, "Please add dark mode to settings."));
         assert_eq!(get(id).as_deref(), Some("add dark mode to settings"));
-        assert!(!set_from_task(id, "another task"));
+        assert!(!set_from_task(id, AGENT, "another task"));
+    }
+
+    #[test]
+    fn run_agent_task_titles_an_agent_pane_but_never_a_shell() {
+        let shell = "store-test-task-shell";
+        assert!(!set_from_task(shell, SHELL, "fix the login bug"));
+        assert_eq!(get(shell), None);
+        let agent = "store-test-task-agent";
+        assert!(set_from_task(agent, AGENT, "Please fix the login bug."));
+        assert_eq!(get(agent).as_deref(), Some("fix the login bug"));
+        // A task that yields no title leaves the pane untitled.
+        let quiet = "store-test-task-quiet";
+        assert!(!set_from_task(quiet, AGENT, "ok"));
+        assert_eq!(get(quiet), None);
     }
 
     #[test]
