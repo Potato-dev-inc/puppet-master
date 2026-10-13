@@ -15,6 +15,8 @@ mod errors;
 mod event_log;
 mod handoff;
 mod http;
+#[cfg(test)]
+pub(crate) use http::spawn_gate_listener;
 mod locks;
 mod observe;
 mod pane_util;
