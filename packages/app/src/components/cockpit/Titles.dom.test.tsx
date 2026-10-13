@@ -55,6 +55,7 @@ function fakeApi(panes: { info: PaneInfo; status: string }[], names: Record<stri
   return {
     registry: { paneList: panes, panes: panesMap, initialReady: true },
     names: new Map(Object.entries(names)),
+    asked: { questions: [] },
     launchEntries: [],
     readyAgents: new Set<string>(),
     mode: 'orchestration',
