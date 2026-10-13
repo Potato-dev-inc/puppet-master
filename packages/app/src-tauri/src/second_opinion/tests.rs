@@ -183,6 +183,14 @@ fn the_prompt_works_with_nothing_but_a_diff_and_says_when_it_was_cut() {
 }
 
 #[test]
+fn a_worktree_diff_tells_the_reviewer_the_files_on_disk_may_not_show_it() {
+    let mut diff = diff_of(PATCH, false);
+    assert!(!build_prompt(&PromptInput::default(), &diff).contains("separate branch"));
+    diff.source = SourceKind::Worktree;
+    assert!(build_prompt(&PromptInput::default(), &diff).contains("separate branch"));
+}
+
+#[test]
 fn the_diff_fence_cannot_be_closed_by_the_diff_itself() {
     let patch = "diff --git a/R.md b/R.md\n@@ -0,0 +1,3 @@\n+```sh\n+ls\n+```\n";
     let text = build_prompt(&PromptInput::default(), &diff_of(patch, false));

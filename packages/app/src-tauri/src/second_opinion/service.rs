@@ -199,10 +199,12 @@ pub fn start(pane_id: &str, reviewer: &str, registry: Registry, app: tauri::AppH
         },
         &diff,
     );
-    let request = build_run_request(reviewer, &cwd, &prompt, &|id| crate::tui::profile_for(id).is_installed())?;
+    // The run is keyed on the origin project, like an isolated run's own operation (never on the
+    // worktree folder, which a merge or discard deletes).
+    let request = build_run_request(reviewer, &origin, &prompt, &|id| crate::tui::profile_for(id).is_installed())?;
     let backend = request.agent_type.clone();
     let view = crate::agent_runs::run_agent(request, registry, app, None)?;
-    Ok(info_of(pane_id, view, &backend, &cwd, diff, author_label))
+    Ok(info_of(pane_id, view, &backend, &origin, diff, author_label))
 }
 
 fn info_of(pane_id: &str, view: AgentRunView, backend: &str, cwd: &str, diff: ReviewDiff, author_label: String) -> StartInfo {

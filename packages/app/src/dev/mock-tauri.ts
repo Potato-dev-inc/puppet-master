@@ -22,6 +22,9 @@ import {
   TOOLBELT_LISTING,
   TOOLBELT_PREVIEW,
   standbyStatus,
+  EXAMPLE_REVIEWERS,
+  EXAMPLE_REVIEW_START,
+  EXAMPLE_REVIEW_POLL,
 } from './fixtures';
 
 const DOCTOR_ROWS = [
@@ -59,6 +62,16 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return a.paneId === PANE_CLAUDE ? EXAMPLE_RUN : null;
         case 'pane_worktree':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_WORKTREE : null;
+        case 'second_opinion_agents':
+          return EXAMPLE_REVIEWERS;
+        case 'second_opinion_start':
+          return EXAMPLE_REVIEW_START;
+        case 'second_opinion_poll':
+          return EXAMPLE_REVIEW_POLL;
+        case 'second_opinion_cancel':
+          return null;
+        case 'second_opinion_send':
+          return { route: 'run', target: 'refactor-auth' };
         case 'worktree_diff':
           return EXAMPLE_WORKTREE_DIFF;
         case 'pane_transcript':
