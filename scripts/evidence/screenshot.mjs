@@ -184,7 +184,7 @@ const shoot = async (name, png) => {
         '--hide-scrollbars',
         '--force-dark-mode',
         '--window-size=1440,900',
-        '--virtual-time-budget=5000',
+        '--virtual-time-budget=15000',
         `--user-data-dir=${profile}`,
         `--screenshot=${png}`,
         `${base}/?harness=${encodeURIComponent(name)}`,
