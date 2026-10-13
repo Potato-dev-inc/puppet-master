@@ -589,8 +589,20 @@ mod definitions {
         // the app session (no MCP header) is let through the gate
         assert!(mcp_sessions::authorize(None, "POST", "/agents/definitions/approve", &body).is_ok());
         assert!(mcp_sessions::authorize(None, "GET", "/agents/definitions", &json!({})).is_ok());
-        // other agent APIs still demand a session
-        assert!(mcp_sessions::authorize(None, "GET", "/agents/types", &json!({})).is_err());
+        // Policy: the only non-definition agent route open without a session is the read-only
+        // `GET /agents/types` listing (the phone's "new agent" sheet, b6282a1). It stays GET-only,
+        // and every other agent API still demands an MCP session.
+        assert!(mcp_sessions::authorize(None, "GET", "/agents/types", &json!({})).is_ok());
+        for (method, path) in [
+            ("POST", "/agents/types"),
+            ("GET", "/agents"),
+            ("GET", "/agents/types/extra"),
+            ("POST", "/agents/take-over"),
+            ("POST", "/agents/release"),
+        ] {
+            let err = mcp_sessions::authorize(None, method, path, &json!({})).unwrap_err();
+            assert_eq!(err.code, "SESSION_REQUIRED", "{method} {path}");
+        }
         // unknown paths under it are not routes
         assert!(respond("POST", &["agents", "definitions", "nope"], &body, None, true).is_none());
     }
