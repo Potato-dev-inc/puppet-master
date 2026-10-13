@@ -30,6 +30,13 @@ pub trait TuiProfile: Send + Sync {
         RunOptionSupport::default()
     }
 
+    /// How this agent is pointed at a different account (a config/login directory chosen by an
+    /// env var). `None` (the default) means the agent has no verified way, so accounts are not
+    /// offered for it. Override only with an env var the agent's own docs describe.
+    fn account_scheme(&self) -> Option<AccountScheme> {
+        None
+    }
+
     /// Whether the CLI this profile launches can be found on this machine. Defaults to true for
     /// backends with nothing to look up; CLI profiles override it with a PATH lookup.
     fn is_installed(&self) -> bool {

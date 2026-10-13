@@ -67,6 +67,7 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
     check_agent(def, ctx, &mut e);
     check_binary(def, &mut e);
     check_env(def, &mut e);
+    check_accounts(def, &mut e);
     check_headless(def, &mut e, &mut regexes);
     check_tui(def, &mut e, &mut regexes);
     check_model_and_context(def, &mut e, &mut regexes);
@@ -182,6 +183,28 @@ fn check_env(def: &Definition, e: &mut Errors) {
     }
     for (i, key) in def.env.unset.iter().enumerate() {
         check_env_key(key, &format!("env.unset.{i}"), e);
+    }
+}
+
+fn check_accounts(def: &Definition, e: &mut Errors) {
+    let Some(accounts) = &def.accounts else { return };
+    let valid_name = |key: &str| !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !valid_name(&accounts.home_env) {
+        e.add("AGENT_DEF_INCONSISTENT", "accounts.home_env", "home_env must be an environment variable name (letters, digits, underscore)");
+    }
+    check_env_key(&accounts.home_env, "accounts.home_env", e);
+    for (key, value) in &accounts.extra_env {
+        let path = format!("accounts.extra_env.{key}");
+        check_env_key(key, &path, e);
+        if value.len() > 1024 {
+            e.add("AGENT_DEF_TOO_LARGE", &path, "env values are limited to 1 KiB");
+        }
+        if !placeholders(value).is_empty() {
+            e.add("AGENT_DEF_BAD_PLACEHOLDER", &path, "env values take no placeholders");
+        }
+    }
+    if accounts.login_hint.len() > 300 {
+        e.add("AGENT_DEF_TOO_LARGE", "accounts.login_hint", "login_hint is limited to 300 characters");
     }
 }
 

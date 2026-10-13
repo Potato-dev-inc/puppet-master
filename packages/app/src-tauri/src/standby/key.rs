@@ -15,6 +15,10 @@ pub struct PoolKey {
     pub read_only: bool,
     pub allow_shell: bool,
     pub headless: bool,
+    /// Account id the standby was started under (`crate::accounts`): a warm worker is logged in
+    /// as that account, so a run may only claim one for the same account.
+    #[serde(default)]
+    pub account: Option<String>,
 }
 
 impl PoolKey {
@@ -36,14 +40,22 @@ impl PoolKey {
             read_only,
             allow_shell,
             headless,
+            account: None,
         }
+    }
+
+    /// The same key for a run under `account` (blank = the CLI's own login).
+    pub fn with_account(mut self, account: Option<&str>) -> Self {
+        self.account = account.map(str::trim).filter(|a| !a.is_empty()).map(str::to_string);
+        self
     }
 
     /// Short label for logs and the status view.
     pub fn label(&self) -> String {
         format!(
-            "{}{} {}",
+            "{}{}{} {}",
             self.agent_type,
+            self.account.as_deref().map(|a| format!(" [{a}]")).unwrap_or_default(),
             if self.headless { " (headless)" } else { "" },
             self.project
         )
@@ -92,6 +104,13 @@ mod tests {
         assert_ne!(base, PoolKey::new("claude", "/p", None, false, true, true));
         assert_ne!(base, PoolKey::new("claude", "/p", None, false, false, false));
         assert_ne!(base, PoolKey::new("claude", "/q", None, false, false, true));
+        assert_ne!(base, base.clone().with_account(Some("acc_1")), "an account is part of the key");
+        assert_ne!(
+            base.clone().with_account(Some("acc_1")),
+            base.clone().with_account(Some("acc_2")),
+            "two accounts never share a warm worker"
+        );
+        assert_eq!(base, base.clone().with_account(Some("  ")), "a blank account is no account");
         assert_eq!(
             base,
             PoolKey::new("claude", "/p", Some("  "), false, false, true),

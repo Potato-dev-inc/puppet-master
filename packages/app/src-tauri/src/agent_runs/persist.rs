@@ -59,15 +59,26 @@ pub struct ModelChoice {
     pub mismatch: bool,
 }
 
+/// The key a worker is found by: an explicit run handle wins, otherwise the worker name. A name is
+/// folded with the account (`name@acc_1234`) so asking for the same name under another account
+/// starts a separate worker instead of adopting one that is logged in as someone else.
 pub fn worker_key(
     agent_run_id: Option<&str>,
     handle: Option<&str>,
     name: Option<&str>,
+    account: Option<&str>,
 ) -> Option<String> {
-    [agent_run_id, handle, name]
-        .into_iter()
-        .find_map(|value| value.map(str::trim).filter(|value| !value.is_empty()))
-        .map(str::to_string)
+    fn clean(value: Option<&str>) -> Option<&str> {
+        value.map(str::trim).filter(|value| !value.is_empty())
+    }
+    if let Some(explicit) = clean(agent_run_id).or(clean(handle)) {
+        return Some(explicit.to_string());
+    }
+    let name = clean(name)?;
+    Some(match clean(account) {
+        Some(account) => format!("{name}@{account}"),
+        None => name.to_string(),
+    })
 }
 
 /// A handle derived from the project and the caller's idempotency key. A retry of the same

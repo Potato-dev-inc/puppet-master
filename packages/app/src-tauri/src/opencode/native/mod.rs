@@ -201,6 +201,8 @@ pub fn spawn_native_pane(
         rows,
         viewer_held: false,
         reprints_on_resize: false,
+        account: None,
+        account_label: None,
     };
 
     let opencode = OpenCodeLink::new(
@@ -293,6 +295,7 @@ pub fn restart_native_pane(
             extra_args: None,
             pane_id: Some(pane_id.to_string()),
             read_only: crate::tui::opencode::read_only::is_enforced(pane_id),
+            account: None,
         }
     };
     crate::opencode::keys::apply_active_auth()?;

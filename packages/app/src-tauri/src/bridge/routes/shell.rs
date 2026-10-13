@@ -55,6 +55,7 @@ fn exec(cx: &Ctx) -> RouteResult {
                 extra_args: None,
                 pane_id: None,
                 read_only: false,
+                account: None,
             },
         )
         .map_err(|error| {

@@ -365,6 +365,9 @@ pub struct WorkerPersist {
     /// Caller opted in to `cursor-agent --force` (shell commands run unreviewed) for this run.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub allow_shell: bool,
+    /// The user account (`crate::accounts`) this worker runs under; absent = the CLI's own login.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     /// A warm standby worker (`crate::standby`) ran this turn instead of a freshly spawned one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub standby_used: bool,

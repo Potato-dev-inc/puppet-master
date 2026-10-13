@@ -13,7 +13,7 @@ use once_cell::sync::Lazy;
 use crate::agent_contexts::{AgentCapability, AgentContextProfile, ModelDetection};
 use crate::standby::key::canonical_project;
 use crate::tui::types::{
-    DefinitionRef, Features, GateError, HeadlessLaunch, Kind, LaunchSpec, RunOptionSupport,
+    AccountScheme, DefinitionRef, Features, GateError, HeadlessLaunch, Kind, LaunchSpec, RunOptionSupport,
     SpawnRequest, StandbySupport,
 };
 use crate::pty::status::PaneStatus;
@@ -230,6 +230,8 @@ impl DeclarativeProfile {
             args: template::render(headless, launch),
             cwd,
             read_only_enforced: launch.read_only && self.def.features.read_only_headless,
+            env: self.def_env(),
+            env_remove: self.def.env.unset.clone(),
         })
     }
 
@@ -242,7 +244,14 @@ impl DeclarativeProfile {
             args,
             cwd: PathBuf::from(request.cwd),
             read_only_enforced: request.read_only && self.def.features.read_only_spawned_pane,
+            env: self.def_env(),
+            env_remove: self.def.env.unset.clone(),
         }
+    }
+
+    /// The definition's `[env] set` table, in key order, for `LaunchSpec::env`.
+    fn def_env(&self) -> Vec<(String, String)> {
+        self.def.env.set.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 
     fn resolve_program(&self, project: &str) -> Result<PathBuf, String> {
@@ -306,6 +315,15 @@ impl TuiProfile for DeclarativeProfile {
         } else {
             self.not_dispatchable_reason
         }
+    }
+
+    fn account_scheme(&self) -> Option<AccountScheme> {
+        let a = self.def.accounts.as_ref()?;
+        Some(AccountScheme {
+            home_env: a.home_env.clone(),
+            extra_env: a.extra_env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            login_hint: a.login_hint.clone(),
+        })
     }
 
     fn run_options(&self) -> RunOptionSupport {

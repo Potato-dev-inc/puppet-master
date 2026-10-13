@@ -75,13 +75,14 @@ pub(super) fn process_alive(_pid: u32) -> bool {
 pub(super) fn launch_command(
     profile: &dyn crate::tui::TuiProfile,
     request: &crate::tui::SpawnRequest,
+    env: &crate::tui::LaunchEnv,
 ) -> Result<CommandBuilder, String> {
     if let Some(spec) = profile.spawn_command(request) {
-        return Ok(build_launch_spec_command(&spec));
+        return Ok(build_launch_spec_command(&spec, env));
     }
     let agent = AgentType::parse(profile.id())
         .ok_or_else(|| format!("agent_type {} has no launch command", profile.id()))?;
-    Ok(build_command(agent, request.cwd, request.extra_args))
+    Ok(build_command(agent, request.cwd, request.extra_args, env))
 }
 
 /// A child process running on a fresh PTY.
@@ -158,6 +159,15 @@ pub fn spawn_pane(
         });
     }
 
+    // The account (if any) is resolved before anything spawns: an unknown or foreign account fails
+    // the spawn instead of silently running under the CLI's own login.
+    let (account_env, account_label) = match args.account.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
+        Some(id) => {
+            let (env, label) = crate::accounts::launch_for(&args.agent_type, id)?;
+            (env, Some(label))
+        }
+        None => (crate::tui::LaunchEnv::default(), None),
+    };
     let cmd = launch_command(
         profile.as_ref(),
         &crate::tui::SpawnRequest {
@@ -167,6 +177,7 @@ pub fn spawn_pane(
             rows,
             read_only: args.read_only,
         },
+        &account_env,
     )?;
     let PtyChild { master, child, pid } = open_pty_child(cmd, rows, cols)?;
 
@@ -202,6 +213,8 @@ pub fn spawn_pane(
         rows,
         viewer_held: false,
         reprints_on_resize: false,
+        account: args.account.as_deref().map(str::trim).filter(|a| !a.is_empty()).map(str::to_string),
+        account_label,
     };
 
     let pane = PaneState {

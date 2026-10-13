@@ -40,7 +40,7 @@ pub fn canonical_value(def: &Definition, source: Source, project: Option<&str>, 
             "read_only_argv": t.read_only_argv,
         })
     });
-    json!({
+    let mut value = json!({
         "v": 1,
         "source": source_name(source),
         "project": project.map(canonical_project),
@@ -62,7 +62,12 @@ pub fn canonical_value(def: &Definition, source: Source, project: Option<&str>, 
             "key_path": m.key_path,
             "entry": serde_json::to_value(&m.entry).unwrap_or(Value::Null),
         })),
-    })
+    });
+    // Present only when declared, so definitions without `[accounts]` keep their fingerprint.
+    if let Some(a) = &def.accounts {
+        value["accounts"] = json!({ "home_env": a.home_env, "extra_env": a.extra_env, "login_hint": a.login_hint });
+    }
+    value
 }
 
 /// `sha256:<hex>` of `canonical_value`.

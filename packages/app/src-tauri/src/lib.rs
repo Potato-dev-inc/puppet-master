@@ -1,5 +1,6 @@
 #![recursion_limit = "512"]
 
+mod accounts;
 mod actors;
 mod agent_definitions_recorder;
 mod agent_adapters;

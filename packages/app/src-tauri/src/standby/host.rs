@@ -69,6 +69,7 @@ impl LiveHost {
                 extra_args: None,
                 pane_id: Some(pane_id.clone()),
                 read_only: key.read_only,
+                account: key.account.clone(),
             },
         ) {
             Ok(id) => {
@@ -108,18 +109,11 @@ impl LiveHost {
         if key.read_only && !spec.read_only_enforced {
             return Err("adapter did not enforce read-only mode".into());
         }
-        let mut command = Command::new(&spec.program);
-        command
-            .args(&spec.args)
-            .current_dir(&spec.cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            command.process_group(0);
-        }
+        let account_env = match key.account.as_deref() {
+            Some(id) => crate::accounts::launch_env(&key.agent_type, id)?,
+            None => crate::tui::LaunchEnv::default(),
+        };
+        let mut command = standby_command(&spec, &account_env);
         let child = command
             .spawn()
             .map_err(|error| format!("spawn failed ({}): {error}", spec.program))?;
@@ -234,5 +228,54 @@ impl Host for LiveHost {
                 }
             }
         }
+    }
+}
+
+/// The waiting child for a headless standby: stdin stays open for the task, and the environment is
+/// the spec's `[env]` plus the account's, exactly as a headless run would get it.
+pub(crate) fn standby_command(spec: &crate::tui::LaunchSpec, account_env: &crate::tui::LaunchEnv) -> Command {
+    let mut command = Command::new(&spec.program);
+    command
+        .args(&spec.args)
+        .current_dir(&spec.cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    spec.apply_to_command(&mut command);
+    for (key, value) in &account_env.set {
+        command.env(key, value);
+    }
+    for key in &account_env.remove {
+        command.env_remove(key);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command
+}
+
+#[cfg(test)]
+mod env_tests {
+    use super::*;
+    use crate::tui::{LaunchEnv, LaunchSpec};
+    use std::io::Read;
+
+    #[test]
+    fn headless_standby_process_gets_spec_and_account_env() {
+        let (program, args) = if cfg!(windows) {
+            ("cmd.exe", vec!["/C".to_string(), "echo S=%PM_SB_S% A=%PM_SB_A%".to_string()])
+        } else {
+            ("sh", vec!["-c".to_string(), "echo S=$PM_SB_S A=$PM_SB_A".to_string()])
+        };
+        let mut spec = LaunchSpec::new(program, args, std::env::temp_dir(), false);
+        spec.env = vec![("PM_SB_S".into(), "spec-env".into())];
+        let account = LaunchEnv { set: vec![("PM_SB_A".into(), "acct-env".into())], remove: vec![] };
+        let mut child = standby_command(&spec, &account).spawn().expect("spawn");
+        let mut out = String::new();
+        child.stdout.take().unwrap().read_to_string(&mut out).unwrap();
+        let _ = child.wait();
+        assert!(out.contains("S=spec-env") && out.contains("A=acct-env"), "{out}");
     }
 }

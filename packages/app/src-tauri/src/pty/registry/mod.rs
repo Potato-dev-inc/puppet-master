@@ -66,6 +66,12 @@ pub struct PaneInfo {
     /// viewers wipe their scrollback at each resize in the byte stream. Derived from the profile.
     #[serde(default)]
     pub reprints_on_resize: bool,
+    /// The account (id, `crate::accounts`) this pane's agent runs under; `None` = the CLI's own login.
+    #[serde(default)]
+    pub account: Option<String>,
+    /// That account's label, for the pane header.
+    #[serde(default)]
+    pub account_label: Option<String>,
 }
 
 /// Internal handle — owns the PTY master and the reader thread handle.
@@ -271,6 +277,8 @@ impl PaneRegistry {
             rows: 3,
             viewer_held: false,
             reprints_on_resize: false,
+            account: None,
+            account_label: None,
         };
         PaneState {
             info,

@@ -42,7 +42,7 @@ fn spawn_command_for(agent_type: &str, cwd: &str, extra_args: &[String]) -> Comm
         rows: 30,
         read_only: false,
     };
-    launch_command(profile.as_ref(), &request).expect("launch command")
+    launch_command(profile.as_ref(), &request, &crate::tui::LaunchEnv::default()).expect("launch command")
 }
 
 fn argv_of(cmd: &CommandBuilder) -> Vec<String> {
@@ -159,6 +159,8 @@ impl crate::tui::TuiProfile for EchoProfile {
             args,
             cwd: request.cwd.into(),
             read_only_enforced: false,
+            env: Vec::new(),
+            env_remove: Vec::new(),
         })
     }
 }
@@ -187,7 +189,7 @@ fn test_profile_spawns_without_agent_type() {
     registry::registry().swap(with_probe);
     let resolved = crate::tui::require_registered(id)
         .map_err(|unknown| unknown.id)
-        .and_then(|profile| launch_command(profile.as_ref(), &request));
+        .and_then(|profile| launch_command(profile.as_ref(), &request, &crate::tui::LaunchEnv::default()));
     registry::registry().swap(before.iter().cloned().collect());
 
     let cmd = resolved.expect("registered test profile resolves a launch command");
@@ -235,4 +237,124 @@ fn pane_env_enables_color_and_drops_no_color() {
     }
     assert_eq!(cmd.get_env("TERM").and_then(|v| v.to_str()), Some("xterm-256color"));
     assert_eq!(cmd.get_env("COLORTERM").and_then(|v| v.to_str()), Some("truecolor"));
+}
+
+// ---- env channel: LaunchSpec.env / env_remove and the account env reach every launch path ----
+
+fn env_pairs(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+}
+
+fn env_str(cmd: &CommandBuilder, key: &str) -> Option<String> {
+    cmd.get_env(key).and_then(|v| v.to_str()).map(str::to_string)
+}
+
+/// Run `cmd` on a PTY and return everything it printed until `PM_DONE` (or 10 seconds).
+fn run_in_pty(cmd: CommandBuilder) -> String {
+    let mut child = open_pty_child(cmd, 24, 120).expect("spawn");
+    let mut reader = child.master.try_clone_reader().expect("reader");
+    let (tx, rx) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let mut seen = Vec::new();
+        let mut buf = [0u8; 1024];
+        while let Ok(n) = reader.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            seen.extend_from_slice(&buf[..n]);
+            if String::from_utf8_lossy(&seen).contains("PM_DONE") {
+                break;
+            }
+        }
+        let _ = tx.send(String::from_utf8_lossy(&seen).into_owned());
+    });
+    let out = rx.recv_timeout(Duration::from_secs(10)).unwrap_or_default();
+    let _ = child.child.kill();
+    let _ = child.child.wait();
+    out
+}
+
+/// A shell one-liner that prints `VAL=<$name>` then `PM_DONE`.
+fn print_env_command(name: &str) -> (String, Vec<String>) {
+    if cfg!(windows) {
+        ("cmd.exe".into(), vec!["/C".into(), format!("echo VAL=%{name}%&& echo PM_DONE")])
+    } else {
+        ("sh".into(), vec!["-c".into(), format!("echo VAL=${name}; echo PM_DONE")])
+    }
+}
+
+#[test]
+fn launch_spec_env_reaches_the_pty_child() {
+    let (program, args) = print_env_command("PM_ENV_T");
+    let mut spec = crate::tui::LaunchSpec::new(program, args, std::env::temp_dir(), false);
+    spec.env = env_pairs(&[("PM_ENV_T", "spec-env-7731")]);
+    let cmd = build_launch_spec_command(&spec, &crate::tui::LaunchEnv::default());
+    assert_eq!(env_str(&cmd, "PM_ENV_T").as_deref(), Some("spec-env-7731"));
+    assert!(run_in_pty(cmd).contains("VAL=spec-env-7731"), "child saw the spec env");
+}
+
+#[test]
+fn launch_spec_env_remove_and_account_env_override() {
+    std::env::set_var("PM_DROP_T", "leaked-value");
+    let (program, args) = print_env_command("PM_DROP_T");
+    let mut spec = crate::tui::LaunchSpec::new(program, args, std::env::temp_dir(), false);
+    spec.env_remove = vec!["PM_DROP_T".to_string()];
+    let out = run_in_pty(build_launch_spec_command(&spec, &crate::tui::LaunchEnv::default()));
+    assert!(out.contains("PM_DONE") && !out.contains("leaked-value"), "unset variable must not reach the child: {out}");
+
+    // account env wins over the spec's own env
+    let mut spec = crate::tui::LaunchSpec::new("x", vec![], std::env::temp_dir(), false);
+    spec.env = env_pairs(&[("HOME_VAR", "from-spec")]);
+    let account = crate::tui::LaunchEnv { set: env_pairs(&[("HOME_VAR", "from-account")]), remove: vec![] };
+    let cmd = build_launch_spec_command(&spec, &account);
+    assert_eq!(env_str(&cmd, "HOME_VAR").as_deref(), Some("from-account"));
+    assert_eq!(env_str(&cmd, "TERM").as_deref(), Some("xterm-256color"), "common PTY env is kept");
+}
+
+/// The legacy `AgentType` builders (the ones with no `spawn_command`) take the env too, on the
+/// Windows PowerShell-hosted path as well as the direct one.
+#[test]
+fn legacy_agent_type_builders_apply_env() {
+    let env = crate::tui::LaunchEnv {
+        set: env_pairs(&[("CLAUDE_CONFIG_DIR", "C:/accounts/work")]),
+        remove: vec!["PM_DROP_T".into()],
+    };
+    for agent in [AgentType::Claude, AgentType::Codex, AgentType::Opencode, AgentType::CursorAgent] {
+        let cmd = build_command(agent, &std::env::temp_dir().to_string_lossy(), &[], &env);
+        assert_eq!(env_str(&cmd, "CLAUDE_CONFIG_DIR").as_deref(), Some("C:/accounts/work"), "{agent:?}");
+        assert!(cmd.get_env("PM_DROP_T").is_none(), "{agent:?}");
+        assert_eq!(env_str(&cmd, "TERM").as_deref(), Some("xterm-256color"), "{agent:?}");
+        #[cfg(windows)]
+        if windows_powershell_host_agent(agent) && agent != AgentType::CursorAgent {
+            // (a machine with the native Cursor CLI launches it directly instead)
+            assert_eq!(argv_of(&cmd)[0], "powershell.exe", "{agent:?} is hosted by PowerShell");
+        }
+    }
+}
+
+/// `launch_command` is the spawn path for both kinds of profile: a code profile gets the account
+/// env through the legacy builder.
+#[test]
+fn launch_command_passes_the_account_env_for_code_profiles() {
+    let account = crate::tui::LaunchEnv { set: env_pairs(&[("CODEX_HOME", "C:/accounts/codex-1")]), remove: vec![] };
+    let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+    let request = crate::tui::SpawnRequest { cwd: &cwd, extra_args: &[], cols: 80, rows: 24, read_only: false };
+    let codex = crate::tui::require_registered("codex").expect("codex is registered");
+    let cmd = launch_command(codex.as_ref(), &request, &account).unwrap();
+    assert_eq!(env_str(&cmd, "CODEX_HOME").as_deref(), Some("C:/accounts/codex-1"));
+}
+
+/// Windows: the PowerShell host is a separate process; the agent it starts inherits what the
+/// `CommandBuilder` set. Proven with a real PowerShell on a PTY.
+#[cfg(windows)]
+#[test]
+fn powershell_host_inherits_the_launch_env() {
+    let mut cmd = CommandBuilder::new("powershell.exe");
+    for arg in ["-NoLogo", "-NoProfile", "-Command", "Write-Output (\"VAL=\" + $env:PM_ENV_PS); Write-Output PM_DONE"] {
+        cmd.arg(arg);
+    }
+    cmd.cwd(std::env::temp_dir());
+    apply_common_pty_env(&mut cmd);
+    apply_launch_env(&mut cmd, &env_pairs(&[("PM_ENV_PS", "ps-host-4410")]), &[]);
+    assert!(run_in_pty(cmd).contains("VAL=ps-host-4410"));
 }

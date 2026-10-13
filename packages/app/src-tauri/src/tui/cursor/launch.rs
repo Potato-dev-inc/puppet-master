@@ -61,6 +61,8 @@ pub(super) fn headless_command(launch: &HeadlessLaunch) -> Result<LaunchSpec, St
             args: full,
             cwd: PathBuf::from(launch.project),
             read_only_enforced: launch.read_only,
+            env: Vec::new(),
+            env_remove: Vec::new(),
         })
     }
     #[cfg(not(windows))]
@@ -72,6 +74,8 @@ pub(super) fn headless_command(launch: &HeadlessLaunch) -> Result<LaunchSpec, St
         args,
         cwd: PathBuf::from(launch.project),
         read_only_enforced: launch.read_only,
+        env: Vec::new(),
+        env_remove: Vec::new(),
     })
 }
 

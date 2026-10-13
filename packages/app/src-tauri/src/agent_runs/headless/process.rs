@@ -42,6 +42,10 @@ pub(in crate::agent_runs) fn execute_headless(
     let allow_shell = snapshot
         .as_ref()
         .is_some_and(|current| current.worker.allow_shell);
+    let account = snapshot
+        .as_ref()
+        .and_then(|current| current.worker.account.clone())
+        .filter(|id| !id.trim().is_empty());
     let requested_model = snapshot
         .as_ref()
         .and_then(|current| current.worker.requested_model.clone())
@@ -108,6 +112,7 @@ pub(in crate::agent_runs) fn execute_headless(
                 read_only,
                 allow_shell,
                 true,
+                account.as_deref(),
             )
         })
         .flatten();
@@ -118,18 +123,18 @@ pub(in crate::agent_runs) fn execute_headless(
     if let Some(key) = &pool_key {
         crate::standby::note_run(key, &project);
     }
-    let mut command = Command::new(&spec.program);
-    command
-        .args(&spec.args)
-        .current_dir(&spec.cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    let account_env = match account.as_deref() {
+        Some(id) => match crate::accounts::launch_env(&agent_type, id) {
+            Ok(env) => env,
+            Err(message) => {
+                fail_start(&project, &operation_id, "LAUNCH_FAILED", &message);
+                publish(&project, &operation_id, &registry, &app);
+                return;
+            }
+        },
+        None => crate::tui::LaunchEnv::default(),
+    };
+    let mut command = headless_command(&spec, &account_env);
     let mut readers = Vec::new();
     let dispatch = operations::run_operation_dispatch(&project, &operation_id, |_| {
         operations::dispatch_input_if_active(&project, &operation_id, |_| {
@@ -346,5 +351,72 @@ pub(in crate::agent_runs) fn publish(
 ) {
     if let Ok(snapshot) = operations::get_operation(project, id) {
         let _ = crate::bridge::publish_operation(&snapshot, registry, app);
+    }
+}
+
+/// The child process for a headless run: the spec's program, args and cwd, piped output, and the
+/// environment (the spec's `[env]` first, then the account's, which wins).
+pub(crate) fn headless_command(spec: &crate::tui::LaunchSpec, account_env: &crate::tui::LaunchEnv) -> Command {
+    let mut command = Command::new(&spec.program);
+    command
+        .args(&spec.args)
+        .current_dir(&spec.cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    spec.apply_to_command(&mut command);
+    for (key, value) in &account_env.set {
+        command.env(key, value);
+    }
+    for key in &account_env.remove {
+        command.env_remove(key);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command
+}
+
+#[cfg(test)]
+mod env_tests {
+    use super::*;
+    use crate::tui::{LaunchEnv, LaunchSpec};
+    use std::io::Read;
+
+    fn echo_spec(name: &str) -> LaunchSpec {
+        let (program, args) = if cfg!(windows) {
+            ("cmd.exe", vec!["/C".to_string(), format!("echo VAL=%{name}%")])
+        } else {
+            ("sh", vec!["-c".to_string(), format!("echo VAL=${name}")])
+        };
+        LaunchSpec::new(program, args, std::env::temp_dir(), false)
+    }
+
+    fn stdout_of(mut command: Command) -> String {
+        let mut child = command.spawn().expect("spawn");
+        let mut out = String::new();
+        child.stdout.take().unwrap().read_to_string(&mut out).unwrap();
+        let _ = child.wait();
+        out
+    }
+
+    #[test]
+    fn headless_run_gets_spec_env_then_account_env() {
+        let mut spec = echo_spec("PM_HL_T");
+        spec.env = vec![("PM_HL_T".into(), "from-spec".into())];
+        assert!(stdout_of(headless_command(&spec, &LaunchEnv::default())).contains("VAL=from-spec"));
+        let account = LaunchEnv { set: vec![("PM_HL_T".into(), "from-account".into())], remove: vec![] };
+        assert!(stdout_of(headless_command(&spec, &account)).contains("VAL=from-account"));
+    }
+
+    #[test]
+    fn headless_run_drops_removed_variables() {
+        std::env::set_var("PM_HL_DROP", "leaked-value");
+        let mut spec = echo_spec("PM_HL_DROP");
+        spec.env_remove = vec!["PM_HL_DROP".into()];
+        let out = stdout_of(headless_command(&spec, &LaunchEnv::default()));
+        assert!(!out.contains("leaked-value"), "{out}");
     }
 }

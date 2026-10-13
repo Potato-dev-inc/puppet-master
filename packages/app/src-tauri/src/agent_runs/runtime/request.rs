@@ -133,4 +133,8 @@ pub struct AgentRunRequest {
     /// Opt-in: bare program names answered allow-once on Cursor `Not in allowlist` prompts.
     #[serde(default)]
     pub allowed_commands: Option<Vec<String>>,
+    /// Run the agent under this user account (id from the accounts store, `crate::accounts`).
+    /// Absent = the CLI's own login.
+    #[serde(default)]
+    pub account: Option<String>,
 }
