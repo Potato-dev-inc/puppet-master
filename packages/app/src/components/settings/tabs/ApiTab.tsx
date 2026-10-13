@@ -1,6 +1,7 @@
 // Settings > API keys: provider keys, OpenCode A/B key profiles and rate-limit key automation.
 import { useEffect, useState } from 'react';
 import { tauri, type OpenCodeKeyStatus } from '../../../lib/tauri';
+import { ApiKeyField } from '../ApiKeyField';
 import { FieldInput, FieldLabel, FieldSelect, SettingBlock, SettingToggle, SettingsSection } from '../settings-ui';
 import type { SettingsTabContext } from './tab-context';
 
@@ -66,14 +67,20 @@ export function ApiTab({ ctx }: { ctx: SettingsTabContext }) {
   };
 
   return (
-    <SettingsSection title="API keys" description="Keys are stored in secure OS storage in the desktop build.">
-      <SettingBlock label="Anthropic API key" implemented><FieldInput type="password" value={settings.anthropic_api_key ?? ''} onChange={(e) => setSettings({ ...settings, anthropic_api_key: e.target.value })} className="font-mono" placeholder="sk-ant-…" autoComplete="off" /></SettingBlock>
-      <SettingBlock label="OpenAI API key" implemented><FieldInput type="password" value={settings.openai_api_key ?? ''} onChange={(e) => setSettings({ ...settings, openai_api_key: e.target.value })} className="font-mono" placeholder="sk-…" autoComplete="off" /></SettingBlock>
-      <SettingBlock label="OpenRouter API key" implemented><FieldInput type="password" value={settings.openrouter_api_key ?? ''} onChange={(e) => setSettings({ ...settings, openrouter_api_key: e.target.value })} className="font-mono" placeholder="sk-or-…" autoComplete="off" /></SettingBlock>
+    <SettingsSection title="API keys" description="Provider keys are kept in your operating system's credential store when it is available. This page says where each key is.">
+      <SettingBlock label="Anthropic API key" implemented>
+        <ApiKeyField label="Anthropic API key" name="anthropic_api_key" placeholder="sk-ant-…" fileValue={settings.anthropic_api_key} onFileChange={(v) => setSettings({ ...settings, anthropic_api_key: v })} />
+      </SettingBlock>
+      <SettingBlock label="OpenAI API key" implemented>
+        <ApiKeyField label="OpenAI API key" name="openai_api_key" placeholder="sk-…" fileValue={settings.openai_api_key} onFileChange={(v) => setSettings({ ...settings, openai_api_key: v })} />
+      </SettingBlock>
+      <SettingBlock label="OpenRouter API key" implemented>
+        <ApiKeyField label="OpenRouter API key" name="openrouter_api_key" placeholder="sk-or-…" fileValue={settings.openrouter_api_key} onFileChange={(v) => setSettings({ ...settings, openrouter_api_key: v })} />
+      </SettingBlock>
       <SettingBlock
         label="OpenCode API keys (A / B)"
         implemented
-        description="Stored locally for opencode_native workers only — never synced to mobile or returned by MCP. Orchestrators can call rotate_opencode_key to switch profiles when rate-limited."
+        description="For opencode_native workers only. Kept in your OS credential store when it is available (otherwise in a plain app file). The active key is also written to OpenCode's own auth file so OpenCode can use it. Never synced to mobile or returned by MCP. Orchestrators can call rotate_opencode_key to switch profiles when rate-limited."
       >
         <div className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">

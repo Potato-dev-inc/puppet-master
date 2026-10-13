@@ -50,6 +50,17 @@ serde_path_to_error = "0.1"
 glob = "0.3"
 notify = "6"
 tauri-plugin-global-shortcut = "2"
+# OS credential store for provider API keys (MIT OR Apache-2.0). 3.x: no default stores, pick per OS.
+keyring = "3.6"
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6", features = ["linux-native"] }
 
 [features]
 default = ["custom-protocol"]

@@ -7,7 +7,8 @@ import { makeBridgeExecutor, makeTauriExecutor } from '../../lib/mcp-executor';
 import { isCliOrchestratorBackend } from '../../lib/orchestrator-panes';
 import { runPuppetMasterLoop } from '../../lib/puppet-master';
 import { runPuppetMasterCliLoop } from '../../lib/puppet-master-cli';
-import { getApiKey, loadSettings } from '../../lib/settings';
+import { loadSettings } from '../../lib/settings';
+import { resolveApiKey } from '../../lib/secrets';
 import { tauri } from '../../lib/tauri';
 import { appendStreamedText, builtinToolLog, prependLogs, type UiMessage } from './chat-model';
 import type { OrchestratorSession } from './useOrchestratorSession';
@@ -38,7 +39,7 @@ export function useRemoteOrchestratorMessages(
       );
 
       if (activeBackend === 'api') {
-        const apiKey = getApiKey(settings, model.provider);
+        const apiKey = await resolveApiKey(settings, model.provider);
         if (!apiKey) {
           const errText = `No ${model.provider} API key set. Open Settings on desktop.`;
           setMessages((prev) => [

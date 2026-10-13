@@ -1,0 +1,66 @@
+/* Close-running-pane sheet in pop-out windows. Monochrome, matches the cockpit sheet. */
+.pm-close-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI Variable Text', system-ui, sans-serif;
+}
+.pm-close-sheet {
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  padding: 20px;
+  border-radius: 14px;
+  background: #1c1c1e;
+  color: #f5f5f7;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.pm-close-sheet h2 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.pm-close-sheet p {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(245, 245, 247, 0.64);
+}
+.pm-close-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.pm-close-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pm-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.pm-close-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(245, 245, 247, 0.28);
+}
+.pm-close-btn--primary {
+  background: #f5f5f7;
+  color: #0a0a0b;
+  border-color: transparent;
+}
+.pm-close-btn--primary:hover {
+  background: #fff;
+}
+.pm-close-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

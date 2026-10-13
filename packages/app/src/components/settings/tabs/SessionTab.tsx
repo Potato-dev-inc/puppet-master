@@ -8,6 +8,13 @@ export function SessionTab({ ctx }: { ctx: SettingsTabContext }) {
   return (
     <SettingsSection title="Sessions" description="Workspace defaults, history, and orchestration behavior.">
       <SettingToggle label="Send initial prompt on start" description="Automatically submit the new-session prompt when a workspace opens." checked onChange={() => undefined} implemented={false} />
+      <SettingToggle
+        label="Ask before closing a working agent"
+        description="Closing a pane window, closing a pane in the cockpit, or quitting from the tray asks first while an agent is working."
+        checked={settings.confirm_close_running_pane ?? true}
+        onChange={(value) => setSettings({ ...settings, confirm_close_running_pane: value })}
+        implemented
+      />
       <SettingBlock label="Default orchestrator" implemented description="Sidebar brain for tool routing and delegation.">
         <OrchestratorBackendSelect settings={settings} setSettings={setSettings} />
       </SettingBlock>
