@@ -134,7 +134,9 @@ pub(super) fn present_spawned_pane(
     }
     let pane = registry.lock().list().into_iter().find(|pane| pane.id == pane_id);
     if let Some(pane) = pane {
-        crate::app_windows::open_pane_window(app, &pane.id, &pane.agent_type, pane.cols, pane.rows, false);
+        // Mode-aware: a pop-out in individual mode; in orchestration the pane just appears in the
+        // cockpit (a hidden warm window is destroyed) and nothing takes focus.
+        crate::cockpit::present_pane(app, &pane.id, &pane.agent_type, pane.cols, pane.rows, crate::cockpit::Origin::Agent);
     }
     emit_panes_changed(registry, app);
 }

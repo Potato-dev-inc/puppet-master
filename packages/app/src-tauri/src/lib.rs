@@ -25,6 +25,8 @@ pub mod operations;
 mod operations_contract_tests;
 mod pane_prompt;
 mod app_windows;
+mod cockpit;
+mod ui_mode;
 mod pane_windows;
 mod tray;
 mod pane_wait;
@@ -73,7 +75,7 @@ pub fn run() {
             // Panes-first: a second launch opens the Settings window; `--new-pane <agent>` opens only
             // a pop-out pane (no Settings) through the same code path as the tray's "New pane" menu.
             match tray::second_launch_action(args.as_slice()) {
-                tray::SecondLaunch::Settings => app_windows::open_settings_window(app, None, true),
+                tray::SecondLaunch::Settings => cockpit::open_primary_window(app),
                 tray::SecondLaunch::NewPane(agent) => {
                     let app = app.clone();
                     std::thread::spawn(move || match tray::new_pane(&app, &agent) {
@@ -158,6 +160,16 @@ pub fn run() {
             commands::rotate_opencode_key,
             commands::standby_get_status,
             commands::standby_set_config,
+            commands::get_ui_mode,
+            commands::set_ui_mode,
+            commands::open_cockpit,
+            commands::open_settings,
+            commands::pane_prompt,
+            commands::answer_pane_prompt,
+            commands::interrupt_pane,
+            commands::new_pane,
+            commands::pane_run_info,
+            commands::pane_transcript,
         ])
         .setup(|app| {
             // Register approved declarative agent definitions before anything resolves a profile.
@@ -281,6 +293,7 @@ pub fn run() {
             let registry_for_panes = app.state::<AppState>().registry.clone();
             pane_windows::init(app.handle(), registry_for_panes.clone());
             settings_store::load_saved_public_settings(app.handle());
+            ui_mode::load_saved();
             // Panes-first: no main window. A standalone worker host (`--worker`) is the one
             // exception: it is a user-launched single-terminal window and needs its webview.
             if worker_launch::worker_launch().is_some() {

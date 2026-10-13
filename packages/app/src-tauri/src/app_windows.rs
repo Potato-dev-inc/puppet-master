@@ -4,6 +4,18 @@
 
 pub const SETTINGS_LABEL: &str = "settings";
 pub const SETTINGS_TITLE: &str = "Puppet Master Settings";
+pub const COCKPIT_LABEL: &str = crate::ui_mode::COCKPIT_LABEL;
+pub const COCKPIT_TITLE: &str = "Puppet Master";
+
+/// `index.html?cockpit=1`: the route `src/main.tsx` renders as the cockpit. A window created for a
+/// "show this pane" request also carries `&select=<pane id>` so the selection survives the webview
+/// not listening yet when `cockpit://select` is emitted.
+pub fn cockpit_url(select: Option<&str>) -> String {
+    match select.filter(|id| !id.is_empty()) {
+        Some(id) => format!("index.html?cockpit=1&select={}", url_encode(id)),
+        None => "index.html?cockpit=1".to_string(),
+    }
+}
 
 /// `index.html?settings=1&tab=agents`: the route `src/main.tsx` renders as the standalone Settings.
 pub fn settings_url(tab: Option<&str>) -> String {
@@ -159,6 +171,73 @@ mod runtime {
         });
     }
 
+    /// Open the cockpit window, or show the one that exists (unminimized). `select` also selects that
+    /// pane (`cockpit://select`). `focus` is true when a person asked for it.
+    pub fn open_cockpit_window(app: &AppHandle, select: Option<&str>, focus: bool) {
+        use tauri::Emitter;
+        let app = app.clone();
+        let select = select.map(str::to_string);
+        std::thread::spawn(move || {
+            let mut created = false;
+            if let Some(window) = app.get_webview_window(COCKPIT_LABEL) {
+                show(&window, focus);
+            } else {
+                let mut builder =
+                    WebviewWindowBuilder::new(&app, COCKPIT_LABEL, WebviewUrl::App(cockpit_url(select.as_deref()).into()))
+                        .title(COCKPIT_TITLE)
+                        .inner_size(1280.0, 820.0)
+                        .min_inner_size(900.0, 560.0)
+                        .resizable(true)
+                        .focused(focus);
+                if let Some((x, y)) = next_position(&app) {
+                    builder = builder.position(x, y);
+                }
+                match builder.build() {
+                    Ok(window) => {
+                        show(&window, focus);
+                        created = true;
+                        tracing::info!("cockpit window opened");
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "cockpit window failed to open");
+                        return;
+                    }
+                }
+            }
+            if let Some(pane_id) = select {
+                if created {
+                    // The page is still loading; the URL carries the selection, this covers a
+                    // listener that is already up.
+                    std::thread::sleep(std::time::Duration::from_millis(1500));
+                }
+                let _ = app.emit("cockpit://select", serde_json::json!({ "pane_id": pane_id }));
+            }
+        });
+    }
+
+    /// Hide the cockpit (individual mode); its panes keep running.
+    pub fn hide_cockpit_window(app: &AppHandle) {
+        if let Some(window) = app.get_webview_window(COCKPIT_LABEL) {
+            let _ = window.hide();
+        }
+    }
+
+    /// Destroy every pop-out pane window WITHOUT touching the panes. `destroy` skips the close
+    /// request, so the "closing a pop-out kills its pane" hook never runs. Returns how many.
+    pub fn destroy_pane_windows(app: &AppHandle) -> usize {
+        let labels: Vec<String> =
+            app.webview_windows().keys().filter(|l| l.starts_with("detached-pane-")).cloned().collect();
+        let mut destroyed = 0;
+        for label in labels {
+            if let Some(window) = app.get_webview_window(&label) {
+                if window.destroy().is_ok() {
+                    destroyed += 1;
+                }
+            }
+        }
+        destroyed
+    }
+
     /// Open (or show) the pop-out window of a pane. Does not take focus unless `focus`. A hidden
     /// warm window (Preload) is placed like a new one and shown: that is the whole cost of a claim.
     pub fn open_pane_window(app: &AppHandle, pane_id: &str, agent: &str, cols: u16, rows: u16, focus: bool) {
@@ -180,6 +259,10 @@ mod runtime {
 
     /// Create the hidden window of a warm worker. Nothing is shown and nothing is placed yet.
     pub fn open_warm_pane_window(app: &AppHandle, pane_id: &str, agent: &str, cols: u16, rows: u16) {
+        // Orchestration shows panes in the cockpit: a pop-out would only ever be destroyed on claim.
+        if crate::ui_mode::current() == crate::ui_mode::UiMode::Orchestration {
+            return;
+        }
         let label = crate::pane_windows::window_label(pane_id);
         if app.get_webview_window(&label).is_none() {
             build_pane_window(app, &label, pane_id, agent, cols, rows, false, true);
@@ -238,7 +321,7 @@ mod runtime {
 
     /// Closing the Settings window only hides it: the app keeps running in the tray.
     pub fn on_close_requested(app: &AppHandle, label: &str) -> bool {
-        if label != SETTINGS_LABEL {
+        if label != SETTINGS_LABEL && label != COCKPIT_LABEL {
             return false;
         }
         if let Some(window) = app.get_webview_window(label) {
@@ -249,8 +332,8 @@ mod runtime {
 }
 
 pub use runtime::{
-    close_warm_pane_window, on_close_requested, open_pane_window, open_settings_window, open_warm_pane_window,
-    open_worker_host_window,
+    close_warm_pane_window, destroy_pane_windows, hide_cockpit_window, on_close_requested, open_cockpit_window,
+    open_pane_window, open_settings_window, open_warm_pane_window, open_worker_host_window,
 };
 
 #[cfg(test)]
@@ -263,6 +346,14 @@ mod tests {
         assert_eq!(settings_url(Some("mcp")), "index.html?settings=1&tab=mcp");
         assert_eq!(settings_url(Some("a&b=c")), "index.html?settings=1&tab=agents");
         assert_eq!(settings_url(Some("")), "index.html?settings=1&tab=agents");
+    }
+
+    #[test]
+    fn cockpit_url_matches_the_frontend_route() {
+        assert_eq!(cockpit_url(None), "index.html?cockpit=1");
+        assert_eq!(cockpit_url(Some("")), "index.html?cockpit=1");
+        assert_eq!(cockpit_url(Some("a b")), "index.html?cockpit=1&select=a%20b");
+        assert_eq!(COCKPIT_LABEL, "cockpit");
     }
 
     #[test]

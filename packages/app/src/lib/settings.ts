@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { appConfigDir, join } from '@tauri-apps/api/path';
 import { LazyStore } from '@tauri-apps/plugin-store';
 import {
@@ -77,6 +78,7 @@ const DEFAULT_SETTINGS: Settings = {
   dev_server_port: 1420,
   sidebar_width: 360,
   theme: 'dark',
+  ui_mode: 'orchestration',
   developer_use_rust_mcp: false,
 };
 
@@ -159,6 +161,12 @@ export async function saveSettings(s: Settings): Promise<void> {
     dev_server_port: parseDevServerPort(s.dev_server_port),
     developer_use_rust_mcp: s.developer_use_rust_mcp ?? false,
   };
+  // Rust owns ui_mode (set_ui_mode): never write back a stale snapshot of it.
+  try {
+    normalized.ui_mode = await invoke<'orchestration' | 'individual'>('get_ui_mode');
+  } catch {
+    /* not in Tauri, or command missing: keep the stored value */
+  }
   applyTheme(normalized.theme ?? 'dark');
   await store().set(SETTINGS_KEY, normalized);
   await store().save();

@@ -11,6 +11,7 @@ import { launchMenuEntries, useAgentRegistry } from './lib/agentRegistry';
 import { tauri } from './lib/tauri';
 import { detachedWindowSizeFromGrid, openDetachedPaneWindow } from './lib/detached-pane-window';
 import { detachedCloseAction } from './lib/detached-close';
+import { applyTheme, loadSettings } from './lib/settings';
 import { TerminalViewport } from './components/TerminalViewport';
 import { WorkerOpenCodeAuthPanel } from './components/WorkerOpenCodeAuthPanel';
 
@@ -79,6 +80,21 @@ export default function TerminalApp() {
   useEffect(() => {
     void selectOrSpawnTerminal();
   }, [selectOrSpawnTerminal]);
+
+  // Pane windows follow the saved dark/light theme, same as the main window and SettingsApp.
+  useEffect(() => {
+    let cancelled = false;
+    void loadSettings()
+      .then((s) => {
+        if (!cancelled) applyTheme(s.theme ?? 'dark');
+      })
+      .catch(() => {
+        /* keep the default theme */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (detached && !workerHost) return;

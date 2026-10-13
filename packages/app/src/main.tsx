@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import CockpitApp from './CockpitApp';
 import PwaApp from './PwaApp';
 import PwaLegacyApp from './PwaLegacyApp';
 import SettingsApp from './SettingsApp';
@@ -22,6 +23,7 @@ const isMobileOrPwa =
 
 async function resolveRoot(): Promise<typeof App> {
   if (isSettingsEntry(window.location.search)) return SettingsApp;
+  if (params.get('cockpit') === '1') return CockpitApp;
   if (isTerminalApp) return TerminalApp;
   if (isStandaloneWorker) return WorkerHostBootstrap;
   if (isMobileOrPwa) return isLegacyPwa ? PwaLegacyApp : PwaApp;

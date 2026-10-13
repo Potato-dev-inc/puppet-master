@@ -104,11 +104,20 @@ pub async fn read_pane_raw_buffer(
 
 #[tauri::command]
 pub async fn resize_pane(
+    window: tauri::Window,
     state: State<'_, AppState>,
     pane_id: String,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    // Exactly one window owns a pane (the cockpit in orchestration mode, the pane's own pop-out in
+    // individual mode); a resize from any other window is ignored so two viewers with different
+    // grids cannot garble the PTY.
+    let mode = crate::ui_mode::current();
+    if !crate::ui_mode::is_owner(mode, window.label(), &pane_id) {
+        tracing::debug!(pane = %pane_id, caller = %window.label(), mode = mode.as_str(), "resize ignored: caller does not own this pane");
+        return Ok(());
+    }
     // A phone viewing this pane holds its size; the desktop size is applied when it lets go.
     if crate::pty::viewer_size::desktop_resize(&pane_id, cols, rows) {
         return Ok(());

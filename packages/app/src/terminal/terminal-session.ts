@@ -134,6 +134,11 @@ export class TerminalSession {
     return true;
   }
 
+  /** Text currently selected in the terminal ("" when nothing is). */
+  getSelection(): string {
+    return this.term?.getSelection() ?? '';
+  }
+
   nudgeReflow(): boolean {
     if (!this.term) return false;
     if (this.syncPTYResize) {

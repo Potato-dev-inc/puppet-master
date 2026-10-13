@@ -10,6 +10,7 @@ mod headless;
 mod messaging;
 mod native;
 pub(crate) mod pane_close;
+pub(crate) mod pane_api;
 pub(crate) mod persist;
 mod quick;
 mod recovery;
@@ -30,6 +31,7 @@ pub(crate) use native::stable_prompt_id;
 pub(crate) use persist::resolve_worker_name;
 pub use recovery::on_native_pane_replaced;
 pub use routes::handle_request;
+pub(crate) use routes::answer_for_pane;
 pub(crate) use routes::latest_handle_for_pane;
 #[cfg(test)]
 pub(crate) use routes::visible_runs;

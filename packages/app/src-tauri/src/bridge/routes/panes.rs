@@ -279,7 +279,13 @@ fn detach(cx: &Ctx, pane_id: &str) -> RouteResult {
                 json!({ "error": crate::pty::registry::unknown_pane_message(pane_id) }),
             )
         })?;
-    crate::app_windows::open_pane_window(app, &pane.id, &pane.agent_type, pane.cols, pane.rows, false);
+    match crate::ui_mode::current() {
+        crate::ui_mode::UiMode::Individual => {
+            crate::app_windows::open_pane_window(app, &pane.id, &pane.agent_type, pane.cols, pane.rows, false)
+        }
+        // Orchestration has no pop-outs: show the pane in the cockpit without stealing focus.
+        crate::ui_mode::UiMode::Orchestration => crate::app_windows::open_cockpit_window(app, Some(&pane.id), false),
+    }
     Ok((200, json!({ "ok": true })))
 }
 

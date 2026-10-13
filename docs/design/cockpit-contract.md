@@ -24,6 +24,7 @@ must deviate, update this file in the same change and say so in your report.
 | `get_ui_mode` | – | `"orchestration" \| "individual"` | from settings.json `ui_mode`, default orchestration |
 | `set_ui_mode` | `mode` | `()` | Persists and emits `ui://mode-changed {mode}`. → individual: open a pop-out for every live pane, then hide the cockpit. → orchestration: destroy all `detached-pane-*` windows **without killing their panes**, then show the cockpit. |
 | `open_cockpit` | `paneId?: string` | `()` | Show, unminimize and focus the cockpit; with `paneId`, also emit `cockpit://select {pane_id}` |
+| `open_settings` | `tab?: string` | `()` | Show or create the Settings window (focused), optionally on a tab |
 | `pane_prompt` | `paneId` | `PanePrompt \| null` | Wraps `pane_prompt::detect` / `required_action` |
 | `answer_pane_prompt` | `paneId, promptId, choice` | `()` | Same validation as `POST /agents/answer` (stale and replay guards; `allow_all` keeps its existing rules) |
 | `interrupt_pane` | `paneId` | `()` | Writes `\x03` |
@@ -79,3 +80,26 @@ must deviate, update this file in the same change and say so in your report.
 - Spawn view: a 5×5 `DotSpinner` with a log driven by `pane://spawn-stage` events (no fake lines).
 - Styling: monochrome tokens from STYLE.md, scoped to the cockpit stylesheet; Inter, JetBrains Mono and Doto,
   self-hosted. Doto only for the inbox count.
+
+## Implementation notes (Rust, as built)
+Deviations and additions, none of which change the table above:
+- `index.html?cockpit=1` gets an extra optional `&select=<pane id>` when the cockpit window is *created* by a
+  "show this pane" request (tray pane click, new pane from the tray). The webview may not be listening yet when
+  `cockpit://select` fires, so the React side should also read `select` on mount. The event is still emitted
+  (after 1.5 s for a freshly created window).
+- The `--worker` host window (label `main`) always counts as owner in `resize_pane`, in both modes (it is a
+  single-terminal window outside the cockpit model). `settings` and any non-owner label are ignored.
+- Persistence goes through the store plugin (`settings.json`, key `settings`, field `ui_mode`) so the frontend
+  `LazyStore` sees it; React must change the mode with `set_ui_mode`, never by writing the settings key (Rust keeps
+  the live mode in memory).
+- `set_ui_mode` to the current mode emits `ui://mode-changed` but moves no windows.
+- `answer_pane_prompt` never opts into broad approvals (`allow_broad=false`), so `allow_all` is refused as on
+  `/agents/answer`; `pane_prompt` / `pty://prompt` choices are the non-broad ones. Errors read `CODE: message`.
+- `PanePrompt.choices[].label` is the choice id prettified (`allow_once` -> `Allow once`).
+- `pane://spawn-stage`: `claiming` (pane_id null) -> warm: `attached`+`ready` (warm true); cold: `spawning` ->
+  `attached` -> `ready` once the pane first reads idle/waiting_input; `failed` on error, on the agent exiting
+  early, or after 60 s still starting (the pane is left running). The tray emits the same events.
+- Orchestration mode creates no warm pop-out windows at all; claims also destroy any hidden one.
+- The `detach` bridge route in orchestration shows the pane in the cockpit (no focus).
+- `pty://prompt` is emitted from the PTY reader on screen changes; `null` prompt is also sent when entering
+  `waiting_input` without a parsable prompt.

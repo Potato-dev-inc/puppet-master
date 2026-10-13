@@ -261,5 +261,91 @@ fn reply_key(
     Ok((key, choice.to_string()))
 }
 
+
+/// A pane prompt as the desktop UI shows it (`pane_prompt` command, `pty://prompt` event).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanePrompt {
+    pub prompt_id: String,
+    pub kind: String,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub choices: Vec<PromptChoice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PromptChoice {
+    pub id: String,
+    pub label: String,
+}
+
+fn choice_label(id: &str) -> String {
+    let spaced = id.replace('_', " ");
+    let mut chars = spaced.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+impl PanePrompt {
+    /// Shape a detected prompt (`detect` / `detect_in_screen`) for the UI; `None` without an id.
+    pub fn from_detected(prompt: &Value) -> Option<Self> {
+        let text_of = |key: &str| prompt.get(key).and_then(Value::as_str).map(str::to_string);
+        let choices = prompt
+            .get("choices")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(|id| PromptChoice { id: id.to_string(), label: choice_label(id) })
+            .collect();
+        Some(Self {
+            prompt_id: text_of("prompt_id")?,
+            kind: text_of("kind").unwrap_or_else(|| "unknown".into()),
+            text: text_of("text").unwrap_or_default(),
+            summary: text_of("summary"),
+            choices,
+        })
+    }
+}
+
+/// The prompt a pane shows right now, shaped for the UI. Never offers broad approvals.
+pub fn detect_for_ui(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<PanePrompt> {
+    PanePrompt::from_detected(&detect(registry, pane_id, false)?)
+}
+
+/// Per-pane memory behind `pty://prompt`: whether the pane was waiting and the last prompt id sent.
+#[derive(Debug, Default)]
+pub struct PromptTrack {
+    waiting: bool,
+    last_id: Option<String>,
+}
+
+/// What to emit on `pty://prompt` after a screen update: `Some(prompt)` is an event to send
+/// (`Some(None)` = prompt cleared), `None` = nothing to say. Emits on entering `waiting_input`
+/// (even with no parsed prompt), on leaving it, and when the detected prompt changes. `detect` is
+/// only called while waiting.
+pub fn next_prompt_event(
+    track: &mut PromptTrack,
+    waiting: bool,
+    detect: impl FnOnce() -> Option<PanePrompt>,
+) -> Option<Option<PanePrompt>> {
+    if !waiting {
+        let was = std::mem::take(&mut track.waiting);
+        track.last_id = None;
+        return was.then_some(None);
+    }
+    let prompt = detect();
+    let id = prompt.as_ref().map(|p| p.prompt_id.clone());
+    let entered = !std::mem::replace(&mut track.waiting, true);
+    if entered || id != track.last_id {
+        track.last_id = id;
+        return Some(prompt);
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests;

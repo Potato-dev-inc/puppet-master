@@ -203,3 +203,30 @@ fn choices_map_to_keys_and_broad_needs_opt_in() {
         "INVALID_PROMPT_CHOICE"
     );
 }
+
+#[test]
+fn pane_prompt_serializes_camel_case_and_prettifies_choice_labels() {
+    let screen = include_str!("../tui/cursor/fixtures/command_approval_visible.txt");
+    let detected = detect_in_screen("cursor_agent", screen, false).expect("prompt");
+    let prompt = PanePrompt::from_detected(&detected).expect("ui prompt");
+    let json = serde_json::to_value(&prompt).unwrap();
+    assert!(json.get("promptId").and_then(Value::as_str).is_some());
+    assert!(json.get("prompt_id").is_none());
+    assert_eq!(json["kind"], "command_approval");
+    assert!(json["choices"].as_array().unwrap().iter().all(|c| c["id"].is_string() && c["label"].is_string()));
+    assert_eq!(choice_label("allow_once"), "Allow once");
+}
+
+#[test]
+fn prompt_events_fire_on_enter_change_and_leave_only() {
+    let p = |id: &str| PanePrompt { prompt_id: id.into(), kind: "k".into(), text: String::new(), summary: None, choices: vec![] };
+    let mut t = PromptTrack::default();
+    assert_eq!(next_prompt_event(&mut t, false, || panic!("no detect when not waiting")), None);
+    assert_eq!(next_prompt_event(&mut t, true, || Some(p("a"))), Some(Some(p("a"))));
+    assert_eq!(next_prompt_event(&mut t, true, || Some(p("a"))), None, "same prompt: silent");
+    assert_eq!(next_prompt_event(&mut t, true, || Some(p("b"))), Some(Some(p("b"))), "changed prompt");
+    assert_eq!(next_prompt_event(&mut t, false, || panic!()), Some(None), "leaving clears");
+    assert_eq!(next_prompt_event(&mut t, false, || panic!()), None);
+    assert_eq!(next_prompt_event(&mut t, true, || None), Some(None), "waiting with no parsed prompt still announces");
+    assert_eq!(next_prompt_event(&mut t, true, || None), None);
+}

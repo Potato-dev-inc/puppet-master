@@ -236,6 +236,7 @@ pub fn spawn_pane(
                 let mut reader = reader;
                 let mut buf = [0u8; 4096];
                 let mut last_snapshot = String::new();
+                let mut prompt_track = crate::pane_prompt::PromptTrack::default();
                 loop {
                     match reader.read(&mut buf) {
                         Ok(0) => {
@@ -333,6 +334,19 @@ pub fn spawn_pane(
                                         pane_id: PaneId(pane_id.clone()),
                                         status: s.as_str().to_string(),
                                     },
+                                );
+                            }
+
+                            // Structured prompt for the desktop UI: on entering or leaving
+                            // waiting_input and whenever the detected prompt changes.
+                            let waiting = *status.lock() == PaneStatus::WaitingInput;
+                            if let Some(prompt) = crate::pane_prompt::next_prompt_event(&mut prompt_track, waiting, || {
+                                crate::pane_prompt::detect_in_screen(&agent_type, &last_snapshot, false)
+                                    .and_then(|p| crate::pane_prompt::PanePrompt::from_detected(&p))
+                            }) {
+                                let _ = app.emit(
+                                    "pty://prompt",
+                                    serde_json::json!({ "pane_id": pane_id, "prompt": prompt }),
                                 );
                             }
                         }

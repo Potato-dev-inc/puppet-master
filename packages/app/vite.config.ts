@@ -13,6 +13,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['app-icon.svg', 'icon-192.png', 'icon-512.png'],
       workbox: {
+        globPatterns: ['**/*.{js,css,html,woff2}'],
         navigateFallbackDenylist: [/^\/bridge/, /^\/__puppet_master_dev__/],
         runtimeCaching: [
           {

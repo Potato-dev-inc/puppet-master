@@ -1,6 +1,6 @@
 // One terminal pane as used by the standalone / detached pane window: xterm host, optional title bar,
 // and floating controls (move back to app, API key tray, reflow nudge).
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { useTerminalSession } from '../hooks/useTerminalSession';
 import { agentLabel, useAgentRegistry } from '../lib/agentRegistry';
 import { tauri } from '../lib/tauri';
@@ -47,6 +47,7 @@ export function TerminalViewport({
   workerHost = false,
   workerTrayOpen = false,
   onToggleWorkerTray,
+  getSelectionRef,
 }: {
   pane: PaneData;
   registry: PaneRegistryApi;
@@ -57,9 +58,11 @@ export function TerminalViewport({
   workerHost?: boolean;
   workerTrayOpen?: boolean;
   onToggleWorkerTray?: () => void;
+  /** Optional: receives a function returning the terminal's current selection text. */
+  getSelectionRef?: MutableRefObject<(() => string) | null>;
 }) {
   const listing = useAgentRegistry();
-  const { containerRef, nudgeReflow } = useTerminalSession({
+  const { containerRef, nudgeReflow, getSelection } = useTerminalSession({
     paneId: pane.info.id,
     sessionKey: pane.info.created_at,
     subscribePaneData: registry.subscribePaneData,
@@ -68,6 +71,8 @@ export function TerminalViewport({
     reflowKey,
     heldPtySize: pane.info.viewer_held ? { cols: pane.info.cols, rows: pane.info.rows } : null,
   });
+
+  if (getSelectionRef) getSelectionRef.current = getSelection;
 
   // A phone holds this pane's size: using this window takes it back (only then, and throttled).
   const held = pane.info.viewer_held;

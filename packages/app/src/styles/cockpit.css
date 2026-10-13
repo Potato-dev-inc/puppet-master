@@ -1,0 +1,841 @@
+/* Cockpit window. Everything is scoped under .cockpit. Monochrome tokens from mockups/ui-proposal/STYLE.md. */
+
+.cockpit {
+  --bg: #0a0a0b;
+  --bg-side: #111112;
+  --bg-raised: #18181a;
+  --bg-float: rgba(28, 28, 30, 0.82);
+  --fill: rgba(255, 255, 255, 0.05);
+  --fill-hover: rgba(255, 255, 255, 0.08);
+  --fill-active: rgba(255, 255, 255, 0.12);
+  --sep: rgba(255, 255, 255, 0.08);
+  --label: #f5f5f7;
+  --label-2: rgba(245, 245, 247, 0.64);
+  --label-3: rgba(245, 245, 247, 0.4);
+  --label-4: rgba(245, 245, 247, 0.22);
+  --primary-bg: #f5f5f7;
+  --primary-fg: #0a0a0b;
+  --focus: 0 0 0 3px rgba(245, 245, 247, 0.28);
+  --raise-hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI Variable Text', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+  --font-doto: 'Doto', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.cockpit[data-theme='light'],
+[data-theme='light'] .cockpit {
+  --bg: #ffffff;
+  --bg-side: #f5f5f7;
+  --bg-raised: #ffffff;
+  --bg-float: rgba(250, 250, 252, 0.82);
+  --fill: rgba(0, 0, 0, 0.04);
+  --fill-hover: rgba(0, 0, 0, 0.06);
+  --fill-active: rgba(0, 0, 0, 0.09);
+  --sep: rgba(0, 0, 0, 0.09);
+  --label: #1d1d1f;
+  --label-2: rgba(29, 29, 31, 0.64);
+  --label-3: rgba(29, 29, 31, 0.42);
+  --label-4: rgba(29, 29, 31, 0.24);
+  --primary-bg: #1d1d1f;
+  --primary-fg: #ffffff;
+  --focus: 0 0 0 3px rgba(0, 0, 0, 0.18);
+  --raise-hi: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+
+.cockpit {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  background: var(--bg);
+  color: var(--label);
+  font-family: var(--font-ui);
+  font-feature-settings: 'cv11', 'ss01';
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+.cockpit *,
+.cockpit *::before,
+.cockpit *::after {
+  box-sizing: border-box;
+}
+
+.cockpit button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: default;
+  text-align: left;
+}
+
+.cockpit button:focus-visible,
+.cockpit input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.cockpit button:disabled {
+  opacity: 0.4;
+}
+
+/* ---------- type ---------- */
+.cockpit .ck-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.cockpit .ck-title--sm {
+  font-size: 15px;
+  letter-spacing: 0;
+}
+.cockpit .ck-section {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.cockpit .ck-sub {
+  margin: 0;
+  color: var(--label-3);
+}
+.cockpit .ck-sub-inline {
+  color: var(--label-3);
+}
+.cockpit .ck-pad {
+  padding: 16px 20px;
+}
+.cockpit .ck-caption {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-kbd {
+  margin-left: auto;
+  padding: 0 5px;
+  min-width: 18px;
+  text-align: center;
+  font: 11px/16px var(--font-mono);
+  color: var(--label-3);
+  border: 1px solid var(--sep);
+  border-radius: 4px;
+  box-shadow: inset 0 -1px 0 var(--sep);
+}
+
+/* ---------- buttons ---------- */
+.cockpit .ck-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color 160ms var(--ease),
+    transform 160ms var(--ease);
+}
+.cockpit .ck-btn:active,
+.cockpit .ck-icon-btn:active,
+.cockpit .ck-row:active {
+  transform: scale(0.97);
+}
+.cockpit .ck-btn--sm {
+  height: 24px;
+  padding: 0 10px;
+}
+.cockpit .ck-btn--primary {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+.cockpit .ck-btn--secondary {
+  background: var(--fill);
+}
+.cockpit .ck-btn--secondary:hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-btn--plain {
+  color: var(--label-2);
+  padding: 0 8px;
+}
+.cockpit .ck-btn--plain:hover {
+  background: var(--fill);
+  color: var(--label);
+}
+.cockpit .ck-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--label-2);
+  transition:
+    background-color 160ms var(--ease),
+    color 160ms var(--ease),
+    transform 160ms var(--ease);
+}
+.cockpit .ck-icon-btn:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.cockpit .ck-theme-ic {
+  display: inline-grid;
+  transition: transform 280ms var(--ease-sheet);
+}
+.cockpit .ck-theme-ic.is-light {
+  transform: rotate(90deg);
+}
+
+/* ---------- sidebar ---------- */
+.cockpit .ck-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-side);
+  border-right: 1px solid var(--sep);
+}
+.cockpit .ck-side-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 10px 8px 14px;
+}
+.cockpit .ck-wordmark {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.cockpit .ck-side-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 6px;
+}
+.cockpit .ck-side-empty {
+  margin: 12px 10px;
+  color: var(--label-3);
+}
+.cockpit .ck-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition:
+    background-color 160ms var(--ease),
+    transform 160ms var(--ease);
+}
+.cockpit .ck-row:hover {
+  background: var(--fill);
+}
+.cockpit .ck-row.is-active {
+  background: var(--fill-active);
+}
+.cockpit .ck-row.is-needs .ck-row-title {
+  font-weight: 600;
+}
+.cockpit .ck-row-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  flex: none;
+  color: var(--label);
+}
+.cockpit .ck-row-glyph--icon {
+  color: var(--label-2);
+}
+.cockpit .ck-row-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.cockpit .ck-row-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-row-sub {
+  font-size: 11px;
+  color: var(--label-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-row-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cockpit .ck-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-side-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-foot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cockpit .ck-bridge {
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--label-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- segmented ---------- */
+.cockpit .ck-seg {
+  position: relative;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.cockpit .ck-seg-pill {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  border-radius: 6px;
+  background: var(--fill-active);
+  box-shadow: var(--raise-hi);
+  transition:
+    transform 280ms var(--ease-sheet),
+    width 280ms var(--ease-sheet);
+}
+.cockpit .ck-seg-btn {
+  position: relative;
+  z-index: 1;
+  height: 24px;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: var(--label-2);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color 160ms var(--ease);
+}
+.cockpit .ck-seg-btn[aria-selected='true'] {
+  color: var(--label);
+}
+.cockpit .ck-seg--sm {
+  display: flex;
+}
+.cockpit .ck-seg--sm .ck-seg-btn {
+  flex: 1;
+  padding: 0 6px;
+  text-align: center;
+  font-size: 12px;
+}
+
+/* ---------- menus ---------- */
+.cockpit .ck-menu-wrap {
+  position: relative;
+}
+.cockpit .ck-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 200px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--bg-float);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--sep);
+  box-shadow: var(--float-shadow);
+  animation: ck-pop 160ms var(--ease);
+}
+.cockpit .ck-menu--left {
+  right: auto;
+  left: -40px;
+  min-width: 220px;
+}
+.cockpit .ck-menu-cap {
+  padding: 6px 8px 4px;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+}
+.cockpit .ck-menu-item:hover:not(:disabled) {
+  background: var(--fill-active);
+}
+.cockpit .ck-menu-ic {
+  display: inline-grid;
+  color: var(--label-2);
+}
+.cockpit .ck-menu-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--sep);
+}
+
+/* ---------- main ---------- */
+.cockpit .ck-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.cockpit .ck-inbox {
+  flex: 1;
+  overflow-y: auto;
+  padding: 48px 40px;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+}
+.cockpit .ck-inbox-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 28px;
+}
+.cockpit .ck-doto {
+  font-family: var(--font-doto);
+  font-weight: 700;
+  font-size: 72px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--label);
+}
+.cockpit .ck-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi);
+}
+.cockpit .ck-inbox-item {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-inbox-item + .ck-inbox-item {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-inbox-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cockpit .ck-inbox-q {
+  margin: 0;
+  padding-left: 24px;
+  color: var(--label-2);
+}
+.cockpit .ck-inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 24px;
+}
+
+/* ---------- pane ---------- */
+.cockpit .ck-pane {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cockpit .ck-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px 6px 20px;
+}
+.cockpit .ck-pane-id {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.cockpit .ck-pane-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--label-2);
+}
+.cockpit .ck-grid-size {
+  font: 11px var(--font-mono);
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-ask {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 20px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-raised);
+  border: 1px solid var(--sep);
+  box-shadow: var(--raise-hi);
+}
+.cockpit .ck-ask-q {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-2);
+}
+.cockpit .ck-ask-actions {
+  display: flex;
+  gap: 6px;
+}
+.cockpit .ck-tabs-bar {
+  padding: 6px 20px 10px;
+}
+.cockpit .ck-pane-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-term-slot {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: 0 0 0 8px;
+}
+.cockpit .ck-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.cockpit .ck-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 460px;
+  padding: 48px 28px;
+}
+.cockpit .ck-fade-in {
+  animation: ck-in 280ms var(--ease-sheet);
+}
+.cockpit .ck-transcript {
+  padding: 12px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cockpit .ck-chunk {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 12px;
+}
+.cockpit .ck-chunk-stream {
+  font: 11px var(--font-mono);
+  color: var(--label-3);
+  padding-top: 2px;
+}
+.cockpit .ck-chunk pre {
+  margin: 0;
+  font: 12.5px/1.5 var(--font-mono);
+  color: var(--label-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-receipt {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 760px;
+}
+.cockpit .ck-kv {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0 20px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi);
+}
+.cockpit .ck-kv-row {
+  display: contents;
+}
+.cockpit .ck-kv dt,
+.cockpit .ck-kv dd {
+  margin: 0;
+  padding: 7px 14px;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-kv > dt:first-of-type,
+.cockpit .ck-kv > dd:nth-of-type(1) {
+  border-top: 0;
+}
+.cockpit .ck-kv dt {
+  color: var(--label-3);
+  font: 12px var(--font-mono);
+}
+.cockpit .ck-kv dd {
+  font: 12px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- spawn ---------- */
+.cockpit .ck-spawn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  background-image: radial-gradient(var(--label-4) 1px, transparent 1px);
+  background-size: 16px 16px;
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 85%);
+  mask-image: radial-gradient(ellipse at center, #000 30%, transparent 85%);
+}
+.cockpit .ck-spawn-glyph {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  color: var(--label);
+  transform: scale(2.2);
+  margin-bottom: 20px;
+}
+.cockpit .ck-spawn-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 320px;
+  max-height: 120px;
+  overflow: hidden;
+  font: 12px/1.7 var(--font-mono);
+  color: var(--label-3);
+  text-align: center;
+  -webkit-mask-image: linear-gradient(transparent, #000 25%, #000 75%, transparent);
+  mask-image: linear-gradient(transparent, #000 25%, #000 75%, transparent);
+}
+.cockpit .ck-spawn-log li.is-last {
+  color: var(--label);
+}
+
+/* ---------- palette, sheet, toast ---------- */
+.cockpit .ck-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.35);
+  animation: ck-fade 160ms var(--ease);
+}
+.cockpit .ck-scrim--top {
+  place-items: start center;
+  padding-top: 14vh;
+}
+.cockpit .ck-palette {
+  width: 560px;
+  max-width: calc(100vw - 32px);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-float);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--sep);
+  box-shadow: var(--float-shadow);
+  animation: ck-pop 280ms var(--ease-sheet);
+}
+.cockpit .ck-palette-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--label);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-palette-input::placeholder {
+  color: var(--label-3);
+}
+.cockpit .ck-palette-list {
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.cockpit .ck-palette-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  transition: background-color 120ms var(--ease);
+}
+.cockpit .ck-palette-row.is-active {
+  background: var(--fill-active);
+}
+.cockpit .ck-palette-ic {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  color: var(--label-2);
+}
+.cockpit .ck-palette-title {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.cockpit .ck-palette-desc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-3);
+}
+.cockpit .ck-sheet {
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 14px;
+  background: var(--bg-float);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--sep);
+  box-shadow: var(--float-shadow);
+  animation: ck-pop 280ms var(--ease-sheet);
+}
+.cockpit .ck-sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.cockpit .ck-toasts {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  z-index: 60;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  pointer-events: none;
+}
+.cockpit .ck-toast {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--bg-float);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--sep);
+  box-shadow: var(--float-shadow);
+  animation: ck-pop 280ms var(--ease-sheet);
+}
+
+@keyframes ck-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ck-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ck-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cockpit *,
+  .cockpit *::before,
+  .cockpit *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .cockpit .ck-btn:active,
+  .cockpit .ck-icon-btn:active,
+  .cockpit .ck-row:active {
+    transform: none;
+  }
+}
+
+.cockpit .ck-spawn--plain {
+  background-image: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+}

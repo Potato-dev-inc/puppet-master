@@ -1,4 +1,6 @@
 /* Global styles entry. Import order IS the cascade order; do not reorder. */
+@import './fonts.css';
+@import './dot-spinner.css';
 @import './tailwind.css';
 @import './theme.css';
 @import './layout.css';

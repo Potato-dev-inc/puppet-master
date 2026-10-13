@@ -25,6 +25,7 @@ use wire::{
     WaitAgentsRequest,
 };
 
+pub(crate) use answer::answer_for_pane;
 pub(crate) use handles::latest_handle_for_pane;
 #[cfg(test)]
 pub(super) use handles::run_for_pane;

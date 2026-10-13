@@ -2,12 +2,15 @@
 //! registry listing and the open panes, so it is unit-tested without a window system; the Tauri
 //! menu is just a rendering of it.
 
+use crate::ui_mode::UiMode;
 use serde_json::Value;
 
 /// One entry of the tray menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
     Action { id: String, label: String, enabled: bool },
+    /// A check item (the Mode submenu).
+    Check { id: String, label: String, checked: bool },
     Submenu { label: String, items: Vec<Item> },
     Separator,
 }
@@ -21,6 +24,8 @@ pub struct PaneRow {
 
 pub const ID_SETTINGS: &str = "settings";
 pub const ID_QUIT: &str = "quit";
+pub const ID_COCKPIT: &str = "cockpit";
+pub const PREFIX_MODE: &str = "mode:";
 pub const PREFIX_NEW: &str = "new:";
 pub const PREFIX_PANE: &str = "pane:";
 
@@ -29,6 +34,8 @@ pub const PREFIX_PANE: &str = "pane:";
 pub enum Command {
     Settings,
     Quit,
+    Cockpit,
+    SetMode(UiMode),
     NewPane(String),
     FocusPane(String),
 }
@@ -37,6 +44,8 @@ pub fn parse_command(id: &str) -> Option<Command> {
     match id {
         ID_SETTINGS => Some(Command::Settings),
         ID_QUIT => Some(Command::Quit),
+        ID_COCKPIT => Some(Command::Cockpit),
+        _ if id.starts_with(PREFIX_MODE) => UiMode::parse(&id[PREFIX_MODE.len()..]).map(Command::SetMode),
         _ => id
             .strip_prefix(PREFIX_NEW)
             .map(|a| Command::NewPane(a.to_string()))
@@ -103,11 +112,30 @@ pub fn pane_items(panes: &[PaneRow]) -> Vec<Item> {
         .collect()
 }
 
-pub fn build_model(agents: &[Value], panes: &[PaneRow], ready: &[String]) -> Vec<Item> {
+/// "Mode" submenu: one check item per mode, the current one checked.
+pub fn mode_items(mode: UiMode) -> Vec<Item> {
+    [(UiMode::Orchestration, "Orchestration"), (UiMode::Individual, "Individual")]
+        .into_iter()
+        .map(|(m, label)| Item::Check { id: format!("{PREFIX_MODE}{}", m.as_str()), label: label.into(), checked: m == mode })
+        .collect()
+}
+
+/// `pane://spawn-stage` payload. `stage` is claiming | spawning | attached | ready | failed.
+pub fn spawn_stage_payload(agent_id: &str, pane_id: Option<&str>, stage: &str, warm: bool, message: Option<&str>) -> Value {
+    let mut v = serde_json::json!({ "agent_id": agent_id, "pane_id": pane_id, "stage": stage, "warm": warm });
+    if let Some(message) = message {
+        v["message"] = Value::String(message.into());
+    }
+    v
+}
+
+pub fn build_model(agents: &[Value], panes: &[PaneRow], ready: &[String], mode: UiMode) -> Vec<Item> {
     vec![
         Item::Submenu { label: "New pane".into(), items: new_pane_items(agents, ready) },
         Item::Submenu { label: "Panes".into(), items: pane_items(panes) },
         Item::Separator,
+        Item::Action { id: ID_COCKPIT.into(), label: "Open cockpit".into(), enabled: true },
+        Item::Submenu { label: "Mode".into(), items: mode_items(mode) },
         Item::Action { id: ID_SETTINGS.into(), label: "Settings\u{2026}".into(), enabled: true },
         Item::Action { id: ID_QUIT.into(), label: "Quit Puppet Master".into(), enabled: true },
     ]
@@ -116,7 +144,7 @@ pub fn build_model(agents: &[Value], panes: &[PaneRow], ready: &[String]) -> Vec
 mod runtime {
     use super::*;
     use crate::AppState;
-    use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+    use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
     use tauri::{AppHandle, Listener, Manager, Wry};
 
@@ -128,6 +156,9 @@ mod runtime {
             match item {
                 Item::Action { id, label, enabled } => {
                     out.push(Box::new(MenuItem::with_id(app, id, label, *enabled, None::<&str>)?))
+                }
+                Item::Check { id, label, checked } => {
+                    out.push(Box::new(CheckMenuItem::with_id(app, id, label, true, *checked, None::<&str>)?))
                 }
                 Item::Separator => out.push(Box::new(PredefinedMenuItem::separator(app)?)),
                 Item::Submenu { label, items } => {
@@ -154,7 +185,7 @@ mod runtime {
                     .collect()
             })
             .unwrap_or_default();
-        build_model(&agents, &panes, &crate::standby::ready_agents())
+        build_model(&agents, &panes, &crate::standby::ready_agents(), crate::ui_mode::current())
     }
 
     fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
@@ -178,6 +209,55 @@ mod runtime {
     /// for that provider is claimed when one is warm (its hidden window is just shown); otherwise
     /// the pane is spawned cold. A person asked for it, so the window takes focus.
     pub fn new_pane(app: &AppHandle, agent: &str) -> Result<String, String> {
+        new_pane_for(app, agent, crate::cockpit::Origin::Tray)
+    }
+
+    fn emit_stage(app: &AppHandle, agent: &str, pane_id: Option<&str>, stage: &str, warm: bool, message: Option<&str>) {
+        use tauri::Emitter;
+        let _ = app.emit("pane://spawn-stage", spawn_stage_payload(agent, pane_id, stage, warm, message));
+    }
+
+    /// Emit `ready` once the pane first reads idle or waiting_input (a cold agent is booting until
+    /// then); `failed` if it errors or never gets there. Runs on its own thread.
+    fn watch_until_ready(app: &AppHandle, agent: &str, pane_id: &str) {
+        let (app, agent, pane_id) = (app.clone(), agent.to_string(), pane_id.to_string());
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            while std::time::Instant::now() < deadline {
+                let status = app
+                    .state::<AppState>()
+                    .registry
+                    .lock()
+                    .list()
+                    .into_iter()
+                    .find(|p| p.id == pane_id)
+                    .map(|p| p.status);
+                match status.as_deref() {
+                    Some("idle") | Some("waiting_input") => {
+                        return emit_stage(&app, &agent, Some(&pane_id), "ready", false, None)
+                    }
+                    Some("error") | None => {
+                        return emit_stage(&app, &agent, Some(&pane_id), "failed", false, Some("the agent exited before it was ready"))
+                    }
+                    _ => std::thread::sleep(std::time::Duration::from_millis(150)),
+                }
+            }
+            emit_stage(&app, &agent, Some(&pane_id), "failed", false, Some("still starting after 60s"));
+        });
+    }
+
+    /// Open a pane for `agent` as `origin` asked: warm standby first, else cold; shown by UI mode
+    /// (`cockpit::present_pane`). Emits `pane://spawn-stage` events along the way.
+    pub fn new_pane_for(app: &AppHandle, agent: &str, origin: crate::cockpit::Origin) -> Result<String, String> {
+        emit_stage(app, agent, None, "claiming", false, None);
+        let result = open_new_pane(app, agent, origin);
+        if let Err(e) = &result {
+            emit_stage(app, agent, None, "failed", false, Some(e));
+        }
+        result
+    }
+
+    fn open_new_pane(app: &AppHandle, agent: &str, origin: crate::cockpit::Origin) -> Result<String, String> {
         use tauri::Emitter;
         let started = std::time::Instant::now();
         let state = app.state::<AppState>();
@@ -193,11 +273,14 @@ mod runtime {
             let pane_id = claim.commit();
             let info = state.registry.lock().list().into_iter().find(|p| p.id == pane_id);
             let (cols, rows) = info.map(|p| (p.cols, p.rows)).unwrap_or((120, 30));
-            crate::app_windows::open_pane_window(app, &pane_id, agent, cols, rows, true);
+            crate::cockpit::present_pane(app, &pane_id, agent, cols, rows, origin);
             let _ = app.emit("pty://panes-changed", ());
+            emit_stage(app, agent, Some(&pane_id), "attached", true, None);
+            emit_stage(app, agent, Some(&pane_id), "ready", true, None);
             tracing::info!(%agent, pane = %pane_id, warm_ms, took_ms = started.elapsed().as_millis() as u64, "tray: opened new pane from a warm worker");
             return Ok(pane_id);
         }
+        emit_stage(app, agent, None, "spawning", false, None);
         let pane_id = crate::pty::registry_spawn_pane(
             &state.registry,
             app,
@@ -213,8 +296,10 @@ mod runtime {
         )?;
         let info = state.registry.lock().list().into_iter().find(|p| p.id == pane_id);
         let (cols, rows) = info.map(|p| (p.cols, p.rows)).unwrap_or((120, 30));
-        crate::app_windows::open_pane_window(app, &pane_id, agent, cols, rows, true);
+        crate::cockpit::present_pane(app, &pane_id, agent, cols, rows, origin);
         let _ = app.emit("pty://panes-changed", ());
+        emit_stage(app, agent, Some(&pane_id), "attached", false, None);
+        watch_until_ready(app, agent, &pane_id);
         tracing::info!(%agent, pane = %pane_id, took_ms = started.elapsed().as_millis() as u64, "tray: opened new pane cold");
         Ok(pane_id)
     }
@@ -223,6 +308,12 @@ mod runtime {
         match parse_command(id) {
             Some(Command::Settings) => crate::app_windows::open_settings_window(app, None, true),
             Some(Command::Quit) => app.exit(0),
+            Some(Command::Cockpit) => crate::cockpit::open_cockpit(app, None),
+            Some(Command::SetMode(mode)) => {
+                if let Err(e) = crate::cockpit::set_mode(app, mode) {
+                    tracing::warn!(error = %e, "tray: mode switch failed");
+                }
+            }
             Some(Command::NewPane(agent)) => {
                 let app = app.clone();
                 std::thread::spawn(move || match new_pane(&app, &agent) {
@@ -242,7 +333,12 @@ mod runtime {
                         .find(|p| p.id == pane_id)
                         .map(|p| (p.agent_type, p.cols, p.rows));
                     if let Some((agent, cols, rows)) = found {
-                        crate::app_windows::open_pane_window(&app, &pane_id, &agent, cols, rows, false);
+                        match crate::ui_mode::current() {
+                            UiMode::Individual => {
+                                crate::app_windows::open_pane_window(&app, &pane_id, &agent, cols, rows, false)
+                            }
+                            UiMode::Orchestration => crate::cockpit::open_cockpit(&app, Some(&pane_id)),
+                        }
                     }
                 });
             }
@@ -264,7 +360,7 @@ mod runtime {
                     ..
                 } = event
                 {
-                    crate::app_windows::open_settings_window(tray.app_handle(), None, true);
+                    crate::cockpit::open_primary_window(tray.app_handle());
                 }
             });
         if let Some(icon) = app.default_window_icon() {
@@ -272,7 +368,7 @@ mod runtime {
         }
         builder.build(app)?;
         tracing::info!("tray icon created (tooltip \"Puppet Master\")");
-        for event in ["pty://panes-changed", "agent_definitions_changed", crate::standby::READY_EVENT] {
+        for event in ["pty://panes-changed", "agent_definitions_changed", crate::standby::READY_EVENT, "ui://mode-changed"] {
             let handle = app.clone();
             app.listen(event, move |_| refresh(&handle));
         }
@@ -280,7 +376,7 @@ mod runtime {
     }
 }
 
-pub use runtime::{init, new_pane};
+pub use runtime::{init, new_pane, new_pane_for};
 
 #[cfg(test)]
 mod tests {
@@ -350,19 +446,50 @@ mod tests {
     }
 
     #[test]
-    fn model_has_the_four_top_level_entries_in_order() {
-        let model = build_model(&[agent("kilo", "Kilo", true, true)], &[], &[]);
+    fn model_has_the_top_level_entries_in_order() {
+        let model = build_model(&[agent("kilo", "Kilo", true, true)], &[], &[], UiMode::Orchestration);
         assert!(matches!(&model[0], Item::Submenu { label, .. } if label == "New pane"));
         assert!(matches!(&model[1], Item::Submenu { label, .. } if label == "Panes"));
         assert_eq!(model[2], Item::Separator);
-        assert!(matches!(&model[3], Item::Action { id, .. } if id == "settings"));
-        assert!(matches!(&model[4], Item::Action { id, label, .. } if id == "quit" && label == "Quit Puppet Master"));
+        assert!(matches!(&model[3], Item::Action { id, label, .. } if id == "cockpit" && label == "Open cockpit"));
+        assert!(matches!(&model[4], Item::Submenu { label, .. } if label == "Mode"));
+        assert!(matches!(&model[5], Item::Action { id, .. } if id == "settings"));
+        assert!(matches!(&model[6], Item::Action { id, label, .. } if id == "quit" && label == "Quit Puppet Master"));
+    }
+
+    #[test]
+    fn mode_submenu_checks_exactly_the_current_mode() {
+        for mode in [UiMode::Orchestration, UiMode::Individual] {
+            let checked: Vec<_> = mode_items(mode)
+                .into_iter()
+                .filter_map(|i| match i {
+                    Item::Check { id, checked: true, .. } => Some(id),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(checked, vec![format!("mode:{}", mode.as_str())]);
+        }
+        let model = build_model(&[], &[], &[], UiMode::Individual);
+        let Item::Submenu { items, .. } = &model[4] else { panic!("mode submenu") };
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn spawn_stage_payload_has_the_contract_shape() {
+        let v = spawn_stage_payload("kilo", Some("p1"), "attached", true, None);
+        assert_eq!(v, serde_json::json!({"agent_id": "kilo", "pane_id": "p1", "stage": "attached", "warm": true}));
+        let v = spawn_stage_payload("kilo", None, "failed", false, Some("boom"));
+        assert_eq!(v["pane_id"], Value::Null);
+        assert_eq!(v["message"], "boom");
     }
 
     #[test]
     fn menu_ids_parse_to_commands() {
         assert_eq!(parse_command("settings"), Some(Command::Settings));
         assert_eq!(parse_command("quit"), Some(Command::Quit));
+        assert_eq!(parse_command("cockpit"), Some(Command::Cockpit));
+        assert_eq!(parse_command("mode:individual"), Some(Command::SetMode(UiMode::Individual)));
+        assert_eq!(parse_command("mode:grid"), None);
         assert_eq!(parse_command("new:kilo"), Some(Command::NewPane("kilo".into())));
         assert_eq!(parse_command("pane:abc"), Some(Command::FocusPane("abc".into())));
         assert_eq!(parse_command("none"), None);

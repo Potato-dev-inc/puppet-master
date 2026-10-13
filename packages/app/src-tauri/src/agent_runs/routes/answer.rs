@@ -11,6 +11,31 @@ use tauri::AppHandle;
 use super::handles::run_for_pane;
 use super::wire::{query_value, AnswerPromptRequest};
 
+/// The desktop UI answering the prompt on a pane: the same path as `POST /agents/answer` with a
+/// bare `pane_id` (stale and replay guards included). Broad approvals are never opted into.
+pub(crate) fn answer_for_pane(
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &AppHandle,
+    pane_id: &str,
+    prompt_id: &str,
+    choice: &str,
+) -> Result<Value, OperationError> {
+    route_answer(
+        AnswerPromptRequest {
+            project_path: None,
+            handle: None,
+            pane_id: Some(pane_id.to_string()),
+            prompt_id: prompt_id.to_string(),
+            choice: choice.to_string(),
+            allow_broad: false,
+        },
+        "",
+        None,
+        registry,
+        app,
+    )
+}
+
 /// Answers by run handle, or by bare pane id (routed through the owning run when one exists).
 pub(super) fn route_answer(
     request: AnswerPromptRequest,

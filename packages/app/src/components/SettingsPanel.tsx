@@ -54,6 +54,7 @@ export function SettingsPanel({
     dev_server_port: DEFAULT_DEV_SERVER_PORT,
     sidebar_width: 360,
     theme: 'dark',
+    ui_mode: 'orchestration',
     developer_use_rust_mcp: false,
   });
   const [savedAt, setSavedAt] = useState<number | null>(null);
