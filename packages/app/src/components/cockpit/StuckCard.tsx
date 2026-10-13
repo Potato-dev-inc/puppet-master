@@ -7,6 +7,7 @@ export const OPEN_NEW_MENU = 'pm:open-new-menu';
 
 export function focusTerminal(): void {
   window.setTimeout(() => {
+    if (typeof document === 'undefined') return; // the window was torn down (tests, closing)
     const slot = document.querySelector<HTMLElement>('.ck-term-slot');
     (slot?.querySelector<HTMLElement>('[tabindex], textarea, canvas') ?? slot)?.focus();
   }, 60);
