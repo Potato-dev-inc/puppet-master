@@ -656,6 +656,14 @@ mod definitions {
         let app = find(&crate::bridge::routes::mcp::agent_types_for(true));
         assert!(phone["definition"].get("path").is_none(), "{phone}");
         assert_eq!(phone["definition"]["state"], "active");
+        // Who counts as the app session: a local peer with no MCP session and no device token.
+        let routed = |session, headers: &str, loopback| {
+            find(&crate::bridge::routes::mcp::types_route(session, headers, loopback))["definition"].get("path").is_some()
+        };
+        assert!(routed(None, "Host: 127.0.0.1\r\n", true), "the app session keeps the path");
+        assert!(!routed(Some("mcp-1"), "Host: 127.0.0.1\r\n", true), "an MCP session never gets paths");
+        assert!(!routed(None, "Host: pm.example.com\r\nAuthorization: Bearer tok\r\n", false), "a remote phone never gets paths");
+        assert!(!routed(None, "Host: 127.0.0.1\r\nAuthorization: Bearer tok\r\n", true), "a device token is not the app");
         assert!(app["definition"]["path"].as_str().is_some_and(|p| p.ends_with("a.toml")), "{app}");
         reload_global(&inputs(&t.root.join("none"), &code), &approvals);
 

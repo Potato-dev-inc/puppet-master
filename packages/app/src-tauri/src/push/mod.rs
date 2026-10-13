@@ -171,9 +171,15 @@ pub fn notify_operation(snapshot: &crate::operations::OperationSnapshot) {
     });
 }
 
+/// Test spy: the ids `notify_question` was called with (the global hub is not installed in tests).
+#[cfg(test)]
+pub static NOTIFIED_QUESTIONS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
 /// Hook for `ask_user`: a question was just created. Fires once per question (the caller only
 /// invokes it on creation). Tapping the notification opens the phone's question list.
 pub fn notify_question(question: &crate::questions::Question) {
+    #[cfg(test)]
+    NOTIFIED_QUESTIONS.lock().push(question.id.clone());
     let Some(ctx) = CTX.get() else { return };
     if !ctx.hub.has_subscribers() {
         return;
