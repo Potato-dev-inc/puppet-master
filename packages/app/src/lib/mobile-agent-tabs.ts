@@ -112,3 +112,34 @@ export function phoneLaunchEntries(listing: AgentRegistryListing): LaunchEntry[]
   });
   return [...entries.filter((e) => !e.disabled), ...entries.filter((e) => e.disabled)];
 }
+
+/** The four states the unified dot glyph (DotSpinner) draws; anything else reads as idle. */
+export type GlyphStatus = 'running' | 'waiting_input' | 'idle' | 'error';
+
+export function glyphStatus(status: string): GlyphStatus {
+  return status === 'running' || status === 'waiting_input' || status === 'error' ? status : 'idle';
+}
+
+export interface PaneGroup {
+  id: 'needs' | 'working' | 'idle';
+  title: string;
+  panes: PaneInfo[];
+}
+
+/**
+ * The phone's Agents list: "Needs you" (waiting at a prompt, or failed), "Working", then "Idle".
+ * Empty groups are left out; the order inside a group is the tab order.
+ */
+export function groupPanes(panes: PaneInfo[]): PaneGroup[] {
+  const groups: PaneGroup[] = [
+    { id: 'needs', title: 'Needs you', panes: panes.filter((p) => statusMeta(p.status).attention) },
+    { id: 'working', title: 'Working', panes: panes.filter((p) => glyphStatus(p.status) === 'running') },
+    { id: 'idle', title: 'Idle', panes: panes.filter((p) => !statusMeta(p.status).attention && glyphStatus(p.status) !== 'running') },
+  ];
+  return groups.filter((g) => g.panes.length > 0);
+}
+
+/** Two-digit waiting counter for the large title ("02"). */
+export function waitingCount(panes: PaneInfo[]): string {
+  return String(panes.filter((p) => statusMeta(p.status).attention).length).padStart(2, '0');
+}

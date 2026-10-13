@@ -53,23 +53,28 @@ export function NotificationsToggle({
   };
 
   return (
-    <div className="border-b border-pm-border py-3">
-      <label className="flex items-center justify-between gap-2 text-pm-muted">
-        <span className="text-pm-text">Notifications</span>
-        <input
-          type="checkbox"
-          aria-label="Notifications"
-          checked={view.checked}
-          disabled={view.disabled || (!bridgeReady && state.kind !== 'on')}
-          onChange={(e) => void toggle(e.target.checked)}
-          className="h-4 w-4 accent-pm-accent"
-        />
-      </label>
+    <>
+      <div className="ph-group">
+        <label className="ph-switch-row">
+          <span className="ph-rowtext">Notifications</span>
+          <input
+            type="checkbox"
+            aria-label="Notifications"
+            className="ph-switch"
+            checked={view.checked}
+            disabled={view.disabled || (!bridgeReady && state.kind !== 'on')}
+            onChange={(e) => void toggle(e.target.checked)}
+          />
+        </label>
+      </div>
       {view.hint && (
-        <p role={state.kind === 'error' ? 'alert' : undefined} className="mt-1 text-[11px] text-pm-muted/80">
+        <p
+          role={state.kind === 'error' ? 'alert' : undefined}
+          className={`ph-foot${state.kind === 'error' ? ' ph-foot--err' : ''}`}
+        >
           {view.hint}
         </p>
       )}
-    </div>
+    </>
   );
 }

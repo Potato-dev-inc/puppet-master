@@ -82,41 +82,39 @@ export function DigestCard({
   const needs = digest.needsYou.length;
 
   return (
-    <section aria-label="While you were away" className="mb-2 rounded-lg border border-pm-border bg-pm-panel p-3 text-xs">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-pm-muted">While you were away</span>
-        <button
-          type="button"
-          onClick={dismiss}
-          className="min-h-[32px] rounded px-2 text-pm-muted hover:text-pm-text"
-        >
-          Got it
-        </button>
-      </div>
-      <p className="mt-1 font-semibold">
-        {digest.agentsWorked} {plural(digest.agentsWorked, 'agent worked', 'agents worked')}
-      </p>
-      {shown.length > 0 && (
-        <ul className="mt-2 space-y-1">
-          {shown.map((line) => (
-            <li key={line.paneId}>
-              <button
-                type="button"
-                onClick={() => onOpen(line.paneId)}
-                className="block w-full rounded px-1 py-1 text-left line-clamp-2 hover:bg-pm-border/30"
-              >
-                {line.sentence}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {more > 0 && <p className="mt-1 text-pm-muted">+{more} more</p>}
-      {needs > 0 && (
-        <p className="mt-1 text-pm-muted">
-          {needs} {plural(needs, 'needs', 'need')} you
+    <section aria-label="While you were away" className="ph-cards">
+      <div className="ph-card">
+        <div className="ph-card-cap">
+          <span>While you were away</span>
+          <button type="button" onClick={dismiss} className="ph-btn ph-btn--plain">
+            Got it
+          </button>
+        </div>
+        <p className="ph-card-q">
+          {digest.agentsWorked} {plural(digest.agentsWorked, 'agent worked', 'agents worked')}
         </p>
-      )}
+        {shown.length > 0 && (
+          <ul className="ph-digest-lines">
+            {shown.map((line) => (
+              <li key={line.paneId}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(line.paneId)}
+                  className="ph-digest-line"
+                >
+                  <span className="ph-clamp">{line.sentence}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {more > 0 && <p className="ph-digest-more">+{more} more</p>}
+        {needs > 0 && (
+          <p className="ph-digest-more">
+            {needs} {plural(needs, 'needs', 'need')} you
+          </p>
+        )}
+      </div>
     </section>
   );
 }

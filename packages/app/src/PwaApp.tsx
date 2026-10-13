@@ -24,6 +24,9 @@ import {
 import { BridgePaneTerminal, useBridgePaneTransport } from './components/BridgePaneTerminal';
 import { AgentTabBar } from './components/mobile/AgentTabBar';
 import { PreviewNote } from './components/mobile/PreviewNote';
+import { StuckNote } from './components/mobile/StuckNote';
+import type { LoopSignalInfo } from './lib/bridge-types';
+import './styles/phone.css';
 import type { PreviewUrl } from './lib/pane-preview';
 import { AgentsOverview } from './components/mobile/AgentsOverview';
 import { QuestionsList } from './components/mobile/QuestionsList';
@@ -104,6 +107,10 @@ export default function PwaApp() {
   const [panes, setPanes] = useState<PaneInfo[]>([]);
   const [panesLoaded, setPanesLoaded] = useState(false);
   const [previews, setPreviews] = useState<Record<string, PreviewUrl[]>>({});
+  /** Panes the loop guard flagged as stuck (event `loop-signal`). */
+  const [stuck, setStuck] = useState<Map<string, LoopSignalInfo>>(new Map());
+  /** Short confirmation shown at the bottom (replaces browser alerts). */
+  const [toast, setToast] = useState<string | null>(null);
   const [settings, setSettings] = useState<PublicSettings>(DEFAULT_PUBLIC_SETTINGS);
   const [active, setActive] = useState<string>(readActiveTab);
   const [editingUrl, setEditingUrl] = useState(false);
@@ -208,6 +215,14 @@ export default function PwaApp() {
           if (ev.urls.length > 0) return { ...cur, [ev.pane_id]: ev.urls };
           const { [ev.pane_id]: _gone, ...rest } = cur;
           return rest;
+        });
+      }
+      if (ev.type === 'loop-signal') {
+        setStuck((cur) => {
+          const next = new Map(cur);
+          if (ev.signal) next.set(ev.pane_id, ev.signal);
+          else next.delete(ev.pane_id);
+          return next;
         });
       }
       if (ev.type === 'pane-status') {
@@ -403,6 +418,12 @@ export default function PwaApp() {
       .catch((e) => setSpawnError(e instanceof Error ? e.message : String(e)));
   }, [bridge]);
 
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 3200);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
   const closeActive = useCallback(async () => {
     if (!bridge || active === ALL_TAB) return;
     try {
@@ -411,13 +432,13 @@ export default function PwaApp() {
       setSheet(null);
       applyPanes(await bridge.listPanes());
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      setToast(e instanceof Error ? e.message : String(e));
     }
   }, [bridge, active, applyPanes]);
 
   if (inviteCode) {
     return (
-      <div className="pwa-shell bg-pm-bg text-zinc-100">
+      <div className="pwa-shell ph bg-pm-bg text-zinc-100">
         <PairInviteScreen
           pairingCode={inviteCode}
           onConnected={(url) => {
@@ -437,7 +458,7 @@ export default function PwaApp() {
 
   if (!bridgeUrl || editingUrl) {
     return (
-      <div className="pwa-shell bg-pm-bg text-zinc-100">
+      <div className="pwa-shell ph bg-pm-bg text-zinc-100">
         <SetupScreen
           onConnect={(url) => {
             setBridgeUrl(url);
@@ -449,7 +470,7 @@ export default function PwaApp() {
   }
 
   return (
-    <div className="pwa-shell pwa-shell--fit-visual bg-pm-bg text-zinc-100">
+    <div className="pwa-shell pwa-shell--fit-visual ph">
       <div className="flex h-full min-h-0 min-w-0 flex-col">
         <AgentTabBar
           panes={panes}
@@ -460,9 +481,10 @@ export default function PwaApp() {
           onNew={openNewAgentSheet}
           onMenu={() => setSheet('menu')}
         />
+        {active !== ALL_TAB && stuck.get(active) && <StuckNote signal={stuck.get(active)!} />}
         {active !== ALL_TAB && previews[active]?.[0] && <PreviewNote preview={previews[active][0]} />}
         <main
-          className="relative flex min-h-0 flex-1 flex-col bg-pm-panel"
+          className="ph-main relative flex min-h-0 flex-1 flex-col"
           aria-label="Agent"
           onPointerDownCapture={activePane ? onAgentPointerDown : undefined}
           onPointerUpCapture={activePane ? onAgentPointerUp : undefined}
@@ -475,6 +497,7 @@ export default function PwaApp() {
               labels={labels}
               onOpen={setActive}
               onNew={openNewAgentSheet}
+              stuck={stuck}
               header={<QuestionsList bridge={bridge} bridgeReady={bridgeReady} labels={labels} />}
             />
           )}
@@ -494,7 +517,7 @@ export default function PwaApp() {
             />
           )}
           {active !== ALL_TAB && !activePane && (
-            <div className="py-10 text-center text-xs text-pm-muted">Loading agent…</div>
+            <div className="ph-loading">Loading agent…</div>
           )}
         </main>
       </div>
@@ -522,14 +545,19 @@ export default function PwaApp() {
             if (!bridge) return;
             bridge
               .stopAllPanes()
-              .then((r) => window.alert(r.stopped.length === 0 ? 'Nothing was running.' : `Stopped ${r.stopped.length} agent${r.stopped.length === 1 ? '' : 's'}.`))
-              .catch((e) => window.alert(e instanceof Error ? e.message : String(e)));
+              .then((r) => setToast(r.stopped.length === 0 ? 'Nothing was running.' : `Stopped ${r.stopped.length} agent${r.stopped.length === 1 ? '' : 's'}.`))
+              .catch((e) => setToast(e instanceof Error ? e.message : String(e)));
           }}
           onEditConnection={() => {
             setEditingUrl(true);
             setSheet(null);
           }}
         />
+      )}
+      {toast && (
+        <div className="ph-toast" role="status">
+          {toast}
+        </div>
       )}
     </div>
   );
