@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanTitleInput, MAX_TITLE_CHARS, paneHeading, paneOneLine } from './titles';
+import { cleanTitleInput, MAX_TITLE_CHARS, multiLoginAgents, paneHeading, paneOneLine, paneSubline } from './titles';
 
 describe('paneHeading', () => {
   it('uses the title as the primary line and the agent name as the secondary', () => {
@@ -45,5 +45,27 @@ describe('cleanTitleInput', () => {
   it('returns an empty string for blank input, meaning clear the name', () => {
     expect(cleanTitleInput('')).toBe('');
     expect(cleanTitleInput('   \n\t ')).toBe('');
+  });
+});
+
+describe('multiLoginAgents and paneSubline', () => {
+  const work = { agent_type: 'claude', account: 'acc_work', account_label: 'Work', title: 'auth refactor' };
+  const own = { agent_type: 'claude', account: null, account_label: null, title: null };
+
+  it('flags an agent that runs under more than one login, counting the CLI own login', () => {
+    expect([...multiLoginAgents([work, own])]).toEqual(['claude']);
+    expect(multiLoginAgents([work, { ...work }]).size).toBe(0);
+    expect(multiLoginAgents([work, { agent_type: 'codex', account: null }]).size).toBe(0);
+  });
+
+  it('puts the agent first on a titled row and adds the login only when several are in use', () => {
+    const multi = new Set(['claude']);
+    expect(paneSubline(work, 'Claude Code', 'Editing src/app.ts', multi)).toBe('Claude Code · Editing src/app.ts · Work');
+    expect(paneSubline(work, 'Claude Code', 'Editing src/app.ts', new Set())).toBe('Claude Code · Editing src/app.ts');
+  });
+
+  it('leads with the detail on an untitled row, whose first line is already the agent', () => {
+    expect(paneSubline(own, 'Claude Code', 'proj', new Set(['claude']))).toBe('proj');
+    expect(paneSubline({ ...own, account_label: 'Work' }, 'Claude Code', 'proj', new Set(['claude']))).toBe('proj · Work');
   });
 });

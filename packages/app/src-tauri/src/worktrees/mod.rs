@@ -334,6 +334,7 @@ pub fn create(project: &str, handle: &str) -> Result<WorktreeRef, OperationError
         }
     }
     ensure_excluded(&info);
+    crate::git_exclude::ensure_project_storage_excluded(&project_path);
     let root = worktrees_root(&project_path);
     std::fs::create_dir_all(&root).map_err(|error| {
         err(

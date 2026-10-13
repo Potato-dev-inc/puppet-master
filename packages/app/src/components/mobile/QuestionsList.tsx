@@ -3,7 +3,7 @@
 // path), fetches once on mount, and keeps a slow 30s poll only as a fallback for a missed event.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BridgeClient } from '../../lib/bridge';
-import { askerName, isLive, type Question } from '../../lib/questions';
+import { askerName, isLive, waitCaption, type Question } from '../../lib/questions';
 
 /** Fallback poll: the `questions` SSE event is the primary trigger, this only catches missed events. */
 const POLL_MS = 30000;
@@ -45,9 +45,30 @@ export function QuestionsList({
   revision?: number;
 }) {
   const { questions, refresh } = useQuestionPolling(bridge, bridgeReady, revision);
+  return <QuestionsView bridge={bridge} questions={questions} refresh={refresh} labels={labels} />;
+}
+
+/** The cards for questions someone else fetched (PwaApp also counts them in the waiting number). */
+export function QuestionsView({
+  bridge,
+  questions,
+  refresh,
+  labels,
+}: {
+  bridge: BridgeClient;
+  questions: Question[];
+  refresh: () => void;
+  labels: Map<string, string>;
+}) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const live = questions.filter((q) => isLive(q, Date.now()));
+  // Re-render twice a minute so the "stops waiting in N min" caption keeps counting down.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const live = questions.filter((q) => isLive(q, now));
   if (live.length === 0) return null;
 
   const run = async (action: Promise<unknown>) => {
@@ -71,18 +92,22 @@ export function QuestionsList({
           {q.context && <p className="ph-card-body">{q.context}</p>}
           {q.choices.length > 0 && (
             <div className="ph-answers">
-              {q.choices.map((c, i) => (
+              {/* Equal weight on purpose: the agent wrote the choices, so none is made the easy default. */}
+              {q.choices.map((c) => (
                 <button
                   key={c.id}
                   type="button"
                   onClick={() => void run(bridge.answerQuestion(q.id, { choice_id: c.id }))}
-                  className={i === 0 ? 'ph-btn ph-btn--primary' : 'ph-btn'}
+                  className="ph-btn"
                 >
                   {c.label}
                 </button>
               ))}
             </div>
           )}
+          <p className="ph-card-wait" data-testid="question-wait">
+            {waitCaption(q, now, q.pane_id ? labels.get(q.pane_id) : undefined)}
+          </p>
           {q.allow_free_text && (
             <form
               className="ph-reply"

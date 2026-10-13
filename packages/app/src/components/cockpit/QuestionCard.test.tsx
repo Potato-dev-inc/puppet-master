@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { askerName, isLive, type Question } from '../../lib/questions';
+import { askerName, isLive, timeLeftText, waitCaption, type Question } from '../../lib/questions';
 import { QuestionCard } from './QuestionCard';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -110,5 +110,26 @@ describe('QuestionCard', () => {
     expect(isLive(base, 1000)).toBe(true);
     expect(isLive({ ...base, state: 'answered' }, 1000)).toBe(false);
     expect(isLive(base, 600_000)).toBe(false);
+  });
+
+  it('gives every choice equal weight: none is the primary button', () => {
+    render(base);
+    const classes = ['Postgres', 'SQLite'].map((t) => byText(t).className);
+    expect(classes.every((c) => c.includes('ck-btn--secondary'))).toBe(true);
+    expect(host.querySelector('.ck-btn--primary')).toBeNull();
+  });
+
+  it('says how long the agent keeps waiting', () => {
+    render(base); // now = 90 s, expires at 600 s: 8.5 min left, rounded up
+    expect(host.querySelector('[data-testid="question-wait"]')?.textContent).toBe('Planner stops waiting in 9 min');
+  });
+
+  it('words the countdown for the edges', () => {
+    expect(timeLeftText(30_000)).toBe('under a minute');
+    expect(timeLeftText(8 * 60_000)).toBe('8 min');
+    expect(timeLeftText(3 * 3_600_000)).toBe('3 h');
+    expect(waitCaption({ ...base, agent: undefined }, 0, 'Codex 2')).toBe('Codex 2 stops waiting in 10 min');
+    expect(waitCaption({ ...base, agent: undefined }, 0)).toBe('The agent stops waiting in 10 min');
+    expect(waitCaption(base, 600_000)).toBe('Planner has stopped waiting');
   });
 });

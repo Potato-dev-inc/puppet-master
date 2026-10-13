@@ -3,34 +3,38 @@ import { projectName } from '../../lib/mobile-agent-tabs';
 import { hasEverSpawned } from '../../lib/agent-health';
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { DotSpinner } from './DotSpinner';
-import { useLoopGuard } from '../../lib/loop-guard';
-import { PaneStuckCard } from './StuckCard';
+import { OPEN_NEW_MENU, PaneStuckCard } from './StuckCard';
+import { itemsOfKind } from '../../lib/attention';
+import { useNeedsYou } from '../../hooks/useNeedsYou';
 import { AskNotices } from './AskNotices';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
 import { QuestionCard } from './QuestionCard';
 import { paneHeading } from './titles';
 
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
-  const waiting = c.registry.paneList.filter((p) => p.status === 'waiting_input');
+  // One list for every surface: the badge, the Doto counter and the sidebar group use its length.
+  const needs = useNeedsYou(c);
+  const count = needs.length;
+  const waiting = c.registry.paneList.filter((p) => itemsOfKind(needs, 'approval').some((i) => i.paneId === p.info.id));
+  const errored = c.registry.paneList.filter((p) => itemsOfKind(needs, 'error').some((i) => i.paneId === p.info.id));
   const asked = c.asked.questions;
-  const count = waiting.length + asked.length;
   const noPanes = c.registry.paneList.length === 0 && c.registry.initialReady;
   const firstRun = noPanes && !hasEverSpawned();
-  const stuckIds = Object.keys(useLoopGuard().signals).filter((id) => c.registry.panes.has(id));
+  const stuckIds = itemsOfKind(needs, 'stuck').flatMap((i) => (i.paneId ? [i.paneId] : []));
 
   return (
     <div className="ck-inbox">
       <header className="ck-inbox-hero">
-        <div className="ck-doto" aria-label={`${count} waiting`}>
+        <div className="ck-doto" aria-label={`${count} ${count === 1 ? 'thing needs' : 'things need'} you`}>
           {String(count).padStart(2, '0')}
         </div>
-        <h1 className="ck-title">{firstRun ? 'Welcome to Puppet Master' : count === 0 ? 'Nothing needs you' : count === 1 ? 'Agent waiting for you' : 'Agents waiting for you'}</h1>
+        <h1 className="ck-title">{firstRun ? 'Welcome to Puppet Master' : count === 0 ? 'Nothing needs you' : count === 1 ? 'One thing needs you' : `${count} things need you`}</h1>
         <p className="ck-sub">
           {firstRun
             ? 'Your AI agents live here. Start by checking which ones work on this computer.'
             : count === 0
             ? 'Agents that stop to ask a question will show up here.'
-            : 'Answer here or open the terminal.'}
+            : 'Answer here, or open the terminal.'}
         </p>
         {noPanes && onOpenDoctor && (
           <button
@@ -100,6 +104,41 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
                   ) : null}
                   <button type="button" className="ck-btn ck-btn--plain" onClick={() => c.select(id)}>
                     Open terminal
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {errored.length > 0 && (
+        <ul className="ck-list" aria-label="Agents that hit an error">
+          {errored.map((p) => {
+            const id = p.info.id;
+            const since = c.statusSince.get(id);
+            const name = c.names.get(id) ?? p.info.agent_type;
+            return (
+              <li key={id} className="ck-inbox-item" data-error-pane={id}>
+                <div className="ck-inbox-top">
+                  <span className="ck-row-glyph">
+                    <DotSpinner status="error" />
+                  </span>
+                  <span className="ck-row-title">{`${name} hit an error`}</span>
+                  <span className="ck-row-sub">{projectName(p.info.cwd)}</span>
+                  <span className="ck-row-time">{since ? `${formatElapsed(c.now - since)} ago` : ''}</span>
+                </div>
+                <p className="ck-inbox-q">Open the terminal to see what happened.</p>
+                <div className="ck-inbox-actions">
+                  <button type="button" className="ck-btn ck-btn--secondary" onClick={() => c.select(id)}>
+                    Open
+                  </button>
+                  <button
+                    type="button"
+                    className="ck-btn ck-btn--plain"
+                    onClick={() => window.dispatchEvent(new CustomEvent(OPEN_NEW_MENU))}
+                  >
+                    Ask another agent
                   </button>
                 </div>
               </li>

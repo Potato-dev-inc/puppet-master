@@ -142,8 +142,33 @@ describe('Restore confirm sheet', () => {
     await click(button('Restore files'));
     expect(api.checkpointRestore).toHaveBeenCalledWith('p1', '2');
     expect(host.querySelector('[role="alertdialog"]')).toBeNull();
-    expect(notify).toHaveBeenCalledWith(expect.stringContaining('Files restored to "Before turn 2"'));
+    expect(notify).toHaveBeenCalledWith(
+      'Files restored to "Before turn 2".',
+      expect.objectContaining({ label: 'Undo' }),
+    );
     expect(api.checkpointsList.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('the restore toast has an Undo that restores the "Before undo" checkpoint', async () => {
+    const api = mockApi();
+    const notify = await mount(api);
+    await click(host.querySelectorAll('.ck-hist-row .ck-btn')[1]);
+    await click(button('Restore files'));
+    const action = notify.mock.calls[0][1] as { label: string; run: () => void };
+    expect(api.checkpointRestore).toHaveBeenCalledTimes(1);
+    await act(async () => action.run());
+    // mockApi's restore reports safetyId "4": that is the checkpoint the Undo goes back to.
+    expect(api.checkpointRestore).toHaveBeenLastCalledWith('p1', '4');
+    expect(notify).toHaveBeenLastCalledWith('Undone. Your files are back as they were before the restore.');
+  });
+
+  it('offers no Undo when the restore saved nothing first', async () => {
+    const api = mockApi();
+    api.checkpointRestore.mockResolvedValueOnce({ safetyId: null, written: 0, removed: 0, failed: [] });
+    const notify = await mount(api);
+    await click(host.querySelectorAll('.ck-hist-row .ck-btn')[1]);
+    await click(button('Restore files'));
+    expect(notify).toHaveBeenCalledWith('Files restored to "Before turn 2".', undefined);
   });
 
   it('Cancel closes the sheet and restores nothing', async () => {

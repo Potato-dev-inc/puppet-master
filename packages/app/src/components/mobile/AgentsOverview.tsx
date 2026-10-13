@@ -8,6 +8,8 @@ import type { LoopSignalInfo } from '../../lib/bridge-types';
 import { ago, glyphStatus, groupPanes, previewLines, projectName, waitingCount } from '../../lib/mobile-agent-tabs';
 import { DotSpinner } from '../cockpit/DotSpinner';
 import { DigestCard } from './DigestCard';
+import { isLive } from '../../lib/questions';
+import { QuestionsView, useQuestionPolling } from './QuestionsList';
 
 const PREVIEW_POLL_MS = 4000;
 
@@ -30,6 +32,7 @@ export function AgentsOverview({
   onNew,
   header,
   stuck,
+  questionsRevision,
 }: {
   bridge: BridgeClient;
   bridgeReady: boolean;
@@ -41,7 +44,14 @@ export function AgentsOverview({
   header?: ReactNode;
   /** Panes the loop guard flagged as stuck, by pane id. */
   stuck?: Map<string, LoopSignalInfo>;
+  /**
+   * Bumped by the bridge `questions` event. When given, this overview fetches the agents' questions,
+   * shows their cards under the title, and counts them in the waiting number like the desktop does.
+   */
+  questionsRevision?: number;
 }) {
+  const { questions, refresh } = useQuestionPolling(bridge, bridgeReady && questionsRevision !== undefined, questionsRevision ?? 0);
+  const liveQuestions = questionsRevision === undefined ? [] : questions.filter((q) => isLive(q, Date.now()));
   const [previews, setPreviews] = useState<Record<string, string[]>>({});
   const [now, setNow] = useState(() => Date.now());
   const ids = panes.map((pane) => pane.id).join(',');
@@ -79,11 +89,14 @@ export function AgentsOverview({
     return <div className="ph-connecting">Connecting to your PC…</div>;
   }
 
+  const waiting = waitingCount(panes, { questions: liveQuestions, stuckPaneIds: stuck ? [...stuck.keys()] : [] });
+  const cards =
+    questionsRevision === undefined ? null : <QuestionsView bridge={bridge} questions={questions} refresh={refresh} labels={labels} />;
   const title = (
     <header className="ph-large">
       <h1>Agents</h1>
-      <div className="ph-counter" aria-label={`${Number(waitingCount(panes))} waiting`}>
-        <span className="ph-doto">{waitingCount(panes)}</span>
+      <div className="ph-counter" aria-label={`${Number(waiting)} waiting`}>
+        <span className="ph-doto">{waiting}</span>
         <span className="ph-counter-label">waiting</span>
       </div>
     </header>
@@ -94,6 +107,8 @@ export function AgentsOverview({
       <div className="ph-scroll">
         {title}
         {header}
+      {cards}
+        {cards}
         <DigestCard bridge={bridge} bridgeReady={bridgeReady} onOpen={onOpen} />
         <div className="ph-empty">
           <div className="ph-dotgrid" aria-hidden="true" />
@@ -112,6 +127,7 @@ export function AgentsOverview({
     <div className="ph-scroll">
       {title}
       {header}
+      {cards}
       <DigestCard bridge={bridge} bridgeReady={bridgeReady} onOpen={onOpen} />
       {groupPanes(panes).map((group) => (
         <section key={group.id} aria-label={group.title}>

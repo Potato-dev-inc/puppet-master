@@ -11,7 +11,7 @@
   --sep: rgba(255, 255, 255, 0.08);
   --label: #f5f5f7;
   --label-2: rgba(245, 245, 247, 0.64);
-  --label-3: rgba(245, 245, 247, 0.4);
+  --label-3: rgba(245, 245, 247, 0.52);
   --label-4: rgba(245, 245, 247, 0.22);
   --primary-bg: #f5f5f7;
   --primary-fg: #0a0a0b;
@@ -45,8 +45,8 @@
   --fill-active: rgba(0, 0, 0, 0.09);
   --sep: rgba(0, 0, 0, 0.09);
   --label: #1d1d1f;
-  --label-2: rgba(29, 29, 31, 0.64);
-  --label-3: rgba(29, 29, 31, 0.5);
+  --label-2: rgba(29, 29, 31, 0.74);
+  --label-3: rgba(29, 29, 31, 0.64);
   --label-4: rgba(29, 29, 31, 0.28);
   --primary-bg: #1d1d1f;
   --primary-fg: #ffffff;

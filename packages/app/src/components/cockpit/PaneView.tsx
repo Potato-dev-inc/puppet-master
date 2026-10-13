@@ -339,8 +339,11 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         )}
         {tab === 'receipt' && (
           <div className="ck-scroll ck-fade-in" key="receipt">
-            <Changes paneId={paneId} status={pane?.status ?? ''} />
-            <SecondOpinion paneId={paneId} status={pane?.status ?? ''} />
+            <Changes
+              paneId={paneId}
+              status={pane?.status ?? ''}
+              secondOpinion={<SecondOpinion paneId={paneId} status={pane?.status ?? ''} />}
+            />
             <LastTurn summary={lastTurn} now={c.now} />
             {run.error ? (
               <Empty title="Receipt unavailable" body={run.error} />

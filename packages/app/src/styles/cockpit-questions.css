@@ -11,6 +11,12 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.cockpit .ck-q-wait {
+  margin: 0;
+  padding-left: 24px;
+  font-size: 12px;
+  color: var(--label-2);
+}
 .cockpit .ck-q-ctx {
   margin: 0;
   padding-left: 24px;

@@ -120,6 +120,44 @@ describe('Sidebar pane titles', () => {
   });
 });
 
+describe('Sidebar identity on titled rows', () => {
+  it('reads "Codex · Editing src/app.ts" under the title', () => {
+    const api = fakeApi([{ info: info('p1', 'auth refactor'), status: 'running' }], { p1: 'Codex' });
+    (api as unknown as { activities: unknown }).activities = { p1: { kind: 'working', text: 'Editing src/app.ts' } };
+    act(() => {
+      root.render(<Sidebar c={api} onOpenPalette={() => {}} />);
+    });
+    const row = host.querySelector('.ck-row:not(.ck-row--flat)') as HTMLElement;
+    expect(row.querySelector('.ck-row-sub')?.textContent).toBe('Codex · Editing src/app.ts');
+  });
+
+  it('adds the login when the agent runs under more than one', () => {
+    const work = { ...info('p1', 'auth refactor'), account: 'acc_work', account_label: 'Work' } as PaneInfo;
+    const api = fakeApi(
+      [
+        { info: work, status: 'idle' },
+        { info: info('p2', null), status: 'idle' },
+      ],
+      { p1: 'Codex', p2: 'Codex 2' },
+    );
+    act(() => {
+      root.render(<Sidebar c={api} onOpenPalette={() => {}} />);
+    });
+    const subs = Array.from(host.querySelectorAll('.ck-row:not(.ck-row--flat) .ck-row-sub')).map((e) => e.textContent);
+    expect(subs).toContain('Codex · puppet-master · Work');
+    expect(subs).toContain('puppet-master');
+  });
+
+  it('says Error on an errored row that has no activity line', () => {
+    const api = fakeApi([{ info: info('ps', null), status: 'error' }], { ps: 'PowerShell' });
+    act(() => {
+      root.render(<Sidebar c={api} onOpenPalette={() => {}} />);
+    });
+    const row = host.querySelector('.ck-row:not(.ck-row--flat)') as HTMLElement;
+    expect(row.querySelector('.ck-row-sub')?.textContent).toBe('Error · puppet-master');
+  });
+});
+
 describe('RenameTitle', () => {
   const baseProps = (over: Partial<RenameTitleProps> = {}): RenameTitleProps => ({
     text: 'auth refactor',

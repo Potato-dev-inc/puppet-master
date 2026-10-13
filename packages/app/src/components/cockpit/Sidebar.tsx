@@ -1,6 +1,8 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { NewAgentMenu } from './NewAgentMenu';
 import type { CockpitApi } from '../../hooks/useCockpit';
+import { useNeedsYou } from '../../hooks/useNeedsYou';
+import { needsYouPaneIds } from '../../lib/attention';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { activityText } from '../../lib/pane-activity';
 import { mainPreview, previewLabel } from '../../lib/pane-preview';
@@ -8,7 +10,7 @@ import '../../styles/live-preview.css';
 import { DotSpinner } from './DotSpinner';
 import { IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
 import { formatElapsed, groupPanes, spinnerStatus } from './model';
-import { paneHeading } from './titles';
+import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 import { LastTurnContext } from './away-context';
 import { SegTabs } from './SegTabs';
 
@@ -24,9 +26,12 @@ export function Sidebar({
   onOpenMemory?: () => void;
 }) {
   const list = c.registry.paneList;
-  const questionPanes = new Set(c.asked.questions.flatMap((q) => (q.pane_id ? [q.pane_id] : [])));
+  // The same list the Inbox badge and the Doto counter use, so the three numbers always agree.
+  const needs = useNeedsYou(c);
+  const questionPanes = needsYouPaneIds(needs);
   const groups = groupPanes(list, questionPanes);
-  const waiting = list.filter((p) => p.status === 'waiting_input').length + c.asked.questions.length;
+  const waiting = needs.length;
+  const multiLogin = multiLoginAgents(list.map((p) => p.info));
   const lastTurn = useContext(LastTurnContext);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isolated, setIsolated] = useState(false);
@@ -51,10 +56,13 @@ export function Sidebar({
     };
   }, [menuOpen]);
 
-  const section = (title: string, items: typeof list) =>
+  const section = (title: string, items: typeof list, count?: number) =>
     items.length === 0 ? null : (
       <div className="ck-group" key={title}>
-        <div className="ck-caption">{title}</div>
+        <div className="ck-caption">
+          {title}
+          {count ? <span className="ck-caption-count">{count}</span> : null}
+        </div>
         {items.map((p) => {
           const id = p.info.id;
           const since = c.statusSince.get(id);
@@ -75,8 +83,13 @@ export function Sidebar({
               <span className="ck-row-main" title={projectName(p.info.cwd)}>
                 <span className="ck-row-title">{heading.primary}</span>
                 <span className="ck-row-sub">
-                  {activityText(p.status, c.activities?.[id]) ??
-                    (heading.secondary ? `${heading.secondary} · ${projectName(p.info.cwd)}` : projectName(p.info.cwd))}
+                  {paneSubline(
+                    p.info,
+                    c.names.get(id) ?? p.info.agent_type,
+                    activityText(p.status, c.activities?.[id]) ??
+                      (p.status === 'error' ? `Error · ${projectName(p.info.cwd)}` : projectName(p.info.cwd)),
+                    multiLogin,
+                  )}
                 </span>
               </span>
               {mainPreview(c.previews, id) && (
@@ -141,7 +154,7 @@ export function Sidebar({
           </span>
           {waiting > 0 && <span className="ck-count">{waiting}</span>}
         </button>
-        {section('Needs you', groups.needs)}
+        {section('Needs you', groups.needs, waiting)}
         {section('Working', groups.working)}
         {section('Idle', groups.idle)}
         {list.length === 0 && c.registry.initialReady && <p className="ck-side-empty">No agents running.</p>}

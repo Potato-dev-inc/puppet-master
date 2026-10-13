@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { cockpitApi, type WorktreeDiff, type WorktreeItem } from '../../lib/cockpit-api';
 import { lineKind, plural, splitPatch, statusMark } from './diff';
 import { secondOpinionApi, type SecondOpinionApi } from '../../lib/second-opinion';
 import { AnnotatedDiff } from './AnnotatedDiff';
-import { anchorFindings } from './review-diff';
+import { anchorFindings, reviewHasConcerns } from './review-diff';
 import { sendToAuthor, useReviewRun } from './second-opinion-store';
 import '../../styles/cockpit-changes.css';
 
@@ -24,10 +24,16 @@ export function Changes({
   status,
   api = cockpitApi,
   reviewApi = secondOpinionApi,
+  secondOpinion,
 }: {
   paneId: string;
   status: string;
   api?: ChangesApi;
+  /**
+   * The Second opinion block. It renders between the file list and Merge / Discard, so the evidence
+   * comes before the decision; without a worktree to merge it renders on its own.
+   */
+  secondOpinion?: ReactNode;
   /** Where "Send to <agent>" on a second-opinion note goes (a test double can stand in). */
   reviewApi?: SecondOpinionApi;
 }) {
@@ -82,13 +88,22 @@ export function Changes({
     if (first) setOpen(first);
   }, [reviewHandle, diff, reviewDone]);
 
-  if (!item) return notice ? <p className="ck-sub ck-pad">{notice}</p> : null;
+  if (!item) {
+    return (
+      <>
+        {notice && <p className="ck-sub ck-pad">{notice}</p>}
+        {secondOpinion}
+      </>
+    );
+  }
 
   const files = diff?.changes.files ?? [];
   const bodies = diff ? splitPatch(diff.patch) : new Map<string, string[]>();
   const working = item.state === 'active';
   const total = diff?.changes;
   const notes = reviewDone?.review ? anchorFindings(reviewDone.review.findings, bodies).byFile : null;
+  // A review that found problems: Merge stops being the obvious button and says what it is.
+  const concerns = reviewHasConcerns(reviewDone?.review ?? null);
 
   const run = async (action: 'merge' | 'discard') => {
     setBusy(true);
@@ -196,15 +211,17 @@ export function Changes({
       )}
       {notice && <p className="ck-sub">{notice}</p>}
 
+      {secondOpinion}
+
       <div className="ck-changes-actions">
         <button
           type="button"
-          className="ck-btn ck-btn--primary"
+          className={`ck-btn ${concerns ? 'ck-btn--secondary' : 'ck-btn--primary'}`}
           disabled={working || busy || item.state === 'missing'}
           title={working ? 'The agent is still working' : undefined}
           onClick={() => setSheet('merge')}
         >
-          Merge
+          {concerns ? 'Merge anyway' : 'Merge'}
         </button>
         <button
           type="button"

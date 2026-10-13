@@ -11,7 +11,7 @@ import {
 import { AnnotatedDiff } from './AnnotatedDiff';
 import { DotSpinner } from './DotSpinner';
 import { plural, splitPatch } from './diff';
-import { anchorFindings, severityGlyph, severityLabel, type ReviewFinding } from './review-diff';
+import { anchorFindings, reconcileVerdictText, severityGlyph, severityLabel, type ReviewFinding } from './review-diff';
 import { beginReview, cancelReview, clearReview, sendToAuthor, useReviewRun } from './second-opinion-store';
 import '../../styles/cockpit-changes.css';
 import '../../styles/cockpit-second-opinion.css';
@@ -174,7 +174,7 @@ function Verdict({ review }: { review: ParsedReview }) {
         <span className="ck-so-verdict-glyph" aria-hidden>
           {v.glyph}
         </span>
-        <strong>{v.title}.</strong> {review.verdict.text}
+        <strong>{v.title}.</strong> {reconcileVerdictText(review.verdict.text, review.findings.length)}
       </p>
     );
   }

@@ -68,6 +68,12 @@ describe('phone QuestionsList', () => {
     expect(bridge.dismissQuestion).toHaveBeenCalledWith('q1');
   });
 
+  it('gives every choice equal weight and shows the countdown', async () => {
+    await mount([{ ...q, choices: [{ id: 'a', label: 'Yes' }, { id: 'b', label: 'No' }], expires_at_ms: Date.now() + 8 * 60_000 - 1000 }]);
+    expect(host.querySelector('.ph-btn--primary')).toBeNull();
+    expect(host.querySelector('[data-testid="question-wait"]')?.textContent).toBe('The agent stops waiting in 8 min');
+  });
+
   describe('refetching', () => {
     beforeEach(() => {
       vi.useFakeTimers();
