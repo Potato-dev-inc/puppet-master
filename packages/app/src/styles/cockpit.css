@@ -709,9 +709,6 @@
   border: 1px solid var(--sep);
   box-shadow: var(--float-shadow);
   animation: ck-pop 280ms var(--ease-sheet);
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 .cockpit .ck-toast-action {
   pointer-events: auto;
@@ -821,6 +818,9 @@
   border: 1px solid var(--sep);
   box-shadow: var(--float-shadow);
   animation: ck-pop 280ms var(--ease-sheet);
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 @keyframes ck-pop {
