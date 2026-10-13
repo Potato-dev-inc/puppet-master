@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { NewAgentMenu } from './NewAgentMenu';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
@@ -9,6 +9,7 @@ import { DotSpinner } from './DotSpinner';
 import { IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
 import { formatElapsed, groupPanes, spinnerStatus } from './model';
 import { paneHeading } from './titles';
+import { LastTurnContext } from './away-context';
 import { SegTabs } from './SegTabs';
 
 export function Sidebar({
@@ -26,6 +27,7 @@ export function Sidebar({
   const questionPanes = new Set(c.asked.questions.flatMap((q) => (q.pane_id ? [q.pane_id] : [])));
   const groups = groupPanes(list, questionPanes);
   const waiting = list.filter((p) => p.status === 'waiting_input').length + c.asked.questions.length;
+  const lastTurn = useContext(LastTurnContext);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isolated, setIsolated] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -64,6 +66,7 @@ export function Sidebar({
               type="button"
               className={`ck-row${active ? ' is-active' : ''}${p.status === 'waiting_input' || questionPanes.has(id) ? ' is-needs' : ''}`}
               onClick={() => c.select(id)}
+              title={lastTurn.get(id)?.sentence}
               aria-current={active ? 'true' : undefined}
             >
               <span className="ck-row-glyph">

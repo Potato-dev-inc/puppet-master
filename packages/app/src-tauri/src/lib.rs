@@ -63,6 +63,7 @@ mod standby;
 pub mod tool_registry;
 mod toolbelt;
 mod tui;
+mod turn_summary;
 mod worker_launch;
 pub mod worktrees;
 pub mod watch_command;
@@ -232,6 +233,10 @@ pub fn run() {
             commands::checkpoint_diff,
             commands::checkpoint_restore,
             commands::checkpoint_undo_last,
+            commands::turn_summaries,
+            commands::presence_cockpit_focus,
+            commands::away_digest_pending,
+            commands::away_digest_dismiss,
             commands::interrupt_pane,
             commands::new_pane,
             commands::pane_run_info,
@@ -384,6 +389,7 @@ pub fn run() {
             pane_activity::init(registry_for_panes.clone(), app.handle().clone());
             loop_guard::init(app.handle().clone());
             panic::init_shortcut(app.handle());
+            turn_summary::start_presence();
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
             });

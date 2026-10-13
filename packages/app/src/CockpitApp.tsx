@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { AgentDoctor } from './components/cockpit/AgentDoctor';
 import { markSpawned } from './lib/agent-health';
 import { useCockpit } from './hooks/useCockpit';
+import { useAway } from './hooks/useAway';
+import { LastTurnContext } from './components/cockpit/away-context';
+import { AwayDigest } from './components/cockpit/AwayDigest';
 import { Inbox } from './components/cockpit/Inbox';
 import { PaneView } from './components/cockpit/PaneView';
 import { Palette } from './components/cockpit/Palette';
@@ -56,6 +59,7 @@ export default function CockpitApp() {
   const [memoryOpen, setMemoryOpen] = useState(false);
   // Picking a pane or starting an agent leaves the memory view.
   useEffect(() => setMemoryOpen(false), [c.selectedId, c.spawn]);
+  const away = useAway(c.registry.paneList.map((p) => p.info.id));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -72,6 +76,7 @@ export default function CockpitApp() {
 
   return (
     <LoopGuardContext.Provider value={loop}>
+    <LastTurnContext.Provider value={away.lastTurn}>
     <div className="cockpit" data-theme={c.theme} onClickCapture={onClickCapture}>
       <Sidebar
         c={nav}
@@ -106,6 +111,21 @@ export default function CockpitApp() {
         ) : (
           <Inbox c={nav} onOpenDoctor={() => setDoctorOpen(true)} />
         )}
+        {away.digest && c.mode !== 'individual' && (
+          <AwayDigest
+            digest={away.digest}
+            now={c.now}
+            onDismiss={away.dismissDigest}
+            onOpenPane={(id) => {
+              away.dismissDigest();
+              c.select(id);
+            }}
+            onOpenInbox={() => {
+              away.dismissDigest();
+              c.select(null);
+            }}
+          />
+        )}
       </main>
       {paletteOpen && (
         <Palette
@@ -125,6 +145,7 @@ export default function CockpitApp() {
         ))}
       </div>
     </div>
+    </LastTurnContext.Provider>
     </LoopGuardContext.Provider>
   );
 }

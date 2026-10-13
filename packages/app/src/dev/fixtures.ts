@@ -398,3 +398,62 @@ export const TOOLBELT_IMPORT: ImportCandidate[] = [
     already: true,
   },
 ];
+
+// ---- turn summaries and the "While you were away" digest ----
+
+const sum = (
+  paneId: string,
+  agent: string,
+  turn: number,
+  endedAgo: number,
+  durationMs: number,
+  files: { count: number; added: number; deleted: number; paths: string[] } | null,
+  sentence: string,
+  end: { kind: string; prompt?: string } = { kind: 'idle' },
+) => ({
+  paneId,
+  agent,
+  turn,
+  startedAtMs: now - endedAgo - durationMs,
+  endedAtMs: now - endedAgo,
+  durationMs,
+  files,
+  approvals: [],
+  end,
+  sentence,
+});
+
+export const EXAMPLE_TURN_SUMMARIES = [
+  sum(PANE_CLAUDE, 'Claude Code', 2, 31 * 60_000, 21 * 60_000, { count: 3, added: 48, deleted: 7, paths: ['src/login.tsx'] },
+    'Claude Code edited 3 files (+48 −7), all checks passed (3/3), now idle.'),
+  sum(PANE_CLAUDE, 'Claude Code', 3, 130_000, 4 * 60_000,
+    { count: 4, added: 86, deleted: 12, paths: ['src/pages/Settings.tsx', 'src/App.tsx', 'src/routes.ts', 'public/bell.png'] },
+    'Claude Code edited 4 files (+86 −12), you approved 1 command, now waiting: allow `npm test`?',
+    { kind: 'waiting_input', prompt: 'allow `npm test`?' }),
+];
+
+const MIN = 60_000;
+export const EXAMPLE_DIGEST = {
+  sinceMs: now - 47 * MIN,
+  nowMs: now,
+  agentsWorked: 3,
+  turns: 5,
+  lines: [
+    {
+      paneId: PANE_CLAUDE, agent: 'Claude Code', turns: 2, endedAtMs: now - 2 * MIN, end: 'waiting_input',
+      sentence: 'Claude Code edited 4 files (+86 −12), you approved 1 command, now waiting: allow `npm test`?',
+    },
+    {
+      paneId: PANE_CODEX, agent: 'Codex', turns: 2, endedAtMs: now - 9 * MIN, end: 'idle',
+      sentence: 'Codex edited 7 files (+212 −34), all checks passed (5/5), now idle.',
+    },
+    {
+      paneId: PANE_OPENCODE, agent: 'OpenCode', turns: 1, endedAtMs: now - 26 * MIN, end: 'idle',
+      sentence: 'OpenCode made no file changes, now idle.',
+    },
+  ],
+  needsYou: [
+    { paneId: PANE_CLAUDE, agent: 'Claude Code', status: 'waiting_input', prompt: 'Allow `npm test` in puppet-master?' },
+    { paneId: PANE_PWSH, agent: 'PowerShell', status: 'error' },
+  ],
+};

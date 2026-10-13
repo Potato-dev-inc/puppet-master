@@ -47,6 +47,13 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     setPaneViewport: (id, view) =>
       call<PaneViewportResponse>('POST', `/panes/${encodeURIComponent(id)}/viewport`, view),
     listAgentTypes: () => call('GET', '/agents/types'),
+    digest: (opts) => {
+      const q = new URLSearchParams();
+      if (opts?.since !== undefined) q.set('since', String(opts.since));
+      if (opts?.seen) q.set('seen', '1');
+      const qs = q.toString();
+      return call('GET', `/digest${qs ? `?${qs}` : ''}`);
+    },
     readBuffer: async (id, lines) => {
       const res = await call<{ content: string }>('GET', `/panes/${encodeURIComponent(id)}/buffer?lines=${lines}`);
       return res.content;

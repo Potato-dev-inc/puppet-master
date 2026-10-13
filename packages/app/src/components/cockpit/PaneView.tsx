@@ -17,6 +17,8 @@ import { Changes } from './Changes';
 import { History } from './History';
 import { panesSharingFolder } from './history-model';
 import { RenameTitle } from './RenameTitle';
+import { LastTurn } from './LastTurn';
+import { useLastTurn } from './away-context';
 import { SegTabs } from './SegTabs';
 import { paneHeading } from './titles';
 
@@ -73,6 +75,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const getSelectionRef = useRef<(() => string) | null>(null);
   const run = useRunData(paneId, tab !== 'terminal', pane?.status ?? '');
+  const lastTurn = useLastTurn(paneId);
 
   useEffect(() => {
     setTab('terminal');
@@ -336,6 +339,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         {tab === 'receipt' && (
           <div className="ck-scroll ck-fade-in" key="receipt">
             <Changes paneId={paneId} status={pane?.status ?? ''} />
+            <LastTurn summary={lastTurn} now={c.now} />
             {run.error ? (
               <Empty title="Receipt unavailable" body={run.error} />
             ) : run.info === undefined ? (

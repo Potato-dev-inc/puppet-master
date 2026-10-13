@@ -288,6 +288,8 @@ export interface BridgeClient {
   ): Promise<PaneViewportResponse>;
   /** `GET /agents/types`: the registered agents (body of the desktop `agents_list`). */
   listAgentTypes(): Promise<unknown>;
+  /** `GET /digest`: what happened since `since` (default: this device's last visit); `seen` stores now as the last visit. */
+  digest?(opts?: { since?: number; seen?: boolean }): Promise<import('./cockpit-api').Digest & { empty: boolean; previousSeenMs: number | null }>;
   readBuffer(paneId: string, lines: number): Promise<string>;
   readRawBuffer(paneId: string, lines: number): Promise<number[]>;
   /** `GET /panes/{id}/screen`: the pane redrawn at its current size, for a viewer to replay. */

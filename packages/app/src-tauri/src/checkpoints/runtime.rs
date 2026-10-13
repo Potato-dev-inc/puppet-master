@@ -160,6 +160,12 @@ impl Runtime {
         engine::diff(&project, pane_id, id)
     }
 
+    /// Files the turn that started at `started_at_ms` changed (`None` = no baseline to compare with).
+    pub fn turn_changes(&self, pane_id: &str, started_at_ms: u64) -> Result<Option<Vec<FileChange>>, CheckpointError> {
+        let (project, _) = self.project_of(pane_id)?;
+        engine::turn_changes(&project, pane_id, started_at_ms)
+    }
+
     /// Restore files to checkpoint `id`. Refused while the pane is running.
     pub fn restore(&self, pane_id: &str, id: &str) -> Result<RestoreReport, CheckpointError> {
         let (project, pane) = self.project_of(pane_id)?;
@@ -222,6 +228,10 @@ pub fn on_pane_status(pane_id: &str, status: &str) {
         let outcome = live().capture_with_retry(&pane_id, kind);
         if let Outcome::Failed(message) = outcome {
             tracing::warn!(pane = %pane_id, error = %message, "checkpoint failed");
+        }
+        // The turn summary reads the checkpoints, so it waits for this capture to settle.
+        if kind == Kind::After {
+            crate::turn_summary::checkpoint_settled(&pane_id);
         }
     });
     if let Err(e) = spawned {

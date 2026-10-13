@@ -132,3 +132,13 @@ pub(crate) fn checkpoint_public_settings() -> Option<serde_json::Value> {
     let app = super::state::BRIDGE_APP.get()?;
     Some(crate::settings_store::read_public_settings(app))
 }
+
+/// The pane registry the bridge serves, when the app is up (turn summaries and the away digest).
+pub(crate) fn live_registry() -> Option<std::sync::Arc<parking_lot::Mutex<crate::pty::PaneRegistry>>> {
+    BRIDGE_REGISTRY.get().cloned()
+}
+
+/// The app handle, when the app is up (Tauri events from background threads).
+pub(crate) fn live_app() -> Option<tauri::AppHandle> {
+    super::state::BRIDGE_APP.get().cloned()
+}

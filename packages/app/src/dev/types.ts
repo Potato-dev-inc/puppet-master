@@ -16,6 +16,8 @@ export interface HarnessScenario {
   settingsTab?: string;
   /** User accounts the mocked backend reports (Settings > Agents > Accounts, the "+" menu). */
   accounts?: Account[];
+  /** Cockpit: start with the "While you were away" digest showing (as after a return). */
+  awayDigest?: boolean;
   /** Override the example panes. */
   panes?: PaneInfo[];
   /** Pending `ask_user` questions the mocked `questions_list` returns. */

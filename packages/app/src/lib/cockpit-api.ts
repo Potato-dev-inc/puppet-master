@@ -133,6 +133,68 @@ export interface CheckpointsApi {
   checkpointUndoLast: (paneId: string) => Promise<RestoreReport>;
 }
 
+export interface TurnFileStats {
+  count: number;
+  added: number;
+  deleted: number;
+  paths: string[];
+}
+
+export interface TurnApproval {
+  atMs: number;
+  promptId: string;
+  prompt: string;
+  kind: string;
+  decision: "allow" | "deny" | "answer" | string;
+}
+
+/** What one agent turn did, built without an LLM (Rust: turn_summary). */
+export interface TurnSummary {
+  paneId: string;
+  agent: string;
+  turn: number;
+  startedAtMs: number;
+  endedAtMs: number;
+  durationMs: number;
+  /** null = unknown (no checkpoints for this pane). */
+  files: TurnFileStats | null;
+  approvals: TurnApproval[];
+  end: { kind: "idle" | "waiting_input" | "error" | string; prompt?: string };
+  receipt?: { checks: string; outcome: string };
+  /** One plain sentence, ready to show. */
+  sentence: string;
+}
+
+export interface DigestLine {
+  paneId: string;
+  agent: string;
+  turns: number;
+  sentence: string;
+  endedAtMs: number;
+  end: "idle" | "waiting_input" | "error" | string;
+}
+
+export interface NeedsYou {
+  paneId: string;
+  agent: string;
+  status: "waiting_input" | "error" | string;
+  prompt?: string;
+}
+
+/** "While you were away": built from turn summaries since the away start. */
+export interface Digest {
+  sinceMs: number;
+  nowMs: number;
+  agentsWorked: number;
+  turns: number;
+  lines: DigestLine[];
+  needsYou: NeedsYou[];
+}
+
+export interface TurnSummaryApi {
+  turnSummaries: (paneId: string) => Promise<TurnSummary[]>;
+}
+
 const noop: UnlistenFn = () => {};
 
 export const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -174,6 +236,10 @@ export const cockpitApi = {
   paneSetTitle: (paneId: string, title: string) => call<string | null>('pane_set_title', { paneId, title }),
   ambientGetPrefs: () => call<{ animated_tray_icon: boolean }>('ambient_get_prefs'),
   ambientSetAnimatedTray: (enabled: boolean) => call<void>('ambient_set_animated_tray', { enabled }),
+  turnSummaries: (paneId: string) => call<TurnSummary[]>('turn_summaries', { paneId }),
+  presenceCockpitFocus: (focused: boolean) => call<void>('presence_cockpit_focus', { focused }),
+  awayDigestPending: () => call<Digest | null>('away_digest_pending'),
+  awayDigestDismiss: () => call<void>('away_digest_dismiss'),
 
   onModeChanged: (cb: (e: { mode: UiMode }) => void) => on('ui://mode-changed', cb),
   onSelect: (cb: (e: { pane_id: string }) => void) => on('cockpit://select', cb),
@@ -188,6 +254,8 @@ export const cockpitApi = {
         .catch(() => cb(e));
     }),
   onSpawnStage: (cb: (e: SpawnStageEvent) => void) => on('pane://spawn-stage', cb),
+  onTurnSummary: (cb: (e: TurnSummary) => void) => on('turn://summary', cb),
+  onDigestReady: (cb: (e: Digest) => void) => on('digest://ready', cb),
   onStandbyChanged: (cb: (e: unknown) => void) => on('standby://ready-changed', cb),
 
   questionsList: () => call<Question[]>('questions_list'),

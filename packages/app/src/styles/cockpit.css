@@ -425,6 +425,7 @@
 
 /* ---------- main ---------- */
 .cockpit .ck-main {
+  position: relative;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -1085,4 +1086,108 @@
 }
 .cockpit .ck-memory-switch input {
   accent-color: var(--label);
+}
+
+/* ---------- last turn (Receipt tab) ---------- */
+.cockpit .ck-lastturn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 16px 8px;
+  max-width: 760px;
+}
+.cockpit .ck-lastturn .ck-sub {
+  margin: 0;
+}
+.cockpit .ck-lastturn-line {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 500;
+  color: var(--label);
+}
+
+/* ---------- away digest ("While you were away") ---------- */
+.cockpit .ck-away {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow-y: auto;
+  background: var(--bg);
+  display: flex;
+  justify-content: center;
+  padding: 56px 40px;
+  animation: ck-away-in 200ms var(--ease) both;
+}
+@keyframes ck-away-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.cockpit .ck-away-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.cockpit .ck-away-column .ck-inbox-hero {
+  margin-bottom: 0;
+}
+.cockpit .ck-away-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+}
+.cockpit .ck-away-line + .ck-away-line {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-away-sentence {
+  flex: 1;
+  min-width: 0;
+  color: var(--label);
+}
+.cockpit .ck-away-needs {
+  padding: 0;
+}
+.cockpit .ck-away-need {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 10px;
+  transition: background-color 160ms var(--ease);
+}
+.cockpit .ck-away-need:hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-away-need .ck-row-sub {
+  flex: 1;
+  min-width: 0;
+}
+.cockpit .ck-away-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-away {
+    animation: none;
+  }
+}
+.cockpit .ck-lastturn .ck-caption {
+  padding-left: 0;
 }

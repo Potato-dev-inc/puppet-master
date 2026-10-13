@@ -4,7 +4,7 @@ import { homeDir } from '@tauri-apps/api/path';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import type { Settings } from '@puppet-master/shared';
 import { resolveSettingsFilePath } from '../../../lib/settings';
-import { clampCheckpointsKeep } from '../../../lib/bridge-settings';
+import { clampAwayMinutes, clampCheckpointsKeep } from '../../../lib/bridge-settings';
 import { tauri, type AppInstallInfo } from '../../../lib/tauri';
 import { FieldInput, FieldSelect, InfoCard, SettingBlock, SettingToggle, SettingsSection } from '../settings-ui';
 import { SharedMemoryToggle } from './SharedMemoryToggle';
@@ -49,6 +49,9 @@ export function GeneralTab({ ctx }: { ctx: SettingsTabContext }) {
         <FieldInput type="number" min={5} max={500} step={5} value={settings.checkpoints_keep ?? 50} disabled={settings.checkpoints_enabled === false} onChange={(e) => setSettings({ ...settings, checkpoints_keep: clampCheckpointsKeep(Number(e.target.value)) })} className="font-mono" />
       </SettingBlock>
       <SharedMemoryToggle />
+      <SettingBlock label="Away digest after (minutes)" implemented description="After this long without keyboard or mouse, Puppet Master gathers what your agents did and shows it when you come back. 0 turns it off.">
+        <FieldInput type="number" min={0} max={1440} step={1} value={settings.away_minutes ?? 5} onChange={(e) => setSettings({ ...settings, away_minutes: clampAwayMinutes(Number(e.target.value)) })} className="font-mono" />
+      </SettingBlock>
       <SettingToggle label="Auto-save workspace state" description="Persist panes, scrollback, layout, and summaries after important events." checked onChange={() => undefined} implemented={false} />
       <SettingToggle label="Semantic repository index" description="Build a local index for smarter cross-pane agent context." checked onChange={() => undefined} implemented={false} />
       <SettingToggle label="Auto session summaries" description="Generate a concise summary when a session is closed or restored." checked onChange={() => undefined} implemented={false} />

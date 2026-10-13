@@ -450,11 +450,16 @@ pub fn diff(project: &Path, pane: &str, id: &str) -> Result<Vec<FileChange>, Che
     let items = list_in(&shadow, pane)?;
     let at = find(&items, id)?;
     let prev = if at == 0 { EMPTY_TREE.to_string() } else { items[at - 1].tree.clone() };
-    let stats: HashMap<String, (u32, u32, bool)> = numstat(&shadow, &prev, &items[at].tree)?
+    changes_between(&shadow, &prev, &items[at].tree)
+}
+
+/// Files that differ between two trees, with line counts, sorted by path.
+fn changes_between(shadow: &Shadow, prev: &str, tree: &str) -> Result<Vec<FileChange>, CheckpointError> {
+    let stats: HashMap<String, (u32, u32, bool)> = numstat(shadow, prev, tree)?
         .into_iter()
         .map(|(p, a, d, b)| (p, (a, d, b)))
         .collect();
-    let mut changes: Vec<FileChange> = name_status(&shadow, &prev, &items[at].tree)?
+    let mut changes: Vec<FileChange> = name_status(shadow, prev, tree)?
         .into_iter()
         .map(|(status, path)| {
             let (added, deleted, binary) = stats.get(&path).copied().unwrap_or((0, 0, false));
@@ -464,6 +469,31 @@ pub fn diff(project: &Path, pane: &str, id: &str) -> Result<Vec<FileChange>, Che
         .collect();
     changes.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(changes)
+}
+
+/// How far after a turn started a checkpoint may still count as that turn's "before" state.
+const TURN_START_SLACK_MS: u64 = 2_000;
+
+/// Files a turn changed: the newest checkpoint taken at (or within a moment of) the turn start,
+/// compared with the newest checkpoint now. `None` when no baseline exists (checkpoints were off
+/// or the folder was never snapshotted), so callers can say "unknown" instead of guessing.
+pub fn turn_changes(project: &Path, pane: &str, started_at_ms: u64) -> Result<Option<Vec<FileChange>>, CheckpointError> {
+    if !git_available() {
+        return Err(CheckpointError::GitMissing);
+    }
+    let shadow = Shadow::new(project);
+    if !shadow.exists() {
+        return Ok(None);
+    }
+    let items = list_in(&shadow, pane)?;
+    let Some(after) = items.last() else { return Ok(None) };
+    let Some(before) = items.iter().rev().find(|c| c.at_ms <= started_at_ms.saturating_add(TURN_START_SLACK_MS)) else {
+        return Ok(None);
+    };
+    if before.tree == after.tree {
+        return Ok(Some(Vec::new()));
+    }
+    changes_between(&shadow, &before.tree, &after.tree).map(Some)
 }
 
 fn name_status(shadow: &Shadow, from: &str, to: &str) -> Result<Vec<(char, String)>, CheckpointError> {

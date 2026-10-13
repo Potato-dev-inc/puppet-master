@@ -7,6 +7,11 @@ export function clampMobileInputDelayMs(value: unknown): number {
   return Math.min(1000, Math.max(50, rounded));
 }
 
+export function clampAwayMinutes(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 5;
+  return Math.min(1440, Math.max(0, Math.round(value)));
+}
+
 export function clampCheckpointsKeep(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 50;
   return Math.min(500, Math.max(5, Math.round(value)));
@@ -28,6 +33,7 @@ export type PublicSettings = Pick<
   | 'librarian_indexer_path'
   | 'checkpoints_enabled'
   | 'checkpoints_keep'
+  | 'away_minutes'
 >;
 
 export function toPublicSettings(settings: Settings): PublicSettings {
@@ -45,6 +51,7 @@ export function toPublicSettings(settings: Settings): PublicSettings {
     librarian_indexer_path: settings.librarian_indexer_path?.trim() || undefined,
     checkpoints_enabled: settings.checkpoints_enabled ?? true,
     checkpoints_keep: clampCheckpointsKeep(settings.checkpoints_keep),
+    away_minutes: clampAwayMinutes(settings.away_minutes),
   };
 }
 
@@ -62,4 +69,5 @@ export const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
   confirm_close_running_pane: true,
   checkpoints_enabled: true,
   checkpoints_keep: 50,
+  away_minutes: 5,
 };
