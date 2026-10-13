@@ -22,18 +22,30 @@ pub fn get(pane_id: &str) -> Option<String> {
     STORE.lock().get(pane_id).and_then(|e| e.title.clone())
 }
 
-/// Observe one input write. Returns true when it set the pane's title.
-pub fn observe_input(pane_id: &str, text: &str, append_newline: bool) -> bool {
+/// Observe one input write to a pane running `agent_type`. `screen_line` is the last non-blank line
+/// of its screen. Returns true when it set the pane's title.
+///
+/// Only agent panes are captured: a typed line in a plain shell is often a password, a token or a
+/// command, so shells never get an automatic title (the user can still rename them).
+pub fn observe_input(pane_id: &str, agent_type: &str, screen_line: &str, text: &str, append_newline: bool) -> bool {
+    if !crate::tui::is_agent_backend(agent_type) {
+        return false;
+    }
     let mut store = STORE.lock();
     let entry = store.entry(pane_id.to_string()).or_insert_with(|| Entry { capture: Some(LineCapture::new()), ..Entry::default() });
     let Some(capture) = entry.capture.as_mut() else { return false };
-    match capture.feed(text, append_newline) {
+    match capture.feed(text, append_newline, screen_line) {
         Some(title) => {
             entry.title = Some(title);
             entry.capture = None;
             true
         }
-        None => false,
+        None => {
+            if capture.gave_up() {
+                entry.capture = None;
+            }
+            false
+        }
     }
 }
 
@@ -87,15 +99,18 @@ pub fn retain_live(live: &[String]) {
 mod tests {
     use super::*;
 
+    const AGENT: &str = "claude";
+    const SHELL: &str = "bash";
+
     #[test]
     fn typing_then_enter_titles_the_pane_once() {
         let id = "store-test-1";
-        assert!(!observe_input(id, "refactor the ", false));
-        assert!(!observe_input(id, "auth module", false));
-        assert!(observe_input(id, "\r", false));
+        assert!(!observe_input(id, AGENT, "", "refactor the ", false));
+        assert!(!observe_input(id, AGENT, "", "auth module", false));
+        assert!(observe_input(id, AGENT, "", "\r", false));
         assert_eq!(get(id).as_deref(), Some("refactor the auth module"));
         // The second line never replaces it.
-        assert!(!observe_input(id, "something else\r", false));
+        assert!(!observe_input(id, AGENT, "", "something else\r", false));
         assert_eq!(get(id).as_deref(), Some("refactor the auth module"));
     }
 
@@ -104,12 +119,41 @@ mod tests {
         let id = "store-test-2";
         assert_eq!(set_user_title(id, "  my \u{1b}[31mplan  "), Some("my plan".into()));
         assert!(is_user_set(id));
-        assert!(!observe_input(id, "ignored line\r", false));
+        assert!(!observe_input(id, AGENT, "", "ignored line\r", false));
         assert_eq!(get(id).as_deref(), Some("my plan"));
         assert_eq!(set_user_title(id, "   "), None);
         assert_eq!(get(id), None);
-        assert!(observe_input(id, "fix flaky test\r", false));
+        assert!(observe_input(id, AGENT, "", "fix flaky test\r", false));
         assert_eq!(get(id).as_deref(), Some("fix flaky test"));
+    }
+
+    #[test]
+    fn a_shell_pane_never_gets_an_automatic_title() {
+        let id = "store-test-shell";
+        assert!(!observe_input(id, SHELL, "$ ", "fix the login bug\r", false));
+        assert_eq!(get(id), None);
+        // Renaming still works on a shell.
+        assert_eq!(set_user_title(id, "deploy box"), Some("deploy box".into()));
+    }
+
+    #[test]
+    fn a_typed_password_at_a_secret_prompt_is_never_the_title() {
+        let id = "store-test-password";
+        assert!(!observe_input(id, AGENT, "Password:", "hunter2\r", false));
+        assert_eq!(get(id), None);
+        // The next normal line on an ordinary screen becomes the title.
+        assert!(observe_input(id, AGENT, "> ", "fix the parser\r", false));
+        assert_eq!(get(id).as_deref(), Some("fix the parser"));
+    }
+
+    #[test]
+    fn capture_gives_up_after_three_secret_prompt_submissions() {
+        let id = "store-test-give-up";
+        for _ in 0..3 {
+            assert!(!observe_input(id, AGENT, "Enter API key:", "sk-live\r", false));
+        }
+        assert!(!observe_input(id, AGENT, "> ", "fix the parser\r", false));
+        assert_eq!(get(id), None);
     }
 
     #[test]

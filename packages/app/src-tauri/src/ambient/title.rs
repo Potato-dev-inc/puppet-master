@@ -4,12 +4,37 @@
 //! first sentence, cap at [`MAX_TITLE_CHARS`]. [`LineCapture`] reconstructs what a person typed
 //! from the raw input chunks that reach `pty::registry::write_input` (it understands backspace,
 //! line kill, escape sequences and paste), and yields a title at the first submitted line that
-//! has one. Nothing here looks at agent names.
+//! has one. A line submitted while the screen shows a secret prompt (password, token, PIN...) is
+//! discarded, and capture gives up after [`MAX_SECRET_PROMPT_REFUSALS`] of them. Nothing here looks
+//! at agent names; the caller decides which panes are agents (`ambient::store`).
+
+use once_cell::sync::Lazy;
+use regex::Regex;
 
 /// Longest title, in characters, ellipsis included.
 pub const MAX_TITLE_CHARS: usize = 40;
 /// Stop growing the capture buffer past this many characters (a pasted wall of text).
 const MAX_BUFFER_CHARS: usize = 600;
+/// Submissions discarded at a secret prompt before capture gives up for the pane.
+pub const MAX_SECRET_PROMPT_REFUSALS: u8 = 3;
+
+/// Whole-word secret prompts, case-insensitive: "Password:", "Enter API key:", "Verification code:".
+static SECRET_PROMPT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)\b(?:passwords?|passphrase|passcode|pin|tokens?|secret|api[\s_-]?key|apikey|otp|2fa|verification code|enter (?:the )?code|private key)\b",
+    )
+    .expect("secret prompt pattern is valid")
+});
+
+/// True when the screen line asks for a secret, so the line typed after it must not become a title.
+pub fn is_secret_prompt(screen_line: &str) -> bool {
+    SECRET_PROMPT.is_match(screen_line)
+}
+
+/// The last non-blank line of a screen dump (empty when the screen is blank).
+pub fn last_line(screen: &str) -> &str {
+    screen.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("")
+}
 
 /// Leading filler, matched case-insensitively on word boundaries, longest first.
 const LEADING_FILLER: &[&str] = &[
@@ -225,6 +250,8 @@ pub fn derive_title(line: &str) -> Option<String> {
 pub struct LineCapture {
     buf: Vec<char>,
     esc: Esc,
+    /// Submissions discarded because the screen showed a secret prompt.
+    refusals: u8,
 }
 
 impl LineCapture {
@@ -232,27 +259,37 @@ impl LineCapture {
         Self::default()
     }
 
+    /// True once [`MAX_SECRET_PROMPT_REFUSALS`] submissions were discarded at secret prompts.
+    pub fn gave_up(&self) -> bool {
+        self.refusals >= MAX_SECRET_PROMPT_REFUSALS
+    }
+
     /// Feed one input chunk. `append_newline` means the writer also presses Enter after `text`.
-    /// Returns the title as soon as a submitted line has one; lines that yield none (empty,
-    /// "y", "/clear") are dropped and capture continues.
-    pub fn feed(&mut self, text: &str, append_newline: bool) -> Option<String> {
+    /// `screen_line` is the last non-blank line of the pane's screen when the input was written; a
+    /// submission made while it is a secret prompt is discarded. Returns the title as soon as a
+    /// submitted line has one; lines that yield none (empty, "y", "/clear") are dropped and capture
+    /// continues.
+    pub fn feed(&mut self, text: &str, append_newline: bool, screen_line: &str) -> Option<String> {
         for ch in text.chars() {
-            if let Some(title) = self.key(ch) {
+            if self.gave_up() {
+                return None;
+            }
+            if let Some(title) = self.key(ch, screen_line) {
                 return Some(title);
             }
         }
-        if append_newline {
-            return self.submit();
+        if append_newline && !self.gave_up() {
+            return self.submit(screen_line);
         }
         None
     }
 
-    fn key(&mut self, ch: char) -> Option<String> {
+    fn key(&mut self, ch: char, screen_line: &str) -> Option<String> {
         if self.esc.consume(ch) {
             return None;
         }
         match ch {
-            '\r' | '\n' => return self.submit(),
+            '\r' | '\n' => return self.submit(screen_line),
             '\u{7f}' | '\u{8}' => {
                 self.buf.pop();
             }
@@ -280,8 +317,13 @@ impl LineCapture {
         }
     }
 
-    fn submit(&mut self) -> Option<String> {
+    fn submit(&mut self, screen_line: &str) -> Option<String> {
         let line: String = self.buf.drain(..).collect();
+        if is_secret_prompt(screen_line) {
+            // The line answers a secret prompt: never a title. Count it, and give up after a few.
+            self.refusals = self.refusals.saturating_add(1);
+            return None;
+        }
         derive_title(&line)
     }
 }

@@ -17,8 +17,14 @@ pub fn write_input(
         .get(pane_id)
         .ok_or_else(|| unknown_pane_message(pane_id))?;
 
-    // Auto-title: the first submitted line becomes the pane's title (`ambient::title`).
-    let titled = crate::ambient::store::observe_input(pane_id, text, append_newline);
+    // Auto-title: the first submitted line of an agent pane becomes its title (`ambient::title`).
+    // The screen's last line tells whether the line answers a secret prompt; shells are not titled.
+    let screen_line = if crate::tui::is_agent_backend(&pane.info.agent_type) {
+        crate::ambient::title::last_line(&pane.screen.lock().screen().contents()).to_string()
+    } else {
+        String::new()
+    };
+    let titled = crate::ambient::store::observe_input(pane_id, &pane.info.agent_type, &screen_line, text, append_newline);
 
     let agent = pane.info.agent_type.clone();
 
