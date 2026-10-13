@@ -87,6 +87,14 @@ export function PreloadTab({ api = DEFAULT_API }: { api?: PreloadApi }) {
                     onChange={(event) => void save(withPreloadCount(config, provider.id, event.target.checked ? 1 : 0))}
                   />
                   {provider.label}
+                  {provider.experimental && (
+                    <span
+                      className="text-xs font-normal text-pm-muted"
+                      title="This agent has no ready screen of its own. A warm one is used only after its screen has held still for two seconds with no dialog on it."
+                    >
+                      (experimental)
+                    </span>
+                  )}
                 </label>
                 {provider.supported ? (
                   <label className="flex items-center gap-2 text-pm-muted">
@@ -106,7 +114,7 @@ export function PreloadTab({ api = DEFAULT_API }: { api?: PreloadApi }) {
                     warm
                   </label>
                 ) : (
-                  <span className="text-xs text-pm-muted">(no warm mode yet)</span>
+                  <span className="text-xs text-pm-muted">{provider.unsupportedNote}</span>
                 )}
               </div>
             );

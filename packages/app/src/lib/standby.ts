@@ -19,19 +19,44 @@ export function backendLabel(agentType: string): string {
   return peekAgentRegistry().agents.find((agent) => agent.id === agentType)?.label ?? agentType;
 }
 
+/** Shown next to an agent that is not a terminal agent (no input box a pool can type into). */
+export const NOT_TERMINAL_NOTE = '(not a terminal agent)';
+/** Shown next to a terminal agent that has no warm mode yet. */
+export const NO_WARM_MODE_NOTE = '(no warm mode yet)';
+
 /** One row of the provider checklist. */
 export interface PreloadProvider {
   id: string;
   label: string;
-  /** False: the agent can open a visible pane but has no warm mode yet (its row is disabled). */
+  /** False: the agent has no warm mode (its row is disabled). */
   supported: boolean;
+  /** Supported, but with no ready screen of its own: readiness is judged generically. */
+  experimental: boolean;
+  /** Why an unsupported agent has no warm mode; null when supported. */
+  unsupportedNote: string | null;
 }
 
-/** Agents that can open a visible pane, in registry order. */
+/**
+ * Agents that can open a visible pane, in registry order. An agent whose run is not a terminal
+ * session (`native_protocol`, or one that cannot run delegated work) says so instead of "no warm mode yet".
+ */
 export function preloadProviders(agents: readonly AgentDescriptor[]): PreloadProvider[] {
   return agents
     .filter((agent) => agent.modes.visible)
-    .map((agent) => ({ id: agent.id, label: agent.label, supported: agent.standby.visible }));
+    .map((agent) => {
+      const supported = agent.standby.visible;
+      return {
+        id: agent.id,
+        label: agent.label,
+        supported,
+        experimental: supported && agent.standby.experimental === true,
+        unsupportedNote: supported
+          ? null
+          : agent.kind === 'native_protocol' || agent.dispatchable === false
+            ? NOT_TERMINAL_NOTE
+            : NO_WARM_MODE_NOTE,
+      };
+    });
 }
 
 /** Warm workers wanted for a provider (0 when unticked). */

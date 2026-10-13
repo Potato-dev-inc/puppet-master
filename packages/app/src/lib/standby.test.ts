@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_STANDBY_CONFIG,
+  NOT_TERMINAL_NOTE,
+  NO_WARM_MODE_NOTE,
   clampInt,
   formatDuration,
   preloadCount,
@@ -25,8 +27,16 @@ const status = (over: Partial<StandbyStatus>): StandbyStatus => ({
   ...over,
 });
 
-const agent = (id: string, visible: boolean, standbyVisible: boolean): AgentDescriptor =>
-  ({ id, label: id.toUpperCase(), modes: { visible, headless: true }, standby: { visible: standbyVisible, headless: false } }) as unknown as AgentDescriptor;
+const agent = (id: string, visible: boolean, standbyVisible: boolean, extra: Partial<AgentDescriptor> = {}): AgentDescriptor =>
+  ({
+    id,
+    label: id.toUpperCase(),
+    kind: 'cli',
+    dispatchable: true,
+    modes: { visible, headless: true },
+    standby: { visible: standbyVisible, headless: false, experimental: false },
+    ...extra,
+  }) as unknown as AgentDescriptor;
 
 describe('preload settings helpers', () => {
   it('is off by default with no provider ticked', () => {
@@ -54,9 +64,29 @@ describe('preload settings helpers', () => {
   it('lists the agents that can open a visible pane and marks those without a warm mode', () => {
     const rows = preloadProviders([agent('claude', true, true), agent('codex', true, false), agent('kiro', false, false)]);
     expect(rows).toEqual([
-      { id: 'claude', label: 'CLAUDE', supported: true },
-      { id: 'codex', label: 'CODEX', supported: false },
+      { id: 'claude', label: 'CLAUDE', supported: true, experimental: false, unsupportedNote: null },
+      { id: 'codex', label: 'CODEX', supported: false, experimental: false, unsupportedNote: NO_WARM_MODE_NOTE },
     ]);
+  });
+
+  it('flags an experimental warm mode, and says why a non-terminal agent cannot be kept warm', () => {
+    const rows = preloadProviders([
+      agent('myagent', true, true, { standby: { visible: true, headless: false, experimental: true } } as Partial<AgentDescriptor>),
+      agent('opencode_native', true, false, { kind: 'native_protocol' }),
+      agent('cursor', true, false, { dispatchable: false }),
+    ]);
+    expect(rows.map((row) => [row.id, row.supported, row.experimental, row.unsupportedNote])).toEqual([
+      ['myagent', true, true, null],
+      ['opencode_native', false, false, NOT_TERMINAL_NOTE],
+      ['cursor', false, false, NOT_TERMINAL_NOTE],
+    ]);
+  });
+
+  it('never marks an unsupported agent experimental', () => {
+    const [row] = preloadProviders([
+      agent('ghost', true, false, { standby: { visible: false, headless: false, experimental: true } } as Partial<AgentDescriptor>),
+    ]);
+    expect(row.experimental).toBe(false);
   });
 
   it('clamps edited numbers and falls back on garbage', () => {

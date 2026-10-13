@@ -268,6 +268,8 @@ pub struct SupportedBackend {
     pub agent_type: String,
     pub visible: bool,
     pub headless: bool,
+    /// The visible mode has no agent-specific ready screen (see `StandbySupport::experimental`).
+    pub experimental: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -743,6 +745,7 @@ impl Pool {
                     agent_type: agent_type.to_string(),
                     visible: support.visible,
                     headless: support.headless,
+                    experimental: support.experimental,
                 })
                 .collect(),
         }

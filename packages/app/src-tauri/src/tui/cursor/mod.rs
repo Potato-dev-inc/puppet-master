@@ -161,6 +161,7 @@ impl TuiProfile for CursorAgent {
         StandbySupport {
             visible: true,
             headless: false,
+            experimental: false,
         }
     }
 

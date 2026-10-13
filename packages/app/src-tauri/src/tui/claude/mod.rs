@@ -50,6 +50,7 @@ impl TuiProfile for Claude {
         StandbySupport {
             visible: true,
             headless: true,
+            experimental: false,
         }
     }
 

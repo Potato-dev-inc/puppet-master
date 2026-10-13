@@ -27,7 +27,8 @@ export interface AgentDescriptor {
     shell_default_on: boolean;
     allowed_commands: boolean;
   };
-  standby: { visible: boolean; headless: boolean };
+  /** Warm standby kinds this agent supports; `experimental`: visible standby with no ready screen of its own. */
+  standby: { visible: boolean; headless: boolean; experimental: boolean };
   definition: unknown | null;
 }
 
@@ -49,9 +50,9 @@ const FALLBACK_ROWS: FallbackRow[] = [
   ['opencode_native', 'native_protocol', true, false, false, true, false, false, true, true, false, false, false],
   ['cursor_agent', 'cli', true, true, true, false, true, true, true, false, true, true, false],
   ['cursor', 'cli', false, false, false, false, false, false, false, false, false, false, false],
-  ['cmd', 'shell', false, false, false, false, false, false, false, false, false, false, false],
-  ['powershell', 'shell', false, false, false, false, false, false, false, false, false, false, false],
-  ['bash', 'shell', false, false, false, false, false, false, false, false, false, false, false],
+  ['cmd', 'shell', false, false, false, false, false, false, false, false, false, true, false],
+  ['powershell', 'shell', false, false, false, false, false, false, false, false, false, true, false],
+  ['bash', 'shell', false, false, false, false, false, false, false, false, false, true, false],
 ];
 
 const NOT_DISPATCHABLE: Record<string, string> = {
@@ -101,7 +102,7 @@ function fallbackDescriptor([id, kind, ...flags]: FallbackRow): AgentDescriptor 
       shell_default_on: shellDefaultOn,
       allowed_commands: allowedCommands,
     },
-    standby: { visible: standbyVisible, headless: standbyHeadless },
+    standby: { visible: standbyVisible, headless: standbyHeadless, experimental: false },
     definition: null,
   };
 }

@@ -2,11 +2,26 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_STANDBY_CONFIG } from '../../../lib/standby';
+import { DEFAULT_STANDBY_CONFIG, NOT_TERMINAL_NOTE, NO_WARM_MODE_NOTE } from '../../../lib/standby';
 import type { StandbyConfig, StandbyStatus } from '../../../lib/tauri-types';
 import { PreloadTab, type PreloadApi } from './PreloadTab';
+import { peekAgentRegistry } from '../../../lib/agentRegistry';
+import type { AgentDescriptor } from '../../../lib/agentRegistry';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// The registry is the offline fallback unless a test sets `registryOverride`.
+const registryOverride = vi.hoisted(() => ({ agents: null as AgentDescriptor[] | null }));
+vi.mock('../../../lib/agentRegistry', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../lib/agentRegistry')>();
+  return {
+    ...real,
+    useAgentRegistry: () => {
+      const listing = real.useAgentRegistry();
+      return registryOverride.agents ? { ...listing, agents: registryOverride.agents } : listing;
+    },
+  };
+});
 
 function statusFor(config: StandbyConfig): StandbyStatus {
   return {
@@ -63,6 +78,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  registryOverride.agents = null;
 });
 
 describe('PreloadTab', () => {
@@ -106,5 +122,25 @@ describe('PreloadTab', () => {
     expect(host.querySelector<HTMLSelectElement>('select[aria-label="Warm Cursor Agent CLI count"]')?.disabled).toBe(true);
     const idle = host.querySelector<HTMLInputElement>('input[aria-label="Preload idle timeout (minutes)"]');
     expect(idle?.value).toBe('20');
+  });
+
+  it('shows the experimental tag and says why a non-terminal agent has no warm mode', async () => {
+    const base = peekAgentRegistry().agents.find((agent) => agent.id === 'claude') as AgentDescriptor;
+    registryOverride.agents = [
+      { ...base, id: 'claude', label: 'Claude Code', standby: { visible: true, headless: false, experimental: false } },
+      { ...base, id: 'myagent', label: 'My Agent', standby: { visible: true, headless: false, experimental: true } },
+      { ...base, id: 'opencode_native', label: 'OpenCode (API)', kind: 'native_protocol', standby: { visible: false, headless: false, experimental: false } },
+    ];
+    await render(mockApi());
+    // Only the experimental agent carries the tag, and it stays ticked-able.
+    expect(host.textContent?.match(/\(experimental\)/g)?.length).toBe(1);
+    const myAgent = host.querySelector<HTMLLabelElement>('input[aria-label="Keep My Agent warm"]')?.closest('label');
+    expect(myAgent?.textContent).toContain('(experimental)');
+    expect(checkbox('Keep My Agent warm')?.disabled).toBe(false);
+    expect(checkbox('Keep Claude Code warm')?.closest('label')?.textContent).not.toContain('(experimental)');
+    // The API agent explains itself instead of promising a warm mode.
+    expect(checkbox('Keep OpenCode (API) warm')?.disabled).toBe(true);
+    expect(host.textContent).toContain(NOT_TERMINAL_NOTE);
+    expect(host.textContent).not.toContain(NO_WARM_MODE_NOTE);
   });
 });

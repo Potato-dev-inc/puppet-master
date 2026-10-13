@@ -9,13 +9,26 @@
 pub mod read_only;
 mod screen;
 
-use super::{Features, Kind, TuiProfile};
+use super::{Features, Kind, StandbyScreen, StandbySupport, TuiProfile};
 
 pub struct OpenCode;
 
 impl TuiProfile for OpenCode {
     fn id(&self) -> &'static str {
         "opencode"
+    }
+
+    /// Visible panes only: the TUI takes its task typed into the pane, not on stdin.
+    fn standby_support(&self) -> StandbySupport {
+        StandbySupport {
+            visible: true,
+            headless: false,
+            experimental: false,
+        }
+    }
+
+    fn standby_screen(&self, screen: &str) -> StandbyScreen {
+        screen::standby_screen(screen)
     }
 
     fn looks_like_menu(&self, text: &str) -> bool {

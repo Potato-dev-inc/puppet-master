@@ -31,7 +31,11 @@ fn features_follow_definition() {
     assert!(run.allow_shell);
     assert!(!run.trust_workspace && !run.shell_default_on && !run.allowed_commands);
     assert!(k.accepts_headless_model());
-    assert_eq!(k.standby_support(), StandbySupport::default());
+    // KILO has a [tui] table but no [tui.ready]: visible standby on the experimental path.
+    assert_eq!(
+        k.standby_support(),
+        StandbySupport { visible: true, headless: false, experimental: true }
+    );
 
     let m = profile(MINIMAL);
     assert_eq!(m.id(), "mycoder");
@@ -130,6 +134,7 @@ fn tui_methods_default_when_tui_absent() {
     assert!(!k.looks_like_menu("1. yes 2. no"));
     assert!(!k.is_chrome_line("ctrl+x"));
     assert_eq!(k.strip_dialogs("abc"), "abc");
+    // No [tui] table: no pane to pre-launch, so no visible standby.
     assert_eq!(k.standby_support(), StandbySupport::default());
 }
 

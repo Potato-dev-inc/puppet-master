@@ -1,13 +1,14 @@
 //! OpenAI Codex CLI (`codex`). Everything Codex-specific lives in this folder:
 //!
 //! - `headless` — `codex exec` command line, session resume, JSONL output parsing
+//! - `screen` — whether the interactive TUI is working, waiting on a dialog, or at an empty composer
 //!
-//! Interactive-pane heuristics for Codex are not special yet and use the generic defaults; add a
-//! `screen.rs` here when they need to be.
+//! Interactive-pane heuristics beyond standby use the generic defaults.
 
 mod headless;
+mod screen;
 
-use super::{Features, HeadlessLaunch, LaunchSpec, TuiProfile};
+use super::{Features, HeadlessLaunch, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
 
 pub struct Codex;
 
@@ -38,6 +39,19 @@ impl TuiProfile for Codex {
 
     fn extract_provider_session(&self, output: &str) -> Option<String> {
         headless::extract_provider_session(output)
+    }
+
+    /// Visible panes only: headless Codex takes its task as an argument, not on stdin.
+    fn standby_support(&self) -> StandbySupport {
+        StandbySupport {
+            visible: true,
+            headless: false,
+            experimental: false,
+        }
+    }
+
+    fn standby_screen(&self, screen: &str) -> StandbyScreen {
+        screen::standby_screen(screen)
     }
 
     fn probes_default_model(&self) -> bool {

@@ -8,11 +8,13 @@ use super::pool::{Handle, Health, Host};
 use crate::pty::status::PaneStatus;
 use crate::pty::{PaneRegistry, SpawnPaneArgs};
 use crate::tui::{HeadlessLaunch, StandbyScreen};
+use super::stillness::Stillness;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::AppHandle;
 
 /// A headless standby process prints nothing until it gets its task, so readiness cannot be
@@ -30,6 +32,9 @@ pub struct LiveHost {
     app: AppHandle,
     processes: Mutex<HashMap<u64, StandbyProcess>>,
     next_token: AtomicU64,
+    /// Stillness state of experimental panes, by pane id (`standby::stillness`).
+    stillness: Mutex<HashMap<String, Stillness>>,
+    started: Instant,
 }
 
 impl LiveHost {
@@ -39,6 +44,8 @@ impl LiveHost {
             app,
             processes: Mutex::new(HashMap::new()),
             next_token: AtomicU64::new(1),
+            stillness: Mutex::new(HashMap::new()),
+            started: Instant::now(),
         }
     }
 
@@ -142,10 +149,23 @@ impl LiveHost {
             return Health::Dead;
         }
         let text = screen.lock().screen().contents();
-        match crate::tui::profile_for(&key.agent_type).standby_screen(&text) {
+        let profile = crate::tui::profile_for(&key.agent_type);
+        // An experimental screen must also hold still; every observation feeds the clock, so a
+        // screen that changed since the last look restarts it.
+        let still = if profile.standby_support().experimental {
+            let now_ms = self.started.elapsed().as_millis() as i64;
+            self.stillness
+                .lock()
+                .entry(pane_id.to_string())
+                .or_default()
+                .observe(&text, now_ms)
+        } else {
+            true
+        };
+        match profile.standby_screen(&text) {
             StandbyScreen::Dialog => Health::Dialog,
             StandbyScreen::NeedsAttention => Health::NeedsAttention,
-            StandbyScreen::Ready if status == PaneStatus::Idle => Health::Ready,
+            StandbyScreen::Ready if status == PaneStatus::Idle && still => Health::Ready,
             StandbyScreen::Ready | StandbyScreen::NotReady => Health::Starting,
         }
     }
@@ -188,6 +208,7 @@ impl Host for LiveHost {
         tracing::info!(?handle, reason, "standby shut down");
         match handle {
             Handle::Pane(id) => {
+                self.stillness.lock().remove(id);
                 // Taking the pane out of the registry is quick; stopping its process tree is not.
                 let (registry, id, reason) = (self.registry.clone(), id.clone(), reason.to_string());
                 let app = self.app.clone();

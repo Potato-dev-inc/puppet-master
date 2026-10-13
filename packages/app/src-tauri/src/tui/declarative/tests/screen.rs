@@ -153,11 +153,21 @@ fn standby_screen_follows_ready_and_dialogs() {
     assert_eq!(p.standby_screen("starting up..."), StandbyScreen::NotReady);
     assert_eq!(p.standby_screen("Do you trust this folder?\n>\n"), StandbyScreen::Dialog);
     assert_eq!(p.standby_screen("Allow once?\n>\n"), StandbyScreen::Dialog);
-    // TUI-3: without [tui.ready] a profile is never a ready standby
+    // Without [tui.ready] the engine never says Ready; the profile routes to the experimental
+    // generic classifier instead (visible by default, `visible = false` opts out).
     let m = build_for_test(MINIMAL_TUI).unwrap();
-    assert_eq!(m.standby_screen("> \n"), StandbyScreen::NotReady);
-    assert!(!m.standby_support().visible);
-    assert!(gen().standby_support().visible || !GENERIC.contains("visible = true"));
+    assert!(m.standby_support().visible && m.standby_support().experimental);
+    assert_eq!(m.standby_screen("> \n"), StandbyScreen::Ready);
+    assert_eq!(m.standby_screen(""), StandbyScreen::NotReady);
+    assert_eq!(m.standby_screen("Do you want to proceed? (y/n)"), StandbyScreen::Dialog);
+    let opted_out = format!("{MINIMAL_TUI}\n[standby]\nvisible = false\n");
+    assert!(!build_for_test(&opted_out).unwrap().standby_support().visible);
+    // A ready table makes the definition strict: visible only when it opts in.
+    let strict = format!("{MINIMAL_TUI}\n[tui.ready]\nregex = \"^>\"\n");
+    let strict = build_for_test(&strict).unwrap();
+    assert!(!strict.standby_support().visible && !strict.standby_support().experimental);
+    // generic.toml has [tui.ready]: strict, so not experimental whatever its visible flag says.
+    assert!(!gen().standby_support().experimental);
 }
 
 #[test]

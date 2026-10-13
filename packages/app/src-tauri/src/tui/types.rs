@@ -73,6 +73,9 @@ pub struct StandbySupport {
     pub visible: bool,
     /// A headless process can be started ahead of time and given its task over stdin later.
     pub headless: bool,
+    /// The visible standby has no agent-specific ready screen (no `[tui.ready]`): readiness comes
+    /// from the generic screen heuristics and from the screen holding still (`standby::stillness`).
+    pub experimental: bool,
 }
 
 /// What a standby pane's screen shows, for the claim-time health check.

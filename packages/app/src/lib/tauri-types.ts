@@ -167,5 +167,5 @@ export interface StandbyStatus {
     expired: number;
     abandoned: number;
   };
-  supported: { agent_type: string; visible: boolean; headless: boolean }[];
+  supported: { agent_type: string; visible: boolean; headless: boolean; experimental: boolean }[];
 }

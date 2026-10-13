@@ -424,8 +424,10 @@ pub struct ClassifyTable {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StandbyTable {
+    /// Unset means the default for the definition: opt-in with `[tui.ready]`, opt-out without it
+    /// (the experimental generic path). See `DeclarativeProfile::standby_support`.
     #[serde(default)]
-    pub visible: bool,
+    pub visible: Option<bool>,
     #[serde(default)]
     pub headless: bool,
 }

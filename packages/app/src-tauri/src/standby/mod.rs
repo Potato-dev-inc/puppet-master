@@ -23,6 +23,7 @@ pub mod config;
 mod host;
 pub mod key;
 pub mod pool;
+mod stillness;
 #[cfg(test)]
 mod tests;
 

@@ -394,11 +394,22 @@ impl TuiProfile for DeclarativeProfile {
         self.def.model.default.clone()
     }
 
+    /// A visible standby needs a TUI pane (`[tui]`). With `[tui.ready]` the definition must opt in
+    /// (`[standby] visible = true`) and is judged by its ready screen. Without it, visible standby is
+    /// on unless the definition says `visible = false`, and runs on the experimental generic path.
     fn standby_support(&self) -> StandbySupport {
+        let has_tui = self.def.tui.is_some();
+        let has_ready = self.def.tui.as_ref().is_some_and(|t| t.ready.is_some());
+        let visible = has_tui
+            && if has_ready {
+                self.def.standby.visible == Some(true)
+            } else {
+                self.def.standby.visible != Some(false)
+            };
         StandbySupport {
-            visible: self.def.standby.visible
-                && self.def.tui.as_ref().is_some_and(|t| t.ready.is_some()),
+            visible,
             headless: self.def.standby.headless && self.has_stdin(),
+            experimental: visible && !has_ready,
         }
     }
 
@@ -452,6 +463,9 @@ impl TuiProfile for DeclarativeProfile {
     }
 
     fn standby_screen(&self, screen: &str) -> StandbyScreen {
+        if self.standby_support().experimental {
+            return generic::experimental_standby_screen(screen);
+        }
         match &self.engine {
             Some(engine) => engine.standby_screen(screen),
             None => StandbyScreen::NotReady,
