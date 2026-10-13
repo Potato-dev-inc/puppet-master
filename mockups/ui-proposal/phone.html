@@ -3,401 +3,424 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#06070a">
-<title>Puppet Master · Phone PWA proposal</title>
+<meta name="theme-color" content="#0a0a0b">
+<title>Puppet Master · Phone (monochrome v2)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
-  --flag-yellow:#ffd60a; --flag-red:#ff453a;
-  --phase-think:#b57bff; --phase-tool:#30d158; --phase-write:#64d2ff;
-  --ground:#06070a; --ground-2:#0a0c11; --feed:#0e1117;
-  --glass-tint:rgba(26,29,38,.4); --glass-solid:rgba(26,29,38,.86);
-  --ink:#f4f5f7; --ink-2:rgba(232,236,244,.68); --ink-3:rgba(232,236,244,.46);
-  --ink-on-light:#07080b; --ink-on-flag:#111;
-  --term-text:#cfd3dc; --term-dim:#8a8fa0;
-  --hair:rgba(255,255,255,.08); --hair-2:rgba(255,255,255,.14);
-  --fill:rgba(255,255,255,.09); --fill-2:rgba(255,255,255,.16); --well:rgba(0,0,0,.28);
-  --idle:#8a8fa0;
-  --font:"Titillium Web","Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
-  --mono:"JetBrains Mono","Cascadia Mono",ui-monospace,Consolas,monospace;
+  --bg:#0a0a0b; --bg-side:#111112; --bg-raised:#18181a; --bg-float:rgba(28,28,30,.82);
+  --bezel:#050506;
+  --fill:rgba(255,255,255,.05); --fill-hover:rgba(255,255,255,.08); --fill-active:rgba(255,255,255,.12);
+  --sep:rgba(255,255,255,.08);
+  --label:#f5f5f7; --label-2:rgba(245,245,247,.64); --label-3:rgba(245,245,247,.40); --label-4:rgba(245,245,247,.22);
+  --primary-bg:#f5f5f7; --primary-fg:#0a0a0b;
+  --focus:0 0 0 3px rgba(245,245,247,.28);
+  --ui:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --mono:"SF Mono","JetBrains Mono","Cascadia Code",ui-monospace,monospace;
+  --top:47px; --bot:22px;
+  --ease:cubic-bezier(.2,.8,.2,1); --ease-sheet:cubic-bezier(.32,.72,0,1);
+}
+@media (prefers-color-scheme: light){
+  :root{
+    --bg:#ffffff; --bg-side:#f5f5f7; --bg-raised:#ffffff; --bg-float:rgba(250,250,252,.82);
+    --bezel:#0b0b0c;
+    --fill:rgba(0,0,0,.04); --fill-hover:rgba(0,0,0,.06); --fill-active:rgba(0,0,0,.09);
+    --sep:rgba(0,0,0,.09);
+    --label:#1d1d1f; --label-2:rgba(29,29,31,.64); --label-3:rgba(29,29,31,.42); --label-4:rgba(29,29,31,.24);
+    --primary-bg:#1d1d1f; --primary-fg:#ffffff; --focus:0 0 0 3px rgba(0,0,0,.18);
+  }
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
-body{
-  background:radial-gradient(1200px 700px at 20% 0%,#131722 0%,var(--ground) 60%) var(--ground);
-  color:var(--ink); font:400 15px/1.45 var(--font);
-  -webkit-font-smoothing:antialiased;
-}
-button,input{font:inherit;color:inherit}
-button{cursor:pointer}
-:focus-visible{outline:2px solid var(--phase-write);outline-offset:2px}
+body{background:var(--bg-side);color:var(--label);font:400 17px/1.3 var(--ui);font-feature-settings:"cv11","ss01";
+  -webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
+button{cursor:pointer;border:0;background:none;padding:0}
+:focus-visible{outline:none;box-shadow:var(--focus);border-radius:8px}
+svg{display:block}
 
-/* ---------- stage + legend (desktop preview only) ---------- */
+/* ---------- desktop stage ---------- */
 .stage{min-height:100vh;display:flex;align-items:center;justify-content:center;gap:56px;padding:40px 24px;flex-wrap:wrap}
-.legend{max-width:440px;color:var(--ink-2)}
-.legend h1{font:900 30px/1.05 var(--font);letter-spacing:-.025em;color:var(--ink);margin:0 0 6px}
-.legend .lede{margin:0 0 16px;font-size:14px}
-.demo{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 20px}
-.demo button{height:34px;padding:0 14px;border-radius:999px;border:1px solid var(--hair-2);background:var(--fill);color:var(--ink);font:700 13px var(--font)}
-.legend ol{padding:0 0 0 22px;margin:0;display:grid;gap:10px;font-size:14px}
-.legend li b{color:var(--ink);font-weight:700}
-.legend li em{display:block;font-style:normal;font-size:12.5px;color:var(--ink-3);margin-top:2px}
-.legend h2{font:700 13px var(--font);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:22px 0 8px}
-.legend .gaps li{font-size:13.5px}
+.legend{width:300px;color:var(--label-2);font-size:13px;line-height:1.45}
+.legend h1{margin:0 0 4px;font:700 22px/1.2 var(--ui);letter-spacing:-.01em;color:var(--label)}
+.legend .intro{margin:0 0 14px;color:var(--label-3)}
+.legend ol{list-style:none;margin:0;padding:0;border-top:1px solid var(--sep)}
+.legend li{padding:9px 0;border-bottom:1px solid var(--sep)}
+.legend li b{color:var(--label);font-weight:600}
+.legend .gaps{margin:14px 0 0;color:var(--label-3);font-size:11px}
 
 /* ---------- phone frame ---------- */
-.device{position:relative;width:390px;height:844px;border-radius:54px;padding:10px;background:#000;
-  box-shadow:0 0 0 2px #2a2d36,0 40px 90px rgba(0,0,0,.6)}
-.island{position:absolute;top:19px;left:50%;transform:translateX(-50%);width:112px;height:32px;border-radius:20px;background:#000;z-index:60;pointer-events:none}
-.screen{position:relative;width:100%;height:100%;border-radius:44px;overflow:hidden;background:var(--ground);
-  display:flex;flex-direction:column;isolation:isolate;padding-top:46px}
-.screen::before{content:"";position:absolute;inset:0;z-index:-1;
-  background:radial-gradient(300px 260px at 90% 0%,rgba(100,210,255,.07),transparent 70%),
-             radial-gradient(260px 240px at 0% 60%,rgba(181,123,255,.06),transparent 70%)}
+.device{position:relative;width:390px;height:844px;border-radius:54px;padding:10px;background:var(--bezel);
+  box-shadow:0 0 0 1px rgba(255,255,255,.06)}
+.screen{position:relative;width:100%;height:100%;border-radius:44px;overflow:hidden;background:var(--bg);isolation:isolate}
+.island{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:120px;height:34px;border-radius:20px;background:#000;z-index:80;pointer-events:none}
+.home{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:134px;height:5px;border-radius:3px;background:var(--label);z-index:80;pointer-events:none}
+.example{position:absolute;left:0;right:0;bottom:0;z-index:0}
 
-.glass{background:var(--glass-tint);backdrop-filter:blur(28px) saturate(160%);-webkit-backdrop-filter:blur(28px) saturate(160%);
-  border:1px solid var(--hair);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 10px 30px rgba(0,0,0,.25)}
+/* ---------- pages (push navigation) ---------- */
+.page{position:absolute;inset:0;background:var(--bg);display:flex;flex-direction:column}
+.root{z-index:1;transition:transform .28s var(--ease-sheet),filter .28s var(--ease-sheet)}
+.root.pushed{transform:translateX(-30%);filter:brightness(.6)}
+.agent{z-index:2;transform:translateX(100%);transition:transform .28s var(--ease-sheet);box-shadow:-1px 0 0 var(--sep)}
+.agent.on{transform:none}
 
-.view{display:none;flex:1;min-height:0;flex-direction:column;position:relative}
-.view.on{display:flex}
+/* nav bar */
+.nav{position:absolute;top:0;left:0;right:0;z-index:5;height:calc(var(--top) + 44px);padding:var(--top) 8px 0;
+  display:grid;grid-template-columns:1fr auto 1fr;align-items:center;background:transparent;transition:background .2s var(--ease)}
+.nav.solid{background:var(--bg-float);backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4);
+  border-bottom:1px solid var(--sep)}
+.nav .l{justify-self:start}
+.nav .r{justify-self:end;display:flex;gap:2px}
+.navbtn{min-width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;gap:2px;border-radius:10px;color:var(--label);font:400 17px var(--ui);transition:background .16s var(--ease),transform .16s var(--ease)}
+.navbtn:active{background:var(--fill-active);transform:scale(.97)}
+.navbtn.back{padding-left:4px;padding-right:12px}
+.navtitle{font:600 17px/1.2 var(--ui);color:var(--label);opacity:0;transition:opacity .2s var(--ease);white-space:nowrap}
+.navtitle.show{opacity:1}
+.navmid{text-align:center;min-width:0;display:flex;flex-direction:column;align-items:center}
+.navmid b{font:600 17px/1.2 var(--ui);max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.navmid span{font:400 12px/1.3 var(--ui);color:var(--label-3)}
 
-/* ---------- shared bits ---------- */
-.icon{width:40px;height:40px;border-radius:50%;border:1px solid var(--hair-2);background:var(--fill);color:var(--ink);font:700 18px/1 var(--font);display:grid;place-items:center;flex:none}
-.btn{height:40px;padding:0 16px;border-radius:999px;border:0;background:var(--fill-2);color:var(--ink);font:700 14px/1 var(--font);white-space:nowrap}
-.btn.go{background:var(--ink);color:var(--ink-on-light)}
-.btn.ghost{background:transparent;color:var(--ink-2);border:1px solid var(--hair-2)}
-.btn.danger{color:var(--flag-red)}
-.btn.danger-solid{background:var(--flag-red);color:#1a0402}
-.btn:disabled{opacity:.4;cursor:not-allowed}
-.answers{display:flex;gap:8px;flex-wrap:wrap}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--c,var(--idle));display:inline-block;flex:none}
-.s-needs{--c:var(--flag-yellow)} .s-error{--c:var(--flag-red)} .s-think{--c:var(--phase-think)}
-.s-tool{--c:var(--phase-tool)} .s-write{--c:var(--phase-write)} .s-idle{--c:var(--idle)}
-.s-needs .dot{animation:pulse 1.6s ease-in-out infinite}
-.chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:8px;font:600 12px/1 var(--font);
-  color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent);white-space:nowrap}
-.chip .dot{background:var(--c)}
-.mono{font-family:var(--mono)}
-.foot{margin:6px 16px 18px;font-size:12px;color:var(--ink-3)}
-.conn{display:inline-flex;align-items:center;gap:6px;font:600 12px/1 var(--font);color:var(--ink-2);height:28px;padding:0 10px;border-radius:999px;background:var(--fill)}
-.conn i{width:7px;height:7px;border-radius:50%;background:var(--phase-tool)}
-.conn.off{color:var(--flag-red)} .conn.off i{background:var(--flag-red)}
+/* root scroll */
+.scroll{position:absolute;inset:0;overflow-y:auto;padding:calc(var(--top) + 44px) 0 calc(var(--bot) + 24px);-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.scroll::-webkit-scrollbar{display:none}
+.large{padding:6px 16px 0}
+.large h1{margin:0;font:700 34px/1.1 var(--ui);letter-spacing:-.02em}
+.large p{margin:2px 0 0;font-size:13px;color:var(--label-3)}
+.search{margin:14px 16px 6px;height:36px;border-radius:10px;background:var(--fill-hover);display:flex;align-items:center;gap:6px;padding:0 9px;color:var(--label-3)}
+.search input{flex:1;min-width:0;background:none;border:0;outline:none;font:400 17px var(--ui);color:var(--label);height:100%}
+.search input::placeholder{color:var(--label-3)}
+.sec{padding:22px 32px 6px;font:400 13px/1.3 var(--ui);color:var(--label-2)}
+.group{margin:0 16px;background:var(--bg-raised);border-radius:10px;overflow:hidden}
+.row{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:11px 14px 11px 14px;text-align:left;color:var(--label);transition:background .16s var(--ease)}
+.row + .row{border-top:1px solid var(--sep)}
+.row:active{background:var(--fill-active)}
+.row.hot{background:var(--fill)}
+.row .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.row .t{font:400 17px/1.25 var(--ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row.hot .t{font-weight:600}
+.row .s{font:400 13px/1.3 var(--ui);color:var(--label-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .elapsed{font:400 15px var(--ui);color:var(--label-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.row .chev{color:var(--label-4);display:flex}
+.row.needs{flex-direction:column;align-items:stretch;gap:0;padding:12px 14px 12px}
+.row.needs .top{display:flex;align-items:center;gap:12px}
+.row.needs .q{margin:6px 0 0 32px;font:400 15px/1.35 var(--ui);color:var(--label-2)}
+.row.needs .ans{margin:10px 0 0 32px}
+.row.dim{opacity:.4}
+.row:disabled{cursor:default}
+.empty{padding:40px 24px;text-align:center;color:var(--label-3);font-size:15px}
 
-/* ---------- inbox ---------- */
-.top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:6px 16px 10px}
-.top h1{margin:0;font:900 30px/1.05 var(--font);letter-spacing:-.025em}
-.top .sum{margin:4px 0 0;font-size:13px;color:var(--ink-2)}
-.top-r{display:flex;align-items:center;gap:8px;padding-top:2px}
-.seg{margin:0 16px 12px;display:flex;padding:3px;border-radius:999px;background:var(--well)}
-.seg button{flex:1;height:32px;border:0;border-radius:999px;background:transparent;color:var(--ink-2);font:700 14px var(--font)}
-.seg button.on{background:var(--fill-2);color:var(--ink)}
-.seg b{font-weight:900;margin-left:4px;color:var(--flag-yellow)}
-.seg button:not(.on) b{color:var(--ink-3)}
-.ostrip{margin:0 16px 12px;padding:10px 12px;border-radius:14px;background:rgba(255,69,58,.14);color:#ffd4d0;font-size:13px;border:1px solid rgba(255,69,58,.35)}
-.list{flex:1;overflow-y:auto;padding:0 0 12px;-webkit-overflow-scrolling:touch}
-.card{margin:0 12px 10px;padding:14px;border-radius:22px;background:var(--glass-tint);
-  backdrop-filter:blur(28px) saturate(160%);-webkit-backdrop-filter:blur(28px) saturate(160%);
-  border:1px solid var(--hair);box-shadow:inset 0 1px 0 rgba(255,255,255,.06);cursor:pointer}
-.card.needs{border-color:rgba(255,214,10,.6);box-shadow:inset 0 0 0 1px rgba(255,214,10,.12),0 10px 34px rgba(255,214,10,.10)}
-.card-h{display:flex;align-items:center;gap:10px}
-.pos{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--fill);color:var(--ink-3);font:900 15px/1 var(--font);font-variant-numeric:tabular-nums;flex:none}
-.pos.pos-need{background:var(--flag-yellow);color:var(--ink-on-flag)}
-.who{flex:1;min-width:0;display:flex;flex-direction:column}
-.who b{font:700 16px/1.15 var(--font);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.who span{font-size:12.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.question{margin:12px 0 12px;font:600 17px/1.25 var(--font)}
-.mini{margin:10px 0 0;padding:10px 12px;border-radius:14px;background:var(--feed);color:var(--term-dim);
-  font:400 12.5px/1.55 var(--mono);white-space:pre-wrap;overflow:hidden;max-height:3.2em;word-break:break-word}
-.card-f{margin-top:8px;font-size:12px;color:var(--ink-3)}
-.empty{margin:30px 24px;text-align:center;color:var(--ink-2)}
-.empty b{display:block;font:900 20px/1.1 var(--font);color:var(--ink);margin-bottom:6px}
+/* buttons */
+.btn{min-height:44px;padding:0 18px;border-radius:10px;font:600 15px var(--ui);display:inline-flex;align-items:center;justify-content:center;
+  background:var(--fill-hover);color:var(--label);transition:transform .16s var(--ease),background .16s var(--ease);white-space:nowrap}
+.btn:active{transform:scale(.97);background:var(--fill-active)}
+.btn.prim{background:var(--primary-bg);color:var(--primary-fg)}
+.btn.prim:active{opacity:.85;background:var(--primary-bg)}
+.btn.plain{background:none;color:var(--label);font-weight:400;font-size:17px}
+.btn:disabled{opacity:.35;cursor:not-allowed;transform:none}
+.ans{display:flex;gap:8px}
+.ans .btn{flex:0 0 auto;min-width:92px;height:36px;min-height:36px;padding:0 14px;font-size:15px;border-radius:8px}
 
-/* bottom tab bar */
-.tabbar{position:relative;z-index:10;margin:0 10px 14px;height:66px;border-radius:33px;display:flex;align-items:center;gap:4px;padding:0 6px;
-  overflow-x:auto;scrollbar-width:none;background:var(--glass-tint);backdrop-filter:blur(28px) saturate(160%);
-  -webkit-backdrop-filter:blur(28px) saturate(160%);border:1px solid var(--hair);box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
-.tabbar::-webkit-scrollbar{display:none}
-.tab{position:relative;flex:0 0 auto;min-width:66px;max-width:92px;height:54px;padding:0 8px;border-radius:27px;border:0;background:transparent;
-  color:var(--ink-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font:600 12px/1 var(--font)}
-.tab.on{background:var(--fill-2);color:var(--ink)}
-.tab .tl{max-width:76px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tab .badge{position:absolute;top:4px;right:6px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--flag-yellow);color:var(--ink-on-flag);font:900 11px/18px var(--font);text-align:center}
-.tab.plus{min-width:54px;font:400 26px/1 var(--font);color:var(--ink)}
-.tab.plus span{margin-top:-3px}
+/* state glyphs (12px box, monochrome) */
+.g{position:relative;width:12px;height:12px;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.g-needs i{width:9px;height:9px;border-radius:50%;background:var(--label);display:block;position:relative;z-index:1}
+.g-needs::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:1px solid var(--label);opacity:0;animation:ring 2s ease-out infinite}
+.g-run{border-radius:50%;border:1.5px solid var(--label-4);border-top-color:var(--label-2);animation:spin .9s linear infinite}
+.g-think{gap:2px}
+.g-think i{width:2px;height:2px;border-radius:50%;background:var(--label-2);animation:breathe 1.2s ease-in-out infinite}
+.g-think i:nth-child(2){animation-delay:.2s}
+.g-think i:nth-child(3){animation-delay:.4s}
+.g-idle{border-radius:50%;border:1.5px solid var(--label-3)}
+.g-error{width:12px;height:12px;border:1.5px solid var(--label);border-radius:3px;font:700 9px/1 var(--ui);color:var(--label);justify-content:center}
+.g-done{color:var(--label-3)}
+.glyphcol{width:14px;display:flex;justify-content:center}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes ring{0%{opacity:.6;transform:scale(.8)}100%{opacity:0;transform:scale(1.7)}}
+@keyframes breathe{0%,100%{opacity:.25}50%{opacity:1}}
 
-/* ---------- agent view ---------- */
-.ahead{margin:0 10px 10px;padding:8px 10px;border-radius:24px;display:flex;align-items:center;gap:10px}
-.ah-mid{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
-.ah-mid b{font:900 18px/1.1 var(--font);letter-spacing:-.015em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ah-sub{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3);min-width:0}
-.ah-sub .proj{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.ah-sub .size{font:400 11px var(--mono);color:var(--ink-3);white-space:nowrap}
-.astrip{margin:0 10px 8px;padding:8px 12px;border-radius:14px;background:rgba(255,69,58,.14);color:#ffd4d0;font-size:13px}
-.pbanner{margin:0 10px 10px;padding:12px 12px 12px 14px;border-radius:20px;background:rgba(255,214,10,.13);
-  border:1px solid rgba(255,214,10,.55);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px)}
-.pbanner small{display:block;font:700 11.5px/1 var(--font);text-transform:uppercase;letter-spacing:.08em;color:var(--flag-yellow);margin-bottom:6px}
-.pbanner b{display:block;font:600 16px/1.25 var(--font);margin-bottom:10px}
-.feed{flex:1;min-height:0;overflow-y:auto;margin:0 10px;padding:12px 14px;border-radius:22px;background:var(--feed);
-  color:var(--term-text);font:400 12.5px/1.65 var(--mono);white-space:pre-wrap;word-break:break-word;border:1px solid var(--hair)}
-.ln{min-height:1.65em}
-.t-user{color:#f4f5f7;font-weight:700}
-.t-dim{color:var(--term-dim)}
-.t-err{color:var(--flag-red)}
-.t-warn{color:var(--flag-yellow);font-weight:700}
-.t-ok{color:var(--phase-tool)}
-.t-think{color:var(--phase-think)}
-.t-write{color:var(--phase-write)}
-.jump{position:absolute;right:20px;bottom:86px;width:40px;height:40px;border-radius:50%;z-index:5;display:none;place-items:center;
-  font:700 18px/1 var(--font);color:var(--ink);background:var(--glass-solid);border:1px solid var(--hair-2);
-  box-shadow:0 8px 24px rgba(0,0,0,.4);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px)}
-.jump.show{display:grid}
-.composer{display:flex;align-items:center;gap:8px;margin:10px 10px 12px}
-.keysbtn{height:44px;padding:0 14px;border-radius:999px;border:1px solid var(--hair-2);background:var(--glass-tint);
-  backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);color:var(--ink);font:700 14px var(--font);flex:none}
-.cin{flex:1;min-width:0;height:44px;border-radius:22px;border:1px solid var(--hair);background:rgba(0,0,0,.3);padding:0 16px;color:var(--ink);font:400 15px var(--font);outline:none}
-.cin::placeholder{color:var(--ink-3)}
-.cin:focus{border-color:var(--hair-2)}
-#send{height:44px;padding:0 16px}
+/* ---------- agent page ---------- */
+.term{flex:1;min-height:0;overflow-y:auto;padding:calc(var(--top) + 52px) 16px 12px;font:400 12.5px/1.5 var(--mono);color:var(--label-2);white-space:pre-wrap;word-break:break-word;scrollbar-width:none}
+.term::-webkit-scrollbar{display:none}
+.ln{min-height:1.5em}
+.ln.u{color:var(--label);font-weight:500}
+.ln.b{color:var(--label)}
+.ln.d{color:var(--label-3)}
+.ln.add{color:var(--label);border-left:2px solid var(--label);padding-left:8px}
+.ln.del{color:var(--label-3);border-left:2px solid var(--label-3);padding-left:8px}
+.ln.q{color:var(--label);font-weight:600}
+.ln.e{color:var(--label);font-weight:600}
+.jump{position:absolute;right:16px;bottom:calc(var(--bot) + 150px);width:36px;height:36px;border-radius:50%;background:var(--bg-float);
+  backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4);color:var(--label);display:none;align-items:center;justify-content:center;
+  box-shadow:0 4px 16px rgba(0,0,0,.35);z-index:4}
+.jump.show{display:flex}
+.jump:active{transform:scale(.97)}
+.qrow{margin:0 10px 8px;padding:12px 12px;border-radius:12px;background:var(--bg-raised);border:1px solid var(--sep)}
+.qrow p{margin:0 0 10px;font:400 15px/1.35 var(--ui);color:var(--label)}
+.qrow .ans .btn{flex:1;min-width:0}
+.composer{display:flex;align-items:flex-end;gap:8px;padding:8px 10px calc(var(--bot) + 4px)}
+.kbbtn{min-width:44px;height:44px;border-radius:22px;display:flex;align-items:center;justify-content:center;color:var(--label-2);flex:none;transition:transform .16s var(--ease),background .16s var(--ease)}
+.kbbtn:active{background:var(--fill-active);transform:scale(.97)}
+.field{flex:1;min-width:0;min-height:44px;border-radius:12px;background:var(--bg-raised);border:1px solid var(--sep);display:flex;align-items:center;padding:0 6px 0 14px}
+.field input{flex:1;min-width:0;height:42px;background:none;border:0;outline:none;font:400 17px var(--ui);color:var(--label)}
+.field input::placeholder{color:var(--label-3)}
+.field input:disabled{opacity:.5}
+.send{width:32px;height:32px;border-radius:50%;background:var(--primary-bg);color:var(--primary-fg);display:flex;align-items:center;justify-content:center;flex:none;position:relative;transition:transform .16s var(--ease),opacity .16s var(--ease)}
+.send::before{content:"";position:absolute;inset:-6px}
+.send:active{transform:scale(.97)}
+.send:disabled{background:var(--fill-active);color:var(--label-3);cursor:default;transform:none}
 
 /* ---------- sheets ---------- */
-.scrim{position:absolute;inset:0;z-index:25;background:rgba(0,0,0,.42);opacity:0;pointer-events:none;transition:opacity .3s ease}
+.scrim{position:absolute;inset:0;z-index:20;background:rgba(0,0,0,.36);opacity:0;pointer-events:none;transition:opacity .28s var(--ease-sheet)}
 .scrim.open{opacity:1;pointer-events:auto}
-.sheet{position:absolute;left:0;right:0;bottom:0;z-index:30;max-height:84%;overflow-y:auto;padding:8px 18px 30px;
-  border-radius:34px 34px 0 0;background:var(--glass-solid);backdrop-filter:blur(30px) saturate(170%);-webkit-backdrop-filter:blur(30px) saturate(170%);
-  border-top:1px solid var(--hair-2);box-shadow:0 -14px 40px rgba(0,0,0,.45);
-  transform:translateY(105%);transition:transform .42s cubic-bezier(.2,.8,.2,1);visibility:hidden}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:30;max-height:88%;display:flex;flex-direction:column;
+  background:var(--bg-float);backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4);
+  border-radius:38px 38px 0 0;box-shadow:0 -8px 32px rgba(0,0,0,.35);transform:translateY(104%);
+  transition:transform .28s var(--ease-sheet);visibility:hidden}
 .sheet.open{transform:none;visibility:visible}
 .sheet.dragging{transition:none}
-.grab{width:44px;height:5px;border-radius:3px;background:var(--fill-2);margin:4px auto 14px;touch-action:none;cursor:grab}
-.sheet h3{margin:0 0 12px;font:900 22px/1.1 var(--font);letter-spacing:-.015em}
-.sheet .hint{margin:0 0 12px;font-size:13px;color:var(--ink-3)}
-.kg{margin-bottom:14px}
-.kg h4{margin:0 0 8px;font:700 12px/1 var(--font);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3)}
-.kgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
-.key{height:46px;border-radius:14px;border:1px solid var(--hair);background:var(--fill);color:var(--ink);font:700 14px var(--font)}
-.key:active{background:var(--fill-2)}
-.optgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.opt{position:relative;text-align:left;min-height:96px;padding:12px;border-radius:20px;border:1px solid var(--hair);background:var(--fill);color:var(--ink);display:flex;flex-direction:column;gap:4px}
-.opt b{font:700 16px/1.15 var(--font)}
-.opt small{font-size:12px;color:var(--ink-3);line-height:1.35}
-.opt .warm{position:absolute;top:10px;right:10px;height:20px;padding:0 8px;border-radius:10px;background:rgba(100,210,255,.18);color:var(--phase-write);font:700 11px/20px var(--font)}
-.opt:disabled{opacity:.55;cursor:not-allowed}
-.opt:disabled small.reason{color:#ffb1aa}
-.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--hair)}
-.row b{display:block;font:600 16px/1.2 var(--font)}
-.row small{display:block;font-size:13px;color:var(--ink-3);margin-top:2px}
-.rowbtn{display:block;width:100%;text-align:left;padding:14px 0;border:0;border-bottom:1px solid var(--hair);background:transparent;font:600 16px var(--font);color:var(--ink)}
-.rowbtn.danger{color:var(--flag-red)}
-.confirm{margin:12px 0;padding:14px;border-radius:18px;background:rgba(255,69,58,.1);border:1px solid rgba(255,69,58,.4)}
-.confirm b{display:block;font:700 16px var(--font);margin-bottom:4px}
-.confirm p{margin:0 0 12px;font-size:13.5px;color:var(--ink-2)}
-.switch{position:relative;width:50px;height:30px;border-radius:999px;border:0;background:var(--fill-2);flex:none}
-.switch i{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:transform .25s ease}
-.switch.on{background:var(--phase-tool)}
-.switch.on i{transform:translateX(20px)}
-.conn-row .dot{width:12px;height:12px}
+.sheet-top{padding:8px 0 0;touch-action:none;cursor:grab}
+.grabber{width:36px;height:5px;border-radius:3px;background:var(--label-4);margin:0 auto 10px}
+.sheet-h{position:relative;display:flex;align-items:center;justify-content:center;height:44px;padding:0 16px}
+.sheet-h b{font:600 17px var(--ui)}
+.sheet-h .btn{position:absolute;right:12px;min-height:36px;padding:0 10px;font-weight:600;color:var(--label)}
+.sheet-body{overflow-y:auto;padding:4px 16px calc(var(--bot) + 16px);scrollbar-width:none}
+.sheet-body::-webkit-scrollbar{display:none}
+.sheet .sec{padding:18px 16px 6px}
+.keygrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.cap{height:44px;min-width:44px;border-radius:8px;background:var(--fill-hover);color:var(--label);font:500 16px var(--ui);
+  display:flex;align-items:center;justify-content:center;transition:transform .12s var(--ease),background .12s var(--ease)}
+.cap:active{background:var(--fill-active);transform:scale(.97)}
+.cap.latched{background:var(--primary-bg);color:var(--primary-fg)}
+.cap.latched:active{opacity:.85}
+.keyhint{margin:10px 16px 0;font-size:13px;color:var(--label-3);min-height:18px}
+.ig{margin:0;background:var(--bg-raised);border-radius:10px;overflow:hidden}
+.ig .row{min-height:44px}
+.ig .row.dis{opacity:.4}
+.ig .row.dis .t{color:var(--label)}
+.ig .row .meta{font-size:15px;color:var(--label-3);white-space:nowrap}
+.ig .row .rs{font:400 13px/1.3 var(--ui);color:var(--label-3)}
+.sw{position:relative;width:51px;height:31px;border-radius:16px;background:var(--fill-active);flex:none;transition:background .25s var(--ease)}
+.sw i{position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:var(--bg);box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .25s var(--ease)}
+.sw.on{background:var(--label)}
+.sw.on i{transform:translateX(20px);background:var(--bg)}
+.plainrow{display:block;width:100%;text-align:center;padding:14px;font:400 17px var(--ui);color:var(--label);min-height:44px}
+.plainrow:active{opacity:.6}
+.footnote{margin:8px 16px 0;font-size:13px;color:var(--label-3)}
 
-.toast{position:absolute;left:24px;right:24px;bottom:96px;z-index:40;padding:11px 14px;border-radius:16px;text-align:center;
-  background:var(--glass-solid);border:1px solid var(--hair-2);font-size:14px;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .25s ease,transform .25s ease}
-.toast.on{opacity:1;transform:none}
+/* action sheet */
+.action{position:absolute;left:8px;right:8px;bottom:calc(var(--bot) + 6px);z-index:40;transform:translateY(120%);transition:transform .28s var(--ease-sheet);visibility:hidden}
+.action.open{transform:none;visibility:visible}
+.action .card{background:var(--bg-float);backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4);border-radius:14px;overflow:hidden;margin-bottom:8px}
+.action .msg{padding:14px 16px 14px;text-align:center;font-size:13px;color:var(--label-2);line-height:1.35}
+.action .msg b{display:block;font:600 13px var(--ui);color:var(--label);margin-bottom:2px}
+.action .act{display:block;width:100%;min-height:57px;text-align:center;font:400 20px var(--ui);color:var(--label);border-top:1px solid var(--sep)}
+.action .act.strong{font-weight:600}
+.action .act:active{background:var(--fill-active)}
+.action .cancel{font-weight:600}
 
-/* ---------- phone-size behaviour ---------- */
+/* toast-free status for offline */
+.offstrip{padding:8px 16px;font-size:13px;color:var(--label-2);border-bottom:1px solid var(--sep);background:var(--bg-raised)}
+
+/* ---------- device sizing ---------- */
 @media (max-width:500px){
-  .stage{display:block;padding:0}
+  :root{--top:env(safe-area-inset-top,0px);--bot:env(safe-area-inset-bottom,0px)}
+  .stage{display:block;padding:0;min-height:0}
   .legend{display:none}
-  .device{width:100vw;height:100vh;height:100dvh;border-radius:0;padding:0;box-shadow:none}
-  .screen{border-radius:0;padding-top:env(safe-area-inset-top,0px)}
-  .island{display:none}
-  .tabbar{margin-bottom:calc(env(safe-area-inset-bottom,0px) + 8px)}
-  .jump{bottom:calc(env(safe-area-inset-bottom,0px) + 90px)}
+  .device{width:100vw;height:100vh;height:100dvh;border-radius:0;padding:0;box-shadow:none;background:var(--bg)}
+  .screen{border-radius:0}
+  .island,.home{display:none}
 }
 @media (prefers-reduced-motion:reduce){
-  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+  *,*::before,*::after{transition-duration:.01ms!important;animation:none!important;scroll-behavior:auto!important}
+  .g-run{border-top-color:var(--label-2)}
+  .g-needs::after{display:none}
+  .g-think i{opacity:.6}
 }
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 </style>
 </head>
 <body>
-<main class="stage">
+<div class="stage">
 
-  <aside class="legend" aria-label="Proposal notes">
-    <h1>Phone PWA, proposal</h1>
-    <p class="lede">Clickable mock of the phone view. Every agent, question and output is <b>Example data</b>; nothing connects to a PC. Tap around the phone, or jump to a state:</p>
-    <div class="demo">
-      <button data-demo="inbox">Inbox · all</button>
-      <button data-demo="needs">Inbox · needs you</button>
-      <button data-demo="agent">Agent · waiting</button>
-      <button data-demo="running">Agent · running</button>
-      <button data-demo="keys">Keys sheet</button>
-      <button data-demo="new">New agent</button>
-      <button data-demo="menu">Menu</button>
-      <button data-demo="offline">Offline state</button>
-    </div>
-
-    <h2>What changes, and why</h2>
+  <aside class="legend" aria-label="What changed">
+    <h1>Phone, monochrome v2</h1>
+    <p class="intro">Tap around the phone. Every agent, question and output is example data.</p>
     <ol>
-      <li><b>Bottom tab bar instead of a top strip.</b> Thumb reach; the top strip scrolled sideways and hid agents. <em>Inventory 3.3: tab strip with horizontal scroll at the top.</em></li>
-      <li><b>Inbox ranks agents that need you first.</b> Yellow count on the Inbox tab. <em>Inventory 3.4: only an amber border marks a waiting agent.</em></li>
-      <li><b>The card shows the actual question, with Yes / No / Open.</b> Answer without opening the terminal. <em>Inventory 3.4: the question is not shown on the card.</em></li>
-      <li><b>One state dot everywhere, one vocabulary.</b> Same colours on tabs, cards and headers. <em>Inventory 6: the dot means connection on All, status on agent tabs.</em></li>
-      <li><b>Offline is a labelled strip and disables answers.</b> <em>Inventory 6: phone offline state is only a small dot.</em></li>
-      <li><b>Compact glass agent header, no pid.</b> Name, project, state chip and size only. <em>Inventory 6: the phone shows cols×rows · pid to end users.</em></li>
-      <li><b>Pending-prompt banner above the input when the agent waits.</b> Yes, No and a shortcut to Keys for menus. <em>Inventory 3.5: nothing marks a prompt inside the feed.</em></li>
-      <li><b>Keys is a labelled glass sheet.</b> Words replace the keyboard glyph; same groups. <em>Inventory 6: the Keys glyph suggests the OS keyboard.</em></li>
-      <li><b>Jump-to-bottom sits above the composer.</b> It no longer collides with the Keys control. <em>Inventory 5, bug 8.</em></li>
-      <li><b>Sheets have a grab handle and swipe-down.</b> New-agent options show why a type is disabled; warm agents are badged. <em>Inventory 3.6: no grab handle, no swipe-down, disabled reasons hidden.</em></li>
-      <li><b>Unpair asks first, in-app.</b> No native confirm(). <em>Inventory 3.1 and 6: Unpair has no confirmation; the phone uses native dialogs.</em></li>
-      <li><b>Connection in plain words.</b> "Round trip 42 ms" replaces "typing echo / reconnects". <em>Inventory 6: developer copy on user screens.</em></li>
-      <li><b>Reduced motion respected.</b> Pulses and sheet slides are cut when the OS asks for it.</li>
+      <li><b>Push navigation, not a tab bar.</b> Agents is a root list; an agent slides in from the right. Fixes the top tab strip that scrolled sideways (inventory 3.3).</li>
+      <li><b>Needs you comes first, with the question.</b> Each row shows the actual prompt and Yes / No inline. Previously an amber border and no question (inventory 3.4).</li>
+      <li><b>State is a glyph and weight, not colour.</b> Solid dot, spinner, breathing dots, hollow ring, "!" and check. Removes the colour-only dots (inventory 6).</li>
+      <li><b>Monochrome terminal.</b> Diffs use a left rule and weight, not red and green (inventory 6, ANSI mapping).</li>
+      <li><b>Question sits above the composer.</b> Keys opens from a keyboard-glyph button; Ctrl latch shows a pressed key (inventory 3.5, bug 7).</li>
+      <li><b>Sheets with grabbers and swipe-down.</b> New agent and Menu are inset lists; disabled agents state why (inventory 3.6).</li>
+      <li><b>Unpair asks first, in an action sheet.</b> Replaces the immediate unpair and native dialogs (inventory 3.1, 6).</li>
+      <li><b>Connection in plain words.</b> "Connected · 42 ms" replaces RTT and typing-echo jargon (inventory 6).</li>
     </ol>
-
-    <h2>Known gaps</h2>
-    <ol class="gaps">
-      <li>Pairing, setup and the legacy PWA are not designed here.</li>
-      <li>Only 6 of the 16 classifier states appear (needs, error, thinking, running, writing, idle).</li>
-      <li>Not shown: size-claim and nudge behaviour, hidden-input mode, Ctrl latch, install and update notices.</li>
-      <li>Close agent and Unpair are demo-only; nothing is stopped or revoked.</li>
-      <li>Layout checked by reading the markup and running a syntax check; not screenshot-tested on a device.</li>
-    </ol>
+    <p class="gaps">Not covered: pairing and setup screens, the legacy PWA, size-claim and nudge behaviour, hidden-input mode, the full 16-state set (eight shown). Not tested in a browser.</p>
   </aside>
 
   <div class="device" id="device">
-    <div class="island" aria-hidden="true"></div>
     <div class="screen" id="screen">
+      <div class="island" aria-hidden="true"></div>
 
-      <!-- Inbox / All -->
-      <section class="view on" id="v-inbox" aria-label="Inbox">
-        <header class="top">
-          <div>
-            <h1>Puppet Master</h1>
-            <p class="sum" id="sum"></p>
-          </div>
-          <div class="top-r">
-            <span class="conn" id="conn-inbox"></span>
-            <button class="icon" data-act="menu" aria-label="Menu">⋯</button>
-          </div>
+      <!-- ROOT: Agents -->
+      <section class="page root" id="root" aria-label="Agents">
+        <header class="nav solid" style="background:transparent;border-bottom-color:transparent" id="rootnav">
+          <span class="l"></span>
+          <span class="navtitle" id="navtitle">Agents</span>
+          <span class="r">
+            <button class="navbtn" data-sheet="new" aria-label="New agent"><svg viewBox="0 0 16 16" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
+            <button class="navbtn" data-sheet="menu" aria-label="Menu"><svg viewBox="0 0 16 16" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="3.5" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="12.5" cy="8" r=".7"/></svg></button>
+          </span>
         </header>
-        <div class="seg" id="seg" role="tablist"></div>
-        <div class="list" id="list"></div>
+        <div class="scroll" id="rootscroll">
+          <div class="large">
+            <h1>Agents</h1>
+            <p id="rootsub"></p>
+          </div>
+          <div class="search">
+            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+            <input id="q" placeholder="Search" aria-label="Search agents" autocomplete="off">
+          </div>
+          <div id="groups"></div>
+        </div>
       </section>
 
-      <!-- Agent -->
-      <section class="view" id="v-agent" aria-label="Agent">
-        <header class="ahead glass" id="ahead"></header>
-        <div id="astrip-wrap"></div>
-        <div id="pbanner-wrap"></div>
-        <div class="feed" id="feed" role="log" aria-live="polite" aria-label="Terminal output"></div>
-        <button class="jump" id="jump" data-act="jump" aria-label="Jump to bottom">↓</button>
+      <!-- AGENT: pushed -->
+      <section class="page agent" id="agent" aria-label="Agent">
+        <header class="nav solid">
+          <span class="l"><button class="navbtn back" data-back aria-label="Back to Agents"><svg viewBox="0 0 16 16" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 5.5 8l4.5 4.5"/></svg><span>Agents</span></button></span>
+          <span class="navmid"><b id="an-name"></b><span id="an-state"></span></span>
+          <span class="r"><button class="navbtn" data-sheet="menu" aria-label="Menu"><svg viewBox="0 0 16 16" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="3.5" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="12.5" cy="8" r=".7"/></svg></button></span>
+        </header>
+        <div class="term" id="term" role="log" aria-label="Terminal output"></div>
+        <button class="jump" id="jump" data-jump aria-label="Jump to bottom"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg></button>
+        <div id="qwrap"></div>
         <form class="composer" id="composer" autocomplete="off">
-          <button type="button" class="keysbtn" data-act="keys" aria-haspopup="dialog">Keys</button>
-          <input class="cin" id="cin" placeholder="Message this agent" aria-label="Message this agent" enterkeyhint="send">
-          <button type="submit" class="btn go" id="send" disabled>Send</button>
+          <button type="button" class="kbbtn" data-sheet="keys" aria-label="Keys"><svg viewBox="0 0 16 16" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="1.5" y="4" width="13" height="8" rx="1.8"/><path d="M4 7h.5M7 7h2M10.5 7h.5M4 10h8"/></svg></button>
+          <div class="field"><input id="cin" placeholder="Reply to Claude Code…" aria-label="Reply"></div>
+          <button type="submit" class="send" id="send" disabled aria-label="Send"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5V3.5M3.8 7.7 8 3.5l4.2 4.2"/></svg></button>
         </form>
       </section>
 
-      <nav class="tabbar" id="tabs" aria-label="Agents"></nav>
+      <div class="scrim" id="scrim" data-close></div>
 
-      <div class="scrim" id="scrim" data-act="close"></div>
-
-      <!-- New agent sheet -->
-      <section class="sheet" id="sheet-new" role="dialog" aria-label="New agent">
-        <div class="grab" aria-hidden="true"></div>
-        <h3>New agent</h3>
-        <p class="hint">Project: puppet-master (example). Agents that can run as a visible pane come first.</p>
-        <div class="optgrid" id="new-grid"></div>
-      </section>
-
-      <!-- Menu sheet -->
-      <section class="sheet" id="sheet-menu" role="dialog" aria-label="Menu">
-        <div class="grab" aria-hidden="true"></div>
-        <h3>Menu</h3>
-        <div id="menu-body"></div>
-      </section>
-
-      <!-- Keys sheet -->
+      <!-- KEYS sheet -->
       <section class="sheet" id="sheet-keys" role="dialog" aria-label="Keys">
-        <div class="grab" aria-hidden="true"></div>
-        <h3>Keys</h3>
-        <div class="kg"><h4>Control</h4><div class="kgrid">
-          <button class="key" data-key="Esc">Esc</button>
-          <button class="key" data-key="Tab">Tab</button>
-          <button class="key" data-key="Ctrl+C">Ctrl+C</button>
-          <button class="key" data-key="Ctrl+D">Ctrl+D</button>
-          <button class="key" data-key="Ctrl+L">Ctrl+L</button>
-        </div></div>
-        <div class="kg"><h4>Navigate</h4><div class="kgrid">
-          <button class="key" data-key="Up" aria-label="Up">↑</button>
-          <button class="key" data-key="Down" aria-label="Down">↓</button>
-          <button class="key" data-key="Left" aria-label="Left">←</button>
-          <button class="key" data-key="Right" aria-label="Right">→</button>
-          <button class="key" data-key="Home">Home</button>
-          <button class="key" data-key="End">End</button>
-        </div></div>
-        <div class="kg"><h4>Edit</h4><div class="kgrid">
-          <button class="key" data-key="Backspace" aria-label="Backspace">⌫</button>
-          <button class="key" data-key="Delete" aria-label="Delete">⌦</button>
-          <button class="key" data-key="Enter" aria-label="Enter">↵</button>
-        </div></div>
+        <div class="sheet-top" data-drag><div class="grabber"></div><div class="sheet-h"><b>Keys</b><button class="btn" data-close>Done</button></div></div>
+        <div class="sheet-body">
+          <div class="sec">Control</div>
+          <div class="keygrid">
+            <button class="cap" data-key="Esc">Esc</button>
+            <button class="cap" data-key="Tab">Tab</button>
+            <button class="cap" data-latch id="latchbtn" aria-pressed="false">Ctrl</button>
+            <button class="cap" data-key="Ctrl+C">⌃C</button>
+            <button class="cap" data-key="Ctrl+D">⌃D</button>
+            <button class="cap" data-key="Ctrl+L">⌃L</button>
+          </div>
+          <div class="sec">Navigate</div>
+          <div class="keygrid">
+            <button class="cap" data-key="Up" aria-label="Up">↑</button>
+            <button class="cap" data-key="Down" aria-label="Down">↓</button>
+            <button class="cap" data-key="Left" aria-label="Left">←</button>
+            <button class="cap" data-key="Right" aria-label="Right">→</button>
+            <button class="cap" data-key="Home">Home</button>
+            <button class="cap" data-key="End">End</button>
+          </div>
+          <div class="sec">Edit</div>
+          <div class="keygrid">
+            <button class="cap" data-key="Backspace" aria-label="Backspace">⌫</button>
+            <button class="cap" data-key="Delete" aria-label="Delete">⌦</button>
+            <button class="cap" data-key="Enter" aria-label="Enter">↵</button>
+          </div>
+          <p class="keyhint" id="keyhint"></p>
+        </div>
       </section>
 
-      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      <!-- NEW AGENT sheet -->
+      <section class="sheet" id="sheet-new" role="dialog" aria-label="New agent">
+        <div class="sheet-top" data-drag><div class="grabber"></div><div class="sheet-h"><b>New agent</b><button class="btn" data-close>Cancel</button></div></div>
+        <div class="sheet-body">
+          <div class="sec">Project: puppet-master (example)</div>
+          <div class="ig" id="newlist"></div>
+        </div>
+      </section>
+
+      <!-- MENU sheet -->
+      <section class="sheet" id="sheet-menu" role="dialog" aria-label="Menu">
+        <div class="sheet-top" data-drag><div class="grabber"></div><div class="sheet-h"><b>Menu</b><button class="btn" data-close>Done</button></div></div>
+        <div class="sheet-body">
+          <div class="sec">Connection</div>
+          <div class="ig">
+            <div class="row"><div class="txt"><span class="t" id="conntext"></span><span class="s">PM-DESKTOP (example) · paired 3 days ago</span></div></div>
+            <div class="row"><div class="txt"><span class="t">Simulate connection drop</span></div><button class="sw" id="offsw" data-toggle-offline role="switch" aria-checked="false" aria-label="Simulate connection drop"><i></i></button></div>
+          </div>
+          <div class="sec" id="closesec">Agent</div>
+          <div class="ig" id="closegrp"></div>
+          <div class="sec">Account</div>
+          <div class="ig"><button class="plainrow" style="text-align:center;border-radius:10px" data-unpair>Unpair this phone</button></div>
+          <p class="footnote" id="unpairnote"></p>
+        </div>
+      </section>
+
+      <!-- ACTION sheet (confirmation) -->
+      <div class="action" id="action" role="alertdialog" aria-label="Confirm">
+        <div class="card">
+          <div class="msg" id="actmsg"></div>
+          <button class="act strong" id="actgo" data-act-go>Unpair</button>
+        </div>
+        <div class="card"><button class="act cancel" data-act-cancel>Cancel</button></div>
+      </div>
+
+      <div class="home" aria-hidden="true"></div>
     </div>
   </div>
-</main>
+</div>
 
 <script>
 (function(){
   "use strict";
 
-  var STATES = {
-    needs:{label:"Needs you", cls:"s-needs", rank:0},
-    error:{label:"Error", cls:"s-error", rank:1},
-    think:{label:"Thinking", cls:"s-think", rank:2},
-    tool:{label:"Running tool", cls:"s-tool", rank:3},
-    write:{label:"Writing", cls:"s-write", rank:3},
-    idle:{label:"Idle", cls:"s-idle", rank:5}
+  var SVG = {
+    chev:'<path d="M6 3.5 10.5 8 6 12.5"/>',
+    check:'<path d="M3.5 8.5 6.5 11.5 12.5 4.5"/>'
   };
+  function svg(d, size){
+    return '<svg viewBox="0 0 16 16" width="'+size+'" height="'+size+'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+d+'</svg>';
+  }
+
+  var STATE_TEXT = {needs:"Needs you", running:"Running", tool:"Running tool", write:"Writing", think:"Thinking", idle:"Idle", error:"Error", done:"Done"};
+  var GROUP_OF = {needs:"needs", error:"needs", running:"working", tool:"working", write:"working", think:"working", idle:"idle", done:"idle"};
+
+  function glyph(state){
+    switch(state){
+      case "needs": return '<span class="g g-needs"><i></i></span>';
+      case "error": return '<span class="g g-error" aria-hidden="true">!</span>';
+      case "think": return '<span class="g g-think"><i></i><i></i><i></i></span>';
+      case "idle": return '<span class="g g-idle"></span>';
+      case "done": return '<span class="g g-done">'+svg(SVG.check,12)+'</span>';
+      default: return '<span class="g g-run"></span>';
+    }
+  }
 
   // Example data only.
   var AGENTS = [
-    {id:"cc", name:"Claude Code", project:"puppet-master", state:"needs", question:"Allow edit to src/app.ts?", size:"96×30", ago:"just now",
-      lines:["> Wire the retry queue into the session parser",
-             "● Read src/session/parser.ts (412 lines)",
-             "● Plan",
-             "  1. Split readChunk into header and body",
-             "  2. Add a backpressure test",
-             "● Edit src/app.ts",
-             "  Allow edit to src/app.ts?",
-             "  ❯ 1. Yes",
-             "    2. No, and tell Claude what to do",
-             "    3. Show diff"]},
-    {id:"oc", name:"OpenCode", project:"docs-site", state:"needs", question:"Continue the migration? It will overwrite 3 files.", size:"80×24", ago:"just now",
-      lines:["> Migrate content/*.md to MDX",
-             "Found 3 files that already exist:",
-             "  content/intro.mdx",
-             "  content/setup.mdx",
-             "  content/faq.mdx",
-             "Continue the migration? It will overwrite 3 files. [y/N]"]},
-    {id:"cx", name:"Codex", project:"puppet-master", state:"tool", question:"", size:"88×28", ago:"4 s ago",
-      lines:["$ cargo test -p pm-bridge",
-             "   Compiling pm-bridge v0.9.2",
-             "running 14 tests",
-             "test pairing::code_expiry ... ok",
-             "test pairing::replay_rejected ... ok",
-             "test relay::backpressure ... running"]},
-    {id:"ca", name:"Cursor Agent", project:"api-gateway", state:"think", question:"", size:"100×32", ago:"12 s ago",
-      lines:["> Add exponential backoff to the upstream client",
-             "… thinking about retry budget versus timeout"]},
-    {id:"sh", name:"PowerShell", project:"work2", state:"idle", question:"", size:"80×24", ago:"3 min ago",
-      lines:["PS C:\\Users\\dev\\work2> npm test",
-             "Test Files  42 passed (42)",
-             "PS C:\\Users\\dev\\work2> "]},
-    {id:"rv", name:"Reviewer", project:"puppet-master", state:"error", question:"", size:"80×24", ago:"1 min ago",
-      lines:["> Review the PR diff for auth edge cases",
-             "Error: rate limited (429). Retry in 60 s",
-             "process exited with code 1"]}
+    {id:"cc", name:"Claude Code", project:"puppet-master", state:"needs", q:"Allow edit to src/app.ts?", answers:["Yes","No"], elapsed:"2m", size:"96×30",
+     lines:[["u","> Wire the retry queue into the session parser"],["b","● Read src/session/parser.ts (412 lines)"],["b","● Edit src/app.ts"],
+            ["add","+ const queue = new RetryQueue({ max: 5 })"],["del","- const queue = []"],["q","Allow edit to src/app.ts?"]]},
+    {id:"oc", name:"OpenCode", project:"docs-site", state:"needs", q:"Overwrite 3 existing files?", answers:["Continue","Stop"], elapsed:"5m", size:"80×24",
+     lines:[["u","> Migrate content/*.md to MDX"],["d","Found 3 existing files:"],["d","  content/intro.mdx"],["d","  content/setup.mdx"],["d","  content/faq.mdx"],["q","Overwrite 3 existing files?"]]},
+    {id:"rv", name:"Reviewer", project:"puppet-master", state:"error", q:"Rate limited. Retry in 60 s", answers:["Retry","Open"], elapsed:"1m", size:"80×24",
+     lines:[["u","> Review the PR diff for auth edge cases"],["e","! Rate limited (429). Retry in 60 s"],["d","Process exited with code 1"]]},
+    {id:"cx", name:"Codex", project:"puppet-master", state:"tool", elapsed:"4m", size:"88×28",
+     lines:[["d","$ cargo test -p pm-bridge"],["d","   Compiling pm-bridge v0.9.2"],["d","running 14 tests"],["d","test relay::backpressure ... running"]]},
+    {id:"wr", name:"Writer", project:"docs-site", state:"write", elapsed:"1m", size:"80×24",
+     lines:[["u","> Update the onboarding guide"],["add","+ ## Pair your phone"],["add","+ Scan the code shown on the PC."]]},
+    {id:"ca", name:"Cursor Agent", project:"api-gateway", state:"think", elapsed:"12s", size:"100×32",
+     lines:[["u","> Add exponential backoff to the upstream client"],["d","… thinking about retry budget versus timeout"]]},
+    {id:"sh", name:"PowerShell", project:"work2", state:"idle", elapsed:"3m", size:"80×24",
+     lines:[["d","PS work2> npm test"],["d","Test Files  42 passed (42)"],["d","PS work2> "]]},
+    {id:"tr", name:"Test runner", project:"api-gateway", state:"done", elapsed:"9m", size:"80×24",
+     lines:[["u","> Run the integration suite"],["b","Done. 3 files changed, checks passed."]]}
   ];
 
   var TYPES = [
@@ -409,283 +432,192 @@ button{cursor:pointer}
     {id:"reviewer", name:"Reviewer", sub:"Custom definition", ok:true}
   ];
 
-  var S = {view:"inbox", filter:"needs", current:null, open:AGENTS.map(function(a){return a.id;}),
-           offline:false, sheet:null, confirm:null, forceBottom:false};
-  var uid = 0;
+  var S = {page:"root", current:null, q:"", offline:false, sheet:null, action:null, latch:false, forceBottom:false, unpaired:false, uid:0};
 
   function $(id){ return document.getElementById(id); }
-  function esc(s){
-    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-  }
-  function byId(id){
-    for (var i=0;i<AGENTS.length;i++){ if (AGENTS[i].id===id) return AGENTS[i]; }
-    return null;
-  }
-  var reducedQuery = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
-  function reduced(){ return !!(reducedQuery && reducedQuery.matches); }
+  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+  function byId(id){ for (var i=0;i<AGENTS.length;i++){ if (AGENTS[i].id===id) return AGENTS[i]; } return null; }
+  function reduced(){ return !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches); }
+  function groupRank(g){ return {needs:0, working:1, idle:2}[g]; }
 
-  var toastTimer = null;
-  function toast(msg){
-    var t = $("toast");
-    t.textContent = msg;
-    t.classList.add("on");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function(){ t.classList.remove("on"); }, 2200);
+  function matches(a){
+    var q = S.q.trim().toLowerCase();
+    if (!q) return true;
+    return (a.name+" "+a.project).toLowerCase().indexOf(q) >= 0;
   }
 
-  function counts(){
-    var c = {needs:0, running:0, error:0, idle:0};
-    AGENTS.forEach(function(a){
-      if (a.state==="needs") c.needs++;
-      else if (a.state==="error") c.error++;
-      else if (a.state==="idle") c.idle++;
-      else c.running++;
-    });
-    return c;
+  function rowHTML(a){
+    var dis = S.offline ? " disabled" : "";
+    if (GROUP_OF[a.state]==="needs" && a.answers){
+      return '<div class="row needs" data-open="'+a.id+'" role="button" tabindex="0">' +
+        '<div class="top">'+glyph(a.state)+'<div class="txt"><span class="t" style="font-weight:600">'+esc(a.name)+'</span><span class="s">'+esc(a.project)+'</span></div>' +
+        '<span class="elapsed">'+esc(a.elapsed)+'</span></div>' +
+        '<p class="q">'+esc(a.q)+'</p>' +
+        '<div class="ans"><button class="btn prim" data-ans="0" data-id="'+a.id+'"'+dis+'>'+esc(a.answers[0])+'</button>' +
+        '<button class="btn" data-ans="1" data-id="'+a.id+'"'+dis+'>'+esc(a.answers[1])+'</button></div>' +
+        '</div>';
+    }
+    var hot = a.state==="needs" ? " hot" : "";
+    return '<button class="row'+hot+'" data-open="'+a.id+'">' + '<span class="glyphcol">'+glyph(a.state)+'</span>' +
+      '<span class="txt"><span class="t">'+esc(a.name)+'</span><span class="s">'+esc(a.project)+' · '+STATE_TEXT[a.state]+'</span></span>' +
+      '<span class="elapsed">'+esc(a.elapsed)+'</span><span class="chev">'+svg(SVG.chev,14)+'</span></button>';
   }
-  function sorted(list){
-    return list.slice().sort(function(a,b){
-      var d = STATES[a.state].rank - STATES[b.state].rank;
-      return d !== 0 ? d : AGENTS.indexOf(a) - AGENTS.indexOf(b);
+
+  function renderRoot(){
+    $("rootsub").textContent = S.offline ? "Offline · retrying in 4 s" : "Connected · 42 ms";
+    var sections = [["Needs you","needs"],["Working","working"],["Idle","idle"]];
+    var html = "", any = false;
+    sections.forEach(function(s){
+      var list = AGENTS.filter(function(a){ return GROUP_OF[a.state]===s[1] && matches(a); });
+      if (!list.length) return;
+      any = true;
+      html += '<div class="sec">'+s[0]+'</div><div class="group">' + list.map(rowHTML).join("") + "</div>";
     });
+    if (!any) html = '<div class="empty">' + (S.q ? "No agents match" : "No agents running") + "</div>";
+    if (AGENTS.length && S.unpaired) html = '<div class="empty">Not paired. Scan the code on the PC.</div>';
+    $("groups").innerHTML = html;
   }
 
   function lineHTML(l){
-    var c = "";
-    if (/^\[key\]/.test(l)) c = "t-dim";
-    else if (/^>/.test(l)) c = "t-user";
-    else if (/Allow |\[y\/N\]|❯|Continue the migration/.test(l)) c = "t-warn";
-    else if (/rror|429|exited with code [1-9]/.test(l)) c = "t-err";
-    else if (/ok$|passed|✓/.test(l)) c = "t-ok";
-    else if (/…|thinking|Running/.test(l)) c = "t-think";
-    else if (/^● (Edit|Write)/.test(l)) c = "t-write";
-    return '<div class="ln ' + c + '">' + (l ? esc(l) : "&nbsp;") + "</div>";
-  }
-
-  function renderConn(){
-    var html = S.offline
-      ? '<i></i>Offline'
-      : '<i></i>Live · 42 ms';
-    var el = $("conn-inbox");
-    el.className = "conn" + (S.offline ? " off" : "");
-    el.innerHTML = html;
-  }
-
-  function renderTabs(){
-    var n = counts().needs;
-    var h = '<button class="tab' + (S.view==="inbox" ? " on" : "") + '" data-go="inbox" aria-label="Inbox, ' + n + ' need you">' +
-            '<span>Inbox</span>' + (n ? '<span class="badge">' + n + "</span>" : "") + "</button>";
-    S.open.forEach(function(id){
-      var a = byId(id); if (!a) return;
-      var on = S.view==="agent" && S.current===id;
-      h += '<button class="tab' + (on ? " on" : "") + '" data-go="agent" data-id="' + a.id + '" aria-label="' + esc(a.name) + ", " + STATES[a.state].label + '">' +
-           '<i class="dot ' + STATES[a.state].cls + '"></i><span class="tl">' + esc(a.name) + "</span></button>";
-    });
-    h += '<button class="tab plus" data-act="new" aria-label="New agent"><span>+</span></button>';
-    var bar = $("tabs");
-    bar.innerHTML = h;
-    var active = bar.querySelector(".tab.on");
-    if (active && active.scrollIntoView) active.scrollIntoView({inline:"nearest", block:"nearest"});
-  }
-
-  function renderSeg(){
-    var c = counts();
-    $("seg").innerHTML =
-      '<button class="' + (S.filter==="needs" ? "on" : "") + '" data-act="filter" data-f="needs" role="tab">Inbox<b>' + c.needs + "</b></button>" +
-      '<button class="' + (S.filter==="all" ? "on" : "") + '" data-act="filter" data-f="all" role="tab">All<b>' + AGENTS.length + "</b></button>";
-  }
-
-  function cardHTML(a, pos){
-    var st = STATES[a.state];
-    var needs = a.state==="needs";
-    var dis = S.offline ? " disabled" : "";
-    var body;
-    if (needs){
-      body = '<p class="question">' + esc(a.question) + '</p>' +
-             '<div class="answers">' +
-             '<button class="btn go" data-act="answer" data-val="yes" data-id="' + a.id + '"' + dis + '>Yes</button>' +
-             '<button class="btn" data-act="answer" data-val="no" data-id="' + a.id + '"' + dis + '>No</button>' +
-             '<button class="btn ghost" data-go="agent" data-id="' + a.id + '">Open</button>' +
-             "</div>";
-    } else {
-      body = '<pre class="mini">' + esc(a.lines.slice(-2).join("\n")) + '</pre>' +
-             '<div class="card-f">Last output ' + esc(a.ago) + "</div>";
-    }
-    return '<article class="card' + (needs ? " needs" : "") + '" data-go="agent" data-id="' + a.id + '" tabindex="0" role="button" aria-label="Open ' + esc(a.name) + '">' +
-      '<header class="card-h">' +
-      '<span class="pos' + (needs ? " pos-need" : "") + '">' + pos + "</span>" +
-      '<div class="who"><b>' + esc(a.name) + "</b><span>" + esc(a.project) + "</span></div>" +
-      '<span class="chip ' + st.cls + '"><i class="dot"></i>' + st.label + "</span>" +
-      "</header>" + body + "</article>";
-  }
-
-  function renderInbox(){
-    var c = counts();
-    $("sum").textContent = c.needs + " need you · " + c.running + " running · " + c.error + " error · " + c.idle + " idle";
-    renderConn();
-    renderSeg();
-    var list = AGENTS.filter(function(a){ return S.filter==="all" || a.state==="needs"; });
-    list = sorted(list);
-    var html = "";
-    if (S.offline) html += '<div class="ostrip" style="margin:0 12px 10px">Offline. Answers are paused until the PC reconnects.</div>';
-    if (!list.length){
-      html += '<div class="empty"><b>Nothing needs you</b>' + c.running + " agents are working. A card appears here as soon as one asks something.</div>";
-    } else {
-      list.forEach(function(a, i){ html += cardHTML(a, i+1); });
-    }
-    html += '<p class="foot">Example data · not connected to a PC</p>';
-    $("list").innerHTML = html;
+    var k = l[0], t = l[1];
+    return '<div class="ln '+k+'">'+(t ? esc(t) : "&nbsp;")+"</div>";
   }
 
   function renderAgent(){
     var a = S.current ? byId(S.current) : null;
     if (!a) return;
-    var st = STATES[a.state];
-    $("ahead").innerHTML =
-      '<button class="icon" data-go="inbox" aria-label="Back to inbox">‹</button>' +
-      '<div class="ah-mid"><b>' + esc(a.name) + '</b>' +
-      '<div class="ah-sub"><span class="proj">' + esc(a.project) + '</span>' +
-      '<span class="chip ' + st.cls + '"><i class="dot"></i>' + st.label + "</span>" +
-      '<span class="size">' + esc(a.size) + "</span></div></div>" +
-      '<button class="icon" data-act="menu" aria-label="Menu">⋯</button>';
+    $("an-name").textContent = a.name;
+    $("an-state").textContent = STATE_TEXT[a.state] + " · " + a.size;
 
-    $("astrip-wrap").innerHTML = S.offline
-      ? '<div class="astrip">Offline. Output is paused and answers are disabled.</div>' : "";
-
-    var pb = "";
-    if (a.state==="needs"){
-      var dis = S.offline ? " disabled" : "";
-      pb = '<div class="pbanner" role="alert"><small>Waiting for you</small><b>' + esc(a.question) + '</b>' +
-           '<div class="answers">' +
-           '<button class="btn go" data-act="answer" data-val="yes" data-id="' + a.id + '"' + dis + '>Yes</button>' +
-           '<button class="btn" data-act="answer" data-val="no" data-id="' + a.id + '"' + dis + '>No</button>' +
-           '<button class="btn ghost" data-act="keys">Keys</button>' +
-           "</div></div>";
-    }
-    $("pbanner-wrap").innerHTML = pb;
-
-    var feed = $("feed");
-    var atBottom = feed.dataset.id !== a.id || (feed.scrollHeight - feed.scrollTop - feed.clientHeight) < 40;
-    feed.dataset.id = a.id;
-    feed.innerHTML = a.lines.map(lineHTML).join("");
-    if (atBottom || S.forceBottom) feed.scrollTop = feed.scrollHeight;
+    var term = $("term");
+    var atBottom = term.dataset.id !== a.id || (term.scrollHeight - term.scrollTop - term.clientHeight) < 40;
+    term.dataset.id = a.id;
+    term.innerHTML = a.lines.map(lineHTML).join("");
+    if (atBottom || S.forceBottom) term.scrollTop = term.scrollHeight;
     S.forceBottom = false;
     updateJump();
 
+    var qw = "";
+    if (a.answers && GROUP_OF[a.state]==="needs"){
+      var dis = S.offline ? " disabled" : "";
+      qw = '<div class="qrow"><p>'+esc(a.q)+'</p><div class="ans">' +
+        '<button class="btn prim" data-ans="0" data-id="'+a.id+'"'+dis+'>'+esc(a.answers[0])+'</button>' +
+        '<button class="btn" data-ans="1" data-id="'+a.id+'"'+dis+'>'+esc(a.answers[1])+'</button></div></div>';
+    }
+    $("qwrap").innerHTML = qw;
+
     var cin = $("cin");
     cin.disabled = S.offline;
-    cin.placeholder = S.offline ? "Offline. Reconnect to type." : "Message " + a.name;
+    cin.placeholder = S.offline ? "Offline. Reconnect to reply." : "Reply to " + a.name + "…";
     $("send").disabled = S.offline || !cin.value.trim();
   }
 
   function updateJump(){
-    var f = $("feed");
-    var away = f.scrollHeight - f.scrollTop - f.clientHeight > 60;
-    $("jump").classList.toggle("show", away && S.view==="agent");
+    var t = $("term");
+    var away = t.scrollHeight - t.scrollTop - t.clientHeight > 60;
+    $("jump").classList.toggle("show", away && S.page==="agent");
   }
 
-  function menuBody(){
-    var a = S.current ? byId(S.current) : null;
-    var h = "";
-    if (S.confirm==="unpair"){
-      h += '<div class="confirm"><b>Unpair this phone?</b><p>This phone forgets the PC. Scan the code on the PC to pair again.</p>' +
-           '<div class="answers"><button class="btn" data-act="cancel">Cancel</button>' +
-           '<button class="btn danger-solid" data-act="unpair-yes">Unpair</button></div></div>';
+  function renderSheets(){
+    ["keys","new","menu"].forEach(function(n){ $("sheet-"+n).classList.toggle("open", S.sheet===n); });
+    $("scrim").classList.toggle("open", !!S.sheet || !!S.action);
+    $("action").classList.toggle("open", !!S.action);
+    if (S.action){
+      var isUnpair = S.action==="unpair";
+      var a = S.current ? byId(S.current) : null;
+      $("actmsg").innerHTML = isUnpair
+        ? '<b>Unpair this phone?</b>This phone forgets the PC. Scan the code on the PC to pair again.'
+        : '<b>Close '+esc(a ? a.name : "agent")+'?</b>Its process stops. Output stays on the PC.';
+      $("actgo").textContent = isUnpair ? "Unpair" : "Close agent";
+      $("actgo").dataset.kind = S.action;
     }
-    if (S.confirm==="close" && a){
-      h += '<div class="confirm"><b>Close ' + esc(a.name) + '?</b><p>Its process stops. The output stays on the PC until you close its pane.</p>' +
-           '<div class="answers"><button class="btn" data-act="cancel">Cancel</button>' +
-           '<button class="btn danger-solid" data-act="close-yes">Close agent</button></div></div>';
-    }
-    h += '<div class="row conn-row"><span class="dot" style="--c:' + (S.offline ? "var(--flag-red)" : "var(--phase-tool)") + '"></span>' +
-         '<div><b>' + (S.offline ? "Offline, retrying in 4 s" : "Connected") + '</b>' +
-         '<small>' + (S.offline ? "Output paused" : "Round trip 42 ms · live link") + "</small></div></div>";
-    h += '<div class="row"><div><b>Desktop</b><small>PM-DESKTOP (example) · paired 3 days ago</small></div>' +
-         '<button class="btn ghost" data-act="change">Change</button></div>';
-    h += '<div class="row"><div><b>Simulate connection drop</b><small>Demo control, not a real setting</small></div>' +
-         '<button class="switch' + (S.offline ? " on" : "") + '" data-act="offline" role="switch" aria-checked="' + S.offline + '" aria-label="Simulate connection drop"><i></i></button></div>';
-    if (a) h += '<button class="rowbtn" data-act="close-ask">Close ' + esc(a.name) + "</button>";
-    h += '<button class="rowbtn danger" data-act="unpair-ask">Unpair this phone</button>';
-    $("menu-body").innerHTML = h;
+    var l = $("latchbtn");
+    l.classList.toggle("latched", S.latch);
+    l.setAttribute("aria-pressed", S.latch ? "true" : "false");
+    $("keyhint").textContent = S.latch ? "Ctrl is held for the next key." : "";
   }
 
   function renderNew(){
     var h = "";
     TYPES.forEach(function(t){
       var dis = !t.ok || S.offline;
-      var sub = !t.ok ? '<small class="reason">' + esc(t.reason) + "</small>"
-              : S.offline ? '<small class="reason">Offline</small>'
-              : "<small>" + esc(t.sub) + "</small>";
-      h += '<button class="opt" data-act="spawn" data-type="' + t.id + '"' + (dis ? " disabled" : "") + ">" +
-           (t.warm ? '<span class="warm">Warm</span>' : "") +
-           "<b>" + esc(t.name) + "</b>" + sub + "</button>";
+      var reason = !t.ok ? t.reason : (S.offline ? "Offline" : t.sub);
+      h += '<button class="row'+(dis?' dis':'')+'" data-spawn="'+t.id+'"'+(dis?' disabled':'')+'>' +
+        '<span class="txt"><span class="t">'+esc(t.name)+'</span><span class="rs">'+esc(reason)+'</span></span>' +
+        (t.warm && !dis ? '<span class="meta">Ready</span>' : "") + '</button>';
     });
-    $("new-grid").innerHTML = h;
+    $("newlist").innerHTML = h;
   }
 
-  function renderSheets(){
-    ["new","menu","keys"].forEach(function(n){
-      $("sheet-" + n).classList.toggle("open", S.sheet===n);
-    });
-    $("scrim").classList.toggle("open", !!S.sheet);
+  function renderMenu(){
+    $("conntext").textContent = S.offline ? "Offline · retrying" : "Connected · 42 ms";
+    $("offsw").classList.toggle("on", S.offline);
+    $("offsw").setAttribute("aria-checked", S.offline ? "true" : "false");
+    var a = S.current ? byId(S.current) : null;
+    $("closesec").style.display = a ? "" : "none";
+    $("closegrp").style.display = a ? "" : "none";
+    $("closegrp").innerHTML = a ? '<button class="plainrow" style="text-align:center;border-radius:10px" data-close-agent>Close '+esc(a.name)+'</button>' : "";
+    $("unpairnote").textContent = S.unpaired ? "Unpaired (example). Nothing was revoked." : "";
+  }
+
+  function renderRootNav(){
+    var sc = $("rootscroll").scrollTop;
+    $("navtitle").classList.toggle("show", sc > 44);
+    $("rootnav").classList.toggle("solid", sc > 44);
+    $("rootnav").style.borderBottomColor = sc > 44 ? "" : "transparent";
+    $("rootnav").style.background = sc > 44 ? "" : "transparent";
   }
 
   function renderAll(){
-    document.querySelectorAll(".view").forEach(function(v){
-      v.classList.toggle("on", v.id === "v-" + S.view);
-    });
-    renderTabs();
-    renderInbox();
+    $("root").classList.toggle("pushed", S.page==="agent");
+    $("agent").classList.toggle("on", S.page==="agent");
+    renderRoot();
     renderAgent();
-    renderMenu();
     renderNew();
+    renderMenu();
     renderSheets();
+    renderRootNav();
   }
-  function renderMenu(){ menuBody(); }
 
-  function go(view, id){
-    if (view==="agent"){
-      if (!byId(id)) return;
-      if (S.open.indexOf(id) < 0) S.open.push(id);
-      S.current = id;
-      S.forceBottom = true;
-    }
-    S.view = view;
-    S.sheet = null;
-    S.confirm = null;
+  function openAgent(id){
+    if (!byId(id)) return;
+    S.current = id; S.page = "agent"; S.forceBottom = true; S.sheet = null; S.action = null;
+    renderAll();
+  }
+  function back(){
+    S.page = "root"; S.sheet = null; S.action = null;
     renderAll();
   }
   function openSheet(name){
-    S.sheet = name;
-    S.confirm = null;
+    S.sheet = name; S.action = null;
+    if (name==="keys" && S.page!=="agent") return;
     renderAll();
   }
   function closeSheet(){
-    S.sheet = null;
-    S.confirm = null;
+    S.sheet = null; S.action = null; S.latch = false;
     renderSheets();
-    renderMenu();
   }
 
-  function answer(id, val){
+  function answer(id, idx){
     var a = byId(id);
-    if (!a || a.state!=="needs" || S.offline) return;
-    a.lines.push("> " + (val==="yes" ? "yes" : "no"));
-    a.lines.push(val==="yes" ? "● Running the edit…" : "● Stopped. Waiting for instructions.");
-    a.state = val==="yes" ? "tool" : "idle";
-    a.question = "";
-    a.ago = "just now";
-    toast("Sent " + (val==="yes" ? "Yes" : "No") + " to " + a.name);
+    if (!a || !a.answers || S.offline) return;
+    var label = a.answers[idx];
+    if (label==="Open"){ openAgent(id); return; }
+    a.lines.push(["u","> " + label]);
+    var ok = idx===0;
+    a.state = ok ? (a.state==="error" ? "think" : "tool") : "idle";
+    a.lines.push(["b", ok ? "● Continuing…" : "● Stopped. Waiting for instructions."]);
+    a.q = ""; a.answers = null; a.elapsed = "now";
     renderAll();
   }
 
   function sendKey(label){
     var a = S.current ? byId(S.current) : null;
     if (!a || S.offline) return;
-    a.lines.push("[key] " + label);
-    a.ago = "just now";
-    toast("Sent " + label);
-    renderAgent();
+    if (S.latch){ label = "Ctrl+" + label; S.latch = false; }
+    a.lines.push(["d","[key] " + label]);
+    a.elapsed = "now";
+    renderAll();
   }
 
   function sendMsg(){
@@ -693,10 +625,8 @@ button{cursor:pointer}
     var txt = inp.value.trim();
     var a = S.current ? byId(S.current) : null;
     if (!txt || !a || S.offline) return;
-    a.lines.push("> " + txt);
-    a.state = "think";
-    a.question = "";
-    a.ago = "just now";
+    a.lines.push(["u","> " + txt]);
+    a.state = "think"; a.answers = null; a.q = ""; a.elapsed = "now";
     inp.value = "";
     S.forceBottom = true;
     renderAll();
@@ -707,101 +637,72 @@ button{cursor:pointer}
     var t = null;
     TYPES.forEach(function(x){ if (x.id===tid) t = x; });
     if (!t || !t.ok || S.offline) return;
-    uid++;
-    var id = "n" + uid;
-    AGENTS.push({id:id, name:t.name, project:"puppet-master", state:"think", question:"", size:"88×28", ago:"just now",
-                 lines:["$ start " + t.name + " in puppet-master", "Starting…"]});
-    S.open.push(id);
-    go("agent", id);
+    S.uid++;
+    var id = "n" + S.uid;
+    AGENTS.push({id:id, name:t.name, project:"puppet-master", state:"think", elapsed:"now", size:"88×28",
+                 lines:[["d","$ start " + t.name + " in puppet-master"],["d","Starting…"]]});
+    S.sheet = null;
+    openAgent(id);
     setTimeout(function(){
       var a = byId(id);
       if (!a) return;
       a.state = "idle";
-      a.lines.push("Ready. (example output)");
+      a.lines.push(["d","Ready. (example output)"]);
       renderAll();
     }, 1400);
-    toast("Starting " + t.name);
   }
 
-  function closeAgent(id){
-    var a = byId(id);
+  function closeAgentNow(){
+    var a = S.current ? byId(S.current) : null;
     if (!a) return;
-    AGENTS = AGENTS.filter(function(x){ return x.id!==id; });
-    S.open = S.open.filter(function(x){ return x!==id; });
-    S.current = null;
-    S.view = "inbox";
-    S.sheet = null;
-    S.confirm = null;
-    toast("Closed " + a.name + " (example, nothing stopped)");
+    AGENTS = AGENTS.filter(function(x){ return x.id!==a.id; });
+    S.current = null; S.page = "root"; S.action = null; S.sheet = null;
     renderAll();
   }
 
-  function demo(k){
-    S.sheet = null; S.confirm = null;
-    if (k==="inbox"){ S.filter="all"; go("inbox"); return; }
-    if (k==="needs"){ S.filter="needs"; go("inbox"); return; }
-    if (k==="agent"){ S.current=null; go("agent","cc"); return; }
-    if (k==="running"){ go("agent","cx"); return; }
-    if (k==="keys"){ go("agent","cc"); openSheet("keys"); return; }
-    if (k==="new"){ go("inbox"); openSheet("new"); return; }
-    if (k==="menu"){ go("inbox"); openSheet("menu"); return; }
-    if (k==="offline"){ S.offline = true; S.filter="needs"; go("inbox"); }
-  }
-
-  // ---- event delegation ----
+  // ---- delegation ----
   document.addEventListener("click", function(e){
-    var el = e.target.closest("[data-act],[data-go],[data-key],[data-demo]");
-    if (!el) return;
-    if (el.disabled) return;
-    if (el.hasAttribute("data-demo")){ demo(el.getAttribute("data-demo")); return; }
-    if (el.hasAttribute("data-key")){ sendKey(el.getAttribute("data-key")); return; }
-    var act = el.getAttribute("data-act");
-    if (act){
-      var id = el.getAttribute("data-id") || S.current;
-      switch (act){
-        case "answer": answer(id, el.getAttribute("data-val")); return;
-        case "filter": S.filter = el.getAttribute("data-f"); renderAll(); return;
-        case "menu": openSheet("menu"); return;
-        case "new": openSheet("new"); return;
-        case "keys": openSheet("keys"); return;
-        case "spawn": spawn(el.getAttribute("data-type")); return;
-        case "close": closeSheet(); return;
-        case "cancel": S.confirm = null; renderMenu(); return;
-        case "offline": S.offline = !S.offline; renderAll(); return;
-        case "change": toast("Pairing screen not part of this mock"); return;
-        case "unpair-ask": S.confirm = "unpair"; renderMenu(); return;
-        case "unpair-yes": S.confirm = null; closeSheet(); toast("Unpaired (example, nothing changed)"); return;
-        case "close-ask": S.confirm = "close"; renderMenu(); return;
-        case "close-yes": closeAgent(S.current); return;
-        case "jump":
-          var f = $("feed");
-          f.scrollTo({top: f.scrollHeight, behavior: reduced() ? "auto" : "smooth"});
-          return;
-      }
-    }
-    var go_ = el.getAttribute("data-go");
-    if (go_){
-      if (go_==="agent") go("agent", el.getAttribute("data-id"));
-      else go("inbox");
+    var t = e.target.closest("[data-ans],[data-open],[data-back],[data-sheet],[data-close],[data-key],[data-latch],[data-jump],[data-spawn],[data-toggle-offline],[data-unpair],[data-close-agent],[data-act-go],[data-act-cancel]");
+    if (!t || t.disabled) return;
+    if (t.hasAttribute("data-ans")){ answer(t.getAttribute("data-id"), parseInt(t.getAttribute("data-ans"),10)); return; }
+    if (t.hasAttribute("data-open")){ openAgent(t.getAttribute("data-open")); return; }
+    if (t.hasAttribute("data-back")){ back(); return; }
+    if (t.hasAttribute("data-sheet")){ openSheet(t.getAttribute("data-sheet")); return; }
+    if (t.hasAttribute("data-close")){ closeSheet(); return; }
+    if (t.hasAttribute("data-key")){ sendKey(t.getAttribute("data-key")); return; }
+    if (t.hasAttribute("data-latch")){ S.latch = !S.latch; renderSheets(); return; }
+    if (t.hasAttribute("data-jump")){ var term=$("term"); term.scrollTo({top:term.scrollHeight, behavior: reduced()?"auto":"smooth"}); return; }
+    if (t.hasAttribute("data-spawn")){ spawn(t.getAttribute("data-spawn")); return; }
+    if (t.hasAttribute("data-toggle-offline")){ S.offline = !S.offline; renderAll(); return; }
+    if (t.hasAttribute("data-unpair")){ S.action = "unpair"; renderSheets(); return; }
+    if (t.hasAttribute("data-close-agent")){ S.action = "close"; renderSheets(); return; }
+    if (t.hasAttribute("data-act-cancel")){ S.action = null; renderSheets(); return; }
+    if (t.hasAttribute("data-act-go")){
+      var kind = t.dataset.kind;
+      S.action = null;
+      if (kind==="unpair"){ S.unpaired = true; S.sheet = null; renderAll(); }
+      else if (kind==="close"){ closeSheet(); closeAgentNow(); }
+      return;
     }
   });
 
+  // scrim and action-sheet dismissal
+  $("scrim").addEventListener("click", function(){ S.action = null; closeSheet(); });
+  $("q").addEventListener("input", function(e){ S.q = e.target.value; renderRoot(); });
+  $("rootscroll").addEventListener("scroll", renderRootNav);
+  $("term").addEventListener("scroll", updateJump);
   document.addEventListener("input", function(e){
-    if (e.target && e.target.id==="cin"){
-      $("send").disabled = S.offline || !e.target.value.trim();
-    }
+    if (e.target && e.target.id==="cin") $("send").disabled = S.offline || !e.target.value.trim();
   });
   $("composer").addEventListener("submit", function(e){ e.preventDefault(); sendMsg(); });
-  $("feed").addEventListener("scroll", updateJump);
 
-  // ---- grab handle: swipe down to dismiss ----
+  // swipe down to dismiss a sheet (drag from grabber/header)
   var drag = null;
   document.addEventListener("pointerdown", function(e){
-    var g = e.target.closest && e.target.closest(".grab");
-    if (!g) return;
-    var sh = g.closest(".sheet");
-    drag = {sh:sh, y:e.clientY, dy:0};
-    sh.classList.add("dragging");
+    var h = e.target.closest && e.target.closest("[data-drag]");
+    if (!h) return;
+    drag = {sh:h.closest(".sheet"), y:e.clientY, dy:0};
+    drag.sh.classList.add("dragging");
   });
   document.addEventListener("pointermove", function(e){
     if (!drag) return;
@@ -819,7 +720,7 @@ button{cursor:pointer}
   document.addEventListener("pointercancel", endDrag);
 
   document.addEventListener("keydown", function(e){
-    if (e.key==="Escape" && S.sheet) closeSheet();
+    if (e.key==="Escape"){ if (S.action) S.action = null; closeSheet(); renderSheets(); }
   });
 
   renderAll();

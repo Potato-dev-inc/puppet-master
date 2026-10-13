@@ -1,5 +1,5 @@
-import { PaneWindow } from "@/components/PaneWindow";
+import { SinglePane } from "@/components/SinglePane";
 
 export default function Page() {
-  return <PaneWindow />;
+  return <SinglePane />;
 }

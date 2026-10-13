@@ -1,52 +1,58 @@
-export type PaneState = "running" | "thinking" | "tool" | "needs" | "idle" | "error";
+export type AState = "needs" | "running" | "tool" | "thinking" | "idle" | "error" | "done";
 
-export const STATE_META: Record<PaneState, { label: string; color: string }> = {
-  needs: { label: "Needs you", color: "var(--flag-yellow)" },
-  error: { label: "Error", color: "var(--flag-red)" },
-  thinking: { label: "Thinking", color: "var(--phase-think)" },
-  tool: { label: "Tool", color: "var(--phase-tool)" },
-  running: { label: "Running", color: "var(--phase-write)" },
-  idle: { label: "Idle", color: "var(--ink-3)" },
+export const STATE_TEXT: Record<AState, string> = {
+  needs: "Needs you", running: "Running", tool: "Running tool", thinking: "Thinking", idle: "Idle", error: "Error", done: "Done",
 };
 
-export type Pane = {
-  id: string; agent: string; project: string; state: PaneState; since: string;
-  cols: number; rows: number; lines: string[]; prompt?: { question: string; answers: string[] };
+export type TLine = { k: "prompt" | "bullet" | "out" | "dim" | "add" | "del" | "user"; s: string };
+
+export type Agent = {
+  id: string; name: string; project: string; state: AState; elapsed: string;
+  cols: number; rows: number; phone?: boolean; lines: TLine[];
+  question?: { text: string; answers: string[] };
 };
 
-export const PANES: Pane[] = [
-  { id: "claude-a41f", agent: "Claude Code", project: "puppet-master", state: "needs", since: "2m", cols: 120, rows: 36,
-    lines: ["● Edit(packages/app/src/tray.rs)", "  ⎿ Updated 14 lines", "Run `cargo test -p app tray`?"],
-    prompt: { question: "Run cargo test -p app tray?", answers: ["Yes", "Yes, always", "No"] } },
-  { id: "codex-77b2", agent: "Codex", project: "billing-api", state: "needs", since: "40s", cols: 110, rows: 32,
-    lines: ["Proposed: rm -rf ./migrations/tmp", "Allow command outside workspace?"],
-    prompt: { question: "Allow rm -rf ./migrations/tmp?", answers: ["Allow once", "Deny"] } },
-  { id: "kilo-19cd", agent: "Kilo", project: "docs-site", state: "error", since: "5m", cols: 100, rows: 30,
-    lines: ["error: provider 429 rate limited", "retry 3/3 failed", "process exited with code 1"] },
-  { id: "claude-c0de", agent: "Claude Code", project: "mobile-pwa", state: "thinking", since: "12s", cols: 120, rows: 36,
-    lines: ["✻ Considering the safe-area insets…", "  (esc to interrupt)"] },
-  { id: "opencode-5e5e", agent: "OpenCode", project: "infra", state: "tool", since: "8s", cols: 100, rows: 30,
-    lines: ["$ terraform plan -out=tf.plan", "Refreshing state... [aws_s3_bucket.logs]"] },
-  { id: "codex-02aa", agent: "Codex", project: "puppet-master", state: "running", since: "1m", cols: 110, rows: 32,
-    lines: ["Writing tests/pane_state.rs", "+ fn classifies_needs_you() {"] },
-  { id: "shell-9f00", agent: "PowerShell", project: "scratch", state: "idle", since: "14m", cols: 90, rows: 24,
-    lines: ["PS C:\\scratch> _"] },
+export const AGENTS: Agent[] = [
+  { id: "a1", name: "Claude Code", project: "puppet-master", state: "needs", elapsed: "2m", cols: 120, rows: 36,
+    question: { text: "Run cargo test -p app tray?", answers: ["Allow", "Always allow", "Deny"] },
+    lines: [
+      { k: "prompt", s: "puppet-master % claude --resume" },
+      { k: "bullet", s: "I will route the tray Quit item through a confirm step." },
+      { k: "bullet", s: "Read(src-tauri/src/tray.rs)" }, { k: "dim", s: "  Read 412 lines" },
+      { k: "bullet", s: "Edit(src-tauri/src/tray.rs)" }, { k: "dim", s: "  Updated with 14 additions and 3 removals" },
+      { k: "add", s: "+  if panes.running() > 0 { confirm_quit(app); return; }" },
+      { k: "del", s: "-  app.exit(0);" },
+      { k: "bullet", s: "Now running the tray tests." },
+    ] },
+  { id: "a2", name: "Codex", project: "billing-api", state: "needs", elapsed: "40s", cols: 110, rows: 32, phone: true,
+    question: { text: "Allow rm -rf ./migrations/tmp?", answers: ["Allow once", "Deny"] },
+    lines: [
+      { k: "prompt", s: "billing-api % codex" },
+      { k: "bullet", s: "Cleaning stale migration scratch files." },
+      { k: "out", s: "Proposed: rm -rf ./migrations/tmp" },
+      { k: "dim", s: "Command runs outside the workspace sandbox." },
+    ] },
+  { id: "a3", name: "Claude Code", project: "mobile-pwa", state: "thinking", elapsed: "12s", cols: 120, rows: 36,
+    lines: [{ k: "prompt", s: "mobile-pwa % claude" }, { k: "bullet", s: "Checking safe-area insets on the composer." }, { k: "dim", s: "  esc to interrupt" }] },
+  { id: "a4", name: "OpenCode", project: "infra", state: "tool", elapsed: "8s", cols: 100, rows: 30,
+    lines: [{ k: "prompt", s: "infra % opencode" }, { k: "out", s: "$ terraform plan -out=tf.plan" }, { k: "dim", s: "Refreshing state... aws_s3_bucket.logs" }] },
+  { id: "a5", name: "Codex", project: "puppet-master", state: "running", elapsed: "1m", cols: 110, rows: 32,
+    lines: [{ k: "prompt", s: "puppet-master % codex" }, { k: "bullet", s: "Writing tests/pane_state.rs" }, { k: "add", s: "+  fn classifies_needs_you() {" }, { k: "del", s: "-  // TODO" }] },
+  { id: "a6", name: "Kilo", project: "docs-site", state: "error", elapsed: "5m", cols: 100, rows: 30,
+    lines: [{ k: "prompt", s: "docs-site % kilo" }, { k: "out", s: "provider returned 429, rate limited" }, { k: "dim", s: "retry 3 of 3 failed" }, { k: "out", s: "process exited with code 1" }] },
+  { id: "a7", name: "PowerShell", project: "scratch", state: "idle", elapsed: "14m", cols: 90, rows: 24,
+    lines: [{ k: "prompt", s: "scratch %" }] },
+  { id: "a8", name: "Claude Code", project: "docs-site", state: "done", elapsed: "22m", cols: 120, rows: 36,
+    lines: [{ k: "bullet", s: "Updated the README install section." }, { k: "dim", s: "  3 files changed" }] },
 ];
 
-export const WARM_AGENTS = [
-  { name: "Claude Code", ready: true }, { name: "Codex", ready: true },
-  { name: "OpenCode", ready: false }, { name: "Kilo", ready: true }, { name: "PowerShell", ready: true },
+export const WARM = [
+  { name: "Claude Code", ready: true }, { name: "Codex", ready: true }, { name: "OpenCode", ready: false },
+  { name: "Kilo", ready: true }, { name: "PowerShell", ready: true },
 ];
 
-export const TERMINAL_FEED: { t: string; s: string }[] = [
-  { t: "dim", s: "~/work/puppet-master  claude --resume" },
-  { t: "txt", s: "● I will wire the tray Quit item through a confirm step." },
-  { t: "tool", s: "● Read(packages/app/src-tauri/src/tray.rs)" },
-  { t: "dim", s: "  ⎿ Read 412 lines" },
-  { t: "tool", s: "● Edit(packages/app/src-tauri/src/tray.rs)" },
-  { t: "dim", s: "  ⎿ Updated with 14 additions and 3 removals" },
-  { t: "add", s: "+     if panes.running() > 0 { confirm_quit(app); return; }" },
-  { t: "del", s: "-     app.exit(0);" },
-  { t: "txt", s: "● Now running the tray tests." },
-  { t: "need", s: "? Run `cargo test -p app tray`?  [y] yes  [a] always  [n] no" },
-];
+export function group(a: Agent): "Needs you" | "Working" | "Idle" {
+  if (a.state === "needs" || a.state === "error") return "Needs you";
+  if (a.state === "idle" || a.state === "done") return "Idle";
+  return "Working";
+}
