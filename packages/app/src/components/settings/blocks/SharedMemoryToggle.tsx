@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { memoryApi } from '../../../lib/memory-api';
 import { SettingToggle } from '../settings-ui';
 
-export function SharedMemoryToggle() {
+export function SharedMemoryToggle({ onSaved }: { onSaved?: () => void }) {
   const [on, setOn] = useState(true);
   useEffect(() => {
     void memoryApi.globalEnabled().then(setOn).catch(() => undefined);
@@ -15,9 +15,11 @@ export function SharedMemoryToggle() {
       checked={on}
       onChange={(value) => {
         setOn(value);
-        void memoryApi.setGlobalEnabled(value).catch(() => setOn(!value));
+        void memoryApi
+          .setGlobalEnabled(value)
+          .then(() => onSaved?.())
+          .catch(() => setOn(!value));
       }}
-      implemented
     />
   );
 }

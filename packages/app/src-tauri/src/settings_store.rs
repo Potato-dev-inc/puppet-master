@@ -19,6 +19,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "confirm_close_running_pane",
     "checkpoints_enabled",
     "checkpoints_keep",
+    "away_minutes",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -36,6 +37,7 @@ pub fn default_public_settings() -> Value {
         "confirm_close_running_pane": true,
         "checkpoints_enabled": true,
         "checkpoints_keep": 50,
+        "away_minutes": 5,
     })
 }
 

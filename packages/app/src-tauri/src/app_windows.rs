@@ -150,6 +150,8 @@ mod runtime {
         std::thread::spawn(move || {
             if let Some(window) = app.get_webview_window(SETTINGS_LABEL) {
                 show(&window, focus);
+                // The window was hidden, not destroyed: tell it to reload its state and go to `tab`.
+                let _ = tauri::Emitter::emit_to(&app, SETTINGS_LABEL, "settings://show", serde_json::json!({ "tab": tab }));
                 return;
             }
             let mut builder = WebviewWindowBuilder::new(&app, SETTINGS_LABEL, WebviewUrl::App(settings_url(tab.as_deref()).into()))

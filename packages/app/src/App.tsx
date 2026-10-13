@@ -233,8 +233,6 @@ export default function App() {
         onSaved={bumpSettings}
         projectPath={projectPath}
         onProjectPathChange={setProjectPath}
-        onSidebarWidthChange={setSidebarWidth}
-        currentSidebarWidth={sidebarWidth}
         onCheckForUpdates={() => void appUpdate.refresh()}
         updateCheck={appUpdate.result}
         updateChecking={appUpdate.checking}

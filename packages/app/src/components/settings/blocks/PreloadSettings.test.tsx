@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_STANDBY_CONFIG, NOT_TERMINAL_NOTE, NO_WARM_MODE_NOTE } from '../../../lib/standby';
 import type { StandbyConfig, StandbyStatus } from '../../../lib/tauri-types';
-import { PreloadTab, type PreloadApi } from './PreloadTab';
+import { PreloadSettings, type PreloadApi } from './PreloadSettings';
 import { peekAgentRegistry } from '../../../lib/agentRegistry';
 import type { AgentDescriptor } from '../../../lib/agentRegistry';
 
@@ -53,7 +53,7 @@ let root: Root;
 
 async function render(api: PreloadApi) {
   await act(async () => {
-    root.render(<PreloadTab api={api} />);
+    root.render(<PreloadSettings api={api} />);
   });
   await act(async () => {
     await Promise.resolve();
@@ -81,7 +81,7 @@ afterEach(async () => {
   registryOverride.agents = null;
 });
 
-describe('PreloadTab', () => {
+describe('PreloadSettings', () => {
   it('is off by default, explains the cost, and lists visible-capable agents', async () => {
     await render(mockApi());
     const master = host.querySelector('[role="switch"]');

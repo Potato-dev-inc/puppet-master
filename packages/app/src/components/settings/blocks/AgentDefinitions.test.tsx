@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentDefinitionsApi, DefinitionsListing } from '../../../lib/agentDefinitions';
-import { AgentsTab } from './AgentsTab';
+import { AgentDefinitions } from './AgentDefinitions';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -85,7 +85,7 @@ let root: Root;
 
 async function render(api: AgentDefinitionsApi) {
   await act(async () => {
-    root.render(<AgentsTab api={api} />);
+    root.render(<AgentDefinitions api={api} />);
   });
 }
 
@@ -110,7 +110,7 @@ afterEach(async () => {
   host.remove();
 });
 
-describe('AgentsTab', () => {
+describe('AgentDefinitions', () => {
   it('renders source badge and state', async () => {
     await render(mockApi());
     const rows = host.querySelectorAll('[data-testid="definition-row"]');
@@ -206,7 +206,7 @@ describe('AgentsTab', () => {
   });
 });
 
-describe('AgentsTab export/import buttons', () => {
+describe('AgentDefinitions export/import buttons', () => {
   it('Export calls exportDefinition for a user definition and reports the path', async () => {
     const api = mockApi();
     await render(api);
@@ -235,7 +235,7 @@ describe('AgentsTab export/import buttons', () => {
   });
 });
 
-describe('AgentsTab source toggle / extra dir / consent controls', () => {
+describe('AgentDefinitions source toggle / extra dir / consent controls', () => {
   it('lists every source with its enabled state and path', async () => {
     await render(mockApi());
     const rows = host.querySelectorAll('[data-testid="source-row"]');
@@ -339,7 +339,7 @@ describe('AgentsTab source toggle / extra dir / consent controls', () => {
     }
   });
 
-  it('AgentsTab shows a neutral message and a Create folder button when there are no fixtures', async () => {
+  it('AgentDefinitions shows a neutral message and a Create folder button when there are no fixtures', async () => {
     const api = mockApi();
     (api.checkFile as unknown as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce({
@@ -373,7 +373,7 @@ describe('AgentsTab source toggle / extra dir / consent controls', () => {
     expect(host.querySelector('[data-testid="fixtures-none"]')!.textContent).toContain('exists but has no captures');
   });
 
-  it('AgentsTab explains an explicit fixtures folder that does not exist', async () => {
+  it('AgentDefinitions explains an explicit fixtures folder that does not exist', async () => {
     const api = mockApi();
     (api.checkFile as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       status: 'no_fixtures',
@@ -391,7 +391,7 @@ describe('AgentsTab source toggle / extra dir / consent controls', () => {
     expect(text).not.toContain('os error');
   });
 
-  it('AgentsTab check button shows per-fixture results', async () => {
+  it('AgentDefinitions check button shows per-fixture results', async () => {
     const api = mockApi();
     await render(api);
     await click(button('Check with fixtures'));
@@ -404,7 +404,7 @@ describe('AgentsTab source toggle / extra dir / consent controls', () => {
     expect(rows[1].textContent).toContain('busy: expected true, got false');
   });
 
-  it('AgentsTab add generic creates unapproved file', async () => {
+  it('AgentDefinitions add generic creates unapproved file', async () => {
     const api = mockApi();
     await render(api);
     const input = host.querySelector('input[aria-label="Command name"]') as HTMLInputElement;
@@ -422,8 +422,8 @@ describe('AgentsTab source toggle / extra dir / consent controls', () => {
   });
 });
 
-describe('AgentsTab approval hardening', () => {
-  it('AgentsTab diff view and warnings', async () => {
+describe('AgentDefinitions approval hardening', () => {
+  it('AgentDefinitions diff view and warnings', async () => {
     const listing = fixture();
     listing.definitions[0].state = 'approval_stale';
     const api = mockApi(listing);

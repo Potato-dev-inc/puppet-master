@@ -1,4 +1,5 @@
-// Settings > Agents: declarative agent definitions (list, errors, reload, approve/revoke).
+// Settings > Agents > Agent definitions: declarative agent definitions (list, errors, reload, approve/revoke), drafts,
+// sources, consented projects and extra directories. One settings row made of several blocks.
 // Every string from a definition file is rendered as React text, never as HTML (UI-4).
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -26,8 +27,7 @@ import {
   resetAgentRegistryCache,
   listAgentRegistry,
 } from '../../../lib/agentRegistry';
-import { AccountsGroup } from '../accounts/AccountsGroup';
-import { SettingBlock, SettingsSection } from '../settings-ui';
+import { SettingBlock } from '../settings-ui';
 
 const STATE_TONE: Record<string, string> = {
   active: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400',
@@ -47,7 +47,7 @@ interface Reviewing {
   error: string | null;
 }
 
-export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefinitionsApi }) {
+export function AgentDefinitions({ api = tauriAgentDefinitionsApi }: { api?: AgentDefinitionsApi }) {
   const [listing, setListing] = useState<DefinitionsListing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -224,10 +224,7 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
     });
 
   return (
-    <SettingsSection
-      title="Agents"
-      description="Agents defined by TOML files. A definition runs a program, so a new or changed one stays inactive until you review and approve it here."
-    >
+    <>
       {projectScan && projectScan.files.length > 0 && !projectScan.consented && !bannerDismissed && (
         <ConsentBanner
           scan={projectScan}
@@ -236,8 +233,10 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
           onDismiss={() => setBannerDismissed(true)}
         />
       )}
-      <AccountsGroup />
-      <SettingBlock label="Definitions" implemented>
+      <SettingBlock
+        label="Definitions"
+        description="Agents defined by TOML files. A definition runs a program, so a new or changed one stays inactive until you review and approve it here."
+      >
         <div className="mb-3 flex items-center gap-2">
           <button type="button" className={BTN} disabled={busy} onClick={() => void reload()}>
             Reload
@@ -306,7 +305,6 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
         <SettingBlock
           label="Drafts"
           description="Definitions drafted from a recorded pane session (the Rec button in a pane header). A draft is never loaded or approved: review it, copy it to the agents folder, then approve it above."
-          implemented
         >
           <div className="mb-3 flex items-center gap-2">
             <button type="button" className={BTN} disabled={busy} onClick={() => void loadDrafts()}>
@@ -345,7 +343,6 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
       <SettingBlock
         label="Sources"
         description="Where definitions are read from. Project and extra directories only load after you consent to that location."
-        implemented
       >
         <ul className="space-y-2">
           {listing?.sources.map((source) => (
@@ -447,7 +444,7 @@ export function AgentsTab({ api = tauriAgentDefinitionsApi }: { api?: AgentDefin
           onCancel={() => setReviewing(null)}
         />
       )}
-    </SettingsSection>
+    </>
   );
 }
 

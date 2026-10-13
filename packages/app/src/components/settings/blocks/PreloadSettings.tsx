@@ -14,7 +14,8 @@ import {
   withPreloadCount,
   withPreloadEnabled,
 } from '../../../lib/standby';
-import { FieldInput, FieldLabel, SettingBlock, SettingToggle, SettingsSection } from '../settings-ui';
+import { NumberControl } from '../controls';
+import { FieldLabel, SettingBlock, SettingToggle } from '../settings-ui';
 
 export interface PreloadApi {
   getStatus: () => Promise<StandbyStatus | null>;
@@ -26,7 +27,7 @@ const DEFAULT_API: PreloadApi = {
   setConfig: (config) => tauri.standbySetConfig(config),
 };
 
-export function PreloadTab({ api = DEFAULT_API }: { api?: PreloadApi }) {
+export function PreloadSettings({ api = DEFAULT_API }: { api?: PreloadApi }) {
   const registry = useAgentRegistry();
   const [status, setStatus] = useState<StandbyStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,20 +58,15 @@ export function PreloadTab({ api = DEFAULT_API }: { api?: PreloadApi }) {
   const providers = preloadProviders(registry.agents);
 
   return (
-    <SettingsSection
-      title="Preload"
-      description="Keep a warm agent ready so opening a pane feels instant: the CLI is already started at its input box and its pane window is already built, hidden. Opening that agent from the tray (or a visible agent run) just shows it, and a replacement warms up in the background."
-    >
+    <>
       <SettingToggle
         label="Preload agents"
         description="Master switch. Off by default. Each warm agent is a running CLI process that uses memory, and some providers count it as an open session. Turning this off closes every warm agent."
         checked={config.preload.enabled}
-        implemented
         onChange={(value) => void save(withPreloadEnabled(config, value))}
       />
       <SettingBlock
         label="Agents to keep warm"
-        implemented
         description="Warm agents start in your default project folder; a pane for another project starts normally. They never answer a trust or login prompt: an agent that shows one is dropped (open it once yourself first)."
       >
         <div className="space-y-2" data-testid="preload-providers">
@@ -124,22 +120,20 @@ export function PreloadTab({ api = DEFAULT_API }: { api?: PreloadApi }) {
       </SettingBlock>
       <SettingBlock
         label="Idle timeout"
-        implemented
         description={`A warm agent nobody used for ${formatDuration(config.idle_timeout_secs * 1000)} is closed; it warms again the next time you open that agent.`}
       >
         <div className="max-w-xs">
           <FieldLabel>Minutes</FieldLabel>
-          <FieldInput
-            type="number"
+          <NumberControl
             min={1}
             max={1440}
             aria-label="Preload idle timeout (minutes)"
             value={Math.round(config.idle_timeout_secs / 60)}
-            onChange={(e) => void save(withIdleMinutes(config, Number(e.target.value)))}
+            onCommit={(minutes) => save(withIdleMinutes(config, minutes))}
           />
         </div>
       </SettingBlock>
-      <SettingBlock label="Status" implemented description={summarizePreload(status)}>
+      <SettingBlock label="Status" description={summarizePreload(status)}>
         <div className="space-y-2 text-sm">
           {error && <p className="text-red-400">{error}</p>}
           {status?.standbys
@@ -162,6 +156,6 @@ export function PreloadTab({ api = DEFAULT_API }: { api?: PreloadApi }) {
           ))}
         </div>
       </SettingBlock>
-    </SettingsSection>
+    </>
   );
 }

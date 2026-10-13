@@ -1,9 +1,9 @@
-// Settings > Appearance: the "Animated tray icon" switch (backend pref `ambient.json`, default on).
+// Settings > General: the "Animated tray icon" switch (backend pref `ambient.json`, default on).
 import { useEffect, useState } from 'react';
 import { cockpitApi } from '../../../lib/cockpit-api';
 import { SettingToggle } from '../settings-ui';
 
-export function AmbientSettings() {
+export function AmbientSettings({ onSaved }: { onSaved?: () => void }) {
   const [animated, setAnimated] = useState(true);
 
   useEffect(() => {
@@ -26,10 +26,12 @@ export function AmbientSettings() {
       label="Animated tray icon"
       description="The tray icon shows a moving dot pattern while agents are working. Turn this off for a still icon if motion is distracting."
       checked={animated}
-      implemented
       onChange={(value) => {
         setAnimated(value);
-        void cockpitApi.ambientSetAnimatedTray(value).catch(() => setAnimated(!value));
+        void cockpitApi
+          .ambientSetAnimatedTray(value)
+          .then(() => onSaved?.())
+          .catch(() => setAnimated(!value));
       }}
     />
   );

@@ -143,7 +143,7 @@ export function Palette({
         title: 'Toolbelt…',
         desc: 'MCP servers for every agent',
         icon: <IconLayers />,
-        run: () => void cockpitApi.openSettings('mcp').catch(() => {}),
+        run: () => void cockpitApi.openSettings('bridge').catch(() => {}),
       },
       {
         id: 'act:mode',
