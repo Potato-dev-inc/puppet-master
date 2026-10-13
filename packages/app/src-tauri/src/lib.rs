@@ -46,6 +46,7 @@ mod standby;
 pub mod tool_registry;
 mod tui;
 mod worker_launch;
+pub mod worktrees;
 pub mod watch_command;
 pub mod env_probe;
 
