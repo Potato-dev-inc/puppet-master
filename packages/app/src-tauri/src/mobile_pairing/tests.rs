@@ -19,3 +19,16 @@ fn proxied_bridge_prefix_does_not_bypass_pairing() {
         .expect_err("panes should require auth");
     assert_eq!(err.0, 401);
 }
+
+#[test]
+fn local_only_caller_requires_loopback_and_no_proxy_header() {
+    assert!(is_local_only_caller("Host: 127.0.0.1\r\n", true));
+    assert!(!is_local_only_caller("X-PM-Proxied: 1\r\n", true));
+    assert!(!is_local_only_caller("Host: example.com\r\n", false));
+}
+
+#[test]
+fn invite_route_is_not_public() {
+    let segments = ["pair", "invite"];
+    assert!(!is_public_bridge_path(&segments, "POST"));
+}

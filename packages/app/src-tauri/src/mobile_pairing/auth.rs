@@ -46,6 +46,12 @@ pub fn requires_pairing_token(headers: &str, peer_loopback: bool) -> bool {
     !peer_loopback
 }
 
+/// True only for a request made on this machine by the app's own tooling: a loopback peer that
+/// did not come through the PWA proxy. Gates routes that must never be reached remotely.
+pub fn is_local_only_caller(headers: &str, peer_loopback: bool) -> bool {
+    !requires_pairing_token(headers, peer_loopback)
+}
+
 pub fn authorize_bridge_request(
     headers: &str,
     peer_loopback: bool,

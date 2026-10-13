@@ -78,6 +78,10 @@ export default function PwaApp() {
   const [resyncKey, setResyncKey] = useState(0);
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
   const [fitGrid, setFitGrid] = useState<{ cols: number; rows: number } | null>(null);
+  /** Last grid measured on this phone: a pane spawned from here is created at this size. */
+  const lastFitGridRef = useRef<{ cols: number; rows: number } | null>(null);
+  /** A pane this phone spawned: it takes the phone's size as soon as its fitting grid is measured. */
+  const claimOnOpenRef = useRef<string | null>(null);
   /** Live event stream handle; input prefers its socket while it is open. */
   const streamRef = useRef<BridgeEventsHandle | null>(null);
   const socketInput = useCallback(
@@ -181,6 +185,15 @@ export default function PwaApp() {
   }, [watchedPane, bridgeUrl]);
   useEffect(() => setFitGrid(null), [active]);
   const claimPaneSize = usePaneViewportLease(bridge, activePane ? active : null, fitGrid);
+  useEffect(() => {
+    if (fitGrid) lastFitGridRef.current = fitGrid;
+  }, [fitGrid]);
+  // A pane spawned from the phone is the phone's: claim it once, when its fitting grid arrives.
+  useEffect(() => {
+    if (!fitGrid || !activePane || claimOnOpenRef.current !== active) return;
+    claimOnOpenRef.current = null;
+    claimPaneSize();
+  }, [fitGrid, activePane, active, claimPaneSize]);
   // Typing into the pane is what takes the phone size; viewing or scrolling does not.
   const leasedTransport = useMemo<TerminalTransport>(
     () => ({
@@ -207,7 +220,9 @@ export default function PwaApp() {
       setSpawning(true);
       setSpawnError(null);
       try {
-        const { pane_id } = await bridge.spawnPane({ agent_type: agentType, cols: 120, rows: 30 });
+        const grid = lastFitGridRef.current ?? { cols: 120, rows: 30 };
+        const { pane_id } = await bridge.spawnPane({ agent_type: agentType, cols: grid.cols, rows: grid.rows });
+        claimOnOpenRef.current = pane_id;
         applyPanes(await bridge.listPanes());
         setActive(pane_id);
         setSheet(null);

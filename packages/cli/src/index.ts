@@ -18,6 +18,7 @@ import { getDefaultTerminalAgentType } from '@puppet-master/shared';
 import { launchWorkerTerminal } from './launch-worker.js';
 import { runWatch } from './watch.js';
 import { WATCH_USAGE, validateWatchFlags } from './watch-args.js';
+import { runPairLink } from './pair-link.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -69,6 +70,8 @@ Usage:
   puppet-master watch ID        Block until an operation is terminal or needs input; prints one JSON result.
                                 Exit codes: 0 completed, 1 failed/cancelled, 2 needs input, 3 timeout, 4 error.
                                 Waits out bridge restarts; --timeout-ms N sets the deadline (default 3600000).
+  puppet-master pair-link       Print a fresh phone pairing link (needs the running app and its public tunnel).
+                                Prints the link on stdout; the expiry goes to stderr.
   puppet-master version         Print version
   puppet-master --help          Show this help
 
@@ -144,6 +147,9 @@ async function main(): Promise<void> {
   if (command === 'mcp') {
     await runMcp();
     return;
+  }
+  if (command === 'pair-link') {
+    process.exit(await runPairLink());
   }
   if (command === 'watch') {
     const ids = positional.length > 0 ? positional : [];
