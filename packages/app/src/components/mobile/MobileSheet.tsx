@@ -5,6 +5,7 @@ import type { AgentType } from '@puppet-master/shared';
 import type { LaunchEntry } from '../../lib/agentRegistry';
 import type { PublicSettings } from '../../lib/bridge-settings';
 import type { BridgeLinkStats } from '../../lib/bridge-sse';
+import { NotificationsToggle } from './NotificationsToggle';
 
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
@@ -140,6 +141,7 @@ export function MenuSheet({
         </div>
       )}
 
+      <NotificationsToggle baseUrl={bridgeUrl} bridgeReady={bridgeReady} />
       <div className="space-y-3 py-3">
         <label className="flex items-center justify-between gap-2 text-pm-muted">
           <span>Input box under the terminal</span>
