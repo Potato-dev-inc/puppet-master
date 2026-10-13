@@ -217,3 +217,10 @@ fn only_claude_reprints_on_resize_among_the_code_profiles() {
         assert_eq!(crate::tui::profile_for(id).reprints_on_resize(), expected, "{id}");
     }
 }
+
+#[test]
+fn checkpoints_default_on_and_follow_the_definition() {
+    assert!(kilo().checkpoints());
+    let text = KILO.replace("dispatchable = true", "dispatchable = true\ncheckpoints = false");
+    assert!(!profile(&text).checkpoints());
+}

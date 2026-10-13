@@ -8,6 +8,7 @@ pub mod agent_runs;
 mod app_lifecycle;
 mod app_paths;
 mod bridge;
+mod checkpoints;
 mod commands;
 mod context_pack;
 mod event_log;
@@ -167,6 +168,10 @@ pub fn run() {
             commands::open_settings,
             commands::pane_prompt,
             commands::answer_pane_prompt,
+            commands::checkpoints_list,
+            commands::checkpoint_diff,
+            commands::checkpoint_restore,
+            commands::checkpoint_undo_last,
             commands::interrupt_pane,
             commands::new_pane,
             commands::pane_run_info,

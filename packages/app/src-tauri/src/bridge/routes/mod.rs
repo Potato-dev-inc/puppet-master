@@ -3,6 +3,7 @@
 //! (the order matters where a literal path such as `/panes/wait` overlaps a parameterised one).
 
 pub(super) mod definitions;
+mod checkpoints;
 mod locks;
 pub(super) mod mcp;
 mod opencode;
@@ -55,6 +56,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| wait::handle(cx))
         .or_else(|| standby::handle(cx))
         .or_else(|| opencode::handle(cx))
+        .or_else(|| checkpoints::handle(cx))
         .or_else(|| panes::handle(cx))
 }
 

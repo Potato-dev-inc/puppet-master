@@ -44,6 +44,9 @@ pub(super) fn route_answer(
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     app: &AppHandle,
 ) -> Result<Value, OperationError> {
+    if let Some(pane_id) = request.pane_id.as_deref().filter(|id| !id.is_empty()) {
+        crate::checkpoints::before_answer(pane_id);
+    }
     if request.handle.is_none() {
         let pane_id = request.pane_id.as_deref().filter(|id| !id.is_empty()).ok_or_else(|| {
                     OperationError::new(

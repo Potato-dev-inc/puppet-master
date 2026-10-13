@@ -114,3 +114,21 @@ pub(super) fn observe_operation_pane_status(pane_id: &str, status: &str) {
         push_operation_sse(&snapshot);
     }
 }
+
+/// What checkpoints need to know about a pane (folder, agent, status).
+pub(crate) fn checkpoint_pane_facts(pane_id: &str) -> Option<crate::checkpoints::PaneFacts> {
+    let registry = BRIDGE_REGISTRY.get()?;
+    let guard = registry.lock();
+    let pane = guard.panes.get(pane_id)?;
+    Some(crate::checkpoints::PaneFacts {
+        cwd: pane.info.cwd.clone(),
+        agent_type: pane.info.agent_type.clone(),
+        status: pane.info.status.clone(),
+    })
+}
+
+/// The public settings snapshot (`checkpoints_enabled`, `checkpoints_keep`), when the app is up.
+pub(crate) fn checkpoint_public_settings() -> Option<serde_json::Value> {
+    let app = super::state::BRIDGE_APP.get()?;
+    Some(crate::settings_store::read_public_settings(app))
+}
