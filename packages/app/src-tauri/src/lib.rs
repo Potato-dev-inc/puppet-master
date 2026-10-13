@@ -31,6 +31,7 @@ mod loop_guard;
 mod panic;
 mod pane_prompt;
 mod prompt_risk;
+pub mod questions;
 mod app_windows;
 mod cockpit;
 mod ui_mode;
@@ -208,6 +209,9 @@ pub fn run() {
             commands::worktree_merge,
             commands::worktree_discard,
             commands::pane_transcript,
+            commands::questions_list,
+            commands::question_answer,
+            commands::question_dismiss,
         ])
         .setup(|app| {
             // Register approved declarative agent definitions before anything resolves a profile.

@@ -1,0 +1,49 @@
+/* Question cards in the cockpit Inbox (ask_user). Monochrome; state shown by weight and contrast. */
+.cockpit .ck-q-label {
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-q-text {
+  margin: 0;
+  padding-left: 24px;
+  color: var(--label);
+  font-weight: 600;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-q-ctx {
+  margin: 0;
+  padding-left: 24px;
+  color: var(--label-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-q-field {
+  display: flex;
+  gap: 6px;
+  padding-left: 24px;
+}
+.cockpit .ck-q-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  font: inherit;
+  color: var(--label);
+  background: var(--fill);
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+}
+.cockpit .ck-q-input::placeholder {
+  color: var(--label-3);
+}
+.cockpit .ck-q-input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-list.ck-q-list {
+  margin-bottom: 16px;
+}
+.cockpit .ck-inbox-item.is-urgent .ck-row-title {
+  font-weight: 700;
+}

@@ -38,11 +38,12 @@ export interface PaneGroups {
 }
 
 /** Needs you = waiting_input + error, Working = running, Idle = idle (and anything else). */
-export function groupPanes(list: PaneData[]): PaneGroups {
+export function groupPanes(list: PaneData[], questionPanes?: ReadonlySet<string>): PaneGroups {
   const groups: PaneGroups = { needs: [], working: [], idle: [] };
   for (const pane of list) {
-    if (pane.status === 'waiting_input' || pane.status === 'error') groups.needs.push(pane);
-    else if (pane.status === 'running') groups.working.push(pane);
+    if (pane.status === 'waiting_input' || pane.status === 'error' || questionPanes?.has(pane.info.id)) {
+      groups.needs.push(pane);
+    } else if (pane.status === 'running') groups.working.push(pane);
     else groups.idle.push(pane);
   }
   return groups;

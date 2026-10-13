@@ -6,10 +6,12 @@ import { DotSpinner } from './DotSpinner';
 import { useLoopGuard } from '../../lib/loop-guard';
 import { PaneStuckCard } from './StuckCard';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
+import { QuestionCard } from './QuestionCard';
 
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
   const waiting = c.registry.paneList.filter((p) => p.status === 'waiting_input');
-  const count = waiting.length;
+  const asked = c.asked.questions;
+  const count = waiting.length + asked.length;
   const noPanes = c.registry.paneList.length === 0 && c.registry.initialReady;
   const firstRun = noPanes && !hasEverSpawned();
   const stuckIds = Object.keys(useLoopGuard().signals).filter((id) => c.registry.panes.has(id));
@@ -39,17 +41,23 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
         )}
       </header>
 
-      {stuckIds.length > 0 && (
-        <ul className="ck-stuck-list" aria-label="Agents that seem stuck">
-          {stuckIds.map((id) => (
-            <li key={id}>
-              <PaneStuckCard c={c} paneId={id} />
-            </li>
+      {asked.length > 0 && (
+        <ul className="ck-list ck-q-list" aria-label="Questions from agents">
+          {asked.map((q) => (
+            <QuestionCard
+              key={q.id}
+              q={q}
+              paneName={q.pane_id ? c.names.get(q.pane_id) : undefined}
+              now={c.now}
+              onAnswer={(answer) => void c.asked.answerQuestion(q.id, answer)}
+              onDismiss={() => void c.asked.dismissQuestion(q.id)}
+              onOpenPane={q.pane_id && c.registry.panes.has(q.pane_id) ? () => c.select(q.pane_id!) : undefined}
+            />
           ))}
         </ul>
       )}
 
-      {count > 0 && (
+      {waiting.length > 0 && (
         <ul className="ck-list">
           {waiting.map((p) => {
             const id = p.info.id;
@@ -90,6 +98,16 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
               </li>
             );
           })}
+        </ul>
+      )}
+
+      {stuckIds.length > 0 && (
+        <ul className="ck-stuck-list" aria-label="Agents that seem stuck">
+          {stuckIds.map((id) => (
+            <li key={id}>
+              <PaneStuckCard c={c} paneId={id} />
+            </li>
+          ))}
         </ul>
       )}
     </div>

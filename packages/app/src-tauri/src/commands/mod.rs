@@ -19,6 +19,7 @@ mod pane_close;
 mod panes;
 mod secrets;
 mod accounts;
+mod questions;
 mod standby;
 mod worktrees;
 
@@ -34,6 +35,7 @@ pub use pane_close::*;
 pub use panes::*;
 pub use secrets::*;
 pub use accounts::*;
+pub use questions::*;
 pub use standby::*;
 pub use worktrees::*;
 

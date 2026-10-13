@@ -1,6 +1,6 @@
 // "All" tab of the mobile PWA: one card per agent pane with its status, project, last activity and
 // the last lines on its screen. Tapping a card opens that agent's tab.
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { PaneInfo } from '@puppet-master/shared';
 import type { BridgeClient } from '../../lib/bridge';
 import { ago, previewLines, projectName, statusMeta } from '../../lib/mobile-agent-tabs';
@@ -14,6 +14,7 @@ export function AgentsOverview({
   labels,
   onOpen,
   onNew,
+  header,
 }: {
   bridge: BridgeClient;
   bridgeReady: boolean;
@@ -21,6 +22,8 @@ export function AgentsOverview({
   labels: Map<string, string>;
   onOpen: (paneId: string) => void;
   onNew: () => void;
+  /** Rendered above the cards (pending agent questions). */
+  header?: ReactNode;
 }) {
   const [previews, setPreviews] = useState<Record<string, string[]>>({});
   const [now, setNow] = useState(() => Date.now());
@@ -61,7 +64,9 @@ export function AgentsOverview({
 
   if (panes.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
+      <div className="h-full overflow-y-auto p-2">
+        {header}
+        <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
         <div className="text-sm text-zinc-200">No agents running on your PC</div>
         <div className="text-xs text-pm-muted">
           Agents you open on the PC, or that another agent starts through Puppet Master, show up here as tabs.
@@ -73,12 +78,14 @@ export function AgentsOverview({
         >
           Open an agent
         </button>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="h-full overflow-y-auto overscroll-contain p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]">
+      {header}
       <ul className="flex flex-col gap-2">
         {panes.map((pane) => {
           const meta = statusMeta(pane.status);

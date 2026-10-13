@@ -89,6 +89,17 @@ pub(super) fn route(
             .map_err(operation_http_error)?;
     }
 
+    if let Some(reply) = crate::questions::routes::handle(
+        method,
+        segments,
+        &request_body,
+        session,
+        mobile_pairing::requires_pairing_token(headers, peer_loopback),
+        &|| crate::questions::routes::publish_changed(app),
+    ) {
+        return reply;
+    }
+
     let cx = Ctx {
         method,
         segments,

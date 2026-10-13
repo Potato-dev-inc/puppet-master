@@ -120,6 +120,11 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return a.name === 'anthropic_api_key' ? { set: true, last4: 'WXYZ' } : { set: false, last4: null };
         case 'get_opencode_key_status':
           return { active_profile: 'a', profiles: [{ id: 'a', label: 'Primary', configured: true }, { id: 'b', label: 'Secondary', configured: false }], key_automation_mode: 'auto_if_backup', restart_pane_on_rotate: true };
+        case 'questions_list':
+          return scenario.questions ?? [];
+        case 'question_answer':
+        case 'question_dismiss':
+          return { accepted: true, question: (scenario.questions ?? []).find((q) => q.id === a.id) };
         case 'resize_pane':
         case 'set_ui_mode':
         case 'interrupt_pane':

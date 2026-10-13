@@ -49,6 +49,7 @@ pub fn tool_visible_in_mode(name: &str, mode: McpMode) -> bool {
         "get_operation",
         "wait_for_operation",
         "cancel_operation",
+        "ask_user",
     ];
     const SHELL_TOOLS: &[&str] = &[
         "list_panes",
@@ -68,6 +69,7 @@ pub fn tool_visible_in_mode(name: &str, mode: McpMode) -> bool {
         "shell_exec",
         "release",
         "take_over",
+        "ask_user",
     ];
     match mode {
         McpMode::Agent => AGENT_TOOLS.contains(&name),

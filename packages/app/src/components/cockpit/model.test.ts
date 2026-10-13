@@ -16,6 +16,14 @@ describe('cockpit model', () => {
     expect(g.working.map((p) => p.info.id)).toEqual(['c']);
     expect(g.idle.map((p) => p.info.id)).toEqual(['d']);
   });
+  it('puts a pane with an open agent question under Needs you', () => {
+    const list = [pane('a', 'claude', 'running'), pane('b', 'codex', 'idle')];
+    expect(groupPanes(list).needs).toEqual([]);
+    const g = groupPanes(list, new Set(['a']));
+    expect(g.needs.map((p) => p.info.id)).toEqual(['a']);
+    expect(g.working).toEqual([]);
+    expect(g.idle.map((p) => p.info.id)).toEqual(['b']);
+  });
   it('formats elapsed', () => {
     expect(formatElapsed(4000)).toBe('4s');
     expect(formatElapsed(125_000)).toBe('2m');
