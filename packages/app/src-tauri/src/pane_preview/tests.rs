@@ -2,7 +2,7 @@ use super::*;
 use std::sync::Arc;
 
 /// The tracker state is process-global, so tests that observe run one at a time.
-static SERIAL: Mutex<()> = Mutex::new(());
+use crate::pane_activity::TEST_SERIAL as SERIAL;
 
 // Real-looking dev-server output (formats as printed by each tool, ANSI already stripped by vt100).
 const VITE: &str = "\n  VITE v5.4.8  ready in 312 ms\n\n  ➜  Local:   http://localhost:5173/\n  ➜  Network: http://192.168.1.23:5173/\n  ➜  press h + enter to show help\n";
@@ -130,7 +130,6 @@ fn the_activity_ticker_feeds_the_detector_once_per_changed_screen() {
     // Throttle reuse: observe() is only reached through tick_with, i.e. for dirty panes whose
     // screen hash changed, never per byte.
     let _serial = SERIAL.lock();
-    let _a = crate::pane_activity::TEST_SERIAL.lock();
     let (_log, _) = capture();
     let screen = std::cell::RefCell::new(VITE.to_string());
     let read = |_: &str| {
