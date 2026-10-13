@@ -4,6 +4,7 @@ import { projectName } from '../../lib/mobile-agent-tabs';
 import { DotSpinner } from './DotSpinner';
 import { IconLayers, IconMoon, IconPlus, IconSettings, IconStop, IconSun } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
+import { paneHeading } from './titles';
 
 interface Item {
   id: string;
@@ -24,11 +25,12 @@ export function Palette({ c, onClose }: { c: CockpitApi; onClose: () => void }) 
     const out: Item[] = [];
     for (const p of c.registry.paneList) {
       const id = p.info.id;
+      const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
       out.push({
         id: `pane:${id}`,
         group: 'Panes',
-        title: c.names.get(id) ?? p.info.agent_type,
-        desc: `${projectName(p.info.cwd)} · ${stateText(p.status)}`,
+        title: heading.primary,
+        desc: `${heading.secondary ? `${heading.secondary} · ` : ''}${projectName(p.info.cwd)} · ${stateText(p.status)}`,
         icon: <DotSpinner status={spinnerStatus(p.status)} />,
         run: () => c.select(id),
       });

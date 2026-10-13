@@ -62,6 +62,10 @@ export const cockpitApi = {
   newPane: (agentId: string) => call<string>('new_pane', { agentId }),
   paneRunInfo: (paneId: string) => call<PaneRunInfo | null>('pane_run_info', { paneId }),
   paneTranscript: (paneId: string) => call<PaneTranscript | null>('pane_transcript', { paneId }),
+  /** Rename a pane; a blank title clears it and automatic titling resumes. */
+  paneSetTitle: (paneId: string, title: string) => call<string | null>('pane_set_title', { paneId, title }),
+  ambientGetPrefs: () => call<{ animated_tray_icon: boolean }>('ambient_get_prefs'),
+  ambientSetAnimatedTray: (enabled: boolean) => call<void>('ambient_set_animated_tray', { enabled }),
 
   onModeChanged: (cb: (e: { mode: UiMode }) => void) => on('ui://mode-changed', cb),
   onSelect: (cb: (e: { pane_id: string }) => void) => on('cockpit://select', cb),

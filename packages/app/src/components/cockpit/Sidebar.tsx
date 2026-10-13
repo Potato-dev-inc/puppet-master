@@ -4,6 +4,7 @@ import { projectName } from '../../lib/mobile-agent-tabs';
 import { DotSpinner } from './DotSpinner';
 import { IconInbox, IconMoon, IconPlus, IconSearch, IconSettings, IconSun } from './Icons';
 import { formatElapsed, groupPanes, spinnerStatus } from './model';
+import { paneHeading } from './titles';
 import { SegTabs } from './SegTabs';
 
 export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: () => void }) {
@@ -35,6 +36,7 @@ export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: ()
           const id = p.info.id;
           const since = c.statusSince.get(id);
           const active = c.selectedId === id && !c.spawn;
+          const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
           return (
             <button
               key={id}
@@ -47,8 +49,10 @@ export function Sidebar({ c, onOpenPalette }: { c: CockpitApi; onOpenPalette: ()
                 <DotSpinner status={spinnerStatus(p.status)} />
               </span>
               <span className="ck-row-main">
-                <span className="ck-row-title">{c.names.get(id) ?? p.info.agent_type}</span>
-                <span className="ck-row-sub">{projectName(p.info.cwd)}</span>
+                <span className="ck-row-title">{heading.primary}</span>
+                <span className="ck-row-sub">
+                  {heading.secondary ? `${heading.secondary} · ${projectName(p.info.cwd)}` : projectName(p.info.cwd)}
+                </span>
               </span>
               <span className="ck-row-time">{since ? formatElapsed(c.now - since) : ''}</span>
             </button>

@@ -35,7 +35,7 @@ export function projectName(cwd: string): string {
   return parts[parts.length - 1] ?? cwd;
 }
 
-/** Tab title: the agent id, numbered when several panes run the same agent (`claude 2`). */
+/** Tab title: the pane's title when it has one, else the agent id, numbered when several panes run the same agent (`claude 2`). */
 export function tabLabels(panes: PaneInfo[]): Map<string, string> {
   const ordered = orderPanes(panes);
   const totals = new Map<string, number>();
@@ -45,7 +45,8 @@ export function tabLabels(panes: PaneInfo[]): Map<string, string> {
   for (const pane of ordered) {
     const n = (seen.get(pane.agent_type) ?? 0) + 1;
     seen.set(pane.agent_type, n);
-    labels.set(pane.id, (totals.get(pane.agent_type) ?? 0) > 1 ? `${pane.agent_type} ${n}` : pane.agent_type);
+    const title = pane.title?.trim();
+    labels.set(pane.id, title || ((totals.get(pane.agent_type) ?? 0) > 1 ? `${pane.agent_type} ${n}` : pane.agent_type));
   }
   return labels;
 }

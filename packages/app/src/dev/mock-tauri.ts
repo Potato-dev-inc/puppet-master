@@ -47,6 +47,11 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return 'C:\\Users\\dev\\work\\puppet-master';
         case 'list_agent_contexts':
           return [];
+        case 'pane_set_title':
+          return String(a.title ?? '') || null;
+        case 'ambient_get_prefs':
+          return { animated_tray_icon: true };
+        case 'ambient_set_animated_tray':
         case 'resize_pane':
         case 'set_ui_mode':
         case 'interrupt_pane':

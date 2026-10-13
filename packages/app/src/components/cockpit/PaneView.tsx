@@ -4,9 +4,11 @@ import { cockpitApi, type PaneRunInfo, type PaneTranscript } from '../../lib/coc
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
-import { IconClose, IconCopy, IconMore, IconReflow, IconStop } from './Icons';
+import { IconClose, IconCopy, IconMore, IconReflow, IconRename, IconStop } from './Icons';
 import { formatElapsed, promptSummary, receiptRows, spinnerStatus, stateText } from './model';
+import { RenameTitle } from './RenameTitle';
 import { SegTabs } from './SegTabs';
+import { paneHeading } from './titles';
 
 type Tab = 'terminal' | 'transcript' | 'receipt';
 
@@ -56,6 +58,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const [tab, setTab] = useState<Tab>('terminal');
   const [menu, setMenu] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [reflowKey, setReflowKey] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const getSelectionRef = useRef<(() => string) | null>(null);
@@ -65,6 +68,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
     setTab('terminal');
     setMenu(false);
     setConfirm(false);
+    setRenaming(false);
   }, [paneId]);
 
   useEffect(() => {
@@ -108,6 +112,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const since = c.statusSince.get(paneId);
   const prompt = c.prompts[paneId];
   const name = c.names.get(paneId) ?? info.agent_type;
+  const heading = paneHeading(info, name);
   const stateLine =
     pane.status === 'waiting_input' && since ? `Needs you · ${formatElapsed(c.now - since)}` : stateText(pane.status);
 
@@ -115,8 +120,16 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
     <div className="ck-pane">
       <header className="ck-pane-head">
         <div className="ck-pane-id">
-          <h1 className="ck-title ck-title--sm">{name}</h1>
-          <span className="ck-sub-inline">{projectName(info.cwd)}</span>
+          <RenameTitle
+            text={heading.primary}
+            current={info.title ?? ''}
+            editing={renaming}
+            onEditingChange={setRenaming}
+            onSave={(title) => void c.rename(paneId, title)}
+          />
+          <span className="ck-sub-inline">
+            {heading.secondary ? `${heading.secondary} · ${projectName(info.cwd)}` : projectName(info.cwd)}
+          </span>
         </div>
         <div className="ck-pane-state">
           <DotSpinner status={spinnerStatus(pane.status)} />
@@ -138,6 +151,18 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
           </button>
           {menu && (
             <div className="ck-menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                className="ck-menu-item"
+                onClick={() => {
+                  setMenu(false);
+                  setRenaming(true);
+                }}
+              >
+                <span className="ck-menu-ic"><IconRename /></span>
+                <span>Rename</span>
+              </button>
               <button
                 type="button"
                 role="menuitem"

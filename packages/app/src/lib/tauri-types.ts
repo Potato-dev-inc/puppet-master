@@ -14,6 +14,8 @@ export type PaneInfo = {
   viewer_held?: boolean;
   /** The agent reprints its whole conversation on every resize: viewers wipe scrollback at each one. */
   reprints_on_resize?: boolean;
+  /** Human title (user name, else derived from the first task); absent until the pane has one. */
+  title?: string | null;
 };
 
 export type TerminalSnapshotEvent = { pane_id: string; snapshot: string };

@@ -9,6 +9,7 @@ import {
   SIDEBAR_WIDTH_PRESETS,
 } from '../../../lib/settings';
 import { FieldInput, FieldSelect, InfoCard, SettingBlock, SettingsSection } from '../settings-ui';
+import { AmbientSettings } from './AmbientSettings';
 import type { SettingsTabContext } from './tab-context';
 
 export function AppearanceTab({ ctx }: { ctx: SettingsTabContext }) {
@@ -81,6 +82,7 @@ export function AppearanceTab({ ctx }: { ctx: SettingsTabContext }) {
       <SettingBlock label="Default grid columns" implemented={false} description="Starting terminal grid when opening a workspace.">
         <FieldSelect value="2" disabled><option value="1">1 column</option><option value="2">2 columns</option><option value="3">3 columns</option></FieldSelect>
       </SettingBlock>
+      <AmbientSettings />
       <InfoCard title="Design language" description="Warm accents are reserved for primary actions and active states." implemented={false} />
     </SettingsSection>
   );
