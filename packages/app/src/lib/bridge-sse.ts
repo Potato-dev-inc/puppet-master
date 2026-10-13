@@ -40,6 +40,9 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
   } else if (eventName === 'loop-signal') {
     const payload = parsed as { pane_id: string; signal: LoopSignalInfo | null };
     onEvent({ type: 'loop-signal', pane_id: payload.pane_id, signal: payload.signal ?? null });
+  } else if (eventName === 'questions') {
+    const payload = parsed as { revision?: number };
+    onEvent({ type: 'questions', revision: payload.revision ?? 0 });
   } else if (eventName === 'opencode-worker') {
     onEvent({ type: 'opencode-worker', event: parsed as OpenCodeWorkerEvent });
   } else if (eventName === 'pane-resize') {
@@ -215,6 +218,7 @@ const BRIDGE_EVENT_NAMES = [
   'loop-signal',
   'settings',
   'orchestrator-viewport',
+  'questions',
 ] as const;
 
 function shouldUseFetchBridgeSse(baseUrl: string): boolean {

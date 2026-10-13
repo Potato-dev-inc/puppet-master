@@ -31,15 +31,23 @@ const q: Question = {
   state: 'pending',
 };
 
-async function mount(questions: Question[]) {
-  const bridge = {
+function makeBridge(questions: Question[]) {
+  return {
     listQuestions: vi.fn(async () => questions),
     answerQuestion: vi.fn(async () => ({ accepted: true })),
     dismissQuestion: vi.fn(async () => ({ accepted: true })),
-  } as unknown as BridgeClient;
+  } as unknown as BridgeClient & { listQuestions: ReturnType<typeof vi.fn> };
+}
+
+async function render(bridge: BridgeClient, revision?: number) {
   await act(async () => {
-    root.render(<QuestionsList bridge={bridge} bridgeReady labels={new Map()} />);
+    root.render(<QuestionsList bridge={bridge} bridgeReady labels={new Map()} revision={revision} />);
   });
+}
+
+async function mount(questions: Question[]) {
+  const bridge = makeBridge(questions);
+  await render(bridge);
   return bridge;
 }
 
@@ -58,5 +66,43 @@ describe('phone QuestionsList', () => {
     const dismiss = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Dismiss')!;
     await act(async () => dismiss.click());
     expect(bridge.dismissQuestion).toHaveBeenCalledWith('q1');
+  });
+
+  describe('refetching', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('fetches once on mount', async () => {
+      const bridge = await mount([q]);
+      expect(bridge.listQuestions).toHaveBeenCalledTimes(1);
+    });
+
+    it('refetches when the revision prop changes', async () => {
+      const bridge = makeBridge([q]);
+      await render(bridge, 0);
+      expect(bridge.listQuestions).toHaveBeenCalledTimes(1);
+      await render(bridge, 1);
+      expect(bridge.listQuestions).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not poll every 3 seconds', async () => {
+      const bridge = await mount([q]);
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+      });
+      expect(bridge.listQuestions).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to a 30 second poll', async () => {
+      const bridge = await mount([q]);
+      await act(async () => {
+        vi.advanceTimersByTime(30000);
+      });
+      expect(bridge.listQuestions).toHaveBeenCalledTimes(2);
+    });
   });
 });

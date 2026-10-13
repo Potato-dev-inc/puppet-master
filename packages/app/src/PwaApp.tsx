@@ -122,6 +122,8 @@ export default function PwaApp() {
   const [agentListing, setAgentListing] = useState<AgentRegistryListing>(() => fallbackListing());
   /** Bumped when the event stream missed events: the open terminal is rebuilt from scrollback. */
   const [resyncKey, setResyncKey] = useState(0);
+  /** Bumped on each `questions` event (and on resync) so the pending-questions list refetches. */
+  const [questionsRev, setQuestionsRev] = useState(0);
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
   const [fitGrid, setFitGrid] = useState<{ cols: number; rows: number } | null>(null);
   /** Last grid measured on this phone: a pane spawned from here is created at this size. */
@@ -245,10 +247,12 @@ export default function PwaApp() {
         registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows, true);
       }
       if (ev.type === 'settings') setSettings(ev.settings);
+      if (ev.type === 'questions') setQuestionsRev((n) => n + 1);
       if (ev.type === 'resync') {
         registryRef.current.resetStreams();
         client.listPanes().then((list) => live && applyPanes(list)).catch(() => {});
         setResyncKey((n) => n + 1);
+        setQuestionsRev((n) => n + 1);
       }
     });
     streamRef.current = stream;
@@ -510,7 +514,7 @@ export default function PwaApp() {
               onOpen={setActive}
               onNew={openNewAgentSheet}
               stuck={stuck}
-              header={<QuestionsList bridge={bridge} bridgeReady={bridgeReady} labels={labels} />}
+              header={<QuestionsList bridge={bridge} bridgeReady={bridgeReady} labels={labels} revision={questionsRev} />}
             />
           )}
           {activePane && (
