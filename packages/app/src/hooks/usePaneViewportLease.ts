@@ -1,6 +1,12 @@
 import { useEffect, useRef } from 'react';
 import type { BridgeClient } from '../lib/bridge';
 
+/**
+ * This page's id for the bridge: several phones viewing one pane each hold their own lease and the
+ * pane takes the smallest of their sizes, instead of them taking turns resizing it.
+ */
+const VIEWER_ID = `v-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
 /** Renew well inside the bridge's 15 s lease (`pty::viewer_size::LEASE_TTL_MS`). */
 const RENEW_MS = 5000;
 /** Hidden this long before the pane is given back: a glance at the app switcher or notification
@@ -32,12 +38,12 @@ export function usePaneViewportLease(
       if (!g || document.visibilityState !== 'visible') return;
       window.clearTimeout(hiddenTimer);
       holding = true;
-      void bridge.setPaneViewport(paneId, { ...g, active: true }).catch(() => {});
+      void bridge.setPaneViewport(paneId, { ...g, active: true, viewer: VIEWER_ID }).catch(() => {});
     };
     const release = () => {
       if (!holding) return;
       holding = false;
-      void bridge.setPaneViewport(paneId, { cols: 0, rows: 0, active: false }).catch(() => {});
+      void bridge.setPaneViewport(paneId, { cols: 0, rows: 0, active: false, viewer: VIEWER_ID }).catch(() => {});
     };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {

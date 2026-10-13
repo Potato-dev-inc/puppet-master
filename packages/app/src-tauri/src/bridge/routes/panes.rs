@@ -52,6 +52,13 @@ struct ViewportBody {
     #[serde(default)]
     rows: u16,
     active: bool,
+    /// Which phone (one id per open page); several phones share the smallest size.
+    #[serde(default = "default_viewer")]
+    viewer: String,
+}
+
+fn default_viewer() -> String {
+    "phone".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -262,10 +269,10 @@ fn resize(cx: &Ctx) -> RouteResult {
 fn viewport(cx: &Ctx, pane_id: &str) -> RouteResult {
     let req: ViewportBody = parse_json(cx.body)?;
     if !req.active {
-        let restored = crate::pty::viewer_size::release(cx.registry, pane_id);
+        let restored = crate::pty::viewer_size::release(cx.registry, pane_id, &req.viewer);
         return Ok((200, json!({ "ok": true, "leased": false, "restored": restored.map(|(cols, rows)| json!({ "cols": cols, "rows": rows })) })));
     }
-    let (cols, rows) = crate::pty::viewer_size::claim(cx.registry, pane_id, req.cols, req.rows)
+    let (cols, rows) = crate::pty::viewer_size::claim(cx.registry, pane_id, &req.viewer, req.cols, req.rows)
         .map_err(|err| (404, json!({ "error": err })))?;
     Ok((200, json!({ "ok": true, "leased": true, "cols": cols, "rows": rows })))
 }

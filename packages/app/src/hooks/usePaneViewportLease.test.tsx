@@ -25,19 +25,19 @@ describe('usePaneViewportLease', () => {
     expect(setPaneViewport).not.toHaveBeenCalled();
 
     await act(async () => root.render(<Probe bridge={bridge} paneId="p1" grid={{ cols: 48, rows: 38 }} />));
-    expect(setPaneViewport).toHaveBeenLastCalledWith('p1', { cols: 48, rows: 38, active: true });
+    expect(setPaneViewport).toHaveBeenLastCalledWith('p1', expect.objectContaining({ cols: 48, rows: 38, active: true }));
 
     await act(async () => vi.advanceTimersByTime(5000));
     expect(setPaneViewport).toHaveBeenCalledTimes(2);
 
     // Keyboard opened: fewer rows, claimed straight away with no release in between.
     await act(async () => root.render(<Probe bridge={bridge} paneId="p1" grid={{ cols: 48, rows: 20 }} />));
-    expect(setPaneViewport).toHaveBeenLastCalledWith('p1', { cols: 48, rows: 20, active: true });
+    expect(setPaneViewport).toHaveBeenLastCalledWith('p1', expect.objectContaining({ cols: 48, rows: 20, active: true }));
     expect(setPaneViewport.mock.calls.some(([, view]) => view.active === false)).toBe(false);
 
     // Back to All: the pane goes back to its desktop size.
     await act(async () => root.render(<Probe bridge={bridge} paneId={null} grid={{ cols: 48, rows: 20 }} />));
-    expect(setPaneViewport).toHaveBeenLastCalledWith('p1', { cols: 0, rows: 0, active: false });
+    expect(setPaneViewport).toHaveBeenLastCalledWith('p1', expect.objectContaining({ cols: 0, rows: 0, active: false }));
     await act(async () => root.unmount());
   });
 
@@ -65,7 +65,7 @@ describe('usePaneViewportLease', () => {
       flip('hidden');
       vi.advanceTimersByTime(3000);
     });
-    expect(setPaneViewport).toHaveBeenLastCalledWith('p1', { cols: 0, rows: 0, active: false });
+    expect(setPaneViewport).toHaveBeenLastCalledWith('p1', expect.objectContaining({ cols: 0, rows: 0, active: false }));
     await act(async () => root.unmount());
     spy.mockRestore();
   });
