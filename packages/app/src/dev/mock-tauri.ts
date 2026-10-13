@@ -133,6 +133,21 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return { agents: DOCTOR_ROWS };
         case 'agents_health_test':
           return { ...DOCTOR_ROWS[0], state: 'ready', reason: 'Ready. It answered the test question.' };
+        case 'get_mcp_status':
+          return {
+            bridgeReachable: true,
+            bridgeUrl: 'http://127.0.0.1:17321',
+            bridgeVersion: '0.1.4',
+            portFileExists: true,
+            portFilePath: 'C:\Users\dev\.puppet-master\bridge.port',
+            nodeAvailable: true,
+            npmAvailable: true,
+            npmPackageVersion: '0.1.4',
+            launchCommand: 'npx -y @puppet-master/mcp',
+            backends: [],
+            overallReady: true,
+            repairResults: [],
+          };
         case 'list_agent_contexts':
           return [];
         case 'secret_storage_info':
