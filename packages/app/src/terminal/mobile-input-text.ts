@@ -17,23 +17,78 @@ export const CONTROL_KEYS: Record<string, string> = {
   Tab: '\t',
 };
 
-export const SPECIAL_KEYS: Array<{ label: string; value: string; title: string }> = [
-  { label: 'Esc', value: CONTROL_KEYS.Escape, title: 'Escape' },
-  { label: 'Ctrl-C', value: '\x03', title: 'Interrupt / cancel current command' },
-  { label: 'Ctrl-D', value: '\x04', title: 'End of input / exit shell' },
-  { label: 'Ctrl-Z', value: '\x1a', title: 'Suspend process' },
-  { label: 'Ctrl-L', value: '\x0c', title: 'Clear screen' },
-  { label: 'Tab', value: CONTROL_KEYS.Tab, title: 'Tab completion' },
-  { label: 'Enter', value: ENTER, title: 'Enter' },
-  { label: 'Back', value: BACKSPACE, title: 'Backspace' },
-  { label: 'Del', value: CONTROL_KEYS.Delete, title: 'Delete' },
-  { label: '←', value: CONTROL_KEYS.ArrowLeft, title: 'Left arrow' },
-  { label: '↑', value: CONTROL_KEYS.ArrowUp, title: 'Up arrow' },
-  { label: '↓', value: CONTROL_KEYS.ArrowDown, title: 'Down arrow' },
-  { label: '→', value: CONTROL_KEYS.ArrowRight, title: 'Right arrow' },
-  { label: 'Home', value: CONTROL_KEYS.Home, title: 'Home' },
-  { label: 'End', value: CONTROL_KEYS.End, title: 'End' },
+/** One key on the special-keys panel. `label` is the accessible name. */
+export interface SpecialKey {
+  id: string;
+  /** Large symbol shown on the key cap. */
+  glyph: string;
+  /** Small word under the glyph. */
+  caption?: string;
+  /** Bytes sent to the PTY (empty for the Ctrl latch, which sends nothing by itself). */
+  value: string;
+  label: string;
+  /** Holding the key repeats it. */
+  repeat?: boolean;
+  /** Spans two columns of its section grid. */
+  wide?: boolean;
+  /** Toggles the Ctrl modifier for the next typed letter instead of sending bytes. */
+  latch?: boolean;
+}
+
+export interface SpecialKeyGroup {
+  id: string;
+  title: string;
+  /** Keys in reading order; the group's grid lays them out in rows of its column count. */
+  keys: SpecialKey[];
+}
+
+export const SPECIAL_KEY_GROUPS: SpecialKeyGroup[] = [
+  {
+    id: 'control',
+    title: 'Control',
+    keys: [
+      { id: 'esc', glyph: '⎋', caption: 'esc', value: CONTROL_KEYS.Escape, label: 'Escape' },
+      { id: 'tab', glyph: '⇥', caption: 'tab', value: CONTROL_KEYS.Tab, label: 'Tab' },
+      // Claude Code cycles its permission modes with Shift-Tab.
+      { id: 'backtab', glyph: '⇤', caption: 'mode', value: '\x1b[Z', label: 'Shift-Tab' },
+      { id: 'ctrl-c', glyph: '⌃C', caption: 'interrupt', value: '\x03', label: 'Ctrl-C' },
+      { id: 'ctrl-d', glyph: '⌃D', caption: 'eof', value: '\x04', label: 'Ctrl-D' },
+      { id: 'ctrl-l', glyph: '⌃L', caption: 'clear', value: '\x0c', label: 'Ctrl-L' },
+      { id: 'ctrl', glyph: '⌃', caption: 'ctrl', value: '', label: 'Control modifier', latch: true },
+    ],
+  },
+  {
+    id: 'navigate',
+    title: 'Navigate',
+    // Laid out as: Home ↑ End / ← ↓ → (the arrows form an inverted T).
+    keys: [
+      { id: 'home', glyph: '⇱', caption: 'home', value: CONTROL_KEYS.Home, label: 'Home' },
+      { id: 'up', glyph: '↑', value: CONTROL_KEYS.ArrowUp, label: 'Up arrow', repeat: true },
+      { id: 'end', glyph: '⇲', caption: 'end', value: CONTROL_KEYS.End, label: 'End' },
+      { id: 'left', glyph: '←', value: CONTROL_KEYS.ArrowLeft, label: 'Left arrow', repeat: true },
+      { id: 'down', glyph: '↓', value: CONTROL_KEYS.ArrowDown, label: 'Down arrow', repeat: true },
+      { id: 'right', glyph: '→', value: CONTROL_KEYS.ArrowRight, label: 'Right arrow', repeat: true },
+    ],
+  },
+  {
+    id: 'edit',
+    title: 'Edit',
+    keys: [
+      { id: 'backspace', glyph: '⌫', caption: 'delete', value: BACKSPACE, label: 'Backspace', repeat: true },
+      { id: 'forward-delete', glyph: '⌦', caption: 'forward', value: CONTROL_KEYS.Delete, label: 'Forward delete', repeat: true },
+      { id: 'return', glyph: '↵', caption: 'return', value: ENTER, label: 'Return', wide: true },
+    ],
+  },
 ];
+
+/** Every key of every group, in panel order. */
+export const SPECIAL_KEYS: SpecialKey[] = SPECIAL_KEY_GROUPS.flatMap((group) => group.keys);
+
+/** Ctrl latch: the next typed letter (or one of @[\]^_) is sent as its control code. */
+export function controlCodeFor(letter: string): string | null {
+  if (letter.length !== 1 || !/^[a-zA-Z@[\\\]^_]$/.test(letter)) return null;
+  return String.fromCharCode(letter.toUpperCase().charCodeAt(0) & 0x1f);
+}
 
 function normalizeTerminalLineEndings(text: string): string {
   return text.replace(/\r\n/g, ENTER).replace(/\n/g, ENTER);

@@ -6,8 +6,12 @@ import {
   MOBILE_INPUT_HIDDEN_CLASS,
   MOBILE_KEYBOARD_OUTSIDE_CLASS,
   MOBILE_LONG_PRESS_MS,
+  SPECIAL_PANEL_CLOSE_MS,
+  SPECIAL_REPEAT_DELAY_MS,
+  SPECIAL_REPEAT_INTERVAL_MS,
   type MobileInputDelivery,
 } from './mobile-input-guard';
+import { SPECIAL_KEY_GROUPS, SPECIAL_KEYS } from './mobile-input-text';
 
 const TEST_BUFFER_MS = 25;
 
@@ -651,20 +655,42 @@ describe('MobileInputGuard', () => {
   it('expands and collapses the special key palette', () => {
     const { cleanup, container } = createGuard(TEST_BUFFER_MS, false);
     const toggle = container.querySelector('.terminal-mobile-special-toggle') as HTMLButtonElement;
-    const grid = container.querySelector('.terminal-mobile-special-grid') as HTMLDivElement;
+    const panel = container.querySelector('.terminal-mobile-special-panel') as HTMLDivElement;
 
     expect(toggle).toBeTruthy();
-    expect(grid).toBeTruthy();
+    expect(panel).toBeTruthy();
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(grid.hasAttribute('hidden')).toBe(true);
+    expect(panel.hasAttribute('hidden')).toBe(true);
 
     toggle.click();
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    expect(grid.hasAttribute('hidden')).toBe(false);
+    expect(toggle.getAttribute('aria-label')).toBe('Hide special keys');
+    expect(panel.hasAttribute('hidden')).toBe(false);
 
     toggle.click();
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(grid.hasAttribute('hidden')).toBe(true);
+    expect(toggle.getAttribute('aria-label')).toBe('Show special keys');
+    // The panel stays mounted while it animates out, then hides.
+    expect(panel.hasAttribute('hidden')).toBe(false);
+    vi.advanceTimersByTime(SPECIAL_PANEL_CLOSE_MS);
+    expect(panel.hasAttribute('hidden')).toBe(true);
+    cleanup();
+  });
+
+  it('groups the keys into Control, Navigate and Edit sections', () => {
+    const { cleanup, container } = createGuard();
+    const titles = [...container.querySelectorAll('.terminal-mobile-special-title')].map((el) => el.textContent);
+    const sections = [...container.querySelectorAll('.terminal-mobile-special-section')].map((section) =>
+      [...section.querySelectorAll('[data-terminal-special-id]')].map((key) => key.getAttribute('data-terminal-special-id')),
+    );
+
+    expect(titles).toEqual(['Control', 'Navigate', 'Edit']);
+    expect(sections).toEqual([
+      ['esc', 'tab', 'backtab', 'ctrl-c', 'ctrl-d', 'ctrl-l', 'ctrl'],
+      ['home', 'up', 'end', 'left', 'down', 'right'],
+      ['backspace', 'forward-delete', 'return'],
+    ]);
+    expect(container.querySelector('[data-mobile-terminal-arrows]')).toBeTruthy();
     cleanup();
   });
 
@@ -674,7 +700,7 @@ describe('MobileInputGuard', () => {
     toggle.click();
 
     const up = container.querySelector('[aria-label="Up arrow"]') as HTMLButtonElement;
-    const ctrlC = container.querySelector('[aria-label="Interrupt / cancel current command"]') as HTMLButtonElement;
+    const ctrlC = container.querySelector('[aria-label="Ctrl-C"]') as HTMLButtonElement;
     const escape = container.querySelector('[aria-label="Escape"]') as HTMLButtonElement;
     up.click();
     ctrlC.click();
@@ -688,13 +714,23 @@ describe('MobileInputGuard', () => {
     cleanup();
   });
 
+  it('sends Shift-Tab as the backtab sequence Claude Code uses to cycle modes', () => {
+    const { cleanup, container, emitted } = createGuard();
+    (container.querySelector('.terminal-mobile-special-toggle') as HTMLButtonElement).click();
+
+    (container.querySelector('[aria-label="Shift-Tab"]') as HTMLButtonElement).click();
+
+    expect(emitted).toEqual([{ text: '\x1b[Z', delivery: 'immediate' }]);
+    cleanup();
+  });
+
   it('flushes buffered text before sending special keys', () => {
     const { cleanup, container, emitted, input } = createGuard();
     const toggle = container.querySelector('.terminal-mobile-special-toggle') as HTMLButtonElement;
     toggle.click();
 
     dispatchInput(input, 'hi', 'insertText');
-    const tab = container.querySelector('[aria-label="Tab completion"]') as HTMLButtonElement;
+    const tab = container.querySelector('[aria-label="Tab"]') as HTMLButtonElement;
     tab.click();
 
     expect(emitted).toEqual([
@@ -710,6 +746,237 @@ describe('MobileInputGuard', () => {
     expect(container.querySelector('[data-mobile-terminal-arrows]')).toBeTruthy();
     expect(container.querySelector('.terminal-mobile-special-toggle')).toBeTruthy();
     cleanup();
+  });
+
+  function pointerKey(button: HTMLElement, type: 'pointerdown' | 'pointerup' | 'pointercancel' = 'pointerdown'): PointerEvent {
+    const event = new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      clientX: 5,
+      clientY: 5,
+      pointerId: 7,
+      pointerType: 'touch',
+    });
+    button.dispatchEvent(event);
+    return event;
+  }
+
+  function openPanel(container: HTMLElement): void {
+    (container.querySelector('.terminal-mobile-special-toggle') as HTMLButtonElement).click();
+  }
+
+  /** Types one character the way the browser reports it: data is just the inserted character. */
+  function typeChar(input: HTMLTextAreaElement, ch: string): void {
+    const before = input.value;
+    input.value = before + ch;
+    input.setSelectionRange(input.value.length, input.value.length);
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' }));
+  }
+
+  it('fires a key exactly once per press, ignoring the click that follows a pointer press', () => {
+    const { cleanup, container, emitted } = createGuard();
+    openPanel(container);
+    const esc = container.querySelector('[aria-label="Escape"]') as HTMLButtonElement;
+
+    pointerKey(esc, 'pointerdown');
+    pointerKey(esc, 'pointerup');
+    esc.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+
+    expect(emitted).toEqual([{ text: '\x1b', delivery: 'immediate' }]);
+    cleanup();
+  });
+
+  it('pressing a key does not move focus off the command field', () => {
+    const { cleanup, container, input } = createGuard();
+    openPanel(container);
+    input.focus();
+    const esc = container.querySelector('[aria-label="Escape"]') as HTMLButtonElement;
+    const down = pointerKey(esc, 'pointerdown');
+    const mouseDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    esc.dispatchEvent(mouseDown);
+
+    expect(down.defaultPrevented).toBe(true);
+    expect(mouseDown.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(input);
+    cleanup();
+  });
+
+  it('pressing the toggle with a pointer does not reveal or focus the hidden input', () => {
+    const { cleanup, container, input } = createGuard(TEST_BUFFER_MS, false);
+    const focusSpy = vi.spyOn(input, 'focus');
+    const toggle = container.querySelector('.terminal-mobile-special-toggle') as HTMLButtonElement;
+
+    pointerKey(toggle, 'pointerdown');
+    pointerKey(toggle, 'pointerup');
+
+    expect(container.querySelector('.terminal-mobile-special-panel')?.hasAttribute('hidden')).toBe(false);
+    expect(container.classList.contains(MOBILE_INPUT_ENGAGED_CLASS)).toBe(false);
+    expect(focusSpy).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it('calls the haptic API on each key press when it exists', () => {
+    const vibrate = vi.fn(() => true);
+    Object.defineProperty(navigator, 'vibrate', { configurable: true, value: vibrate });
+    try {
+      const { cleanup, container } = createGuard();
+      openPanel(container);
+      pointerKey(container.querySelector('[aria-label="Tab"]') as HTMLElement);
+      expect(vibrate).toHaveBeenCalledWith(8);
+      cleanup();
+    } finally {
+      Reflect.deleteProperty(navigator, 'vibrate');
+    }
+  });
+
+  it('auto-repeats a repeatable key while held, and stops on release', () => {
+    const { cleanup, container, emitted } = createGuard();
+    openPanel(container);
+    const left = container.querySelector('[aria-label="Left arrow"]') as HTMLElement;
+
+    pointerKey(left, 'pointerdown');
+    expect(emitted).toHaveLength(1);
+
+    vi.advanceTimersByTime(SPECIAL_REPEAT_DELAY_MS - 1);
+    expect(emitted).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(emitted).toHaveLength(2);
+    vi.advanceTimersByTime(SPECIAL_REPEAT_INTERVAL_MS);
+    expect(emitted).toHaveLength(3);
+
+    pointerKey(left, 'pointerup');
+    vi.advanceTimersByTime(SPECIAL_REPEAT_INTERVAL_MS * 5);
+    expect(emitted).toHaveLength(3);
+    expect(emitted.every((e) => e.text === '\x1b[D')).toBe(true);
+    cleanup();
+  });
+
+  it('stops auto-repeat when the pointer is cancelled', () => {
+    const { cleanup, container, emitted } = createGuard();
+    openPanel(container);
+    const backspace = container.querySelector('[aria-label="Backspace"]') as HTMLElement;
+
+    pointerKey(backspace, 'pointerdown');
+    pointerKey(backspace, 'pointercancel');
+    vi.advanceTimersByTime(SPECIAL_REPEAT_DELAY_MS * 2);
+
+    expect(emitted).toEqual([{ text: '\x7f', delivery: 'immediate' }]);
+    cleanup();
+  });
+
+  it('does not auto-repeat keys without the repeat flag', () => {
+    const { cleanup, container, emitted } = createGuard();
+    openPanel(container);
+
+    pointerKey(container.querySelector('[aria-label="Escape"]') as HTMLElement);
+    vi.advanceTimersByTime(SPECIAL_REPEAT_DELAY_MS * 3);
+
+    expect(emitted).toHaveLength(1);
+    cleanup();
+  });
+
+  it('Ctrl latch: the next typed letter is sent as its control code and not kept in the field', () => {
+    const { cleanup, container, emitted, input } = createGuard();
+    openPanel(container);
+    const latch = container.querySelector('[aria-label="Control modifier"]') as HTMLButtonElement;
+
+    pointerKey(latch);
+    expect(latch.getAttribute('aria-pressed')).toBe('true');
+    expect(latch.classList.contains('terminal-mobile-special-key--latched')).toBe(true);
+    expect(emitted).toEqual([]);
+
+    typeChar(input, 'c');
+
+    expect(emitted).toEqual([{ text: '\x03', delivery: 'immediate' }]);
+    expect(input.value).toBe('');
+    expect(latch.getAttribute('aria-pressed')).toBe('false');
+    cleanup();
+  });
+
+  it('Ctrl latch: buffered text is sent first, then the control code', () => {
+    const { cleanup, container, emitted, input } = createGuard();
+    openPanel(container);
+
+    typeChar(input, 'l');
+    typeChar(input, 's');
+    expect(emitted).toEqual([]);
+    pointerKey(container.querySelector('[aria-label="Control modifier"]') as HTMLElement);
+    typeChar(input, 'd');
+
+    expect(emitted).toEqual([
+      { text: 'ls', delivery: 'immediate' },
+      { text: '\x04', delivery: 'immediate' },
+    ]);
+    expect(input.value).toBe('ls');
+    cleanup();
+  });
+
+  it('Ctrl latch: maps @[\\]^_ and ignores characters that are not letters', () => {
+    const { cleanup, container, emitted, input } = createGuard();
+    openPanel(container);
+    const latch = container.querySelector('[aria-label="Control modifier"]') as HTMLElement;
+
+    pointerKey(latch);
+    typeChar(input, '1');
+    expect(emitted).toEqual([]);
+    expect(input.value).toBe('1');
+    expect(latch.getAttribute('aria-pressed')).toBe('true');
+
+    input.value = '';
+    typeChar(input, '[');
+    expect(emitted.at(-1)).toEqual({ text: '\x1b', delivery: 'immediate' });
+    cleanup();
+  });
+
+  it('Ctrl latch: tapping the Ctrl key again unlatches it', () => {
+    const { cleanup, container, emitted, input } = createGuard();
+    openPanel(container);
+    const latch = container.querySelector('[aria-label="Control modifier"]') as HTMLElement;
+
+    pointerKey(latch);
+    pointerKey(latch);
+    typeChar(input, 'c');
+
+    expect(emitted).toEqual([]);
+    expect(input.value).toBe('c');
+    cleanup();
+  });
+
+  it('closes the panel on a tap outside it, and on Escape', () => {
+    const { cleanup, container } = createGuard(TEST_BUFFER_MS, false);
+    const panel = container.querySelector('.terminal-mobile-special-panel') as HTMLDivElement;
+    openPanel(container);
+
+    // A tap on the keys themselves keeps it open.
+    pointerKey(container.querySelector('[aria-label="Tab"]') as HTMLElement);
+    expect(panel.hasAttribute('hidden')).toBe(false);
+
+    // A tap elsewhere on the terminal closes it.
+    container.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'touch' }));
+    vi.advanceTimersByTime(SPECIAL_PANEL_CLOSE_MS);
+    expect(panel.hasAttribute('hidden')).toBe(true);
+
+    openPanel(container);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    vi.advanceTimersByTime(SPECIAL_PANEL_CLOSE_MS);
+    expect(panel.hasAttribute('hidden')).toBe(true);
+    cleanup();
+  });
+
+  it('Escape with the panel open closes it and is not sent to the terminal', () => {
+    const { cleanup, container, emitted, input } = createGuard();
+    openPanel(container);
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+    expect(emitted).toEqual([]);
+    expect(container.querySelector('.terminal-mobile-special-panel')?.classList.contains('terminal-mobile-special-panel--closing')).toBe(true);
+    cleanup();
+  });
+
+  it('exposes every key through SPECIAL_KEYS, flattened from the groups', () => {
+    expect(SPECIAL_KEYS).toEqual(SPECIAL_KEY_GROUPS.flatMap((group) => group.keys));
+    expect(SPECIAL_KEYS.length).toBe(16);
   });
 
   it('flushes buffered input on dispose', () => {

@@ -5,10 +5,12 @@ import {
   BACKSPACE,
   buildInputDelta,
   CONTROL_KEYS,
+  controlCodeFor,
   endsWithInsertedWhitespace,
   ENTER,
   isDeletionOnlyPayload,
-  SPECIAL_KEYS,
+  SPECIAL_KEY_GROUPS,
+  type SpecialKey,
 } from './mobile-input-text';
 import {
   isReplacementInputType,
@@ -34,6 +36,26 @@ export const MOBILE_KEYBOARD_PANEL_FALLBACK = '42dvh';
 const MOBILE_KEYBOARD_MIN_OBSCURED_PX = 100;
 
 const MOBILE_LONG_PRESS_MOVE_THRESHOLD_PX = 12;
+
+/** Special keys with `repeat`: delay before auto-repeat starts, then the interval while held. */
+export const SPECIAL_REPEAT_DELAY_MS = 400;
+export const SPECIAL_REPEAT_INTERVAL_MS = 60;
+
+/** Length of the special-keys panel close animation (matches the CSS). */
+export const SPECIAL_PANEL_CLOSE_MS = 220;
+
+const SPECIAL_HAPTIC_MS = 8;
+
+const KEYBOARD_ICON_SVG =
+  '<svg class="terminal-mobile-special-icon terminal-mobile-special-icon--keyboard" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+  '<rect x="2" y="5.5" width="20" height="13" rx="3"/>' +
+  '<path d="M6 9.5h.01M10 9.5h.01M14 9.5h.01M18 9.5h.01M6 13h.01M18 13h.01M9.5 15.5h5"/>' +
+  '</svg>';
+
+const CLOSE_ICON_SVG =
+  '<svg class="terminal-mobile-special-icon terminal-mobile-special-icon--close" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+  '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>' +
+  '</svg>';
 
 export type MobileInputDelivery = 'batched' | 'immediate';
 
@@ -95,7 +117,15 @@ export class MobileInputGuard implements Disposable {
   private readonly inputZone: HTMLDivElement;
   private readonly specialControls: HTMLDivElement;
   private readonly specialToggleButton: HTMLButtonElement;
-  private readonly specialGrid: HTMLDivElement;
+  private readonly specialPanel: HTMLDivElement;
+  /** Key definition for each key button on the panel. */
+  private readonly specialButtons = new Map<HTMLButtonElement, SpecialKey>();
+  private ctrlLatchButton: HTMLButtonElement | null = null;
+  /** Ctrl latch: the next typed letter is sent as its control code. */
+  private ctrlLatched = false;
+  private specialPanelOpen = false;
+  private specialRepeatTimer: number | null = null;
+  private specialPanelCloseTimer: number | null = null;
   private readonly form: HTMLFormElement;
   private readonly input: HTMLTextAreaElement;
   /** Text already written to the terminal from the current field contents. */
@@ -172,30 +202,36 @@ export class MobileInputGuard implements Disposable {
     this.specialControls.className = 'terminal-mobile-special-controls';
     this.specialControls.setAttribute('data-mobile-terminal-arrows', 'true');
 
+    this.specialPanel = document.createElement('div');
+    this.specialPanel.className = 'terminal-mobile-special-panel';
+    this.specialPanel.setAttribute('hidden', 'true');
+    this.specialPanel.setAttribute('role', 'group');
+    this.specialPanel.setAttribute('aria-label', 'Special terminal keys');
+
+    for (const group of SPECIAL_KEY_GROUPS) {
+      const section = document.createElement('div');
+      section.className = `terminal-mobile-special-section terminal-mobile-special-section--${group.id}`;
+      const title = document.createElement('div');
+      title.className = 'terminal-mobile-special-title';
+      title.textContent = group.title;
+      const grid = document.createElement('div');
+      grid.className = 'terminal-mobile-special-grid';
+      for (const key of group.keys) {
+        grid.appendChild(this.createSpecialButton(key));
+      }
+      section.append(title, grid);
+      this.specialPanel.appendChild(section);
+    }
+
     this.specialToggleButton = document.createElement('button');
     this.specialToggleButton.type = 'button';
     this.specialToggleButton.className = 'terminal-mobile-special-toggle';
     this.specialToggleButton.setAttribute('aria-label', 'Show special keys');
     this.specialToggleButton.setAttribute('aria-expanded', 'false');
-    this.specialToggleButton.textContent = 'Keys';
+    // Keyboard glyph and close glyph are cross-faded by CSS when the panel opens.
+    this.specialToggleButton.innerHTML = KEYBOARD_ICON_SVG + CLOSE_ICON_SVG;
 
-    this.specialGrid = document.createElement('div');
-    this.specialGrid.className = 'terminal-mobile-special-grid';
-    this.specialGrid.setAttribute('hidden', 'true');
-    this.specialGrid.setAttribute('aria-label', 'Special terminal keys');
-
-    for (const key of SPECIAL_KEYS) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'terminal-mobile-special-key';
-      button.textContent = key.label;
-      button.title = key.title;
-      button.setAttribute('aria-label', key.title);
-      button.dataset.terminalSpecialKey = key.value;
-      this.specialGrid.appendChild(button);
-    }
-
-    this.specialControls.append(this.specialGrid, this.specialToggleButton);
+    this.specialControls.append(this.specialPanel, this.specialToggleButton);
 
     this.form.appendChild(this.input);
     this.inputZone.appendChild(this.form);
@@ -212,8 +248,13 @@ export class MobileInputGuard implements Disposable {
     this.input.addEventListener('input', this.onInput);
     this.input.addEventListener('keydown', this.onKeyDown);
     this.input.addEventListener('blur', this.onInputBlur);
+    this.specialToggleButton.addEventListener('pointerdown', this.onSpecialTogglePointerDown);
     this.specialToggleButton.addEventListener('click', this.onSpecialToggleClick);
-    this.specialGrid.addEventListener('click', this.onSpecialGridClick);
+    this.specialControls.addEventListener('pointerdown', this.onSpecialPointerDown);
+    this.specialControls.addEventListener('pointerup', this.onSpecialPointerEnd);
+    this.specialControls.addEventListener('pointercancel', this.onSpecialPointerEnd);
+    this.specialControls.addEventListener('mousedown', this.onSpecialMouseDown);
+    this.specialControls.addEventListener('click', this.onSpecialClick);
 
     this.container.addEventListener('pointerdown', this.onContainerPointerDown, { capture: true });
     this.container.addEventListener('pointermove', this.onContainerPointerMove, { capture: true });
@@ -249,8 +290,17 @@ export class MobileInputGuard implements Disposable {
     this.container.removeEventListener('touchcancel', this.onContainerTouchCancel, { capture: true });
     this.container.removeEventListener('click', this.onContainerClick, { capture: true });
     this.container.removeEventListener('contextmenu', this.onContainerContextMenu, { capture: true });
+    this.specialToggleButton.removeEventListener('pointerdown', this.onSpecialTogglePointerDown);
     this.specialToggleButton.removeEventListener('click', this.onSpecialToggleClick);
-    this.specialGrid.removeEventListener('click', this.onSpecialGridClick);
+    this.specialControls.removeEventListener('pointerdown', this.onSpecialPointerDown);
+    this.specialControls.removeEventListener('pointerup', this.onSpecialPointerEnd);
+    this.specialControls.removeEventListener('pointercancel', this.onSpecialPointerEnd);
+    this.specialControls.removeEventListener('mousedown', this.onSpecialMouseDown);
+    this.specialControls.removeEventListener('click', this.onSpecialClick);
+    this.stopSpecialRepeat();
+    this.closeSpecialPanel();
+    this.cancelSpecialPanelClose();
+    this.setCtrlLatched(false);
     this.keyboardHeightCleanup?.();
     this.keyboardHeightCleanup = null;
     this.cancelLongPress();
@@ -626,6 +676,8 @@ export class MobileInputGuard implements Disposable {
 
   private readonly onContainerClick = (event: MouseEvent): void => {
     if (!this.suppressClick) return;
+    // The keys panel handles its own clicks; a gesture that just ended must not swallow them.
+    if (event.target instanceof Element && event.target.closest('[data-mobile-terminal-arrows]')) return;
     event.preventDefault();
     event.stopPropagation();
     this.suppressClick = false;
@@ -641,27 +693,208 @@ export class MobileInputGuard implements Disposable {
     this.disengageInput();
   };
 
+  /**
+   * Keys and the toggle act on pointerdown (fast, and it does not move focus: the phone keyboard
+   * stays up). The click that follows a pointer press is ignored; only keyboard activation
+   * (detail 0) goes through the click path.
+   */
+  private readonly onSpecialTogglePointerDown = (event: PointerEvent): void => {
+    event.preventDefault();
+    if (event.button > 0) return;
+    this.toggleSpecialPanel();
+  };
+
   private readonly onSpecialToggleClick = (event: MouseEvent): void => {
     event.preventDefault();
     event.stopPropagation();
-    const nextOpen = this.specialGrid.hasAttribute('hidden');
-    this.specialGrid.toggleAttribute('hidden', !nextOpen);
-    this.specialControls.classList.toggle('terminal-mobile-special-controls--open', nextOpen);
-    this.specialToggleButton.setAttribute('aria-expanded', String(nextOpen));
-    this.specialToggleButton.setAttribute(
-      'aria-label',
-      nextOpen ? 'Hide special keys' : 'Show special keys',
-    );
+    if (event.detail === 0) this.toggleSpecialPanel();
   };
 
-  private readonly onSpecialGridClick = (event: MouseEvent): void => {
-    const target = event.target instanceof HTMLElement
-      ? event.target.closest<HTMLButtonElement>('[data-terminal-special-key]')
-      : null;
-    if (!target?.dataset.terminalSpecialKey) return;
+  private readonly onSpecialMouseDown = (event: MouseEvent): void => {
+    // Pressing the panel must not move focus off the command field (that would drop the keyboard).
     event.preventDefault();
-    event.stopPropagation();
-    this.emitSpecialKey(target.dataset.terminalSpecialKey);
+  };
+
+  private readonly onSpecialPointerDown = (event: PointerEvent): void => {
+    const button = this.specialButtonFrom(event.target);
+    if (!button) return;
+    event.preventDefault();
+    if (event.button > 0) return;
+    this.pressSpecialKey(button, true);
+  };
+
+  private readonly onSpecialPointerEnd = (): void => {
+    this.stopSpecialRepeat();
+  };
+
+  private readonly onSpecialClick = (event: MouseEvent): void => {
+    const button = this.specialButtonFrom(event.target);
+    if (!button || event.detail > 0) return;
+    event.preventDefault();
+    this.pressSpecialKey(button, false);
+  };
+
+  private specialButtonFrom(target: EventTarget | null): HTMLButtonElement | null {
+    if (!(target instanceof Element)) return null;
+    const button = target.closest<HTMLButtonElement>('[data-terminal-special-id]');
+    return button && this.specialButtons.has(button) ? button : null;
+  }
+
+  private createSpecialButton(key: SpecialKey): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'terminal-mobile-special-key';
+    button.dataset.terminalSpecialId = key.id;
+    if (key.value) button.dataset.terminalSpecialKey = key.value;
+    if (key.wide) button.classList.add('terminal-mobile-special-key--wide');
+    button.setAttribute('aria-label', key.label);
+    button.title = key.label;
+    if (key.latch) {
+      button.setAttribute('aria-pressed', 'false');
+      this.ctrlLatchButton = button;
+    }
+
+    const glyph = document.createElement('span');
+    glyph.className = 'terminal-mobile-special-glyph';
+    glyph.setAttribute('aria-hidden', 'true');
+    glyph.textContent = key.glyph;
+    button.appendChild(glyph);
+
+    if (key.caption) {
+      const caption = document.createElement('span');
+      caption.className = 'terminal-mobile-special-caption';
+      caption.setAttribute('aria-hidden', 'true');
+      caption.textContent = key.caption;
+      button.appendChild(caption);
+    }
+
+    button.addEventListener('pointerleave', this.onSpecialPointerEnd);
+    this.specialButtons.set(button, key);
+    return button;
+  }
+
+  private pressSpecialKey(button: HTMLButtonElement, pointer: boolean): void {
+    const key = this.specialButtons.get(button);
+    if (!key) return;
+    if (typeof navigator !== 'undefined') navigator.vibrate?.(SPECIAL_HAPTIC_MS);
+    this.activateSpecialKey(key);
+    if (pointer && key.repeat) this.startSpecialRepeat(key);
+  }
+
+  private activateSpecialKey(key: SpecialKey): void {
+    if (key.latch) {
+      this.setCtrlLatched(!this.ctrlLatched);
+      return;
+    }
+    this.emitSpecialKey(key.value);
+  }
+
+  private startSpecialRepeat(key: SpecialKey): void {
+    this.stopSpecialRepeat();
+    const schedule = (delay: number): void => {
+      this.specialRepeatTimer = window.setTimeout(() => {
+        this.activateSpecialKey(key);
+        schedule(SPECIAL_REPEAT_INTERVAL_MS);
+      }, delay);
+    };
+    schedule(SPECIAL_REPEAT_DELAY_MS);
+  }
+
+  private stopSpecialRepeat(): void {
+    if (this.specialRepeatTimer !== null) {
+      window.clearTimeout(this.specialRepeatTimer);
+      this.specialRepeatTimer = null;
+    }
+  }
+
+  private setCtrlLatched(on: boolean): void {
+    this.ctrlLatched = on;
+    if (!this.ctrlLatchButton) return;
+    this.ctrlLatchButton.classList.toggle('terminal-mobile-special-key--latched', on);
+    this.ctrlLatchButton.setAttribute('aria-pressed', String(on));
+  }
+
+  /**
+   * Ctrl latch: the newly typed character becomes its control code (letter & 0x1f) and is not kept
+   * in the field. Returns false (leaving the input alone) when the character is not one of a-z,
+   * @[\]^_ or when the insert cannot be located.
+   */
+  private consumeCtrlLatch(event: InputEvent): boolean {
+    const typed = event.data ?? '';
+    const control = controlCodeFor(typed);
+    if (control === null) return false;
+
+    const value = this.input.value;
+    const caret = this.input.selectionStart ?? value.length;
+    let at = caret - typed.length;
+    if (value.slice(at, caret) !== typed) {
+      if (!value.endsWith(typed)) return false;
+      at = value.length - typed.length;
+    }
+    this.input.value = value.slice(0, at) + value.slice(at + typed.length);
+    this.input.setSelectionRange(at, at);
+    this.setCtrlLatched(false);
+    this.flushToTerminal();
+    this.emit(control);
+    this.notifyBufferChange();
+    return true;
+  }
+
+  private toggleSpecialPanel(): void {
+    if (this.specialPanelOpen) {
+      this.closeSpecialPanel();
+    } else {
+      this.openSpecialPanel();
+    }
+  }
+
+  private openSpecialPanel(): void {
+    if (this.specialPanelOpen) return;
+    this.cancelSpecialPanelClose();
+    this.specialPanelOpen = true;
+    this.specialPanel.removeAttribute('hidden');
+    this.specialControls.classList.add('terminal-mobile-special-controls--open');
+    this.specialToggleButton.setAttribute('aria-expanded', 'true');
+    this.specialToggleButton.setAttribute('aria-label', 'Hide special keys');
+    document.addEventListener('pointerdown', this.onDocumentPointerDown, true);
+    document.addEventListener('keydown', this.onDocumentKeyDown);
+  }
+
+  private closeSpecialPanel(): void {
+    if (!this.specialPanelOpen) return;
+    this.specialPanelOpen = false;
+    this.stopSpecialRepeat();
+    this.specialControls.classList.remove('terminal-mobile-special-controls--open');
+    this.specialToggleButton.setAttribute('aria-expanded', 'false');
+    this.specialToggleButton.setAttribute('aria-label', 'Show special keys');
+    document.removeEventListener('pointerdown', this.onDocumentPointerDown, true);
+    document.removeEventListener('keydown', this.onDocumentKeyDown);
+
+    // Keep the panel mounted while it animates out, then hide it.
+    this.specialPanel.classList.add('terminal-mobile-special-panel--closing');
+    this.specialPanelCloseTimer = window.setTimeout(() => {
+      this.specialPanelCloseTimer = null;
+      this.specialPanel.classList.remove('terminal-mobile-special-panel--closing');
+      this.specialPanel.setAttribute('hidden', 'true');
+    }, SPECIAL_PANEL_CLOSE_MS);
+  }
+
+  private cancelSpecialPanelClose(): void {
+    if (this.specialPanelCloseTimer !== null) {
+      window.clearTimeout(this.specialPanelCloseTimer);
+      this.specialPanelCloseTimer = null;
+    }
+    this.specialPanel.classList.remove('terminal-mobile-special-panel--closing');
+  }
+
+  /** A tap anywhere outside the keys closes the panel; the tap itself still reaches the terminal. */
+  private readonly onDocumentPointerDown = (event: PointerEvent): void => {
+    if (event.target instanceof Node && this.specialControls.contains(event.target)) return;
+    this.closeSpecialPanel();
+  };
+
+  private readonly onDocumentKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') this.closeSpecialPanel();
   };
 
   private commitEnter(): void {
@@ -692,6 +925,7 @@ export class MobileInputGuard implements Disposable {
   private readonly onInput = (event: Event): void => {
     const inputEvent = event as InputEvent;
     if (inputEvent.isComposing) return;
+    if (this.ctrlLatched && this.consumeCtrlLatch(inputEvent)) return;
 
     this.normalizeFieldValue(inputEvent.inputType || 'insertText');
     this.notifyBufferChange();
@@ -709,6 +943,13 @@ export class MobileInputGuard implements Disposable {
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.isComposing) return;
+
+    if (event.key === 'Escape' && this.specialPanelOpen) {
+      // Escape first closes the keys panel; it is not sent to the terminal.
+      event.preventDefault();
+      this.closeSpecialPanel();
+      return;
+    }
 
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();

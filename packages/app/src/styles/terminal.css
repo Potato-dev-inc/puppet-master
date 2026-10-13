@@ -204,7 +204,13 @@
 }
 
 
+/* Special keys: an iOS-style glass button and a floating panel of key caps. */
 .terminal-mobile-special-controls {
+  --pm-special-glass: rgb(255 255 255 / 0.72);
+  --pm-special-edge: rgb(0 0 0 / 0.1);
+  --pm-special-key: rgb(0 0 0 / 0.05);
+  --pm-special-key-pressed: rgb(0 0 0 / 0.12);
+  --pm-special-muted: rgb(var(--pm-text) / 0.6);
   position: absolute;
   right: 10px;
   bottom: calc(var(--pm-mobile-input-bar-height) + 12px);
@@ -216,66 +222,250 @@
   pointer-events: none;
 }
 
+:root:not([data-theme='light']) .terminal-mobile-special-controls {
+  --pm-special-glass: rgb(28 28 30 / 0.72);
+  --pm-special-edge: rgb(255 255 255 / 0.12);
+  --pm-special-key: rgb(255 255 255 / 0.08);
+  --pm-special-key-pressed: rgb(255 255 255 / 0.18);
+}
+
 .terminal-host--mobile-input-hidden .terminal-mobile-special-controls {
   bottom: calc(12px + env(safe-area-inset-bottom, 0px));
 }
 
-.terminal-mobile-special-toggle,
-.terminal-mobile-special-key {
+/* Toggle: a 44px glass circle that morphs from the keyboard glyph to a close mark. */
+.terminal-mobile-special-toggle {
   pointer-events: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
   padding: 0;
-  border: 1px solid rgb(var(--pm-border));
-  background: rgb(var(--pm-bg) / 0.92);
+  border: 1px solid var(--pm-special-edge);
+  border-radius: 50%;
+  background: var(--pm-special-glass);
   color: rgb(var(--pm-text));
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  user-select: none;
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.terminal-mobile-special-toggle {
-  min-width: 52px;
-  height: 44px;
-  padding: 0 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
+.terminal-mobile-special-toggle:active {
+  transform: scale(0.94);
 }
 
-.terminal-mobile-special-grid {
+.terminal-mobile-special-icon {
+  grid-area: 1 / 1;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.terminal-mobile-special-icon--close {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.6);
+}
+
+.terminal-mobile-special-controls--open .terminal-mobile-special-icon--keyboard {
+  opacity: 0;
+  transform: rotate(90deg) scale(0.6);
+}
+
+.terminal-mobile-special-controls--open .terminal-mobile-special-icon--close {
+  opacity: 1;
+  transform: none;
+}
+
+/* Panel: floating glass card above the toggle. */
+.terminal-mobile-special-panel {
   pointer-events: auto;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(56px, 1fr));
-  gap: 8px;
-  width: min(240px, calc(100vw - 84px));
-  max-height: min(50dvh, 360px);
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(60dvh, 420px);
   overflow-y: auto;
-  padding: 10px;
-  border: 1px solid rgb(var(--pm-border));
-  border-radius: 12px;
-  background: rgb(var(--pm-bg) / 0.95);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+  overscroll-behavior: contain;
+  padding: 12px;
+  border: 1px solid var(--pm-special-edge);
+  border-radius: 20px;
+  background: var(--pm-special-glass);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  transform-origin: bottom right;
+  animation: terminal-mobile-special-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-.terminal-mobile-special-grid[hidden] {
+.terminal-mobile-special-panel[hidden] {
   display: none;
 }
 
-.terminal-mobile-special-key {
-  min-width: 0;
-  height: 38px;
-  border-radius: 8px;
-  font-size: 12px;
-  line-height: 1;
-  font-weight: 600;
-  white-space: nowrap;
+.terminal-mobile-special-panel--closing {
+  pointer-events: none;
+  animation: terminal-mobile-special-out 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-.terminal-mobile-special-toggle:active,
+@keyframes terminal-mobile-special-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes terminal-mobile-special-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+
+.terminal-mobile-special-section + .terminal-mobile-special-section {
+  margin-top: 12px;
+}
+
+.terminal-mobile-special-title {
+  margin: 0 2px 6px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--pm-special-muted);
+}
+
+.terminal-mobile-special-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.terminal-mobile-special-section--control .terminal-mobile-special-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.terminal-mobile-special-section--edit .terminal-mobile-special-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Key caps: glyph over a small caption. */
+.terminal-mobile-special-key {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--pm-special-key);
+  color: rgb(var(--pm-text));
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  transition:
+    transform 80ms ease-out,
+    background-color 80ms ease-out;
+}
+
+.terminal-mobile-special-key--wide {
+  grid-column: span 2;
+}
+
 .terminal-mobile-special-key:active {
-  background: rgb(var(--pm-accent) / 0.2);
+  transform: scale(0.94);
+  background: var(--pm-special-key-pressed);
+}
+
+.terminal-mobile-special-key--latched,
+.terminal-mobile-special-key--latched:active {
+  background: rgb(var(--pm-accent));
+  color: rgb(var(--pm-bg));
+}
+
+.terminal-mobile-special-glyph {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.terminal-mobile-special-caption {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--pm-special-muted);
+}
+
+.terminal-mobile-special-key--latched .terminal-mobile-special-caption {
+  color: rgb(var(--pm-bg) / 0.8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-mobile-special-panel,
+  .terminal-mobile-special-panel--closing {
+    transform: none;
+    animation-name: terminal-mobile-special-fade-in;
+    animation-duration: 120ms;
+  }
+
+  .terminal-mobile-special-panel--closing {
+    animation-name: terminal-mobile-special-fade-out;
+  }
+
+  .terminal-mobile-special-toggle:active,
+  .terminal-mobile-special-key:active {
+    transform: none;
+  }
+
+  .terminal-mobile-special-icon,
+  .terminal-mobile-special-icon--close,
+  .terminal-mobile-special-controls--open .terminal-mobile-special-icon--keyboard,
+  .terminal-mobile-special-controls--open .terminal-mobile-special-icon--close {
+    transform: none;
+    transition-duration: 120ms;
+  }
+}
+
+@keyframes terminal-mobile-special-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes terminal-mobile-special-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 .terminal-mobile-command-form {
