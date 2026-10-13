@@ -106,15 +106,8 @@ impl SubscriptionStore {
     }
 
     fn persist(&self) -> Result<(), String> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|err| format!("create {}: {err}", parent.display()))?;
-        }
         let text = serde_json::to_string_pretty(&self.file).map_err(|err| err.to_string())?;
-        let tmp = self.path.with_extension("json.tmp");
-        fs::write(&tmp, text).map_err(|err| format!("write {}: {err}", tmp.display()))?;
-        fs::rename(&tmp, &self.path)
-            .map_err(|err| format!("replace {}: {err}", self.path.display()))
+        crate::secure_file::write_private(&self.path, &text)
     }
 
     pub fn upsert(&mut self, device_id: &str, sub: Subscription) -> Result<(), String> {

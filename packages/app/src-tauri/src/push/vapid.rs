@@ -45,12 +45,8 @@ impl VapidKeys {
         let file = VapidFile {
             private_b64url: URL_SAFE_NO_PAD.encode(pair.to_bytes()),
         };
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|err| format!("create {}: {err}", parent.display()))?;
-        }
         let text = serde_json::to_string_pretty(&file).map_err(|err| err.to_string())?;
-        fs::write(path, text).map_err(|err| format!("write {}: {err}", path.display()))?;
+        crate::secure_file::write_private(path, &text)?;
         let public_b64 = public_b64(&pair);
         Ok(Self { pair, public_b64 })
     }

@@ -152,25 +152,10 @@ pub fn load(path: &Path) -> TunnelConfig {
 }
 
 pub fn save(path: &Path, config: &TunnelConfig) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| format!("create {}: {err}", parent.display()))?;
-    }
     let text = serde_json::to_string_pretty(config).map_err(|err| err.to_string())?;
-    // Write to a temp file then rename so a crash never leaves a half-written token file.
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, text).map_err(|err| format!("write {}: {err}", tmp.display()))?;
-    restrict_permissions(&tmp);
-    fs::rename(&tmp, path).map_err(|err| format!("replace {}: {err}", path.display()))
+    // Atomic, and private (0600) from creation on Unix; see secure_file.rs.
+    crate::secure_file::write_private(path, &text)
 }
-
-#[cfg(unix)]
-fn restrict_permissions(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-}
-
-#[cfg(not(unix))]
-fn restrict_permissions(_path: &Path) {} // %APPDATA% is already per-user.
 
 /// Which tunnel actually runs, after the env override is applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
