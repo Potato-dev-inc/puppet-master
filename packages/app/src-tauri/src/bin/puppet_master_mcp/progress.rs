@@ -12,6 +12,14 @@ pub(crate) fn call_tool_with_progress(
         ensure_tool_mode(name)?;
     }
     let tool_name = params.get("name").and_then(Value::as_str);
+    if tool_name == Some("ask_user") {
+        let args = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        return ask_user::run(&args, cancel.as_ref(), token.as_ref(), notifications.as_ref())
+            .map(ask_user::wrap);
+    }
     if !matches!(tool_name, Some("wait_for_operation") | Some("wait_agents")) {
         return call_tool_cancellable(params, cancel);
     }

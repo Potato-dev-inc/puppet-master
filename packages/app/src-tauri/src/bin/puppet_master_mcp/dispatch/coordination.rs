@@ -7,9 +7,12 @@ use std::sync::mpsc::Receiver;
 pub(super) fn dispatch(
     name: &str,
     args: &Value,
-    _cancel_rx: Option<&Receiver<()>>,
+    cancel_rx: Option<&Receiver<()>>,
 ) -> Option<Result<String, String>> {
     let mut known = true;
+    if name == "ask_user" {
+        return Some(super::super::ask_user::run(args, cancel_rx, None, None));
+    }
     let result = run(name, args, &mut known);
     known.then_some(result)
 }

@@ -7,6 +7,7 @@ mod opencode_status;
 mod operations;
 mod orchestrator;
 mod panes;
+mod questions;
 mod tasks;
 mod waits;
 
@@ -51,5 +52,6 @@ pub fn tools() -> Vec<ToolDefinition> {
     all.extend(opencode_status::tools());
     all.extend(waits::tools());
     all.extend(opencode_reply::tools());
+    all.extend(questions::tools());
     all
 }

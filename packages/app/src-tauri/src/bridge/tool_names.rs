@@ -4,6 +4,7 @@ pub(super) fn bridge_tool_name(method: &str, segments: &[&str]) -> Option<String
     match (method, segments) {
         ("GET", ["health"]) => Some("bridge_health".to_string()),
         ("GET", ["agent-contexts"]) => Some("list_agent_contexts".to_string()),
+        ("POST", ["questions", "ask"]) => Some("ask_user".to_string()),
         ("GET", ["panes"]) => Some("list_panes".to_string()),
         ("POST", ["panes"]) => Some("spawn_agent".to_string()),
         ("DELETE", ["panes", _]) => Some("kill_pane_process".to_string()),

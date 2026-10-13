@@ -24,6 +24,7 @@ pub mod operations;
 #[cfg(test)]
 mod operations_contract_tests;
 mod pane_prompt;
+pub mod questions;
 mod app_windows;
 mod cockpit;
 mod ui_mode;
@@ -171,6 +172,9 @@ pub fn run() {
             commands::new_pane,
             commands::pane_run_info,
             commands::pane_transcript,
+            commands::questions_list,
+            commands::question_answer,
+            commands::question_dismiss,
         ])
         .setup(|app| {
             // Register approved declarative agent definitions before anything resolves a profile.

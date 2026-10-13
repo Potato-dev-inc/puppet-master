@@ -498,3 +498,158 @@ fn stale_port_file_falls_back_to_a_live_bridge_port() {
     let got = live_endpoint_or_probe(BridgeEndpoint { host: "127.0.0.1".into(), port: dead_port });
     assert!(got.port == dead_port || (17321..=17330).contains(&got.port));
 }
+
+// ---- ask_user: the real shim against an in-process bridge that serves the questions routes ----
+
+/// A loopback "bridge" that answers `/questions/*` with the app's real route handlers and the
+/// process-wide question store. Started once; the port file env var points the shim at it.
+fn ensure_questions_bridge() {
+    use std::io::{Read, Write};
+    static START: std::sync::Once = std::sync::Once::new();
+    START.call_once(|| {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let file = std::env::temp_dir().join(format!("pm-ask-user-test-{}.port", uuid::Uuid::new_v4()));
+        fs::write(&file, format!("127.0.0.1:{port}\n")).unwrap();
+        std::env::set_var(BRIDGE_PORT_FILE_ENV, &file);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                std::thread::spawn(move || {
+                    let mut raw = Vec::new();
+                    let mut chunk = [0_u8; 4096];
+                    let (header_end, length) = loop {
+                        match stream.read(&mut chunk) {
+                            Ok(0) | Err(_) => return, // endpoint probe, nothing to serve
+                            Ok(n) => raw.extend_from_slice(&chunk[..n]),
+                        }
+                        if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                            let head = String::from_utf8_lossy(&raw[..pos]).to_ascii_lowercase();
+                            let length = head
+                                .lines()
+                                .find_map(|l| l.strip_prefix("content-length:"))
+                                .and_then(|v| v.trim().parse::<usize>().ok())
+                                .unwrap_or(0);
+                            break (pos + 4, length);
+                        }
+                    };
+                    while raw.len() < header_end + length {
+                        match stream.read(&mut chunk) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => raw.extend_from_slice(&chunk[..n]),
+                        }
+                    }
+                    let head = String::from_utf8_lossy(&raw[..header_end]).to_string();
+                    let mut first = head.lines().next().unwrap_or_default().split_whitespace();
+                    let (method, path) = (first.next().unwrap_or_default(), first.next().unwrap_or_default());
+                    let body: Value =
+                        serde_json::from_slice(&raw[header_end..]).unwrap_or_else(|_| json!({}));
+                    let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
+                    let reply = puppet_master_app_lib::questions::routes::handle(
+                        method, &segments, &body, None, false, &|| {},
+                    )
+                    .unwrap_or_else(|| Err((404, json!({"error":"not found"}))));
+                    let (status, value) = match reply {
+                        Ok(r) | Err(r) => r,
+                    };
+                    let text = value.to_string();
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",
+                        text.len()
+                    );
+                });
+            }
+        });
+    });
+}
+
+fn pending_question_id(text: &str) -> Option<String> {
+    puppet_master_app_lib::questions::store()
+        .list_pending(puppet_master_app_lib::questions::now_ms())
+        .into_iter()
+        .find(|q| q.question == text)
+        .map(|q| q.id)
+}
+
+fn wait_for_pending(text: &str) -> String {
+    for _ in 0..200 {
+        if let Some(id) = pending_question_id(text) {
+            return id;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    panic!("question {text:?} never reached the store");
+}
+
+#[test]
+fn ask_user_blocks_until_answered_and_returns_the_choice() {
+    ensure_questions_bridge();
+    let call = std::thread::spawn(|| {
+        call_tool(json!({"name":"ask_user","arguments":{
+            "question":"mcp-test: ship it?",
+            "choices":[{"id":"yes","label":"Yes"},{"id":"no","label":"No"}],
+            "timeout_s":60
+        }}))
+    });
+    let id = wait_for_pending("mcp-test: ship it?");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!call.is_finished(), "the tool call must stay blocked while the question is open");
+    puppet_master_app_lib::questions::store()
+        .answer(&id, Some("yes"), None, "phone", puppet_master_app_lib::questions::now_ms())
+        .unwrap();
+    let result = call.join().unwrap().unwrap();
+    let structured = &result["structuredContent"];
+    assert_eq!(structured["answered"], true);
+    assert_eq!(structured["choice_id"], "yes");
+    assert_eq!(structured["answered_by"], "phone");
+}
+
+#[test]
+fn ask_user_returns_free_text_and_reports_dismissal() {
+    ensure_questions_bridge();
+    let free = std::thread::spawn(|| {
+        call_tool(json!({"name":"ask_user","arguments":{"question":"mcp-test: which branch?"}}))
+    });
+    let id = wait_for_pending("mcp-test: which branch?");
+    puppet_master_app_lib::questions::store()
+        .answer(&id, None, Some("release/1.2"), "desktop", puppet_master_app_lib::questions::now_ms())
+        .unwrap();
+    let result = free.join().unwrap().unwrap();
+    assert_eq!(result["structuredContent"]["text"], "release/1.2");
+    assert_eq!(result["structuredContent"]["answered_by"], "desktop");
+
+    let dismissed = std::thread::spawn(|| {
+        call_tool(json!({"name":"ask_user","arguments":{"question":"mcp-test: dismiss me"}}))
+    });
+    let id = wait_for_pending("mcp-test: dismiss me");
+    puppet_master_app_lib::questions::store()
+        .dismiss(&id, puppet_master_app_lib::questions::now_ms())
+        .unwrap();
+    let result = dismissed.join().unwrap().unwrap();
+    assert_eq!(result["structuredContent"]["answered"], false);
+    assert_eq!(result["structuredContent"]["reason"], "cancelled");
+}
+
+#[test]
+fn ask_user_times_out_and_cancelling_the_call_withdraws_the_question() {
+    ensure_questions_bridge();
+    let timed = call_tool(json!({"name":"ask_user","arguments":{"question":"mcp-test: timeout","timeout_s":1}}))
+        .unwrap();
+    assert_eq!(timed["structuredContent"]["answered"], false);
+    assert_eq!(timed["structuredContent"]["reason"], "timeout");
+
+    let (cancel_tx, cancel_rx) = std::sync::mpsc::channel();
+    let call = std::thread::spawn(move || {
+        call_tool_cancellable(
+            json!({"name":"ask_user","arguments":{"question":"mcp-test: cancel me","timeout_s":60}}),
+            Some(cancel_rx),
+        )
+    });
+    let id = wait_for_pending("mcp-test: cancel me");
+    cancel_tx.send(()).unwrap();
+    let error = call.join().unwrap().unwrap_err();
+    assert!(error.contains("REQUEST_CANCELLED"), "{error}");
+    // Cancelling the call removed the question from the Inbox.
+    assert!(pending_question_id("mcp-test: cancel me").is_none(), "{id} should be withdrawn");
+}
