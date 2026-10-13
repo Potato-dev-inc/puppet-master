@@ -56,6 +56,7 @@ export function SettingsPanel({
     theme: 'dark',
     ui_mode: 'orchestration',
     developer_use_rust_mcp: false,
+    confirm_close_running_pane: true,
   });
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [draftCustom, setDraftCustom] = useState<LlmModel>(EMPTY_CUSTOM);

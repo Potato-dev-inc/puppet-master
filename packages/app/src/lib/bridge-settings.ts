@@ -19,6 +19,7 @@ export type PublicSettings = Pick<
   | 'mobile_input_visible'
   | 'mobile_keyboard_resizes_agent'
   | 'developer_use_rust_mcp'
+  | 'confirm_close_running_pane'
   | 'librarian_indexer_path'
 >;
 
@@ -33,6 +34,7 @@ export function toPublicSettings(settings: Settings): PublicSettings {
     mobile_input_visible: settings.mobile_input_visible ?? true,
     mobile_keyboard_resizes_agent: settings.mobile_keyboard_resizes_agent ?? false,
     developer_use_rust_mcp: settings.developer_use_rust_mcp ?? false,
+    confirm_close_running_pane: settings.confirm_close_running_pane ?? true,
     librarian_indexer_path: settings.librarian_indexer_path?.trim() || undefined,
   };
 }
@@ -48,4 +50,5 @@ export const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
   mobile_keyboard_resizes_agent: false,
   developer_use_rust_mcp: false,
   librarian_indexer_path: undefined,
+  confirm_close_running_pane: true,
 };

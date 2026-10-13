@@ -81,6 +81,7 @@ const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   ui_mode: 'orchestration',
   developer_use_rust_mcp: false,
+  confirm_close_running_pane: true,
 };
 
 function readLegacySidebarWidth(): number | undefined {

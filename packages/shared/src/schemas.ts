@@ -94,6 +94,8 @@ export const SettingsSchema = z.object({
   theme: z.enum(['dark', 'light']).default('dark'),
   /** Where panes are shown: one cockpit window (orchestration) or a pop-out per pane (individual). Owned by Rust (set_ui_mode). */
   ui_mode: z.enum(['orchestration', 'individual']).default('orchestration'),
+  /** Ask before closing a pane window, a cockpit pane or the app while an agent is working. */
+  confirm_close_running_pane: z.boolean().default(true),
   /** Developer option: install MCP configs to launch the bundled Rust binary instead of npm. */
   developer_use_rust_mcp: z.boolean().default(false),
   /** Optional path to the librarian project indexer script (default scripts/project-indexer.py). */

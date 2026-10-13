@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
+import { confirmCloseEnabled, needsCloseConfirm } from '../../lib/close-policy';
 import { cockpitApi, type PaneRunInfo, type PaneTranscript } from '../../lib/cockpit-api';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { TerminalViewport } from '../TerminalViewport';
@@ -183,8 +184,10 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                 className="ck-menu-item"
                 onClick={() => {
                   setMenu(false);
-                  if (pane.status === 'running') setConfirm(true);
-                  else void c.closePane(paneId);
+                  void confirmCloseEnabled().then((on) => {
+                    if (needsCloseConfirm(pane.status, on)) setConfirm(true);
+                    else void c.closePane(paneId);
+                  });
                 }}
               >
                 <span className="ck-menu-ic"><IconClose /></span>

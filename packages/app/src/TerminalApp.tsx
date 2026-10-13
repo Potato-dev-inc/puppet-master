@@ -7,11 +7,12 @@ import {
 import { useBridge } from './hooks/useBridge';
 import { usePaneRegistry } from './hooks/usePaneRegistry';
 import { useProjectPath } from './hooks/useProjectPath';
-import { launchMenuEntries, useAgentRegistry } from './lib/agentRegistry';
+import { agentLabel, launchMenuEntries, useAgentRegistry } from './lib/agentRegistry';
 import { tauri } from './lib/tauri';
 import { detachedWindowSizeFromGrid, openDetachedPaneWindow } from './lib/detached-pane-window';
 import { detachedCloseAction } from './lib/detached-close';
 import { applyTheme, loadSettings } from './lib/settings';
+import { ClosePaneConfirm } from './components/ClosePaneConfirm';
 import { TerminalViewport } from './components/TerminalViewport';
 import { WorkerOpenCodeAuthPanel } from './components/WorkerOpenCodeAuthPanel';
 
@@ -460,6 +461,9 @@ export default function TerminalApp() {
         </aside>
         )}
       </main>
+      {detached && !workerHost && selectedPaneId && (
+        <ClosePaneConfirm paneId={selectedPaneId} agentLabel={agentLabel(registryListing, selectedPane?.info.agent_type ?? '')} />
+      )}
     </div>
   );
 }
