@@ -103,7 +103,9 @@ fn read_file_value(path: &Path) -> Value {
 }
 
 /// Read-merge-write the file at `path`, atomically, and return the merged `settings` object.
-/// Takes the patch lock, so concurrent callers queue.
+/// Takes the patch lock, so concurrent callers queue. (The app goes through `apply`; this is the same
+/// merge without the app, used by the tests.)
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn patch_file(path: &Path, patch: &Map<String, Value>) -> Result<Value, String> {
     let _guard = PATCH_LOCK.lock();
     patch_file_locked(path, patch)
@@ -122,8 +124,11 @@ fn settings_path() -> PathBuf {
 
 /// Merge through the store plugin (so the frontend's store sees it) and persist atomically.
 fn patch_via_store(app: &AppHandle, patch: &Map<String, Value>) -> Result<Value, String> {
+    use tauri::Manager;
     use tauri_plugin_store::StoreExt;
     let store = app.store(SETTINGS_FILE).map_err(|e| e.to_string())?;
+    // The very path the store plugin resolves for its own saves (BaseDirectory::AppData).
+    let path = app.path().app_data_dir().map_err(|e| e.to_string())?.join(SETTINGS_FILE);
     let current = store.get(SETTINGS_KEY).unwrap_or_else(|| json!({}));
     let mut next = if current.is_object() { current } else { json!({}) };
     merge_patch(&mut next, &Value::Object(patch.clone()));
@@ -133,7 +138,7 @@ fn patch_via_store(app: &AppHandle, patch: &Map<String, Value>) -> Result<Value,
         file.insert(key, value);
     }
     let bytes = serde_json::to_vec_pretty(&Value::Object(file)).map_err(|e| e.to_string())?;
-    write_atomic(&settings_path(), &bytes).map_err(|e| e.to_string())?;
+    write_atomic(&path, &bytes).map_err(|e| e.to_string())?;
     Ok(next)
 }
 
