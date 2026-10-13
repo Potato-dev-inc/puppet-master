@@ -79,7 +79,7 @@ Commands run in `D:\pm-agent-doctor` (worktree), 2026-10-14.
 - Fails before, passes after:
   - Frontend: with the tracked-file changes stashed, `npx vitest run packages/app/src/components/cockpit/ActivityLine` -> `Tests 1 failed | 3 passed` (`sidebar activity line > replaces the project with the activity...`); after: all 4 pass.
   - Rust: with the login words removed from `LOGIN_WORDS` in `agent_health/mod.rs`, `agent_health::tests::login_failures_map_to_needs_login` -> `FAILED` (`tests.rs:117`); restored, it passes.
-- Screenshots: the `?harness=` scenario tooling lives on `feat/ui-monochrome` and has not been merged here, so there are no PNGs yet.
+- Screenshots (harness merged from `feat/ui-monochrome` c3babea; scenarios `agent-doctor`, `cockpit-activity`, mock rows in `dev/mock-tauri.ts`): `D:\pm-night\evidencegent-doctorgent-doctor.png` (four rows: not tested, needs login, not installed with copyable command, problem) and `cockpit-activity.png` (sidebar rows showing "Waiting: allow `npm test`?", "Editing src/app.ts", "Idle"). Both viewed and correct. The mock phrases are fixtures, not real agent output.
 
 ## Limits and follow-ups
 - Not run live: no real agent was invoked (no tokens spent, no GUI). Version output of real CLIs on Windows (`.cmd` shims) is covered only by the fake-binary tests.

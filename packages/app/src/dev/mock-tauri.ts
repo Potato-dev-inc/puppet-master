@@ -12,6 +12,13 @@ import {
   standbyStatus,
 } from './fixtures';
 
+const DOCTOR_ROWS = [
+  { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true },
+  { id: 'codex', label: 'Codex', state: 'needs_login', installed: true, version: 'codex-cli 0.9.0', reason: 'It needs you to sign in first.', install_hint: 'npm i -g @openai/codex', login_hint: 'Run: codex login', can_test: true },
+  { id: 'opencode', label: 'OpenCode', state: 'not_installed', installed: false, version: null, reason: 'Not installed on this computer.', install_hint: 'npm i -g opencode-ai', login_hint: 'Open OpenCode and type /connect', can_test: false },
+  { id: 'cursor_agent', label: 'Cursor Agent', state: 'error', installed: true, version: null, reason: 'Found it, but it did not start properly: exit code 1', install_hint: null, login_hint: 'Run: agent login', can_test: true },
+];
+
 export function installTauriMock(scenario: HarnessScenario): void {
   const panes = scenario.panes ?? EXAMPLE_PANES;
   // In-memory plugin-store (one store, rid 1), keyed as the app writes it.
@@ -45,6 +52,21 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return '';
         case 'get_project_path_cmd':
           return 'C:\\Users\\dev\\work\\puppet-master';
+        case 'pane_activities':
+          return Object.fromEntries(
+            panes.map((p) => [
+              p.id,
+              p.status === 'waiting_input'
+                ? { kind: 'waiting', text: 'Waiting: allow `npm test`?' }
+                : p.status === 'running'
+                  ? { kind: 'working', text: 'Editing src/app.ts' }
+                  : { kind: 'idle', text: 'Idle' },
+            ]),
+          );
+        case 'agents_health':
+          return { agents: DOCTOR_ROWS };
+        case 'agents_health_test':
+          return { ...DOCTOR_ROWS[0], state: 'ready', reason: 'Ready. It answered the test question.' };
         case 'list_agent_contexts':
           return [];
         case 'resize_pane':
