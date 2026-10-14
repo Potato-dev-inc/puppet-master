@@ -538,19 +538,23 @@ pub(super) fn park_on_startup_dialog(
         },
     )?;
     push_operation_sse(operation);
-    let mut ready_state = wait_for_startup_permission_resolution(
-        registry,
-        &operation.project_path,
-        &operation.operation_id,
-        pane_id,
-        agent_type,
-    )?;
-    // The TUI is still redrawing after a dialog it just had open (Cursor shows
-    // "Trusting workspace..." and then a fresh input box). A prompt typed in that
-    // window is swallowed, so wait for the pane to read idle and hold still.
-    // This happens while the run is still parked: once resumed, status events
-    // move it out of Starting and the dispatch would abort.
-    if agent_type != "opencode_native" {
+    let mut ready_state;
+    loop {
+        ready_state = wait_for_startup_permission_resolution(
+            registry,
+            &operation.project_path,
+            &operation.operation_id,
+            pane_id,
+            agent_type,
+        )?;
+        if agent_type == "opencode_native" {
+            break;
+        }
+        // The TUI is still redrawing after a dialog it just had open (Cursor shows
+        // "Trusting workspace..." and then a fresh input box). A prompt typed in that
+        // window is swallowed, so wait for the pane to read idle and hold still.
+        // This happens while the run is still parked: once resumed, status events
+        // move it out of Starting and the dispatch would abort.
         *operation = crate::operations::mark_operation_startup_settling(
             &operation.project_path,
             &operation.operation_id,
@@ -566,6 +570,24 @@ pub(super) fn park_on_startup_dialog(
         {
             ready_state = pane.status;
         }
+        // The settled screen shows the dialog again (the release was a redraw of it, or the agent
+        // asked again): park on it once more instead of resuming into a screen the task cannot go
+        // into (that ended the run PANE_BLOCKED_BY_PROMPT while the person was answering).
+        let settled = registry_read_snapshot(registry, pane_id).unwrap_or_default();
+        if !super::approvals::startup_still_blocked(agent_type, &settled, &[]) {
+            break;
+        }
+        let again = crate::pane_prompt::required_action(registry, pane_id).unwrap_or_else(|| {
+            json!({"kind":"manual_approval_required","pane_id":pane_id,"detail":"Resolve the displayed prompt in the pane; Puppet Master will not answer it for you."})
+        });
+        *operation = crate::operations::mark_operation_startup_wait(
+            &operation.project_path,
+            &operation.operation_id,
+            Some("waiting_input".into()),
+            Some(again),
+            crate::operations::StateSource::Inferred,
+        )?;
+        push_operation_sse(operation);
     }
     *operation = crate::operations::resume_operation_dispatch_when_ready(
         &operation.project_path,

@@ -650,3 +650,36 @@ fn a_parked_run_keeps_its_screen_not_ready_explanation_through_pane_status_chang
     wait_for(|| handle.is_finished().then_some(()));
     let _ = handle.join().unwrap();
 }
+
+/// Live (plain mode, r12): Claude's folder-trust question parked the run; a redraw of the same
+/// dialog read for one look as "no dialog" (Ink clears and redraws top-down), the run was released,
+/// the settle wait then found the dialog idle and still, and the delivery right after failed
+/// PANE_BLOCKED_BY_PROMPT while the person was still answering.
+#[test]
+fn a_half_drawn_redraw_of_the_trust_dialog_does_not_release_the_parked_run() {
+    let pane = "gate-trust-redraw";
+    let (registry, op, handle) = parked_run(pane, TRUST);
+    wait_for(|| {
+        let now = stored(&op);
+        (now.status == OperationStatus::WaitingInput && now.required_action.is_some()).then_some(())
+    });
+    // One look at the first row of the redraw, then the dialog again.
+    let first_row: String = TRUST.lines().find(|l| !l.trim().is_empty()).unwrap().to_string();
+    show(&registry, pane, &first_row);
+    set_status(&registry, pane, PaneStatus::Idle);
+    crate::pane_wait_notify::bump_waiters();
+    std::thread::sleep(Duration::from_millis(60));
+    show(&registry, pane, TRUST);
+    crate::pane_wait_notify::bump_waiters();
+    std::thread::sleep(Duration::from_millis(1_500));
+    assert!(!handle.is_finished(), "the run was released while the trust question was still on screen");
+    let now = stored(&op);
+    assert_eq!(now.status, OperationStatus::WaitingInput, "{now:?}");
+    assert_eq!(now.required_action.as_ref().map(|a| a["kind"].clone()), Some(serde_json::json!("workspace_trust")));
+    // The person trusts the folder: the run goes on.
+    show(&registry, pane, READY);
+    crate::pane_wait_notify::bump_waiters();
+    wait_for(|| handle.is_finished().then_some(()));
+    handle.join().unwrap().expect("resumed after the real answer");
+    assert_eq!(stored(&op).status, OperationStatus::Running);
+}
