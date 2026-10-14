@@ -61,12 +61,6 @@ pub fn replace(agents: impl IntoIterator<Item = String>) -> Vec<String> {
     })
 }
 
-pub fn list() -> Vec<String> {
-    let mut agents: Vec<String> = read(|set| set.iter().cloned().collect());
-    agents.sort();
-    agents
-}
-
 /// `profile.startup_gate(screen)` as the live dismissal paths must see it: in strict mode a
 /// notice that would be closed for the person is handed back without its keys, so the run parks
 /// on it instead. The check runs here, not in each profile, so no agent can forget it.

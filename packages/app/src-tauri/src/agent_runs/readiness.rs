@@ -161,6 +161,11 @@ impl Verdict {
         self.readiness == Readiness::Ready
     }
 
+    /// The pane the look was taken on (empty for a test double).
+    pub(crate) fn pane_id(&self) -> &str {
+        &self.pane_id
+    }
+
     /// The gate on screen, if the verdict is one.
     pub fn gate(&self) -> Option<StartupGate> {
         match self.readiness {

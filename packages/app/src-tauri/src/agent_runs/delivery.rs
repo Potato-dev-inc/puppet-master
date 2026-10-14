@@ -362,6 +362,26 @@ fn is_stale(error: &str) -> bool {
     error.starts_with(readiness::PERMIT_STALE)
 }
 
+/// Puts what delivery saw on the pane's flight recording as a mark (`pm:readiness=Gate(update_available)`),
+/// once per change, so a recording of a run that got stuck shows what was on the pane and when.
+/// A pane with no id (a test double) or no recording is skipped.
+fn note_readiness(verdict: &Verdict, last: &mut Option<String>) {
+    let label = match verdict.readiness() {
+        Readiness::Ready => "Ready".to_string(),
+        Readiness::Busy => "Busy".to_string(),
+        Readiness::Gate(gate) => format!("Gate({})", gate.id),
+        Readiness::HostShell(_) => "HostShell".to_string(),
+        Readiness::Unknown => "Unknown".to_string(),
+    };
+    if last.as_deref() == Some(label.as_str()) {
+        return;
+    }
+    if !verdict.pane_id().is_empty() {
+        crate::flight::mark(verdict.pane_id(), &format!("readiness={label}"));
+    }
+    *last = Some(label);
+}
+
 /// Looks at the pane until it reads `Ready` and returns the permit for that look; a fresh verdict on
 /// every poll. On the way, a startup screen that declares its own keys is closed with a gate permit
 /// (and the screen must change and settle after them); any other gate, a dialog, or the agent gone
@@ -377,8 +397,10 @@ fn await_ready(
     when: &str,
 ) -> Result<TypingPermit, Stop> {
     let mut last: Option<Verdict> = None;
+    let mut marked: Option<String> = None;
     for poll in 0..READY_POLLS {
         let verdict = readiness::assess(profile, io.observe());
+        note_readiness(&verdict, &mut marked);
         match verdict.readiness().clone() {
             Readiness::Ready => {
                 let last_poll = poll + 1 == READY_POLLS;
@@ -771,13 +793,15 @@ mod tests {
         writes: Vec<(String, bool)>,
         paused: Duration,
         on_write: Box<dyn FnMut(&mut FakePane, &str, bool)>,
+        /// The pane's id as a readiness look reports it (empty: a double with no recording).
+        pane_id: String,
     }
 
     impl DeliveryIo for FakePane {
         fn write(&mut self, origin: WriteOrigin<'_>, text: &str, enter: bool) -> Result<(), String> {
             // The invariant, checked on every write a delivery makes: run input carries a permit.
             assert!(matches!(origin, WriteOrigin::Task(_) | WriteOrigin::Gate(_)), "unpermitted write {text:?}");
-            origin.admit_terminal_write("", text, enter, None, || AgentProcess::Unknown)?;
+            origin.admit_terminal_write(&self.pane_id, text, enter, None, || AgentProcess::Unknown)?;
             self.writes.push((text.to_string(), enter));
             let mut hook = std::mem::replace(&mut self.on_write, Box::new(|_, _, _| {}));
             hook(self, text, enter);
@@ -786,6 +810,9 @@ mod tests {
         }
         fn screen(&mut self) -> String {
             self.screen.clone()
+        }
+        fn observe(&mut self) -> Observation {
+            Observation { pane_id: self.pane_id.clone(), screen: self.screen.clone(), output_pos: None, agent: AgentProcess::Unknown }
         }
         fn busy(&mut self) -> bool {
             self.busy
@@ -804,7 +831,28 @@ mod tests {
             writes: Vec::new(),
             paused: Duration::ZERO,
             on_write: Box::new(on_write),
+            pane_id: String::new(),
         }
+    }
+
+    #[test]
+    fn delivery_records_what_it_saw_on_the_panes_flight_recording() {
+        let id = format!("delivery-flight-{}", uuid::Uuid::new_v4());
+        crate::flight::start(&id, 80, 24);
+        let mut pane = pane(|pane, text, enter| {
+            if enter {
+                pane.screen = format!("→ {PROMPT}\n\nworking\n→ Add a follow-up");
+                pane.busy = true;
+            } else if text == PROMPT {
+                pane.screen = format!("│ {PROMPT} │\nComposer 2.5");
+            }
+        });
+        pane.pane_id = id.clone();
+        assert_eq!(deliver_prompt(&mut pane, Some("\u{15}"), PROMPT), Delivery::Started);
+        let (cast, _) = crate::flight::freeze::export(&id, "test").unwrap();
+        let marks = cast.as_str().matches("pm:readiness=Ready").count();
+        // One per readiness look (before the clear sequence and before the text), not one per poll.
+        assert!((1..=2).contains(&marks), "{marks} marks: {}", cast.as_str());
     }
 
     #[test]

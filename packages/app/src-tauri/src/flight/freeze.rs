@@ -56,7 +56,8 @@ pub fn write(project: &str, operation_id: &str, body: &Redacted<String>, events:
     Ok(Frozen { path: path.to_string_lossy().into_owned(), bytes: body.len() as u64, events })
 }
 
-/// Freeze a pane's ring into an operation's folder now.
+/// Freeze a pane's ring into an operation's folder now (tests; the app freezes through `on_operation_saved`).
+#[cfg(test)]
 pub fn freeze_now(project: &str, operation_id: &str, pane_id: &str, reason: &str) -> Result<Frozen, String> {
     let (body, events) = export(pane_id, reason)?;
     write(project, operation_id, &body, events)

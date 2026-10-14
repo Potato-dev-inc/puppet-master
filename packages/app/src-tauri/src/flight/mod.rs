@@ -76,19 +76,6 @@ pub enum InputTag {
 }
 
 impl InputTag {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Phone => "phone",
-            Self::RunTask => "run_task",
-            Self::GateDismiss => "gate_dismiss",
-            Self::Answer => "answer",
-            Self::Nudge => "nudge",
-            Self::Agent => "agent",
-            Self::Shell => "shell",
-        }
-    }
-
     pub fn from_u32(value: u32) -> Self {
         match value {
             1 => Self::Phone,
