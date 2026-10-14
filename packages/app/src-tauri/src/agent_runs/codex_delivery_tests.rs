@@ -245,6 +245,23 @@ fn a_menu_that_draws_while_the_task_is_being_typed_is_closed_and_the_task_typed_
 }
 
 #[test]
+fn a_menu_drawn_during_the_clear_pause_is_seen_by_the_last_look_before_typing() {
+    // Live (codex_live_fresh_pane_gets_its_task_...): the settle check saw no menu, 120 ms later
+    // (the clear sequence's pause) the whole menu was up, and the task text was typed into it.
+    let mut pane = CodexPane::new();
+    pane.menu_at = Some(pane.clock + Duration::from_millis(100));
+    let (delivery, trace) = deliver(&mut pane);
+    assert_eq!(delivery, Delivery::Started, "{trace:#?}");
+    assert_eq!(pane.esc_sent, 1, "{trace:#?}");
+    assert!(
+        pane.typed_into_menu.iter().all(|key| key.contains("\u{15}")),
+        "the task was never typed into the menu: {:?}",
+        pane.typed_into_menu
+    );
+    assert!(trace.iter().any(|line| line.contains("just before typing")), "{trace:#?}");
+}
+
+#[test]
 fn a_menu_that_ignores_esc_blocks_the_run_and_nothing_is_typed_or_submitted() {
     let mut pane = CodexPane::fresh(Duration::from_millis(300));
     pane.esc_closes_menu = false;

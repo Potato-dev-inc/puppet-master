@@ -328,7 +328,19 @@ pub fn deliver_prompt_traced(
             }
             io.pause(CLEAR_PAUSE);
         }
-        trace.push(format!("attempt {attempt}: typing; busy={} rows={}", io.busy(), trace_rows(&io.screen())));
+        // The settle and the clear pause took time, and a notice can draw in that time (live, Codex
+        // 0.159.3: the check above saw no menu, 120 ms later the whole menu was up). One last look
+        // right before the text goes in; a notice found here is closed at the top of the loop.
+        let screen_now = io.screen();
+        if let Some(gate) = io.startup_gate(&screen_now) {
+            trace.push(format!("startup screen '{}' appeared just before typing; not typing over it", gate.id));
+            gate_rounds += 1;
+            if gate_rounds > MAX_DELIVERY_GATES {
+                return Delivery::Blocked(gate);
+            }
+            continue;
+        }
+        trace.push(format!("attempt {attempt}: typing; busy={} rows={}", io.busy(), trace_rows(&screen_now)));
         if let Err(error) = io.write(prompt, false) {
             return Delivery::WriteFailed(error);
         }
