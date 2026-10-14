@@ -119,12 +119,28 @@ pub(super) fn observe_operation_pane_status(pane_id: &str, status: &str) {
 pub(crate) fn checkpoint_pane_facts(pane_id: &str) -> Option<crate::checkpoints::PaneFacts> {
     let registry = BRIDGE_REGISTRY.get()?;
     let guard = registry.lock();
-    let pane = guard.panes.get(pane_id)?;
-    Some(crate::checkpoints::PaneFacts {
+    guard.panes.get(pane_id).map(pane_facts)
+}
+
+/// Folder, agent and LIVE status of a pane. `PaneState::info` is a spawn-time snapshot whose
+/// `status` stays `"running"` forever; the real status lives behind `PaneState::status`.
+pub(crate) fn pane_facts(pane: &crate::pty::registry::PaneState) -> crate::checkpoints::PaneFacts {
+    crate::checkpoints::PaneFacts {
         cwd: pane.info.cwd.clone(),
         agent_type: pane.info.agent_type.clone(),
-        status: pane.info.status.clone(),
-    })
+        status: pane.status.lock().as_str().to_string(),
+    }
+}
+
+/// Whether an agent run (operation) is still open on this pane.
+pub(crate) fn pane_has_open_run(pane_id: &str, cwd: &str) -> bool {
+    let Ok(project) = crate::project_path::normalize_project_path(std::path::Path::new(cwd)) else {
+        return false;
+    };
+    matches!(
+        crate::operations::active_operation_for_pane(&project.to_string_lossy(), pane_id),
+        Ok(Some(_))
+    )
 }
 
 /// The public settings snapshot (`checkpoints_enabled`, `checkpoints_keep`), when the app is up.

@@ -14,6 +14,7 @@ import { IconClose, IconGlobe, IconCopy, IconMore, IconReflow, IconRename, IconS
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { formatElapsed, promptSummary, receiptRows, spinnerStatus, stateText } from './model';
 import { Changes } from './Changes';
+import { changesTabLabel, usePaneWorktree } from './usePaneWorktree';
 import { SecondOpinion } from './SecondOpinion';
 import { History } from './History';
 import { panesSharingFolder } from './history-model';
@@ -23,7 +24,7 @@ import { useLastTurn } from './away-context';
 import { SegTabs } from './SegTabs';
 import { paneHeading } from './titles';
 
-type Tab = 'terminal' | 'transcript' | 'receipt' | 'history';
+type Tab = 'terminal' | 'changes' | 'transcript' | 'receipt' | 'history';
 
 /** Run info + transcript for the Transcript and Receipt tabs. `null` = the pane has no run. */
 function useRunData(paneId: string, active: boolean, status: string) {
@@ -77,6 +78,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const getSelectionRef = useRef<(() => string) | null>(null);
   const run = useRunData(paneId, tab !== 'terminal', pane?.status ?? '');
   const lastTurn = useLastTurn(paneId);
+  const worktree = usePaneWorktree(paneId, pane?.status ?? '');
 
   useEffect(() => {
     setTab('terminal');
@@ -84,6 +86,10 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
     setConfirm(false);
     setRenaming(false);
   }, [paneId]);
+
+  useEffect(() => {
+    if (tab === 'changes' && !worktree) setTab('terminal');
+  }, [tab, worktree]);
 
   useEffect(() => {
     if (!menu) return;
@@ -285,6 +291,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
           onChange={setTab}
           options={[
             { id: 'terminal', label: 'Terminal' },
+            ...(worktree ? [{ id: 'changes' as const, label: changesTabLabel(worktree) }] : []),
             { id: 'transcript', label: 'Transcript' },
             { id: 'receipt', label: 'Receipt' },
             { id: 'history', label: 'History' },
@@ -298,6 +305,15 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             <TerminalViewport pane={pane} registry={c.registry} chrome={false}
               reflowKey={reflowKey}
               getSelectionRef={getSelectionRef}
+            />
+          </div>
+        )}
+        {tab === 'changes' && worktree && (
+          <div className="ck-scroll ck-fade-in" key="changes">
+            <Changes
+              paneId={paneId}
+              status={pane?.status ?? ''}
+              secondOpinion={<SecondOpinion paneId={paneId} status={pane?.status ?? ''} />}
             />
           </div>
         )}
@@ -339,11 +355,8 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         )}
         {tab === 'receipt' && (
           <div className="ck-scroll ck-fade-in" key="receipt">
-            <Changes
-              paneId={paneId}
-              status={pane?.status ?? ''}
-              secondOpinion={<SecondOpinion paneId={paneId} status={pane?.status ?? ''} />}
-            />
+            {/* An isolated pane has its own Changes tab, which holds the second opinion. */}
+            {!worktree && <SecondOpinion paneId={paneId} status={pane?.status ?? ''} />}
             <LastTurn summary={lastTurn} now={c.now} />
             {run.error ? (
               <Empty title="Receipt unavailable" body={run.error} />

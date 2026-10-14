@@ -201,11 +201,8 @@ pub fn pending_permission_status(
             .opencode
             .as_ref()
             .ok_or_else(|| format!("pane {pane_id} has no opencode native session"))?;
-        (
-            pane.info.status.clone(),
-            link.base_url.clone(),
-            link.session_id.clone(),
-        )
+        let live_status = pane.status.lock().as_str().to_string();
+        (live_status, link.base_url.clone(), link.session_id.clone())
     };
     let (pending_permissions, pending_permission_ids) =
         session_permissions(client::list_permissions(&base_url)?, &session_id);

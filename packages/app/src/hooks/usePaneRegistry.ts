@@ -47,10 +47,16 @@ export function usePaneRegistry(): PaneRegistryApi {
   const streamsRef = useRef(new PaneStreamManager());
   const replacingRef = useRef<Set<string>>(new Set());
   const exitRefreshTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Refreshes overlap (a pane event fires one while another is in flight). Only the newest one may
+  // write: a slower, older list would bring back a pane that just closed (a ghost sidebar row) or
+  // hide one that just opened.
+  const refreshSeq = useRef(0);
 
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeq.current;
     try {
       const list = await tauri.listPanes();
+      if (seq !== refreshSeq.current) return;
       const next = new Map<string, PaneData>();
       for (const info of list) {
         next.set(info.id, { info, status: info.status });
@@ -59,7 +65,7 @@ export function usePaneRegistry(): PaneRegistryApi {
     } catch (err) {
       console.error('[usePaneRegistry] refresh failed', err);
     } finally {
-      setInitialReady(true);
+      if (seq === refreshSeq.current) setInitialReady(true);
     }
   }, []);
 

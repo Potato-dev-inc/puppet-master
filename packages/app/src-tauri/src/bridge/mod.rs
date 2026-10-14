@@ -57,7 +57,7 @@ use tauri::AppHandle;
 
 use crate::mobile_pairing;
 use crate::pty::PaneRegistry;
-pub(crate) use observe::{checkpoint_pane_facts, checkpoint_public_settings, live_app, live_registry};
+pub(crate) use observe::{checkpoint_pane_facts, pane_facts, pane_has_open_run,checkpoint_public_settings, live_app, live_registry};
 pub(crate) use sse::push_operation_sse;
 use state::{BRIDGE_APP, BRIDGE_REGISTRY};
 
