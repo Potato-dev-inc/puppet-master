@@ -19,6 +19,7 @@ mod push;
 mod session;
 mod shell;
 mod standby;
+mod tamper;
 mod tasks;
 mod team;
 pub(super) mod toolbelt;
@@ -72,6 +73,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| opencode::handle(cx))
         .or_else(|| worktrees::handle(cx))
         .or_else(|| checkpoints::handle(cx))
+        .or_else(|| tamper::handle(cx))
         .or_else(|| digest::handle(cx))
         .or_else(|| flight::handle(cx))
         .or_else(|| team::handle(cx))

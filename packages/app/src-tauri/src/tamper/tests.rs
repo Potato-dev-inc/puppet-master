@@ -556,3 +556,13 @@ fn rust_unit_tests_are_counted_from_the_first_test_marker_only() {
     assert_eq!((snap.files["lib.rs"].tests, snap.files["lib.rs"].assertions), (1, 1));
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_route_needs_watch_on_a_phone_and_is_not_offered_to_agent_sessions() {
+    use crate::mobile_pairing::{route_need, Cap, Need};
+    // Read routes fail closed into `watch`; a phone that may only answer cannot read test changes.
+    assert_eq!(route_need("GET", &["tamper", "check"]), Need::Cap(Cap::Watch));
+    // Agents reach the bridge through MCP sessions, and only catalog tools are offered to those.
+    let refused = crate::mcp_sessions::authorize(Some("some-session"), "GET", "/tamper/check?project=x&since=y", &serde_json::json!({}));
+    assert!(refused.is_err(), "an MCP session must not reach /tamper/check");
+}

@@ -306,6 +306,7 @@ pub fn run() {
             commands::checkpoint_diff,
             commands::checkpoint_restore,
             commands::checkpoint_undo_last,
+            commands::tamper_check,
             commands::turn_summaries,
             commands::presence_cockpit_focus,
             commands::away_digest_pending,
