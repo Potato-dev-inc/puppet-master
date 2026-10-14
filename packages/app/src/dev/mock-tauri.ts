@@ -27,10 +27,11 @@ import {
   EXAMPLE_REVIEW_START,
   EXAMPLE_REVIEW_POLL,
 } from './fixtures';
+import { TEAM_DIFF } from './team-fixtures';
 
 const DOCTOR_ROWS = [
-  { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true },
-  { id: 'codex', label: 'Codex', state: 'needs_login', installed: true, version: 'codex-cli 0.9.0', reason: 'It needs you to sign in first.', install_hint: 'npm i -g @openai/codex', login_hint: 'Run: codex login', can_test: true },
+  { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'winget install Anthropic.ClaudeCode', install_fallback: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true },
+  { id: 'codex', label: 'Codex', state: 'needs_login', installed: true, version: 'codex-cli 0.9.0', reason: 'It needs you to sign in first.', install_hint: 'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"', install_fallback: 'npm i -g @openai/codex', login_hint: 'Run: codex login', can_test: true },
   { id: 'opencode', label: 'OpenCode', state: 'not_installed', installed: false, version: null, reason: 'Not installed on this computer.', install_hint: 'npm i -g opencode-ai', login_hint: 'Open OpenCode and type /connect', can_test: false },
   { id: 'cursor_agent', label: 'Cursor Agent', state: 'error', installed: true, version: null, reason: 'Found it, but it did not start properly: exit code 1', install_hint: null, login_hint: 'Run: agent login', can_test: true },
 ];
@@ -38,7 +39,17 @@ const DOCTOR_ROWS = [
 export function installTauriMock(scenario: HarnessScenario): void {
   const panes = scenario.panes ?? EXAMPLE_PANES;
   // In-memory plugin-store (one store, rid 1), keyed as the app writes it.
+  // The two agent-authority switches, at the shipped defaults unless the scenario says otherwise.
+  let authority = scenario.authority ?? { ask_before_agent_control: false, agents_may_merge: true };
   const store = new Map<string, unknown>([['settings', { theme: scenario.theme ?? 'dark' }]]);
+  // Settings > Phone > Devices: one phone with full control in daily use, one watch-and-answer.
+  const now = Math.floor(Date.now() / 1000);
+  const day = 24 * 60 * 60;
+  let pairedDevices = [
+    { id: '6f1c2a90-aaaa-4bbb-8ccc-000000000001', name: "Maya's iPhone", public_key: 'pk1', paired_at: now - 40 * day, caps: ['watch', 'answer', 'type', 'control'], expires_at: now + 30 * day - 600, last_seen: now - 600, expired: false, idle_expiry_secs: 30 * day },
+    { id: '6f1c2a90-aaaa-4bbb-8ccc-000000000002', name: 'Pixel 8', public_key: 'pk2', paired_at: now - 9 * day, caps: ['watch', 'answer'], expires_at: now + 21 * day, last_seen: now - 9 * day, expired: false, idle_expiry_secs: 30 * day },
+    { id: '6f1c2a90-aaaa-4bbb-8ccc-000000000003', name: 'Old iPad', public_key: 'pk3', paired_at: now - 120 * day, caps: ['watch', 'answer', 'type', 'control'], expires_at: now - 2 * day, last_seen: now - 32 * day, expired: true, idle_expiry_secs: 30 * day },
+  ];
 
   mockWindows(scenario.route === 'settings' ? 'settings' : scenario.route === 'askbar' ? 'askbar' : 'cockpit');
   mockIPC(
@@ -58,9 +69,9 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'standby_get_status':
           return standbyStatus(scenario.standbyIdleSecs, scenario.standbyBlocked);
         case 'agents_list':
-          return agentsListing();
+          return agentsListing(scenario.headlessOnlyAgent);
         case 'pane_run_info':
-          return a.paneId === PANE_CLAUDE ? EXAMPLE_RUN : null;
+          return scenario.runs?.[String(a.paneId)] ?? (a.paneId === PANE_CLAUDE ? EXAMPLE_RUN : null);
         case 'pane_worktree':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_WORKTREE : null;
         case 'second_opinion_agents':
@@ -78,6 +89,9 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'pane_transcript':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_TRANSCRIPT : null;
         case 'checkpoints_list':
+          if (scenario.checkpointsState === 'too_big') {
+            return { state: 'too_big', message: 'Undo is off for this folder: it is too big. Add big folders to .gitignore.', items: [] };
+          }
           return a.paneId === PANE_CLAUDE ? EXAMPLE_CHECKPOINTS : { state: 'ok', message: '', items: [] };
         case 'checkpoint_diff':
           return EXAMPLE_FILE_CHANGES;
@@ -143,6 +157,16 @@ export function installTauriMock(scenario: HarnessScenario): void {
               .map((p) => ({ pane_id: p.id, agent_type: p.agent_type, cwd: p.cwd })),
             failed: [],
           };
+        case 'canary_status':
+          return scenario.canary ?? { agents: [], auto_check: true, notices: [], captures: 0 };
+        case 'canary_set_auto':
+          return { ...(scenario.canary ?? { agents: [], notices: [], captures: 0 }), auto_check: a.on };
+        case 'canary_check':
+          return (scenario.canary?.agents ?? []).find((x) => x.agent === a.agent) ?? null;
+        case 'canary_dismiss_notice':
+          return null;
+        case 'canary_open_captures':
+          return 'C:\Users\dev\AppData\Roaming\com.puppetmaster.app\captures';
         case 'agents_health':
           return { agents: DOCTOR_ROWS };
         case 'agents_health_test':
@@ -170,6 +194,19 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return a.name === 'anthropic_api_key' ? { set: true, last4: 'WXYZ' } : { set: false, last4: null };
         case 'get_opencode_key_status':
           return { active_profile: 'a', profiles: [{ id: 'a', label: 'Primary', configured: true }, { id: 'b', label: 'Secondary', configured: false }], key_automation_mode: 'auto_if_backup', restart_pane_on_rotate: true };
+        case 'agent_authority_get':
+          return authority;
+        case 'agent_authority_set': {
+          authority = {
+            ask_before_agent_control: (a.askBeforeAgentControl as boolean | undefined) ?? authority.ask_before_agent_control,
+            agents_may_merge: (a.agentsMayMerge as boolean | undefined) ?? authority.agents_may_merge,
+          };
+          return authority;
+        }
+        case 'audit_recent':
+          return scenario.audit ?? [];
+        case 'audit_verify':
+          return { ok: true, entries: (scenario.audit ?? []).length, broken: null };
         case 'questions_list':
           return scenario.questions ?? [];
         case 'question_answer':
@@ -196,7 +233,17 @@ export function installTauriMock(scenario: HarnessScenario): void {
           };
         }
         case 'list_paired_mobile_devices':
-          return [];
+          return pairedDevices;
+        case 'set_paired_mobile_device_caps': {
+          const device = pairedDevices.find((d) => d.id === a.deviceId);
+          if (device) device.caps = (a.caps as string[]) ?? [];
+          return Boolean(device);
+        }
+        case 'revoke_paired_mobile_device': {
+          const before = pairedDevices.length;
+          pairedDevices = pairedDevices.filter((d) => d.id !== a.deviceId);
+          return pairedDevices.length !== before;
+        }
         case 'get_mobile_tunnel_info':
           return { localUrl: 'http://127.0.0.1:1420', pwaUrl: 'http://127.0.0.1:1420', tunnelUrl: 'https://pm.example.com', bridgeProxyUrl: 'https://pm.example.com/bridge', updatedAt: 0 };
         case 'pane_set_title':
@@ -220,6 +267,30 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return { candidates: TOOLBELT_IMPORT };
         case 'toolbelt_import_apply':
           return { added: [] };
+        case 'team_state':
+          return scenario.team ?? null;
+        case 'team_config_get':
+          return {
+            enabled: !!scenario.team?.enabled,
+            team: 'acme',
+            folder: 'D:\\pm-team-demo\\wire',
+            name: scenario.team?.me ?? '',
+            members: scenario.team?.members ?? [],
+            projects: [],
+            profile: null,
+          };
+        case 'team_job_diff':
+          return TEAM_DIFF;
+        case 'team_send':
+        case 'team_draft_dismiss':
+        case 'team_card_dismiss':
+        case 'team_job_discard':
+        case 'team_config_set':
+          return null;
+        case 'team_pull':
+          return 'Pulled feat/auth. You are at 3f9c2a1.';
+        case 'team_job_apply':
+          return 'Applied to feat/billing. Nothing was pushed.';
         case 'memory_get':
         case 'memory_sync':
         case 'memory_save':
@@ -291,6 +362,23 @@ export function installTauriMock(scenario: HarnessScenario): void {
           store.set('settings', current);
           return current;
         }
+        case 'diagnostic_preview':
+          return {
+            totalBytes: 41_530,
+            files: [
+              { path: 'README.txt', label: 'A short note on what this file is', bytes: 812 },
+              { path: 'version.json', label: 'App and system versions', bytes: 148 },
+              { path: 'settings.json', label: 'Your settings, with keys and tokens removed', bytes: 1_204 },
+              { path: 'app-log.txt', label: "The last 400 lines of the app's log", bytes: 31_870 },
+              { path: 'recordings/op-1.cast', label: 'Recording of a run that failed, 2 hours ago', bytes: 7_496 },
+            ],
+          };
+        case 'diagnostic_show':
+          return ['{', '  "app": "Puppet Master",', '  "version": "0.9.0",', '  "os": "windows"', '}'].join('\n');
+        case 'diagnostic_save':
+          return { path: String(a.path ?? ''), files: 6, bytes: 9_120 };
+        case 'plugin:dialog|save':
+          return 'C:\\Users\\dev\\Desktop\\puppet-master-diagnostic.zip';
         case 'get_app_install_info':
           return {
             version: '0.9.0',

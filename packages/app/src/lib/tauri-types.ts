@@ -224,3 +224,22 @@ export interface TunnelConnectionTest {
   latency_ms: number;
   message: string;
 }
+
+/** One file of the diagnostic zip (Settings > General > Save a diagnostic file). */
+export interface DiagnosticEntry {
+  path: string;
+  /** Plain words for the list. */
+  label: string;
+  bytes: number;
+}
+
+export interface DiagnosticPreview {
+  files: DiagnosticEntry[];
+  totalBytes: number;
+}
+
+export interface DiagnosticSaved {
+  path: string;
+  files: number;
+  bytes: number;
+}

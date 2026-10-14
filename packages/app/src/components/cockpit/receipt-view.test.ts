@@ -81,6 +81,14 @@ describe('runStatusLabel', () => {
   it('turns an unknown status into sentence case', () => {
     expect(runStatusLabel('some_odd_state')).toBe('Some odd state');
   });
+
+  it('says Working for a running run', () => {
+    expect(runStatusLabel('running')).toBe('Working');
+  });
+
+  it('says Still working for an in-progress outcome', () => {
+    expect(readableReceipt({ outcome: 'in_progress' })).toEqual([{ key: 'Result', value: 'Still working' }]);
+  });
 });
 
 describe('readableReceipt null input', () => {

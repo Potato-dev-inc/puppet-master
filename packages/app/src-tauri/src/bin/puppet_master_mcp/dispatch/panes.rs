@@ -32,6 +32,16 @@ fn run(name: &str, args: &Value, known: &mut bool) -> Result<String, String> {
                     "env".into(),
                     puppet_master_app_lib::env_probe::env_snapshot(),
                 );
+                // What tools/list shows per mode vs the whole callable catalog.
+                object.insert(
+                    "listed_tool_counts".into(),
+                    json!({
+                        "agent": tool_registry::tools_for_mode(tool_registry::McpMode::Agent).len(),
+                        "shell": tool_registry::tools_for_mode(tool_registry::McpMode::Shell).len(),
+                        "both": tool_registry::tools_for_mode(tool_registry::McpMode::Both).len(),
+                        "all": tool_registry::tools_for_mode(tool_registry::McpMode::All).len(),
+                    }),
+                );
                 object.insert("schema_drift".into(), json!(drift.is_some()));
                 if let Some(drift) = drift {
                     object.insert("schema_drift_hint".into(), drift["hint"].clone());

@@ -126,10 +126,14 @@ pub fn unavailable(agent_type: &str) -> Option<crate::operations::OperationError
 
 /// Serializes tests that swap profiles into the process-wide registry with tests that assert on
 /// its exact contents. Hold the guard for the whole swap window / assertion.
+///
+/// Re-entrant: `tui::profiles()` (the test helper that reads the process-wide registry) takes it
+/// too, so a test that already holds the guard can still call `profiles()`, while one that does
+/// not can never read the registry in the middle of another test's swap window.
 #[cfg(test)]
-pub(crate) fn test_serial() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+pub(crate) fn test_serial() -> parking_lot::ReentrantMutexGuard<'static, ()> {
+    static LOCK: OnceLock<parking_lot::ReentrantMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| parking_lot::ReentrantMutex::new(())).lock()
 }
 
 /// The process-wide registry, seeded with the code profiles on first use.
@@ -188,6 +192,44 @@ mod tests {
         assert!(unavailable("zz_nothing").is_none());
         assert!(unavailable("claude").is_none());
         store_last(saved);
+    }
+
+    /// `seeded_in_code_order` compared a fresh registry with the process-wide one and failed once
+    /// at 64 test threads: another test (`bridge::dispatch`, `pty::registry`) had its probe
+    /// profile swapped into the process-wide registry at that moment. The helper that reads the
+    /// registry must wait out a swap window instead of seeing the half-way state.
+    #[test]
+    fn reading_the_process_wide_registry_waits_out_another_tests_swap_window() {
+        /// Puts the registry back even when an assertion below fails.
+        struct Restore(Arc<Vec<Arc<dyn TuiProfile>>>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                registry().swap(self.0.iter().cloned().collect());
+            }
+        }
+        let serial = test_serial();
+        let before = snapshot();
+        let restore = Restore(before.clone());
+        let mut with_probe: Vec<Arc<dyn TuiProfile>> = before.iter().cloned().collect();
+        with_probe.push(declarative("zz_probe_window"));
+        registry().swap(with_probe);
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let ids: Vec<String> = profiles().iter().map(|p| p.id().to_string()).collect();
+            sender.send(ids).unwrap();
+        });
+        // While the window is open the reader must not get an answer.
+        assert!(
+            receiver.recv_timeout(std::time::Duration::from_millis(300)).is_err(),
+            "profiles() returned while a swap window was open"
+        );
+        drop(restore);
+        drop(serial);
+        let ids = receiver.recv_timeout(std::time::Duration::from_secs(10)).expect("reader finishes after the window");
+        reader.join().unwrap();
+        assert!(!ids.iter().any(|id| id == "zz_probe_window"), "{ids:?}");
+        assert_eq!(ids.len(), 9);
     }
 
     #[test]

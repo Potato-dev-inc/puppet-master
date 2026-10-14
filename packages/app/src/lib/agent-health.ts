@@ -13,6 +13,7 @@ export interface AgentHealth {
   /** Plain-language sentence for the state. */
   reason: string;
   install_hint: string | null;
+  install_fallback?: string | null;
   login_hint: string | null;
   /** A deep check is possible for this agent. */
   can_test: boolean;

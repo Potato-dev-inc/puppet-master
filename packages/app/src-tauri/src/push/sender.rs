@@ -23,6 +23,41 @@ pub fn vapid_subject() -> String {
         .unwrap_or_else(|| "mailto:admin@puppet-master.example".to_string())
 }
 
+/// The body of a push message. The two texts a person reads (title and body) are `Redacted` by
+/// construction; the rest is ids and the one-time action token, which the phone needs verbatim.
+#[derive(Debug, Clone)]
+pub struct PushPayload(Vec<u8>);
+
+impl PushPayload {
+    pub fn new(
+        title: &crate::redact::Redacted<String>,
+        body: &crate::redact::Redacted<String>,
+        extra: serde_json::Map<String, serde_json::Value>,
+    ) -> Self {
+        let mut map = extra;
+        map.insert("title".into(), serde_json::Value::String(title.as_str().to_string()));
+        map.insert("body".into(), serde_json::Value::String(body.as_str().to_string()));
+        Self(serde_json::Value::Object(map).to_string().into_bytes())
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// A payload of fixed bytes, for tests of the encryption and the request shape.
+    #[cfg(test)]
+    pub(crate) fn raw_for_tests(bytes: &[u8]) -> Self {
+        Self(bytes.to_vec())
+    }
+}
+
+impl std::ops::Deref for PushPayload {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 /// A ready-to-send push request, as plain data.
 #[derive(Debug, Clone)]
 pub struct Outgoing {
@@ -35,7 +70,7 @@ pub fn build_request(
     sub: &Subscription,
     vapid: &VapidKeys,
     subject: &str,
-    payload: &[u8],
+    payload: &PushPayload,
     urgent: bool,
 ) -> Result<Outgoing, String> {
     let ua_public = PublicKey::from_sec1_bytes(
@@ -53,7 +88,7 @@ pub fn build_request(
     )
     .with_valid_duration(TTL)
     .with_vapid(vapid.pair(), subject);
-    let request = builder.build(payload.to_vec()).map_err(|e| e.to_string())?;
+    let request = builder.build(payload.as_bytes().to_vec()).map_err(|e| e.to_string())?;
     let url = request.uri().to_string();
     let mut headers: Vec<(String, String)> = request
         .headers()
@@ -164,7 +199,7 @@ mod tests {
         let (sub, ua_secret, auth) = test_subscription("https://fcm.googleapis.com/fcm/send/abc");
         let vapid = keys("roundtrip");
         let payload = br#"{"title":"Claude Code needs you","body":"Run command: ls"}"#;
-        let out = build_request(&sub, &vapid, "mailto:a@b.example", payload, true).unwrap();
+        let out = build_request(&sub, &vapid, "mailto:a@b.example", &PushPayload::raw_for_tests(payload), true).unwrap();
         assert_eq!(out.url, "https://fcm.googleapis.com/fcm/send/abc");
         assert_ne!(out.body, payload.to_vec(), "the body must be encrypted");
         let plain = web_push_native::decrypt(out.body.clone(), &ua_secret, &Auth::clone_from_slice(&auth)).unwrap();
@@ -190,7 +225,7 @@ mod tests {
     fn vapid_header_is_signed_by_our_key_for_the_push_service_origin() {
         let (sub, _, _) = test_subscription("https://updates.push.services.mozilla.com/wpush/v2/xyz");
         let vapid = keys("vapid-header");
-        let out = build_request(&sub, &vapid, "mailto:a@b.example", b"{}", false).unwrap();
+        let out = build_request(&sub, &vapid, "mailto:a@b.example", &PushPayload::raw_for_tests(b"{}"), false).unwrap();
         let header = |name: &str| out.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.clone());
         let auth = header("authorization").expect("authorization header");
         let rest = auth.strip_prefix("vapid ").unwrap();

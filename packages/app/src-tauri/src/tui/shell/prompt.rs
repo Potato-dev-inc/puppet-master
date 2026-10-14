@@ -74,6 +74,29 @@ pub(crate) fn host_prompt_visible(screen: &str) -> bool {
         || prompt_on_last_line(screen, &BASH_HOST)
 }
 
+/// The command a shell could not find, when the screen shows its "not found" error: PowerShell's
+/// `The term 'x' is not recognized as the name of a cmdlet` (5.1; 7 says "a name"), cmd's
+/// `'x' is not recognized as an internal or external command`, bash's `x: command not found`. In an
+/// agent pane this is the host shell saying the agent's CLI is not installed (or not on PATH). The
+/// last such error on screen wins. Real capture: `fixtures/command_not_found_powershell_live.txt`.
+pub(crate) fn command_not_found(screen: &str) -> Option<String> {
+    static NOT_FOUND: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(concat!(
+            r"(?:The term '(?P<ps>[^']+)' is not recognized as (?:the|a) name of a cmdlet)",
+            r"|(?:'(?P<cmd>[^']+)' is not recognized as an internal or external command)",
+            r"|(?m:^(?:\S+: )?(?P<sh>[^\s:]+): command not found\s*$)",
+        ))
+        .expect("command not found regex")
+    });
+    let clean = strip_ansi(screen);
+    let caps = NOT_FOUND.captures_iter(&clean).last()?;
+    ["ps", "cmd", "sh"]
+        .iter()
+        .find_map(|name| caps.name(name))
+        .map(|found| found.as_str().trim().to_string())
+        .filter(|name| !name.is_empty())
+}
+
 pub(super) fn powershell_ready(screen: &str) -> StandbyScreen {
     ready_on_last_line(screen, &POWERSHELL_READY)
 }

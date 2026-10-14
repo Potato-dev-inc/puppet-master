@@ -15,6 +15,14 @@ use std::thread;
 const HOST: &str = "127.0.0.1";
 pub const PWA_PORT: u16 = 1420;
 
+/// The port the PWA server really listens on: `PWA_PORT` for the default profile, a free one for
+/// a non-default profile (`app_paths::pwa_port_for`). `PWA_PORT` until the server has started.
+pub fn pwa_port() -> u16 {
+    BOUND_PORT.get().copied().unwrap_or(PWA_PORT)
+}
+
+static BOUND_PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DevInfoPayload {
@@ -48,8 +56,12 @@ pub fn start_pwa_server(
         ));
     }
 
-    let listener = TcpListener::bind((HOST, PWA_PORT))
-        .map_err(|err| format!("bind PWA server on {HOST}:{PWA_PORT}: {err}"))?;
+    let wanted = crate::app_paths::pwa_port_for(crate::app_paths::profile().as_deref());
+    let listener = TcpListener::bind((HOST, wanted))
+        .map_err(|err| format!("bind PWA server on {HOST}:{wanted}: {err}"))?;
+    if let Ok(addr) = listener.local_addr() {
+        let _ = BOUND_PORT.set(addr.port());
+    }
 
     let join = thread::Builder::new()
         .name("puppet-master-pwa-server".into())

@@ -13,7 +13,7 @@ import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
 import { IconClose, IconGlobe, IconCopy, IconMore, IconReflow, IconRename, IconStop } from './Icons';
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { formatElapsed, promptSummary, spinnerStatus, stateText } from './model';
-import { readableReceipt, runStatusLabel } from './receipt-view';
+import { readableReceipt } from './receipt-view';
 import { Changes } from './Changes';
 import { changesTabLabel, usePaneWorktree } from './usePaneWorktree';
 import { SecondOpinion } from './SecondOpinion';
@@ -26,6 +26,7 @@ import { SegTabs } from './SegTabs';
 import { Sheet } from './Sheet';
 import { paneHeading } from './titles';
 import { transcriptStreamLabel } from '../../lib/transcript-labels';
+import { UntestedChip } from './UntestedChip';
 
 type Tab = 'terminal' | 'changes' | 'transcript' | 'receipt' | 'history';
 
@@ -161,6 +162,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
           </span>
           {info.account_label && <span className="ck-sub-inline" data-testid="pane-account">{info.account_label}</span>}
         </div>
+        <UntestedChip agent={info.agent_type} />
         <div className="ck-pane-state">
           <DotSpinner status={spinnerStatus(pane.status)} />
           <span className="ck-pane-doing" title={stateLine}>
@@ -372,12 +374,6 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
               />
             ) : (
               <div className="ck-receipt">
-                <dl className="ck-kv">
-                  <dt>Run ID</dt>
-                  <dd className="ck-mono">{run.info.handle}</dd>
-                  <dt>Status</dt>
-                  <dd>{runStatusLabel(run.info.status)}</dd>
-                </dl>
                 {run.info.receipt === null || run.info.receipt === undefined ? (
                   <p className="ck-sub">No receipt yet. It is written when the turn settles.</p>
                 ) : (
@@ -390,6 +386,13 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                     ))}
                   </dl>
                 )}
+                <details className="ck-details">
+                  <summary>Details</summary>
+                  <dl className="ck-kv">
+                    <dt>Run ID</dt>
+                    <dd className="ck-mono">{run.info.handle}</dd>
+                  </dl>
+                </details>
               </div>
             )}
             <button type="button" className="ck-btn ck-btn--plain ck-refresh" onClick={run.refresh}>

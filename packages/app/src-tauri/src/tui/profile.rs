@@ -63,8 +63,21 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// The CLI versions this profile's fixtures and live checks cover. Outside the range the agent
+    /// runs in strict mode (`crate::canary`): Puppet Master stops dismissing startup notices for
+    /// the user, its warm standbys go cold, and the pane shows an "Untested version" chip. `None`
+    /// (the default) means no pin: every version is treated as tested.
+    fn tested_versions(&self) -> Option<TestedRange> {
+        None
+    }
+
     /// One plain sentence or command that installs the CLI, shown by the agent doctor.
     fn install_hint(&self) -> Option<String> {
+        None
+    }
+
+    /// Second install route shown after `install_hint` (for example npm).
+    fn install_fallback_hint(&self) -> Option<String> {
         None
     }
 
@@ -285,6 +298,20 @@ pub trait TuiProfile: Send + Sync {
     /// generic "something drawn and held still" readiness.
     fn reads_composer(&self) -> bool {
         false
+    }
+
+    /// The readiness recogniser (`agent_runs::readiness`): what this TUI's input box says, read
+    /// POSITIVELY from the screen, so a task is typed only into an input box the profile recognises.
+    /// `Some(Empty)`: an empty input box takes a task now. `Some(HasText)`: the box holds text (a
+    /// task is typed only if `clear_input_sequence` can empty it). `Some(Working)`: a turn is
+    /// running. `Some(Unknown)`: no input box this profile recognises (a dialog, a menu, a splash, a
+    /// blank pane); delivery keeps looking and then parks the run. Must never say `Empty` on a screen
+    /// where `startup_gate` or `detect_prompt` fires (conformance rule `ready_and_gate_exclusive`).
+    ///
+    /// `None` (default for a profile that does not `reads_composer`): no recogniser; the profile
+    /// keeps the legacy readiness (something drawn, no gate, no dialog, no shell prompt, not busy).
+    fn ready_recogniser(&self, screen: &str) -> Option<ComposerState> {
+        self.reads_composer().then(|| self.composer_state(screen))
     }
 
     /// A startup screen (update notice, trust, login, onboarding) that is on screen right now, if

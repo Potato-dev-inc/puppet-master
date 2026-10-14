@@ -22,10 +22,12 @@ fn sessions_start_in_agent_mode_and_catalog_is_filtered() {
     ] {
         assert!(names.contains(name), "agent catalog missing {name}");
     }
-    assert!(names.contains("send_agent") && names.contains("cancel_agent"));
+    // Aliases and OpenCode tools are callable in agent mode but no longer listed.
+    for hidden in ["send_agent", "cancel_agent", "list_workers", "reply_opencode_question"] {
+        assert!(!names.contains(hidden), "{hidden} must be unlisted");
+    }
     assert!(names.contains("list_panes"));
-    assert!(names.contains("list_workers"));
-    assert!(names.contains("reply_opencode_question"));
+    assert!(names.contains("list_agents"));
     assert!(!names.contains("write_terminal_input"));
     assert!(!names.contains("spawn_agent"));
     let shell = set_mode(&second, "shell").unwrap();

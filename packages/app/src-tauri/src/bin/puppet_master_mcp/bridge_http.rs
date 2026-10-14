@@ -4,25 +4,32 @@ use super::*;
 
 /// Compares this MCP binary's tool catalog with the running app's (from a `/health` body). A
 /// mismatch means the client was given an older or newer schema than the bridge enforces, which
-/// shows up as confusing argument rejections. The call is still served; this only explains.
+/// shows up as missing tools or confusing argument rejections. The call is still served; this
+/// only explains, loudly, and says how to fix it (see `notices`).
 pub(crate) fn schema_drift_from_health(health: &Value) -> Option<Value> {
     let bridge = health.get("catalog_version").and_then(Value::as_str)?;
     let shim = tool_registry::catalog_version();
     if bridge == shim {
         return None;
     }
+    let build = health
+        .get("build_id")
+        .and_then(Value::as_str)
+        .map(|id| format!(", build {id}"))
+        .unwrap_or_default();
+    let message = format!(
+        "This Puppet Master MCP exe (tool catalog {shim}) is not the same build as the running app (tool catalog {bridge}{build}). Some tools may be missing or renamed, and calls may be rejected for unknown or missing arguments. Fix: {SCHEMA_DRIFT_FIX} If the app is the older of the two, update the app instead."
+    );
     Some(json!({
         "code": "SCHEMA_DRIFT",
+        "severity": "warning",
         "shim_catalog_version": shim,
         "bridge_catalog_version": bridge,
         "bridge_build_id": health.get("build_id"),
-        "hint": format!("this MCP binary's tool schema ({shim}) differs from the running app's ({bridge}); restart the app or reconnect/reinstall the MCP binary (/mcp) so both match."),
+        "message": message,
+        "fix": SCHEMA_DRIFT_FIX,
+        "hint": message,
     }))
-}
-
-pub(crate) fn detect_schema_drift() -> Option<Value> {
-    let body = bridge_request("GET", "/health", None).ok()?;
-    schema_drift_from_health(&serde_json::from_str(&body).ok()?)
 }
 
 pub(crate) fn bridge_request(
@@ -42,13 +49,9 @@ pub(crate) fn bridge_request(
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
 
     let session_header = current_mcp_session_id()
-        .map(|id| {
-            format!(
-                "X-Puppet-Master-Session: {id}\r\nX-Puppet-Master-Pid: {}\r\n",
-                std::process::id()
-            )
-        })
-        .unwrap_or_default();
+        .map(|id| session_headers(&id))
+        .unwrap_or_default()
+        + &local_secret_header();
     let request = format!(
         "{method} {path} HTTP/1.1\r\n\
          Host: {}:{}\r\n\
@@ -88,13 +91,9 @@ pub(crate) fn bridge_request_wait(
     let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
     let session_header = current_mcp_session_id()
-        .map(|id| {
-            format!(
-                "X-Puppet-Master-Session: {id}\r\nX-Puppet-Master-Pid: {}\r\n",
-                std::process::id()
-            )
-        })
-        .unwrap_or_default();
+        .map(|id| session_headers(&id))
+        .unwrap_or_default()
+        + &local_secret_header();
     let request = format!("POST /operations/{}/wait{} HTTP/1.1\r\nHost: {}:{}\r\n{}Connection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", encode_path_segment(id), query, endpoint.host, endpoint.port, session_header, body_text.len(), body_text);
     stream
         .write_all(request.as_bytes())
@@ -142,13 +141,9 @@ pub(crate) fn bridge_request_wait_agents(
     let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
     let session_header = current_mcp_session_id()
-        .map(|id| {
-            format!(
-                "X-Puppet-Master-Session: {id}\r\nX-Puppet-Master-Pid: {}\r\n",
-                std::process::id()
-            )
-        })
-        .unwrap_or_default();
+        .map(|id| session_headers(&id))
+        .unwrap_or_default()
+        + &local_secret_header();
     let request = format!(
         "POST /agents/wait HTTP/1.1\r\nHost: {}:{}\r\n{}Connection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
         endpoint.host, endpoint.port, session_header, body_text.len(), body_text

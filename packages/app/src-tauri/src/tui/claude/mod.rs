@@ -16,6 +16,9 @@ use serde_json::Value;
 
 pub struct Claude;
 
+/// CLI versions the Claude fixtures and live checks cover (see `TuiProfile::tested_versions`).
+pub(crate) const TESTED_VERSIONS: &str = ">=2.1.299, <2.2";
+
 /// Where Claude Code keeps MCP servers (Toolbelt).
 const MCP_HOST: &str = r#"
 config_path = "~/.claude.json"
@@ -98,7 +101,22 @@ impl TuiProfile for Claude {
         })
     }
 
+    /// Fixtures are live captures from 2.1.299; the canary (`crate::canary`) re-checks the start
+    /// screens whenever the installed version changes.
+    fn tested_versions(&self) -> Option<super::TestedRange> {
+        super::TestedRange::parse(TESTED_VERSIONS).ok()
+    }
+
     fn install_hint(&self) -> Option<String> {
+        Some(if cfg!(windows) {
+            "winget install Anthropic.ClaudeCode"
+        } else {
+            "curl -fsSL https://claude.ai/install.sh | bash"
+        }
+        .into())
+    }
+
+    fn install_fallback_hint(&self) -> Option<String> {
         Some("npm i -g @anthropic-ai/claude-code".into())
     }
 
@@ -146,6 +164,12 @@ impl TuiProfile for Claude {
 
     fn busy_marker(&self, visible_tail: &str) -> Option<bool> {
         Some(screen::shows_work_in_progress(visible_tail))
+    }
+
+    /// The input box read from the screen (`screen::input_box`): a task is typed only into an empty
+    /// box. There is no clear sequence, so a box that already holds text is not typed into either.
+    fn ready_recogniser(&self, screen: &str) -> Option<super::ComposerState> {
+        Some(screen::input_box(screen))
     }
 
     /// No activity row and 800ms of stillness: the turn is over (live capture of a finished turn).

@@ -91,10 +91,9 @@ fn default_wait_timeout() -> u64 {
 
 pub(super) fn parse<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, OperationError> {
     let mut value: Value = serde_json::from_slice(body)
-        .map_err(|error| OperationError::new("INVALID_JSON", error.to_string(), false))?;
+        .map_err(|error| OperationError::invalid_body(&error))?;
     runtime::normalize_context_policy_fields(&mut value)?;
-    serde_json::from_value(value)
-        .map_err(|error| OperationError::new("INVALID_JSON", error.to_string(), false))
+    serde_json::from_value(value).map_err(|error| OperationError::invalid_body(&error))
 }
 
 pub(super) fn project_path(

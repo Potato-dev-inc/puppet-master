@@ -38,7 +38,7 @@ pub(super) fn finish_from_output(
             Some(warning) => format!("{result}\n\n{warning}"),
             None => result,
         };
-        transcript::append(project, operation_id, "assistant_final", &result);
+        transcript::append(project, operation_id, "assistant_final", &crate::redact::text(&result));
         if let Ok(snapshot) = operations::get_operation(project, operation_id) {
             let handle = if snapshot.agent_run_id.is_empty() {
                 snapshot.operation_id.as_str()
@@ -250,7 +250,7 @@ mod tests {
             &path,
             &id,
             "stdout",
-            r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s-swap"}"#,
+            &crate::redact::text(r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s-swap"}"#),
         );
         registry.swap(Vec::new());
         assert_eq!(registry.profile_for_arc("cursor_agent").id(), "unknown", "control: agent is gone");
@@ -269,7 +269,7 @@ mod tests {
             &path,
             &id,
             "stdout",
-            r#"{"type":"result","subtype":"success","is_error":false,"result":"","session_id":"s-empty"}"#,
+            &crate::redact::text(r#"{"type":"result","subtype":"success","is_error":false,"result":"","session_id":"s-empty"}"#),
         );
         finish_from_output(&path, &id, &crate::tui::profile_for("cursor_agent"), "agent", 0);
         let done = operations::get_operation(&path, &id).unwrap();
@@ -287,13 +287,13 @@ mod tests {
             &path,
             &id,
             "stdout",
-            "{\"type\":\"system\",\"subtype\":\"init\"}\n",
+            &crate::redact::text("{\"type\":\"system\",\"subtype\":\"init\"}\n"),
         );
         transcript::append(
             &path,
             &id,
             "stdout",
-            r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s1"}"#,
+            &crate::redact::text(r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s1"}"#),
         );
         finish_from_output(&path, &id, &crate::tui::profile_for("cursor_agent"), "agent", 0);
         let done = operations::get_operation(&path, &id).unwrap();
@@ -310,7 +310,7 @@ mod tests {
             &path,
             &id,
             "stdout",
-            r#"{"result":"PONG","session_id":"s2","modelUsage":{"claude-sonnet-5-5":{"outputTokens":14}}}"#,
+            &crate::redact::text(r#"{"result":"PONG","session_id":"s2","modelUsage":{"claude-sonnet-5-5":{"outputTokens":14}}}"#),
         );
         finish_from_output(&path, &id, &crate::tui::profile_for("claude"), "claude", 0);
         let done = operations::get_operation(&path, &id).unwrap();
@@ -327,7 +327,7 @@ mod tests {
             &path,
             &id,
             "stdout",
-            r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s3"}"#,
+            &crate::redact::text(r#"{"type":"result","is_error":false,"result":"PONG","session_id":"s3"}"#),
         );
         finish_from_output(&path, &id, &crate::tui::profile_for("cursor_agent"), "agent", 0);
         let done = operations::get_operation(&path, &id).unwrap();

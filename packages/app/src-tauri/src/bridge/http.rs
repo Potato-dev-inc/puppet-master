@@ -97,9 +97,9 @@ pub(super) fn read_request(stream: &mut TcpStream) -> Result<Option<Request>, St
 /// The authorization every request passes before any route runs: public paths are open, everything
 /// else needs a paired-device bearer unless it is the local app (see `requires_pairing_token`).
 /// `/events/ws` may carry its bearer in the `pm-bearer.<token>` subprotocol offer.
-pub(super) fn gate(req: &Request) -> Result<(), (u16, serde_json::Value)> {
+pub(super) fn gate(req: &Request) -> Result<mobile_pairing::Caller, (u16, serde_json::Value)> {
     if req.method == "OPTIONS" {
-        return Ok(());
+        return Ok(mobile_pairing::Caller::Public);
     }
     let (path, _) = split_target(&req.target);
     let raw_segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
@@ -109,7 +109,7 @@ pub(super) fn gate(req: &Request) -> Result<(), (u16, serde_json::Value)> {
             mobile_pairing::header_value(&req.headers_raw, "Sec-WebSocket-Protocol").unwrap_or("");
         if let Some(token) = super::ws::bearer_from_protocols(offer) {
             let headers = format!("{}\r\nAuthorization: Bearer {token}", req.headers_raw);
-            return mobile_pairing::authorize_bridge_request(
+            return mobile_pairing::authorize_caller(
                 &headers,
                 req.peer_loopback,
                 &segments,
@@ -117,11 +117,45 @@ pub(super) fn gate(req: &Request) -> Result<(), (u16, serde_json::Value)> {
             );
         }
     }
-    mobile_pairing::authorize_bridge_request(
-        &req.headers_raw,
-        req.peer_loopback,
-        &segments,
-        &req.method,
+    mobile_pairing::authorize_caller(&req.headers_raw, req.peer_loopback, &segments, &req.method)
+}
+
+/// `GET /events/poll` for an authorized caller: the event-log payloads after `cursor`, with
+/// terminal bytes left out unless the caller may watch (a revoked device gets nothing at all).
+pub(super) fn events_poll(caller: &mobile_pairing::Caller, query: &str) -> serde_json::Value {
+    let viewer = mobile_pairing::viewer_for(caller);
+    let cursor = query_param(query, "cursor").and_then(|v| v.parse::<u64>().ok());
+    let wait_ms = query_param(query, "wait_ms")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(20_000)
+        .min(super::event_log::MAX_WAIT_MS);
+    let poll = super::event_log::poll_for(
+        cursor,
+        std::time::Duration::from_millis(wait_ms),
+        &|payload| viewer.may_receive(payload).unwrap_or(false),
+    );
+    serde_json::to_value(poll).unwrap_or_default()
+}
+
+/// CORS response lines for a request. Only the app's own origins get an
+/// `Access-Control-Allow-Origin`, echoed back: the webview (`tauri://localhost`,
+/// `http(s)://tauri.localhost`) and loopback dev servers. The phone PWA needs none: it calls
+/// `/bridge/*` on its own origin and `pwa_server` (or the Vite proxy) forwards it. A web page on
+/// any other origin gets no CORS header, so the browser does not let it read an answer (or send a
+/// preflighted request), and the bridge refuses it without a paired-device token anyway.
+pub(super) fn cors_lines(headers: &str) -> String {
+    let Some(origin) = mobile_pairing::header_value(headers, "Origin") else {
+        return String::new();
+    };
+    if !mobile_pairing::is_app_origin(origin) {
+        return "Vary: Origin\r\n".to_string();
+    }
+    format!(
+        "Access-Control-Allow-Origin: {origin}\r\n\
+         Vary: Origin\r\n\
+         Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS\r\n\
+         Access-Control-Allow-Headers: Content-Type, Authorization, X-PM-Proxied, {}, X-Puppet-Master-Session\r\n",
+        mobile_pairing::local_secret::HEADER
     )
 }
 
@@ -133,12 +167,20 @@ pub(super) fn handle_connection(
     let Some(req) = read_request(&mut stream)? else {
         return Ok(());
     };
+    let cors = cors_lines(&req.headers_raw);
+    let mut stream = CorsStream { stream: &mut stream, cors: &cors };
     if req.method == "OPTIONS" {
-        return write_json(&mut stream, 204, &json!({}));
+        return write_json_cors(&mut stream, 204, &json!({}));
     }
     // Fail closed before any route, SSE or WebSocket handler runs. Each handler below checks again.
-    if let Err((status, value)) = gate(&req) {
-        return write_json(&mut stream, status, &value);
+    let caller = match gate(&req) {
+        Ok(caller) => caller,
+        Err((status, value)) => return write_json_cors(&mut stream, status, &value),
+    };
+    if caller == mobile_pairing::Caller::Local {
+        // S3, log-only: a local caller without the app's per-launch key is logged and still served.
+        let (path, _) = split_target(&req.target);
+        mobile_pairing::local_secret::observe_local_request(&req.headers_raw, &req.method, path);
     }
     let Request {
         method,
@@ -167,11 +209,11 @@ pub(super) fn handle_connection(
             Some(token) => format!("{headers_raw}\r\nAuthorization: Bearer {token}"),
             None => headers_raw.clone(),
         };
-        if let Err((status, value)) =
-            mobile_pairing::authorize_bridge_request(&auth_headers, peer_loopback, &segments, method)
-        {
-            return write_json(&mut stream, status, &value);
-        }
+        let caller =
+            match mobile_pairing::authorize_caller(&auth_headers, peer_loopback, &segments, method) {
+                Ok(caller) => caller,
+                Err((status, value)) => return write_json_cors(&mut stream, status, &value),
+            };
         if let Err(error) = crate::mcp_sessions::authorize(
             request_session(&auth_headers),
             method,
@@ -179,17 +221,19 @@ pub(super) fn handle_connection(
             &json!({}),
         ) {
             let (status, value) = operation_http_error(error);
-            return write_json(&mut stream, status, &value);
+            return write_json_cors(&mut stream, status, &value);
         }
         let Some(key) = mobile_pairing::header_value(&headers_raw, "Sec-WebSocket-Key") else {
-            return write_json(&mut stream, 400, &json!({ "error": "missing Sec-WebSocket-Key" }));
+            return write_json_cors(&mut stream, 400, &json!({ "error": "missing Sec-WebSocket-Key" }));
         };
+        let socket = stream.stream.try_clone().map_err(|err| format!("clone socket: {err}"))?;
         super::ws::serve(
-            stream,
+            socket,
             key,
             super::ws::offers_pm_events(&offer),
             &auth_headers,
             peer_loopback,
+            mobile_pairing::viewer_for(&caller),
             registry,
             &app,
         );
@@ -199,26 +243,20 @@ pub(super) fn handle_connection(
     // Long-poll twin of `/events` for tunnels that buffer server-sent events (Cloudflare quick
     // tunnels): returns the SSE payloads after `cursor` as JSON `{cursor, data, gap}`.
     if segments == ["events", "poll"] && method == "GET" {
-        if let Err((status, value)) =
-            mobile_pairing::authorize_bridge_request(&headers_raw, peer_loopback, &segments, method)
-        {
-            return write_json(&mut stream, status, &value);
-        }
-        let cursor = query_param(query, "cursor").and_then(|v| v.parse::<u64>().ok());
-        let wait_ms = query_param(query, "wait_ms")
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(20_000)
-            .min(super::event_log::MAX_WAIT_MS);
-        let poll = super::event_log::poll(cursor, std::time::Duration::from_millis(wait_ms));
-        return write_json(&mut stream, 200, &serde_json::to_value(poll).unwrap_or_default());
+        let caller =
+            match mobile_pairing::authorize_caller(&headers_raw, peer_loopback, &segments, method) {
+                Ok(caller) => caller,
+                Err((status, value)) => return write_json_cors(&mut stream, status, &value),
+            };
+        return write_json_cors(&mut stream, 200, &events_poll(&caller, query));
     }
 
     if segments == ["events"] && method == "GET" {
-        if let Err((status, value)) =
-            mobile_pairing::authorize_bridge_request(&headers_raw, peer_loopback, &segments, method)
-        {
-            return write_json(&mut stream, status, &value);
-        }
+        let caller =
+            match mobile_pairing::authorize_caller(&headers_raw, peer_loopback, &segments, method) {
+                Ok(caller) => caller,
+                Err((status, value)) => return write_json_cors(&mut stream, status, &value),
+            };
         if let Err(error) = crate::mcp_sessions::authorize(
             request_session(&headers_raw),
             method,
@@ -226,9 +264,9 @@ pub(super) fn handle_connection(
             &json!({}),
         ) {
             let (status, value) = operation_http_error(error);
-            return write_json(&mut stream, status, &value);
+            return write_json_cors(&mut stream, status, &value);
         }
-        handle_sse(&mut stream, registry, &app);
+        handle_sse(stream.stream, registry, &app, mobile_pairing::viewer_for(&caller), &cors);
         return Ok(());
     }
 
@@ -255,14 +293,15 @@ pub(super) fn handle_connection(
         crate::event_log::append_bridge_event(SystemEvent::McpToolCompleted { tool, ok, status });
     }
     let (Ok((status, value)) | Err((status, value))) = result;
-    write_json(&mut stream, status, &value)
+    write_json_cors(&mut stream, status, &value)
 }
 
 pub(super) fn parse_json<T: for<'de> Deserialize<'de>>(
     body: &[u8],
 ) -> Result<T, (u16, serde_json::Value)> {
-    serde_json::from_slice(body)
-        .map_err(|err| (400, json!({ "error": format!("invalid json: {err}") })))
+    serde_json::from_slice(body).map_err(|err| {
+        super::errors::operation_http_error(crate::operations::OperationError::invalid_body(&err))
+    })
 }
 
 pub(super) fn normalize_optional_string(value: Option<String>) -> Option<String> {
@@ -323,10 +362,35 @@ pub(super) fn percent_decode(value: &str) -> Option<String> {
     String::from_utf8(decoded).ok()
 }
 
+/// A response socket and the CORS lines for the request it answers.
+pub(super) struct CorsStream<'a> {
+    pub stream: &'a mut TcpStream,
+    pub cors: &'a str,
+}
+
+pub(super) fn write_json_cors(
+    out: &mut CorsStream<'_>,
+    status: u16,
+    value: &serde_json::Value,
+) -> Result<(), String> {
+    write_json_with(out.stream, status, value, out.cors)
+}
+
+/// A JSON response with no CORS header (callers outside a browser request).
+#[allow(dead_code)]
 pub(super) fn write_json(
     stream: &mut TcpStream,
     status: u16,
     value: &serde_json::Value,
+) -> Result<(), String> {
+    write_json_with(stream, status, value, "")
+}
+
+fn write_json_with(
+    stream: &mut TcpStream,
+    status: u16,
+    value: &serde_json::Value,
+    cors: &str,
 ) -> Result<(), String> {
     let reason = match status {
         200 => "OK",
@@ -350,9 +414,7 @@ pub(super) fn write_json(
         "HTTP/1.1 {status} {reason}\r\n\
          Content-Type: application/json; charset=utf-8\r\n\
          Content-Length: {}\r\n\
-         Access-Control-Allow-Origin: *\r\n\
-         Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS\r\n\
-         Access-Control-Allow-Headers: Content-Type, Authorization, X-PM-Proxied\r\n\
+         {cors}\
          Connection: close\r\n\
          \r\n\
          {}",
@@ -380,6 +442,14 @@ pub(super) fn request_session(headers: &str) -> Option<&str> {
     if let Some(pid) = pid {
         crate::mcp_sessions::note_session_pid(session, pid);
     }
+    // The host's own name, only ever a label on a consent card.
+    let client = headers.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.eq_ignore_ascii_case("x-puppet-master-client").then(|| value.trim())
+    });
+    if let Some(client) = client {
+        crate::mcp_sessions::note_session_client(session, client);
+    }
     Some(session)
 }
 
@@ -390,6 +460,18 @@ pub(super) fn request_session(headers: &str) -> Option<&str> {
 /// request, i.e. whether the route layer would treat the caller as the desktop app itself.
 #[cfg(test)]
 pub(crate) fn spawn_gate_listener() -> std::net::SocketAddr {
+    spawn_test_listener(false)
+}
+
+/// [`spawn_gate_listener`], but `GET /events/poll` runs the real long-poll handler (per-device
+/// terminal filtering) instead of the stub reply.
+#[cfg(test)]
+pub(crate) fn spawn_device_gate_listener() -> std::net::SocketAddr {
+    spawn_test_listener(true)
+}
+
+#[cfg(test)]
+fn spawn_test_listener(real_poll: bool) -> std::net::SocketAddr {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind test bridge");
     let addr = listener.local_addr().expect("test bridge addr");
     std::thread::spawn(move || {
@@ -399,9 +481,20 @@ pub(crate) fn spawn_gate_listener() -> std::net::SocketAddr {
                 let Ok(Some(req)) = read_request(&mut stream) else {
                     return;
                 };
-                let _ = match gate(&req) {
-                    Err((status, value)) => write_json(&mut stream, status, &value),
-                    Ok(()) => write_json(
+                let cors = cors_lines(&req.headers_raw);
+                let mut stream = CorsStream { stream: &mut stream, cors: &cors };
+                let (path, query) = split_target(&req.target);
+                let gated = gate(&req);
+                if gated == Ok(mobile_pairing::Caller::Local) {
+                    mobile_pairing::local_secret::observe_local_request(&req.headers_raw, &req.method, path);
+                }
+                let _ = match gated {
+                    Err((status, value)) => write_json_cors(&mut stream, status, &value),
+                    // The real long-poll handler, so tests see what a device really receives.
+                    Ok(caller) if real_poll && path.trim_start_matches("/bridge") == "/events/poll" => {
+                        write_json_cors(&mut stream, 200, &events_poll(&caller, query))
+                    }
+                    Ok(caller) => write_json_cors(
                         &mut stream,
                         200,
                         &json!({
@@ -418,6 +511,12 @@ pub(crate) fn spawn_gate_listener() -> std::net::SocketAddr {
                                 &req.headers_raw,
                                 req.peer_loopback,
                             ),
+                            "device_caps": match &caller {
+                                mobile_pairing::Caller::Device { caps, .. } => {
+                                    serde_json::to_value(caps).unwrap_or_default()
+                                }
+                                _ => serde_json::Value::Null,
+                            },
                         }),
                     ),
                 };

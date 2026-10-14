@@ -54,7 +54,7 @@ pub(super) fn auto_approve_allowed_command(
     let Some(text) = reply.key.or(reply.text) else {
         return false;
     };
-    if crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None).is_err()
+    if crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None, crate::pty::WriteOrigin::Answer).is_err()
     {
         return false;
     }
@@ -62,7 +62,7 @@ pub(super) fn auto_approve_allowed_command(
         &current.project_path,
         &current.operation_id,
         "permission",
-        &format!("auto-approved once (run policy allowed_commands): {program}"),
+        &crate::redact::text(&format!("auto-approved once (run policy allowed_commands): {program}")),
     );
     if current.status == OperationStatus::WaitingInput {
         if let Ok(running) = operations::mark_operation_observation(
@@ -134,6 +134,8 @@ pub(super) fn redeliver_prompt(
         delivery,
         delivery::Delivery::NotVisible
             | delivery::Delivery::Blocked(_)
+            | delivery::Delivery::AgentGone(_)
+            | delivery::Delivery::NotReady { .. }
             | delivery::Delivery::WriteFailed(_)
     ) {
         runtime::record_user_task(&current.project_path, &current.operation_id, &prompt);
@@ -162,6 +164,121 @@ pub(super) fn redelivery_dead_end(
     }
     let blocker = crate::pane_prompt::dispatch_blocker(agent_type, screen)?;
     (!blocker.recoverable).then_some(blocker)
+}
+
+/// Writes the transcript's Approval entry for the prompt a run is parked on, once per prompt, and
+/// returns whether it wrote one. `recorded` is the id of the prompt already written; the caller
+/// clears it when no prompt is on screen any more, so the same command asked again later is a new
+/// entry.
+///
+/// This is decided by the prompt's own id and not by "the run just changed state": two writers
+/// park a run on a dialog (this supervisor and the pane observer in `bridge/observe.rs`), and
+/// whichever came second used to see a run that was already `waiting_input` with the same prompt
+/// and write nothing, so a run with two approvals could show one entry (VERIFY-R8 #1: the second
+/// read like the first, a repeat of the old dialog drawn before Claude redrew).
+pub(super) fn record_approval(
+    current: &OperationSnapshot,
+    action: &serde_json::Value,
+    recorded: &mut Option<String>,
+) -> bool {
+    let summary = action
+        .get("summary")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("permission required");
+    let id = ["prompt_id", "id"]
+        .iter()
+        .find_map(|key| action.get(*key).and_then(serde_json::Value::as_str))
+        .unwrap_or(summary)
+        .to_string();
+    if recorded.as_deref() == Some(id.as_str()) {
+        return false;
+    }
+    *recorded = Some(id);
+    transcript::append(&current.project_path, &current.operation_id, "permission", &crate::redact::text(summary));
+    true
+}
+
+/// Observations in a row that must show a bare host-shell prompt before a run is declared dead.
+/// One redrawn frame is not proof the agent left; two ticks (500 ms) apart are.
+const HOST_SHELL_CONFIRM_TICKS: u32 = 2;
+/// Rows of the last screen kept in `AGENT_EXITED`'s context.
+const LAST_SCREEN_ROWS: usize = 40;
+
+/// Watches a run whose prompt was typed for its agent leaving the pane (profile-agnostic: the
+/// detector is `tui::agent_gone_to_host_shell`, which looks for the host shell's bare prompt).
+#[derive(Default)]
+pub(super) struct HostShellWatch {
+    seen: u32,
+}
+
+impl HostShellWatch {
+    /// Feed one observation; true once the host shell has shown for `HOST_SHELL_CONFIRM_TICKS` in a row.
+    pub(super) fn gone(&mut self, agent_type: &str, screen: &str) -> bool {
+        if crate::tui::agent_gone_to_host_shell(agent_type, screen) {
+            self.seen += 1;
+        } else {
+            self.seen = 0;
+        }
+        self.seen >= HOST_SHELL_CONFIRM_TICKS
+    }
+}
+
+/// The failure for an agent that left its pane while a turn was running. The files are as the
+/// agent left them (it may have written some), so it is not recoverable by simply retrying.
+pub(super) fn agent_exited_mid_run_error(screen: &str) -> OperationError {
+    let rows: Vec<&str> = screen.lines().filter(|row| !row.trim().is_empty()).collect();
+    let last_screen = rows[rows.len().saturating_sub(LAST_SCREEN_ROWS)..].join("
+");
+    let mut error = OperationError::new(
+        "AGENT_EXITED",
+        "the agent exited while it was working on this turn and the pane shows its shell prompt.          Whatever it had written to your files is still there; the last screen is in the error context",
+        false,
+    );
+    error.context = serde_json::json!({ "last_screen": last_screen });
+    error
+}
+
+/// One look at a run's pane: when its agent has gone back to the host shell after the prompt was
+/// typed, fail the run with `AGENT_EXITED` (last screen as context) and return the failed
+/// snapshot, for the caller to publish. `None` while the run looks alive.
+pub(super) fn fail_if_agent_exited(
+    current: &OperationSnapshot,
+    watch: &mut HostShellWatch,
+    screen: &str,
+) -> Option<OperationSnapshot> {
+    // Before the prompt was typed the host prompt is normal (the agent has not started yet), and
+    // `redelivery_dead_end` covers a run whose prompt never went in.
+    let live = matches!(
+        current.status,
+        OperationStatus::Running | OperationStatus::WaitingInput
+    );
+    if !live
+        || !operations::prompt_dispatched(current)
+        || operations::dispatch_in_flight(&current.operation_id)
+    {
+        *watch = HostShellWatch::default();
+        return None;
+    }
+    if !watch.gone(&current.agent_type, screen) {
+        return None;
+    }
+    let error = agent_exited_mid_run_error(screen);
+    transcript::append(
+        &current.project_path,
+        &current.operation_id,
+        "diagnostic",
+        &crate::redact::text(&format!("{}: {}", error.code, error.context["last_screen"].as_str().unwrap_or_default())),
+    );
+    operations::mark_operation_state(
+        &current.project_path,
+        &current.operation_id,
+        OperationStatus::Failed,
+        StateSource::Inferred,
+        Some("failed".into()),
+        None,
+        Some(error),
+    )
+    .ok()
 }
 
 /// The prompt of the turn before this one on the same handle (empty for a first turn). Its echo

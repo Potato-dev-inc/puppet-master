@@ -5,8 +5,8 @@
 //! the completion watch can reach has its own small handler returning whether it settled the run.
 
 use super::pane_turn::{
-    auto_approve_allowed_command, not_captured_diagnostics, previous_turn_task, read_tui_screen,
-    record_completion_model, redeliver_prompt, redelivery_dead_end,
+    auto_approve_allowed_command, fail_if_agent_exited, not_captured_diagnostics, previous_turn_task, read_tui_screen,
+    record_approval, record_completion_model, redeliver_prompt, redelivery_dead_end, HostShellWatch,
 };
 use crate::agent_runs::completion::{self, TuiTurnDecision, TuiTurnWatch};
 use crate::agent_runs::{native, runtime, transcript};
@@ -56,6 +56,10 @@ struct Supervisor {
     watch: TuiTurnWatch,
     /// One automatic re-delivery per turn when the prompt never started a turn.
     redelivered: bool,
+    /// Whether the agent has gone back to the pane's host shell mid-run.
+    host_shell: HostShellWatch,
+    /// Id of the prompt whose Approval entry is already in the transcript (see `record_approval`).
+    recorded_prompt: Option<String>,
 }
 
 impl Supervisor {
@@ -74,6 +78,8 @@ impl Supervisor {
             app,
             watch,
             redelivered: false,
+            host_shell: HostShellWatch::default(),
+            recorded_prompt: None,
         }
     }
 
@@ -173,6 +179,9 @@ impl Supervisor {
             .map(|pane| pane.status)
             .unwrap_or_default();
         let action = native::infer_tui_prompt(&self.registry, pane_id, &current.agent_type);
+        if action.is_none() {
+            self.recorded_prompt = None; // the dialog is gone: the same one asked again is a new approval
+        }
         let has_prompt = action.is_some() || pane_status == "waiting_input";
         // The run left `starting` without its prompt ever being typed (the dispatch was
         // abandoned: see `operations::prompt_dispatched`). Watching the pane for a reply to a
@@ -195,7 +204,7 @@ impl Supervisor {
                     &current.project_path,
                     &current.operation_id,
                     "diagnostic",
-                    &format!("{}: {}", error.code, error.message),
+                    &crate::redact::text(&format!("{}: {}", error.code, error.message)),
                 );
                 if self.fail_run(current, error) {
                     return Step::Finished;
@@ -214,6 +223,12 @@ impl Supervisor {
             return Step::Redelivered;
         }
         let screen = read_tui_screen(&self.registry, pane_id).unwrap_or_default();
+        // The agent left the pane after the prompt went in (crash, quit, declined dialog): nothing
+        // will answer the turn, and the idle shell must not be read as a finished reply.
+        if let Some(failed) = fail_if_agent_exited(current, &mut self.host_shell, &screen) {
+            self.publish(&failed);
+            return Step::Finished;
+        }
         self.watch.set_delivery_verified(
             verifies_delivery(&current.agent_type) && operations::prompt_dispatched(current),
         );
@@ -240,7 +255,7 @@ impl Supervisor {
                     &current.project_path,
                     &current.operation_id,
                     "delivery",
-                    "pane idle with no activity for 3s; Enter sent once more",
+                    &crate::redact::text("pane idle with no activity for 3s; Enter sent once more"),
                 );
                 // Empty text + newline writes just Enter.
                 let _ = crate::pty::registry_write_input(
@@ -251,6 +266,7 @@ impl Supervisor {
                     true,
                     false,
                     None,
+                    crate::pty::WriteOrigin::Nudge,
                 );
                 false
             }
@@ -282,7 +298,7 @@ impl Supervisor {
     /// A permission/question is on screen: auto-approve it when the run's policy allows, else park
     /// the run in `waiting_input` with the prompt as its required action.
     fn on_waiting_input(
-        &self,
+        &mut self,
         current: &OperationSnapshot,
         action: Option<serde_json::Value>,
         screen: &str,
@@ -293,20 +309,14 @@ impl Supervisor {
         let Some(action) = action.filter(|_| !approved) else {
             return;
         };
+        // The transcript entry does not depend on who parked the run first (this supervisor or the
+        // pane observer): it is written once per prompt.
+        record_approval(current, &action, &mut self.recorded_prompt);
         if current.status == OperationStatus::WaitingInput
             && current.required_action.as_ref() == Some(&action)
         {
             return;
         }
-        transcript::append(
-            &current.project_path,
-            &current.operation_id,
-            "permission",
-            action
-                .get("summary")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("permission required"),
-        );
         if let Ok(waiting) = operations::mark_operation_waiting_input(
             &current.project_path,
             &current.operation_id,
@@ -357,7 +367,7 @@ impl Supervisor {
             &current.project_path,
             &current.operation_id,
             "assistant_final",
-            &result,
+            &crate::redact::text(&result),
         );
         self.finish_run(current, Some(result), capture)
     }
@@ -380,13 +390,13 @@ impl Supervisor {
                 &current.project_path,
                 &current.operation_id,
                 "delivery",
-                "reply was not on the visible rows when the pane went idle; recovered by re-reading the pane",
+                &crate::redact::text("reply was not on the visible rows when the pane went idle; recovered by re-reading the pane"),
             );
             transcript::append(
                 &current.project_path,
                 &current.operation_id,
                 "assistant_final",
-                &result,
+                &crate::redact::text(&result),
             );
             if self.finish_run(current, Some(result), ResultCapture::Inferred) {
                 return true;
@@ -402,7 +412,7 @@ impl Supervisor {
             &current.project_path,
             &current.operation_id,
             "diagnostic",
-            &error.context.to_string(),
+            &crate::redact::text(&error.context.to_string()),
         );
         self.fail_run(current, error)
     }
@@ -416,7 +426,7 @@ impl Supervisor {
                 &current.project_path,
                 &current.operation_id,
                 "assistant_final",
-                &result,
+                &crate::redact::text(&result),
             );
             if self.finish_run(current, Some(result), ResultCapture::Inferred) {
                 return true;
@@ -427,7 +437,7 @@ impl Supervisor {
             &current.project_path,
             &current.operation_id,
             "diagnostic",
-            &diagnostics.to_string(),
+            &crate::redact::text(&diagnostics.to_string()),
         );
         let _ = operations::add_warning(
             &current.project_path,
@@ -450,6 +460,7 @@ impl Supervisor {
                 false,
                 false,
                 None,
+                crate::pty::WriteOrigin::Nudge,
             );
         }
         // Visible-first: the turn never started, so a headless-capable agent retries headless.
@@ -571,6 +582,10 @@ fn supervise_loop(
     }
 }
 
+#[cfg(test)]
+mod approval_tests;
+#[cfg(test)]
+mod host_shell_tests;
 #[cfg(test)]
 mod loop_tests;
 

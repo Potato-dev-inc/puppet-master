@@ -82,7 +82,7 @@ describe('Phone: every control renders', () => {
     expect(buttonByText(m.host, 'Stub set port')).toBeTruthy();
     expect(hasText(m.host, 'Revoke all devices')).toBe(true);
     expect(buttonByText(m.host, 'Revoke…')).toBeTruthy();
-    expect(m.host.querySelectorAll('[data-row]')).toHaveLength(7);
+    expect(m.host.querySelectorAll('[data-row]')).toHaveLength(8);
   });
 
   it('has no Save button, no planned controls and no pairing approval switch', async () => {

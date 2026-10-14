@@ -11,8 +11,10 @@ import { PaneView } from './PaneView';
 import { changesTabLabel } from './usePaneWorktree';
 
 let worktreeFor: Record<string, WorktreeItem | null> = {};
+let runInfo: { handle: string; status: string; receipt: unknown } | null = null;
 const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
   if (cmd === 'pane_worktree') return worktreeFor[String(args?.paneId)] ?? null;
+  if (cmd === 'pane_run_info') return runInfo;
   if (cmd === 'worktree_diff') {
     return {
       branch: 'pm/run-1',
@@ -79,6 +81,7 @@ let root: Root;
 beforeEach(() => {
   (window as unknown as { __TAURI_INTERNALS__: object }).__TAURI_INTERNALS__ = {};
   worktreeFor = {};
+  runInfo = null;
   invoke.mockClear();
   host = document.createElement('div');
   host.className = 'cockpit';
@@ -113,6 +116,28 @@ describe('Changes tab for isolated panes', () => {
     await act(async () => root.render(<PaneView c={cockpit()} paneId="plain" />));
     await flush();
     expect(tabs()).toEqual(['Terminal', 'Transcript', 'Receipt', 'History']);
+  });
+
+  it('the Receipt tab shows the result, and the run ID only under a closed Details disclosure', async () => {
+    runInfo = { handle: 'run-zz9', status: 'running', receipt: { outcome: 'completed_unchecked', backend: 'claude' } };
+    worktreeFor = { iso: ITEM };
+    await act(async () => root.render(<PaneView c={cockpit()} paneId="iso" />));
+    await flush();
+    const receiptTab = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === 'Receipt')!;
+    await act(async () => receiptTab.click());
+    await flush();
+
+    const details = host.querySelector<HTMLDetailsElement>('details.ck-details');
+    expect(details).not.toBeNull();
+    expect(details!.querySelector('summary')!.textContent).toBe('Details');
+    expect(details!.open).toBe(false);
+    expect(details!.textContent).toContain('run-zz9');
+    expect(host.textContent).toContain('Finished, not verified');
+
+    const outside = [...host.querySelectorAll('dt')].filter((dt) => !dt.closest('details'));
+    expect(outside.map((dt) => dt.textContent)).not.toContain('Run ID');
+    expect(outside.map((dt) => dt.textContent)).not.toContain('Status');
+    expect(host.querySelector('.ck-receipt')!.textContent).not.toContain('Status');
   });
 
   it('labels the tab without a number until files changed', () => {

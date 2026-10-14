@@ -2,6 +2,7 @@
 import type { Account } from '../lib/accounts';
 import type { Question } from '../lib/questions';
 import type { PaneInfo } from '../lib/tauri-types';
+import type { CanaryStatus } from '../lib/canary';
 
 export interface HarnessScenario {
   /** `?harness=<name>`; unique across scenarios. */
@@ -35,16 +36,30 @@ export interface HarnessScenario {
   standbyIdleSecs?: number;
   /** Settings > Agents > Preload: the "held back" rows the status reports. */
   standbyBlocked?: { key: string; reason: string; fails: number; retry_in_ms: number; cold: boolean }[];
+  /** Version checks (`canary_status`): what the mocked backend reports. Default: no agents flagged. */
+  canary?: CanaryStatus;
   /** Settings: tab id passed as `?tab=`. */
   settingsTab?: string;
   /** User accounts the mocked backend reports (Settings > Agents > Accounts, the "+" menu). */
   accounts?: Account[];
+  /** Cockpit: add an agent that has no pane of its own (only other agents can run it) to the "+" menu. */
+  headlessOnlyAgent?: boolean;
   /** Cockpit: start with the "While you were away" digest showing (as after a return). */
   awayDigest?: boolean;
+  /** Run info the mocked `pane_run_info` returns per pane id (default: only the example Claude pane has one). */
+  runs?: Record<string, import('../lib/cockpit-api').PaneRunInfo>;
+  /** Cockpit History: make `checkpoints_list` answer with this state instead of the example list. */
+  checkpointsState?: 'too_big';
   /** Override the example panes. */
   panes?: PaneInfo[];
   /** Pending `ask_user` questions the mocked `questions_list` returns. */
   questions?: Question[];
+  /** Settings > Security: the two agent-authority switches the mocked backend reports. */
+  authority?: { ask_before_agent_control: boolean; agents_may_merge: boolean };
+  /** Settings > Security: lines of the audit log the mocked backend returns (newest first). */
+  audit?: { seq: number; ts_ms: number; kind: string; who: string; summary: string }[];
+  /** Team (Inbox > Team, the toast, Settings > Labs): what the mocked `team_state` returns. */
+  team?: import('../lib/team').TeamState;
   /** Runs once after the first paint (and after the panes loaded); click things, press keys. */
   after?: (api: HarnessDom) => void | Promise<void>;
 }

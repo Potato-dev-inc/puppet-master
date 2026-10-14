@@ -364,8 +364,20 @@ fn a_new_question_triggers_one_push_and_polling_or_cancelling_triggers_none() {
     let (_, second) = call("POST", "/questions/ask", json!({ "question": "And me?", "wait_ms": 1 }), local, true, Some("agent-push-1"), &notified).unwrap();
     let id2 = second["question_id"].as_str().unwrap().to_string();
     assert_eq!((count(&id), count(&id2)), (1, 1));
-    // A rejected question (empty) pushes nothing.
-    let before = crate::push::NOTIFIED_QUESTIONS.lock().len();
+    // A rejected question (empty) pushes nothing. Other tests push concurrently, so compare the
+    // ids this call could have created (none) rather than the global list length.
+    let before: Vec<String> = crate::push::NOTIFIED_QUESTIONS.lock().clone();
     assert!(call("POST", "/questions/ask", json!({ "question": "  " }), local, true, Some("agent-push-1"), &notified).is_err());
-    assert_eq!(crate::push::NOTIFIED_QUESTIONS.lock().len(), before);
+    let open_for_session = |list: &serde_json::Value| -> Vec<String> {
+        list["questions"].as_array().into_iter().flatten()
+            .filter(|q| q["session_id"].as_str() == Some("agent-push-1") || q["owner"].as_str() == Some("agent-push-1"))
+            .filter_map(|q| q["id"].as_str().or(q["question_id"].as_str()).map(str::to_string))
+            .collect()
+    };
+    let (_, listed) = call("GET", "/questions", json!({}), local, true, None, &notified).unwrap();
+    let new_ids: Vec<String> = crate::push::NOTIFIED_QUESTIONS.lock().iter().filter(|x| !before.contains(x)).cloned().collect();
+    for mine in open_for_session(&listed) {
+        assert!(!new_ids.contains(&mine), "the rejected question must not push");
+    }
+    assert_eq!((count(&id), count(&id2)), (1, 1));
 }

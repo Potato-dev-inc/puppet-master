@@ -1,6 +1,6 @@
 //! Persistence of the session state so owners can reclaim after a bridge restart.
 
-use super::state::{CoordinatorRecord, PaneControl, PaneKind, Session, State};
+use super::state::{CoordinatorRecord, PaneControl, PaneKind, PaneOrigin, Session, State};
 use crate::tool_registry::McpMode;
 use serde_json::{json, Value};
 
@@ -33,22 +33,39 @@ pub(super) fn control_to_json(control: &PaneControl) -> Value {
         "released": control.released,
         "taken_over": control.explicitly_taken_over,
         "kind": kind_str(control.kind),
+        "origin": match &control.origin {
+            PaneOrigin::UserOpened => json!({"type": "user"}),
+            PaneOrigin::Spawned { by_session } => json!({"type": "spawned", "by_session": by_session}),
+        },
     })
 }
 
 pub(super) fn control_from_json(value: &Value) -> Option<PaneControl> {
     let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
+    let owner = text("owner")?;
+    let kind = match value.get("kind").and_then(Value::as_str) {
+        Some("shell") => PaneKind::Shell,
+        Some("user") => PaneKind::User,
+        _ => PaneKind::Agent,
+    };
+    // Snapshots from before lineage was tracked have no `origin`: a `user` pane was adopted, the
+    // rest were started by their owner.
+    let origin = match value.get("origin") {
+        Some(origin) if origin.get("type").and_then(Value::as_str) == Some("user") => PaneOrigin::UserOpened,
+        Some(origin) if origin.get("type").and_then(Value::as_str) == Some("spawned") => PaneOrigin::Spawned {
+            by_session: origin.get("by_session").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| owner.clone()),
+        },
+        _ if kind == PaneKind::User => PaneOrigin::UserOpened,
+        _ => PaneOrigin::Spawned { by_session: owner.clone() },
+    };
     Some(PaneControl {
-        owner: text("owner")?,
+        owner,
         coordinator_id: text("coordinator_id")?,
         controller: text("controller"),
         released: value.get("released").and_then(Value::as_bool).unwrap_or(false),
         explicitly_taken_over: value.get("taken_over").and_then(Value::as_bool).unwrap_or(false),
-        kind: match value.get("kind").and_then(Value::as_str) {
-            Some("shell") => PaneKind::Shell,
-            Some("user") => PaneKind::User,
-            _ => PaneKind::Agent,
-        },
+        kind,
+        origin,
     })
 }
 
@@ -56,7 +73,7 @@ pub(super) fn snapshot_state(state: &State) -> Value {
     json!({
         "version": 1,
         "sessions": state.sessions.iter().map(|(id, s)| (id.clone(), json!({
-            "mode": s.mode.as_str(), "coordinator_id": s.coordinator_id, "attach_token": s.attach_token,
+            "mode": s.mode.as_str(), "coordinator_id": s.coordinator_id, "attach_token": s.attach_token, "parent": s.parent,
         }))).collect::<serde_json::Map<_, _>>(),
         "coordinators": state.coordinators.iter().map(|(id, c)| (id.clone(), json!({
             "attach_token": c.attach_token, "connection_id": c.connection_id,
@@ -90,7 +107,7 @@ pub(super) fn restore_snapshot(state: &mut State, snapshot: &Value) {
             state
                 .sessions
                 .entry(id.clone())
-                .or_insert(Session { mode, coordinator_id, attach_token });
+                .or_insert(Session { mode, coordinator_id, attach_token, parent: text(v, "parent") });
         }
     }
     for (id, v) in obj("panes").into_iter().flatten() {

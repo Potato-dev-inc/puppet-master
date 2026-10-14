@@ -9,6 +9,7 @@ import { ToolbeltGroup } from '../toolbelt/ToolbeltGroup';
 import { McpInstallBlock } from './bridge/McpInstall';
 import { McpStatusBlock } from './bridge/McpStatus';
 import { McpUninstallBlock } from './bridge/McpUninstall';
+import { securityRows } from './bridge/Security';
 import { installPathOf } from './bridge/shared';
 
 const CLAUDE_DESKTOP_MCP = JSON.stringify({ mcpServers: { 'puppet-master': PUPPET_MASTER_MCP_COMMAND } }, null, 2);
@@ -90,6 +91,7 @@ export const bridgeRows: RowDef[] = [
     group: 'Install',
     render: () => <CodeBlock title="Codex config" code={CODEX_MCP} />,
   },
+  ...securityRows,
   {
     id: 'mcp-uninstall',
     label: 'Uninstall MCP',

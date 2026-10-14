@@ -76,7 +76,7 @@ export function NewAgentMenu({ entries, readyAgents, onStart, onClose, accountsA
             <span>{e.label}</span>
             {!e.disabled && hasAccounts && <span className="ck-menu-hint">{accountsFor(accounts, e.type).length + 1} logins ›</span>}
             {!e.disabled && !hasAccounts && readyAgents.has(e.type) && <span className="ck-menu-hint">ready</span>}
-            {e.disabled && <span className="ck-menu-hint">headless</span>}
+            {e.disabled && <span className="ck-menu-hint ck-menu-hint--long">only for tasks from other agents</span>}
           </button>
         );
       })}

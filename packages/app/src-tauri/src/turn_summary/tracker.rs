@@ -180,10 +180,12 @@ impl Tracker {
             end_prompt,
             receipt: self.env.receipt(&ended.pane_id),
         });
+        // Secrets in a command or a prompt never reach the ring file (or the phone).
+        let summary = crate::redact::scrub(summary);
         if let Err(e) = self.store.lock().record(&PathBuf::from(&pane.cwd), summary.clone()) {
-            tracing::warn!(pane = %summary.pane_id, error = %e, "could not save turn summary ring file");
+            tracing::warn!(pane = %summary.get().pane_id, error = %e, "could not save turn summary ring file");
         }
-        Some(summary)
+        Some(summary.into_inner())
     }
 
     /// Oldest first; loads the pane's project file on first use so history survives a restart.

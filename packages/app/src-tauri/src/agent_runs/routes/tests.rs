@@ -224,3 +224,123 @@ fn unreadable_foreign_project_does_not_fail_handle_or_name_lookup() {
     let _ = std::fs::remove_dir_all(&project);
     let _ = std::fs::remove_dir_all(&foreign);
 }
+
+/// R8 verify finding: `POST /agents/answer {handle, choice}` (no `prompt_id`) answered 503
+/// INVALID_JSON. A body the caller got wrong is a 4xx with a typed code that names the field.
+#[test]
+fn a_request_body_with_a_missing_field_is_a_typed_4xx_that_names_the_field() {
+    use super::wire::{parse, AnswerPromptRequest};
+    let error = parse::<AnswerPromptRequest>(br#"{"handle":"h1","choice":"deny"}"#)
+        .expect_err("prompt_id is required");
+    assert_eq!(error.code, "MISSING_FIELD");
+    assert_eq!(error.context["field"], "prompt_id");
+    assert!(!error.recoverable);
+}
+
+#[test]
+fn a_request_body_that_is_not_json_or_has_a_wrong_type_is_a_typed_4xx() {
+    use super::wire::{parse, AnswerPromptRequest};
+    for (body, code) in [
+        (&br#"{"handle": "#[..], "INVALID_JSON"),
+        (&b"not json"[..], "INVALID_JSON"),
+        (
+            &br#"{"handle":"h","prompt_id":7,"choice":"deny"}"#[..],
+            "INVALID_FIELD",
+        ),
+    ] {
+        let error = parse::<AnswerPromptRequest>(body).expect_err("must not parse");
+        assert_eq!(error.code, code, "{error:?}");
+    }
+}
+
+mod list_without_a_project {
+    //! `list_agents` / `list_workers` without `project_path`: ended runs inside the retention window
+    //! are listed too (an outside agent finished a run and could not find it again without its handle).
+    use super::super::list::{list_agents, AgentListFilter};
+    use crate::operations::{self, OperationStatus, ResultCapture};
+    use parking_lot::Mutex;
+    use serde_json::Value;
+    use std::sync::Arc;
+
+    fn run(project: &std::path::Path, key: &str, owner: &str) -> operations::OperationSnapshot {
+        let request = operations::DelegateWorkRequest {
+            project_path: project.to_string_lossy().into_owned(),
+            task: "Reply with PONG".into(),
+            agent_type: "claude".into(),
+            pane_id: None,
+            idempotency_key: key.into(),
+            acceptance_criteria: None,
+            task_id: None,
+            exclusive: false,
+            locks: vec![],
+            timeout_ms: 600_000,
+            read_only: false,
+            keep_pane: false,
+            placement: None,
+            owner_session_id: Some(owner.into()),
+            worker_has_mcp_tools: false,
+            agent_run_id: None,
+            turn_index: 0,
+            worker: Default::default(),
+            context_policy: None,
+            checks: Vec::new(),
+        };
+        operations::delegate_work(request, |_| Ok(())).unwrap()
+    }
+
+    fn finish(run: &operations::OperationSnapshot) {
+        operations::mark_operation_finished(&run.project_path, &run.operation_id, Some("PONG".into()), ResultCapture::Authoritative, false).unwrap();
+    }
+
+    fn handles(project: &str, session: Option<&str>, explicit: bool, filter: AgentListFilter) -> Vec<String> {
+        let registry = Arc::new(Mutex::new(crate::pty::PaneRegistry::new()));
+        let listed = list_agents(project, session, &registry, explicit, filter).unwrap();
+        listed["workers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|w| w["handle"].as_str().map(str::to_string))
+            .collect()
+    }
+
+    #[test]
+    fn a_finished_run_is_listed_without_a_project_path_and_the_filters_still_apply() {
+        let dir = std::env::temp_dir().join(format!("pm-list-{}", uuid::Uuid::new_v4()));
+        let project = dir.to_string_lossy().into_owned();
+        let done = run(&dir, "list-done", "client-claude-desktop");
+        finish(&done);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let done2 = run(&dir, "list-done-2", "client-claude-desktop");
+        finish(&done2);
+        let active = run(&dir, "list-active", "client-claude-desktop");
+        assert_eq!(active.status, OperationStatus::Running);
+        let theirs = run(&dir, "list-theirs", "someone-else");
+        finish(&theirs);
+
+        let all = AgentListFilter::default();
+        let me = Some("client-claude-desktop");
+        for explicit in [true, false] {
+            let listed = handles(&project, me, explicit, all);
+            for want in [&done, &done2, &active, &theirs] {
+                assert!(listed.contains(&want.operation_id), "explicit={explicit}: {listed:?}");
+            }
+        }
+        // Order: active first, then ended runs newest first.
+        let listed: Vec<String> = handles(&project, me, false, all)
+            .into_iter()
+            .filter(|h| [&done, &done2, &active, &theirs].iter().any(|r| &r.operation_id == h))
+            .collect();
+        let at = |r: &operations::OperationSnapshot| listed.iter().position(|h| *h == r.operation_id).unwrap();
+        assert!(at(&active) < at(&theirs) && at(&theirs) < at(&done2) && at(&done2) < at(&done), "{listed:?}");
+
+        let active_only = handles(&project, me, false, AgentListFilter { active_only: true, ..all });
+        assert!(active_only.contains(&active.operation_id));
+        assert!(!active_only.contains(&done.operation_id), "active_only hides ended runs");
+        let mine = handles(&project, me, false, AgentListFilter { mine_only: true, ..all });
+        assert!(mine.contains(&done.operation_id) && !mine.contains(&theirs.operation_id), "mine_only hides the other session's run");
+        let recent = handles(&project, me, false, AgentListFilter { ended_within_ms: Some(10), ..all });
+        assert!(!recent.contains(&done.operation_id), "ended_within_ms hides runs that ended longer ago");
+        assert!(recent.contains(&active.operation_id));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

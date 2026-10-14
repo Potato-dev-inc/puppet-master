@@ -146,6 +146,15 @@ pub(super) fn handoff_route(
             .get("grant")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
+        // Setting A: an agent taking a pane or run it did not start needs a person's OK first.
+        if grant {
+            crate::agent_authority::gate::check_take_over(
+                session,
+                pane_alive.then_some(pane_id.as_str()),
+                run_handle.as_deref(),
+                Some(registry),
+            )?;
+        }
         if pane_alive {
             crate::mcp_sessions::take_over_pane(session, &pane_id, grant)?;
         } else if run_handle.is_none() {

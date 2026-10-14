@@ -224,6 +224,36 @@ fn operation_errors_use_the_structured_retry_contract() {
     }
 }
 
+/// R8 verify finding: a body the caller got wrong answered 503 `INVALID_JSON`. Every code that
+/// `OperationError::invalid_body` can produce is a client error, and the bridge's own
+/// `parse_json` (used by the plain routes) now speaks the same typed codes.
+#[test]
+fn a_malformed_request_body_is_a_typed_4xx_never_a_503() {
+    for (code, field) in [
+        ("INVALID_JSON", None),
+        ("MISSING_FIELD", Some("prompt_id")),
+        ("INVALID_FIELD", None),
+    ] {
+        let mut error = crate::operations::OperationError::new(code, "bad body", false);
+        if let Some(field) = field {
+            error.context = json!({ "field": field });
+        }
+        let (status, body) = operation_http_error(error);
+        assert_eq!(status, 400, "{code} must be a 4xx");
+        assert_eq!(body["code"], code);
+    }
+    #[derive(serde::Deserialize, Debug)]
+    struct Probe {
+        #[allow(dead_code)]
+        name: String,
+    }
+    let (status, body) = super::http::parse_json::<Probe>(b"{}").expect_err("name is required");
+    assert_eq!((status, body["code"].as_str()), (400, Some("MISSING_FIELD")));
+    assert_eq!(body["context"]["field"], "name");
+    let (status, body) = super::http::parse_json::<Probe>(b"{").expect_err("truncated");
+    assert_eq!((status, body["code"].as_str()), (400, Some("INVALID_JSON")));
+}
+
 #[test]
 fn native_permission_status_failure_is_recoverable_and_fails_closed() {
     let error = native_status_unavailable("worker API is unreachable");
@@ -697,7 +727,11 @@ fn agents_health_route_lists_cli_agents_with_hints() {
         assert!(agent["can_test"].is_boolean(), "{agent}");
     }
     let claude = agents.iter().find(|a| a["id"] == "claude").unwrap();
-    assert_eq!(claude["install_hint"], "npm i -g @anthropic-ai/claude-code");
+    let expected = if cfg!(windows) { "winget install Anthropic.ClaudeCode" } else { "curl -fsSL https://claude.ai/install.sh | bash" };
+    assert_eq!(claude["install_hint"], expected);
+    assert_eq!(claude["install_fallback"], "npm i -g @anthropic-ai/claude-code");
+    let codex = agents.iter().find(|a| a["id"] == "codex").unwrap();
+    assert_eq!(codex["install_fallback"], "npm i -g @openai/codex");
     assert!(super::routes::health::static_route("POST", &["agents", "health"]).is_none());
 }
 
@@ -748,12 +782,20 @@ fn stop_all_route_is_not_exposed_to_mcp_sessions() {
 #[test]
 fn stop_report_wire_shape() {
     let report = crate::panic::StopReport {
-        stopped: vec![crate::panic::StoppedPane { pane_id: "p1".into(), agent_type: "claude".into(), cwd: "/w".into() }],
+        stopped: vec![crate::panic::StoppedPane { pane_id: "p1".into(), agent_type: "claude".into(), cwd: "/w".into(), checkpoint_id: None }],
         failed: vec![],
     };
     assert_eq!(
         serde_json::to_value(report).unwrap(),
         json!({"stopped":[{"pane_id":"p1","agent_type":"claude","cwd":"/w"}],"failed":[]})
+    );
+    let with_checkpoint = crate::panic::StopReport {
+        stopped: vec![crate::panic::StoppedPane { pane_id: "p1".into(), agent_type: "claude".into(), cwd: "/w".into(), checkpoint_id: Some("4".into()) }],
+        failed: vec![],
+    };
+    assert_eq!(
+        serde_json::to_value(with_checkpoint).unwrap(),
+        json!({"stopped":[{"pane_id":"p1","agent_type":"claude","cwd":"/w","checkpoint_id":"4"}],"failed":[]})
     );
 }
 

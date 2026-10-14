@@ -10,12 +10,30 @@ pub fn write_input(
     append_newline: bool,
     via_opencode_api: bool,
     opencode_model: Option<crate::opencode::OpenCodeModelRef>,
+    origin: crate::pty::WriteOrigin<'_>,
 ) -> Result<(), String> {
     let reg = registry.lock();
     let pane = reg
         .panes
         .get(pane_id)
         .ok_or_else(|| unknown_pane_message(pane_id))?;
+
+    // The typing permit (`agent_runs::readiness`): a run's input reaches the terminal only with a
+    // permit whose screen is still the latest, a gate's keys only with that gate's permit. Checked
+    // before anything else looks at the input, so a refused write leaves no trace.
+    let api_path = via_opencode_api
+        && pane.info.agent_type == "opencode_native"
+        && ((!text.trim().is_empty() && !is_pty_control_input(text)) || (text.is_empty() && append_newline));
+    if !api_path {
+        let pid = pane.info.pid;
+        let emitted = crate::pty::stream_pos::emitted(pane_id);
+        if let Err(refused) = origin.admit_terminal_write(pane_id, text, append_newline, emitted, || {
+            crate::pty::agent_proc::state(pane_id, pid)
+        }) {
+            debug!(pane_id, origin = origin.tag(), %refused, "pane write refused");
+            return Err(refused);
+        }
+    }
 
     // Auto-title: the first submitted line of an agent pane becomes its title (`ambient::title`).
     // The screen's last line tells whether the line answers a secret prompt; shells are not titled.
@@ -63,6 +81,9 @@ pub fn write_input(
     drop(reg);
     announce_title(app, pane_id, titled);
 
+    // Flight recorder: the writer is the origin (refined by the bridge for a person or API caller).
+    let tag = crate::flight::tag_for(&origin);
+    let record = |bytes: &[u8]| crate::flight::input_as(pane_id, tag, bytes);
     {
         let mut writer = writer.lock();
         if !text.is_empty() {
@@ -70,6 +91,7 @@ pub fn write_input(
                 .write_all(text.as_bytes())
                 .map_err(|e| format!("write_all: {e}"))?;
             writer.flush().map_err(|e| format!("flush: {e}"))?;
+            record(text.as_bytes());
             // Ink/React TUIs can drop a submitted prompt if the prompt text and
             // Enter arrive in the same instant. Raw terminal input must stay
             // immediate, so only pause for submit-style writes.
@@ -79,6 +101,7 @@ pub fn write_input(
         }
         if append_newline {
             write_submit_keys(&mut **writer, &submit)?;
+            record(submit.keys.as_bytes());
         }
     }
     crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
@@ -175,6 +198,23 @@ pub fn read_snapshot_full(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Resu
     };
     let parser = screen.lock();
     Ok(snapshot_text(parser.screen(), None))
+}
+
+/// [`read_snapshot_full`] plus how much of the pane's output the screen includes
+/// (`stream_pos::processed`, read under the same emulator lock as the screen), so a readiness
+/// verdict computed from it can later tell whether anything was printed after it.
+pub fn read_snapshot_full_at(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<(String, Option<u64>), String> {
+    let screen = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        pane.screen.clone()
+    };
+    let parser = screen.lock();
+    let pos = crate::pty::stream_pos::get(pane_id).map(|pos| pos.processed.load(std::sync::atomic::Ordering::SeqCst));
+    Ok((snapshot_text(parser.screen(), None), pos))
 }
 
 pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {
@@ -518,6 +558,7 @@ pub fn resize(
             pixel_height: 0,
         })
         .map_err(|e| format!("resize: {e}"))?;
+    crate::flight::resized(pane_id, cols, rows);
     // Keep the headless emulator's grid the same shape as the PTY so a later
     // screen reconstruction matches the live geometry.
     {

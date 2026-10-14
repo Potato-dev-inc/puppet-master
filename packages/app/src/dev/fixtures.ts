@@ -161,7 +161,7 @@ export const SCREEN_REPLAY = {
   offset: 0,
 };
 
-export function agentsListing() {
+export function agentsListing(headlessOnlyAgent = false) {
   const row = (id: string, label: string, kind = 'cli') => ({
     id,
     label,
@@ -186,6 +186,11 @@ export function agentsListing() {
     row('cursor_agent', 'Cursor Agent'),
     row('powershell', 'PowerShell', 'shell'),
   ];
+  // An agent another agent can run in the background but that has no pane of its own.
+  if (headlessOnlyAgent) {
+    const hidden = row('kilo', 'Kilo');
+    agents.push({ ...hidden, modes: { headless: true, visible: false } });
+  }
   return { agents, dispatchable_ids: agents.filter((a) => a.dispatchable).map((a) => a.id) };
 }
 

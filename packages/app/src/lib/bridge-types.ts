@@ -271,7 +271,7 @@ export interface BridgeClient {
   }): Promise<{ pane_id: string }>;
   killPane(paneId: string): Promise<void>;
   /** Panic button: interrupt every running agent pane. */
-  stopAllPanes(): Promise<{ stopped: { pane_id: string; agent_type: string; cwd: string }[]; failed: [string, string][] }>;
+  stopAllPanes(): Promise<{ stopped: { pane_id: string; agent_type: string; cwd: string; checkpoint_id?: string }[]; failed: [string, string][] }>;
   /** Pending `ask_user` questions. */
   listQuestions(): Promise<Question[]>;
   answerQuestion(id: string, answer: QuestionAnswer): Promise<{ accepted: boolean }>;

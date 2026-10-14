@@ -12,6 +12,9 @@ use super::{AccountScheme, ComposerState, Features, HeadlessLaunch, InstructionF
 
 pub struct Codex;
 
+/// CLI versions the Codex fixtures and live checks cover (see `TuiProfile::tested_versions`).
+pub(crate) const TESTED_VERSIONS: &str = ">=0.159, <0.170";
+
 /// Where Codex keeps MCP servers (Toolbelt).
 const MCP_HOST: &str = r#"
 config_path = "~/.codex/config.toml"
@@ -78,7 +81,22 @@ impl TuiProfile for Codex {
         })
     }
 
+    /// Fixtures are live captures from 0.159.x; the canary (`crate::canary`) re-checks the start
+    /// screens whenever the installed version changes.
+    fn tested_versions(&self) -> Option<super::TestedRange> {
+        super::TestedRange::parse(TESTED_VERSIONS).ok()
+    }
+
     fn install_hint(&self) -> Option<String> {
+        Some(if cfg!(windows) {
+            "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
+        } else {
+            "curl -fsSL https://chatgpt.com/codex/install.sh | sh"
+        }
+        .into())
+    }
+
+    fn install_fallback_hint(&self) -> Option<String> {
         Some("npm i -g @openai/codex".into())
     }
 
@@ -129,6 +147,14 @@ impl TuiProfile for Codex {
 
     fn composer_state(&self, screen: &str) -> ComposerState {
         screen::composer_state(screen)
+    }
+
+    /// The composer, but not while Codex is still loading (it draws the box before it takes keys).
+    fn ready_recogniser(&self, screen: &str) -> Option<ComposerState> {
+        if screen::still_loading(screen) {
+            return Some(ComposerState::Unknown);
+        }
+        Some(screen::composer_state(screen))
     }
 
     fn startup_gate(&self, screen: &str) -> Option<StartupGate> {

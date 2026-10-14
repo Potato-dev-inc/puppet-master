@@ -16,7 +16,7 @@ mod event_log;
 mod handoff;
 mod http;
 #[cfg(test)]
-pub(crate) use http::spawn_gate_listener;
+pub(crate) use http::{spawn_device_gate_listener, spawn_gate_listener};
 mod locks;
 mod observe;
 mod pane_util;
@@ -32,6 +32,7 @@ mod startup_gate_tests;
 #[cfg(test)]
 mod tests;
 mod tool_names;
+mod watchdog;
 mod ws;
 
 pub use delegation::{delegate_operation, publish_operation, stop_operation_worker_with_kill};
@@ -114,13 +115,18 @@ impl BridgeHandle {
 }
 
 fn bind_listener() -> Result<(TcpListener, u16), String> {
-    for port in PORT_MIN..=PORT_MAX {
+    // A non-default profile (`PUPPET_MASTER_PROFILE`) scans its own slice of the range.
+    let (min, max) = match crate::app_paths::profile() {
+        None => (PORT_MIN, PORT_MAX),
+        Some(name) => crate::app_paths::bridge_port_range_for(Some(&name)),
+    };
+    for port in min..=max {
         match TcpListener::bind((HOST, port)) {
             Ok(listener) => return Ok((listener, port)),
             Err(_) => continue,
         }
     }
-    Err(format!("no free bridge port in {PORT_MIN}-{PORT_MAX}"))
+    Err(format!("no free bridge port in {min}-{max}"))
 }
 
 pub fn start_embedded_bridge(
@@ -136,6 +142,8 @@ pub fn start_embedded_bridge(
             push_operation_sse(&snapshot);
         }
     }
+    // A run whose supervisor died is failed once it is well past its deadline.
+    watchdog::start(registry.clone(), app.clone());
     // Tidy leftovers of worktree-isolated runs from a previous process (never removes work).
     let _ = thread::Builder::new().name("worktree-sweep".into()).spawn(|| {
         for project in crate::operations::indexed_project_paths() {
@@ -146,9 +154,15 @@ pub fn start_embedded_bridge(
         }
     });
     mobile_pairing::init_pairing_store(pairing_file)?;
+    crate::audit::watch_device_events();
     let _ = crate::app_paths::ensure_app_data_dir();
     let (listener, port) = bind_listener()?;
     let url = format!("http://{HOST}:{port}");
+    // S3: this launch's local secret, written before the port file so a client that finds the new
+    // port also finds the new secret. Log-only for now, so a failure here never stops the bridge.
+    if let Err(err) = mobile_pairing::local_secret::init(&port_file) {
+        tracing::warn!(%err, "could not write the bridge local secret");
+    }
     fs::write(&port_file, format!("{HOST}:{port}\n"))
         .map_err(|err| format!("write bridge port file {}: {err}", port_file.display()))?;
 

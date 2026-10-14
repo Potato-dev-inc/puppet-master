@@ -130,10 +130,19 @@ export function Sidebar({
                 onStart={(agent, account) => void c.newAgent(agent, account, isolated)}
                 onClose={() => setMenuOpen(false)}
               />
-              <label className="ck-menu-toggle" title="Work in a separate git copy so agents never edit the same files. Review and merge later.">
-                <input type="checkbox" checked={isolated} onChange={(e) => setIsolated(e.target.checked)} />
-                <span>Work in an isolated copy</span>
-              </label>
+              <div className="ck-menu-toggle" title="Work in a separate git copy so agents never edit the same files. Review and merge later.">
+                <span id="ck-sepcopy-label">Separate copy</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isolated}
+                  aria-labelledby="ck-sepcopy-label"
+                  className="ck-switch"
+                  onClick={() => setIsolated(!isolated)}
+                >
+                  <span className="ck-switch-knob" />
+                </button>
+              </div>
             </div>
           )}
         </div>

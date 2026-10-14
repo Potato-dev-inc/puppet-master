@@ -68,6 +68,58 @@ pub(super) fn path_for(project: &str, id: &str) -> Result<PathBuf, OperationErro
     }
     Ok(root(project)?.join(format!("{id}.json")))
 }
+/// Runs this process knows to be `running` or `waiting_input`, with the wall-clock time their
+/// `timeout_ms` ends at. Kept up to date by `persist` (the only writer of a snapshot), so the
+/// watchdog sweeps a handful of entries instead of reading every record of every project. A run
+/// from an earlier process is not here: startup recovery fails those.
+static WATCHED: OnceLock<Mutex<HashMap<(String, String), u64>>> = OnceLock::new();
+
+fn watched_map() -> &'static Mutex<HashMap<(String, String), u64>> {
+    WATCHED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// The wall-clock time a run's deadline falls on (its start, or its creation when it never started).
+pub(super) fn deadline_ms(op: &OperationSnapshot) -> u64 {
+    op.started_at_ms
+        .unwrap_or(op.created_at_ms)
+        .saturating_add(op.timeout_ms)
+}
+
+fn track_for_watchdog(op: &OperationSnapshot) {
+    use super::model::OperationStatus;
+    let key = (op.project_path.clone(), op.operation_id.clone());
+    let mut watched = watched_map().lock();
+    if matches!(op.status, OperationStatus::Running | OperationStatus::WaitingInput) {
+        watched.insert(key, deadline_ms(op));
+    } else {
+        watched.remove(&key);
+    }
+}
+
+/// `(project, operation id, deadline)` of every watched run whose deadline is `grace_ms` or more
+/// in the past at `now`, optionally only those of one project.
+pub(super) fn watched_past_deadline(
+    now: u64,
+    grace_ms: u64,
+    only_project: Option<&str>,
+) -> Vec<(String, String, u64)> {
+    watched_map()
+        .lock()
+        .iter()
+        .filter(|((project, _), deadline)| {
+            now >= deadline.saturating_add(grace_ms)
+                && only_project.is_none_or(|only| project_key(only) == project_key(project))
+        })
+        .map(|((project, id), deadline)| (project.clone(), id.clone(), *deadline))
+        .collect()
+}
+
+pub(super) fn untrack_for_watchdog(project: &str, operation_id: &str) {
+    watched_map()
+        .lock()
+        .remove(&(project.to_string(), operation_id.to_string()));
+}
+
 pub(super) fn persist(op: &OperationSnapshot) -> Result<(), OperationError> {
     let path = path_for(&op.project_path, &op.operation_id)?;
     let parent = path.parent().unwrap();
@@ -82,6 +134,7 @@ pub(super) fn persist(op: &OperationSnapshot) -> Result<(), OperationError> {
     )
     .map_err(|e| OperationError::io_at("write operation file", &temp, e))?;
     replace_file(&temp, &path)?;
+    track_for_watchdog(op);
     let (lock, cv) = change();
     {
         let mut generation = lock.lock();
@@ -340,5 +393,10 @@ pub(super) fn bump(op: &mut OperationSnapshot) -> Result<(), OperationError> {
             });
         }
     }
-    persist(op)
+    let saved = persist(op);
+    if saved.is_ok() {
+        // A run that just failed gets its pane's flight recording frozen next to its record.
+        crate::flight::freeze::on_operation_saved(op);
+    }
+    saved
 }

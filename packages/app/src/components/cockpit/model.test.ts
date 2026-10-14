@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PaneData } from '../../hooks/usePaneRegistry';
-import { formatElapsed, groupPanes, matchesQuery, paneNames, receiptRows, spawnLogLine, spinnerStatus } from './model';
+import { formatElapsed, groupPanes, matchesQuery, paneNames, receiptRows, spawnLogLine, spinnerStatus, stateText } from './model';
 
 function pane(id: string, agent: string, status: string): PaneData {
   return {
@@ -46,9 +46,40 @@ describe('cockpit model', () => {
     expect(matchesQuery('Switch to Claude Code', 'claude sw')).toBe(true);
     expect(matchesQuery('Interrupt', 'claude')).toBe(false);
   });
+  it('names a pane state in plain words', () => {
+    expect(stateText('running')).toBe('Working');
+    expect(stateText('waiting_input')).toBe('Needs you');
+    expect(stateText('idle')).toBe('Idle');
+    expect(stateText('error')).toBe('Error');
+    expect(stateText('exited')).toBe('Exited');
+  });
   it('spawn log prefers backend message', () => {
     expect(spawnLogLine({ agent_id: 'a', pane_id: null, stage: 'claiming', warm: true, message: 'hi' })).toBe('hi');
     expect(spawnLogLine({ agent_id: 'a', pane_id: null, stage: 'ready', warm: false })).toBe('Ready');
+  });
+  it('spawn log uses plain words for all five stages, with and without an agent name', () => {
+    const stage = (s: 'claiming' | 'spawning' | 'attached' | 'ready' | 'failed', warm = false) =>
+      ({ agent_id: 'claude', pane_id: null, stage: s, warm }) as Parameters<typeof spawnLogLine>[0];
+    expect(spawnLogLine(stage('claiming'), 'Claude Code')).toBe('Getting a ready agent');
+    expect(spawnLogLine(stage('spawning'), 'Claude Code')).toBe('Starting Claude Code');
+    expect(spawnLogLine(stage('spawning', true), 'Claude Code')).toBe('Starting Claude Code');
+    expect(spawnLogLine(stage('spawning'))).toBe('Starting the agent');
+    expect(spawnLogLine(stage('attached'))).toBe('Connected');
+    expect(spawnLogLine(stage('ready'))).toBe('Ready');
+    expect(spawnLogLine(stage('failed'))).toBe('Could not start');
+    const all = [
+      spawnLogLine(stage('claiming')),
+      spawnLogLine(stage('spawning')),
+      spawnLogLine(stage('spawning'), 'Codex'),
+      spawnLogLine(stage('attached')),
+      spawnLogLine(stage('ready')),
+      spawnLogLine(stage('failed')),
+    ];
+    for (const line of all) {
+      for (const jargon of ['warm', 'standby', 'PTY', 'process', 'attached']) {
+        expect(line).not.toContain(jargon);
+      }
+    }
   });
   it('flattens receipts', () => {
     expect(receiptRows({ a: 1, b: { c: 'x' }, d: [1, 2] })).toEqual([

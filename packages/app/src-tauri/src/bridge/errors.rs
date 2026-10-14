@@ -29,6 +29,9 @@ pub(super) fn operation_http_error(
         "NOT_A_GIT_REPO" | "NO_COMMITS" | "GIT_UNAVAILABLE" => 400,
         "INVALID_ARGUMENT"
         | "INVALID_TIMEOUT"
+        | "INVALID_JSON"
+        | "MISSING_FIELD"
+        | "INVALID_FIELD"
         | "SESSION_REQUIRED"
         | "READ_ONLY_UNSUPPORTED"
         | "AGENT_NOT_DISPATCHABLE"

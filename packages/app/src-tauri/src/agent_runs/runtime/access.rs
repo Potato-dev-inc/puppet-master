@@ -45,7 +45,7 @@ pub fn transcript_for_handle_with(
 }
 
 pub fn record_user_task(project: &str, operation_id: &str, task: &str) {
-    transcript::append(project, operation_id, "user_task", task);
+    transcript::append(project, operation_id, "user_task", &crate::redact::text(task));
 }
 
 pub fn current_agent(

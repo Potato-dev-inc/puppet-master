@@ -44,7 +44,7 @@ impl DeviceDirectory for PairingDirectory {
     }
     fn device_exists(&self, device_id: &str) -> bool {
         mobile_pairing::pairing_store()
-            .is_some_and(|store| store.lock().list_devices().iter().any(|d| d.id == device_id))
+            .is_some_and(|store| store.lock().is_active_device(device_id))
     }
 }
 

@@ -55,6 +55,11 @@ tauri-plugin-global-shortcut = "2"
 arboard = { version = "3", default-features = false }
 # OS credential store for provider API keys (MIT OR Apache-2.0). 3.x: no default stores, pick per OS.
 keyring = "3.6"
+# Diagnostic file: deflate and checksums for the zip writer in flight/zip.rs (both MIT OR Apache-2.0, already built for ureq).
+flate2 = "1"
+crc32fast = "1"
+# Version ranges for tested-version pins (MIT OR Apache-2.0).
+semver = "1"
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3.6", features = ["windows-native"] }
@@ -64,6 +69,11 @@ keyring = { version = "3.6", features = ["apple-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6", features = ["linux-native"] }
+
+# Test-only. `insta` (Apache-2.0) snapshots the decision timelines of the replay corpus
+# (`src/replay/`, `tests/corpus/`).
+[dev-dependencies]
+insta = "1"
 
 [features]
 default = ["custom-protocol"]
