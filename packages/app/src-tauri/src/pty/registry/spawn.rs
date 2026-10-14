@@ -323,7 +323,12 @@ pub fn spawn_pane(
                             let changed = {
                                 let mut s = status.lock();
                                 // A redraw of an idle pane that shows no work is not activity.
-                                let new_status = crate::pty::status::settle_status(*s, new_status, busy);
+                                let new_status = crate::pty::status::settle_status_after_resize(
+                                    *s,
+                                    new_status,
+                                    busy,
+                                    crate::pty::resize_clock::recently_resized(&pane_id),
+                                );
                                 if *s != new_status {
                                     *s = new_status;
                                     true

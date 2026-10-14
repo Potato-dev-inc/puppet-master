@@ -304,6 +304,23 @@ mod tests {
     }
 
     #[test]
+    fn the_profile_says_idle_for_every_live_idle_screen_and_busy_for_the_working_one() {
+        use crate::tui::TuiProfile;
+        let codex = crate::tui::codex::Codex;
+        // The 12-row tail the classifier hands the profile.
+        let tail = |screen: &str| {
+            let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
+            lines[lines.len().saturating_sub(12)..].join("
+")
+        };
+        for idle in [LIVE_READY_BANNER, LIVE_UNSENT, LIVE_SUBMITTED, LIVE_PASTED, READY, TYPED] {
+            assert_eq!(codex.busy_marker(&tail(idle)), Some(false), "{idle:.60}");
+        }
+        assert_eq!(codex.busy_marker(&tail(LIVE_WORKING)), Some(true));
+        assert_eq!(codex.busy_marker(&tail(WORKING)), Some(true));
+    }
+
+    #[test]
     fn the_status_row_is_work_and_an_idle_composer_is_not() {
         assert!(shows_work_in_progress(WORKING));
         assert!(!shows_work_in_progress(READY));

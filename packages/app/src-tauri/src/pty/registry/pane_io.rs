@@ -534,6 +534,8 @@ pub fn resize(
         pane.info.cols = cols;
         pane.info.rows = rows;
     }
+    // The redraw this resize makes the agent print is not work (see `pty::resize_clock`).
+    crate::pty::resize_clock::note_resize(pane_id);
     Ok(true)
 }
 

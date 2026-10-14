@@ -6,6 +6,7 @@ pub mod hidden;
 pub mod keys;
 pub mod proc_tree;
 pub mod registry;
+pub mod resize_clock;
 pub mod scrollback;
 pub mod status;
 pub mod stream_pos;
