@@ -223,6 +223,62 @@ fn the_next_turn_after_idle_gets_the_next_number_and_no_old_approvals() {
     assert_eq!(tracker.summaries("p1").iter().map(|s| s.turn).collect::<Vec<_>>(), vec![1, 2]);
 }
 
+/// Live (VERIFY-R10 NEW #2): a run in an untrusted folder. The pane starts, shows the trust screen,
+/// the user answers it, the composer comes up, THEN the task is typed. The start-up counted as turn 1,
+/// so the first real turn was "Turn 2" and the follow-up "Turn 3".
+#[test]
+fn answering_the_trust_screen_is_not_a_turn_and_the_first_task_is_turn_one() {
+    let tmp = Tmp::new("startup-trust");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+
+    env.at(1_000);
+    tracker.on_status("p1", "running"); // Claude starting
+    env.at(2_300);
+    let waiting = tracker.on_status("p1", "waiting_input").expect("the trust screen is a rest point");
+    tracker.finish(waiting);
+    tracker.record_approval("p1", approval("t1", "workspace_trust", "allow"));
+    env.at(3_300);
+    tracker.on_status("p1", "running");
+    env.at(4_800);
+    assert!(tracker.on_status("p1", "idle").is_none(), "start-up is not a turn");
+
+    env.at(4_900);
+    tracker.note_dispatched("p1");
+    env.at(5_700);
+    tracker.on_status("p1", "running");
+    env.at(8_200);
+    let one = tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap();
+    assert_eq!(one.turn, 1, "the first task is Turn 1");
+
+    env.at(9_000);
+    tracker.note_dispatched("p1");
+    env.at(11_000);
+    let two = tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap();
+    assert_eq!(two.turn, 2, "the follow-up is Turn 2");
+    assert_eq!(tracker.summaries("p1").iter().map(|s| s.turn).collect::<Vec<_>>(), vec![1, 2], "the trust screen's own note was replaced, not kept as a turn");
+}
+
+#[test]
+fn an_approval_in_a_task_that_was_typed_is_still_its_turn_and_a_command_approval_is_not_startup() {
+    let tmp = Tmp::new("startup-vs-task");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(1_000);
+    tracker.note_dispatched("p1");
+    tracker.record_approval("p1", approval("t1", "workspace_trust", "allow"));
+    env.at(2_000);
+    let one = tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap();
+    assert_eq!(one.turn, 1, "a typed task with a trust answer in it is a turn");
+
+    // A turn the user started by hand that ran a command is a turn too.
+    env.at(10_000);
+    tracker.on_status("p1", "running");
+    tracker.record_approval("p1", approval("c1", "command_approval", "allow"));
+    env.at(12_000);
+    assert_eq!(tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap().turn, 2);
+}
+
 #[test]
 fn plain_shells_have_no_turns() {
     let tmp = Tmp::new("shell");
