@@ -303,4 +303,6 @@ impl PaneRegistry {
 }
 
 #[cfg(test)]
+mod codex_live_tests;
+#[cfg(test)]
 mod tests;

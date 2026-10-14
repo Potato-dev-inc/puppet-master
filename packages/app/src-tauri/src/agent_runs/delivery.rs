@@ -11,8 +11,16 @@
 //! 3. press Enter and verify a new turn started (the pane left idle, or the prompt now appears
 //!    in the transcript region); Enter is repeated once if nothing changed.
 //!
+//! A profile that can read its input box from the screen (`TuiProfile::composer_state`) sharpens
+//! step 3: the turn started when the box emptied or a working marker appeared, and text still
+//! waiting in the box shortly after Enter means the Enter was swallowed (Codex reads an Enter that
+//! follows typed text too quickly as a line break), so Enter is repeated once at that point
+//! instead of after the full wait. Such a profile also declares a `submit_sequence().settle`, the
+//! pause between the typed text and Enter.
+//!
 //! The pane I/O is behind [`DeliveryIo`] so the sequences are unit-tested without a PTY.
 
+use crate::tui::ComposerState;
 use std::time::Duration;
 
 /// Longest prompt prefix compared against the screen.
@@ -20,6 +28,8 @@ const HEAD_CHARS: usize = 40;
 const TAIL_CHARS: usize = 30;
 /// Prompts longer than this may scroll inside the box, so only their opening is compared.
 const TAIL_CHECK_MAX: usize = 300;
+/// Prompts longer than this may be collapsed into a paste placeholder by the TUI.
+const LARGE_PROMPT_CHARS: usize = 200;
 /// Shortest prefix that is distinctive enough to trust.
 const MIN_HEAD_CHARS: usize = 8;
 /// Bottom screen rows that count as "the input area" (box, hint row, footer).
@@ -32,6 +42,9 @@ const POLL_INTERVAL: Duration = Duration::from_millis(80);
 const VISIBLE_POLLS: u32 = 25;
 const STARTED_POLLS: u32 = 38;
 const RESUBMIT_AT_POLL: u32 = 19;
+/// When the profile can read its input box, text still sitting in it this many polls (about
+/// 0.4s) after Enter was not submitted: the TUI empties the box at once when it takes a prompt.
+const RESUBMIT_IF_TEXT_AT_POLL: u32 = 5;
 /// Longest total wait for a slow-starting TUI to draw anything (cold kilo can take >5s). The
 /// budget is shared by the wait before the first keystroke and any later blank-screen waits.
 const READY_BUDGET_POLLS: u32 = 250;
@@ -46,6 +59,14 @@ pub trait DeliveryIo {
     /// True while the pane reports it is busy (a turn is running).
     fn busy(&mut self) -> bool;
     fn pause(&mut self, duration: Duration);
+    /// Least pause between the typed prompt and Enter (the profile's `submit_sequence().settle`).
+    fn enter_settle(&mut self) -> Duration {
+        Duration::ZERO
+    }
+    /// What the input box holds on `screen`, when the profile can read it.
+    fn composer_state(&mut self, _screen: &str) -> ComposerState {
+        ComposerState::Unknown
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,7 +111,11 @@ fn bottom_rows(screen: &str, rows: usize) -> String {
 pub fn prompt_visible_in_input(screen: &str, prompt: &str) -> bool {
     let area = normalize(&bottom_rows(screen, INPUT_AREA_ROWS));
     if let Some(head) = head_of(prompt) {
-        if prompt.contains('\n') && area.contains("pasted text") {
+        // A multi-line or large paste may be shown as a placeholder instead of its text:
+        // `[Pasted text #1 +5 lines]`, or Codex's `[Pasted Content 1889 chars]`.
+        if (prompt.contains('\n') || prompt.chars().count() > LARGE_PROMPT_CHARS)
+            && (area.contains("pasted text") || area.contains("pasted content"))
+        {
             return true;
         }
         // A follow-up often starts like the previous prompt, so for prompts that fit the box
@@ -134,6 +159,27 @@ pub fn turn_started(before: &str, now: &str, prompt: &str, busy: bool) -> bool {
         return true;
     }
     !prompt_visible_in_input(now, prompt) && before_n != now_n
+}
+
+/// What the input box says about a submit, for a profile that can read it. `Some(true)`: the turn
+/// started (a working marker appeared, or the box emptied and the screen moved). `Some(false)`:
+/// the text is still waiting, however busy the pane's flag looks (typing flips an idle pane to
+/// running, so the flag proves nothing here). `None`: the profile cannot tell; use the generic
+/// checks.
+pub fn submit_confirmed(
+    state: ComposerState,
+    before_state: ComposerState,
+    before: &str,
+    now: &str,
+) -> Option<bool> {
+    match state {
+        ComposerState::Unknown => None,
+        ComposerState::HasText => Some(false),
+        // A marker that was already up before Enter proves nothing about this submit.
+        ComposerState::Working if before_state == ComposerState::Working => None,
+        ComposerState::Working => Some(true),
+        ComposerState::Empty => Some(before != now),
+    }
 }
 
 /// Whether the supervisor must deliver the turn's prompt itself: the profile verifies delivery,
@@ -252,7 +298,13 @@ pub fn deliver_prompt_traced(
 {}", bottom_rows(&io.screen(), 20)));
         return Delivery::NotVisible;
     }
+    // Some TUIs read an Enter that follows the typed text too closely as a line break in a paste.
+    let settle = io.enter_settle();
+    if !settle.is_zero() {
+        io.pause(settle);
+    }
     let before = io.screen();
+    let before_state = io.composer_state(&before);
     if let Err(error) = io.write("", true) {
         return Delivery::WriteFailed(error);
     }
@@ -261,14 +313,19 @@ pub fn deliver_prompt_traced(
         io.pause(POLL_INTERVAL);
         let busy = io.busy();
         let screen = io.screen();
-        let started = turn_started(&before, &screen, prompt, busy);
-        trace.push(format!("enter poll {poll}: started={started} busy={busy} rows={}", trace_rows(&screen)));
+        let state = io.composer_state(&screen);
+        let started = submit_confirmed(state, before_state, &before, &screen)
+            .unwrap_or_else(|| turn_started(&before, &screen, prompt, busy));
+        trace.push(format!("enter poll {poll}: started={started} busy={busy} composer={state:?} rows={}", trace_rows(&screen)));
         if started {
             return Delivery::Started;
         }
-        if poll == RESUBMIT_AT_POLL && !resubmitted {
-            // The typed text is verified present, so a second Enter cannot send anything else.
+        // The typed text is verified present, so a second Enter cannot send anything else. A
+        // profile that reads its box sees the swallowed Enter early; the others wait it out.
+        let swallowed = state == ComposerState::HasText && poll == RESUBMIT_IF_TEXT_AT_POLL;
+        if (swallowed || poll == RESUBMIT_AT_POLL) && !resubmitted {
             resubmitted = true;
+            trace.push(format!("enter poll {poll}: Enter sent once more (composer={state:?})"));
             let _ = io.write("", true);
         }
     }
@@ -302,6 +359,29 @@ impl DeliveryIo for PaneIo<'_> {
 
     fn pause(&mut self, duration: Duration) {
         std::thread::sleep(duration);
+    }
+
+    fn enter_settle(&mut self) -> Duration {
+        self.profile().submit_sequence().settle
+    }
+
+    fn composer_state(&mut self, screen: &str) -> ComposerState {
+        self.profile().composer_state(screen)
+    }
+}
+
+impl PaneIo<'_> {
+    /// The profile of the agent running in this pane.
+    fn profile(&self) -> std::sync::Arc<dyn crate::tui::TuiProfile> {
+        let agent_type = self
+            .registry
+            .lock()
+            .list()
+            .into_iter()
+            .find(|pane| pane.id == self.pane_id)
+            .map(|pane| pane.agent_type)
+            .unwrap_or_default();
+        crate::tui::profile_for(&agent_type)
     }
 }
 

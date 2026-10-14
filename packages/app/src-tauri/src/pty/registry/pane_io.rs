@@ -27,6 +27,8 @@ pub fn write_input(
     let titled = crate::ambient::store::observe_input(pane_id, &pane.info.agent_type, &screen_line, text, append_newline);
 
     let agent = pane.info.agent_type.clone();
+    // How this TUI wants a submit to look (a pause after the text, the keys): per-agent, from its profile.
+    let submit = crate::tui::profile_for(&agent).submit_sequence();
 
     if *pane.exited.lock() {
         return Err(format!(
@@ -72,11 +74,11 @@ pub fn write_input(
             // Enter arrive in the same instant. Raw terminal input must stay
             // immediate, so only pause for submit-style writes.
             if append_newline {
-                thread::sleep(submit_delay(text));
+                thread::sleep(submit_pause(text, &submit));
             }
         }
         if append_newline {
-            write_enter_bytes(&mut **writer, &agent)?;
+            write_submit_keys(&mut **writer, &submit)?;
         }
     }
     crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
@@ -103,6 +105,24 @@ pub(super) fn submit_delay(text: &str) -> Duration {
     } else {
         Duration::from_millis(50)
     }
+}
+
+/// Pause between the typed text and the submit keys: the generic one, or the profile's `settle`
+/// when that is longer (a TUI that reads a quick Enter as a line break inside a paste burst).
+pub(super) fn submit_pause(text: &str, submit: &crate::tui::SubmitSequence) -> Duration {
+    submit_delay(text).max(submit.settle)
+}
+
+/// Write a profile's submit keys (Enter for every TUI so far).
+pub(super) fn write_submit_keys(
+    writer: &mut dyn Write,
+    submit: &crate::tui::SubmitSequence,
+) -> Result<(), String> {
+    writer
+        .write_all(submit.keys.as_bytes())
+        .map_err(|e| format!("write enter: {e}"))?;
+    writer.flush().map_err(|e| format!("flush enter: {e}"))?;
+    Ok(())
 }
 
 /// True when input should never be routed to OpenCode prompt_async (keys, mouse, escapes).
@@ -474,6 +494,21 @@ pub fn resize(
 #[cfg(test)]
 mod submit_delay_tests {
     use super::*;
+
+    #[test]
+    fn a_profile_can_lengthen_the_pause_before_enter_but_never_shorten_it() {
+        use crate::tui::SubmitSequence;
+        let slow = SubmitSequence { settle: Duration::from_millis(400), keys: "\r" };
+        assert_eq!(submit_pause("hi", &SubmitSequence::ENTER), Duration::from_millis(50));
+        assert_eq!(submit_pause("hi", &slow), Duration::from_millis(400));
+        assert!(submit_pause(&"x
+".repeat(20_000), &slow) >= Duration::from_millis(1_500));
+        // Codex's profile declares the long settle (live: Enter 50 ms after the text stayed unsent).
+        let codex = crate::tui::profile_for("codex").submit_sequence();
+        assert!(codex.settle >= Duration::from_millis(300), "{codex:?}");
+        assert_eq!(codex.keys, "\r");
+        assert_eq!(crate::tui::profile_for("claude").submit_sequence(), SubmitSequence::ENTER);
+    }
 
     #[test]
     fn multiline_paste_waits_longer_than_a_short_line() {

@@ -46,6 +46,13 @@ pub(super) fn startup_manual_approval_required(
     {
         return true;
     }
+    // A startup screen still up after the dismissable ones were closed (`startup_gate`): a trust
+    // question, a login page, or a notice that ignored its keys. Only the user moves past it.
+    if agent_type != "opencode_native"
+        && crate::tui::profile_for(agent_type).startup_gate(current_screen).is_some()
+    {
+        return true;
+    }
     pane_status == Some("waiting_input")
         && explicit_manual_approval_required(agent_type, current_screen, pending_permission_ids)
 }
@@ -113,7 +120,8 @@ pub(super) fn wait_for_startup_permission_resolution(
         // recognises (Cursor's trust dialog prints none of the phrases).
         let still_blocked = explicit_manual_approval_required(agent_type, &screen, &permissions)
             || (agent_type != "opencode_native"
-                && crate::pane_prompt::detect_in_screen(agent_type, &screen, false).is_some());
+                && (crate::pane_prompt::detect_in_screen(agent_type, &screen, false).is_some()
+                    || crate::tui::profile_for(agent_type).startup_gate(&screen).is_some()));
         if !still_blocked {
             return Ok(pane.status);
         }

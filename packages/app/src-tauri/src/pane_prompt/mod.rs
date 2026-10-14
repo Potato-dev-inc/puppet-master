@@ -114,7 +114,21 @@ pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool
 /// trust dialog takes `a`/`q`), so typing a prompt over one answers it with the prompt's letters
 /// and the task is lost. `None` when the pane is free for input.
 pub(crate) fn dispatch_blocker(agent_type: &str, screen: &str) -> Option<OperationError> {
-    let prompt = detect_in_screen(agent_type, screen, false)?;
+    let Some(prompt) = detect_in_screen(agent_type, screen, false) else {
+        // Not an approval, but a startup screen (update notice, trust, login): typing a task into
+        // it is as lost as typing over a dialog. The dismissible ones were closed before this.
+        let gate = crate::tui::profile_for(agent_type).startup_gate(screen)?;
+        let mut error = OperationError::new(
+            "PANE_BLOCKED_BY_PROMPT",
+            format!(
+                "the pane is showing a startup screen ({}); the task was not typed into it. Deal with it in the pane, then retry",
+                gate.summary
+            ),
+            true,
+        );
+        error.context = json!({"startup_gate": gate.id});
+        return Some(error);
+    };
     let mut error = OperationError::new(
         "PANE_BLOCKED_BY_PROMPT",
         "the pane is showing a prompt (workspace trust or command approval); the task was not typed into it. Answer the prompt with answer_prompt, then retry",

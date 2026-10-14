@@ -22,6 +22,9 @@ pub(crate) mod transcript;
 mod cursor_capture_tests;
 
 #[cfg(test)]
+mod codex_delivery_tests;
+
+#[cfg(test)]
 mod cursor_delivery_tests;
 
 #[cfg(test)]

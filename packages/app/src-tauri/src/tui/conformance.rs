@@ -21,6 +21,7 @@ pub(crate) mod rules {
         ("empty_screen_never_blocked", empty_screen_never_blocked),
         ("idle_windows_are_sane", idle_windows_are_sane),
         ("screen_methods_survive_huge_input", screen_methods_survive_huge_input),
+        ("submit_and_startup_declarations_are_sane", submit_and_startup_declarations_are_sane),
     ];
 
     pub fn feature_flags_agree_with_methods(profile: &dyn TuiProfile) -> Result<(), String> {
@@ -157,6 +158,33 @@ pub(crate) mod rules {
         let _ = profile.standby_screen(&huge);
         let _ = profile.is_chrome_line(&huge);
         let _ = profile.is_tool_activity_line(&huge);
+        let _ = profile.startup_gate(&huge);
+        let _ = profile.composer_state(&huge);
+        Ok(())
+    }
+
+    /// The submit sequence, composer reader and startup gates a profile declares:
+    /// - Enter goes out within a few seconds of the text and is a real key sequence;
+    /// - a blank screen is no startup gate and no input box with text or a running turn;
+    /// - a gate's dismiss keys never include Enter (Enter picks the highlighted option, which for
+    ///   an update menu is "Update now" and for a trust question is "Yes").
+    pub fn submit_and_startup_declarations_are_sane(profile: &dyn TuiProfile) -> Result<(), String> {
+        let id = profile.id();
+        let submit = profile.submit_sequence();
+        if submit.keys.is_empty() {
+            return Err(format!("{id}: the submit sequence writes nothing"));
+        }
+        if submit.settle > Duration::from_secs(3) {
+            return Err(format!("{id}: a {:?} pause before Enter would stall every task", submit.settle));
+        }
+        for blank in ["", "\n\n", "   \n"] {
+            if let Some(gate) = profile.startup_gate(blank) {
+                return Err(format!("{id}: a blank screen {blank:?} reads as the startup gate {}", gate.id));
+            }
+            if matches!(profile.composer_state(blank), ComposerState::HasText | ComposerState::Working) {
+                return Err(format!("{id}: a blank screen {blank:?} reads as a busy input box"));
+            }
+        }
         Ok(())
     }
 

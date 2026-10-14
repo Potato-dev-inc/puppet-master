@@ -8,7 +8,7 @@
 mod headless;
 mod screen;
 
-use super::{AccountScheme, Features, HeadlessLaunch, InstructionFile, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
+use super::{AccountScheme, ComposerState, Features, HeadlessLaunch, InstructionFile, LaunchSpec, StandbyScreen, StandbySupport, StartupGate, SubmitSequence, TuiProfile};
 
 pub struct Codex;
 
@@ -100,6 +100,36 @@ impl TuiProfile for Codex {
 
     fn standby_screen(&self, screen: &str) -> StandbyScreen {
         screen::standby_screen(screen)
+    }
+
+    /// Codex reads characters that arrive in a rapid burst as a paste, and an Enter within
+    /// `PASTE_ENTER_SUPPRESS_WINDOW` (120 ms, codex-rs/tui/src/bottom_pane/paste_burst.rs) of the
+    /// burst becomes a line break in the composer instead of a submit. Live on 0.159.3 (see
+    /// `docs/features/fix-live-codex.md`): Enter 0 and 50 ms after the text left it unsent, Enter
+    /// 100 ms after submitted. 400 ms leaves a wide margin for a loaded machine.
+    fn submit_sequence(&self) -> SubmitSequence {
+        SubmitSequence {
+            settle: std::time::Duration::from_millis(400),
+            keys: "\r",
+        }
+    }
+
+    fn composer_state(&self, screen: &str) -> ComposerState {
+        screen::composer_state(screen)
+    }
+
+    fn startup_gate(&self, screen: &str) -> Option<StartupGate> {
+        screen::startup_gate(screen)
+    }
+
+    fn clear_input_sequence(&self) -> Option<&'static str> {
+        Some(screen::CLEAR_COMPOSER)
+    }
+
+    /// The composer is readable (`composer_state`), so a typed task is confirmed on screen before
+    /// Enter and a started turn after it.
+    fn verifies_prompt_delivery(&self) -> bool {
+        true
     }
 
     fn probes_default_model(&self) -> bool {

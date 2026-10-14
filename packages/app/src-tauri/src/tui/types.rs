@@ -98,6 +98,55 @@ pub enum StandbyScreen {
     NotReady,
 }
 
+/// How a TUI turns typed text into a submitted prompt (`TuiProfile::submit_sequence`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubmitSequence {
+    /// Least time between the last typed character and the submit keys. Some TUIs treat a burst of
+    /// characters as a paste and read an Enter that follows within a short window as a line break
+    /// in the pasted text; Enter sent inside that window does not submit. Zero leaves the generic
+    /// pause (`pty::registry::submit_delay`) alone.
+    pub settle: std::time::Duration,
+    /// What is written to submit: Enter for every TUI seen so far.
+    pub keys: &'static str,
+}
+
+impl SubmitSequence {
+    pub const ENTER: SubmitSequence = SubmitSequence {
+        settle: std::time::Duration::ZERO,
+        keys: "\r",
+    };
+}
+
+/// What a TUI's input box holds, read from the screen. Prompt delivery uses it to confirm that
+/// Enter submitted instead of leaving the text waiting (`TuiProfile::composer_state`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComposerState {
+    /// This profile cannot tell from the screen.
+    Unknown,
+    /// The input box is empty and no turn is running.
+    Empty,
+    /// Text is typed in the input box and not submitted.
+    HasText,
+    /// A turn is running (the TUI shows its working marker).
+    Working,
+}
+
+/// A screen a freshly started TUI shows before it takes a prompt: an update notice, a trust
+/// question, a login or onboarding page (`TuiProfile::startup_gate`). Typing a task into one loses
+/// the task, answers the screen with the task's letters, or (worse) ends a run with the screen as
+/// its "answer".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartupGate {
+    /// Stable machine name, e.g. `update_available`.
+    pub id: &'static str,
+    /// One plain sentence for what the user would see.
+    pub summary: &'static str,
+    /// Keys that close the screen WITHOUT choosing anything that changes the machine or grants
+    /// trust (a "skip" for a notice). `None` means only the user may move past it: Puppet Master
+    /// parks the run and shows the screen instead of answering for them.
+    pub dismiss: Option<&'static str>,
+}
+
 /// A file an agent reads its project instructions from (`TuiProfile::instruction_files`). Puppet
 /// Master keeps the shared project memory inside a managed block of each such file.
 #[derive(Debug, Clone, PartialEq, Eq)]

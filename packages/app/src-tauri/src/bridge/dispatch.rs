@@ -14,6 +14,7 @@ use super::approvals::{
 };
 use super::delegation::cleanup_failed_operation;
 use super::locks::acquire_operation_locks;
+use super::startup_gate::dismiss_for_operation;
 use super::pane_util::{
     emit_panes_changed, pane_ready_for_dispatch, present_spawned_pane, read_only_pane_matches,
     spawn_pane_with_timeout, wait_for_pane_idle,
@@ -144,7 +145,7 @@ fn dispatch_operation(
     // A claimed standby was health-checked at an empty input box when it was claimed: there is no
     // startup to wait for and no dialog to resolve.
     if pane_created && !standby {
-        await_pane_ready(operation, registry, &pane_id, &agent_type)?;
+        await_pane_ready(operation, registry, app, &pane_id, &agent_type)?;
     }
     send_task_prompt(operation, registry, app, &task_id, &pane_id, &agent_type)?;
     crate::startup_timing::mark(&pane_id, "prompt_sent");
@@ -432,6 +433,7 @@ fn standby_key(operation: &OperationSnapshot, agent_type: &str) -> Option<crate:
 fn await_pane_ready(
     operation: &mut OperationSnapshot,
     registry: &Arc<Mutex<PaneRegistry>>,
+    app: &AppHandle,
     pane_id: &str,
     agent_type: &str,
 ) -> Result<(), OperationError> {
@@ -470,6 +472,11 @@ fn await_pane_ready(
             json!({"pane_id":pane_id,"status":readiness.status,"reason":readiness.reason});
         return Err(error);
     }
+    // An update notice or similar the TUI shows before its input box: close it with the keys the
+    // profile declares (never a trust question or login) before any task is typed.
+    if agent_type != "opencode_native" {
+        let _ = dismiss_for_operation(operation, registry, app, pane_id, agent_type);
+    }
     let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
     let native_permissions = if agent_type == "opencode_native" {
         let status = match fast_native_status {
@@ -497,6 +504,8 @@ fn await_pane_ready(
             // A prompt the TUI profile recognises (Cursor trust / approval) gets its
             // id, kind and options now, so the caller can answer_prompt it.
             classified
+        } else if let Some(gate) = crate::tui::profile_for(agent_type).startup_gate(&screen) {
+            json!({"kind":"manual_approval_required","pane_id":pane_id,"startup_gate":gate.id,"detail":format!("{}. Resolve it in the pane; Puppet Master will not answer it for you.", gate.summary)})
         } else {
             json!({"kind":"manual_approval_required","pane_id":pane_id,"detail":"Resolve the displayed permission prompt manually; the bridge will not approve it."})
         };
@@ -584,6 +593,11 @@ fn send_task_prompt(
         pane_id,
         &operation.project_path,
     );
+    // A startup notice the TUI drew after readiness was judged is closed before the baseline is
+    // taken (a dialog is not closed; the delivery below refuses to type over one).
+    if agent_type != "opencode_native" {
+        let _ = dismiss_for_operation(operation, registry, app, pane_id, agent_type);
+    }
     let _dispatch_guard = PANE_ASSIGNMENT_SERIAL.lock();
     let current =
         crate::operations::get_operation(&operation.project_path, &operation.operation_id)?;
