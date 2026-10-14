@@ -214,7 +214,11 @@ fn a_device_without_watch_gets_no_terminal_bytes_on_the_long_poll() {
         serde_json::from_str::<serde_json::Value>(&body).unwrap()["cursor"].as_u64().unwrap()
     };
     let pane = format!("dc-poll-{}", std::process::id());
-    crate::bridge::push_terminal_sse(&pane, b"secret terminal bytes", Some(0));
+    // The exact `event: terminal` payload push_terminal_sse sends, without touching pane_activity
+    // (its tests count dirty panes process-wide).
+    crate::bridge::push_sse(format!(
+        "event: terminal\ndata: {{\"b64\":\"c2VjcmV0IHRlcm1pbmFsIGJ5dGVz\",\"offset\":0,\"pane_id\":\"{pane}\"}}\n\n"
+    ));
     crate::bridge::push_sse(format!("event: pane-status\ndata: {{\"pane_id\":\"{pane}\",\"status\":\"idle\"}}\n\n"));
     let poll = |label: &str| {
         let path = format!("/events/poll?cursor={start}&wait_ms=200");
