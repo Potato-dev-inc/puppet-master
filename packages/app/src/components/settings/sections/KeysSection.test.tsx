@@ -3,8 +3,10 @@
 // arguments, and removing keys is confirmed and comes last.
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { blur, buttonByText, byLabel, click, hasText, mountRows, pickOption, settle, type as typeInto, type Mounted } from '../test-utils';
+import { blur, buttonByText, byLabel, click, hasText, mountRows, settle, type as typeInto, type Mounted } from '../test-utils';
 import { keysRows } from './KeysSection';
+
+const AUTOMATION = "Switch to another of your keys when one hits its rate limit (check your provider's terms)";
 
 const mocks = vi.hoisted(() => ({
   secrets: {
@@ -21,7 +23,8 @@ const mocks = vi.hoisted(() => ({
         { id: 'a', label: 'Primary', configured: true },
         { id: 'b', label: 'Secondary', configured: false },
       ],
-      key_automation_mode: 'auto_if_backup',
+      // Off: switching to another key at a rate limit is opt-in.
+      key_automation_mode: 'notify_only',
       restart_pane_on_rotate: true,
     },
   },
@@ -76,7 +79,7 @@ describe('Keys: every control renders', () => {
       'OpenAI API key',
       'OpenRouter API key',
       'OpenCode API keys (A / B)',
-      'Key automation',
+      AUTOMATION,
       'Restart pane after key rotate',
       'Remove all keys',
     ]) {
@@ -85,7 +88,7 @@ describe('Keys: every control renders', () => {
     for (const aria of ['Anthropic API key', 'OpenAI API key', 'OpenRouter API key', 'OpenCode key A', 'OpenCode key B']) {
       expect(byLabel<HTMLInputElement>(m.host, aria), `missing field: ${aria}`).toBeTruthy();
     }
-    expect(byLabel<HTMLSelectElement>(m.host, 'Automation mode')).toBeTruthy();
+    expect(byLabel(m.host, AUTOMATION)).toBeTruthy();
     expect(byLabel(m.host, 'Restart pane after key rotate')).toBeTruthy();
     expect(buttonByText(m.host, 'Refresh status')).toBeTruthy();
     expect(buttonByText(m.host, 'Remove…')).toBeTruthy();
@@ -224,26 +227,48 @@ describe('Keys: OpenCode A / B keys', () => {
 });
 
 describe('Keys: key automation', () => {
-  it('the popup and the restart switch are enabled once the status has loaded', async () => {
+  it('is off by default and the restart switch is enabled once the status has loaded', async () => {
     await mount();
-    expect(byLabel<HTMLSelectElement>(m.host, 'Automation mode')!.disabled).toBe(false);
+    const automation = byLabel<HTMLButtonElement>(m.host, AUTOMATION)!;
+    expect(automation.disabled).toBe(false);
+    expect(automation.getAttribute('aria-checked')).toBe('false');
     expect(byLabel<HTMLButtonElement>(m.host, 'Restart pane after key rotate')!.disabled).toBe(false);
   });
 
-  it('changing the automation mode saves it with the current restart setting', async () => {
+  it('the label says the provider terms apply and there is no select any more', async () => {
     await mount();
-    await pickOption(byLabel<HTMLSelectElement>(m.host, 'Automation mode')!, 'notify_only');
+    expect(hasText(m.host, "check your provider's terms")).toBe(true);
+    expect(byLabel(m.host, 'Automation mode')).toBeFalsy();
+  });
+
+  it('turning it on saves auto_if_backup with the current restart setting; turning it off saves notify_only', async () => {
+    await mount();
+    await click(byLabel<HTMLButtonElement>(m.host, AUTOMATION));
     await settle();
-    expect(tauri.setOpenCodeAutomationSettings).toHaveBeenCalledExactlyOnceWith('notify_only', true);
+    expect(tauri.setOpenCodeAutomationSettings).toHaveBeenLastCalledWith('auto_if_backup', true);
     expect(m.env.markSaved).toHaveBeenCalled();
+    expect(byLabel<HTMLButtonElement>(m.host, AUTOMATION)!.getAttribute('aria-checked')).toBe('true');
+    await click(byLabel<HTMLButtonElement>(m.host, AUTOMATION));
+    await settle();
+    expect(tauri.setOpenCodeAutomationSettings).toHaveBeenLastCalledWith('notify_only', true);
     expect(m.env.patches).toEqual([]);
   });
 
-  it('the restart switch saves with the current automation mode', async () => {
+  it('a person who opted in earlier sees it on, and the restart switch keeps that choice', async () => {
+    mocks.opencode.status.key_automation_mode = 'auto_if_backup';
     await mount();
+    expect(byLabel<HTMLButtonElement>(m.host, AUTOMATION)!.getAttribute('aria-checked')).toBe('true');
     await click(byLabel<HTMLButtonElement>(m.host, 'Restart pane after key rotate'));
     await settle();
     expect(tauri.setOpenCodeAutomationSettings).toHaveBeenCalledExactlyOnceWith('auto_if_backup', false);
+    mocks.opencode.status.key_automation_mode = 'notify_only';
+  });
+
+  it('the restart switch never turns key switching on', async () => {
+    await mount();
+    await click(byLabel<HTMLButtonElement>(m.host, 'Restart pane after key rotate'));
+    await settle();
+    expect(tauri.setOpenCodeAutomationSettings).toHaveBeenCalledExactlyOnceWith('notify_only', false);
   });
 
   it('a failed automation save shows the error on the row', async () => {
