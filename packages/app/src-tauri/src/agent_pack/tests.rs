@@ -328,6 +328,7 @@ const TAUGHT: &[(&str, &[&str])] = &[
 /// Tools another lead is hiding from the list: the pack must not teach them.
 const ALIASES: &[&str] = &["list_workers", "send_agent", "wait_for_model", "wait_for_task", "wait_for_worker", "cancel_agent"];
 
+
 fn pack_texts() -> Vec<(String, String)> {
     let root = repo_root().join("integrations");
     let mut out: Vec<(String, String)> = assets::files();
@@ -346,9 +347,10 @@ fn pack_texts() -> Vec<(String, String)> {
 
 #[test]
 fn the_pack_teaches_real_tools_and_real_parameters() {
-    let catalog = crate::tool_registry::tools();
+    // What an agent sees by default: the curated core, with the aliases hidden.
+    let catalog = crate::tool_registry::tools_for_mode(crate::tool_registry::McpMode::Agent);
     for (tool, params) in TAUGHT {
-        let def = catalog.iter().find(|t| t.name == *tool).unwrap_or_else(|| panic!("{tool} is not in the catalog"));
+        let def = catalog.iter().find(|t| t.name == *tool).unwrap_or_else(|| panic!("{tool} is not in the default tool list"));
         let props = def.input_schema.get("properties").and_then(Value::as_object).unwrap();
         for p in *params {
             assert!(props.contains_key(*p), "{tool} has no parameter {p}");
@@ -366,7 +368,7 @@ fn the_pack_teaches_real_tools_and_real_parameters() {
         assert!(kinds.contains(&k), "{k}");
     }
     for (file, text) in pack_texts() {
-        for alias in ALIASES {
+        for alias in ALIASES.iter().copied().chain(crate::tool_registry::ALIASES.iter().map(|(a, _)| *a)) {
             assert!(!contains_word(&text, alias), "{file} teaches the hidden alias {alias}");
         }
         // Every `name(` in backticks is a real, visible tool.
