@@ -1,0 +1,20 @@
+#! source: synthetic (built from the 2.1.300 string table texts in DESIGN-RELAY.md 1.2; NOT a live capture; live captures C1-C10 are TODO)
+#! now: 2026-10-15T12:00 +08:00 Asia/Taipei
+#! expect: kind=usage rule=self_resume_armed window="session limit" reset="5pm (Asia/Taipei)" armed=true reset_at=2026-10-15T17:00
+ ▐▛███▛█   Claude Code v2.1.300
+▝▜██████▀  Opus 5 · Claude Max
+ ▝▝   ▝▝   D:\pm-demo
+
+❯ Make the cart total round to cents
+
+● Update(src\money.ts)
+  ⎿  Updated src\money.ts with 3 additions and 1 removal
+
+  ⎿  You've hit your session limit · resets 5pm (Asia/Taipei)
+
+✻ Usage limit reached · continuing automatically at 5pm (Asia/Taipei) · esc to cancel
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)

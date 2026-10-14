@@ -8,7 +8,7 @@ import { tauri, type OpenCodeKeyStatus } from '../../../lib/tauri';
 import { ApiKeyField } from '../ApiKeyField';
 import { SecretControl } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
-import { Btn, FieldLabel, FieldSelect, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
+import { Btn, FieldLabel, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
 
 type AutomationMode = 'auto_if_backup' | 'notify_only';
 
@@ -16,8 +16,10 @@ const KEYWORDS = 'api key anthropic openai openrouter opencode rotate rate limit
 
 const OPENCODE_HINT =
   'For OpenCode workers only. Kept in the system keychain when one is available. Never synced to the phone or returned by MCP.';
-const AUTOMATION_HINT = 'When an OpenCode agent hits a rate limit: switch to the backup key, or only tell the orchestrator.';
-const RESTART_HINT = 'Restart the OpenCode pane after an automatic switch so it picks up the new key.';
+/** The opt-in's name (founder decision 2026-10-15). Off by default; a person's earlier explicit choice is kept by the backend. */
+const AUTOMATION_LABEL = "Switch to another of your keys when one hits its rate limit (check your provider's terms)";
+const AUTOMATION_HINT = 'When this is off, Puppet Master only tells you a key needs swapping. Needs a second OpenCode key (B).';
+const RESTART_HINT = 'Restart the OpenCode pane after a key switch so it picks up the new key.';
 const REMOVE_ALL_HINT =
   'Deletes the Anthropic, OpenAI and OpenRouter keys from this computer. Agents lose access until you add keys again. OpenCode keys are not removed.';
 
@@ -156,11 +158,11 @@ function AutomationMode({ env }: { env: SettingsEnv }) {
   const { status, setStatus, error } = useOpenCodeKeyStatus();
   const [busy, setBusy] = useState(false);
 
-  const change = async (mode: AutomationMode) => {
+  const change = async (on: boolean) => {
     setBusy(true);
     env.setError(null);
     try {
-      setStatus(await tauri.setOpenCodeAutomationSettings(mode, status?.restart_pane_on_rotate ?? true));
+      setStatus(await tauri.setOpenCodeAutomationSettings(on ? 'auto_if_backup' : 'notify_only', status?.restart_pane_on_rotate ?? true));
       env.markSaved();
     } catch (e) {
       env.setError(`Not saved: ${errorText(e)}`);
@@ -170,18 +172,16 @@ function AutomationMode({ env }: { env: SettingsEnv }) {
   };
 
   return (
-    <SettingRow label="Key automation" description={AUTOMATION_HINT}>
-      <FieldSelect
-        aria-label="Automation mode"
-        value={status?.key_automation_mode ?? 'auto_if_backup'}
+    <>
+      <SettingToggle
+        label={AUTOMATION_LABEL}
+        description={AUTOMATION_HINT}
+        checked={status?.key_automation_mode === 'auto_if_backup'}
         disabled={!status || busy}
-        onChange={(e) => void change(e.target.value as AutomationMode)}
-      >
-        <option value="auto_if_backup">Auto-rotate if backup key configured</option>
-        <option value="notify_only">Notify only (no auto-rotate)</option>
-      </FieldSelect>
+        onChange={(value) => void change(value)}
+      />
       {error && <Note role="alert">{`Could not read key status: ${error}`}</Note>}
-    </SettingRow>
+    </>
   );
 }
 
@@ -192,7 +192,7 @@ function RestartPane({ env }: { env: SettingsEnv }) {
   const change = async (restart: boolean) => {
     setBusy(true);
     env.setError(null);
-    const mode: AutomationMode = status?.key_automation_mode === 'notify_only' ? 'notify_only' : 'auto_if_backup';
+    const mode: AutomationMode = status?.key_automation_mode === 'auto_if_backup' ? 'auto_if_backup' : 'notify_only';
     try {
       setStatus(await tauri.setOpenCodeAutomationSettings(mode, restart));
       env.markSaved();
@@ -273,9 +273,9 @@ export const keysRows: RowDef[] = [
   },
   {
     id: 'opencode-automation',
-    label: 'Key automation',
+    label: AUTOMATION_LABEL,
     hint: AUTOMATION_HINT,
-    keywords: `${KEYWORDS} automation mode switch backup popup`,
+    keywords: `${KEYWORDS} automation key automation mode switch backup second key terms`,
     group: 'OpenCode keys',
     render: (env) => <AutomationMode env={env} />,
   },

@@ -1,0 +1,22 @@
+#! source: synthetic (built from the 2.1.300 string table texts in DESIGN-RELAY.md 1.2; NOT a live capture; live captures C1-C10 are TODO)
+#! now: 2026-10-15T12:00 +08:00 Asia/Taipei
+#! expect: none
+#! why: the agent quotes the limit sentence in its own reply (this repository makes that likely)
+ ▐▛███▛█   Claude Code v2.1.300
+▝▜██████▀  Opus 5 · Claude Max
+ ▝▝   ▝▝   D:\pm-demo
+
+❯ What does Claude print when the plan runs out?
+
+● It prints a single notice. For example:
+
+  You've hit your session limit · resets 5pm (Asia/Taipei)
+
+  and, when its own wait is armed, Usage limit reached · continuing automatically at 5pm (Asia/Taipei) · esc to cancel
+
+✻ Churned for 3s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)

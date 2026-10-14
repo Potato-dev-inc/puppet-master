@@ -67,6 +67,7 @@ pub struct DeclarativeProfile {
     parser: Option<OutputParser>,
     engine: Option<TuiEngine>,
     risk_rules: Vec<crate::prompt_risk::RiskRule>,
+    limits: Option<crate::handoff::CompiledLimits>,
 }
 
 impl DeclarativeProfile {
@@ -110,9 +111,14 @@ impl DeclarativeProfile {
                 reason: if p.reason.is_empty() { p.headline.clone() } else { p.reason.clone() },
             });
         }
+        let limits = match def.limits.clone() {
+            Some(table) => Some(crate::handoff::CompiledLimits::compile(table)?),
+            None => None,
+        };
         Ok(Self {
             engine,
             risk_rules,
+            limits,
             origin: None,
             id: intern(&def.agent.id),
             not_dispatchable_reason: intern(&def.features.not_dispatchable_reason),
@@ -599,6 +605,10 @@ impl TuiProfile for DeclarativeProfile {
             }
         }
         activity::default_activity(self, visible_tail, status)
+    }
+
+    fn limits(&self) -> Option<&crate::handoff::CompiledLimits> {
+        self.limits.as_ref()
     }
 
     fn risk_rules(&self) -> Vec<crate::prompt_risk::RiskRule> {

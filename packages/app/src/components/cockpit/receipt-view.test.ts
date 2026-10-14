@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { readableReceipt, runStatusLabel } from './receipt-view';
+import { readableReceipt, runStatusLabel, usageLimitLine } from './receipt-view';
 
 const receipt = {
   backend: 'claude',
@@ -101,5 +101,47 @@ describe('readableReceipt order', () => {
   it('leads with the result', () => {
     const lines = readableReceipt({ backend: 'claude', outcome: 'passed_checks', checks: '2/2 passed' });
     expect(lines[0]).toEqual({ key: 'Result', value: 'Passed its checks' });
+  });
+});
+
+describe('a run that hit a usage limit', () => {
+  const noon = new Date(2026, 9, 15, 12, 0).getTime();
+  const at = (h: number, m: number, day = 15) => new Date(2026, 9, day, h, m).getTime();
+  const stopped = {
+    ...receipt,
+    outcome: 'cancelled',
+    usage_limit: { state: 'stopped', window: 'session limit', reset_at_ms: at(14, 5), reset_text: '2:05pm (Asia/Taipei)' },
+  };
+
+  it('says "Stopped at a usage limit (resets 14:05)" as the result', () => {
+    const lines = readableReceipt(stopped, noon);
+    expect(valueOf(lines, 'Result')).toBe('Stopped at a usage limit (resets 14:05)');
+    // The limit's own fields fold into that line; nothing raw is left behind.
+    expect(lines.some((line) => /usage_limit|reset_at/i.test(line.key))).toBe(false);
+    expect(lines.some((line) => line.value === String(at(14, 5)))).toBe(false);
+  });
+
+  it('shows the day when the reset is not today', () => {
+    expect(usageLimitLine({ usage_limit: { state: 'stopped', reset_at_ms: at(17, 0, 18) } }, noon)).toBe(
+      'Stopped at a usage limit (resets Oct 18 17:00)',
+    );
+  });
+
+  it('falls back to the text the screen printed, then to no time at all', () => {
+    expect(usageLimitLine({ usage_limit: { state: 'stopped', reset_text: '5pm (Asia/Taipei)' } }, noon)).toBe(
+      'Stopped at a usage limit (resets 5pm (Asia/Taipei))',
+    );
+    expect(usageLimitLine({ usage_limit: { state: 'stopped' } }, noon)).toBe('Stopped at a usage limit');
+  });
+
+  it('a run still at its limit says it is waiting', () => {
+    expect(usageLimitLine({ usage_limit: { state: 'waiting', reset_at_ms: at(14, 5) } }, noon)).toBe('Waiting at a usage limit (resets 14:05)');
+  });
+
+  it('any other run is untouched', () => {
+    expect(usageLimitLine(receipt, noon)).toBeUndefined();
+    expect(usageLimitLine(null, noon)).toBeUndefined();
+    expect(usageLimitLine({ usage_limit: { state: 'unknown' } }, noon)).toBeUndefined();
+    expect(valueOf(readableReceipt(receipt, noon), 'Result')).toBe('Finished, not verified');
   });
 });

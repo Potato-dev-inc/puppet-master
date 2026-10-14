@@ -22,6 +22,9 @@ pub const DEFAULT_TIMEOUT_S: u64 = 600;
 pub const MAX_TIMEOUT_S: u64 = 3600;
 /// A pause card waits as long as the run does: the run stays paused until someone decides.
 pub const MAX_BUDGET_TIMEOUT_S: u64 = 24 * 3600;
+/// A usage-limit card (raised by Puppet Master, never through `ask_user`) outlives an hour: a limit
+/// can last a working day.
+pub const MAX_LIMIT_TIMEOUT_S: u64 = 24 * 3600;
 pub const MAX_CHOICES: usize = 6;
 pub const MAX_QUESTION_CHARS: usize = 2000;
 pub const MAX_CONTEXT_CHARS: usize = 1000;
@@ -77,6 +80,31 @@ pub struct ConsentInfo {
     pub risk: Option<String>,
 }
 
+/// What a usage-limit card is about (`handoff::card`). Present only on cards Puppet Master itself
+/// raised when an agent ran out of usage; an agent cannot set it through `ask_user`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LimitInfo {
+    /// `usage_limit` (the agent ran out) or `reset_reminder` (a reminder the person asked for).
+    pub kind: String,
+    /// The agent's name in the words the card uses ("Claude Code").
+    pub agent_label: String,
+    /// What ran out ("session limit", "weekly limit"), when the screen said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<String>,
+    /// When it can continue (epoch ms), when the screen printed a time this machine could read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reset_at_ms: Option<u64>,
+    /// The time as the screen printed it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reset_text: Option<String>,
+    /// The agent shows it will carry on by itself at the reset.
+    #[serde(default)]
+    pub self_resume_armed: bool,
+    /// A run is bound to the pane, so "Stop here" has something to stop.
+    #[serde(default)]
+    pub has_run: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Question {
     pub id: String,
@@ -107,6 +135,9 @@ pub struct Question {
     /// run that used its budget. The Inbox renders those with their own wording.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    /// Set when this is a usage-limit card (or a reminder for one), not a question an agent asked.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub limit: Option<LimitInfo>,
     #[serde(skip)]
     resolved_at_ms: Option<u64>,
 }
@@ -125,6 +156,8 @@ pub struct NewQuestion {
     /// Only `agent_authority` sets this.
     pub consent: Option<ConsentInfo>,
     pub kind: Option<String>,
+    /// Only `handoff` sets this.
+    pub limit: Option<LimitInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,7 +270,13 @@ impl QuestionStore {
                 format!("context is longer than {MAX_CONTEXT_CHARS} characters"),
             ));
         }
-        let max_timeout = if new.kind.as_deref() == Some("budget") { MAX_BUDGET_TIMEOUT_S } else { MAX_TIMEOUT_S };
+        let max_timeout = if new.kind.as_deref() == Some("budget") {
+            MAX_BUDGET_TIMEOUT_S
+        } else if new.limit.is_some() {
+            MAX_LIMIT_TIMEOUT_S
+        } else {
+            MAX_TIMEOUT_S
+        };
         let timeout_s = new.timeout_s.unwrap_or(DEFAULT_TIMEOUT_S);
         if timeout_s == 0 || timeout_s > max_timeout {
             return Err(QuestionError::new(
@@ -281,6 +320,7 @@ impl QuestionStore {
             answer: None,
             consent: new.consent,
             kind: new.kind.map(|k| trimmed(&k)).filter(|k| !k.is_empty()),
+            limit: new.limit,
             resolved_at_ms: None,
         };
         inner.items.push(question.clone());
@@ -335,6 +375,7 @@ impl QuestionStore {
                 crate::agent_authority::consent::on_resolved(&resolution.question);
                 // A pause card for a run that used its budget: apply "Add turns" / "Stop here".
                 crate::budgets::answer_applied(&resolution.question);
+                crate::handoff::on_resolved(&resolution.question);
             }
         }
         result

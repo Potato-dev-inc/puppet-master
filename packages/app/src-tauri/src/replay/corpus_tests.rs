@@ -244,3 +244,118 @@ fn claude_fullscreen_pinned_box_takes_a_task_and_starts_a_turn() {
     );
     snap("claude_fullscreen_task_into_pinned_box", &pane.timeline);
 }
+
+// ---- (f) a usage limit hit mid-turn (SYNTHETIC cast) ------------------------------------------------
+//
+// Hand-off, detect-only (`crate::handoff`). The cast is SYNTHETIC: built by hand from the Claude Code
+// 2.1.300 string-table texts quoted in the design and the layout of the live 2.1.299 captures. It is
+// not a live recording; replace it with a flight recording when a real limit is captured (C1).
+// Correct: the limit is not acted on until it has held still, it fires ONCE, its own-wait line makes the card say Claude continues by itself, nothing is
+// ever typed into the pane (not by detection, and a task offered at the limit is refused), and when
+// Claude carries on by itself it stops counting, and the old notice left above does not fire again.
+
+/// The fixed noon clock, moved forward with the cast's virtual time.
+struct CastClock {
+    base: crate::handoff::reset::FixedClock,
+    elapsed: Duration,
+}
+
+impl crate::handoff::reset::Clock for CastClock {
+    fn now_ms(&self) -> i64 {
+        self.base.now_ms + self.elapsed.as_millis() as i64
+    }
+    fn zone_name(&self) -> Option<String> {
+        self.base.zone_name()
+    }
+    fn local_at(&self, ms: i64) -> chrono::NaiveDateTime {
+        self.base.local_at(ms)
+    }
+    fn to_ms(&self, local: chrono::NaiveDateTime) -> Option<i64> {
+        self.base.to_ms(local)
+    }
+}
+
+#[test]
+fn claude_usage_limit_mid_turn_fires_once_after_it_holds_types_nothing_and_stops_when_claude_carries_on() {
+    use crate::handoff::watch::{Cleared, Event, Standing, Tracker};
+    use crate::handoff::detect::LimitKind;
+    use crate::handoff::reset::Clock;
+    let profile = profile_for("claude");
+    let mut pane = ReplayPane::corpus("claude/2.1.300/usage_limit_mid_turn.cast");
+    let mut tracker = Tracker::default();
+    let mut fired: Vec<(Duration, String, bool)> = Vec::new();
+    let mut cleared: Vec<(Duration, Cleared)> = Vec::new();
+    let mut standing_at = Vec::new();
+    let mut last_seen = String::new();
+
+    // The app looks at the pane whenever its screen changes and once a second in between; here every 250 ms.
+    for step in 1..=80u64 {
+        let at = Duration::from_millis(step * 250);
+        pane.run_to(at);
+        let clock = CastClock { base: crate::handoff::reset::FixedClock::taipei_noon(), elapsed: at };
+        let screen = pane.screen_text();
+        let tail = crate::pane_activity::visible_tail(&screen);
+        let hit = profile.detect_limit(&screen, &clock);
+        if let Some(hit) = &hit {
+            let seen = format!("sees {} {}", hit.rule_id, hit.reset_text.as_deref().unwrap_or("-"));
+            if hit.kind == LimitKind::Usage && seen != last_seen {
+                pane.note("limit", seen.clone());
+                last_seen = seen;
+            }
+        } else {
+            last_seen.clear();
+        }
+        let now = clock.now_ms() as u64;
+        let (standing, mut events) = tracker.observe(now, "pane", hit, profile.busy_marker(&tail));
+        events.extend(tracker.tick(now));
+        standing_at.push((at, standing));
+        for event in events {
+            match event {
+                Event::Fired { hit, .. } => {
+                    pane.note("limit", format!("FIRED {} armed={} reset_at={:?}", hit.rule_id, hit.self_resume_armed, hit.reset_text));
+                    fired.push((at, hit.rule_id.clone(), hit.self_resume_armed));
+                }
+                Event::Cleared { why, .. } => {
+                    pane.note("limit", format!("cleared {why:?}"));
+                    cleared.push((at, why));
+                }
+            }
+        }
+    }
+
+    // Held still for 2 s (6.0 -> 8.0), then once. The own-wait line that arrives at 6.4 s is the SAME
+    // limit (same window, same reset), so it does not restart the clock; by the time it fires the card
+    // knows Claude will continue by itself.
+    assert_eq!(fired.len(), 1, "{}", pane.timeline.render());
+    let (at, rule, armed) = &fired[0];
+    assert_eq!((rule.as_str(), *armed), ("self_resume_armed", true), "{}", pane.timeline.render());
+    assert!(*at >= Duration::from_millis(8_000) && *at <= Duration::from_millis(8_250), "fired at {at:?}: {}", pane.timeline.render());
+    // Nothing was acted on while it was still settling (6.0 s .. 8.0 s).
+    assert!(standing_at.iter().filter(|(t, _)| *t >= Duration::from_millis(6_000) && *t < Duration::from_millis(8_000)).all(|(_, s)| *s == Standing::Pending));
+    assert!(standing_at.iter().filter(|(t, _)| *t < Duration::from_millis(6_000)).all(|(_, s)| *s == Standing::Clear), "no limit before it is on screen");
+    // Claude carried on by itself at 14 s: the limit stops counting at once, and only once.
+    assert_eq!(cleared.len(), 1, "{}", pane.timeline.render());
+    assert_eq!(cleared[0].1, Cleared::Resumed);
+    assert!(cleared[0].0 >= Duration::from_secs(14) && cleared[0].0 <= Duration::from_millis(14_250));
+    // The finished turn still shows the old notice above its answer: history, not a new limit.
+    assert!(pane.screen_text().contains("You've hit your session limit"), "the premise: the old notice is still on screen");
+    assert_eq!(standing_at.last().unwrap().1, Standing::Clear);
+
+    // Detection never typed anything.
+    assert!(pane.inputs.is_empty(), "{:?}", pane.inputs);
+    snap("claude_usage_limit_mid_turn", &pane.timeline);
+
+    // A task offered while the limit is up is refused: nothing is typed, no keys are pressed.
+    let mut at_the_limit = ReplayPane::corpus("claude/2.1.300/usage_limit_mid_turn.cast");
+    at_the_limit.run_to(Duration::from_secs(10));
+    let mut trace = Vec::new();
+    let outcome = deliver_prompt_traced(&mut at_the_limit, profile.clear_input_sequence(), "Carry on please", &mut trace);
+    match outcome {
+        Delivery::Blocked(gate) => {
+            assert_eq!(gate.id, "usage_limit", "{trace:#?}");
+            assert!(gate.dismiss.is_none());
+        }
+        other => panic!("expected the task to be refused at the limit, got {other:?}\n{trace:#?}"),
+    }
+    assert!(at_the_limit.inputs.is_empty(), "something was typed at the limit: {:?}", at_the_limit.inputs);
+}

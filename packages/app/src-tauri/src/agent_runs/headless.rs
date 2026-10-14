@@ -33,3 +33,8 @@ pub(super) use finish::failure_message;
 pub(super) use output::append_valid_utf8;
 pub(super) use process::{execute_headless, publish};
 pub(super) use view::compact_prompt;
+/// `compact_prompt` for the hand-off tests (`handoff::tests`).
+#[cfg(test)]
+pub(crate) fn compact_prompt_for_test(action: serde_json::Value) -> serde_json::Value {
+    view::compact_prompt(action)
+}

@@ -375,7 +375,7 @@ export const tauri = {
           { id: 'a', label: 'Primary', configured: false },
           { id: 'b', label: 'Secondary', configured: false },
         ],
-        key_automation_mode: 'auto_if_backup',
+        key_automation_mode: 'notify_only',
         restart_pane_on_rotate: true,
       },
       true,

@@ -85,6 +85,8 @@ pub(super) fn observe_operation_pane_status(pane_id: &str, status: &str) {
         None
     } else {
         crate::pane_prompt::required_action(registry, pane_id)
+            // A run parked at a usage limit stays parked while the limit is on screen.
+            .or_else(|| crate::handoff::active_limit_action(pane_id))
     };
     let observed_state = if native_action.is_some() || screen_action.is_some() {
         "waiting_input"

@@ -86,13 +86,13 @@ export function QuestionsView({
       {live.map((q) => (
         <div key={q.id} className="ph-card" data-question-id={q.id}>
           <div className="ph-card-cap">
-            Question from {askerName(q, q.pane_id ? labels.get(q.pane_id) : undefined)}
+            {q.limit ? `${q.limit.agent_label} · usage limit` : `Question from ${askerName(q, q.pane_id ? labels.get(q.pane_id) : undefined)}`}
           </div>
           <p className="ph-card-q">{q.question}</p>
           {q.context && <p className="ph-card-body">{q.context}</p>}
           {q.choices.length > 0 && (
             <div className="ph-answers">
-              {/* Equal weight on purpose: the agent wrote the choices, so none is made the easy default. */}
+              {/* Equal weight on purpose: the agent (or the limit card) wrote the choices, so none is made the easy default. */}
               {q.choices.map((c) => (
                 <button
                   key={c.id}
@@ -105,9 +105,12 @@ export function QuestionsView({
               ))}
             </div>
           )}
-          <p className="ph-card-wait" data-testid="question-wait">
-            {waitCaption(q, now, q.pane_id ? labels.get(q.pane_id) : undefined)}
-          </p>
+          {/* A usage-limit card does not time out on an asking agent: it goes away with the limit. */}
+          {!q.limit && (
+            <p className="ph-card-wait" data-testid="question-wait">
+              {waitCaption(q, now, q.pane_id ? labels.get(q.pane_id) : undefined)}
+            </p>
+          )}
           {q.allow_free_text && (
             <form
               className="ph-reply"
@@ -132,14 +135,17 @@ export function QuestionsView({
               </button>
             </form>
           )}
-          <button
-            type="button"
-            onClick={() => void run(bridge.dismissQuestion(q.id))}
-            className="ph-btn ph-btn--plain"
-            style={{ marginTop: 4 }}
-          >
-            Dismiss
-          </button>
+          {/* A limit card's own choices end it ("Stop here" / "Dismiss"); a second Dismiss would leave the run parked. */}
+          {!q.limit && (
+            <button
+              type="button"
+              onClick={() => void run(bridge.dismissQuestion(q.id))}
+              className="ph-btn ph-btn--plain"
+              style={{ marginTop: 4 }}
+            >
+              Dismiss
+            </button>
+          )}
         </div>
       ))}
       {error && <div className="ph-error">{error}</div>}

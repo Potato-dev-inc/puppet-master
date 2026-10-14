@@ -263,6 +263,21 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// What this agent's screen says when its plan runs out: the compiled `[limits]` table
+    /// (`crate::handoff`). `None` (the default) means no rules yet: Puppet Master cannot tell when
+    /// this agent hits a limit, so it never reacts to one. Code profiles embed a `limits.toml`;
+    /// TOML agent definitions carry the table inline.
+    fn limits(&self) -> Option<&crate::handoff::CompiledLimits> {
+        None
+    }
+
+    /// The usage limit (or transient retry, warning) the screen shows, if any. The default runs the
+    /// generic detector over `limits()` and the profile's own `busy_marker`; no override is needed.
+    fn detect_limit(&self, screen: &str, clock: &dyn crate::handoff::reset::Clock) -> Option<crate::handoff::LimitHit> {
+        let limits = self.limits()?;
+        limits.detect(screen, self.busy_marker(&crate::pane_activity::visible_tail(screen)), clock)
+    }
+
     /// A prompt blocking the pane, with the choices `prompt_reply` accepts.
     fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<Value> {
         generic::detect_prompt(self.id(), screen, allow_broad)

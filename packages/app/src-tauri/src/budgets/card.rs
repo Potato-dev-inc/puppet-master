@@ -102,6 +102,7 @@ pub fn raise(record: &BudgetRecord, standing: &Standing, reason: Reason) -> Opti
                 timeout_s: Some(questions::MAX_BUDGET_TIMEOUT_S),
                 urgency: Some("normal".into()),
                 kind: Some(KIND.into()),
+                limit: None,
                 consent: None,
             },
             now,

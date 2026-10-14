@@ -46,6 +46,14 @@ pub fn note_output(pane_id: &str) {
     }
 }
 
+/// Make the next tick recompute a pane even though its screen did not change (`handoff`: a usage
+/// limit became stable, which only the clock shows).
+pub fn invalidate(pane_id: &str) {
+    let mut state = STATE.lock();
+    state.last.remove(pane_id);
+    state.dirty.insert(pane_id.to_string());
+}
+
 /// The current phrase of every pane that has one.
 pub fn snapshot() -> HashMap<String, Activity> {
     STATE.lock().last.iter().map(|(id, (_, a))| (id.clone(), a.clone())).collect()
@@ -92,7 +100,11 @@ pub fn tick_with(
         crate::loop_guard::observe_pane(&id, &pane.agent_type, &tail, pane.status);
         // A screen the profile cannot read, held still, is saved for the person to look at.
         crate::canary::unknown::observe(&id, &pane.agent_type, &pane.screen, pane.status);
-        let Some(activity) = crate::tui::profile_for(&pane.agent_type).activity(&tail, pane.status) else {
+        // A usage limit on screen: parks the run and raises the Inbox card (`handoff`). The pane's
+        // status line then says so, and a transient retry says the agent is retrying by itself.
+        crate::handoff::observe_pane(&id, &pane.agent_type, &pane.screen);
+        let limit_line = crate::handoff::status_line(&id).map(|(kind, text)| Activity::new(kind, text));
+        let Some(activity) = limit_line.or_else(|| crate::tui::profile_for(&pane.agent_type).activity(&tail, pane.status)) else {
             STATE.lock().last.remove(&id);
             continue;
         };
@@ -140,6 +152,7 @@ pub fn init(registry: Arc<Mutex<PaneRegistry>>, app: tauri::AppHandle) {
             crate::pane_preview::retain_alive(&running);
             crate::loop_guard::tick(&alive);
             crate::canary::unknown::tick(&alive);
+            crate::handoff::tick(&alive);
         })
         .ok();
 }

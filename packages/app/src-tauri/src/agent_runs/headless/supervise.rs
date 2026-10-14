@@ -170,6 +170,15 @@ impl Supervisor {
 
     /// Reads the pane of a running/waiting turn and acts on what the completion watch decides.
     fn observe_pane(&mut self, current: &OperationSnapshot, pane_id: &str) -> Step {
+        // The pane shows a usage limit (or is about to be judged to): the limit text is not this
+        // turn's answer, and a turn that is waiting out its limit has not failed. The run is parked
+        // by `handoff` (`waiting_input`, `usage_limit`); nothing is pressed here, and the turn is
+        // never completed or failed from this screen while the limit stands.
+        if let Some(screen) = read_tui_screen(&self.registry, pane_id) {
+            if crate::handoff::observe_pane(pane_id, &current.agent_type, &screen) != crate::handoff::watch::Standing::Clear {
+                return Step::Continue;
+            }
+        }
         let pane_status = self
             .registry
             .lock()
@@ -548,6 +557,9 @@ fn supervise_loop(
     // A snapshot read can fail transiently (file briefly locked mid-write). Giving up on the
     // first failure would stop deadline enforcement for good and leave the turn `running`.
     let mut read_failures = 0u32;
+    // Time the run spent parked at a usage limit, which the deadline does not count.
+    let mut paused_ms = 0u64;
+    let mut last_tick = std::time::Instant::now();
     loop {
         let current = match operations::get_operation(&snapshot.project_path, &snapshot.operation_id) {
             Ok(current) => {
@@ -569,11 +581,22 @@ fn supervise_loop(
         if matches!(tick(&current), Step::Finished) {
             return None;
         }
+        // A run waiting out its usage limit is not working, and its deadline must not end it: the
+        // deadline stops the worker, which presses keys in the pane (Esc is how Claude cancels its
+        // own "continue automatically" wait). The clock stands still while the run is parked there;
+        // the caller already got `needs_input` and can stop it with "Stop here".
+        let parked_at_limit = current.status == OperationStatus::WaitingInput
+            && current.required_action.as_ref().and_then(|a| a.get("kind")).and_then(serde_json::Value::as_str)
+                == Some(operations::USAGE_LIMIT_KIND);
+        if parked_at_limit {
+            paused_ms += last_tick.elapsed().as_millis() as u64;
+        }
+        last_tick = std::time::Instant::now();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        if now.saturating_sub(start) >= deadline_ms {
+        if now.saturating_sub(start).saturating_sub(paused_ms) >= deadline_ms {
             return Some(current);
         }
         // Native completion is only noticed by this poll (the wait wakes on the terminal

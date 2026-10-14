@@ -1,0 +1,18 @@
+#! source: synthetic (built from the 2.1.300 string table texts in DESIGN-RELAY.md 1.2; NOT a live capture; live captures C1-C10 are TODO)
+#! now: 2026-10-15T12:00 +08:00 Asia/Taipei
+#! expect: none
+#! why: a turn is running (esc to interrupt), so a notice above is history, not a stop
+ ▐▛███▛█   Claude Code v2.1.300
+▝▜██████▀  Opus 5 · Claude Max
+ ▝▝   ▝▝   D:\pm-demo
+
+❯ Carry on
+
+  ⎿  You've hit your session limit · resets 5pm (Asia/Taipei)
+
+✢ Generating…
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt

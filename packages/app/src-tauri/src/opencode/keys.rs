@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-const STORE_VERSION: u32 = 2;
+/// Version 3: switching to the other key on a rate limit is OPT-IN (it used to be the default).
+const STORE_VERSION: u32 = 3;
 const DEFAULT_PROVIDER: &str = "opencode-go";
 pub const PROFILE_A: &str = "a";
 pub const PROFILE_B: &str = "b";
@@ -35,8 +36,30 @@ impl KeyAutomationMode {
     }
 }
 
+/// Off. Switching to another key when one hits its rate limit is something a person turns on
+/// ("Switch to another of your keys when one hits its rate limit (check your provider's terms)"):
+/// if both keys belong to one provider it is rotating accounts to get past a limit, which provider
+/// terms may forbid. A missing field in a stored file reads as off too.
 fn default_automation_mode() -> KeyAutomationMode {
-    KeyAutomationMode::AutoIfBackup
+    KeyAutomationMode::NotifyOnly
+}
+
+/// Bring a store written by an older version to this one (`load_store`, in memory; the startup
+/// pass `migrate_profiles_to_secret_store` writes it back).
+///
+/// Before version 3 the mode defaulted to `auto_if_backup` and every file stored the mode it held,
+/// so a stored `auto_if_backup` cannot be told from the default: it is read as the default and
+/// turned off. A stored `notify_only` was always a person's own choice (the default was the other
+/// way round) and stays. From version 3 on, `auto_if_backup` in a file is a person's opt-in and is
+/// kept as it is.
+fn migrate_automation_mode(store: &mut KeyProfilesStore) {
+    if store.version >= STORE_VERSION {
+        return;
+    }
+    if store.key_automation_mode == KeyAutomationMode::AutoIfBackup {
+        store.key_automation_mode = KeyAutomationMode::NotifyOnly;
+    }
+    store.version = STORE_VERSION;
 }
 
 fn default_restart_pane_on_rotate() -> bool {
@@ -248,9 +271,7 @@ fn load_store() -> Result<KeyProfilesStore, String> {
     let raw = fs::read_to_string(&path).map_err(|err| format!("read {}: {err}", path.display()))?;
     let mut store: KeyProfilesStore =
         serde_json::from_str(&raw).map_err(|err| format!("parse {}: {err}", path.display()))?;
-    if store.version < STORE_VERSION {
-        store.version = STORE_VERSION;
-    }
+    migrate_automation_mode(&mut store);
     ensure_default_profiles(&mut store);
     hydrate_from_secret_store(&mut store);
     Ok(store)
@@ -543,6 +564,81 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
         std::env::remove_var("PUPPET_MASTER_TEST_OPENCODE_KEYS_STORE");
+    }
+
+    /// Point the store at a private file holding `contents`, run `f`, clean up.
+    fn with_store_file<F: FnOnce(&std::path::Path)>(contents: Option<&str>, f: F) {
+        let _guard = lock();
+        let dir = std::env::temp_dir().join(format!("pm-opencode-keys-migrate-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("tempdir");
+        let store_file = dir.join("opencode-key-profiles.json");
+        if let Some(contents) = contents {
+            fs::write(&store_file, contents).expect("write");
+        }
+        std::env::set_var("PUPPET_MASTER_TEST_OPENCODE_KEYS_STORE", &store_file);
+        f(&store_file);
+        let _ = fs::remove_dir_all(&dir);
+        std::env::remove_var("PUPPET_MASTER_TEST_OPENCODE_KEYS_STORE");
+    }
+
+    fn stored_json(version: u32, mode: Option<&str>) -> String {
+        let mode = mode.map(|m| format!(r#","key_automation_mode":"{m}""#)).unwrap_or_default();
+        format!(
+            r#"{{"version":{version},"active":"a","profiles":{{"a":{{"label":"Primary","auth":{{}}}},"b":{{"label":"Secondary","auth":{{}}}}}}{mode},"restart_pane_on_rotate":true}}"#
+        )
+    }
+
+    #[test]
+    fn a_new_install_switches_keys_only_when_the_person_turns_it_on() {
+        with_store_file(None, |_| {
+            assert_eq!(automation_mode().unwrap(), KeyAutomationMode::NotifyOnly);
+            assert_eq!(status().unwrap().key_automation_mode, "notify_only");
+        });
+        assert_eq!(default_store().key_automation_mode, KeyAutomationMode::NotifyOnly);
+    }
+
+    #[test]
+    fn migration_a_file_from_before_the_change_that_holds_the_old_default_is_turned_off() {
+        // Version 2 wrote `auto_if_backup` for everyone who never touched the setting. That is the
+        // old default, not a choice, so it must not carry the feature over.
+        with_store_file(Some(&stored_json(2, Some("auto_if_backup"))), |_| {
+            assert_eq!(automation_mode().unwrap(), KeyAutomationMode::NotifyOnly);
+            // Version 1 files (no mode at all) too.
+        });
+        with_store_file(Some(&stored_json(1, None)), |_| {
+            assert_eq!(automation_mode().unwrap(), KeyAutomationMode::NotifyOnly);
+        });
+    }
+
+    #[test]
+    fn migration_a_choice_the_person_made_is_kept() {
+        // `notify_only` was never the default: it was a choice, and it stays.
+        with_store_file(Some(&stored_json(2, Some("notify_only"))), |_| {
+            assert_eq!(automation_mode().unwrap(), KeyAutomationMode::NotifyOnly);
+        });
+        // From version 3 on, `auto_if_backup` in the file is the person's opt-in: kept.
+        with_store_file(Some(&stored_json(3, Some("auto_if_backup"))), |_| {
+            assert_eq!(automation_mode().unwrap(), KeyAutomationMode::AutoIfBackup);
+            assert_eq!(status().unwrap().key_automation_mode, "auto_if_backup");
+        });
+    }
+
+    #[test]
+    fn migration_runs_once_and_an_opt_in_after_it_survives_a_restart() {
+        with_store_file(Some(&stored_json(2, Some("auto_if_backup"))), |file| {
+            // The startup pass writes the migrated store back (version 3, off).
+            migrate_profiles_to_secret_store();
+            let on_disk: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
+            assert_eq!(on_disk["version"], 3);
+            assert_eq!(on_disk["key_automation_mode"], "notify_only");
+            // The person opts in. The next start must not undo it.
+            set_automation_settings(Some(KeyAutomationMode::AutoIfBackup), None).unwrap();
+            migrate_profiles_to_secret_store();
+            assert_eq!(automation_mode().unwrap(), KeyAutomationMode::AutoIfBackup);
+            // Changing the restart switch alone leaves the mode as it is.
+            set_automation_settings(None, Some(false)).unwrap();
+            assert_eq!(automation_mode().unwrap(), KeyAutomationMode::AutoIfBackup);
+        });
     }
 
     #[test]

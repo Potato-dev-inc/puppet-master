@@ -1,0 +1,44 @@
+{
+ "width": 120,
+ "height": 30,
+ "title": "Claude Code 2.1.300 (SYNTHETIC): the session limit is hit mid-turn, its own wait is armed, then it carries on by itself",
+ "pm": {
+  "agent": "claude",
+  "agent_version": "2.1.300",
+  "initial_status": "idle",
+  "bug": "Hand-off detect-only: a usage limit mid-turn must be noticed once (after it holds still), must park the run and raise ONE card, must never type into the pane, and must stop counting when Claude continues by itself.",
+  "source": [
+   "SYNTHETIC. Built by hand from the 2.1.300 string table texts quoted in D:/pm-night/DESIGN-RELAY.md 1.2 and the layout of the live 2.1.299 captures in tui/claude/fixtures. NOT a live recording. Replace with a flight recording when a real limit is captured (DESIGN-RELAY 7.1 C1)."
+  ]
+ },
+ "events": [
+  {
+   "t": 0.0,
+   "text": " ▐▛███▛█   Claude Code v2.1.300\n▝▜██████▀  Opus 5 · Claude Max\n ▝▝   ▝▝   D:\\pm-demo\n\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ⏵⏵ auto mode on (shift+tab to cycle)"
+  },
+  {
+   "t": 1.0,
+   "text": " ▐▛███▛█   Claude Code v2.1.300\n▝▜██████▀  Opus 5 · Claude Max\n ▝▝   ▝▝   D:\\pm-demo\n\n❯ Make the cart total round to cents\n\n✻ Generating…\n\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt"
+  },
+  {
+   "t": 3.0,
+   "text": " ▐▛███▛█   Claude Code v2.1.300\n▝▜██████▀  Opus 5 · Claude Max\n ▝▝   ▝▝   D:\\pm-demo\n\n❯ Make the cart total round to cents\n\n● Update(src\\money.ts)\n  ⎿  Updated src\\money.ts with 3 additions and 1 removal\n\n✻ Generating…\n\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt"
+  },
+  {
+   "t": 6.0,
+   "text": " ▐▛███▛█   Claude Code v2.1.300\n▝▜██████▀  Opus 5 · Claude Max\n ▝▝   ▝▝   D:\\pm-demo\n\n❯ Make the cart total round to cents\n\n● Update(src\\money.ts)\n  ⎿  Updated src\\money.ts with 3 additions and 1 removal\n\n  ⎿  You've hit your session limit · resets 5pm (Asia/Taipei)\n\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ⏵⏵ auto mode on (shift+tab to cycle)"
+  },
+  {
+   "t": 6.4,
+   "text": " ▐▛███▛█   Claude Code v2.1.300\n▝▜██████▀  Opus 5 · Claude Max\n ▝▝   ▝▝   D:\\pm-demo\n\n❯ Make the cart total round to cents\n\n● Update(src\\money.ts)\n  ⎿  Updated src\\money.ts with 3 additions and 1 removal\n\n  ⎿  You've hit your session limit · resets 5pm (Asia/Taipei)\n\n✻ Usage limit reached · continuing automatically at 5pm (Asia/Taipei) · esc to cancel\n\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ⏵⏵ auto mode on (shift+tab to cycle)"
+  },
+  {
+   "t": 14.0,
+   "text": " ▐▛███▛█   Claude Code v2.1.300\n▝▜██████▀  Opus 5 · Claude Max\n ▝▝   ▝▝   D:\\pm-demo\n\n❯ Make the cart total round to cents\n\n● Update(src\\money.ts)\n  ⎿  Updated src\\money.ts with 3 additions and 1 removal\n\n  ⎿  You've hit your session limit · resets 5pm (Asia/Taipei)\n\n✻ Generating…\n\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt"
+  },
+  {
+   "t": 18.0,
+   "text": " ▐▛███▛█   Claude Code v2.1.300\n▝▜██████▀  Opus 5 · Claude Max\n ▝▝   ▝▝   D:\\pm-demo\n\n❯ Make the cart total round to cents\n\n● Update(src\\money.ts)\n  ⎿  Updated src\\money.ts with 3 additions and 1 removal\n\n  ⎿  You've hit your session limit · resets 5pm (Asia/Taipei)\n\n● Done. Both tests pass.\n\n✻ Churned for 4s\n\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ⏵⏵ auto mode on (shift+tab to cycle)"
+  }
+ ]
+}

@@ -264,6 +264,21 @@ mod tests {
     }
 
     #[test]
+    fn with_the_default_settings_a_rate_limit_never_switches_keys_even_with_two_keys() {
+        // Opt-in (founder decision 2026-10-15): nothing was chosen, so the other key is not used.
+        with_test_keys_store(|| {
+            keys::set_profile_api_key("a", "key-a", None).expect("set a");
+            keys::set_profile_api_key("b", "key-b", None).expect("set b");
+            let mode = keys::automation_mode().expect("mode");
+            assert_eq!(mode, KeyAutomationMode::NotifyOnly);
+            let plan = plan_rate_limit_action(mode, "a", true);
+            assert_eq!(plan.kind, KEY_SWAP_REQUIRED);
+            assert!(!plan.should_rotate && !plan.auto_rotated);
+            assert!(plan.to_profile.is_none());
+        });
+    }
+
+    #[test]
     fn auto_if_backup_notifies_when_backup_missing() {
         let plan = plan_rate_limit_action(KeyAutomationMode::AutoIfBackup, "a", false);
         assert_eq!(plan.kind, KEY_SWAP_REQUIRED);

@@ -152,7 +152,13 @@ pub fn mark_operation_observation(
     if pane_state.as_deref() == Some("waiting_input") {
         op.status = OperationStatus::WaitingInput;
         if !awaiting_readiness {
-            op.stage = Some("waiting_input".into());
+            // A usage limit keeps its own stage (`handoff`): it is not a prompt anyone can answer.
+            let at_limit = required_action
+                .as_ref()
+                .and_then(|action| action.get("kind"))
+                .and_then(Value::as_str)
+                == Some(USAGE_LIMIT_KIND);
+            op.stage = Some(if at_limit { USAGE_LIMIT_KIND } else { "waiting_input" }.into());
         }
     } else if !awaiting_readiness
         && !dispatching
@@ -208,6 +214,75 @@ pub fn mark_operation_waiting_input(
     op.required_action = Some(required_action);
     op.observed_at_ms = Some(now_ms());
     op.source = source;
+    bump(&mut op)?;
+    Ok(op)
+}
+
+/// The `required_action.kind` and stage of a run whose agent ran out of usage (`crate::handoff`).
+pub const USAGE_LIMIT_KIND: &str = "usage_limit";
+/// The error code of a run a person ended at a usage limit ("Stop here").
+pub const USAGE_LIMIT_STOPPED: &str = "USAGE_LIMIT_STOPPED";
+
+/// Park a run because its agent hit a usage limit: `waiting_input`, stage `usage_limit`, with the
+/// limit (window, reset time) as the required action. Nothing here answers anything: the action has
+/// no options and the answer routes refuse it.
+pub fn mark_operation_usage_limit(
+    project: &str,
+    id: &str,
+    action: Value,
+) -> Result<OperationSnapshot, OperationError> {
+    let _serial = update_lock();
+    let mut op = get_operation(project, id)?;
+    if op.status.terminal() || op.status == OperationStatus::Cancelling {
+        return Ok(op);
+    }
+    if !matches!(
+        op.status,
+        OperationStatus::Starting | OperationStatus::Running | OperationStatus::WaitingInput
+    ) {
+        return Err(OperationError::new(
+            "INVALID_STATE_TRANSITION",
+            "operation cannot stop at a usage limit in its current state",
+            false,
+        ));
+    }
+    op.status = OperationStatus::WaitingInput;
+    if op.stage.as_deref() != Some("waiting_for_pane_readiness") {
+        op.stage = Some(USAGE_LIMIT_KIND.into());
+    }
+    op.pane_state = Some("waiting_input".into());
+    op.required_action = Some(action);
+    op.observed_at_ms = Some(now_ms());
+    op.source = StateSource::Inferred;
+    bump(&mut op)?;
+    Ok(op)
+}
+
+/// A person chose "Stop here" at a usage limit: the run ends as cancelled with the limit on its
+/// error, and its pane is KEPT (the agent's own wait, its transcript and its screen stay as they
+/// are). Nothing is pressed in the pane.
+pub fn mark_operation_stopped_at_limit(
+    project: &str,
+    id: &str,
+    context: Value,
+) -> Result<OperationSnapshot, OperationError> {
+    let _serial = update_lock();
+    let mut op = get_operation(project, id)?;
+    if op.status.terminal() || op.status == OperationStatus::Cancelling {
+        return Ok(op);
+    }
+    op.status = OperationStatus::Cancelled;
+    op.stage = Some("stopped_at_usage_limit".into());
+    let mut error = OperationError::new(
+        USAGE_LIMIT_STOPPED,
+        "stopped at a usage limit: the agent ran out of usage and the person chose to stop here",
+        true,
+    );
+    error.context = context;
+    op.error = Some(error);
+    op.keep_pane = true;
+    op.finished_at_ms = Some(now_ms());
+    op.required_action = None;
     bump(&mut op)?;
     Ok(op)
 }

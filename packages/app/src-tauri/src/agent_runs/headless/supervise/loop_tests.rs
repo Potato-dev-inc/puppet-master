@@ -109,3 +109,28 @@ fn a_prompt_that_can_never_be_redelivered_is_a_dead_end_with_the_reason() {
     // Nor is a blank, still-drawing pane.
     assert!(redelivery_dead_end("claude", "sup-other-pane", "").is_none());
 }
+
+#[test]
+fn a_run_parked_at_a_usage_limit_is_not_ended_by_its_deadline_until_it_runs_again() {
+    // The deadline stops the worker, which presses keys in the pane; Esc is how Claude cancels its own
+    // "continue automatically at usage limit" wait. A run waiting out its limit must not be touched.
+    // (A deadline well above scheduling jitter: under a loaded test run the thread may start late.)
+    let snapshot = run_with_timeout(1_000);
+    for status in [OperationStatus::Starting, OperationStatus::Running] {
+        operations::mark_operation_state(&snapshot.project_path, &snapshot.operation_id, status, StateSource::Inferred, Some("running".into()), None, None).unwrap();
+    }
+    operations::mark_operation_usage_limit(&snapshot.project_path, &snapshot.operation_id, serde_json::json!({"kind": "usage_limit"})).unwrap();
+
+    let (done, wait) = mpsc::channel();
+    let looped = snapshot.clone();
+    thread::spawn(move || {
+        let _ = done.send(supervise_loop(&looped, Duration::from_millis(10), &mut |_| Step::Continue));
+    });
+    // Well past its deadline, the loop is still watching and has not asked to stop the worker.
+    assert!(wait.recv_timeout(Duration::from_millis(2_500)).is_err(), "the deadline ended a run parked at a usage limit");
+
+    // The agent carries on: the run is running again, the clock runs again, and the deadline then ends it.
+    operations::mark_operation_observation(&snapshot.project_path, &snapshot.operation_id, Some("running".into()), None, StateSource::Inferred).unwrap();
+    let ended = wait.recv_timeout(Duration::from_secs(8)).expect("the loop ends once the run is running again");
+    assert!(ended.is_some(), "the deadline is reported again");
+}

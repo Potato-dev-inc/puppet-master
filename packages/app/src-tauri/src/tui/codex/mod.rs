@@ -40,6 +40,13 @@ impl TuiProfile for Codex {
         "codex"
     }
 
+    /// What the screen says when the plan runs out (`limits.toml`, read by `crate::handoff`).
+    fn limits(&self) -> Option<&crate::handoff::CompiledLimits> {
+        static LIMITS: once_cell::sync::Lazy<Option<crate::handoff::CompiledLimits>> =
+            once_cell::sync::Lazy::new(|| crate::handoff::CompiledLimits::from_toml(include_str!("limits.toml")));
+        LIMITS.as_ref()
+    }
+
     fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
         crate::toolbelt::host_from_toml(MCP_HOST)
     }

@@ -358,6 +358,11 @@ pub fn assess(profile: &dyn TuiProfile, observation: Observation) -> Verdict {
     if crate::pane_prompt::detect_in_screen(profile.id(), &screen, false).is_some() {
         return verdict(Readiness::Gate(PROMPT_GATE), Basis::Recognised, ComposerState::Unknown, PROMPT_GATE.summary);
     }
+    // The agent stopped at its usage limit (or shows the vendor's own limit menu): nothing is typed
+    // into it, and no keys are declared to move past it. Hand-off, detect-only: `crate::handoff`.
+    if let Some(gate) = crate::handoff::limit_gate(profile, &screen) {
+        return verdict(Readiness::Gate(gate), Basis::Recognised, ComposerState::Unknown, gate.summary);
+    }
     if agent == AgentProcess::Starting {
         return verdict(Readiness::Unknown, Basis::Recognised, ComposerState::Unknown, "the agent has not started yet");
     }

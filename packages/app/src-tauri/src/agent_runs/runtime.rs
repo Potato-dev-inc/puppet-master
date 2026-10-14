@@ -35,6 +35,11 @@ pub use control::{cancel_agent, close_agent, inspect_agent};
 pub(super) use followup::enqueue_followup;
 pub use followup::send_agent;
 pub use present::agent_view_after_wait;
+/// The usage limit a run is parked at or was stopped at, for the receipt (`crate::handoff`).
+pub(crate) use receipt::ReceiptLimit;
+pub(crate) fn receipt_usage_limit(snapshot: &crate::operations::OperationSnapshot) -> Option<receipt::ReceiptLimit> {
+    receipt::usage_limit_of(snapshot)
+}
 #[cfg(test)]
 pub(super) use present::pane_presentation;
 #[cfg(test)]

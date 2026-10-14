@@ -1,0 +1,62 @@
+# Claude Code: what its screen says when the plan runs out. Read by `handoff::detect`; the rules are DATA.
+#
+# Source of every text below: the string table of the installed Claude Code 2.1.300 `claude.exe`
+# (read 2026-10-15), cited in D:\pm-night\DESIGN-RELAY.md 1.2. NO rule has been checked against a LIVE
+# screen yet: the fixtures under `fixtures/limits/2.1.300/` are SYNTHETIC (built from these texts).
+# TODO(live capture, DESIGN-RELAY 7.1): C1 armed wait, C2 own wait off + /rate-limit-options, C3 after
+# Esc, C4 "has reset", C5 weekly / model limit, C6 transient retry, C7 warning, C10 at 52 and 200
+# columns, N1/N2 negatives. Until C1 and C2 exist these regexes are drafts and the exact time case and
+# spacing (`5pm` vs `5 PM`, the zone suffix) is unconfirmed (probe P-L1).
+[limits]
+schema = 1
+vendor = "anthropic"
+tested = ">=2.1.300, <2.2"
+self_resume = "setting"       # "Continue automatically at usage limit" (autoContinueAtUsageLimit), default on
+tail_lines = 12
+stable_ms = 2000
+# Claude opens its replies and tool rows with the record glyph (`⏺` on macOS, `●` on Windows, live
+# 2.1.299) and echoes the person's prompt behind `❯`. Inside such a block only a `⎿` row (the CLI's own
+# notice row) counts, so a quoted limit sentence in a reply or a pasted prompt is not a limit.
+block_markers = ["⏺", "●", "❯"]
+notice_glyph = "⎿"
+
+# "You've hit your session limit · resets 5pm (Asia/Taipei) · progress saved". The apostrophe is ASCII,
+# the separator U+00B7. `\s+` between words so a row the agent wrapped still matches.
+[[limits.usage]]
+id = "window"
+regex = '''^[ \t]*(?:⎿[ \t]*)?You've\s+hit\s+your\s+(?P<window>session\s+limit|weekly\s+limit|Opus\s+limit|Sonnet\s+limit|Fable\s+limit|usage\s+credit\s+limit)(?:\s+·\s+resets\s+(?P<reset>[^·\n]+?))?(?:\s+·\s+progress\s+saved)?[ \t]*$'''
+
+# The default: Claude waits by itself and continues at the reset (finding 1 of the design). Detect-only
+# never presses Esc ("esc to cancel") on this line.
+[[limits.usage]]
+id = "self_resume_armed"
+regex = '''Usage limit reached(?: again)? · continuing automatically (?:at (?P<reset>[^·\n]+?)|shortly|when your usage limit resets) · esc to cancel'''
+armed = true
+
+# Its own wait is off or was cancelled.
+[[limits.usage]]
+id = "waiting"
+regex = '''Usage limit reached · limit resets (?P<reset>[^·\n]+)'''
+
+# `/rate-limit-options`: choices include paid ones (extra usage, upgrade). A gate; never answered.
+[[limits.menu]]
+id = "rate_limit_options"
+regex = '''Stop and wait for limit to reset'''
+
+[[limits.transient]]
+id = "limiting_requests"
+regex = '''Server is temporarily limiting requests \(not your usage limit\)'''
+[[limits.transient]]
+id = "retrying"
+regex = ''' · Retrying in \S+.* · attempt (?P<n>\d+)/(?P<max>\d+)'''
+
+[[limits.warning]]
+id = "used_pct"
+regex = '''^[ \t]*(?:⎿[ \t]*)?You've used (?P<pct>\d+)% of your (?P<window>[a-zA-Z ]+limit)'''
+
+# Within 24 h: `5pm`, `5:30pm`. Further out: `Oct 16, 5pm`, with the year when it differs.
+[limits.reset_formats]
+formats = [
+  '''^(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<ampm>[ap]m)$''',
+  '''^(?P<mon>[a-z]{3,9})\.?\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?,?\s+(?:(?P<year>\d{4}),?\s+)?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<ampm>[ap]m)$''',
+]
