@@ -165,6 +165,11 @@ impl ReplayPane {
         crate::pty::registry_read_snapshot_full(self.registry.as_ref(), PANE_ID).unwrap_or_default()
     }
 
+    /// The emulator's own text, whatever the profile leaves out (`screen_text` is what readiness reads).
+    pub fn plain_text(&self) -> String {
+        self.parser.lock().screen().contents()
+    }
+
     pub fn note(&mut self, channel: &'static str, detail: impl Into<String>) {
         self.timeline.note(self.now, channel, detail);
     }

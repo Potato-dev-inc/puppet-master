@@ -301,4 +301,23 @@ mod tests {
         assert!(screen.contains("Wrote 1 line") && screen.contains("footer hint"), "{screen}");
         assert_eq!(input_box(&screen), ComposerState::Empty);
     }
+    /// A real Claude Code 2.1.300 pane (120x30, `/panes/{id}/screen`) right after a turn, with the
+    /// suggestion `commit this` drawn faint in the input box. Captured live 2026-10-14 23:04.
+    const GHOST_LIVE: &str = include_str!("fixtures/ghost_suggestion_2_1_300_live.ansi");
+
+    #[test]
+    fn the_live_suggestion_reads_as_text_to_the_emulator_and_as_an_empty_box_to_readiness() {
+        let mut parser = vt100::Parser::new(30, 120, 0);
+        parser.process(GHOST_LIVE.as_bytes());
+        // What the readiness check read before: the words are in the box, so it was "text the user typed".
+        let plain = parser.screen().contents();
+        assert!(plain.contains("commit this"), "{plain}");
+        assert_eq!(input_box(&plain), ComposerState::HasText, "the bug: the suggestion read as a draft");
+        // The suggestion's cells are faint (SGR 2) in the real bytes; reading around them leaves the box empty.
+        let seen = without_suggestion(parser.screen());
+        assert!(!seen.contains("commit this"), "{seen}");
+        assert_eq!(input_box(&seen), ComposerState::Empty, "{seen}");
+        // The rest of the screen is untouched: the reply and the footer are still there.
+        assert!(seen.contains("Created") && seen.contains("auto mode on"), "{seen}");
+    }
 }

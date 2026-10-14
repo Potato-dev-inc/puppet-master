@@ -38,6 +38,19 @@ names an agent. What an input box looks like is per-profile: `TuiProfile::ready_
 | Trait method | `tui/profile.rs::ready_recogniser` (default: `composer_state` when `reads_composer`, else `None` = legacy) |
 | Ratchets | conformance rule `blank_screen_is_unknown` (`tui/conformance.rs`); `readiness_tests::ready_and_gate_are_never_the_same_screen` (every profile x every `tui/*/fixtures/*.txt`); `fallback.rs::readiness_refusals_never_fall_back_headless` |
 
+### What counts as typed text in the input box (`TuiProfile::input_screen`)
+
+Readiness reads the box from the screen text, but an agent also draws text there that nobody typed: Claude's
+dimmed next-prompt suggestion (`❯ commit this`, shown after a turn) and the `Try "..."` hint, Codex's
+`› Ask Codex to do anything`. All are faint (SGR 2); typed text is not. VERIFY-R11 #1: the suggestion read as
+text in the box, so every follow-up parked on `screen_not_ready` and failed `PROMPT_NOT_SUBMITTED`.
+`pty::registry::read_snapshot_full*` (what `observe_pane` and `DeliveryIo::screen` read) therefore builds the text
+through `TuiProfile::input_screen(&vt100::Screen)`; the default is `contents()`, Claude and Codex leave out the
+faint cells of their input box (`tui/faint.rs::contents_without` keeps `contents()` semantics for everything
+else). Faint text elsewhere on the screen (tool output, footer) is untouched. Typing over a suggestion is fine:
+Claude replaces it as you type. Live captures: `tui/*/fixtures/*_dim_*_live.ansi`, corpus cast
+`tests/corpus/claude/2.1.300/ghost_suggestion_followup.cast`.
+
 ### The verdict (`readiness::assess`), in order; each step only moves away from Ready
 
 1. the host shell says the agent's command was not found (its prompt is the last line) = `HostShell(NotInstalled)`;

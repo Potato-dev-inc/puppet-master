@@ -175,3 +175,42 @@ fn codex_idle_pane_stays_idle_through_a_resize_repaint_and_real_work_still_flips
     assert_eq!(pane.status(), PaneStatus::Running, "a turn in flight is still work");
     snap("codex_idle_repaint_after_resize", &pane.timeline);
 }
+
+// ---- (e) Claude's dimmed next-prompt suggestion in the input box ----------------------------------
+//
+// VERIFY-R11 #1 (a regression from the typing permit): after a turn Claude draws a faint suggestion of
+// the next prompt (`❯ commit this`) in the input box. Readiness read it as text the user typed, so the
+// follow-up parked on `screen_not_ready` and ended PROMPT_NOT_SUBMITTED (4 times on 2 panes).
+// Correct: the suggestion is an empty box; the follow-up is typed over it (Claude wipes the suggestion
+// as the first key arrives), submitted once, and a turn starts. The cast is the real flight recording
+// of a Claude 2.1.300 session; what the pane did when the follow-up was typed is Claude's own bytes.
+
+const FOLLOW_UP: &str = "Reply with only the word OK. Use no tools.";
+
+#[test]
+fn claude_follow_up_typed_over_a_dimmed_suggestion_is_delivered_and_not_parked() {
+    let mut pane = ReplayPane::corpus("claude/2.1.300/ghost_suggestion_followup.cast");
+    pane.run_to(Duration::from_secs(10));
+    assert_eq!(pane.status(), PaneStatus::Idle, "the first turn is over: {}", pane.timeline.render());
+
+    // The premise, from the real bytes: the emulator's plain text DOES hold the suggestion in the box...
+    assert!(pane.plain_text().contains("\u{276f}\u{a0}commit this"), "{}", pane.plain_text());
+    // ...and readiness (which reads through the profile) must not take it for typed text.
+    let profile = profile_for("claude");
+    let seen = pane.screen_text();
+    assert!(!seen.contains("commit this"), "{seen}");
+    assert_eq!(profile.ready_recogniser(&seen), Some(crate::tui::ComposerState::Empty), "{seen}");
+
+    let mut trace = Vec::new();
+    let outcome = deliver_prompt_traced(&mut pane, profile.clear_input_sequence(), FOLLOW_UP, &mut trace);
+    pane.note("deliver", format!("{outcome:?}"));
+    assert_eq!(outcome, Delivery::Started, "{trace:#?}\n{}", pane.timeline.render());
+    // Nothing but the task and one Enter was typed: no clearing, no retyping.
+    assert_eq!(
+        pane.inputs.iter().map(|i| (i.text.as_str(), i.enter)).collect::<Vec<_>>(),
+        [(FOLLOW_UP, false), ("", true)],
+        "{}",
+        pane.timeline.render()
+    );
+    snap("claude_ghost_suggestion_followup", &pane.timeline);
+}
