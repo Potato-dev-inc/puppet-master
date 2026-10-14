@@ -273,7 +273,11 @@ fn the_folder_wire_no_longer_lets_anyone_who_can_write_it_make_a_card() {
     let config = config_for(leo_keys, leo_roster, "Leo");
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let mut refused = Vec::new();
-    while std::time::Instant::now() < deadline && store.cards.is_empty() {
+    // Delivery order between the stranger's envelope and Maya's is not fixed: read until both
+    // have been seen (or the deadline), not just until the first card appears.
+    while std::time::Instant::now() < deadline
+        && (store.cards.is_empty() || !refused.contains(&Reject::UnknownDevice))
+    {
         let Ok(inbound) = rx.recv_timeout(Duration::from_secs(5)) else { break };
         match leo.open(&inbound.envelope, &mut tracker, now()) {
             Ok(Opened::Event(v)) => {
