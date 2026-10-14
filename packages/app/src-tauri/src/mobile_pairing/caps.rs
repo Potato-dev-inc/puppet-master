@@ -151,6 +151,8 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         (_, ["push", ..]) => Need::Device,
 
         ("GET", ["questions"]) => Need::AnyOf(Watch, Answer),
+        // The attention list (what needs the person): sentences, not terminal bytes.
+        ("GET", ["attention"]) => Need::AnyOf(Watch, Answer),
         ("POST", ["questions", _, "answer" | "dismiss"]) => Need::Cap(Answer),
         ("POST", ["agents", "answer"]) => Need::Cap(Answer),
         ("POST", [_, _, "opencode", "permissions", _, "reply"]) => Need::Cap(Answer),
@@ -194,6 +196,11 @@ mod tests {
         assert_eq!(back, caps);
         assert!(Caps::parse_names(&["watch", "fly"]).is_err());
         assert_eq!(Caps::parse_names(&["watch", "answer", "type", "control"]).unwrap(), Caps::all());
+    }
+
+    #[test]
+    fn the_attention_list_is_open_to_a_phone_that_can_watch_or_answer() {
+        assert_eq!(route_need("GET", &["attention"]), Need::AnyOf(Cap::Watch, Cap::Answer));
     }
 
     #[test]

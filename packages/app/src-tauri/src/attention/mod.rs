@@ -171,6 +171,15 @@ pub fn refresh() -> Option<Snapshot> {
     store.recompute(&facts, now).then(|| store.snapshot().clone())
 }
 
+/// A snapshot that is up to date right now (the tick thread may be up to a debounce behind). Used by
+/// readers that answer a request, like the away digest.
+pub fn current() -> Snapshot {
+    if let Some(changed) = refresh() {
+        publish(&changed);
+    }
+    snapshot()
+}
+
 /// Start the `attention-tick` thread (once, from `setup`).
 pub fn init() {
     let _ = std::thread::Builder::new().name("attention-tick".into()).spawn(run);

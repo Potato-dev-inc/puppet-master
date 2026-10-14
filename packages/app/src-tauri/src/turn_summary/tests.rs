@@ -511,7 +511,7 @@ fn digest_has_one_line_per_agent_newest_first_and_counts_turns() {
     let a2 = summary("pa", 2, 50_000);
     let b1 = summary("pb", 1, 30_000);
     let old = summary("pc", 1, 1_000);
-    let needs = vec![NeedsYou { pane_id: "pb".into(), agent: "Codex".into(), status: "waiting_input".into(), prompt: Some("allow `rm x`?".into()) }];
+    let needs = vec![NeedsYou { id: None, pane_id: "pb".into(), agent: "Codex".into(), status: "waiting_input".into(), prompt: Some("allow `rm x`?".into()) }];
     let d = digest::build(&[a1, a2, b1, old], needs.clone(), 5_000, 99_000);
     assert_eq!((d.agents_worked, d.turns), (2, 3));
     assert_eq!(d.lines.iter().map(|l| l.pane_id.as_str()).collect::<Vec<_>>(), vec!["pa", "pb"]);
@@ -556,7 +556,7 @@ impl Source for FakeSource {
         self.summaries.iter().filter(|s| s.ended_at_ms >= since_ms).cloned().collect()
     }
     fn needs_you(&self) -> Vec<NeedsYou> {
-        vec![NeedsYou { pane_id: "pb".into(), agent: "Codex".into(), status: "waiting_input".into(), prompt: Some("allow `npm test`?".into()) }]
+        vec![NeedsYou { id: None, pane_id: "pb".into(), agent: "Codex".into(), status: "waiting_input".into(), prompt: Some("allow `npm test`?".into()) }]
     }
 }
 

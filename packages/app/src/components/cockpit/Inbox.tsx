@@ -5,7 +5,7 @@ import { isConsent } from '../../lib/questions';
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { DotSpinner } from './DotSpinner';
 import { PaneStuckCard } from './StuckCard';
-import { itemsOfKind } from '../../lib/attention';
+import { blockingItems, itemsOfKind } from '../../lib/attention';
 import { useNeedsYou } from '../../hooks/useNeedsYou';
 import { AskNotices } from './AskNotices';
 import { CanaryNotices } from './CanaryNotices';
@@ -19,7 +19,7 @@ import { TeamSection } from './team/TeamSection';
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
   // One list for every surface: the badge, the Doto counter and the sidebar group use its length.
   const needs = useNeedsYou(c);
-  const count = needs.length;
+  const count = blockingItems(needs).length;
   const waiting = c.registry.paneList.filter((p) => itemsOfKind(needs, 'approval').some((i) => i.paneId === p.info.id));
   const errored = c.registry.paneList.filter((p) => itemsOfKind(needs, 'error').some((i) => i.paneId === p.info.id));
   const consents = c.asked.questions.filter(isConsent);

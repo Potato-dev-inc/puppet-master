@@ -3,7 +3,7 @@ import { NewAgentMenu, type ProjectChoice } from './NewAgentMenu';
 import { projectOfCwd, readCopyPreference, supportsCopies, writeCopyPreference } from '../../lib/ship-model';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { useNeedsYou } from '../../hooks/useNeedsYou';
-import { needsYouPaneIds } from '../../lib/attention';
+import { blockingItems, needsYouPaneIds } from '../../lib/attention';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { activityText } from '../../lib/pane-activity';
 import { mainPreview, previewLabel } from '../../lib/pane-preview';
@@ -31,7 +31,7 @@ export function Sidebar({
   const needs = useNeedsYou(c);
   const questionPanes = needsYouPaneIds(needs);
   const groups = groupPanes(list, questionPanes);
-  const waiting = needs.length;
+  const waiting = blockingItems(needs).length;
   const multiLogin = multiLoginAgents(list.map((p) => p.info));
   const lastTurn = useContext(LastTurnContext);
   const [menuOpen, setMenuOpen] = useState(false);

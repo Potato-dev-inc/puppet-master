@@ -9,6 +9,7 @@ import { ago, glyphStatus, groupPanes, previewLines, projectName, waitingCount }
 import { DotSpinner } from '../cockpit/DotSpinner';
 import { DigestCard } from './DigestCard';
 import { isLive } from '../../lib/questions';
+import { blockingCount, type AttentionSnapshot } from '../../lib/attention';
 import { QuestionsView, useQuestionPolling } from './QuestionsList';
 import { TeamGroup } from './TeamGroup';
 
@@ -34,6 +35,7 @@ export function AgentsOverview({
   header,
   stuck,
   questionsRevision,
+  attention,
 }: {
   bridge: BridgeClient;
   bridgeReady: boolean;
@@ -50,6 +52,12 @@ export function AgentsOverview({
    * shows their cards under the title, and counts them in the waiting number like the desktop does.
    */
   questionsRevision?: number;
+  /**
+   * The PC's one attention snapshot. When it is there, the waiting number IS its blocking count (the
+   * number the desktop Inbox, the tray and the away digest show); an old PC leaves it out and this
+   * screen counts what it can see by itself.
+   */
+  attention?: AttentionSnapshot | null;
 }) {
   const { questions, refresh } = useQuestionPolling(bridge, bridgeReady && questionsRevision !== undefined, questionsRevision ?? 0);
   const liveQuestions = questionsRevision === undefined ? [] : questions.filter((q) => isLive(q, Date.now()));
@@ -90,7 +98,9 @@ export function AgentsOverview({
     return <div className="ph-connecting">Connecting to your PC…</div>;
   }
 
-  const waiting = waitingCount(panes, { questions: liveQuestions, stuckPaneIds: stuck ? [...stuck.keys()] : [] });
+  const waiting = attention
+    ? String(blockingCount(attention)).padStart(2, '0')
+    : waitingCount(panes, { questions: liveQuestions, stuckPaneIds: stuck ? [...stuck.keys()] : [] });
   const cards =
     questionsRevision === undefined ? null : <QuestionsView bridge={bridge} questions={questions} refresh={refresh} labels={labels} />;
   const title = (

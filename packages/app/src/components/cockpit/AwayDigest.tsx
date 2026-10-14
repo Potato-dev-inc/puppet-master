@@ -59,8 +59,8 @@ export function AwayDigest({ digest, now, onDismiss, onOpenPane, onOpenInbox }: 
                 const status = spinnerStatus(n.status);
                 const fallback = n.status === 'error' ? 'Hit an error' : 'Waiting for you';
                 return (
-                  <li key={n.paneId}>
-                    <button type="button" className="ck-away-need" onClick={() => onOpenPane(n.paneId)}>
+                  <li key={n.id ?? n.paneId}>
+                    <button type="button" className="ck-away-need" onClick={() => (n.paneId ? onOpenPane(n.paneId) : onOpenInbox())}>
                       <span className="ck-row-glyph">
                         <DotSpinner status={status} />
                       </span>

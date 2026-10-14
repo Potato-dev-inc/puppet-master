@@ -2,6 +2,7 @@
 // terminal tabs) plus an "All" overview. It does not drive the orchestrator. The previous
 // orchestrator-centric mobile UI is kept as PwaLegacyApp.tsx (open with `?pwa=legacy`).
 import { NudgeScheduler } from './lib/nudge-scheduler';
+import { newerSnapshot, type AttentionSnapshot } from './lib/attention';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentType, PaneInfo } from '@puppet-master/shared';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
@@ -127,6 +128,8 @@ export default function PwaApp() {
   const [resyncKey, setResyncKey] = useState(0);
   /** Bumped on each `questions` event (and on resync) so the pending-questions list refetches. */
   const [questionsRev, setQuestionsRev] = useState(0);
+  /** The PC's one list of what needs you (event `attention`, `GET /attention`); null on an old PC. */
+  const [attention, setAttention] = useState<AttentionSnapshot | null>(null);
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
   const [fitGrid, setFitGrid] = useState<{ cols: number; rows: number } | null>(null);
   /** Last grid measured on this phone: a pane spawned from here is created at this size. */
@@ -189,6 +192,9 @@ export default function PwaApp() {
     setPanesLoaded(false);
     let live = true;
 
+    const refreshAttention = () => {
+      void client.attention?.().then((s) => live && setAttention((cur) => newerSnapshot(cur, s))).catch(() => {});
+    };
     const resync = () => {
       fetch(`${bridgeUrl}/health`, {
         signal: AbortSignal.timeout(3000),
@@ -207,6 +213,7 @@ export default function PwaApp() {
         })
         .catch(() => {});
       void client.listPreviews?.().then((m) => live && setPreviews(m)).catch(() => {});
+      refreshAttention();
     };
     resync();
     void client.getSettings().then((next) => live && setSettings(next)).catch(() => {});
@@ -260,11 +267,13 @@ export default function PwaApp() {
       if (ev.type === 'input-refused') noteInputRefused(ev.pane_id, ev.error);
       if (ev.type === 'settings') setSettings(ev.settings);
       if (ev.type === 'questions') setQuestionsRev((n) => n + 1);
+      if (ev.type === 'attention') setAttention((cur) => newerSnapshot(cur, ev.snapshot));
       if (ev.type === 'resync') {
         registryRef.current.resetStreams();
         client.listPanes().then((list) => live && applyPanes(list)).catch(() => {});
         setResyncKey((n) => n + 1);
         setQuestionsRev((n) => n + 1);
+        refreshAttention();
       }
     });
     streamRef.current = stream;
@@ -537,6 +546,7 @@ export default function PwaApp() {
               onNew={openNewAgentSheet}
               stuck={stuck}
               questionsRevision={questionsRev}
+              attention={attention}
             />
           )}
           {activePane && (

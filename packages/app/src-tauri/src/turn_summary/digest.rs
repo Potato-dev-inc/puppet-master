@@ -30,9 +30,13 @@ pub struct DigestLine {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NeedsYou {
+    /// The attention item this line is (opaque; a React key). Absent from older builds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// The pane to open; empty for a thing that has no pane (a question with no pane, a consent card).
     pub pane_id: String,
     pub agent: String,
-    /// `waiting_input` or `error`.
+    /// `waiting_input`, or `error` for an errored pane.
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,

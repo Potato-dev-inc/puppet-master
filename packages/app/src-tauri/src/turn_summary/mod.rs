@@ -188,32 +188,27 @@ pub fn prompt_before_answer(pane_id: &str) -> Option<(String, String)> {
 
 // ---- digest ----
 
-/// Agents that need the user right now (waiting on a prompt, or failed).
+/// Everything that needs the user right now. It is the attention list (`attention::`), so the
+/// digest's "Needs you" has exactly as many lines as the Inbox, the tray badge and the phone show.
 pub fn needs_you() -> Vec<NeedsYou> {
-    let Some(registry) = crate::bridge::live_registry() else { return Vec::new() };
-    let panes: Vec<(String, String, String)> = {
-        let guard = registry.lock();
-        guard
-            .panes
-            .values()
-            .filter(|p| matches!(p.info.status.as_str(), "waiting_input" | "error"))
-            .map(|p| (p.info.id.clone(), p.info.agent_type.clone(), p.info.status.clone()))
-            .collect()
-    };
-    let mut out: Vec<NeedsYou> = panes
-        .into_iter()
-        .map(|(pane_id, agent_type, status)| {
-            let profile = crate::tui::profile_for(&agent_type);
-            let agent = profile.context().map(|c| c.label.to_string()).filter(|l| !l.is_empty()).unwrap_or(agent_type);
-            let prompt = (status == "waiting_input")
-                .then(|| describe_prompt(&registry, &pane_id).map(|(_, t)| t))
-                .flatten()
-                .filter(|t| !t.is_empty());
-            NeedsYou { pane_id, agent, status, prompt }
+    needs_you_from(&crate::attention::current())
+}
+
+/// The open blocking items of an attention snapshot, in its order, as digest lines.
+pub fn needs_you_from(snapshot: &crate::attention::model::Snapshot) -> Vec<NeedsYou> {
+    use crate::attention::model::{Kind, Lane, State};
+    snapshot
+        .items
+        .iter()
+        .filter(|item| item.state == State::Open && item.lane == Lane::Blocking)
+        .map(|item| NeedsYou {
+            id: Some(item.id.clone()),
+            pane_id: item.pane.as_ref().map(|p| p.id.clone()).unwrap_or_default(),
+            agent: item.pane.as_ref().and_then(|p| p.agent.clone()).unwrap_or_else(|| "An agent".to_string()),
+            status: if item.kind == Kind::Error { "error" } else { "waiting_input" }.to_string(),
+            prompt: item.sentence.clone().or_else(|| Some(item.title.clone())).filter(|t| !t.is_empty()),
         })
-        .collect();
-    out.sort_by(|a, b| a.pane_id.cmp(&b.pane_id));
-    out
+        .collect()
 }
 
 /// The digest for `since_ms..now` from the live tracker.

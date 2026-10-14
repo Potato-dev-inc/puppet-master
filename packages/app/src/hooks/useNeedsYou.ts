@@ -2,7 +2,7 @@
 // the Ask-bar notices included, and shares it through context; a component rendered without that
 // provider (a test, a storybook) derives the same list from the cockpit state alone.
 import { createContext, useContext, useEffect, useMemo } from 'react';
-import { attentionMismatch, deriveNeedsYou, type NeedsYouItem } from '../lib/attention';
+import { attentionMismatch, deriveNeedsYou, isBlockingKind, type NeedsYouItem } from '../lib/attention';
 import { useAttention } from './useAttention';
 import { tauriAskbarApi, useAskNotices, type AskbarApi } from '../lib/askbar';
 import { useLoopGuard } from '../lib/loop-guard';
@@ -40,9 +40,9 @@ function useShadowCheck(items: NeedsYouItem[]): void {
   const snapshot = useAttention();
   useEffect(() => {
     if (!import.meta.env.DEV || !snapshot) return;
-    if (attentionMismatch(items, snapshot).length === 0) return;
+    if (attentionMismatch(items, snapshot, isBlockingKind).length === 0) return;
     const timer = window.setTimeout(() => {
-      const diff = attentionMismatch(items, snapshot);
+      const diff = attentionMismatch(items, snapshot, isBlockingKind);
       if (diff.length > 0) console.warn('[attention] front-end and Rust lists disagree:', diff);
     }, 1000);
     return () => window.clearTimeout(timer);

@@ -87,6 +87,15 @@ export function deriveNeedsYou(input: AttentionInput): NeedsYouItem[] {
   return items;
 }
 
+/**
+ * Ask-bar answers wait in "Ready for you": nothing is blocked, so they carry no number. Every other
+ * kind blocks an agent until a person acts. (The Rust side owns the lanes: `attention::model::lane_of`.)
+ */
+export const isBlockingKind = (kind: NeedsYouKind): boolean => kind !== 'answer';
+
+/** The items that count: the length of this is the number every surface shows. */
+export const blockingItems = (items: ReadonlyArray<NeedsYouItem>): NeedsYouItem[] => items.filter((i) => isBlockingKind(i.kind));
+
 /** Panes that have something waiting on them, for the sidebar's "Needs you" group. */
 export function needsYouPaneIds(items: ReadonlyArray<NeedsYouItem>): Set<string> {
   const ids = new Set<string>();

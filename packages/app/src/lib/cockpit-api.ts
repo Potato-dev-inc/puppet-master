@@ -183,6 +183,9 @@ export interface DigestLine {
 }
 
 export interface NeedsYou {
+  /** The attention item this line is (a stable key); absent from older builds. */
+  id?: string;
+  /** Empty for something that has no pane (a question with no pane, a consent card). */
   paneId: string;
   agent: string;
   status: "waiting_input" | "error" | string;
