@@ -142,6 +142,16 @@ export function installTauriMock(scenario: HarnessScenario): void {
               .map((p) => ({ pane_id: p.id, agent_type: p.agent_type, cwd: p.cwd })),
             failed: [],
           };
+        case 'canary_status':
+          return scenario.canary ?? { agents: [], auto_check: true, notices: [], captures: 0 };
+        case 'canary_set_auto':
+          return { ...(scenario.canary ?? { agents: [], notices: [], captures: 0 }), auto_check: a.on };
+        case 'canary_check':
+          return (scenario.canary?.agents ?? []).find((x) => x.agent === a.agent) ?? null;
+        case 'canary_dismiss_notice':
+          return null;
+        case 'canary_open_captures':
+          return 'C:\Users\dev\AppData\Roaming\com.puppetmaster.app\captures';
         case 'agents_health':
           return { agents: DOCTOR_ROWS };
         case 'agents_health_test':
