@@ -6,8 +6,9 @@
 //! at the pane's process tree instead:
 //!
 //! - the pane's root process is a shell (by image name, never by agent name): the agent is its child.
-//!   A child that was seen alive for at least [`CONFIRM_MS`] and is gone now = the agent exited; none
-//!   seen yet, or only short-lived ones = still starting (or the command failed before it started,
+//!   A child that was seen alive for at least [`CONFIRM_MS`] (or seen once and gone at a look more
+//!   than that later) and is gone now = the agent exited; none seen yet, or one seen and gone again
+//!   within [`CONFIRM_MS`] = still starting (or the command failed before it started,
 //!   see `tui::shell::command_not_found`). The host runs the user's PowerShell profile first, and
 //!   profiles start helpers (`oh-my-posh init`, `conda ... hook`, `starship`, `git`) that come and go
 //!   before the agent starts: a child is remembered as the agent only once it has lived that long
@@ -132,15 +133,20 @@ pub(crate) fn classify(procs: &[ProcEntry], root_pid: u32, track: &mut Track, no
             }
             AgentProcess::Alive
         }
-        // A short-lived child (a profile helper before the agent started) is forgotten.
-        None => {
-            track.candidate = None;
-            if track.agent.is_some() {
+        None => match (track.agent, track.candidate.take()) {
+            (Some(_), _) => AgentProcess::Exited,
+            // Seen and gone again within a second (a profile helper before the agent started): it
+            // is forgotten and the pane is still starting.
+            (None, Some((_, since))) if now_ms.saturating_sub(since) < CONFIRM_MS => AgentProcess::Starting,
+            // Seen once, and gone at a look more than a second later: nobody looked in between, so
+            // it may well have run for minutes (the agent killed at its input box, with its last
+            // frame still on screen). That is an exit, as before.
+            (None, Some((pid, _))) => {
+                track.agent = Some(pid);
                 AgentProcess::Exited
-            } else {
-                AgentProcess::Starting
             }
-        }
+            (None, None) => AgentProcess::Starting,
+        },
     }
 }
 
@@ -246,6 +252,16 @@ mod tests {
         assert_eq!(classify(&[host.clone(), agent], 10, &mut track, 1_700), AgentProcess::Alive);
         assert_eq!(track.agent, Some(31));
         assert_eq!(classify(&[host], 10, &mut track, 1_800), AgentProcess::Exited);
+    }
+
+    #[test]
+    fn a_child_seen_once_and_gone_at_a_much_later_look_has_exited() {
+        // Sparse looks: nobody looked while it ran, so it may have run for minutes.
+        let host = p(10, 1, "powershell.exe");
+        let mut track = Track::default();
+        assert_eq!(classify(&[host.clone(), p(50, 10, "node.exe")], 10, &mut track, 0), AgentProcess::Alive);
+        assert_eq!(classify(&[host.clone()], 10, &mut track, 5_000), AgentProcess::Exited);
+        assert_eq!(classify(&[host], 10, &mut track, 5_100), AgentProcess::Exited, "and stays exited");
     }
 
     #[test]
