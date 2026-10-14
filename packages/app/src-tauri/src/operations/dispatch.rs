@@ -129,7 +129,7 @@ where
             let dispatched = op;
             let _update = update_lock();
             op = get_operation(project, id)?;
-            if op.status != OperationStatus::Starting {
+            if !dispatch_failure_applies(&op, &err) {
                 return Ok(op);
             }
             op.pane_id = dispatched.pane_id;
@@ -159,6 +159,23 @@ where
             bump(&mut op)?;
             Err(err)
         }
+    }
+}
+
+/// Whether a failed dispatch is recorded on the run. The run is `starting` unless something else
+/// moved it while the dispatch thread worked:
+/// - a cancel or a terminal state owns the run: nothing to add;
+/// - a run parked on a startup dialog is `waiting_input` (or, once a pane observer has seen the
+///   dialog's redraw, `running`) while the dispatch thread waits for the user's answer. The wait's
+///   verdict (`WORKSPACE_TRUST_DECLINED`, a pane that died, five minutes unanswered) must still end
+///   the run: dropping it left the run `running` for ever (VERIFY-R7 #2b, 3 of 3 runs);
+/// - `OPERATION_CANCELLED` from a dispatch that found the run no longer `starting` is the
+///   "abandoned before the prompt was typed" signal the supervisor recovers from by re-delivering.
+fn dispatch_failure_applies(op: &OperationSnapshot, error: &OperationError) -> bool {
+    match op.status {
+        OperationStatus::Starting => true,
+        OperationStatus::WaitingInput | OperationStatus::Running => error.code != "OPERATION_CANCELLED",
+        _ => false,
     }
 }
 

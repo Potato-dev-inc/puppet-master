@@ -213,3 +213,50 @@ fn answer_prompt_by_pane_needs_control_like_any_pane_write() {
     assert!(denied.message.contains("another MCP coordinator"));
     release_owned_pane(&owner, "prompt-pane").unwrap();
 }
+
+// ---- closing a pane that a run created (VERIFY-R7 finding E) -----------------------------------
+//
+// `DELETE /panes/<id>` is refused for a run-created pane by design (the pane belongs to the run's
+// MCP session and its worker handle; mode rules keep `kill_pane_process` out of agent mode). What was
+// wrong is that the refusal did not say how to close it.
+
+#[test]
+fn a_run_pane_cannot_be_deleted_over_bare_http_and_the_error_says_how_to_close_it() {
+    let session = id();
+    let pane = format!("run-pane-{}", Uuid::new_v4());
+    register_owned_pane(&session, &pane).unwrap();
+    let error = authorize(None, "DELETE", &format!("/panes/{pane}"), &Value::Null).unwrap_err();
+    assert_eq!(error.code, "AUTHORIZATION_DENIED");
+    assert!(error.message.contains("close_agent"), "{}", error.message);
+    assert!(error.message.contains("/operations/<operation_id>/cancel"), "{}", error.message);
+    assert!(error.message.contains("Close on the pane"), "{}", error.message);
+    assert_eq!(error.context["pane_id"], pane.as_str());
+    assert_eq!(error.context["close_with"][0]["route"], "POST /agents/close");
+    // Other mutations keep the short refusal.
+    let input = authorize(None, "POST", &format!("/panes/{pane}/input"), &serde_json::json!({"text":"x"})).unwrap_err();
+    assert_eq!(input.message, "managed pane mutations require an MCP session id");
+    // A pane nobody manages is still closable over bare HTTP (the legacy local behaviour).
+    assert!(authorize(None, "DELETE", "/panes/not-managed-by-anyone", &Value::Null).is_ok());
+}
+
+#[test]
+fn kill_pane_process_in_agent_mode_points_at_close_agent() {
+    let session = id();
+    let error = authorize(Some(&session), "DELETE", "/panes/p1", &Value::Null).unwrap_err();
+    assert_eq!(error.code, "MODE_MISMATCH");
+    assert!(error.message.starts_with("kill_pane_process is unavailable in agent mode"), "{}", error.message);
+    assert!(error.message.contains("close_agent"), "{}", error.message);
+    assert_eq!(error.context["use_instead"]["tool"], "close_agent");
+    assert_eq!(error.context.pointer("/switch_with/mode").and_then(Value::as_str), Some("shell"));
+}
+
+#[test]
+fn the_owning_session_can_close_its_own_run_with_close_agent() {
+    let session = id();
+    let handle = Uuid::new_v4().to_string();
+    register_owned_agent(&session, &handle).unwrap();
+    assert!(authorize(Some(&session), "POST", "/agents/close", &serde_json::json!({"handle": handle})).is_ok());
+    // Another connection cannot close it.
+    let other = id();
+    assert!(authorize(Some(&other), "POST", "/agents/close", &serde_json::json!({"handle": handle})).is_err());
+}

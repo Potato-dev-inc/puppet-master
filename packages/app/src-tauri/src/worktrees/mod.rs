@@ -438,6 +438,28 @@ fn require_checkout(reference: &WorktreeRef) -> Result<PathBuf, OperationError> 
     Ok(path)
 }
 
+/// Pathspec that keeps Puppet Master's own data (`.puppet-master/`: the checkpoint store, turn
+/// summaries, operation records) out of everything a worktree stages, whether or not the repo
+/// ignores it.
+///
+/// Not `:(exclude).puppet-master`: git's `add` treats an exclude pathspec that NAMES an ignored
+/// directory as if the caller had asked to add it, and fails with "The following paths are ignored
+/// by one of your .gitignore files: .puppet-master" (live: every isolated run lost its file list,
+/// Merge and Discard). Only a pattern that does not name the directory itself is left alone, so
+/// this one matches what is inside it, in any `.puppet-master` folder.
+const INTERNAL_PATHSPEC: &str = ":(exclude,glob)**/.puppet-master/**";
+
+/// `git add -A` of the worktree except Puppet Master's own data, into the index `env` selects (the
+/// worktree's real one when empty).
+fn stage_all_but_internal(wt: &Path, env: &[(&str, &std::ffi::OsStr)]) -> Result<(), OperationError> {
+    let add = git_raw(wt, &["add", "-A", "--", ".", INTERNAL_PATHSPEC], env)?;
+    if add.ok {
+        Ok(())
+    } else {
+        Err(err("GIT_FAILED", format!("git add failed: {}", add.stderr.trim())))
+    }
+}
+
 /// Snapshot the worktree's full state (committed + uncommitted + untracked, honouring ignore
 /// rules) as a tree object, through a temporary copy of the index: the agent's own index is never
 /// touched.
@@ -454,14 +476,7 @@ fn snapshot_tree(wt: &Path) -> Result<String, OperationError> {
     }
     let env: [(&str, &std::ffi::OsStr); 1] = [("GIT_INDEX_FILE", tmp.as_os_str())];
     let result = (|| {
-        let add = git_raw(
-            wt,
-            &["add", "-A", "--", ".", ":(exclude).puppet-master"],
-            &env,
-        )?;
-        if !add.ok {
-            return Err(err("GIT_FAILED", format!("git add failed: {}", add.stderr.trim())));
-        }
+        stage_all_but_internal(wt, &env)?;
         let tree = git_raw(wt, &["write-tree"], &env)?;
         if !tree.ok {
             return Err(err("GIT_FAILED", format!("git write-tree failed: {}", tree.stderr.trim())));
@@ -736,10 +751,7 @@ fn identity_args<'a>(dir: &Path, args: &[&'a str]) -> Vec<&'a str> {
 }
 
 fn commit_all(wt: &Path, message: &str) -> Result<(), OperationError> {
-    let add = git_raw(wt, &["add", "-A", "--", ".", ":(exclude).puppet-master"], &[])?;
-    if !add.ok {
-        return Err(err("GIT_FAILED", format!("git add failed: {}", add.stderr.trim())));
-    }
+    stage_all_but_internal(wt, &[])?;
     let staged = git_raw(wt, &["diff", "--cached", "--quiet"], &[])?;
     if staged.ok {
         return Ok(()); // nothing staged: the branch already holds everything

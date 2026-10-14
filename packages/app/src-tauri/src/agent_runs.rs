@@ -33,6 +33,9 @@ mod cursor_delivery_tests;
 mod delivery_contract_tests;
 
 #[cfg(test)]
+mod delivery_summary_tests;
+
+#[cfg(test)]
 mod side_panel_reply_tests;
 
 pub(crate) use native::stable_prompt_id;

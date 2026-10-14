@@ -7,6 +7,11 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use uuid::Uuid;
 
+/// The stream for raw diagnostics (the screen rows a delivery looked at). It is stored with the run
+/// but only returned when a reader asks for details: the transcript people read has the one-line
+/// `delivery` summary instead.
+pub const TRACE_STREAM: &str = "delivery_trace";
+
 const MAX_TRANSCRIPT_BYTES: usize = 256 * 1024;
 const MAX_RETURN_CHUNKS: usize = 200;
 
@@ -131,6 +136,11 @@ fn last_sequence(path: &PathBuf) -> u64 {
 }
 
 pub fn read(project: &str, operation_id: &str, after: u64) -> std::io::Result<TranscriptPage> {
+    read_with(project, operation_id, after, false)
+}
+
+/// [`read`], with the raw diagnostics ([`TRACE_STREAM`]) too when `details` is set.
+pub fn read_with(project: &str, operation_id: &str, after: u64, details: bool) -> std::io::Result<TranscriptPage> {
     let path = transcript_path(project, operation_id);
     if !path.exists() {
         return Ok(TranscriptPage {
@@ -151,7 +161,7 @@ pub fn read(project: &str, operation_id: &str, after: u64) -> std::io::Result<Tr
     let mut truncated = chunks
         .first()
         .is_some_and(|chunk| chunk.sequence > after.saturating_add(1));
-    chunks.retain(|chunk| chunk.sequence > after);
+    chunks.retain(|chunk| chunk.sequence > after && (details || chunk.stream != TRACE_STREAM));
     let mut bytes = chunks.iter().map(|chunk| chunk.text.len()).sum::<usize>();
     while chunks.len() > MAX_RETURN_CHUNKS || bytes > MAX_TRANSCRIPT_BYTES {
         if let Some(chunk) = chunks.first() {
@@ -172,10 +182,20 @@ pub fn read_turns(
     operation_ids: &[String],
     after: u64,
 ) -> std::io::Result<TranscriptPage> {
+    read_turns_with(project, operation_ids, after, false)
+}
+
+/// [`read_turns`], with the raw diagnostics ([`TRACE_STREAM`]) too when `details` is set.
+pub fn read_turns_with(
+    project: &str,
+    operation_ids: &[String],
+    after: u64,
+    details: bool,
+) -> std::io::Result<TranscriptPage> {
     let mut chunks = Vec::new();
     let mut sequence = 0_u64;
     for operation_id in operation_ids {
-        let page = read(project, operation_id, 0)?;
+        let page = read_with(project, operation_id, 0, details)?;
         for chunk in page.chunks {
             sequence = sequence.saturating_add(1);
             chunks.push(TranscriptChunk {

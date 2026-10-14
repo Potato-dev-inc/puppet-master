@@ -126,7 +126,7 @@ export const EXAMPLE_RUN: PaneRunInfo = {
 export const EXAMPLE_TRANSCRIPT: PaneTranscript = {
   chunks: [
     { stream: 'user_task', text: 'Add retry with backoff to the bridge client.' },
-    { stream: 'delivery', text: 'Started\nattempt 0: typing; busy=false' },
+    { stream: 'delivery', text: 'Sent. The agent started.' },
     { stream: 'assistant_final', text: '● Bash(npm test --workspace=@puppet-master/app)\n  ⎿  41 tests passed' },
     { stream: 'assistant_final', text: 'Done. Retries use 250ms, 500ms, 1s, capped at 4s, with tests.' },
     { stream: 'user_steer', text: 'Also log each retry.' },

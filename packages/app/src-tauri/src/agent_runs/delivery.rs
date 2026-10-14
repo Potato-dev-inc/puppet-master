@@ -101,6 +101,65 @@ pub enum Delivery {
     WriteFailed(String),
 }
 
+/// One short line for the run's transcript: what delivering the task did, in plain words. The
+/// trace it is made from holds raw screen rows (footers, model names, the folder), which are
+/// diagnostics: they go to the `delivery_trace` stream, which readers only get on request.
+pub fn delivery_summary(outcome: &Delivery, trace: &[String]) -> String {
+    let attempts = trace.iter().filter(|line| line.starts_with("attempt ") && line.contains(": typing")).count();
+    let closed_notice = trace.iter().any(|line| line.contains("closing it with its own keys"));
+    let enter_again = trace.iter().any(|line| line.contains("Enter sent once more"));
+    let composer_cleared = trace
+        .iter()
+        .rev()
+        .find(|line| line.starts_with("enter poll "))
+        .is_some_and(|line| line.contains("started=true") && line.contains("composer=Empty"));
+    match outcome {
+        Delivery::Started | Delivery::SubmittedUnconfirmed => {
+            let mut text = String::from("Sent.");
+            if closed_notice {
+                text.push_str(" Closed a startup notice first.");
+            }
+            if attempts > 1 {
+                text.push_str(" Typed it again after the first try was lost.");
+            }
+            if enter_again {
+                text.push_str(" Enter was pressed twice.");
+            }
+            match outcome {
+                Delivery::Started if composer_cleared => text.push_str(" Composer cleared."),
+                Delivery::Started => text.push_str(" The agent started."),
+                _ => text.push_str(" The agent has not shown it started yet; still watching."),
+            }
+            text
+        }
+        Delivery::NotVisible => {
+            "Not sent. The text never showed up in the input box, so Enter was not pressed. The box was cleared; retrying is safe.".to_string()
+        }
+        Delivery::Blocked(gate) => format!(
+            "Not sent. {}; nothing was typed or submitted. Deal with it in the pane, then retry.",
+            gate.summary.trim_end_matches('.')
+        ),
+        Delivery::WriteFailed(error) => format!("Not sent. Writing to the pane failed: {error}"),
+    }
+}
+
+/// Writes a delivery to the run's transcript: the one-line summary as `delivery` (what people read),
+/// the raw trace as `delivery_trace` (details on request). `again` is why the supervisor delivered
+/// the task a second time.
+pub fn record_delivery(project: &str, operation_id: &str, again: Option<&str>, outcome: &Delivery, trace: &[String]) {
+    let mut summary = delivery_summary(outcome, trace);
+    if let Some(why) = again {
+        summary = format!("Sent again ({why}). {summary}");
+    }
+    super::transcript::append(project, operation_id, "delivery", &summary);
+    super::transcript::append(
+        project,
+        operation_id,
+        super::transcript::TRACE_STREAM,
+        &format!("{outcome:?}\n{}", trace.join("\n")),
+    );
+}
+
 /// What a message should say when delivery did not happen.
 pub const NOT_VISIBLE_MESSAGE: &str = "the prompt text never appeared in the pane's input box after two attempts, so it was not submitted; the input box was cleared, retrying is safe";
 

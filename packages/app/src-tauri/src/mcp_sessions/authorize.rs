@@ -104,6 +104,9 @@ pub fn authorize(
             return Err(denied("managed agent operations require an MCP session id"));
         }
         if mutating && target_pane.is_some_and(|pane| lock_state().panes.contains_key(pane)) {
+            if method == "DELETE" {
+                return Err(managed_pane_close_denied(target_pane.unwrap_or_default()));
+            }
             return Err(denied("managed pane mutations require an MCP session id"));
         }
         return Ok(());
@@ -143,6 +146,14 @@ pub fn authorize(
             false,
         );
         error.context = json!({"tool":tool.name,"current_mode":mode.as_str(),"available_in":target_mode,"switch_with":{"mode":target_mode}});
+        if tool.name == "kill_pane_process" {
+            // The common case: closing the pane a run created. That is the run's `close_agent`.
+            error.message = format!(
+                "kill_pane_process is unavailable in {} mode. To close a pane that run_agent created, call close_agent with the run's handle (it ends the worker and closes its pane); kill_pane_process is for terminal panes in shell mode",
+                mode.as_str()
+            );
+            error.context["use_instead"] = json!({"tool":"close_agent","route":"POST /agents/close","needs":"the run handle"});
+        }
         return Err(error);
     }
 
@@ -265,6 +276,22 @@ pub fn authorize(
         }
     }
     Ok(())
+}
+
+/// `DELETE /panes/<id>` with no MCP session on a pane a run created: say how to close it.
+fn managed_pane_close_denied(pane_id: &str) -> OperationError {
+    let mut error = denied(
+        "this pane belongs to an agent run started by an MCP session, so it is closed through that run, not over bare HTTP. From the owning session call close_agent with the run's handle (POST /agents/close), or cancel the run (POST /operations/<operation_id>/cancel); in the app use Close on the pane. DELETE /panes/<id> is for panes you opened yourself",
+    );
+    error.context = json!({
+        "pane_id": pane_id,
+        "close_with": [
+            {"tool":"close_agent","route":"POST /agents/close","needs":"the run handle, from the owning MCP session"},
+            {"route":"POST /operations/<operation_id>/cancel","effect":"cancels the run and closes the pane it created"},
+            {"where":"app","action":"Close on the pane"}
+        ]
+    });
+    error
 }
 
 pub(super) fn route_matches(template: &str, path: &str) -> bool {

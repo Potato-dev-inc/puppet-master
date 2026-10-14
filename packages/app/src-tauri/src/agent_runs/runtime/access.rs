@@ -8,7 +8,17 @@ pub fn transcript_page(
     operation_id: &str,
     after: u64,
 ) -> Result<transcript::TranscriptPage, OperationError> {
-    transcript::read(project, operation_id, after)
+    transcript_page_with(project, operation_id, after, false)
+}
+
+/// `details` also returns the raw delivery diagnostics (`delivery_trace`).
+pub fn transcript_page_with(
+    project: &str,
+    operation_id: &str,
+    after: u64,
+    details: bool,
+) -> Result<transcript::TranscriptPage, OperationError> {
+    transcript::read_with(project, operation_id, after, details)
         .map_err(|error| OperationError::new("TRANSCRIPT_READ_FAILED", error.to_string(), true))
 }
 
@@ -17,11 +27,20 @@ pub fn transcript_for_handle(
     handle: &str,
     after: u64,
 ) -> Result<transcript::TranscriptPage, OperationError> {
+    transcript_for_handle_with(project, handle, after, false)
+}
+
+pub fn transcript_for_handle_with(
+    project: &str,
+    handle: &str,
+    after: u64,
+    details: bool,
+) -> Result<transcript::TranscriptPage, OperationError> {
     let ids = operations::turns_for_handle(project, handle)?
         .into_iter()
         .map(|snapshot| snapshot.operation_id)
         .collect::<Vec<_>>();
-    transcript::read_turns(project, &ids, after)
+    transcript::read_turns_with(project, &ids, after, details)
         .map_err(|error| OperationError::new("TRANSCRIPT_READ_FAILED", error.to_string(), true))
 }
 

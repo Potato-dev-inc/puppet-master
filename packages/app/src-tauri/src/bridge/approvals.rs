@@ -173,7 +173,7 @@ pub(super) fn wait_for_startup_permission_resolution(
 /// in the folder the user just refused.
 /// [`gate_declined`] for a decline that is known for certain (the user answered "deny", or the
 /// agent's pane fell back to its shell): with no gate details on hand it is the folder-trust error.
-fn declined_error(pane_id: &str, gate: Option<&serde_json::Value>) -> crate::operations::OperationError {
+pub(crate) fn declined_error(pane_id: &str, gate: Option<&serde_json::Value>) -> crate::operations::OperationError {
     gate_declined(pane_id, gate).unwrap_or_else(|| gate_declined(pane_id, Some(&serde_json::json!({"kind": "workspace_trust"}))).expect("a trust decline"))
 }
 

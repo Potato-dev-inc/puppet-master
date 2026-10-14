@@ -2,7 +2,7 @@
 //! allowed commands, re-delivering an undelivered prompt, and recording what the turn used.
 
 use crate::agent_runs::{approval_policy, completion, delivery, runtime, transcript};
-use crate::operations::{self, OperationSnapshot, OperationStatus, StateSource};
+use crate::operations::{self, OperationError, OperationSnapshot, OperationStatus, StateSource};
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -123,14 +123,12 @@ pub(super) fn redeliver_prompt(
         &prompt,
         &mut trace,
     );
-    transcript::append(
+    delivery::record_delivery(
         &current.project_path,
         &current.operation_id,
-        "delivery",
-        &format!(
-            "{why}; re-delivered once: {delivery:?}\n{}",
-            trace.join("\n")
-        ),
+        Some(why),
+        &delivery,
+        &trace,
     );
     if !matches!(
         delivery,
@@ -145,6 +143,25 @@ pub(super) fn redeliver_prompt(
         watch.restart(screen);
     }
     true
+}
+
+/// Why a run whose prompt was never typed can never be re-delivered, when the pane says so for
+/// good: the user declined the startup dialog (`WORKSPACE_TRUST_DECLINED`), or the agent is gone
+/// and its host shell shows a prompt (`AGENT_EXITED`). `None` when the pane might still take the
+/// prompt (a dialog the user can answer, a screen that is still drawing).
+///
+/// Without this the supervisor asked for a re-delivery every tick, was refused every tick, and never
+/// reached its deadline check: a declined trust dialog left the run `running` past its timeout.
+pub(super) fn redelivery_dead_end(
+    agent_type: &str,
+    pane_id: &str,
+    screen: &str,
+) -> Option<OperationError> {
+    if crate::pane_prompt::gate_was_declined(pane_id) {
+        return Some(crate::bridge::startup_decline_error(pane_id, None));
+    }
+    let blocker = crate::pane_prompt::dispatch_blocker(agent_type, screen)?;
+    (!blocker.recoverable).then_some(blocker)
 }
 
 /// The prompt of the turn before this one on the same handle (empty for a first turn). Its echo

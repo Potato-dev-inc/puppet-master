@@ -1,0 +1,9 @@
+Started
+startup screen 'update_available' on screen: closing it with its own keys before typing
+attempt 0: typing; busy=true rows=>_ OpenAI Codex (v0.159.3) | D:\pm-demo | Your cursor called. It wants a plot. | › Ask Codex to do anything | ? for shortcuts
+typed poll 0: visible=false busy=true rows=>_ OpenAI Codex (v0.159.3) | D:\pm-demo | Your cursor called. It wants a plot. | › Ask Codex to do anything
+typed poll 1: visible=true busy=true rows=>_ OpenAI Codex (v0.159.3) | D:\pm-demo | Your cursor called. It wants a plot. | › Read README.md and say one sentence about it. Don't edit files.
+enter poll 0: started=false busy=true composer=HasText rows=>_ OpenAI Codex (v0.159.3) | D:\pm-demo | Your cursor called. It wants a plot. | › Read README.md and say one sentence about it. Don't edit files.
+enter poll 1: started=false busy=true composer=HasText rows=>_ OpenAI Codex (v0.159.3) | D:\pm-demo | Your cursor called. It wants a plot. | › Read README.md and say one sentence about it. Don't edit files.
+enter poll 2: started=false busy=true composer=HasText rows=>_ OpenAI Codex (v0.159.3) | D:\pm-demo | Your cursor called. It wants a plot. | › Read README.md and say one sentence about it. Don't edit files.
+enter poll 3: started=true busy=true composer=Empty rows=Your cursor called. It wants a plot. | › Read README.md and say one sentence about it. Don't edit files. | › Ask Codex to do anything | GPT-6-Luna medium · D:\pm-demo | ? for shortcuts                                                                             ⚠ 2 warnings · f2 to view

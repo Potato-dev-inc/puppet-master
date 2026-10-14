@@ -14,6 +14,7 @@ const LABELS: Record<string, string> = {
   interrupted: 'Stopped',
   execution_failure: 'Failed',
   delivery: 'Sending',
+  delivery_trace: 'Sending details',
   diagnostic: 'Details',
   startup: 'Starting',
 };
