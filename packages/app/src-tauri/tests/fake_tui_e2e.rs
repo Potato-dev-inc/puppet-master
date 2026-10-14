@@ -550,15 +550,13 @@ fn a_resize_repaint_does_not_make_an_idle_pane_busy() {
     }
 }
 
-// ---- finding: a run whose pane auto-closes loses its turn summary ------------------------------------------------
+// ---- a run whose pane auto-closes still gets its turn summary ------------------------------------------------
 
-/// FINDING (found by this harness, not fixed here): with the default `keep_pane = false` the run's pane is killed as
-/// soon as the run completes (`agent_runs::pane_close::maybe_dispose_after_terminal`), usually before the turn
-/// summary has waited out its "after" checkpoint (`turn_summary::summarize` -> `Tracker::finish` reads the pane,
-/// which is gone), so no summary is recorded for that turn and the away digest never lists it.
-/// The other tests keep the pane open, as a person watching one would.
+/// With the default `keep_pane = false` the run's pane is closed as soon as the run completes
+/// (`agent_runs::pane_close::maybe_dispose_after_terminal`). That used to happen before the turn summary had
+/// waited out its "after" checkpoint and read the pane, so no summary was recorded and the away digest never
+/// listed the turn. Closing now waits (bounded) for the summary, and the summary no longer needs the pane.
 #[test]
-#[ignore = "FINDING: the turn summary of a run whose pane auto-closes is never recorded (see the doc comment)"]
 fn a_run_whose_pane_auto_closes_still_gets_its_turn_summary() {
     let session = World::get().session("autoclose");
     session.script(

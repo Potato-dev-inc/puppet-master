@@ -12,6 +12,7 @@
 pub mod digest;
 pub mod http;
 pub mod model;
+pub mod pending;
 pub mod presence;
 pub mod settle;
 pub mod store;
@@ -82,6 +83,25 @@ impl Env for LiveEnv {
     }
 }
 
+/// How long a run's pane waits, before it is closed, for the summary of its last turn to be built.
+/// Normally the "after" checkpoint takes well under a second; past this the pane closes anyway and the
+/// summary is still recorded from the facts captured at the rest point (without the live-only ones).
+pub const DISPOSE_WAIT: Duration = Duration::from_secs(10);
+
+/// Summaries being built right now, per pane.
+static PENDING: Lazy<pending::Pending> = Lazy::new(pending::Pending::default);
+
+/// Marks a summary of `pane_id` as in flight until the guard is dropped.
+pub fn summary_in_flight(pane_id: &str) -> pending::InFlight {
+    pending::InFlight::new(&PENDING, pane_id)
+}
+
+/// Blocks, at most `timeout`, until no summary of `pane_id` is being built. Call it before closing a
+/// pane (see `agent_runs::pane_close`). Returns whether none is left.
+pub fn wait_for_summary(pane_id: &str, timeout: Duration) -> bool {
+    PENDING.wait(pane_id, timeout)
+}
+
 static TRACKER: Lazy<Tracker> = Lazy::new(|| Tracker::new(Arc::new(LiveEnv)));
 
 pub fn tracker() -> &'static Tracker {
@@ -146,7 +166,10 @@ pub fn on_pane_status(pane_id: &str, status: &str) {
     // The checkpoints hook ran just before this one: the newest ticket is this rest point's own
     // capture (a later one only makes the wait longer, never shorter).
     let ticket = if ended.from_running { SETTLE.latest(pane_id) } else { 0 };
+    // Taken here, on the status-event thread, so a pane disposal right after this event waits for it.
+    let in_flight = summary_in_flight(&ended.pane_id);
     let spawned = std::thread::Builder::new().name("pm-turn-summary".into()).spawn(move || {
+        let _in_flight = in_flight;
         if let Some(summary) = summarize(tracker(), &SETTLE, ended, ticket, SETTLE_TIMEOUT) {
             publish(&summary);
         }

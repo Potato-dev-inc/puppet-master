@@ -47,6 +47,10 @@ pub struct Ended {
     /// The pane was running just before (a checkpoint "after" snapshot is on its way).
     pub from_running: bool,
     pub approvals: Vec<Approval>,
+    /// The pane's folder and agent label as they were when the turn came to rest (the status event
+    /// runs while the pane is alive). `finish` runs later on a worker and must not need the pane: a
+    /// run's pane is closed as soon as the run completes, usually before the summary is built.
+    pub pane: Option<PaneInfo>,
 }
 
 #[derive(Default)]
@@ -64,6 +68,8 @@ struct Live {
     /// (live: 104 ms before), so it finds no turn to belong to; the turn the status then opens takes
     /// it over (see `on_status`), so the start-up can be told from a real turn.
     startup_answers: Vec<(u64, Approval)>,
+    /// The last pane facts seen while the pane was alive (the fallback when it is gone at a rest point).
+    pane: Option<PaneInfo>,
 }
 
 pub struct Tracker {
@@ -105,9 +111,11 @@ impl Tracker {
         }
         if status == "running" {
             if !entry.open {
-                if !self.env.pane(pane_id).is_some_and(|p| p.has_turns) {
+                let pane = self.env.pane(pane_id);
+                if !pane.as_ref().is_some_and(|p| p.has_turns) {
                     return None;
                 }
+                entry.pane = pane;
                 entry.turn += 1;
                 entry.open = true;
                 let now = self.env.now_ms();
@@ -141,6 +149,9 @@ impl Tracker {
             entry.open = false;
             return None;
         }
+        // Read the pane now, while it is alive; fall back to what was seen when the turn opened.
+        let pane = self.env.pane(pane_id).or_else(|| entry.pane.clone());
+        entry.pane = pane.clone();
         let ended = Ended {
             pane_id: pane_id.to_string(),
             turn: entry.turn,
@@ -149,6 +160,7 @@ impl Tracker {
             end_status: status.to_string(),
             from_running: prev == "running",
             approvals: entry.approvals.clone(),
+            pane,
         };
         if status != "waiting_input" {
             entry.open = false;
@@ -168,9 +180,11 @@ impl Tracker {
             entry.dispatched = true;
             return;
         }
-        if !self.env.pane(pane_id).is_some_and(|p| p.has_turns) {
+        let pane = self.env.pane(pane_id);
+        if !pane.as_ref().is_some_and(|p| p.has_turns) {
             return;
         }
+        entry.pane = pane;
         entry.turn += 1;
         entry.open = true;
         entry.dispatched = true;
@@ -204,9 +218,12 @@ impl Tracker {
         }
     }
 
-    /// Read the facts of a turn that came to rest, build its summary and keep it.
+    /// Read the facts of a turn that came to rest, build its summary and keep it. Works from the pane
+    /// facts captured at the rest point, so a pane that was closed meanwhile (the default for a run)
+    /// still gets its summary; only the file counts and receipt, which need the live pane, may then be
+    /// unknown.
     pub fn finish(&self, ended: Ended) -> Option<TurnSummary> {
-        let pane = self.env.pane(&ended.pane_id)?;
+        let pane = ended.pane.clone().or_else(|| self.env.pane(&ended.pane_id))?;
         let end_prompt = (ended.end_status == "waiting_input").then(|| self.env.end_prompt(&ended.pane_id)).flatten();
         let summary = assemble(Facts {
             pane_id: ended.pane_id.clone(),
