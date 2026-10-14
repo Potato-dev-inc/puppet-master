@@ -8,6 +8,7 @@ import type { Question } from './questions';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
 import { localSecretHeaders } from './bridge-local-secret';
 import type { PreviewUrl } from './pane-preview';
+import type { AttentionSnapshot } from './attention';
 
 export type * from './bridge-types';
 export { subscribeBridgeEvents } from './bridge-sse';
@@ -50,6 +51,7 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       }
     },
     stopAllPanes: () => call('POST', '/panes/stop-all', {}),
+    attention: () => call<AttentionSnapshot>('GET', '/attention'),
     listQuestions: async () => (await call<{ questions: Question[] }>('GET', '/questions')).questions,
     answerQuestion: (id, answer) => call('POST', `/questions/${encodeURIComponent(id)}/answer`, answer),
     dismissQuestion: (id) => call('POST', `/questions/${encodeURIComponent(id)}/dismiss`, {}),

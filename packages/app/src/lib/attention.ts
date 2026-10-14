@@ -96,3 +96,65 @@ export function needsYouPaneIds(items: ReadonlyArray<NeedsYouItem>): Set<string>
 
 export const itemsOfKind = (items: ReadonlyArray<NeedsYouItem>, kind: NeedsYouKind): NeedsYouItem[] =>
   items.filter((item) => item.kind === kind);
+
+// ---------------------------------------------------------------------------------------------
+// The Rust snapshot (src-tauri/src/attention). `GET /attention`, the `attention` SSE frame and the
+// Tauri event `attention://changed` all carry this shape. Clients apply a frame only when its `rev`
+// is greater than the last one they applied; a reconnect re-reads `GET /attention`.
+
+export type AttentionKind = NeedsYouKind | 'trust_gate' | 'tamper' | 'budget' | 'limit' | 'setup' | 'review' | 'done';
+
+export interface AttentionItem {
+  /** Opaque and stable for one occurrence. Never render it. */
+  id: string;
+  /** `<kind>:<subject>`; the same string `deriveNeedsYou` calls the id. */
+  key: string;
+  kind: AttentionKind;
+  lane: 'blocking' | 'ready';
+  rank: number;
+  state: 'open' | 'resolved';
+  since_ms: number | null;
+  expires_at_ms: number | null;
+  pane: { id: string; heading: string; agent: string | null; project: string | null } | null;
+  title: string;
+  sentence: string | null;
+  risk: { level: 'low' | 'medium' | 'high'; word: string; headline: string | null } | null;
+  prompt: { prompt_id: string; occurrence: number; kind: string; summary: string | null } | null;
+  actions: { id: string; label: string; style: string; needs: string }[];
+  resolution: { state: string; by: string | null; choice_label: string | null; reason: string | null; at_ms: number } | null;
+}
+
+export interface AttentionSnapshot {
+  v: number;
+  rev: number;
+  counts: { blocking: number; ready: number };
+  items: AttentionItem[];
+  /** Only on `GET /attention` for a paired device: what that device may do. */
+  device?: { can_answer: boolean; can_type: boolean; can_control: boolean };
+}
+
+/** Keep the newer of two snapshots: a frame is applied only when its `rev` is greater. */
+export function newerSnapshot(current: AttentionSnapshot | null, next: AttentionSnapshot): AttentionSnapshot {
+  return current && current.rev >= next.rev ? current : next;
+}
+
+/** The number every surface shows: open blocking items. */
+export const blockingCount = (snapshot: AttentionSnapshot): number => snapshot.counts.blocking;
+
+/** Keys of the open items that block (what the old derivation calls ids). */
+export function blockingKeys(snapshot: AttentionSnapshot): string[] {
+  return snapshot.items.filter((i) => i.state === 'open' && i.lane === 'blocking').map((i) => i.key);
+}
+
+/**
+ * Differences between the front-end derivation and the Rust snapshot, as plain sentences; empty when
+ * they agree. Used by the dev-only shadow check so a disagreement shows up as a console warning.
+ */
+export function attentionMismatch(items: ReadonlyArray<NeedsYouItem>, snapshot: AttentionSnapshot, isBlocking: (kind: NeedsYouKind) => boolean = () => true): string[] {
+  const local = new Set(items.filter((i) => isBlocking(i.kind)).map((i) => i.id));
+  const rust = new Set(blockingKeys(snapshot));
+  const out: string[] = [];
+  for (const id of local) if (!rust.has(id)) out.push(`only the front end has ${id}`);
+  for (const id of rust) if (!local.has(id)) out.push(`only Rust has ${id}`);
+  return out;
+}
