@@ -188,6 +188,26 @@ impl Bundle {
     }
 }
 
+/// The newest [`MAX_CASTS`] frozen recordings across `projects`, newest first. A folder written two
+/// ways (slashes, case, trailing separator) is read once; an empty or unreadable one is skipped.
+pub fn collect_casts(projects: &[String]) -> Vec<CastFile> {
+    let mut seen = std::collections::HashSet::new();
+    let mut all: Vec<(String, std::path::PathBuf, u64)> = Vec::new();
+    for project in projects.iter().filter(|p| !p.trim().is_empty()) {
+        if !seen.insert(crate::project_path::comparable_project_path(Path::new(project))) {
+            continue;
+        }
+        all.extend(freeze::list_casts(project).into_iter().map(|(id, path, _, modified)| (id, path, modified)));
+    }
+    all.sort_by_key(|(_, _, modified)| std::cmp::Reverse(*modified));
+    all.into_iter()
+        .filter_map(|(operation_id, path, modified_ms)| {
+            Some(CastFile { operation_id, modified_ms, text: std::fs::read_to_string(path).ok()? })
+        })
+        .take(MAX_CASTS)
+        .collect()
+}
+
 /// Read the live app state into [`Inputs`]. `settings` is the public settings mirror.
 pub fn gather(project: &str, settings: Value) -> Inputs {
     let info = crate::app_lifecycle::get_app_install_info();
@@ -198,13 +218,11 @@ pub fn gather(project: &str, settings: Value) -> Inputs {
         "os": info.platform,
         "arch": std::env::consts::ARCH,
     });
-    let casts = freeze::list_casts(project)
-        .into_iter()
-        .take(MAX_CASTS)
-        .filter_map(|(operation_id, path, _, modified_ms)| {
-            Some(CastFile { operation_id, modified_ms, text: std::fs::read_to_string(path).ok()? })
-        })
+    // A run that failed can be in any project: the default folder, plus every folder a run started in.
+    let projects: Vec<String> = std::iter::once(project.to_string())
+        .chain(crate::operations::indexed_project_paths())
         .collect();
+    let casts = collect_casts(&projects);
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)

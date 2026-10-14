@@ -253,6 +253,73 @@ fn a_run_that_fails_gets_its_recording_frozen_next_to_its_record() {
     let _ = std::fs::remove_dir_all(&project);
 }
 
+/// Write a frozen cast by hand (what `freeze::write` leaves), `gap` ms after the previous one.
+fn plant_cast(project: &str, operation_id: &str) {
+    let path = freeze::cast_path(project, operation_id).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "{\"version\":2,\"width\":80,\"height\":24}\n[0.1,\"o\",\"x\"]\n").unwrap();
+    std::thread::sleep(Duration::from_millis(25));
+}
+
+/// VERIFY-R10 NEW #3: the diagnostic file read recordings only from the default project folder, so
+/// the cast of a run that failed in another project never showed up.
+#[test]
+fn the_diagnostic_file_reads_recordings_from_every_project_a_run_started_in() {
+    use crate::operations::{self, DelegateWorkRequest};
+    let default_project = temp_project("diag-default");
+    let other = temp_project("diag-other");
+    let id = format!("diag-other-{}", uuid::Uuid::new_v4());
+    plant_cast(&other, &id);
+    // A project is "indexed" once a run was created in it.
+    operations::create_operation(DelegateWorkRequest {
+        project_path: other.clone(),
+        task: "inspect".into(),
+        agent_type: "codex".into(),
+        pane_id: None,
+        idempotency_key: uuid::Uuid::new_v4().to_string(),
+        acceptance_criteria: None,
+        task_id: None,
+        exclusive: false,
+        locks: vec![],
+        timeout_ms: 60_000,
+        read_only: false,
+        keep_pane: false,
+        placement: None,
+        owner_session_id: None,
+        worker_has_mcp_tools: false,
+        agent_run_id: Some("diag-other-run".into()),
+        turn_index: 0,
+        worker: Default::default(),
+        context_policy: None,
+        checks: Vec::new(),
+    })
+    .unwrap();
+    let inputs = bundle::gather(&default_project, serde_json::json!({}));
+    assert!(
+        inputs.casts.iter().any(|c| c.operation_id == id),
+        "the other project's recording is in the file: {:?}",
+        inputs.casts.iter().map(|c| &c.operation_id).collect::<Vec<_>>()
+    );
+    let _ = std::fs::remove_dir_all(&default_project);
+    let _ = std::fs::remove_dir_all(&other);
+}
+
+#[test]
+fn recordings_across_projects_are_the_newest_five_and_one_folder_is_read_once() {
+    let (a, b) = (temp_project("casts-a"), temp_project("casts-b"));
+    for n in 0..4 {
+        plant_cast(&a, &format!("a-{n}"));
+        plant_cast(&b, &format!("b-{n}"));
+    }
+    // `a` is listed twice, spelled two ways.
+    let spelled_again = format!("{}/", a.replace('\\', "/"));
+    let casts = bundle::collect_casts(&[a.clone(), b.clone(), spelled_again, String::new()]);
+    let ids: Vec<&str> = casts.iter().map(|c| c.operation_id.as_str()).collect();
+    assert_eq!(ids, ["b-3", "a-3", "b-2", "a-2", "b-1"], "newest first, five, both projects, no duplicates");
+    let _ = std::fs::remove_dir_all(&a);
+    let _ = std::fs::remove_dir_all(&b);
+}
+
 #[test]
 fn zip_round_trips_with_checksums() {
     let mut zip = zip::ZipWriter::new(Vec::new());

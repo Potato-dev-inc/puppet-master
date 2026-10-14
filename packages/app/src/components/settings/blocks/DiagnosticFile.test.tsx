@@ -26,6 +26,8 @@ vi.mock('../../../lib/tauri', () => ({
 
 import { tauri } from '../../../lib/tauri';
 import { generalRows } from '../sections/GeneralSection';
+import { DIAGNOSTIC_REFRESH_MS } from './DiagnosticFile';
+import { act } from 'react';
 
 const row = generalRows.filter((r) => r.id === 'diagnostic-file');
 let m: Mounted;
@@ -79,5 +81,40 @@ describe('Save a diagnostic file', () => {
     await settle();
     expect(tauri.diagnosticSave).not.toHaveBeenCalled();
     expect(m.host.querySelector('.st-diag-list')).not.toBeNull();
+  });
+});
+
+describe('the open list keeps itself current', () => {
+  const newFailure = { path: 'recordings/op-2.cast', label: 'Recording of a run that failed, just now', bytes: 500 };
+  const after = { totalBytes: 3500, files: [...mocks.preview.files, newFailure] };
+
+  beforeEach(() => vi.mocked(tauri.diagnosticPreview).mockReset().mockResolvedValue(mocks.preview));
+  afterEach(() => vi.useRealTimers());
+
+  it('lists a run that failed while it was open, without pressing Refresh', async () => {
+    vi.useFakeTimers();
+    await click(buttonByText(m.host, 'Review…'));
+    expect(m.host.querySelectorAll('.st-diag-item')).toHaveLength(3);
+    vi.mocked(tauri.diagnosticPreview).mockResolvedValueOnce(after);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DIAGNOSTIC_REFRESH_MS + 50)));
+    expect(m.host.querySelectorAll('.st-diag-item')).toHaveLength(4);
+    expect(m.host.textContent).toContain('Recording of a run that failed, just now');
+  });
+
+  it('re-reads when the window is focused again, and keeps what was unticked', async () => {
+    await click(buttonByText(m.host, 'Review…'));
+    await click(byLabel(m.host, 'Your settings, with keys and tokens removed'));
+    vi.mocked(tauri.diagnosticPreview).mockResolvedValueOnce(after);
+    await act(async () => void window.dispatchEvent(new Event('focus')));
+    await settle();
+    expect(m.host.querySelectorAll('.st-diag-item')).toHaveLength(4);
+    expect(byLabel(m.host, 'Your settings, with keys and tokens removed').checked).toBe(false);
+    expect(byLabel(m.host, 'Recording of a run that failed, just now').checked).toBe(true);
+  });
+
+  it('does not read at all while the list is closed', async () => {
+    vi.useFakeTimers();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DIAGNOSTIC_REFRESH_MS * 3)));
+    expect(tauri.diagnosticPreview).not.toHaveBeenCalled();
   });
 });
