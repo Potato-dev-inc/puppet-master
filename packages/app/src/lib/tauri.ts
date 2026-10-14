@@ -6,6 +6,7 @@ import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import type {
   AgentContextProfile,
   AgentModelInspection,
+  DeviceCap,
   PairedDeviceInfo,
   PairingSession,
 } from '@puppet-master/shared';
@@ -296,10 +297,11 @@ export const tauri = {
   resizeCurrentWindow,
   onCurrentWindowCloseRequested,
 
-  createMobilePairingSession: (bridgeUrl: string) =>
+  /** `caps`: what the phone that scans this code may do (omitted: everything, as before). */
+  createMobilePairingSession: (bridgeUrl: string, caps?: readonly DeviceCap[]) =>
     safeInvoke<PairingSession>(
       'create_mobile_pairing_session',
-      { bridgeUrl },
+      caps ? { bridgeUrl, caps: [...caps] } : { bridgeUrl },
       {
         pairing_code: '',
         expires_at: 0,
@@ -313,6 +315,11 @@ export const tauri = {
     safeInvoke<PairedDeviceInfo[]>('list_paired_mobile_devices', undefined, [], true),
   revokePairedMobileDevice: (deviceId: string) =>
     safeInvoke<boolean>('revoke_paired_mobile_device', { deviceId }, false, true),
+  setPairedMobileDeviceCaps: (deviceId: string, caps: readonly DeviceCap[]) =>
+    safeInvoke<boolean>('set_paired_mobile_device_caps', { deviceId, caps: [...caps] }, false, true),
+  /** This launch's bridge key for the app's own HTTP calls (IPC only; null outside the app). */
+  bridgeLocalSecret: () =>
+    safeInvoke<string | null>('bridge_local_secret', undefined, null, true).catch(() => null),
 
   getMobileTunnelInfo: () =>
     safeInvoke<{

@@ -38,6 +38,14 @@ export function installTauriMock(scenario: HarnessScenario): void {
   const panes = scenario.panes ?? EXAMPLE_PANES;
   // In-memory plugin-store (one store, rid 1), keyed as the app writes it.
   const store = new Map<string, unknown>([['settings', { theme: scenario.theme ?? 'dark' }]]);
+  // Settings > Phone > Devices: one phone with full control in daily use, one watch-and-answer.
+  const now = Math.floor(Date.now() / 1000);
+  const day = 24 * 60 * 60;
+  let pairedDevices = [
+    { id: '6f1c2a90-aaaa-4bbb-8ccc-000000000001', name: "Maya's iPhone", public_key: 'pk1', paired_at: now - 40 * day, caps: ['watch', 'answer', 'type', 'control'], expires_at: now + 30 * day - 600, last_seen: now - 600, expired: false, idle_expiry_secs: 30 * day },
+    { id: '6f1c2a90-aaaa-4bbb-8ccc-000000000002', name: 'Pixel 8', public_key: 'pk2', paired_at: now - 9 * day, caps: ['watch', 'answer'], expires_at: now + 21 * day, last_seen: now - 9 * day, expired: false, idle_expiry_secs: 30 * day },
+    { id: '6f1c2a90-aaaa-4bbb-8ccc-000000000003', name: 'Old iPad', public_key: 'pk3', paired_at: now - 120 * day, caps: ['watch', 'answer', 'type', 'control'], expires_at: now - 2 * day, last_seen: now - 32 * day, expired: true, idle_expiry_secs: 30 * day },
+  ];
 
   mockWindows(scenario.route === 'settings' ? 'settings' : scenario.route === 'askbar' ? 'askbar' : 'cockpit');
   mockIPC(
@@ -195,7 +203,17 @@ export function installTauriMock(scenario: HarnessScenario): void {
           };
         }
         case 'list_paired_mobile_devices':
-          return [];
+          return pairedDevices;
+        case 'set_paired_mobile_device_caps': {
+          const device = pairedDevices.find((d) => d.id === a.deviceId);
+          if (device) device.caps = (a.caps as string[]) ?? [];
+          return Boolean(device);
+        }
+        case 'revoke_paired_mobile_device': {
+          const before = pairedDevices.length;
+          pairedDevices = pairedDevices.filter((d) => d.id !== a.deviceId);
+          return pairedDevices.length !== before;
+        }
         case 'get_mobile_tunnel_info':
           return { localUrl: 'http://127.0.0.1:1420', pwaUrl: 'http://127.0.0.1:1420', tunnelUrl: 'https://pm.example.com', bridgeProxyUrl: 'https://pm.example.com/bridge', updatedAt: 0 };
         case 'pane_set_title':

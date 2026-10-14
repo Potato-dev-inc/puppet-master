@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { findBridgeUrl, makeBridgeClient, subscribeBridgeEvents, type BridgeClient } from '../lib/bridge';
+import { loadBridgeLocalSecret } from '../lib/bridge-local-secret';
 import type { McpLogEntry, OrchestratorChatEvent, OrchestratorUserMessage, PaneInfo } from '@puppet-master/shared';
 import type { MobileOrchestratorViewport } from './useTerminalAuthorityCss';
 
@@ -54,6 +55,8 @@ export function useBridge(bridgeUrl?: string): BridgeApi {
     async function tryConnect() {
       if (cancelled) return;
       const url = bridgeUrl ?? await findBridgeUrl();
+      // The app's own key for the local bridge (S3); null outside the desktop app.
+      await loadBridgeLocalSecret();
       if (cancelled) return;
       if (!url) {
         setError('Bridge not reachable. Is the Puppet Master GUI running?');
