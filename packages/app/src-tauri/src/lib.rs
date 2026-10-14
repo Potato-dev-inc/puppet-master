@@ -64,6 +64,7 @@ mod shell_env;
 mod startup_timing;
 pub mod shell_exec;
 mod standby;
+mod team;
 pub mod tool_registry;
 mod toolbelt;
 mod tui;
@@ -122,6 +123,17 @@ pub fn run() {
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::list_panes,
+            team::commands::team_state,
+            team::commands::team_config_get,
+            team::commands::team_config_set,
+            team::commands::team_send,
+            team::commands::team_draft_dismiss,
+            team::commands::team_card_dismiss,
+            team::commands::team_pull,
+            team::commands::team_queue,
+            team::commands::team_job_apply,
+            team::commands::team_job_discard,
+            team::commands::team_job_diff,
             commands::spawn_pane,
             commands::kill_pane_cmd,
             commands::kill_all_panes,
@@ -420,6 +432,7 @@ pub fn run() {
             panic::init_shortcut(app.handle());
             turn_summary::start_presence();
             askbar::glue::init(app.handle());
+            team::init(app.handle().clone(), registry_for_panes.clone());
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
             });
