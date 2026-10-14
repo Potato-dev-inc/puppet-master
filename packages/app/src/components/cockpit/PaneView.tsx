@@ -31,7 +31,7 @@ import { UntestedChip } from './UntestedChip';
 type Tab = 'terminal' | 'changes' | 'transcript' | 'receipt' | 'history';
 
 /** Run info + transcript for the Transcript and Receipt tabs. `null` = the pane has no run. */
-function useRunData(paneId: string, active: boolean, status: string) {
+export function useRunData(paneId: string, active: boolean, status: string) {
   const [info, setInfo] = useState<PaneRunInfo | null | undefined>(undefined);
   const [transcript, setTranscript] = useState<PaneTranscript | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);

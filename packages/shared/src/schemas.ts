@@ -104,6 +104,8 @@ export const SettingsSchema = z.object({
   checkpoints_keep: z.number().int().min(5).max(500).default(50),
   /** Minutes without keyboard or mouse before you count as away (the "While you were away" digest); 0 = off. */
   away_minutes: z.number().int().min(0).max(1440).default(5),
+  /** Simple mode: the cockpit with fewer buttons and plain words, for people who do not write code. Off unless chosen. */
+  simple_mode: z.boolean().optional(),
   /** Optional path to the librarian project indexer script (default scripts/project-indexer.py). */
   librarian_indexer_path: z.string().optional(),
   /** Default OpenCode provider for opencode_native API prompts (write_terminal_input). */

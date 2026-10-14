@@ -20,6 +20,8 @@ import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
 import { TellTeamToast } from './components/cockpit/team/TellTeam';
+import { SimpleCockpit } from './components/simple/SimpleCockpit';
+import { useSimpleMode } from './lib/simple-mode';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
 import { homeView, viewAfterSelect, type MainView } from './components/cockpit/main-view';
 import './styles/cockpit.css';
@@ -92,6 +94,9 @@ export default function CockpitApp() {
 
   const { onClickCapture } = useNudgeOnAction();
   const needsYou = useNeedsYouSource(c, loop.signals);
+  // Simple mode (Settings > General) swaps the whole face; off by default, so this line does nothing then.
+  const simple = useSimpleMode();
+  if (simple && c.mode !== 'individual') return <SimpleCockpit c={c} loop={loop} needsYou={needsYou} lastTurn={away.lastTurn} />;
 
   return (
     <LoopGuardContext.Provider value={loop}>
