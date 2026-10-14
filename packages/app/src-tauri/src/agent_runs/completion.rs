@@ -136,7 +136,12 @@ pub fn observe_tui_turn(
     has_prompt: bool,
     agent_type: &str,
 ) -> TuiTurnDecision {
-    if has_prompt || pane_status == "waiting_input" {
+    // A startup screen (an update notice, a trust question, a login page) is never a turn's answer.
+    // The pane reads "running" while the task is typed into it and "idle" once it settles, which
+    // looked exactly like a finished turn: a Codex run completed with its update menu as the reply.
+    // The turn cannot have ended while the TUI has not even reached its input box.
+    let startup_gate = crate::tui::profile_for(agent_type).startup_gate(screen).is_some();
+    if has_prompt || startup_gate || pane_status == "waiting_input" {
         watch.idle_evidence = None;
         watch.idle_ticks = 0;
         watch.reconcile_ticks = 0;

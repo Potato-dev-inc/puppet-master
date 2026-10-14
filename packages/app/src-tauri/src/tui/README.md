@@ -68,6 +68,16 @@ method (with a generic default) to `TuiProfile` instead.
    (unique id, `AgentType` round-trip, shared launch policy, parsers reject garbage, every
    detected prompt can be answered, an empty screen is never "blocked").
 
+## Submit, composer and startup-gate hooks
+
+Declared per profile, generic defaults, used by `agent_runs/delivery.rs`, `bridge/startup_gate.rs` and
+`agent_runs/completion.rs` (see `docs/features/fix-live-codex.md`):
+
+- `submit_sequence()`: pause between typed text and the submit keys (Codex: 400 ms, its paste-burst window swallows a quicker Enter).
+- `composer_state(screen)`: `Empty / HasText / Working`, so delivery can confirm a submit.
+- `startup_gate(screen)`: an update notice, trust, login or onboarding screen. A gate with `dismiss` keys is closed before the
+  task is typed; one without parks the run for the user. A gate is never a run's answer.
+
 ## Adding an agent without code
 
 If the CLI can be driven by an argument list, a TOML file replaces steps 1-4 above: no Rust, no rebuild.

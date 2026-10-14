@@ -24,6 +24,7 @@ mod projects;
 mod router;
 mod routes;
 mod sse;
+pub(crate) mod startup_gate;
 mod state;
 mod store;
 #[cfg(test)]

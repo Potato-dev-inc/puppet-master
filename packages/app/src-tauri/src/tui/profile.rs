@@ -266,6 +266,27 @@ pub trait TuiProfile: Send + Sync {
         false
     }
 
+    /// How typed text is submitted. Default: Enter right after the generic pause. A TUI that reads
+    /// a quick Enter as a line break (a paste-burst heuristic) declares a longer `settle`.
+    fn submit_sequence(&self) -> SubmitSequence {
+        SubmitSequence::ENTER
+    }
+
+    /// What the input box holds, read from the screen text. Lets delivery confirm that Enter
+    /// emptied the box (or a working marker appeared) and press Enter once more when the text is
+    /// still waiting. Default `Unknown`: delivery then relies on the generic checks.
+    fn composer_state(&self, _screen: &str) -> ComposerState {
+        ComposerState::Unknown
+    }
+
+    /// A startup screen (update notice, trust, login, onboarding) that is on screen right now, if
+    /// any. Generic code (a) dismisses one that declares `dismiss` before typing a task, (b) parks
+    /// the run on one that does not, instead of answering for the user, and (c) never lets a screen
+    /// that is a gate count as a run's answer. Default none.
+    fn startup_gate(&self, _screen: &str) -> Option<StartupGate> {
+        None
+    }
+
     /// Whether `prompt_visible` is meaningful (shells only).
     fn prompt_visible(&self, _screen: &str) -> bool {
         false

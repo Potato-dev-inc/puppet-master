@@ -4,6 +4,8 @@ use crate::tui::{HeadlessLaunch, LaunchSpec};
 use serde_json::Value;
 use std::path::PathBuf;
 
+const SKIP_GIT_CHECK: &str = "--skip-git-repo-check";
+
 pub(super) fn command(launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
     Ok(LaunchSpec {
         program: crate::tui::executable("codex")?,
@@ -17,6 +19,12 @@ pub(super) fn command(launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
 
 /// `codex exec --help` does not accept `--ask-for-approval`; it is a top-level flag.
 /// Resume is `codex exec resume <SESSION_ID> [PROMPT]`.
+///
+/// A read-only run adds `--skip-git-repo-check`. Codex refuses to start outside a trusted git
+/// folder ("Not inside a trusted directory and --skip-git-repo-check was not specified", seen
+/// live on 0.159.3 in the agent doctor's scratch folder). That check exists to stop an agent from
+/// editing a folder that has no version control; a read-only sandbox cannot edit, so the check has
+/// nothing left to protect. Writing runs keep the check.
 fn exec_args(task: &str, read_only: bool, resume_session: Option<&str>) -> Vec<String> {
     let mut args = vec!["--ask-for-approval".into(), "never".into(), "exec".into()];
     if let Some(session) = resume_session
@@ -26,12 +34,18 @@ fn exec_args(task: &str, read_only: bool, resume_session: Option<&str>) -> Vec<S
         args.push("resume".into());
         args.push(session.to_string());
         args.push("--json".into());
+        if read_only {
+            args.push(SKIP_GIT_CHECK.into());
+        }
         args.push(task.into());
         return args;
     }
     args.push("--json".into());
     args.push("--sandbox".into());
     args.push(if read_only { "read-only" } else { "workspace-write" }.into());
+    if read_only {
+        args.push(SKIP_GIT_CHECK.into());
+    }
     args.push(task.into());
     args
 }
@@ -148,6 +162,20 @@ model = \"other\"
         assert!(read_only
             .windows(2)
             .any(|pair| pair == ["--sandbox", "read-only"]));
+    }
+
+    #[test]
+    fn a_read_only_run_skips_the_trusted_folder_check_and_a_writing_run_keeps_it() {
+        // The doctor's Test runs read-only in a scratch folder that is not a git repo; without the
+        // flag Codex 0.159.3 exits with "Not inside a trusted directory ...".
+        let read_only = exec_args("say hi", true, None);
+        assert!(read_only.contains(&"--skip-git-repo-check".to_string()), "{read_only:?}");
+        assert_eq!(read_only.last().map(String::as_str), Some("say hi"), "the task stays the last argument");
+        let writing = exec_args("say hi", false, None);
+        assert!(!writing.contains(&"--skip-git-repo-check".to_string()), "{writing:?}");
+        let resumed = exec_args("say hi", true, Some("0199thread"));
+        assert!(resumed.contains(&"--skip-git-repo-check".to_string()), "{resumed:?}");
+        assert_eq!(resumed.last().map(String::as_str), Some("say hi"));
     }
 
     #[test]
