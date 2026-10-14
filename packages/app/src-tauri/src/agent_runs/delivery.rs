@@ -1102,4 +1102,153 @@ working
         assert!(trace.iter().any(|l| l.contains("screen stayed empty")), "{trace:?}");
         assert!(p.paused >= Duration::from_secs(19), "paused {:?}", p.paused);
     }
+
+    // ---- the permit on real captures (the same scenarios fail on the base: `fail-before-base.txt`) ----
+
+    /// A pane of a real profile showing one captured screen; `process` is what the process tree says.
+    struct Captured {
+        inner: FakePane,
+        agent: &'static str,
+        process: AgentProcess,
+    }
+
+    impl DeliveryIo for Captured {
+        fn write(&mut self, o: WriteOrigin<'_>, t: &str, e: bool) -> Result<(), String> {
+            let process = self.process;
+            o.admit_terminal_write("", t, e, None, || process)?;
+            self.inner.write(o, t, e)
+        }
+        fn screen(&mut self) -> String {
+            self.inner.screen()
+        }
+        fn observe(&mut self) -> Observation {
+            Observation { pane_id: String::new(), screen: self.inner.screen(), output_pos: None, agent: self.process }
+        }
+        fn busy(&mut self) -> bool {
+            self.inner.busy
+        }
+        fn pause(&mut self, d: Duration) {
+            self.inner.pause(d)
+        }
+        fn profile(&mut self) -> Arc<dyn TuiProfile> {
+            crate::tui::profile_for(self.agent)
+        }
+    }
+
+    fn typed_on(agent: &'static str, screen: &str, process: AgentProcess) -> (Delivery, Vec<(String, bool)>) {
+        let mut inner = pane(|_, _, _| {});
+        inner.screen = screen.to_string();
+        let mut io = Captured { inner, agent, process };
+        let clear = crate::tui::profile_for(agent).clear_input_sequence();
+        let outcome = deliver_prompt(&mut io, clear, PROMPT);
+        (outcome, io.inner.writes)
+    }
+
+    #[test]
+    fn a_killed_agent_whose_last_frame_shows_its_box_gets_nothing_typed() {
+        let screen = include_str!("../tui/claude/fixtures/killed_host_shell_2_1_299_live.txt");
+        let (outcome, writes) = typed_on("claude", screen, AgentProcess::Exited);
+        assert_eq!(outcome, Delivery::AgentGone(HostShell::AgentExited));
+        assert!(writes.is_empty(), "{writes:?}");
+    }
+
+    #[test]
+    fn a_claude_box_holding_someones_draft_is_not_typed_into() {
+        let screen = include_str!("../tui/claude/fixtures/draft_2_1_299_live.txt");
+        let (outcome, writes) = typed_on("claude", screen, AgentProcess::Alive);
+        assert!(matches!(&outcome, Delivery::NotReady { why, .. } if why.contains("already holds text")), "{outcome:?}");
+        assert!(writes.is_empty(), "{writes:?}");
+    }
+
+    #[test]
+    fn codex_still_loading_is_not_typed_into() {
+        let screen = include_str!("../tui/codex/fixtures/loading_0_162_1_live.txt");
+        let (outcome, writes) = typed_on("codex", screen, AgentProcess::Alive);
+        assert!(matches!(outcome, Delivery::NotReady { .. }), "{outcome:?}");
+        assert!(writes.is_empty(), "{writes:?}");
+    }
+
+    #[test]
+    fn an_agent_that_is_not_installed_is_its_own_outcome() {
+        let screen = include_str!("../tui/shell/fixtures/command_not_found_powershell_live.txt");
+        let (outcome, writes) = typed_on("claude", screen, AgentProcess::Starting);
+        assert_eq!(outcome, Delivery::AgentGone(HostShell::NotInstalled("pm-agent-not-installed-7f3".into())));
+        assert!(writes.is_empty(), "{writes:?}");
+    }
+
+    #[test]
+    fn the_same_screens_with_a_live_agent_still_deliver() {
+        // The checks above refuse for the right reason: Claude at its fresh box takes the task.
+        let screen = include_str!("../tui/claude/fixtures/ready_fresh_2_1_299_live.txt");
+        let mut inner = pane(|pane, text, enter| {
+            if enter {
+                pane.screen = format!("\u{276f} {PROMPT}\n\u{2722} Generating\u{2026}\n");
+                pane.busy = true;
+            } else if text == PROMPT {
+                pane.screen = pane.screen.replace("Try \"edit <filepath> to...\"", PROMPT);
+            }
+        });
+        inner.screen = screen.to_string();
+        let mut io = Captured { inner, agent: "claude", process: AgentProcess::Alive };
+        assert_eq!(deliver_prompt(&mut io, None, PROMPT), Delivery::Started);
+        assert_eq!(io.inner.writes, vec![(PROMPT.to_string(), false), (String::new(), true)]);
+    }
+
+    #[test]
+    fn a_menu_that_draws_between_the_look_and_the_keystroke_is_never_typed_into() {
+        // The pane's write path refuses a permit whose screen is no longer the latest; the stale
+        // refusal sends delivery back to look, and the late menu is closed with its own keys.
+        struct Racy {
+            inner: FakePane,
+            pos: u64,
+            menu_drawn: bool,
+        }
+        impl DeliveryIo for Racy {
+            fn write(&mut self, o: WriteOrigin<'_>, t: &str, e: bool) -> Result<(), String> {
+                if !self.menu_drawn && t == PROMPT {
+                    // Codex draws its update menu right after the look that issued this permit.
+                    self.menu_drawn = true;
+                    self.inner.screen = include_str!("../tui/codex/fixtures/update_prompt_live.txt").to_string();
+                    self.pos += 900;
+                }
+                o.admit_terminal_write("", t, e, Some(self.pos), || AgentProcess::Alive)?;
+                if t == "\u{1b}" {
+                    self.inner.screen = include_str!("../tui/codex/fixtures/standby_ready_live.txt").to_string();
+                    self.pos += 500;
+                    return Ok(());
+                }
+                self.inner.write(o, t, e)
+            }
+            fn screen(&mut self) -> String {
+                self.inner.screen()
+            }
+            fn observe(&mut self) -> Observation {
+                Observation { pane_id: String::new(), screen: self.inner.screen(), output_pos: Some(self.pos), agent: AgentProcess::Alive }
+            }
+            fn busy(&mut self) -> bool {
+                false
+            }
+            fn pause(&mut self, d: Duration) {
+                self.inner.pause(d)
+            }
+            fn profile(&mut self) -> Arc<dyn TuiProfile> {
+                crate::tui::profile_for("codex")
+            }
+        }
+        let mut inner = pane(|pane, text, enter| {
+            if enter {
+                pane.screen = format!("\u{203a} {PROMPT}\n\n  esc to interrupt\n");
+            } else if text == PROMPT {
+                pane.screen = pane.screen.replace("\u{203a} Ask Codex to do anything", &format!("\u{203a} {PROMPT}"));
+            }
+        });
+        inner.screen = include_str!("../tui/codex/fixtures/standby_ready_live.txt").to_string();
+        let mut io = Racy { inner, pos: 1_000, menu_drawn: false };
+        let mut trace = Vec::new();
+        let outcome = deliver_prompt_traced(&mut io, None, PROMPT, &mut trace);
+        assert!(trace.iter().any(|l| l.contains("PERMIT_STALE")), "{trace:#?}");
+        assert!(trace.iter().any(|l| l.contains("update_available")), "{trace:#?}");
+        assert_eq!(outcome, Delivery::Started, "{trace:#?}");
+        assert_eq!(io.inner.writes.iter().filter(|(t, _)| t == PROMPT).count(), 1, "typed once, on the composer");
+    }
 }
