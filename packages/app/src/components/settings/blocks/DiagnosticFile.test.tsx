@@ -108,8 +108,8 @@ describe('the open list keeps itself current', () => {
     await act(async () => void window.dispatchEvent(new Event('focus')));
     await settle();
     expect(m.host.querySelectorAll('.st-diag-item')).toHaveLength(4);
-    expect(byLabel(m.host, 'Your settings, with keys and tokens removed').checked).toBe(false);
-    expect(byLabel(m.host, 'Recording of a run that failed, just now').checked).toBe(true);
+    expect((byLabel(m.host, 'Your settings, with keys and tokens removed') as HTMLInputElement).checked).toBe(false);
+    expect((byLabel(m.host, 'Recording of a run that failed, just now') as HTMLInputElement).checked).toBe(true);
   });
 
   it('does not read at all while the list is closed', async () => {
