@@ -1,0 +1,29 @@
+
+  >_ OpenAI Codex (v0.159.3)
+     D:\pm-demo
+
+  Your cursor called. It wants a plot.                                                                                                                                                                                                          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Read README.md and say one sentence about it. Don't edit files.
+
+
+ 

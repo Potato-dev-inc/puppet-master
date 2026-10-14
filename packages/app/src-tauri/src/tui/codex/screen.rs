@@ -137,15 +137,37 @@ pub(super) fn startup_gate(screen: &str) -> Option<StartupGate> {
 
 /// Rows Codex draws around a reply that are not part of it: the footer (`GPT-6-Luna medium ·
 /// D:pm-demo · <thread title>`: model, reasoning effort, folder, title), the shortcuts hint and the
-/// `Worked for 5s • 11:29 AM` separator under a finished turn (live capture of a visible run,
+/// `Worked for 5s • 11:29 AM` separator under a finished turn, the update notice box
+/// (`✨ Update available! 0.159.3 -> 0.162.1`, `See full release notes:`) and the
+/// `>_ OpenAI Codex (v0.159.3)` banner above the first message (live captures of a visible run,
 /// 0.159.3). `lower` is the trimmed, lowercased row.
+///
+/// The notice box and the banner can reach the reply as ONE row: the box rows fill the terminal's
+/// full width, so the screen text joins the wrapped rows of the box's tail, the banner and the
+/// folder without a line break (live: a Codex run's result began with
+/// `│ See full release notes: ... ││ https://github.com/openai/codex/releases/latest ... │╰───╯
+/// >_ OpenAI Codex (v0.159.3)   D:\pm-demo`).
 pub(super) fn is_chrome_line(lower: &str) -> bool {
     static FOOTER: Lazy<Regex> = Lazy::new(|| {
         Regex::new(r"^[\w.\-/]+ (minimal|low|medium|high|xhigh)(?: \u{b7} |$)").expect("codex footer regex")
     });
     static WORKED: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"^worked for [0-9hms ]+(?: \u{2022} .*)?$").expect("codex worked-for regex"));
-    lower.contains("? for shortcuts") || FOOTER.is_match(lower) || WORKED.is_match(lower)
+    // The banner `>_ OpenAI Codex (v0.159.3)`, wherever it sits in the row.
+    static BANNER: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r">_ openai codex \(v[0-9][0-9a-z.\-]*\)").expect("codex banner regex"));
+    // The notice box's rows: box glyphs and the sparkle, then the notice's own text.
+    static NOTICE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r"^(?:[\u{2500}-\u{257f}\u{2728}\s]*(?:update available!|see full release notes)|[\u{2500}-\u{257f}]+\s*https://github\.com/openai/codex/releases)",
+        )
+        .expect("codex update notice regex")
+    });
+    lower.contains("? for shortcuts")
+        || FOOTER.is_match(lower)
+        || WORKED.is_match(lower)
+        || BANNER.is_match(lower)
+        || NOTICE.is_match(lower)
 }
 
 /// Whether the screen shows Codex working: the status row `Working (12s \u{2022} esc to interrupt)`.
@@ -342,6 +364,9 @@ mod tests {
         }
         for row in [
             "• readme.md describes a tiny node.js demo for puppet master, where sum.js adds numbers.",
+            "the release notes for codex are at https://github.com/openai/codex/releases/latest",
+            "update available means a newer build exists",
+            "the banner reads openai codex",
             "medium · rare",
             "high availability needs two nodes",
             "the worked for example is below",
