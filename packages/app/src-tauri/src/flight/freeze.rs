@@ -96,6 +96,13 @@ fn prune(project: &str) {
 /// next to its record. The ring is copied right away (it keeps moving), the redaction and the file
 /// write happen on a short-lived thread so the caller, which holds the operation lock, never waits
 /// on them. Does nothing for a run that has no pane, no recording, or already has a cast.
+///
+/// Only `Failed` is recorded, whatever the code (`AGENT_EXITED`, `TIMEOUT`, the watchdog's `TIMEOUT`,
+/// ...): something went wrong that the person may want to look at. A run the person cancelled is not a
+/// fault, so it leaves no recording by default (VERIFY-R10 NEW #1, decided in round 11). Recording
+/// cancels too would be one more arm here and a Cancelled row in the preview's wording; the tests
+/// `a_run_the_person_cancels_leaves_no_recording_but_a_failed_one_does` and
+/// `a_run_the_watchdog_times_out_gets_its_recording_frozen` pin both halves.
 pub fn on_operation_saved(op: &crate::operations::OperationSnapshot) {
     use crate::operations::OperationStatus;
     if op.status != OperationStatus::Failed {
