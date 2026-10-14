@@ -317,7 +317,7 @@
 .cockpit .ck-bridge {
   padding: 0 4px;
   font-size: 11px;
-  color: var(--label-4);
+  color: var(--label-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

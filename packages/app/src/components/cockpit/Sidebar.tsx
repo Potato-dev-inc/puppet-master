@@ -68,6 +68,13 @@ export function Sidebar({
           const since = c.statusSince.get(id);
           const active = c.selectedId === id && !c.spawn;
           const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
+          const subline = paneSubline(
+            p.info,
+            c.names.get(id) ?? p.info.agent_type,
+            activityText(p.status, c.activities?.[id]) ??
+              (p.status === 'error' ? `Error · ${projectName(p.info.cwd)}` : projectName(p.info.cwd)),
+            multiLogin,
+          );
           return (
             <button
               key={id}
@@ -80,17 +87,9 @@ export function Sidebar({
               <span className="ck-row-glyph">
                 <DotSpinner status={spinnerStatus(p.status)} />
               </span>
-              <span className="ck-row-main" title={projectName(p.info.cwd)}>
+              <span className="ck-row-main" title={`${heading.primary} · ${subline}`}>
                 <span className="ck-row-title">{heading.primary}</span>
-                <span className="ck-row-sub">
-                  {paneSubline(
-                    p.info,
-                    c.names.get(id) ?? p.info.agent_type,
-                    activityText(p.status, c.activities?.[id]) ??
-                      (p.status === 'error' ? `Error · ${projectName(p.info.cwd)}` : projectName(p.info.cwd)),
-                    multiLogin,
-                  )}
-                </span>
+                <span className="ck-row-sub">{subline}</span>
               </span>
               {mainPreview(c.previews, id) && (
                 <span className="ck-row-preview" title={`Preview ${previewLabel(mainPreview(c.previews, id)!)}`} role="img" aria-label="Has a preview">

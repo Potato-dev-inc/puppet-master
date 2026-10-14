@@ -185,7 +185,7 @@ export function ToolbeltGroup({ api = toolbeltApi, projectPath }: { api?: Toolbe
                 <span className="truncate text-sm font-medium">{s.name}</span>
                 <span className="shrink-0 text-[11px] text-pm-muted">{s.scope === 'project' ? 'This project' : 'All projects'}</span>
               </div>
-              <div className="truncate font-mono text-[11px] text-pm-muted">{summary(s)}</div>
+              <div className="truncate font-mono text-[11px] text-pm-muted" title={summary(s)}>{summary(s)}</div>
             </div>
             <button type="button" className={btn} onClick={() => setDraft(toDraft(s))} aria-label={`Edit ${s.name}`}>
               Edit

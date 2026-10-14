@@ -184,6 +184,16 @@ export function installTauriMock(scenario: HarnessScenario): void {
           };
         case 'test_tunnel_connection':
           return { ok: true, url: 'https://pm.example.com/bridge/health', http_status: 200, latency_ms: 84, message: 'Connected in 84 ms.' };
+        case 'create_mobile_pairing_session': {
+          const url = String(a.bridgeUrl ?? 'https://pm.example.com/bridge');
+          return {
+            pairing_code: 'K7Q2-M9XD',
+            expires_at: 1_900_000_000,
+            server_public_key: 'bW9jay1zZXJ2ZXItcHVibGljLWtleQ==',
+            bridge_url: url,
+            qr_payload: { v: 1, u: url, pk: 'bW9jay1zZXJ2ZXItcHVibGljLWtleQ==', c: 'K7Q2M9XD', e: 1_900_000_000 },
+          };
+        }
         case 'list_paired_mobile_devices':
           return [];
         case 'get_mobile_tunnel_info':
