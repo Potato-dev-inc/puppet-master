@@ -5,7 +5,7 @@ import { QUIZ_HTML, QUIZ_REPO } from '../simple-fixtures';
 export default simpleScenario({
   name: 'simple-make-folder-refused-900',
   window: { width: 900, height: 700 },
-  simple: { panes: [], pickedFolder: { path: 'C:\Users\Ana\Documents', name: 'Documents' } },
+  simple: { panes: [], pickedFolder: { path: 'C:\\Users\\Ana\\Documents', name: 'Documents' } },
   after: async (dom) => {
     await dom.clickText('.sx-make-btn', 'Make something');
     await dom.clickText('.sx-choice', 'A small tool');
