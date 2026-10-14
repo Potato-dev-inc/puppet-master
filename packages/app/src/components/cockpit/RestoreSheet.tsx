@@ -2,6 +2,7 @@
 // works in the same folder) the shared-folder warning. Used by the History tab and by the palette's
 // "Undo last turn", so every way to restore asks the same question.
 import { sharedFolderWarning } from './history-model';
+import { Sheet } from './Sheet';
 
 export function RestoreSheet({
   title,
@@ -21,13 +22,7 @@ export function RestoreSheet({
 }) {
   const warning = sharedFolderWarning(sharedWith);
   return (
-    <div className="ck-scrim" onMouseDown={() => !busy && onCancel()}>
-      <div
-        className="ck-sheet"
-        role="alertdialog"
-        aria-labelledby="ck-restore-t"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+    <Sheet labelledBy="ck-restore-t" onClose={busy ? undefined : onCancel}>
         <h2 className="ck-section" id="ck-restore-t">
           {title}
         </h2>
@@ -45,7 +40,6 @@ export function RestoreSheet({
             {busy ? 'Restoring…' : confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }

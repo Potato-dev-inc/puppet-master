@@ -69,6 +69,24 @@ async function click(el: Element | null | undefined) {
   });
 }
 
+/** Types into a React-controlled input: focus, set the value natively, fire `input` (as a keyboard would). */
+async function typeInto(el: HTMLInputElement | null, text: string) {
+  expect(el).toBeTruthy();
+  await act(async () => {
+    el!.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, text);
+    el!.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+/** Leaves a field, which saves a number field (it commits on blur). */
+async function blur(el: HTMLElement | null) {
+  expect(el).toBeTruthy();
+  await act(async () => {
+    el!.blur();
+  });
+}
+
 beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -156,5 +174,28 @@ describe('PreloadSettings', () => {
     expect(checkbox('Keep OpenCode (API) warm')?.disabled).toBe(true);
     expect(host.textContent).toContain(NOT_TERMINAL_NOTE);
     expect(host.textContent).not.toContain(NO_WARM_MODE_NOTE);
+  });
+
+  it('shows a 5 second timeout in seconds without rewriting it on render', async () => {
+    const api = mockApi({ ...DEFAULT_STANDBY_CONFIG, idle_timeout_secs: 5 });
+    await render(api);
+    const seconds = host.querySelector<HTMLInputElement>('input[aria-label="Preload idle timeout (seconds)"]');
+    expect(seconds?.value).toBe('5');
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Idle timeout unit"]')?.value).toBe('seconds');
+    expect(api.setConfig).not.toHaveBeenCalled();
+  });
+
+  it('shows a 20 minute timeout in minutes', async () => {
+    await render(mockApi({ ...DEFAULT_STANDBY_CONFIG, idle_timeout_secs: 1200 }));
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Preload idle timeout (minutes)"]')?.value).toBe('20');
+  });
+
+  it('a typed seconds value is saved on blur', async () => {
+    const api = mockApi({ ...DEFAULT_STANDBY_CONFIG, idle_timeout_secs: 5 });
+    await render(api);
+    const seconds = host.querySelector<HTMLInputElement>('input[aria-label="Preload idle timeout (seconds)"]');
+    await typeInto(seconds, '30');
+    await blur(seconds);
+    expect(api.setConfig).toHaveBeenLastCalledWith(expect.objectContaining({ idle_timeout_secs: 30 }));
   });
 });

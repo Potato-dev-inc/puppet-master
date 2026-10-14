@@ -98,22 +98,40 @@ export const HIGH_RISK_PROMPT: PanePrompt = {
 export const EXAMPLE_RUN: PaneRunInfo = {
   handle: 'run_8f3a21c4',
   status: 'completed',
+  // The real `RunReceipt` shape (`agent_runs/runtime/receipt.rs`).
   receipt: {
-    task: 'Add retry with backoff to the bridge client',
-    outcome: 'completed',
-    duration_ms: 412_800,
-    verified: ['tsc --noEmit passed', '41 tests passed'],
-    not_verified: ['Manual smoke test of the tunnel reconnect'],
-    files_changed: ['packages/app/src/lib/bridge.ts', 'packages/app/src/lib/bridge.test.ts'],
-    tokens: { input: 48210, output: 6122 },
+    backend: 'claude',
+    model: 'claude-opus-5-5',
+    read_only: 'off',
+    checks: 'none configured',
+    result_capture: 'inferred',
+    not_verified: ['no checks configured', 'result read from terminal screen', 'model not confirmed'],
+    outcome: 'completed_unchecked',
+    build_id: '5fd9f29',
+    standby_used: true,
+    fallback: { from: 'visible', to: 'headless', reason: 'visible_failed' },
+    worktree: {
+      path: 'C:\\Users\\dev\\work\\puppet-master\\.puppet-master\\worktrees\\run_8f3a21c4',
+      branch: 'pm/run_8f3a21c4',
+      base: 'master',
+      state: 'unreviewed',
+      files_changed: 2,
+      additions: 61,
+      deletions: 4,
+    },
   },
 };
 
+// The stream tags are the real ones the backend writes (`agent_runs/transcript.rs` callers).
 export const EXAMPLE_TRANSCRIPT: PaneTranscript = {
   chunks: [
-    { stream: 'user', text: 'Add retry with backoff to the bridge client.' },
-    { stream: 'agent', text: 'I will read bridge.ts first, then add a capped exponential backoff.' },
-    { stream: 'agent', text: 'Done. Retries use 250ms, 500ms, 1s, capped at 4s, with tests.' },
+    { stream: 'user_task', text: 'Add retry with backoff to the bridge client.' },
+    { stream: 'delivery', text: 'Started\nattempt 0: typing; busy=false' },
+    { stream: 'assistant_final', text: '● Bash(npm test --workspace=@puppet-master/app)\n  ⎿  41 tests passed' },
+    { stream: 'assistant_final', text: 'Done. Retries use 250ms, 500ms, 1s, capped at 4s, with tests.' },
+    { stream: 'user_steer', text: 'Also log each retry.' },
+    { stream: 'permission', text: 'Allowed once: npm test' },
+    { stream: 'execution_failure', text: 'The agent exited before it answered.' },
   ],
 };
 
@@ -171,7 +189,7 @@ export function agentsListing() {
   return { agents, dispatchable_ids: agents.filter((a) => a.dispatchable).map((a) => a.id) };
 }
 
-export function standbyStatus() {
+export function standbyStatus(idleTimeoutSecs = 1200, blocked: unknown[] = []) {
   return {
     enabled: true,
     config: {
@@ -181,7 +199,7 @@ export function standbyStatus() {
       max_total: 3,
       recent_projects: 2,
       recent_hours: 6,
-      idle_timeout_secs: 1200,
+      idle_timeout_secs: idleTimeoutSecs,
     },
     counts: { total: 1, ready: 1, starting: 0 },
     standbys: [
@@ -200,7 +218,7 @@ export function standbyStatus() {
         pane_id: null,
       },
     ],
-    blocked: [],
+    blocked,
     recent: [],
     stats: { spawned: 3, spawn_failed: 0, claimed: 2, missed: 0, discarded: 0, expired: 0, abandoned: 0 },
     supported: [{ agent_type: 'claude', visible: true, headless: false, experimental: false }],

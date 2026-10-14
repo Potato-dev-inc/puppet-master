@@ -5,6 +5,7 @@ import { secondOpinionApi, type SecondOpinionApi } from '../../lib/second-opinio
 import { AnnotatedDiff } from './AnnotatedDiff';
 import { anchorFindings, reviewHasConcerns } from './review-diff';
 import { sendToAuthor, useReviewRun } from './second-opinion-store';
+import { Sheet } from './Sheet';
 import '../../styles/cockpit-changes.css';
 
 /** The slice of the cockpit API this section needs (a test double can stand in for it). */
@@ -235,8 +236,7 @@ export function Changes({
       </div>
 
       {sheet && (
-        <div className="ck-scrim" onMouseDown={() => !busy && setSheet(null)}>
-          <div className="ck-sheet" role="alertdialog" aria-labelledby="ck-wt-t" onMouseDown={(e) => e.stopPropagation()}>
+        <Sheet labelledBy="ck-wt-t" onClose={busy ? undefined : () => setSheet(null)}>
             <h2 className="ck-section" id="ck-wt-t">
               {sheet === 'merge' ? `Merge into ${item.base}?` : 'Discard these changes?'}
             </h2>
@@ -253,8 +253,7 @@ export function Changes({
                 {sheet === 'merge' ? 'Merge' : 'Discard'}
               </button>
             </div>
-          </div>
-        </div>
+        </Sheet>
       )}
     </section>
   );

@@ -104,7 +104,7 @@ export function ToolbeltPreview({
                   <span className="text-sm font-medium">{hostTitle(h)}</span>
                   <span className="text-xs text-pm-muted">{hostLine(h)}</span>
                 </div>
-                <div className="truncate px-3 pb-2 font-mono text-[11px] text-pm-muted">
+                <div className="truncate px-3 pb-2 font-mono text-[11px] text-pm-muted" title={h.path}>
                   {h.path}
                   {h.scope === 'project' ? ' (this project)' : ''}
                 </div>

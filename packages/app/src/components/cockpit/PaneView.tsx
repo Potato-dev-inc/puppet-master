@@ -12,7 +12,8 @@ import { DotSpinner } from './DotSpinner';
 import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
 import { IconClose, IconGlobe, IconCopy, IconMore, IconReflow, IconRename, IconStop } from './Icons';
 import { ApprovalPrompt } from './ApprovalPrompt';
-import { formatElapsed, promptSummary, receiptRows, spinnerStatus, stateText } from './model';
+import { formatElapsed, promptSummary, spinnerStatus, stateText } from './model';
+import { readableReceipt, runStatusLabel } from './receipt-view';
 import { Changes } from './Changes';
 import { changesTabLabel, usePaneWorktree } from './usePaneWorktree';
 import { SecondOpinion } from './SecondOpinion';
@@ -22,7 +23,9 @@ import { RenameTitle } from './RenameTitle';
 import { LastTurn } from './LastTurn';
 import { useLastTurn } from './away-context';
 import { SegTabs } from './SegTabs';
+import { Sheet } from './Sheet';
 import { paneHeading } from './titles';
+import { transcriptStreamLabel } from '../../lib/transcript-labels';
 
 type Tab = 'terminal' | 'changes' | 'transcript' | 'receipt' | 'history';
 
@@ -328,7 +331,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                 title="No transcript"
                 body={
                   run.info === null
-                    ? 'This pane has no recorded run, so there is nothing to show. The terminal tab has the live session.'
+                    ? 'A transcript is kept for tasks that another agent handed to this one. What you typed here yourself is on the Terminal tab.'
                     : 'The run has not produced any output yet.'
                 }
               />
@@ -336,7 +339,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
               <div className="ck-transcript">
                 {run.transcript.chunks.map((chunk, i) => (
                   <div key={i} className="ck-chunk">
-                    <span className="ck-chunk-stream">{chunk.stream}</span>
+                    <span className="ck-chunk-stream">{transcriptStreamLabel(chunk.stream)}</span>
                     <pre>{chunk.text}</pre>
                   </div>
                 ))}
@@ -364,22 +367,22 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
               <p className="ck-sub ck-pad">Loading…</p>
             ) : run.info === null ? (
               <Empty
-                title="No run receipt"
-                body="This pane was not started by a delegated run, so there is no receipt. Receipts appear for runs started from the orchestrator or MCP."
+                title="No receipt for this pane"
+                body="A receipt is written for tasks that another agent handed to this one, and says what was checked. Work you started here yourself has none."
               />
             ) : (
               <div className="ck-receipt">
                 <dl className="ck-kv">
-                  <dt>Handle</dt>
-                  <dd>{run.info.handle}</dd>
+                  <dt>Run ID</dt>
+                  <dd className="ck-mono">{run.info.handle}</dd>
                   <dt>Status</dt>
-                  <dd>{run.info.status}</dd>
+                  <dd>{runStatusLabel(run.info.status)}</dd>
                 </dl>
                 {run.info.receipt === null || run.info.receipt === undefined ? (
                   <p className="ck-sub">No receipt yet. It is written when the turn settles.</p>
                 ) : (
                   <dl className="ck-kv">
-                    {receiptRows(run.info.receipt).map((r) => (
+                    {readableReceipt(run.info.receipt).map((r) => (
                       <div className="ck-kv-row" key={r.key}>
                         <dt>{r.key}</dt>
                         <dd>{r.value}</dd>
@@ -389,7 +392,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                 )}
               </div>
             )}
-            <button type="button" className="ck-btn ck-btn--plain ck-pad" onClick={run.refresh}>
+            <button type="button" className="ck-btn ck-btn--plain ck-refresh" onClick={run.refresh}>
               Refresh
             </button>
           </div>
@@ -397,8 +400,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
       </div>
 
       {confirm && (
-        <div className="ck-scrim" onMouseDown={() => setConfirm(false)}>
-          <div className="ck-sheet" role="alertdialog" aria-labelledby="ck-close-t" onMouseDown={(e) => e.stopPropagation()}>
+        <Sheet labelledBy="ck-close-t" onClose={() => setConfirm(false)}>
             <h2 className="ck-section" id="ck-close-t">
               Close {name}?
             </h2>
@@ -418,8 +420,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                 Close pane
               </button>
             </div>
-          </div>
-        </div>
+        </Sheet>
       )}
     </div>
   );

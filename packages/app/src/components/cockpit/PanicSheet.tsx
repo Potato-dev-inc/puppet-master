@@ -1,6 +1,7 @@
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import type { StopReport } from '../../lib/loop-guard';
+import { Sheet } from './Sheet';
 import '../../styles/loop-guard.css';
 
 /** "Stopped 2 agents": what the panic button interrupted. */
@@ -16,8 +17,7 @@ export function PanicSheet({
   const n = report.stopped.length;
   const title = n === 0 ? 'Nothing was running' : n === 1 ? 'Stopped 1 agent' : `Stopped ${n} agents`;
   return (
-    <div className="ck-scrim" onMouseDown={onClose}>
-      <div className="ck-sheet ck-panic" role="alertdialog" aria-labelledby="ck-panic-t" onMouseDown={(e) => e.stopPropagation()}>
+    <Sheet className="ck-panic" labelledBy="ck-panic-t" onClose={onClose}>
         <h2 className="ck-section" id="ck-panic-t">
           {title}
         </h2>
@@ -53,7 +53,6 @@ export function PanicSheet({
             Done
           </button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }

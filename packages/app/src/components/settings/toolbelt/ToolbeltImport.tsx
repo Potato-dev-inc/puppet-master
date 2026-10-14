@@ -70,7 +70,10 @@ export function ToolbeltImport({
               <input type="checkbox" className="mt-1" disabled={c.already} checked={picked.has(c.reference)} onChange={() => toggle(c.reference)} />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium">{c.server.name}</span>
-                <span className="block truncate font-mono text-[11px] text-pm-muted">
+                <span
+                  className="block truncate font-mono text-[11px] text-pm-muted"
+                  title={c.server.transport === 'http' ? c.server.url : [c.server.command, ...(c.server.args ?? [])].join(' ')}
+                >
                   {c.server.transport === 'http' ? c.server.url : [c.server.command, ...(c.server.args ?? [])].join(' ')}
                 </span>
                 <span className="block text-[11px] text-pm-muted">

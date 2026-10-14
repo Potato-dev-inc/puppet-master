@@ -317,7 +317,7 @@
 .cockpit .ck-bridge {
   padding: 0 4px;
   font-size: 11px;
-  color: var(--label-4);
+  color: var(--label-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -451,6 +451,14 @@
   flex-direction: column;
   gap: 6px;
   margin-bottom: 28px;
+}
+/* a lone action under the title is as wide as its label, not the whole column */
+.cockpit .ck-inbox-hero > .ck-btn {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+.cockpit .ck-refresh {
+  margin: 8px 4px 16px;
 }
 .cockpit .ck-doto {
   font-family: var(--font-doto);
@@ -590,13 +598,18 @@
 }
 .cockpit .ck-chunk {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   gap: 12px;
 }
 .cockpit .ck-chunk-stream {
-  font: 11px var(--font-mono);
+  font: 500 11px var(--font-ui);
   color: var(--label-3);
   padding-top: 2px;
+  /* a label never spills into the message beside it */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cockpit .ck-chunk pre {
   margin: 0;
@@ -637,11 +650,14 @@
 }
 .cockpit .ck-kv dt {
   color: var(--label-3);
-  font: 12px var(--font-mono);
+  font: 12.5px var(--font-ui);
 }
 .cockpit .ck-kv dd {
-  font: 12px var(--font-mono);
+  font: 12.5px var(--font-ui);
   overflow-wrap: anywhere;
+}
+.cockpit .ck-kv dd.ck-mono {
+  font: 12px var(--font-mono);
 }
 
 /* ---------- spawn ---------- */

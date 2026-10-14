@@ -83,6 +83,29 @@ export function withIdleMinutes(config: StandbyConfig, minutes: number): Standby
   return { ...config, idle_timeout_secs: m * 60 };
 }
 
+/** The backend keeps the timeout between 5 seconds and 24 hours (`standby/config.rs`). */
+export const IDLE_TIMEOUT_MIN_SECS = 5;
+export const IDLE_TIMEOUT_MAX_SECS = 24 * 3600;
+
+export type IdleUnit = 'seconds' | 'minutes';
+
+/** The unit that shows a stored timeout exactly: whole minutes in minutes, anything else in seconds. */
+export function idleUnitFor(secs: number): IdleUnit {
+  return secs >= 60 && secs % 60 === 0 ? 'minutes' : 'seconds';
+}
+
+/** The number to show for a stored timeout in `unit` (exact for the unit `idleUnitFor` picks). */
+export function idleDisplayValue(secs: number, unit: IdleUnit): number {
+  return unit === 'minutes' ? Math.max(1, Math.round(secs / 60)) : secs;
+}
+
+/** A new config with the timeout set from a number typed in `unit`; the input is not mutated. */
+export function withIdleValue(config: StandbyConfig, value: number, unit: IdleUnit): StandbyConfig {
+  const fallback = config.idle_timeout_secs;
+  const raw = Number.isFinite(value) ? Math.round(value) * (unit === 'minutes' ? 60 : 1) : fallback;
+  return { ...config, idle_timeout_secs: clampInt(raw, IDLE_TIMEOUT_MIN_SECS, IDLE_TIMEOUT_MAX_SECS, fallback) };
+}
+
 /** Clamp an edited number into the range the backend accepts (it clamps too; this keeps the UI honest). */
 export function clampInt(value: number, min: number, max: number, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
@@ -105,4 +128,35 @@ export function summarizePreload(status: StandbyStatus | null): string {
   if (Object.keys(status.config.preload.providers).length === 0) return 'On, but no provider is ticked.';
   if (total === 0) return 'On: warm agents start in a few seconds.';
   return `${total} warm (${ready} ready, ${starting} starting)`;
+}
+
+/** Plain words for why a warm agent was held back (`standby/pool.rs` reasons); unknown ones lose their underscores. */
+export function holdReasonText(reason: string): string {
+  switch (reason) {
+    case 'idle_timeout':
+      return 'closed after sitting unused';
+    case 'dialog':
+      return 'it stops at a trust or approval prompt';
+    case 'needs_attention':
+      return 'it stops at a login or update screen';
+    case 'dead':
+      return 'it exited right after starting';
+    case 'startup_timeout':
+      return 'it never reached its input box';
+    case 'claim_health_check_failed':
+      return 'it was not ready when a run asked for it';
+    default:
+      return reason.startsWith('spawn_failed') ? 'it would not start' : reason.replace(/_/g, ' ');
+  }
+}
+
+/** "claude [work] (headless) D:/proj" (the pool's key label) as "Claude Code, headless, work: D:/proj". */
+export function holdKeyLabel(key: string): string {
+  const match = /^(\S+)((?: \[[^\]]*\])?)((?: \(headless\))?) (.*)$/.exec(key);
+  if (!match) return key;
+  const [, agent, account, headless, project] = match;
+  const parts = [backendLabel(agent)];
+  if (headless) parts.push('headless');
+  if (account) parts.push(account.trim().slice(1, -1));
+  return `${parts.join(', ')} in ${project}`;
 }

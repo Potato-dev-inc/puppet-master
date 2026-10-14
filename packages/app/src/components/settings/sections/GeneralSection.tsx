@@ -15,7 +15,7 @@ import { LoopGuardSettingsBlock } from '../blocks/LoopGuardSettings';
 import { SharedMemoryToggle } from '../blocks/SharedMemoryToggle';
 import { NumberControl, TextControl } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
-import { Btn, FieldSelect, InfoRow, Note, SettingRow, SettingToggle } from '../settings-ui';
+import { Btn, FieldSelect, InfoRow, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
 
 function useInstallInfo(): AppInstallInfo | null {
   const [info, setInfo] = useState<AppInstallInfo | null>(null);
@@ -48,17 +48,21 @@ function ProjectFolder({ env }: { env: SettingsEnv }) {
     if (typeof picked === 'string') await save(picked);
   };
   return (
-    <SettingRow label="Default project folder" description="Where new panes and orchestrator tools start.">
-      <TextControl
-        aria-label="Default project folder"
-        mono
-        value={value}
-        placeholder="~/work/my-project"
-        normalize={(text) => text.trim()}
-        onCommit={save}
-      />
-      <Btn onClick={() => void browse()}>Browse</Btn>
-    </SettingRow>
+    // A block, not a row: a folder path is long, and a 220px field on the right showed "C:\Users\dev\work".
+    <SettingBlock label="Default project folder" description="Where new panes and orchestrator tools start.">
+      <div className="st-path">
+        <TextControl
+          aria-label="Default project folder"
+          mono
+          title={value}
+          value={value}
+          placeholder="~/work/my-project"
+          normalize={(text) => text.trim()}
+          onCommit={save}
+        />
+        <Btn onClick={() => void browse()}>Browse</Btn>
+      </div>
+    </SettingBlock>
   );
 }
 

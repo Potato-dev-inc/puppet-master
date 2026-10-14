@@ -320,6 +320,14 @@
 .settings .st-body {
   margin-top: 10px;
 }
+.settings .st-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings .st-path .st-field {
+  flex: 1;
+}
 .settings .st-value {
   color: var(--label-2);
   font-variant-numeric: tabular-nums;

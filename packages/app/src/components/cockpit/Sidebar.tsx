@@ -68,6 +68,13 @@ export function Sidebar({
           const since = c.statusSince.get(id);
           const active = c.selectedId === id && !c.spawn;
           const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
+          const subline = paneSubline(
+            p.info,
+            c.names.get(id) ?? p.info.agent_type,
+            activityText(p.status, c.activities?.[id]) ??
+              (p.status === 'error' ? `Error · ${projectName(p.info.cwd)}` : projectName(p.info.cwd)),
+            multiLogin,
+          );
           return (
             <button
               key={id}
@@ -80,17 +87,9 @@ export function Sidebar({
               <span className="ck-row-glyph">
                 <DotSpinner status={spinnerStatus(p.status)} />
               </span>
-              <span className="ck-row-main" title={projectName(p.info.cwd)}>
+              <span className="ck-row-main" title={[...new Set([heading.primary, subline, projectName(p.info.cwd)])].join(' · ')}>
                 <span className="ck-row-title">{heading.primary}</span>
-                <span className="ck-row-sub">
-                  {paneSubline(
-                    p.info,
-                    c.names.get(id) ?? p.info.agent_type,
-                    activityText(p.status, c.activities?.[id]) ??
-                      (p.status === 'error' ? `Error · ${projectName(p.info.cwd)}` : projectName(p.info.cwd)),
-                    multiLogin,
-                  )}
-                </span>
+                <span className="ck-row-sub">{subline}</span>
               </span>
               {mainPreview(c.previews, id) && (
                 <span className="ck-row-preview" title={`Preview ${previewLabel(mainPreview(c.previews, id)!)}`} role="img" aria-label="Has a preview">
@@ -133,7 +132,7 @@ export function Sidebar({
               />
               <label className="ck-menu-toggle" title="Work in a separate git copy so agents never edit the same files. Review and merge later.">
                 <input type="checkbox" checked={isolated} onChange={(e) => setIsolated(e.target.checked)} />
-                <span>Isolated (worktree)</span>
+                <span>Work in an isolated copy</span>
               </label>
             </div>
           )}
