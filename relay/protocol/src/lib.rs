@@ -225,6 +225,24 @@ pub struct Batch {
     pub items: Vec<Delivered>,
     /// Pass as `after` next time.
     pub next: u64,
+    /// The team's newest mailbox position (the relay's high-water mark). Older relays leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<u64>,
+    /// `after` was past `head`: the relay's counter is behind this client (a restored or replaced
+    /// database). `items` and `next` start again from the beginning of what this device may read;
+    /// the client must take `next` as its cursor even though it is lower, and rely on its replay
+    /// guard for envelopes it has already seen.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reset: bool,
+}
+
+/// The one control frame a relay WebSocket sends besides [`Delivered`] items: the `after` the
+/// client connected with is past the team's `head`, so the relay starts again from the beginning
+/// of what this device may read (see [`Batch::reset`]). `{"reset":true,"head":N}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Resync {
+    pub reset: bool,
+    pub head: u64,
 }
 
 // ------------------------------------------------------------------------------- signed state

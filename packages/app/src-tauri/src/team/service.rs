@@ -164,10 +164,11 @@ pub(crate) struct Received {
 }
 
 /// Open an envelope with every check (`Session::open`), then `ingest` what passed. The relay
-/// cursor moves on either way. Pure apart from logging.
+/// cursor moves on either way (back, too, when the relay's counter went back). Pure apart from
+/// logging.
 pub(crate) fn open_and_ingest(session: &Session, store: &mut TeamStore, config: &TeamConfig, inbound: &Inbound) -> Received {
     let mut out = Received::default();
-    if inbound.cursor > store.cursor {
+    if inbound.reset || inbound.cursor > store.cursor {
         store.cursor = inbound.cursor;
     }
     match session.open(&inbound.envelope, &mut store.seq, inbound.received_at_ms) {

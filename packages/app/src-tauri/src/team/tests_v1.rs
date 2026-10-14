@@ -949,7 +949,7 @@ fn a_teammates_card_is_written_to_the_audit_log() {
     let mut store = TeamStore::default();
     let event = event_from(&w.maya, &w.roster.team, now());
     let env = Session::new(w.roster.clone(), w.maya.clone()).seal(&Payload::Event { event: event.clone() }, 1, now()).unwrap();
-    let got = super::service::open_and_ingest(&leo, &mut store, &config, &Inbound { envelope: env.clone(), received_at_ms: now(), cursor: 7 });
+    let got = super::service::open_and_ingest(&leo, &mut store, &config, &Inbound { envelope: env.clone(), received_at_ms: now(), cursor: 7, reset: false });
     let card = got.card.expect("a card");
     super::service::audit_received(&card);
     assert_eq!(store.cards.len(), 1);
@@ -961,7 +961,7 @@ fn a_teammates_card_is_written_to_the_audit_log() {
     // A forged copy makes no card (so there is nothing to audit as received).
     let mut forged = env.clone();
     forged.sign_with(&ed25519_dalek::SigningKey::from_bytes(&[3; 32]));
-    let refused = super::service::open_and_ingest(&leo, &mut store, &config, &Inbound { envelope: forged, received_at_ms: now(), cursor: 8 });
+    let refused = super::service::open_and_ingest(&leo, &mut store, &config, &Inbound { envelope: forged, received_at_ms: now(), cursor: 8, reset: false });
     assert!(refused.card.is_none() && refused.refresh, "an unknown sender makes the app re-read the roster");
     assert_eq!(store.cards.len(), 1);
     assert_eq!(store.cursor, 8, "the cursor moves past refused mail");

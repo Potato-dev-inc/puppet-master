@@ -13,7 +13,7 @@
 use super::{now_ms, Inbound, TeamTransport, TransportError};
 use crate::team::crypto::SigningKey;
 use parking_lot::Mutex;
-use pm_relay_protocol::{auth_header, Batch, Delivered, Envelope, JoinBox, SignedAcl, SignedBlob, TeamRegistration, AUTH_HEADER};
+use pm_relay_protocol::{auth_header, Batch, Delivered, Envelope, JoinBox, Resync, SignedAcl, SignedBlob, TeamRegistration, AUTH_HEADER};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
@@ -142,6 +142,7 @@ impl RelayTransport {
             mode: self.mode.clone(),
             poll_only: self.poll_only,
             cursor: Arc::new(AtomicU64::new(after)),
+            pending_reset: AtomicBool::new(false),
         };
         let poller = RelayTransport {
             base: self.base.clone(),
@@ -172,6 +173,7 @@ fn relay_error(code: u16, body: &str) -> String {
         404 => "The relay doesn't know this team.".into(),
         409 => "The relay already has a newer copy.".into(),
         413 => "That's too large for the relay.".into(),
+        507 => "The team's mailbox on the relay is full. Try again later.".into(),
         429 => "The relay asks to slow down. Try again in a minute.".into(),
         _ => format!("The relay said {code}{}.", said.map(|s| format!(": {s}")).unwrap_or_default()),
     }
@@ -184,14 +186,26 @@ struct ReaderCtx {
     mode: Arc<AtomicU8>,
     poll_only: bool,
     cursor: Arc<AtomicU64>,
+    /// The relay said our cursor was past its counter; the next delivered envelope tells the
+    /// service to take its (lower) position as the saved cursor.
+    pending_reset: AtomicBool,
 }
 
 impl ReaderCtx {
     fn deliver(&self, item: Delivered, tx: &Sender<Inbound>) -> bool {
-        if item.seq > self.cursor.load(Ordering::SeqCst) {
+        let reset = self.pending_reset.swap(false, Ordering::SeqCst);
+        if reset || item.seq > self.cursor.load(Ordering::SeqCst) {
             self.cursor.store(item.seq, Ordering::SeqCst);
         }
-        tx.send(Inbound { envelope: item.envelope, received_at_ms: now_ms(), cursor: item.seq }).is_ok()
+        tx.send(Inbound { envelope: item.envelope, received_at_ms: now_ms(), cursor: item.seq, reset }).is_ok()
+    }
+
+    /// The relay's counter is behind our cursor (a restored or replaced relay database): start
+    /// again from what it has. Envelopes already seen are dropped by the session's replay guard.
+    fn resync(&self, head: u64) {
+        tracing::info!(head, cursor = self.cursor.load(Ordering::SeqCst), "team: the relay's mailbox counter went back; reading it again");
+        self.cursor.store(0, Ordering::SeqCst);
+        self.pending_reset.store(true, Ordering::SeqCst);
     }
 
     fn run(&self, poller: &RelayTransport, tx: &Sender<Inbound>, stop: &AtomicBool) {
@@ -216,12 +230,15 @@ impl ReaderCtx {
                 match poller.fetch_batch(self.cursor.load(Ordering::SeqCst), POLL_WAIT_S) {
                     Ok(batch) => {
                         self.mode.store(MODE_POLLING, Ordering::SeqCst);
+                        if batch.reset {
+                            self.resync(batch.head.unwrap_or(0));
+                        }
                         for item in batch.items {
                             if stop.load(Ordering::SeqCst) || !self.deliver(item, tx) {
                                 return;
                             }
                         }
-                        if batch.next > self.cursor.load(Ordering::SeqCst) {
+                        if batch.reset || batch.next > self.cursor.load(Ordering::SeqCst) {
                             self.cursor.store(batch.next, Ordering::SeqCst);
                         }
                     }
@@ -271,6 +288,8 @@ impl ReaderCtx {
                         if !self.deliver(item, tx) {
                             return WsEnd::ReceiverGone;
                         }
+                    } else if let Ok(Resync { reset: true, head }) = serde_json::from_str::<Resync>(&text) {
+                        self.resync(head);
                     }
                 }
                 Ok(tungstenite::Message::Close(_)) => return WsEnd::Failed("closed by the relay".into()),

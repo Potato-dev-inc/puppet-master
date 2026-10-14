@@ -54,6 +54,9 @@ pub struct Inbound {
     pub received_at_ms: u64,
     /// The relay's mailbox position after this envelope (0 for the folder).
     pub cursor: u64,
+    /// The relay's counter went back (a restored or replaced relay): `cursor` replaces the saved
+    /// cursor even though it is lower. Envelopes seen before are dropped by the replay guard.
+    pub reset: bool,
 }
 
 pub trait TeamTransport: Send + Sync {

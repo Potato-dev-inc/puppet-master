@@ -105,7 +105,7 @@ fn scan(dir: &Path, seen: &mut HashSet<String>, tx: &Sender<Inbound>) -> bool {
         if envelope_id_of(&name) != Some(envelope.id.as_str()) {
             continue;
         }
-        if tx.send(Inbound { envelope, received_at_ms: now, cursor: 0 }).is_err() {
+        if tx.send(Inbound { envelope, received_at_ms: now, cursor: 0, reset: false }).is_err() {
             return false;
         }
     }
