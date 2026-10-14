@@ -3,8 +3,8 @@
 //! A pairing holds a set of [`Cap`]s. Every bridge route is put in one class by [`route_need`],
 //! and `authorize_bridge_request` refuses (403 `not_allowed`) a device whose caps do not cover it.
 //! The event streams (`/events`, `/events/ws`, `/events/poll`) are open to any paired device, but
-//! `event: terminal` payloads (raw pane bytes) only reach devices that hold `watch`
-//! ([`may_receive`]).
+//! what a device without `watch` gets is cut down to what it may see ([`project`]): no terminal
+//! bytes, and no task, reply, screen rows or transcript text inside the other events.
 //!
 //! The local desktop app and its tools are not devices: they are never limited by caps.
 
@@ -174,12 +174,133 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
 
 /// True for an `event: terminal` payload (live pane bytes).
 pub fn is_terminal_payload(payload: &str) -> bool {
-    payload.starts_with("event: terminal\n")
+    payload.starts_with("event: terminal
+")
 }
 
-/// Whether a device with `caps` gets this event-stream payload.
+/// Whether a device with `caps` gets this event-stream payload in some form.
 pub fn may_receive(caps: Caps, payload: &str) -> bool {
-    caps.has(Cap::Watch) || !is_terminal_payload(payload)
+    project(caps, payload).is_some()
+}
+
+/// Events a device without `watch` gets unchanged: structure and status, no pane text.
+const NO_WATCH_AS_IS: &[&str] = &[
+    "panes",                     // the pane list (also `GET /panes`, open to any device)
+    "settings",                  // public settings (also `GET /settings`)
+    "pane-status",               // an enum
+    "pane-resize",               // geometry
+    "pane-activity",             // the one-line status phrase the pane list shows
+    "pane-preview",              // dev-server URLs
+    "questions",                 // a revision number; the cards come from `GET /questions`
+    "opencode-worker",           // status, counts and permission ids
+    "orchestrator-viewport",     // geometry
+    "agent_definitions_changed", // agent names
+    "turn-summary",              // counts, file paths and the approval questions (answer cards)
+];
+
+/// Top-level `event: operation` fields a device without `watch` gets: ids, status and the card.
+/// Everything else (`task`, `result`, `output_baseline`, `result_capture`, checks, ...) is pane
+/// or transcript content, and a field added later stays hidden until it is listed here.
+const OPERATION_NO_WATCH_FIELDS: &[&str] = &[
+    "operation_id",
+    "runtime_id",
+    "project_path",
+    "agent_type",
+    "pane_id",
+    "pane_created",
+    "task_id",
+    "status",
+    "revision",
+    "created_at_ms",
+    "updated_at_ms",
+    "observed_at_ms",
+    "pane_state",
+    "source",
+    "stage",
+    "progress_pct",
+    "timeout_ms",
+    "read_only",
+    "placement",
+    "agent_run_id",
+    "turn_index",
+    "verified",
+    "started_at_ms",
+    "finished_at_ms",
+    "acceptance_status",
+];
+
+/// `required_action` keys that carry screen text rather than the card itself.
+const ACTION_SCREEN_KEYS: &[&str] = &["screen", "raw_prompt", "last_screen", "context"];
+
+/// What a device with `caps` gets for one event-stream payload: `None` leaves it out, otherwise
+/// the payload as is or cut down. With `watch` everything goes through. Without it:
+/// - `event: terminal` (raw pane bytes) and `event: chat` (the orchestrator transcript) are left out;
+/// - `event: operation` keeps ids, status, the error's code and message, and `required_action`
+///   without its screen rows ([`OPERATION_NO_WATCH_FIELDS`]);
+/// - `event: loop-signal` loses its `evidence_lines` (screen lines);
+/// - the events in [`NO_WATCH_AS_IS`] pass unchanged;
+/// - any other event (a new one, or one this list does not know) is left out: fail closed.
+pub fn project(caps: Caps, payload: &str) -> Option<std::borrow::Cow<'_, str>> {
+    use std::borrow::Cow;
+    if caps.has(Cap::Watch) {
+        return Some(Cow::Borrowed(payload));
+    }
+    let rest = payload.strip_prefix("event: ")?;
+    let (name, data) = rest.split_once("
+data: ")?;
+    if NO_WATCH_AS_IS.contains(&name) {
+        return Some(Cow::Borrowed(payload));
+    }
+    let trim: fn(&mut serde_json::Value) = match name {
+        "operation" => trim_operation,
+        "loop-signal" => |value| {
+            if let Some(lines) = value.get_mut("signal").and_then(|s| s.get_mut("evidence_lines")) {
+                *lines = serde_json::json!([]);
+            }
+        },
+        _ => return None,
+    };
+    let body = data.strip_suffix("
+
+").unwrap_or(data);
+    let mut value = serde_json::from_str::<serde_json::Value>(body).ok()?;
+    trim(&mut value);
+    let json = serde_json::to_string(&value).ok()?;
+    Some(Cow::Owned(format!("event: {name}
+data: {json}
+
+")))
+}
+
+/// The no-`watch` view of an operation snapshot (see [`project`]).
+fn trim_operation(value: &mut serde_json::Value) {
+    use serde_json::{Map, Value};
+    let Some(full) = value.as_object() else {
+        *value = Value::Null;
+        return;
+    };
+    let mut out: Map<String, Value> =
+        full.iter().filter(|(k, _)| OPERATION_NO_WATCH_FIELDS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+    if let Some(Value::Object(action)) = full.get("required_action") {
+        let action: Map<String, Value> =
+            action.iter().filter(|(k, _)| !ACTION_SCREEN_KEYS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+        out.insert("required_action".into(), Value::Object(action));
+    } else if full.contains_key("required_action") {
+        out.insert("required_action".into(), Value::Null);
+    }
+    if let Some(Value::Object(error)) = full.get("error") {
+        let error: Map<String, Value> = error
+            .iter()
+            .filter(|(k, _)| matches!(k.as_str(), "code" | "message" | "recoverable" | "retry_after_ms"))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        out.insert("error".into(), Value::Object(error));
+    } else if full.contains_key("error") {
+        out.insert("error".into(), Value::Null);
+    }
+    // Tells the client the content is held back, not missing.
+    out.insert("content_hidden".into(), Value::String("needs_watch".into()));
+    *value = Value::Object(out);
 }
 
 #[cfg(test)]
@@ -203,5 +324,87 @@ mod tests {
         assert!(may_receive(Caps::none().with(Cap::Watch, true), term));
         assert!(may_receive(Caps::none(), "event: panes\ndata: []\n\n"));
         assert!(may_receive(Caps::none(), "event: pane-status\ndata: {}\n\n"));
+    }
+
+    fn data_of(frame: &str) -> serde_json::Value {
+        let (_, data) = frame.split_once("\ndata: ").unwrap();
+        serde_json::from_str(data.strip_suffix("\n\n").unwrap()).unwrap()
+    }
+
+    fn answer_only() -> Caps {
+        Caps::none().with(Cap::Answer, true)
+    }
+
+    /// Review R12 2.1: an `event: operation` used to reach a device without `watch` whole: the task,
+    /// the agent's reply, the screen baseline, 12 screen rows of a parked run and 40 lines of a
+    /// mid-run exit.
+    #[test]
+    fn an_operation_event_reaches_a_device_without_watch_without_pane_content() {
+        let snapshot = serde_json::json!({
+            "operation_id": "op-1", "pane_id": "p1", "agent_type": "claude", "status": "waiting_input",
+            "stage": "waiting_for_pane_readiness", "revision": 7,
+            "task": "SECRET-TASK refactor the billing module",
+            "result": "SECRET-REPLY all done",
+            "output_baseline": "SECRET-BASELINE screen",
+            "result_capture": {"text": "SECRET-CAPTURE"},
+            "message_baseline_ids": ["m1"],
+            "check_results": [{"output": "SECRET-CHECK"}],
+            "required_action": {
+                "kind": "screen_not_ready", "pane_id": "p1", "detail": "bring the agent to its input box",
+                "screen": "SECRET-ROWS ❯ menu", "raw_prompt": {"text": "SECRET-RAW"}
+            },
+            "error": {"code": "AGENT_EXITED", "message": "the agent exited", "recoverable": false,
+                      "context": {"last_screen": "SECRET-LAST-40"}},
+            "some_future_field": "SECRET-FUTURE"
+        });
+        let frame = format!("event: operation\ndata: {snapshot}\n\n");
+        let trimmed = project(answer_only(), &frame).expect("status still reaches the device").into_owned();
+        assert!(!trimmed.contains("SECRET"), "pane content leaked to a device without watch: {trimmed}");
+        let value = data_of(&trimmed);
+        assert_eq!(value["operation_id"], "op-1");
+        assert_eq!(value["status"], "waiting_input");
+        assert_eq!(value["stage"], "waiting_for_pane_readiness");
+        assert_eq!(value["required_action"]["kind"], "screen_not_ready");
+        assert_eq!(value["required_action"]["detail"], "bring the agent to its input box");
+        assert_eq!(value["error"]["code"], "AGENT_EXITED");
+        assert_eq!(value["content_hidden"], "needs_watch");
+        // With watch, the same frame goes out byte for byte.
+        let full = Caps::none().with(Cap::Watch, true);
+        assert_eq!(project(full, &frame).unwrap(), frame);
+    }
+
+    /// Every event name the bridge sends, for a device without `watch`: what passes, what is cut
+    /// down, what is left out.
+    #[test]
+    fn every_event_kind_is_classified_for_a_device_without_watch() {
+        let none = Caps::none();
+        let as_is = [
+            ("panes", r#"[]"#),
+            ("settings", r#"{}"#),
+            ("pane-status", r#"{"pane_id":"p","status":"idle"}"#),
+            ("pane-resize", r#"{"pane_id":"p","cols":80,"rows":24}"#),
+            ("pane-activity", r#"{"pane_id":"p","activity":null}"#),
+            ("pane-preview", r#"{"pane_id":"p","urls":[]}"#),
+            ("questions", r#"{"revision":3}"#),
+            ("opencode-worker", r#"{"pane_id":"p","event":"updated"}"#),
+            ("orchestrator-viewport", r#"{"width":1,"height":1,"active":true}"#),
+            ("agent_definitions_changed", r#"{"added":[]}"#),
+            ("turn-summary", r#"{"pane_id":"p","sentence":"Claude edited 1 file"}"#),
+        ];
+        for (name, data) in as_is {
+            let frame = format!("event: {name}\ndata: {data}\n\n");
+            assert_eq!(project(none, &frame).as_deref(), Some(frame.as_str()), "{name}");
+        }
+        for name in ["terminal", "chat", "a-future-event"] {
+            let frame = format!("event: {name}\ndata: {{\"text\":\"SECRET\"}}\n\n");
+            assert!(project(none, &frame).is_none(), "{name} must be left out");
+            assert!(project(Caps::none().with(Cap::Watch, true), &frame).is_some(), "{name} with watch");
+        }
+        let signal = "event: loop-signal\ndata: {\"pane_id\":\"p\",\"signal\":{\"kind\":\"repeated_error\",\"summary\":\"the same error 4 times\",\"evidence_lines\":[\"SECRET error line\"]}}\n\n";
+        let trimmed = project(none, signal).unwrap();
+        assert!(!trimmed.contains("SECRET"), "{trimmed}");
+        assert_eq!(data_of(&trimmed)["signal"]["summary"], "the same error 4 times");
+        let cleared = "event: loop-signal\ndata: {\"pane_id\":\"p\",\"signal\":null}\n\n";
+        assert_eq!(data_of(&project(none, cleared).unwrap())["signal"], serde_json::Value::Null);
     }
 }

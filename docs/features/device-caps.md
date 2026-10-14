@@ -43,10 +43,17 @@ An unknown route fails closed: a `GET` needs `watch`, anything else `control`.
   `{"error":"not_allowed","code":"DEVICE_NOT_ALLOWED","needs":"<cap>"}`; an expired one **401**
   `device_expired`. `authorize_bridge_request` keeps its signature for existing callers.
 - **Fanout per device** (`bridge/sse.rs`): every SSE/WS client is registered with a `Viewer`. A device
-  without `watch` gets no `event: terminal` payloads; a revoked or expired device's stream is dropped on
-  the next payload. Caps are read from a lock-free mirror (`stream_caps`), so the fanout never takes the
+  without `watch` gets each payload cut down by `caps::project` (review R12 2.1): no `event: terminal`
+  bytes and no `event: chat` (the orchestrator transcript); `event: operation` keeps ids, status,
+  `required_action` without `screen`/`raw_prompt`, and the error's code and message, but no `task`,
+  `result`, `output_baseline`, `error.context` or any field not on the allowlist
+  (`OPERATION_NO_WATCH_FIELDS`), and carries `"content_hidden": "needs_watch"`; `event: loop-signal`
+  loses its `evidence_lines`. Structural events (pane list, status, geometry, settings, questions
+  revision, turn summary, OpenCode worker status) pass unchanged, and an event name the list does not
+  know is left out (fail closed: a new event must be classified in `caps.rs`). A revoked or expired
+  device's stream is dropped on the next payload. Caps are read from a lock-free mirror (`stream_caps`), so the fanout never takes the
   store lock (revoke holds it while it talks to push). `/events/poll` filters the same way
-  (`event_log::poll_for`), the cursor still advances past what a viewer may not see.
+  (`event_log::poll_for`, same projection), the cursor still advances past what a viewer may not see.
 - WebSocket `input` frames re-check `type` per frame (`caller_may`), so a change applies at once. The
   typing path itself (`write_input`) is untouched.
 - `POST /push/act` (public, one-shot token) now also needs the `answer` cap of the device the

@@ -33,10 +33,10 @@ pub(super) fn register_client(tx: SseSender, viewer: crate::mobile_pairing::View
 
 /// Deliver one payload to one client. False: drop the client (gone, overflowing or revoked).
 fn deliver(client: &SseClient, payload: &str) -> bool {
-    match client.viewer.may_receive(payload) {
+    match client.viewer.view(payload) {
         None => false,
-        Some(false) => true,
-        Some(true) => client.tx.try_send(payload.to_string()).is_ok(),
+        Some(None) => true,
+        Some(Some(view)) => client.tx.try_send(view.into_owned()).is_ok(),
     }
 }
 
@@ -184,6 +184,14 @@ mod tests {
         assert_eq!(got(&w_rx), vec![term.clone(), status.to_string()]);
         assert_eq!(got(&a_rx), vec![status.to_string()], "no terminal bytes without watch");
         assert_eq!(got(&l_rx), vec![term.clone(), status.to_string()]);
+        // An operation event reaches the answer-only device cut down (review R12 2.1).
+        let op = "event: operation\ndata: {\"operation_id\":\"o1\",\"status\":\"running\",\"task\":\"TASKTEXT\"}\n\n";
+        for c in [&w, &a] {
+            assert!(super::deliver(c, op));
+        }
+        assert_eq!(got(&w_rx), vec![op.to_string()]);
+        let cut = got(&a_rx);
+        assert!(cut.len() == 1 && cut[0].contains("\"o1\"") && !cut[0].contains("TASKTEXT"), "{cut:?}");
         store.revoke_device(&answerer).unwrap();
         assert!(!super::deliver(&a, status), "a revoked device's stream is dropped");
         let _ = std::fs::remove_dir_all(dir);
