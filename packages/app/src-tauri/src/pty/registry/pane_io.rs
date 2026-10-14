@@ -40,11 +40,10 @@ pub fn write_input(
 
     // Auto-title: the first submitted line of an agent pane becomes its title (`ambient::title`).
     // The screen's last line tells whether the line answers a secret prompt; shells are not titled.
-    let screen_line = if crate::tui::is_agent_backend(&pane.info.agent_type) {
-        crate::ambient::title::last_line(&pane.screen.lock().screen().contents()).to_string()
-    } else {
-        String::new()
-    };
+    // The same line keeps typed secrets out of the flight recording (shells included: `sudo`,
+    // `ssh` and `git` ask there).
+    let screen_line = crate::ambient::title::last_line(&pane.screen.lock().screen().contents()).to_string();
+    let at_secret_prompt = crate::ambient::title::is_secret_prompt(&screen_line);
     let titled = crate::ambient::store::observe_input(pane_id, &pane.info.agent_type, &screen_line, text, append_newline);
 
     let agent = pane.info.agent_type.clone();
@@ -86,7 +85,7 @@ pub fn write_input(
 
     // Flight recorder: the writer is the origin (refined by the bridge for a person or API caller).
     let tag = crate::flight::tag_for(&origin);
-    let record = |bytes: &[u8]| crate::flight::input_as(pane_id, tag, bytes);
+    let record = |bytes: &[u8]| crate::flight::input_as(pane_id, tag, &recorded_input(at_secret_prompt, bytes));
     {
         let mut writer = writer.lock();
         // A run's input or a gate's keys: the permit was checked before the auto-title work and
@@ -129,6 +128,40 @@ pub fn write_input(
         append_newline,
     });
     Ok(())
+}
+
+/// What the flight recorder keeps of input written while the screen shows a secret prompt
+/// (`Password:`, `Enter passphrase ...:`, a PIN): a password does not look like a token, so pattern
+/// redaction would keep it, and the input stream is saved in shareable casts (review R12 4.1). The
+/// text is replaced by a fixed marker (no length); control keys (Enter, Ctrl-C, arrows) are kept so
+/// the recording still shows what happened.
+pub(crate) fn recorded_input(at_secret_prompt: bool, bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    let control_only = bytes.first() == Some(&0x1b) || bytes.iter().all(|b| *b < 0x20 || *b == 0x7f);
+    if at_secret_prompt && !control_only {
+        std::borrow::Cow::Borrowed(SECRET_INPUT_MARKER.as_bytes())
+    } else {
+        std::borrow::Cow::Borrowed(bytes)
+    }
+}
+
+/// Recorded in place of what was typed at a secret prompt.
+pub(crate) const SECRET_INPUT_MARKER: &str = "[typed at a secret prompt: not recorded]";
+
+#[cfg(test)]
+#[test]
+fn input_at_a_secret_prompt_is_not_recorded_but_control_keys_are() {
+    for prompt in ["[sudo] password for maya:", "Enter passphrase for key 'C:/Users/m/.ssh/id_ed25519':", "Password:"] {
+        let at_secret = crate::ambient::title::is_secret_prompt(prompt);
+        assert!(at_secret, "{prompt}");
+        let kept = recorded_input(at_secret, b"hunter2-correct-horse");
+        assert!(!String::from_utf8_lossy(&kept).contains("hunter2"), "{prompt}: {kept:?}");
+        assert_eq!(&*kept, SECRET_INPUT_MARKER.as_bytes());
+        assert_eq!(&*recorded_input(at_secret, b"\r"), b"\r", "Enter is kept");
+        assert_eq!(&*recorded_input(at_secret, b"\x03"), b"\x03", "Ctrl-C is kept");
+        assert_eq!(&*recorded_input(at_secret, b"\x1b[A"), b"\x1b[A", "an arrow key is kept");
+    }
+    let normal = crate::ambient::title::last_line("PS C:\\work> ");
+    assert_eq!(&*recorded_input(crate::ambient::title::is_secret_prompt(normal), b"git status"), b"git status");
 }
 
 /// A title was just set: tell the windows and the tray (never while the registry lock is held).
