@@ -429,3 +429,50 @@ fn the_built_in_ranges_parse_and_cover_their_fixtures() {
     }
     assert!(profile_for("shell").tested_versions().is_none());
 }
+
+// ---- the live dismissal path honours strict mode -------------------------------------------------
+
+/// A pane showing a screen until something is written, then another.
+struct FakePane {
+    screens: Vec<&'static str>,
+    at: usize,
+    written: Vec<String>,
+}
+
+impl crate::bridge::startup_gate::GateIo for FakePane {
+    fn screen(&mut self) -> String {
+        self.screens[self.at].to_string()
+    }
+    fn write(&mut self, keys: &str) -> Result<(), String> {
+        self.written.push(keys.to_string());
+        if self.at + 1 < self.screens.len() {
+            self.at += 1;
+        }
+        Ok(())
+    }
+    fn pause(&mut self, _duration: Duration) {}
+}
+
+#[test]
+fn the_run_path_closes_a_notice_normally_but_leaves_it_alone_in_strict_mode() {
+    use crate::bridge::startup_gate::dismiss_startup_gates;
+    let _lock = super::test_lock();
+    let codex = profile_for("codex");
+    strict::replace(Vec::<String>::new());
+
+    // Control: a tested version. The profile's skip key is pressed and the notice is gone.
+    let mut pane = FakePane { screens: vec![CODEX_UPDATE_MENU, CODEX_READY], at: 0, written: vec![] };
+    let report = dismiss_startup_gates(&mut pane, codex.as_ref());
+    assert_eq!(report.dismissed, vec!["update_available"]);
+    assert_eq!(pane.written.len(), 1);
+
+    // Strict mode (an untested version): the same screen is recognised, but nothing is pressed and
+    // the run is handed the gate so it parks and shows it.
+    strict::replace(["codex".to_string()]);
+    let mut pane = FakePane { screens: vec![CODEX_UPDATE_MENU, CODEX_READY], at: 0, written: vec![] };
+    let report = dismiss_startup_gates(&mut pane, codex.as_ref());
+    strict::replace(Vec::<String>::new());
+    assert!(pane.written.is_empty(), "strict mode presses nothing: {:?}", pane.written);
+    assert!(report.dismissed.is_empty());
+    assert_eq!(report.blocked.map(|g| g.id), Some("update_available"));
+}

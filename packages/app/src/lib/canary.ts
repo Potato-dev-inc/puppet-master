@@ -97,13 +97,13 @@ export const tauriCanaryApi: CanaryApi = {
 export function useCanary(api: CanaryApi = tauriCanaryApi): { status: CanaryStatus; refresh: () => void } {
   const [status, setStatus] = useState<CanaryStatus>(EMPTY_CANARY);
   const refresh = useCallback(() => {
-    api.status().then(setStatus).catch(() => {});
+    api.status().then((s) => setStatus(s?.agents ? s : EMPTY_CANARY)).catch(() => {});
   }, [api]);
   useEffect(() => {
     let disposed = false;
     const offs: (() => void)[] = [];
     refresh();
-    void api.onChanged(setStatus).then((off) => (disposed ? off() : offs.push(off)));
+    void api.onChanged((s) => s?.agents && setStatus(s)).then((off) => (disposed ? off() : offs.push(off)));
     return () => {
       disposed = true;
       offs.forEach((off) => off());

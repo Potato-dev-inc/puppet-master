@@ -32,6 +32,8 @@ pub mod version;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod live_tests;
 
 pub use live::{check, dismiss_notice, init, open_captures, set_auto_check, status};
 
