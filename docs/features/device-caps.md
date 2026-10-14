@@ -106,10 +106,14 @@ headless-browser CORS proof).
 - `bin/puppet_master_mcp/{endpoint,bridge_http}.rs` (mcp-catalog): one header added; no tool change.
 
 ## Limits / follow-ups
-- The phone PWA does not read `GET /pair/me` yet: a watch-only phone still shows its input box and gets
-  an `input-error: not_allowed` / 403. UX-PHASE1 §5.5 copy ("This phone can watch only…") is the next step.
-- The push hub still offers Allow/Deny on a notification to a device without `answer` (the tap is refused).
-- `packages/mcp-server` (JS) and `packages/cli` do not send the local secret yet; they are logged.
+- Fixed since this branch: the PWA reads `GET /pair/me` and hides its input box for a phone without
+  `type` (3c81a90); push offers no Allow/Deny to a phone without `answer` (662ba33); the JS MCP server
+  and the CLI send the local secret (cf2ea04); devices without `watch` get cut-down operation and
+  loop-signal events and no chat (review R12 2.1); the four `/panes/wait` routes are listed exactly
+  (2.2); an open stream ends when its device expires (2.3).
 - Enforcing the local secret (refusing) is Phase 1 (1-18), once every client sends it.
 - `GET` routes default to `watch`; a future read route that should be open to answer-only devices must be
-  listed in `route_need`.
+  listed in `route_need`. Likewise a new event name reaches devices without `watch` only once it is
+  classified in `caps::project` (unknown names are left out).
+- An open SSE/WS stream does not count as use: a phone that only streams, with no request for 30 days,
+  is signed out (the long poll makes a request every 25 s, so the tunnel path is unaffected).
