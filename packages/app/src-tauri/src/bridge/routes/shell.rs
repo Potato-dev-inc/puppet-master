@@ -72,9 +72,15 @@ fn exec(cx: &Ctx) -> RouteResult {
         (pane_id, Some(cwd), true)
     };
 
-    let mut result =
-        crate::shell_exec::execute_in(registry, &pane_id, command, timeout, cwd.as_deref())
-            .map_err(operation_http_error)?;
+    let outcome = crate::shell_exec::execute_in(registry, &pane_id, command, timeout, cwd.as_deref());
+    // The audit log keeps who ran it and a fingerprint of the command, never the command text.
+    crate::audit::record(
+        crate::audit::Kind::ShellExec,
+        session.map_or(crate::audit::Who::Local, |s| crate::audit::Who::Agent(s.to_string())),
+        if outcome.is_ok() { "Ran a command in a shell pane" } else { "Tried to run a command in a shell pane" },
+        serde_json::json!({ "pane_id": pane_id, "command": crate::audit::command_fingerprint(command), "ok": outcome.is_ok() }),
+    );
+    let mut result = outcome.map_err(operation_http_error)?;
     if let Some(result) = result.as_object_mut() {
         result.insert("created_pane".into(), serde_json::Value::Bool(created_pane));
     }

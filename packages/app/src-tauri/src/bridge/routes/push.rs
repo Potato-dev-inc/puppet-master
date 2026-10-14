@@ -43,5 +43,12 @@ fn act(cx: &Ctx, hub: &crate::push::hub::PushHub, now: u64) -> RouteResult {
         false,
     )
     .map_err(operation_http_error)?;
+    // A lock-screen tap: the audit log says which device pressed which choice (never the command).
+    crate::audit::record(
+        crate::audit::Kind::Approval,
+        crate::audit::Who::Device(Some(act.grant.device_id.clone())),
+        &format!("A phone answered from its lock screen: {}", if act.choice == "deny" { "Said no" } else { "Allowed once" }),
+        json!({ "pane_id": act.grant.pane_id, "prompt_id": act.grant.prompt_id, "choice": act.choice, "via": "push" }),
+    );
     Ok((200, json!({"ok": true, "answered": answered})))
 }

@@ -1,7 +1,7 @@
 //! Lease movement: release, takeover, transfer and token-authenticated coordinator reattach.
 
 use super::handles::{agent_not_found, denied, pane_not_found};
-use super::state::{coordinator_id_for, ensure_session, lock_state, new_control, PaneKind};
+use super::state::{coordinator_id_for, ensure_session, lock_state, new_control, PaneKind, PaneOrigin};
 use crate::operations::OperationError;
 use serde_json::{json, Value};
 
@@ -44,10 +44,10 @@ pub fn take_over_agent(session_id: &str, handle: &str, grant: bool) -> Result<()
         }
         None if grant => {
             let coordinator_id = coordinator_id_for(&mut state, session_id);
-            state.agents.insert(
-                handle.to_owned(),
-                new_control(session_id, coordinator_id, PaneKind::Agent, true),
-            );
+            let mut control = new_control(session_id, coordinator_id, PaneKind::Agent, true);
+            // A handle nobody registered was not started by this connection: it is adopted work.
+            control.origin = PaneOrigin::UserOpened;
+            state.agents.insert(handle.to_owned(), control);
         }
         None => return Err(agent_not_found(handle)),
     }

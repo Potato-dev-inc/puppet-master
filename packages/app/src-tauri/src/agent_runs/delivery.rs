@@ -340,6 +340,8 @@ fn close_startup_gates(
         }
         *rounds += 1;
         trace.push(format!("startup screen '{}' on screen: closing it with its own keys before typing", gate.id));
+        // Audit: Puppet Master pressed keys on the person's behalf (which screen, which keys).
+        crate::audit::note_gate_dismissal(gate.id, gate.summary, keys);
         if io.write(keys, false).is_err() {
             return Err(gate);
         }

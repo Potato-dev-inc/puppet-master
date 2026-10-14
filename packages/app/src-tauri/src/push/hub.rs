@@ -560,6 +560,21 @@ Run command: rm -rf ../");
     }
 
     #[test]
+    fn a_consent_card_has_no_lock_screen_action_and_names_no_pane() {
+        // How `agent_authority::consent` hands a card to the push pipeline: a question, no pane.
+        let hub = two_device_hub("consent");
+        let (verdict, d) = hub.plan(&question("c1", "Allow Claude Code to control Codex?"), 1_000);
+        assert_eq!((verdict, d.len()), (Verdict::Send, 2));
+        for delivery in &d {
+            let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+            assert!(payload.get("act").is_none(), "no Allow / Deny button on a lock screen");
+            assert!(payload.get("pane_id").is_none() && payload.get("prompt_id").is_none());
+            assert_eq!(payload["target"], "questions", "tapping opens the app's list");
+            assert_eq!(payload["body"], "Allow Claude Code to control Codex?");
+        }
+    }
+
+    #[test]
     fn a_question_is_held_back_while_the_phone_is_looking() {
         let hub = two_device_hub("question-visible");
         hub.set_visible("dev-a", true, 1_000);

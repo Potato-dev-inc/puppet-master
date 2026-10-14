@@ -27,6 +27,12 @@ fn pair(cx: &Ctx) -> RouteResult {
             .pair_device(req)
             .map_err(|err| (400, json!({ "error": err })))?
     };
+    crate::audit::record(
+        crate::audit::Kind::Pairing,
+        crate::audit::Who::Device(Some(response.device_id.clone())),
+        "A phone paired with this computer",
+        json!({ "device_id": response.device_id }),
+    );
     Ok((200, serde_json::to_value(response).unwrap()))
 }
 
@@ -59,5 +65,11 @@ fn invite(cx: &Ctx) -> RouteResult {
     let store = mobile_pairing::pairing_store()
         .ok_or_else(|| (503, json!({ "error": "pairing_unavailable" })))?;
     let session = store.lock().create_pairing_session(bridge_url);
+    crate::audit::record(
+        crate::audit::Kind::Pairing,
+        crate::audit::Who::Local,
+        "A pairing link was made from a program on this computer",
+        json!({ "via": "pair-link" }),
+    );
     Ok((200, serde_json::to_value(session).unwrap()))
 }
