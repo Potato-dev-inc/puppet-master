@@ -63,6 +63,21 @@ fn composer_row(screen: &str) -> Option<&str> {
     screen[at + '\u{203a}'.len_utf8()..].lines().next()
 }
 
+/// The screen text readiness reads (`TuiProfile::input_screen`): the emulator's text without the
+/// dimmed placeholder Codex draws in an empty composer (`\u{203a} Ask Codex to do anything`, faint,
+/// SGR 2; real capture `fixtures/composer_placeholder_dim_0_162_1_live.ansi`). Codex rotates its hints
+/// between releases (`COMPOSER_PLACEHOLDERS` lists the ones seen); the faint style is what they share,
+/// and typed text is drawn in the normal intensity. Only the composer row (the last row that starts
+/// with the glyph) is looked at; faint text anywhere else stays.
+pub(super) fn without_placeholder(screen: &vt100::Screen) -> String {
+    let (_, cols) = screen.size();
+    let rows: Vec<String> = screen.rows(0, cols).collect();
+    let Some(composer) = rows.iter().rposition(|row| row.starts_with('\u{203a}')) else {
+        return screen.contents();
+    };
+    crate::tui::faint::contents_without(screen, |row, col, cell| usize::from(row) == composer && col > 0 && cell.dim())
+}
+
 /// What the composer holds. A turn in flight (`esc to interrupt`) wins: Codex keeps the composer
 /// visible under the status row, and text typed there is queued, not waiting to be submitted.
 /// `Unknown` when no composer row is on screen (startup, a menu, a full-screen view).
@@ -85,6 +100,40 @@ pub(super) fn composer_state(screen: &str) -> ComposerState {
             }
         }
     }
+}
+
+/// Codex 0.162 draws its composer while it is still starting (the banner's second row reads
+/// `loading` and the logo animates). Keys typed then show up seconds later or not at all (live, this
+/// branch's `live_permit_codex_fresh_pane_is_delivered_under_a_permit`: the task typed on that
+/// screen was not visible for 2 s). Real capture: `fixtures/loading_0_162_1_live.txt`.
+pub(super) fn still_loading(screen: &str) -> bool {
+    let rows: Vec<&str> = screen.lines().map(str::trim).filter(|row| !row.is_empty()).collect();
+    rows.windows(2)
+        .any(|pair| pair[0].starts_with(">_ OpenAI Codex") && pair[1].eq_ignore_ascii_case("loading"))
+}
+
+/// Tool-failure rows Codex 0.162 draws in a turn, in two layouts:
+///
+/// - a group header `Explored · 2 failed` and each failed call `Read README.md (exit -1)` (real
+///   capture: `fixtures/result_tool_failed_live.txt`). A nonzero exit code, negative when the process
+///   never started, ends such a row; the `+ Show details` hint can follow it.
+/// - a lone failed call `• Failed (exit -1) Get-Content README.md -TotalCount 1`, the exit code FIRST
+///   and the command after it, with the reason on the next row (`└ Failed to create unified exec
+///   process`). Real capture 0.162.1: `fixtures/result_tool_failed_exit_first_live.txt`.
+static TOOL_FAILED_HEADER: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^\W*[A-Z][a-z]+ \u{b7} [1-9]\d* failed\s*$").expect("static regex"));
+static TOOL_FAILED_EXIT_FIRST: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^\W*Failed \(exit (?:-\d+|[1-9]\d*)\)\s+\S").expect("static regex"));
+static TOOL_FAILED_ROW: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^\W*[A-Z][A-Za-z]+ .*\(exit (?:-\d+|[1-9]\d*)\)(?:\s+\+ Show details)?\s*$").expect("static regex")
+});
+
+/// True when a reply shows Codex reporting that one of its own tool calls failed.
+pub(super) fn reports_tool_failure(reply: &str) -> bool {
+    reply
+        .lines()
+        .map(str::trim)
+        .any(|row| TOOL_FAILED_HEADER.is_match(row) || TOOL_FAILED_ROW.is_match(row) || TOOL_FAILED_EXIT_FIRST.is_match(row))
 }
 
 /// Ctrl+U sixteen times. Ctrl+U clears the line before the cursor and does nothing in an empty
@@ -380,5 +429,95 @@ mod tests {
     fn the_status_row_is_work_and_an_idle_composer_is_not() {
         assert!(shows_work_in_progress(WORKING));
         assert!(!shows_work_in_progress(READY));
+    }
+
+    #[test]
+    fn a_live_capture_of_a_turn_whose_own_tool_failed_reports_a_tool_failure() {
+        let live = include_str!("fixtures/result_tool_failed_live.txt");
+        assert!(reports_tool_failure(live));
+    }
+
+    /// Codex 0.162.1 on this PC (VERIFY-R11 2c): `• Failed (exit -1) <command>`, the exit code first.
+    #[test]
+    fn a_live_capture_of_the_exit_first_failed_row_reports_a_tool_failure() {
+        let live = include_str!("fixtures/result_tool_failed_exit_first_live.txt");
+        assert!(reports_tool_failure(live));
+        assert!(reports_tool_failure("• Failed (exit -1) Get-Content README.md -TotalCount 1"));
+        assert!(reports_tool_failure("  Failed (exit 2) npm test"));
+        // The same screen with the failed rows taken out is a normal turn.
+        let without: String = live.lines().filter(|row| !row.contains("Failed")).collect::<Vec<_>>().join("\n");
+        assert!(!reports_tool_failure(&without));
+    }
+
+    /// An empty composer shows the dimmed placeholder (`› Ask Codex to do anything`): that is an
+    /// empty box, also on the screen of a finished turn that ends in tool failures.
+    #[test]
+    fn the_ask_codex_placeholder_is_an_empty_composer_on_the_live_failed_turn_screen() {
+        let live = include_str!("fixtures/result_tool_failed_exit_first_live.txt");
+        assert_eq!(composer_state(live), ComposerState::Empty);
+        assert_eq!(composer_state(include_str!("fixtures/result_tool_failed_live.txt")), ComposerState::Empty);
+    }
+
+    #[test]
+    fn ordinary_replies_and_prose_about_exit_codes_do_not_report_a_tool_failure() {
+        for screen in [LIVE_SUBMITTED, LIVE_WORKING, LIVE_READY_BANNER, READY, WORKING] {
+            assert!(!reports_tool_failure(screen), "{screen:.60}");
+        }
+        for reply in [
+            "\u{2022} The script exits with (exit 1) when the file is missing.",
+            "Explored \u{b7} 2 files",
+            "\u{2022} Explored",
+            "Explored \u{b7} 0 failed",
+            "Ran npm test (exit 0)",
+            "• Failed (exit 0) is what a passing run never prints",
+            "• Failed to read README.md (exit code unknown)",
+        ] {
+            assert!(!reports_tool_failure(reply), "{reply}");
+        }
+    }
+    // ---- the dimmed placeholder in the composer (VERIFY-R11: make sure it counts as empty) ----
+
+    /// A fresh Codex 0.162.1 pane, 120x30, as the emulator is fed it (`/panes/{id}/screen`): the
+    /// composer row is `\u{203a}` and the faint (SGR 2) hint `Ask Codex to do anything`.
+    const PLACEHOLDER_ANSI: &str = include_str!("fixtures/composer_placeholder_dim_0_162_1_live.ansi");
+
+    /// The screen text with (`true`) or without (`false`) the profile's attribute-aware reading.
+    fn vt100_text(bytes: &str, as_the_app_does: bool) -> String {
+        let mut parser = vt100::Parser::new(30, 120, 0);
+        parser.process(bytes.as_bytes());
+        if as_the_app_does {
+            without_placeholder(parser.screen())
+        } else {
+            parser.screen().contents()
+        }
+    }
+
+    fn read_as_the_app_does(bytes: &str) -> String {
+        vt100_text(bytes, true)
+    }
+
+    #[test]
+    fn the_dimmed_ask_codex_placeholder_of_a_live_pane_is_an_empty_composer() {
+        let text = read_as_the_app_does(PLACEHOLDER_ANSI);
+        assert!(!text.contains("Ask Codex"), "{text}");
+        assert!(text.contains("OpenAI Codex") && text.contains("? for shortcuts"), "the rest of the screen stays: {text}");
+        assert_eq!(composer_state(&text), ComposerState::Empty);
+        // The plain text, with no attributes to go by, is still read from the known hints.
+        assert_eq!(composer_state("\u{203a} Ask Codex to do anything\n  GPT-6-Luna medium"), ComposerState::Empty);
+    }
+
+    /// Codex rotates its hints between releases; the faint style is what they share. The live capture
+    /// with its hint swapped for one `COMPOSER_PLACEHOLDERS` has never seen is still an empty box, and
+    /// the same words drawn in the normal intensity (typed by the user) are still a draft.
+    #[test]
+    fn an_unlisted_faint_hint_is_empty_and_the_same_words_typed_are_a_draft() {
+        let hint = "Summarize recent commits";
+        let faint = PLACEHOLDER_ANSI.replace("Ask Codex to do anything", hint);
+        assert!(faint.contains(hint), "the swap found the live hint");
+        let plain = vt100_text(&faint, false);
+        assert_eq!(composer_state(&plain), ComposerState::HasText, "text alone cannot tell: {plain}");
+        assert_eq!(composer_state(&read_as_the_app_does(&faint)), ComposerState::Empty);
+        let typed = faint.replace("\u{1b}[2mSummarize", "\u{1b}[22mSummarize");
+        assert_eq!(composer_state(&read_as_the_app_does(&typed)), ComposerState::HasText);
     }
 }

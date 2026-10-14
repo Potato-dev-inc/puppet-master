@@ -215,6 +215,8 @@ struct Inner {
     /// Keys left cold until their next run (idle expiry, repeated failure).
     suppressed: HashSet<PoolKey>,
     spawning: HashSet<PoolKey>,
+    /// Agents (lowercase) in strict mode (`crate::canary`): never warmed, never handed out.
+    strict: HashSet<String>,
     stats: Stats,
     shut_down: bool,
 }
@@ -352,6 +354,7 @@ impl Pool {
                     agent_backoff: HashMap::new(),
                     suppressed: HashSet::new(),
                     spawning: HashSet::new(),
+                    strict: HashSet::new(),
                     stats: Stats::default(),
                     shut_down: false,
                 }),
@@ -440,6 +443,35 @@ impl Pool {
         self.shared.wake.notify();
     }
 
+    /// Agents in strict mode (an untested CLI version, `crate::canary`) go cold: their standbys are shut
+    /// down now, nothing new is warmed for them, and a claim finds nothing. Unlike a failure backoff,
+    /// a run of the agent does not lift this; only the agent leaving strict mode does.
+    pub fn set_strict_agents(&self, agents: &[String]) {
+        let doomed = {
+            let mut inner = self.shared.inner.lock();
+            let next: HashSet<String> = agents.iter().map(|a| agent_id(a)).collect();
+            if next == inner.strict {
+                return;
+            }
+            inner.strict = next;
+            let mut doomed = Vec::new();
+            let mut keep = Vec::new();
+            for entry in std::mem::take(&mut inner.entries) {
+                if inner.strict.contains(&agent_id(&entry.key.agent_type)) {
+                    doomed.push(entry);
+                } else {
+                    keep.push(entry);
+                }
+            }
+            inner.entries = keep;
+            doomed
+        };
+        for entry in &doomed {
+            self.host.kill(&entry.handle, "untested_version");
+        }
+        self.shared.wake.notify();
+    }
+
     fn persist(&self, (config, recent): (StandbyConfig, Vec<RecentUse>)) {
         if let Some(path) = &self.store {
             if let Err(error) = config::save(path, &config, &recent) {
@@ -454,6 +486,10 @@ impl Pool {
         let entry = {
             let mut inner = self.shared.inner.lock();
             if inner.shut_down || !inner.config.allows(key) {
+                return ClaimOutcome::Miss(MissReason::Disabled);
+            }
+            if inner.strict.contains(&agent_id(&key.agent_type)) {
+                // An untested version: the run starts its own worker and is shown whatever it meets.
                 return ClaimOutcome::Miss(MissReason::Disabled);
             }
             if !inner.entries.iter().any(|entry| entry.key == *key) {
@@ -512,6 +548,8 @@ impl Pool {
             for entry in std::mem::take(&mut inner.entries) {
                 if !inner.config.allows(&entry.key) {
                     doomed.push((entry, "pool_config_changed"));
+                } else if inner.strict.contains(&agent_id(&entry.key.agent_type)) {
+                    doomed.push((entry, "untested_version"));
                 } else if !entry.key.headless
                     && default_project.as_deref().is_some_and(|project| project != entry.key.project)
                 {
@@ -780,6 +818,17 @@ impl Pool {
                 cold: state.cold,
             })
             .collect();
+        for agent in &inner.strict {
+            agents_blocked.retain(|blocked| blocked.agent_type != *agent);
+            agents_blocked.push(AgentBlockedView {
+                agent_type: agent.clone(),
+                reason: "untested_version".into(),
+                message: reason_text("untested_version"),
+                fails: 0,
+                retry_in_ms: 0,
+                cold: true,
+            });
+        }
         agents_blocked.sort_by(|a, b| a.agent_type.cmp(&b.agent_type));
         StatusView {
             enabled: inner.config.enabled || inner.config.preload.enabled,
@@ -876,6 +925,7 @@ fn lift_agents(inner: &mut Inner, agent_type: Option<&str>) {
 fn reason_text(reason: &str) -> String {
     match reason {
         "dialog" => "it stops at a trust or approval prompt (open it once yourself first)".into(),
+        "untested_version" => "this version of it has not been tested with Puppet Master yet".into(),
         "needs_attention" => "it stops at a login or update screen (finish that once yourself)".into(),
         "dead" => "it exited right after starting".into(),
         "startup_timeout" => "it never reached its input box".into(),
@@ -897,6 +947,7 @@ fn wanted(inner: &Inner, now_ms: i64, default_project: Option<&str>) -> Option<(
     let usable = |key: &PoolKey| {
         inner.config.allows(key)
             && !inner.suppressed.contains(key)
+            && !inner.strict.contains(&agent_id(&key.agent_type))
             && !inner.spawning.contains(key)
             && inner
                 .agent_backoff

@@ -19,6 +19,7 @@ export interface AgentDescriptor {
   not_dispatchable_reason: string | null;
   installed: boolean;
   install_hint: string | null;
+  install_fallback?: string | null;
   modes: { headless: boolean; visible: boolean };
   features: { read_only_headless: boolean; read_only_spawned_pane: boolean; resumable_headless: boolean };
   run_options: {

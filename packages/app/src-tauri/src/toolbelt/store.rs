@@ -387,3 +387,15 @@ pub fn remove(path: &Path, id: &str) -> Result<bool, String> {
     save(path, &servers)?;
     Ok(true)
 }
+
+/// Every stored credential value (env vars and headers whose names look secret), for `crate::redact`.
+/// Empty when the file or the credential store cannot be read.
+pub fn secret_values() -> Vec<String> {
+    let Ok(servers) = load_servers(&default_path()) else { return Vec::new() };
+    servers
+        .iter()
+        .flat_map(|s| s.env.iter().chain(s.headers.iter()))
+        .filter(|(k, v)| is_secret_key(k) && v.len() >= 4 && v.as_str() != MASK && name_of_ref(v).is_none())
+        .map(|(_, v)| v.clone())
+        .collect()
+}

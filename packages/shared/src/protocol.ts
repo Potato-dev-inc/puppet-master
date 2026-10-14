@@ -62,6 +62,9 @@ export type McpLogEntry = z.infer<typeof McpLogEntrySchema>;
 
 export const BRIDGE_PORT_FILE_ENV = 'PUPPET_MASTER_BRIDGE_PORT_FILE';
 export const DEFAULT_BRIDGE_PORT_FILE = 'puppet-master.bridge.port';
+/** Per-launch local secret the app writes beside the port file; sent as `X-PM-Local-Secret`. */
+export const BRIDGE_LOCAL_SECRET_FILE = 'puppet-master.bridge.secret';
+export const BRIDGE_LOCAL_SECRET_HEADER = 'X-PM-Local-Secret';
 export const DEFAULT_BRIDGE_HOST = '127.0.0.1';
 export const BRIDGE_HTTP_PORT_RANGE = { min: 17321, max: 17399 };
 

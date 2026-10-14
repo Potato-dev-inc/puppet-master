@@ -149,7 +149,11 @@ export function PreloadSettings({ api = DEFAULT_API, onSaved }: { api?: PreloadA
             <p key={agent.agent_type} className="text-sm text-pm-text" data-testid={`preload-blocked-${agent.agent_type}`}>
               {registry.agents.find((a) => a.id === agent.agent_type)?.label ?? agent.agent_type} couldn't stay warm: {agent.message}.{' '}
               <span className="text-pm-muted">
-                {agent.cold ? 'Not warming it until you open it.' : `Trying again in ${formatDuration(agent.retry_in_ms)}.`}
+                {agent.reason === 'untested_version'
+                  ? 'Not warming it until it is a tested version.'
+                  : agent.cold
+                    ? 'Not warming it until you open it.'
+                    : `Trying again in ${formatDuration(agent.retry_in_ms)}.`}
               </span>
             </p>
           ))}

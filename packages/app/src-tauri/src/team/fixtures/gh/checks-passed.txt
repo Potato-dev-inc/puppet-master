@@ -1,0 +1,137 @@
+HTTP/2.0 200 OK
+Cache-Control: private, max-age=60, s-maxage=60
+Content-Type: application/json; charset=utf-8
+Etag: W/"07b2cca29ab4e46de38459171723800fd029b644306d95c3a4c1e2501f287e9c"
+X-Ratelimit-Remaining: 4997
+
+{
+ "total_count": 18,
+ "check_runs": [
+  {
+   "name": "close-no-help-wanted",
+   "status": "completed",
+   "conclusion": "skipped",
+   "html_url": "https://github.com/cli/cli/actions/runs/38462162677/job/115519891150",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "label-external",
+   "status": "completed",
+   "conclusion": "skipped",
+   "html_url": "https://github.com/cli/cli/actions/runs/38462162677/job/115519882973",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "check-requirements / close-unmet-requirements",
+   "status": "completed",
+   "conclusion": "skipped",
+   "html_url": "https://github.com/cli/cli/actions/runs/38462162677/job/115519864373",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "close-unmet-requirements",
+   "status": "completed",
+   "conclusion": "skipped",
+   "html_url": "https://github.com/cli/cli/actions/runs/38462162677/job/115519825208",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "check-requirements / check-requirements",
+   "status": "completed",
+   "conclusion": "skipped",
+   "html_url": "https://github.com/cli/cli/actions/runs/38462162677/job/115519825182",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "close-from-default-branch",
+   "status": "completed",
+   "conclusion": "skipped",
+   "html_url": "https://github.com/cli/cli/actions/runs/38462162677/job/115519825101",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "ready-for-review",
+   "status": "completed",
+   "conclusion": "skipped",
+   "html_url": "https://github.com/cli/cli/actions/runs/38462162677/job/115519823716",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "CodeQL",
+   "status": "completed",
+   "conclusion": "success",
+   "html_url": "https://github.com/cli/cli/runs/115514895695",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "integration-tests (macos-latest)",
+   "status": "completed",
+   "conclusion": "success",
+   "html_url": "https://github.com/cli/cli/actions/runs/38460639633/job/115514594129",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "integration-tests (windows-latest)",
+   "status": "completed",
+   "conclusion": "success",
+   "html_url": "https://github.com/cli/cli/actions/runs/38460639633/job/115514593991",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "build (macos-latest)",
+   "status": "completed",
+   "conclusion": "success",
+   "html_url": "https://github.com/cli/cli/actions/runs/38460639633/job/115514593886",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "integration-tests (ubuntu-latest)",
+   "status": "completed",
+   "conclusion": "success",
+   "html_url": "https://github.com/cli/cli/actions/runs/38460639633/job/115514593803",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "build (windows-latest)",
+   "status": "completed",
+   "conclusion": "success",
+   "html_url": "https://github.com/cli/cli/actions/runs/38460639633/job/115514593702",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "lint",
+   "status": "completed",
+   "conclusion": "success",
+   "html_url": "https://github.com/cli/cli/actions/runs/38460639577/job/115514593634",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "build (ubuntu-latest)",
+   "status": "completed",
+   "conclusion": "success",
+   "html_url": "https://github.com/cli/cli/actions/runs/38460639633/job/115514593493",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "govulncheck",
+   "status": "completed",
+   "conclusion": "success",
+   "html_url": "https://github.com/cli/cli/actions/runs/38460639577/job/115514593290",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "CodeQL-Build (go, manual, ./.github/codeql/codeql-config.yml)",
+   "status": "completed",
+   "conclusion": "success",
+   "html_url": "https://github.com/cli/cli/actions/runs/38460639358/job/115514592742",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  {
+   "name": "CodeQL-Build (actions, none, security-and-quality)",
+   "status": "completed",
+   "conclusion": "success",
+   "html_url": "https://github.com/cli/cli/actions/runs/38460639358/job/115514592478",
+   "head_sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  }
+ ]
+}

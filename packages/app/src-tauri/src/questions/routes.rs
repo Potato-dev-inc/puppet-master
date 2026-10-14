@@ -60,6 +60,19 @@ pub fn handle(
 }
 
 fn answer(id: &str, body: &Value, via_phone: bool) -> RouteReply {
+    // A consent card is the person's decision about an agent. The desktop answers through its own
+    // Tauri command and a paired phone through its token; plain loopback HTTP (which any local
+    // program, an agent's shell included, can reach) may not answer it.
+    if !via_phone && store().get(id, now_ms()).is_some_and(|q| q.consent.is_some()) {
+        return Err((
+            403,
+            json!({
+                "code": "CONSENT_NEEDS_PERSON",
+                "error": "this card asks the person whether an agent may control something; answer it in the Puppet Master window or from a paired phone",
+                "recoverable": false,
+            }),
+        ));
+    }
     let by = match string_field(body, "answered_by").as_deref() {
         Some("phone") => "phone",
         Some("desktop") => "desktop",
@@ -114,6 +127,8 @@ fn ask(body: &Value, session: Option<&str>) -> RouteReply {
                     context: string_field(body, "context"),
                     timeout_s: body.get("timeout_s").and_then(Value::as_u64),
                     urgency: string_field(body, "urgency"),
+                    // Only Puppet Master raises consent cards; the tool cannot ask for one.
+                    consent: None,
                 },
                 now_ms(),
             )

@@ -23,6 +23,9 @@ pub const ACT_PATH: &str = "/bridge/push/act";
 pub trait DeviceDirectory: Send + Sync {
     fn device_for_token(&self, token: &str) -> Option<String>;
     fn device_exists(&self, device_id: &str) -> bool;
+    /// Whether the device may answer approvals (its `answer` ability). A notification only carries
+    /// Allow / Deny for a device that may use them: the tap would be refused anyway.
+    fn device_can_answer(&self, device_id: &str) -> bool;
 }
 
 /// What an Allow / Deny token is good for: one answer to one prompt on one pane, from one device.
@@ -52,7 +55,7 @@ pub struct Candidate {
 pub struct Delivery {
     pub device_id: String,
     pub subscription: Subscription,
-    pub payload: Vec<u8>,
+    pub payload: super::sender::PushPayload,
     pub urgent: bool,
     /// The pane the message is about (for dropping it when the prompt is gone).
     pub pane_id: Option<String>,
@@ -214,6 +217,12 @@ impl PushHub {
             return (verdict, Vec::new());
         }
         let words = copy_for(candidate.kind, &candidate.agent_label, candidate.pane_title.as_deref(), candidate.prompt.as_ref());
+        // Nothing secret goes to a push service. If redaction changed the text, the body no longer
+        // shows the whole command exactly, so the notification is open-only (no Allow button).
+        let (title, body) = (crate::redact::text(&words.title), crate::redact::text(&words.body));
+        let redaction_changed = title.as_str() != words.title
+            || body.as_str() != words.body
+            || candidate.prompt.as_ref().is_some_and(|p| crate::redact::text(&p.text).as_str() != p.text);
         // Allow is only offered when the body shows the WHOLE command and cwd: a long command is cut
         // at 120 characters, and the cut tail could be what actually runs. Then it is open-only.
         let actionable = candidate.kind == Kind::WaitingInput
@@ -222,38 +231,40 @@ impl PushHub {
                 let calm = p.risk.as_ref().is_some_and(|r| r.level != crate::prompt_risk::RiskLevel::High);
                 p.actionable && calm && shown_in_full(&p.text)
             })
-            && candidate.pane_id.is_some();
+            && candidate.pane_id.is_some()
+            && !redaction_changed;
         let mut deliveries = Vec::new();
         for (device_id, subscription) in self.store.lock().all() {
-            let mut payload = json!({
-                "v": 1,
-                "kind": candidate.kind.as_str(),
-                "title": words.title,
-                "body": words.body,
-                "tag": format!("pm-{}", candidate.key),
-            });
+            let mut extra = serde_json::Map::new();
+            extra.insert("v".into(), json!(1));
+            extra.insert("kind".into(), json!(candidate.kind.as_str()));
+            extra.insert("tag".into(), json!(format!("pm-{}", candidate.key)));
             if let Some(pane_id) = &candidate.pane_id {
-                payload["pane_id"] = Value::String(pane_id.clone());
+                extra.insert("pane_id".into(), Value::String(pane_id.clone()));
             }
             if candidate.kind == Kind::Question {
                 // Questions need the app: tapping opens the phone's question list. No buttons.
-                payload["target"] = Value::String("questions".into());
+                extra.insert("target".into(), Value::String("questions".into()));
             }
             if let (Some(prompt), true) = (&candidate.prompt, candidate.kind != Kind::Question) {
-                payload["prompt_id"] = Value::String(prompt.prompt_id.clone());
+                extra.insert("prompt_id".into(), Value::String(prompt.prompt_id.clone()));
             }
-            if actionable {
+            if actionable && self.directory.device_can_answer(&device_id) {
                 let pane_id = candidate.pane_id.as_deref().unwrap_or_default();
                 let prompt_id = prompt_id.unwrap_or_default();
-                payload["act"] = json!({
-                    "url": ACT_PATH,
-                    "token": self.issue_grant(&device_id, pane_id, prompt_id, now_ms),
-                });
+                extra.insert(
+                    "act".into(),
+                    json!({
+                        "url": ACT_PATH,
+                        "token": self.issue_grant(&device_id, pane_id, prompt_id, now_ms),
+                    }),
+                );
             }
+            let payload = super::sender::PushPayload::new(&title, &body, extra);
             let delivery = Delivery {
                 device_id: device_id.clone(),
                 subscription,
-                payload: payload.to_string().into_bytes(),
+                payload,
                 urgent: matches!(candidate.kind, Kind::WaitingInput | Kind::Error | Kind::Question),
                 pane_id: candidate.pane_id.clone(),
                 kind: candidate.kind,
@@ -277,11 +288,16 @@ pub(crate) mod testing {
     /// token -> device id; a device exists while it is in `devices`.
     pub struct FakeDirectory {
         pub tokens: Mutex<HashMap<String, String>>,
+        /// Devices paired without the `answer` ability.
+        pub cannot_answer: Mutex<Vec<String>>,
     }
 
     impl FakeDirectory {
         pub fn new(pairs: &[(&str, &str)]) -> Self {
-            Self { tokens: Mutex::new(pairs.iter().map(|(t, d)| (t.to_string(), d.to_string())).collect()) }
+            Self {
+                tokens: Mutex::new(pairs.iter().map(|(t, d)| (t.to_string(), d.to_string())).collect()),
+                cannot_answer: Mutex::new(Vec::new()),
+            }
         }
     }
 
@@ -291,6 +307,9 @@ pub(crate) mod testing {
         }
         fn device_exists(&self, device_id: &str) -> bool {
             self.tokens.lock().values().any(|d| d == device_id)
+        }
+        fn device_can_answer(&self, device_id: &str) -> bool {
+            !self.cannot_answer.lock().iter().any(|d| d == device_id)
         }
     }
 
@@ -382,6 +401,25 @@ Run command: ls");
         let (_, later) = hub.plan(&waiting("pane-2", Some(command_prompt("pid-2"))), 1_000);
         assert_eq!(hub.redeem_grant(&token_of(&later[0]), 1_000 + GRANT_TTL_MS), Err("expired_token"));
         assert_eq!(hub.redeem_grant("nonsense", 2_000), Err("unknown_or_used_token"));
+    }
+
+    #[test]
+    fn a_device_without_the_answer_ability_gets_the_notification_but_no_allow_or_deny() {
+        let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a"), ("tok-b", "dev-b")]));
+        dir.cannot_answer.lock().push("dev-a".into());
+        let hub = hub_with("no-answer", dir);
+        let (a, _, _) = test_subscription("https://fcm.googleapis.com/a");
+        let (b, _, _) = test_subscription("https://web.push.apple.com/b");
+        hub.store().lock().upsert("dev-a", a).unwrap();
+        hub.store().lock().upsert("dev-b", b).unwrap();
+        let (_, deliveries) = hub.plan(&waiting("pane-1", Some(command_prompt("pid-1"))), 1_000);
+        let payload_of = |id: &str| {
+            let d = deliveries.iter().find(|d| d.device_id == id).expect("both phones are told");
+            serde_json::from_slice::<Value>(&d.payload).unwrap()
+        };
+        assert!(payload_of("dev-a").get("act").is_none(), "watch-only: open-only notification");
+        assert!(payload_of("dev-a")["body"].as_str().is_some_and(|b| !b.is_empty()), "it still says what is happening");
+        assert!(payload_of("dev-b").get("act").is_some(), "a phone that may answer keeps Allow / Deny");
     }
 
     #[test]
@@ -560,10 +598,45 @@ Run command: rm -rf ../");
     }
 
     #[test]
+    fn a_consent_card_has_no_lock_screen_action_and_names_no_pane() {
+        // How `agent_authority::consent` hands a card to the push pipeline: a question, no pane.
+        let hub = two_device_hub("consent");
+        let (verdict, d) = hub.plan(&question("c1", "Allow Claude Code to control Codex?"), 1_000);
+        assert_eq!((verdict, d.len()), (Verdict::Send, 2));
+        for delivery in &d {
+            let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+            assert!(payload.get("act").is_none(), "no Allow / Deny button on a lock screen");
+            assert!(payload.get("pane_id").is_none() && payload.get("prompt_id").is_none());
+            assert_eq!(payload["target"], "questions", "tapping opens the app's list");
+            assert_eq!(payload["body"], "Allow Claude Code to control Codex?");
+        }
+    }
+
+    #[test]
     fn a_question_is_held_back_while_the_phone_is_looking() {
         let hub = two_device_hub("question-visible");
         hub.set_visible("dev-a", true, 1_000);
         let (_, d) = hub.plan(&question("q1", "Deploy?"), 2_000);
         assert_eq!(d.iter().map(|x| x.device_id.as_str()).collect::<Vec<_>>(), ["dev-b"]);
+    }
+
+    #[test]
+    fn a_secret_in_the_prompt_never_reaches_the_payload_and_removes_allow() {
+        let hub = two_device_hub("secret-payload");
+        let secret = "sk-ant-api03-PushPlantedSecret0123456789";
+        let prompt = PromptInfo {
+            prompt_id: "pid-s".into(),
+            text: format!("Run command: curl -H 'x-api-key: {secret}' https://example.test"),
+            actionable: true,
+            risk: Some(low_risk()),
+        };
+        let (_, d) = hub.plan(&waiting("pane-s", Some(prompt)), 1_000);
+        assert!(!d.is_empty());
+        for delivery in &d {
+            let text = String::from_utf8_lossy(&delivery.payload).to_string();
+            assert!(!text.contains("PushPlantedSecret"), "{text}");
+            let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+            assert!(payload.get("act").is_none(), "a body that was edited by redaction is open-only");
+        }
     }
 }

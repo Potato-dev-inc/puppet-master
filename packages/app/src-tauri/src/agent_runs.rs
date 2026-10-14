@@ -13,10 +13,11 @@ pub(crate) mod pane_close;
 pub(crate) mod pane_api;
 pub(crate) mod persist;
 pub(crate) mod quick;
+pub mod readiness;
 mod recovery;
 mod routes;
 mod runtime;
-pub(crate) mod transcript;
+pub mod transcript;
 
 #[cfg(test)]
 mod cursor_capture_tests;

@@ -1,0 +1,19 @@
+{
+  "numStartups": 12,
+  "theme": "dark",
+  "mcpServers": {
+    "mine": {
+      "command": "my-server"
+    },
+    "puppet-master": {
+      "args": [
+        "-y",
+        "@puppet-master/mcp"
+      ],
+      "command": "npx",
+      "env": {
+        "PUPPET_MASTER_BRIDGE_PORT_FILE": "C:/pm/puppet-master.bridge.port"
+      }
+    }
+  }
+}

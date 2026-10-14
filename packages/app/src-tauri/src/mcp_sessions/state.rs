@@ -20,6 +20,18 @@ pub(super) struct PaneControl {
     pub(super) released: bool,
     pub(super) explicitly_taken_over: bool,
     pub(super) kind: PaneKind,
+    /// Who made this pane or run: the lineage that agent authority (`agent_authority`) judges.
+    pub(super) origin: PaneOrigin,
+}
+
+/// Where a pane or run came from. A person's own panes carry no session, so no agent is ever
+/// "in the lineage" of one; an agent's helpers are in the lineage of the session that started them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PaneOrigin {
+    /// Opened by the person (or by something this table never saw), then perhaps adopted by an agent.
+    UserOpened,
+    /// Started by an MCP connection (`run_agent`, `spawn_agent`, a shell pane it created).
+    Spawned { by_session: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +46,9 @@ pub(super) struct Session {
     pub(super) mode: McpMode,
     pub(super) coordinator_id: String,
     pub(super) attach_token: String,
+    /// The connection whose helper this one is (it runs inside a pane that connection started).
+    /// Set only through `link_child_session`, never from a caller-supplied header.
+    pub(super) parent: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -137,6 +152,7 @@ pub(super) fn ensure_session<'a>(state: &'a mut State, session_id: &str) -> &'a 
                 mode: McpMode::Agent,
                 coordinator_id,
                 attach_token,
+                parent: None,
             },
         );
     }
@@ -148,6 +164,12 @@ pub(super) fn coordinator_id_for(state: &mut State, session_id: &str) -> String 
 }
 
 pub(super) fn new_control(session_id: &str, coordinator_id: String, kind: PaneKind, taken: bool) -> PaneControl {
+    // A pane first recorded as `User` is one the connection adopted, not one it started.
+    let origin = if kind == PaneKind::User {
+        PaneOrigin::UserOpened
+    } else {
+        PaneOrigin::Spawned { by_session: session_id.to_owned() }
+    };
     PaneControl {
         owner: session_id.to_owned(),
         coordinator_id,
@@ -155,5 +177,6 @@ pub(super) fn new_control(session_id: &str, coordinator_id: String, kind: PaneKi
         released: false,
         explicitly_taken_over: taken,
         kind,
+        origin,
     }
 }

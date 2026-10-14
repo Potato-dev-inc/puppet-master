@@ -1,0 +1,23 @@
+---
+description: Delegate work to other AI coding agents through the Puppet Master MCP tools (quick_ask, run_agent, wait_agents, followup_task, list_agents). Use for a second opinion from a different agent, a quick question to another model, parallel or risky changes in an isolated git worktree, or checking on running agents.
+alwaysApply: false
+---
+<!-- puppet-master-pack: 1 -->
+
+# Delegating with Puppet Master
+
+If the Puppet Master tools are missing, its desktop app is not running: tell the user, do not guess.
+
+- `quick_ask(task)` for a tiny question. Read `answer`; `receipt.not_verified` says what was not checked. If `status` is `running`, call `wait_agents` with the `handle`.
+- `run_agent(agent_type, project_path, task)` for real work. `agent_type` is `claude`, `codex`, `cursor_agent` or `opencode_native`. Use a different agent than yourself for a review. It returns `status`, `result`, `receipt` and a `handle`.
+- `wait_agents(handles)` collects results (at most 120 s per call; loop while `running`). If a result carries a `watch_command`, run it in the background.
+- `followup_task(handle, task)` is the next turn with the same agent. `send_message(handle, message)` steers the current turn.
+- `list_agents()` shows agents you can reuse: pass `worker_id` to `run_agent`.
+
+Do not trust "done". `receipt.outcome` is `passed_checks` only when `checks` proved it; `completed_unchecked` means nothing verified the work. Pass `checks` such as `{"type":"command_exits","command":["npm","test"]}` to `run_agent`, and tell the user what `receipt.not_verified` lists.
+
+Pass `isolation: "worktree"` for risky or parallel edits. Then `review_worktree(handle)` shows the diff; `action: "merge"` or `"discard"` only when the user says so.
+
+Use `ask_user(question, choices?)` when only the person can decide. If a run ends `needs_input`, show its `prompt` to the user and pass their choice to `answer_prompt(handle, prompt_id, choice)`. Never pick approvals for them.
+
+Use `read_only: true` for reviews. Do not close the user's own panes. Never put secrets in a task.

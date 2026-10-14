@@ -6,6 +6,18 @@ export interface QuestionChoice {
   label: string;
 }
 
+/** What a consent card is about (Rust `questions::ConsentInfo`). Only Puppet Master raises these. */
+export interface ConsentInfo {
+  action: 'take_over' | 'answer_prompt';
+  /** Who is asking, as a name ("Claude Code", "Another agent"). */
+  requester: string;
+  /** What it wants to control, as a name ("Codex"). The card prefers the pane's own name. */
+  target: string;
+  pane_id?: string;
+  /** For `answer_prompt`: how risky the prompt is. */
+  risk?: 'medium' | 'high';
+}
+
 export interface Question {
   id: string;
   asker?: string;
@@ -20,7 +32,12 @@ export interface Question {
   created_at_ms: number;
   expires_at_ms: number;
   state: 'pending' | 'answered' | 'cancelled' | 'timed_out';
+  /** Set when this is a consent card (an agent asking to control a pane it did not start). */
+  consent?: ConsentInfo;
 }
+
+/** A consent card, not a question an agent asked. */
+export const isConsent = (q: Question): boolean => q.consent !== undefined;
 
 /** What the person typed or picked: exactly one of the two. */
 export type QuestionAnswer = { choice_id: string } | { text: string };

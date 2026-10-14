@@ -27,6 +27,30 @@ pub(crate) fn session_id_from(client_id: Option<String>) -> String {
     }
 }
 
+/// What the MCP host called itself in `initialize` (`clientInfo.name`). Sent to the bridge as a label
+/// for consent cards ("Allow Claude Code to control Codex?"); the bridge never trusts it for anything else.
+static CLIENT_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub(crate) fn set_client_name(name: &str) {
+    let clean: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.'))
+        .take(40)
+        .collect();
+    if !clean.trim().is_empty() {
+        let _ = CLIENT_NAME.set(clean.trim().to_string());
+    }
+}
+
+/// The identity headers on every bridge request from this connection.
+pub(crate) fn session_headers(id: &str) -> String {
+    let mut headers = format!("X-Puppet-Master-Session: {id}\r\nX-Puppet-Master-Pid: {}\r\n", std::process::id());
+    if let Some(name) = CLIENT_NAME.get() {
+        headers.push_str(&format!("X-Puppet-Master-Client: {name}\r\n"));
+    }
+    headers
+}
+
 thread_local! { pub(crate) static MCP_SESSION_ID: RefCell<Option<String>> = const { RefCell::new(None) }; }
 pub(crate) fn set_mcp_session_id(id: String) {
     MCP_SESSION_ID.with(|slot| *slot.borrow_mut() = Some(id));
@@ -51,7 +75,7 @@ pub(crate) fn initial_mode_from(
         } else if arg == "--mode" {
             let value = iter
                 .next()
-                .ok_or_else(|| "--mode requires agent, shell, or both".to_string())?;
+                .ok_or_else(|| "--mode requires agent, shell, both, or all".to_string())?;
             requested = Some(value.clone());
         }
     }
@@ -65,7 +89,7 @@ pub(crate) fn initial_mode_from(
     }
     tool_registry::McpMode::parse(&value)
         .map(Some)
-        .ok_or_else(|| format!("invalid mode {raw:?}: expected agent, shell, or both"))
+        .ok_or_else(|| format!("invalid mode {raw:?}: expected agent, shell, both, or all"))
 }
 
 /// Tells the bridge which mode this connection started in. The local catalog is set at
@@ -94,8 +118,10 @@ pub(crate) fn ensure_tool_mode(name: &str) -> Result<(), String> {
             let requested =
                 if tool_registry::tool_visible_in_mode(name, tool_registry::McpMode::Agent) {
                     "agent"
-                } else {
+                } else if tool_registry::tool_visible_in_mode(name, tool_registry::McpMode::Shell) {
                     "shell"
+                } else {
+                    "both"
                 };
             return Err(json!({"code":"MODE_MISMATCH","message":format!("{name} is unavailable in {} mode",mode.as_str()),"recoverable":false,"context":{"current_mode":mode.as_str(),"switch_with":{"mode":requested}}}).to_string());
         }

@@ -223,6 +223,62 @@ fn the_next_turn_after_idle_gets_the_next_number_and_no_old_approvals() {
     assert_eq!(tracker.summaries("p1").iter().map(|s| s.turn).collect::<Vec<_>>(), vec![1, 2]);
 }
 
+/// Live (VERIFY-R10 NEW #2): a run in an untrusted folder. The pane starts, shows the trust screen,
+/// the user answers it, the composer comes up, THEN the task is typed. The start-up counted as turn 1,
+/// so the first real turn was "Turn 2" and the follow-up "Turn 3".
+#[test]
+fn answering_the_trust_screen_is_not_a_turn_and_the_first_task_is_turn_one() {
+    let tmp = Tmp::new("startup-trust");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+
+    env.at(1_000);
+    tracker.on_status("p1", "running"); // Claude starting
+    env.at(2_300);
+    let waiting = tracker.on_status("p1", "waiting_input").expect("the trust screen is a rest point");
+    tracker.finish(waiting);
+    tracker.record_approval("p1", approval("t1", "workspace_trust", "allow"));
+    env.at(3_300);
+    tracker.on_status("p1", "running");
+    env.at(4_800);
+    assert!(tracker.on_status("p1", "idle").is_none(), "start-up is not a turn");
+
+    env.at(4_900);
+    tracker.note_dispatched("p1");
+    env.at(5_700);
+    tracker.on_status("p1", "running");
+    env.at(8_200);
+    let one = tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap();
+    assert_eq!(one.turn, 1, "the first task is Turn 1");
+
+    env.at(9_000);
+    tracker.note_dispatched("p1");
+    env.at(11_000);
+    let two = tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap();
+    assert_eq!(two.turn, 2, "the follow-up is Turn 2");
+    assert_eq!(tracker.summaries("p1").iter().map(|s| s.turn).collect::<Vec<_>>(), vec![1, 2], "the trust screen's own note was replaced, not kept as a turn");
+}
+
+#[test]
+fn an_approval_in_a_task_that_was_typed_is_still_its_turn_and_a_command_approval_is_not_startup() {
+    let tmp = Tmp::new("startup-vs-task");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(1_000);
+    tracker.note_dispatched("p1");
+    tracker.record_approval("p1", approval("t1", "workspace_trust", "allow"));
+    env.at(2_000);
+    let one = tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap();
+    assert_eq!(one.turn, 1, "a typed task with a trust answer in it is a turn");
+
+    // A turn the user started by hand that ran a command is a turn too.
+    env.at(10_000);
+    tracker.on_status("p1", "running");
+    tracker.record_approval("p1", approval("c1", "command_approval", "allow"));
+    env.at(12_000);
+    assert_eq!(tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap().turn, 2);
+}
+
 #[test]
 fn plain_shells_have_no_turns() {
     let tmp = Tmp::new("shell");
@@ -318,7 +374,7 @@ fn ring_keeps_the_last_100_per_pane_in_memory_and_on_disk() {
     let tmp = Tmp::new("cap");
     let mut store = Store::default();
     for turn in 1..=(KEEP_PER_PANE as u32 + 5) {
-        store.record(tmp.p(), summary("p1", turn, u64::from(turn) * 1000)).unwrap();
+        store.record(tmp.p(), crate::redact::scrub(summary("p1", turn, u64::from(turn) * 1000))).unwrap();
     }
     let in_memory = store.for_pane("p1");
     assert_eq!(in_memory.len(), KEEP_PER_PANE);
@@ -335,7 +391,7 @@ fn the_ring_file_keeps_only_the_most_recent_panes() {
     let tmp = Tmp::new("panes");
     let mut store = Store::default();
     for i in 0..(MAX_PANES_IN_FILE as u64 + 5) {
-        store.record(tmp.p(), summary(&format!("pane-{i:02}"), 1, 1_000 * (i + 1))).unwrap();
+        store.record(tmp.p(), crate::redact::scrub(summary(&format!("pane-{i:02}"), 1, 1_000 * (i + 1)))).unwrap();
     }
     let mut reloaded = Store::default();
     reloaded.ensure_loaded(tmp.p());
@@ -348,8 +404,8 @@ fn the_ring_file_keeps_only_the_most_recent_panes() {
 fn the_same_turn_replaces_its_entry() {
     let tmp = Tmp::new("replace");
     let mut store = Store::default();
-    store.record(tmp.p(), summary("p1", 1, 1_000)).unwrap();
-    store.record(tmp.p(), summary("p1", 1, 2_000)).unwrap();
+    store.record(tmp.p(), crate::redact::scrub(summary("p1", 1, 1_000))).unwrap();
+    store.record(tmp.p(), crate::redact::scrub(summary("p1", 1, 2_000))).unwrap();
     let items = store.for_pane("p1");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].ended_at_ms, 2_000);
@@ -363,7 +419,7 @@ fn a_damaged_ring_file_is_an_empty_ring_and_is_rewritten() {
     let mut store = Store::default();
     store.ensure_loaded(tmp.p());
     assert!(store.since(0).is_empty());
-    store.record(tmp.p(), summary("p1", 1, 1_000)).unwrap();
+    store.record(tmp.p(), crate::redact::scrub(summary("p1", 1, 1_000))).unwrap();
     let mut again = Store::default();
     again.ensure_loaded(tmp.p());
     assert_eq!(again.for_pane("p1").len(), 1);
@@ -729,8 +785,8 @@ fn the_end_of_turn_summary_waits_for_its_own_snapshot_and_counts_the_file_edited
 fn a_stale_summary_never_replaces_a_later_one_of_the_same_turn() {
     let tmp = Tmp::new("stale");
     let mut store = Store::default();
-    store.record(tmp.p(), summary("p1", 4, 9_000)).unwrap();
-    store.record(tmp.p(), summary("p1", 4, 3_000)).unwrap();
+    store.record(tmp.p(), crate::redact::scrub(summary("p1", 4, 9_000))).unwrap();
+    store.record(tmp.p(), crate::redact::scrub(summary("p1", 4, 3_000))).unwrap();
     let items = store.for_pane("p1");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].ended_at_ms, 9_000);
@@ -782,4 +838,75 @@ fn a_shell_pane_never_gets_a_turn_from_a_prompt() {
     let tracker = Tracker::new(env.clone());
     tracker.note_dispatched("p1");
     assert!(tracker.on_status("p1", "idle").is_none());
+}
+
+/// Live (VERIFY-R11 2b, still failing after the r11 fix): the first real task after the trust dialog
+/// was "Turn 2" and History held "Before answering a prompt (turn 1)". The r11 test fed
+/// `running, waiting_input, answer, running, idle`; the REAL order (captured from the round 11 app,
+/// `fixtures/trust_startup_live_events.txt`) is different: the pane starting sends no `running`
+/// event, the trust answer is recorded 70 ms BEFORE the `running` it causes (so it found no open
+/// turn and was dropped), and the start-up turn then looked like a 1.4 s task with no approvals.
+#[test]
+fn the_real_event_order_after_a_trust_prompt_makes_the_first_task_turn_one() {
+    let tmp = Tmp::new("startup-trust-live");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    let mut summaries = Vec::new();
+    for line in include_str!("fixtures/trust_startup_live_events.txt").lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+        let (at, what) = line.split_once(' ').expect("`<ms> <event>`");
+        env.at(1_000 + at.parse::<u64>().expect("ms"));
+        let mut words = what.split(' ');
+        match words.next() {
+            Some("pane-status") => {
+                if let Some(ended) = tracker.on_status("p1", words.next().expect("status")) {
+                    summaries.extend(tracker.finish(ended));
+                }
+            }
+            Some("answer") => {
+                let kind = words.next().expect("kind");
+                tracker.record_approval("p1", approval("trust-1", kind, "allow"));
+            }
+            Some("dispatched") => tracker.note_dispatched("p1"),
+            other => panic!("unknown event {other:?}"),
+        }
+    }
+    let turns: Vec<u32> = summaries.iter().map(|s| s.turn).collect();
+    assert_eq!(turns, vec![1], "start-up is not a turn; the first task is Turn 1 (before the fix: [1, 2])");
+    assert_eq!(tracker.summaries("p1").iter().map(|s| s.turn).collect::<Vec<_>>(), vec![1]);
+    assert_eq!(tracker.turn_for_checkpoint("p1", false), Some(1), "History numbers the same turn the same way");
+}
+
+/// The same answer arriving AFTER the `running` it caused (a slower machine) still counts as start-up.
+#[test]
+fn a_trust_answer_recorded_after_the_running_event_is_still_start_up() {
+    let tmp = Tmp::new("startup-trust-late");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(1_000);
+    tracker.on_status("p1", "waiting_input");
+    env.at(2_000);
+    tracker.on_status("p1", "running");
+    env.at(2_050);
+    tracker.record_approval("p1", approval("t1", "workspace_trust", "allow"));
+    env.at(3_800);
+    assert!(tracker.on_status("p1", "idle").is_none(), "start-up is not a turn");
+    env.at(4_000);
+    tracker.note_dispatched("p1");
+    env.at(7_000);
+    assert_eq!(tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap().turn, 1);
+}
+
+/// An old, unused trust answer must not turn a later hand-typed turn into "start-up".
+#[test]
+fn a_stale_trust_answer_does_not_hide_a_later_turn() {
+    let tmp = Tmp::new("startup-trust-stale");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(1_000);
+    tracker.record_approval("p1", approval("t1", "workspace_trust", "allow"));
+    env.at(1_000 + super::tracker::STARTUP_CARRY_MS + 1);
+    tracker.on_status("p1", "running");
+    env.at(1_000 + super::tracker::STARTUP_CARRY_MS + 5_000);
+    let ended = tracker.on_status("p1", "idle").expect("a real turn the user typed by hand");
+    assert_eq!(tracker.finish(ended).unwrap().turn, 1);
 }

@@ -43,6 +43,10 @@ interface Props {
   onClose?: () => void;
   /** Page shown first (the standalone Settings window opens on Agents). */
   initialTab?: SettingsPageId;
+  /** Called with the page now shown, so a host can carry it to another surface (window <-> inline). */
+  onPageChange?: (page: SettingsPageId) => void;
+  /** Rendered inside the cockpit's main area (Orchestration) instead of filling a window. */
+  inline?: boolean;
   /** Called after any control saved. */
   onSaved?: () => void;
   projectPath?: string | null;
@@ -88,6 +92,8 @@ export function SettingsPanel({
   open,
   onClose,
   initialTab = 'general',
+  onPageChange,
+  inline = false,
   onSaved,
   projectPath = null,
   onProjectPathChange,
@@ -145,6 +151,12 @@ export function SettingsPanel({
   useEffect(() => {
     scrollRef.current?.scrollTo?.({ top: 0 });
   }, [page, query]);
+
+  const pageChangeRef = useRef(onPageChange);
+  pageChangeRef.current = onPageChange;
+  useEffect(() => {
+    pageChangeRef.current?.(page);
+  }, [page]);
 
   useEffect(() => {
     const timers = tickTimers.current;
@@ -244,11 +256,11 @@ export function SettingsPanel({
       : section?.blurb;
 
   return (
-    <div className="settings" role="region" aria-label="Settings">
+    <div className={inline ? 'settings settings--inline' : 'settings'} role="region" aria-label="Settings">
       <aside className="st-side">
         <div className="st-side-top">
           {onClose && (
-            <button type="button" className="st-back" aria-label="Close settings" onClick={onClose}>
+            <button type="button" className="st-back" aria-label={inline ? 'Back' : 'Close settings'} onClick={onClose}>
               <IconBack />
             </button>
           )}

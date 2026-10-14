@@ -1,5 +1,5 @@
 /** HTTP client for the local bridge: base URL discovery, plain and timed calls, GET refresh. */
-import { readBridgePort } from '@puppet-master/shared/bridge-port';
+import { readBridgePort, readLocalSecretHeaders } from '@puppet-master/shared/bridge-port';
 import { bridgeHttpToolError } from './errors.js';
 import type { BridgeClient, ClientRef } from './types.js';
 import { log } from './util.js';
@@ -15,7 +15,7 @@ export async function call<T>(client: BridgeClient, method: string, path: string
   try {
     res = await fetch(url, {
       method,
-      headers: { 'X-Puppet-Master-Session': client.sessionId, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { ...(await readLocalSecretHeaders()), 'X-Puppet-Master-Session': client.sessionId, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch (err) {
@@ -63,7 +63,7 @@ export async function callWithTimeout<T>(
   try {
     const res = await fetch(url, {
       method,
-      headers: { 'X-Puppet-Master-Session': client.sessionId, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { ...(await readLocalSecretHeaders()), 'X-Puppet-Master-Session': client.sessionId, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     });

@@ -105,6 +105,8 @@ pub fn execute_in(
         writer.flush().map_err(|err| {
             OperationError::new("PANE_IO_ERROR", format!("flush command: {err}"), true)
         })?;
+        crate::flight::input_as(pane_id, crate::flight::InputTag::Shell, payload.as_bytes());
+        crate::flight::input_as(pane_id, crate::flight::InputTag::Shell, b"\r");
     }
 
     let timeout = Duration::from_millis(timeout_ms.clamp(1, 600_000));

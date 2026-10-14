@@ -529,3 +529,80 @@ fn the_live_stuck_run_of_round_7_ends_failed_through_the_card_and_through_the_ha
     decline_and_finish_on("e2e-live-handle", Decline::Handle, true, LIVE_CARD, LIVE_DECLINED);
     decline_and_finish_on("e2e-live-pane", Decline::InThePane, false, LIVE_CARD, LIVE_DECLINED);
 }
+
+// ---- an unknown screen parks the run (typing permit, K1) -----------------------------------------
+//
+// Delivery found no screen that takes a task (here: Codex 0.162.1 still loading, a real capture).
+// The run is parked as `waiting_input` with the screen and a plain explanation, keeps being looked
+// at, and resumes by itself once the composer shows; or ends `SCREEN_NOT_READY` with the screen.
+// Never typed into, never a headless fallback.
+
+const CODEX_LOADING: &str = include_str!("../tui/codex/fixtures/loading_0_162_1_live.txt");
+
+fn codex_pane(id: &str) -> Arc<Mutex<PaneRegistry>> {
+    let mut registry = PaneRegistry::new();
+    let mut pane = PaneRegistry::test_pane_stub(id);
+    pane.info.agent_type = "codex".into();
+    pane.info.pid = 0; // no process facts: the screen decides
+    pane.screen = Arc::new(Mutex::new(vt100::Parser::new(40, 120, 0)));
+    registry.panes.insert(id.into(), pane);
+    Arc::new(Mutex::new(registry))
+}
+
+fn parked_on_unknown(pane: &'static str, park_for: Duration) -> (Arc<Mutex<PaneRegistry>>, OperationSnapshot, std::thread::JoinHandle<Result<OperationSnapshot, crate::operations::OperationError>>) {
+    let registry = codex_pane(pane);
+    show(&registry, pane, CODEX_LOADING);
+    let mut op = operation(&std::env::temp_dir().join(format!("pm-park-{}", uuid::Uuid::new_v4())));
+    op.agent_type = "codex".into();
+    let handle = {
+        let (registry, project, id) = (registry.clone(), op.project_path.clone(), op.operation_id.clone());
+        std::thread::spawn(move || {
+            crate::operations::run_operation_dispatch(&project, &id, |operation| {
+                operation.pane_id = Some(pane.into());
+                operation.stage = Some("dispatching".into());
+                *operation = crate::operations::save_operation_snapshot(operation)?;
+                let screen = crate::pty::registry_read_snapshot_full(registry.as_ref(), pane).unwrap();
+                let not_ready = crate::agent_runs::readiness::not_ready_error("the screen does not show the agent's input box", &screen, pane);
+                super::dispatch::park_on_unknown_screen(operation, &registry, pane, "codex", &not_ready, park_for)
+            })
+        })
+    };
+    (registry, op, handle)
+}
+
+#[test]
+fn an_unknown_screen_parks_the_run_with_the_screen_and_resumes_when_the_box_shows() {
+    let pane = "park-unknown-resumes";
+    let (registry, op, handle) = parked_on_unknown(pane, Duration::from_secs(20));
+    let parked = wait_for(|| {
+        let now = stored(&op);
+        (now.status == OperationStatus::WaitingInput && now.required_action.is_some()).then_some(now)
+    });
+    let action = parked.required_action.clone().unwrap();
+    assert_eq!(action["kind"], "screen_not_ready", "{action}");
+    assert!(action["detail"].as_str().unwrap().contains("continues by itself"), "{action}");
+    assert!(action["detail"].as_str().unwrap().contains("did not switch to a background run"), "{action}");
+    assert!(action["screen"].as_str().unwrap().contains("Ask Codex"), "{action}");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!handle.is_finished(), "held while the screen is unknown");
+    // Codex finishes loading.
+    show(&registry, pane, CODEX_READY);
+    wait_for(|| handle.is_finished().then_some(()));
+    let resumed = handle.join().unwrap().expect("the dispatch resumes");
+    assert_eq!(resumed.required_action, None);
+    assert!(resumed.worker.fallback.is_none(), "never a headless fallback");
+}
+
+#[test]
+fn an_unknown_screen_that_never_clears_ends_screen_not_ready_without_a_fallback() {
+    let pane = "park-unknown-times-out";
+    let (_registry, op, handle) = parked_on_unknown(pane, Duration::from_millis(600));
+    wait_for(|| handle.is_finished().then_some(()));
+    let _ = handle.join().unwrap();
+    let now = stored(&op);
+    assert_eq!(now.status, OperationStatus::Failed, "{now:?}");
+    let error = now.error.clone().expect("an error");
+    assert_eq!(error.code, crate::agent_runs::readiness::SCREEN_NOT_READY);
+    assert!(error.context["screen"].as_str().unwrap().contains("Ask Codex"));
+    assert!(now.worker.fallback.is_none(), "never a headless fallback");
+}

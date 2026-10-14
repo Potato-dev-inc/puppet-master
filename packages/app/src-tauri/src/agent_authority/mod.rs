@@ -1,0 +1,43 @@
+//! Who may control what: the two agent-authority settings, the consent flow for an agent that wants
+//! to control a pane it did not start, and the gate on an agent merging a separate copy.
+//!
+//! # The two switches (the founder has not decided yet)
+//!
+//! Both default to TODAY's behaviour. The recommended future defaults are the opposite, and flipping
+//! them is the two constants below, nothing else:
+//!
+//! | setting | today (default) | recommended later |
+//! |---|---|---|
+//! | A  "Ask me before an agent controls a pane it didn't start" | off | **on**  |
+//! | B  "Let agents merge separate copies"                       | on  | **off** |
+//!
+//! A saved choice in `<app data>/agent_authority.json` always wins over these defaults, so flipping
+//! a constant changes only people who never touched the setting.
+//!
+//! # How it fits together
+//!
+//! * `mcp_sessions::lineage` knows who started each pane (`PaneOrigin`) and which connections are
+//!   helpers of which.
+//! * `gate` is called at the two places an agent starts controlling something it did not create
+//!   (`take_over` in `bridge/handoff.rs`, adopting a pane in `agent_runs/headless/bind.rs`) and when
+//!   an agent answers a prompt (`agent_runs/routes/answer.rs`). With A off it does nothing.
+//! * `consent` raises a card through the existing questions store (`questions::ConsentInfo`), so the
+//!   Inbox, the phone's question list and the "Needs you" count show it with no new plumbing. The
+//!   agent's call fails with `CONSENT_PENDING` until a person answers, then `CONSENT_DENIED` or goes
+//!   through. A card is never answerable from a lock screen (a question push has no buttons) and not
+//!   over plain loopback HTTP (`questions::routes`).
+//! * `merge` is the B gate, used by `review_worktree(action=merge)`. A person merging in the
+//!   cockpit goes through a Tauri command and is never gated.
+//! * Every decision is written to the `audit` log.
+
+pub mod config;
+pub mod consent;
+pub mod gate;
+pub mod merge;
+#[cfg(test)]
+mod tests;
+
+/// Setting A. Today: off. Recommended: `true`.
+pub const DEFAULT_ASK_BEFORE_AGENT_CONTROL: bool = false;
+/// Setting B. Today: on. Recommended: `false`.
+pub const DEFAULT_AGENTS_MAY_MERGE: bool = true;

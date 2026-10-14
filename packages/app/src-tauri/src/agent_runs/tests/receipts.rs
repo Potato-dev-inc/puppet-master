@@ -230,6 +230,8 @@ fn sample_worktree(project: &str) -> crate::worktrees::WorktreeRef {
         created_at_ms: 1,
         closed: None,
         changes: Some(crate::worktrees::ChangeSummary { files_changed: 3, additions: 10, deletions: 2 }),
+        setup: None,
+        pr: None,
     }
 }
 
@@ -271,4 +273,77 @@ fn the_worktree_survives_a_snapshot_round_trip_so_a_restart_does_not_lose_it() {
     old["worker"].as_object_mut().unwrap().remove("worktree");
     let old: operations::OperationSnapshot = serde_json::from_value(old).unwrap();
     assert!(old.worker.worktree.is_none());
+}
+
+/// Codex 0.162.1 on this PC could not start its command runner: the run ended `completed` and
+/// the receipt flagged nothing. The screen is the real capture
+/// (`tui/codex/fixtures/result_tool_failed_live.txt`); the result is read from it the way a pane run does.
+fn codex_failed_tool_snapshot() -> operations::OperationSnapshot {
+    let screen = include_str!("../../tui/codex/fixtures/result_tool_failed_live.txt");
+    let task = "Read README.md and tell me in one sentence what this project is. Do not change any files.";
+    let result = crate::agent_runs::completion::clean_extracted_result(screen, task, "codex")
+        .expect("the reply is read off the screen");
+    let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+    snapshot.agent_type = "codex".into();
+    snapshot.read_only = false;
+    snapshot.result_capture = Some(operations::ResultCapture::Inferred);
+    snapshot.result = Some(format!("{}{result}", operations::UNVERIFIED_SCREEN_PREFIX));
+    snapshot
+}
+
+#[test]
+fn a_codex_run_whose_own_tool_failed_is_flagged_on_the_receipt() {
+    let snapshot = codex_failed_tool_snapshot();
+    let view = crate::agent_runs::runtime::AgentRunView::from(snapshot);
+    let receipt = view.receipt.expect("receipt");
+    assert!(
+        receipt.not_verified.iter().any(|line| line == "agent reported a tool failure"),
+        "{:?}",
+        receipt.not_verified
+    );
+    // The outcome enum is unchanged: still `completed_unchecked`, never `passed_checks`.
+    assert_eq!(receipt.outcome, "completed_unchecked");
+    assert!(
+        view.warnings.iter().any(|warning| warning.code == "AGENT_REPORTED_ERROR" && warning.source == "heuristic"),
+        "{:?}",
+        view.warnings.iter().map(|w| &w.code).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_codex_run_without_a_failed_tool_is_not_flagged() {
+    let mut snapshot = codex_failed_tool_snapshot();
+    snapshot.result = Some("[unverified: read from terminal screen] README.md says this is a tiny Node.js demo.".into());
+    let view = crate::agent_runs::runtime::AgentRunView::from(snapshot);
+    let receipt = view.receipt.expect("receipt");
+    assert!(!receipt.not_verified.iter().any(|line| line.contains("tool failure")), "{:?}", receipt.not_verified);
+    assert!(view.warnings.iter().all(|warning| warning.code != "AGENT_REPORTED_ERROR"));
+}
+
+#[test]
+fn the_receipt_shows_how_the_copy_was_set_up_and_flags_a_failed_setup() {
+    use crate::worktrees::preset::{SetupReport, SetupStep};
+    let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+    let project = snapshot.project_path.clone();
+    let mut worktree = sample_worktree(&project);
+    worktree.setup = Some(SetupReport {
+        status: "ok".into(),
+        copied: vec![".env".into()],
+        not_copied: vec![],
+        steps: vec![SetupStep { command: "npm ci".into(), ok: true, exit_code: Some(0), timed_out: false, tail: String::new(), duration_ms: 5 }],
+        log: Some("h-1a2b.setup.log".into()),
+        duration_ms: 5,
+    });
+    snapshot.worker.worktree = Some(worktree.clone());
+    let receipt = receipt_of(snapshot.clone());
+    let setup = receipt.worktree.unwrap().setup.expect("setup on the receipt");
+    assert_eq!(setup.status, "ok");
+    assert_eq!(setup.sentence, "Ran npm ci; copied .env (never committed).");
+    assert_eq!(setup.copied, vec![".env"]);
+    assert!(!receipt.not_verified.iter().any(|n| n.contains("setting up")));
+
+    worktree.setup.as_mut().unwrap().status = "failed".into();
+    snapshot.worker.worktree = Some(worktree);
+    let receipt = receipt_of(snapshot);
+    assert!(receipt.not_verified.iter().any(|n| n == "setting up the copy failed"), "{:?}", receipt.not_verified);
 }

@@ -1,0 +1,15 @@
+---
+source: src/replay/corpus_tests.rs
+expression: timeline.render()
+---
+      0 ms  status    running (start)
+   1816 ms  composer  Unknown
+   2640 ms  recorded-input "Create a file named hello.txt containing the single word hi. Then reply done."
+   2764 ms  recorded-input "\r"
+   8800 ms  status    idle (screen held still)
+   9215 ms  status    idle (screen read running, held back)
+  10080 ms  input     "Reply with only the word OK. Use no tools."
+  10081 ms  status    idle (screen read running, held back)
+  10160 ms  input     "" + Enter
+  10205 ms  status    running
+  10240 ms  deliver   Started

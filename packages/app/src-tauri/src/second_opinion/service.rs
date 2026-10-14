@@ -296,7 +296,7 @@ impl Sender for LiveSender {
             .map(|_| ())
     }
     fn pane_input(&self, pane_id: &str, text: &str) -> Result<(), String> {
-        crate::pty::registry_write_input(&self.registry, &self.app, pane_id, text, true, false, None)
+        crate::pty::registry_write_input(&self.registry, &self.app, pane_id, text, true, false, None, crate::pty::WriteOrigin::User)
     }
 }
 
@@ -311,6 +311,24 @@ pub fn send_to_author(
     let targets = LiveTargets(&registry);
     let sender = LiveSender { registry: registry.clone(), app };
     route::deliver(&targets, &sender, pane_id, file, line, text)
+}
+
+/// Send a ready-made message to the agent behind a pane, the way a review comment goes (a follow-up
+/// turn for a run, typed into the pane for one opened by hand). Used by "Send back" on a pull
+/// request whose GitHub checks failed.
+pub fn send_text_to_author(
+    pane_id: &str,
+    text: &str,
+    registry: Registry,
+    app: tauri::AppHandle,
+) -> Result<Sent, OperationError> {
+    let message = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if message.is_empty() {
+        return Err(OperationError::new("INVALID_ARGUMENT", "There is nothing to send.", false));
+    }
+    let targets = LiveTargets(&registry);
+    let sender = LiveSender { registry: registry.clone(), app };
+    route::deliver_text(&targets, &sender, pane_id, &message)
 }
 
 /// The agent type running in a pane (for "exclude the same agent").

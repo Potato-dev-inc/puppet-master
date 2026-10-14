@@ -9,7 +9,7 @@ import {
   getDefaultTerminalAgentType,
   type PaneInfo,
 } from '@puppet-master/shared';
-import { readAllBridgePorts } from '@puppet-master/shared/bridge-port';
+import { readAllBridgePorts, readLocalSecretHeaders } from '@puppet-master/shared/bridge-port';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VITE_DEV_PORT = 1420;
@@ -80,7 +80,8 @@ function buildWorkerArgs(options: WorkerLaunchOptions): string[] {
 }
 
 async function fetchJson(url: string, init?: RequestInit, timeoutMs = 3000): Promise<unknown> {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  const headers = { ...(await readLocalSecretHeaders()), ...Object.fromEntries(new Headers(init?.headers)) };
+  const response = await fetch(url, { ...init, headers, signal: AbortSignal.timeout(timeoutMs) });
   const text = await response.text();
   if (!response.ok) {
     throw new Error(`${response.status} ${text.slice(0, 200)}`);

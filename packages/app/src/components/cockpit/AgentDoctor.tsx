@@ -133,6 +133,12 @@ export function AgentDoctor({ onOpenAgent, onNotify, onClose, api = agentHealthA
                     {busy ? 'Asking it a tiny question. This can take a minute.' : r.reason}
                   </p>
                   {r.state === 'not_installed' && r.install_hint && <code className="ck-doctor-cmd">{r.install_hint}</code>}
+                  {r.state === 'not_installed' && r.install_fallback && (
+                    <p className="ck-doctor-hint">
+                      <span className="ck-sub">Or with npm: </span>
+                      <code className="ck-doctor-cmd">{r.install_fallback}</code>
+                    </p>
+                  )}
                   {r.state === 'needs_login' && r.login_hint && <p className="ck-doctor-hint">{r.login_hint}</p>}
                 </div>
                 <div className="ck-doctor-actions">

@@ -1,0 +1,97 @@
+/* Version checks: the pane-header chip, the Inbox card and the Settings rows. Grayscale only; uses
+   the cockpit tokens (and the settings tokens inside the Settings window). */
+
+/* ---- pane header chip -------------------------------------------------------------------- */
+.cockpit .ck-untested-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--sep);
+  color: var(--label-2);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+/* ---- Inbox card -------------------------------------------------------------------------- */
+.cockpit .ck-canary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+}
+.cockpit .ck-canary-card {
+  margin: 10px 16px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi), 0 0 0 1px var(--sep);
+}
+.cockpit .ck-canary-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label);
+}
+.cockpit .ck-canary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* ---- Settings > Agents > Agent versions ---------------------------------------------------- */
+.settings .st-ver-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.settings .st-ver-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.settings .st-ver-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.settings .st-ver-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.settings .st-ver-name {
+  font-weight: 600;
+}
+.settings .st-ver-num {
+  font: 12px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--label-3);
+}
+.settings .st-ver-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--sep);
+  color: var(--label-2);
+}
+.settings .st-ver-plain,
+.settings .st-ver-last {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--label-2);
+}
+.settings .st-ver-actions {
+  flex: 0 0 auto;
+}

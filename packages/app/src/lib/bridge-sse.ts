@@ -4,6 +4,7 @@ import type { McpLogEntry, OrchestratorChatEvent, PaneInfo } from '@puppet-maste
 import type { PublicSettings } from './bridge-settings';
 import { isNgrokHost, ngrokRequestHeaders } from './bridge-ngrok';
 import { mergeBridgeHeaders, mobilePairingAuthHeaders } from './mobile-pairing-auth';
+import { hasBridgeLocalSecret, localSecretHeaders } from './bridge-local-secret';
 import type { BridgeEvent, LoopSignalInfo, OpenCodeWorkerEvent } from './bridge-types';
 import type { PreviewUrl } from './pane-preview';
 
@@ -115,7 +116,7 @@ export function subscribeBridgeEventsViaFetch(
       abort = new AbortController();
       try {
         const res = await fetch(`${baseUrl}/events`, {
-          headers: mergeBridgeHeaders(ngrokRequestHeaders(baseUrl)),
+          headers: mergeBridgeHeaders({ ...ngrokRequestHeaders(baseUrl), ...localSecretHeaders(baseUrl) }),
           signal: abort.signal,
         });
         if (!res.ok || !res.body) {
@@ -182,7 +183,7 @@ export function subscribeBridgeEventsViaPoll(
       try {
         const query = cursor === null ? `wait_ms=${POLL_WAIT_MS}` : `cursor=${cursor}&wait_ms=${POLL_WAIT_MS}`;
         const res = await fetch(`${baseUrl}/events/poll?${query}`, {
-          headers: mergeBridgeHeaders(ngrokRequestHeaders(baseUrl)),
+          headers: mergeBridgeHeaders({ ...ngrokRequestHeaders(baseUrl), ...localSecretHeaders(baseUrl) }),
           signal: abort.signal,
           cache: 'no-store',
         });
@@ -388,9 +389,13 @@ export function subscribeBridgeEventsViaWs(
   function handleFrame(text: string): void {
     if (text.startsWith('{')) {
       try {
-        const msg = JSON.parse(text) as { type?: string; pane_id?: string; error?: string; t?: number };
-        if (msg.type === 'input-error') console.warn('[bridge] input rejected', msg.pane_id, msg.error);
-        else if (msg.type === 'pong' && typeof msg.t === 'number') recordRtt(performance.now() - msg.t);
+        const msg = JSON.parse(text) as { type?: string; pane_id?: string; error?: unknown; t?: number };
+        if (msg.type === 'input-error') {
+          console.warn('[bridge] input rejected', msg.pane_id, msg.error);
+          // Not only the console: the person who typed must see that it did not arrive.
+          onEvent({ type: 'input-refused', pane_id: msg.pane_id ?? '', error: typeof msg.error === 'string' ? msg.error : JSON.stringify(msg.error ?? '') });
+        }
+        if (msg.type === 'pong' && typeof msg.t === 'number') recordRtt(performance.now() - msg.t);
       } catch {
         /* ignore malformed control frame */
       }
@@ -588,7 +593,11 @@ export function subscribeBridgeEventsHandle(
   if (shouldUseFetchBridgeSse(baseUrl)) {
     return subscribeBridgeEventsViaWs(baseUrl, onEvent, onError);
   }
-  const stop = subscribeBridgeEventsViaSse(baseUrl, onEvent, onError);
+  // EventSource cannot send headers: once the app has its local key, stream over fetch instead so
+  // the key goes with it (the bridge logs a local caller without it).
+  const stop = hasBridgeLocalSecret()
+    ? subscribeBridgeEventsViaFetch(baseUrl, onEvent, onError)
+    : subscribeBridgeEventsViaSse(baseUrl, onEvent, onError);
   return {
     unsubscribe: stop,
     setWatchedPanes: () => {},

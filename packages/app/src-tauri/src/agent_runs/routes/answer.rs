@@ -52,6 +52,7 @@ pub(super) fn route_answer(
     if let Ok(value) = &result {
         let pane = pane_id.or_else(|| value.get("pane_id").and_then(Value::as_str).map(str::to_string));
         if let Some(pane) = pane {
+            crate::agent_authority::gate::note_answer(session_id, &pane, &prompt_id, &choice, Some(registry));
             crate::turn_summary::record_answer(&pane, &prompt_id, &choice, shown);
         }
     }
@@ -100,6 +101,19 @@ fn route_answer_inner(
                 // is not required to answer a prompt on a pane it has taken over.
                 Err(error) if error.code == "AUTHORIZATION_DENIED" => {}
                 other => return other,
+            }
+        }
+        // Setting A: an agent answering above low risk in a pane it did not start needs a person's OK.
+        if session_id.is_some() {
+            if let Some(prompt) = crate::pane_prompt::detect(registry, pane_id, false) {
+                crate::agent_authority::gate::check_answer(
+                    session_id,
+                    pane_id,
+                    &request.prompt_id,
+                    prompt.pointer("/risk/level").and_then(Value::as_str),
+                    prompt.pointer("/risk/headline").and_then(Value::as_str),
+                    Some(registry),
+                )?;
             }
         }
         return crate::pane_prompt::answer(
@@ -260,6 +274,17 @@ fn answer_prompt(
         return serde_json::to_value(view)
             .map_err(|error| OperationError::new("SERIALIZATION_ERROR", error.to_string(), false));
     }
+    if let Some(pane) = snapshot.pane_id.as_deref() {
+        // Setting A: an agent answering above low risk in a pane it did not start needs a person's OK.
+        crate::agent_authority::gate::check_answer(
+            session_id,
+            pane,
+            &request.prompt_id,
+            action.pointer("/risk/level").and_then(Value::as_str),
+            action.pointer("/risk/headline").and_then(Value::as_str),
+            Some(registry),
+        )?;
+    }
     let pane_id = snapshot.pane_id.as_deref().ok_or_else(|| {
         OperationError::new(
             "PROMPT_UNAVAILABLE",
@@ -372,7 +397,7 @@ fn answer_prompt(
                 false,
             )
         })?;
-        crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None)
+        crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None, crate::pty::WriteOrigin::Answer)
             .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))?;
         // A "deny" on a startup gate (folder trust) is a final decline of the run waiting on it.
         crate::pane_prompt::note_gate_answer(pane_id, &prompt, choice);

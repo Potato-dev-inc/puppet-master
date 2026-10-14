@@ -117,6 +117,16 @@ export function History({
     );
   }
   if (listing === undefined) return <p className="ck-sub ck-pad">Loading…</p>;
+  if (listing.state === "too_big") {
+    return (
+      <div className="ck-empty">
+        <h2 className="ck-section">Undo is off for this folder</h2>
+        <p className="ck-sub">
+          It is too big. Add big folders to .gitignore.
+        </p>
+      </div>
+    );
+  }
   if (listing.state === "off" || listing.state === "no_git") {
     return (
       <div className="ck-empty">

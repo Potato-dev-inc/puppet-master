@@ -66,6 +66,31 @@ pub fn open_cockpit(app: &AppHandle, pane_id: Option<&str>) {
     crate::app_windows::open_cockpit_window(app, pane_id.filter(|id| !id.is_empty()), true);
 }
 
+/// Where Settings is shown, by UI mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsPlacement {
+    /// The separate Settings window (Individual mode: there is no main window to put it in).
+    Window,
+    /// Inside the cockpit's main area, sidebar kept (Orchestration mode).
+    Inline,
+}
+
+pub fn settings_placement(mode: UiMode) -> SettingsPlacement {
+    match mode {
+        UiMode::Orchestration => SettingsPlacement::Inline,
+        UiMode::Individual => SettingsPlacement::Window,
+    }
+}
+
+/// Show Settings the way the current mode says (tray item, `open_settings` command): inline in the cockpit in
+/// Orchestration, the Settings window in Individual. `tab` opens that page.
+pub fn open_settings(app: &AppHandle, tab: Option<&str>) {
+    match settings_placement(crate::ui_mode::current()) {
+        SettingsPlacement::Inline => crate::app_windows::open_cockpit_settings(app, tab),
+        SettingsPlacement::Window => crate::app_windows::open_settings_window(app, tab, true),
+    }
+}
+
 /// Left-click on the tray and a plain second launch: the cockpit in orchestration, Settings in
 /// individual mode.
 pub fn open_primary_window(app: &AppHandle) {
@@ -102,6 +127,11 @@ pub fn set_mode(app: &AppHandle, mode: UiMode) -> Result<(), String> {
         UiMode::Orchestration => {
             let destroyed = crate::app_windows::destroy_pane_windows(&app);
             tracing::info!(destroyed, "ui mode -> orchestration: pop-outs destroyed, panes kept");
+            // A Settings window on screen moves into the cockpit (it names its page back through
+            // `open_settings`, which hides it): never a window AND an inline view.
+            if crate::app_windows::ask_settings_to_move_inline(&app) {
+                tracing::info!("ui mode -> orchestration: Settings window asked to move into the cockpit");
+            }
             crate::app_windows::open_cockpit_window(&app, None, true);
         }
     });
@@ -111,6 +141,12 @@ pub fn set_mode(app: &AppHandle, mode: UiMode) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_is_inline_in_orchestration_and_a_window_in_individual() {
+        assert_eq!(settings_placement(UiMode::Orchestration), SettingsPlacement::Inline);
+        assert_eq!(settings_placement(UiMode::Individual), SettingsPlacement::Window);
+    }
 
     #[test]
     fn orchestration_creates_no_pop_out_and_agents_never_steal_focus() {

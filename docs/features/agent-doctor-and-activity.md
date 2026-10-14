@@ -21,8 +21,8 @@ Agent-agnostic: the checker never names an agent. Install hint, login hint, vers
 
 | Agent | Install | Login |
 |---|---|---|
-| Claude Code | `npm i -g @anthropic-ai/claude-code` | open it, type `/login` |
-| Codex | `npm i -g @openai/codex` | `codex login` |
+| Claude Code | Windows: `winget install Anthropic.ClaudeCode`; macOS/Linux: `curl -fsSL https://claude.ai/install.sh \| bash`. npm fallback: `npm i -g @anthropic-ai/claude-code` | open it, type `/login` |
+| Codex | Windows: `powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 \| iex"`; macOS/Linux: `curl -fsSL https://chatgpt.com/codex/install.sh \| sh`. npm fallback: `npm i -g @openai/codex` | `codex login` |
 | OpenCode | `npm i -g opencode-ai` (docs also list `curl -fsSL https://opencode.ai/install \| bash`) | open it, type `/connect` |
 | Cursor CLI | macOS/Linux `curl https://cursor.com/install -fsS \| bash`; Windows `irm 'https://cursor.com/install?win32=true' \| iex` | `agent login` (not on the install page; from memory, unverified) |
 | Kilo (TOML, `tests/agent-definitions/kilo.toml`) | `npm install -g @kilocode/cli` | open it, type `/connect` (`kilo auth` also manages credentials) |
@@ -71,7 +71,7 @@ Commands run in `D:\pm-agent-doctor` (worktree), 2026-10-14.
 - New Rust tests:
   - `agent_health::tests::*` (11): fake binaries written to a temp dir (batch on Windows, shell on unix) print a version, exit 3 with stderr, hang past the timeout (`hanging_version_command_times_out`), print nothing; plus `classify_failure` / `classify_test` mapping, and `registered_agents_carry_hints_and_exclude_shells`.
   - Hint plumbing from TOML: `tui::declarative::tests::profile::install_and_login_hints_come_from_the_binary_table`, `version_command_uses_the_declared_version_args`.
-  - `bridge::tests::agents_health_route_lists_cli_agents_with_hints`: in-process route call `GET /agents/health` -> 200 `{"agents":[{"id":"claude","state":"unchecked"|"not_installed",...,"install_hint":"npm i -g @anthropic-ai/claude-code"}, ...]}`, no shells. The POST test route needs an `AppHandle` and has no in-process harness in this repo; it is covered by the classification tests and was not exercised live (a live Test would spend tokens and is a GUI-less environment).
+  - `bridge::tests::agents_health_route_lists_cli_agents_with_hints`: in-process route call `GET /agents/health` -> 200 `{"agents":[{"id":"claude","state":"unchecked"|"not_installed",...,"install_hint":"winget install Anthropic.ClaudeCode" (Windows), "install_fallback":"npm i -g @anthropic-ai/claude-code"}, ...]}`, no shells. The POST test route needs an `AppHandle` and has no in-process harness in this repo; it is covered by the classification tests and was not exercised live (a live Test would spend tokens and is a GUI-less environment).
   - `tui::activity::tests::*` (8): phrases from the recorded Cursor fixtures (`reply_grep_turn.txt`, `reply_pytest_final_screen.txt`, `command_approval_visible.txt`, `workspace_trust_visible_pending.txt`), generic status-only phrases, error quoting, humaniser, length cap, declarative `activity_regex`, bad regex rejection.
   - Throttle: `pane_activity::tests::a_burst_of_output_costs_one_recompute_per_tick` (5,000 `note_output` calls -> exactly 1 screen read and 1 emit; next tick 0 reads; unchanged screen -> read, no recompute, no emit), `only_a_changed_phrase_is_emitted`, `a_status_change_alone_updates_the_phrase`, `closed_panes_are_forgotten`.
 - `npm test --workspace=@puppet-master/app`: `Test Files 49 passed (49)`, `Tests 386 passed (386)`. New: `AgentDoctor.test.tsx` (9: states and glyph mapping, install command only when missing, copy to clipboard, Test never automatic and shows progress then result, login hint + open agent, failed test -> problem row, failed check; first-run Inbox hint), `ActivityLine.test.tsx` (4: stale phrase hidden, sidebar line with project tooltip, fallback to project).

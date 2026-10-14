@@ -560,3 +560,54 @@ export const EXAMPLE_REVIEW_POLL: ReviewPoll = {
     ],
   },
 };
+
+// ---- Add Puppet Master to your agents (Settings > MCP & bridge) ----
+import type { PackReport } from '../lib/agent-pack';
+
+const PACK_FILES = ['puppet-master', 'pm-review', 'pm-delegate', 'pm-status'].map((n) => ({ name: `${n}/SKILL.md`, kind: 'add' as const }));
+
+export const AGENT_PACK_PREVIEW: PackReport = {
+  dry_run: true,
+  recorded: 0,
+  unsupported: [{ id: 'kilo', label: 'Kilo', installed: false }],
+  agents: [
+    {
+      id: 'claude',
+      label: 'Claude Code',
+      installed: true,
+      skills: { status: 'ready', path: 'C:/Users/dev/.claude/skills', shared_with: [], files: PACK_FILES, reason: null, written: false },
+      mcp: { status: 'unchanged', path: 'C:/Users/dev/.claude.json', format: 'json', shared_with: [], change: 'unchanged', reason: null, diff: '', written: false, backup: null },
+    },
+    {
+      id: 'codex',
+      label: 'Codex',
+      installed: true,
+      skills: { status: 'ready', path: 'C:/Users/dev/.agents/skills', shared_with: ['OpenCode'], files: PACK_FILES, reason: null, written: false },
+      mcp: {
+        status: 'ready',
+        path: 'C:/Users/dev/.codex/config.toml',
+        format: 'toml',
+        shared_with: [],
+        change: 'add',
+        reason: null,
+        diff: '+ [mcp_servers.puppet-master]\n+ args = ["-y", "@puppet-master/mcp"]\n+ command = "npx"',
+        written: false,
+        backup: null,
+      },
+    },
+    {
+      id: 'opencode',
+      label: 'OpenCode',
+      installed: true,
+      skills: { status: 'ready', path: 'C:/Users/dev/.agents/skills', shared_with: ['Codex'], files: PACK_FILES, reason: null, written: false },
+      mcp: { status: 'unchanged', path: 'C:/Users/dev/.config/opencode/opencode.json', format: 'json', shared_with: [], change: 'unchanged', reason: null, diff: '', written: false, backup: null },
+    },
+    {
+      id: 'cursor_agent',
+      label: 'Cursor Agent',
+      installed: false,
+      skills: { status: 'skipped', path: 'C:/Users/dev/.agents/skills', shared_with: ['Codex', 'OpenCode'], files: [], reason: 'Not installed on this computer.', written: false },
+      mcp: { status: 'skipped', path: 'C:/Users/dev/.cursor/mcp.json', format: 'json', shared_with: [], change: 'unchanged', reason: 'Not installed on this computer, and it has no config file yet.', diff: '', written: false, backup: null },
+    },
+  ],
+};

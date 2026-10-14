@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
-import { cockpitApi } from '../../lib/cockpit-api';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { openPreview, previewLabel } from '../../lib/pane-preview';
 import { DotSpinner } from './DotSpinner';
@@ -146,11 +145,7 @@ export function Palette({
         title: 'Toolbelt…',
         desc: 'MCP servers for every agent',
         icon: <IconLayers />,
-        run: () =>
-          void cockpitApi.openSettings('bridge').catch((err: unknown) => {
-            console.error('open_settings failed', err);
-            c.notify(`Settings did not open: ${err instanceof Error ? err.message : String(err)}`);
-          }),
+        run: () => void c.openSettings('bridge'),
       },
       {
         id: 'act:mode',
