@@ -279,6 +279,46 @@ fn allow_for_a_pane_does_not_unlock_answering_risky_prompts() {
     });
 }
 
+// ---- raw keys into a dialog (review R12 3.2) ----
+
+fn dialog(prompt_id: &str, risk: &str) -> Value {
+    json!({"prompt_id": prompt_id, "kind": "command", "risk": {"level": risk, "headline": "Delete a folder"}})
+}
+
+#[test]
+fn an_agents_raw_keys_into_a_dialog_are_audited_even_with_a_off() {
+    let (agent, pane) = (id("s"), id("user-pane"));
+    with_config(TODAY, || {
+        super::gate::check_raw_keys(Some(&agent), &pane, &dialog("p-1", "high"), "the 1 key", None)
+            .expect("A off: today's behaviour, the keys go through");
+        let lines = audit_lines_for(&pane);
+        let line = lines.iter().find(|e| e.detail["via"] == "raw_keys").unwrap_or_else(|| panic!("no audit line: {lines:?}"));
+        assert_eq!(line.kind, "approval");
+        assert_eq!(line.who, "agent");
+        assert_eq!(line.detail["prompt_id"], "p-1");
+        assert_eq!(line.detail["keys"], "the 1 key");
+        assert_eq!(line.detail["outcome"], "sent");
+    });
+}
+
+#[test]
+fn with_a_on_an_agents_raw_keys_into_a_risky_dialog_outside_its_lineage_need_a_card() {
+    let (agent, user_pane, own_pane) = (id("s"), id("user-pane"), id("own-pane"));
+    mcp_sessions::register_owned_pane(&agent, &own_pane).unwrap();
+    with_config(ASKING, || {
+        let error = super::gate::check_raw_keys(Some(&agent), &user_pane, &dialog("p-2", "high"), "the Enter key", None).unwrap_err();
+        assert_eq!(error.code, "CONSENT_PENDING");
+        assert!(audit_lines_for(&user_pane).iter().any(|e| e.detail["via"] == "raw_keys" && e.detail["outcome"] == "held: asking you first"));
+        // Its own pane: not gated, still written down.
+        super::gate::check_raw_keys(Some(&agent), &own_pane, &dialog("p-3", "high"), "the Enter key", None).expect("own lineage");
+        assert!(audit_lines_for(&own_pane).iter().any(|e| e.detail["via"] == "raw_keys" && e.detail["outcome"] == "sent"));
+        // The person's keys are theirs.
+        let person_pane = id("user-pane");
+        super::gate::check_raw_keys(None, &person_pane, &dialog("p-4", "high"), "the Enter key", None).expect("the person");
+        assert!(audit_lines_for(&person_pane).is_empty());
+    });
+}
+
 // ---- who may answer a card ----
 
 #[test]

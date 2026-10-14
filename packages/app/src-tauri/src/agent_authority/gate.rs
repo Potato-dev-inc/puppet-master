@@ -9,6 +9,9 @@
 //! * `bridge/handoff.rs`: the `take_over` tool.
 //! * `agent_runs/headless/bind.rs`: `run_agent(worker_id | pane_id)` adopting a pane that exists.
 //! * `agent_runs/routes/answer.rs`: the `answer_prompt` tool.
+//! * `bridge/routes/opencode.rs`: OpenCode permission and question replies (`check_answer`).
+//! * `bridge/routes/panes.rs`: an agent's raw keys into a pane that shows a dialog
+//!   (`check_raw_keys`).
 
 use super::config;
 use super::consent::{self, Action, Ask, Basis, Verdict};
@@ -228,4 +231,56 @@ pub fn note_answer(session: Option<&str>, pane_id: &str, prompt_id: &str, choice
         &format!("{by} answered a question in {target}: {said}"),
         json!({ "pane_id": pane_id, "prompt_id": prompt_id, "choice": choice }),
     );
+}
+
+/// An agent's raw keys (`write_terminal_input`, `press_key`) into a pane whose screen shows a
+/// dialog (`prompt`, from `pane_prompt::detect`) answer it, so they are an answer (review R12 3.2):
+/// - the gate is `check_answer`'s: with setting A on, a pane outside the agent's lineage and a
+///   prompt above low risk need a person's OK (`CONSENT_PENDING`); with A off (today's default)
+///   nothing is refused;
+/// - every such write is written to the audit log (`Approval`, `via: raw_keys`), allowed or not
+///   refused, with what was pressed described (`keys`), never the typed text.
+///
+/// `session` is `None` for the person (desktop, phone): never gated, not audited here (their
+/// keys are theirs). Call it right before the write.
+pub fn check_raw_keys(
+    session: Option<&str>,
+    pane_id: &str,
+    prompt: &serde_json::Value,
+    keys: &str,
+    registry: Option<&Registry>,
+) -> Result<(), OperationError> {
+    let Some(session) = session.filter(|s| !s.trim().is_empty()) else {
+        return Ok(());
+    };
+    let prompt_id = prompt.get("prompt_id").and_then(serde_json::Value::as_str).unwrap_or_default();
+    let verdict = check_answer(
+        Some(session),
+        pane_id,
+        prompt_id,
+        prompt.pointer("/risk/level").and_then(serde_json::Value::as_str),
+        prompt.pointer("/risk/headline").and_then(serde_json::Value::as_str),
+        registry,
+    );
+    let target = target_label(Some(pane_id), registry);
+    let by = requester_label(session);
+    let outcome = match &verdict {
+        Ok(()) => "sent",
+        Err(error) if error.code == "CONSENT_PENDING" => "held: asking you first",
+        Err(_) => "refused",
+    };
+    audit::record(
+        Kind::Approval,
+        Who::Agent(session.to_string()),
+        &format!("{by} pressed keys in {target} while it showed a question, instead of answering it ({outcome})"),
+        json!({
+            "pane_id": pane_id,
+            "prompt_id": prompt_id,
+            "kind": prompt.get("kind"),
+            "via": "raw_keys",
+            "keys": keys,
+            "outcome": outcome,
+        }),
+    );
+    verdict
 }

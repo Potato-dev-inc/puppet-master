@@ -275,6 +275,9 @@ fn input(cx: &Ctx, pane_id: &str) -> RouteResult {
         req.model_id.as_deref(),
         &settings,
     );
+    if !req.via_opencode_api {
+        raw_keys_gate(cx, pane_id, &format!("{} characters{}", req.text.chars().count(), if req.append_newline { " and Enter" } else { "" }))?;
+    }
     // The origin says "an API caller"; the flight recorder also wants which one (agent, phone, app).
     crate::flight::with_tag(bridge_tag(cx), || {
         registry_write_input(
@@ -298,6 +301,20 @@ fn input(cx: &Ctx, pane_id: &str) -> RouteResult {
     ))
 }
 
+/// An agent's raw keys into a pane that shows a dialog answer it: the answer gate and an audit
+/// line (`agent_authority::gate::check_raw_keys`). The person's keys and a pane with no dialog
+/// pass untouched.
+fn raw_keys_gate(cx: &Ctx, pane_id: &str, keys: &str) -> Result<(), (u16, serde_json::Value)> {
+    let Some(session) = cx.session.filter(|s| !s.trim().is_empty()) else {
+        return Ok(());
+    };
+    let Some(prompt) = crate::pane_prompt::detect(cx.registry, pane_id, false) else {
+        return Ok(());
+    };
+    crate::agent_authority::gate::check_raw_keys(Some(session), pane_id, &prompt, keys, Some(cx.registry))
+        .map_err(crate::bridge::errors::operation_http_error)
+}
+
 /// Who is typing: an agent (MCP session), a paired phone, or the local app (flight recorder tag).
 fn bridge_tag(cx: &Ctx) -> crate::flight::InputTag {
     let paired_phone = cx.session.is_none() && crate::mobile_pairing::requires_pairing_token(cx.headers, cx.peer_loopback);
@@ -311,6 +328,7 @@ fn key(cx: &Ctx, pane_id: &str) -> RouteResult {
     let req: PressKeyBody = parse_json(body)?;
     let seq = crate::pty::keys::sequence(&req.key).map_err(|err| (400, json!({ "error": err })))?;
     let bytes = seq.len();
+    raw_keys_gate(cx, pane_id, &format!("the {} key", req.key))?;
     crate::flight::with_tag(bridge_tag(cx), || registry_write_input(registry, app, pane_id, &seq, false, false, None, crate::pty::WriteOrigin::Api))
         .map_err(|err| (404, json!({ "error": err })))?;
     Ok((200, json!({ "ok": true, "key": req.key, "bytes": bytes })))
