@@ -919,3 +919,41 @@ fn a_teammates_card_is_written_to_the_audit_log() {
     assert_eq!(store.cursor, 8, "the cursor moves past refused mail");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+// ---------------------------------------------------------------- the bridge-auth invariant
+
+#[test]
+fn team_traffic_is_outbound_only_and_never_uses_pairing() {
+    // By inspection: nothing in team/ (outside tests and the phone route, which is the person's
+    // own paired phone going through the normal bridge gate) listens for connections or touches
+    // device pairing tokens.
+    let sources = [
+        ("service.rs", include_str!("service.rs")),
+        ("membership.rs", include_str!("membership.rs")),
+        ("secure.rs", include_str!("secure.rs")),
+        ("invite.rs", include_str!("invite.rs")),
+        ("transport/mod.rs", include_str!("transport/mod.rs")),
+        ("transport/relay.rs", include_str!("transport/relay.rs")),
+        ("transport/folder.rs", include_str!("transport/folder.rs")),
+        ("sources/github.rs", include_str!("sources/github.rs")),
+        ("merge_green.rs", include_str!("merge_green.rs")),
+    ];
+    for (file, src) in sources {
+        let code = src.split("#[cfg(test)]").next().unwrap_or(src);
+        for needle in ["TcpListener", "UdpSocket", ".bind(", "pairing_store", "validate_bearer_token", "create_pairing_session", "bearer_token("] {
+            assert!(!code.contains(needle), "{file} contains {needle}");
+        }
+    }
+    // The phone route uses the bridge's own gate result, never a token of its own.
+    let phone = include_str!("phone.rs");
+    assert!(!phone.contains("pairing_store") && !phone.contains("bearer_token("));
+    // And the bridge has no public team path: every /team route needs the local app or a bearer.
+    for method in ["GET", "POST", "PUT", "DELETE"] {
+        for path in [&["team"][..], &["team", "cards"], &["team", "join"], &["team", "envelopes"], &["bridge", "team", "cards"]] {
+            assert!(!crate::mobile_pairing::is_public_bridge_path(path, method), "{method} {path:?}");
+        }
+    }
+    // A forwarded request (a tunnel) without a bearer is refused at the gate.
+    let refused = crate::mobile_pairing::authorize_caller("Host: 127.0.0.1\r\nX-Forwarded-For: 1.2.3.4\r\n", true, &["team", "cards"], "GET");
+    assert!(matches!(refused, Err((401, _)) | Err((503, _))));
+}
