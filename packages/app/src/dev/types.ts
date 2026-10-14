@@ -39,6 +39,8 @@ export interface HarnessScenario {
   settingsTab?: string;
   /** User accounts the mocked backend reports (Settings > Agents > Accounts, the "+" menu). */
   accounts?: Account[];
+  /** Cockpit: add an agent that has no pane of its own (only other agents can run it) to the "+" menu. */
+  headlessOnlyAgent?: boolean;
   /** Cockpit: start with the "While you were away" digest showing (as after a return). */
   awayDigest?: boolean;
   /** Override the example panes. */
