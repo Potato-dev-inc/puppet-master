@@ -103,6 +103,8 @@ pub fn agent_types_listing() -> Value {
 /// Every registered profile, in registry order (a copy of the current snapshot).
 #[cfg(test)]
 pub fn profiles() -> Vec<Arc<dyn TuiProfile>> {
+    // Never read the registry while another test has a probe profile swapped into it.
+    let _serial = registry::test_serial();
     registry::registry().ordered()
 }
 
