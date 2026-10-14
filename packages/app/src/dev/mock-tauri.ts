@@ -37,6 +37,8 @@ const DOCTOR_ROWS = [
 export function installTauriMock(scenario: HarnessScenario): void {
   const panes = scenario.panes ?? EXAMPLE_PANES;
   // In-memory plugin-store (one store, rid 1), keyed as the app writes it.
+  // The two agent-authority switches, at the shipped defaults unless the scenario says otherwise.
+  let authority = scenario.authority ?? { ask_before_agent_control: false, agents_may_merge: true };
   const store = new Map<string, unknown>([['settings', { theme: scenario.theme ?? 'dark' }]]);
 
   mockWindows(scenario.route === 'settings' ? 'settings' : scenario.route === 'askbar' ? 'askbar' : 'cockpit');
@@ -169,6 +171,19 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return a.name === 'anthropic_api_key' ? { set: true, last4: 'WXYZ' } : { set: false, last4: null };
         case 'get_opencode_key_status':
           return { active_profile: 'a', profiles: [{ id: 'a', label: 'Primary', configured: true }, { id: 'b', label: 'Secondary', configured: false }], key_automation_mode: 'auto_if_backup', restart_pane_on_rotate: true };
+        case 'agent_authority_get':
+          return authority;
+        case 'agent_authority_set': {
+          authority = {
+            ask_before_agent_control: (a.askBeforeAgentControl as boolean | undefined) ?? authority.ask_before_agent_control,
+            agents_may_merge: (a.agentsMayMerge as boolean | undefined) ?? authority.agents_may_merge,
+          };
+          return authority;
+        }
+        case 'audit_recent':
+          return scenario.audit ?? [];
+        case 'audit_verify':
+          return { ok: true, entries: (scenario.audit ?? []).length, broken: null };
         case 'questions_list':
           return scenario.questions ?? [];
         case 'question_answer':

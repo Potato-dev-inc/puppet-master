@@ -380,6 +380,14 @@ pub(super) fn request_session(headers: &str) -> Option<&str> {
     if let Some(pid) = pid {
         crate::mcp_sessions::note_session_pid(session, pid);
     }
+    // The host's own name, only ever a label on a consent card.
+    let client = headers.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.eq_ignore_ascii_case("x-puppet-master-client").then(|| value.trim())
+    });
+    if let Some(client) = client {
+        crate::mcp_sessions::note_session_client(session, client);
+    }
     Some(session)
 }
 

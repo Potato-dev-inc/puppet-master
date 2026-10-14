@@ -177,7 +177,11 @@ fn handle_json_rpc_line_cancellable(
         .and_then(Value::as_str)
         .unwrap_or_default();
     let result = match method {
-        "initialize" => Ok(json!({
+        "initialize" => {
+            if let Some(name) = request.pointer("/params/clientInfo/name").and_then(Value::as_str) {
+                set_client_name(name);
+            }
+            Ok(json!({
             "protocolVersion": negotiate_protocol_version(request.pointer("/params/protocolVersion").and_then(Value::as_str)),
             "capabilities": { "tools": { "listChanged": true }, "resources": {}, "prompts": {} },
             "serverInfo": {
@@ -186,7 +190,8 @@ fn handle_json_rpc_line_cancellable(
                 "catalog_version": tool_registry::catalog_version(),
             },
             "instructions": tool_registry::mcp_instructions()
-        })),
+            }))
+        }
         "tools/list" => Ok(json!({ "tools": mcp_tools() })),
         "resources/list" => Ok(json!({ "resources": tool_registry::resources() })),
         "prompts/list" => Ok(json!({ "prompts": tool_registry::prompts() })),
