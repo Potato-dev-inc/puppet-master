@@ -125,12 +125,28 @@ fn list(cx: &Ctx) -> RouteResult {
     Ok((200, serde_json::to_value(panes).unwrap()))
 }
 
+/// Second path segments under `/panes` that are routes, not panes (`/panes/wait`, `/panes/stop-all`).
+/// A pane with one of these ids would make its own routes ambiguous (review R12 2.2).
+pub(crate) fn is_reserved_pane_id(id: &str) -> bool {
+    matches!(id.trim(), "wait" | "stop-all")
+}
+
+#[cfg(test)]
+#[test]
+fn route_names_are_not_pane_ids() {
+    assert!(is_reserved_pane_id("wait") && is_reserved_pane_id("stop-all"));
+    assert!(!is_reserved_pane_id("waiter") && !is_reserved_pane_id("p-1"));
+}
+
 fn spawn(cx: &Ctx) -> RouteResult {
     let body = cx.body;
     let registry = cx.registry;
     let app = cx.app;
     let session = cx.session;
     let req: SpawnPaneArgs = parse_json(body)?;
+    if let Some(id) = req.pane_id.as_deref().filter(|id| is_reserved_pane_id(id)) {
+        return Err((400, json!({ "error": format!("pane id {id:?} is reserved: it names a bridge route under /panes"), "code": "INVALID_ARGUMENT" })));
+    }
     crate::tui::require_registered(&req.agent_type).map_err(|unknown| {
         operation_http_error(crate::operations::OperationError::unknown_agent_type(
             unknown.id,

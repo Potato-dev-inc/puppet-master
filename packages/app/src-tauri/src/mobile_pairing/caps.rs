@@ -147,8 +147,11 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         // The event streams themselves; terminal bytes inside them are filtered by `watch`.
         ("GET", ["events"] | ["events", "ws"] | ["events", "poll"]) => Need::Device,
         // This device's own notification subscription and presence (`/push/act` is public and
-        // checks the answering device's caps itself).
-        (_, ["push", ..]) => Need::Device,
+        // checks the answering device's caps itself). Listed exactly: a push route added later
+        // falls through to watch/control instead of being open to any device.
+        ("GET", ["push", "key"]) | ("POST" | "DELETE", ["push", "subscribe"]) | ("POST", ["push", "presence" | "act"]) => {
+            Need::Device
+        }
 
         ("GET", ["questions"]) => Need::AnyOf(Watch, Answer),
         ("POST", ["questions", _, "answer" | "dismiss"]) => Need::Cap(Answer),
@@ -165,7 +168,9 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         ("POST", ["panes", _, "viewport"] | ["orchestrator", "viewport"]) => Need::Cap(Watch),
         // Long-poll waits are reads sent as POST.
         ("POST", ["agents", "wait"] | ["operations", _, "wait"]) => Need::Cap(Watch),
-        (_, ["panes", "wait", ..]) => Need::Cap(Watch),
+        // Exactly the four wait routes (`bridge/routes/wait.rs`): anything else under
+        // `/panes/wait` is a pane route on a pane named `wait` and must not pass as a read.
+        ("POST", ["panes", "wait"] | ["panes", "wait", "model" | "task" | "worker"]) => Need::Cap(Watch),
 
         ("GET", _) => Need::Cap(Watch),
         _ => Need::Cap(Control),
@@ -324,6 +329,27 @@ mod tests {
         assert!(may_receive(Caps::none().with(Cap::Watch, true), term));
         assert!(may_receive(Caps::none(), "event: panes\ndata: []\n\n"));
         assert!(may_receive(Caps::none(), "event: pane-status\ndata: {}\n\n"));
+    }
+
+    /// Review R12 2.2: `(_, ["panes", "wait", ..])` made every method on any `/panes/wait/...` path
+    /// a read, so a watch-only device could `DELETE /panes/wait` or detach/retitle a pane named
+    /// `wait`.
+    #[test]
+    fn only_the_four_wait_routes_are_reads_and_push_is_listed_exactly() {
+        use Cap::*;
+        for path in [&["panes", "wait"][..], &["panes", "wait", "model"], &["panes", "wait", "task"], &["panes", "wait", "worker"]] {
+            assert_eq!(route_need("POST", path), Need::Cap(Watch), "{path:?}");
+        }
+        assert_eq!(route_need("DELETE", &["panes", "wait"]), Need::Cap(Control));
+        assert_eq!(route_need("POST", &["panes", "wait", "detach"]), Need::Cap(Control));
+        assert_eq!(route_need("POST", &["panes", "wait", "role"]), Need::Cap(Control));
+        assert_eq!(route_need("POST", &["panes", "wait", "input"]), Need::Cap(Type));
+        assert_eq!(route_need("GET", &["push", "key"]), Need::Device);
+        assert_eq!(route_need("POST", &["push", "subscribe"]), Need::Device);
+        assert_eq!(route_need("DELETE", &["push", "subscribe"]), Need::Device);
+        assert_eq!(route_need("POST", &["push", "presence"]), Need::Device);
+        assert_eq!(route_need("POST", &["push", "act"]), Need::Device);
+        assert_eq!(route_need("POST", &["push", "broadcast"]), Need::Cap(Control), "a later push route fails closed");
     }
 
     fn data_of(frame: &str) -> serde_json::Value {
