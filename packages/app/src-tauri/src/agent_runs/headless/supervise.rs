@@ -5,8 +5,8 @@
 //! the completion watch can reach has its own small handler returning whether it settled the run.
 
 use super::pane_turn::{
-    auto_approve_allowed_command, not_captured_diagnostics, previous_turn_task, read_tui_screen,
-    record_completion_model, redeliver_prompt, redelivery_dead_end,
+    auto_approve_allowed_command, fail_if_agent_exited, not_captured_diagnostics, previous_turn_task, read_tui_screen,
+    record_completion_model, redeliver_prompt, redelivery_dead_end, HostShellWatch,
 };
 use crate::agent_runs::completion::{self, TuiTurnDecision, TuiTurnWatch};
 use crate::agent_runs::{native, runtime, transcript};
@@ -56,6 +56,8 @@ struct Supervisor {
     watch: TuiTurnWatch,
     /// One automatic re-delivery per turn when the prompt never started a turn.
     redelivered: bool,
+    /// Whether the agent has gone back to the pane's host shell mid-run.
+    host_shell: HostShellWatch,
 }
 
 impl Supervisor {
@@ -74,6 +76,7 @@ impl Supervisor {
             app,
             watch,
             redelivered: false,
+            host_shell: HostShellWatch::default(),
         }
     }
 
@@ -214,6 +217,12 @@ impl Supervisor {
             return Step::Redelivered;
         }
         let screen = read_tui_screen(&self.registry, pane_id).unwrap_or_default();
+        // The agent left the pane after the prompt went in (crash, quit, declined dialog): nothing
+        // will answer the turn, and the idle shell must not be read as a finished reply.
+        if let Some(failed) = fail_if_agent_exited(current, &mut self.host_shell, &screen) {
+            self.publish(&failed);
+            return Step::Finished;
+        }
         self.watch.set_delivery_verified(
             verifies_delivery(&current.agent_type) && operations::prompt_dispatched(current),
         );
@@ -571,6 +580,8 @@ fn supervise_loop(
     }
 }
 
+#[cfg(test)]
+mod host_shell_tests;
 #[cfg(test)]
 mod loop_tests;
 

@@ -164,6 +164,89 @@ pub(super) fn redelivery_dead_end(
     (!blocker.recoverable).then_some(blocker)
 }
 
+/// Observations in a row that must show a bare host-shell prompt before a run is declared dead.
+/// One redrawn frame is not proof the agent left; two ticks (500 ms) apart are.
+const HOST_SHELL_CONFIRM_TICKS: u32 = 2;
+/// Rows of the last screen kept in `AGENT_EXITED`'s context.
+const LAST_SCREEN_ROWS: usize = 40;
+
+/// Watches a run whose prompt was typed for its agent leaving the pane (profile-agnostic: the
+/// detector is `tui::agent_gone_to_host_shell`, which looks for the host shell's bare prompt).
+#[derive(Default)]
+pub(super) struct HostShellWatch {
+    seen: u32,
+}
+
+impl HostShellWatch {
+    /// Feed one observation; true once the host shell has shown for `HOST_SHELL_CONFIRM_TICKS` in a row.
+    pub(super) fn gone(&mut self, agent_type: &str, screen: &str) -> bool {
+        if crate::tui::agent_gone_to_host_shell(agent_type, screen) {
+            self.seen += 1;
+        } else {
+            self.seen = 0;
+        }
+        self.seen >= HOST_SHELL_CONFIRM_TICKS
+    }
+}
+
+/// The failure for an agent that left its pane while a turn was running. The files are as the
+/// agent left them (it may have written some), so it is not recoverable by simply retrying.
+pub(super) fn agent_exited_mid_run_error(screen: &str) -> OperationError {
+    let rows: Vec<&str> = screen.lines().filter(|row| !row.trim().is_empty()).collect();
+    let last_screen = rows[rows.len().saturating_sub(LAST_SCREEN_ROWS)..].join("
+");
+    let mut error = OperationError::new(
+        "AGENT_EXITED",
+        "the agent exited while it was working on this turn and the pane shows its shell prompt.          Whatever it had written to your files is still there; the last screen is in the error context",
+        false,
+    );
+    error.context = serde_json::json!({ "last_screen": last_screen });
+    error
+}
+
+/// One look at a run's pane: when its agent has gone back to the host shell after the prompt was
+/// typed, fail the run with `AGENT_EXITED` (last screen as context) and return the failed
+/// snapshot, for the caller to publish. `None` while the run looks alive.
+pub(super) fn fail_if_agent_exited(
+    current: &OperationSnapshot,
+    watch: &mut HostShellWatch,
+    screen: &str,
+) -> Option<OperationSnapshot> {
+    // Before the prompt was typed the host prompt is normal (the agent has not started yet), and
+    // `redelivery_dead_end` covers a run whose prompt never went in.
+    let live = matches!(
+        current.status,
+        OperationStatus::Running | OperationStatus::WaitingInput
+    );
+    if !live
+        || !operations::prompt_dispatched(current)
+        || operations::dispatch_in_flight(&current.operation_id)
+    {
+        *watch = HostShellWatch::default();
+        return None;
+    }
+    if !watch.gone(&current.agent_type, screen) {
+        return None;
+    }
+    let error = agent_exited_mid_run_error(screen);
+    transcript::append(
+        &current.project_path,
+        &current.operation_id,
+        "diagnostic",
+        &format!("{}: {}", error.code, error.context["last_screen"].as_str().unwrap_or_default()),
+    );
+    operations::mark_operation_state(
+        &current.project_path,
+        &current.operation_id,
+        OperationStatus::Failed,
+        StateSource::Inferred,
+        Some("failed".into()),
+        None,
+        Some(error),
+    )
+    .ok()
+}
+
 /// The prompt of the turn before this one on the same handle (empty for a first turn). Its echo
 /// stays on a reused pane's screen and must never be mistaken for this turn's output.
 pub(super) fn previous_turn_task(snapshot: &OperationSnapshot) -> String {
