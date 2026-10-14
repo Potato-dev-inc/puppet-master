@@ -52,7 +52,7 @@ export const T = {
   throwDone: 'Thrown away. Your own folder was not changed.',
   cancel: 'Cancel',
   keepFailed: 'PM could not keep the changes. Your work is safe. Nothing was lost.',
-  keepConflict: 'A file changed in your folder while Claude Code worked. Nothing was kept.',
+  keepConflict: 'A file changed in your folder while Claude Code worked. Nothing was kept. Your files are safe.',
 
   // ---- composer
   composerPlaceholder: 'Tell Claude Code what to change',
@@ -189,7 +189,7 @@ export const F = {
   stepSearched: () => 'Looked through your files',
   agentStopped: (agent: string) => `${agent} stopped by itself. Your work is saved. You can start it again.`,
   agentSignedOut: (agent: string) => `${agent} is signed out. Sign in again in the browser. Your work is saved.`,
-  agentLoop: (agent: string) => `${agent} tried the same fix 3 times. It is not working. Try saying it another way, or go back.`,
+  agentLoop: (agent: string) => `${agent} tried the same fix 3 times. Your work is saved. Try saying it another way, or go back.`,
   agentSlow: (agent: string) => `${agent} has not done anything for a while. Your work is saved.`,
   pageProblem: (agent: string) => `The page has a problem, so it cannot show. ${agent} can look at it.`,
   stepOf: (n: number) => `Question ${n} of 3`,

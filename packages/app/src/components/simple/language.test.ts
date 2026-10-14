@@ -2,7 +2,7 @@
 // 3 sentences in a card, only words from the fixed list, none of the words Simple never uses.
 import { describe, expect, it } from 'vitest';
 import { STRINGS as APPROVAL } from './approval-text';
-import { ownStrings } from './copy';
+import { F, ownStrings, T } from './copy';
 import { STRINGS as PROBLEMS } from './error-text';
 import { MAX_SENTENCES_PER_CARD, MAX_WORDS_PER_SENTENCE, NEVER_WORDS, problemsIn, sentencesOf, wordsOf } from './language-rules';
 import { STRINGS as TEMPLATES } from './templates';
@@ -44,5 +44,31 @@ describe('Simple mode language', () => {
 
   it('no word is on both lists', () => {
     expect([...NEVER_WORDS].filter((w) => ALLOWED_WORDS.has(w))).toEqual([]);
+  });
+
+  it('every problem says whether her work is safe', () => {
+    const problems = [
+      T.keepFailed,
+      T.keepConflict,
+      T.conversationUnavailable,
+      T.goBackUnavailable,
+      T.goBackOff,
+      T.previewOpenFailed,
+      T.somethingWrong,
+      T.makeFailed,
+      T.blockedSafe,
+      F.agentStopped('Claude Code'),
+      F.agentSignedOut('Claude Code'),
+      F.agentSlow('Claude Code'),
+      F.agentMissing('Claude Code'),
+      F.messageLost('Claude Code'),
+      F.trustDeclined('Claude Code'),
+      ...PROBLEMS,
+    ];
+    for (const text of problems) expect(text, text).toMatch(/safe|saved|Nothing was (lost|changed)/);
+  });
+
+  it('never says a failure, an error or a crash', () => {
+    for (const text of ALL) expect(text, text).not.toMatch(/(error|errors|failed|failure|crash|crashed|exception)/i);
   });
 });

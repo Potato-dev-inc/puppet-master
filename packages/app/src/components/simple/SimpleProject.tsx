@@ -118,7 +118,16 @@ export function SimpleProject({
       .catch(() => setBlocked({ what: words?.what ?? '', stoppable: false }));
   }, [pane, paneId, prompt, status]);
 
-  // A message typed while the agent works waits and is sent when it is ready again.
+  // While the agent works, new words arrive in the transcript: look again every few seconds.
+  const refreshRun = useRef(run.refresh);
+  refreshRun.current = run.refresh;
+  useEffect(() => {
+    if (status !== 'running') return;
+    const timer = window.setInterval(() => refreshRun.current(), 3000);
+    return () => window.clearInterval(timer);
+  }, [status]);
+
+  // A message typed while the agent works and is sent when it is ready again.
   useEffect(() => {
     if (queued && status === 'idle') {
       void c.registry.writeInput(paneId, queued, true).catch(() => c.notify(T.somethingWrong));
