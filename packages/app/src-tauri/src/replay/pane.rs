@@ -15,11 +15,15 @@
 
 use super::cast::{Cast, Kind, Reaction};
 use crate::agent_runs::delivery::DeliveryIo;
+use crate::agent_runs::readiness::Observation;
+use crate::pty::agent_proc::AgentProcess;
+use crate::pty::WriteOrigin;
 use crate::pty::status::{self, PaneStatus};
 use crate::pty::stream_pos::StreamPos;
 use crate::pty::PaneRegistry;
-use crate::tui::{profile_for, ComposerState, StartupGate};
+use crate::tui::{profile_for, TuiProfile};
 use parking_lot::Mutex;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -311,8 +315,15 @@ impl ReplayPane {
 }
 
 impl DeliveryIo for ReplayPane {
-    fn write(&mut self, text: &str, enter: bool) -> Result<(), String> {
+    fn write(&mut self, origin: WriteOrigin<'_>, text: &str, enter: bool) -> Result<(), String> {
         self.run_to(self.now);
+        // The live write path's permit check (`pty::registry::pane_io::write_input`): a permit whose
+        // screen is no longer the latest is refused, so the replay types exactly what the app would.
+        let emitted = Some(self.pos.emitted.load(Ordering::SeqCst));
+        if let Err(refused) = origin.admit_terminal_write(PANE_ID, text, enter, emitted, || AgentProcess::Unknown) {
+            self.note("input", format!("{text:?} refused: {refused}"));
+            return Err(refused);
+        }
         let gate = profile_for(&self.agent).startup_gate(&self.screen_text()).map(|g| g.id.to_string());
         self.inputs.push(Input { at: self.now, text: text.to_string(), enter, gate: gate.clone() });
         let over = gate.map(|id| format!("  [typed over '{id}']")).unwrap_or_default();
@@ -341,16 +352,20 @@ impl DeliveryIo for ReplayPane {
         profile_for(&self.agent).submit_sequence().settle
     }
 
-    fn composer_state(&mut self, screen: &str) -> ComposerState {
-        profile_for(&self.agent).composer_state(screen)
+    /// The screen with the stream position it was read at (`agent_runs::delivery::observe_pane`).
+    /// The replay has no process to look at.
+    fn observe(&mut self) -> Observation {
+        self.run_to(self.now);
+        Observation {
+            pane_id: PANE_ID.to_string(),
+            screen: self.screen_text(),
+            output_pos: Some(self.pos.processed.load(Ordering::SeqCst)),
+            agent: AgentProcess::Unknown,
+        }
     }
 
-    fn startup_gate(&mut self, screen: &str) -> Option<StartupGate> {
-        profile_for(&self.agent).startup_gate(screen)
-    }
-
-    fn reads_composer(&mut self) -> bool {
-        profile_for(&self.agent).reads_composer()
+    fn profile(&mut self) -> Arc<dyn TuiProfile> {
+        profile_for(&self.agent)
     }
 }
 

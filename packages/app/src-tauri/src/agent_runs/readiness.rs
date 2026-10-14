@@ -413,8 +413,10 @@ pub fn host_shell_error(
             error
         }
         HostShell::NotInstalled(command) => {
-            let hint = profile
-                .install_hint()
+            // The vendor's own installer first, then the profile's fallback route (npm), as the doctor shows them.
+            let routes: Vec<String> = [profile.install_hint(), profile.install_fallback_hint()].into_iter().flatten().collect();
+            let hint = (!routes.is_empty())
+                .then(|| routes.join(", or "))
                 .map(|hint| format!(" Install it ({hint}), or check that it is on PATH, then start the run again."))
                 .unwrap_or_else(|| " Install it or check that it is on PATH, then start the run again.".into());
             let mut error = crate::operations::OperationError::new(
