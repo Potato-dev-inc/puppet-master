@@ -733,3 +733,205 @@ fn an_isolated_runs_pane_is_checkpointed_in_its_worktree() {
         "the main folder keeps no checkpoints of the isolated pane"
     );
 }
+
+// ---- hygiene: gc off the hot path, git off the PTY reader thread, too big, panic ------------------
+
+/// The pane env of `FakeEnv`, with a low size cap and a record of which threads asked it things
+/// (`turn_hint` is called on the thread that is about to run git).
+struct SpyEnv {
+    inner: Arc<FakeEnv>,
+    cap: AtomicU64,
+    threads: Mutex<Vec<String>>,
+}
+
+impl SpyEnv {
+    fn new(dir: &Path) -> Arc<Self> {
+        Arc::new(Self {
+            inner: FakeEnv::new(dir),
+            cap: AtomicU64::new(Limits::default().max_total_bytes),
+            threads: Mutex::new(vec![]),
+        })
+    }
+}
+
+impl Env for SpyEnv {
+    fn pane(&self, id: &str) -> Option<PaneFacts> {
+        self.inner.pane(id)
+    }
+    fn settings(&self) -> Settings {
+        self.inner.settings()
+    }
+    fn now_ms(&self) -> u64 {
+        self.inner.now_ms()
+    }
+    fn agent_takes_part(&self, agent: &str) -> bool {
+        self.inner.agent_takes_part(agent)
+    }
+    fn turn_hint(&self, _pane_id: &str, _kind: Kind) -> Option<u32> {
+        self.threads.lock().push(std::thread::current().name().unwrap_or("").to_string());
+        None
+    }
+    fn max_total_bytes(&self) -> u64 {
+        self.cap.load(Ordering::SeqCst)
+    }
+}
+
+#[test]
+fn gc_runs_on_its_own_thread_never_inside_the_snapshot() {
+    let t = Tmp::new("gc");
+    let git_dir = t.p().join(".puppet-master").join("checkpoints.git");
+    let dir = t.p().to_path_buf();
+    let caller = std::thread::Builder::new()
+        .name("snapshot-caller".into())
+        .spawn(move || {
+            for i in 1..=10_u64 {
+                std::fs::write(dir.join("a.txt"), format!("version {i}")).unwrap();
+                let c = created(engine::snapshot(&dir, "p1", Kind::After, None, i * 1_000, &limits()).unwrap());
+                assert_eq!(c.id, i.to_string());
+            }
+        })
+        .unwrap();
+    caller.join().unwrap();
+    // The tenth snapshot has returned. Housekeeping is asked for, on a thread of its own.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let ran = loop {
+        let hit = engine::gc_test_log::RAN.lock().iter().find(|(dir, _)| *dir == git_dir).cloned();
+        if let Some(hit) = hit {
+            break hit;
+        }
+        assert!(std::time::Instant::now() < deadline, "gc never ran");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert_eq!(ran.1.as_deref(), Some(engine::GC_THREAD), "gc must not run on the snapshot's thread");
+    // Only the tenth snapshot asked for it.
+    assert_eq!(engine::gc_test_log::RAN.lock().iter().filter(|(dir, _)| *dir == git_dir).count(), 1);
+}
+
+#[test]
+fn git_refuses_to_run_on_a_pty_reader_thread() {
+    let t = Tmp::new("readerguard");
+    t.write("a.txt", "1");
+    let dir = t.p().to_path_buf();
+    let outcome = std::thread::Builder::new()
+        .name("pty-reader-test-pane".into())
+        .spawn(move || engine::snapshot(&dir, "p1", Kind::Before, None, 1_000, &limits()).map(|_| ()))
+        .unwrap()
+        .join();
+    assert!(outcome.is_err(), "the guard must trip (panic) when git is asked for on a pty-reader thread");
+    assert!(engine::list(t.p(), "p1").unwrap().is_empty(), "and nothing was snapshotted");
+}
+
+#[test]
+fn the_status_hook_called_from_the_pty_reader_does_its_git_work_on_the_checkpoint_thread() {
+    use super::runtime::{on_status_with, CHECKPOINT_THREAD};
+    let t = Tmp::new("readerhook");
+    t.write("a.txt", "1");
+    let env = SpyEnv::new(t.p());
+    let rt: &'static Runtime = Box::leak(Box::new(Runtime::new(env.clone())));
+    let reader = std::thread::Builder::new()
+        .name("pty-reader-test-pane".into())
+        .spawn(move || {
+            assert!(on_status_with(rt, "p1", "idle").is_none(), "idle is not a turn boundary");
+            // The pane starts working: the hook returns at once with the worker's handle.
+            on_status_with(rt, "p1", "running").expect("a snapshot worker")
+        })
+        .unwrap();
+    let worker = reader.join().expect("the hook must not trip the reader-thread guard");
+    worker.join().expect("worker finished");
+    assert_eq!(*env.threads.lock(), [CHECKPOINT_THREAD], "git work ran on the checkpoint thread only");
+    let items = engine::list(t.p(), "p1").unwrap();
+    assert_eq!(items.len(), 1, "and the snapshot exists");
+}
+
+#[test]
+fn a_folder_that_is_too_big_is_reported_once_as_a_card_not_on_every_turn() {
+    let t = Tmp::new("toobig");
+    t.write("big.bin", &"x".repeat(200));
+    let env = SpyEnv::new(t.p());
+    env.cap.store(100, Ordering::SeqCst);
+    let rt = Runtime::new(env.clone());
+
+    // First attempt measures the folder and refuses.
+    assert!(matches!(rt.capture("p1", Kind::Before, None), Outcome::TooBig(bytes) if bytes >= 200));
+    let view = super::list_view_with(&rt, "p1").unwrap();
+    assert_eq!(view.state, "too_big");
+    assert_eq!(view.message, "Undo is off for this folder: it is too big. Add big folders to .gitignore.");
+    assert!(rt.folder_too_big("p1").is_some());
+
+    // Later turns do not walk the folder again: even after the data is gone, the answer is the
+    // remembered one until the re-check interval has passed.
+    std::fs::remove_file(t.p().join("big.bin")).unwrap();
+    let before_calls = env.threads.lock().len();
+    env.inner.advance(DEBOUNCE_MS + 1);
+    assert!(matches!(rt.capture("p1", Kind::After, None), Outcome::TooBig(_)));
+    assert_eq!(env.threads.lock().len(), before_calls, "no snapshot attempt (no git) while the answer is remembered");
+
+    // The log line is only wanted when a folder first becomes too big.
+    let project = t.p().to_path_buf();
+    assert!(!rt.note_too_big(&project, 300, 1), "already known: no new log line");
+
+    // After the interval the folder is measured again, and Undo comes back.
+    env.inner.advance(super::runtime::TOO_BIG_RECHECK_MS + 1);
+    assert!(matches!(rt.capture("p1", Kind::After, None), Outcome::Created(_)));
+    assert!(rt.folder_too_big("p1").is_none());
+    assert_eq!(super::list_view_with(&rt, "p1").unwrap().state, "ok");
+}
+
+#[test]
+fn the_first_too_big_note_for_a_folder_is_the_only_one_that_asks_for_a_log_line() {
+    let t = Tmp::new("toobiglog");
+    let rt = Runtime::new(FakeEnv::new(t.p()));
+    assert!(rt.note_too_big(t.p(), 1, 0), "first time");
+    for i in 1..20 {
+        assert!(!rt.note_too_big(t.p(), 1 + i, i * 10_000), "repeat {i}");
+    }
+}
+
+#[test]
+fn the_restore_error_for_a_too_big_folder_is_the_same_plain_sentence() {
+    let message = CheckpointError::TooLarge(3_808 * 1024 * 1024).to_string();
+    assert_eq!(message, "Undo is off for this folder: it is too big. Add big folders to .gitignore.");
+}
+
+#[test]
+fn before_stop_takes_a_checkpoint_even_inside_the_debounce_window() {
+    let t = Tmp::new("stop");
+    let env = FakeEnv::new(t.p());
+    let rt = Runtime::new(env.clone());
+    t.write("a.txt", "start");
+    assert!(matches!(rt.capture("p1", Kind::Before, Some("big task")), Outcome::Created(_)));
+    // The agent has been writing for a second when the user hits "Stop all agents".
+    t.write("a.txt", "half done by the agent");
+    t.write("new.txt", "created mid-turn");
+    env.advance(1_000);
+    assert!(matches!(rt.capture("p1", Kind::After, None), Outcome::Debounced { .. }), "an ordinary snapshot would be skipped here");
+
+    let id = rt.before_stop("p1").expect("a checkpoint id");
+    let items = rt.list("p1").unwrap();
+    let stop = items.iter().find(|c| c.id == id).expect("listed");
+    assert_eq!(stop.kind, "stop");
+    assert_eq!(stop.label, "Before stopping (turn 1)");
+    let changed = rt.diff("p1", &id).unwrap();
+    assert_eq!(changed.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(), ["a.txt", "new.txt"], "it holds the work in progress");
+
+    // Restoring the first checkpoint and then the stop checkpoint brings the half-done work back.
+    env.set_status("p1", "idle");
+    rt.restore("p1", &items[0].id).unwrap();
+    assert!(!t.exists("new.txt"));
+    rt.restore("p1", &id).unwrap();
+    assert_eq!(t.read("a.txt").as_deref(), Some("half done by the agent"));
+    assert_eq!(t.read("new.txt").as_deref(), Some("created mid-turn"));
+}
+
+#[test]
+fn before_stop_returns_the_newest_checkpoint_when_nothing_changed_and_none_when_off() {
+    let t = Tmp::new("stopsame");
+    let env = FakeEnv::new(t.p());
+    let rt = Runtime::new(env.clone());
+    t.write("a.txt", "same");
+    let Outcome::Created(first) = rt.capture("p1", Kind::Before, None) else { panic!("created") };
+    assert_eq!(rt.before_stop("p1").as_deref(), Some(first.id.as_str()), "unchanged tree: the existing checkpoint is the way back");
+    assert_eq!(rt.list("p1").unwrap().len(), 1, "no duplicate");
+    env.enabled.store(false, Ordering::SeqCst);
+    assert_eq!(rt.before_stop("p1"), None, "checkpoints off: the stop goes ahead without one");
+}

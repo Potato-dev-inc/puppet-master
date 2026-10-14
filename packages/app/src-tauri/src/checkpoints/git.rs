@@ -34,6 +34,21 @@ pub fn git_available() -> bool {
     })
 }
 
+/// Prefix of the PTY reader threads' names (`pty/registry/spawn.rs`).
+const PTY_READER_THREAD_PREFIX: &str = "pty-reader";
+
+/// Git work must never run on a PTY reader thread: a slow `git` there freezes the pane's output
+/// and every status hook. The checkpoint hooks hand their work to a worker thread; this makes a
+/// regression loud (a panic in tests, an error line in the app) instead of a silent stall.
+fn forbid_pty_reader_thread() {
+    let thread = std::thread::current();
+    if thread.name().is_some_and(|n| n.starts_with(PTY_READER_THREAD_PREFIX)) {
+        tracing::error!(thread = ?thread.name(), "git ran on a PTY reader thread");
+        #[cfg(test)]
+        panic!("git ran on a PTY reader thread ({:?})", thread.name());
+    }
+}
+
 fn no_window(cmd: &mut Command) {
     #[cfg(windows)]
     {
@@ -84,6 +99,7 @@ impl Shadow {
         stdin: Option<&[u8]>,
         env: &[(&str, String)],
     ) -> Result<Out, GitError> {
+        forbid_pty_reader_thread();
         let mut cmd = Command::new("git");
         cmd.arg("--git-dir").arg(&self.git_dir).arg("--work-tree").arg(&self.work_tree);
         // Leave no room for the user's config (hooks, autocrlf, fsmonitor, safe.directory games).

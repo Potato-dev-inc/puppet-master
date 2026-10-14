@@ -15,19 +15,32 @@ import { UndoSheet } from './components/cockpit/UndoSheet';
 import { panesSharingFolder } from './components/cockpit/history-model';
 import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
+import { SettingsView } from './components/cockpit/SettingsView';
+import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
+import { TellTeamToast } from './components/cockpit/team/TellTeam';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
+import { homeView, viewAfterSelect, type MainView } from './components/cockpit/main-view';
 import './styles/cockpit.css';
 
-// One main view at a time: the last click wins. 'pane' is the default and shows the
-// selected pane, the spawn view or the inbox (see the render chain below).
-export type MainView = 'pane' | 'doctor' | 'memory';
+export type { MainView } from './components/cockpit/main-view';
 
 export default function CockpitApp() {
   const c = useCockpit();
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [view, setView] = useState<MainView>('pane');
+  // The one thing the main area shows (see main-view.ts): the last click wins.
+  const [view, setView] = useState<MainView>(() => homeView(c.spawn !== null, c.selectedId));
+  // A new selection or spawn state (a pane closing, an agent starting, a digest opening a pane)
+  // returns to the resting view. Done while rendering, so no frame shows a stale view.
+  const [seen, setSeen] = useState({ spawn: c.spawn, selectedId: c.selectedId });
+  if (seen.spawn !== c.spawn || seen.selectedId !== c.selectedId) {
+    setSeen({ spawn: c.spawn, selectedId: c.selectedId });
+    setView(homeView(c.spawn !== null, c.selectedId));
+  }
+  const closeOverlay = () => setView(homeView(c.spawn !== null, c.selectedId));
+  // Settings is a main view in Orchestration mode; in Individual mode `open` asks for the Settings window.
+  const settings = useInlineSettings<MainView>({ mode: c.mode, view, setView, home: homeView(c.spawn !== null, c.selectedId), openWindow: c.openSettings });
   // Pane whose last turn the person is being asked to undo (opened from the palette).
   const [undoPane, setUndoPane] = useState<string | null>(null);
   const loop = useLoopSignals();
@@ -55,19 +68,15 @@ export default function CockpitApp() {
   // "Set up agents" and "Project memory" views.
   const nav: typeof c = {
     ...c,
+    openSettings: async (tab) => settings.open(tab),
     select: (id) => {
-      setView('pane');
+      setView(viewAfterSelect(c.spawn, id));
       c.select(id);
     },
   };
   useEffect(() => {
-    if (c.spawn) setView('pane');
-  }, [c.spawn]);
-  useEffect(() => {
     if (c.registry.paneList.length > 0) markSpawned();
   }, [c.registry.paneList.length]);
-  // A selection change made outside `nav` (e.g. a pane closing) also returns to the pane view.
-  useEffect(() => setView('pane'), [c.selectedId]);
   const away = useAway(c.registry.paneList.map((p) => p.info.id));
 
   useEffect(() => {
@@ -108,16 +117,18 @@ export default function CockpitApp() {
           <AgentDoctor
             onOpenAgent={(id) => void c.newAgent(id)}
             onNotify={c.notify}
-            onClose={() => setView('pane')}
+            onClose={closeOverlay}
           />
         ) : view === 'memory' ? (
           <ProjectMemory
             project={c.selectedId ? c.registry.panes.get(c.selectedId)?.info.cwd : undefined}
-            onClose={() => setView('pane')}
+            onClose={closeOverlay}
           />
-        ) : c.spawn ? (
+        ) : view === 'settings' ? (
+          <SettingsView key={settings.viewKey} {...settings.viewProps} />
+        ) : view === 'spawn' && c.spawn ? (
           <SpawnView spawn={c.spawn} onDismiss={c.dismissSpawn} />
-        ) : c.selectedId ? (
+        ) : view === 'pane' && c.selectedId ? (
           <PaneView c={c} paneId={c.selectedId} key={c.selectedId} />
         ) : (
           <Inbox c={nav} onOpenDoctor={() => setView('doctor')} />
@@ -156,6 +167,7 @@ export default function CockpitApp() {
           onClose={() => setUndoPane(null)}
         />
       )}
+      {c.mode !== 'individual' && <TellTeamToast />}
       {stopReport && <PanicSheet report={stopReport} names={c.names} onClose={() => setStopReport(null)} />}
       <div className="ck-toasts" aria-live="polite">
         {c.toasts.map((t) => (

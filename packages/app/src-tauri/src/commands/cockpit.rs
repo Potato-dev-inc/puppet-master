@@ -43,7 +43,7 @@ pub async fn answer_pane_prompt(
 
 #[tauri::command]
 pub async fn interrupt_pane(app: AppHandle, state: State<'_, AppState>, pane_id: String) -> Result<(), String> {
-    registry_write_input(&state.registry, &app, &pane_id, "\u{3}", false, false, None)
+    registry_write_input(&state.registry, &app, &pane_id, "\u{3}", false, false, None, crate::pty::WriteOrigin::User)
 }
 
 #[tauri::command]
@@ -85,9 +85,10 @@ pub async fn pane_transcript(state: State<'_, AppState>, pane_id: String) -> Res
     crate::agent_runs::pane_api::pane_transcript(&state.registry, &pane_id)
 }
 
-/// Show (or create) the Settings window, optionally on a tab.
+/// Show Settings, optionally on a tab: inside the cockpit in Orchestration mode, the Settings window (shown
+/// or created) in Individual mode.
 #[tauri::command]
 pub async fn open_settings(app: AppHandle, tab: Option<String>) -> Result<(), String> {
-    crate::app_windows::open_settings_window(&app, tab.as_deref(), true);
+    crate::cockpit::open_settings(&app, tab.as_deref());
     Ok(())
 }

@@ -284,3 +284,14 @@ fn positional_task_needs_separator() {
     d.headless.as_mut().unwrap().task_flag = Some("--prompt".into());
     assert_eq!(codes(&d), vec![]);
 }
+
+#[test]
+fn a_tested_range_must_be_a_version_range() {
+    let mut d = minimal();
+    d.profile.tested = Some(">=0.150, <0.170".into());
+    assert_eq!(codes(&d), vec![]);
+    d.profile.tested = Some("whenever it works".into());
+    has_at(&d, "AGENT_DEF_INCONSISTENT", "profile.tested");
+    d.profile.tested = Some("  ".into());
+    has_at(&d, "AGENT_DEF_INCONSISTENT", "profile.tested");
+}

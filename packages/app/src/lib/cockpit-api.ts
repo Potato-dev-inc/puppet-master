@@ -107,7 +107,7 @@ export interface Checkpoint {
 }
 
 export interface CheckpointList {
-  state: 'ok' | 'off' | 'no_git';
+  state: 'ok' | 'off' | 'no_git' | 'too_big';
   message: string;
   /** Newest first. */
   items: Checkpoint[];
@@ -245,6 +245,10 @@ export const cockpitApi = {
 
   onModeChanged: (cb: (e: { mode: UiMode }) => void) => on('ui://mode-changed', cb),
   onSelect: (cb: (e: { pane_id: string }) => void) => on('cockpit://select', cb),
+  /** Rust asks the cockpit to show Settings inline (tray "Settings" in Orchestration mode). */
+  onSettingsOpen: (cb: (e: { tab?: string | null }) => void) => on('cockpit://settings', cb),
+  /** Rust asks a visible Settings window to move into the cockpit (the mode switched to Orchestration). */
+  onSettingsToInline: (cb: () => void) => on('settings://to-inline', cb),
   // The event is built where the pane's folder is unknown, so its risk cannot say "outside this
   // project". Re-read the prompt through the command (which knows the folder) before showing it.
   onPrompt: (cb: (e: { pane_id: string; prompt: PanePrompt | null }) => void) =>

@@ -147,6 +147,51 @@ pub(super) fn standby_screen(agent_type: &str, screen: &str) -> StandbyScreen {
     }
 }
 
+/// Non-empty rows from the bottom that may hold the input box: its top border, the arrow row, its
+/// bottom border, and the footer (model, usage, folder) under it.
+const INPUT_BOX_TAIL_ROWS: usize = 10;
+
+/// Cursor's input box read POSITIVELY (`TuiProfile::ready_recogniser`): an arrow row framed by a row
+/// of upper half blocks above and lower half blocks below, near the bottom of the screen. The spinner
+/// or the stop hint = `Working`; the placeholder (`Plan, search, build anything` on a fresh session,
+/// `Add a follow-up` after a turn) = `Empty`; other text = `HasText` (Ctrl+U clears it). No box, or a
+/// dialog drawn under it, = `Unknown`. Real captures: `fixtures/reply_*_screen.txt`,
+/// `workspace_trust_visible_resolved.txt`.
+pub(super) fn input_box(screen: &str) -> crate::tui::ComposerState {
+    use crate::tui::ComposerState;
+    let live = without_resolved_trust_dialog(screen);
+    let rows: Vec<&str> = live.lines().map(str::trim_end).filter(|row| !row.trim().is_empty()).collect();
+    let border = |row: &str, glyph: char| {
+        let row = row.trim();
+        row.chars().count() >= 8 && row.chars().all(|c| c == glyph)
+    };
+    let first = rows.len().saturating_sub(INPUT_BOX_TAIL_ROWS).max(1);
+    let Some(at) = (first..rows.len().saturating_sub(1)).rev().find(|&at| {
+        rows[at].trim_start().starts_with('\u{2192}')
+            && border(rows[at - 1], '\u{2584}')
+            && border(rows[at + 1], '\u{2580}')
+    }) else {
+        return ComposerState::Unknown;
+    };
+    let under = rows[at + 1..].join("\n");
+    if BLOCKED_PATTERNS.iter().any(|re| re.is_match(&under)) {
+        return ComposerState::Unknown;
+    }
+    if shows_work_in_progress(&live) {
+        return ComposerState::Working;
+    }
+    let text = rows[at].trim().trim_start_matches('\u{2192}').trim().to_ascii_lowercase();
+    if text.is_empty()
+        || text.starts_with("plan, search, build anything")
+        || text == "add a follow-up"
+        || text == "add follow-up"
+    {
+        ComposerState::Empty
+    } else {
+        ComposerState::HasText
+    }
+}
+
 /// Narrow on purpose: only Cursor's trust and command-approval dialogs. There is no broad
 /// "allow all" prompt, so `allow_broad` is ignored.
 pub(super) fn detect_prompt(agent_type: &str, screen: &str, _allow_broad: bool) -> Option<Value> {

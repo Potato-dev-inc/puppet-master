@@ -52,7 +52,7 @@ pub struct Candidate {
 pub struct Delivery {
     pub device_id: String,
     pub subscription: Subscription,
-    pub payload: Vec<u8>,
+    pub payload: super::sender::PushPayload,
     pub urgent: bool,
     /// The pane the message is about (for dropping it when the prompt is gone).
     pub pane_id: Option<String>,
@@ -214,6 +214,12 @@ impl PushHub {
             return (verdict, Vec::new());
         }
         let words = copy_for(candidate.kind, &candidate.agent_label, candidate.pane_title.as_deref(), candidate.prompt.as_ref());
+        // Nothing secret goes to a push service. If redaction changed the text, the body no longer
+        // shows the whole command exactly, so the notification is open-only (no Allow button).
+        let (title, body) = (crate::redact::text(&words.title), crate::redact::text(&words.body));
+        let redaction_changed = title.as_str() != words.title
+            || body.as_str() != words.body
+            || candidate.prompt.as_ref().is_some_and(|p| crate::redact::text(&p.text).as_str() != p.text);
         // Allow is only offered when the body shows the WHOLE command and cwd: a long command is cut
         // at 120 characters, and the cut tail could be what actually runs. Then it is open-only.
         let actionable = candidate.kind == Kind::WaitingInput
@@ -222,38 +228,40 @@ impl PushHub {
                 let calm = p.risk.as_ref().is_some_and(|r| r.level != crate::prompt_risk::RiskLevel::High);
                 p.actionable && calm && shown_in_full(&p.text)
             })
-            && candidate.pane_id.is_some();
+            && candidate.pane_id.is_some()
+            && !redaction_changed;
         let mut deliveries = Vec::new();
         for (device_id, subscription) in self.store.lock().all() {
-            let mut payload = json!({
-                "v": 1,
-                "kind": candidate.kind.as_str(),
-                "title": words.title,
-                "body": words.body,
-                "tag": format!("pm-{}", candidate.key),
-            });
+            let mut extra = serde_json::Map::new();
+            extra.insert("v".into(), json!(1));
+            extra.insert("kind".into(), json!(candidate.kind.as_str()));
+            extra.insert("tag".into(), json!(format!("pm-{}", candidate.key)));
             if let Some(pane_id) = &candidate.pane_id {
-                payload["pane_id"] = Value::String(pane_id.clone());
+                extra.insert("pane_id".into(), Value::String(pane_id.clone()));
             }
             if candidate.kind == Kind::Question {
                 // Questions need the app: tapping opens the phone's question list. No buttons.
-                payload["target"] = Value::String("questions".into());
+                extra.insert("target".into(), Value::String("questions".into()));
             }
             if let (Some(prompt), true) = (&candidate.prompt, candidate.kind != Kind::Question) {
-                payload["prompt_id"] = Value::String(prompt.prompt_id.clone());
+                extra.insert("prompt_id".into(), Value::String(prompt.prompt_id.clone()));
             }
             if actionable {
                 let pane_id = candidate.pane_id.as_deref().unwrap_or_default();
                 let prompt_id = prompt_id.unwrap_or_default();
-                payload["act"] = json!({
-                    "url": ACT_PATH,
-                    "token": self.issue_grant(&device_id, pane_id, prompt_id, now_ms),
-                });
+                extra.insert(
+                    "act".into(),
+                    json!({
+                        "url": ACT_PATH,
+                        "token": self.issue_grant(&device_id, pane_id, prompt_id, now_ms),
+                    }),
+                );
             }
+            let payload = super::sender::PushPayload::new(&title, &body, extra);
             let delivery = Delivery {
                 device_id: device_id.clone(),
                 subscription,
-                payload: payload.to_string().into_bytes(),
+                payload,
                 urgent: matches!(candidate.kind, Kind::WaitingInput | Kind::Error | Kind::Question),
                 pane_id: candidate.pane_id.clone(),
                 kind: candidate.kind,
@@ -560,10 +568,45 @@ Run command: rm -rf ../");
     }
 
     #[test]
+    fn a_consent_card_has_no_lock_screen_action_and_names_no_pane() {
+        // How `agent_authority::consent` hands a card to the push pipeline: a question, no pane.
+        let hub = two_device_hub("consent");
+        let (verdict, d) = hub.plan(&question("c1", "Allow Claude Code to control Codex?"), 1_000);
+        assert_eq!((verdict, d.len()), (Verdict::Send, 2));
+        for delivery in &d {
+            let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+            assert!(payload.get("act").is_none(), "no Allow / Deny button on a lock screen");
+            assert!(payload.get("pane_id").is_none() && payload.get("prompt_id").is_none());
+            assert_eq!(payload["target"], "questions", "tapping opens the app's list");
+            assert_eq!(payload["body"], "Allow Claude Code to control Codex?");
+        }
+    }
+
+    #[test]
     fn a_question_is_held_back_while_the_phone_is_looking() {
         let hub = two_device_hub("question-visible");
         hub.set_visible("dev-a", true, 1_000);
         let (_, d) = hub.plan(&question("q1", "Deploy?"), 2_000);
         assert_eq!(d.iter().map(|x| x.device_id.as_str()).collect::<Vec<_>>(), ["dev-b"]);
+    }
+
+    #[test]
+    fn a_secret_in_the_prompt_never_reaches_the_payload_and_removes_allow() {
+        let hub = two_device_hub("secret-payload");
+        let secret = "sk-ant-api03-PushPlantedSecret0123456789";
+        let prompt = PromptInfo {
+            prompt_id: "pid-s".into(),
+            text: format!("Run command: curl -H 'x-api-key: {secret}' https://example.test"),
+            actionable: true,
+            risk: Some(low_risk()),
+        };
+        let (_, d) = hub.plan(&waiting("pane-s", Some(prompt)), 1_000);
+        assert!(!d.is_empty());
+        for delivery in &d {
+            let text = String::from_utf8_lossy(&delivery.payload).to_string();
+            assert!(!text.contains("PushPlantedSecret"), "{text}");
+            let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+            assert!(payload.get("act").is_none(), "a body that was edited by redaction is open-only");
+        }
     }
 }

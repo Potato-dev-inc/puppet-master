@@ -296,7 +296,7 @@ impl Sender for LiveSender {
             .map(|_| ())
     }
     fn pane_input(&self, pane_id: &str, text: &str) -> Result<(), String> {
-        crate::pty::registry_write_input(&self.registry, &self.app, pane_id, text, true, false, None)
+        crate::pty::registry_write_input(&self.registry, &self.app, pane_id, text, true, false, None, crate::pty::WriteOrigin::User)
     }
 }
 

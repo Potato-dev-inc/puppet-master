@@ -121,7 +121,7 @@ afterEach(async () => {
 describe('Agents: every row renders', () => {
   it('shows the three rows, each with its key controls', async () => {
     await mount();
-    for (const id of ['accounts', 'preload', 'definitions']) expect(rowOf(id), `missing row: ${id}`).toBeTruthy();
+    for (const id of ['accounts', 'preload', 'versions', 'definitions']) expect(rowOf(id), `missing row: ${id}`).toBeTruthy();
 
     // Accounts
     expect(hasText(m.host, 'Accounts')).toBe(true);
@@ -157,10 +157,10 @@ describe('Agents: every row renders', () => {
     expect(buttonByText(m.host, 'Save changes')).toBeUndefined();
   });
 
-  it('groups the rows: Logins, Speed, then Definitions (whose own block carries the title)', async () => {
+  it('groups the rows: Logins, Speed, Updates, then Definitions (whose own block carries the title)', async () => {
     await mount();
     const heads = [...m.host.querySelectorAll('section.st-group')].map((g) => g.querySelector(':scope > h2')?.textContent?.trim() ?? '');
-    expect(heads).toEqual(['Logins', 'Speed', '']);
+    expect(heads).toEqual(['Logins', 'Speed', 'Updates', '']);
   });
 });
 

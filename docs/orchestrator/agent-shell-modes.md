@@ -2,7 +2,7 @@
 
 The Puppet Master MCP server exposes a per-connection tool catalog. Each stdio server process creates a random session ID and sends it to the local bridge in the `X-Puppet-Master-Session` header. TypeScript MCP clients use the same contract. The bridge keeps each session's selected mode and pane/agent ownership in memory; different MCP connections do not share mode or control state.
 
-New connections start in `agent` mode. Call `set_mode` to choose `agent`, `shell`, or `both`. The server filters `tools/list` and `/mcp/tools` for that session. After a successful change, it sends `notifications/tools/list_changed` so the host can refresh discovery. Calls rejected by the selected catalog return `MODE_MISMATCH` with a `context.switch_with.mode` hint.
+New connections start in `agent` mode. Call `set_mode` to choose `agent`, `shell`, `both`, or `all`. The server filters `tools/list` and `/mcp/tools` for that session. After a successful change, it sends `notifications/tools/list_changed` so the host can refresh discovery. Calls rejected by the selected catalog return `MODE_MISMATCH` with a `context.switch_with.mode` hint.
 
 Some hosts read the tool list once when they connect and ignore `notifications/tools/list_changed`, so a `set_mode` call never changes what they can call. For those hosts, choose the starting catalog when the server launches: pass `--mode <agent|shell|both>` or set `PUPPET_MASTER_MODE`. The argument wins over the environment variable, an invalid value is logged and ignored, and `set_mode` still works afterward. The starting mode applies to that connection only. If the bridge is not running yet, the server tells it the mode on the first tool call.
 
@@ -16,6 +16,8 @@ Some hosts read the tool list once when they connect and ignore `notifications/t
   }
 }
 ```
+
+**Callable vs listed.** A mode decides which tools a connection may *call*; `tools/list` advertises only the *core* of that set, because hosts such as Claude Code defer every tool of a long list behind a search step. Aliases (`list_workers`, `send_agent`, `cancel_agent`, `wait_for_model`, `wait_for_task`, `wait_for_worker`) and advanced tools (reconnect and ownership handoff, OpenCode, the task board and locks, session context and digests) are not listed but still work when called by name in the modes that could call them before. Listed counts: `agent` 22, `shell` 16, `both` 32, `all` 68. `all` is `both` plus the full list, aliases included (the old `both` list). `bridge_health` reports `listed_tool_counts`, and every tool result carries a `SCHEMA_DRIFT` warning while the MCP exe and the running app have different `catalog_version`s (rebuild or reinstall the MCP, then reconnect). Source of truth: `tool_registry/surface.rs`.
 
 `agent` mode exposes worker controls: `set_mode`, `run_agent`, `wait_agents`, `send_message`, `followup_task`, `interrupt_agent`, `inspect_agent`, `agent_transcript`, `close_agent`, plus `list_agents` / `list_workers` (UI panes and managed runs), compatibility wrappers `send_agent`, `cancel_agent`, `answer_prompt`, and `take_over`. `shell` mode exposes `set_mode`, the terminal and pane tools, `shell_exec`, `release`, and `take_over`. `both` exposes the full MCP catalog.
 

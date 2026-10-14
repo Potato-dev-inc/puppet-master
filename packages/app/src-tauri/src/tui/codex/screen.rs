@@ -87,6 +87,16 @@ pub(super) fn composer_state(screen: &str) -> ComposerState {
     }
 }
 
+/// Codex 0.162 draws its composer while it is still starting (the banner's second row reads
+/// `loading` and the logo animates). Keys typed then show up seconds later or not at all (live, this
+/// branch's `live_permit_codex_fresh_pane_is_delivered_under_a_permit`: the task typed on that
+/// screen was not visible for 2 s). Real capture: `fixtures/loading_0_162_1_live.txt`.
+pub(super) fn still_loading(screen: &str) -> bool {
+    let rows: Vec<&str> = screen.lines().map(str::trim).filter(|row| !row.is_empty()).collect();
+    rows.windows(2)
+        .any(|pair| pair[0].starts_with(">_ OpenAI Codex") && pair[1].eq_ignore_ascii_case("loading"))
+}
+
 /// Ctrl+U sixteen times. Ctrl+U clears the line before the cursor and does nothing in an empty
 /// composer; on a blank line it joins it to the one above, so an N-line draft needs about 2N
 /// presses. Checked live on 0.159.3: one press cleared a single line, sixteen in one write cleared

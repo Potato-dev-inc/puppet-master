@@ -84,7 +84,7 @@ pub(in crate::agent_runs) fn interrupt_active_turns(
             project,
             &snapshot.operation_id,
             "interrupted",
-            partial.as_deref().unwrap_or("interrupted"),
+            &crate::redact::text(partial.as_deref().unwrap_or("interrupted")),
         );
         let interrupted =
             operations::mark_turn_interrupted(project, &snapshot.operation_id, partial)?;
@@ -172,7 +172,7 @@ fn request_interrupt(
             };
             let sequence = crate::pty::keys::sequence("ctrl+c")
                 .map_err(|error| OperationError::new("INTERRUPT_FAILED", error, false))?;
-            crate::pty::registry_write_input(registry, app, pane_id, &sequence, false, false, None)
+            crate::pty::registry_write_input(registry, app, pane_id, &sequence, false, false, None, crate::pty::WriteOrigin::Nudge)
                 .map_err(|error| OperationError::new("INTERRUPT_FAILED", error, true))?;
             Ok(())
         }

@@ -6,6 +6,7 @@ import { decodeBase64, streamOffset } from './bridge-sse';
 import type { BridgeClient, PaneViewportResponse } from './bridge-types';
 import type { Question } from './questions';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
+import { localSecretHeaders } from './bridge-local-secret';
 import type { PreviewUrl } from './pane-preview';
 
 export type * from './bridge-types';
@@ -16,7 +17,7 @@ const DEFAULT_POLL_INTERVAL_MS = 200;
 
 export function makeBridgeClient(baseUrl: string): BridgeClient {
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const headers = mergeBridgeHeaders({ ...ngrokRequestHeaders(baseUrl) });
+    const headers = mergeBridgeHeaders({ ...ngrokRequestHeaders(baseUrl), ...localSecretHeaders(baseUrl) });
     if (body) headers['Content-Type'] = 'application/json';
     const res = await fetch(`${baseUrl}${path}`, {
       method,
@@ -182,6 +183,10 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
  * each port. Returns the first responding base URL.
  */
 export async function findBridgeUrl(): Promise<string | null> {
+  // A second Puppet Master on this computer (PUPPET_MASTER_PROFILE) must reach its own bridge,
+  // never the first one that answers. The default profile gets null and scans as before.
+  const own = await profileBridgeUrl();
+  if (own) return own;
   for (let p = 17321; p <= 17399; p++) {
     try {
       const res = await fetch(`http://${DEFAULT_POLL_HOST}:${p}/health`, {
@@ -195,6 +200,16 @@ export async function findBridgeUrl(): Promise<string | null> {
     }
   }
   return null;
+}
+
+async function profileBridgeUrl(): Promise<string | null> {
+  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return null;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return (await invoke<string | null>('profile_bridge_url')) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export { DEFAULT_POLL_HOST, DEFAULT_POLL_INTERVAL_MS };

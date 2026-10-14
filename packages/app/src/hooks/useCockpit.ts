@@ -64,7 +64,8 @@ export interface CockpitApi {
   closePane: (paneId: string) => Promise<void>;
   /** Give a pane your own name (blank clears it). */
   rename: (paneId: string, title: string) => Promise<void>;
-  openSettings: () => Promise<void>;
+  /** Orchestration: Settings opens inside the cockpit (on `tab` when given). Individual: the Settings window. */
+  openSettings: (tab?: string) => Promise<void>;
   bridgeLine: string;
 }
 
@@ -397,9 +398,9 @@ export function useCockpit(): CockpitApi {
     [registry, notify],
   );
 
-  const openSettings = useCallback(async () => {
+  const openSettings = useCallback(async (tab?: string) => {
     try {
-      await cockpitApi.openSettings();
+      await cockpitApi.openSettings(tab);
     } catch (err) {
       console.error('open_settings failed', err);
       notify(`Settings did not open: ${errText(err)}`);

@@ -275,15 +275,19 @@ fn input(cx: &Ctx, pane_id: &str) -> RouteResult {
         req.model_id.as_deref(),
         &settings,
     );
-    registry_write_input(
-        registry,
-        app,
-        pane_id,
-        &req.text,
-        req.append_newline,
-        req.via_opencode_api,
-        model,
-    )
+    // The origin says "an API caller"; the flight recorder also wants which one (agent, phone, app).
+    crate::flight::with_tag(bridge_tag(cx), || {
+        registry_write_input(
+            registry,
+            app,
+            pane_id,
+            &req.text,
+            req.append_newline,
+            req.via_opencode_api,
+            model,
+            crate::pty::WriteOrigin::Api,
+        )
+    })
     .map_err(|err| (404, json!({ "error": err })))?;
     Ok((
         200,
@@ -294,6 +298,12 @@ fn input(cx: &Ctx, pane_id: &str) -> RouteResult {
     ))
 }
 
+/// Who is typing: an agent (MCP session), a paired phone, or the local app (flight recorder tag).
+fn bridge_tag(cx: &Ctx) -> crate::flight::InputTag {
+    let paired_phone = cx.session.is_none() && crate::mobile_pairing::requires_pairing_token(cx.headers, cx.peer_loopback);
+    crate::flight::InputTag::for_bridge(cx.session.is_some(), paired_phone)
+}
+
 fn key(cx: &Ctx, pane_id: &str) -> RouteResult {
     let body = cx.body;
     let registry = cx.registry;
@@ -301,7 +311,7 @@ fn key(cx: &Ctx, pane_id: &str) -> RouteResult {
     let req: PressKeyBody = parse_json(body)?;
     let seq = crate::pty::keys::sequence(&req.key).map_err(|err| (400, json!({ "error": err })))?;
     let bytes = seq.len();
-    registry_write_input(registry, app, pane_id, &seq, false, false, None)
+    crate::flight::with_tag(bridge_tag(cx), || registry_write_input(registry, app, pane_id, &seq, false, false, None, crate::pty::WriteOrigin::Api))
         .map_err(|err| (404, json!({ "error": err })))?;
     Ok((200, json!({ "ok": true, "key": req.key, "bytes": bytes })))
 }

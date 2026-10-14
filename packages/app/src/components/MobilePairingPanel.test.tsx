@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-// Pairing panel inside Settings > Phone: the URL and port autosave on pause or blur, and Revoke removes one phone.
+// Pairing panel inside Settings > Phone: the URL and port autosave on pause or blur, and the choice of
+// what a new phone may do (full control by default) is bound to the code.
 import { act, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEVICES_CHANGED_EVENT, MobilePairingPanel } from './MobilePairingPanel';
+import { MobilePairingPanel } from './MobilePairingPanel';
 import { tauri } from '../lib/tauri';
-import { blur, buttonByText, click, hasText, settle, type as typeInto } from './settings/test-utils';
+import { blur, click, hasText, settle, type as typeInto } from './settings/test-utils';
 
 const mocks = vi.hoisted(() => ({
   devices: [] as Array<{ id: string; name: string; public_key: string; paired_at: number }>,
@@ -91,28 +92,38 @@ describe('MobilePairingPanel: autosaving fields', () => {
   });
 });
 
-describe('MobilePairingPanel: paired devices and layout', () => {
-  it('Revoke removes one phone and reloads the list', async () => {
-    mocks.devices = [{ id: 'dev-1', name: 'Pixel 8', public_key: 'k1', paired_at: 1 }];
-    await mount();
-    expect(hasText(host, 'Pixel 8')).toBe(true);
-    await click(buttonByText(host, 'Revoke'));
-    await settle();
-    expect(tauri.revokePairedMobileDevice).toHaveBeenCalledExactlyOnceWith('dev-1');
-    expect(tauri.listPairedMobileDevices).toHaveBeenCalledTimes(2);
+describe('MobilePairingPanel: what the new phone may do', () => {
+  it('defaults to full control, which is what pairing always gave', async () => {
+    await mount({ publicPwaUrl: 'https://pm.example.com' });
+    const call = vi.mocked(tauri.createMobilePairingSession).mock.calls.at(-1)!;
+    expect(call[1]).toEqual(['watch', 'answer', 'type', 'control']);
+    const full = host.querySelector<HTMLInputElement>('input[value="full"]')!;
+    expect(full.checked).toBe(true);
+    expect(hasText(host, 'What can this phone do?')).toBe(true);
+    expect(hasText(host, 'Watch and answer only')).toBe(true);
   });
 
-  it('reloads the device list when another row (Revoke all devices) changes it', async () => {
+  it('choosing "Watch and answer only" makes a new code bound to watch + answer', async () => {
+    await mount({ publicPwaUrl: 'https://pm.example.com' });
+    const before = vi.mocked(tauri.createMobilePairingSession).mock.calls.length;
+    await click(host.querySelector<HTMLInputElement>('input[value="watch_answer"]')!);
+    await settle();
+    const calls = vi.mocked(tauri.createMobilePairingSession).mock.calls;
+    expect(calls.length).toBe(before + 1);
+    expect(calls.at(-1)![1]).toEqual(['watch', 'answer']);
+    const selected = [...host.querySelectorAll('.st-choice[data-selected="true"] input')].map((i) => (i as HTMLInputElement).value);
+    expect(selected).toEqual(['watch_answer']);
+  });
+
+  it('no longer lists devices or shows raw device ids (they live under Devices)', async () => {
     mocks.devices = [{ id: 'dev-1', name: 'Pixel 8', public_key: 'k1', paired_at: 1 }];
     await mount();
-    expect(hasText(host, 'Pixel 8')).toBe(true);
-    mocks.devices = [];
-    await act(async () => void window.dispatchEvent(new Event(DEVICES_CHANGED_EVENT)));
-    await settle();
     expect(hasText(host, 'Pixel 8')).toBe(false);
-    expect(hasText(host, 'No phones paired yet')).toBe(true);
+    expect(host.innerHTML).not.toContain('dev-1');
   });
+});
 
+describe('MobilePairingPanel: layout', () => {
   it('is a plain settings row that names itself, with no colour classes', async () => {
     await mount();
     expect(host.firstElementChild?.className).toBe('st-row is-block');

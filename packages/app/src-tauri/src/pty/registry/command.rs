@@ -26,20 +26,12 @@ pub(super) fn build_command(
     #[cfg(windows)]
     {
         if windows_powershell_host_agent(agent) {
-            let mut cmd_builder = CommandBuilder::new("powershell.exe");
-            cmd_builder.arg("-NoLogo");
-            cmd_builder.arg("-NoExit");
-            cmd_builder.arg("-Command");
             let invocation = if agent == AgentType::CursorAgent {
                 powershell_cursor_agent_command(cmd, &base_args, extra_args)
             } else {
                 powershell_agent_command(cmd, &base_args, extra_args)
             };
-            cmd_builder.arg(invocation);
-            cmd_builder.cwd(cwd);
-            apply_common_pty_env(&mut cmd_builder);
-            apply_launch_env(&mut cmd_builder, &env.set, &env.remove);
-            return cmd_builder;
+            return powershell_host_command(invocation, cwd, env);
         }
 
         let is_cmd_shim = cmd.ends_with(".cmd") || cmd.ends_with(".bat");
@@ -105,6 +97,26 @@ pub(super) fn apply_launch_env(cmd_builder: &mut CommandBuilder, set: &[(String,
     for key in remove {
         cmd_builder.env_remove(key);
     }
+}
+
+/// The host shell an agent pane runs its agent under: `powershell -NoExit -Command <invocation>`.
+/// `-NoExit` stays (user panes keep their shell after the agent exits); whether the agent is still
+/// running is read from the process tree (`pty::agent_proc`) and the screen, never assumed.
+#[cfg(windows)]
+pub(super) fn powershell_host_command(
+    invocation: String,
+    cwd: &str,
+    env: &crate::tui::LaunchEnv,
+) -> CommandBuilder {
+    let mut cmd_builder = CommandBuilder::new("powershell.exe");
+    cmd_builder.arg("-NoLogo");
+    cmd_builder.arg("-NoExit");
+    cmd_builder.arg("-Command");
+    cmd_builder.arg(invocation);
+    cmd_builder.cwd(cwd);
+    apply_common_pty_env(&mut cmd_builder);
+    apply_launch_env(&mut cmd_builder, &env.set, &env.remove);
+    cmd_builder
 }
 
 #[cfg(windows)]

@@ -1,0 +1,10 @@
+& : The term 'pm-agent-not-installed-7f3' is not recognized as the name of a cmdlet, function, script file, or 
+operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try 
+again.
+At line:1 char:3
++ & 'pm-agent-not-installed-7f3'
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (pm-agent-not-installed-7f3:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+PS C:\Users\Ren-pc\AppData\Local\Temp> 
