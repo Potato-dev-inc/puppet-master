@@ -163,12 +163,23 @@ export interface StandbyBlockedView {
   cold: boolean;
 }
 
+export interface StandbyAgentBlockedView {
+  agent_type: string;
+  reason: string;
+  /** Plain words to show after "<Agent> couldn't stay warm: ". */
+  message: string;
+  fails: number;
+  retry_in_ms: number;
+  cold: boolean;
+}
+
 export interface StandbyStatus {
   enabled: boolean;
   config: StandbyConfig;
   counts: { total: number; ready: number; starting: number };
   standbys: StandbyView[];
   blocked: StandbyBlockedView[];
+  agents_blocked?: StandbyAgentBlockedView[];
   recent: { key: string; age_ms: number }[];
   stats: {
     spawned: number;

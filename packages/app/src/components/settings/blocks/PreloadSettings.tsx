@@ -149,6 +149,14 @@ export function PreloadSettings({ api = DEFAULT_API, onSaved }: { api?: PreloadA
                 )}
               </div>
             ))}
+          {status?.agents_blocked?.map((agent) => (
+            <p key={agent.agent_type} className="text-sm text-pm-text" data-testid={`preload-blocked-${agent.agent_type}`}>
+              {registry.agents.find((a) => a.id === agent.agent_type)?.label ?? agent.agent_type} couldn't stay warm: {agent.message}.{' '}
+              <span className="text-pm-muted">
+                {agent.cold ? 'Not warming it until you open it.' : `Trying again in ${formatDuration(agent.retry_in_ms)}.`}
+              </span>
+            </p>
+          ))}
           {status?.blocked.map((blocked) => (
             <p key={blocked.key} className="text-xs text-pm-muted">
               Held back: {blocked.key} ({blocked.reason}
