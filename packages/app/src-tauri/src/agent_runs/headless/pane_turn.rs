@@ -227,11 +227,10 @@ impl HostShellWatch {
 /// agent left them (it may have written some), so it is not recoverable by simply retrying.
 pub(super) fn agent_exited_mid_run_error(screen: &str) -> OperationError {
     let rows: Vec<&str> = screen.lines().filter(|row| !row.trim().is_empty()).collect();
-    let last_screen = rows[rows.len().saturating_sub(LAST_SCREEN_ROWS)..].join("
-");
+    let last_screen = rows[rows.len().saturating_sub(LAST_SCREEN_ROWS)..].join("\n");
     let mut error = OperationError::new(
         "AGENT_EXITED",
-        "the agent exited while it was working on this turn and the pane shows its shell prompt.          Whatever it had written to your files is still there; the last screen is in the error context",
+        "the agent exited while it was working on this turn and the pane shows its shell prompt. Whatever it had written to your files is still there; the last screen is in the error context",
         false,
     );
     error.context = serde_json::json!({ "last_screen": last_screen });
@@ -350,4 +349,14 @@ pub(super) fn not_captured_diagnostics(
         ),
         "watch": watch.diagnostics(),
     })
+}
+
+#[cfg(test)]
+#[test]
+fn the_mid_run_agent_exited_message_is_one_clean_sentence_pair() {
+    // Review R12 5: a literal newline inside the string left ten spaces in the middle of it.
+    let error = agent_exited_mid_run_error("line one\n\nPS D:/work> ");
+    assert!(!error.message.contains("  ") && !error.message.contains('\n'), "{:?}", error.message);
+    assert!(error.message.contains("shell prompt. Whatever"), "{:?}", error.message);
+    assert_eq!(error.context["last_screen"], "line one\nPS D:/work> ");
 }
