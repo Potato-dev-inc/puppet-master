@@ -280,8 +280,8 @@ export function AgentDoctor({
                     </p>
                   )}
                   {r.state === 'needs_login' && r.login_hint && <p className="ck-doctor-hint">{r.login_hint}</p>}
-                  {r.installed && r.state !== 'ready' && r.state !== 'error' && (
-                    <p className="ck-doctor-hint">Sign in in the window that opens. Puppet Master never sees your password.</p>
+                  {(r.state === 'needs_login' || (r.installed && inst?.phase === 'result' && inst.tone === 'ok')) && (
+                    <p className="ck-doctor-hint">A window opens where you sign in. Puppet Master never sees your password.</p>
                   )}
                 </div>
                 <div className="ck-doctor-actions">

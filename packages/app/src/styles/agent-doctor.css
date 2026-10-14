@@ -90,11 +90,11 @@
 
 /* Install: the confirm sheet, the running line and the result line. */
 .cockpit .ck-sheet--install {
-  width: 460px;
+  width: 520px;
 }
 .cockpit .ck-sheet--install .ck-doctor-cmd {
   white-space: pre-wrap;
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 .cockpit .ck-doctor-inline {
   font-family: var(--font-mono);
