@@ -178,3 +178,49 @@ fn persisted_worker_name_resolves_to_handle_when_unique() {
     assert_eq!(error.code, "AMBIGUOUS_WORKER_NAME");
     let _ = std::fs::remove_dir_all(&project);
 }
+
+/// The index names every project that ever ran an operation, including ones other tests (or, in
+/// the app, the user) are deleting right now. On Windows a file in a directory mid-`remove_dir_all`
+/// reads as "access denied". Such a foreign project must never fail a lookup that its own project
+/// can answer: this was the rare `persisted_worker_name_resolves_to_handle_when_unique` flake.
+#[test]
+fn unreadable_foreign_project_does_not_fail_handle_or_name_lookup() {
+    struct Index(std::path::PathBuf);
+    impl Drop for Index {
+        fn drop(&mut self) {
+            crate::operations::set_test_index_dir(None);
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let index = std::env::temp_dir().join(format!("pm-foreign-index-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&index).unwrap();
+    crate::operations::set_test_index_dir(Some(index.clone()));
+    let _index = Index(index);
+
+    let (project, registry, _pane) = pane_bound_run(false);
+    let (foreign, _registry, _pane) = pane_bound_run(false);
+    let uniq = uuid::Uuid::new_v4().simple().to_string();
+    let (luna, run_luna) = (format!("luna-{uniq}"), format!("run-luna-{uniq}"));
+    named_run(&foreign, "run-foreign", &format!("foreign-{uniq}"), 0);
+    named_run(&project, &run_luna, &luna, 0);
+    // Make every record of the foreign project unreadable: replace each with a directory.
+    let records = std::path::Path::new(&foreign).join(".puppet-master").join("operations");
+    for entry in std::fs::read_dir(&records).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            std::fs::remove_file(&path).unwrap();
+            std::fs::create_dir(&path).unwrap();
+        }
+    }
+    let by_name = super::super::persist::find_worker(&project, &luna).unwrap();
+    assert_eq!(by_name.agent_run_id, run_luna);
+    assert_eq!(
+        super::super::persist::find_worker(&project, &run_luna).unwrap().agent_run_id,
+        run_luna
+    );
+    assert_eq!(resolve_run_handle(&project, &luna, &registry).unwrap(), run_luna);
+    // A project that cannot be read is skipped, not reported as a hit.
+    assert!(super::super::persist::find_worker(&project, "no-such-worker").is_err());
+    let _ = std::fs::remove_dir_all(&project);
+    let _ = std::fs::remove_dir_all(&foreign);
+}

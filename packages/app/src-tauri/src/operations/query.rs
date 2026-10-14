@@ -38,16 +38,23 @@ pub fn list_operations(project_path: &str) -> Result<Vec<OperationSnapshot>, Ope
 
 /// Operations for `project_path` plus every other indexed project. Used when a handle
 /// or listing should not be confined to the currently selected directory.
+///
+/// Only `project_path` is read strictly. The index also names projects this call has no
+/// business failing over: a directory that is being deleted (on Windows a file pending
+/// deletion reads as "access denied"), an unplugged drive, a permission change or a corrupt
+/// record there. Those are skipped, so one bad project cannot break lookups for all others.
 pub fn list_indexed_operations(project_path: &str) -> Result<Vec<OperationSnapshot>, OperationError> {
     let mut seen = std::collections::BTreeSet::new();
     let mut snapshots = Vec::new();
-    let mut projects = vec![project_path.to_string()];
-    projects.extend(indexed_projects().unwrap_or_default());
-    for project in projects {
+    seen.insert(project_key(project_path));
+    snapshots.extend(list_operations(project_path)?);
+    for project in indexed_projects().unwrap_or_default() {
         if !seen.insert(project_key(&project)) {
             continue;
         }
-        snapshots.extend(list_operations(&project)?);
+        if let Ok(found) = list_operations(&project) {
+            snapshots.extend(found);
+        }
     }
     snapshots.sort_by_key(|snapshot| (snapshot.created_at_ms, snapshot.turn_index));
     Ok(snapshots)
@@ -82,7 +89,8 @@ pub fn resolve_agent_run(
         if project_key(&project) == project_key(project_path) {
             continue;
         }
-        if let Some(snapshot) = latest_in_project(&project, agent_run_id)? {
+        // Foreign project: best effort, see `list_indexed_operations`.
+        if let Ok(Some(snapshot)) = latest_in_project(&project, agent_run_id) {
             return Ok(snapshot);
         }
     }
@@ -103,7 +111,13 @@ pub fn agent_runs_by_project(
         if project.trim().is_empty() || !seen.insert(project_key(&project)) {
             continue;
         }
-        if let Some(snapshot) = latest_in_project(&project, agent_run_id)? {
+        let latest = if project_key(&project) == project_key(preferred) {
+            latest_in_project(&project, agent_run_id)?
+        } else {
+            // Foreign project: best effort, see `list_indexed_operations`.
+            latest_in_project(&project, agent_run_id).unwrap_or(None)
+        };
+        if let Some(snapshot) = latest {
             found.push(snapshot);
         }
     }
