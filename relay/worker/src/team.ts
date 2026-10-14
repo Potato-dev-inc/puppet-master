@@ -20,6 +20,10 @@ const SWEEP_EVERY_MS = 60 * 60 * 1000;
 const SEEN_FOR_MS = 2 * C.authSkewMs + 1_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BATCH = 200;
+/** Open sockets one device may keep per team (the oldest is closed beyond this). */
+const SOCKETS_PER_DEVICE = 5;
+/** Prune expired rate-limit windows after this many counted hits. */
+const PRUNE_EVERY_HITS = 200;
 
 interface Meta {
   team: string;
@@ -45,6 +49,9 @@ export class Team extends DurableObject<Env> {
   /** Long polls waiting for mail. */
   private readonly waiters = new Set<() => void>();
   private armed = false;
+  private hitsSincePrune = 0;
+  /** Envelopes held (for the mailbox cap); counted once per wake, then kept up to date. */
+  private stored: number | undefined;
   /** Test hook: limits overridden for this team (only read when TEST_HOOKS is on). */
   private override: Partial<Limits> = {};
 
@@ -73,6 +80,7 @@ export class Team extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS windows (key TEXT PRIMARY KEY, start_ms INTEGER NOT NULL, span_ms INTEGER NOT NULL,
         count INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS seen (sig TEXT PRIMARY KEY, until_ms INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS seen_until ON seen (until_ms);
       CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     `);
   }
@@ -108,6 +116,10 @@ export class Team extends DurableObject<Env> {
   /** Count one more in a window of `spanMs`; false when over `max`. */
   private hit(key: string, spanMs: number, max: number): boolean {
     const now = Date.now();
+    if (++this.hitsSincePrune >= PRUNE_EVERY_HITS) {
+      this.hitsSincePrune = 0;
+      this.sql.exec("DELETE FROM windows WHERE start_ms + span_ms <= ?", now);
+    }
     const row = this.sql.exec("SELECT start_ms, count FROM windows WHERE key = ?", key).toArray()[0];
     let start = now;
     let count = 1;
@@ -133,7 +145,10 @@ export class Team extends DurableObject<Env> {
     if (!device || !sig) throw new Refusal(401, "signed request required");
     this.requireTeam();
     if (!this.devices().has(device)) throw new Refusal(403, "device not on this team");
+    // Only a device on the access list gets here, so the replay guard holds signatures of team
+    // members only. Expired rows go on every call (an index range delete, free when nothing expired).
     const now = Date.now();
+    this.sql.exec("DELETE FROM seen WHERE until_ms <= ?", now);
     const seen = this.sql.exec("SELECT until_ms FROM seen WHERE sig = ?", sig).toArray()[0];
     if (seen && Number(seen.until_ms) > now) throw new Refusal(401, "request replayed");
     this.sql.exec(
@@ -220,7 +235,7 @@ export class Team extends DurableObject<Env> {
     this.metaCache = undefined;
     this.devicesCache = undefined;
     // A device taken off the list loses its open socket too, not only new requests.
-    this.pumpAll();
+    this.closeRemoved();
     this.wake();
     return empty(204);
   }
@@ -266,18 +281,21 @@ export class Team extends DurableObject<Env> {
     ) {
       return refuse(429, "slow down");
     }
+    if (this.storedCount() >= limits.maxEnvelopes) return refuse(429, "this team has too much waiting mail");
     // The counter only grows, so a cursor never meets a number it has already passed, even after
     // every old envelope has expired.
     const next = Number(this.sql.exec("SELECT next_seq FROM team WHERE id = 1").one().next_seq);
     this.sql.exec("UPDATE team SET next_seq = ? WHERE id = 1", next + 1);
+    const now = Date.now();
     this.sql.exec(
       "INSERT INTO envelopes (seq, sender, at_ms, body) VALUES (?, ?, ?, ?)",
       next,
       device,
-      Date.now(),
+      now,
       verdict.envelope,
     );
-    this.pumpAll();
+    this.stored = this.storedCount() + 1;
+    this.broadcast({ seq: next, at_ms: now, body: verdict.envelope });
     this.wake();
     return json({ seq: next });
   }
@@ -288,6 +306,11 @@ export class Team extends DurableObject<Env> {
       .exec("SELECT seq, at_ms, body FROM envelopes WHERE seq > ? AND at_ms >= ? ORDER BY seq LIMIT ?", after, oldest, limit)
       .toArray()
       .map((r) => ({ seq: Number(r.seq), at_ms: Number(r.at_ms), body: String(r.body) }));
+  }
+
+  private storedCount(): number {
+    if (this.stored === undefined) this.stored = Number(this.sql.exec("SELECT COUNT(*) AS n FROM envelopes").one().n);
+    return this.stored;
   }
 
   /** What the relay hands out: the envelope with its place in the mailbox (`Delivered`). */
@@ -333,23 +356,28 @@ export class Team extends DurableObject<Env> {
     const device = this.authorize(request);
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return refuse(426, "this is a WebSocket address");
     const after = queryU64(url, "after") ?? 0;
+    // A device may keep a few sockets; beyond that the oldest goes.
+    const mine = this.ctx.getWebSockets().filter((ws) => (ws.deserializeAttachment() as Attachment | null)?.device === device);
+    for (const old of mine.slice(0, Math.max(0, mine.length - SOCKETS_PER_DEVICE + 1))) {
+      try {
+        old.close(1008, "too many connections for this device");
+      } catch {
+        // already closed
+      }
+    }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ device, cursor: after } satisfies Attachment);
-    this.pump(server); // the backlog, then live envelopes as they arrive
+    this.catchUp(server); // the backlog; live envelopes are broadcast
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  /** Send a socket everything after its cursor; close it when its device is no longer on the list. */
-  private pump(ws: WebSocket): void {
+  /** Send one socket everything after its cursor (the backlog, or what it missed). */
+  private catchUp(ws: WebSocket): void {
     const attachment = ws.deserializeAttachment() as Attachment | null;
     if (!attachment) return;
     try {
-      if (!this.devices().has(attachment.device)) {
-        ws.close(1008, "device not on this team");
-        return;
-      }
       let cursor = attachment.cursor;
       for (;;) {
         const rows = this.rowsAfter(cursor, BATCH);
@@ -365,8 +393,43 @@ export class Team extends DurableObject<Env> {
     }
   }
 
-  private pumpAll(): void {
-    for (const ws of this.ctx.getWebSockets()) this.pump(ws);
+  /**
+   * A new envelope goes to every open socket from the one message built here: no query per socket.
+   * A socket that is behind (it missed one, or one was dropped) catches up with its own query.
+   */
+  private broadcast(row: Row): void {
+    const text = this.delivered(row);
+    const allowed = this.devices();
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment() as Attachment | null;
+      if (!attachment) continue;
+      try {
+        if (!allowed.has(attachment.device)) {
+          ws.close(1008, "device not on this team");
+        } else if (attachment.cursor === row.seq - 1) {
+          ws.send(text);
+          ws.serializeAttachment({ device: attachment.device, cursor: row.seq } satisfies Attachment);
+        } else if (attachment.cursor < row.seq) {
+          this.catchUp(ws);
+        }
+      } catch (error) {
+        console.debug("relay: socket send failed", error);
+      }
+    }
+  }
+
+  /** After an access-list change: close the sockets of devices that are no longer on it. */
+  private closeRemoved(): void {
+    const allowed = this.devices();
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment() as Attachment | null;
+      if (!attachment || allowed.has(attachment.device)) continue;
+      try {
+        ws.close(1008, "device not on this team");
+      } catch {
+        // already closed
+      }
+    }
   }
 
   async webSocketMessage(): Promise<void> {
@@ -397,8 +460,8 @@ export class Team extends DurableObject<Env> {
     if (!verdict.ok) return refuse(verdict.status, verdict.error);
     const limits = this.limits();
     if (
-      !this.hit(`invite:${verdict.invite}`, C.joinTtlMs, limits.joinsPerInvite) ||
-      !this.hit("joins-day", DAY_MS, limits.joinsPerTeamPerDay)
+      !this.hit("joins-day", DAY_MS, limits.joinsPerTeamPerDay) ||
+      !this.hit(`invite:${verdict.invite}`, C.joinTtlMs, limits.joinsPerInvite)
     ) {
       return refuse(429, "too many join requests");
     }
@@ -430,6 +493,7 @@ export class Team extends DurableObject<Env> {
     const now = Date.now();
     let removed = 0;
     removed += this.sql.exec("DELETE FROM envelopes WHERE at_ms < ?", now - C.mailboxTtlMs).rowsWritten;
+    this.stored = undefined;
     removed += this.sql.exec("DELETE FROM joins WHERE at_ms < ?", now - C.joinTtlMs).rowsWritten;
     removed += this.sql.exec("DELETE FROM windows WHERE start_ms + span_ms <= ?", now).rowsWritten;
     removed += this.sql.exec("DELETE FROM seen WHERE until_ms <= ?", now).rowsWritten;
@@ -471,6 +535,7 @@ export class Team extends DurableObject<Env> {
       case "test-drop": {
         const seq = queryU64(url, "seq") ?? 0;
         const gone = this.sql.exec("DELETE FROM envelopes WHERE seq = ?", seq).rowsWritten;
+        this.stored = undefined;
         return json({ dropped: gone });
       }
       case "test-limits": {

@@ -13,6 +13,7 @@ export interface Env {
   LIMIT_JOINS_PER_TEAM_PER_DAY?: string;
   LIMIT_UNAUTH_PER_IP_PER_HOUR?: string;
   LIMIT_MAX_WAIT_S?: string;
+  LIMIT_TEAM_MAX_ENVELOPES?: string;
   /** "1" turns on the /v1/_test hooks. Never set it on a real deployment. */
   TEST_HOOKS?: string;
 }
@@ -27,6 +28,8 @@ export interface Limits {
   unauthenticatedPerIpPerHour: number;
   /** Longest long-poll wait, seconds. */
   maxWaitS: number;
+  /** Envelopes one team's mailbox may hold at once (a storage cap; the server has none). */
+  maxEnvelopes: number;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -37,6 +40,7 @@ export const DEFAULT_LIMITS: Limits = {
   joinsPerTeamPerDay: 20,
   unauthenticatedPerIpPerHour: 30,
   maxWaitS: 25,
+  maxEnvelopes: 20_000,
 };
 
 function num(raw: string | undefined, fallback: number): number {
@@ -53,5 +57,6 @@ export function limitsFrom(env: Env): Limits {
     joinsPerTeamPerDay: num(env.LIMIT_JOINS_PER_TEAM_PER_DAY, DEFAULT_LIMITS.joinsPerTeamPerDay),
     unauthenticatedPerIpPerHour: num(env.LIMIT_UNAUTH_PER_IP_PER_HOUR, DEFAULT_LIMITS.unauthenticatedPerIpPerHour),
     maxWaitS: num(env.LIMIT_MAX_WAIT_S, DEFAULT_LIMITS.maxWaitS),
+    maxEnvelopes: num(env.LIMIT_TEAM_MAX_ENVELOPES, DEFAULT_LIMITS.maxEnvelopes),
   };
 }

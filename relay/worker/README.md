@@ -59,13 +59,29 @@ hibernation API, so the object sleeps between messages.
 
 The same as the server: 60 envelopes a minute and 5,000 a day per device, 600 a minute per team, 24 KiB per
 envelope, 5 tries per invite, 20 join requests a day per team, 30 unauthenticated requests an hour per
-address, long polls up to 25 seconds. To change a number, uncomment the matching `LIMIT_…` line under
+address, long polls up to 25 seconds, and (new here) 20,000 envelopes held per team. To change a number, uncomment the matching `LIMIT_…` line under
 `[vars]` in `wrangler.toml` (they are listed there).
 
 Cloudflare's own allowances apply on top (the free plan has daily request, duration and storage-row
 limits: see Cloudflare's pricing page for Workers and Durable Objects). A message costs about seven
 storage-row writes here (the envelope, the counter, three rate-limit counters, the replay guard).
 That is plenty for a team, and the paid plan removes the ceiling.
+
+## Hardening (what the server's security review found, done here from the start)
+
+- The mailbox counter only grows (a quiet week cannot make new mail invisible to a client's cursor).
+- A request signature is stored only after the device is known to be on the team's access list, and expired
+  ones are deleted on every call: strangers leave nothing behind.
+- Rate-limit counters live in each team's own object, are pruned as they expire, and a team's daily join
+  budget is spent before per-invite counters are created, so junk invite ids cannot grow them.
+- A new envelope is built once and sent to every open socket; no database query per socket per message.
+  Only a socket that is behind catches up with its own query. A device keeps at most 5 sockets.
+- Per-address limits read `CF-Connecting-IP`, which Cloudflare sets and a client cannot forge, so the limit is
+  per client and not for the whole relay.
+- A team's mailbox holds at most 20,000 envelopes (`LIMIT_TEAM_MAX_ENVELOPES`); a full mailbox answers 429.
+
+Not covered here: a flood of badly signed requests costs the Worker one signature check each; if that worries
+you, add a Cloudflare rate-limiting rule on the Worker's route (dashboard, Security > WAF).
 
 ## How it works
 

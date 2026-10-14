@@ -51,6 +51,20 @@ The deploy button copies the folder into the user's Git account, so the founder'
   `ureq` (the app's HTTP client) then cannot read that body to its end and `RelayTransport::call` fails with "unexpected
   end of file". Every empty reply therefore carries `content-encoding: identity` (`src/http.ts`, `empty()`).
 
+## Security review items (D:\pm-night\SECURITY-REVIEW-COWORK.md) not copied into the Worker
+
+- M1 mailbox counter restart: a monotonic per-team counter (`team.next_seq`), test "the relay's cursor never goes back".
+- M3: ACL check before the replay guard records anything; expired replay rows deleted per call; rate-limit windows
+  pruned (every 200 hits and by the alarm); the per-team join budget is counted before per-invite counters. Tests:
+  "only devices on the access list leave a trace in the replay guard", "junk invite ids cannot grow the counters".
+- M4: broadcast built once per post to every socket (cursor == seq-1), no per-socket query; catch-up only for a socket
+  that is behind; ACL change closes removed sockets without queries; client frames are ignored; 5 sockets per device.
+- M5: per-address limits read `CF-Connecting-IP`; invite windows have a finite life (1 day); counters are persisted
+  in the team's SQLite; a per-team cap of 20,000 stored envelopes (test "a team's mailbox has a cap").
+- Not done: rate-limiting failed signatures per address (left to a Cloudflare WAF rule, noted in the README).
+- `fix/cowork-hardening` (D:\pm-cowork-harden) had not landed when this was written (no commits past 2111483), so the
+  semantics are from the review text; compare the final server numbers (invite lifetime, caps) when it lands.
+
 ## Settings copy
 
 Settings > General > Labs > Team > Create a team > **Relay address** now has a help line under the field:

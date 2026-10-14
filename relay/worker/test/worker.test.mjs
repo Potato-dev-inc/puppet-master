@@ -154,3 +154,33 @@ test("the relay can live under a path prefix: the app signs the path it used", a
   const got = await prefixed.call("GET", `/v1/teams/${reg.team}/envelopes?after=0`, { device });
   assert.equal(got.json.items.length, 1);
 });
+
+test("a team's mailbox has a cap, and it frees up as mail expires", async () => {
+  const { api, team } = await newTeam(HOOKS);
+  await hook(api, team, "limits", "", "POST", { maxEnvelopes: 2 });
+  assert.equal((await post(api, team, device, 1)).status, 200);
+  assert.equal((await post(api, team, device, 2)).status, 200);
+  assert.equal((await post(api, team, device, 3)).status, 429, "full");
+  await hook(api, team, "age", `?ms=${8 * DAY}`);
+  assert.equal((await post(api, team, device, 4)).status, 200, "room again once the old mail is gone");
+});
+
+test("junk invite ids cannot grow the counters: the team's daily budget is spent first", async () => {
+  const { api, team } = await newTeam(HOOKS);
+  await hook(api, team, "limits", "", "POST", { joinsPerTeamPerDay: 3 });
+  for (let i = 0; i < 12; i += 1) {
+    const join = { team, invite: `JUNK${i}`, enc: b64("e"), ct: b64("c"), at_ms: Date.now() };
+    const res = await api.call("POST", `/v1/teams/${team}/joins`, { body: join });
+    assert.equal(res.status, i < 3 ? 202 : 429, `join ${i}`);
+  }
+  const state = (await hook(api, team, "alarm", "", "GET")).json;
+  assert.ok(state.windows <= 4, `${state.windows} counters (3 invites and the team's day)`);
+});
+
+test("only devices on the access list leave a trace in the replay guard", async () => {
+  const { api, team } = await newTeam(HOOKS);
+  for (let i = 0; i < 5; i += 1) await api.call("GET", `/v1/teams/${team}/envelopes`, { device: key(50 + i) });
+  assert.equal((await hook(api, team, "alarm", "", "GET")).json.seen, 0, "five strangers, nothing stored");
+  await poll(api, team);
+  assert.equal((await hook(api, team, "alarm", "", "GET")).json.seen, 1);
+});
