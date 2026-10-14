@@ -16,6 +16,9 @@ pub mod store;
 pub mod triggers;
 pub mod vapid;
 
+#[cfg(test)]
+mod tests_golden;
+
 use crate::mobile_pairing;
 use crate::pty::PaneRegistry;
 use hub::{Candidate, DeviceDirectory, PushHub};
@@ -99,6 +102,19 @@ fn agent_label(agent_type: &str) -> String {
         .unwrap_or_else(|| agent_type.to_string())
 }
 
+/// What the sidebar calls a pane: the person's title (or the auto title), else the agent label
+/// numbered when several panes run the same agent ("Claude Code 2"). `None` for a pane that is gone.
+fn pane_heading(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<String> {
+    use crate::attention::copy::{headings, PaneName};
+    let names: Vec<PaneName> = registry
+        .lock()
+        .list()
+        .into_iter()
+        .map(|p| PaneName { id: p.id, agent_type: p.agent_type, created_at: p.created_at, title: p.title })
+        .collect();
+    headings(&names, agent_label).remove(pane_id)
+}
+
 /// Send what a "hidden" presence report released (see `PushHub::set_visible`), off-thread.
 pub fn flush_outbox(hub: &Arc<PushHub>) {
     let deliveries = hub.take_outbox();
@@ -124,13 +140,14 @@ pub fn notify_pane_status(pane_id: &str, status: &str) {
         let Some(ctx) = CTX.get() else { return };
         // Let the dialog finish drawing and flickers settle, then make sure it is still true.
         std::thread::sleep(Duration::from_millis(triggers::SETTLE_MS));
-        let (agent_type, pane_title, current) = {
+        let (agent_type, current) = {
             let reg = ctx.registry.lock();
             match reg.panes.get(&pane_id) {
-                Some(pane) => (pane.info.agent_type.clone(), pane.info.title.clone(), pane.status.lock().as_str().to_string()),
+                Some(pane) => (pane.info.agent_type.clone(), pane.status.lock().as_str().to_string()),
                 None => return,
             }
         };
+        let heading = pane_heading(&ctx.registry, &pane_id);
         if current != status {
             return;
         }
@@ -145,7 +162,7 @@ pub fn notify_pane_status(pane_id: &str, status: &str) {
                 key: pane_id.clone(),
                 pane_id: Some(pane_id),
                 agent_label: agent_label(&agent_type),
-                pane_title,
+                heading,
                 prompt,
             },
         );
@@ -167,12 +184,13 @@ pub fn notify_operation(snapshot: &crate::operations::OperationSnapshot) {
     if !ctx.hub.has_subscribers() {
         return;
     }
+    let heading = snapshot.pane_id.as_deref().and_then(|id| pane_heading(&ctx.registry, id));
     let candidate = Candidate {
         kind,
         key: snapshot.pane_id.clone().unwrap_or_else(|| snapshot.operation_id.clone()),
         pane_id: snapshot.pane_id.clone(),
         agent_label: agent_label(&snapshot.agent_type),
-        pane_title: None,
+        heading,
         prompt: None,
     };
     let _ = std::thread::Builder::new().name("push-op".into()).spawn(move || {
@@ -211,7 +229,7 @@ pub fn notify_question(question: &crate::questions::Question) {
         key: format!("q-{}", question.id),
         pane_id: None,
         agent_label: if label.is_empty() { "An agent".to_string() } else { label },
-        pane_title: None,
+        heading: None,
         prompt: Some(PromptInfo { prompt_id: String::new(), text: question.question.clone(), actionable: false, risk: None }),
     };
     let _ = std::thread::Builder::new().name("push-question".into()).spawn(move || {

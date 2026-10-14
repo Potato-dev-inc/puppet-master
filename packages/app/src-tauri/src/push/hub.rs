@@ -45,8 +45,9 @@ pub struct Candidate {
     pub key: String,
     pub pane_id: Option<String>,
     pub agent_label: String,
-    /// The person's name for the pane ("auth refactor"), shown ahead of the agent in the title.
-    pub pane_title: Option<String>,
+    /// What the sidebar calls the pane (the person's title, else the numbered agent label), the
+    /// first words of the notification title: "auth refactor · Needs you".
+    pub heading: Option<String>,
     pub prompt: Option<PromptInfo>,
 }
 
@@ -216,7 +217,7 @@ impl PushHub {
         if verdict != Verdict::Send {
             return (verdict, Vec::new());
         }
-        let words = copy_for(candidate.kind, &candidate.agent_label, candidate.pane_title.as_deref(), candidate.prompt.as_ref());
+        let words = copy_for(candidate.kind, &candidate.agent_label, candidate.heading.as_deref(), candidate.prompt.as_ref());
         // Nothing secret goes to a push service. If redaction changed the text, the body no longer
         // shows the whole command exactly, so the notification is open-only (no Allow button).
         let (title, body) = (crate::redact::text(&words.title), crate::redact::text(&words.body));
@@ -342,7 +343,7 @@ mod tests {
     }
 
     fn waiting(key: &str, prompt: Option<PromptInfo>) -> Candidate {
-        Candidate { kind: Kind::WaitingInput, key: key.into(), pane_id: Some(key.into()), agent_label: "Kilo".into(), pane_title: None, prompt }
+        Candidate { kind: Kind::WaitingInput, key: key.into(), pane_id: Some(key.into()), agent_label: "Kilo".into(), heading: None, prompt }
     }
 
     fn two_device_hub(name: &str) -> PushHub {
@@ -375,9 +376,8 @@ mod tests {
         let hub = two_device_hub("payload");
         let (_, deliveries) = hub.plan(&waiting("pane-9", Some(command_prompt("pid-1"))), 1_000);
         let payload: Value = serde_json::from_slice(&deliveries[0].payload).unwrap();
-        assert_eq!(payload["title"], "Kilo needs you");
-        assert_eq!(payload["body"], "Low risk · Run a command
-Run command: ls");
+        assert_eq!(payload["title"], "Kilo · Needs you");
+        assert_eq!(payload["body"], "Low risk · Run a command\nRun command: ls\nKilo");
         assert_eq!(payload["pane_id"], "pane-9");
         assert_eq!(payload["prompt_id"], "pid-1");
         let mut keys: Vec<&str> = payload.as_object().unwrap().keys().map(String::as_str).collect();
@@ -507,7 +507,7 @@ Run command: ls");
         assert_eq!(d.len(), 2);
         let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
         assert!(payload.get("act").is_none(), "truncated command must be open-only");
-        assert!(payload["body"].as_str().unwrap().ends_with('…'));
+        assert!(payload["body"].as_str().unwrap().lines().nth(1).unwrap().ends_with('…'), "the command line is cut");
         // The same command short enough to show completely does get the buttons.
         let (_, d) = hub.plan(&waiting("p2", Some(command_prompt("ok"))), 1_000);
         assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_some());
@@ -547,8 +547,7 @@ Run command: ls");
         let (_, d) = hub.plan(&waiting("p1", Some(high)), 1_000);
         let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
         assert!(payload.get("act").is_none(), "no Allow on a lock screen for high risk");
-        assert_eq!(payload["body"], "High risk · Delete a folder outside this project
-Run command: rm -rf ../");
+        assert_eq!(payload["body"], "High risk · Delete a folder outside this project\nKilo", "no command on a lock screen");
         let unrated = PromptInfo { prompt_id: "u".into(), text: "Run command: ls".into(), actionable: true, risk: None };
         let (_, d) = hub.plan(&waiting("p2", Some(unrated)), 1_000);
         assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_none(), "unrated fails closed");
@@ -558,10 +557,10 @@ Run command: rm -rf ../");
     fn the_pane_title_reaches_the_payload_title() {
         let hub = two_device_hub("titled");
         let mut candidate = waiting("p1", Some(command_prompt("t")));
-        candidate.pane_title = Some("auth refactor".into());
+        candidate.heading = Some("auth refactor".into());
         let (_, d) = hub.plan(&candidate, 1_000);
         let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
-        assert_eq!(payload["title"], "auth refactor · Kilo needs you");
+        assert_eq!(payload["title"], "auth refactor · Needs you");
     }
 
     #[test]
@@ -570,7 +569,7 @@ Run command: rm -rf ../");
         let trust = PromptInfo { prompt_id: "t".into(), text: "Trust this workspace?".into(), actionable: false, risk: None };
         let (_, d) = hub.plan(&waiting("p1", Some(trust)), 1_000);
         assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_none());
-        let error = Candidate { kind: Kind::Error, key: "p2".into(), pane_id: Some("p2".into()), agent_label: "Kilo".into(), pane_title: None, prompt: None };
+        let error = Candidate { kind: Kind::Error, key: "p2".into(), pane_id: Some("p2".into()), agent_label: "Kilo".into(), heading: None, prompt: None };
         let (_, d) = hub.plan(&error, 1_000);
         assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_none());
     }
@@ -593,7 +592,7 @@ Run command: rm -rf ../");
             key: format!("q-{id}"),
             pane_id: None,
             agent_label: "Kilo".into(),
-            pane_title: None,
+            heading: None,
             prompt: Some(PromptInfo { prompt_id: String::new(), text: text.into(), actionable: false, risk: None }),
         }
     }
@@ -604,8 +603,8 @@ Run command: rm -rf ../");
         let (verdict, d) = hub.plan(&question("q1", "Deploy to staging?"), 1_000);
         assert_eq!((verdict, d.len()), (Verdict::Send, 2));
         let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
-        assert_eq!(payload["title"], "Kilo asks");
-        assert_eq!(payload["body"], "Deploy to staging?");
+        assert_eq!(payload["title"], "Kilo · Needs you");
+        assert_eq!(payload["body"], "Question · Deploy to staging?\nKilo");
         assert_eq!(payload["target"], "questions");
         assert!(payload.get("act").is_none(), "questions have no Allow / Deny");
         let mut keys: Vec<&str> = payload.as_object().unwrap().keys().map(String::as_str).collect();
@@ -629,7 +628,7 @@ Run command: rm -rf ../");
             assert!(payload.get("act").is_none(), "no Allow / Deny button on a lock screen");
             assert!(payload.get("pane_id").is_none() && payload.get("prompt_id").is_none());
             assert_eq!(payload["target"], "questions", "tapping opens the app's list");
-            assert_eq!(payload["body"], "Allow Claude Code to control Codex?");
+            assert_eq!(payload["body"], "Question · Allow Claude Code to control Codex?\nKilo");
         }
     }
 
