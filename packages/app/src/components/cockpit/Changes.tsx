@@ -11,6 +11,7 @@ import { PrBlock } from './PrBlock';
 import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { shipApi, type PrRef, type ShipApi } from '../../lib/ship-api';
 import { setupLine } from '../../lib/ship-model';
+import { ChangedFiles } from '../simple/ChangedFiles';
 import '../../styles/cockpit-changes.css';
 
 /** The slice of the cockpit API this section needs (a test double can stand in for it). */
@@ -34,8 +35,11 @@ export function Changes({
   hideActions = false,
   ship = shipApi,
   copyLabel,
+  plain = false,
 }: {
   paneId: string;
+  /** Simple mode: plain words, no branch, no diffs, no Merge / Discard (Simple owns those). */
+  plain?: boolean;
   /** Show the files and diffs only (no Merge / Discard): another surface owns those decisions. */
   hideActions?: boolean;
   /** Shown in place of the raw branch name when another surface owns the separate copy ("Separate copy of feat/billing"). */
@@ -118,6 +122,7 @@ export function Changes({
   const files = diff?.changes.files ?? [];
   const bodies = diff ? splitPatch(diff.patch) : new Map<string, string[]>();
   const working = item.state === 'active';
+  if (plain) return <ChangedFiles files={files} working={working} loaded={diff !== null} />;
   const total = diff?.changes;
   const notes = reviewDone?.review ? anchorFindings(reviewDone.review.findings, bodies).byFile : null;
   // A review that found problems: Merge stops being the obvious button and says what it is.

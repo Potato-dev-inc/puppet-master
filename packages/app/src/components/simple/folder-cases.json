@@ -1,0 +1,44 @@
+{
+  "_note": "Read by BOTH the Rust guard (plain_mode/guard.rs) and the UI guard (folder-guard.ts). One list, so they cannot drift.",
+  "known": {
+    "home": "C:\\Users\\Ana",
+    "onedrive": ["C:\\Users\\Ana\\OneDrive"],
+    "projectsRoot": "C:\\Users\\Ana\\Documents\\PM",
+    "systemDrive": "C:"
+  },
+  "cases": [
+    { "path": "C:\\Users\\Ana", "verdict": "home" },
+    { "path": "C:\\Users\\Ana\\", "verdict": "home" },
+    { "path": "c:\\users\\ana", "verdict": "home" },
+    { "path": "\\\\?\\C:\\Users\\Ana", "verdict": "home" },
+    { "path": "C:\\Users\\Ana\\Desktop", "verdict": "desktop" },
+    { "path": "C:\\Users\\Ana\\Documents", "verdict": "documents" },
+    { "path": "C:\\Users\\Ana\\Downloads", "verdict": "downloads" },
+    { "path": "C:\\Users\\Ana\\OneDrive", "verdict": "onedrive" },
+    { "path": "C:\\Users\\Ana\\OneDrive\\", "verdict": "onedrive" },
+    { "path": "C:\\Users\\Ana\\OneDrive\\Desktop", "verdict": "desktop" },
+    { "path": "C:\\Users\\Ana\\OneDrive\\Documents", "verdict": "documents" },
+    { "path": "C:\\", "verdict": "drive_root" },
+    { "path": "C:", "verdict": "drive_root" },
+    { "path": "D:\\", "verdict": "drive_root" },
+    { "path": "C:\\Users", "verdict": "above_home" },
+    { "path": "C:\\Windows", "verdict": "system" },
+    { "path": "C:\\Windows\\System32", "verdict": "system" },
+    { "path": "C:\\Program Files", "verdict": "system" },
+    { "path": "C:\\Program Files (x86)\\Foo", "verdict": "system" },
+    { "path": "C:\\ProgramData", "verdict": "system" },
+    { "path": "C:\\Users\\Ana\\AppData\\Local\\Temp", "verdict": "system" },
+    { "path": "C:\\Users\\Ana\\Documents\\PM", "verdict": "projects_root" },
+    { "path": "", "verdict": "empty" },
+    { "path": "   ", "verdict": "empty" },
+
+    { "path": "C:\\Users\\Ana\\Documents\\PM\\Plants quiz", "verdict": "ok" },
+    { "path": "C:\\Users\\Ana\\Documents\\Orders", "verdict": "ok" },
+    { "path": "C:\\Users\\Ana\\Desktop\\Class timer", "verdict": "ok" },
+    { "path": "C:\\Users\\Ana\\OneDrive\\Bakery\\Orders", "verdict": "ok" },
+    { "path": "D:\\Work\\quiz", "verdict": "ok" },
+    { "path": "C:\\Users\\Anabel", "verdict": "ok" },
+    { "path": "C:\\Users\\Ana\\Documents2", "verdict": "ok" },
+    { "path": "C:\\Windowsill\\x", "verdict": "ok" }
+  ]
+}

@@ -18,6 +18,7 @@ import { SharedMemoryToggle } from '../blocks/SharedMemoryToggle';
 import { TeamSettings } from '../blocks/TeamSettings';
 import { NumberControl, TextControl } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
+import { T as SIMPLE } from '../../simple/copy';
 import { Btn, FieldSelect, InfoRow, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
 
 function useInstallInfo(): AppInstallInfo | null {
@@ -214,6 +215,21 @@ export const generalRows: RowDef[] = [
           <option value="light">Light</option>
         </FieldSelect>
       </SettingRow>
+    ),
+  },
+  {
+    id: 'simple-mode',
+    label: SIMPLE.settingLabel,
+    hint: SIMPLE.settingHint,
+    keywords: 'simple plain easy beginner fewer buttons words look non-technical',
+    group: 'Appearance',
+    render: (env) => (
+      <SettingToggle
+        label={SIMPLE.settingLabel}
+        description={SIMPLE.settingHint}
+        checked={env.settings.simple_mode ?? false}
+        onChange={(value) => void env.patch({ simple_mode: value })}
+      />
     ),
   },
   {
