@@ -241,11 +241,81 @@ pub fn notify_question(question: &crate::questions::Question) {
 
 fn dispatch(ctx: &Ctx, candidate: Candidate) {
     let (verdict, deliveries) = ctx.hub.plan(&candidate, now_ms());
+    if verdict == Verdict::RateLimited {
+        // Held, not dropped: it goes out when the window ends, if it is still true (`release_held`).
+        tracing::debug!(key = %candidate.key, "push notification held back by the rate limit");
+        start_releaser();
+        return;
+    }
     if verdict != Verdict::Send {
         tracing::debug!(?verdict, key = %candidate.key, "push notification not sent");
         return;
     }
     send_deliveries(&ctx.hub, deliveries);
+}
+
+static RELEASER_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// One thread at a time wakes when a held notification's window ends and releases it.
+fn start_releaser() {
+    use std::sync::atomic::Ordering;
+    if RELEASER_RUNNING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let spawned = std::thread::Builder::new().name("push-held".into()).spawn(|| {
+        loop {
+            let Some(ctx) = CTX.get() else { break };
+            let now = now_ms();
+            for held in ctx.hub.take_due(now) {
+                release_held(ctx, held, now);
+            }
+            match ctx.hub.next_held_due() {
+                Some(at) => std::thread::sleep(Duration::from_millis(at.saturating_sub(now_ms()).clamp(50, 5_000))),
+                None => break,
+            }
+        }
+        RELEASER_RUNNING.store(false, Ordering::SeqCst);
+    });
+    if spawned.is_err() {
+        RELEASER_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// How many blocking things are open for a held candidate right now, from the attention list.
+fn open_things(held: &hub::Held) -> u32 {
+    use crate::attention::model::{Lane, State};
+    let snapshot = crate::attention::snapshot_now();
+    let candidate = &held.candidate;
+    let question_id = candidate.key.strip_prefix("q-");
+    snapshot
+        .items
+        .iter()
+        .filter(|item| item.state == State::Open && item.lane == Lane::Blocking)
+        .filter(|item| match (&candidate.pane_id, question_id) {
+            (Some(pane_id), _) => item.pane.as_ref().is_some_and(|p| &p.id == pane_id),
+            (None, Some(id)) => item.key == format!("question:{id}") || item.key == format!("consent:{id}"),
+            (None, None) => false,
+        })
+        .count() as u32
+}
+
+/// A held notification's window ended: say what is still true (nothing, the one thing, or one
+/// summary of several), reading the live prompt rather than the one that was held.
+fn release_held(ctx: &Ctx, mut held: hub::Held, now: u64) {
+    let open = open_things(&held);
+    if held.candidate.kind == Kind::WaitingInput {
+        if let Some(pane_id) = held.candidate.pane_id.clone() {
+            held.candidate.prompt = crate::pane_prompt::detect(&ctx.registry, &pane_id, false)
+                .and_then(|value| PromptInfo::from_detected(&value));
+            held.candidate.heading = pane_heading(&ctx.registry, &pane_id).or(held.candidate.heading);
+        }
+    }
+    let (verdict, deliveries) = ctx.hub.plan_held(&held, open, now);
+    if verdict == Verdict::Send {
+        send_deliveries(&ctx.hub, deliveries);
+    } else {
+        tracing::debug!(?verdict, key = %held.candidate.key, open, "held push notification not sent");
+    }
 }
 
 /// Encrypt and POST each delivery (blocking; call from a worker thread).

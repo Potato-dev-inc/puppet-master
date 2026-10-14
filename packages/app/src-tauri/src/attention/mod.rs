@@ -171,13 +171,16 @@ pub fn refresh() -> Option<Snapshot> {
     store.recompute(&facts, now).then(|| store.snapshot().clone())
 }
 
-/// A snapshot that is up to date right now (the tick thread may be up to a debounce behind). Used by
-/// readers that answer a request, like the away digest.
-pub fn current() -> Snapshot {
-    if let Some(changed) = refresh() {
-        publish(&changed);
-    }
-    snapshot()
+/// A snapshot that is up to date right now (the tick thread may be up to a debounce behind), for a
+/// reader that answers a request, like the away digest or a held push. It is computed on a copy of the
+/// store and changes nothing: the tick thread stays the only thing that commits and broadcasts, so
+/// no client is left without the frame for a change.
+pub fn snapshot_now() -> Snapshot {
+    let now = now_ms();
+    let facts = collect_facts(now);
+    let mut copy = STORE.lock().clone();
+    copy.recompute(&facts, now);
+    copy.snapshot().clone()
 }
 
 /// Start the `attention-tick` thread (once, from `setup`).

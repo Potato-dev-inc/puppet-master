@@ -191,7 +191,7 @@ pub fn prompt_before_answer(pane_id: &str) -> Option<(String, String)> {
 /// Everything that needs the user right now. It is the attention list (`attention::`), so the
 /// digest's "Needs you" has exactly as many lines as the Inbox, the tray badge and the phone show.
 pub fn needs_you() -> Vec<NeedsYou> {
-    needs_you_from(&crate::attention::current())
+    needs_you_from(&crate::attention::snapshot_now())
 }
 
 /// The open blocking items of an attention snapshot, in its order, as digest lines.

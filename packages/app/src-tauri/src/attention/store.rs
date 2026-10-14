@@ -40,6 +40,7 @@ impl PromptRec {
     }
 }
 
+#[derive(Clone)]
 pub struct Store {
     rev: u64,
     /// pane id -> (status, since ms)

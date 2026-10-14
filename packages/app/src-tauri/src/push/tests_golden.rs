@@ -158,6 +158,23 @@ fn bidi_title() {
     check("bidi_title", &payload);
 }
 
+#[test]
+fn coalesced_two() {
+    let h = hub("g-coalesced");
+    let mut first = waiting(Some("auth refactor"), Some(prompt(Some((RiskLevel::High, "Delete a folder outside this project")), "Run command: rm -rf ../build-cache")));
+    first.key = "pane-1".into();
+    h.plan(&first, 1_000);
+    let mut second = first.clone();
+    second.prompt.as_mut().unwrap().prompt_id = "pid-2".into();
+    assert_eq!(h.plan(&second, 5_000).0, super::triggers::Verdict::RateLimited);
+    let due = h.take_due(31_000);
+    let (verdict, deliveries) = h.plan_held(&due[0], 2, 31_000);
+    assert_eq!(verdict, super::triggers::Verdict::Send);
+    let payload = payload_for(&deliveries, "dev-a");
+    assert!(payload.get("act").is_none());
+    check("coalesced_two", &payload);
+}
+
 /// Every golden file is exercised: a stray file means a case was dropped.
 #[test]
 fn no_golden_file_is_orphaned() {

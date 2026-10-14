@@ -50,8 +50,11 @@ pub enum Verdict {
     Send,
     /// Same prompt as the last notification for this pane.
     Duplicate,
-    /// Another notification for this pane went out less than `RATE_LIMIT_MS` ago.
+    /// Another notification for this pane went out less than `RATE_LIMIT_MS` ago. The hub holds the
+    /// newest one and releases it when the window ends (`PushHub::take_due`): it is never dropped.
     RateLimited,
+    /// Everything that was held back was dealt with before the window ended: nothing to say.
+    Resolved,
 }
 
 /// Per-pane memory behind the triggers.
@@ -110,6 +113,16 @@ impl Gate {
             }
         }
         Verdict::Send
+    }
+
+    /// When the last notification for `key` went out.
+    pub fn last_sent(&self, key: &str) -> Option<u64> {
+        self.last_sent_ms.get(key).copied()
+    }
+
+    /// A notification for `key` goes out now outside `admit` (a coalesced push): start its window.
+    pub fn mark_sent(&mut self, now_ms: u64, key: &str) {
+        self.last_sent_ms.insert(key.to_string(), now_ms);
     }
 
     /// True the first time a terminal operation state is seen (snapshots are republished).
@@ -281,6 +294,21 @@ pub fn copy_for(kind: Kind, label: &str, heading: Option<&str>, prompt: Option<&
             Words { title: format!("{who} · Needs you"), body }
         }
     }
+}
+
+/// The words of ONE notification that stands for several things waiting on a pane: a prompt that
+/// arrived inside the rate-limit window, and whatever else is open there. It never carries a button.
+pub fn coalesced_copy(label: &str, heading: Option<&str>, open: u32, risk: Option<&PromptRisk>) -> Words {
+    let label = sanitize(label);
+    let who = heading
+        .map(|t| truncate_chars(t, MAX_TITLE_CHARS))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| label.clone());
+    let body = match risk {
+        Some(risk) => format!("{}\n{label}", risk.sentence()),
+        None => label.clone(),
+    };
+    Words { title: format!("{who} · {open} things need you"), body }
 }
 
 #[cfg(test)]
