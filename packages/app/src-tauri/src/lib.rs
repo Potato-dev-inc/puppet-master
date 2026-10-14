@@ -221,6 +221,7 @@ pub fn run() {
             commands::list_paired_mobile_devices,
             commands::revoke_paired_mobile_device,
             commands::get_mobile_tunnel_info,
+            commands::profile_bridge_url,
             commands::get_tunnel_status,
             commands::set_tunnel_config,
             commands::restart_tunnel,
