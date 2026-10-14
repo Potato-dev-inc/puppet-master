@@ -7,20 +7,26 @@ use regex::Regex;
 use crate::tui::{ComposerState, StandbyScreen, StartupGate};
 
 /// The questions Codex asks before it trusts a folder.
-const TRUST_PHRASES: [&str; 3] = [
+const TRUST_PHRASES: [&str; 5] = [
     "do you trust the files in this folder",
     "do you trust the contents of this directory",
     "allow codex to work in this folder",
+    // Codex 0.162+: "Trust this folder? ... 1. Trust and continue 2. Quit" (`fixtures/trust_folder_live.txt`).
+    "trust this folder?",
+    "continue only if you trust these files",
 ];
 
 /// The first-run login choices.
 const LOGIN_PHRASES: [&str; 2] = ["sign in with chatgpt", "provide your own api key"];
 
 /// Trust and approval prompts Codex draws in the pane. A standby never answers one.
-const DIALOG_PHRASES: [&str; 6] = [
+const DIALOG_PHRASES: [&str; 8] = [
     "do you trust the files in this folder",
     "do you trust the contents of this directory",
     "allow codex to work in this folder",
+    // Codex 0.162+: "Trust this folder? ... 1. Trust and continue 2. Quit" (`fixtures/trust_folder_live.txt`).
+    "trust this folder?",
+    "continue only if you trust these files",
     "would you like to run the following command",
     "would you like to make the following edits",
     "yes, proceed",
@@ -317,6 +323,7 @@ mod tests {
     const LIVE_PASTED: &str = include_str!("fixtures/composer_pasted_live.txt");
     const LIVE_UPDATE_MENU: &str = include_str!("fixtures/update_prompt_live.txt");
     const LIVE_READY_BANNER: &str = include_str!("fixtures/standby_ready_live.txt");
+    const LIVE_TRUST_FOLDER: &str = include_str!("fixtures/trust_folder_live.txt");
 
     #[test]
     fn live_composer_with_text_that_enter_did_not_submit_is_has_text() {
@@ -373,6 +380,7 @@ mod tests {
     fn trust_login_and_onboarding_screens_are_gates_nobody_dismisses_for_the_user() {
         for (screen, id) in [
             (TRUST_DIALOG, "workspace_trust"),
+            (LIVE_TRUST_FOLDER, "workspace_trust"),
             (LOGIN, "login"),
             ("Welcome to Codex\n\n  Press Enter to continue\n", "onboarding"),
         ] {
