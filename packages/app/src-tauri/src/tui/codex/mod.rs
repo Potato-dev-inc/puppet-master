@@ -8,7 +8,7 @@
 mod headless;
 mod screen;
 
-use super::{AccountScheme, ComposerState, Features, HeadlessLaunch, InstructionFile, LaunchSpec, StandbyScreen, StandbySupport, StartupGate, SubmitSequence, TuiProfile};
+use super::{AccountScheme, ComposerState, Features, HeadlessLaunch, InstructionFile, LaunchSpec, RunFacts, StandbyScreen, StandbySupport, StartupGate, SubmitSequence, TuiProfile, Warning};
 
 pub struct Codex;
 
@@ -181,5 +181,18 @@ impl TuiProfile for Codex {
 
     fn default_model(&self) -> Option<String> {
         headless::default_model()
+    }
+
+    /// A turn whose own tool call failed (live 0.162.1: `Read README.md (exit -1)`, "the workspace
+    /// command runner failed to start") still ends cleanly, so the run is `completed`. Say so.
+    fn run_warnings(&self, facts: &RunFacts) -> Vec<Warning> {
+        if facts.completed && facts.result.is_some_and(screen::reports_tool_failure) {
+            return vec![Warning {
+                code: "AGENT_REPORTED_ERROR",
+                source: "heuristic",
+                detail: "Codex reported that one of its own tool calls failed, so work its reply describes may not have happened. Check the result before relying on it.",
+            }];
+        }
+        Vec::new()
     }
 }

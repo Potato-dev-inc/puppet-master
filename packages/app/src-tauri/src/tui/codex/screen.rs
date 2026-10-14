@@ -97,6 +97,24 @@ pub(super) fn still_loading(screen: &str) -> bool {
         .any(|pair| pair[0].starts_with(">_ OpenAI Codex") && pair[1].eq_ignore_ascii_case("loading"))
 }
 
+/// Tool-failure rows Codex 0.162 draws in a turn: a group header `Explored · 2 failed` and each
+/// failed call `Read README.md (exit -1)` (real capture: `fixtures/result_tool_failed_live.txt`). A
+/// nonzero exit code, negative when the process never started, ends such a row; the `+ Show details`
+/// hint can follow it.
+static TOOL_FAILED_HEADER: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^\W*[A-Z][a-z]+ \u{b7} [1-9]\d* failed\s*$").expect("static regex"));
+static TOOL_FAILED_ROW: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^\W*[A-Z][A-Za-z]+ .*\(exit (?:-\d+|[1-9]\d*)\)(?:\s+\+ Show details)?\s*$").expect("static regex")
+});
+
+/// True when a reply shows Codex reporting that one of its own tool calls failed.
+pub(super) fn reports_tool_failure(reply: &str) -> bool {
+    reply
+        .lines()
+        .map(str::trim)
+        .any(|row| TOOL_FAILED_HEADER.is_match(row) || TOOL_FAILED_ROW.is_match(row))
+}
+
 /// Ctrl+U sixteen times. Ctrl+U clears the line before the cursor and does nothing in an empty
 /// composer; on a blank line it joins it to the one above, so an N-line draft needs about 2N
 /// presses. Checked live on 0.159.3: one press cleared a single line, sixteen in one write cleared
@@ -390,5 +408,27 @@ mod tests {
     fn the_status_row_is_work_and_an_idle_composer_is_not() {
         assert!(shows_work_in_progress(WORKING));
         assert!(!shows_work_in_progress(READY));
+    }
+
+    #[test]
+    fn a_live_capture_of_a_turn_whose_own_tool_failed_reports_a_tool_failure() {
+        let live = include_str!("fixtures/result_tool_failed_live.txt");
+        assert!(reports_tool_failure(live));
+    }
+
+    #[test]
+    fn ordinary_replies_and_prose_about_exit_codes_do_not_report_a_tool_failure() {
+        for screen in [LIVE_SUBMITTED, LIVE_WORKING, LIVE_READY_BANNER, READY, WORKING] {
+            assert!(!reports_tool_failure(screen), "{screen:.60}");
+        }
+        for reply in [
+            "\u{2022} The script exits with (exit 1) when the file is missing.",
+            "Explored \u{b7} 2 files",
+            "\u{2022} Explored",
+            "Explored \u{b7} 0 failed",
+            "Ran npm test (exit 0)",
+        ] {
+            assert!(!reports_tool_failure(reply), "{reply}");
+        }
     }
 }
