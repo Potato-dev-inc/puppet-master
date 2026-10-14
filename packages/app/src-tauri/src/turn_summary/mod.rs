@@ -121,6 +121,11 @@ pub fn checkpoint_settled(pane_id: &str, ticket: u64) {
     SETTLE.settle(pane_id, ticket);
 }
 
+/// A prompt was typed into `pane_id` (see `Tracker::note_dispatched`).
+pub fn note_dispatched(pane_id: &str) {
+    tracker().note_dispatched(pane_id);
+}
+
 /// Waits for the rest point's own checkpoint capture, then reads the facts and builds (and keeps) the
 /// summary. Blocking; run on a worker.
 fn summarize(

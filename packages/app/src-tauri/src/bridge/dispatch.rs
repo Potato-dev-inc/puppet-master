@@ -598,6 +598,11 @@ fn send_task_prompt(
     if agent_type != "opencode_native" {
         let _ = dismiss_for_operation(operation, registry, app, pane_id, agent_type);
     }
+    // The state of the pane's folder just before the agent gets the task (checkpoint "Before"). A
+    // follow-up on a known pane was snapshotted already by `run_operation_dispatch` (this one is
+    // then debounced); a pane this run just spawned has not been, and its first turn would have no
+    // checkpoints. For an isolated run the folder is the worktree.
+    crate::checkpoints::before_dispatch(pane_id, &operation.task);
     let _dispatch_guard = PANE_ASSIGNMENT_SERIAL.lock();
     let current =
         crate::operations::get_operation(&operation.project_path, &operation.operation_id)?;
@@ -732,6 +737,18 @@ fn send_task_prompt(
             })
         },
     )?;
+    // The agent has the task: the turn starts here for checkpoints and Last turn, even when the
+    // pane's status never said `running` (a pane that went from boot straight into the task). Only
+    // while the pane still reads running: a pane that already read idle again has had its events.
+    let working = registry
+        .lock()
+        .list()
+        .into_iter()
+        .any(|pane| pane.id == pane_id && pane.status == "running");
+    if working {
+        crate::checkpoints::note_dispatched(pane_id);
+        crate::turn_summary::note_dispatched(pane_id);
+    }
     Ok(())
 }
 

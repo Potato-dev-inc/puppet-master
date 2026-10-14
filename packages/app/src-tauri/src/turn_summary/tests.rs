@@ -735,3 +735,51 @@ fn a_stale_summary_never_replaces_a_later_one_of_the_same_turn() {
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].ended_at_ms, 9_000);
 }
+
+#[test]
+fn a_pane_that_goes_from_boot_into_its_first_task_gets_a_turn_from_the_prompt() {
+    // NEW #3 (worktree runs always spawn a fresh pane): no `running` event ever arrives for the
+    // first task, the first event is the `idle` that ends it, and Last turn read "Nothing yet".
+    let tmp = Tmp::new("first-task");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    *env.files.lock() = Some(one_file());
+    env.at(2_000);
+    assert!(tracker.on_status("p1", "idle").is_none(), "an event alone finds no turn (the boot)");
+
+    let tracker = Tracker::new(env.clone());
+    env.at(5_000);
+    tracker.note_dispatched("p1");
+    assert_eq!(tracker.turn_for_checkpoint("p1", false), Some(1), "checkpoints and summary share the number");
+    env.at(12_000);
+    let ended = tracker.on_status("p1", "idle").expect("the first idle ends the task's turn");
+    assert!(ended.from_running);
+    let summary = tracker.finish(ended).expect("summary");
+    assert_eq!((summary.turn, summary.started_at_ms), (1, 5_000));
+    assert_eq!(summary.files.as_ref().map(|f| f.count), Some(1));
+    assert_eq!(tracker.summaries("p1").len(), 1);
+}
+
+#[test]
+fn a_running_event_that_follows_the_prompt_note_opens_no_second_turn() {
+    let tmp = Tmp::new("late-running");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(5_000);
+    tracker.note_dispatched("p1");
+    env.at(5_300);
+    assert!(tracker.on_status("p1", "running").is_none());
+    env.at(12_000);
+    let summary = tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap();
+    assert_eq!((summary.turn, summary.started_at_ms), (1, 5_000));
+}
+
+#[test]
+fn a_shell_pane_never_gets_a_turn_from_a_prompt() {
+    let tmp = Tmp::new("shell-note");
+    let env = FakeEnv::new(tmp.p());
+    env.has_turns.store(false, Ordering::SeqCst);
+    let tracker = Tracker::new(env.clone());
+    tracker.note_dispatched("p1");
+    assert!(tracker.on_status("p1", "idle").is_none());
+}

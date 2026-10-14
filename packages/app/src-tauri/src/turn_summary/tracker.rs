@@ -127,6 +127,23 @@ impl Tracker {
         Some(ended)
     }
 
+    /// A prompt was typed into `pane_id`: the turn starts now, even if the pane never reported
+    /// `running` for it. A pane the run just spawned goes from its start to the end of its first
+    /// task without ever reading `idle` in between, so its first status event is the `idle` that ends
+    /// the turn, which used to find no turn open (no Last turn, no "after" snapshot).
+    pub fn note_dispatched(&self, pane_id: &str) {
+        let mut live = self.live.lock();
+        let entry = live.entry(pane_id.to_string()).or_default();
+        entry.last_status = "running".to_string();
+        if entry.open || !self.env.pane(pane_id).is_some_and(|p| p.has_turns) {
+            return;
+        }
+        entry.turn += 1;
+        entry.open = true;
+        entry.started_at_ms = self.env.now_ms();
+        entry.approvals.clear();
+    }
+
     /// The turn number a checkpoint taken now belongs to. This is the single source of turn
     /// numbering: checkpoints (History) and summaries (Last turn) both use it. A "before"
     /// snapshot taken while no turn is open belongs to the turn about to start.

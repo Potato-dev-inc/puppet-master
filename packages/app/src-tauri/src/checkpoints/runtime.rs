@@ -100,6 +100,14 @@ impl Runtime {
         None
     }
 
+    /// A prompt was typed into `pane_id`: it is working from now on, whether or not its status has
+    /// said so. A pane the run just spawned never read `idle` before its first task, so no
+    /// `running` event ever comes and its first `idle` would not read as the end of a turn (no
+    /// "after" snapshot). Any pane: after the first prompt it counts as running.
+    pub fn note_dispatched(&self, pane_id: &str) {
+        self.state.lock().last_status.insert(pane_id.to_string(), "running".to_string());
+    }
+
     /// Take (or skip) a snapshot for `pane_id`. Blocking.
     pub fn capture(&self, pane_id: &str, kind: Kind, note: Option<&str>) -> Outcome {
         let pane_lock = self.capturing.lock().entry(pane_id.to_string()).or_default().clone();
@@ -274,7 +282,13 @@ pub fn on_pane_status(pane_id: &str, status: &str) {
     }
 }
 
-/// Hook for `operations/dispatch.rs`: just before the prompt is typed.
+/// Hook for `bridge/dispatch.rs`: the prompt was typed into the pane (see [`Runtime::note_dispatched`]).
+pub fn note_dispatched(pane_id: &str) {
+    live().note_dispatched(pane_id);
+}
+
+/// Hook for `operations/dispatch.rs` (a follow-up on a known pane) and `bridge/dispatch.rs` (any run,
+/// including the first one on a pane it just spawned): just before the prompt is typed.
 pub fn before_dispatch(pane_id: &str, task: &str) {
     if let Outcome::Failed(message) = live().before_dispatch(pane_id, task) {
         tracing::warn!(pane = %pane_id, error = %message, "checkpoint before dispatch failed");

@@ -12,7 +12,7 @@ mod runtime;
 mod tests;
 
 pub use engine::{Checkpoint, CheckpointError, FileChange, RestoreReport};
-pub use runtime::{before_answer, before_dispatch, live, on_pane_status, PaneFacts, Runtime};
+pub use runtime::{before_answer, before_dispatch, live, note_dispatched, on_pane_status, PaneFacts, Runtime};
 
 /// What the History tab and `GET /panes/{id}/checkpoints` show.
 #[derive(Debug, Clone, serde::Serialize)]
