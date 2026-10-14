@@ -48,7 +48,8 @@ pub(crate) fn bridge_request(
                 std::process::id()
             )
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+        + &local_secret_header();
     let request = format!(
         "{method} {path} HTTP/1.1\r\n\
          Host: {}:{}\r\n\
@@ -94,7 +95,8 @@ pub(crate) fn bridge_request_wait(
                 std::process::id()
             )
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+        + &local_secret_header();
     let request = format!("POST /operations/{}/wait{} HTTP/1.1\r\nHost: {}:{}\r\n{}Connection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", encode_path_segment(id), query, endpoint.host, endpoint.port, session_header, body_text.len(), body_text);
     stream
         .write_all(request.as_bytes())
@@ -148,7 +150,8 @@ pub(crate) fn bridge_request_wait_agents(
                 std::process::id()
             )
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+        + &local_secret_header();
     let request = format!(
         "POST /agents/wait HTTP/1.1\r\nHost: {}:{}\r\n{}Connection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
         endpoint.host, endpoint.port, session_header, body_text.len(), body_text

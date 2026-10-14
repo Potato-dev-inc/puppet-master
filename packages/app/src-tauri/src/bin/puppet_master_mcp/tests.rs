@@ -653,3 +653,23 @@ fn ask_user_times_out_and_cancelling_the_call_withdraws_the_question() {
     // Cancelling the call removed the question from the Inbox.
     assert!(pending_question_id("mcp-test: cancel me").is_none(), "{id} should be withdrawn");
 }
+
+#[test]
+fn the_local_secret_beside_the_port_file_is_sent_with_every_request() {
+    let dir = std::env::temp_dir().join(format!("pm-shim-secret-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let port_file = dir.join("puppet-master.bridge.port");
+    fs::write(&port_file, "127.0.0.1:17321\n").unwrap();
+    // An older app writes no secret file: no header (the bridge only logs that, for now).
+    assert_eq!(local_secret_header_from_candidates(&[port_file.clone()]), "");
+    fs::write(dir.join("puppet-master.bridge.secret"), "ab12cd34\n").unwrap();
+    assert_eq!(
+        local_secret_header_from_candidates(&[dir.join("missing.port"), port_file.clone()]),
+        "X-PM-Local-Secret: ab12cd34\r\n"
+    );
+    // Anything that is not hex is not sent (it would be a header injection).
+    fs::write(dir.join("puppet-master.bridge.secret"), "ab\r\nX-Evil: 1").unwrap();
+    assert_eq!(local_secret_header_from_candidates(&[port_file]), "");
+    let _ = fs::remove_dir_all(dir);
+}

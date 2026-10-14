@@ -19,6 +19,27 @@ pub(crate) fn read_bridge_endpoint() -> Result<BridgeEndpoint, String> {
     read_bridge_endpoint_from_candidates(&candidates)
 }
 
+/// The app writes its per-launch local secret here, beside the port file (S3).
+const LOCAL_SECRET_FILE: &str = "puppet-master.bridge.secret";
+
+/// `X-PM-Local-Secret: <hex>\r\n` for every bridge request, or "" when there is no secret file
+/// (an older app). Read from beside the same port file `read_bridge_endpoint` uses, each request,
+/// so a restarted app's new secret is picked up. The bridge only logs a missing secret for now.
+pub(crate) fn local_secret_header() -> String {
+    local_secret_header_from_candidates(&bridge_port_candidates())
+}
+
+pub(crate) fn local_secret_header_from_candidates(candidates: &[PathBuf]) -> String {
+    candidates
+        .iter()
+        .find(|path| path.is_file())
+        .and_then(|path| fs::read_to_string(path.with_file_name(LOCAL_SECRET_FILE)).ok())
+        .map(|raw| raw.trim().to_string())
+        .filter(|secret| !secret.is_empty() && secret.bytes().all(|b| b.is_ascii_hexdigit()))
+        .map(|secret| format!("X-PM-Local-Secret: {secret}\r\n"))
+        .unwrap_or_default()
+}
+
 pub(crate) fn read_bridge_endpoint_from_candidates(
     candidates: &[PathBuf],
 ) -> Result<BridgeEndpoint, String> {

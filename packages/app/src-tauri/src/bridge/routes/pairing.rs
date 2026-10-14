@@ -12,7 +12,32 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
         ("POST", ["pair"]) => Some(pair(cx)),
         ("GET", ["pair", "session", code]) => Some(session(code)),
         ("POST", ["pair", "invite"]) => Some(invite(cx)),
+        ("GET", ["pair", "me"]) => Some(me(cx)),
         _ => None,
+    }
+}
+
+/// `GET /pair/me`: what the calling device may do and when it signs out if unused, so the phone
+/// can say "This phone can watch only" instead of failing on tap. The local app gets every cap.
+fn me(cx: &Ctx) -> RouteResult {
+    let caller = mobile_pairing::authorize_caller(cx.headers, cx.peer_loopback, cx.segments, cx.method)?;
+    match caller {
+        mobile_pairing::Caller::Device { device_id, caps } => {
+            let store = mobile_pairing::pairing_store()
+                .ok_or_else(|| (503, json!({ "error": "pairing_unavailable" })))?;
+            let info = store.lock().list_devices().into_iter().find(|d| d.id == device_id);
+            Ok((
+                200,
+                json!({
+                    "local": false,
+                    "device_id": device_id,
+                    "caps": caps,
+                    "expires_at": info.as_ref().map(|d| d.expires_at),
+                    "idle_expiry_secs": mobile_pairing::DEVICE_IDLE_EXPIRY_SECS,
+                }),
+            ))
+        }
+        _ => Ok((200, json!({ "local": true, "caps": mobile_pairing::Caps::all() }))),
     }
 }
 
