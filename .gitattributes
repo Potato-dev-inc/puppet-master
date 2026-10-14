@@ -8,3 +8,12 @@ packages/**/dist/** linguist-generated=true
 # keep them LF on every checkout (core.autocrlf=true would make them CRLF). Scoped to these dirs only.
 packages/app/src-tauri/src/tui/declarative/fixtures/definitions/*.toml text eol=lf
 packages/app/src-tauri/tests/agent-definitions/*.toml text eol=lf
+
+# The agent skill pack is include_str!-ed by the installer and compared byte for byte with the plugin copies;
+# keep it LF on every checkout.
+integrations/** text eol=lf
+.claude-plugin/*.json text eol=lf
+.agents/plugins/*.json text eol=lf
+
+# Golden files compared byte for byte by the agent pack tests.
+packages/app/src-tauri/src/agent_pack/golden/* text eol=lf

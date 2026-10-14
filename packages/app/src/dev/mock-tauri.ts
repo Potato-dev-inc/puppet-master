@@ -19,6 +19,7 @@ import {
   ACCOUNT_AGENTS,
   agentsListing,
   TOOLBELT_IMPORT,
+  AGENT_PACK_PREVIEW,
   TOOLBELT_LISTING,
   TOOLBELT_PREVIEW,
   standbyStatus,
@@ -247,6 +248,12 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return { localUrl: 'http://127.0.0.1:1420', pwaUrl: 'http://127.0.0.1:1420', tunnelUrl: 'https://pm.example.com', bridgeProxyUrl: 'https://pm.example.com/bridge', updatedAt: 0 };
         case 'pane_set_title':
           return String(a.title ?? '') || null;
+        case 'agent_pack_preview':
+          return AGENT_PACK_PREVIEW;
+        case 'agent_pack_apply':
+          return { ...AGENT_PACK_PREVIEW, dry_run: false, recorded: 9 };
+        case 'agent_pack_undo':
+          return { restored: [], removed: ['a', 'b'], skipped: [], recorded: 0 };
         case 'ambient_get_prefs':
           return { animated_tray_icon: true };
         case 'ambient_set_animated_tray':

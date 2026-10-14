@@ -393,6 +393,12 @@ pub trait TuiProfile: Send + Sync {
     fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
         None
     }
+
+    /// Where this agent reads skills (`SKILL.md` folders), for "Add Puppet Master to your agents".
+    /// `None` means the pack installer has no skills folder to write for this agent.
+    fn skills_host(&self) -> Option<crate::agent_pack::SkillsHostTable> {
+        None
+    }
 }
 
 /// What `TuiProfile::context` returns.

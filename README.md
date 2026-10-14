@@ -13,6 +13,8 @@ One HTTP bridge. One tool catalog. Desktop, mobile PWA, and MCP hosts all drive 
 
 Installers: [GitHub Releases](https://github.com/Potato-dev-inc/puppet-master/releases). Handbook: [docs/wiki](docs/wiki/README.md).
 
+Use it from inside your agent: Settings > Bridge & MCP > **Add Puppet Master to your agents** installs the skills and the connection for Claude Code, Codex, Cursor and OpenCode (with Undo). Or add the Claude Code plugin: `/plugin marketplace add Potato-dev-inc/puppet-master`, then `/plugin install puppet-master@pm`. Details: [integrations/README.md](integrations/README.md).
+
 ---
 
 ## What you get

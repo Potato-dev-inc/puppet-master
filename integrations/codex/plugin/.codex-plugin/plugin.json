@@ -1,0 +1,11 @@
+{
+  "name": "puppet-master",
+  "version": "0.1.0",
+  "description": "Delegate to other coding agents through Puppet Master: second opinions, parallel work in isolated worktrees, and receipts that say what was verified.",
+  "author": { "name": "Potato-dev-inc", "url": "https://github.com/Potato-dev-inc" },
+  "homepage": "https://github.com/Potato-dev-inc/puppet-master",
+  "repository": "https://github.com/Potato-dev-inc/puppet-master",
+  "license": "MIT",
+  "keywords": ["subagents", "delegation", "code-review", "worktree", "mcp"],
+  "skills": "./skills/"
+}

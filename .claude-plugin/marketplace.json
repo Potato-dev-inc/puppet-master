@@ -1,0 +1,17 @@
+{
+  "name": "pm",
+  "description": "Puppet Master: let your coding agent hand work to other agents and get verified results back.",
+  "owner": {
+    "name": "Potato-dev-inc",
+    "url": "https://github.com/Potato-dev-inc"
+  },
+  "plugins": [
+    {
+      "name": "puppet-master",
+      "source": "./integrations/claude-code/plugin",
+      "description": "Delegate to Codex, Cursor, OpenCode or another Claude through Puppet Master: second opinions, parallel work in isolated worktrees, and receipts that say what was verified.",
+      "category": "development",
+      "keywords": ["subagents", "delegation", "code-review", "worktree", "mcp"]
+    }
+  ]
+}

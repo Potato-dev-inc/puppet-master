@@ -30,6 +30,11 @@ url = "{url}"
 http_headers = "{headers}"
 "#;
 
+/// Where Codex reads skills ("Add Puppet Master to your agents").
+const SKILLS_HOST: &str = r#"
+dir = "~/.agents/skills"
+"#;
+
 impl TuiProfile for Codex {
     fn id(&self) -> &'static str {
         "codex"
@@ -37,6 +42,10 @@ impl TuiProfile for Codex {
 
     fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
         crate::toolbelt::host_from_toml(MCP_HOST)
+    }
+
+    fn skills_host(&self) -> Option<crate::agent_pack::SkillsHostTable> {
+        crate::agent_pack::skills_host_from_toml(SKILLS_HOST)
     }
 
     /// Codex reads `AGENTS.md` from the project root down to the cwd (developers.openai.com/codex/guides/agents-md).
