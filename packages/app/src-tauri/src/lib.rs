@@ -73,6 +73,7 @@ mod shell_env;
 mod startup_timing;
 pub mod shell_exec;
 mod standby;
+mod team;
 pub mod tool_registry;
 mod toolbelt;
 mod tui;
@@ -103,6 +104,13 @@ pub fn run() {
         .with_writer(flight::applog::Tee)
         .init();
 
+    // `PUPPET_MASTER_PROFILE=<name>`: a separate app (own identifier, so its own settings store,
+    // webview data and single-instance lock). The default profile keeps the configured identifier.
+    let mut context = tauri::generate_context!();
+    if app_paths::profile().is_some() {
+        context.config_mut().identifier = app_paths::app_id();
+    }
+
     tauri::Builder::default()
         // A second launch opens the running app's Settings window and exits, so it never starts
         // another bridge or rewrites the bridge port file.
@@ -126,6 +134,17 @@ pub fn run() {
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::list_panes,
+            team::commands::team_state,
+            team::commands::team_config_get,
+            team::commands::team_config_set,
+            team::commands::team_send,
+            team::commands::team_draft_dismiss,
+            team::commands::team_card_dismiss,
+            team::commands::team_pull,
+            team::commands::team_queue,
+            team::commands::team_job_apply,
+            team::commands::team_job_discard,
+            team::commands::team_job_diff,
             commands::spawn_pane,
             commands::kill_pane_cmd,
             commands::kill_all_panes,
@@ -221,6 +240,7 @@ pub fn run() {
             commands::bridge_local_secret,
             commands::bridge_local_secret_status,
             commands::get_mobile_tunnel_info,
+            commands::profile_bridge_url,
             commands::get_tunnel_status,
             commands::set_tunnel_config,
             commands::restart_tunnel,
@@ -440,6 +460,7 @@ pub fn run() {
             panic::init_shortcut(app.handle());
             turn_summary::start_presence();
             askbar::glue::init(app.handle());
+            team::init(app.handle().clone(), registry_for_panes.clone());
             app.handle().listen("pty://panes-changed", move |_event| {
                 bridge::push_panes_sse(&registry_for_panes);
             });
@@ -457,7 +478,7 @@ pub fn run() {
 
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             // Tray-only: closing the last window (a pane, Settings) must not end the app.

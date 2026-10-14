@@ -120,3 +120,12 @@ pub fn get_worker_launch() -> Option<crate::worker_launch::WorkerLaunch> {
 pub fn exit_app(app: AppHandle) {
     app.exit(0);
 }
+
+/// A non-default profile's own bridge (`PUPPET_MASTER_PROFILE`), so its windows never talk to
+/// another Puppet Master on this computer. `None` for the default profile, which keeps scanning.
+#[tauri::command]
+pub fn profile_bridge_url() -> Option<String> {
+    crate::app_paths::profile()?;
+    let text = std::fs::read_to_string(crate::app_paths::bridge_port_file()).ok()?;
+    crate::bridge::port_file::parse_port(&text).map(|port| format!("http://127.0.0.1:{port}"))
+}

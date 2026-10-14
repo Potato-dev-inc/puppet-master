@@ -58,6 +58,8 @@ export interface HarnessScenario {
   authority?: { ask_before_agent_control: boolean; agents_may_merge: boolean };
   /** Settings > Security: lines of the audit log the mocked backend returns (newest first). */
   audit?: { seq: number; ts_ms: number; kind: string; who: string; summary: string }[];
+  /** Team (Inbox > Team, the toast, Settings > Labs): what the mocked `team_state` returns. */
+  team?: import('../lib/team').TeamState;
   /** Runs once after the first paint (and after the panes loaded); click things, press keys. */
   after?: (api: HarnessDom) => void | Promise<void>;
 }

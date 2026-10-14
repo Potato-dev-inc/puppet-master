@@ -19,6 +19,7 @@ import { SettingsView } from './components/cockpit/SettingsView';
 import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
+import { TellTeamToast } from './components/cockpit/team/TellTeam';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
 import { homeView, viewAfterSelect, type MainView } from './components/cockpit/main-view';
 import './styles/cockpit.css';
@@ -166,6 +167,7 @@ export default function CockpitApp() {
           onClose={() => setUndoPane(null)}
         />
       )}
+      {c.mode !== 'individual' && <TellTeamToast />}
       {stopReport && <PanicSheet report={stopReport} names={c.names} onClose={() => setStopReport(null)} />}
       <div className="ck-toasts" aria-live="polite">
         {c.toasts.map((t) => (

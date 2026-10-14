@@ -26,6 +26,7 @@ import {
   EXAMPLE_REVIEW_START,
   EXAMPLE_REVIEW_POLL,
 } from './fixtures';
+import { TEAM_DIFF } from './team-fixtures';
 
 const DOCTOR_ROWS = [
   { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'winget install Anthropic.ClaudeCode', install_fallback: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true },
@@ -259,6 +260,30 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return { candidates: TOOLBELT_IMPORT };
         case 'toolbelt_import_apply':
           return { added: [] };
+        case 'team_state':
+          return scenario.team ?? null;
+        case 'team_config_get':
+          return {
+            enabled: !!scenario.team?.enabled,
+            team: 'acme',
+            folder: 'D:\\pm-team-demo\\wire',
+            name: scenario.team?.me ?? '',
+            members: scenario.team?.members ?? [],
+            projects: [],
+            profile: null,
+          };
+        case 'team_job_diff':
+          return TEAM_DIFF;
+        case 'team_send':
+        case 'team_draft_dismiss':
+        case 'team_card_dismiss':
+        case 'team_job_discard':
+        case 'team_config_set':
+          return null;
+        case 'team_pull':
+          return 'Pulled feat/auth. You are at 3f9c2a1.';
+        case 'team_job_apply':
+          return 'Applied to feat/billing. Nothing was pushed.';
         case 'memory_get':
         case 'memory_sync':
         case 'memory_save':
