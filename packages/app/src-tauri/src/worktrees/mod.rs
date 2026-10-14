@@ -31,6 +31,8 @@ pub mod routes;
 pub mod service;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_ship;
 
 use crate::operations::OperationError;
 use git::{git_ok, git_raw, git_limited, GitOut};

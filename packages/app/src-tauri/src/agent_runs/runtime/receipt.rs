@@ -59,6 +59,19 @@ pub struct ReceiptWorktree {
     pub additions: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deletions: Option<u32>,
+    /// What preparing the copy did: setup steps and files copied in (never committed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<ReceiptSetup>,
+}
+
+/// The setup of a separate copy, as the receipt shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReceiptSetup {
+    /// `ok` or `failed`.
+    pub status: String,
+    /// One plain sentence ("Ran npm ci; copied .env (never committed).").
+    pub sentence: String,
+    pub copied: Vec<String>,
 }
 
 pub(super) fn build_receipt(
@@ -108,6 +121,9 @@ pub(super) fn build_receipt(
     if terminal && snapshot.worker.requested_model.is_some() && model_verified != Some(true) {
         not_verified.push("model not confirmed".to_string());
     }
+    if snapshot.worker.worktree.as_ref().and_then(|w| w.setup.as_ref()).is_some_and(|s| s.failed()) {
+        not_verified.push("setting up the copy failed".to_string());
+    }
     if let Some(fallback) = &snapshot.worker.fallback {
         not_verified.push(format!(
             "ran headless, not in a visible pane ({})",
@@ -154,6 +170,11 @@ pub(super) fn build_receipt(
             files_changed: worktree.changes.map(|c| c.files_changed),
             additions: worktree.changes.map(|c| c.additions),
             deletions: worktree.changes.map(|c| c.deletions),
+            setup: worktree.setup.as_ref().map(|setup| ReceiptSetup {
+                status: setup.status.clone(),
+                sentence: setup.sentence(),
+                copied: setup.copied.clone(),
+            }),
         }),
     }
 }
