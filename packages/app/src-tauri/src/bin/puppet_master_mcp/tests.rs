@@ -682,3 +682,19 @@ fn the_local_secret_beside_the_port_file_is_sent_with_every_request() {
 
 #[path = "notices_tests.rs"]
 mod notices_tests;
+
+#[test]
+fn a_run_under_a_budget_names_itself_as_the_parent_of_the_helpers_it_starts() {
+    let mut body = json!({"task": "t"});
+    inject_budget_parent(&mut body, Some(" run-7 ".into()));
+    assert_eq!(body["budget_parent"], "run-7");
+    // No budget around the agent: the body is untouched (today's behaviour).
+    let mut plain = json!({"task": "t"});
+    inject_budget_parent(&mut plain, None);
+    inject_budget_parent(&mut plain, Some("  ".into()));
+    assert!(plain.get("budget_parent").is_none());
+    // What the caller wrote is kept.
+    let mut explicit = json!({"task": "t", "budget_parent": "mine"});
+    inject_budget_parent(&mut explicit, Some("run-7".into()));
+    assert_eq!(explicit["budget_parent"], "mine");
+}

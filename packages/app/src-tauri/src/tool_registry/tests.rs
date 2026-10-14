@@ -400,7 +400,7 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "68-15f16298a721eee2");
+    assert_eq!(catalog_version(), "68-5b4db2964818e765");
 }
 
 /// Every tool input that names an agent (`agent_type`, or `backend` on quick_ask) uses the one

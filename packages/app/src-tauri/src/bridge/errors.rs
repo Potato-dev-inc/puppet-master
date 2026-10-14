@@ -16,6 +16,7 @@ pub(super) fn operation_http_error(
         "OPERATION_NOT_FOUND" | "AGENT_NOT_FOUND" | "PANE_NOT_FOUND" => 404,
         "AUTHORIZATION_DENIED" => 403,
         "MODE_MISMATCH"
+        | "BUDGET_EXHAUSTED"
         | "AGENT_DEF_APPROVAL_STALE"
         | "AGENT_DEF_UNAPPROVED"
         | "AGENT_DEF_BINARY_CHANGED" => 409,
@@ -114,3 +115,19 @@ pub(super) fn enrich_handle_error(
 
 /// What a route handler returns.
 pub(super) type RouteResult = Result<HttpResponse, HttpResponse>;
+
+#[cfg(test)]
+mod budget_tests {
+    use super::operation_http_error;
+    use crate::operations::OperationError;
+
+    #[test]
+    fn budget_exhausted_is_a_conflict_the_caller_can_act_on_not_an_outage() {
+        let mut error = OperationError::new("BUDGET_EXHAUSTED", "paused", true);
+        error.context = serde_json::json!({"reason": "turns"});
+        let (status, body) = operation_http_error(error);
+        assert_eq!(status, 409);
+        assert_eq!(body["code"], "BUDGET_EXHAUSTED");
+        assert_eq!(body["context"]["reason"], "turns");
+    }
+}

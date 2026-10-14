@@ -35,6 +35,9 @@ fn run(
         "run_agent" => {
             let mut body = args.clone();
             ensure_idempotency_key(&mut body);
+            // A run Puppet Master started under a budget names itself in this process's environment;
+            // a helper it starts then draws from that budget.
+            inject_budget_parent(&mut body, std::env::var(PARENT_RUN_ENV).ok());
             match bridge_request("POST", "/agents/run", Some(body.clone())) {
                 Ok(response) => Ok(response),
                 Err(error) => Err(wait_timeout_recovery("/agents/run", &body, error)),

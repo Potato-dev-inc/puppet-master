@@ -84,6 +84,8 @@ const DEFAULT_SETTINGS: Settings = {
   checkpoints_enabled: true,
   checkpoints_keep: 50,
   away_minutes: 5,
+  budget_default_turns: 0,
+  budget_default_minutes: 0,
 };
 
 function readLegacySidebarWidth(): number | undefined {

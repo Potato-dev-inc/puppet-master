@@ -20,6 +20,8 @@ const PATCHABLE_KEYS: &[&str] = &[
     "checkpoints_enabled",
     "checkpoints_keep",
     "away_minutes",
+    "budget_default_turns",
+    "budget_default_minutes",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -38,6 +40,9 @@ pub fn default_public_settings() -> Value {
         "checkpoints_enabled": true,
         "checkpoints_keep": 50,
         "away_minutes": 5,
+        // Budgets: 0 = off, which is today's behaviour.
+        "budget_default_turns": 0,
+        "budget_default_minutes": 0,
     })
 }
 

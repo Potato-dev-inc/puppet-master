@@ -144,6 +144,12 @@ pub(in crate::agent_runs) fn execute_headless(
         None => crate::tui::LaunchEnv::default(),
     };
     let mut command = headless_command(&spec, &account_env);
+    // A run with a budget tells its MCP shim who it is, so a helper it starts draws from that budget.
+    if let Some(handle) = snapshot.as_ref().map(|current| current.agent_run_id.as_str()) {
+        if !handle.is_empty() && crate::budgets::record_of(&project, handle).is_some() {
+            command.env(crate::budgets::PARENT_ENV, handle);
+        }
+    }
     let mut readers = Vec::new();
     let dispatch = operations::run_operation_dispatch(&project, &operation_id, |_| {
         operations::dispatch_input_if_active(&project, &operation_id, |_| {

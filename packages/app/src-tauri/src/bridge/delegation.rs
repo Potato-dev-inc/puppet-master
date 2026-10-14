@@ -228,6 +228,8 @@ pub fn publish_operation(
         snapshot.status,
         OperationStatus::Completed | OperationStatus::Failed | OperationStatus::Cancelled
     ) {
+        // A turn that used up its run's budget puts the pause card in the Inbox right away.
+        crate::budgets::turn_ended(snapshot);
         release_operation_locks(snapshot)
             .map_err(|error| OperationError::new("LOCK_RELEASE_FAILED", error, true))?;
         if let Some(task_id) = snapshot.task_id.as_deref() {

@@ -104,6 +104,10 @@ export const SettingsSchema = z.object({
   checkpoints_keep: z.number().int().min(5).max(500).default(50),
   /** Minutes without keyboard or mouse before you count as away (the "While you were away" digest); 0 = off. */
   away_minutes: z.number().int().min(0).max(1440).default(5),
+  /** Budget every agent run that agents start gets, in turns; 0 = no budget (the default). Rust: budgets. */
+  budget_default_turns: z.number().int().min(0).max(10000).default(0),
+  /** Same, in wall-clock minutes; 0 = no limit. */
+  budget_default_minutes: z.number().int().min(0).max(10080).default(0),
   /** Optional path to the librarian project indexer script (default scripts/project-indexer.py). */
   librarian_indexer_path: z.string().optional(),
   /** Default OpenCode provider for opencode_native API prompts (write_terminal_input). */

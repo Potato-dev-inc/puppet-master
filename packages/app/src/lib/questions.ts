@@ -34,7 +34,12 @@ export interface Question {
   state: 'pending' | 'answered' | 'cancelled' | 'timed_out';
   /** Set when this is a consent card (an agent asking to control a pane it did not start). */
   consent?: ConsentInfo;
+  /** `budget` for the pause card of a run that used its budget (only Puppet Master raises one). */
+  kind?: string;
 }
+
+/** The pause card of an agent that used its budget: "Add 10 turns" / "Stop here". */
+export const isBudget = (q: Question): boolean => q.kind === 'budget';
 
 /** A consent card, not a question an agent asked. */
 export const isConsent = (q: Question): boolean => q.consent !== undefined;

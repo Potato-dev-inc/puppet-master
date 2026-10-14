@@ -20,7 +20,6 @@ export const SECTIONS: SectionDef[] = [
 export const LATER_ITEMS: LaterItem[] = [
   { title: 'Desktop notifications', note: 'Choose when Puppet Master interrupts you on this computer.' },
   { title: 'Rules and guardrails', note: 'Limits on what agents may do without asking.' },
-  { title: 'Cost controls', note: 'Daily limits and a warning before you reach them.' },
   { title: 'Backup and sync', note: 'Keep settings and sessions on more than one computer.' },
   { title: 'Agent marketplace', note: 'Find and install agent definitions made by others.' },
   { title: 'Team workspace', note: 'Share agents and projects with the people you work with.' },
