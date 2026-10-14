@@ -12,6 +12,11 @@ import { C, checkAcl, checkBlob, checkEnvelope, checkJoin, checkRegistration } f
  * route and the verified device in `x-pm-int-*` headers (a Durable Object is not reachable from
  * outside the Worker, and the Worker overwrites those headers). Everything stateful is decided
  * here: team exists, device on the access list, request not replayed, limits, storage.
+ *
+ * Mailbox positions come from `team.next_seq`, which never goes back, and a device added to the
+ * access list reads only from where the team was when it was added (`devices.from_seq`), as in
+ * relay/server. A cursor past the team's newest position (a replaced or restored store) gets
+ * `reset` and `head` on the batch, or a `{"reset":true,"head":N}` frame first on a socket.
  */
 
 /** How often the sweeper wakes while anything can still expire. */
@@ -42,10 +47,19 @@ interface Attachment {
   cursor: number;
 }
 
+/** A request that passed the access list and the replay guard. */
+interface Member {
+  device: string;
+  /** The mailbox position the device was added at: it reads only after it. */
+  fromSeq: number;
+}
+
 export class Team extends DurableObject<Env> {
   private readonly sql: SqlStorage;
   private metaCache: Meta | undefined;
   private devicesCache: Set<string> | undefined;
+  /** Device -> the position it was added at (`devices` table). */
+  private joinedCache: Map<string, number> | undefined;
   /** Long polls waiting for mail. */
   private readonly waiters = new Set<() => void>();
   private armed = false;
@@ -82,7 +96,16 @@ export class Team extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS seen (sig TEXT PRIMARY KEY, until_ms INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS seen_until ON seen (until_ms);
       CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS devices (device TEXT PRIMARY KEY, from_seq INTEGER NOT NULL);
     `);
+    // Teams from before join points: every listed device reads the whole mailbox, as before.
+    const team = this.sql.exec("SELECT acl FROM team WHERE id = 1").toArray()[0];
+    const known = Number(this.sql.exec("SELECT COUNT(*) AS n FROM devices").one().n);
+    if (team && known === 0) {
+      for (const device of JSON.parse(String(team.acl)) as string[]) {
+        this.sql.exec("INSERT OR IGNORE INTO devices (device, from_seq) VALUES (?, 0)", device);
+      }
+    }
   }
 
   // ------------------------------------------------------------------------------- state helpers
@@ -107,6 +130,25 @@ export class Team extends DurableObject<Env> {
       this.devicesCache = new Set(row ? (JSON.parse(String(row.acl)) as string[]) : []);
     }
     return this.devicesCache;
+  }
+
+  /** Where `device` may read from, or undefined when it is not a member. */
+  private joinedAt(device: string): number | undefined {
+    if (!this.joinedCache) {
+      this.joinedCache = new Map(
+        this.sql
+          .exec("SELECT device, from_seq FROM devices")
+          .toArray()
+          .map((r) => [String(r.device), Number(r.from_seq)] as [string, number]),
+      );
+    }
+    return this.joinedCache.get(device);
+  }
+
+  /** The team's newest mailbox position (0 before the first envelope). */
+  private head(): number {
+    const row = this.sql.exec("SELECT next_seq FROM team WHERE id = 1").toArray()[0];
+    return row ? Math.max(Number(row.next_seq) - 1, 0) : 0;
   }
 
   private limits(): Limits {
@@ -138,13 +180,14 @@ export class Team extends DurableObject<Env> {
     return count <= max;
   }
 
-  /** A signed request from a device on the team's access list that was not seen before. Returns the device. */
-  private authorize(request: Request): string {
+  /** A signed request from a device on the team's access list that was not seen before. */
+  private authorize(request: Request): Member {
     const device = request.headers.get("x-pm-int-device");
     const sig = request.headers.get("x-pm-int-sig");
     if (!device || !sig) throw new Refusal(401, "signed request required");
     this.requireTeam();
     if (!this.devices().has(device)) throw new Refusal(403, "device not on this team");
+    const fromSeq = this.joinedAt(device) ?? 0;
     // Only a device on the access list gets here, so the replay guard holds signatures of team
     // members only. Expired rows go on every call (an index range delete, free when nothing expired).
     const now = Date.now();
@@ -156,7 +199,7 @@ export class Team extends DurableObject<Env> {
       sig,
       now + SEEN_FOR_MS,
     );
-    return device;
+    return { device, fromSeq };
   }
 
   // ------------------------------------------------------------------------------------- routing
@@ -218,8 +261,12 @@ export class Team extends DurableObject<Env> {
       JSON.stringify(verdict.devices),
       Date.now(),
     );
+    for (const device of verdict.devices) {
+      this.sql.exec("INSERT OR IGNORE INTO devices (device, from_seq) VALUES (?, 0)", device);
+    }
     this.metaCache = undefined;
     this.devicesCache = undefined;
+    this.joinedCache = undefined;
     console.log("relay: team registered");
     return empty(201);
   }
@@ -231,9 +278,19 @@ export class Team extends DurableObject<Env> {
     if (verdict.version <= meta.aclVersion) {
       return verdict.version === meta.aclVersion ? empty(204) : refuse(409, "older access list");
     }
+    const head = this.head();
     this.sql.exec("UPDATE team SET acl = ?, acl_version = ? WHERE id = 1", JSON.stringify(verdict.devices), verdict.version);
+    const listed = new Set(verdict.devices);
+    for (const row of this.sql.exec("SELECT device FROM devices").toArray()) {
+      if (!listed.has(String(row.device))) this.sql.exec("DELETE FROM devices WHERE device = ?", String(row.device));
+    }
+    // A device new to the list reads from here on: not what the team said before it joined.
+    for (const device of verdict.devices) {
+      this.sql.exec("INSERT OR IGNORE INTO devices (device, from_seq) VALUES (?, ?)", device, head);
+    }
     this.metaCache = undefined;
     this.devicesCache = undefined;
+    this.joinedCache = undefined;
     // A device taken off the list loses its open socket too, not only new requests.
     this.closeRemoved();
     this.wake();
@@ -269,7 +326,7 @@ export class Team extends DurableObject<Env> {
   // --------------------------------------------------------------------------------------- mailbox
 
   private postEnvelope(request: Request, body: Uint8Array): Response {
-    const device = this.authorize(request);
+    const { device } = this.authorize(request);
     const meta = this.requireTeam();
     const verdict = checkEnvelope(body, meta.team, device);
     if (!verdict.ok) return refuse(verdict.status, verdict.error);
@@ -318,16 +375,33 @@ export class Team extends DurableObject<Env> {
     return `{"seq":${row.seq},"at_ms":${row.at_ms},"envelope":${row.body}}`;
   }
 
+  /**
+   * Envelopes after `after` that a device added at `fromSeq` may read. When `after` is past the
+   * team's newest position the store is behind the client: start again from its join point and
+   * say so (`reset`). Same rule as relay/server's `batch_for`.
+   */
+  private batch(after: number, fromSeq: number): { rows: Row[]; next: number; head: number; reset: boolean } {
+    const head = this.head();
+    const reset = after > head;
+    const start = reset ? fromSeq : Math.max(after, fromSeq);
+    const rows = this.rowsAfter(start, BATCH);
+    // Without items the cursor moves to where this device can read from: after a reset that is
+    // the head (nothing is newer), never back below the join point.
+    const next = rows.length > 0 ? rows[rows.length - 1].seq : reset ? Math.max(head, fromSeq) : start;
+    return { rows, next, head, reset };
+  }
+
   private async getEnvelopes(request: Request, url: URL): Promise<Response> {
-    this.authorize(request);
+    const { fromSeq } = this.authorize(request);
     const after = queryU64(url, "after") ?? 0;
     const wait = Math.min(queryU64(url, "wait") ?? 0, this.limits().maxWaitS);
     const deadline = Date.now() + wait * 1000;
     for (;;) {
-      const rows = this.rowsAfter(after, BATCH);
-      if (rows.length > 0 || Date.now() >= deadline) {
-        const next = rows.length > 0 ? rows[rows.length - 1].seq : after;
-        return jsonText(`{"items":[${rows.map((r) => this.delivered(r)).join(",")}],"next":${next}}`);
+      const { rows, next, head, reset } = this.batch(after, fromSeq);
+      if (rows.length > 0 || reset || Date.now() >= deadline) {
+        const items = rows.map((r) => this.delivered(r)).join(",");
+        const tail = reset ? ',"reset":true' : "";
+        return jsonText(`{"items":[${items}],"next":${next},"head":${head}${tail}}`);
       }
       await this.waitForMail(deadline - Date.now());
     }
@@ -353,9 +427,12 @@ export class Team extends DurableObject<Env> {
   // -------------------------------------------------------------------------------------- sockets
 
   private openSocket(request: Request, url: URL): Response {
-    const device = this.authorize(request);
+    const { device, fromSeq } = this.authorize(request);
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return refuse(426, "this is a WebSocket address");
-    const after = queryU64(url, "after") ?? 0;
+    const asked = queryU64(url, "after") ?? 0;
+    const head = this.head();
+    const reset = asked > head;
+    const after = reset ? fromSeq : Math.max(asked, fromSeq);
     // A device may keep a few sockets; beyond that the oldest goes.
     const mine = this.ctx.getWebSockets().filter((ws) => (ws.deserializeAttachment() as Attachment | null)?.device === device);
     for (const old of mine.slice(0, Math.max(0, mine.length - SOCKETS_PER_DEVICE + 1))) {
@@ -369,6 +446,7 @@ export class Team extends DurableObject<Env> {
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ device, cursor: after } satisfies Attachment);
+    if (reset) server.send(JSON.stringify({ reset: true, head }));
     this.catchUp(server); // the backlog; live envelopes are broadcast
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -527,7 +605,7 @@ export class Team extends DurableObject<Env> {
     switch (route) {
       case "test-dump": {
         let out = "";
-        for (const table of ["team", "state", "envelopes", "joins"]) {
+        for (const table of ["team", "state", "envelopes", "joins", "devices"]) {
           for (const row of this.sql.exec(`SELECT * FROM ${table}`).toArray()) out += `${table}|${JSON.stringify(row)}\n`;
         }
         return new Response(out, { headers: { "content-type": "text/plain" } });
