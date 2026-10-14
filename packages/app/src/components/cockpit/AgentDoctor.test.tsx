@@ -92,7 +92,7 @@ describe('AgentDoctor', () => {
     expect(b.textContent).toContain('Or with npm');
     expect(button(b, 'Copy install command')).toBeDefined();
     expect(button(b, 'Test')).toBeUndefined();
-    expect(button(b, 'Open to log in')).toBeUndefined();
+    expect(button(b, 'Sign in')).toBeUndefined();
   });
 
   it('copies the install command', async () => {
@@ -126,7 +126,7 @@ describe('AgentDoctor', () => {
     expect(host.querySelector('[aria-label="Exited"]')).not.toBeNull(); // the check glyph
   });
 
-  it('shows the login hint and opens the agent so the user can log in', async () => {
+  it('shows the login hint and opens the agent in a visible pane so the user signs in', async () => {
     const onOpenAgent = vi.fn();
     const api: AgentHealthApi = {
       check: async () => [
@@ -137,7 +137,7 @@ describe('AgentDoctor', () => {
     await mount(api, { onOpenAgent });
     expect(host.textContent).toContain('Run: agent login');
     expect(host.querySelector('[aria-label="Needs you"]')).not.toBeNull();
-    await act(async () => button(host, 'Open to log in')!.click());
+    await act(async () => button(host, 'Sign in')!.click());
     expect(onOpenAgent).toHaveBeenCalledWith('a');
   });
 

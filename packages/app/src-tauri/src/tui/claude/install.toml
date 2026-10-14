@@ -1,0 +1,16 @@
+# How Claude Code is installed on Windows. Checked 2026-10-14.
+# Source: https://code.claude.com/docs/en/setup
+#  - winget: `winget install Anthropic.ClaudeCode` (documented there; the manifest is a portable
+#    claude.exe from downloads.claude.ai, verified with `winget show`). No Node.js, no Git, no
+#    administrator needed. winget installs do not auto-update (`winget upgrade Anthropic.ClaudeCode`).
+#  - npm: `npm install -g @anthropic-ai/claude-code` (needs Node.js 22 or newer; installs the same
+#    native binary).
+#  - script: the vendor's `irm https://claude.ai/install.ps1 | iex`. Kept as the last resort because
+#    Puppet Master's own risk rules call "download and run a script" high risk.
+[install.windows]
+source = "https://code.claude.com/docs/en/setup"
+order = ["winget", "npm", "script"]
+winget = "Anthropic.ClaudeCode"
+npm = "@anthropic-ai/claude-code"
+script_url = "https://claude.ai/install.ps1"
+note = "Needs a paid Claude plan to sign in. Does not need Node.js, Git or administrator rights."

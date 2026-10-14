@@ -10,6 +10,7 @@ mod agent_adapters;
 mod agent_contexts;
 pub mod agent_runs;
 mod agent_health;
+mod agent_install;
 mod app_lifecycle;
 mod app_paths;
 mod bridge;
@@ -188,6 +189,10 @@ pub fn run() {
             commands::askbar_notice_open,
             commands::agents_health,
             commands::agents_health_test,
+            commands::agents_install_plan,
+            commands::agents_install_run,
+            commands::agents_install_status,
+            commands::agents_install_finish,
             commands::canary_status,
             commands::canary_check,
             commands::canary_set_auto,

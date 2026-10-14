@@ -76,6 +76,13 @@ export interface HarnessScenario {
   ship?: import('./ship-fixtures').ShipScenario;
   /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */
   teamConfig?: Partial<import('../lib/team').TeamConfigView>;
+  /** Set up agents > Install: what the mocked `agents_install_*` commands answer. */
+  doctorInstall?: {
+    /** The plan for the missing agent: winget (one step), prereq (Node.js first), script (vendor script), blocked (no winget). */
+    plan: 'winget' | 'prereq' | 'script' | 'blocked';
+    /** What the install window reports once Run was pressed. */
+    after?: 'running' | 'done_ok' | 'cancelled' | 'restart';
+  };
   /** Runs once after the first paint (and after the panes loaded); click things, press keys. */
   after?: (api: HarnessDom) => void | Promise<void>;
 }

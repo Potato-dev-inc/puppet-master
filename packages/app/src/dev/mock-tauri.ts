@@ -176,6 +176,39 @@ export function installTauriMock(scenario: HarnessScenario): void {
           return 'C:\Users\dev\AppData\Roaming\com.puppetmaster.app\captures';
         case 'agents_health':
           return { agents: DOCTOR_ROWS };
+        case 'agents_install_plan': {
+          const mode = scenario.doctorInstall?.plan ?? 'winget';
+          const missing = DOCTOR_ROWS.find((r) => r.id === a.agentId) ?? DOCTOR_ROWS[2];
+          const step = (index: number, label: string, tool: string | null, method: string, command: string, host: string, risk = false, note = '') => ({
+            index, label, tool, method, command, source: `https://${host}/docs`, source_host: host, high_risk: risk, note,
+          });
+          if (mode === 'blocked') {
+            return { agent_id: missing.id, label: missing.label, available: false, steps: [], hint: missing.install_hint, reason: 'This PC cannot install apps from the command line (winget is missing). Use the command below, or download it from the website.' };
+          }
+          const main =
+            mode === 'script'
+              ? step(0, missing.label, null, 'script', "irm 'https://opencode.ai/install.ps1' | iex", 'opencode.ai', true)
+              : step(0, missing.label, null, mode === 'prereq' ? 'npm' : 'winget', mode === 'prereq' ? 'npm install -g opencode-ai' : 'winget install --id SST.opencode -e --source winget', 'opencode.ai', false, 'OpenCode runs best inside WSL, but the Windows version works.');
+          const steps = mode === 'prereq'
+            ? [step(0, 'Node.js', 'node', 'winget', 'winget install --id OpenJS.NodeJS.LTS -e --source winget', 'nodejs.org'), { ...main, index: 1 }]
+            : [main];
+          return { agent_id: missing.id, label: missing.label, available: true, reason: null, hint: missing.install_hint, steps };
+        }
+        case 'agents_install_run':
+          return { pane_id: 'pane-install-1', command: a.shownCommand, label: 'OpenCode' };
+        case 'agents_install_status': {
+          const after = scenario.doctorInstall?.after ?? 'running';
+          if (after === 'running') return { known: true, done: false, exit_code: null, message: null };
+          if (after === 'cancelled') return { known: true, done: true, exit_code: 1223, message: 'The install was cancelled in the Windows prompt.' };
+          return { known: true, done: true, exit_code: 0, message: null };
+        }
+        case 'agents_install_finish': {
+          const after = scenario.doctorInstall?.after ?? 'running';
+          const installed = { ...DOCTOR_ROWS[2], state: 'unchecked', installed: true, version: '1.18.33', reason: 'Installed. Press Test to check it can answer.', can_test: true };
+          if (after === 'done_ok') return { path_added: ['C:\\Users\\dev\\AppData\\Local\\Microsoft\\WinGet\\Links'], health: installed, needs_restart: false };
+          if (after === 'restart') return { path_added: [], health: DOCTOR_ROWS[2], needs_restart: true };
+          return { path_added: [], health: DOCTOR_ROWS[2], needs_restart: false };
+        }
         case 'agents_health_test':
           return { ...DOCTOR_ROWS[0], state: 'ready', reason: 'Ready. It answered the test question.' };
         case 'get_mcp_status':

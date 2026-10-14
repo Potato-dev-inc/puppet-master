@@ -317,3 +317,15 @@ fn tested_versions_come_from_the_profile_table_and_default_to_no_pin() {
     assert!(range.contains(&semver::Version::parse("0.159.3").unwrap()));
     assert!(!range.contains(&semver::Version::parse("0.170.0").unwrap()));
 }
+
+#[test]
+fn install_windows_table_becomes_the_profiles_install_spec() {
+    assert_eq!(profile(KILO).install_spec(), None, "no [install.windows]: the doctor can only show the hint");
+    let text = format!(
+        "{KILO}\n[install.windows]\nsource = \"https://kilo.example/docs\"\nnpm = \"@kilocode/cli\"\nnote = \"Needs Node.js.\"\n"
+    );
+    let spec = profile(&text).install_spec().expect("spec");
+    assert_eq!(spec.npm.as_deref(), Some("@kilocode/cli"));
+    assert_eq!(spec.ordered_methods(), ["npm"]);
+    assert_eq!(spec.source, "https://kilo.example/docs");
+}

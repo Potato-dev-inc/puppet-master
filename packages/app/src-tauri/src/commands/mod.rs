@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
+mod agent_install;
 mod agent_models;
 mod agents;
 mod ambient;
@@ -37,6 +38,7 @@ mod tunnel;
 mod toolbelt;
 mod agent_pack;
 
+pub use agent_install::*;
 pub use agent_models::*;
 pub use attention::*;
 pub use agents::*;

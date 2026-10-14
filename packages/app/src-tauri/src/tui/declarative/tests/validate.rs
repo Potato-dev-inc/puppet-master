@@ -295,3 +295,23 @@ fn a_tested_range_must_be_a_version_range() {
     d.profile.tested = Some("  ".into());
     has_at(&d, "AGENT_DEF_INCONSISTENT", "profile.tested");
 }
+
+#[test]
+fn install_windows_values_are_checked_so_they_cannot_carry_shell_text() {
+    use crate::tui::install::{InstallSpec, InstallTable};
+    let with = |spec: InstallSpec| {
+        let mut d = minimal();
+        d.install = Some(InstallTable { windows: Some(spec) });
+        d
+    };
+    let ok = InstallSpec { source: "https://example.com/x".into(), npm: Some("@kilocode/cli".into()), ..Default::default() };
+    assert!(codes(&with(ok.clone())).is_empty(), "{:?}", codes(&with(ok.clone())));
+    has_at(&with(InstallSpec { npm: Some("pkg && calc".into()), ..ok.clone() }), "AGENT_DEF_BAD_BINARY", "install.windows");
+    has_at(&with(InstallSpec { winget: Some("A.B; calc".into()), ..ok.clone() }), "AGENT_DEF_BAD_BINARY", "install.windows");
+    has_at(
+        &with(InstallSpec { script_url: Some("https://x.example/i' | iex; '".into()), ..ok.clone() }),
+        "AGENT_DEF_BAD_BINARY",
+        "install.windows",
+    );
+    has_at(&with(InstallSpec { source: "http://plain.example".into(), ..ok }), "AGENT_DEF_BAD_BINARY", "install.windows");
+}

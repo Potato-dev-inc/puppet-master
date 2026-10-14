@@ -86,6 +86,13 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// How this CLI is installed on Windows, as data (`install::InstallSpec`): the agent doctor's
+    /// Install button builds its command from this, never from `install_hint` text. `None` (the
+    /// default) means the doctor can only show the hint.
+    fn install_spec(&self) -> Option<install::InstallSpec> {
+        None
+    }
+
     /// Extra risk patterns for approval cards (`prompt_risk`). They can only raise what the
     /// built-in rules found. Default: none.
     fn risk_rules(&self) -> Vec<crate::prompt_risk::RiskRule> {

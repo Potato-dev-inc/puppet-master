@@ -87,3 +87,37 @@
     justify-content: flex-start;
   }
 }
+
+/* Install: the confirm sheet, the running line and the result line. */
+.cockpit .ck-sheet--install {
+  width: 520px;
+}
+.cockpit .ck-sheet--install .ck-doctor-cmd {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-doctor-inline {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--label-2);
+  word-break: break-all;
+}
+.cockpit .ck-install-risk {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 6px;
+  color: var(--label);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.cockpit .ck-install-risk input {
+  margin-top: 2px;
+  accent-color: var(--label);
+}
+.cockpit .ck-doctor-result[data-tone='problem'] {
+  color: var(--label);
+}
+.cockpit .ck-doctor-result[data-tone='ok'] {
+  color: var(--label);
+}
