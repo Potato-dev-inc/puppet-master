@@ -78,6 +78,9 @@ struct Claim {
 struct PaneShadow {
     agent: Option<String>,
     screen_status: Option<String>,
+    /// The screen went idle -> running and has not come to rest since (the spawn's own first
+    /// running -> idle is not a turn).
+    screen_turn_open: bool,
     claims: Vec<Claim>,
 }
 
@@ -117,30 +120,38 @@ impl Shadow {
     /// A pane's classified screen status changed (`pty://status`).
     pub fn observe_screen(&mut self, pane_id: &str, status: &str, now_ms: u64) {
         self.sweep(now_ms);
-        let Some(pane) = self.panes.get_mut(pane_id) else {
-            // No hook event from this pane yet: remember the status for the side-by-side record.
-            self.panes.entry(pane_id.to_string()).or_default().screen_status = Some(status.to_string());
-            return;
-        };
+        let pane = self.panes.entry(pane_id.to_string()).or_default();
         let prev = pane.screen_status.replace(status.to_string());
-        if pane.agent.is_none() || prev.as_deref() == Some(status) {
+        if prev.as_deref() == Some(status) {
             return;
         }
+        // Until the first hook event the pane may have no hooks at all: its screen claims wait in
+        // the window (a SessionStart can arrive just after the screen moved) and, if no hook ever
+        // comes, expire without a verdict.
         let claim = match (prev.as_deref(), status) {
-            (Some("idle"), "running") => Some(Check::TurnStart),
+            (Some("idle"), "running") => {
+                pane.screen_turn_open = true;
+                Some(Check::TurnStart)
+            }
             (_, "waiting_input") => Some(Check::Waiting),
-            (Some("running"), "idle") => Some(Check::TurnEnd),
+            (Some("running"), "idle") if pane.screen_turn_open => {
+                pane.screen_turn_open = false;
+                Some(Check::TurnEnd)
+            }
             _ => None,
         };
+        let connected = pane.agent.is_some();
         let facts = super::ledger::facts(pane_id);
-        self.write(
+        if connected {
+            self.write(
             pane_id,
             json!({
                 "t": now_ms, "lane": "screen", "status": status, "prev": prev,
                 "hook_turn_in_flight": facts.as_ref().and_then(|f| f.turn_in_flight),
                 "hook_pending_permissions": facts.as_ref().map(|f| f.pending_permissions),
             }),
-        );
+            );
+        }
         if let Some(check) = claim {
             self.claim(pane_id, check, Lane::Screen, now_ms);
         }
@@ -208,6 +219,9 @@ impl Shadow {
             });
         }
         for (pane_id, c) in expired {
+            if self.panes.get(&pane_id).is_none_or(|p| p.agent.is_none()) {
+                continue; // never connected: not compared
+            }
             let (verdict, screen_at, hook_at) = match c.lane {
                 Lane::Screen => (Verdict::ScreenOnly, Some(c.at_ms), None),
                 Lane::Hook => (Verdict::HookOnly, None, Some(c.at_ms)),

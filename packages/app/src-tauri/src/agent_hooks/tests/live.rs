@@ -55,17 +55,14 @@ fn live_serve() {
     revoke(&pane);
 }
 
-#[test]
-#[ignore = "live: run by hand after live_serve, with LIVE_DIR"]
-fn live_side_by_side() {
-    let dir = live_dir();
-    let text = std::fs::read_to_string(dir.join("live.cast")).unwrap();
-    let header: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+/// The side-by-side record of one live recording: the cast replayed through the app's status
+/// pipeline, merged with the hook events by wall-clock time, fed to a `Shadow`.
+fn side_by_side(cast_text: &str, events: &[HookEvent], out: Option<PathBuf>) -> (String, Shadow) {
+    let header: Value = serde_json::from_str(cast_text.lines().next().unwrap()).unwrap();
     let start_ms = header["pm"]["start_ms"].as_u64().unwrap();
-    let cast = crate::replay::cast::Cast::parse("live", &text).unwrap();
+    let cast = crate::replay::cast::Cast::parse("live", cast_text).unwrap();
     let mut screen = crate::replay::pane::ReplayPane::new(cast);
     screen.run_to_end(Duration::from_secs(20));
-    let events: Vec<HookEvent> = serde_json::from_str(&std::fs::read_to_string(dir.join("hook-events.json")).unwrap()).unwrap();
     let pane = events.first().map(|e| e.pane_id.clone()).expect("at least one hook event");
 
     enum Item<'a> {
@@ -80,32 +77,68 @@ fn live_side_by_side() {
     items.extend(events.iter().map(|e| (e.at_ms, Item::Hook(e))));
     items.sort_by_key(|(t, _)| *t);
 
-    let out = dir.join("side-by-side");
-    let _ = std::fs::remove_dir_all(&out);
-    let mut shadow = Shadow::new(Some(out.clone()));
-    let mut table = String::from("  t (s)  screen            hook\n");
+    let mut shadow = Shadow::new(out);
+    let mut table = String::from("  t (s)  screen            hook
+");
     for (t, item) in &items {
         let secs = (*t as f64 - start_ms as f64) / 1000.0;
         match item {
             Item::Screen(status) => {
                 shadow.observe_screen(&pane, status, *t);
-                table.push_str(&format!("{secs:7.2}  {status:<16}\n"));
+                table.push_str(&format!("{secs:7.2}  {status:<16}
+"));
             }
             Item::Hook(event) => {
                 shadow.observe_hook(event, event.applied, *t);
                 let note = if event.applied { "" } else { " (recorded, not applied)" };
-                table.push_str(&format!("{secs:7.2}  {:<16}  {}{note}\n", "", event.vendor_event));
+                table.push_str(&format!("{secs:7.2}  {:<16}  {}{note}
+", "", event.vendor_event));
             }
         }
     }
     let end = items.last().map(|(t, _)| *t).unwrap_or(start_ms) + 60_000;
     shadow.sweep(end);
-    let tallies: Vec<Value> = shadow
+    (table, shadow)
+}
+
+fn tallies_json(shadow: &Shadow) -> Vec<Value> {
+    shadow
         .tallies()
         .into_iter()
         .map(|(agent, check, t)| json!({ "agent": agent, "check": check, "agree": t.agree, "screen_only": t.screen_only, "hook_only": t.hook_only }))
-        .collect();
-    std::fs::write(dir.join("summary.json"), serde_json::to_string_pretty(&json!({ "pane": pane, "tallies": tallies })).unwrap()).unwrap();
+        .collect()
+}
+
+#[test]
+#[ignore = "live: run by hand after live_serve, with LIVE_DIR"]
+fn live_side_by_side() {
+    let dir = live_dir();
+    let text = std::fs::read_to_string(dir.join("pty").join("live.cast")).unwrap();
+    let events: Vec<HookEvent> = serde_json::from_str(&std::fs::read_to_string(dir.join("hook-events.json")).unwrap()).unwrap();
+    let out = dir.join("side-by-side");
+    let _ = std::fs::remove_dir_all(&out);
+    let (table, shadow) = side_by_side(&text, &events, Some(out));
+    let tallies = tallies_json(&shadow);
+    std::fs::write(dir.join("summary.json"), serde_json::to_string_pretty(&json!({ "tallies": tallies })).unwrap()).unwrap();
     std::fs::write(dir.join("side-by-side.txt"), &table).unwrap();
-    eprintln!("{table}\n{}", serde_json::to_string_pretty(&tallies).unwrap());
+    eprintln!("{table}
+{}", serde_json::to_string_pretty(&tallies).unwrap());
+}
+
+/// The two live shadow runs (Claude Code 2.1.300, Codex 0.162.1), kept as recordings: on both,
+/// the hooks and the screen agreed on the turn start, the approval wait and the turn end.
+#[test]
+fn the_live_shadow_runs_agree_with_the_screen_on_every_check() {
+    for run in ["claude-2.1.300", "codex-0.162.1"] {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/agent_hooks/tests/live").join(run);
+        let text = std::fs::read_to_string(dir.join("live.cast")).unwrap();
+        let events: Vec<HookEvent> = serde_json::from_str(&std::fs::read_to_string(dir.join("hook-events.json")).unwrap()).unwrap();
+        let (table, shadow) = side_by_side(&text, &events, None);
+        let tallies = shadow.tallies();
+        assert_eq!(tallies.len(), 3, "{run}: {table}");
+        for (agent, check, tally) in tallies {
+            assert_eq!((tally.agree, tally.screen_only, tally.hook_only), (1, 0, 0), "{run} {agent} {check:?}
+{table}");
+        }
+    }
 }

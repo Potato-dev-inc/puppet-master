@@ -65,6 +65,7 @@ impl HookKind {
 
 /// Per-kind projected fields (§4.3). Strings are cut and sanitized; free text is redacted.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HookDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
