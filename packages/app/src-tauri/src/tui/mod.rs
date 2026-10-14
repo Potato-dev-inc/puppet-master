@@ -17,6 +17,7 @@ pub mod codex;
 pub mod cursor;
 pub mod declarative;
 pub mod generic;
+pub mod install;
 pub mod opencode;
 pub mod registry;
 pub mod shell;

@@ -97,6 +97,10 @@ impl TuiProfile for Claude {
         Some("Open Claude Code and type /login".into())
     }
 
+    fn install_spec(&self) -> Option<super::install::InstallSpec> {
+        super::install::parse_install_toml(include_str!("install.toml")).ok().flatten()
+    }
+
     fn headless_command(&self, launch: &HeadlessLaunch) -> Result<LaunchSpec, String> {
         headless::command(launch)
     }

@@ -60,6 +60,10 @@ impl TuiProfile for OpenCode {
         Some("Open OpenCode and type /connect".into())
     }
 
+    fn install_spec(&self) -> Option<super::install::InstallSpec> {
+        super::install::parse_install_toml(include_str!("install.toml")).ok().flatten()
+    }
+
     fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
         crate::toolbelt::host_from_toml(MCP_HOST)
     }

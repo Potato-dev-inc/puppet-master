@@ -60,6 +60,8 @@ pub struct Definition {
     /// Project files this agent reads its instructions from; Puppet Master keeps its shared
     /// project memory in a managed block of each (`crate::one_brain`).
     pub instructions: Option<InstructionsTable>,
+    /// How the CLI is installed (`[install.windows]`); the agent doctor's Install button uses it.
+    pub install: Option<crate::tui::install::InstallTable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

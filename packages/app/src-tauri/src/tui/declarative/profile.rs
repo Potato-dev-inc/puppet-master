@@ -412,6 +412,10 @@ impl TuiProfile for DeclarativeProfile {
         Some(self.def.binary.login_hint.trim().to_string()).filter(|h| !h.is_empty())
     }
 
+    fn install_spec(&self) -> Option<crate::tui::install::InstallSpec> {
+        self.def.install.as_ref()?.windows.clone().filter(|spec| spec.validate().is_ok())
+    }
+
     fn is_installed(&self) -> bool {
         let here = std::env::current_dir().unwrap_or_default();
         resolve_binary(&self.def.binary, &here).is_ok()

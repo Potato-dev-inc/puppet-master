@@ -76,8 +76,16 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
     check_mcp_host(def, &mut e);
     check_risk(def, &mut e, &mut regexes);
     check_instructions(def, &mut e);
+    check_install(def, &mut e);
     check_regexes(&regexes, &mut e);
     e.0
+}
+
+fn check_install(def: &Definition, e: &mut Errors) {
+    let Some(spec) = def.install.as_ref().and_then(|t| t.windows.as_ref()) else { return };
+    if let Err(message) = spec.validate() {
+        e.add("AGENT_DEF_BAD_BINARY", "install.windows", message);
+    }
 }
 
 fn check_risk(def: &Definition, e: &mut Errors, regexes: &mut Regexes) {
