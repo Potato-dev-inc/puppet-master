@@ -149,6 +149,11 @@ impl TuiProfile for Codex {
         screen::composer_state(screen)
     }
 
+    /// The composer without its dimmed placeholder (`screen::without_placeholder`).
+    fn input_screen(&self, screen: &vt100::Screen) -> String {
+        screen::without_placeholder(screen)
+    }
+
     /// The composer, but not while Codex is still loading (it draws the box before it takes keys).
     fn ready_recogniser(&self, screen: &str) -> Option<ComposerState> {
         if screen::still_loading(screen) {
