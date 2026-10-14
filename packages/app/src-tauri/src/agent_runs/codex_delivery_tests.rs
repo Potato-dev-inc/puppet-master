@@ -46,6 +46,8 @@ struct CodexPane {
     /// Keys the menu received that were not its own dismiss key (the bug: a task typed into it).
     typed_into_menu: Vec<String>,
     esc_sent: usize,
+    /// A splash (not a gate, not a composer) that holds still until this moment, then the composer.
+    ready_at: Option<Duration>,
 }
 
 impl CodexPane {
@@ -63,6 +65,7 @@ impl CodexPane {
             esc_closes_menu: true,
             typed_into_menu: Vec::new(),
             esc_sent: 0,
+            ready_at: None,
         }
     }
 
@@ -76,6 +79,10 @@ impl CodexPane {
     }
 
     fn draw_menu_when_due(&mut self) {
+        if self.ready_at.is_some_and(|at| self.clock >= at) {
+            self.ready_at = None;
+            self.screen = READY.to_string();
+        }
         if self.menu_at.is_some_and(|at| self.clock >= at) && !self.menu_up {
             self.menu_at = None;
             self.menu_up = true;
@@ -101,6 +108,11 @@ impl DeliveryIo for CodexPane {
         }
         if self.menu_at.is_some() {
             // Not drawn yet: keys are lost.
+            return Ok(());
+        }
+        if self.ready_at.is_some() {
+            // A splash has no input handler: whatever is typed here is lost or misread.
+            self.typed_into_menu.push(format!("{text:?} enter={enter}"));
             return Ok(());
         }
         if !enter {
@@ -138,6 +150,9 @@ impl DeliveryIo for CodexPane {
     }
     fn startup_gate(&mut self, screen: &str) -> Option<StartupGate> {
         profile_for("codex").startup_gate(screen)
+    }
+    fn reads_composer(&mut self) -> bool {
+        profile_for("codex").reads_composer()
     }
     fn enter_settle(&mut self) -> Duration {
         self.settle
@@ -242,6 +257,36 @@ fn a_menu_that_draws_while_the_task_is_being_typed_is_closed_and_the_task_typed_
         pane.typed_into_menu
     );
     assert!(trace.iter().any(|line| line.contains("startup screen")), "{trace:#?}");
+}
+
+#[test]
+fn a_screen_that_is_drawn_and_still_but_not_a_composer_is_not_ready() {
+    // "No gate found" used to mean ready: a splash that held still passed, and the task was typed
+    // into a pane with no input handler yet. Now nothing is typed until the composer is on screen.
+    let mut pane = CodexPane::new();
+    pane.screen = ">_ OpenAI Codex (v0.159.3)
+
+  starting...
+".to_string();
+    pane.ready_at = Some(pane.clock + Duration::from_millis(2_000));
+    let (delivery, trace) = deliver(&mut pane);
+    assert_eq!(delivery, Delivery::Started, "{trace:#?}");
+    assert!(pane.typed_into_menu.is_empty(), "typed before the composer existed: {:?}", pane.typed_into_menu);
+    assert_eq!(pane.enters, 1);
+}
+
+#[test]
+fn a_screen_that_never_becomes_a_composer_is_not_typed_into() {
+    let mut pane = CodexPane::new();
+    pane.screen = ">_ OpenAI Codex (v0.159.3)
+
+  starting...
+".to_string();
+    pane.ready_at = Some(pane.clock + Duration::from_secs(3_600));
+    let (delivery, trace) = deliver(&mut pane);
+    assert_eq!(delivery, Delivery::NotVisible, "{trace:#?}");
+    assert!(pane.typed_into_menu.is_empty());
+    assert!(trace.iter().any(|l| l.contains("composer never read as empty")), "{trace:#?}");
 }
 
 #[test]

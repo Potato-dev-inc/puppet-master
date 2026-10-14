@@ -74,6 +74,9 @@ impl DeliveryIo for Live {
     fn startup_gate(&mut self, screen: &str) -> Option<crate::tui::StartupGate> {
         profile_for("codex").startup_gate(screen)
     }
+    fn reads_composer(&mut self) -> bool {
+        profile_for("codex").reads_composer()
+    }
 }
 
 /// Codex on a PTY with NOTHING waited for: the state a fresh visible run's pane is in the moment it

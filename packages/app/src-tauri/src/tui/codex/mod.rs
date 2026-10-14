@@ -114,6 +114,10 @@ impl TuiProfile for Codex {
         }
     }
 
+    fn reads_composer(&self) -> bool {
+        true
+    }
+
     fn composer_state(&self, screen: &str) -> ComposerState {
         screen::composer_state(screen)
     }

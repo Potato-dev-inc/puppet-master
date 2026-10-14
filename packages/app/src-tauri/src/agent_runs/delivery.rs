@@ -57,6 +57,9 @@ const CLEAR_PAUSE: Duration = Duration::from_millis(120);
 const MAX_DELIVERY_GATES: u32 = 4;
 /// How long a startup screen may take to react to its dismiss keys, as polls of [`POLL_INTERVAL`].
 const GATE_CHANGE_POLLS: u32 = 40;
+/// How long a profile that reads its composer may take to show one (polls of [`POLL_INTERVAL`],
+/// about 6 s) before delivery gives up on a screen that never becomes ready.
+const COMPOSER_POLLS: u32 = 75;
 
 pub trait DeliveryIo {
     fn write(&mut self, text: &str, enter: bool) -> Result<(), String>;
@@ -77,6 +80,10 @@ pub trait DeliveryIo {
     /// other waits for the user (`Delivery::Blocked`).
     fn startup_gate(&mut self, _screen: &str) -> Option<StartupGate> {
         None
+    }
+    /// Whether delivery must see the composer positively before typing (`TuiProfile::reads_composer`).
+    fn reads_composer(&mut self) -> bool {
+        false
     }
 }
 
@@ -294,6 +301,39 @@ fn close_startup_gates(
     }
 }
 
+/// For a profile that reads its composer: waits until the screen is POSITIVELY an empty composer,
+/// closing startup notices on the way. An unknown screen (blank, a splash, a menu half drawn) is not
+/// ready: it keeps polling and re-checking gates. `Ok(true)` ready; `Ok(false)` the budget ran out
+/// with text or a running turn in the box (typing proceeds: the clear sequence handles a stale draft);
+/// `Ok(false)` is never returned for a screen the profile could not read at all, that is `Err(None)`.
+/// `Err(Some(gate))`: a gate only the user may pass.
+fn wait_for_composer(
+    io: &mut dyn DeliveryIo,
+    budget: &mut u32,
+    rounds: &mut u32,
+    trace: &mut Vec<String>,
+) -> Result<bool, Option<StartupGate>> {
+    if !io.reads_composer() {
+        return Ok(true);
+    }
+    let mut last = ComposerState::Unknown;
+    for _ in 0..COMPOSER_POLLS {
+        close_startup_gates(io, budget, rounds, trace).map_err(Some)?;
+        let screen = io.screen();
+        last = io.composer_state(&screen);
+        if last == ComposerState::Empty {
+            return Ok(true);
+        }
+        io.pause(POLL_INTERVAL);
+    }
+    trace.push(format!("composer never read as empty (last state {last:?}) within the readiness window"));
+    if last == ComposerState::Unknown {
+        Err(None)
+    } else {
+        Ok(false)
+    }
+}
+
 /// [`deliver_prompt`] that also records what it saw, so a delivery that claimed success without a
 /// turn can be diagnosed from the operation transcript.
 pub fn deliver_prompt_traced(
@@ -321,6 +361,13 @@ pub fn deliver_prompt_traced(
         // (the TUI draws it a moment after it starts): close it, or refuse, before typing.
         if let Err(gate) = close_startup_gates(io, &mut ready_budget, &mut gate_rounds, trace) {
             return Delivery::Blocked(gate);
+        }
+        // A profile that can read its composer is typed into only once the composer is positively
+        // there: "no gate found" is not "ready" (a blank or half-drawn screen has no gate either).
+        match wait_for_composer(io, &mut ready_budget, &mut gate_rounds, trace) {
+            Ok(_) => {}
+            Err(Some(gate)) => return Delivery::Blocked(gate),
+            Err(None) => return Delivery::NotVisible,
         }
         if let Some(clear) = clear {
             if let Err(error) = io.write(clear, false) {
@@ -468,6 +515,10 @@ impl DeliveryIo for PaneIo<'_> {
 
     fn startup_gate(&mut self, screen: &str) -> Option<StartupGate> {
         self.profile().startup_gate(screen)
+    }
+
+    fn reads_composer(&mut self) -> bool {
+        self.profile().reads_composer()
     }
 }
 
