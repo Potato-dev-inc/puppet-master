@@ -20,7 +20,7 @@ import {
   withPreloadEnabled,
 } from '../../../lib/standby';
 import { NumberControl, Popup } from '../controls';
-import { FieldLabel, SettingBlock, SettingToggle } from '../settings-ui';
+import { SettingBlock, SettingToggle } from '../settings-ui';
 
 export interface PreloadApi {
   getStatus: () => Promise<StandbyStatus | null>;
@@ -179,7 +179,6 @@ function IdleTimeoutField({ config, onChange }: { config: StandbyConfig; onChang
   return (
     <div className="flex max-w-xs items-end gap-2">
       <div className="min-w-0">
-        <FieldLabel>{unit === 'minutes' ? 'Minutes' : 'Seconds'}</FieldLabel>
         <NumberControl
           min={unit === 'minutes' ? 1 : 5}
           max={unit === 'minutes' ? 1440 : 86400}
