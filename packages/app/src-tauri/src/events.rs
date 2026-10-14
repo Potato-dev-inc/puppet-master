@@ -45,8 +45,44 @@ impl TaskId {
 }
 
 impl ResourceId {
+    /// The lock identity for `type:name`. A `file` lock names a path, so every spelling of the
+    /// same relative path (`./a.rs`, `src\a.rs`, `src//a.rs`, `src/x/../a.rs`) maps to one id;
+    /// without that, two callers holding the "same" file under different spellings both succeed.
     pub fn from_parts(resource_type: &str, name: &str) -> Self {
+        let resource_type = resource_type.trim();
+        let name = name.trim();
+        if resource_type.eq_ignore_ascii_case("file") {
+            return Self(format!("{resource_type}:{}", normalize_lock_path(name)));
+        }
         Self(format!("{resource_type}:{name}"))
+    }
+}
+
+/// Lexical path normalisation for `file` locks: `\` becomes `/`, `.` and empty segments drop,
+/// `x/..` collapses. A leading `..` is kept (it names something outside the project).
+fn normalize_lock_path(name: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for segment in name.split(['/', '\\']) {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if matches!(parts.last(), Some(last) if *last != "..") {
+                    parts.pop();
+                } else {
+                    parts.push("..");
+                }
+            }
+            other => parts.push(other),
+        }
+    }
+    if parts.is_empty() {
+        return name.to_string();
+    }
+    let joined = parts.join("/");
+    if name.starts_with('/') || name.starts_with('\\') {
+        format!("/{joined}")
+    } else {
+        joined
     }
 }
 
