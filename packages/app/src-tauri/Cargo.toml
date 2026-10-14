@@ -65,6 +65,11 @@ keyring = { version = "3.6", features = ["apple-native"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6", features = ["linux-native"] }
 
+# Test-only. `insta` (Apache-2.0) snapshots the decision timelines of the replay corpus
+# (`src/replay/`, `tests/corpus/`).
+[dev-dependencies]
+insta = "1"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
