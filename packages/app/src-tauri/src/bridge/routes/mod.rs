@@ -20,6 +20,7 @@ mod session;
 mod shell;
 mod standby;
 mod tasks;
+mod team;
 pub(super) mod toolbelt;
 mod wait;
 mod workspace;
@@ -73,6 +74,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
         .or_else(|| checkpoints::handle(cx))
         .or_else(|| digest::handle(cx))
         .or_else(|| flight::handle(cx))
+        .or_else(|| team::handle(cx))
         .or_else(|| panes::handle(cx))
 }
 

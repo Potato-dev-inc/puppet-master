@@ -65,3 +65,53 @@ pub async fn team_job_discard(job_id: String) -> Result<Value, String> {
 pub async fn team_job_diff(job_id: String) -> Result<Value, String> {
     blocking(move || service::diff(&job_id)).await
 }
+
+#[tauri::command]
+pub async fn team_create(input: service::CreateInput) -> Result<Value, String> {
+    blocking(move || service::create(input)).await
+}
+
+#[tauri::command]
+pub async fn team_invite() -> Result<Value, String> {
+    blocking(service::create_invite).await
+}
+
+#[tauri::command]
+pub async fn team_join(input: service::JoinInput) -> Result<Value, String> {
+    blocking(move || service::join(input)).await
+}
+
+#[tauri::command]
+pub async fn team_leave() -> Result<Value, String> {
+    blocking(service::leave).await
+}
+
+#[tauri::command]
+pub async fn team_join_approve(join_id: String) -> Result<Value, String> {
+    blocking(move || service::approve_join(&join_id)).await
+}
+
+#[tauri::command]
+pub async fn team_join_decline(join_id: String) -> Result<Value, String> {
+    blocking(move || service::decline_join(&join_id)).await
+}
+
+#[tauri::command]
+pub async fn team_member_remove(member_id: String) -> Result<Value, String> {
+    blocking(move || service::remove_member(&member_id)).await
+}
+
+#[tauri::command]
+pub async fn team_gaps_clear() -> Result<Value, String> {
+    blocking(service::clear_gaps).await
+}
+
+#[tauri::command]
+pub async fn team_merge_plan(card_id: String) -> Result<Value, String> {
+    blocking(move || service::merge_plan(&card_id)).await
+}
+
+#[tauri::command]
+pub async fn team_merge_when_green(card_id: String) -> Result<Value, String> {
+    blocking(move || service::merge_when_green(&card_id)).await
+}

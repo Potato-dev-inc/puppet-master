@@ -70,9 +70,14 @@ pub fn local_facts(repo: &Path, event: &TeamEvent) -> LocalFacts {
         && git::rev_parse(repo, &commit).is_some()
         && git::is_ancestor(repo, &commit, "HEAD");
     let on_branch = current.as_deref() == Some(branch.as_str());
-    let can_pull = on_branch && !dirty && !up_to_date;
-    let can_queue = !on_branch && !up_to_date && current.as_deref().is_some_and(|b| !is_protected(b));
-    let note = if up_to_date {
+    // Pull and Queue bring in a pushed commit. A card without one (a GitHub fact about a pull
+    // request or CI) offers neither.
+    let has_commit = is_valid_commit(&commit);
+    let can_pull = has_commit && on_branch && !dirty && !up_to_date;
+    let can_queue = has_commit && !on_branch && !up_to_date && current.as_deref().is_some_and(|b| !is_protected(b));
+    let note = if !has_commit {
+        None
+    } else if up_to_date {
         Some("You already have this.".to_string())
     } else if on_branch && dirty {
         Some("You have uncommitted changes. Commit or stash them to pull.".to_string())

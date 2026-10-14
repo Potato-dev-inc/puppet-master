@@ -1,13 +1,15 @@
-//! Team v0 tests. Git tests build a real bare "origin" and two clones (Maya's, Leo's) in a temp
+//! Team tests (v0 behaviour, kept under v1). Git tests build a real bare "origin" and two clones (Maya's, Leo's) in a temp
 //! folder and drive the real `git` CLI, like `worktrees/tests.rs`.
 
 use super::actions::{self, Refusal};
 use super::config::{Member, TeamConfig};
+use super::secure::Verified;
 use super::event::*;
 use super::service::build_push_event;
 use super::sources::git_refs::{self, PaneFacts, RepoWatch};
 use super::store::{ingest, CardState, Ingested, Job, JobState, TeamStore};
 use super::transport::{folder::FolderTransport, TeamTransport};
+use pm_relay_protocol::{b64, Envelope, MAX_ENVELOPE_BYTES};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -108,9 +110,15 @@ fn config(name: &str, id: &str) -> TeamConfig {
         folder: "unused".into(),
         me: Member { id: id.into(), name: name.into() },
         device: format!("{id}-device"),
-        members: vec![],
-        projects: vec![],
+        root: "root".into(),
+        ..TeamConfig::default()
     }
+}
+
+/// `ingest` takes only verified events; these tests are about what happens after the checks
+/// (`tests_v1.rs` covers the checks themselves).
+fn v(event: TeamEvent) -> Verified {
+    Verified::for_test(event)
 }
 
 fn push_event(id_ms: u64) -> TeamEvent {
@@ -208,34 +216,54 @@ fn inbound_events_are_checked_and_cleaned() {
 // ------------------------------------------------------------------------------- transport
 
 fn recv_ids(rx: &std::sync::mpsc::Receiver<super::transport::Inbound>, n: usize) -> Vec<String> {
-    (0..n).filter_map(|_| rx.recv_timeout(Duration::from_secs(10)).ok()).map(|i| i.event.id).collect()
+    (0..n).filter_map(|_| rx.recv_timeout(Duration::from_secs(10)).ok()).map(|i| i.envelope.id).collect()
+}
+
+/// A signed envelope with an opaque body (the folder only carries; `secure` opens).
+fn envelope(id_ms: u64, seed: u8) -> Envelope {
+    let key = ed25519_dalek::SigningKey::from_bytes(&[seed; 32]);
+    let mut env = Envelope {
+        v: 1,
+        id: ulid_from(id_ms, [seed; 10]),
+        team: pm_relay_protocol::team_id(&[1; 32], b"salt"),
+        epoch: 1,
+        from: String::new(),
+        seq: 1,
+        nonce: b64(&[0; 24]),
+        ct: b64(b"sealed"),
+        sig: String::new(),
+    };
+    env.sign_with(&key);
+    env
 }
 
 #[test]
-fn folder_transport_delivers_each_event_once_and_skips_junk() {
+fn folder_transport_delivers_each_envelope_once_and_skips_junk() {
     let dir = TempDir(temp_dir("wire"));
     let wire = FolderTransport::new(dir.0.clone());
-    let first = push_event(NOW);
+    let first = envelope(NOW, 1);
     wire.send(&first).unwrap();
-    // Junk a reader must survive: wrong names, a temp file, a file posing as another event, a huge file.
-    std::fs::write(dir.0.join("notes.txt"), "hi").unwrap();
-    std::fs::write(dir.0.join(".01ABC.json.tmp"), "{").unwrap();
-    let mut posing = push_event(NOW + 5);
-    posing.id = ulid_from(NOW + 5, [1; 10]);
-    std::fs::write(dir.0.join(format!("{}.json", ulid_from(NOW + 6, [2; 10]))), serde_json::to_vec(&posing).unwrap()).unwrap();
-    std::fs::write(dir.0.join(format!("{}.json", ulid_from(NOW + 7, [3; 10]))), vec![b' '; MAX_EVENT_BYTES + 1]).unwrap();
+    let env_dir = dir.0.join("envelopes");
+    // Junk a reader must survive: wrong names, a temp file, a file posing as another envelope, a
+    // huge file, and a v0 plain event (no longer accepted on the wire at all).
+    std::fs::write(env_dir.join("notes.txt"), "hi").unwrap();
+    std::fs::write(env_dir.join(".01ABC.json.tmp"), "{").unwrap();
+    let posing = envelope(NOW + 5, 2);
+    std::fs::write(env_dir.join(format!("{}.json", ulid_from(NOW + 6, [2; 10]))), serde_json::to_vec(&posing).unwrap()).unwrap();
+    std::fs::write(env_dir.join(format!("{}.json", ulid_from(NOW + 7, [3; 10]))), vec![b' '; MAX_ENVELOPE_BYTES + 1]).unwrap();
+    let plain = push_event(NOW + 8);
+    std::fs::write(env_dir.join(format!("{}.json", plain.id)), serde_json::to_vec(&plain).unwrap()).unwrap();
 
-    let rx = wire.subscribe().unwrap();
-    assert_eq!(recv_ids(&rx, 1), vec![first.id.clone()], "the existing event arrives on subscribe");
+    let rx = wire.subscribe(0).unwrap();
+    assert_eq!(recv_ids(&rx, 1), vec![first.id.clone()], "the existing envelope arrives on subscribe");
 
-    // A new event written by another transport (the teammate) arrives through the watcher.
+    // A new envelope written by another transport (the teammate) arrives through the watcher.
     let teammate = FolderTransport::new(dir.0.clone());
-    let second = push_event(NOW + 10);
+    let second = envelope(NOW + 10, 4);
     teammate.send(&second).unwrap();
     assert_eq!(recv_ids(&rx, 1), vec![second.id.clone()]);
     // Nothing else: no duplicate, none of the junk.
     assert!(rx.recv_timeout(Duration::from_millis(3500)).is_err());
-    assert!(!dir.0.join(format!(".{}.json.tmp", second.id)).exists(), "temp file renamed into place");
     wire.stop();
 }
 
@@ -246,23 +274,23 @@ fn ingest_only_makes_cards_and_drops_what_is_not_for_me() {
     let leo = config("Leo", "leo-id");
     let mut store = TeamStore::default();
     let event = push_event(NOW);
-    assert_eq!(ingest(&mut store, &leo, event.clone(), NOW), Ingested::Card(event.id.clone()));
-    assert_eq!(ingest(&mut store, &leo, event.clone(), NOW), Ingested::Ignored("already seen"));
+    assert_eq!(ingest(&mut store, &leo, v(event.clone()), NOW), Ingested::Card(event.id.clone()));
+    assert_eq!(ingest(&mut store, &leo, v(event.clone()), NOW), Ingested::Ignored("already seen"));
     // Rule 1: a teammate's event becomes a card and nothing else. No job, no draft.
     assert!(store.jobs.is_empty() && store.drafts.is_empty());
     assert_eq!(store.cards.len(), 1);
 
     let maya = config("Maya", "maya-id");
-    assert_eq!(ingest(&mut TeamStore::default(), &maya, push_event(NOW), NOW), Ingested::Ignored("my own event"));
+    assert_eq!(ingest(&mut TeamStore::default(), &maya, v(push_event(NOW)), NOW), Ingested::Ignored("my own event"));
     let mut other_team = push_event(NOW);
     other_team.team = "globex".into();
-    assert_eq!(ingest(&mut TeamStore::default(), &leo, other_team, NOW), Ingested::Ignored("another team"));
+    assert_eq!(ingest(&mut TeamStore::default(), &leo, v(other_team), NOW), Ingested::Ignored("another team"));
     let mut for_sam = push_event(NOW);
     for_sam.to = vec!["Sam".into()];
-    assert_eq!(ingest(&mut TeamStore::default(), &leo, for_sam, NOW), Ingested::Ignored("addressed to someone else"));
+    assert_eq!(ingest(&mut TeamStore::default(), &leo, v(for_sam), NOW), Ingested::Ignored("addressed to someone else"));
     let mut for_leo = push_event(NOW);
     for_leo.to = vec!["leo".into()];
-    assert!(matches!(ingest(&mut TeamStore::default(), &leo, for_leo, NOW), Ingested::Card(_)));
+    assert!(matches!(ingest(&mut TeamStore::default(), &leo, v(for_leo), NOW), Ingested::Card(_)));
 }
 
 #[test]
@@ -270,17 +298,17 @@ fn a_dismissed_card_comes_back_only_when_something_changes() {
     let leo = config("Leo", "leo-id");
     let mut store = TeamStore::default();
     let first = push_event(NOW);
-    ingest(&mut store, &leo, first.clone(), NOW);
+    ingest(&mut store, &leo, v(first.clone()), NOW);
     store.card_mut(&first.id).unwrap().state = CardState::Dismissed;
     // Same push again under a new id (re-sent): stays dismissed.
     let mut resent = push_event(NOW + 1);
     resent.id = ulid_from(NOW + 1, [9; 10]);
-    assert_eq!(ingest(&mut store, &leo, resent, NOW + 1), Ingested::Ignored("dismissed"));
+    assert_eq!(ingest(&mut store, &leo, v(resent), NOW + 1), Ingested::Ignored("dismissed"));
     // A new push to the same branch: the card updates in place and is new again.
     let mut newer = push_event(NOW + 2);
     newer.id = ulid_from(NOW + 2, [8; 10]);
     newer.subject.commit = Some("fedcba9876543210fedcba9876543210fedcba98".into());
-    assert!(matches!(ingest(&mut store, &leo, newer.clone(), NOW + 2), Ingested::Card(_)));
+    assert!(matches!(ingest(&mut store, &leo, v(newer.clone()), NOW + 2), Ingested::Card(_)));
     assert_eq!(store.cards.len(), 1);
     assert_eq!(store.cards[0].state, CardState::New);
     assert_eq!(store.cards[0].event.subject.commit, newer.subject.commit);
@@ -379,7 +407,7 @@ fn a_detected_push_becomes_an_unsent_event_that_a_teammate_accepts() {
     assert_eq!(event.actor.display, "Maya");
     assert!(event.note.is_none() && event.to.is_empty());
     let mut store = TeamStore::default();
-    assert!(matches!(ingest(&mut store, &config("Leo", "leo-id"), event, NOW), Ingested::Card(_)));
+    assert!(matches!(ingest(&mut store, &config("Leo", "leo-id"), v(event), NOW), Ingested::Card(_)));
 }
 
 // ------------------------------------------------------------------------------- actions

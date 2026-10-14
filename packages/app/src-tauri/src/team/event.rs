@@ -12,8 +12,6 @@ use serde::{Deserialize, Serialize};
 pub const SCHEMA_VERSION: u8 = 1;
 /// Longest note a teammate may attach (characters).
 pub const MAX_NOTE_CHARS: usize = 280;
-/// Largest serialized event a transport accepts (bytes).
-pub const MAX_EVENT_BYTES: usize = 16 * 1024;
 /// Events dated further in the future than this are refused (clock skew allowance).
 pub const MAX_FUTURE_SKEW_MS: u64 = 10 * 60 * 1000;
 /// Default lifetime of an event.
@@ -136,10 +134,20 @@ impl TeamEventKind {
         }
     }
 
-    /// Kinds a v0 recipient turns into a card. Everything else is dropped on arrival: v1 adds them
-    /// with their own safety rules (an `Answer` needs the approve role, and so on).
-    pub fn shown_in_v0(self) -> bool {
-        matches!(self, Self::Pushed | Self::PrOpened | Self::PrReady | Self::PrUpdated)
+    /// Kinds a recipient turns into a card. Everything else is dropped on arrival until it ships
+    /// with its own safety rules (an `Answer` needs the approve role, and so on).
+    pub fn shown_as_card(self) -> bool {
+        matches!(
+            self,
+            Self::Pushed
+                | Self::PrOpened
+                | Self::PrReady
+                | Self::PrUpdated
+                | Self::PrMerged
+                | Self::PrClosed
+                | Self::CiFailed
+                | Self::CiPassed
+        )
     }
 }
 
@@ -423,9 +431,28 @@ pub fn validate_inbound(mut event: TeamEvent, now_ms: u64) -> Result<TeamEvent, 
     Ok(event)
 }
 
-/// `{project}@{branch}:{kind}` for pushes, `{project}#{pr}:{kind}` for PRs.
+/// Cards with the same key are one card that updates in place:
+/// - a pull request's whole life (opened, updated, merged, closed): `{project}#{pr}:pr`;
+/// - CI on a branch: `{project}@{branch}:ci`;
+/// - anything else: `{project}@{branch}:{kind}`.
+///
+/// So "Maya opened #142" (her intent) and GitHub's "PR #142 opened" (a fact) are one card, which
+/// later becomes "#142 merged".
 pub fn dedupe_key(project_key: &str, kind: TeamEventKind, subject: &Subject) -> String {
+    let pr_kind = matches!(
+        kind,
+        TeamEventKind::PrOpened
+            | TeamEventKind::PrReady
+            | TeamEventKind::PrUpdated
+            | TeamEventKind::PrMerged
+            | TeamEventKind::PrClosed
+            | TeamEventKind::ReviewRequested
+    );
+    let ci = matches!(kind, TeamEventKind::CiFailed | TeamEventKind::CiPassed);
     match (&subject.pr, &subject.branch) {
+        (Some(pr), _) if pr_kind => format!("{project_key}#{}:pr", pr.number),
+        (_, Some(branch)) if ci => format!("{project_key}@{branch}:ci"),
+        (Some(pr), _) if ci => format!("{project_key}#{}:ci", pr.number),
         (Some(pr), _) => format!("{project_key}#{}:{}", pr.number, kind.as_str()),
         (None, Some(branch)) => format!("{project_key}@{branch}:{}", kind.as_str()),
         (None, None) => format!("{project_key}:{}", kind.as_str()),

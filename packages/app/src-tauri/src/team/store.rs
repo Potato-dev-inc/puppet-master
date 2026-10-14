@@ -4,12 +4,20 @@
 //! - **jobs**: "Queue my agent" merges and their results;
 //! - **seen**: event ids already handled (the replay guard), kept until the event expires.
 //!
-//! [`ingest`] is the only way a teammate's event gets in. It can add or update a card and nothing
-//! else: no job, no git command, no agent run. Every action is a separate local command the person
-//! clicks.
+//! [`ingest`] is the only way a teammate's event gets in, and it takes only a
+//! [`Verified`](super::secure::Verified) event: one whose envelope signature, roster membership,
+//! role and decryption were checked by `secure::Session::open` first (or a fact from the person's
+//! own `gh`). It can add or update a card and nothing else: no job, no git command, no agent run.
+//! Every action is a separate local command the person clicks.
+//!
+//! Also kept here (none of it secret): the replay guard and gap counters, my send counter, the
+//! relay cursor, my open invites (their codes are in the credential store) and join requests
+//! waiting for my approval.
 
 use super::config::TeamConfig;
 use super::event::{validate_inbound, DiffStat, TeamEvent};
+use super::invite::{Invite, JoinRequest};
+use super::secure::{SeqTracker, Verified};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -123,6 +131,32 @@ pub struct TeamStore {
     /// Event id → when it may be forgotten.
     #[serde(default)]
     pub seen: BTreeMap<String, u64>,
+    /// Envelope replay guard and per-device counters (gap detection).
+    #[serde(default)]
+    pub seq: SeqTracker,
+    /// The counter my next envelope carries.
+    #[serde(default)]
+    pub next_seq: u64,
+    /// Relay mailbox position already read.
+    #[serde(default)]
+    pub cursor: u64,
+    /// Invites I made (admin).
+    #[serde(default)]
+    pub invites: Vec<Invite>,
+    /// Join requests that passed the code check, waiting for my yes or no (admin).
+    #[serde(default)]
+    pub joins: Vec<PendingJoin>,
+    /// Hashes of join boxes already looked at (so a wrong code counts once).
+    #[serde(default)]
+    pub processed_joins: std::collections::BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingJoin {
+    pub id: String,
+    pub request: JoinRequest,
+    pub received_at_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,24 +174,26 @@ fn addressed_to_me(event: &TeamEvent, config: &TeamConfig) -> bool {
             .any(|to| to == &config.me.id || to.eq_ignore_ascii_case(&config.me.name))
 }
 
-/// Turn one event from a teammate into a card, or drop it. Pure: no I/O.
-pub fn ingest(store: &mut TeamStore, config: &TeamConfig, raw: TeamEvent, now_ms: u64) -> Ingested {
+/// Turn one verified event into a card, or drop it. Pure: no I/O.
+pub fn ingest(store: &mut TeamStore, config: &TeamConfig, verified: Verified, now_ms: u64) -> Ingested {
     store.seen.retain(|_, until| *until > now_ms);
-    let event = match validate_inbound(raw, now_ms) {
+    // A GitHub fact about my own pull request is still news to me (CI went red on my PR).
+    let local_fact = verified.member().is_none();
+    let event = match validate_inbound(verified.into_event(), now_ms) {
         Ok(event) => event,
         Err(why) => return Ingested::Ignored(why.0),
     };
     if event.team != config.team {
         return Ingested::Ignored("another team");
     }
-    if event.actor.member == config.me.id {
+    if !local_fact && !config.me.id.is_empty() && event.actor.member == config.me.id {
         return Ingested::Ignored("my own event");
     }
     if store.seen.contains_key(&event.id) {
         return Ingested::Ignored("already seen");
     }
     store.seen.insert(event.id.clone(), event.expires_at_ms);
-    if !event.kind.shown_in_v0() {
+    if !event.kind.shown_as_card() {
         return Ingested::Ignored("kind not shown yet");
     }
     if !addressed_to_me(&event, config) {
@@ -174,8 +210,11 @@ pub fn ingest(store: &mut TeamStore, config: &TeamConfig, raw: TeamEvent, now_ms
         if existing.event.at_ms > event.at_ms {
             return Ingested::Ignored("older than the card");
         }
+        // A fact without a note keeps the teammate's note from the earlier intent.
+        let note = event.note.clone().or_else(|| existing.event.note.clone());
         existing.id = event.id.clone();
         existing.event = event;
+        existing.event.note = note;
         existing.received_at_ms = now_ms;
         existing.state = CardState::New;
         return Ingested::Card(existing.id.clone());
