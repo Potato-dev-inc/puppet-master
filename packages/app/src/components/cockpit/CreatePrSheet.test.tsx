@@ -131,9 +131,27 @@ describe('when Create PR cannot run', () => {
   });
 
   it('says when the project is not on GitHub', async () => {
-    await mount({ has_remote: false });
+    await mount({ on_github: false });
     expect(document.body.textContent).toContain("This project isn't on GitHub. Merge into the main branch instead");
     expect(button('Create draft PR')).toBeUndefined();
+    expect(document.querySelector('.ck-pr-command')).toBeNull();
+  });
+
+  it('with no GitHub remote at all, says so in plain words and offers the exact commands to copy for later', async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: write }, configurable: true });
+    await mount({ has_remote: false, on_github: false });
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('no GitHub remote');
+    expect(text).toContain('git remote add origin');
+    expect(button('Create draft PR')).toBeUndefined();
+    const commands = document.querySelector('.ck-pr-command')?.textContent ?? '';
+    expect(commands.split('\n')).toEqual([
+      'git push --set-upstream origin pm/cart-1',
+      'gh pr create --draft --base main --head pm/cart-1 --title "Round cart totals to cents"',
+    ]);
+    await act(async () => button('Copy the command')?.click());
+    expect(write).toHaveBeenCalledWith(commands);
   });
 
   it('shows a lookup error', async () => {

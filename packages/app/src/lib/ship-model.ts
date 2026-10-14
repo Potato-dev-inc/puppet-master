@@ -19,16 +19,25 @@ export function checksSentence(report: ChecksReport | undefined | null): string 
 }
 
 /** Why Create PR cannot run yet, in words a non-expert understands; `null` when it can. */
-export function cannotCreate(p: PrPrepared): { text: string; command?: string } | null {
+export function cannotCreate(p: PrPrepared): { text: string; command?: string; heading?: string; byHand?: boolean } | null {
   if (p.gh === 'missing') {
     return {
       text: "Create PR uses the GitHub command line, and it isn't installed on this PC. Install it from cli.github.com, then try again.",
+      byHand: true,
     };
   }
   if (p.gh === 'signed_out') {
     return { text: 'Sign in to GitHub first. Run this in a terminal, then try again.', command: 'gh auth login' };
   }
-  if (!p.has_remote || !p.on_github) {
+  if (!p.has_remote) {
+    // Short on purpose: say why, then give the exact commands for whoever adds a remote later.
+    return {
+      text: "This project has no GitHub remote yet, so Create PR can't push. Merge into the main branch instead.",
+      heading: 'Once you add a remote (git remote add origin <address>), run:',
+      byHand: true,
+    };
+  }
+  if (!p.on_github) {
     return { text: "This project isn't on GitHub. Merge into the main branch instead, or add a GitHub remote." };
   }
   return null;
