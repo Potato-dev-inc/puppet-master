@@ -272,6 +272,15 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// Keys that erase text Puppet Master itself just typed into the prompt box: sent before the
+    /// task is typed again and when delivery gives up (`agent_runs::delivery`). Unlike
+    /// [`clear_input_sequence`](Self::clear_input_sequence) it is never used on a box holding
+    /// someone else's text, so a profile can declare a key that is right for its own one-line
+    /// text but not trusted with a person's draft. Default: the clear sequence.
+    fn retype_clear_sequence(&self) -> Option<&'static str> {
+        self.clear_input_sequence()
+    }
+
     /// Whether prompts typed into this TUI are verified on screen before Enter and a started turn
     /// is verified after it (`agent_runs::delivery`). Off by default: the check needs a TUI whose
     /// input box and transcript echo are readable from the screen.

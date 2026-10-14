@@ -2,6 +2,10 @@
 
 use crate::tui::{ComposerState, StandbyScreen};
 
+/// Ctrl+U: erases the input line (live, Claude Code 2.1.300). Used only on text Puppet Master typed
+/// (`TuiProfile::retype_clear_sequence`), never on a person's draft.
+pub(super) const CLEAR_TYPED_LINE: &str = "\u{15}";
+
 /// Spinner glyphs Claude cycles through in front of its activity verb.
 const SPINNER_GLYPHS: [char; 8] = ['\u{2722}', '*', '\u{2736}', '\u{273b}', '\u{273d}', '\u{2733}', '\u{b7}', '\u{2731}'];
 

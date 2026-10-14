@@ -775,9 +775,9 @@ fn deliver_task(
     }
     match outcome {
         Delivery::Started | Delivery::SubmittedUnconfirmed => Ok(()),
-        Delivery::NotVisible => Err(crate::operations::OperationError::new(
+        Delivery::NotVisible { cleared } => Err(crate::operations::OperationError::new(
             "PROMPT_NOT_SUBMITTED",
-            delivery::NOT_VISIBLE_MESSAGE,
+            delivery::not_visible_message(cleared),
             true,
         )),
         Delivery::Blocked(gate) => Err(crate::pane_prompt::gate_blocked_error(gate)),

@@ -132,7 +132,7 @@ pub(super) fn redeliver_prompt(
     );
     if !matches!(
         delivery,
-        delivery::Delivery::NotVisible
+        delivery::Delivery::NotVisible { .. }
             | delivery::Delivery::Blocked(_)
             | delivery::Delivery::AgentGone(_)
             | delivery::Delivery::NotReady { .. }

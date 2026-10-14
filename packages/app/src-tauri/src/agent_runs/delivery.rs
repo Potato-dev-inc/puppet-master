@@ -101,8 +101,10 @@ pub enum Delivery {
     Started,
     /// Typed, verified and submitted, but no sign of a new turn yet; the turn watch keeps looking.
     SubmittedUnconfirmed,
-    /// The prompt never appeared in the input box, so Enter was not pressed.
-    NotVisible,
+    /// The prompt never appeared in the input box, so Enter was not pressed. `cleared`: the
+    /// profile's clear key was sent after the last typed text and the box then read empty; only
+    /// then may anyone say "the box was cleared, retrying is safe".
+    NotVisible { cleared: bool },
     /// A startup screen that only the user may pass (folder trust, sign-in), a dialog, or a notice
     /// that ignored its dismiss keys, is on screen. Nothing was submitted.
     Blocked(StartupGate),
@@ -147,8 +149,11 @@ pub fn delivery_summary(outcome: &Delivery, trace: &[String]) -> String {
             }
             text
         }
-        Delivery::NotVisible => {
+        Delivery::NotVisible { cleared: true } => {
             "Not sent. The text never showed up in the input box, so Enter was not pressed. The box was cleared; retrying is safe.".to_string()
+        }
+        Delivery::NotVisible { cleared: false } => {
+            "Not sent. The text never showed up in the input box, so Enter was not pressed. The box may still hold the typed text: clear it in the pane before retrying.".to_string()
         }
         Delivery::Blocked(gate) => format!(
             "Not sent. {}; nothing was typed or submitted. Deal with it in the pane, then retry.",
@@ -184,8 +189,19 @@ pub fn record_delivery(project: &str, operation_id: &str, again: Option<&str>, o
     );
 }
 
-/// What a message should say when delivery did not happen.
+/// What a message should say when delivery did not happen and the box was verified empty after.
 pub const NOT_VISIBLE_MESSAGE: &str = "the prompt text never appeared in the pane's input box after two attempts, so it was not submitted; the input box was cleared, retrying is safe";
+/// The same, when the box could not be verified empty (no clear key, or it still showed text).
+pub const NOT_VISIBLE_UNCLEARED_MESSAGE: &str = "the prompt text never appeared in the pane's input box after two attempts, so it was not submitted. The input box may still hold the typed text (it could not be verified empty): clear it in the pane before retrying, or the retry adds another copy";
+
+/// The run error's message for [`Delivery::NotVisible`].
+pub fn not_visible_message(cleared: bool) -> &'static str {
+    if cleared {
+        NOT_VISIBLE_MESSAGE
+    } else {
+        NOT_VISIBLE_UNCLEARED_MESSAGE
+    }
+}
 
 fn normalize(text: &str) -> String {
     text.chars()
@@ -496,19 +512,28 @@ pub fn deliver_prompt_traced(
     let mut stale_left = MAX_STALE_LOOKS;
     // The permit the task text went in under: Enter (and the clean-up clear) ride on it.
     let mut typed_under: Option<TypingPermit> = None;
+    // Keys that erase text this delivery typed (`TuiProfile::retype_clear_sequence`): sent before
+    // any text is typed again and when delivery gives up, so a TUI that took the first keys late
+    // (live, Claude 2.1.300 right after a turn: nothing echoed for 4 s, then both copies) ends with
+    // one copy, or none.
+    let undo = clear.or_else(|| profile.retype_clear_sequence());
     while attempt < 2 {
         if !wait_for_screen(io, &mut ready_budget) {
             trace.push("screen stayed empty: the TUI drew nothing within the startup budget".to_string());
-            if typed_any {
-                if let (Some(clear), Some(permit)) = (clear, typed_under.as_ref()) {
-                    let _ = io.write(WriteOrigin::Task(permit), clear, false);
-                }
-                return Delivery::NotVisible;
+            if let (true, Some(permit)) = (typed_any, typed_under.as_ref()) {
+                return give_up_not_visible(io, profile, undo, permit, prompt, trace);
             }
             return Delivery::NotReady {
                 why: "the pane stayed blank".into(),
                 screen: io.screen(),
             };
+        }
+        if let (true, None, Some(undo), Some(permit)) = (typed_any, clear, undo, typed_under.as_ref()) {
+            // A profile whose readiness does not clear the box (`clear` is only for those that may
+            // clear a box someone else typed into) still erases its own text before typing again.
+            if let Err(stop) = erase_typed(io, profile, permit, undo, trace) {
+                return stop;
+            }
         }
         let mut permit = match await_ready(io, profile, &mut gate_rounds, trace, "before typing") {
             Ok(permit) => permit,
@@ -590,14 +615,11 @@ pub fn deliver_prompt_traced(
         attempt += 1;
     }
     let Some(permit) = typed_under else {
-        return Delivery::NotVisible;
+        return Delivery::NotVisible { cleared: false };
     };
     if !visible {
-        if let Some(clear) = clear {
-            let _ = io.write(WriteOrigin::Task(&permit), clear, false);
-        }
         trace.push(format!("not visible; bottom rows at give-up:\n{}", bottom_rows(&io.screen(), 20)));
-        return Delivery::NotVisible;
+        return give_up_not_visible(io, profile, undo, &permit, prompt, trace);
     }
     // Some TUIs read an Enter that follows the typed text too closely as a line break in a paste.
     let settle = io.enter_settle();
@@ -645,6 +667,86 @@ pub fn deliver_prompt_traced(
         }
     }
     Delivery::SubmittedUnconfirmed
+}
+
+/// Polls after the give-up clear in which the box must read empty for "cleared" to be said.
+const CLEARED_POLLS: u32 = 6;
+
+/// Erases text this delivery typed, with the profile's clear key, after a look: not into a gate
+/// or dialog (stop), not into a shell the agent left (stop). Rides on the text's permit re-armed to
+/// that look, so it is refused (and the look repeated) when the pane printed after it.
+fn erase_typed(
+    io: &mut dyn DeliveryIo,
+    profile: &dyn TuiProfile,
+    permit: &TypingPermit,
+    undo: &str,
+    trace: &mut Vec<String>,
+) -> Result<(), Delivery> {
+    for _ in 0..=MAX_STALE_LOOKS {
+        let verdict = readiness::assess(profile, io.observe());
+        if let Readiness::HostShell(shell) = verdict.readiness() {
+            trace.push(format!("{}; the typed text was not cleared", verdict.why()));
+            return Err(Delivery::AgentGone(shell.clone()));
+        }
+        if let Some(gate) = verdict.gate() {
+            trace.push(format!("'{}' is on screen; the typed text was not cleared", gate.id));
+            return Err(Delivery::Blocked(gate));
+        }
+        if !permit.rearm(&verdict) {
+            return Err(Delivery::WriteFailed(format!("{}: the look before clearing was not for this pane", readiness::PERMIT_REFUSED)));
+        }
+        match io.write(WriteOrigin::Task(permit), undo, false) {
+            Ok(()) => {
+                trace.push("cleared the text typed so far with the profile's clear key".to_string());
+                io.pause(CLEAR_PAUSE);
+                return Ok(());
+            }
+            Err(error) if is_stale(&error) => {
+                trace.push(format!("the pane printed output after the look before clearing; looking again ({error})"));
+            }
+            Err(error) => return Err(Delivery::WriteFailed(error)),
+        }
+    }
+    Err(Delivery::NotReady {
+        why: "the pane kept printing output between every look and the clear key".into(),
+        screen: io.screen(),
+    })
+}
+
+/// Delivery gives up on text that never showed: erase it with the clear key (when the profile has
+/// one) and say "cleared" only when the box then reads empty (`composer_state`, or the prompt no
+/// longer in the input area for a profile that cannot read its box).
+fn give_up_not_visible(
+    io: &mut dyn DeliveryIo,
+    profile: &dyn TuiProfile,
+    undo: Option<&str>,
+    permit: &TypingPermit,
+    prompt: &str,
+    trace: &mut Vec<String>,
+) -> Delivery {
+    let Some(undo) = undo else {
+        trace.push("no clear key for this agent: the typed text may still be in the box".to_string());
+        return Delivery::NotVisible { cleared: false };
+    };
+    if let Err(stop) = erase_typed(io, profile, permit, undo, trace) {
+        trace.push(format!("could not clear the typed text: {stop:?}"));
+        return Delivery::NotVisible { cleared: false };
+    }
+    for poll in 0..CLEARED_POLLS {
+        let screen = io.screen();
+        let empty = match profile.composer_state(&screen) {
+            ComposerState::Empty => true,
+            ComposerState::Unknown => !screen.trim().is_empty() && !prompt_visible_in_input(&screen, prompt),
+            _ => false,
+        };
+        if empty {
+            trace.push(format!("give-up poll {poll}: the input box reads empty after the clear key"));
+            return Delivery::NotVisible { cleared: true };
+        }
+        io.pause(POLL_INTERVAL);
+    }
+    trace.push(format!("the input box did not read empty after the clear key:\n{}", bottom_rows(&io.screen(), 8)));
+    Delivery::NotVisible { cleared: false }
 }
 
 /// How long the pane must stay quiet between the look before an Enter and the Enter: output the
@@ -934,7 +1036,7 @@ mod tests {
             }
         });
         let delivery = deliver_prompt(&mut pane, Some("\u{15}"), PROMPT);
-        assert_eq!(delivery, Delivery::NotVisible);
+        assert!(matches!(delivery, Delivery::NotVisible { .. }));
         assert!(
             pane.writes.iter().all(|(_, enter)| !enter),
             "Enter must not be sent over an unverified input box: {:?}",
@@ -968,7 +1070,7 @@ mod tests {
         // The box keeps showing the previous turn's prompt whatever is typed.
         let previous = "List the files in the repository root directory";
         let mut pane = pane(move |pane, _, _| pane.screen = format!("│ {previous} │"));
-        assert_eq!(deliver_prompt(&mut pane, Some("\u{15}"), PROMPT), Delivery::NotVisible);
+        assert!(matches!(deliver_prompt(&mut pane, Some("\u{15}"), PROMPT), Delivery::NotVisible { .. }));
         assert!(pane.writes.iter().all(|(_, enter)| !enter));
     }
 
@@ -1089,7 +1191,7 @@ working
     fn polling_faster_does_not_shrink_the_time_given_to_a_slow_tui() {
         // Never shows the typed text (TUI drawn): each of the two attempts waits about 2s for it.
         let mut blank = pane(|pane, _, _| pane.screen = "Composer 2.5\n→ Plan".into());
-        assert_eq!(deliver_prompt(&mut blank, Some("\u{15}"), PROMPT), Delivery::NotVisible);
+        assert!(matches!(deliver_prompt(&mut blank, Some("\u{15}"), PROMPT), Delivery::NotVisible { .. }));
         assert!(blank.paused >= Duration::from_secs(4), "paused {:?}", blank.paused);
         // Types fine, but the turn never starts: about 3s of polling before giving up.
         let mut stuck = pane(|pane, text, enter| {
@@ -1476,5 +1578,140 @@ working
         assert_eq!(io.enters, 1, "one Enter, none into the dialog: {:?} {trace:#?}", io.writes);
         assert_eq!(outcome, Delivery::SubmittedUnconfirmed, "{trace:#?}");
         assert!(trace.iter().any(|l| l.contains("second Enter was not pressed")), "{trace:#?}");
+    }
+
+    // ---- live r12 (plain mode): Claude 2.1.300 took no keys for 4 s after a turn, then both copies ----
+
+    /// A Claude pane that, right after a turn, queues every key for `lag` and then applies them in
+    /// order: text goes into the box, Ctrl+U empties it, Enter submits what is there.
+    struct LaggyClaude {
+        clock: Duration,
+        lag: Duration,
+        queue: Vec<(String, bool)>,
+        box_text: String,
+        submitted: Vec<String>,
+    }
+
+    const CLAUDE_READY: &str = include_str!("../tui/claude/fixtures/ready_fresh_2_1_299_live.txt");
+
+    impl LaggyClaude {
+        fn new(lag: Duration) -> Self {
+            LaggyClaude { clock: Duration::ZERO, lag, queue: Vec::new(), box_text: String::new(), submitted: Vec::new() }
+        }
+        fn apply_when_due(&mut self) {
+            if self.clock < self.lag {
+                return;
+            }
+            for (text, enter) in std::mem::take(&mut self.queue) {
+                if text == "\u{15}" {
+                    self.box_text.clear();
+                } else {
+                    self.box_text.push_str(&text);
+                }
+                if enter && !self.box_text.is_empty() {
+                    self.submitted.push(std::mem::take(&mut self.box_text));
+                }
+            }
+        }
+        fn render(&self) -> String {
+            match self.submitted.last() {
+                Some(sent) if self.box_text.is_empty() => format!("\u{276f} {sent}\n\u{2722} Generating\u{2026}\n"),
+                _ if self.box_text.is_empty() => CLAUDE_READY.to_string(),
+                _ => CLAUDE_READY.replace("Try \"edit <filepath> to...\"", &self.box_text),
+            }
+        }
+    }
+
+    impl DeliveryIo for LaggyClaude {
+        fn write(&mut self, origin: WriteOrigin<'_>, text: &str, enter: bool) -> Result<(), String> {
+            origin.admit_terminal_write("", text, enter, None, || AgentProcess::Alive)?;
+            self.queue.push((text.to_string(), enter));
+            self.apply_when_due();
+            Ok(())
+        }
+        fn screen(&mut self) -> String {
+            self.apply_when_due();
+            self.render()
+        }
+        fn observe(&mut self) -> Observation {
+            let screen = self.screen();
+            Observation { pane_id: String::new(), screen, output_pos: None, agent: AgentProcess::Alive }
+        }
+        fn busy(&mut self) -> bool {
+            !self.submitted.is_empty()
+        }
+        fn pause(&mut self, d: Duration) {
+            self.clock += d;
+        }
+        fn profile(&mut self) -> Arc<dyn TuiProfile> {
+            crate::tui::profile_for("claude")
+        }
+    }
+
+    #[test]
+    fn claude_has_a_key_to_erase_its_own_typed_text() {
+        assert_eq!(crate::tui::profile_for("claude").retype_clear_sequence(), Some("\u{15}"));
+        assert_eq!(crate::tui::profile_for("claude").clear_input_sequence(), None, "a person's draft is still never cleared");
+    }
+
+    #[test]
+    fn keys_a_busy_claude_takes_late_end_as_one_copy_submitted_once() {
+        // The first copy shows only after the retry was typed (3 s > the 2 s visible window).
+        let mut io = LaggyClaude::new(Duration::from_millis(3_000));
+        let mut trace = Vec::new();
+        let outcome = deliver_prompt_traced(&mut io, None, PROMPT, &mut trace);
+        assert_eq!(io.submitted, vec![PROMPT.to_string()], "one copy, submitted once: {trace:#?}");
+        assert!(matches!(outcome, Delivery::Started | Delivery::SubmittedUnconfirmed), "{outcome:?} {trace:#?}");
+    }
+
+    #[test]
+    fn when_delivery_gives_up_the_late_keys_leave_the_box_empty_and_cleared_is_only_said_when_seen() {
+        // Live: nothing echoed for the whole delivery; the person then found two copies in the box.
+        let mut io = LaggyClaude::new(Duration::from_secs(30));
+        let mut trace = Vec::new();
+        let outcome = deliver_prompt_traced(&mut io, None, PROMPT, &mut trace);
+        assert_eq!(outcome, Delivery::NotVisible { cleared: true }, "{trace:#?}");
+        // The agent takes the queued keys later: text, clear, text, clear.
+        io.clock = Duration::from_secs(31);
+        io.apply_when_due();
+        assert_eq!(io.box_text, "", "no copy is left in the box");
+        assert!(io.submitted.is_empty(), "nothing was submitted");
+    }
+
+    #[test]
+    fn a_box_that_still_shows_the_text_after_the_clear_is_not_called_cleared() {
+        // A TUI that ignores the clear key: delivery must not say "cleared, retrying is safe".
+        struct Stubborn(LaggyClaude);
+        impl DeliveryIo for Stubborn {
+            fn write(&mut self, o: WriteOrigin<'_>, t: &str, e: bool) -> Result<(), String> {
+                if t == "\u{15}" {
+                    return o.admit_terminal_write("", t, e, None, || AgentProcess::Alive);
+                }
+                self.0.write(o, t, e)
+            }
+            fn screen(&mut self) -> String {
+                // Shows the text, but never where delivery recognises it as its own (a wrapped echo).
+                self.0.apply_when_due();
+                if self.0.box_text.is_empty() { CLAUDE_READY.to_string() } else { CLAUDE_READY.replace("Try \"edit <filepath> to...\"", "Summ…") }
+            }
+            fn observe(&mut self) -> Observation {
+                let screen = self.screen();
+                Observation { pane_id: String::new(), screen, output_pos: None, agent: AgentProcess::Alive }
+            }
+            fn busy(&mut self) -> bool {
+                false
+            }
+            fn pause(&mut self, d: Duration) {
+                self.0.pause(d)
+            }
+            fn profile(&mut self) -> Arc<dyn TuiProfile> {
+                crate::tui::profile_for("claude")
+            }
+        }
+        let mut io = Stubborn(LaggyClaude::new(Duration::ZERO));
+        let mut trace = Vec::new();
+        let outcome = deliver_prompt_traced(&mut io, None, PROMPT, &mut trace);
+        assert!(matches!(outcome, Delivery::NotVisible { cleared: false } | Delivery::NotReady { .. }), "{outcome:?} {trace:#?}");
+        assert_ne!(outcome, Delivery::NotVisible { cleared: true });
     }
 }

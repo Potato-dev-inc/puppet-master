@@ -35,9 +35,12 @@ fn a_claude_delivery_carries_none_of_its_footer_rows() {
 
 #[test]
 fn deliveries_that_did_not_happen_say_why_in_a_sentence() {
-    let not_sent = delivery_summary(&Delivery::NotVisible, &[]);
+    let not_sent = delivery_summary(&Delivery::NotVisible { cleared: true }, &[]);
     assert!(not_sent.starts_with("Not sent."), "{not_sent}");
     assert!(not_sent.contains("retrying is safe"));
+    // Without a verified-empty box nobody is told retrying is safe (live: a retry added a third copy).
+    let left = delivery_summary(&Delivery::NotVisible { cleared: false }, &[]);
+    assert!(!left.contains("retrying is safe") && left.contains("clear it in the pane"), "{left}");
     let gate = crate::tui::StartupGate { id: "login", summary: "Codex needs you to sign in", dismiss: None };
     let blocked = delivery_summary(&Delivery::Blocked(gate), &[]);
     assert!(blocked.starts_with("Not sent. Codex needs you to sign in;"), "{blocked}");
