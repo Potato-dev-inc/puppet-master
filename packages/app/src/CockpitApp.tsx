@@ -15,6 +15,8 @@ import { UndoSheet } from './components/cockpit/UndoSheet';
 import { panesSharingFolder } from './components/cockpit/history-model';
 import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
+import { SettingsView } from './components/cockpit/SettingsView';
+import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
@@ -22,12 +24,14 @@ import './styles/cockpit.css';
 
 // One main view at a time: the last click wins. 'pane' is the default and shows the
 // selected pane, the spawn view or the inbox (see the render chain below).
-export type MainView = 'pane' | 'doctor' | 'memory';
+export type MainView = 'pane' | 'doctor' | 'memory' | 'settings';
 
 export default function CockpitApp() {
   const c = useCockpit();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [view, setView] = useState<MainView>('pane');
+  // Settings is a main view in Orchestration mode; in Individual mode `open` asks for the Settings window.
+  const settings = useInlineSettings<MainView>({ mode: c.mode, view, setView, home: 'pane', openWindow: c.openSettings });
   // Pane whose last turn the person is being asked to undo (opened from the palette).
   const [undoPane, setUndoPane] = useState<string | null>(null);
   const loop = useLoopSignals();
@@ -55,6 +59,7 @@ export default function CockpitApp() {
   // "Set up agents" and "Project memory" views.
   const nav: typeof c = {
     ...c,
+    openSettings: async (tab) => settings.open(tab),
     select: (id) => {
       setView('pane');
       c.select(id);
@@ -115,6 +120,8 @@ export default function CockpitApp() {
             project={c.selectedId ? c.registry.panes.get(c.selectedId)?.info.cwd : undefined}
             onClose={() => setView('pane')}
           />
+        ) : view === 'settings' ? (
+          <SettingsView key={settings.viewKey} {...settings.viewProps} />
         ) : c.spawn ? (
           <SpawnView spawn={c.spawn} onDismiss={c.dismissSpawn} />
         ) : c.selectedId ? (

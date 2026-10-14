@@ -622,3 +622,23 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- inline (inside the cockpit's main area, Orchestration mode) ---------- */
+/* The cockpit's own 240px sidebar is already on screen, so the page list gets narrower and the panel fills the
+   main area instead of the window. */
+.ck-settings-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.settings.settings--inline {
+  position: absolute;
+  inset: 0;
+  z-index: auto;
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+@media (max-width: 1000px) {
+  .settings.settings--inline {
+    grid-template-columns: 188px minmax(0, 1fr);
+  }
+}
