@@ -479,3 +479,15 @@ fn a_local_caller_without_the_secret_is_logged_but_still_served() {
     let _ = as_device("full", "GET", "/panes");
     let _ = r.ids.len();
 }
+
+/// Helper for the headless-browser CORS proof (`D:\pm-night\p0\device-caps\cors-browser-proof.mjs`):
+/// serves the real gate on loopback for 90 s and prints its address. Not part of the normal run.
+#[test]
+#[ignore]
+fn serve_gate_for_browser_probe() {
+    let bridge = crate::bridge::spawn_device_gate_listener();
+    println!("BRIDGE={bridge}");
+    use std::io::Write as _;
+    let _ = std::io::stdout().flush();
+    std::thread::sleep(Duration::from_secs(90));
+}
