@@ -326,6 +326,8 @@ impl Session {
             "busy": profile.busy_marker(screen),
             "status": profile.classify_screen(screen).map(|s| format!("{s:?}")),
             "prompt": profile.detect_prompt(screen, false),
+            // The usage-limit detector (`handoff::detect`) on the profile's own `limits.toml`.
+            "limit": profile.detect_limit(screen, &crate::handoff::reset::SystemClock),
         })
     }
 }

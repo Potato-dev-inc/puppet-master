@@ -1194,3 +1194,23 @@ fn the_pane_status_observer_keeps_a_run_parked_at_a_limit_while_the_limit_is_on_
     engine.observe(&env, PANE, claude.as_ref(), &claude_screen("neg_busy_with_notice"));
     assert!(engine.parked_action(&env, PANE).is_none());
 }
+
+/// Guard 1 counts non-blank rows: a CLI that draws its input box at the bottom of the screen leaves
+/// blank rows between the notice and the box, and they must not push the notice out of the tail. Seen
+/// through `pm-fake-tui` (`tests/fake_tui_e2e.rs`, `a_usage_limit_is_detected`): Codex's notice above
+/// 18 blank rows and the bottom-pinned box was missed when blank rows counted.
+#[test]
+fn blank_rows_between_the_notice_and_a_bottom_pinned_box_do_not_hide_the_limit() {
+    let f = fixture("codex", "usage_generic_same_day");
+    let gap = "\n".repeat(18);
+    let text = f.text.replacen("Try again at 9:45 PM.\n", &format!("Try again at 9:45 PM.\n{gap}"), 1);
+    assert_ne!(text, f.text, "the premise: the notice row is in the fixture");
+    let screen = render(&text, cols_of(&f));
+    let hit = profile_for("codex").detect_limit(&screen, &clock_of(&f)).expect("the limit above the gap");
+    assert_eq!(hit.kind, LimitKind::Usage);
+    assert_eq!(hit.reset_text.as_deref(), Some("9:45 PM"));
+    // A notice that is really far back (more than `tail_lines` non-blank rows above the box) is history.
+    let history: String = (0..14).map(|i| format!("\u{2022} line {i} of the answer\n")).collect();
+    let old = f.text.replacen("Try again at 9:45 PM.\n", &format!("Try again at 9:45 PM.\n{history}"), 1);
+    assert!(profile_for("codex").detect_limit(&render(&old, cols_of(&f)), &clock_of(&f)).is_none());
+}

@@ -95,6 +95,20 @@ fn indent(row: &str) -> usize {
     row.len() - row.trim_start().len()
 }
 
+/// The first row of the tail that holds the last `tail_lines` non-blank rows (0 when there are fewer).
+fn tail_start(all: &[&str], tail_lines: usize) -> usize {
+    let mut seen = 0;
+    for (index, row) in all.iter().enumerate().rev() {
+        if !row.trim().is_empty() {
+            seen += 1;
+            if seen == tail_lines {
+                return index;
+            }
+        }
+    }
+    0
+}
+
 impl CompiledLimits {
     /// Guard 3. The block a row belongs to is opened by the nearest row above it that starts in
     /// column 0. Inside a block opened by one of the profile's `block_markers`, only a row that
@@ -157,8 +171,9 @@ impl CompiledLimits {
     /// What the screen says about a limit, if anything. `busy` is the profile's `busy_marker`.
     pub fn detect(&self, screen: &str, busy: Option<bool>, clock: &dyn Clock) -> Option<LimitHit> {
         let all = rows(screen);
-        let tail_rows_count = self.table.tail_lines.min(all.len());
-        let first = all.len() - tail_rows_count;
+        // Guard 1 counts NON-BLANK rows: a CLI that pins its input box to the bottom of the screen
+        // leaves blank rows between the history and the box, and those must not push a notice out.
+        let first = tail_start(&all, self.table.tail_lines);
         let tail_rows = &all[first..];
         let tail = tail_rows.join("\n");
         let working = busy == Some(true);

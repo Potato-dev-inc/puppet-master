@@ -342,20 +342,13 @@ steps = [{ do = "think", ms = 300 }, { do = "say", text = "Committed." }]
     assert!(second_text.contains("commit it") && !second_text.contains("commit this"), "typed over the ghost, not appended to it: {second_text:?}");
 }
 
-// ---- 7. the usage limit (detector not merged on this base) ---------------------------------------------------
+// ---- 7. the usage limit ------------------------------------------------------------------------------------
 
-/// The agent hits its usage limit mid-task. Today the run reads as an ordinary finished turn.
-///
-/// TODO(feat/handoff-detect): that branch adds the usage-limit detector (`handoff/`, DESIGN-RELAY.md sections 1-2).
-/// It is not merged on this base (fix/live-r12), so the assertion about what Puppet Master DOES with the screen
-/// cannot be written yet. When it lands: remove `#[ignore]`, and replace the final TODO block with the
-/// detector's verdict (kind `usage`, reset `9:45 PM`), then assert the run is parked or handed off rather
-/// than reported as a normal completion. The fake already draws the vendor texts for both agents
-/// (`{ do = "limit" }`; `auto_continue = true` for Claude's "continuing automatically ... esc to cancel").
-/// The part that works today (the fake reaches the limit on a real pane and the screen carries the vendor
-/// wording the detector will read) runs with `--ignored`.
+/// The agent hits its usage limit mid-task: the fake draws Codex's vendor text on a real pane, and the real
+/// profile's usage-limit detector (`handoff::detect`, `tui/codex/limits.toml`) reads it as a usage limit with
+/// the printed reset. Hand-off is detect-only (DESIGN-RELAY.md): what the app then raises is covered by
+/// `handoff::tests`.
 #[test]
-#[ignore = "TODO(feat/handoff-detect): needs the usage-limit detector, not merged on this base"]
 fn a_usage_limit_is_detected() {
     let session = World::get().session("limit");
     session.script(
@@ -371,8 +364,13 @@ steps = [{ do = "think", ms = 400 }, { do = "limit", reset = "9:45 PM" }]
     let screen = session.screen(&pane);
     assert!(screen.contains("\u{25a0} You\u{2019}ve hit your usage limit."), "{screen}");
     assert!(screen.contains("try again at 9:45 PM."), "{screen}");
-    // TODO(feat/handoff-detect): let verdict = <the detector>(codex, &screen); assert kind == usage and
-    // reset == "9:45 PM"; assert status(&view) is not "completed" (or the run was handed to the next agent).
+    let read = session.read_screen("codex", &screen);
+    assert_eq!(read["limit"]["kind"], "usage", "{screen}
+{read}");
+    assert_eq!(read["limit"]["reset_text"], "9:45 PM", "{read}");
+    // Not asserted yet: in this harness the run still ends `completed` with no `usage_limit` on its receipt
+    // (the pane goes idle before the limit has held still for `stable_ms`). See INTEGRATION-R13.md.
+    let _ = view;
 }
 
 // ---- conformance: every screen the fake draws is read by the REAL profile ---------------------------------------
