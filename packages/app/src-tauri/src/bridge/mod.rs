@@ -115,13 +115,18 @@ impl BridgeHandle {
 }
 
 fn bind_listener() -> Result<(TcpListener, u16), String> {
-    for port in PORT_MIN..=PORT_MAX {
+    // A non-default profile (`PUPPET_MASTER_PROFILE`) scans its own slice of the range.
+    let (min, max) = match crate::app_paths::profile() {
+        None => (PORT_MIN, PORT_MAX),
+        Some(name) => crate::app_paths::bridge_port_range_for(Some(&name)),
+    };
+    for port in min..=max {
         match TcpListener::bind((HOST, port)) {
             Ok(listener) => return Ok((listener, port)),
             Err(_) => continue,
         }
     }
-    Err(format!("no free bridge port in {PORT_MIN}-{PORT_MAX}"))
+    Err(format!("no free bridge port in {min}-{max}"))
 }
 
 pub fn start_embedded_bridge(

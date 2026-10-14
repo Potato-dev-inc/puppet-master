@@ -92,6 +92,13 @@ pub fn run() {
         .with_target(false)
         .init();
 
+    // `PUPPET_MASTER_PROFILE=<name>`: a separate app (own identifier, so its own settings store,
+    // webview data and single-instance lock). The default profile keeps the configured identifier.
+    let mut context = tauri::generate_context!();
+    if app_paths::profile().is_some() {
+        context.config_mut().identifier = app_paths::app_id();
+    }
+
     tauri::Builder::default()
         // A second launch opens the running app's Settings window and exits, so it never starts
         // another bridge or rewrites the bridge port file.
@@ -430,7 +437,7 @@ pub fn run() {
 
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             // Tray-only: closing the last window (a pane, Settings) must not end the app.
