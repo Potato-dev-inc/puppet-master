@@ -37,3 +37,5 @@ pub mod pane;
 pub mod receipt;
 pub mod startup;
 
+#[cfg(test)]
+mod corpus_tests;

@@ -1,0 +1,19 @@
+---
+source: src/replay/corpus_tests.rs
+expression: timeline.render()
+---
+      0 ms  status    running (start)
+   1230 ms  status    waiting_input
+   1230 ms  gate      workspace_trust
+   1230 ms  prompt    workspace_trust
+   1230 ms  typing    refused PANE_BLOCKED_BY_PROMPT
+   1230 ms  composer  Unknown
+   1230 ms  startup   hold (workspace_trust)
+   6000 ms  recorded-input "\u{1b}[B"
+   6400 ms  recorded-input "\r"
+   6900 ms  status    running
+   6900 ms  gate      -
+   6900 ms  prompt    -
+   6900 ms  typing    refused AGENT_EXITED
+   6930 ms  startup   run ends: WORKSPACE_TRUST_DECLINED
+   7700 ms  status    idle (screen held still)
