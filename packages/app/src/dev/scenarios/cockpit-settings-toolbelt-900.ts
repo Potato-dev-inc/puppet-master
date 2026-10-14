@@ -13,7 +13,7 @@ const s: HarnessScenario = {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     }
     await dom.sleep(300);
-    dom.key('Enter');
+    await dom.clickText('[role="option"]', 'Toolbelt');
     await dom.sleep(900);
   },
 };
