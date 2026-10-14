@@ -199,3 +199,5 @@ pub fn finish(agent_id: &str) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, windows))]
+mod live_tests;

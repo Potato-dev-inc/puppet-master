@@ -272,8 +272,8 @@ export function AgentDoctor({
                       {inst.text}
                     </p>
                   )}
-                  {r.state === 'not_installed' && r.install_hint && <code className="ck-doctor-cmd">{r.install_hint}</code>}
-                  {r.state === 'not_installed' && r.install_fallback && (
+                  {r.state === 'not_installed' && !working && r.install_hint && <code className="ck-doctor-cmd">{r.install_hint}</code>}
+                  {r.state === 'not_installed' && !working && r.install_fallback && (
                     <p className="ck-doctor-hint">
                       <span className="ck-sub">Or with npm: </span>
                       <code className="ck-doctor-cmd">{r.install_fallback}</code>
