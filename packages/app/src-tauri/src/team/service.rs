@@ -466,7 +466,21 @@ impl Service {
         }
         let am_admin = session.my_member().is_ok_and(|m| session.roster.is_admin(&m));
         if am_admin {
-            return; // my copy is the source
+            // My copy is the source. Its one chore: a fresh team key every 30 days.
+            if now.saturating_sub(membership::key_made_at(&session.roster)) >= membership::ROTATE_EVERY_MS {
+                match membership::rotate(&mut session.roster, &self.keystore, transport.as_ref(), now) {
+                    Ok(epoch) => {
+                        let _ = save_roster(&self.dir, &session.roster);
+                        self.inner.lock().session = Some(session.clone());
+                        let seq = next_seq(self);
+                        let _ = membership::announce(&session, seq, transport.as_ref(), now);
+                        audit::record(Kind::TeamKeyRotated, Who::Desktop, "The team key was replaced (every 30 days)", json!({ "epoch": epoch }));
+                        self.changed();
+                    }
+                    Err(error) => tracing::warn!(%error, "team: couldn't replace the team key"),
+                }
+            }
+            return;
         }
         match membership::refresh(&mut session.roster, &self.keystore, transport.as_ref()) {
             Ok(found) => {

@@ -200,3 +200,29 @@ pub fn remove(roster: &mut Roster, member: &str, keys: &KeyStore, transport: &dy
     *roster = next;
     Ok(epoch)
 }
+
+/// Rotate the team key every this often, even without a removal (COWORK-PLAN §8.2).
+pub const ROTATE_EVERY_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+
+/// When the current team key was made: the last rotation, or the team's creation.
+pub fn key_made_at(roster: &Roster) -> u64 {
+    roster
+        .ops
+        .iter()
+        .rev()
+        .find(|op| matches!(op.body.op, OpBody::Rotate { .. } | OpBody::Genesis { .. }))
+        .map(|op| op.body.at_ms)
+        .unwrap_or(0)
+}
+
+/// Admin: a new team key for everyone still on the team.
+pub fn rotate(roster: &mut Roster, keys: &KeyStore, transport: &dyn TeamTransport, now_ms: u64) -> Result<u64, String> {
+    let root = keys.member()?;
+    let mut next = roster.clone();
+    let epoch = next.epoch + 1;
+    next.append(OpBody::Rotate { epoch }, &root, now_ms).map_err(|e| e.0)?;
+    keys.set_epoch_key(&next.team, epoch, &crypto::random_bytes::<32>())?;
+    publish(&next, keys, transport)?;
+    *roster = next;
+    Ok(epoch)
+}

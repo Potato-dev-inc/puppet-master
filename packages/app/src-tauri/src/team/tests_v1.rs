@@ -391,6 +391,23 @@ fn removing_a_member_rotates_the_team_key_and_locks_them_out() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+#[test]
+fn the_admin_replaces_the_team_key_every_30_days() {
+    let dir = temp_dir("rotate30");
+    let wire = folder(&dir);
+    let mut w = world(&wire, &["Leo"], NOW);
+    assert_eq!(membership::key_made_at(&w.roster), NOW);
+    assert!(NOW + membership::ROTATE_EVERY_MS - 1 - membership::key_made_at(&w.roster) < membership::ROTATE_EVERY_MS);
+    let later = NOW + membership::ROTATE_EVERY_MS;
+    assert_eq!(membership::rotate(&mut w.roster, &w.maya, wire.as_ref(), later).unwrap(), 2);
+    assert_eq!(membership::key_made_at(&w.roster), later);
+    let (_, leo_keys, leo_roster) = &mut w.others[0];
+    let found = membership::refresh(leo_roster, leo_keys, wire.as_ref()).unwrap();
+    assert!(found.new_epoch && !found.removed);
+    assert_eq!(leo_roster.epoch, 2, "Leo is still on the team and has the new key");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 // ----------------------------------------------------------------------------- gap detection
 
 #[test]
