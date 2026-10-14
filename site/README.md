@@ -16,7 +16,7 @@ Static HTML and CSS, no framework, no build dependencies. The only external requ
 
 Not covered by that one edit, on purpose:
 - The screenshots show the app's own UI, which says "Puppet Master". Re-shoot them after a rename.
-- The MCP snippet in the "Agents that start agents" tile is a literal config (`puppet-master`, `@puppet-master/mcp`). It changes when the package does.
+- The "Agents that start agents" tile shows the in-app route ("In Puppet Master: Settings › Bridge & MCP › Add Puppet Master to your agents"), which are the app's own labels. It changes when they do. It does not show `npx -y @puppet-master/mcp`: npm `@puppet-master/mcp` 0.1.3 is the legacy server.
 - The 3x3 dot mark is the app's state glyph, not a brand decision.
 
 ## Waitlist
