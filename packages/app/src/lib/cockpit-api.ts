@@ -105,7 +105,7 @@ export interface Checkpoint {
 }
 
 export interface CheckpointList {
-  state: 'ok' | 'off' | 'no_git';
+  state: 'ok' | 'off' | 'no_git' | 'too_big';
   message: string;
   /** Newest first. */
   items: Checkpoint[];
