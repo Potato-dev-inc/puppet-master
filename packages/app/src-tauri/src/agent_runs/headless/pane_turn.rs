@@ -123,14 +123,12 @@ pub(super) fn redeliver_prompt(
         &prompt,
         &mut trace,
     );
-    transcript::append(
+    delivery::record_delivery(
         &current.project_path,
         &current.operation_id,
-        "delivery",
-        &format!(
-            "{why}; re-delivered once: {delivery:?}\n{}",
-            trace.join("\n")
-        ),
+        Some(why),
+        &delivery,
+        &trace,
     );
     if !matches!(
         delivery,

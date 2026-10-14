@@ -16,6 +16,7 @@ const KNOWN_TAGS = [
   'interrupted',
   'execution_failure',
   'delivery',
+  'delivery_trace',
   'diagnostic',
   'startup',
 ];

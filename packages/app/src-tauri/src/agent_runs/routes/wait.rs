@@ -106,6 +106,9 @@ pub(super) fn transcript(
     let after = query_value(query, "after")
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(0);
+    // `?details=1` also returns the raw delivery diagnostics (the screen rows the delivery looked
+    // at); the default transcript carries the one-line summary only.
+    let details = matches!(query_value(query, "details").as_deref(), Some("1" | "true"));
     let page = if let Some(operation_id) = query_value(query, "operation_id") {
         let selected = operations::get_operation(project, &operation_id)?;
         if selected.agent_run_id != handle && selected.operation_id != handle {
@@ -115,9 +118,9 @@ pub(super) fn transcript(
                 false,
             ));
         }
-        runtime::transcript_page(project, &operation_id, after)?
+        runtime::transcript_page_with(project, &operation_id, after, details)?
     } else {
-        runtime::transcript_for_handle(project, handle, after)?
+        runtime::transcript_for_handle_with(project, handle, after, details)?
     };
     serde_json::to_value(page)
         .map_err(|error| OperationError::new("SERIALIZATION_ERROR", error.to_string(), false))

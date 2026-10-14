@@ -25,7 +25,7 @@ pub(crate) use super::headless::{convert_to_fallback, start_fallback_headless};
 pub(super) use access::check_snapshot_mutate_access;
 pub use access::{
     current_agent_for_read, current_agent_for_wait, record_user_task, transcript_for_handle,
-    transcript_page,
+    transcript_for_handle_with, transcript_page, transcript_page_with,
 };
 pub(super) use control::settle_native_abort;
 #[cfg(test)]

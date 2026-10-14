@@ -705,11 +705,12 @@ fn send_task_prompt(
                     &prompt,
                     &mut trace,
                 );
-                crate::agent_runs::transcript::append(
+                crate::agent_runs::delivery::record_delivery(
                     &active.project_path,
                     &active.operation_id,
-                    "delivery",
-                    &format!("{outcome:?}\n{}", trace.join("\n")),
+                    None,
+                    &outcome,
+                    &trace,
                 );
                 return match outcome {
                     crate::agent_runs::delivery::Delivery::NotVisible => {
