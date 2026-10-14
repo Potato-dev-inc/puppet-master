@@ -78,7 +78,7 @@ describe('not on a team', () => {
 
   it('create: the relay address says in plain words where to host your own, with a link to the guide', async () => {
     await mount(teamConfig(NOT_ON_TEAM));
-    expect(hasText(host, "Use Puppet Master's relay, or host your own (Cloudflare or Docker).")).toBe(true);
+    expect(hasText(host, 'Host your own relay on Cloudflare or with Docker. A hosted relay from Puppet Master is coming.')).toBe(true);
     const link = [...host.querySelectorAll('a')].find((a) => a.textContent === 'How to host your own') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe(RELAY_HELP_URL);
     expect(RELAY_HELP_URL).toMatch(/\/relay\/README\.md$/);

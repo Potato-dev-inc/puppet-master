@@ -32,7 +32,7 @@ function RelayHelp() {
     <div className="st-team-row">
       <span />
       <p className="st-note st-team-relay-help">
-        Use Puppet Master&apos;s relay, or host your own (Cloudflare or Docker).{' '}
+        Host your own relay on Cloudflare or with Docker. A hosted relay from Puppet Master is coming.{' '}
         <a
           className="st-link"
           href={RELAY_HELP_URL}
