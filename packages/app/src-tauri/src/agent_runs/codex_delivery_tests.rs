@@ -11,7 +11,8 @@
 
 use super::completion::{observe_tui_turn, TuiTurnDecision, TuiTurnWatch};
 use super::delivery::{deliver_prompt_traced, prompt_visible_in_input, Delivery, DeliveryIo};
-use crate::tui::{profile_for, ComposerState, StartupGate};
+use crate::pty::WriteOrigin;
+use crate::tui::{profile_for, ComposerState};
 use std::time::Duration;
 
 const PROMPT: &str = "Reply with the single word FIVE. Do not use any tools.";
@@ -92,7 +93,9 @@ impl CodexPane {
 }
 
 impl DeliveryIo for CodexPane {
-    fn write(&mut self, text: &str, enter: bool) -> Result<(), String> {
+    fn write(&mut self, origin: WriteOrigin<'_>, text: &str, enter: bool) -> Result<(), String> {
+        assert!(matches!(origin, WriteOrigin::Task(_) | WriteOrigin::Gate(_)), "unpermitted write {text:?}");
+        origin.admit_terminal_write("", text, enter, None, || crate::pty::agent_proc::AgentProcess::Unknown)?;
         self.draw_menu_when_due();
         if self.menu_up {
             if text == "\u{1b}" && !enter {
@@ -148,18 +151,12 @@ impl DeliveryIo for CodexPane {
     fn pause(&mut self, duration: Duration) {
         self.clock += duration;
     }
-    fn startup_gate(&mut self, screen: &str) -> Option<StartupGate> {
-        profile_for("codex").startup_gate(screen)
-    }
-    fn reads_composer(&mut self) -> bool {
-        profile_for("codex").reads_composer()
-    }
     fn enter_settle(&mut self) -> Duration {
         self.settle
             .unwrap_or_else(|| profile_for("codex").submit_sequence().settle)
     }
-    fn composer_state(&mut self, screen: &str) -> ComposerState {
-        profile_for("codex").composer_state(screen)
+    fn profile(&mut self) -> std::sync::Arc<dyn crate::tui::TuiProfile> {
+        profile_for("codex")
     }
 }
 
@@ -284,9 +281,15 @@ fn a_screen_that_never_becomes_a_composer_is_not_typed_into() {
 ".to_string();
     pane.ready_at = Some(pane.clock + Duration::from_secs(3_600));
     let (delivery, trace) = deliver(&mut pane);
-    assert_eq!(delivery, Delivery::NotVisible, "{trace:#?}");
+    // Unknown parks: nothing typed, and the reason travels with the outcome (before the permit:
+    // `NotVisible`, i.e. PROMPT_NOT_SUBMITTED, which fell back to a background run).
+    assert!(
+        matches!(&delivery, Delivery::NotReady { why, screen } if why.contains("input box") && screen.contains("starting")),
+        "{delivery:?} {trace:#?}"
+    );
     assert!(pane.typed_into_menu.is_empty());
-    assert!(trace.iter().any(|l| l.contains("composer never read as empty")), "{trace:#?}");
+    assert_eq!(pane.enters, 0);
+    assert!(trace.iter().any(|l| l.contains("not ready before typing")), "{trace:#?}");
 }
 
 #[test]

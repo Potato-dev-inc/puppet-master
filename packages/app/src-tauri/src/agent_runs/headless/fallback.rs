@@ -196,6 +196,24 @@ mod tests {
         assert_eq!(plan(&op, m, None), None);
     }
 
+    /// Readiness ratchet (`agent_runs::readiness`): a run the permit refused (nothing typed: the
+    /// screen never became ready, the agent is gone or not installed, a dialog or startup screen is
+    /// up, trust was declined) is parked or ended with its reason, never silently re-run headless.
+    #[test]
+    fn readiness_refusals_never_fall_back_headless() {
+        let op = operation("claude", None);
+        for code in [
+            crate::agent_runs::readiness::SCREEN_NOT_READY,
+            "AGENT_EXITED",
+            "AGENT_NOT_INSTALLED",
+            "PANE_BLOCKED_BY_PROMPT",
+            "WORKSPACE_TRUST_DECLINED",
+        ] {
+            assert!(!is_pre_turn_failure(code), "{code}");
+            assert_eq!(plan(&op, modes(true, true), Some(code)), None, "{code}");
+        }
+    }
+
     #[test]
     fn no_fallback_without_headless_for_adopted_panes_for_native_or_twice() {
         let spawned = operation("claude", Some(("pane-1", true)));

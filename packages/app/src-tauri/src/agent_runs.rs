@@ -13,6 +13,7 @@ pub(crate) mod pane_close;
 pub(crate) mod pane_api;
 pub(crate) mod persist;
 pub(crate) mod quick;
+pub mod readiness;
 mod recovery;
 mod routes;
 mod runtime;

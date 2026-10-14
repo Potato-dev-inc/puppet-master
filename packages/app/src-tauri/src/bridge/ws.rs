@@ -289,7 +289,9 @@ fn write_input(
                 value.get("error").cloned().unwrap_or(value)
             })?;
     }
-    crate::pty::registry_write_input(ctx.registry, ctx.app, pane_id, text, append_newline, false, None)
+    // A paired phone is a person typing; any other caller here is an authorised API session.
+    let origin = if paired_phone_typing { crate::pty::WriteOrigin::User } else { crate::pty::WriteOrigin::Api };
+    crate::pty::registry_write_input(ctx.registry, ctx.app, pane_id, text, append_newline, false, None, origin)
         .map_err(|err| Value::String(err))
 }
 

@@ -10,12 +10,30 @@ pub fn write_input(
     append_newline: bool,
     via_opencode_api: bool,
     opencode_model: Option<crate::opencode::OpenCodeModelRef>,
+    origin: crate::pty::WriteOrigin<'_>,
 ) -> Result<(), String> {
     let reg = registry.lock();
     let pane = reg
         .panes
         .get(pane_id)
         .ok_or_else(|| unknown_pane_message(pane_id))?;
+
+    // The typing permit (`agent_runs::readiness`): a run's input reaches the terminal only with a
+    // permit whose screen is still the latest, a gate's keys only with that gate's permit. Checked
+    // before anything else looks at the input, so a refused write leaves no trace.
+    let api_path = via_opencode_api
+        && pane.info.agent_type == "opencode_native"
+        && ((!text.trim().is_empty() && !is_pty_control_input(text)) || (text.is_empty() && append_newline));
+    if !api_path {
+        let pid = pane.info.pid;
+        let emitted = crate::pty::stream_pos::emitted(pane_id);
+        if let Err(refused) = origin.admit_terminal_write(pane_id, text, append_newline, emitted, || {
+            crate::pty::agent_proc::state(pane_id, pid)
+        }) {
+            debug!(pane_id, origin = origin.tag(), %refused, "pane write refused");
+            return Err(refused);
+        }
+    }
 
     // Auto-title: the first submitted line of an agent pane becomes its title (`ambient::title`).
     // The screen's last line tells whether the line answers a secret prompt; shells are not titled.
@@ -175,6 +193,23 @@ pub fn read_snapshot_full(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Resu
     };
     let parser = screen.lock();
     Ok(snapshot_text(parser.screen(), None))
+}
+
+/// [`read_snapshot_full`] plus how much of the pane's output the screen includes
+/// (`stream_pos::processed`, read under the same emulator lock as the screen), so a readiness
+/// verdict computed from it can later tell whether anything was printed after it.
+pub fn read_snapshot_full_at(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<(String, Option<u64>), String> {
+    let screen = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        pane.screen.clone()
+    };
+    let parser = screen.lock();
+    let pos = crate::pty::stream_pos::get(pane_id).map(|pos| pos.processed.load(std::sync::atomic::Ordering::SeqCst));
+    Ok((snapshot_text(parser.screen(), None), pos))
 }
 
 pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {

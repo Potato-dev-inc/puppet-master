@@ -172,7 +172,7 @@ fn request_interrupt(
             };
             let sequence = crate::pty::keys::sequence("ctrl+c")
                 .map_err(|error| OperationError::new("INTERRUPT_FAILED", error, false))?;
-            crate::pty::registry_write_input(registry, app, pane_id, &sequence, false, false, None)
+            crate::pty::registry_write_input(registry, app, pane_id, &sequence, false, false, None, crate::pty::WriteOrigin::Nudge)
                 .map_err(|error| OperationError::new("INTERRUPT_FAILED", error, true))?;
             Ok(())
         }

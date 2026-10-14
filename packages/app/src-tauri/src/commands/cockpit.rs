@@ -43,7 +43,7 @@ pub async fn answer_pane_prompt(
 
 #[tauri::command]
 pub async fn interrupt_pane(app: AppHandle, state: State<'_, AppState>, pane_id: String) -> Result<(), String> {
-    registry_write_input(&state.registry, &app, &pane_id, "\u{3}", false, false, None)
+    registry_write_input(&state.registry, &app, &pane_id, "\u{3}", false, false, None, crate::pty::WriteOrigin::User)
 }
 
 #[tauri::command]

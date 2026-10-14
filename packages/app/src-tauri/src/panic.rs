@@ -73,7 +73,7 @@ fn candidates(registry: &Arc<Mutex<PaneRegistry>>) -> Vec<Candidate> {
 /// Interrupt every running agent pane of the registry.
 pub fn stop_all(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) -> StopReport {
     let list = candidates(registry);
-    stop_running(&list, &|id| crate::pty::registry_write_input(registry, app, id, "\u{3}", false, false, None))
+    stop_running(&list, &|id| crate::pty::registry_write_input(registry, app, id, "\u{3}", false, false, None, crate::pty::WriteOrigin::Nudge))
 }
 
 /// Shortcut and tray entry: stop everything, bring the cockpit forward and tell it to show the sheet.

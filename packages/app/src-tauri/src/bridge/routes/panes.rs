@@ -283,6 +283,7 @@ fn input(cx: &Ctx, pane_id: &str) -> RouteResult {
         req.append_newline,
         req.via_opencode_api,
         model,
+        crate::pty::WriteOrigin::Api,
     )
     .map_err(|err| (404, json!({ "error": err })))?;
     Ok((
@@ -301,7 +302,7 @@ fn key(cx: &Ctx, pane_id: &str) -> RouteResult {
     let req: PressKeyBody = parse_json(body)?;
     let seq = crate::pty::keys::sequence(&req.key).map_err(|err| (400, json!({ "error": err })))?;
     let bytes = seq.len();
-    registry_write_input(registry, app, pane_id, &seq, false, false, None)
+    registry_write_input(registry, app, pane_id, &seq, false, false, None, crate::pty::WriteOrigin::Api)
         .map_err(|err| (404, json!({ "error": err })))?;
     Ok((200, json!({ "ok": true, "key": req.key, "bytes": bytes })))
 }

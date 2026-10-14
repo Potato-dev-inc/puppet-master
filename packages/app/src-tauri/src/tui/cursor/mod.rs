@@ -228,6 +228,11 @@ impl TuiProfile for CursorAgent {
         Some(screen::shows_work_in_progress(visible_tail))
     }
 
+    /// The framed input box read from the screen (`screen::input_box`).
+    fn ready_recogniser(&self, screen: &str) -> Option<crate::tui::ComposerState> {
+        Some(screen::input_box(screen))
+    }
+
     /// With no spinner and no stop hint on screen, 700ms of stillness is a finished turn: the
     /// spinner repaints every ~250ms and the stop hint stays up for the whole turn, including
     /// tool runs (frames recorded live, an 8s shell command included).

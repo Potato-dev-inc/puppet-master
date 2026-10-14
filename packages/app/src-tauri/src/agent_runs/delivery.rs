@@ -20,7 +20,10 @@
 //!
 //! The pane I/O is behind [`DeliveryIo`] so the sequences are unit-tested without a PTY.
 
-use crate::tui::{ComposerState, StartupGate};
+use super::readiness::{self, AgentProcess, Basis, HostShell, Observation, Readiness, TypingPermit, Verdict};
+use crate::pty::WriteOrigin;
+use crate::tui::{ComposerState, StartupGate, TuiProfile};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Longest prompt prefix compared against the screen.
@@ -57,13 +60,27 @@ const CLEAR_PAUSE: Duration = Duration::from_millis(120);
 const MAX_DELIVERY_GATES: u32 = 4;
 /// How long a startup screen may take to react to its dismiss keys, as polls of [`POLL_INTERVAL`].
 const GATE_CHANGE_POLLS: u32 = 40;
-/// How long a profile that reads its composer may take to show one (polls of [`POLL_INTERVAL`],
-/// about 6 s) before delivery gives up on a screen that never becomes ready.
-const COMPOSER_POLLS: u32 = 75;
+/// How long one readiness look may wait for the pane to read `Ready` (polls of [`POLL_INTERVAL`],
+/// about 10 s) before delivery stops and the run is parked with the screen.
+const READY_POLLS: u32 = 125;
+/// Polls a screen gets to settle after a startup screen was closed.
+const GATE_SETTLE_POLLS: u32 = 25;
+/// Pause after the clear sequence when typing without verification (the old blind path's pause).
+const UNVERIFIED_CLEAR_PAUSE: Duration = Duration::from_millis(250);
+/// How many times a look may be repeated because the pane printed between the look and the write.
+const MAX_STALE_LOOKS: u32 = 20;
 
 pub trait DeliveryIo {
-    fn write(&mut self, text: &str, enter: bool) -> Result<(), String>;
+    /// Writes run input under the permit it was issued with (`WriteOrigin::Task` for the clear
+    /// sequence, the task text and its Enter; `WriteOrigin::Gate` for a startup screen's own keys).
+    /// The live pane's write path refuses a stale permit with an error starting `PERMIT_STALE`.
+    fn write(&mut self, origin: WriteOrigin<'_>, text: &str, enter: bool) -> Result<(), String>;
     fn screen(&mut self) -> String;
+    /// The screen together with the pane's output position and agent process, for a readiness
+    /// verdict. A fake that knows neither gets the screen alone.
+    fn observe(&mut self) -> Observation {
+        Observation::screen_only(self.screen())
+    }
     /// True while the pane reports it is busy (a turn is running).
     fn busy(&mut self) -> bool;
     fn pause(&mut self, duration: Duration);
@@ -71,19 +88,10 @@ pub trait DeliveryIo {
     fn enter_settle(&mut self) -> Duration {
         Duration::ZERO
     }
-    /// What the input box holds on `screen`, when the profile can read it.
-    fn composer_state(&mut self, _screen: &str) -> ComposerState {
-        ComposerState::Unknown
-    }
-    /// The startup screen (update notice, trust question, sign-in) `screen` shows, when the profile
-    /// knows it. Nothing is typed over one: a dismissible notice is closed with its own keys, any
-    /// other waits for the user (`Delivery::Blocked`).
-    fn startup_gate(&mut self, _screen: &str) -> Option<StartupGate> {
-        None
-    }
-    /// Whether delivery must see the composer positively before typing (`TuiProfile::reads_composer`).
-    fn reads_composer(&mut self) -> bool {
-        false
+    /// The profile of the agent in the pane: its readiness recogniser, startup screens and input
+    /// box reader. Default: the generic profile (no recogniser, no gates).
+    fn profile(&mut self) -> Arc<dyn TuiProfile> {
+        crate::tui::profile_for("")
     }
 }
 
@@ -95,9 +103,16 @@ pub enum Delivery {
     SubmittedUnconfirmed,
     /// The prompt never appeared in the input box, so Enter was not pressed.
     NotVisible,
-    /// A startup screen that only the user may pass (folder trust, sign-in), or a notice that
-    /// ignored its dismiss keys, is on screen. Nothing was submitted.
+    /// A startup screen that only the user may pass (folder trust, sign-in), a dialog, or a notice
+    /// that ignored its dismiss keys, is on screen. Nothing was submitted.
     Blocked(StartupGate),
+    /// The agent is not running in the pane (it exited, or its command was not found). Nothing was
+    /// typed into the shell that is left.
+    AgentGone(HostShell),
+    /// The pane never showed a screen that takes a task within the readiness window (blank, a
+    /// splash, a screen no rule recognises, a turn still running). Nothing was typed. The caller
+    /// parks the run with `why` and `screen`; it never falls back to a background run for this.
+    NotReady { why: String, screen: String },
     WriteFailed(String),
 }
 
@@ -138,6 +153,15 @@ pub fn delivery_summary(outcome: &Delivery, trace: &[String]) -> String {
         Delivery::Blocked(gate) => format!(
             "Not sent. {}; nothing was typed or submitted. Deal with it in the pane, then retry.",
             gate.summary.trim_end_matches('.')
+        ),
+        Delivery::AgentGone(HostShell::AgentExited) => {
+            "Not sent. The agent in the pane has exited; nothing was typed into the shell that is left.".to_string()
+        }
+        Delivery::AgentGone(HostShell::NotInstalled(command)) => format!(
+            "Not sent. The terminal could not find the agent's command `{command}`; nothing was typed."
+        ),
+        Delivery::NotReady { why, .. } => format!(
+            "Not sent yet. Waiting for the agent's input box: {why}. Nothing was typed."
         ),
         Delivery::WriteFailed(error) => format!("Not sent. Writing to the pane failed: {error}"),
     }
@@ -316,146 +340,199 @@ fn wait_for_screen(io: &mut dyn DeliveryIo, budget: &mut u32) -> bool {
     false
 }
 
-/// Closes the startup screens on the pane, one at a time, before anything is typed: a dismissible
-/// notice gets the keys its profile declares (and the screen must change and settle after them),
-/// any other gate is handed back for the caller to refuse. Typing a task over the notice is what
-/// lost a fresh Codex run (its update menu takes Enter as "Update now"). `rounds` is shared by the
-/// whole delivery so a screen that keeps returning stops the loop.
-fn close_startup_gates(
-    io: &mut dyn DeliveryIo,
-    budget: &mut u32,
-    rounds: &mut u32,
-    trace: &mut Vec<String>,
-) -> Result<(), StartupGate> {
-    loop {
-        let before = io.screen();
-        let Some(gate) = io.startup_gate(&before) else { return Ok(()) };
-        let Some(keys) = gate.dismiss else {
-            trace.push(format!("startup screen '{}' is on screen and only the user may pass it", gate.id));
-            return Err(gate);
-        };
-        if *rounds >= MAX_DELIVERY_GATES {
-            trace.push(format!("startup screen '{}' keeps coming back; not closing it again", gate.id));
-            return Err(gate);
+/// Why delivery stopped before typing anything.
+enum Stop {
+    Blocked(StartupGate),
+    Gone(HostShell),
+    NotReady { why: String, screen: String },
+}
+
+impl From<Stop> for Delivery {
+    fn from(stop: Stop) -> Self {
+        match stop {
+            Stop::Blocked(gate) => Delivery::Blocked(gate),
+            Stop::Gone(shell) => Delivery::AgentGone(shell),
+            Stop::NotReady { why, screen } => Delivery::NotReady { why, screen },
         }
-        *rounds += 1;
-        trace.push(format!("startup screen '{}' on screen: closing it with its own keys before typing", gate.id));
-        if io.write(keys, false).is_err() {
-            return Err(gate);
-        }
-        let mut changed = false;
-        for _ in 0..GATE_CHANGE_POLLS {
-            io.pause(POLL_INTERVAL);
-            if io.screen() != before {
-                changed = true;
-                break;
-            }
-        }
-        if !changed {
-            trace.push(format!("startup screen '{}' did not react to its keys", gate.id));
-            return Err(gate);
-        }
-        // Let what replaced it finish drawing; the next lap checks that it is not another gate.
-        wait_for_screen(io, budget);
     }
 }
 
-/// For a profile that reads its composer: waits until the screen is POSITIVELY an empty composer,
-/// closing startup notices on the way. An unknown screen (blank, a splash, a menu half drawn) is not
-/// ready: it keeps polling and re-checking gates. `Ok(true)` ready; `Ok(false)` the budget ran out
-/// with text or a running turn in the box (typing proceeds: the clear sequence handles a stale draft);
-/// `Ok(false)` is never returned for a screen the profile could not read at all, that is `Err(None)`.
-/// `Err(Some(gate))`: a gate only the user may pass.
-fn wait_for_composer(
+/// Whether a write error is the pane saying the permit's screen is no longer the latest.
+fn is_stale(error: &str) -> bool {
+    error.starts_with(readiness::PERMIT_STALE)
+}
+
+/// Looks at the pane until it reads `Ready` and returns the permit for that look; a fresh verdict on
+/// every poll. On the way, a startup screen that declares its own keys is closed with a gate permit
+/// (and the screen must change and settle after them); any other gate, a dialog, or the agent gone
+/// stops delivery. A screen that stays `Unknown` or `Busy` for the whole window stops it too, with
+/// the reason and the screen, so the run is parked rather than typed into. Text already in a box the
+/// profile can clear is accepted only when the window ends without an empty box (a menu that is
+/// still being drawn reads as text). `when` names the moment for the trace.
+fn await_ready(
     io: &mut dyn DeliveryIo,
-    budget: &mut u32,
+    profile: &dyn TuiProfile,
     rounds: &mut u32,
     trace: &mut Vec<String>,
-) -> Result<bool, Option<StartupGate>> {
-    if !io.reads_composer() {
-        return Ok(true);
-    }
-    let mut last = ComposerState::Unknown;
-    for _ in 0..COMPOSER_POLLS {
-        close_startup_gates(io, budget, rounds, trace).map_err(Some)?;
-        let screen = io.screen();
-        last = io.composer_state(&screen);
-        if last == ComposerState::Empty {
-            return Ok(true);
+    when: &str,
+) -> Result<TypingPermit, Stop> {
+    let mut last: Option<Verdict> = None;
+    for poll in 0..READY_POLLS {
+        let verdict = readiness::assess(profile, io.observe());
+        match verdict.readiness().clone() {
+            Readiness::Ready => {
+                let last_poll = poll + 1 == READY_POLLS;
+                if verdict.composer() == ComposerState::HasText && !last_poll {
+                    last = Some(verdict);
+                    io.pause(POLL_INTERVAL);
+                    continue;
+                }
+                if poll > 0 || verdict.basis() == Basis::Inferred {
+                    trace.push(format!(
+                        "ready {when} after {poll} look(s) ({:?}, input box {:?})",
+                        verdict.basis(),
+                        verdict.composer()
+                    ));
+                }
+                return Ok(verdict.typing_permit().expect("a Ready verdict issues a permit"));
+            }
+            Readiness::Gate(gate) => {
+                let Some(permit) = verdict.gate_permit() else {
+                    trace.push(format!("startup screen '{}' is on screen {when} and only the user may pass it", gate.id));
+                    return Err(Stop::Blocked(gate));
+                };
+                if *rounds >= MAX_DELIVERY_GATES {
+                    trace.push(format!("startup screen '{}' keeps coming back; not closing it again", gate.id));
+                    return Err(Stop::Blocked(gate));
+                }
+                *rounds += 1;
+                trace.push(format!(
+                    "startup screen '{}' appeared {when}; not typing over it, closing it with its own keys",
+                    gate.id
+                ));
+                let before = verdict.screen().to_string();
+                match io.write(WriteOrigin::Gate(&permit), permit.keys(), false) {
+                    Ok(()) => {}
+                    Err(error) if is_stale(&error) => continue,
+                    Err(_) => return Err(Stop::Blocked(gate)),
+                }
+                let mut changed = false;
+                for _ in 0..GATE_CHANGE_POLLS {
+                    io.pause(POLL_INTERVAL);
+                    if io.screen() != before {
+                        changed = true;
+                        break;
+                    }
+                }
+                if !changed {
+                    trace.push(format!("startup screen '{}' did not react to its keys", gate.id));
+                    return Err(Stop::Blocked(gate));
+                }
+                // Let what replaced it finish drawing; the next look checks it is not another gate.
+                let mut settle = GATE_SETTLE_POLLS;
+                wait_for_screen(io, &mut settle);
+            }
+            Readiness::HostShell(shell) => {
+                trace.push(format!("{} {when}; nothing is typed into the shell", verdict.why()));
+                return Err(Stop::Gone(shell));
+            }
+            Readiness::Busy | Readiness::Unknown => {
+                last = Some(verdict);
+                io.pause(POLL_INTERVAL);
+            }
         }
-        io.pause(POLL_INTERVAL);
     }
-    trace.push(format!("composer never read as empty (last state {last:?}) within the readiness window"));
-    if last == ComposerState::Unknown {
-        Err(None)
-    } else {
-        Ok(false)
-    }
+    let (why, screen) = last
+        .map(|verdict| (verdict.why().to_string(), verdict.screen().to_string()))
+        .unwrap_or_else(|| ("the pane never showed the agent's input box".into(), io.screen()));
+    trace.push(format!("not ready {when} within the readiness window: {why}"));
+    Err(Stop::NotReady { why, screen })
 }
 
 /// [`deliver_prompt`] that also records what it saw, so a delivery that claimed success without a
 /// turn can be diagnosed from the operation transcript.
+///
+/// Every write goes out under a permit (`agent_runs::readiness`): the clear sequence and the task
+/// text each need a `Ready` verdict from a look taken right before them (the pane refuses the write
+/// if anything was printed since, and delivery looks again), Enter rides on the permit of the text
+/// it submits, and a startup screen's keys need that screen's gate permit.
 pub fn deliver_prompt_traced(
     io: &mut dyn DeliveryIo,
     clear: Option<&str>,
     prompt: &str,
     trace: &mut Vec<String>,
 ) -> Delivery {
+    let profile = io.profile();
+    let profile = profile.as_ref();
     let mut visible = false;
     let mut ready_budget = READY_BUDGET_POLLS;
     let mut attempt = 0;
     let mut typed_any = false;
     let mut gate_rounds = 0;
+    let mut stale_left = MAX_STALE_LOOKS;
+    // The permit the task text went in under: Enter (and the clean-up clear) ride on it.
+    let mut typed_under: Option<TypingPermit> = None;
     while attempt < 2 {
         if !wait_for_screen(io, &mut ready_budget) {
             trace.push("screen stayed empty: the TUI drew nothing within the startup budget".to_string());
             if typed_any {
-                if let Some(clear) = clear {
-                    let _ = io.write(clear, false);
+                if let (Some(clear), Some(permit)) = (clear, typed_under.as_ref()) {
+                    let _ = io.write(WriteOrigin::Task(permit), clear, false);
                 }
+                return Delivery::NotVisible;
             }
-            return Delivery::NotVisible;
+            return Delivery::NotReady {
+                why: "the pane stayed blank".into(),
+                screen: io.screen(),
+            };
         }
-        // The settled screen may be a startup notice the readiness check could not have seen
-        // (the TUI draws it a moment after it starts): close it, or refuse, before typing.
-        if let Err(gate) = close_startup_gates(io, &mut ready_budget, &mut gate_rounds, trace) {
-            return Delivery::Blocked(gate);
-        }
-        // A profile that can read its composer is typed into only once the composer is positively
-        // there: "no gate found" is not "ready" (a blank or half-drawn screen has no gate either).
-        match wait_for_composer(io, &mut ready_budget, &mut gate_rounds, trace) {
-            Ok(_) => {}
-            Err(Some(gate)) => return Delivery::Blocked(gate),
-            Err(None) => return Delivery::NotVisible,
-        }
+        let mut permit = match await_ready(io, profile, &mut gate_rounds, trace, "before typing") {
+            Ok(permit) => permit,
+            Err(stop) => return stop.into(),
+        };
         if let Some(clear) = clear {
-            if let Err(error) = io.write(clear, false) {
-                return Delivery::WriteFailed(error);
+            match io.write(WriteOrigin::Task(&permit), clear, false) {
+                Ok(()) => {}
+                Err(error) if is_stale(&error) && stale_left > 0 => {
+                    stale_left -= 1;
+                    trace.push(format!("the pane printed output after the readiness look; looking again ({error})"));
+                    continue;
+                }
+                Err(error) => return Delivery::WriteFailed(error),
             }
             io.pause(CLEAR_PAUSE);
+            // The settle and the clear pause took time, and a notice can draw in that time (live,
+            // Codex 0.159.3: the look before saw no menu, 120 ms later the whole menu was up). The
+            // text gets its own look and its own permit, right before it goes in.
+            permit = match await_ready(io, profile, &mut gate_rounds, trace, "just before typing") {
+                Ok(permit) => permit,
+                Err(stop) => return stop.into(),
+            };
         }
-        // The settle and the clear pause took time, and a notice can draw in that time (live, Codex
-        // 0.159.3: the check above saw no menu, 120 ms later the whole menu was up). One last look
-        // right before the text goes in; a notice found here is closed at the top of the loop.
         let screen_now = io.screen();
-        if let Some(gate) = io.startup_gate(&screen_now) {
-            trace.push(format!("startup screen '{}' appeared just before typing; not typing over it", gate.id));
-            gate_rounds += 1;
-            if gate_rounds > MAX_DELIVERY_GATES {
-                return Delivery::Blocked(gate);
-            }
-            continue;
-        }
         trace.push(format!("attempt {attempt}: typing; busy={} rows={}", io.busy(), trace_rows(&screen_now)));
-        if let Err(error) = io.write(prompt, false) {
-            return Delivery::WriteFailed(error);
+        match io.write(WriteOrigin::Task(&permit), prompt, false) {
+            Ok(()) => {}
+            Err(error) if is_stale(&error) && stale_left > 0 => {
+                stale_left -= 1;
+                trace.push(format!("the pane printed output after the readiness look; looking again ({error})"));
+                continue;
+            }
+            Err(error) => return Delivery::WriteFailed(error),
         }
         typed_any = true;
+        typed_under = Some(permit);
         let mut late_gate = None;
         for poll in 0..VISIBLE_POLLS {
             io.pause(POLL_INTERVAL);
-            let screen = io.screen();
-            if let Some(gate) = io.startup_gate(&screen) {
+            let verdict = readiness::assess(profile, io.observe());
+            if let Readiness::HostShell(shell) = verdict.readiness() {
+                // The agent went away after the text went in: nothing more is typed, no Enter.
+                trace.push(format!("typed poll {poll}: {}; Enter was not pressed", verdict.why()));
+                return Delivery::AgentGone(shell.clone());
+            }
+            let screen = verdict.screen().to_string();
+            if let Some(gate) = profile.startup_gate(&screen) {
                 // A notice drew over the box after the keys went in: they went into the notice.
                 trace.push(format!("typed poll {poll}: a startup screen appeared while typing"));
                 late_gate = Some(gate);
@@ -472,8 +549,8 @@ pub fn deliver_prompt_traced(
             break;
         }
         if let Some(gate) = late_gate {
-            // Closed (or refused) at the top of the loop, then typed again; this attempt does not
-            // count, the box never had the text.
+            // Closed (or refused) by the next look, then typed again; this attempt does not count,
+            // the box never had the text.
             gate_rounds += 1;
             if gate_rounds > MAX_DELIVERY_GATES {
                 return Delivery::Blocked(gate);
@@ -488,12 +565,14 @@ pub fn deliver_prompt_traced(
         }
         attempt += 1;
     }
+    let Some(permit) = typed_under else {
+        return Delivery::NotVisible;
+    };
     if !visible {
         if let Some(clear) = clear {
-            let _ = io.write(clear, false);
+            let _ = io.write(WriteOrigin::Task(&permit), clear, false);
         }
-        trace.push(format!("not visible; bottom rows at give-up:
-{}", bottom_rows(&io.screen(), 20)));
+        trace.push(format!("not visible; bottom rows at give-up:\n{}", bottom_rows(&io.screen(), 20)));
         return Delivery::NotVisible;
     }
     // Some TUIs read an Enter that follows the typed text too closely as a line break in a paste.
@@ -501,14 +580,19 @@ pub fn deliver_prompt_traced(
     if !settle.is_zero() {
         io.pause(settle);
     }
-    let before = io.screen();
-    if let Some(gate) = io.startup_gate(&before) {
+    let verdict = readiness::assess(profile, io.observe());
+    if let Readiness::HostShell(shell) = verdict.readiness() {
+        trace.push(format!("{}; Enter was not pressed", verdict.why()));
+        return Delivery::AgentGone(shell.clone());
+    }
+    let before = verdict.screen().to_string();
+    if let Some(gate) = profile.startup_gate(&before) {
         // Enter on a notice chooses one of its options ("Update now"): never press it there.
         trace.push(format!("startup screen '{}' is on screen; Enter was not pressed", gate.id));
         return Delivery::Blocked(gate);
     }
-    let before_state = io.composer_state(&before);
-    if let Err(error) = io.write("", true) {
+    let before_state = profile.composer_state(&before);
+    if let Err(error) = io.write(WriteOrigin::Task(&permit), "", true) {
         return Delivery::WriteFailed(error);
     }
     let mut resubmitted = false;
@@ -516,7 +600,7 @@ pub fn deliver_prompt_traced(
         io.pause(POLL_INTERVAL);
         let busy = io.busy();
         let screen = io.screen();
-        let state = io.composer_state(&screen);
+        let state = profile.composer_state(&screen);
         let started = submit_confirmed(state, before_state, &before, &screen)
             .unwrap_or_else(|| turn_started(&before, &screen, prompt, busy));
         trace.push(format!("enter poll {poll}: started={started} busy={busy} composer={state:?} rows={}", trace_rows(&screen)));
@@ -529,10 +613,84 @@ pub fn deliver_prompt_traced(
         if (swallowed || poll == RESUBMIT_AT_POLL) && !resubmitted {
             resubmitted = true;
             trace.push(format!("enter poll {poll}: Enter sent once more (composer={state:?})"));
-            let _ = io.write("", true);
+            let _ = io.write(WriteOrigin::Task(&permit), "", true);
         }
     }
     Delivery::SubmittedUnconfirmed
+}
+
+/// Typing a task into a profile that cannot verify delivery (its input box is not readable enough to
+/// confirm the text): still only under a permit. Waits for a drawn, settled screen and a `Ready`
+/// verdict, clears the box with its own permit when the profile has a clear sequence, then types the
+/// task and Enter under a fresh permit from a look taken right before. `Started` means typed and
+/// submitted (nothing is verified); every other outcome typed nothing.
+pub fn type_unverified(
+    io: &mut dyn DeliveryIo,
+    clear: Option<&str>,
+    prompt: &str,
+    trace: &mut Vec<String>,
+) -> Delivery {
+    let profile = io.profile();
+    let profile = profile.as_ref();
+    let mut ready_budget = READY_BUDGET_POLLS;
+    let mut gate_rounds = 0;
+    for _ in 0..=MAX_STALE_LOOKS {
+        if !wait_for_screen(io, &mut ready_budget) {
+            trace.push("screen stayed empty: the TUI drew nothing within the startup budget".to_string());
+            return Delivery::NotReady { why: "the pane stayed blank".into(), screen: io.screen() };
+        }
+        let mut permit = match await_ready(io, profile, &mut gate_rounds, trace, "before typing") {
+            Ok(permit) => permit,
+            Err(stop) => return stop.into(),
+        };
+        if let Some(clear) = clear {
+            match io.write(WriteOrigin::Task(&permit), clear, false) {
+                Ok(()) => {}
+                Err(error) if is_stale(&error) => continue,
+                Err(error) => return Delivery::WriteFailed(error),
+            }
+            io.pause(UNVERIFIED_CLEAR_PAUSE);
+            permit = match await_ready(io, profile, &mut gate_rounds, trace, "just before typing") {
+                Ok(permit) => permit,
+                Err(stop) => return stop.into(),
+            };
+        }
+        match io.write(WriteOrigin::Task(&permit), prompt, true) {
+            Ok(()) => return Delivery::Started,
+            Err(error) if is_stale(&error) => {
+                trace.push(format!("the pane printed output after the readiness look; looking again ({error})"));
+                continue;
+            }
+            Err(error) => return Delivery::WriteFailed(error),
+        }
+    }
+    Delivery::NotReady {
+        why: "the pane kept printing output between every look and the keystroke".into(),
+        screen: io.screen(),
+    }
+}
+
+/// One look at a live pane: its uncropped screen with the output position it was read at, and what
+/// the process tree says about the agent (`pty::agent_proc`). A pane that exited reads `Exited`.
+pub fn observe_pane(registry: &std::sync::Arc<parking_lot::Mutex<crate::pty::PaneRegistry>>, pane_id: &str) -> Observation {
+    let (screen, output_pos) = crate::pty::registry_read_snapshot_full_at(registry.as_ref(), pane_id).unwrap_or_default();
+    let (pid, exited) = registry
+        .lock()
+        .panes
+        .get(pane_id)
+        .map(|pane| (pane.info.pid, *pane.exited.lock()))
+        .unwrap_or((0, true));
+    let agent = if exited {
+        AgentProcess::Exited
+    } else {
+        crate::pty::agent_proc::state(pane_id, pid)
+    };
+    Observation {
+        pane_id: pane_id.to_string(),
+        screen,
+        output_pos,
+        agent,
+    }
 }
 
 /// [`DeliveryIo`] over a live pane.
@@ -543,12 +701,16 @@ pub struct PaneIo<'a> {
 }
 
 impl DeliveryIo for PaneIo<'_> {
-    fn write(&mut self, text: &str, enter: bool) -> Result<(), String> {
-        crate::pty::registry_write_input(self.registry, self.app, self.pane_id, text, enter, false, None)
+    fn write(&mut self, origin: WriteOrigin<'_>, text: &str, enter: bool) -> Result<(), String> {
+        crate::pty::registry_write_input(self.registry, self.app, self.pane_id, text, enter, false, None, origin)
     }
 
     fn screen(&mut self) -> String {
         crate::pty::registry_read_snapshot_full(self.registry.as_ref(), self.pane_id).unwrap_or_default()
+    }
+
+    fn observe(&mut self) -> Observation {
+        observe_pane(self.registry, self.pane_id)
     }
 
     fn busy(&mut self) -> bool {
@@ -568,22 +730,8 @@ impl DeliveryIo for PaneIo<'_> {
         self.profile().submit_sequence().settle
     }
 
-    fn composer_state(&mut self, screen: &str) -> ComposerState {
-        self.profile().composer_state(screen)
-    }
-
-    fn startup_gate(&mut self, screen: &str) -> Option<StartupGate> {
-        self.profile().startup_gate(screen)
-    }
-
-    fn reads_composer(&mut self) -> bool {
-        self.profile().reads_composer()
-    }
-}
-
-impl PaneIo<'_> {
     /// The profile of the agent running in this pane.
-    fn profile(&self) -> std::sync::Arc<dyn crate::tui::TuiProfile> {
+    fn profile(&mut self) -> Arc<dyn TuiProfile> {
         let agent_type = self
             .registry
             .lock()
@@ -595,7 +743,6 @@ impl PaneIo<'_> {
         crate::tui::profile_for(&agent_type)
     }
 }
-
 /// The text typed into the pane for a task: the task, plus the worker's completion-reporting
 /// instruction when the worker has MCP tools.
 pub fn dispatch_prompt(
@@ -626,7 +773,10 @@ mod tests {
     }
 
     impl DeliveryIo for FakePane {
-        fn write(&mut self, text: &str, enter: bool) -> Result<(), String> {
+        fn write(&mut self, origin: WriteOrigin<'_>, text: &str, enter: bool) -> Result<(), String> {
+            // The invariant, checked on every write a delivery makes: run input carries a permit.
+            assert!(matches!(origin, WriteOrigin::Task(_) | WriteOrigin::Gate(_)), "unpermitted write {text:?}");
+            origin.admit_terminal_write("", text, enter, None, || AgentProcess::Unknown)?;
             self.writes.push((text.to_string(), enter));
             let mut hook = std::mem::replace(&mut self.on_write, Box::new(|_, _, _| {}));
             hook(self, text, enter);
@@ -676,8 +826,12 @@ mod tests {
 
     #[test]
     fn enter_is_never_pressed_when_the_prompt_does_not_show_up() {
-        // Blank pane: the typed text never renders.
-        let mut pane = pane(|pane, _, _| pane.screen = String::new());
+        // The typed text wipes the pane (it never renders).
+        let mut pane = pane(|pane, text, _| {
+            if text == PROMPT {
+                pane.screen = String::new();
+            }
+        });
         let delivery = deliver_prompt(&mut pane, Some("\u{15}"), PROMPT);
         assert_eq!(delivery, Delivery::NotVisible);
         assert!(
@@ -894,8 +1048,8 @@ working
     }
 
     impl DeliveryIo for Late {
-        fn write(&mut self, t: &str, e: bool) -> Result<(), String> {
-            self.inner.write(t, e)
+        fn write(&mut self, o: WriteOrigin<'_>, t: &str, e: bool) -> Result<(), String> {
+            self.inner.write(o, t, e)
         }
         fn screen(&mut self) -> String {
             if self.blank_polls > 0 {
@@ -938,7 +1092,12 @@ working
         let mut p = pane(|_, _, _| {});
         p.screen = "  \n \n".into();
         let mut trace = Vec::new();
-        assert_eq!(deliver_prompt_traced(&mut p, Some("\u{15}"), PROMPT, &mut trace), Delivery::NotVisible);
+        // Blank is `Unknown`: the run is parked with the reason, never typed into, never sent
+        // headless (before the permit: `NotVisible`, which fell back to a background run).
+        assert_eq!(
+            deliver_prompt_traced(&mut p, Some("\u{15}"), PROMPT, &mut trace),
+            Delivery::NotReady { why: "the pane stayed blank".into(), screen: "  \n \n".into() }
+        );
         assert!(p.writes.is_empty(), "{:?}", p.writes);
         assert!(trace.iter().any(|l| l.contains("screen stayed empty")), "{trace:?}");
         assert!(p.paused >= Duration::from_secs(19), "paused {:?}", p.paused);
