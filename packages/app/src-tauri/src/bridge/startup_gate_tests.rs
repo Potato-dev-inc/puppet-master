@@ -606,3 +606,47 @@ fn an_unknown_screen_that_never_clears_ends_screen_not_ready_without_a_fallback(
     assert!(error.context["screen"].as_str().unwrap().contains("Ask Codex"));
     assert!(now.worker.fallback.is_none(), "never a headless fallback");
 }
+
+/// Review R12 1.4: every pane status change rewrote `required_action` (to `None` for idle/running,
+/// to the id-less manual action for waiting_input), so a run parked on `screen_not_ready` lost its
+/// explanation and screen the first time the person touched the pane.
+#[test]
+fn a_parked_run_keeps_its_screen_not_ready_explanation_through_pane_status_changes() {
+    let pane = "park-unknown-keeps-reason";
+    let (registry, op, handle) = parked_on_unknown(pane, Duration::from_secs(20));
+    wait_for(|| {
+        let now = stored(&op);
+        (now.status == OperationStatus::WaitingInput && now.required_action.is_some()).then_some(())
+    });
+    let manual = serde_json::json!({"kind": "manual_input_required", "pane_id": pane, "detail": "Inspect the pane"});
+    // What `observe_operation_pane_status` records for running, idle and an unrecognised waiting_input.
+    for (state, action) in [("running", None), ("idle", None), ("waiting_input", Some(manual))] {
+        let now = crate::operations::mark_operation_observation(
+            &op.project_path,
+            &op.operation_id,
+            Some(state.into()),
+            action,
+            crate::operations::StateSource::Inferred,
+        )
+        .unwrap();
+        let kept = now.required_action.clone().unwrap_or_else(|| panic!("{state}: the explanation was dropped"));
+        assert_eq!(kept["kind"], "screen_not_ready", "{state}: {kept}");
+        assert!(kept["screen"].as_str().unwrap().contains("Ask Codex"), "{state}: {kept}");
+        assert_eq!(now.status, OperationStatus::WaitingInput, "{state}");
+        assert_eq!(now.stage.as_deref(), Some("waiting_for_pane_readiness"), "{state}");
+    }
+    // A dialog the profile recognises is news: it replaces the explanation.
+    let dialog = serde_json::json!({"kind": "command", "prompt_id": "p-1", "pane_id": pane, "summary": "Run npm test?"});
+    let now = crate::operations::mark_operation_observation(
+        &op.project_path,
+        &op.operation_id,
+        Some("waiting_input".into()),
+        Some(dialog.clone()),
+        crate::operations::StateSource::Inferred,
+    )
+    .unwrap();
+    assert_eq!(now.required_action, Some(dialog));
+    show(&registry, pane, CODEX_READY);
+    wait_for(|| handle.is_finished().then_some(()));
+    let _ = handle.join().unwrap();
+}

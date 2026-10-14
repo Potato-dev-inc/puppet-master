@@ -165,7 +165,20 @@ pub fn mark_operation_observation(
         op.stage = Some("running".into());
     }
     op.pane_state = pane_state;
-    op.required_action = required_action;
+    // A run parked on a screen that is not ready keeps its explanation and screen
+    // (`screen_not_ready`) through status changes: idle/running bring no action and an
+    // unrecognised waiting_input only the id-less manual one, which would leave the card with
+    // nothing to read. A dialog the profile recognises replaces it (that is news).
+    let parked_reason = awaiting_readiness
+        && op.required_action.as_ref().and_then(|a| a.get("kind")).and_then(Value::as_str) == Some("screen_not_ready");
+    let recognised = required_action
+        .as_ref()
+        .and_then(|a| a.get("kind"))
+        .and_then(Value::as_str)
+        .is_some_and(|kind| !matches!(kind, "manual_input_required" | "screen_not_ready"));
+    if !parked_reason || recognised {
+        op.required_action = required_action;
+    }
     op.observed_at_ms = Some(now_ms());
     op.source = source;
     bump(&mut op)?;
