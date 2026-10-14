@@ -20,6 +20,7 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
         path.as_deref(),
         &cx.request_body,
         cx.registry,
+        cx.session,
     )
     .map(|result| result.map(|value| (200, value)).map_err(operation_http_error))
 }

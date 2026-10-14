@@ -54,6 +54,10 @@ export interface HarnessScenario {
   panes?: PaneInfo[];
   /** Pending `ask_user` questions the mocked `questions_list` returns. */
   questions?: Question[];
+  /** Settings > Security: the two agent-authority switches the mocked backend reports. */
+  authority?: { ask_before_agent_control: boolean; agents_may_merge: boolean };
+  /** Settings > Security: lines of the audit log the mocked backend returns (newest first). */
+  audit?: { seq: number; ts_ms: number; kind: string; who: string; summary: string }[];
   /** Runs once after the first paint (and after the panes loaded); click things, press keys. */
   after?: (api: HarnessDom) => void | Promise<void>;
 }

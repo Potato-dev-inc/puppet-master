@@ -42,12 +42,7 @@ pub(crate) fn bridge_request(
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
 
     let session_header = current_mcp_session_id()
-        .map(|id| {
-            format!(
-                "X-Puppet-Master-Session: {id}\r\nX-Puppet-Master-Pid: {}\r\n",
-                std::process::id()
-            )
-        })
+        .map(|id| session_headers(&id))
         .unwrap_or_default();
     let request = format!(
         "{method} {path} HTTP/1.1\r\n\
@@ -88,12 +83,7 @@ pub(crate) fn bridge_request_wait(
     let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
     let session_header = current_mcp_session_id()
-        .map(|id| {
-            format!(
-                "X-Puppet-Master-Session: {id}\r\nX-Puppet-Master-Pid: {}\r\n",
-                std::process::id()
-            )
-        })
+        .map(|id| session_headers(&id))
         .unwrap_or_default();
     let request = format!("POST /operations/{}/wait{} HTTP/1.1\r\nHost: {}:{}\r\n{}Connection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", encode_path_segment(id), query, endpoint.host, endpoint.port, session_header, body_text.len(), body_text);
     stream
@@ -142,12 +132,7 @@ pub(crate) fn bridge_request_wait_agents(
     let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
     let session_header = current_mcp_session_id()
-        .map(|id| {
-            format!(
-                "X-Puppet-Master-Session: {id}\r\nX-Puppet-Master-Pid: {}\r\n",
-                std::process::id()
-            )
-        })
+        .map(|id| session_headers(&id))
         .unwrap_or_default();
     let request = format!(
         "POST /agents/wait HTTP/1.1\r\nHost: {}:{}\r\n{}Connection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",

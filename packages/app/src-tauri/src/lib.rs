@@ -2,6 +2,8 @@
 
 mod accounts;
 mod actors;
+mod agent_authority;
+mod audit;
 mod ambient;
 mod agent_definitions_recorder;
 mod agent_adapters;
@@ -285,6 +287,10 @@ pub fn run() {
             commands::questions_list,
             commands::question_answer,
             commands::question_dismiss,
+            commands::agent_authority_get,
+            commands::agent_authority_set,
+            commands::audit_recent,
+            commands::audit_verify,
         ])
         .setup(|app| {
             // Register approved declarative agent definitions before anything resolves a profile.

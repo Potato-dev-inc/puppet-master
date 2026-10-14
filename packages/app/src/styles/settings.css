@@ -677,3 +677,40 @@
   gap: 8px;
   margin-top: 10px;
 }
+/* Security: recent approvals and control changes (read-only list). Monochrome, one line per entry. */
+.settings .st-audit {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: grid;
+}
+.settings .st-audit-row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-top: 1px solid var(--sep);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.settings .st-audit-row:first-child {
+  border-top: 0;
+}
+.settings .st-audit-when {
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.settings .st-audit-what {
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.settings .st-audit-who {
+  color: var(--label-2);
+  white-space: nowrap;
+}
+.settings .st-audit-check {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--label-3);
+}

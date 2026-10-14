@@ -23,6 +23,7 @@ pub fn handle(
     path: Option<&str>,
     body: &Value,
     registry: &Arc<Mutex<PaneRegistry>>,
+    session: Option<&str>,
 ) -> Option<Result<Value, OperationError>> {
     Some(match (method, segments) {
         ("POST", ["worktrees", "review"]) => {
@@ -32,7 +33,15 @@ pub fn handle(
             let body_path = body.get("path").and_then(Value::as_str).or(path);
             match body.get("action").and_then(Value::as_str).unwrap_or("diff") {
                 "diff" => service::diff(project, handle, body_path, registry).map(|view| json!(view)),
-                "merge" => service::merge(project, handle, registry).map(|outcome| json!(outcome)),
+                // The one agent path to a merge: setting B ("Let agents merge separate copies").
+                "merge" => crate::agent_authority::merge::check_agent_merge(session, handle)
+                    .and_then(|()| service::merge(project, handle, registry))
+                    .map(|outcome| {
+                        if outcome.merged {
+                            crate::agent_authority::merge::note_agent_merged(session, handle, &outcome.branch, &outcome.into);
+                        }
+                        json!(outcome)
+                    }),
                 "discard" => service::discard(project, handle, registry).map(|()| json!({ "discarded": true })),
                 other => Err(OperationError::new(
                     "INVALID_ARGUMENT",

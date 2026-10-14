@@ -41,6 +41,12 @@ pub async fn create_mobile_pairing_session(
     let store = crate::mobile_pairing::pairing_store()
         .ok_or_else(|| "pairing store not initialized".to_string())?;
     let session = store.lock().create_pairing_session(bridge_url);
+    crate::audit::record(
+        crate::audit::Kind::Pairing,
+        crate::audit::Who::Desktop,
+        "You made a pairing code for a phone",
+        serde_json::json!({ "via": "settings" }),
+    );
     Ok(session)
 }
 
@@ -58,6 +64,14 @@ pub async fn revoke_paired_mobile_device(device_id: String) -> Result<bool, Stri
     let store = crate::mobile_pairing::pairing_store()
         .ok_or_else(|| "pairing store not initialized".to_string())?;
     let revoked = store.lock().revoke_device(&device_id)?;
+    if revoked {
+        crate::audit::record(
+            crate::audit::Kind::Pairing,
+            crate::audit::Who::Desktop,
+            "You removed a paired phone",
+            serde_json::json!({ "device_id": device_id }),
+        );
+    }
     Ok(revoked)
 }
 

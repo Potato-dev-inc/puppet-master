@@ -380,7 +380,7 @@ fn route(
 ) -> Result<serde_json::Value, OperationError> {
     let registry = std::sync::Arc::new(parking_lot::Mutex::new(crate::pty::PaneRegistry::new()));
     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
-    super::routes::handle(method, &segments, Some(project), None, &body, &registry)
+    super::routes::handle(method, &segments, Some(project), None, &body, &registry, None)
         .expect("route is owned by worktrees")
 }
 
@@ -576,4 +576,69 @@ agent line
     assert!(outcome.merged);
     assert_eq!(repo.read(".puppet-master/memory.md"), "remember
 ");
+}
+
+// ---- setting B: may an agent merge a separate copy? ----
+
+fn gate_repo(handle: &str) -> (Repo, String) {
+    let repo = repo();
+    let project = repo.path();
+    let wt = create(&project, handle).unwrap();
+    std::fs::write(Path::new(&wt.path).join("agent-work.txt"), "work\n").unwrap();
+    (repo, project)
+}
+
+fn b(allowed: bool) -> crate::agent_authority::config::Config {
+    crate::agent_authority::config::Config { ask_before_agent_control: false, agents_may_merge: allowed }
+}
+
+#[test]
+fn an_agent_merge_is_refused_when_b_is_off_and_nothing_changes() {
+    let (repo, project) = gate_repo("gate-off");
+    let head = repo.head();
+    crate::agent_authority::config::with_config(b(false), || {
+        let error = route("POST", "/worktrees/review", &project, serde_json::json!({"handle":"gate-off","action":"merge"})).unwrap_err();
+        assert_eq!(error.code, "MERGE_NOT_ALLOWED");
+        assert!(!error.recoverable);
+        assert!(error.message.contains("Changes") && error.message.contains("Let agents merge separate copies"), "{}", error.message);
+        assert!(error.message.contains("action=diff"), "it says what the agent can still do");
+        assert_eq!(repo.head(), head, "the project is untouched");
+        assert!(!repo.path().is_empty() && repo.read("agent-work.txt").is_empty(), "nothing merged into the project");
+        // Reading and the diff still work, and the copy is still there to review.
+        let diff = route("POST", "/worktrees/review", &project, serde_json::json!({"handle":"gate-off"})).unwrap();
+        assert_eq!(diff["changes"]["files_changed"], 1);
+        assert_eq!(list(&project).len(), 1);
+    });
+}
+
+#[test]
+fn a_person_merging_in_the_cockpit_always_works_even_when_b_is_off() {
+    let (repo, project) = gate_repo("gate-human");
+    crate::agent_authority::config::with_config(b(false), || {
+        let registry = std::sync::Arc::new(parking_lot::Mutex::new(crate::pty::PaneRegistry::new()));
+        // This is what the Tauri command `worktree_merge` calls.
+        let outcome = super::service::merge(Some(&project), "gate-human", &registry).unwrap();
+        assert!(outcome.merged);
+        assert_eq!(repo.read("agent-work.txt"), "work\n");
+    });
+}
+
+#[test]
+fn an_agent_merge_works_when_b_is_on_which_is_todays_behaviour() {
+    let (repo, project) = gate_repo("gate-on");
+    crate::agent_authority::config::with_config(b(true), || {
+        let merged = route("POST", "/worktrees/review", &project, serde_json::json!({"handle":"gate-on","action":"merge"})).unwrap();
+        assert_eq!(merged["merged"], true);
+        assert_eq!(repo.read("agent-work.txt"), "work\n");
+    });
+}
+
+#[test]
+fn a_refused_agent_merge_is_written_to_the_audit_log() {
+    let (_repo, project) = gate_repo("gate-audit");
+    crate::agent_authority::config::with_config(b(false), || {
+        let _ = route("POST", "/worktrees/review", &project, serde_json::json!({"handle":"gate-audit","action":"merge"}));
+    });
+    let lines = crate::audit::global().recent(500);
+    assert!(lines.iter().any(|e| e.kind == "merge" && e.detail["handle"] == "gate-audit" && e.detail["allowed"] == false), "{lines:?}");
 }

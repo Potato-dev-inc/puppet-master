@@ -412,7 +412,8 @@ fn await_ready(
                 ));
                 let before = verdict.screen().to_string();
                 match io.write(WriteOrigin::Gate(&permit), permit.keys(), false) {
-                    Ok(()) => {}
+                    // Audit: Puppet Master pressed keys on the person's behalf (which screen, which keys).
+                    Ok(()) => crate::audit::note_gate_dismissal(gate.id, gate.summary, permit.keys()),
                     Err(error) if is_stale(&error) => continue,
                     Err(_) => return Err(Stop::Blocked(gate)),
                 }
