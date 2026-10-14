@@ -104,6 +104,10 @@ export const SettingsSchema = z.object({
   checkpoints_keep: z.number().int().min(5).max(500).default(50),
   /** Minutes without keyboard or mouse before you count as away (the "While you were away" digest); 0 = off. */
   away_minutes: z.number().int().min(0).max(1440).default(5),
+  /** Live updates from agents (Claude Code, Codex): off, or watch only for now. Owned by Rust (settings_store). */
+  agent_hooks_mode: z.enum(['off', 'shadow', 'evidence']).optional(),
+  /** Per-agent override of agent_hooks_mode, keyed by agent id. */
+  agent_hooks_agents: z.record(z.string(), z.enum(['off', 'shadow', 'evidence'])).optional(),
   /** Optional path to the librarian project indexer script (default scripts/project-indexer.py). */
   librarian_indexer_path: z.string().optional(),
   /** Default OpenCode provider for opencode_native API prompts (write_terminal_input). */

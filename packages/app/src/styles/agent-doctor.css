@@ -53,6 +53,10 @@
   margin: 3px 0 0;
   color: var(--label-2);
 }
+.cockpit .ck-doctor-live {
+  margin: 3px 0 0;
+  color: var(--label-3);
+}
 .cockpit .ck-doctor-cmd {
   display: block;
   margin-top: 8px;

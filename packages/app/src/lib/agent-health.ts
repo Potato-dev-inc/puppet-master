@@ -4,6 +4,14 @@ import { invoke } from '@tauri-apps/api/core';
 
 export type HealthState = 'unchecked' | 'ready' | 'not_installed' | 'needs_login' | 'error';
 
+/** Live updates (agent hooks) for one agent; `sentence` and `how_to` are already plain user text. */
+export interface AgentHooksHealth {
+  state: string;
+  mode: string;
+  sentence: string;
+  how_to?: string;
+}
+
 export interface AgentHealth {
   id: string;
   label: string;
@@ -17,6 +25,7 @@ export interface AgentHealth {
   login_hint: string | null;
   /** A deep check is possible for this agent. */
   can_test: boolean;
+  hooks?: AgentHooksHealth | null;
 }
 
 export interface AgentHealthApi {

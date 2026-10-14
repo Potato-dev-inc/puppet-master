@@ -84,6 +84,7 @@ const DEFAULT_SETTINGS: Settings = {
   checkpoints_enabled: true,
   checkpoints_keep: 50,
   away_minutes: 5,
+  agent_hooks_mode: 'shadow',
 };
 
 function readLegacySidebarWidth(): number | undefined {

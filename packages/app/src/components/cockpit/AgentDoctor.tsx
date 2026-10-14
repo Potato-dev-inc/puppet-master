@@ -132,6 +132,14 @@ export function AgentDoctor({ onOpenAgent, onNotify, onClose, api = agentHealthA
                   <p className="ck-doctor-reason">
                     {busy ? 'Asking it a tiny question. This can take a minute.' : r.reason}
                   </p>
+                  {r.installed && r.hooks && r.hooks.state !== 'not_supported' && (
+                    <>
+                      <p className="ck-doctor-live" data-live={r.hooks.state}>
+                        Live updates: {r.hooks.sentence}
+                      </p>
+                      {r.hooks.how_to && <p className="ck-doctor-hint">{r.hooks.how_to}</p>}
+                    </>
+                  )}
                   {r.state === 'not_installed' && r.install_hint && <code className="ck-doctor-cmd">{r.install_hint}</code>}
                   {r.state === 'not_installed' && r.install_fallback && (
                     <p className="ck-doctor-hint">
