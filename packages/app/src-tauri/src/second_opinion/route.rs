@@ -65,6 +65,27 @@ pub struct Sent {
     pub target: String,
 }
 
+/// Deliver an already-composed one-line message (see `service::send_text_to_author`).
+pub fn deliver_text(
+    targets: &dyn Targets,
+    sender: &dyn Sender,
+    pane_id: &str,
+    message: &str,
+) -> Result<Sent, OperationError> {
+    match decide(targets, pane_id)? {
+        Route::Run { project, handle } => {
+            sender.followup(&project, &handle, message)?;
+            Ok(Sent { route: "run", target: handle })
+        }
+        Route::Pane { pane_id } => {
+            sender
+                .pane_input(&pane_id, message)
+                .map_err(|e| OperationError::new("SEND_FAILED", e, true))?;
+            Ok(Sent { route: "pane", target: pane_id })
+        }
+    }
+}
+
 pub fn deliver(
     targets: &dyn Targets,
     sender: &dyn Sender,
