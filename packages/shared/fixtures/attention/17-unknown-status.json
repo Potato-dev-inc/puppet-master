@@ -1,0 +1,22 @@
+{
+  "name": "unknown-status",
+  "note": "statuses other than the four (exited, a future one) never need the person",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "exited"
+      },
+      {
+        "id": "b",
+        "status": "starting"
+      },
+      {
+        "id": "c",
+        "status": "WAITING_INPUT"
+      }
+    ]
+  },
+  "expected": [],
+  "blocking": []
+}

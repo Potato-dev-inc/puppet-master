@@ -1,0 +1,30 @@
+{
+  "name": "waiting-and-stuck-same-pane",
+  "note": "legacy: a waiting pane that is also flagged stuck yields both",
+  "input": {
+    "panes": [
+      {
+        "id": "x",
+        "status": "waiting_input"
+      }
+    ],
+    "stuckPaneIds": [
+      "x"
+    ]
+  },
+  "expected": [
+    {
+      "id": "approval:x",
+      "kind": "approval",
+      "paneId": "x"
+    },
+    {
+      "id": "stuck:x",
+      "kind": "stuck",
+      "paneId": "x"
+    }
+  ],
+  "blocking": [
+    "approval:x"
+  ]
+}

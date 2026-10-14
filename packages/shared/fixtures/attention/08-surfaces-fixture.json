@@ -1,0 +1,81 @@
+{
+  "name": "surfaces-fixture",
+  "note": "attention.surfaces.test.tsx: two approvals, an errored shell, a stuck running pane, one question",
+  "input": {
+    "panes": [
+      {
+        "id": "ap1",
+        "status": "waiting_input"
+      },
+      {
+        "id": "ap2",
+        "status": "waiting_input"
+      },
+      {
+        "id": "ps",
+        "status": "error"
+      },
+      {
+        "id": "run",
+        "status": "running"
+      },
+      {
+        "id": "idle",
+        "status": "idle"
+      }
+    ],
+    "questions": [
+      {
+        "id": "q1",
+        "created_at_ms": 0
+      }
+    ],
+    "stuckPaneIds": [
+      "run"
+    ],
+    "statusSince": {
+      "ap1": 0,
+      "ap2": 0,
+      "ps": 0,
+      "run": 0,
+      "idle": 0
+    }
+  },
+  "expected": [
+    {
+      "id": "approval:ap1",
+      "kind": "approval",
+      "paneId": "ap1",
+      "since": 0
+    },
+    {
+      "id": "approval:ap2",
+      "kind": "approval",
+      "paneId": "ap2",
+      "since": 0
+    },
+    {
+      "id": "question:q1",
+      "kind": "question",
+      "since": 0
+    },
+    {
+      "id": "error:ps",
+      "kind": "error",
+      "paneId": "ps",
+      "since": 0
+    },
+    {
+      "id": "stuck:run",
+      "kind": "stuck",
+      "paneId": "run"
+    }
+  ],
+  "blocking": [
+    "approval:ap1",
+    "approval:ap2",
+    "error:ps",
+    "question:q1",
+    "stuck:run"
+  ]
+}

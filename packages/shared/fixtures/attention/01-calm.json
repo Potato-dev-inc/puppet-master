@@ -1,0 +1,18 @@
+{
+  "name": "calm",
+  "note": "nothing needs the person",
+  "input": {
+    "panes": [
+      {
+        "id": "x",
+        "status": "running"
+      },
+      {
+        "id": "y",
+        "status": "idle"
+      }
+    ]
+  },
+  "expected": [],
+  "blocking": []
+}

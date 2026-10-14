@@ -6,7 +6,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaneInfo } from '@puppet-master/shared';
 import type { CockpitApi } from '../../hooks/useCockpit';
-import { deriveNeedsYou } from '../../lib/attention';
+import { blockingItems, deriveNeedsYou } from '../../lib/attention';
+import { NeedsYouContext } from '../../hooks/useNeedsYou';
 import { LoopGuardContext, type LoopSignal } from '../../lib/loop-guard';
 import { waitingCount } from '../../lib/mobile-agent-tabs';
 import type { Question } from '../../lib/questions';
@@ -109,6 +110,31 @@ describe('one Needs-you count', () => {
     expect(doto.getAttribute('aria-label')).toBe('5 things need you');
   });
 
+  it('does not count an Ask-bar answer: it waits under Ready for you', () => {
+    const { api, list } = fixture();
+    const items = deriveNeedsYou({
+      panes: list.map((p) => ({ id: p.info.id, status: p.status })),
+      questions: [question],
+      stuckPaneIds: ['run'],
+      notices: [{ id: 'ask-1', at_ms: 5 }],
+    });
+    expect(items).toHaveLength(6);
+    expect(blockingItems(items)).toHaveLength(5);
+    act(() => {
+      root.render(
+        <LoopGuardContext.Provider value={{ signals: { run: stuck }, dismiss: () => {} }}>
+          <NeedsYouContext.Provider value={items}>
+            <Sidebar c={api} onOpenPalette={() => {}} />
+            <Inbox c={api} />
+          </NeedsYouContext.Provider>
+        </LoopGuardContext.Provider>,
+      );
+    });
+    expect(host.querySelector('.ck-doto')!.textContent).toBe('05');
+    expect(host.querySelector('.ck-row--flat .ck-count')!.textContent).toBe('5');
+    expect(host.querySelector('.ck-group .ck-caption-count')!.textContent).toBe('5');
+  });
+
   it('puts every pane that needs you under the sidebar Needs you group, including the errored and the stuck one', () => {
     const { api } = fixture();
     renderWithStuck(<Sidebar c={api} onOpenPalette={() => {}} />);
@@ -123,6 +149,8 @@ describe('one Needs-you count', () => {
     const asked = [question];
     const phone = waitingCount(phonePanes, { questions: asked, stuckPaneIds: ['run'] });
     expect(phone).toBe('05');
+    // An Ask-bar answer is not a number on the phone either.
+    expect(waitingCount(phonePanes, { questions: asked, stuckPaneIds: ['run'], notices: [{ id: 'n' }] })).toBe('05');
     const desktop = deriveNeedsYou({
       panes: list.map((p) => ({ id: p.info.id, status: p.status })),
       questions: asked,

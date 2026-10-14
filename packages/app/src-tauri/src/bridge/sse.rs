@@ -194,7 +194,7 @@ mod tests {
         use super::StatusHook::*;
         assert_eq!(
             super::STATUS_HOOK_ORDER,
-            [PaneActivity, Ambient, Operations, Checkpoints, Push, TurnSummary],
+            [PaneActivity, Ambient, Operations, Checkpoints, Attention, Push, TurnSummary],
             "the status-hook order is a contract: edit STATUS_HOOK_ORDER and this test together"
         );
         let position = |hook| super::STATUS_HOOK_ORDER.iter().position(|h| *h == hook).unwrap();
@@ -227,6 +227,7 @@ pub(crate) enum StatusHook {
     Ambient,
     Operations,
     Checkpoints,
+    Attention,
     Push,
     TurnSummary,
 }
@@ -240,8 +241,11 @@ pub(crate) enum StatusHook {
 /// 2. `Ambient` (tray icon) is a cheap flag flip with no dependencies.
 /// 3. `Operations` records pane errors on the owning run before anything announces the change.
 /// 4. `Checkpoints` takes the settle ticket for this rest point (and starts its worker thread).
-/// 5. `Push` (phone notifications) is independent of the others.
-/// 6. `TurnSummary` MUST come after `Checkpoints`: it waits on the newest ticket, which is the one
+/// 5. `Attention` mirrors the status into the attention store (it only marks it dirty; a tick thread
+///    builds the snapshot), so it runs after the hooks that may change what it reads and before
+///    the surfaces that will read its count.
+/// 6. `Push` (phone notifications) is independent of the others.
+/// 7. `TurnSummary` MUST come after `Checkpoints`: it waits on the newest ticket, which is the one
 ///    `Checkpoints` just took (`turn_summary::on_pane_status`).
 ///
 /// These run on the caller's thread, which is the PTY reader thread (the `pty://status` listener
@@ -249,11 +253,12 @@ pub(crate) enum StatusHook {
 /// network) to its own worker thread; `Checkpoints` and `TurnSummary` do. A list of names rather
 /// than function pointers keeps the order testable without linking the tray and window code the
 /// hooks reach.
-pub(crate) const STATUS_HOOK_ORDER: [StatusHook; 6] = [
+pub(crate) const STATUS_HOOK_ORDER: [StatusHook; 7] = [
     StatusHook::PaneActivity,
     StatusHook::Ambient,
     StatusHook::Operations,
     StatusHook::Checkpoints,
+    StatusHook::Attention,
     StatusHook::Push,
     StatusHook::TurnSummary,
 ];
@@ -271,6 +276,7 @@ fn run_status_hook(hook: StatusHook, pane_id: &str, status: &str) {
         StatusHook::Ambient => crate::ambient::notify_changed(),
         StatusHook::Operations => observe_operation_pane_status(pane_id, status),
         StatusHook::Checkpoints => crate::checkpoints::on_pane_status(pane_id, status),
+        StatusHook::Attention => crate::attention::on_pane_status(pane_id, status),
         StatusHook::Push => crate::push::notify_pane_status(pane_id, status),
         StatusHook::TurnSummary => crate::turn_summary::on_pane_status(pane_id, status),
     }

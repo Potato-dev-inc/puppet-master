@@ -1,0 +1,31 @@
+{
+  "name": "duplicate-stuck-ids",
+  "note": "the same pane listed twice by the loop guard gives two items",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "running"
+      }
+    ],
+    "stuckPaneIds": [
+      "a",
+      "a"
+    ]
+  },
+  "expected": [
+    {
+      "id": "stuck:a",
+      "kind": "stuck",
+      "paneId": "a"
+    },
+    {
+      "id": "stuck:a",
+      "kind": "stuck",
+      "paneId": "a"
+    }
+  ],
+  "blocking": [
+    "stuck:a"
+  ]
+}

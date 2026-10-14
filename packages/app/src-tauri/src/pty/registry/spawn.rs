@@ -376,6 +376,7 @@ pub fn spawn_pane(
                                 crate::pane_prompt::detect_in_screen(&agent_type, &last_snapshot, false)
                                     .and_then(|p| crate::pane_prompt::PanePrompt::from_detected(&p))
                             }) {
+                                crate::attention::on_prompt(&pane_id, waiting, prompt.as_ref());
                                 let _ = app.emit(
                                     "pty://prompt",
                                     serde_json::json!({ "pane_id": pane_id, "prompt": prompt }),

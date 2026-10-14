@@ -86,7 +86,13 @@ fn read_aggregate(app: &AppHandle) -> Aggregate {
     let live: Vec<String> = panes.iter().map(|p| p.id.clone()).collect();
     super::store::retain_live(&live);
     // Warm standby panes are invisible plumbing, not the user's work.
-    Aggregate::from_statuses(panes.iter().filter(|p| !crate::pty::hidden::is_hidden(&p.id)).map(|p| p.status.as_str()))
+    let statuses = panes.iter().filter(|p| !crate::pty::hidden::is_hidden(&p.id)).map(|p| p.status.as_str());
+    aggregate_for(statuses, crate::attention::counts().blocking)
+}
+
+/// Pane statuses for the glyph pattern, plus the one attention count for the badge and tooltip.
+pub(crate) fn aggregate_for<'a>(statuses: impl IntoIterator<Item = &'a str>, blocking: u32) -> Aggregate {
+    Aggregate::from_statuses(statuses).with_blocking(blocking)
 }
 
 /// Everything drawn for one moment; compared to skip redundant OS calls.

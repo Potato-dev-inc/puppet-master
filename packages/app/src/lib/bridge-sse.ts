@@ -7,6 +7,7 @@ import { mergeBridgeHeaders, mobilePairingAuthHeaders } from './mobile-pairing-a
 import { hasBridgeLocalSecret, localSecretHeaders } from './bridge-local-secret';
 import type { BridgeEvent, LoopSignalInfo, OpenCodeWorkerEvent } from './bridge-types';
 import type { PreviewUrl } from './pane-preview';
+import type { AttentionSnapshot } from './attention';
 
 /** Decode a base64 terminal chunk into raw bytes. */
 export function decodeBase64(text: string): Uint8Array {
@@ -46,6 +47,8 @@ function dispatchBridgeEvent(eventName: string, data: string, onEvent: (e: Bridg
   } else if (eventName === 'loop-signal') {
     const payload = parsed as { pane_id: string; signal: LoopSignalInfo | null };
     onEvent({ type: 'loop-signal', pane_id: payload.pane_id, signal: payload.signal ?? null });
+  } else if (eventName === 'attention') {
+    onEvent({ type: 'attention', snapshot: parsed as AttentionSnapshot });
   } else if (eventName === 'questions') {
     const payload = parsed as { revision?: number };
     onEvent({ type: 'questions', revision: payload.revision ?? 0 });
@@ -226,6 +229,7 @@ const BRIDGE_EVENT_NAMES = [
   'settings',
   'orchestrator-viewport',
   'questions',
+  'attention',
 ] as const;
 
 function shouldUseFetchBridgeSse(baseUrl: string): boolean {

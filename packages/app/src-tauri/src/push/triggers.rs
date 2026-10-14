@@ -10,8 +10,10 @@ use std::collections::{HashMap, HashSet};
 pub const RATE_LIMIT_MS: u64 = 30_000;
 /// The body never carries more than this many characters of anything that came from a terminal.
 pub const MAX_BODY_CHARS: usize = 120;
-/// The risk sentence that leads a body. It sits on its own line, so it never cuts into the command.
-pub const MAX_RISK_CHARS: usize = 80;
+/// The first line of an approval body ("High risk · Delete a folder outside this project") is cut to
+/// this many characters. Real risk headlines reach 39 characters and "High risk · " adds 12, so the
+/// old 40 could not hold them (design decision D5).
+pub const MAX_FIRST_LINE_CHARS: usize = crate::attention::copy::MAX_FIRST_LINE_CHARS;
 /// A pane title in the notification title is cut to this.
 pub const MAX_TITLE_CHARS: usize = 40;
 /// How long a freshly entered `waiting_input` settles before we read the prompt, so a pane that
@@ -48,8 +50,11 @@ pub enum Verdict {
     Send,
     /// Same prompt as the last notification for this pane.
     Duplicate,
-    /// Another notification for this pane went out less than `RATE_LIMIT_MS` ago.
+    /// Another notification for this pane went out less than `RATE_LIMIT_MS` ago. The hub holds the
+    /// newest one and releases it when the window ends (`PushHub::take_due`): it is never dropped.
     RateLimited,
+    /// Everything that was held back was dealt with before the window ended: nothing to say.
+    Resolved,
 }
 
 /// Per-pane memory behind the triggers.
@@ -110,6 +115,16 @@ impl Gate {
         Verdict::Send
     }
 
+    /// When the last notification for `key` went out.
+    pub fn last_sent(&self, key: &str) -> Option<u64> {
+        self.last_sent_ms.get(key).copied()
+    }
+
+    /// A notification for `key` goes out now outside `admit` (a coalesced push): start its window.
+    pub fn mark_sent(&mut self, now_ms: u64, key: &str) {
+        self.last_sent_ms.insert(key.to_string(), now_ms);
+    }
+
     /// True the first time a terminal operation state is seen (snapshots are republished).
     pub fn first_sight_of_operation(&mut self, operation_id: &str, status: &str) -> bool {
         if self.seen_operations.len() >= MAX_REMEMBERED_OPERATIONS {
@@ -164,9 +179,9 @@ pub struct PromptInfo {
     pub prompt_id: String,
     /// Summary if the profile produced one, else its prompt text. Not yet truncated.
     pub text: String,
-    /// A command approval that can be answered with exactly Allow once / Deny. Never true for a
-    /// high-risk prompt, nor when the risk is unknown (fail closed): Allow from a lock screen must
-    /// not be the easy path for `rm -rf ../`.
+    /// A command approval that can be answered with exactly Allow once / Deny. True only for LOW
+    /// risk: never for "Check first" (medium) or high risk, nor when the risk is unknown (fail
+    /// closed). Allow from a lock screen must not be the easy path for `npm install` or `rm -rf ../`.
     pub actionable: bool,
     /// The risk the desktop card shows (`risk.level` / `risk.headline` of the detected prompt).
     /// `None` when the prompt carried none.
@@ -193,19 +208,11 @@ impl PromptRisk {
         Some(Self { level, headline })
     }
 
-    /// "High risk · Delete a folder outside this project".
+    /// "High risk · Delete a folder outside this project". The words are the desktop card's
+    /// (`attention::model::Level::word`: Low risk / Check first / High risk).
     fn sentence(&self) -> String {
-        let word = match self.level {
-            crate::prompt_risk::RiskLevel::Low => "Low",
-            crate::prompt_risk::RiskLevel::Medium => "Medium",
-            crate::prompt_risk::RiskLevel::High => "High",
-        };
-        let headline = truncate_chars(&self.headline, MAX_RISK_CHARS);
-        if headline.is_empty() {
-            format!("{word} risk")
-        } else {
-            format!("{word} risk · {headline}")
-        }
+        let line = crate::attention::copy::risk_line(crate::attention::model::Level::from(self.level), Some(&self.headline));
+        truncate_chars(&line, MAX_FIRST_LINE_CHARS)
     }
 }
 
@@ -222,7 +229,7 @@ impl PromptInfo {
             .unwrap_or_default();
         let has_command = get("command").is_some();
         let risk = PromptRisk::from_json(prompt);
-        let low_enough = risk.as_ref().is_some_and(|r| r.level != crate::prompt_risk::RiskLevel::High);
+        let low_enough = risk.as_ref().is_some_and(|r| r.level == crate::prompt_risk::RiskLevel::Low);
         let actionable = has_command && low_enough && choices.contains(&"allow_once") && choices.contains(&"deny");
         Some(Self { prompt_id, text, actionable, risk })
     }
@@ -235,39 +242,73 @@ pub struct Words {
 }
 
 /// The words of a notification. `label` is the agent name from its profile or definition;
-/// `pane_title` is the person's name for the pane ("auth refactor"), when it has one.
-pub fn copy_for(kind: Kind, label: &str, pane_title: Option<&str>, prompt: Option<&PromptInfo>) -> Words {
+/// `heading` is what the sidebar calls the pane: the person's title for it ("auth refactor"), else
+/// the agent label numbered when several panes run the same agent ("Claude Code 2").
+///
+/// Titles are `<heading> · Needs you`; the agent label moves into the body. An approval body is
+/// the risk line (first line, at most `MAX_FIRST_LINE_CHARS`), then the command for a calm
+/// (actionable, low-risk) command, then the agent label. A prompt that is not low risk never puts
+/// its command on a lock screen.
+pub fn copy_for(kind: Kind, label: &str, heading: Option<&str>, prompt: Option<&PromptInfo>) -> Words {
     let label = sanitize(label);
-    let who = match pane_title.map(|t| truncate_chars(t, MAX_TITLE_CHARS)).filter(|t| !t.is_empty()) {
-        Some(title) if kind != Kind::Question => format!("{title} · {label}"),
-        _ => label,
-    };
+    let who = heading
+        .map(|t| truncate_chars(t, MAX_TITLE_CHARS))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| label.clone());
+    // Redact before cutting: a cut can leave half a secret that no rule recognises.
+    let cut = |text: &str, max: usize| truncate_chars(crate::redact::text(text).as_str(), max);
     match kind {
         Kind::WaitingInput => {
-            let command = prompt
-                // Redact before cutting: a cut can leave half a secret that no rule recognises.
-                .map(|p| truncate_chars(crate::redact::text(&p.text).as_str(), MAX_BODY_CHARS))
-                .filter(|text| !text.is_empty())
-                .unwrap_or_else(|| "Waiting for your input".into());
-            let body = match prompt.and_then(|p| p.risk.as_ref()) {
-                Some(risk) => format!("{}
-{command}", risk.sentence()),
-                None => command,
+            let waiting = format!("{label} is waiting for you");
+            let body = match prompt {
+                None => waiting,
+                Some(p) => {
+                    let text = cut(&p.text, MAX_BODY_CHARS);
+                    match &p.risk {
+                        Some(risk) => {
+                            let mut lines = vec![risk.sentence()];
+                            // Belt and braces: only a calm command, whatever the flag says.
+                            if p.actionable && risk.level == crate::prompt_risk::RiskLevel::Low && !text.is_empty() {
+                                lines.push(text);
+                            }
+                            lines.push(label.clone());
+                            lines.join("\n")
+                        }
+                        None if !text.is_empty() => format!("{text}\n{label}"),
+                        None => waiting,
+                    }
+                }
             };
-            Words { title: format!("{who} needs you"), body }
+            Words { title: format!("{who} · Needs you"), body }
         }
-        Kind::Error => Words { title: format!("{who} hit an error"), body: "Open the pane to see what happened".into() },
-        Kind::RunFinished => Words { title: format!("{who} finished"), body: "The run is done".into() },
-        Kind::RunFailed => Words { title: format!("{who} failed"), body: "The run did not finish".into() },
-        Kind::Question => Words {
-            title: format!("{who} asks"),
-            body: prompt
-                // Redact before cutting: a cut can leave half a secret that no rule recognises.
-                .map(|p| truncate_chars(crate::redact::text(&p.text).as_str(), MAX_BODY_CHARS))
-                .filter(|text| !text.is_empty())
-                .unwrap_or_else(|| "Has a question for you".into()),
-        },
+        Kind::Error => Words { title: format!("{who} · Needs you"), body: format!("Hit an error · {label}") },
+        Kind::RunFinished => Words { title: format!("{who} · Done"), body: format!("{label} finished") },
+        Kind::RunFailed => Words { title: format!("{who} · Needs you"), body: format!("Run failed · {label}") },
+        Kind::Question => {
+            let prefix = "Question · ";
+            let text = prompt.map(|p| cut(&p.text, MAX_FIRST_LINE_CHARS - prefix.chars().count())).filter(|t| !t.is_empty());
+            let body = match text {
+                Some(text) => format!("{prefix}{text}\n{label}"),
+                None => format!("{label} has a question"),
+            };
+            Words { title: format!("{who} · Needs you"), body }
+        }
     }
+}
+
+/// The words of ONE notification that stands for several things waiting on a pane: a prompt that
+/// arrived inside the rate-limit window, and whatever else is open there. It never carries a button.
+pub fn coalesced_copy(label: &str, heading: Option<&str>, open: u32, risk: Option<&PromptRisk>) -> Words {
+    let label = sanitize(label);
+    let who = heading
+        .map(|t| truncate_chars(t, MAX_TITLE_CHARS))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| label.clone());
+    let body = match risk {
+        Some(risk) => format!("{}\n{label}", risk.sentence()),
+        None => label.clone(),
+    };
+    Words { title: format!("{who} · {open} things need you"), body }
 }
 
 #[cfg(test)]
@@ -331,14 +372,18 @@ mod tests {
     fn copy_uses_the_parsed_prompt_or_a_plain_fallback() {
         let prompt = PromptInfo { prompt_id: "a".into(), text: "Run command: npm test (in /repo)".into(), actionable: true, risk: None };
         let c = copy_for(Kind::WaitingInput, "Claude Code", None, Some(&prompt));
-        assert_eq!(c.title, "Claude Code needs you");
-        assert_eq!(c.body, "Run command: npm test (in /repo)");
-        assert_eq!(copy_for(Kind::WaitingInput, "Kilo", None, None).body, "Waiting for your input");
+        assert_eq!(c.title, "Claude Code · Needs you");
+        assert_eq!(c.body, "Run command: npm test (in /repo)\nClaude Code", "no risk read: the text, then who");
+        assert_eq!(copy_for(Kind::WaitingInput, "Kilo", None, None).body, "Kilo is waiting for you");
         let long = PromptInfo { prompt_id: "b".into(), text: "z".repeat(500), actionable: false, risk: None };
-        assert_eq!(copy_for(Kind::WaitingInput, "X", None, Some(&long)).body.chars().count(), MAX_BODY_CHARS);
-        assert_eq!(copy_for(Kind::Error, "Codex", None, None).title, "Codex hit an error");
-        assert_eq!(copy_for(Kind::RunFinished, "Codex", None, None).title, "Codex finished");
-        assert_eq!(copy_for(Kind::RunFailed, "Codex", None, None).title, "Codex failed");
+        let first = copy_for(Kind::WaitingInput, "X", None, Some(&long)).body;
+        assert_eq!(first.split('\n').next().unwrap().chars().count(), MAX_BODY_CHARS);
+        let error = copy_for(Kind::Error, "Codex", None, None);
+        assert_eq!((error.title.as_str(), error.body.as_str()), ("Codex · Needs you", "Hit an error · Codex"));
+        let done = copy_for(Kind::RunFinished, "Codex", Some("billing tests"), None);
+        assert_eq!((done.title.as_str(), done.body.as_str()), ("billing tests · Done", "Codex finished"));
+        let failed = copy_for(Kind::RunFailed, "Codex", None, None);
+        assert_eq!((failed.title.as_str(), failed.body.as_str()), ("Codex · Needs you", "Run failed · Codex"));
     }
 
     #[test]
@@ -346,11 +391,13 @@ mod tests {
         let text = format!("Deploy\u{202E} now?\n{}", "z".repeat(500));
         let q = PromptInfo { prompt_id: String::new(), text, actionable: false, risk: None };
         let words = copy_for(Kind::Question, "Ki\u{202E}lo", None, Some(&q));
-        assert_eq!(words.title, "Kilo asks");
-        assert_eq!(words.body.chars().count(), MAX_BODY_CHARS);
-        assert!(words.body.starts_with("Deploy now? zzz") && words.body.ends_with('…'));
+        assert_eq!(words.title, "Kilo · Needs you");
+        let first = words.body.split('\n').next().unwrap();
+        assert_eq!(first.chars().count(), MAX_FIRST_LINE_CHARS, "the question line is cut like any first line");
+        assert!(first.starts_with("Question · Deploy now? zzz") && first.ends_with('…'));
+        assert!(words.body.ends_with("\nKilo"));
         assert!(!words.body.chars().any(is_hidden_or_control));
-        assert_eq!(copy_for(Kind::Question, "X", None, None).body, "Has a question for you");
+        assert_eq!(copy_for(Kind::Question, "X", None, None).body, "X has a question");
     }
 
     #[test]
@@ -361,8 +408,8 @@ mod tests {
         for text in [&words.title, &words.body] {
             assert!(!text.chars().any(is_hidden_or_control), "left a hidden char in {text:?}");
         }
-        assert_eq!(words.title, "Kilo needs you");
-        assert_eq!(words.body, "Run command: lsgnihtemos xyz");
+        assert_eq!(words.title, "Kilo · Needs you");
+        assert_eq!(words.body, "Run command: lsgnihtemos xyz\nKilo");
         assert!(!shown_in_full(nasty), "text that needed stripping is never shown in full");
     }
 
@@ -414,10 +461,13 @@ mod tests {
     }
 
     #[test]
-    fn low_and_medium_risk_commands_are_actionable() {
-        for level in ["low", "medium"] {
+    fn only_low_risk_commands_are_actionable() {
+        // Allow from a lock screen is for the calm case only: "Check first" means look first.
+        let low = json!({"level": "low", "headline": "Read files"});
+        assert!(PromptInfo::from_detected(&command_with_risk(Some(low))).unwrap().actionable, "low");
+        for level in ["medium", "high"] {
             let risk = json!({"level": level, "headline": "Install packages"});
-            assert!(PromptInfo::from_detected(&command_with_risk(Some(risk))).unwrap().actionable, "{level}");
+            assert!(!PromptInfo::from_detected(&command_with_risk(Some(risk))).unwrap().actionable, "{level}");
         }
     }
 
@@ -426,10 +476,15 @@ mod tests {
         let risk = json!({"level": "high", "headline": "Delete a folder outside this project"});
         let info = PromptInfo::from_detected(&command_with_risk(Some(risk))).unwrap();
         let words = copy_for(Kind::WaitingInput, "Claude Code", None, Some(&info));
-        assert_eq!(words.body, "High risk · Delete a folder outside this project\nRun command: rm -rf ../");
+        // A risky prompt's command never reaches a lock screen: the risk line and who, nothing else.
+        assert_eq!(words.body, "High risk · Delete a folder outside this project\nClaude Code");
         let low = json!({"level": "low", "headline": "Read files"});
         let info = PromptInfo::from_detected(&command_with_risk(Some(low))).unwrap();
-        assert!(copy_for(Kind::WaitingInput, "X", None, Some(&info)).body.starts_with("Low risk · Read files\n"));
+        assert_eq!(
+            copy_for(Kind::WaitingInput, "X", None, Some(&info)).body,
+            "Low risk · Read files\nRun command: rm -rf ../\nX",
+            "a calm command is shown, because it can be allowed from here"
+        );
         // The command part is cut on its own, never by the risk line.
         let mut long = info.clone();
         long.text = "z".repeat(500);
@@ -439,13 +494,31 @@ mod tests {
     }
 
     #[test]
+    fn the_push_says_check_first_where_the_desktop_card_does() {
+        // The desktop card's words are `LEVEL_WORD` in lib/approval-risk.ts. A medium prompt was
+        // "Check first" on the PC and "Medium risk" on the phone.
+        let ts = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/approval-risk.ts")).unwrap();
+        let word = |level: &str| {
+            let line = ts.lines().find(|l| l.trim_start().starts_with(&format!("{level}:"))).unwrap_or_else(|| panic!("no {level} word"));
+            line.split('\'').nth(1).unwrap().to_string()
+        };
+        for (level, tag) in [("low", "Low"), ("medium", "Medium"), ("high", "High")] {
+            let risk = json!({"level": level, "headline": "Install packages"});
+            let info = PromptInfo::from_detected(&command_with_risk(Some(risk))).unwrap();
+            let body = copy_for(Kind::WaitingInput, "X", None, Some(&info)).body;
+            assert!(body.starts_with(&format!("{} · Install packages", word(level))), "{tag}: {body}");
+        }
+        assert_eq!(word("medium"), "Check first");
+    }
+
+    #[test]
     fn the_pane_title_leads_the_notification_title() {
         let words = copy_for(Kind::WaitingInput, "Claude Code", Some("auth refactor"), None);
-        assert_eq!(words.title, "auth refactor · Claude Code needs you");
-        assert_eq!(copy_for(Kind::Error, "Codex", Some("  "), None).title, "Codex hit an error", "blank title is ignored");
-        assert_eq!(copy_for(Kind::Question, "Kilo", Some("auth refactor"), None).title, "Kilo asks", "questions are not about a pane");
+        assert_eq!(words.title, "auth refactor · Needs you");
+        assert_eq!(words.body, "Claude Code is waiting for you", "the agent label moved into the body");
+        assert_eq!(copy_for(Kind::Error, "Codex", Some("  "), None).title, "Codex · Needs you", "a blank heading is ignored");
         let long = copy_for(Kind::WaitingInput, "X", Some(&"t".repeat(100)), None);
-        assert!(long.title.chars().count() <= MAX_TITLE_CHARS + " · X needs you".chars().count());
+        assert!(long.title.chars().count() <= MAX_TITLE_CHARS + " · Needs you".chars().count());
         let sneaky = copy_for(Kind::WaitingInput, "X", Some("a\u{202E}b"), None);
         assert!(!sneaky.title.chars().any(is_hidden_or_control));
     }

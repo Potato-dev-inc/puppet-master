@@ -93,6 +93,17 @@ fn tunnel_request_without_bearer_is_rejected() {
 }
 
 #[test]
+fn the_attention_list_needs_a_paired_device_over_the_tunnel() {
+    let r = rig();
+    let (status, body) = send(r.pwa, &get("/bridge/attention", &[]));
+    assert_eq!(status, 401, "an anonymous tunnel caller must not read what needs the person: {body}");
+    let auth = format!("Authorization: Bearer {}", r.token);
+    let (status, body) = send(r.pwa, &get("/bridge/attention", &[&auth]));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(json(&body)["local_app"], false);
+}
+
+#[test]
 fn tunnel_caller_cannot_forge_or_strip_the_proxied_marker() {
     let r = rig();
     for header in ["X-PM-Proxied: 0", "x-pm-proxied: 0", "X-PM-Proxied:", " X-PM-Proxied: 0"] {

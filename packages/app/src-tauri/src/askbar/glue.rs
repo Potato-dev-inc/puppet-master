@@ -152,11 +152,13 @@ pub fn read_clipboard() -> Option<String> {
 pub fn publish_notice(app: &AppHandle, result: &AskResult) {
     let notice = push_notice(result);
     let _ = app.emit("askbar://notice", &notice);
+    crate::attention::on_changed();
 }
 
 pub fn remove_notice(app: &AppHandle, id: &str) -> Option<Notice> {
     let notice = take_notice(id)?;
     let _ = app.emit("askbar://notice-removed", id);
+    crate::attention::on_changed();
     Some(notice)
 }
 

@@ -1,7 +1,7 @@
 // Pure helpers for the mobile agent tabs (PwaApp.tsx): tab order and labels, status display and the
 // short "what is it doing" preview shown on the All overview.
 import type { PaneInfo } from '@puppet-master/shared';
-import { deriveNeedsYou, type AttentionInput } from './attention';
+import { blockingItems, deriveNeedsYou, type AttentionInput } from './attention';
 import { agentLabel, fallbackListing, type AgentRegistryListing, type LaunchEntry } from './agentRegistry';
 
 export const ALL_TAB = 'all';
@@ -151,8 +151,8 @@ export function groupPanes(panes: PaneInfo[]): PaneGroup[] {
  */
 export function waitingCount(
   panes: PaneInfo[],
-  extra: { questions?: AttentionInput['questions']; stuckPaneIds?: string[] } = {},
+  extra: { questions?: AttentionInput['questions']; stuckPaneIds?: string[]; notices?: AttentionInput['notices'] } = {},
 ): string {
   const items = deriveNeedsYou({ panes: panes.map((p) => ({ id: p.id, status: p.status })), ...extra });
-  return String(items.length).padStart(2, '0');
+  return String(blockingItems(items).length).padStart(2, '0');
 }

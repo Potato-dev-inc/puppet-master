@@ -9,6 +9,7 @@ import type {
 } from '@puppet-master/shared';
 import type { PublicSettings } from './bridge-settings';
 import type { PreviewUrl } from './pane-preview';
+import type { AttentionSnapshot } from './attention';
 import type { Question, QuestionAnswer } from './questions';
 
 export interface WriteInputOptions {
@@ -285,6 +286,8 @@ export interface BridgeClient {
   stopAllPanes(): Promise<{ stopped: { pane_id: string; agent_type: string; cwd: string; checkpoint_id?: string }[]; failed: [string, string][] }>;
   /** Pending `ask_user` questions. */
   listQuestions(): Promise<Question[]>;
+  /** The one list of things that need the person (`GET /attention`). Absent on old bridges. */
+  attention?(): Promise<AttentionSnapshot>;
   answerQuestion(id: string, answer: QuestionAnswer): Promise<{ accepted: boolean }>;
   dismissQuestion(id: string): Promise<{ accepted: boolean }>;
   /**
@@ -430,6 +433,8 @@ export type BridgeEvent =
   | { type: 'orchestrator-viewport'; width: number; height: number; active: boolean }
   /** Pending `ask_user` questions changed; refetch the list. `revision` increases with each change. */
   | { type: 'questions'; revision: number }
+  /** The full attention snapshot (what needs the person); apply it only when its `rev` is newer. */
+  | { type: 'attention'; snapshot: AttentionSnapshot }
   /** The PC refused typed input over the socket (`input-error` frame): `error` is its reason. */
   | { type: 'input-refused'; pane_id: string; error: string }
   /** Long-poll only: events were missed (phone asleep, app restarted); re-read pane state. */

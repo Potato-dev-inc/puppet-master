@@ -31,6 +31,8 @@ export interface HarnessScenario {
     userAgent?: string;
     /** Bridge events delivered once the stream opens (`event: <name>`). */
     events?: { name: string; data: unknown }[];
+    /** The PC's attention snapshot counts `GET /attention` answers; absent = an older PC (404). */
+    attention?: { blocking: number; ready?: number };
   };
   /** Phone route: the abilities this phone was paired with (`GET /pair/me`); default: all four. */
   phoneCaps?: string[];

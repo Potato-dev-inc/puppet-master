@@ -107,6 +107,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn an_attention_frame_is_carried_by_the_poll_log_like_any_other_event() {
+        // GET /events/poll replays the very strings pushed to SSE and the WebSocket.
+        let body = r#"{"v":1,"rev":7,"counts":{"blocking":2,"ready":0},"items":[]}"#;
+        let mut log = EventLog::default();
+        log.push(crate::attention::frame(body));
+        let poll = log.since(0);
+        assert!(poll.data.starts_with("event: attention
+data: {\"v\":1,\"rev\":7"), "{}", poll.data);
+        assert!(!poll.gap);
+    }
+
+    #[test]
     fn returns_payloads_after_the_cursor_in_order() {
         let mut log = EventLog::default();
         log.push("a\n\n".into());

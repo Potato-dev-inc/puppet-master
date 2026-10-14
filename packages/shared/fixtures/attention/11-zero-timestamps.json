@@ -1,0 +1,61 @@
+{
+  "name": "zero-timestamps",
+  "note": "a since of 0 is kept (not dropped as falsy)",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "waiting_input"
+      },
+      {
+        "id": "b",
+        "status": "error"
+      }
+    ],
+    "questions": [
+      {
+        "id": "q",
+        "created_at_ms": 0
+      }
+    ],
+    "notices": [
+      {
+        "id": "n",
+        "at_ms": 0
+      }
+    ],
+    "statusSince": {
+      "a": 0,
+      "b": 0
+    }
+  },
+  "expected": [
+    {
+      "id": "approval:a",
+      "kind": "approval",
+      "paneId": "a",
+      "since": 0
+    },
+    {
+      "id": "question:q",
+      "kind": "question",
+      "since": 0
+    },
+    {
+      "id": "error:b",
+      "kind": "error",
+      "paneId": "b",
+      "since": 0
+    },
+    {
+      "id": "answer:n",
+      "kind": "answer",
+      "since": 0
+    }
+  ],
+  "blocking": [
+    "approval:a",
+    "error:b",
+    "question:q"
+  ]
+}

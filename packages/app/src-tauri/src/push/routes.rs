@@ -214,7 +214,7 @@ mod tests {
             key: "pane-1".into(),
             pane_id: Some("pane-1".into()),
             agent_label: "Kilo".into(),
-            pane_title: None,
+            heading: None,
             prompt: Some(PromptInfo { prompt_id: "pid".into(), text: "Run command: ls".into(), actionable: true, risk: Some(crate::push::triggers::PromptRisk { level: crate::prompt_risk::RiskLevel::Low, headline: String::new() }) }),
         };
         let (_, deliveries) = hub.plan(&candidate, 1_000);

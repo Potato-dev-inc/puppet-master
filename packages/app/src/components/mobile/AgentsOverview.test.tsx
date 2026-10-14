@@ -6,6 +6,7 @@ import type { PaneInfo } from '@puppet-master/shared';
 import type { BridgeClient } from '../../lib/bridge';
 import type { Question } from '../../lib/questions';
 import type { LoopSignalInfo } from '../../lib/bridge-types';
+import type { AttentionSnapshot } from '../../lib/attention';
 import { AgentsOverview } from './AgentsOverview';
 import { resetDigestCardForTests } from './DigestCard';
 
@@ -80,6 +81,7 @@ async function mount(
     onNew: () => void;
     stuck: Map<string, LoopSignalInfo>;
     questionsRevision: number;
+    attention: AttentionSnapshot | null;
   }> = {},
 ) {
   const onOpen = props.onOpen ?? vi.fn();
@@ -95,6 +97,7 @@ async function mount(
         onNew={onNew}
         stuck={props.stuck}
         questionsRevision={props.questionsRevision}
+        attention={props.attention}
       />,
     );
   });
@@ -116,6 +119,20 @@ describe('phone AgentsOverview', () => {
   it('shows the Agents title and the waiting counter', async () => {
     await mount();
     expect(host.querySelector('h1')?.textContent).toBe('Agents');
+    expect(host.querySelector('.ph-doto')?.textContent).toBe('02');
+  });
+
+  it('shows the PC attention count when the PC sends one, not its own count', async () => {
+    // Two panes are waiting or failed here (02), but the PC says five things need you: a question, a
+    // stuck pane and a consent card count too. The phone shows the PC's number.
+    const attention = { v: 1, rev: 9, counts: { blocking: 5, ready: 1 }, items: [] } as AttentionSnapshot;
+    await mount({ attention });
+    expect(host.querySelector('.ph-doto')?.textContent).toBe('05');
+    expect(host.querySelector('.ph-counter')?.getAttribute('aria-label')).toBe('5 waiting');
+  });
+
+  it('counts its own panes when the PC is too old to send attention', async () => {
+    await mount({ attention: null });
     expect(host.querySelector('.ph-doto')?.textContent).toBe('02');
   });
 

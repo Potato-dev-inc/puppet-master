@@ -3,7 +3,7 @@
 //! tested without a clock, and nothing here does network I/O (see `sender.rs`).
 
 use super::store::{Subscription, SubscriptionStore};
-use super::triggers::{copy_for, shown_in_full, Gate, Kind, PromptInfo, Verdict};
+use super::triggers::{coalesced_copy, copy_for, shown_in_full, Gate, Kind, PromptInfo, Verdict};
 use super::vapid::VapidKeys;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -45,9 +45,20 @@ pub struct Candidate {
     pub key: String,
     pub pane_id: Option<String>,
     pub agent_label: String,
-    /// The person's name for the pane ("auth refactor"), shown ahead of the agent in the title.
-    pub pane_title: Option<String>,
+    /// What the sidebar calls the pane (the person's title, else the numbered agent label), the
+    /// first words of the notification title: "auth refactor · Needs you".
+    pub heading: Option<String>,
     pub prompt: Option<PromptInfo>,
+}
+
+/// A notification the rate limit held back instead of dropping: the newest candidate for its key and
+/// how many were held. It is released when the window ends (`PushHub::take_due`).
+#[derive(Debug, Clone)]
+pub struct Held {
+    pub candidate: Candidate,
+    pub count: u32,
+    /// When the window of the notification that went out first ends.
+    pub due_ms: u64,
 }
 
 /// One message for one phone.
@@ -68,6 +79,8 @@ pub struct PushHub {
     visible_until: Mutex<HashMap<String, u64>>,
     grants: Mutex<HashMap<String, Grant>>,
     gate: Mutex<Gate>,
+    /// Notifications the 30 s rate limit held back, by key (pane id, or `q-<id>` for a question).
+    held: Mutex<HashMap<String, Held>>,
     /// The last notification held back per device because its PWA was on screen.
     suppressed: Mutex<HashMap<String, (Delivery, u64)>>,
     /// Held-back notifications released by "hidden" presence reports, waiting to be sent.
@@ -83,6 +96,7 @@ impl PushHub {
             visible_until: Mutex::new(HashMap::new()),
             grants: Mutex::new(HashMap::new()),
             gate: Mutex::new(Gate::default()),
+            held: Mutex::new(HashMap::new()),
             suppressed: Mutex::new(HashMap::new()),
             outbox: Mutex::new(Vec::new()),
             directory,
@@ -143,6 +157,15 @@ impl PushHub {
         if status != "waiting_input" {
             self.drop_pane_prompts(pane_id);
         }
+        // A held prompt or error that is no longer true is not announced later.
+        self.held.lock().retain(|key, held| {
+            key != pane_id
+                || match held.candidate.kind {
+                    Kind::WaitingInput => status == "waiting_input",
+                    Kind::Error => status == "error",
+                    _ => true,
+                }
+        });
         kind
     }
 
@@ -208,15 +231,65 @@ impl PushHub {
 
     // --- deciding and building ----------------------------------------------------------------
 
+    // --- held back by the rate limit ----------------------------------------------------------
+
+    /// A second thing on a pane inside the 30 s window: keep the newest, count it, and remember
+    /// when the window ends. Finished runs are not urgent and are not held.
+    fn hold(&self, candidate: &Candidate, now_ms: u64) {
+        if !matches!(candidate.kind, Kind::WaitingInput | Kind::Error | Kind::Question) {
+            return;
+        }
+        let due_ms = self.gate.lock().last_sent(&candidate.key).map(|at| at + super::triggers::RATE_LIMIT_MS).unwrap_or(now_ms);
+        let mut held = self.held.lock();
+        let count = held.get(&candidate.key).map_or(0, |h| h.count) + 1;
+        held.insert(candidate.key.clone(), Held { candidate: candidate.clone(), count, due_ms });
+    }
+
+    /// Everything whose window has ended, removed from the hold. The caller decides, from the
+    /// attention list, what is still open (`plan_held`).
+    pub fn take_due(&self, now_ms: u64) -> Vec<Held> {
+        let mut held = self.held.lock();
+        let due: Vec<String> = held.iter().filter(|(_, h)| h.due_ms <= now_ms).map(|(k, _)| k.clone()).collect();
+        due.into_iter().filter_map(|key| held.remove(&key)).collect()
+    }
+
+    /// When the next held notification is due, if any.
+    pub fn next_held_due(&self) -> Option<u64> {
+        self.held.lock().values().map(|h| h.due_ms).min()
+    }
+
+    /// The window ended. `open` is how many blocking things are open on that pane right now:
+    /// none, and nothing is sent; one, and it gets its normal notification; several, and ONE
+    /// summary ("auth refactor · 2 things need you") that never carries a button.
+    pub fn plan_held(&self, held: &Held, open: u32, now_ms: u64) -> (Verdict, Vec<Delivery>) {
+        match open {
+            0 => (Verdict::Resolved, Vec::new()),
+            1 => self.plan(&held.candidate, now_ms),
+            n => {
+                let candidate = &held.candidate;
+                self.gate.lock().mark_sent(now_ms, &candidate.key);
+                let risk = candidate.prompt.as_ref().and_then(|p| p.risk.as_ref());
+                let words = coalesced_copy(&candidate.agent_label, candidate.heading.as_deref(), n, risk);
+                let (title, body) = (crate::redact::text(&words.title), crate::redact::text(&words.body));
+                (Verdict::Send, self.deliveries(candidate, &title, &body, false, now_ms))
+            }
+        }
+    }
+
     /// Apply the gate (duplicate prompt, 30 s per pane), then build one message per subscribed
-    /// device that is not looking at the PWA right now.
+    /// device that is not looking at the PWA right now. A rate-limited candidate is held, not dropped.
     pub fn plan(&self, candidate: &Candidate, now_ms: u64) -> (Verdict, Vec<Delivery>) {
         let prompt_id = candidate.prompt.as_ref().map(|p| p.prompt_id.as_str());
         let verdict = self.gate.lock().admit(now_ms, &candidate.key, candidate.kind, prompt_id);
+        if verdict == Verdict::RateLimited {
+            self.hold(candidate, now_ms);
+        }
         if verdict != Verdict::Send {
             return (verdict, Vec::new());
         }
-        let words = copy_for(candidate.kind, &candidate.agent_label, candidate.pane_title.as_deref(), candidate.prompt.as_ref());
+        // This one is going out now: whatever was held for the key is covered by it.
+        self.held.lock().remove(&candidate.key);
+        let words = copy_for(candidate.kind, &candidate.agent_label, candidate.heading.as_deref(), candidate.prompt.as_ref());
         // Nothing secret goes to a push service. If redaction changed the text, the body no longer
         // shows the whole command exactly, so the notification is open-only (no Allow button).
         let (title, body) = (crate::redact::text(&words.title), crate::redact::text(&words.body));
@@ -227,12 +300,26 @@ impl PushHub {
         // at 120 characters, and the cut tail could be what actually runs. Then it is open-only.
         let actionable = candidate.kind == Kind::WaitingInput
             && candidate.prompt.as_ref().is_some_and(|p| {
-                // Belt and braces: `actionable` already excludes high / unknown risk; check again here.
-                let calm = p.risk.as_ref().is_some_and(|r| r.level != crate::prompt_risk::RiskLevel::High);
+                // Belt and braces: `actionable` already means low risk; check again here.
+                let calm = p.risk.as_ref().is_some_and(|r| r.level == crate::prompt_risk::RiskLevel::Low);
                 p.actionable && calm && shown_in_full(&p.text)
             })
             && candidate.pane_id.is_some()
             && !redaction_changed;
+        (verdict, self.deliveries(candidate, &title, &body, actionable, now_ms))
+    }
+
+    /// One message per subscribed phone that is not looking at the PWA right now. `actionable`
+    /// adds Allow / Deny (a one-time grant) for the phones that may answer.
+    fn deliveries(
+        &self,
+        candidate: &Candidate,
+        title: &crate::redact::Redacted<String>,
+        body: &crate::redact::Redacted<String>,
+        actionable: bool,
+        now_ms: u64,
+    ) -> Vec<Delivery> {
+        let prompt_id = candidate.prompt.as_ref().map(|p| p.prompt_id.as_str());
         let mut deliveries = Vec::new();
         for (device_id, subscription) in self.store.lock().all() {
             let mut extra = serde_json::Map::new();
@@ -260,7 +347,7 @@ impl PushHub {
                     }),
                 );
             }
-            let payload = super::sender::PushPayload::new(&title, &body, extra);
+            let payload = super::sender::PushPayload::new(title, body, extra);
             let delivery = Delivery {
                 device_id: device_id.clone(),
                 subscription,
@@ -276,7 +363,7 @@ impl PushHub {
                 deliveries.push(delivery);
             }
         }
-        (verdict, deliveries)
+        deliveries
     }
 }
 
@@ -342,7 +429,7 @@ mod tests {
     }
 
     fn waiting(key: &str, prompt: Option<PromptInfo>) -> Candidate {
-        Candidate { kind: Kind::WaitingInput, key: key.into(), pane_id: Some(key.into()), agent_label: "Kilo".into(), pane_title: None, prompt }
+        Candidate { kind: Kind::WaitingInput, key: key.into(), pane_id: Some(key.into()), agent_label: "Kilo".into(), heading: None, prompt }
     }
 
     fn two_device_hub(name: &str) -> PushHub {
@@ -375,9 +462,8 @@ mod tests {
         let hub = two_device_hub("payload");
         let (_, deliveries) = hub.plan(&waiting("pane-9", Some(command_prompt("pid-1"))), 1_000);
         let payload: Value = serde_json::from_slice(&deliveries[0].payload).unwrap();
-        assert_eq!(payload["title"], "Kilo needs you");
-        assert_eq!(payload["body"], "Low risk · Run a command
-Run command: ls");
+        assert_eq!(payload["title"], "Kilo · Needs you");
+        assert_eq!(payload["body"], "Low risk · Run a command\nRun command: ls\nKilo");
         assert_eq!(payload["pane_id"], "pane-9");
         assert_eq!(payload["prompt_id"], "pid-1");
         let mut keys: Vec<&str> = payload.as_object().unwrap().keys().map(String::as_str).collect();
@@ -507,10 +593,109 @@ Run command: ls");
         assert_eq!(d.len(), 2);
         let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
         assert!(payload.get("act").is_none(), "truncated command must be open-only");
-        assert!(payload["body"].as_str().unwrap().ends_with('…'));
+        assert!(payload["body"].as_str().unwrap().lines().nth(1).unwrap().ends_with('…'), "the command line is cut");
         // The same command short enough to show completely does get the buttons.
         let (_, d) = hub.plan(&waiting("p2", Some(command_prompt("ok"))), 1_000);
         assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_some());
+    }
+
+    #[test]
+    fn only_low_risk_gets_lock_screen_buttons() {
+        use super::super::triggers::PromptRisk;
+        use crate::prompt_risk::RiskLevel;
+        let hub = two_device_hub("only-low");
+        for (i, (level, buttons)) in [(RiskLevel::Low, true), (RiskLevel::Medium, false), (RiskLevel::High, false)].into_iter().enumerate() {
+            let prompt = PromptInfo {
+                prompt_id: format!("p{i}"),
+                text: "Run command: npm install".into(),
+                // Even a wrongly set flag must not produce buttons above low risk.
+                actionable: true,
+                risk: Some(PromptRisk { level, headline: "Install packages".into() }),
+            };
+            let (_, d) = hub.plan(&waiting(&format!("pane-{i}"), Some(prompt)), 1_000 + i as u64);
+            for delivery in &d {
+                let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+                assert_eq!(payload.get("act").is_some(), buttons, "{level:?}");
+            }
+        }
+    }
+
+    fn act_of(d: &Delivery) -> Option<Value> {
+        serde_json::from_slice::<Value>(&d.payload).unwrap().get("act").cloned()
+    }
+
+    #[test]
+    fn rate_limited_second_prompt_is_coalesced_not_dropped() {
+        let hub = two_device_hub("coalesce");
+        let (v, d) = hub.plan(&waiting("p1", Some(command_prompt("a"))), 1_000);
+        assert_eq!((v, d.len()), (Verdict::Send, 2));
+        // A different prompt on the same pane four seconds later used to vanish here.
+        let (v, d) = hub.plan(&waiting("p1", Some(command_prompt("b"))), 5_000);
+        assert_eq!((v, d.len()), (Verdict::RateLimited, 0));
+        assert_eq!(hub.next_held_due(), Some(1_000 + super::super::triggers::RATE_LIMIT_MS));
+        assert!(hub.take_due(1_000 + super::super::triggers::RATE_LIMIT_MS - 1).is_empty(), "not before the window ends");
+        let due = hub.take_due(1_000 + super::super::triggers::RATE_LIMIT_MS);
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].count, 1);
+        assert!(hub.take_due(u64::MAX).is_empty(), "released once");
+        // One thing is still open: it gets its normal notification, buttons and all.
+        let (v, d) = hub.plan_held(&due[0], 1, 1_000 + super::super::triggers::RATE_LIMIT_MS);
+        assert_eq!((v, d.len()), (Verdict::Send, 2));
+        assert!(act_of(&d[0]).is_some());
+    }
+
+    #[test]
+    fn two_things_open_make_one_summary_without_buttons() {
+        let hub = two_device_hub("coalesce-two");
+        let mut first = waiting("p1", Some(command_prompt("a")));
+        first.heading = Some("auth refactor".into());
+        hub.plan(&first, 1_000);
+        let mut second = waiting("p1", Some(command_prompt("b")));
+        second.heading = Some("auth refactor".into());
+        hub.plan(&second, 2_000);
+        let due = hub.take_due(31_000);
+        let (v, d) = hub.plan_held(&due[0], 2, 31_000);
+        assert_eq!((v, d.len()), (Verdict::Send, 2));
+        let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
+        assert_eq!(payload["title"], "auth refactor · 2 things need you");
+        assert_eq!(payload["body"], "Low risk · Run a command
+Kilo");
+        assert!(payload.get("act").is_none(), "a summary never carries a button");
+        assert_eq!(payload["tag"], "pm-p1", "the OS replaces the earlier notification of this pane");
+        // The summary starts a new window: another prompt right after it is held again.
+        let (v, _) = hub.plan(&waiting("p1", Some(command_prompt("c"))), 32_000);
+        assert_eq!(v, Verdict::RateLimited);
+    }
+
+    #[test]
+    fn coalesced_push_skipped_when_resolved() {
+        let hub = two_device_hub("coalesce-resolved");
+        hub.plan(&waiting("p1", Some(command_prompt("a"))), 1_000);
+        hub.plan(&waiting("p1", Some(command_prompt("b"))), 2_000);
+        let due = hub.take_due(31_000);
+        let (v, d) = hub.plan_held(&due[0], 0, 31_000);
+        assert_eq!((v, d.len()), (Verdict::Resolved, 0), "answered meanwhile: nothing to say");
+    }
+
+    #[test]
+    fn a_held_prompt_is_forgotten_when_the_pane_stops_waiting() {
+        let hub = two_device_hub("coalesce-left");
+        hub.note_pane_status("p1", "waiting_input");
+        hub.plan(&waiting("p1", Some(command_prompt("a"))), 1_000);
+        hub.plan(&waiting("p1", Some(command_prompt("b"))), 2_000);
+        assert!(hub.next_held_due().is_some());
+        hub.note_pane_status("p1", "running");
+        assert!(hub.take_due(u64::MAX).is_empty(), "answered at the PC: never announced later");
+    }
+
+    #[test]
+    fn a_prompt_that_goes_out_later_covers_what_was_held() {
+        let hub = two_device_hub("coalesce-covered");
+        hub.plan(&waiting("p1", Some(command_prompt("a"))), 1_000);
+        hub.plan(&waiting("p1", Some(command_prompt("b"))), 2_000);
+        let (v, _) = hub.plan(&waiting("p1", Some(command_prompt("c"))), 40_000);
+        assert_eq!(v, Verdict::Send);
+        assert!(hub.take_due(u64::MAX).is_empty(), "no second push for the same pane");
     }
 
     #[test]
@@ -526,8 +711,7 @@ Run command: ls");
         let (_, d) = hub.plan(&waiting("p1", Some(high)), 1_000);
         let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
         assert!(payload.get("act").is_none(), "no Allow on a lock screen for high risk");
-        assert_eq!(payload["body"], "High risk · Delete a folder outside this project
-Run command: rm -rf ../");
+        assert_eq!(payload["body"], "High risk · Delete a folder outside this project\nKilo", "no command on a lock screen");
         let unrated = PromptInfo { prompt_id: "u".into(), text: "Run command: ls".into(), actionable: true, risk: None };
         let (_, d) = hub.plan(&waiting("p2", Some(unrated)), 1_000);
         assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_none(), "unrated fails closed");
@@ -537,10 +721,10 @@ Run command: rm -rf ../");
     fn the_pane_title_reaches_the_payload_title() {
         let hub = two_device_hub("titled");
         let mut candidate = waiting("p1", Some(command_prompt("t")));
-        candidate.pane_title = Some("auth refactor".into());
+        candidate.heading = Some("auth refactor".into());
         let (_, d) = hub.plan(&candidate, 1_000);
         let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
-        assert_eq!(payload["title"], "auth refactor · Kilo needs you");
+        assert_eq!(payload["title"], "auth refactor · Needs you");
     }
 
     #[test]
@@ -549,7 +733,7 @@ Run command: rm -rf ../");
         let trust = PromptInfo { prompt_id: "t".into(), text: "Trust this workspace?".into(), actionable: false, risk: None };
         let (_, d) = hub.plan(&waiting("p1", Some(trust)), 1_000);
         assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_none());
-        let error = Candidate { kind: Kind::Error, key: "p2".into(), pane_id: Some("p2".into()), agent_label: "Kilo".into(), pane_title: None, prompt: None };
+        let error = Candidate { kind: Kind::Error, key: "p2".into(), pane_id: Some("p2".into()), agent_label: "Kilo".into(), heading: None, prompt: None };
         let (_, d) = hub.plan(&error, 1_000);
         assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_none());
     }
@@ -572,7 +756,7 @@ Run command: rm -rf ../");
             key: format!("q-{id}"),
             pane_id: None,
             agent_label: "Kilo".into(),
-            pane_title: None,
+            heading: None,
             prompt: Some(PromptInfo { prompt_id: String::new(), text: text.into(), actionable: false, risk: None }),
         }
     }
@@ -583,8 +767,8 @@ Run command: rm -rf ../");
         let (verdict, d) = hub.plan(&question("q1", "Deploy to staging?"), 1_000);
         assert_eq!((verdict, d.len()), (Verdict::Send, 2));
         let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
-        assert_eq!(payload["title"], "Kilo asks");
-        assert_eq!(payload["body"], "Deploy to staging?");
+        assert_eq!(payload["title"], "Kilo · Needs you");
+        assert_eq!(payload["body"], "Question · Deploy to staging?\nKilo");
         assert_eq!(payload["target"], "questions");
         assert!(payload.get("act").is_none(), "questions have no Allow / Deny");
         let mut keys: Vec<&str> = payload.as_object().unwrap().keys().map(String::as_str).collect();
@@ -608,7 +792,7 @@ Run command: rm -rf ../");
             assert!(payload.get("act").is_none(), "no Allow / Deny button on a lock screen");
             assert!(payload.get("pane_id").is_none() && payload.get("prompt_id").is_none());
             assert_eq!(payload["target"], "questions", "tapping opens the app's list");
-            assert_eq!(payload["body"], "Allow Claude Code to control Codex?");
+            assert_eq!(payload["body"], "Question · Allow Claude Code to control Codex?\nKilo");
         }
     }
 
