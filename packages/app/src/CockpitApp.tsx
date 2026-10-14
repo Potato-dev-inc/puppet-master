@@ -17,6 +17,7 @@ import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
+import { TellTeamToast } from './components/cockpit/team/TellTeam';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
 import './styles/cockpit.css';
 
@@ -156,6 +157,7 @@ export default function CockpitApp() {
           onClose={() => setUndoPane(null)}
         />
       )}
+      {c.mode !== 'individual' && <TellTeamToast />}
       {stopReport && <PanicSheet report={stopReport} names={c.names} onClose={() => setStopReport(null)} />}
       <div className="ck-toasts" aria-live="polite">
         {c.toasts.map((t) => (

@@ -26,8 +26,11 @@ export function Changes({
   api = cockpitApi,
   reviewApi = secondOpinionApi,
   secondOpinion,
+  hideActions = false,
 }: {
   paneId: string;
+  /** Show the files and diffs only (no Merge / Discard): another surface owns those decisions. */
+  hideActions?: boolean;
   status: string;
   api?: ChangesApi;
   /**
@@ -214,6 +217,7 @@ export function Changes({
 
       {secondOpinion}
 
+      {!hideActions && (
       <div className="ck-changes-actions">
         <button
           type="button"
@@ -234,6 +238,7 @@ export function Changes({
           Discard
         </button>
       </div>
+      )}
 
       {sheet && (
         <Sheet labelledBy="ck-wt-t" onClose={busy ? undefined : () => setSheet(null)}>

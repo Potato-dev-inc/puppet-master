@@ -49,6 +49,8 @@ export interface HarnessScenario {
   panes?: PaneInfo[];
   /** Pending `ask_user` questions the mocked `questions_list` returns. */
   questions?: Question[];
+  /** Team (Inbox > Team, the toast, Settings > Labs): what the mocked `team_state` returns. */
+  team?: import('../lib/team').TeamState;
   /** Runs once after the first paint (and after the panes loaded); click things, press keys. */
   after?: (api: HarnessDom) => void | Promise<void>;
 }

@@ -622,3 +622,31 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Settings › General › Labs › Team */
+.st-team {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.st-team-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.st-team-row.is-top {
+  align-items: start;
+}
+.st-team-row > span {
+  color: var(--label-2, inherit);
+}
+.st-team-row > .st-switch,
+.st-team-row > .st-btn {
+  justify-self: start;
+}
+.st-team-row textarea.st-field {
+  resize: vertical;
+  min-height: 48px;
+  padding: 6px 8px;
+}

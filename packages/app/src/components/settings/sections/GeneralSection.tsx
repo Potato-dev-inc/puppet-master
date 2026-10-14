@@ -13,6 +13,7 @@ import { AmbientSettings } from '../blocks/AmbientSettings';
 import { AskBarSettingsBlock } from '../blocks/AskBarSettings';
 import { LoopGuardSettingsBlock } from '../blocks/LoopGuardSettings';
 import { SharedMemoryToggle } from '../blocks/SharedMemoryToggle';
+import { TeamSettings } from '../blocks/TeamSettings';
 import { NumberControl, TextControl } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
 import { Btn, FieldSelect, InfoRow, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
@@ -327,6 +328,7 @@ export const generalRows: RowDef[] = [
     group: 'Storage',
     render: (env) => <StorageInfo env={env} />,
   },
+  { id: 'team', label: 'Team (Labs)', hint: 'Tell teammates when your agent pushes; get a card when theirs does.', keywords: 'team heads-up co-work teammates push pull merge labs shared folder', group: 'Labs', render: (env) => <TeamSettings onSaved={env.markSaved} /> },
   { id: 'version', label: 'Version', hint: 'Check for updates and download the installer.', keywords: 'app version update release download install', group: 'About', render: (env) => <VersionRow env={env} /> },
   { id: 'settings-file', label: 'Settings file', hint: 'Where your settings are saved. Export a copy with keys removed.', keywords: 'export json backup path', group: 'About', render: (env) => <SettingsFile env={env} /> },
   { id: 'uninstall', label: 'Uninstall Puppet Master', hint: 'Remove the app from this computer.', keywords: 'remove delete', danger: true, render: (env) => <UninstallRow env={env} /> },

@@ -11,6 +11,7 @@ import { formatElapsed, promptSummary, spinnerStatus } from './model';
 import { QuestionCard } from './QuestionCard';
 import { PaneErrorBody } from './InboxError';
 import { paneHeading } from './titles';
+import { TeamSection } from './team/TeamSection';
 
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
   // One list for every surface: the badge, the Doto counter and the sidebar group use its length.
@@ -145,6 +146,8 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
           ))}
         </ul>
       )}
+
+      <TeamSection now={c.now} paneNames={c.names} />
     </div>
   );
 }
