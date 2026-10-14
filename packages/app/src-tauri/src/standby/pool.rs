@@ -94,6 +94,21 @@ struct Backoff {
     last: String,
 }
 
+/// Failure state of one AGENT across all of its keys. The per-key `Backoff` alone is not enough:
+/// a new project folder, a settings save or a run makes a fresh key, and each fresh key would
+/// spawn and discard its own three workers. This layer follows the agent, so the schedule
+/// (15s, 30s, ...) and the cap hold however many keys the agent is warmed under.
+struct AgentBackoff {
+    /// Consecutive unhealthy / dead / failed-to-start workers; a worker reaching Ready clears it.
+    fails: u32,
+    /// No spawn of this agent before this time. Survives every reset (a run, a settings save), so
+    /// the respawn rate can never exceed the schedule.
+    retry_at_ms: i64,
+    last: String,
+    /// Given up: stays cold until the user acts (a run of the agent, or a settings change).
+    cold: bool,
+}
+
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct Stats {
     pub spawned: u64,
@@ -117,6 +132,8 @@ const BACKOFF_BASE_MS: i64 = 15_000;
 const BACKOFF_MAX_MS: i64 = 300_000;
 /// After this many failures in a row a key stays cold until its next run.
 const MAX_FAILS: u32 = 3;
+/// After this many failures in a row across ALL keys of one agent, the agent stops being warmed.
+const MAX_AGENT_FAILS: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MissReason {
@@ -193,6 +210,8 @@ struct Inner {
     entries: Vec<Entry>,
     next_id: u64,
     backoff: HashMap<PoolKey, Backoff>,
+    /// Failure state per agent type (lowercase), across keys.
+    agent_backoff: HashMap<String, AgentBackoff>,
     /// Keys left cold until their next run (idle expiry, repeated failure).
     suppressed: HashSet<PoolKey>,
     spawning: HashSet<PoolKey>,
@@ -249,6 +268,20 @@ pub struct BlockedView {
     pub cold: bool,
 }
 
+/// An agent the pool stopped (or is pausing) warming, with the reason in plain words.
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentBlockedView {
+    pub agent_type: String,
+    /// Machine reason (`dialog`, `needs_attention`, `dead`, ...).
+    pub reason: String,
+    /// Plain words to show after "<Agent> couldn't stay warm: ".
+    pub message: String,
+    pub fails: u32,
+    pub retry_in_ms: i64,
+    /// Gave up: stays cold until the user runs the agent or changes Preload settings.
+    pub cold: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct StatusView {
     pub enabled: bool,
@@ -257,6 +290,8 @@ pub struct StatusView {
     pub standbys: Vec<StandbyView>,
     /// Keys the pool wants to warm but is holding back (untrusted folder, failures, idle expiry).
     pub blocked: Vec<BlockedView>,
+    /// The same per agent (across keys): what Settings shows as "couldn't stay warm".
+    pub agents_blocked: Vec<AgentBlockedView>,
     pub recent: Vec<RecentView>,
     pub stats: Stats,
     /// Which backends can be pooled, and in which kinds (what the settings tab offers).
@@ -314,6 +349,7 @@ impl Pool {
                     entries: Vec::new(),
                     next_id: 1,
                     backoff: HashMap::new(),
+                    agent_backoff: HashMap::new(),
                     suppressed: HashSet::new(),
                     spawning: HashSet::new(),
                     stats: Stats::default(),
@@ -337,6 +373,7 @@ impl Pool {
         let config = config.clamped();
         let (doomed, snapshot) = {
             let mut inner = self.shared.inner.lock();
+            let changed = inner.config != config;
             inner.config = config.clone();
             let mut doomed = Vec::new();
             let mut keep = Vec::new();
@@ -356,9 +393,14 @@ impl Pool {
                 }
             }
             inner.entries = keep;
-            // Changed settings are a fresh start: keys held back by failures or idle expiry retry now.
-            inner.backoff.clear();
-            inner.suppressed.clear();
+            // Changed settings are a fresh start: keys held back by failures or idle expiry retry
+            // now. A save that changed nothing is not (the Settings tab saves often). An agent that
+            // gave up gets one more try, but never before its `retry_at_ms`.
+            if changed {
+                inner.backoff.clear();
+                inner.suppressed.clear();
+                lift_agents(&mut inner, None);
+            }
             (doomed, (inner.config.clone(), inner.recent.clone()))
         };
         for entry in &doomed {
@@ -391,6 +433,7 @@ impl Pool {
             inner.recent.truncate(MAX_RECENT);
             inner.suppressed.remove(key);
             inner.backoff.remove(key);
+            lift_agents(&mut inner, Some(&key.agent_type));
             (inner.config.clone(), inner.recent.clone())
         };
         self.persist(snapshot);
@@ -525,6 +568,7 @@ impl Pool {
                                 entry.ready_since_ms = Some(now_ms);
                                 let key = entry.key.clone();
                                 inner.backoff.remove(&key);
+                                inner.agent_backoff.remove(&agent_id(&key.agent_type));
                             }
                         }
                     }
@@ -724,12 +768,26 @@ impl Pool {
             }
         }
         blocked.sort_by(|a, b| a.key.cmp(&b.key));
+        let mut agents_blocked: Vec<AgentBlockedView> = inner
+            .agent_backoff
+            .iter()
+            .map(|(agent, state)| AgentBlockedView {
+                agent_type: agent.clone(),
+                reason: state.last.clone(),
+                message: reason_text(&state.last),
+                fails: state.fails,
+                retry_in_ms: (state.retry_at_ms - now_ms).max(0),
+                cold: state.cold,
+            })
+            .collect();
+        agents_blocked.sort_by(|a, b| a.agent_type.cmp(&b.agent_type));
         StatusView {
             enabled: inner.config.enabled || inner.config.preload.enabled,
             config: inner.config.clone(),
             counts: counts(&inner),
             standbys,
             blocked,
+            agents_blocked,
             recent: inner
                 .recent
                 .iter()
@@ -781,6 +839,52 @@ fn fail(inner: &mut Inner, key: &PoolKey, reason: &str, now_ms: i64) {
     if backoff.fails >= MAX_FAILS {
         inner.suppressed.insert(key.clone());
     }
+    // The agent-level schedule: same exponential delay, counted over every key of the agent.
+    let agent = inner.agent_backoff.entry(agent_id(&key.agent_type)).or_insert(AgentBackoff {
+        fails: 0,
+        retry_at_ms: now_ms,
+        last: String::new(),
+        cold: false,
+    });
+    agent.fails += 1;
+    let delay = (BACKOFF_BASE_MS << (agent.fails - 1).min(8)).min(BACKOFF_MAX_MS);
+    agent.retry_at_ms = agent.retry_at_ms.max(now_ms + delay);
+    agent.last = reason.to_string();
+    if agent.fails >= MAX_AGENT_FAILS {
+        agent.cold = true;
+    }
+}
+
+fn agent_id(agent_type: &str) -> String {
+    agent_type.to_ascii_lowercase()
+}
+
+/// The user acted (ran the agent, changed settings): an agent that gave up may try once more.
+/// `retry_at_ms` is kept, so a reset can never make the respawn faster than the schedule, and one
+/// more failure puts it straight back to cold.
+fn lift_agents(inner: &mut Inner, agent_type: Option<&str>) {
+    let only = agent_type.map(agent_id);
+    for (agent, state) in inner.agent_backoff.iter_mut() {
+        if only.as_ref().map_or(true, |only| only == agent) && state.cold {
+            state.cold = false;
+            state.fails = MAX_AGENT_FAILS - 1;
+        }
+    }
+}
+
+/// Plain words for a health reason, for Settings ("Codex couldn't stay warm: <this>").
+fn reason_text(reason: &str) -> String {
+    match reason {
+        "dialog" => "it stops at a trust or approval prompt (open it once yourself first)".into(),
+        "needs_attention" => "it stops at a login or update screen (finish that once yourself)".into(),
+        "dead" => "it exited right after starting".into(),
+        "startup_timeout" => "it never reached its input box".into(),
+        "claim_health_check_failed" => "it was not ready when a run asked for it".into(),
+        other if other.starts_with("spawn_failed") => {
+            format!("it would not start ({})", other.trim_start_matches("spawn_failed: "))
+        }
+        other => other.replace('_', " "),
+    }
 }
 
 /// The next key worth warming, if any: a Preload provider short of its count in the default
@@ -794,6 +898,10 @@ fn wanted(inner: &Inner, now_ms: i64, default_project: Option<&str>) -> Option<(
         inner.config.allows(key)
             && !inner.suppressed.contains(key)
             && !inner.spawning.contains(key)
+            && inner
+                .agent_backoff
+                .get(&agent_id(&key.agent_type))
+                .map_or(true, |agent| !agent.cold && agent.retry_at_ms <= now_ms)
             && inner
                 .backoff
                 .get(key)

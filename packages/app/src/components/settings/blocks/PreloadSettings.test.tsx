@@ -82,6 +82,20 @@ afterEach(async () => {
 });
 
 describe('PreloadSettings', () => {
+  it("says why an agent couldn't stay warm", async () => {
+    const api = mockApi();
+    api.getStatus.mockResolvedValue({
+      ...statusFor(DEFAULT_STANDBY_CONFIG),
+      agents_blocked: [
+        { agent_type: 'codex', reason: 'needs_attention', message: 'it stops at a login or update screen (finish that once yourself)', fails: 3, retry_in_ms: 0, cold: true },
+      ],
+    });
+    await render(api);
+    const line = host.querySelector('[data-testid="preload-blocked-codex"]');
+    expect(line?.textContent).toContain("couldn't stay warm: it stops at a login or update screen");
+    expect(line?.textContent).toContain('Not warming it until you open it.');
+  });
+
   it('is off by default, explains the cost, and lists visible-capable agents', async () => {
     await render(mockApi());
     const master = host.querySelector('[role="switch"]');

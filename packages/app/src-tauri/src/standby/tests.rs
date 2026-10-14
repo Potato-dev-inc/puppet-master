@@ -647,3 +647,108 @@ fn a_warm_worker_whose_project_is_no_longer_the_default_is_replaced() {
     assert_eq!(outcome.spawned.len(), 1);
     assert_eq!(outcome.spawned[0].project, "/new");
 }
+
+// ---- Bug #12: warm-standby churn. A worker that is unhealthy right after it starts must not be
+// respawned in a loop, however the pool is nudged (a new project folder, a settings save, a run).
+
+/// One spawn-then-observe cycle at `now`; returns how many workers were spawned in it.
+fn cycle(pool: &Pool, host: &Arc<FakeHost>, now: i64) -> usize {
+    let before = host.spawn_count();
+    pool.reconcile(now); // observe what is there, then spawn what is missing
+    pool.reconcile(now + 1); // observe the new worker: unhealthy
+    host.spawn_count() - before
+}
+
+#[test]
+fn an_unhealthy_agent_backs_off_then_stops_and_says_why() {
+    let host = Arc::new(FakeHost::default());
+    *host.default_health.lock() = Some(Health::NeedsAttention);
+    let pool = pool(&host, config(&[("codex", true, false)]));
+    let mut now = 0;
+    assert_eq!(cycle(&pool, &host, now), 1, "first spawn");
+    let blocked = &pool.status(now + 1).agents_blocked;
+    assert_eq!(blocked.len(), 1);
+    assert_eq!((blocked[0].fails, blocked[0].cold), (1, false));
+    assert_eq!(blocked[0].reason, "needs_attention");
+    // Schedule: 15s after the first failure, 30s after the second.
+    now = 14_000;
+    assert_eq!(cycle(&pool, &host, now), 0, "still inside the 15s backoff");
+    now = 16_000;
+    assert_eq!(cycle(&pool, &host, now), 1, "second spawn after 15s");
+    let retry = pool.status(now + 1).agents_blocked[0].retry_in_ms;
+    assert!((29_000..=30_000).contains(&retry), "30s backoff, got {retry}");
+    now = 40_000;
+    assert_eq!(cycle(&pool, &host, now), 0, "inside the 30s backoff");
+    now = 47_000;
+    assert_eq!(cycle(&pool, &host, now), 1, "third spawn after 30s");
+    // Cap: three unhealthy workers in a row and the agent stops being warmed.
+    let blocked = pool.status(now + 1).agents_blocked[0].clone();
+    assert!(blocked.cold, "gave up: {blocked:?}");
+    assert!(blocked.message.contains("login or update"), "{}", blocked.message);
+    for hours in 1..=5 {
+        assert_eq!(cycle(&pool, &host, now + hours * 3_600_000), 0, "cold agents are not respawned");
+    }
+    assert_eq!(host.spawn_count(), 3);
+}
+
+#[test]
+fn a_new_project_folder_does_not_restart_the_agent_schedule() {
+    // The live loop: the default project moved, each folder was a fresh key with a fresh backoff.
+    let host = Arc::new(FakeHost::default());
+    *host.default_health.lock() = Some(Health::Dialog);
+    let pool = pool(&host, config(&[("cursor_agent", true, false)]));
+    let mut now = 0;
+    let mut spawned = 0;
+    for folder in 0..40 {
+        host.set_project(&format!("/folder-{folder}"));
+        spawned += cycle(&pool, &host, now);
+        now += 31_000;
+    }
+    assert_eq!(spawned, 3, "three tries across all folders, then cold");
+    assert!(pool.status(now).agents_blocked[0].cold);
+}
+
+#[test]
+fn a_run_or_changed_settings_allow_one_more_try_but_never_before_the_backoff() {
+    let host = Arc::new(FakeHost::default());
+    *host.default_health.lock() = Some(Health::Dialog);
+    let cfg = config(&[("codex", true, false)]);
+    let pool = pool(&host, cfg.clone());
+    let mut now = 0;
+    for _ in 0..3 {
+        cycle(&pool, &host, now);
+        now += 301_000;
+    }
+    assert_eq!(host.spawn_count(), 3);
+    assert!(pool.status(now).agents_blocked[0].cold);
+    // Saving identical settings (the Settings tab does this often) changes nothing.
+    pool.set_config(cfg.clone());
+    assert_eq!(cycle(&pool, &host, now), 0, "an unchanged save does not revive it");
+    // A run of the agent lifts the cold flag for ONE more try; failing again goes straight back.
+    pool.note_run(&key("codex", "/w"), "/w", now);
+    assert_eq!(cycle(&pool, &host, now), 1);
+    assert!(pool.status(now + 1).agents_blocked[0].cold);
+    assert_eq!(cycle(&pool, &host, now + 100_000_000), 0);
+    // Right after a failure, even a run and a changed config cannot respawn it before the delay.
+    let mut changed = cfg;
+    changed.max_total += 1;
+    pool.set_config(changed);
+    pool.note_run(&key("codex", "/w"), "/w", now + 100_000_000);
+    let t = now + 200_000_000;
+    assert_eq!(cycle(&pool, &host, t), 1);
+    pool.note_run(&key("codex", "/w"), "/w", t + 2_000);
+    assert_eq!(cycle(&pool, &host, t + 3_000), 0, "inside the backoff set by the failure at t+1ms");
+}
+
+#[test]
+fn reaching_ready_clears_the_agent_failures() {
+    let host = Arc::new(FakeHost::default());
+    *host.default_health.lock() = Some(Health::Dialog);
+    let pool = pool(&host, config(&[("codex", true, false)]));
+    cycle(&pool, &host, 0);
+    assert_eq!(pool.status(2).agents_blocked.len(), 1);
+    *host.default_health.lock() = None; // the user dealt with the prompt
+    let now = warm_up(&pool, 20_000);
+    assert_eq!(pool.status(now).counts.ready, 1);
+    assert!(pool.status(now).agents_blocked.is_empty(), "a healthy worker clears the record");
+}
