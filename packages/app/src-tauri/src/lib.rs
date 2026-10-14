@@ -53,6 +53,8 @@ mod project_ir;
 mod project_path;
 mod projections;
 mod pty;
+#[cfg(test)]
+mod replay;
 mod pwa_server;
 #[cfg(test)]
 mod tunnel_auth_tests;

@@ -482,6 +482,26 @@ PUPPET_MASTER_TEST_MCP_BINARY=<path-to-puppet-master-mcp.exe> node scripts/test-
 npm run test:mcp-package           # packaging smoke test (builds, spawns exe against a mock bridge)
 ```
 
+### Replay corpus (every live bug becomes a failing test first)
+
+`src/replay/` (test-only) replays recorded PTY output under virtual time: `ReplayPane` feeds a cast through the same
+`vt100` screen model and PTY-reader status steps the app uses, and is a `DeliveryIo` the delivery protocol can type into
+(no sleeps). Casts are asciicast v2 files in `packages/app/src-tauri/tests/corpus/<agent>/<version>/*.cast`; each has a
+test in `src/replay/corpus_tests.rs` that asserts the CORRECT decision and snapshots the decision timeline with `insta`
+(`tests/corpus/snapshots/`).
+
+```
+cd packages/app/src-tauri && cargo test --lib replay::
+INSTA_UPDATE=always cargo test --lib replay::     # write/refresh snapshots, then read the diff before committing
+```
+
+Add a cast from a live capture: (1) capture screens with times (poll `GET /panes/{id}/buffer` every 100 ms, as
+`D:\pm-night\r9\live\a1.mjs` does; later a flight recording); (2) `node tests/corpus/tools/screens-to-cast.mjs spec.json
+tests/corpus/<agent>/<version>/<scenario>.cast` (spec format in the script header; put the bug, fix commit and sources in
+the header's `pm` object); (3) add a test in `corpus_tests.rs` using the driver that matches the decision
+(`deliver_prompt_traced`, `startup::replay_startup`, `receipt::replay_receipts`, or `run_to_end` for status); (4) revert
+the fix locally, see the test fail, restore it. More in the docs of `src/replay/mod.rs`.
+
 ### Live regression (`scripts/pm-regression.mjs`)
 
 Drives the REAL MCP binary against the RUNNING app and real backends (spawns agents, costs money/time).
