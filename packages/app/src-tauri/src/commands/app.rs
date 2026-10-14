@@ -46,13 +46,8 @@ pub async fn create_mobile_pairing_session(
         Some(names) => crate::mobile_pairing::Caps::parse_names(&names)?,
         None => crate::mobile_pairing::Caps::all(),
     };
-    let session = store.lock().create_pairing_session_with_caps(bridge_url, caps);
-    crate::audit::record(
-        crate::audit::Kind::Pairing,
-        crate::audit::Who::Desktop,
-        "You made a pairing code for a phone",
-        serde_json::json!({ "via": "settings", "caps": caps.list() }),
-    );
+    // One line in the log, saying so when it replaced a code that was still good.
+    let session = crate::mobile_pairing::mint::mint(&store, bridge_url, caps, crate::mobile_pairing::mint::Maker::Settings);
     Ok(session)
 }
 
