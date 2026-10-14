@@ -22,7 +22,25 @@ pub(crate) mod rules {
         ("idle_windows_are_sane", idle_windows_are_sane),
         ("screen_methods_survive_huge_input", screen_methods_survive_huge_input),
         ("submit_and_startup_declarations_are_sane", submit_and_startup_declarations_are_sane),
+        ("blank_screen_is_unknown", blank_screen_is_unknown),
     ];
+
+    /// Readiness ratchet (`agent_runs::readiness`): a blank screen is never an input box and its
+    /// verdict is `Unknown`, so nothing is ever typed into a pane that has drawn nothing yet.
+    pub fn blank_screen_is_unknown(profile: &dyn TuiProfile) -> Result<(), String> {
+        use crate::agent_runs::readiness::{assess, Observation, Readiness};
+        let id = profile.id();
+        for blank in ["", "\n\n", "   \n"] {
+            if matches!(profile.ready_recogniser(blank), Some(ComposerState::Empty | ComposerState::HasText)) {
+                return Err(format!("{id}: a blank screen {blank:?} reads as an input box"));
+            }
+            let verdict = assess(profile, Observation::screen_only(blank.to_string()));
+            if verdict.readiness() != &Readiness::Unknown {
+                return Err(format!("{id}: a blank screen {blank:?} is {:?}, not Unknown", verdict.readiness()));
+            }
+        }
+        Ok(())
+    }
 
     pub fn feature_flags_agree_with_methods(profile: &dyn TuiProfile) -> Result<(), String> {
         let id = profile.id();

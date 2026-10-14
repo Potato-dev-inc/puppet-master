@@ -233,12 +233,17 @@ pub(crate) fn command_summary(prompt: &Value) -> String {
 /// identity (so redraws, a still-arriving option list or scrolling do not change it); otherwise the
 /// whole prompt is hashed.
 fn prompt_id_for(prompt: &Value) -> Option<String> {
-    if prompt.get("command").and_then(Value::as_str).is_some() {
+    if let Some(command) = prompt.get("command").and_then(Value::as_str) {
+        // The command as read off the screen breaks wherever the pane's width does (`npm test` on one
+        // row at 105 columns, `npm\ntest` at 52), so the same approval read at two widths was two
+        // prompts: the phone's grid lease alternated the id and the transcript listed one approval
+        // four times (VERIFY-R11 #2). Whitespace is not part of what is being approved's identity.
+        let squash = |text: &str| text.chars().filter(|ch| !ch.is_whitespace()).collect::<String>();
         return crate::agent_runs::stable_prompt_id(&json!({
             "agent_type": prompt.get("agent_type"),
             "kind": prompt.get("kind"),
-            "command": prompt.get("command"),
-            "cwd": prompt.get("cwd"),
+            "command": squash(command),
+            "cwd": prompt.get("cwd").and_then(Value::as_str).map(squash),
         }));
     }
     // No command to anchor on: hash the semantic identity, never the layout. A profile may name
@@ -343,7 +348,7 @@ pub fn answer(
         ));
     }
     let (key, reply_choice) = reply_key(&agent_type, &prompt, choice, allow_broad)?;
-    crate::pty::registry::write_input(registry, app, pane_id, &key, true, false, None)
+    crate::pty::registry::write_input(registry, app, pane_id, &key, true, false, None, crate::pty::WriteOrigin::Answer)
         .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))?;
     note_gate_answer(pane_id, &prompt, &reply_choice);
     Ok(

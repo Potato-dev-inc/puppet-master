@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use uuid::Uuid;
 
+use crate::redact::Redacted;
+
 /// The stream for raw diagnostics (the screen rows a delivery looked at). It is stored with the run
 /// but only returned when a reader asks for details: the transcript people read has the one-line
 /// `delivery` summary instead.
@@ -49,7 +51,10 @@ fn transcript_path(project: &str, operation_id: &str) -> PathBuf {
         .join(format!("{operation_id}.transcript.jsonl"))
 }
 
-pub fn append(project: &str, operation_id: &str, stream: &str, text: &str) {
+/// Add a chunk to an operation's transcript. The text must already be redacted (`crate::redact::text`):
+/// the transcript lives inside the project folder, which cloud-sync tools copy.
+pub fn append(project: &str, operation_id: &str, stream: &str, text: &Redacted<String>) {
+    let text = text.as_str();
     if text.is_empty() {
         return;
     }
@@ -233,7 +238,7 @@ mod tests {
     fn transcript_pages_advance_cursor_and_report_gaps() {
         let dir = std::env::temp_dir().join(format!("pm-transcript-{}", Uuid::new_v4()));
         for n in 0..(MAX_RETURN_CHUNKS + 3) {
-            append(dir.to_str().unwrap(), "op-1", "stdout", &format!("{n}\n"));
+            append(dir.to_str().unwrap(), "op-1", "stdout", &crate::redact::text(&format!("{n}\n")));
         }
         let page = read(dir.to_str().unwrap(), "op-1", 0).unwrap();
         assert_eq!(page.chunks.len(), MAX_RETURN_CHUNKS);
@@ -246,8 +251,8 @@ mod tests {
     fn worker_transcript_merges_turns_in_order() {
         let dir = std::env::temp_dir().join(format!("pm-transcript-{}", Uuid::new_v4()));
         let project = dir.to_str().unwrap();
-        append(project, "op-a", "user_task", "first");
-        append(project, "op-b", "stdout", "second");
+        append(project, "op-a", "user_task", &crate::redact::text("first"));
+        append(project, "op-b", "stdout", &crate::redact::text("second"));
         let page = read_turns(
             project,
             &["op-a".into(), "op-b".into(), "op-missing".into()],

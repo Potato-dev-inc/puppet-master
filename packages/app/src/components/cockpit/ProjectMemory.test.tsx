@@ -6,6 +6,11 @@ import type { MemoryApi, MemoryView } from '../../lib/memory-api';
 import { ProjectMemory } from './ProjectMemory';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
 
 let host: HTMLDivElement;
 let root: Root;

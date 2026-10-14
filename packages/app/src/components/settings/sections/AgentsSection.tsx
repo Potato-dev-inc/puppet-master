@@ -2,6 +2,7 @@
 // consent, review and approval). Each block saves through its own command, so no row here calls env.patch.
 import { AccountsGroup } from '../accounts/AccountsGroup';
 import { AgentDefinitions } from '../blocks/AgentDefinitions';
+import { AgentVersions } from '../blocks/AgentVersions';
 import { PreloadSettings } from '../blocks/PreloadSettings';
 import type { RowDef } from '../model';
 
@@ -21,6 +22,14 @@ export const agentsRows: RowDef[] = [
     keywords: 'preload warm standby idle timeout status agents to keep warm',
     group: 'Speed',
     render: (env) => <PreloadSettings onSaved={env.markSaved} />,
+  },
+  {
+    id: 'versions',
+    label: 'Agent versions',
+    hint: 'Check that an agent still starts the way Puppet Master expects after it updates.',
+    keywords: 'version update tested untested check canary strict unknown screens recognise capture folder fixture',
+    group: 'Updates',
+    render: () => <AgentVersions />,
   },
   {
     id: 'definitions',

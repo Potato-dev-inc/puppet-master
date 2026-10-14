@@ -62,6 +62,9 @@ pub struct Definition {
     pub instructions: Option<InstructionsTable>,
     /// How the CLI is installed (`[install.windows]`); the agent doctor's Install button uses it.
     pub install: Option<crate::tui::install::InstallTable>,
+    /// What this definition has been checked against (`[profile]`).
+    #[serde(default)]
+    pub profile: ProfileTable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -458,6 +461,16 @@ pub struct DeliveryTable {
 pub struct ClassifyTable {
     #[serde(default)]
     pub waiting_regex: Vec<String>,
+}
+
+/// `[profile]`: what the definition has been checked against.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileTable {
+    /// CLI versions the definition and its fixtures were checked on, as a semver range such as
+    /// `">=0.150, <0.170"`. Outside it the agent runs in strict mode (`crate::canary`). Unset = no pin.
+    #[serde(default)]
+    pub tested: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

@@ -73,7 +73,7 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "wait_for_model",
-            description: "Long-poll until an opencode_native pane's footer model matches (alias for wait_for_panes with model_ready + tui_ready).",
+            description: "Long-poll until an opencode_native pane's footer model matches (alias of wait_for_panes with model_ready + tui_ready; unlisted by default, prefer wait_for_panes).",
             input_schema: object_schema(
                 json!({
                     "pane_id": { "type": "string" },
@@ -91,7 +91,7 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "wait_for_task",
-            description: "Long-poll until a task reaches completed or blocked (alias for wait_for_panes task predicates).",
+            description: "Long-poll until a task reaches completed or blocked (alias of wait_for_panes task predicates; unlisted by default, prefer wait_for_panes).",
             input_schema: object_schema(
                 json!({
                     "pane_id": { "type": "string" },
@@ -112,7 +112,7 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "wait_for_worker",
-            description: "Long-poll until a worker pane settles (idle, waiting_input, permission, OpenCode TUI yes/no, or error). Alias for wait_for_panes with until=[\"settled\",\"error\"]. Returns agent_hint for the next step.",
+            description: "Long-poll until a worker pane settles (idle, waiting_input, permission, OpenCode TUI yes/no, or error). Alias of wait_for_panes with until=[\"settled\",\"error\"]; unlisted by default, prefer wait_for_panes. Returns agent_hint for the next step.",
             input_schema: object_schema(
                 json!({
                     "pane_id": { "type": "string" },

@@ -1,9 +1,23 @@
 //! Which tools each MCP mode (agent, shell, both) exposes.
 
 use super::catalog::tools;
+use super::surface::tool_listed_in_mode;
 use super::types::{McpMode, ToolDefinition};
 
+/// The tools `tools/list` advertises in `mode`: callable and, unless the mode is `all`, core.
 pub fn tools_for_mode(mode: McpMode) -> Vec<ToolDefinition> {
+    tools()
+        .into_iter()
+        .filter(|tool| {
+            tool.visibility.external_mcp
+                && tool_visible_in_mode(tool.name, mode)
+                && tool_listed_in_mode(tool.name, mode)
+        })
+        .collect()
+}
+
+/// Every tool `mode` can call, listed or not. The shim and the bridge gate calls with this.
+pub fn callable_tools_for_mode(mode: McpMode) -> Vec<ToolDefinition> {
     tools()
         .into_iter()
         .filter(|tool| tool.visibility.external_mcp && tool_visible_in_mode(tool.name, mode))
@@ -14,7 +28,7 @@ pub fn tool_visible_in_mode(name: &str, mode: McpMode) -> bool {
     if name == "set_mode" {
         return true;
     }
-    if mode == McpMode::Both {
+    if matches!(mode, McpMode::Both | McpMode::All) {
         return true;
     }
     const AGENT_TOOLS: &[&str] = &[
@@ -74,6 +88,6 @@ pub fn tool_visible_in_mode(name: &str, mode: McpMode) -> bool {
     match mode {
         McpMode::Agent => AGENT_TOOLS.contains(&name),
         McpMode::Shell => SHELL_TOOLS.contains(&name),
-        McpMode::Both => true,
+        McpMode::Both | McpMode::All => true,
     }
 }

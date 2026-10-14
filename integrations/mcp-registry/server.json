@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Potato-dev-inc/puppet-master",
+  "title": "Puppet Master",
+  "description": "Let your coding agent hand work to Claude Code, Codex, Cursor or OpenCode and get verified results.",
+  "repository": {
+    "url": "https://github.com/Potato-dev-inc/puppet-master",
+    "source": "github",
+    "subfolder": "packages/mcp-server"
+  },
+  "websiteUrl": "https://github.com/Potato-dev-inc/puppet-master",
+  "version": "0.1.4",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@puppet-master/mcp",
+      "version": "0.1.4",
+      "runtimeHint": "npx",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "PUPPET_MASTER_BRIDGE_PORT_FILE",
+          "description": "Optional. Path to the bridge port file written by the Puppet Master desktop app, when it is not in the default app data folder.",
+          "isRequired": false,
+          "format": "filepath"
+        }
+      ]
+    }
+  ]
+}

@@ -196,6 +196,7 @@ pub fn spawn_pane(
     // depth so reattach can reconstruct a coherent grid.
     let screen = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, SCROLLBACK_CAP)));
     let stream_pos = crate::pty::stream_pos::start(&pane_id);
+    let flight = crate::flight::start(&pane_id, cols, rows);
     let status = Arc::new(Mutex::new(PaneStatus::Running));
     let last_output = Arc::new(Mutex::new(Instant::now()));
     let idle_clock = Arc::new(idle::IdleClock::new(Instant::now()));
@@ -245,6 +246,7 @@ pub fn spawn_pane(
         let scrollback = scrollback.clone();
         let screen = screen.clone();
         let stream_pos = stream_pos.clone();
+        let flight = flight.clone();
         let status = status.clone();
         let last_output = last_output.clone();
         let idle_clock = idle_clock.clone();
@@ -265,6 +267,8 @@ pub fn spawn_pane(
                             break;
                         }
                         Ok(n) => {
+                            // Flight recorder: one memcpy into the pane's ring (the live stream below is untouched).
+                            flight.output(&buf[..n]);
                             crate::event_log::append_system_event(
                                 SystemEvent::PaneOutputObserved {
                                     pane_id: PaneId(pane_id.clone()),
@@ -349,6 +353,7 @@ pub fn spawn_pane(
 
                             if changed {
                                 let s = *status.lock();
+                                flight.mark(&format!("status={}", s.as_str()));
                                 let _ = app.emit(
                                     "pty://status",
                                     PaneStatusEvent {

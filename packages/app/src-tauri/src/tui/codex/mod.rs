@@ -8,9 +8,12 @@
 mod headless;
 mod screen;
 
-use super::{AccountScheme, ComposerState, Features, HeadlessLaunch, InstructionFile, LaunchSpec, StandbyScreen, StandbySupport, StartupGate, SubmitSequence, TuiProfile};
+use super::{AccountScheme, ComposerState, Features, HeadlessLaunch, InstructionFile, LaunchSpec, RunFacts, StandbyScreen, StandbySupport, StartupGate, SubmitSequence, TuiProfile, Warning};
 
 pub struct Codex;
+
+/// CLI versions the Codex fixtures and live checks cover (see `TuiProfile::tested_versions`).
+pub(crate) const TESTED_VERSIONS: &str = ">=0.159, <0.170";
 
 /// Where Codex keeps MCP servers (Toolbelt).
 const MCP_HOST: &str = r#"
@@ -27,6 +30,11 @@ url = "{url}"
 http_headers = "{headers}"
 "#;
 
+/// Where Codex reads skills ("Add Puppet Master to your agents").
+const SKILLS_HOST: &str = r#"
+dir = "~/.agents/skills"
+"#;
+
 impl TuiProfile for Codex {
     fn id(&self) -> &'static str {
         "codex"
@@ -34,6 +42,10 @@ impl TuiProfile for Codex {
 
     fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
         crate::toolbelt::host_from_toml(MCP_HOST)
+    }
+
+    fn skills_host(&self) -> Option<crate::agent_pack::SkillsHostTable> {
+        crate::agent_pack::skills_host_from_toml(SKILLS_HOST)
     }
 
     /// Codex reads `AGENTS.md` from the project root down to the cwd (developers.openai.com/codex/guides/agents-md).
@@ -69,7 +81,22 @@ impl TuiProfile for Codex {
         })
     }
 
+    /// Fixtures are live captures from 0.159.x; the canary (`crate::canary`) re-checks the start
+    /// screens whenever the installed version changes.
+    fn tested_versions(&self) -> Option<super::TestedRange> {
+        super::TestedRange::parse(TESTED_VERSIONS).ok()
+    }
+
     fn install_hint(&self) -> Option<String> {
+        Some(if cfg!(windows) {
+            "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
+        } else {
+            "curl -fsSL https://chatgpt.com/codex/install.sh | sh"
+        }
+        .into())
+    }
+
+    fn install_fallback_hint(&self) -> Option<String> {
         Some("npm i -g @openai/codex".into())
     }
 
@@ -126,6 +153,19 @@ impl TuiProfile for Codex {
         screen::composer_state(screen)
     }
 
+    /// The composer without its dimmed placeholder (`screen::without_placeholder`).
+    fn input_screen(&self, screen: &vt100::Screen) -> String {
+        screen::without_placeholder(screen)
+    }
+
+    /// The composer, but not while Codex is still loading (it draws the box before it takes keys).
+    fn ready_recogniser(&self, screen: &str) -> Option<ComposerState> {
+        if screen::still_loading(screen) {
+            return Some(ComposerState::Unknown);
+        }
+        Some(screen::composer_state(screen))
+    }
+
     fn startup_gate(&self, screen: &str) -> Option<StartupGate> {
         screen::startup_gate(screen)
     }
@@ -159,5 +199,18 @@ impl TuiProfile for Codex {
 
     fn default_model(&self) -> Option<String> {
         headless::default_model()
+    }
+
+    /// A turn whose own tool call failed (live 0.162.1: `Read README.md (exit -1)`, "the workspace
+    /// command runner failed to start") still ends cleanly, so the run is `completed`. Say so.
+    fn run_warnings(&self, facts: &RunFacts) -> Vec<Warning> {
+        if facts.completed && facts.result.is_some_and(screen::reports_tool_failure) {
+            return vec![Warning {
+                code: "AGENT_REPORTED_ERROR",
+                source: "heuristic",
+                detail: "Codex reported that one of its own tool calls failed, so work its reply describes may not have happened. Check the result before relying on it.",
+            }];
+        }
+        Vec::new()
     }
 }

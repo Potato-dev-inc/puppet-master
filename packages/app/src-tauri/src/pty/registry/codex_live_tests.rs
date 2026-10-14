@@ -36,8 +36,8 @@ impl GateIo for Live {
     fn screen(&mut self) -> String {
         self.text()
     }
-    fn write(&mut self, keys: &str) -> Result<(), String> {
-        self.send(keys)
+    fn write(&mut self, permit: &crate::agent_runs::readiness::GatePermit) -> Result<(), String> {
+        self.send(permit.keys())
     }
     fn pause(&mut self, duration: Duration) {
         thread::sleep(duration);
@@ -45,7 +45,8 @@ impl GateIo for Live {
 }
 
 impl DeliveryIo for Live {
-    fn write(&mut self, text: &str, enter: bool) -> Result<(), String> {
+    fn write(&mut self, origin: crate::pty::WriteOrigin<'_>, text: &str, enter: bool) -> Result<(), String> {
+        origin.admit_terminal_write("", text, enter, None, || crate::pty::agent_proc::AgentProcess::Unknown)?;
         if !text.is_empty() {
             self.send(text)?;
         }
@@ -68,14 +69,8 @@ impl DeliveryIo for Live {
     fn enter_settle(&mut self) -> Duration {
         self.settle
     }
-    fn composer_state(&mut self, screen: &str) -> ComposerState {
-        profile_for("codex").composer_state(screen)
-    }
-    fn startup_gate(&mut self, screen: &str) -> Option<crate::tui::StartupGate> {
-        profile_for("codex").startup_gate(screen)
-    }
-    fn reads_composer(&mut self) -> bool {
-        profile_for("codex").reads_composer()
+    fn profile(&mut self) -> Arc<dyn crate::tui::TuiProfile> {
+        profile_for("codex")
     }
 }
 

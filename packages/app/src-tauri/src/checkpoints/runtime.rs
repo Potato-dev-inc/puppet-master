@@ -44,6 +44,11 @@ pub trait Env: Send + Sync {
     fn run_open(&self, _pane_id: &str, _pane: &PaneFacts) -> bool {
         false
     }
+
+    /// New data one snapshot may add before the folder counts as too big (tests lower it).
+    fn max_total_bytes(&self) -> u64 {
+        Limits::default().max_total_bytes
+    }
 }
 
 /// What an automatic trigger did.
@@ -54,8 +59,23 @@ pub enum Outcome {
     Debounced { retry_in_ms: u64 },
     Unchanged,
     Created(Checkpoint),
+    /// The folder has too much new data to snapshot (bytes measured, or remembered from the last
+    /// measurement). Reported to the user once, as a card in History, not on every turn.
+    TooBig(u64),
     Failed(String),
 }
+
+/// A folder whose snapshot was refused for size.
+#[derive(Debug, Clone, Copy)]
+struct TooBig {
+    bytes: u64,
+    checked_ms: u64,
+}
+
+/// A folder known to be too big is measured again at most this often (walking a multi-gigabyte
+/// folder on every turn is what made it slow and noisy). Adding the big folders to `.gitignore`
+/// brings Undo back within this time.
+pub const TOO_BIG_RECHECK_MS: u64 = 5 * 60_000;
 
 #[derive(Default)]
 struct State {
@@ -70,6 +90,8 @@ pub struct Runtime {
     /// waits for it. Without this a debounced capture returned at once, "settling" the turn summary
     /// before the snapshot it was waiting for existed (the summary read "0 files").
     capturing: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// Project folders whose last snapshot was refused for size.
+    too_big: Mutex<HashMap<PathBuf, TooBig>>,
 }
 
 fn is_turn_end(status: &str) -> bool {
@@ -78,11 +100,20 @@ fn is_turn_end(status: &str) -> bool {
 
 impl Runtime {
     pub fn new(env: Arc<dyn Env>) -> Self {
-        Self { env, state: Mutex::new(State::default()), capturing: Mutex::new(HashMap::new()) }
+        Self {
+            env,
+            state: Mutex::new(State::default()),
+            capturing: Mutex::new(HashMap::new()),
+            too_big: Mutex::new(HashMap::new()),
+        }
     }
 
     fn limits(&self) -> Limits {
-        Limits { keep: self.env.settings().keep.clamp(5, 500), ..Limits::default() }
+        Limits {
+            keep: self.env.settings().keep.clamp(5, 500),
+            max_total_bytes: self.env.max_total_bytes(),
+            ..Limits::default()
+        }
     }
 
     /// Records the new status and says which snapshot (if any) it calls for.
@@ -110,32 +141,86 @@ impl Runtime {
 
     /// Take (or skip) a snapshot for `pane_id`. Blocking.
     pub fn capture(&self, pane_id: &str, kind: Kind, note: Option<&str>) -> Outcome {
+        match self.capture_inner(pane_id, kind, note, false) {
+            Ok(Snapshot::Created(c)) => Outcome::Created(c),
+            Ok(Snapshot::Unchanged(_)) => Outcome::Unchanged,
+            Err(outcome) => outcome,
+        }
+    }
+
+    /// Before "Stop all agents" interrupts `pane_id`: a snapshot of its project that ignores the
+    /// debounce window (the panic must not lose its checkpoint to a snapshot taken a moment ago).
+    /// Returns the checkpoint id; when nothing changed since the newest checkpoint, that one.
+    /// `None` when checkpoints are off, the agent opted out, the folder is too big, or git failed.
+    pub fn before_stop(&self, pane_id: &str) -> Option<String> {
+        match self.capture_inner(pane_id, Kind::Stop, None, true) {
+            Ok(Snapshot::Created(c)) => Some(c.id),
+            Ok(Snapshot::Unchanged(newest)) => newest.map(|c| c.id),
+            Err(Outcome::Failed(message)) => {
+                tracing::warn!(pane = %pane_id, error = %message, "checkpoint before stop failed");
+                None
+            }
+            Err(_) => None,
+        }
+    }
+
+    /// Bytes of new data that made the folder of `pane_id` too big to checkpoint, if it is known
+    /// to be (`None` = fine, or never measured).
+    pub fn folder_too_big(&self, pane_id: &str) -> Option<u64> {
+        let (project, _) = self.project_of(pane_id).ok()?;
+        self.too_big.lock().get(&project).map(|known| known.bytes)
+    }
+
+    /// Remember that `project` is too big. True the first time (the caller logs it), false while
+    /// it stays too big.
+    pub(super) fn note_too_big(&self, project: &std::path::Path, bytes: u64, now_ms: u64) -> bool {
+        self.too_big.lock().insert(project.to_path_buf(), TooBig { bytes, checked_ms: now_ms }).is_none()
+    }
+
+    fn capture_inner(&self, pane_id: &str, kind: Kind, note: Option<&str>, bypass_debounce: bool) -> Result<Snapshot, Outcome> {
         let pane_lock = self.capturing.lock().entry(pane_id.to_string()).or_default().clone();
         let _one_capture_at_a_time = pane_lock.lock();
         let settings = self.env.settings();
         if !settings.enabled {
-            return Outcome::Skipped("off");
+            return Err(Outcome::Skipped("off"));
         }
-        let Some(pane) = self.env.pane(pane_id) else { return Outcome::Skipped("no pane") };
+        let Some(pane) = self.env.pane(pane_id) else { return Err(Outcome::Skipped("no pane")) };
         if !self.env.agent_takes_part(&pane.agent_type) {
-            return Outcome::Skipped("agent opted out");
+            return Err(Outcome::Skipped("agent opted out"));
         }
         let now = self.env.now_ms();
+        let project = PathBuf::from(&pane.cwd);
+        if let Some(known) = self.too_big.lock().get(&project) {
+            if now.saturating_sub(known.checked_ms) < TOO_BIG_RECHECK_MS {
+                return Err(Outcome::TooBig(known.bytes));
+            }
+        }
         {
             let mut state = self.state.lock();
             if let Some(last) = state.last_at.get(pane_id) {
                 let age = now.saturating_sub(*last);
-                if age < DEBOUNCE_MS {
-                    return Outcome::Debounced { retry_in_ms: DEBOUNCE_MS - age };
+                if age < DEBOUNCE_MS && !bypass_debounce {
+                    return Err(Outcome::Debounced { retry_in_ms: DEBOUNCE_MS - age });
                 }
             }
             state.last_at.insert(pane_id.to_string(), now);
         }
         let turn = self.env.turn_hint(pane_id, kind);
-        match engine::snapshot_numbered(&PathBuf::from(&pane.cwd), pane_id, kind, note, now, &self.limits(), turn) {
-            Ok(Snapshot::Created(c)) => Outcome::Created(c),
-            Ok(Snapshot::Unchanged(_)) => Outcome::Unchanged,
-            Err(e) => Outcome::Failed(e.to_string()),
+        match engine::snapshot_numbered(&project, pane_id, kind, note, now, &self.limits(), turn) {
+            Ok(snapshot) => {
+                if self.too_big.lock().remove(&project).is_some() {
+                    tracing::info!(project = %project.display(), "checkpoints are back on for this folder");
+                }
+                Ok(snapshot)
+            }
+            Err(CheckpointError::TooLarge(bytes)) => {
+                if self.note_too_big(&project, bytes, now) {
+                    // Once per folder, not once per turn.
+                    tracing::warn!(project = %project.display(), megabytes = bytes / (1024 * 1024), "checkpoints are off for this folder: too much new data");
+                }
+                Err(Outcome::TooBig(bytes))
+            }
+            Err(e) => Err(Outcome::Failed(e.to_string())),
         }
     }
 
@@ -259,16 +344,24 @@ pub fn live() -> &'static Runtime {
     &LIVE
 }
 
-/// Hook for `bridge/sse.rs::push_pane_status_sse`. Cheap on the caller's thread; the snapshot
-/// itself runs on a short-lived worker thread.
+/// Name of the worker thread that takes automatic snapshots.
+pub(crate) const CHECKPOINT_THREAD: &str = "pm-checkpoint";
+
+/// Hook for `bridge/sse.rs::push_pane_status_sse`. Cheap on the caller's thread (which is the PTY
+/// reader thread); the snapshot itself runs on a short-lived worker thread.
 pub fn on_pane_status(pane_id: &str, status: &str) {
-    let Some(kind) = live().decide(pane_id, status) else { return };
+    on_status_with(live(), pane_id, status);
+}
+
+/// [`on_pane_status`] against any runtime (tests). Returns the worker's handle when one started.
+pub(crate) fn on_status_with(rt: &'static Runtime, pane_id: &str, status: &str) -> Option<std::thread::JoinHandle<()>> {
+    let kind = rt.decide(pane_id, status)?;
     let pane_id = pane_id.to_string();
     // The ticket is taken here, on the status-event thread, so the summary hook that runs right
     // after this one waits for THIS rest point's capture and no earlier one's.
     let ticket = (kind == Kind::After).then(|| crate::turn_summary::checkpoint_requested(&pane_id));
-    let spawned = std::thread::Builder::new().name("pm-checkpoint".into()).spawn(move || {
-        let outcome = live().capture_with_retry(&pane_id, kind);
+    let spawned = std::thread::Builder::new().name(CHECKPOINT_THREAD.into()).spawn(move || {
+        let outcome = rt.capture_with_retry(&pane_id, kind);
         if let Outcome::Failed(message) = outcome {
             tracing::warn!(pane = %pane_id, error = %message, "checkpoint failed");
         }
@@ -277,8 +370,12 @@ pub fn on_pane_status(pane_id: &str, status: &str) {
             crate::turn_summary::checkpoint_settled(&pane_id, ticket);
         }
     });
-    if let Err(e) = spawned {
-        tracing::warn!(error = %e, "could not start checkpoint thread");
+    match spawned {
+        Ok(handle) => Some(handle),
+        Err(e) => {
+            tracing::warn!(error = %e, "could not start checkpoint thread");
+            None
+        }
     }
 }
 
@@ -293,6 +390,11 @@ pub fn before_dispatch(pane_id: &str, task: &str) {
     if let Outcome::Failed(message) = live().before_dispatch(pane_id, task) {
         tracing::warn!(pane = %pane_id, error = %message, "checkpoint before dispatch failed");
     }
+}
+
+/// Hook for `panic::stop_all`: before a running pane is interrupted. Returns the checkpoint id.
+pub fn before_stop(pane_id: &str) -> Option<String> {
+    live().before_stop(pane_id)
 }
 
 /// Hook for `answer_pane_prompt` / `POST /agents/answer`: before the answer is sent.

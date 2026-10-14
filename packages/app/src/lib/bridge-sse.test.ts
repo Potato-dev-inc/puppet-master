@@ -135,6 +135,24 @@ describe('subscribeBridgeEventsViaWs', () => {
     handle.unsubscribe();
   });
 
+  // VERIFY-R11: a loopback PWA tab typing into an agent-run pane got `{"type":"input-error"}` and
+  // only the console heard of it. It is now an event the app turns into a plain line on screen.
+  it('turns an input-error frame into an input-refused event instead of dropping it', () => {
+    const events: BridgeEvent[] = [];
+    const handle = subscribeBridgeEventsViaWs(BASE, (e) => events.push(e));
+    const sock = MockSocket.instances[0];
+    sock.open();
+    sock.receive(
+      JSON.stringify({ type: 'input-error', pane_id: 'p1', error: 'managed pane mutations require an MCP session id' }),
+    );
+    sock.receive(JSON.stringify({ type: 'input-error', pane_id: 'p1', error: 'not_allowed' }));
+    expect(events).toEqual([
+      { type: 'input-refused', pane_id: 'p1', error: 'managed pane mutations require an MCP session id' },
+      { type: 'input-refused', pane_id: 'p1', error: 'not_allowed' },
+    ]);
+    handle.unsubscribe();
+  });
+
   it('returns false from sendInput while the socket is not open', () => {
     const handle = subscribeBridgeEventsViaWs(BASE, () => {});
     expect(handle.sendInput('p1', 'x', false)).toBe(false);

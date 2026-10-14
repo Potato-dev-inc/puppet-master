@@ -71,7 +71,8 @@ describe('AgentDoctor', () => {
           installed: false,
           can_test: false,
           reason: 'Not installed on this computer.',
-          install_hint: 'npm i -g agent-b',
+          install_hint: 'winget install Agent.B',
+          install_fallback: 'npm i -g agent-b',
         }),
       ],
       test: vi.fn(),
@@ -86,7 +87,9 @@ describe('AgentDoctor', () => {
     expect(button(a, 'Test')).toBeDefined();
     const b = rowOf('second');
     expect(b.textContent).toContain('Not installed');
-    expect(b.querySelector('.ck-doctor-cmd')?.textContent).toBe('npm i -g agent-b');
+    const cmds = [...b.querySelectorAll('.ck-doctor-cmd')].map((c) => c.textContent);
+    expect(cmds).toEqual(['winget install Agent.B', 'npm i -g agent-b']);
+    expect(b.textContent).toContain('Or with npm');
     expect(button(b, 'Copy install command')).toBeDefined();
     expect(button(b, 'Test')).toBeUndefined();
     expect(button(b, 'Open to log in')).toBeUndefined();

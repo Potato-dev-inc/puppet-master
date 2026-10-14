@@ -126,18 +126,27 @@ describe('Sidebar Settings button', () => {
   });
 });
 
-describe('open_settings failures are surfaced, not swallowed', () => {
-  it('the Palette "Toolbelt" action reports a failed open_settings to the user', async () => {
-    vi.spyOn(cockpitApi, 'openSettings').mockRejectedValue(new Error('settings window failed'));
-    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+describe('Palette Settings deep links go through the cockpit (inline in Orchestration)', () => {
+  const row = (title: string) => Array.from(host.querySelectorAll('[role="option"]')).find((r) => r.textContent?.includes(title)) as HTMLElement;
+
+  it('"Toolbelt" opens Settings on the Bridge page through c.openSettings, not straight to the window', async () => {
+    const direct = vi.spyOn(cockpitApi, 'openSettings').mockResolvedValue(undefined);
     const api = fakeApi();
     act(() => root.render(<Palette c={api} onClose={vi.fn()} />));
-    const row = Array.from(host.querySelectorAll('[role="option"]')).find((r) => r.textContent?.includes('Toolbelt'));
-    expect(row).toBeTruthy();
+    expect(row('Toolbelt')).toBeTruthy();
     await act(async () => {
-      (row as HTMLElement).click();
+      row('Toolbelt').click();
     });
-    expect(api.notify).toHaveBeenCalledWith(expect.stringContaining('settings window failed'));
-    expect(logged).toHaveBeenCalledWith('open_settings failed', expect.any(Error));
+    expect(api.openSettings).toHaveBeenCalledWith('bridge');
+    expect(direct).not.toHaveBeenCalled();
+  });
+
+  it('"Open settings" opens Settings with no page', async () => {
+    const api = fakeApi();
+    act(() => root.render(<Palette c={api} onClose={vi.fn()} />));
+    await act(async () => {
+      row('Open settings').click();
+    });
+    expect(api.openSettings).toHaveBeenCalledWith();
   });
 });

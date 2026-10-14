@@ -51,9 +51,9 @@ fn deliveries_that_did_not_happen_say_why_in_a_sentence() {
 fn the_transcript_shows_the_summary_and_keeps_the_screen_rows_for_details() {
     let project = project();
     let op = "op-delivery";
-    transcript::append(&project, op, "user_task", "Read README.md");
+    transcript::append(&project, op, "user_task", &crate::redact::text("Read README.md"));
     record_delivery(&project, op, None, &Delivery::Started, &trace_of(CODEX_TRACE));
-    transcript::append(&project, op, "assistant_final", "It is a tiny Node project.");
+    transcript::append(&project, op, "assistant_final", &crate::redact::text("It is a tiny Node project."));
 
     let page = transcript::read(&project, op, 0).unwrap();
     let streams: Vec<&str> = page.chunks.iter().map(|c| c.stream.as_str()).collect();

@@ -58,13 +58,14 @@ export interface CockpitApi {
   notify: (text: string, action?: Toast['action']) => void;
   setMode: (mode: UiMode) => Promise<void>;
   toggleTheme: () => Promise<void>;
-  newAgent: (agentId: string, accountId?: string, isolated?: boolean) => Promise<void>;
+  newAgent: (agentId: string, accountId?: string, isolated?: boolean, projectPath?: string) => Promise<void>;
   answer: (paneId: string, promptId: string, choiceId: string, label: string) => Promise<void>;
   interrupt: (paneId: string) => Promise<void>;
   closePane: (paneId: string) => Promise<void>;
   /** Give a pane your own name (blank clears it). */
   rename: (paneId: string, title: string) => Promise<void>;
-  openSettings: () => Promise<void>;
+  /** Orchestration: Settings opens inside the cockpit (on `tab` when given). Individual: the Settings window. */
+  openSettings: (tab?: string) => Promise<void>;
   bridgeLine: string;
 }
 
@@ -334,11 +335,11 @@ export function useCockpit(): CockpitApi {
   }, [theme, notify]);
 
   const newAgent = useCallback(
-    async (agentId: string, accountId?: string, isolated = false) => {
+    async (agentId: string, accountId?: string, isolated = false, projectPath?: string) => {
       setSelectedId(null);
       setSpawn({ agentId, paneId: null, log: [], failed: null });
       try {
-        const paneId = await cockpitApi.newPane(agentId, accountId, isolated ? 'worktree' : undefined);
+        const paneId = await cockpitApi.newPane(agentId, accountId, isolated ? 'worktree' : undefined, projectPath);
         setSpawn((s) => (s && s.agentId === agentId ? { ...s, paneId } : s));
         // The pane may already be attached (ready event raced the command): select it once listed.
         if (spawnRef.current === null) setSelectedId(paneId);
@@ -397,9 +398,9 @@ export function useCockpit(): CockpitApi {
     [registry, notify],
   );
 
-  const openSettings = useCallback(async () => {
+  const openSettings = useCallback(async (tab?: string) => {
     try {
-      await cockpitApi.openSettings();
+      await cockpitApi.openSettings(tab);
     } catch (err) {
       console.error('open_settings failed', err);
       notify(`Settings did not open: ${errText(err)}`);

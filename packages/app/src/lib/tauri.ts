@@ -6,6 +6,7 @@ import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import type {
   AgentContextProfile,
   AgentModelInspection,
+  DeviceCap,
   PairedDeviceInfo,
   PairingSession,
 } from '@puppet-master/shared';
@@ -24,6 +25,8 @@ import type {
   EnsureMcpResult,
   McpStatusReport,
   CoordinationStorageInfo,
+  DiagnosticPreview,
+  DiagnosticSaved,
   OpenCodeKeyStatus,
   RotateOpenCodeKeyResult,
   AppInstallInfo,
@@ -296,10 +299,11 @@ export const tauri = {
   resizeCurrentWindow,
   onCurrentWindowCloseRequested,
 
-  createMobilePairingSession: (bridgeUrl: string) =>
+  /** `caps`: what the phone that scans this code may do (omitted: everything, as before). */
+  createMobilePairingSession: (bridgeUrl: string, caps?: readonly DeviceCap[]) =>
     safeInvoke<PairingSession>(
       'create_mobile_pairing_session',
-      { bridgeUrl },
+      caps ? { bridgeUrl, caps: [...caps] } : { bridgeUrl },
       {
         pairing_code: '',
         expires_at: 0,
@@ -313,6 +317,11 @@ export const tauri = {
     safeInvoke<PairedDeviceInfo[]>('list_paired_mobile_devices', undefined, [], true),
   revokePairedMobileDevice: (deviceId: string) =>
     safeInvoke<boolean>('revoke_paired_mobile_device', { deviceId }, false, true),
+  setPairedMobileDeviceCaps: (deviceId: string, caps: readonly DeviceCap[]) =>
+    safeInvoke<boolean>('set_paired_mobile_device_caps', { deviceId, caps: [...caps] }, false, true),
+  /** This launch's bridge key for the app's own HTTP calls (IPC only; null outside the app). */
+  bridgeLocalSecret: () =>
+    safeInvoke<string | null>('bridge_local_secret', undefined, null, true).catch(() => null),
 
   getMobileTunnelInfo: () =>
     safeInvoke<{
@@ -334,6 +343,10 @@ export const tauri = {
   standbyGetStatus: () => safeInvoke<StandbyStatus | null>('standby_get_status', undefined, null, true),
   standbySetConfig: (config: StandbyConfig) =>
     safeInvoke<StandbyStatus | null>('standby_set_config', { config }, null, true),
+  diagnosticPreview: () => safeInvoke<DiagnosticPreview>('diagnostic_preview'),
+  diagnosticShow: (path: string) => safeInvoke<string>('diagnostic_show', { path }),
+  diagnosticSave: (path: string, exclude: string[]) =>
+    safeInvoke<DiagnosticSaved>('diagnostic_save', { path, exclude }),
   getAppInstallInfo: () =>
     safeInvoke<AppInstallInfo>(
       'get_app_install_info',

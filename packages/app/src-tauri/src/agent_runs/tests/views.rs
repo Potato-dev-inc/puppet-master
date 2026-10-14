@@ -174,7 +174,7 @@ fn transcript_truncation_does_not_drop_stored_result() {
             &project_path,
             &queued.operation_id,
             "stdout",
-            &format!("{n}\n"),
+            &crate::redact::text(&format!("{n}\n")),
         );
     }
     let finished = operations::mark_operation_finished(

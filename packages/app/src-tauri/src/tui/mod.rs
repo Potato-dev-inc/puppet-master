@@ -5,6 +5,7 @@
 //! fix for one TUI stays inside that TUI's folder. See `README.md` in this folder for how to add one.
 
 pub mod activity;
+pub mod faint;
 mod profile;
 mod types;
 

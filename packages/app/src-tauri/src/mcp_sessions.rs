@@ -7,6 +7,7 @@
 //! - `registration`: recording ownership of new panes and agent handles
 //! - `access`: run-access checks and dead-connection detection
 //! - `leases`: release, takeover, transfer and token reattach
+//! - `lineage`: who started a pane or run, and whether a caller may treat it as its own
 //! - `authorize`: the route gate (mode + ownership)
 //! - `handles`: pane-id resolution and the denial/not-found errors
 
@@ -16,6 +17,7 @@ mod coalesce;
 mod handles;
 mod identity;
 mod leases;
+mod lineage;
 mod persist;
 mod registration;
 mod state;
@@ -25,6 +27,8 @@ pub use authorize::*;
 pub use handles::*;
 pub use identity::*;
 pub use leases::*;
+pub use lineage::*;
+pub use state::PaneOrigin;
 pub use registration::*;
 
 #[cfg(test)]

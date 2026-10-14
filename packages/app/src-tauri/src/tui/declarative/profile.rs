@@ -404,6 +404,10 @@ impl TuiProfile for DeclarativeProfile {
         })
     }
 
+    fn tested_versions(&self) -> Option<crate::tui::TestedRange> {
+        self.def.profile.tested.as_deref().and_then(|text| crate::tui::TestedRange::parse(text).ok())
+    }
+
     fn install_hint(&self) -> Option<String> {
         Some(self.def.binary.install_hint.trim().to_string()).filter(|h| !h.is_empty())
     }

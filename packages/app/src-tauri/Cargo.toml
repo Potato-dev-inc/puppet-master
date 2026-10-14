@@ -42,7 +42,7 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand = "0.8"
 sha2 = "0.10"
 base64 = "0.22"
-tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+tungstenite = { version = "0.24", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 anyhow = "1"
 ureq = { version = "2", features = ["json"] }
 web-push-native = "0.4"
@@ -55,6 +55,21 @@ tauri-plugin-global-shortcut = "2"
 arboard = { version = "3", default-features = false }
 # OS credential store for provider API keys (MIT OR Apache-2.0). 3.x: no default stores, pick per OS.
 keyring = "3.6"
+# Diagnostic file: deflate and checksums for the zip writer in flight/zip.rs (both MIT OR Apache-2.0, already built for ureq).
+flate2 = "1"
+crc32fast = "1"
+# Version ranges for tested-version pins (MIT OR Apache-2.0).
+semver = "1"
+# Team ("Heads-up") end-to-end encryption, COWORK-PLAN §8.2 / §12. All MIT OR Apache-2.0
+# (RustCrypto / rust-hpke). XChaCha20-Poly1305 seals envelopes; HPKE (RFC 9180, X25519 +
+# HKDF-SHA256 + ChaCha20-Poly1305) seals team keys and join requests to one device; HMAC proves an
+# invite code. Signatures use the ed25519-dalek above.
+chacha20poly1305 = "0.10"
+hpke = { version = "0.12", default-features = false, features = ["alloc", "x25519"] }
+hmac = "0.12"
+subtle = "2"
+# Wire types shared with the team relay (MIT, `relay/protocol` in this repository).
+pm-relay-protocol = { path = "../../../relay/protocol" }
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3.6", features = ["windows-native"] }
@@ -64,6 +79,14 @@ keyring = { version = "3.6", features = ["apple-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6", features = ["linux-native"] }
+
+# Test-only. `insta` (Apache-2.0) snapshots the decision timelines of the replay corpus
+# (`src/replay/`, `tests/corpus/`).
+[dev-dependencies]
+insta = "1"
+# The team relay server, run on a loopback port by the Team end-to-end tests (test-only; its
+# licence is pending, see relay/LICENSE, and it is never linked into the app).
+pm-relay = { path = "../../../relay/server" }
 
 [features]
 default = ["custom-protocol"]

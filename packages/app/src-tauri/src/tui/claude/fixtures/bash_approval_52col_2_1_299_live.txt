@@ -1,0 +1,25 @@
+  r12-wrapped-approval-check one two three four       five six seven > r12-out/a.txt. Then reply with     one short line.                                   
+
+● Bash(mkdir -p r12-out && echo
+      r12-wrapped-approval-check one two three four
+      five six seven > r12-out/a.txt)
+  ⎿  Waiting…
+
+──────────────────────────────────────────────────── Bash command
+ Tip: auto mode handles these prompts for you — 
+ choose "switch to auto mode" below
+ Create r12-out directory and write a.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ │ mkdir -p r12-out && echo
+ │ r12-wrapped-approval-check one two three four
+ │ five six seven > r12-out/a.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for mkdir -p r12-out 
+      and echo r12-wrapped-approval-check commands  
+      in D:\pm-scratch-r12\trust-cap
+   3. Yes, and switch to auto mode · auto mode      
+      handles these prompts for you
+   4. No
+
+ Esc to cancel · Tab to amend

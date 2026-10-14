@@ -121,6 +121,16 @@ fn names_foreign_origin(headers: &str) -> bool {
     })
 }
 
+/// True for an `Origin` value of the desktop app itself: its webview (`tauri://localhost`,
+/// `http(s)://tauri.localhost`) or a dev server on this machine. These are the only origins the
+/// bridge answers with CORS headers.
+pub fn is_app_origin(origin: &str) -> bool {
+    origin
+        .trim()
+        .split_once("://")
+        .is_some_and(|(_, rest)| is_loopback_host(rest.split('/').next().unwrap_or("")))
+}
+
 /// Whether the caller must present a paired-device bearer token. Fails closed: only a loopback
 /// peer with no sign of having been forwarded (see `REMOTE_INDICATOR_HEADERS`), no foreign `Host` and no
 /// foreign `Origin` is treated as the desktop app itself.
@@ -137,20 +147,79 @@ pub fn is_local_only_caller(headers: &str, peer_loopback: bool) -> bool {
     !requires_pairing_token(headers, peer_loopback)
 }
 
+/// Who is behind an authorized request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Caller {
+    /// The desktop app or its own tools on this machine (no token needed; never limited by caps).
+    Local,
+    /// A public route (`/health`, pairing, the push Allow/Deny tap).
+    Public,
+    /// A paired device, with what it may do right now.
+    Device { device_id: String, caps: Caps },
+}
+
+impl Caller {
+    pub fn may(&self, cap: Cap) -> bool {
+        match self {
+            Caller::Local => true,
+            Caller::Public => false,
+            Caller::Device { caps, .. } => caps.has(cap),
+        }
+    }
+}
+
+/// Who receives an event stream: the fanout filters per viewer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Viewer {
+    Local,
+    Device(String),
+}
+
+impl Viewer {
+    /// `None`: the device is gone (revoked or expired) and its stream should close. Otherwise
+    /// whether this payload goes to it (terminal bytes need `watch`).
+    pub fn may_receive(&self, payload: &str) -> Option<bool> {
+        match self {
+            Viewer::Local => Some(true),
+            Viewer::Device(id) => stream_caps(id).map(|caps| may_receive(caps, payload)),
+        }
+    }
+}
+
+/// The viewer of an already-authorized stream request.
+pub fn viewer_for(caller: &Caller) -> Viewer {
+    match caller {
+        Caller::Device { device_id, .. } => Viewer::Device(device_id.clone()),
+        Caller::Local | Caller::Public => Viewer::Local,
+    }
+}
+
 pub fn authorize_bridge_request(
     headers: &str,
     peer_loopback: bool,
     segments: &[&str],
     method: &str,
 ) -> Result<(), (u16, serde_json::Value)> {
+    authorize_caller(headers, peer_loopback, segments, method).map(|_| ())
+}
+
+/// The bridge's one authorization decision: public route, the local app, or a paired device whose
+/// token is valid, unexpired and whose caps cover the route ([`route_need`]). A device that lacks
+/// the cap gets 403 `not_allowed` naming it; an expired one 401 `device_expired`.
+pub fn authorize_caller(
+    headers: &str,
+    peer_loopback: bool,
+    segments: &[&str],
+    method: &str,
+) -> Result<Caller, (u16, serde_json::Value)> {
     let segments = normalize_bridge_segments(segments);
     if is_public_bridge_path(segments, method) {
-        return Ok(());
+        return Ok(Caller::Public);
     }
 
     let needs_token = requires_pairing_token(headers, peer_loopback);
     if !needs_token {
-        return Ok(());
+        return Ok(Caller::Local);
     }
 
     let token = bearer_token(headers).ok_or_else(|| {
@@ -165,10 +234,58 @@ pub fn authorize_bridge_request(
 
     let store = pairing_store()
         .ok_or_else(|| (503, serde_json::json!({ "error": "pairing_unavailable" })))?;
-    let valid = store.lock().validate_bearer_token(&token);
-    if valid {
-        Ok(())
-    } else {
-        Err((401, serde_json::json!({ "error": "invalid_token" })))
+    let check = store.lock().check_token(&token);
+    match check {
+        TokenCheck::Unknown => Err((401, serde_json::json!({ "error": "invalid_token" }))),
+        TokenCheck::Expired { .. } => Err((
+            401,
+            serde_json::json!({
+                "error": "device_expired",
+                "hint": "This phone was signed out after 30 days without use. Pair again from your PC.",
+            }),
+        )),
+        TokenCheck::Valid { device_id, caps } => {
+            let need = route_need(method, segments);
+            if caps.satisfies(need) {
+                return Ok(Caller::Device { device_id, caps });
+            }
+            let needs = need_name(need);
+            events::emit(events::SecurityEvent::CapDenied {
+                device_id,
+                method: method.to_string(),
+                route: format!("/{}", segments.join("/")),
+                needs: needs.clone(),
+            });
+            Err((
+                403,
+                serde_json::json!({
+                    "error": "not_allowed",
+                    "code": "DEVICE_NOT_ALLOWED",
+                    "needs": needs,
+                    "hint": "This phone is not allowed to do that. You can change what it may do on your PC: Settings > Phone > Devices.",
+                }),
+            ))
+        }
     }
+}
+
+fn need_name(need: Need) -> String {
+    match need {
+        Need::Device => "device".into(),
+        Need::Cap(cap) => cap.as_str().into(),
+        Need::AnyOf(a, b) => format!("{}|{}", a.as_str(), b.as_str()),
+    }
+}
+
+/// Whether the caller behind these headers may use `cap` right now (re-checks the token, so a
+/// change of caps or a revoke applies at once). For checks inside an open connection, e.g. the
+/// WebSocket `input` frame.
+pub fn caller_may(headers: &str, peer_loopback: bool, cap: Cap) -> bool {
+    if !requires_pairing_token(headers, peer_loopback) {
+        return true;
+    }
+    let Some(token) = bearer_token(headers) else { return false };
+    let Some(store) = pairing_store() else { return false };
+    let check = store.lock().check_token(&token);
+    matches!(check, TokenCheck::Valid { caps, .. } if caps.has(cap))
 }
