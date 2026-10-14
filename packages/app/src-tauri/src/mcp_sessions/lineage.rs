@@ -85,6 +85,25 @@ pub fn pane_origin(pane_id: &str) -> Option<PaneOrigin> {
     lock_state().panes.get(pane_id).map(|p| p.origin.clone())
 }
 
+/// Who a person's standing grant ("always for this pane") belongs to: the coordinator of the
+/// topmost connection up the caller's helper chain. A reconnect keeps it (same coordinator) and a
+/// helper the bridge linked to the agent shares it (same lineage); any other agent has its own and
+/// is asked again. A connection this table never saw is its own identity.
+pub fn grant_identity(session_id: &str) -> String {
+    let state = lock_state();
+    let mut current = session_id.to_owned();
+    for _ in 0..MAX_DEPTH {
+        match state.sessions.get(&current).and_then(|s| s.parent.clone()) {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    match coordinator_of(&state, &current) {
+        Some(coordinator) => format!("coordinator:{coordinator}"),
+        None => format!("session:{current}"),
+    }
+}
+
 /// Record that `child` is a helper of `parent`: the child's agent runs inside a pane the parent
 /// started. Refuses a link to itself, to an unknown connection, or one that would make a loop.
 pub fn link_child_session(child: &str, parent: &str) -> Result<(), OperationError> {

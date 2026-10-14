@@ -111,17 +111,41 @@ fn dismissing_the_card_counts_as_no() {
     });
 }
 
+/// Review R12 3.1: "always" was keyed by the pane alone, so after the person allowed agent A, any
+/// other agent B (or a prompt-injected helper of someone else) took the pane over with no card.
 #[test]
-fn always_for_this_pane_covers_every_agent_on_that_pane_only() {
-    let (a, b, pane, other_pane) = (id("a"), id("b"), id("user-pane"), id("user-pane"));
+fn always_for_this_pane_covers_the_agent_that_asked_and_its_helpers_on_that_pane_only() {
+    let (a, b, helper, pane, other_pane) = (id("a"), id("b"), id("a-helper"), id("user-pane"), id("user-pane"));
+    // A is a known connection with a helper the bridge linked to it.
+    mcp_sessions::register_owned_pane(&a, &id("a-own-pane")).unwrap();
+    mcp_sessions::link_child_session(&helper, &a).unwrap();
     with_config(ASKING, || {
         let card_id = consent_id_of(&check_take_over(&a, Some(&pane), None, None).unwrap_err());
         person_answers(&card_id, CHOICE_ALWAYS);
         check_take_over(&a, Some(&pane), None, None).expect("always");
         check_take_over(&a, Some(&pane), None, None).expect("always means every time");
-        check_take_over(&b, Some(&pane), None, None).expect("the grant is the pane's, not one agent's");
+        assert!(consent::always_allowed(&a, &pane));
+        check_take_over(&helper, Some(&pane), None, None).expect("a helper of A is in A's lineage");
+
+        let from_b = check_take_over(&b, Some(&pane), None, None).unwrap_err();
+        assert_eq!(from_b.code, "CONSENT_PENDING", "another agent gets its own card, not A's grant");
+        assert_ne!(consent_id_of(&from_b), card_id);
+        assert!(!consent::always_allowed(&b, &pane));
         assert_eq!(check_take_over(&a, Some(&other_pane), None, None).unwrap_err().code, "CONSENT_PENDING", "another pane still asks");
-        assert!(consent::always_allowed(&pane));
+    });
+}
+
+/// The grant written when the card is answered (`on_resolved`, before the agent calls again) is
+/// the asking agent's too.
+#[test]
+fn always_recorded_at_answer_time_is_the_asking_agents_only() {
+    let (a, b, pane) = (id("a"), id("b"), id("user-pane"));
+    with_config(ASKING, || {
+        let card_id = consent_id_of(&check_take_over(&a, Some(&pane), None, None).unwrap_err());
+        person_answers(&card_id, CHOICE_ALWAYS);
+        assert!(consent::always_allowed(&a, &pane), "recorded when the person answered");
+        assert!(!consent::always_allowed(&b, &pane));
+        assert_eq!(check_take_over(&b, Some(&pane), None, None).unwrap_err().code, "CONSENT_PENDING");
     });
 }
 

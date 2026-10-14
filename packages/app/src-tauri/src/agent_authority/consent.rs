@@ -7,7 +7,9 @@
 //! next call.
 //!
 //! * Allow once: the agent's next matching call goes through, once.
-//! * Always for this pane (take-over only): that pane no longer asks, for as long as the app runs.
+//! * Always for this pane (take-over only): that pane no longer asks THE AGENT THAT ASKED (its
+//!   reconnects and the helpers the bridge linked to it, `mcp_sessions::grant_identity`), for as long
+//!   as the app runs. Any other agent that wants the pane gets its own card.
 //! * Deny, or dismissing the card: the agent's calls fail with `CONSENT_DENIED` while the card is
 //!   remembered (ten minutes), then it may ask again.
 //!
@@ -94,8 +96,9 @@ struct Slot {
 #[derive(Default)]
 struct Ledger {
     slots: HashMap<Key, Slot>,
-    /// Panes the person allowed agents to take over without asking again.
-    always: HashSet<String>,
+    /// (agent identity, pane) pairs the person allowed to take over without asking again. Keyed by
+    /// the agent too: "always" was said to the agent on the card, not to every agent.
+    always: HashSet<(String, String)>,
 }
 
 static LEDGER: Lazy<Mutex<Ledger>> = Lazy::new(|| Mutex::new(Ledger::default()));
@@ -104,18 +107,23 @@ fn key_of(ask: &Ask) -> Key {
     Key { session: ask.session.clone(), subject: ask.subject.clone(), action: ask.action, prompt: ask.prompt_key.clone() }
 }
 
-/// Has the person said "always for this pane"?
-pub fn always_allowed(subject: &str) -> bool {
-    LEDGER.lock().always.contains(subject)
+/// Has the person said "always for this pane" to this agent (`session`, or its lineage)?
+pub fn always_allowed(session: &str, subject: &str) -> bool {
+    LEDGER.lock().always.contains(&grant_key(session, subject))
+}
+
+fn grant_key(session: &str, subject: &str) -> (String, String) {
+    (crate::mcp_sessions::grant_identity(session), subject.to_string())
 }
 
 /// What the call may do now. Creates the card the first time; afterwards reads the person's answer.
 pub fn decide(ask: &Ask, now: u64) -> Verdict {
     let key = key_of(ask);
+    let grant = grant_key(&ask.session, &ask.subject);
     let mut guard = LEDGER.lock();
     // Plain `&mut Ledger`, so the slot and the grant set can be borrowed side by side.
     let ledger = &mut *guard;
-    if ask.action == Action::TakeOver && ledger.always.contains(&ask.subject) {
+    if ask.action == Action::TakeOver && ledger.always.contains(&grant) {
         return Verdict::Allowed(Basis::Always);
     }
     if let Some(slot) = ledger.slots.get_mut(&key) {
@@ -127,7 +135,7 @@ pub fn decide(ask: &Ask, now: u64) -> Verdict {
                     let choice = question.answer.as_ref().and_then(|a| a.choice_id.as_deref());
                     match choice {
                         Some(CHOICE_ALWAYS) if ask.action == Action::TakeOver => {
-                            ledger.always.insert(ask.subject.clone());
+                            ledger.always.insert(grant);
                             return Verdict::Allowed(Basis::Always);
                         }
                         Some(CHOICE_ONCE) | Some(CHOICE_ALWAYS) if !slot.consumed => {
@@ -237,8 +245,17 @@ pub fn on_resolved(question: &Question) {
         _ => return,
     };
     if decision == "always" && info.action == ACTION_TAKE_OVER {
-        if let Some(pane) = &info.pane_id {
-            LEDGER.lock().always.insert(pane.clone());
+        // The grant goes to the agent whose call raised this card (its slot), never to the pane alone.
+        let asked = LEDGER
+            .lock()
+            .slots
+            .iter()
+            .find(|(_, slot)| slot.question_id == question.id)
+            .map(|(key, _)| (key.session.clone(), key.subject.clone()));
+        if let Some((session, subject)) = asked {
+            // Resolved outside the ledger lock: it reads the connection table.
+            let grant = grant_key(&session, &subject);
+            LEDGER.lock().always.insert(grant);
         }
     }
     let who_asked = in_sentence(&info.requester);
