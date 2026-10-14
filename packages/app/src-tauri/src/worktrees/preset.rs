@@ -123,7 +123,7 @@ impl SetupReport {
         let mut chars = joined.chars();
         let text = chars.next().map(|c| c.to_uppercase().collect::<String>() + chars.as_str()).unwrap_or_default();
         if self.failed() {
-            format!("Setting up the copy failed: {text}.")
+            format!("Setting up the copy failed: {joined}.")
         } else {
             format!("{text}.")
         }

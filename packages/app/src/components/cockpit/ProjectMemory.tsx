@@ -91,8 +91,8 @@ export function ProjectMemory({
     <div className="ck-memory" onKeyDown={onKeyDown}>
       <header className="ck-memory-head">
         <div>
-          <h1 className="ck-title">Project memory</h1>
-          <p className="ck-sub">Every agent in this project reads this.</p>
+          <h1 className="ck-title">{tab === 'copies' ? 'Separate copies' : 'Project memory'}</h1>
+          <p className="ck-sub">{tab === 'copies' ? 'How a new copy of this project gets ready.' : 'Every agent in this project reads this.'}</p>
         </div>
         <button type="button" className="ck-btn ck-btn--plain" onClick={onClose}>
           Close

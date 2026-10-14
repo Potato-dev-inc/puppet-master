@@ -2,7 +2,7 @@
    block with its GitHub checks, and the Copies tab. Monochrome: tokens only, no colour. */
 
 /* ---------- "+" menu: project chip and folder step ---------- */
-.cockpit .ck-menu--wide {
+.cockpit .ck-menu.ck-menu--wide {
   min-width: 280px;
   max-width: 320px;
 }
@@ -58,7 +58,12 @@
   padding-bottom: 3px;
   text-align: left;
 }
+.cockpit .ck-menu-item--project .ck-menu-hint {
+  flex: none;
+  white-space: nowrap;
+}
 .cockpit .ck-menu-project-main {
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;

@@ -60,6 +60,8 @@ export interface HarnessScenario {
   audit?: { seq: number; ts_ms: number; kind: string; who: string; summary: string }[];
   /** Team (Inbox > Team, the toast, Settings > Labs): what the mocked `team_state` returns. */
   team?: import('../lib/team').TeamState;
+  /** Worktrees that ship: what the mocked folder step, presets and GitHub commands answer. */
+  ship?: import('./ship-fixtures').ShipScenario;
   /** Runs once after the first paint (and after the panes loaded); click things, press keys. */
   after?: (api: HarnessDom) => void | Promise<void>;
 }

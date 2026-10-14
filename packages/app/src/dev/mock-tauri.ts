@@ -27,6 +27,7 @@ import {
   EXAMPLE_REVIEW_POLL,
 } from './fixtures';
 import { TEAM_DIFF } from './team-fixtures';
+import { shipMock } from './ship-fixtures';
 
 const DOCTOR_ROWS = [
   { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'winget install Anthropic.ClaudeCode', install_fallback: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true },
@@ -54,6 +55,8 @@ export function installTauriMock(scenario: HarnessScenario): void {
   mockIPC(
     (cmd, args) => {
       const a = (args ?? {}) as Record<string, unknown>;
+      const shipped = shipMock(scenario.ship, cmd, a);
+      if (shipped.handled) return shipped.value;
       switch (cmd) {
         case 'list_panes':
           return panes;

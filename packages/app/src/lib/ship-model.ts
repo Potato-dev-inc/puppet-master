@@ -54,7 +54,7 @@ export function setupLine(setup: SetupReport | undefined | null): string | null 
   if (parts.length === 0) return null;
   const text = parts.join('; ');
   const sentence = text.charAt(0).toUpperCase() + text.slice(1);
-  return setup.status === 'failed' ? `Setting up the copy failed: ${sentence}.` : `${sentence}.`;
+  return setup.status === 'failed' ? `Setting up the copy failed: ${text}.` : `${sentence}.`;
 }
 
 /** The sentence for a folder in the recents list. */
