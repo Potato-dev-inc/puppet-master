@@ -117,6 +117,7 @@ export default function CockpitApp() {
           <AgentDoctor
             onOpenAgent={(id) => void c.newAgent(id)}
             onNotify={c.notify}
+            onShowPane={(id) => nav.select(id)}
             onClose={closeOverlay}
           />
         ) : view === 'memory' ? (
