@@ -189,7 +189,10 @@ pub fn closed(pane_id: &str) {
 
 /// Record bytes written into a pane by `tag`.
 pub fn input_as(pane_id: &str, tag: InputTag, bytes: &[u8]) {
-    if let Some(ring) = REGISTRY.lock().live.get(pane_id) {
+    // The ring is written after the registry lock is released, so one pane's write never holds
+    // every other pane's recorder (review R12 4.2).
+    let ring = REGISTRY.lock().live.get(pane_id).cloned();
+    if let Some(ring) = ring {
         ring.input(tag, bytes);
     }
 }
@@ -202,7 +205,8 @@ pub fn resized(pane_id: &str, cols: u16, rows: u16) {
 
 /// A decision or fact about a pane ("status=waiting_input").
 pub fn mark(pane_id: &str, text: &str) {
-    if let Some(ring) = REGISTRY.lock().live.get(pane_id) {
+    let ring = REGISTRY.lock().live.get(pane_id).cloned();
+    if let Some(ring) = ring {
         ring.mark(text);
     }
 }
