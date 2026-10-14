@@ -9,6 +9,7 @@ import { clampAwayMinutes, clampCheckpointsKeep } from '../../../lib/bridge-sett
 import { redactSettings } from '../../../lib/secrets';
 import { resolveSettingsFilePath } from '../../../lib/settings';
 import { tauri, type AppInstallInfo, type CoordinationStorageInfo } from '../../../lib/tauri';
+import { budgetRows } from './BudgetRows';
 import { AmbientSettings } from '../blocks/AmbientSettings';
 import { AskBarSettingsBlock } from '../blocks/AskBarSettings';
 import { DiagnosticFile } from '../blocks/DiagnosticFile';
@@ -269,6 +270,7 @@ export const generalRows: RowDef[] = [
       </SettingRow>
     ),
   },
+  ...budgetRows,
   {
     id: 'ask-bar',
     label: 'Ask bar',

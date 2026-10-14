@@ -143,6 +143,19 @@ describe('General: each control saves a partial patch', () => {
     expect(m.env.patches).toEqual([{ away_minutes: 0 }]);
   });
 
+  it('Budgets are off by default (0) and save a partial patch each', async () => {
+    await mount();
+    const turns = byLabel<HTMLInputElement>(m.host, 'Turns an agent may use (0 is no limit)')!;
+    const time = byLabel<HTMLInputElement>(m.host, 'Time an agent may use (0 is no limit)')!;
+    expect([turns.value, time.value]).toEqual(['0', '0']);
+    await typeInto(turns, '20');
+    await blur(turns);
+    await typeInto(time, '99999');
+    await blur(time);
+    expect(m.env.patches).toEqual([{ budget_default_turns: 20 }, { budget_default_minutes: 10080 }]);
+    expect(hasText(m.host, 'Pause an agent before its next turn after this many turns')).toBe(true);
+  });
+
   it('Default project folder saves after a pause through onProjectPathChange, not as a whole snapshot', async () => {
     vi.useFakeTimers();
     const onProjectPathChange = vi.fn(async () => undefined);

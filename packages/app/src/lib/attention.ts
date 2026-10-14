@@ -21,7 +21,9 @@ export type NeedsYouKind =
    * An agent wants to control a pane it did not start, or answer a risky prompt in one. Counts toward
    * the number, sorts with high risk, and never has a lock-screen action (UX-PHASE1 section 0.4).
    */
-  | 'consent';
+  | 'consent'
+  /** An agent used its budget and is paused before its next turn. Counts; never a lock-screen action. */
+  | 'budget';
 
 export interface NeedsYouItem {
   /** Stable across renders: `<kind>:<pane or question or notice id>`. */
@@ -39,7 +41,7 @@ export interface AttentionInput {
   /** Detected prompt per pane (desktop only): supplies the risk of an approval. */
   prompts?: Readonly<Record<string, { risk?: { level: string } | null } | null | undefined>>;
   /** Live (pending, not expired) questions. */
-  questions?: ReadonlyArray<{ id: string; pane_id?: string; created_at_ms?: number; consent?: unknown }>;
+  questions?: ReadonlyArray<{ id: string; pane_id?: string; created_at_ms?: number; consent?: unknown; kind?: string }>;
   /** Panes the loop guard flagged. Unknown panes are ignored. */
   stuckPaneIds?: ReadonlyArray<string>;
   /** Ask-bar answers nobody saw yet. */
@@ -71,6 +73,7 @@ export function deriveNeedsYou(input: AttentionInput): NeedsYouItem[] {
     const paneId = q.pane_id && known.has(q.pane_id) ? q.pane_id : undefined;
     // A consent card is not a question the agent asked: it is a decision about the agent.
     if (q.consent) items.push({ id: `consent:${q.id}`, kind: 'consent', risk: 'high', since: q.created_at_ms });
+    else if (q.kind === 'budget') items.push({ id: `budget:${q.id}`, kind: 'budget', paneId, since: q.created_at_ms });
     else items.push({ id: `question:${q.id}`, kind: 'question', paneId, since: q.created_at_ms });
   }
   for (const pane of input.panes) {

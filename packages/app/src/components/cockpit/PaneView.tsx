@@ -27,6 +27,7 @@ import { Sheet } from './Sheet';
 import { paneHeading } from './titles';
 import { transcriptStreamLabel } from '../../lib/transcript-labels';
 import { UntestedChip } from './UntestedChip';
+import { BudgetChip } from './BudgetChip';
 
 type Tab = 'terminal' | 'changes' | 'transcript' | 'receipt' | 'history';
 
@@ -163,6 +164,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
           {info.account_label && <span className="ck-sub-inline" data-testid="pane-account">{info.account_label}</span>}
         </div>
         <UntestedChip agent={info.agent_type} />
+        <BudgetChip paneId={paneId} refreshKey={pane.status} onNotify={c.notify} />
         <div className="ck-pane-state">
           <DotSpinner status={spinnerStatus(pane.status)} />
           <span className="ck-pane-doing" title={stateLine}>

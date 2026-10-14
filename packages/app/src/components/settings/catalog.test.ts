@@ -39,8 +39,9 @@ describe('settings catalog', () => {
     expect(danger.sort()).toEqual(['bridge/mcp-uninstall', 'general/uninstall', 'keys/remove-all-keys', 'phone/revoke-all-devices']);
   });
 
-  it('Coming later lists the ten old placeholder tabs with honest notes', () => {
-    expect(LATER_ITEMS).toHaveLength(10);
+  it('Coming later lists the nine placeholder tabs still to build (Cost controls became Budgets) with honest notes', () => {
+    expect(LATER_ITEMS).toHaveLength(9);
+    expect(LATER_ITEMS.map((item) => item.title)).not.toContain('Cost controls');
     for (const item of LATER_ITEMS) {
       expect(item.title.length).toBeGreaterThan(2);
       expect(item.note.length).toBeGreaterThan(10);
