@@ -199,14 +199,29 @@ export interface TypingEchoStats {
 
 const fmtMs = (ms: number | null | undefined): string => (ms === null || ms === undefined ? '—' : `${Math.round(ms)} ms`);
 
-/** One plain-text line describing the link: socket RTT, typing echo, reconnects. */
+const reconnectsText = (n: number): string | null => (n <= 0 ? null : n === 1 ? 'reconnected once' : `reconnected ${n} times`);
+
+/**
+ * One plain-text line describing the link, in words a person reads ("typing delay", "reconnects") rather than
+ * transport names. Numbers that have not been measured yet are left out instead of shown as dashes.
+ */
 export function connectionLine(link: BridgeLinkStats | null, echo: TypingEchoStats | null): string {
-  const echoPart = `typing echo ${fmtMs(echo?.lastMs)} (median ${fmtMs(echo?.medianMs)})`;
-  if (!link) return `Connecting · ${echoPart}`;
-  if (link.mode === 'polling') return `Polling (slow) · retrying socket… · ${echoPart}`;
-  if (link.mode === 'stream') return `Local stream · ${echoPart}`;
-  if (link.mode === 'connecting') return `Connecting · ${echoPart} · reconnects ${link.reconnects}`;
-  return `Socket · RTT ${fmtMs(link.rttMs)} (median ${fmtMs(link.rttMedianMs)}) · ${echoPart} · reconnects ${link.reconnects}`;
+  const delay =
+    echo?.lastMs === null || echo?.lastMs === undefined
+      ? null
+      : `typing delay ${fmtMs(echo.lastMs)}${echo.medianMs === null ? '' : ` (usually ${fmtMs(echo.medianMs)})`}`;
+  const parts: (string | null)[] = [];
+  if (!link) parts.push('Connecting…', delay);
+  else if (link.mode === 'polling') parts.push('Slow connection, retrying', delay);
+  else if (link.mode === 'stream') parts.push('Connected on this network', delay);
+  else if (link.mode === 'connecting') parts.push('Connecting…', delay, reconnectsText(link.reconnects));
+  else
+    parts.push(
+      `Connected · ${fmtMs(link.rttMs)} round trip`,
+      delay,
+      reconnectsText(link.reconnects),
+    );
+  return parts.filter(Boolean).join(' · ');
 }
 
 export function MenuSheet({
