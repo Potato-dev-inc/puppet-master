@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Account, AccountsApi } from '../../lib/accounts';
-import { NewAgentMenu } from './NewAgentMenu';
+import { NewAgentMenu, type LaunchEntry } from './NewAgentMenu';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -37,12 +37,12 @@ afterEach(async () => {
 const item = (label: string) =>
   Array.from(host.querySelectorAll('button')).find((b) => b.textContent?.includes(label));
 
-async function mount(accounts: Account[]) {
+async function mount(accounts: Account[], entries: LaunchEntry[] = ENTRIES) {
   const onStart = vi.fn();
   const onClose = vi.fn();
   await act(async () => {
     root.render(
-      <NewAgentMenu entries={ENTRIES} readyAgents={new Set(['codex'])} onStart={onStart} onClose={onClose} accountsApi={api(accounts)} />,
+      <NewAgentMenu entries={entries} readyAgents={new Set(['codex'])} onStart={onStart} onClose={onClose} accountsApi={api(accounts)} />,
     );
   });
   return { onStart, onClose };
@@ -82,5 +82,13 @@ describe('NewAgentMenu', () => {
     const { onStart } = await mount([{ id: 'acc_1', agent_id: 'claude', label: 'Work', home: 'C:/a' }]);
     await act(async () => item('Codex')!.click());
     expect(onStart).toHaveBeenCalledWith('codex', undefined);
+  });
+
+  it('a disabled agent says it is only for tasks from other agents, and never says headless', async () => {
+    const entries: LaunchEntry[] = [...ENTRIES, { type: 'kilo', label: 'Kilo', disabled: true }];
+    await mount([], entries);
+    expect(item('Kilo')!.disabled).toBe(true);
+    expect(item('Kilo')!.textContent).toContain('only for tasks from other agents');
+    expect(host.innerHTML.toLowerCase()).not.toContain('headless');
   });
 });

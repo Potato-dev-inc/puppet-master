@@ -13,7 +13,7 @@ import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
 import { IconClose, IconGlobe, IconCopy, IconMore, IconReflow, IconRename, IconStop } from './Icons';
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { formatElapsed, promptSummary, spinnerStatus, stateText } from './model';
-import { readableReceipt, runStatusLabel } from './receipt-view';
+import { readableReceipt } from './receipt-view';
 import { Changes } from './Changes';
 import { changesTabLabel, usePaneWorktree } from './usePaneWorktree';
 import { SecondOpinion } from './SecondOpinion';
@@ -372,12 +372,6 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
               />
             ) : (
               <div className="ck-receipt">
-                <dl className="ck-kv">
-                  <dt>Run ID</dt>
-                  <dd className="ck-mono">{run.info.handle}</dd>
-                  <dt>Status</dt>
-                  <dd>{runStatusLabel(run.info.status)}</dd>
-                </dl>
                 {run.info.receipt === null || run.info.receipt === undefined ? (
                   <p className="ck-sub">No receipt yet. It is written when the turn settles.</p>
                 ) : (
@@ -390,6 +384,13 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                     ))}
                   </dl>
                 )}
+                <details className="ck-details">
+                  <summary>Details</summary>
+                  <dl className="ck-kv">
+                    <dt>Run ID</dt>
+                    <dd className="ck-mono">{run.info.handle}</dd>
+                  </dl>
+                </details>
               </div>
             )}
             <button type="button" className="ck-btn ck-btn--plain ck-refresh" onClick={run.refresh}>

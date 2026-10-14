@@ -422,6 +422,12 @@
   font-size: 11px;
   color: var(--label-3);
 }
+.cockpit .ck-menu-hint--long {
+  white-space: normal;
+  text-align: right;
+  max-width: 150px;
+  line-height: 1.3;
+}
 .cockpit .ck-menu-sep {
   height: 1px;
   margin: 4px 6px;
@@ -658,6 +664,29 @@
 }
 .cockpit .ck-kv dd.ck-mono {
   font: 12px var(--font-mono);
+}
+.cockpit .ck-details {
+  margin-top: 12px;
+}
+.cockpit .ck-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--label-2);
+  list-style: none;
+}
+.cockpit .ck-details summary::before {
+  content: '\25B8';
+  display: inline-block;
+  margin-right: 6px;
+}
+.cockpit .ck-details[open] summary::before {
+  content: '\25BE';
+}
+.cockpit .ck-details summary::-webkit-details-marker {
+  display: none;
+}
+.cockpit .ck-details .ck-kv {
+  margin-top: 8px;
 }
 
 /* ---------- spawn ---------- */
