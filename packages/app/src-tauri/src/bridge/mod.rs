@@ -32,6 +32,7 @@ mod startup_gate_tests;
 #[cfg(test)]
 mod tests;
 mod tool_names;
+mod watchdog;
 mod ws;
 
 pub use delegation::{delegate_operation, publish_operation, stop_operation_worker_with_kill};
@@ -136,6 +137,8 @@ pub fn start_embedded_bridge(
             push_operation_sse(&snapshot);
         }
     }
+    // A run whose supervisor died is failed once it is well past its deadline.
+    watchdog::start(registry.clone(), app.clone());
     // Tidy leftovers of worktree-isolated runs from a previous process (never removes work).
     let _ = thread::Builder::new().name("worktree-sweep".into()).spawn(|| {
         for project in crate::operations::indexed_project_paths() {

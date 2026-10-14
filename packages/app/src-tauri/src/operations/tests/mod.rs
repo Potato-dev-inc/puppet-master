@@ -15,6 +15,7 @@ mod lifecycle;
 mod queries;
 mod recovery;
 mod waits;
+mod watchdog;
 
 pub(super) fn request(dir: &Path, key: &str) -> DelegateWorkRequest {
     DelegateWorkRequest {

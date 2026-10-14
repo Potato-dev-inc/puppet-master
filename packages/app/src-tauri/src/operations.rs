@@ -30,6 +30,7 @@ pub(crate) fn set_test_index_dir(path: Option<std::path::PathBuf>) {
 mod transitions;
 mod view;
 mod wait;
+mod watchdog;
 mod worker;
 mod worktree;
 
@@ -44,6 +45,7 @@ pub use startup::*;
 pub use transitions::*;
 pub use view::*;
 pub use wait::*;
+pub use watchdog::*;
 pub use worker::*;
 pub use worktree::*;
 
