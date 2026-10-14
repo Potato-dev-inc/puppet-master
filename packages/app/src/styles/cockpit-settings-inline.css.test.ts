@@ -1,3 +1,4 @@
+// @vitest-environment node
 // The cockpit resets every <button> (`.cockpit button { background: none; padding: 0 }`). That reset beats the
 // Tailwind classes of the older Settings blocks (Toolbelt, agent definitions, pairing), so inside the inline
 // Settings view their buttons and switches lost their look. The reset must skip anything under `.settings`.
