@@ -33,10 +33,10 @@ describe('readableReceipt', () => {
     const lines = readableReceipt(receipt);
 
     expect(valueOf(lines, 'Result')).toBe('Finished, not verified');
-    expect(valueOf(lines, 'Agent')).toBe('claude');
+    expect(valueOf(lines, 'Agent')).toBe('Claude Code');
     expect(valueOf(lines, 'Read-only')).toBe('No');
     expect(valueOf(lines, 'Answer taken from')).toBe('The terminal screen');
-    expect(valueOf(lines, 'Not verified')).toBe('no checks configured, model not confirmed');
+    expect(valueOf(lines, 'Not verified')).toBe('No checks configured; Model not confirmed');
     expect(valueOf(lines, 'Warm agent')).toBe('Used a ready one');
     expect(valueOf(lines, 'Why')).toBe('The visible pane did not start');
     expect(valueOf(lines, 'State')).toBe('Not merged yet');
@@ -86,5 +86,12 @@ describe('runStatusLabel', () => {
 describe('readableReceipt null input', () => {
   it('returns no lines for a null receipt', () => {
     expect(readableReceipt(null)).toEqual([]);
+  });
+});
+
+describe('readableReceipt order', () => {
+  it('leads with the result', () => {
+    const lines = readableReceipt({ backend: 'claude', outcome: 'passed_checks', checks: '2/2 passed' });
+    expect(lines[0]).toEqual({ key: 'Result', value: 'Passed its checks' });
   });
 });

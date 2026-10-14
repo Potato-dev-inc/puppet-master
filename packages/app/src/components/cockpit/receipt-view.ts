@@ -1,5 +1,6 @@
 // The Receipt tab in plain words. The backend receipt (`RunReceipt`, `agent_runs/runtime/receipt.rs`) is
 // snake_case JSON for tools; people read "Result: Finished, not verified", not `outcome: completed_unchecked`.
+import { backendLabel } from '../../lib/standby';
 import { receiptRows } from './model';
 
 export interface ReceiptLine {
@@ -72,12 +73,18 @@ function sentence(text: string): string {
 
 /** Receipt rows with plain labels and values. An unknown field still shows (sentence case), never raw snake_case. */
 export function readableReceipt(receipt: unknown): ReceiptLine[] {
-  return receiptRows(receipt).map(({ key, value }) => {
+  const lines = receiptRows(receipt).map(({ key, value }): ReceiptLine & { raw: string } => {
     const tail = key.includes('.') ? key.slice(key.lastIndexOf('.') + 1) : key;
     const label = LABELS[key] ?? sentence(tail.replace(/\[\d+\]$/, ''));
     const mapped = VALUES[key]?.[value];
-    if (mapped) return { key: label, value: mapped };
-    if (key === 'standby_used') return { key: label, value: value === 'true' ? 'Used a ready one' : value };
-    return { key: label, value };
+    if (mapped) return { raw: key, key: label, value: mapped };
+    if (key === 'backend') return { raw: key, key: label, value: backendLabel(value) };
+    if (key === 'standby_used') return { raw: key, key: label, value: value === 'true' ? 'Used a ready one' : value };
+    if (key === 'fallback.from' || key === 'fallback.to') return { raw: key, key: label, value: sentence(value) };
+    if (key === 'not_verified') return { raw: key, key: label, value: value.split(', ').map(sentence).join('; ') };
+    return { raw: key, key: label, value };
   });
+  // The answer to "did it work" leads.
+  const lead = lines.filter((line) => line.raw === 'outcome');
+  return [...lead, ...lines.filter((line) => line.raw !== 'outcome')].map(({ key, value }) => ({ key, value }));
 }
