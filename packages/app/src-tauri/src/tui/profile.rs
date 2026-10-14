@@ -63,6 +63,14 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// The CLI versions this profile's fixtures and live checks cover. Outside the range the agent
+    /// runs in strict mode (`crate::canary`): Puppet Master stops dismissing startup notices for
+    /// the user, its warm standbys go cold, and the pane shows an "Untested version" chip. `None`
+    /// (the default) means no pin: every version is treated as tested.
+    fn tested_versions(&self) -> Option<TestedRange> {
+        None
+    }
+
     /// One plain sentence or command that installs the CLI, shown by the agent doctor.
     fn install_hint(&self) -> Option<String> {
         None

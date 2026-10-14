@@ -3583,6 +3583,7 @@ dependencies = [
  "portable-pty",
  "rand",
  "regex",
+ "semver",
  "serde",
  "serde_json",
  "serde_path_to_error",

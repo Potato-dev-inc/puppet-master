@@ -573,7 +573,7 @@ impl DeliveryIo for PaneIo<'_> {
     }
 
     fn startup_gate(&mut self, screen: &str) -> Option<StartupGate> {
-        self.profile().startup_gate(screen)
+        crate::canary::strict::startup_gate(self.profile().as_ref(), screen)
     }
 
     fn reads_composer(&mut self) -> bool {

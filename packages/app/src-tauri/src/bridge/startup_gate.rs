@@ -46,7 +46,7 @@ pub(crate) fn dismiss_startup_gates(io: &mut dyn GateIo, profile: &dyn TuiProfil
     };
     for _ in 0..MAX_GATES {
         let before = io.screen();
-        let Some(gate) = profile.startup_gate(&before) else {
+        let Some(gate) = crate::canary::strict::startup_gate(profile, &before) else {
             return report;
         };
         let Some(keys) = gate.dismiss else {

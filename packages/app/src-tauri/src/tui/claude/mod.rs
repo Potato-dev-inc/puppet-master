@@ -16,6 +16,9 @@ use serde_json::Value;
 
 pub struct Claude;
 
+/// CLI versions the Claude fixtures and live checks cover (see `TuiProfile::tested_versions`).
+pub(crate) const TESTED_VERSIONS: &str = ">=2.1.299, <2.2";
+
 /// Where Claude Code keeps MCP servers (Toolbelt).
 const MCP_HOST: &str = r#"
 config_path = "~/.claude.json"
@@ -87,6 +90,12 @@ impl TuiProfile for Claude {
             program: super::executable("claude").ok()?,
             args: vec!["--version".into()],
         })
+    }
+
+    /// Fixtures are live captures from 2.1.299; the canary (`crate::canary`) re-checks the start
+    /// screens whenever the installed version changes.
+    fn tested_versions(&self) -> Option<super::TestedRange> {
+        super::TestedRange::parse(TESTED_VERSIONS).ok()
     }
 
     fn install_hint(&self) -> Option<String> {

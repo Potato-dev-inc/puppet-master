@@ -59,6 +59,33 @@ impl Features {
     };
 }
 
+/// The CLI versions a profile's fixtures and live checks cover (`TuiProfile::tested_versions`).
+/// Written as a semver requirement, e.g. `>=0.159, <0.170`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestedRange {
+    text: String,
+    req: semver::VersionReq,
+}
+
+impl TestedRange {
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err("a tested range cannot be empty".into());
+        }
+        let req = semver::VersionReq::parse(text).map_err(|e| format!("`{text}` is not a version range: {e}"))?;
+        Ok(Self { text: text.to_string(), req })
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.text
+    }
+
+    pub fn contains(&self, version: &semver::Version) -> bool {
+        self.req.matches(version)
+    }
+}
+
 /// Opt-in per-run flags a profile may accept.
 #[derive(Debug, Clone, Copy, Default, Serialize)]
 pub struct RunOptionSupport {

@@ -55,6 +55,8 @@ tauri-plugin-global-shortcut = "2"
 arboard = { version = "3", default-features = false }
 # OS credential store for provider API keys (MIT OR Apache-2.0). 3.x: no default stores, pick per OS.
 keyring = "3.6"
+# Version ranges for tested-version pins (MIT OR Apache-2.0).
+semver = "1"
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3.6", features = ["windows-native"] }

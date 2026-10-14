@@ -752,3 +752,112 @@ fn reaching_ready_clears_the_agent_failures() {
     assert_eq!(pool.status(now).counts.ready, 1);
     assert!(pool.status(now).agents_blocked.is_empty(), "a healthy worker clears the record");
 }
+
+// ---- strict mode (an untested CLI version, `crate::canary`) ---------------------------------
+
+#[test]
+fn an_agent_in_strict_mode_is_not_warmed_and_its_standby_is_shut_down() {
+    let host = Arc::new(FakeHost::default());
+    let pool = pool(&host, config(&[("claude", true, false), ("cursor_agent", true, false)]));
+    let strict_key = key("claude", "/w");
+    let other_key = key("cursor_agent", "/w");
+    pool.note_run(&strict_key, "/w", 0);
+    pool.note_run(&other_key, "/w", 0);
+    let now = warm_up(&pool, 0);
+    assert_eq!(pool.status(now).counts.ready, 2);
+
+    pool.set_strict_agents(&["Claude".to_string()]);
+    let kills = host.kills();
+    assert_eq!(kills.len(), 1, "only the strict agent's standby is shut down: {kills:?}");
+    assert_eq!(kills[0].1, "untested_version");
+    assert_eq!(miss(pool.claim(&strict_key, now)), MissReason::Disabled, "a claim finds nothing for it");
+
+    let spawned = host.spawn_count();
+    let now = warm_up(&pool, now);
+    let status = pool.status(now);
+    assert_eq!(host.spawn_count(), spawned, "nothing new is warmed for it");
+    let blocked = status.agents_blocked.iter().find(|a| a.agent_type == "claude").expect("listed as held back");
+    assert!(blocked.cold);
+    assert_eq!(blocked.reason, "untested_version");
+    assert!(blocked.message.contains("not been tested"), "{}", blocked.message);
+    // The other agent keeps its warm worker.
+    let _ = hit(pool.claim(&other_key, now));
+}
+
+#[test]
+fn leaving_strict_mode_warms_the_agent_again_and_a_run_does_not_lift_it_early() {
+    let host = Arc::new(FakeHost::default());
+    let pool = pool(&host, config(&[("claude", true, false)]));
+    let k = key("claude", "/w");
+    pool.set_strict_agents(&["claude".to_string()]);
+    pool.note_run(&k, "/w", 0);
+    let mut now = warm_up(&pool, 0);
+    assert_eq!(host.spawn_count(), 0, "a run of the agent does not make it warm while the version is untested");
+    pool.set_strict_agents(&[]);
+    now = warm_up(&pool, now);
+    assert_eq!(pool.status(now).counts.ready, 1);
+    let _ = hit(pool.claim(&k, now));
+}
+
+#[test]
+fn a_faked_version_bump_turns_the_chip_on_and_the_standby_cold() {
+    use crate::canary::engine::{Deps, Engine, Source};
+    use crate::canary::model::{Facts, StrictReason};
+    let _lock = crate::canary::test_lock();
+
+    let host = Arc::new(FakeHost::default());
+    let pool = Arc::new(pool(&host, config(&[("claude", true, false)])));
+    let k = key("claude", "/w");
+    pool.note_run(&k, "/w", 0);
+    let now = warm_up(&pool, 0);
+    assert_eq!(pool.status(now).counts.ready, 1, "a tested version keeps its warm worker");
+
+    // The machine: Claude Code's version is read from a cell the test bumps.
+    let version = Arc::new(Mutex::new("2.1.299 (Claude Code)".to_string()));
+    let read = version.clone();
+    let tested = crate::tui::profile_for("claude").tested_versions().map(|r| r.as_str().to_string());
+    let engine = Engine::new(
+        None,
+        Deps {
+            sources: Box::new(move || {
+                vec![Source {
+                    facts: Facts { id: "claude".into(), label: "Claude Code".into(), installed: true, tested: tested.clone() },
+                    version_command: None,
+                }]
+            }),
+            read_version: Box::new(move |_| Some(read.lock().clone())),
+            run_check: Box::new(|_, _| unreachable!("this test only reads versions")),
+            captures: Box::new(|_| 0),
+            now_ms: Box::new(|| 0),
+        },
+    );
+    let wired = pool.clone();
+    engine.on_change(Box::new(move |_, strict| {
+        crate::canary::strict::replace(strict.iter().cloned());
+        wired.set_strict_agents(strict);
+    }));
+
+    engine.refresh();
+    assert!(!engine.status().agents[0].strict);
+    assert!(host.kills().is_empty());
+
+    // The CLI updates to 2.4.0, outside the tested range.
+    *version.lock() = "2.4.0 (Claude Code)".to_string();
+    engine.refresh();
+    let view = &engine.status().agents[0];
+    assert_eq!(view.chip.as_deref(), Some("Untested version"));
+    assert_eq!(view.strict_reason, Some(StrictReason::UntestedVersion));
+    assert_eq!(host.kills().len(), 1, "its warm worker was shut down");
+    assert_eq!(host.kills()[0].1, "untested_version");
+    assert_eq!(miss(pool.claim(&k, now)), MissReason::Disabled);
+    let status = pool.status(now);
+    assert!(status.agents_blocked.iter().any(|a| a.agent_type == "claude" && a.cold));
+
+    // Back to a tested version: the chip goes and the agent can be warmed again.
+    *version.lock() = "2.1.300 (Claude Code)".to_string();
+    engine.refresh();
+    assert!(engine.status().agents[0].chip.is_none());
+    let now = warm_up(&pool, now);
+    assert_eq!(pool.status(now).counts.ready, 1);
+    crate::canary::strict::replace(Vec::<String>::new());
+}

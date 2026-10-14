@@ -76,6 +76,7 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
     check_mcp_host(def, &mut e);
     check_risk(def, &mut e, &mut regexes);
     check_instructions(def, &mut e);
+    check_profile(def, &mut e);
     check_regexes(&regexes, &mut e);
     e.0
 }
@@ -540,6 +541,14 @@ fn check_model_and_context(def: &Definition, e: &mut Errors, regexes: &mut Regex
             if item.chars().count() > 200 {
                 e.add("AGENT_DEF_TOO_LARGE", &format!("context.{name}.{i}"), "entries are limited to 200 characters");
             }
+        }
+    }
+}
+
+fn check_profile(def: &Definition, e: &mut Errors) {
+    if let Some(tested) = &def.profile.tested {
+        if let Err(why) = crate::tui::TestedRange::parse(tested) {
+            e.add("AGENT_DEF_INCONSISTENT", "profile.tested", why);
         }
     }
 }
