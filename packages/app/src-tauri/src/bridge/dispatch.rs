@@ -678,7 +678,7 @@ fn send_task_prompt(
                 parked = true;
                 // Parking can take minutes: never hold the pane-assignment lock through it.
                 drop(dispatch_guard.take());
-                park_on_unknown_screen(operation, registry, pane_id, agent_type, &error)?;
+                park_on_unknown_screen(operation, registry, pane_id, agent_type, &error, UNKNOWN_SCREEN_PARK)?;
                 dispatch_guard = Some(PANE_ASSIGNMENT_SERIAL.lock());
             }
             other => {
@@ -800,12 +800,13 @@ const UNKNOWN_SCREEN_PARK: Duration = Duration::from_secs(300);
 /// ready or shows a screen delivery can close itself. Ends the run when the agent is gone, the user
 /// declined a dialog, the run was cancelled, or five minutes pass (`SCREEN_NOT_READY`). Never types
 /// anything and never falls back to a background run.
-fn park_on_unknown_screen(
+pub(super) fn park_on_unknown_screen(
     operation: &mut OperationSnapshot,
     registry: &Arc<Mutex<PaneRegistry>>,
     pane_id: &str,
     agent_type: &str,
     not_ready: &OperationError,
+    park_for: Duration,
 ) -> Result<(), OperationError> {
     let screen = not_ready.context.get("screen").and_then(|s| s.as_str()).unwrap_or_default().to_string();
     let detail = not_ready.message.replace(" Get the agent to its input box, then start the run again.", "");
@@ -831,7 +832,7 @@ fn park_on_unknown_screen(
     );
     let profile = crate::tui::profile_for(agent_type);
     let (project, id) = (operation.project_path.clone(), operation.operation_id.clone());
-    let deadline = std::time::Instant::now() + UNKNOWN_SCREEN_PARK;
+    let deadline = std::time::Instant::now() + park_for;
     let end = crate::agent_runs::readiness::wait_while_parked(
         profile.as_ref(),
         || crate::agent_runs::delivery::observe_pane(registry, pane_id),
