@@ -23,6 +23,10 @@
 //!   merge is aborted so the origin is never left mid-merge.
 
 mod git;
+pub mod folder;
+pub mod pr;
+pub mod preset;
+pub mod proc;
 pub mod routes;
 pub mod service;
 #[cfg(test)]
@@ -65,6 +69,12 @@ pub struct WorktreeRef {
     /// Changed-files summary recorded when the run finished (receipt).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changes: Option<ChangeSummary>,
+    /// What preparing the copy did (files copied in, setup steps): see [`preset`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<preset::SetupReport>,
+    /// The pull request made from this branch and the last result of its checks: see [`pr`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr: Option<pr::PrRef>,
 }
 
 impl WorktreeRef {
@@ -398,8 +408,34 @@ pub fn create(project: &str, handle: &str) -> Result<WorktreeRef, OperationError
         created_at_ms: now_ms(),
         closed: None,
         changes: None,
+        setup: None,
+        pr: None,
     };
     write_meta(&project_path, &dir_name, &reference)?;
+    // A project that declared a preset gets a copy that starts ready. The result (good or bad) is
+    // recorded; a failing setup never deletes the copy.
+    let mut reference = reference;
+    match preset::load(&project_path) {
+        Ok(wanted) if !wanted.is_empty() => {
+            let log_file = worktrees_root(&project_path).join(format!("{dir_name}.setup.log"));
+            let _ = std::fs::remove_file(&log_file);
+            let env = proc::ToolEnv::default();
+            reference.setup = preset::apply(
+                &preset::Target {
+                    project: &project_path,
+                    cwd: Path::new(&reference.cwd),
+                    prefix: &info.prefix,
+                    exclude_file: &info.exclude_file,
+                    log_file: &log_file,
+                    env: &env,
+                },
+                &wanted,
+            );
+            write_meta(&project_path, &dir_name, &reference)?;
+        }
+        Ok(_) => {}
+        Err(error) => tracing::warn!(%error, project, "ignoring an unreadable .puppet-master/project.toml"),
+    }
     Ok(reference)
 }
 
@@ -762,6 +798,28 @@ fn commit_all(wt: &Path, message: &str) -> Result<(), OperationError> {
     } else {
         Err(err("GIT_FAILED", format!("git commit failed: {}", commit.stderr.trim())))
     }
+}
+
+/// Record the agent's loose edits as one commit on the worktree's branch (the same commit a merge
+/// makes first). `true` when something was committed. `.puppet-master/` is never included.
+pub(crate) fn commit_pending(reference: &WorktreeRef) -> Result<bool, OperationError> {
+    let wt = require_checkout(reference)?;
+    let before = git_ok(&wt, &["rev-parse", "HEAD"], "GIT_FAILED")?;
+    commit_all(&wt, &format!("Puppet Master: changes from {}", reference.handle))?;
+    let after = git_ok(&wt, &["rev-parse", "HEAD"], "GIT_FAILED")?;
+    Ok(before != after)
+}
+
+/// The worktree has changes that are not committed yet (`.puppet-master/` aside).
+pub(crate) fn has_uncommitted(reference: &WorktreeRef) -> Result<bool, OperationError> {
+    let wt = require_checkout(reference)?;
+    let out = git_ok_raw(&wt, &["status", "--porcelain=v1", "-z", "--untracked-files=all"])?;
+    Ok(porcelain_paths(&out).iter().any(|p| !is_internal(p)))
+}
+
+/// Write `reference` back to its description file (after the PR or its checks changed).
+pub(crate) fn update_meta(reference: &WorktreeRef) -> Result<(), OperationError> {
+    write_meta(Path::new(&reference.repo), &dir_name_of(reference), reference)
 }
 
 /// Remove the checkout and branch of a worktree whose branch was merged by [`merge_keep`].

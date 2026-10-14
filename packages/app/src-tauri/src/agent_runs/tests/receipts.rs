@@ -230,6 +230,8 @@ fn sample_worktree(project: &str) -> crate::worktrees::WorktreeRef {
         created_at_ms: 1,
         closed: None,
         changes: Some(crate::worktrees::ChangeSummary { files_changed: 3, additions: 10, deletions: 2 }),
+        setup: None,
+        pr: None,
     }
 }
 

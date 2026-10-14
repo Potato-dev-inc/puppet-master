@@ -52,13 +52,27 @@ pub async fn new_pane(
     agent_id: String,
     account_id: Option<String>,
     isolation: Option<String>,
+    project_path: Option<String>,
 ) -> Result<String, String> {
     let isolated = match isolation.as_deref() {
         None | Some("") | Some("none") => false,
         Some("worktree") => true,
         Some(other) => return Err(format!("INVALID_ARGUMENT: isolation must be \"none\" or \"worktree\", got {other:?}")),
     };
-    crate::tray::new_pane_with(&app, &agent_id, crate::cockpit::Origin::CockpitUi, account_id.as_deref(), isolated)
+    let started = crate::tray::new_pane_in(
+        &app,
+        &agent_id,
+        crate::cockpit::Origin::CockpitUi,
+        account_id.as_deref(),
+        isolated,
+        project_path.as_deref(),
+    );
+    if started.is_ok() {
+        if let Some(project) = project_path.as_deref().filter(|p| !p.trim().is_empty()) {
+            crate::worktrees::folder::remember(&crate::app_paths::app_data_dir(), project);
+        }
+    }
+    started
 }
 
 #[tauri::command]
