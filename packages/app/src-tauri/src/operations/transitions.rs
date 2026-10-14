@@ -198,7 +198,12 @@ pub fn mark_operation_waiting_input(
         ));
     }
     op.status = OperationStatus::WaitingInput;
-    op.stage = Some("waiting_input".into());
+    // A run parked on a startup dialog keeps its readiness stage: the dispatch thread owns the
+    // run until the dialog is answered, and a supervisor that also sees the dialog must not take
+    // the stage away (a later pane observation would then read the run as `running`).
+    if op.stage.as_deref() != Some("waiting_for_pane_readiness") {
+        op.stage = Some("waiting_input".into());
+    }
     op.pane_state = pane_state;
     op.required_action = Some(required_action);
     op.observed_at_ms = Some(now_ms());

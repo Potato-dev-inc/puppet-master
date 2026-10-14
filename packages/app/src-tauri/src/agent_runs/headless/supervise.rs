@@ -6,7 +6,7 @@
 
 use super::pane_turn::{
     auto_approve_allowed_command, not_captured_diagnostics, previous_turn_task, read_tui_screen,
-    record_completion_model, redeliver_prompt,
+    record_completion_model, redeliver_prompt, redelivery_dead_end,
 };
 use crate::agent_runs::completion::{self, TuiTurnDecision, TuiTurnWatch};
 use crate::agent_runs::{native, runtime, transcript};
@@ -29,12 +29,13 @@ const REREAD_ATTEMPTS: u32 = 2;
 const REREAD_DELAY_MS: u64 = 1500;
 
 /// What one pane observation tells the supervisor loop to do next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
     /// Nothing settled the run; go on to the deadline check.
     Continue,
     /// The run reached a terminal state; the supervisor is done.
     Finished,
-    /// The prompt was re-delivered; wait one tick and observe again without a deadline check.
+    /// The prompt was re-delivered (or tried); the next tick observes the pane again.
     Redelivered,
 }
 
@@ -77,60 +78,26 @@ impl Supervisor {
     }
 
     fn run(mut self, snapshot: &OperationSnapshot) {
-        let start = snapshot.started_at_ms.unwrap_or(snapshot.created_at_ms);
-        let deadline = Duration::from_millis(snapshot.timeout_ms);
-        // A snapshot read can fail transiently (file briefly locked mid-write). Giving up on the
-        // first failure would stop deadline enforcement for good and leave the turn `running`.
-        let mut read_failures = 0u32;
-        loop {
-            let current =
-                match operations::get_operation(&snapshot.project_path, &snapshot.operation_id) {
-                    Ok(current) => {
-                        read_failures = 0;
-                        current
-                    }
-                    Err(_) => {
-                        read_failures += 1;
-                        if read_failures > SUPERVISOR_MAX_READ_FAILURES {
-                            return;
-                        }
-                        thread::sleep(Duration::from_millis(500));
-                        continue;
-                    }
-                };
-            if current.status.terminal() {
-                return;
-            }
-            self.capture_baseline(&current);
-            if current.agent_type == "opencode_native" {
-                native::supervise_native_observation(&current, &self.registry, &self.app);
-            } else if matches!(
-                current.status,
-                OperationStatus::Running | OperationStatus::WaitingInput
-            ) {
-                if let Some(pane_id) = current.pane_id.as_deref() {
-                    match self.observe_pane(&current, pane_id) {
-                        Step::Finished => return,
-                        Step::Redelivered => {
-                            thread::sleep(Duration::from_millis(SUPERVISE_POLL_MS));
-                            continue;
-                        }
-                        Step::Continue => {}
-                    }
-                }
-            }
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-            if now.saturating_sub(start) >= deadline.as_millis() as u64 {
-                self.enforce_deadline(&current);
-                return;
-            }
-            // Native completion is only noticed by this poll (the wait wakes on the terminal
-            // status it writes), so the interval is added to every run's latency.
-            thread::sleep(Duration::from_millis(SUPERVISE_POLL_MS));
+        let poll = Duration::from_millis(SUPERVISE_POLL_MS);
+        if let Some(expired) = supervise_loop(snapshot, poll, &mut |current| self.tick(current)) {
+            self.enforce_deadline(&expired);
         }
+    }
+
+    /// One observation of a live run: its baseline, then what its pane (or native session) says.
+    fn tick(&mut self, current: &OperationSnapshot) -> Step {
+        self.capture_baseline(current);
+        if current.agent_type == "opencode_native" {
+            native::supervise_native_observation(current, &self.registry, &self.app);
+        } else if matches!(
+            current.status,
+            OperationStatus::Running | OperationStatus::WaitingInput
+        ) {
+            if let Some(pane_id) = current.pane_id.as_deref() {
+                return self.observe_pane(current, pane_id);
+            }
+        }
+        Step::Continue
     }
 
     /// Before the turn starts, the screen is the baseline that its output is measured against.
@@ -219,6 +186,22 @@ impl Supervisor {
             self.redelivered,
         ) && !has_prompt
         {
+            // The pane will never take the prompt (the user declined the startup dialog, or the
+            // agent is gone and a shell prompt shows): end the run with the reason instead of
+            // asking again every tick.
+            let screen = read_tui_screen(&self.registry, pane_id).unwrap_or_default();
+            if let Some(error) = redelivery_dead_end(&current.agent_type, pane_id, &screen) {
+                transcript::append(
+                    &current.project_path,
+                    &current.operation_id,
+                    "diagnostic",
+                    &format!("{}: {}", error.code, error.message),
+                );
+                if self.fail_run(current, error) {
+                    return Step::Finished;
+                }
+                return Step::Continue;
+            }
             if redeliver_prompt(
                 current,
                 &self.registry,
@@ -537,6 +520,59 @@ impl Supervisor {
         }
     }
 }
+
+/// The supervisor's clock: reads the run's snapshot every `poll`, ends when it is terminal or a
+/// tick finishes it, and returns the run's snapshot once its wall-clock `timeout_ms` has passed
+/// (the caller then stops the worker and fails the run).
+///
+/// Whatever a tick answers (including `Redelivered`, which an undeliverable prompt answers every
+/// tick), the deadline is checked: a run must never stay `running` past its timeout.
+fn supervise_loop(
+    snapshot: &OperationSnapshot,
+    poll: Duration,
+    tick: &mut dyn FnMut(&OperationSnapshot) -> Step,
+) -> Option<OperationSnapshot> {
+    let start = snapshot.started_at_ms.unwrap_or(snapshot.created_at_ms);
+    let deadline_ms = snapshot.timeout_ms;
+    // A snapshot read can fail transiently (file briefly locked mid-write). Giving up on the
+    // first failure would stop deadline enforcement for good and leave the turn `running`.
+    let mut read_failures = 0u32;
+    loop {
+        let current = match operations::get_operation(&snapshot.project_path, &snapshot.operation_id) {
+            Ok(current) => {
+                read_failures = 0;
+                current
+            }
+            Err(_) => {
+                read_failures += 1;
+                if read_failures > SUPERVISOR_MAX_READ_FAILURES {
+                    return None;
+                }
+                thread::sleep(Duration::from_millis(500));
+                continue;
+            }
+        };
+        if current.status.terminal() {
+            return None;
+        }
+        if matches!(tick(&current), Step::Finished) {
+            return None;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        if now.saturating_sub(start) >= deadline_ms {
+            return Some(current);
+        }
+        // Native completion is only noticed by this poll (the wait wakes on the terminal
+        // status it writes), so the interval is added to every run's latency.
+        thread::sleep(poll);
+    }
+}
+
+#[cfg(test)]
+mod loop_tests;
 
 fn verifies_delivery(agent_type: &str) -> bool {
     crate::tui::profile_for(agent_type).verifies_prompt_delivery()

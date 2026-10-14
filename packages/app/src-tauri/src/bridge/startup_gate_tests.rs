@@ -353,3 +353,157 @@ fn leaving_a_sign_in_screen_unfinished_fails_with_its_own_code_and_a_finished_on
     assert_eq!(error.code, "STARTUP_SCREEN_NOT_COMPLETED");
     assert!(!error.recoverable);
 }
+
+// ---- the whole run, not just the wait (VERIFY-R7 #2b: 3 of 3 runs stuck `running`) --------------
+//
+// The wait above returned `WORKSPACE_TRUST_DECLINED` correctly in every unit test, yet live the run
+// stayed `running` for ever: `run_operation_dispatch` dropped the dispatch error because the run was
+// no longer `starting` (it is `waiting_input` while parked, and `running` once a pane observer read
+// the dialog's redraw). These tests run the real dispatch wrapper and the real parking function
+// against the real captured screens, with the supervisor's and the pane observer's writes played by
+// the test, and look at what is stored on the run.
+
+use crate::operations::{OperationSnapshot, OperationStatus, StateSource};
+
+/// How the user turns the trust dialog down.
+#[derive(Clone, Copy, Debug)]
+enum Decline {
+    /// The card's "Don't trust" button (`pane_prompt::answer`): key sent, decline recorded.
+    Card,
+    /// `POST /agents/answer {choice: "deny"}`: same, then the answer guard marks the run `running`.
+    Handle,
+    /// The user typed "No, exit" in the pane themselves: nothing recorded, Claude just leaves.
+    InThePane,
+}
+
+/// A queued run, dispatched on its own thread through `run_operation_dispatch`, whose body is the
+/// parking step `await_pane_ready` runs for a pane showing the trust dialog.
+fn parked_run(pane: &'static str) -> (Arc<Mutex<PaneRegistry>>, OperationSnapshot, std::thread::JoinHandle<Result<OperationSnapshot, crate::operations::OperationError>>) {
+    let registry = claude_pane(pane);
+    show(&registry, pane, TRUST);
+    set_status(&registry, pane, PaneStatus::WaitingInput);
+    let op = operation(&std::env::temp_dir().join(format!("pm-gate-{}", uuid::Uuid::new_v4())));
+    let handle = {
+        let (registry, project, id) = (registry.clone(), op.project_path.clone(), op.operation_id.clone());
+        std::thread::spawn(move || {
+            crate::operations::run_operation_dispatch(&project, &id, |operation| {
+                operation.pane_id = Some(pane.into());
+                operation.stage = Some("waiting_for_pane_readiness".into());
+                *operation = crate::operations::save_operation_snapshot(operation)?;
+                super::dispatch::park_on_startup_dialog(operation, &registry, pane, "claude", TRUST, &[])
+            })
+        })
+    };
+    (registry, op, handle)
+}
+
+fn stored(op: &OperationSnapshot) -> OperationSnapshot {
+    crate::operations::get_operation(&op.project_path, &op.operation_id).unwrap()
+}
+
+fn decline_and_finish(pane: &'static str, how: Decline, supervisor_sees_the_dialog: bool) {
+    let (registry, op, handle) = parked_run(pane);
+    // Parked on the card.
+    let parked = wait_for(|| {
+        let now = stored(&op);
+        (now.status == OperationStatus::WaitingInput && now.required_action.is_some()).then_some(now)
+    });
+    assert_eq!(parked.stage.as_deref(), Some("waiting_for_pane_readiness"));
+    let card = parked.required_action.clone().unwrap();
+    assert_eq!(card["kind"], "workspace_trust", "{card}");
+
+    if supervisor_sees_the_dialog {
+        // The run's supervisor thread watches the same pane and reports the dialog as the run's
+        // pending input; the pane observer then sees the redraw and reports `running`.
+        crate::operations::mark_operation_waiting_input(
+            &op.project_path,
+            &op.operation_id,
+            Some("waiting_input".into()),
+            card.clone(),
+            StateSource::Inferred,
+        )
+        .unwrap();
+        crate::operations::mark_operation_observation(
+            &op.project_path,
+            &op.operation_id,
+            Some("running".into()),
+            None,
+            StateSource::Inferred,
+        )
+        .unwrap();
+        let now = stored(&op);
+        assert_eq!(now.status, OperationStatus::WaitingInput, "{how:?}: a parked run stays parked");
+        assert_eq!(now.stage.as_deref(), Some("waiting_for_pane_readiness"), "{how:?}: the dispatch thread owns the stage");
+    }
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(!handle.is_finished(), "{how:?}: held while the dialog shows");
+
+    // The user turns the dialog down; Claude exits to the host shell (real capture).
+    if !matches!(how, Decline::InThePane) {
+        crate::pane_prompt::note_gate_answer(pane, &card["raw_prompt"], "deny");
+    }
+    show(&registry, pane, DECLINED_HOST_SHELL);
+    set_status(&registry, pane, PaneStatus::Idle);
+    if matches!(how, Decline::Handle) {
+        // answer_guard::finish: the answered run is marked `running` while the pane redraws.
+        let _ = crate::operations::mark_operation_observation(
+            &op.project_path,
+            &op.operation_id,
+            Some("running".into()),
+            None,
+            StateSource::Native,
+        );
+    }
+    crate::pane_wait_notify::bump_waiters();
+    wait_for(|| handle.is_finished().then_some(()));
+    let _ = handle.join().unwrap();
+
+    let end = stored(&op);
+    assert_eq!(end.status, OperationStatus::Failed, "{how:?}, supervisor={supervisor_sees_the_dialog}: the run must end, not stay {:?}", end.status);
+    let error = end.error.expect("the run carries the reason");
+    assert_eq!(error.code, "WORKSPACE_TRUST_DECLINED", "{how:?}");
+    assert!(!error.recoverable);
+    assert!(end.finished_at_ms.is_some(), "{how:?}: a finish time");
+    assert_eq!(end.stage.as_deref(), Some("failed"));
+    assert!(end.required_action.is_none() || end.status.terminal());
+}
+
+#[test]
+fn a_declined_trust_card_ends_the_run_failed_not_running() {
+    decline_and_finish("e2e-decline-card", Decline::Card, false);
+}
+
+#[test]
+fn it_ends_the_run_even_when_the_supervisor_and_pane_observer_touched_it_meanwhile() {
+    decline_and_finish("e2e-decline-card-observed", Decline::Card, true);
+}
+
+#[test]
+fn the_handle_based_answer_path_ends_the_run_the_same_way() {
+    decline_and_finish("e2e-decline-handle", Decline::Handle, true);
+}
+
+#[test]
+fn declining_in_the_pane_itself_ends_the_run_too() {
+    // Nothing was recorded: the dialog is gone and Claude's host shell shows a prompt.
+    decline_and_finish("e2e-decline-in-pane", Decline::InThePane, false);
+}
+
+#[test]
+fn accepting_the_dialog_still_resumes_the_dispatch() {
+    let pane = "e2e-accept";
+    let (registry, op, handle) = parked_run(pane);
+    wait_for(|| (stored(&op).status == OperationStatus::WaitingInput).then_some(()));
+    // The supervisor and pane observer touch the parked run; it must still resume afterwards.
+    let card = stored(&op).required_action.unwrap();
+    crate::operations::mark_operation_waiting_input(&op.project_path, &op.operation_id, Some("waiting_input".into()), card, StateSource::Inferred).unwrap();
+    crate::operations::mark_operation_observation(&op.project_path, &op.operation_id, Some("running".into()), None, StateSource::Inferred).unwrap();
+    show(&registry, pane, READY);
+    set_status(&registry, pane, PaneStatus::Idle);
+    crate::pane_wait_notify::bump_waiters();
+    wait_for(|| handle.is_finished().then_some(()));
+    let _ = handle.join().unwrap();
+    let end = stored(&op);
+    assert_eq!(end.status, OperationStatus::Running, "dispatch resumed and the run went on: {:?}", end.error);
+    assert!(end.error.is_none());
+}
