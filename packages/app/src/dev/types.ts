@@ -26,6 +26,8 @@ export interface HarnessScenario {
     /** Bridge events delivered once the stream opens (`event: <name>`). */
     events?: { name: string; data: unknown }[];
   };
+  /** Phone route: the abilities this phone was paired with (`GET /pair/me`); default: all four. */
+  phoneCaps?: string[];
   /** Phone route: override the panes the mocked bridge lists. */
   phonePanes?: PaneInfo[];
   /** App theme the mocked settings store reports (default dark). */

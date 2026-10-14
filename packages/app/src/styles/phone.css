@@ -867,3 +867,10 @@ a.ph-row:active {
 .ph-group > .ph-rowbtn + .ph-rowbtn {
   border-top: 1px solid var(--sep);
 }
+
+/* A phone paired without "type": a line where the input box would be. */
+.ph-note--typing {
+  border-top: 1px solid var(--sep);
+  border-bottom: 0;
+  padding-bottom: calc(8px + var(--safe-b));
+}

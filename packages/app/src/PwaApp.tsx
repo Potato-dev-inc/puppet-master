@@ -30,6 +30,8 @@ import './styles/phone.css';
 import type { PreviewUrl } from './lib/pane-preview';
 import { AgentsOverview } from './components/mobile/AgentsOverview';
 import { usePushPresence } from './hooks/usePushPresence';
+import { usePhoneAbilities } from './hooks/usePhoneAbilities';
+import { TypingNote } from './components/mobile/TypingNote';
 import { MenuSheet, NewAgentSheet, type TypingEchoStats } from './components/mobile/MobileSheet';
 import { SetupScreen } from './components/pwa/SetupScreen';
 
@@ -285,6 +287,8 @@ export default function PwaApp() {
     }
   }, [active]);
 
+  const abilities = usePhoneAbilities(bridge, resyncKey);
+
   const labels = useMemo(() => tabLabels(panes, agentListing), [panes, agentListing]);
   const activePane = active === ALL_TAB ? undefined : registry.panes.get(active);
   const transport = useBridgePaneTransport(registry.makeTransport, activePane ? active : 'pane-placeholder');
@@ -530,6 +534,7 @@ export default function PwaApp() {
               title={`${labels.get(active) ?? activePane.info.agent_type}`}
               mobileInputDelayMs={settings.mobile_input_delay_ms}
               mobileInputVisible={settings.mobile_input_visible}
+              disableMobileInput={!abilities.canType}
               onFitGrid={setFitGrid}
               refreshSignal={refreshSignal}
               keyboardResizesAgent={settings.mobile_keyboard_resizes_agent ?? false}
@@ -538,6 +543,7 @@ export default function PwaApp() {
           {active !== ALL_TAB && !activePane && (
             <div className="ph-loading">Loading agent…</div>
           )}
+          {activePane && abilities.typingNote && <TypingNote text={abilities.typingNote} />}
         </main>
       </div>
       {sheet === 'new' && (
