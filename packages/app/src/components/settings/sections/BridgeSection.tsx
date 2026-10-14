@@ -4,6 +4,7 @@
 import { PUPPET_MASTER_MCP_COMMAND } from '../../../lib/mcp-config';
 import type { RowDef } from '../model';
 import { CodeBlock, InfoRow, SettingToggle } from '../settings-ui';
+import { AgentPackGroup } from '../pack/AgentPackGroup';
 import { ToolbeltGroup } from '../toolbelt/ToolbeltGroup';
 import { McpInstallBlock } from './bridge/McpInstall';
 import { McpStatusBlock } from './bridge/McpStatus';
@@ -20,6 +21,13 @@ export const bridgeRows: RowDef[] = [
     hint: "Add an MCP server once; Puppet Master writes it into every agent's own config.",
     keywords: 'mcp servers apply to all agents import secrets scope',
     render: (env) => <ToolbeltGroup projectPath={installPathOf(env) || null} />,
+  },
+  {
+    id: 'agent-pack',
+    label: 'Add Puppet Master to your agents',
+    hint: 'Teach each agent you use when to ask another agent for help, and connect it to Puppet Master. Review first; Undo puts it back.',
+    keywords: 'skills skill plugin install teach delegate second opinion claude code codex cursor opencode add agents undo',
+    render: () => <AgentPackGroup />,
   },
   {
     id: 'bridge-endpoint',
