@@ -179,9 +179,16 @@ impl Viewer {
     /// `None`: the device is gone (revoked or expired) and its stream should close. Otherwise
     /// whether this payload goes to it (terminal bytes need `watch`).
     pub fn may_receive(&self, payload: &str) -> Option<bool> {
+        self.view(payload).map(|view| view.is_some())
+    }
+
+    /// `None`: the device is gone (revoked or expired) and its stream should close. Otherwise what
+    /// this viewer gets for the payload: nothing, the payload, or the payload cut down to what its
+    /// caps allow (`caps::project`).
+    pub fn view<'a>(&self, payload: &'a str) -> Option<Option<std::borrow::Cow<'a, str>>> {
         match self {
-            Viewer::Local => Some(true),
-            Viewer::Device(id) => stream_caps(id).map(|caps| may_receive(caps, payload)),
+            Viewer::Local => Some(Some(std::borrow::Cow::Borrowed(payload))),
+            Viewer::Device(id) => stream_caps(id).map(|caps| project(caps, payload)),
         }
     }
 }

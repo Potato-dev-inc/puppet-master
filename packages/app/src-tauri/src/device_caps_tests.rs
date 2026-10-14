@@ -248,6 +248,41 @@ fn a_device_without_watch_gets_no_terminal_bytes_on_the_long_poll() {
     assert!(local.contains(&pane) && local.contains("event: terminal"));
 }
 
+/// Review R12 2.1: `GET /operations/{id}` is refused without `watch`, but the same snapshot
+/// (task, reply, screen rows) used to arrive whole on the event streams as `event: operation`.
+#[test]
+fn a_device_without_watch_gets_operation_status_but_no_pane_content_on_the_long_poll() {
+    let r = rig();
+    let start = {
+        let (_, body) = as_device("answer", "GET", "/events/poll");
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["cursor"].as_u64().unwrap()
+    };
+    let op = format!("dc-op-{}", std::process::id());
+    let snapshot = serde_json::json!({
+        "operation_id": op, "status": "waiting_input", "stage": "waiting_for_pane_readiness",
+        "task": "TASKTEXT-xyz", "result": "REPLYTEXT-xyz", "output_baseline": "BASELINE-xyz",
+        "required_action": {"kind": "screen_not_ready", "detail": "bring the agent to its input box", "screen": "SCREENROWS-xyz"},
+        "error": {"code": "AGENT_EXITED", "message": "exited", "recoverable": false, "context": {"last_screen": "LASTSCREEN-xyz"}}
+    });
+    crate::bridge::push_sse(format!("event: operation\ndata: {snapshot}\n\n"));
+    let poll = |label: &str| {
+        let (status, body) = as_device(label, "GET", &format!("/events/poll?cursor={start}&wait_ms=200"));
+        assert_eq!(status, 200, "{body}");
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["data"].as_str().unwrap().to_string()
+    };
+    for label in ["answer", "none"] {
+        let seen = poll(label);
+        assert!(seen.contains(&op) && seen.contains("screen_not_ready"), "{label}: status still arrives: {seen}");
+        for secret in ["TASKTEXT", "REPLYTEXT", "BASELINE", "SCREENROWS", "LASTSCREEN"] {
+            assert!(!seen.contains(secret), "{label}: {secret} leaked without watch: {seen}");
+        }
+    }
+    let watcher = poll("watch");
+    assert!(watcher.contains("TASKTEXT-xyz") && watcher.contains("SCREENROWS-xyz"), "watch sees it all: {watcher}");
+    let (_, _, local) = send(r.bridge, &request("GET", &format!("/events/poll?cursor={start}&wait_ms=200"), &["Host: 127.0.0.1"]));
+    assert!(local.contains("REPLYTEXT-xyz"), "the local app sees it all");
+}
+
 #[test]
 fn websocket_input_frames_need_type() {
     let r = rig();

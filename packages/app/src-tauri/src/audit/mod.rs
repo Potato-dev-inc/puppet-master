@@ -178,7 +178,12 @@ struct Head {
 struct Tip {
     seq: u64,
     hash: String,
+    /// Its time (0 when only the head file was there): month files never go backwards from it.
+    ts_ms: u64,
 }
+
+/// The lock file every writer holds while it reads the tip and appends (review R12 3.4).
+const LOCK_FILE: &str = ".append.lock";
 
 /// One log folder. The app uses `global()`; tests make their own in a temp folder.
 pub struct AuditLog {
@@ -206,9 +211,18 @@ impl AuditLog {
     ) -> Result<Entry, String> {
         use std::io::Write;
         let mut tip = self.tip.lock();
-        if tip.is_none() {
-            *tip = Some(chain::load_tip(&self.dir));
-        }
+        std::fs::create_dir_all(&self.dir).map_err(|e| format!("could not create {}: {e}", self.dir.display()))?;
+        // Another writer (a second app instance, a second log on the same folder) may have appended
+        // since this one last did: hold the folder's lock and read the tip from disk every time.
+        let lock_path = self.dir.join(LOCK_FILE);
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock_path)
+            .map_err(|e| format!("could not open {}: {e}", lock_path.display()))?;
+        lock.lock().map_err(|e| format!("could not lock {}: {e}", lock_path.display()))?;
+        *tip = Some(chain::load_tip(&self.dir));
         let current = tip.as_ref().expect("tip just loaded");
         let (who_kind, actor) = who.parts();
         let mut entry = Entry {
@@ -225,18 +239,22 @@ impl AuditLog {
         };
         entry.hash = entry_hash(&entry);
         let line = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
-        std::fs::create_dir_all(&self.dir).map_err(|e| format!("could not create {}: {e}", self.dir.display()))?;
-        let path = self.dir.join(format!("{}.jsonl", month_of(ts_ms)));
+        // The file follows the chain, not the clock: a clock that moved back across a month boundary
+        // keeps appending to the newest month, so the files read in name order stay in seq order.
+        let path = self.dir.join(format!("{}.jsonl", month_of(ts_ms.max(current.ts_ms))));
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&path)
             .map_err(|e| format!("could not open {}: {e}", path.display()))?;
         file.write_all(format!("{line}\n").as_bytes()).map_err(|e| e.to_string())?;
-        let head = serde_json::to_vec(&Head { seq: entry.seq, hash: entry.hash.clone() }).unwrap_or_default();
-        // The head file is a convenience for spotting a removed tail; a failure to write it is not fatal.
-        let _ = std::fs::write(self.dir.join(HEAD_FILE), head);
-        *tip = Some(Tip { seq: entry.seq, hash: entry.hash.clone() });
+        let head = serde_json::to_string(&Head { seq: entry.seq, hash: entry.hash.clone() }).unwrap_or_default();
+        // The head file is a convenience for spotting a removed tail; a failure to write it is not
+        // fatal. Written whole or not at all (temp file and rename): a torn head file read as
+        // missing and silently turned the missing-tail check off.
+        let _ = crate::secure_file::write_private(&self.dir.join(HEAD_FILE), &head);
+        *tip = Some(Tip { seq: entry.seq, hash: entry.hash.clone(), ts_ms: current.ts_ms.max(ts_ms) });
+        drop(lock);
         Ok(entry)
     }
 

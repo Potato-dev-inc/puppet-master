@@ -80,6 +80,8 @@ pub(super) fn wait_for_startup_permission_resolution(
     // The startup gate (folder trust) last seen on this pane. If the agent exits while one was
     // showing, the user declined it.
     let mut gate: Option<serde_json::Value> = None;
+    // When the screen was first seen without the dialog (a drawn screen), for `RESOLVED_CONFIRM`.
+    let mut clear_since: Option<Instant> = None;
     loop {
         if let Some(seen) = crate::pane_prompt::startup_gate(
             agent_type,
@@ -149,12 +151,18 @@ pub(super) fn wait_for_startup_permission_resolution(
         }
         // Same test that parked the run: phrases a CLI prints, or a dialog its TUI profile
         // recognises (Cursor's trust dialog prints none of the phrases).
-        let still_blocked = explicit_manual_approval_required(agent_type, &screen, &permissions)
-            || (agent_type != "opencode_native"
-                && (crate::pane_prompt::detect_in_screen(agent_type, &screen, false).is_some()
-                    || crate::tui::profile_for(agent_type).startup_gate(&screen).is_some()));
-        if !still_blocked {
-            return Ok(pane.status);
+        let still_blocked = startup_still_blocked(agent_type, &screen, &permissions);
+        // A dialog is gone only when the screen shows something else and keeps not showing it:
+        // one look at a blank or half-drawn redraw of the same dialog (a resize, a key the person
+        // pressed inside it) used to release the run, which then found the dialog again and
+        // failed PANE_BLOCKED_BY_PROMPT (live, plain mode, Claude's folder-trust question).
+        if still_blocked || (agent_type != "opencode_native" && screen.trim().is_empty()) {
+            clear_since = None;
+        } else {
+            let since = *clear_since.get_or_insert_with(Instant::now);
+            if since.elapsed() >= RESOLVED_CONFIRM {
+                return Ok(pane.status);
+            }
         }
         if Instant::now() >= deadline {
             return Err(crate::operations::OperationError::new(
@@ -163,8 +171,24 @@ pub(super) fn wait_for_startup_permission_resolution(
                 true,
             ));
         }
-        crate::pane_wait_notify::wait_for_change(deadline, &mut wake_generation);
+        // While a release is being confirmed, look again soon even if nothing is printed.
+        let wake_by = match clear_since {
+            Some(_) => deadline.min(Instant::now() + RESOLVED_CONFIRM / 4),
+            None => deadline,
+        };
+        crate::pane_wait_notify::wait_for_change(wake_by, &mut wake_generation);
     }
+}
+
+/// How long a startup dialog must stay off a drawn screen before the run is released.
+pub(super) const RESOLVED_CONFIRM: Duration = Duration::from_millis(400);
+
+/// Whether a startup dialog (or a CLI's approval phrase, or a native permission) still blocks the pane.
+pub(super) fn startup_still_blocked(agent_type: &str, screen: &str, permissions: &[String]) -> bool {
+    explicit_manual_approval_required(agent_type, screen, permissions)
+        || (agent_type != "opencode_native"
+            && (crate::pane_prompt::detect_in_screen(agent_type, screen, false).is_some()
+                || crate::tui::profile_for(agent_type).startup_gate(screen).is_some()))
 }
 
 /// The run's error when the pane's agent exited while a startup gate was on screen: the user

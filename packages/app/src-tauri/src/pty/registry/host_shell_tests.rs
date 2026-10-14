@@ -104,6 +104,10 @@ fn an_agent_killed_mid_run_reads_exited() {
     let pane = HostPane::start("ping", &["-n", "60", "127.0.0.1"]);
     let id = "host-shell-test-killed";
     assert_eq!(pane.wait_for(id, AgentProcess::Alive, 20), AgentProcess::Alive, "{}", pane.screen());
+    // Mid-run: it has been running (and looked at) for a while. A child that vanishes within a
+    // second of first being seen reads as a shell-profile helper, not the agent (review R12 1.3).
+    thread::sleep(Duration::from_millis(1_200));
+    assert_eq!(pane.wait_for(id, AgentProcess::Alive, 5), AgentProcess::Alive, "{}", pane.screen());
     let agent = agent_proc::snapshot()
         .unwrap()
         .into_iter()

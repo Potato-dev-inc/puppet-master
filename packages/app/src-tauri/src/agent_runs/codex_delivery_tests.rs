@@ -38,6 +38,8 @@ struct CodexPane {
     settle: Option<Duration>,
     /// Every Enter is read as a line break (a worst case: the text can never be submitted).
     swallow_every_enter: bool,
+    /// The first Enter is read as a line break whatever its timing.
+    swallow_first_enter: bool,
     /// Startup model (live run 7bef62a6): blank until `menu_at`, then the update menu until a key
     /// closes it. `None`: the pane is already at its composer.
     menu_at: Option<Duration>,
@@ -61,6 +63,7 @@ impl CodexPane {
             enters: 0,
             settle: None,
             swallow_every_enter: false,
+            swallow_first_enter: false,
             menu_at: None,
             menu_up: false,
             esc_closes_menu: true,
@@ -133,7 +136,7 @@ impl DeliveryIo for CodexPane {
         let inside_burst = self
             .last_char_at
             .is_some_and(|at| self.clock.saturating_sub(at) < BURST_WINDOW);
-        if inside_burst || self.swallow_every_enter {
+        if inside_burst || self.swallow_every_enter || (self.swallow_first_enter && self.enters == 1) {
             // The line break: the composer still holds the text (the capture of that state).
             self.screen = UNSENT.to_string();
         } else {
@@ -186,10 +189,13 @@ fn the_profile_waits_out_the_paste_burst_so_one_enter_submits() {
 
 #[test]
 fn an_enter_swallowed_as_a_line_break_is_noticed_and_repeated_once() {
-    // The old behaviour: Enter right after the text (no settle). The text is still in the box, so
-    // delivery presses Enter once more, after the burst window, and the turn starts.
+    // The old behaviour: Enter right after the text (no settle) is read as a line break. Delivery's
+    // look and quiet window before an Enter (review R12 1.1) now take 40 ms of the 120 ms burst on
+    // their own, so the swallow is scripted: the text is still in the box, delivery presses Enter
+    // once more (after its own look), and the turn starts.
     let mut pane = CodexPane::new();
     pane.settle = Some(Duration::ZERO);
+    pane.swallow_first_enter = true;
     let (delivery, trace) = deliver(&mut pane);
     assert_eq!(delivery, Delivery::Started, "{trace:#?}");
     assert_eq!(pane.enters, 2);

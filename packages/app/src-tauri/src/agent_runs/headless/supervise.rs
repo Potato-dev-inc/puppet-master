@@ -458,19 +458,29 @@ impl Supervisor {
     }
 
     /// The pane stayed idle and empty: the prompt was probably never submitted. Clear the input
-    /// box (the unsent prompt is still typed there) and fail the run as safely retryable.
+    /// box with the profile's own clear key (the unsent prompt is still typed there), never into a
+    /// dialog, and say "retrying is safe" only when the box then reads empty.
     fn on_not_submitted(&self, current: &OperationSnapshot, pane_id: &str) -> bool {
-        if let Some(clear) = crate::tui::profile_for(&current.agent_type).clear_input_sequence() {
-            let _ = crate::pty::registry_write_input(
-                &self.registry,
-                &self.app,
-                pane_id,
-                clear,
-                false,
-                false,
-                None,
-                crate::pty::WriteOrigin::Nudge,
-            );
+        let profile = crate::tui::profile_for(&current.agent_type);
+        let mut cleared = false;
+        if let Some(clear) = profile.retype_clear_sequence() {
+            if crate::pane_prompt::detect(&self.registry, pane_id, false).is_none() {
+                let sent = crate::pty::registry_write_input(
+                    &self.registry,
+                    &self.app,
+                    pane_id,
+                    clear,
+                    false,
+                    false,
+                    None,
+                    crate::pty::WriteOrigin::Nudge,
+                );
+                if sent.is_ok() {
+                    thread::sleep(Duration::from_millis(300));
+                    let screen = read_tui_screen(&self.registry, pane_id).unwrap_or_default();
+                    cleared = profile.composer_state(&screen) == crate::tui::ComposerState::Empty;
+                }
+            }
         }
         // Visible-first: the turn never started, so a headless-capable agent retries headless.
         if super::fallback::convert(current, Some("PROMPT_NOT_SUBMITTED"), &self.registry) {
@@ -484,7 +494,7 @@ impl Supervisor {
         }
         let error = OperationError::new(
             "PROMPT_NOT_SUBMITTED",
-            "the pane stayed idle and showed no output for this turn; the prompt was probably not submitted; the input box was cleared, so retrying is safe",
+            not_submitted_message(cleared),
             true,
         );
         self.fail_run(current, error)
@@ -614,4 +624,20 @@ mod loop_tests;
 
 fn verifies_delivery(agent_type: &str) -> bool {
     crate::tui::profile_for(agent_type).verifies_prompt_delivery()
+}
+
+/// The run error for a turn that was probably never submitted (`on_not_submitted`).
+pub(crate) fn not_submitted_message(cleared: bool) -> &'static str {
+    if cleared {
+        "the pane stayed idle and showed no output for this turn; the prompt was probably not submitted; the input box was cleared, so retrying is safe"
+    } else {
+        "the pane stayed idle and showed no output for this turn; the prompt was probably not submitted. The input box may still hold it (it could not be verified empty): clear it in the pane before retrying, or the retry adds another copy"
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn not_submitted_says_retrying_is_safe_only_for_a_verified_empty_box() {
+    assert!(not_submitted_message(true).contains("retrying is safe"));
+    assert!(!not_submitted_message(false).contains("retrying is safe"));
 }

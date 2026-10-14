@@ -43,10 +43,17 @@ An unknown route fails closed: a `GET` needs `watch`, anything else `control`.
   `{"error":"not_allowed","code":"DEVICE_NOT_ALLOWED","needs":"<cap>"}`; an expired one **401**
   `device_expired`. `authorize_bridge_request` keeps its signature for existing callers.
 - **Fanout per device** (`bridge/sse.rs`): every SSE/WS client is registered with a `Viewer`. A device
-  without `watch` gets no `event: terminal` payloads; a revoked or expired device's stream is dropped on
-  the next payload. Caps are read from a lock-free mirror (`stream_caps`), so the fanout never takes the
+  without `watch` gets each payload cut down by `caps::project` (review R12 2.1): no `event: terminal`
+  bytes and no `event: chat` (the orchestrator transcript); `event: operation` keeps ids, status,
+  `required_action` without `screen`/`raw_prompt`, and the error's code and message, but no `task`,
+  `result`, `output_baseline`, `error.context` or any field not on the allowlist
+  (`OPERATION_NO_WATCH_FIELDS`), and carries `"content_hidden": "needs_watch"`; `event: loop-signal`
+  loses its `evidence_lines`. Structural events (pane list, status, geometry, settings, questions
+  revision, turn summary, OpenCode worker status) pass unchanged, and an event name the list does not
+  know is left out (fail closed: a new event must be classified in `caps.rs`). A revoked or expired
+  device's stream is dropped on the next payload. Caps are read from a lock-free mirror (`stream_caps`), so the fanout never takes the
   store lock (revoke holds it while it talks to push). `/events/poll` filters the same way
-  (`event_log::poll_for`), the cursor still advances past what a viewer may not see.
+  (`event_log::poll_for`, same projection), the cursor still advances past what a viewer may not see.
 - WebSocket `input` frames re-check `type` per frame (`caller_may`), so a change applies at once. The
   typing path itself (`write_input`) is untouched.
 - `POST /push/act` (public, one-shot token) now also needs the `answer` cap of the device the
@@ -99,10 +106,14 @@ headless-browser CORS proof).
 - `bin/puppet_master_mcp/{endpoint,bridge_http}.rs` (mcp-catalog): one header added; no tool change.
 
 ## Limits / follow-ups
-- The phone PWA does not read `GET /pair/me` yet: a watch-only phone still shows its input box and gets
-  an `input-error: not_allowed` / 403. UX-PHASE1 §5.5 copy ("This phone can watch only…") is the next step.
-- The push hub still offers Allow/Deny on a notification to a device without `answer` (the tap is refused).
-- `packages/mcp-server` (JS) and `packages/cli` do not send the local secret yet; they are logged.
+- Fixed since this branch: the PWA reads `GET /pair/me` and hides its input box for a phone without
+  `type` (3c81a90); push offers no Allow/Deny to a phone without `answer` (662ba33); the JS MCP server
+  and the CLI send the local secret (cf2ea04); devices without `watch` get cut-down operation and
+  loop-signal events and no chat (review R12 2.1); the four `/panes/wait` routes are listed exactly
+  (2.2); an open stream ends when its device expires (2.3).
 - Enforcing the local secret (refusing) is Phase 1 (1-18), once every client sends it.
 - `GET` routes default to `watch`; a future read route that should be open to answer-only devices must be
-  listed in `route_need`.
+  listed in `route_need`. Likewise a new event name reaches devices without `watch` only once it is
+  classified in `caps::project` (unknown names are left out).
+- An open SSE/WS stream does not count as use: a phone that only streams, with no request for 30 days,
+  is signed out (the long poll makes a request every 25 s, so the tunnel path is unaffected).

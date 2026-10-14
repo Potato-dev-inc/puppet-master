@@ -67,9 +67,42 @@ Claude replaces it as you type. Live captures: `tui/*/fixtures/*_dim_*_live.ansi
 
 `Observation.output_pos` is `stream_pos.processed` read under the emulator lock with the screen. The
 write path compares it with `stream_pos.emitted` on the permit's first write: any byte printed in
-between = `PERMIT_STALE`, and delivery looks again. This is what stops "the menu drew 120 ms after
-the check" for good (test `a_menu_that_draws_between_the_look_and_the_keystroke_is_never_typed_into`).
-Every write (also the Enter that rides on the text's permit) re-reads the agent process.
+between = `PERMIT_STALE`, and delivery looks again. It reads `emitted` once more right after taking
+the pane's writer lock, so output that arrived during the auto-title work and the lock wait is caught
+too. This stops "the menu drew 120 ms after the check" (test
+`a_menu_that_draws_between_the_look_and_the_keystroke_is_never_typed_into`).
+
+**What it cannot see (review R12 1.2):** `emitted` only moves when the PTY reader thread has read a
+chunk. Bytes the agent already wrote but that are still in the ConPTY pipe are invisible, so a menu
+drawn about a millisecond before a keystroke can still take it. The window is narrow, not closed:
+- the task text is typed WITHOUT Enter and verified visible in the input box before anything is
+  submitted, so text that went into a menu is never submitted (the menu shows instead and delivery
+  closes it or parks);
+- every Enter (the first and the second) takes a fresh look first and stops on any gate or dialog
+  (`Readiness::Gate`, `detect_prompt` included), re-arms the permit to that look
+  (`TypingPermit::rearm`), then waits a 40 ms quiet window (`ENTER_QUIET`) so pipe bytes that were in
+  flight at the look arrive and make the Enter stale (tests
+  `enter_is_not_pressed_into_a_dialog_that_drew_after_the_text_was_verified`,
+  `a_dialog_whose_bytes_were_still_in_the_pipe_at_the_look_does_not_get_the_enter`,
+  `the_second_enter_is_not_pressed_into_a_dialog_either`);
+- `type_unverified` (profiles that cannot read their box) still sends text and Enter in one write, so
+  for those the remaining window applies to the whole task.
+
+Every write re-reads the agent process.
+
+### Retyping and giving up (live, plain mode r12)
+
+Claude Code 2.1.300 right after a turn took no keys for about 4 s and then took them all: delivery
+had typed the follow-up again, so the box held it twice, and the run said "the box was cleared,
+retrying is safe" (Claude has no readiness clear key, so nothing was cleared). Now:
+- `TuiProfile::retype_clear_sequence` (default: `clear_input_sequence`) erases text Puppet Master
+  itself typed. Claude declares sixteen Ctrl+U presses (one press erases one visual line, live-checked
+  with zero turns); it is not a readiness clear key, so a person's draft is still never cleared.
+- Before typing again, delivery erases its own text (after a look, never into a gate or a shell), so
+  keys a busy TUI takes late end as one copy, submitted once; it presses again (up to 3 rounds) while
+  the box still shows text.
+- On give-up it erases again and returns `NotVisible { cleared }`: "cleared, retrying is safe" only
+  when the box then reads empty; otherwise "clear it in the pane before retrying".
 
 ### Unknown parks
 

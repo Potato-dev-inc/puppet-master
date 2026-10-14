@@ -125,12 +125,28 @@ fn list(cx: &Ctx) -> RouteResult {
     Ok((200, serde_json::to_value(panes).unwrap()))
 }
 
+/// Second path segments under `/panes` that are routes, not panes (`/panes/wait`, `/panes/stop-all`).
+/// A pane with one of these ids would make its own routes ambiguous (review R12 2.2).
+pub(crate) fn is_reserved_pane_id(id: &str) -> bool {
+    matches!(id.trim(), "wait" | "stop-all")
+}
+
+#[cfg(test)]
+#[test]
+fn route_names_are_not_pane_ids() {
+    assert!(is_reserved_pane_id("wait") && is_reserved_pane_id("stop-all"));
+    assert!(!is_reserved_pane_id("waiter") && !is_reserved_pane_id("p-1"));
+}
+
 fn spawn(cx: &Ctx) -> RouteResult {
     let body = cx.body;
     let registry = cx.registry;
     let app = cx.app;
     let session = cx.session;
     let req: SpawnPaneArgs = parse_json(body)?;
+    if let Some(id) = req.pane_id.as_deref().filter(|id| is_reserved_pane_id(id)) {
+        return Err((400, json!({ "error": format!("pane id {id:?} is reserved: it names a bridge route under /panes"), "code": "INVALID_ARGUMENT" })));
+    }
     crate::tui::require_registered(&req.agent_type).map_err(|unknown| {
         operation_http_error(crate::operations::OperationError::unknown_agent_type(
             unknown.id,
@@ -275,6 +291,9 @@ fn input(cx: &Ctx, pane_id: &str) -> RouteResult {
         req.model_id.as_deref(),
         &settings,
     );
+    if !req.via_opencode_api {
+        raw_keys_gate(cx, pane_id, &format!("{} characters{}", req.text.chars().count(), if req.append_newline { " and Enter" } else { "" }))?;
+    }
     // The origin says "an API caller"; the flight recorder also wants which one (agent, phone, app).
     crate::flight::with_tag(bridge_tag(cx), || {
         registry_write_input(
@@ -298,6 +317,20 @@ fn input(cx: &Ctx, pane_id: &str) -> RouteResult {
     ))
 }
 
+/// An agent's raw keys into a pane that shows a dialog answer it: the answer gate and an audit
+/// line (`agent_authority::gate::check_raw_keys`). The person's keys and a pane with no dialog
+/// pass untouched.
+fn raw_keys_gate(cx: &Ctx, pane_id: &str, keys: &str) -> Result<(), (u16, serde_json::Value)> {
+    let Some(session) = cx.session.filter(|s| !s.trim().is_empty()) else {
+        return Ok(());
+    };
+    let Some(prompt) = crate::pane_prompt::detect(cx.registry, pane_id, false) else {
+        return Ok(());
+    };
+    crate::agent_authority::gate::check_raw_keys(Some(session), pane_id, &prompt, keys, Some(cx.registry))
+        .map_err(crate::bridge::errors::operation_http_error)
+}
+
 /// Who is typing: an agent (MCP session), a paired phone, or the local app (flight recorder tag).
 fn bridge_tag(cx: &Ctx) -> crate::flight::InputTag {
     let paired_phone = cx.session.is_none() && crate::mobile_pairing::requires_pairing_token(cx.headers, cx.peer_loopback);
@@ -311,6 +344,7 @@ fn key(cx: &Ctx, pane_id: &str) -> RouteResult {
     let req: PressKeyBody = parse_json(body)?;
     let seq = crate::pty::keys::sequence(&req.key).map_err(|err| (400, json!({ "error": err })))?;
     let bytes = seq.len();
+    raw_keys_gate(cx, pane_id, &format!("the {} key", req.key))?;
     crate::flight::with_tag(bridge_tag(cx), || registry_write_input(registry, app, pane_id, &seq, false, false, None, crate::pty::WriteOrigin::Api))
         .map_err(|err| (404, json!({ "error": err })))?;
     Ok((200, json!({ "ok": true, "key": req.key, "bytes": bytes })))

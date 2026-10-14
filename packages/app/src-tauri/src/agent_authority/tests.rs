@@ -111,17 +111,41 @@ fn dismissing_the_card_counts_as_no() {
     });
 }
 
+/// Review R12 3.1: "always" was keyed by the pane alone, so after the person allowed agent A, any
+/// other agent B (or a prompt-injected helper of someone else) took the pane over with no card.
 #[test]
-fn always_for_this_pane_covers_every_agent_on_that_pane_only() {
-    let (a, b, pane, other_pane) = (id("a"), id("b"), id("user-pane"), id("user-pane"));
+fn always_for_this_pane_covers_the_agent_that_asked_and_its_helpers_on_that_pane_only() {
+    let (a, b, helper, pane, other_pane) = (id("a"), id("b"), id("a-helper"), id("user-pane"), id("user-pane"));
+    // A is a known connection with a helper the bridge linked to it.
+    mcp_sessions::register_owned_pane(&a, &id("a-own-pane")).unwrap();
+    mcp_sessions::link_child_session(&helper, &a).unwrap();
     with_config(ASKING, || {
         let card_id = consent_id_of(&check_take_over(&a, Some(&pane), None, None).unwrap_err());
         person_answers(&card_id, CHOICE_ALWAYS);
         check_take_over(&a, Some(&pane), None, None).expect("always");
         check_take_over(&a, Some(&pane), None, None).expect("always means every time");
-        check_take_over(&b, Some(&pane), None, None).expect("the grant is the pane's, not one agent's");
+        assert!(consent::always_allowed(&a, &pane));
+        check_take_over(&helper, Some(&pane), None, None).expect("a helper of A is in A's lineage");
+
+        let from_b = check_take_over(&b, Some(&pane), None, None).unwrap_err();
+        assert_eq!(from_b.code, "CONSENT_PENDING", "another agent gets its own card, not A's grant");
+        assert_ne!(consent_id_of(&from_b), card_id);
+        assert!(!consent::always_allowed(&b, &pane));
         assert_eq!(check_take_over(&a, Some(&other_pane), None, None).unwrap_err().code, "CONSENT_PENDING", "another pane still asks");
-        assert!(consent::always_allowed(&pane));
+    });
+}
+
+/// The grant written when the card is answered (`on_resolved`, before the agent calls again) is
+/// the asking agent's too.
+#[test]
+fn always_recorded_at_answer_time_is_the_asking_agents_only() {
+    let (a, b, pane) = (id("a"), id("b"), id("user-pane"));
+    with_config(ASKING, || {
+        let card_id = consent_id_of(&check_take_over(&a, Some(&pane), None, None).unwrap_err());
+        person_answers(&card_id, CHOICE_ALWAYS);
+        assert!(consent::always_allowed(&a, &pane), "recorded when the person answered");
+        assert!(!consent::always_allowed(&b, &pane));
+        assert_eq!(check_take_over(&b, Some(&pane), None, None).unwrap_err().code, "CONSENT_PENDING");
     });
 }
 
@@ -252,6 +276,46 @@ fn allow_for_a_pane_does_not_unlock_answering_risky_prompts() {
         check_take_over(&agent, Some(&pane), None, None).unwrap();
         mcp_sessions::take_over_pane(&agent, &pane, true).unwrap();
         assert_eq!(check_answer(Some(&agent), &pane, "p", Some("high"), None, None).unwrap_err().code, "CONSENT_PENDING");
+    });
+}
+
+// ---- raw keys into a dialog (review R12 3.2) ----
+
+fn dialog(prompt_id: &str, risk: &str) -> Value {
+    json!({"prompt_id": prompt_id, "kind": "command", "risk": {"level": risk, "headline": "Delete a folder"}})
+}
+
+#[test]
+fn an_agents_raw_keys_into_a_dialog_are_audited_even_with_a_off() {
+    let (agent, pane) = (id("s"), id("user-pane"));
+    with_config(TODAY, || {
+        super::gate::check_raw_keys(Some(&agent), &pane, &dialog("p-1", "high"), "the 1 key", None)
+            .expect("A off: today's behaviour, the keys go through");
+        let lines = audit_lines_for(&pane);
+        let line = lines.iter().find(|e| e.detail["via"] == "raw_keys").unwrap_or_else(|| panic!("no audit line: {lines:?}"));
+        assert_eq!(line.kind, "approval");
+        assert_eq!(line.who, "agent");
+        assert_eq!(line.detail["prompt_id"], "p-1");
+        assert_eq!(line.detail["keys"], "the 1 key");
+        assert_eq!(line.detail["outcome"], "sent");
+    });
+}
+
+#[test]
+fn with_a_on_an_agents_raw_keys_into_a_risky_dialog_outside_its_lineage_need_a_card() {
+    let (agent, user_pane, own_pane) = (id("s"), id("user-pane"), id("own-pane"));
+    mcp_sessions::register_owned_pane(&agent, &own_pane).unwrap();
+    with_config(ASKING, || {
+        let error = super::gate::check_raw_keys(Some(&agent), &user_pane, &dialog("p-2", "high"), "the Enter key", None).unwrap_err();
+        assert_eq!(error.code, "CONSENT_PENDING");
+        assert!(audit_lines_for(&user_pane).iter().any(|e| e.detail["via"] == "raw_keys" && e.detail["outcome"] == "held: asking you first"));
+        // Its own pane: not gated, still written down.
+        super::gate::check_raw_keys(Some(&agent), &own_pane, &dialog("p-3", "high"), "the Enter key", None).expect("own lineage");
+        assert!(audit_lines_for(&own_pane).iter().any(|e| e.detail["via"] == "raw_keys" && e.detail["outcome"] == "sent"));
+        // The person's keys are theirs.
+        let person_pane = id("user-pane");
+        super::gate::check_raw_keys(None, &person_pane, &dialog("p-4", "high"), "the Enter key", None).expect("the person");
+        assert!(audit_lines_for(&person_pane).is_empty());
     });
 }
 

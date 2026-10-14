@@ -13,6 +13,9 @@ use crate::bridge::pane_util::resolve_default_opencode_pane_id;
 #[derive(Debug, Deserialize)]
 struct OpenCodePermissionReplyBody {
     reply: String,
+    /// An agent replying `always` must opt in, as with `answer_prompt` (`BROAD_APPROVAL_REQUIRES_OPT_IN`).
+    #[serde(default)]
+    allow_broad: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,24 +160,97 @@ fn pane_permissions(cx: &Ctx, pane_id: &str) -> RouteResult {
 }
 
 fn permission_reply(cx: &Ctx, pane_id: &str, request_id: &str) -> RouteResult {
-    let body = cx.body;
-    let registry = cx.registry;
-    let req: OpenCodePermissionReplyBody = parse_json(body)?;
-    crate::opencode::reply_pane_permission(registry, pane_id, request_id, &req.reply)
+    let req: OpenCodePermissionReplyBody = parse_json(cx.body)?;
+    let session = cx.session.filter(|s| !s.trim().is_empty());
+    gate_reply(session, cx.registry, pane_id, request_id, Some(&req.reply), req.allow_broad)
+        .map_err(crate::bridge::errors::operation_http_error)?;
+    crate::opencode::reply_pane_permission(cx.registry, pane_id, request_id, &req.reply)
         .map_err(|err| (404, json!({ "error": err })))?;
+    crate::agent_authority::gate::note_answer(session, pane_id, request_id, &req.reply, Some(cx.registry));
     Ok((200, json!({ "ok": true })))
 }
 
 fn question_reply(cx: &Ctx, pane_id: &str) -> RouteResult {
-    let body = cx.body;
-    let registry = cx.registry;
-    let req: OpenCodeQuestionReplyBody = parse_json(body)?;
+    let req: OpenCodeQuestionReplyBody = parse_json(cx.body)?;
+    let session = cx.session.filter(|s| !s.trim().is_empty());
+    let prompt_key = req.request_id.clone().unwrap_or_else(|| "opencode-question".to_string());
+    gate_reply(session, cx.registry, pane_id, &prompt_key, None, false)
+        .map_err(crate::bridge::errors::operation_http_error)?;
     let result = crate::opencode::reply_pane_question(
-        registry,
+        cx.registry,
         pane_id,
         &req.answer,
         req.request_id.as_deref(),
     )
     .map_err(|err| (404, json!({ "error": err })))?;
+    crate::agent_authority::gate::note_answer(session, pane_id, &prompt_key, &req.answer, Some(cx.registry));
     Ok((200, result))
+}
+
+/// The checks `answer_prompt` makes before an answer goes out, for an OpenCode permission or
+/// question reply (review R12 3.2): an agent's `always` needs `allow_broad=true`, and with setting
+/// A on an agent answering in a pane outside its lineage needs a person's OK (`check_answer`; the
+/// OpenCode API does not grade risk, so it counts as not low). `session` is `None` for the person
+/// (desktop or phone), who is never gated.
+pub(crate) fn gate_reply(
+    session: Option<&str>,
+    registry: &Arc<parking_lot::Mutex<crate::pty::PaneRegistry>>,
+    pane_id: &str,
+    prompt_key: &str,
+    permission_reply: Option<&str>,
+    allow_broad: bool,
+) -> Result<(), crate::operations::OperationError> {
+    if session.is_some() && permission_reply.is_some_and(|reply| reply.trim() == "always") && !allow_broad {
+        return Err(crate::operations::OperationError::new(
+            "BROAD_APPROVAL_REQUIRES_OPT_IN",
+            "reply=always lets OpenCode do this kind of thing from now on without asking; an agent must pass allow_broad=true to opt in, or reply once",
+            false,
+        ));
+    }
+    crate::agent_authority::gate::check_answer(session, pane_id, prompt_key, None, None, Some(registry))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gate_reply;
+    use crate::agent_authority::config::{with_config, Config};
+
+    const ASKING: Config = Config { ask_before_agent_control: true, agents_may_merge: true };
+    const TODAY: Config = Config { ask_before_agent_control: false, agents_may_merge: true };
+
+    fn registry() -> std::sync::Arc<parking_lot::Mutex<crate::pty::PaneRegistry>> {
+        std::sync::Arc::new(parking_lot::Mutex::new(crate::pty::PaneRegistry::new()))
+    }
+
+    fn id(tag: &str) -> String {
+        format!("{tag}-{}", uuid::Uuid::new_v4())
+    }
+
+    /// Review R12 3.2: an agent's OpenCode reply skipped `check_answer` and the `allow_broad` rule.
+    #[test]
+    fn an_agents_opencode_always_needs_allow_broad_like_answer_prompt() {
+        let (agent, pane) = (id("agent"), id("oc-pane"));
+        with_config(TODAY, || {
+            let err = gate_reply(Some(&agent), &registry(), &pane, "perm-1", Some("always"), false).unwrap_err();
+            assert_eq!(err.code, "BROAD_APPROVAL_REQUIRES_OPT_IN");
+            gate_reply(Some(&agent), &registry(), &pane, "perm-1", Some("always"), true).expect("opted in");
+            gate_reply(Some(&agent), &registry(), &pane, "perm-1", Some("once"), false).expect("once needs no opt-in");
+            gate_reply(None, &registry(), &pane, "perm-1", Some("always"), false).expect("the person is never gated");
+        });
+    }
+
+    #[test]
+    fn with_setting_a_an_agents_opencode_reply_in_a_pane_it_did_not_start_raises_a_card() {
+        let (agent, pane) = (id("agent"), id("oc-user-pane"));
+        with_config(ASKING, || {
+            let err = gate_reply(Some(&agent), &registry(), &pane, "perm-2", Some("once"), false).unwrap_err();
+            assert_eq!(err.code, "CONSENT_PENDING");
+            let err = gate_reply(Some(&agent), &registry(), &pane, "q-1", None, false).unwrap_err();
+            assert_eq!(err.code, "CONSENT_PENDING", "a question reply is an answer too");
+            gate_reply(None, &registry(), &pane, "perm-2", Some("once"), false).expect("the person is never gated");
+        });
+        with_config(TODAY, || {
+            gate_reply(Some(&agent), &registry(), &pane, "perm-3", Some("once"), false).expect("setting A off: today's behaviour");
+        });
+    }
 }

@@ -151,3 +151,25 @@ Origin: {origin}
         assert!(!requires_pairing_token(&headers, true), "Origin: {origin}");
     }
 }
+
+/// Review R12 2.3: the fanout's device mirror held caps only, so a lost phone holding an SSE or WS
+/// stream open past its 30 days kept receiving events until it made a new request.
+#[test]
+fn an_open_stream_stops_when_the_device_expires_without_a_new_request() {
+    let dir = std::env::temp_dir().join(format!("pm-stream-exp-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut store = MobilePairingStore::load_or_create(dir.join("pairing.json")).unwrap();
+    let session = store.create_pairing_session_with_caps("http://127.0.0.1:1".into(), Caps::all());
+    let device = store
+        .pair_device(PairRequestBody {
+            pairing_code: session.pairing_code,
+            device_name: "phone".into(),
+            device_public_key: session.server_public_key,
+        })
+        .unwrap()
+        .device_id;
+    let now = now_secs();
+    assert_eq!(stream_caps_at(&device, now), Some(Caps::all()));
+    assert_eq!(stream_caps_at(&device, now + DEVICE_IDLE_EXPIRY_SECS + 60), None, "past its idle expiry the stream closes");
+    let _ = std::fs::remove_dir_all(dir);
+}

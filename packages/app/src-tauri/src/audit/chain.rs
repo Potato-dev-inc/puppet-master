@@ -48,11 +48,11 @@ pub(super) fn load_tip(dir: &Path) -> Tip {
         .and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| text.lines().rev().find(|l| !l.trim().is_empty()).map(str::to_string));
     if let Some(entry) = last_line.and_then(|l| serde_json::from_str::<Entry>(&l).ok()) {
-        return Tip { seq: entry.seq, hash: entry.hash };
+        return Tip { seq: entry.seq, hash: entry.hash, ts_ms: entry.ts_ms };
     }
     match read_head(dir) {
-        Some(head) => Tip { seq: head.seq, hash: head.hash },
-        None => Tip { seq: 0, hash: GENESIS.to_string() },
+        Some(head) => Tip { seq: head.seq, hash: head.hash, ts_ms: 0 },
+        None => Tip { seq: 0, hash: GENESIS.to_string(), ts_ms: 0 },
     }
 }
 

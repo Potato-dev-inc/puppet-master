@@ -106,7 +106,9 @@ fn run(name: &str, args: &Value, known: &mut bool) -> Result<String, String> {
                     encode_path_segment(&pane_id),
                     encode_path_segment(&request_id)
                 ),
-                Some(json!({ "reply": reply })),
+                // `allow_broad` rides along when the agent passed it: the bridge refuses an agent's
+                // `always` without it, as `answer_prompt` does.
+                Some(json!({ "reply": reply, "allow_broad": args.get("allow_broad").and_then(|v| v.as_bool()).unwrap_or(false) })),
             )?;
             Ok("ok".to_string())
         }

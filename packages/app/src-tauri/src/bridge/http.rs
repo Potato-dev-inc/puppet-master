@@ -134,7 +134,7 @@ pub(super) fn events_poll(caller: &mobile_pairing::Caller, query: &str) -> serde
     let poll = super::event_log::poll_for(
         cursor,
         std::time::Duration::from_millis(wait_ms),
-        &|payload| viewer.may_receive(payload).unwrap_or(false),
+        &|payload| viewer.view(payload).flatten(),
     );
     serde_json::to_value(poll).unwrap_or_default()
 }

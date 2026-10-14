@@ -47,18 +47,20 @@ impl EventLog {
 
     /// Payloads with a sequence number at or after `cursor`.
     pub fn since(&self, cursor: u64) -> Poll {
-        self.since_for(cursor, &|_| true)
+        self.since_for(cursor, &|payload| Some(std::borrow::Cow::Borrowed(payload)))
     }
 
-    /// [`since`](Self::since), keeping only the payloads this viewer may receive (a paired device
-    /// without `watch` gets no terminal bytes). The cursor still moves past what was left out.
-    pub fn since_for(&self, cursor: u64, keep: &dyn Fn(&str) -> bool) -> Poll {
+    /// [`since`](Self::since) as one viewer sees it: `view` leaves a payload out (`None`) or gives
+    /// the form this viewer may receive (a paired device without `watch` gets no terminal bytes
+    /// and cut-down operation events, `mobile_pairing::project`). The cursor still moves past
+    /// what was left out.
+    pub fn since_for(&self, cursor: u64, view: &View<'_>) -> Poll {
         let first = self.items.front().map(|(seq, _)| *seq).unwrap_or(self.next);
         let data = self
             .items
             .iter()
-            .filter(|(seq, payload)| *seq >= cursor && keep(payload))
-            .map(|(_, payload)| payload.as_str())
+            .filter(|(seq, _)| *seq >= cursor)
+            .filter_map(|(_, payload)| view(payload))
             .collect();
         Poll { cursor: self.next, data, gap: cursor < first || cursor > self.next }
     }
@@ -81,11 +83,14 @@ pub fn record(payload: &str) {
 /// one: the payloads after it as soon as there are any, or an empty answer after `wait`.
 #[cfg(test)]
 pub fn poll(cursor: Option<u64>, wait: Duration) -> Poll {
-    poll_for(cursor, wait, &|_| true)
+    poll_for(cursor, wait, &|payload| Some(std::borrow::Cow::Borrowed(payload)))
 }
 
-/// [`poll`] for one viewer: payloads `keep` refuses are left out (see `EventLog::since_for`).
-pub fn poll_for(cursor: Option<u64>, wait: Duration, keep: &dyn Fn(&str) -> bool) -> Poll {
+/// One viewer's form of a payload (`None`: left out).
+pub type View<'v> = dyn for<'a> Fn(&'a str) -> Option<std::borrow::Cow<'a, str>> + 'v;
+
+/// [`poll`] for one viewer (see `EventLog::since_for`).
+pub fn poll_for(cursor: Option<u64>, wait: Duration, view: &View<'_>) -> Poll {
     let (log, wake) = &*LOG;
     let mut guard = log.lock();
     let Some(cursor) = cursor else {
@@ -99,7 +104,7 @@ pub fn poll_for(cursor: Option<u64>, wait: Duration, keep: &dyn Fn(&str) -> bool
             }
         }
     }
-    guard.since_for(cursor, keep)
+    guard.since_for(cursor, view)
 }
 
 #[cfg(test)]

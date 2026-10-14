@@ -200,6 +200,38 @@ fn live_permit_claude_fresh_screen_is_ready_and_a_draft_is_not() {
     assert!(!draft.is_ready(), "a box holding someone's text is not typed into");
 }
 
+/// Claude Code, zero tokens (plain-mode live bug, r12): the follow-up typed TWICE into the box (the
+/// first copy taken late) is erased by the profile's retype clear key in one press, and the box then
+/// reads Empty, which is what lets delivery say "cleared". Nothing is submitted.
+#[cfg(windows)]
+#[test]
+#[ignore = "live: starts the real claude CLI (no turn)"]
+fn live_permit_claude_retype_clear_key_erases_two_copies_of_its_own_text() {
+    let mut pane = LivePane::start("claude", AgentType::Claude);
+    let ready = pane.wait_until(60, |v| v.is_ready());
+    assert!(ready.is_ready(), "{}", ready.screen());
+    let text = "Make the shop name at the top bigger, and add a small line that says Open every day.";
+    for _ in 0..2 {
+        pane.writer.write_all(text.as_bytes()).unwrap();
+        pane.writer.flush().unwrap();
+        thread::sleep(Duration::from_millis(300));
+    }
+    let doubled = pane.wait_until(10, |v| v.composer() == ComposerState::HasText);
+    pane.capture("claude_two_copies_in_box_live.txt");
+    println!("--- two copies ---\n{}", doubled.screen());
+    assert_eq!(doubled.composer(), ComposerState::HasText, "{}", doubled.screen());
+    // One press erases one visual line (probe, 2.1.300: two wrapped copies needed two presses), so
+    // the profile's key is a run of presses; it goes in as one write, as delivery sends it.
+    let clear = pane.profile_arc().retype_clear_sequence().expect("claude declares a retype clear key");
+    pane.writer.write_all(clear.as_bytes()).unwrap();
+    pane.writer.flush().unwrap();
+    let cleared = pane.wait_until(10, |v| v.composer() == ComposerState::Empty);
+    pane.capture("claude_after_retype_clear_live.txt");
+    println!("--- after the clear key ---\n{}", cleared.screen());
+    assert_eq!(cleared.composer(), ComposerState::Empty, "{}", cleared.screen());
+    assert!(cleared.is_ready());
+}
+
 /// Claude Code, two tiny turns: a first task and a follow-up, both delivered under permits through
 /// the real protocol. The follow-up is the case that stalled when readiness demanded the startup
 /// screen: the recogniser must read the box after a turn.

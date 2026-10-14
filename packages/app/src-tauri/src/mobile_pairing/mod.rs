@@ -251,7 +251,7 @@ impl MobilePairingStore {
             if device_expired(device, now) {
                 view.remove(&device.id);
             } else {
-                view.insert(device.id.clone(), device.caps);
+                view.insert(device.id.clone(), (device.caps, device.exp));
             }
         }
     }
@@ -429,7 +429,7 @@ impl MobilePairingStore {
         });
         self.pending = None;
         self.persist()?;
-        DEVICE_VIEW.write().insert(device_id.clone(), caps);
+        DEVICE_VIEW.write().insert(device_id.clone(), (caps, Some(now + DEVICE_IDLE_EXPIRY_SECS)));
         events::emit(SecurityEvent::DevicePaired { device_id: device_id.clone(), caps: caps.list() });
 
         let message = format!("{}|{}|{}", device_id, device_token, req.device_public_key);
@@ -482,6 +482,10 @@ impl MobilePairingStore {
         device.last_seen = Some(now);
         device.exp = Some(new_exp);
         let (device_id, caps) = (device.id.clone(), device.caps);
+        // The fanout's mirror slides with the device, so an open stream ends when the device expires.
+        if let Some(entry) = DEVICE_VIEW.write().get_mut(&device_id) {
+            entry.1 = Some(new_exp);
+        }
         // The window moves on every request; the file only needs it roughly right.
         if new_exp >= stored_exp + SLIDE_PERSIST_EVERY_SECS {
             if let Err(err) = self.persist() {
@@ -516,16 +520,27 @@ fn device_expired(device: &PersistedDevice, now: u64) -> bool {
     device.exp.is_some_and(|exp| now > exp)
 }
 
-/// device id -> caps of every live paired device. The event-stream fanout reads it instead of
-/// taking the store lock (revoking holds the store lock while it talks to push, which publishes).
+/// device id -> (caps, expiry) of every live paired device. The event-stream fanout reads it
+/// instead of taking the store lock (revoking holds the store lock while it talks to push, which
+/// publishes).
 static DEVICE_VIEW: once_cell::sync::Lazy<
-    parking_lot::RwLock<std::collections::HashMap<String, Caps>>,
+    parking_lot::RwLock<std::collections::HashMap<String, (Caps, Option<u64>)>>,
 > = once_cell::sync::Lazy::new(Default::default);
 
 /// The caps of a live paired device, for the event-stream fanout. `None`: revoked or expired, so
-/// its open streams close.
+/// its open streams close. The expiry is checked here too (review R12 2.3): a lost phone holding a
+/// stream open past its 30 days stops receiving without making a new request. An open stream is not
+/// "use": the window slides on requests (the long poll makes one every 25 s; SSE and WS reconnect).
 pub fn stream_caps(device_id: &str) -> Option<Caps> {
-    DEVICE_VIEW.read().get(device_id).copied()
+    stream_caps_at(device_id, now_secs())
+}
+
+pub(crate) fn stream_caps_at(device_id: &str, now: u64) -> Option<Caps> {
+    let (caps, exp) = DEVICE_VIEW.read().get(device_id).copied()?;
+    if exp.is_some_and(|exp| now > exp) {
+        return None;
+    }
+    Some(caps)
 }
 
 pub type SharedPairingStore = Arc<Mutex<MobilePairingStore>>;

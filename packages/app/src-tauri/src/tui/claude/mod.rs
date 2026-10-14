@@ -245,4 +245,11 @@ impl TuiProfile for Claude {
     fn verifies_prompt_delivery(&self) -> bool {
         true
     }
+
+    /// Ctrl+U, one press per visual line, erases the text Puppet Master typed (live, 2.1.300: two
+    /// wrapped copies of a follow-up left in the box). Not the readiness clear sequence: a
+    /// person's draft is not Puppet Master's to erase.
+    fn retype_clear_sequence(&self) -> Option<&'static str> {
+        Some(screen::CLEAR_TYPED_TEXT)
+    }
 }

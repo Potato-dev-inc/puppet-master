@@ -606,3 +606,80 @@ fn an_unknown_screen_that_never_clears_ends_screen_not_ready_without_a_fallback(
     assert!(error.context["screen"].as_str().unwrap().contains("Ask Codex"));
     assert!(now.worker.fallback.is_none(), "never a headless fallback");
 }
+
+/// Review R12 1.4: every pane status change rewrote `required_action` (to `None` for idle/running,
+/// to the id-less manual action for waiting_input), so a run parked on `screen_not_ready` lost its
+/// explanation and screen the first time the person touched the pane.
+#[test]
+fn a_parked_run_keeps_its_screen_not_ready_explanation_through_pane_status_changes() {
+    let pane = "park-unknown-keeps-reason";
+    let (registry, op, handle) = parked_on_unknown(pane, Duration::from_secs(20));
+    wait_for(|| {
+        let now = stored(&op);
+        (now.status == OperationStatus::WaitingInput && now.required_action.is_some()).then_some(())
+    });
+    let manual = serde_json::json!({"kind": "manual_input_required", "pane_id": pane, "detail": "Inspect the pane"});
+    // What `observe_operation_pane_status` records for running, idle and an unrecognised waiting_input.
+    for (state, action) in [("running", None), ("idle", None), ("waiting_input", Some(manual))] {
+        let now = crate::operations::mark_operation_observation(
+            &op.project_path,
+            &op.operation_id,
+            Some(state.into()),
+            action,
+            crate::operations::StateSource::Inferred,
+        )
+        .unwrap();
+        let kept = now.required_action.clone().unwrap_or_else(|| panic!("{state}: the explanation was dropped"));
+        assert_eq!(kept["kind"], "screen_not_ready", "{state}: {kept}");
+        assert!(kept["screen"].as_str().unwrap().contains("Ask Codex"), "{state}: {kept}");
+        assert_eq!(now.status, OperationStatus::WaitingInput, "{state}");
+        assert_eq!(now.stage.as_deref(), Some("waiting_for_pane_readiness"), "{state}");
+    }
+    // A dialog the profile recognises is news: it replaces the explanation.
+    let dialog = serde_json::json!({"kind": "command", "prompt_id": "p-1", "pane_id": pane, "summary": "Run npm test?"});
+    let now = crate::operations::mark_operation_observation(
+        &op.project_path,
+        &op.operation_id,
+        Some("waiting_input".into()),
+        Some(dialog.clone()),
+        crate::operations::StateSource::Inferred,
+    )
+    .unwrap();
+    assert_eq!(now.required_action, Some(dialog));
+    show(&registry, pane, CODEX_READY);
+    wait_for(|| handle.is_finished().then_some(()));
+    let _ = handle.join().unwrap();
+}
+
+/// Live (plain mode, r12): Claude's folder-trust question parked the run; a redraw of the same
+/// dialog read for one look as "no dialog" (Ink clears and redraws top-down), the run was released,
+/// the settle wait then found the dialog idle and still, and the delivery right after failed
+/// PANE_BLOCKED_BY_PROMPT while the person was still answering.
+#[test]
+fn a_half_drawn_redraw_of_the_trust_dialog_does_not_release_the_parked_run() {
+    let pane = "gate-trust-redraw";
+    let (registry, op, handle) = parked_run(pane, TRUST);
+    wait_for(|| {
+        let now = stored(&op);
+        (now.status == OperationStatus::WaitingInput && now.required_action.is_some()).then_some(())
+    });
+    // One look at the first row of the redraw, then the dialog again.
+    let first_row: String = TRUST.lines().find(|l| !l.trim().is_empty()).unwrap().to_string();
+    show(&registry, pane, &first_row);
+    set_status(&registry, pane, PaneStatus::Idle);
+    crate::pane_wait_notify::bump_waiters();
+    std::thread::sleep(Duration::from_millis(60));
+    show(&registry, pane, TRUST);
+    crate::pane_wait_notify::bump_waiters();
+    std::thread::sleep(Duration::from_millis(1_500));
+    assert!(!handle.is_finished(), "the run was released while the trust question was still on screen");
+    let now = stored(&op);
+    assert_eq!(now.status, OperationStatus::WaitingInput, "{now:?}");
+    assert_eq!(now.required_action.as_ref().map(|a| a["kind"].clone()), Some(serde_json::json!("workspace_trust")));
+    // The person trusts the folder: the run goes on.
+    show(&registry, pane, READY);
+    crate::pane_wait_notify::bump_waiters();
+    wait_for(|| handle.is_finished().then_some(()));
+    handle.join().unwrap().expect("resumed after the real answer");
+    assert_eq!(stored(&op).status, OperationStatus::Running);
+}
