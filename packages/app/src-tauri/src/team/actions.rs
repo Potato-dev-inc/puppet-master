@@ -197,9 +197,8 @@ pub fn merge_task(job: &super::store::Job) -> String {
     let files = job.conflicts.iter().map(|f| f.as_str()).collect::<Vec<_>>().join(", ");
     let mut task = format!(
         "Merge of {branch} ({sha}) into {into} stopped with conflicts in: {files}.\n\
-         Resolve them so both sides' intent is kept. Do not change unrelated code.\n\
-         Do not push, do not switch branches, do not rebase.\n\
-         When done, stage the resolved files and commit the merge with `git commit --no-edit`.",
+         Resolve them so both sides' intent is kept, and remove every conflict marker. Do not change unrelated code.\n\
+         Do not push, do not switch branches, do not rebase. You don't need to commit: Puppet Master commits the merge in this copy when you are done.",
         branch = job.their_branch,
         sha = short(&job.commit),
         into = job.into,
@@ -217,8 +216,9 @@ pub fn merge_task(job: &super::store::Job) -> String {
 /// The `run_agent` request for a queued update: the chosen pane's agent type, a new worker in
 /// the separate copy prepared under `handle` (`isolation: worktree` finds it by handle), one turn,
 /// [`QUEUED_RUN_TIMEOUT_MS`], in the background.
-pub fn run_request(project: &str, job: &super::store::Job) -> serde_json::Value {
+pub fn run_request(project: &str, job: &super::store::Job, headless: bool) -> serde_json::Value {
     serde_json::json!({
+        "headless": headless,
         "task": merge_task(job),
         "project_path": project,
         "agent_type": job.agent_type,
@@ -232,6 +232,34 @@ pub fn run_request(project: &str, job: &super::store::Job) -> serde_json::Value 
         "keep_pane": true,
         "name": format!("Team update {}", short(&job.commit)),
     })
+}
+
+/// After the agent's turn: if the merge is still open and no conflict markers are left in the
+/// files that conflicted, stage everything in the copy and commit the merge there. Agents whose
+/// shell is limited (a headless run that may only edit files) can then still finish the job; the
+/// person reviews the result with See changes before anything reaches their branch.
+pub fn finish_merge(worktree: &Path, conflicts: &[String]) -> Result<(), Refusal> {
+    if git::rev_parse(worktree, "MERGE_HEAD").is_none() {
+        return Ok(()); // the agent committed it
+    }
+    let marked = conflicts
+        .iter()
+        .filter(|f| {
+            std::fs::read_to_string(worktree.join(f.as_str()))
+                .map(|text| text.lines().any(|l| l.starts_with("<<<<<<< ") || l.starts_with(">>>>>>> ")))
+                .unwrap_or(false)
+        })
+        .count();
+    if marked > 0 {
+        return Err(refuse(
+            "UNRESOLVED",
+            format!("{marked} file{} still {} conflict markers.", if marked == 1 { "" } else { "s" }, if marked == 1 { "has" } else { "have" }),
+        ));
+    }
+    git::run(worktree, &["add", "-A", "--", "."]).map_err(|e| refuse("COMMIT_FAILED", first_line(&e).to_string()))?;
+    git::run(worktree, &git::with_identity(worktree, &["commit", "--no-verify", "--no-edit"]))
+        .map_err(|e| refuse("COMMIT_FAILED", format!("Couldn't commit the merge: {}", first_line(&e))))?;
+    Ok(())
 }
 
 /// The separate copy holds a finished merge of `commit`: no merge in progress, no unmerged files,

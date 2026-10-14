@@ -441,7 +441,13 @@ impl Service {
             return self.fail_job(&job.id, "No agent can start here.".into());
         };
         let request: crate::agent_runs::AgentRunRequest =
-            match serde_json::from_value(actions::run_request(&job.project, &with_conflicts)) {
+            // A background chore: headless when the agent has a headless mode (no window, no
+            // folder-trust prompt for the new copy), else a visible pane.
+            match serde_json::from_value(actions::run_request(
+                &job.project,
+                &with_conflicts,
+                crate::tui::run_modes(&job.agent_type).headless,
+            )) {
                 Ok(r) => r,
                 Err(e) => return self.fail_job(&job.id, format!("Couldn't start the agent: {e}")),
             };
@@ -473,7 +479,9 @@ impl Service {
         let Some(copy) = crate::worktrees::find_by_handle(&job.project, &job.handle) else {
             return self.fail_job(&job.id, "The separate copy is gone.".into());
         };
-        match actions::check_resolved(Path::new(&copy.path), &job.commit) {
+        let finished = actions::finish_merge(Path::new(&copy.path), &job.conflicts)
+            .and_then(|()| actions::check_resolved(Path::new(&copy.path), &job.commit));
+        match finished {
             Ok(()) => {
                 let stats = crate::worktrees::changes(&copy).ok().map(|c| event::DiffStat {
                     files: c.files_changed as u32,
