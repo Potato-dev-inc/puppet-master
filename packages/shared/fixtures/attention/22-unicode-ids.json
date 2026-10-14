@@ -1,0 +1,49 @@
+{
+  "name": "unicode-ids",
+  "note": "ids are opaque strings",
+  "input": {
+    "panes": [
+      {
+        "id": "päne-1",
+        "status": "waiting_input"
+      },
+      {
+        "id": "窓",
+        "status": "error"
+      }
+    ],
+    "questions": [
+      {
+        "id": "é1",
+        "pane_id": "窓",
+        "created_at_ms": 3
+      }
+    ],
+    "stuckPaneIds": [
+      "窓"
+    ]
+  },
+  "expected": [
+    {
+      "id": "approval:päne-1",
+      "kind": "approval",
+      "paneId": "päne-1"
+    },
+    {
+      "id": "question:é1",
+      "kind": "question",
+      "paneId": "窓",
+      "since": 3
+    },
+    {
+      "id": "error:窓",
+      "kind": "error",
+      "paneId": "窓"
+    },
+    {
+      "id": "stuck:窓",
+      "kind": "stuck",
+      "paneId": "窓"
+    }
+  ]
+}

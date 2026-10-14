@@ -1,0 +1,8 @@
+{
+  "name": "no-panes",
+  "note": "zero panes and no optional inputs",
+  "input": {
+    "panes": []
+  },
+  "expected": []
+}

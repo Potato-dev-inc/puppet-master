@@ -1,0 +1,28 @@
+{
+  "name": "duplicate-panes",
+  "note": "a pane listed twice is two approvals (the caller never does this, the port must not change it)",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "waiting_input"
+      },
+      {
+        "id": "a",
+        "status": "waiting_input"
+      }
+    ]
+  },
+  "expected": [
+    {
+      "id": "approval:a",
+      "kind": "approval",
+      "paneId": "a"
+    },
+    {
+      "id": "approval:a",
+      "kind": "approval",
+      "paneId": "a"
+    }
+  ]
+}

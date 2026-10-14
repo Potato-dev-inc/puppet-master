@@ -1,0 +1,26 @@
+{
+  "name": "empty-risk-level",
+  "note": "an empty level string is no risk",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "waiting_input"
+      }
+    ],
+    "prompts": {
+      "a": {
+        "risk": {
+          "level": ""
+        }
+      }
+    }
+  },
+  "expected": [
+    {
+      "id": "approval:a",
+      "kind": "approval",
+      "paneId": "a"
+    }
+  ]
+}

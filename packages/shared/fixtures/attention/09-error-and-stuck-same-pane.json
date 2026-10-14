@@ -1,0 +1,27 @@
+{
+  "name": "error-and-stuck-same-pane",
+  "note": "legacy: an errored pane that is also flagged stuck yields BOTH items (the precedence rule changes this later)",
+  "input": {
+    "panes": [
+      {
+        "id": "x",
+        "status": "error"
+      }
+    ],
+    "stuckPaneIds": [
+      "x"
+    ]
+  },
+  "expected": [
+    {
+      "id": "error:x",
+      "kind": "error",
+      "paneId": "x"
+    },
+    {
+      "id": "stuck:x",
+      "kind": "stuck",
+      "paneId": "x"
+    }
+  ]
+}

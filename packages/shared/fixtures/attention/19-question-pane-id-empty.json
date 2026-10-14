@@ -1,0 +1,33 @@
+{
+  "name": "question-pane-id-empty",
+  "note": "an empty pane_id string is no pane link",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "idle"
+      }
+    ],
+    "questions": [
+      {
+        "id": "q",
+        "pane_id": ""
+      },
+      {
+        "id": "r",
+        "pane_id": "a"
+      }
+    ]
+  },
+  "expected": [
+    {
+      "id": "question:q",
+      "kind": "question"
+    },
+    {
+      "id": "question:r",
+      "kind": "question",
+      "paneId": "a"
+    }
+  ]
+}

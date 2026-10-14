@@ -1,0 +1,57 @@
+{
+  "name": "risk-levels",
+  "note": "low, medium and high are kept as is",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "waiting_input"
+      },
+      {
+        "id": "b",
+        "status": "waiting_input"
+      },
+      {
+        "id": "c",
+        "status": "waiting_input"
+      }
+    ],
+    "prompts": {
+      "a": {
+        "risk": {
+          "level": "low"
+        }
+      },
+      "b": {
+        "risk": {
+          "level": "medium"
+        }
+      },
+      "c": {
+        "risk": {
+          "level": "high"
+        }
+      }
+    }
+  },
+  "expected": [
+    {
+      "id": "approval:a",
+      "kind": "approval",
+      "paneId": "a",
+      "risk": "low"
+    },
+    {
+      "id": "approval:b",
+      "kind": "approval",
+      "paneId": "b",
+      "risk": "medium"
+    },
+    {
+      "id": "approval:c",
+      "kind": "approval",
+      "paneId": "c",
+      "risk": "high"
+    }
+  ]
+}

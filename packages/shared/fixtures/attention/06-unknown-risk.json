@@ -1,0 +1,26 @@
+{
+  "name": "unknown-risk",
+  "note": "a risk level it does not know is dropped",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "waiting_input"
+      }
+    ],
+    "prompts": {
+      "a": {
+        "risk": {
+          "level": "spicy"
+        }
+      }
+    }
+  },
+  "expected": [
+    {
+      "id": "approval:a",
+      "kind": "approval",
+      "paneId": "a"
+    }
+  ]
+}

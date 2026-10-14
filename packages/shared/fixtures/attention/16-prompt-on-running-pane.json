@@ -1,0 +1,20 @@
+{
+  "name": "prompt-on-running-pane",
+  "note": "a prompt recorded for a pane that is not waiting adds nothing",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "running"
+      }
+    ],
+    "prompts": {
+      "a": {
+        "risk": {
+          "level": "high"
+        }
+      }
+    }
+  },
+  "expected": []
+}

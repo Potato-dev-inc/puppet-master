@@ -1,0 +1,62 @@
+{
+  "name": "sidebar-panes",
+  "note": "the panes that have something waiting, for the sidebar group",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "waiting_input"
+      },
+      {
+        "id": "b",
+        "status": "waiting_input"
+      },
+      {
+        "id": "c",
+        "status": "error"
+      },
+      {
+        "id": "d",
+        "status": "running"
+      },
+      {
+        "id": "e",
+        "status": "idle"
+      }
+    ],
+    "stuckPaneIds": [
+      "d"
+    ],
+    "notices": [
+      {
+        "id": "n"
+      }
+    ]
+  },
+  "expected": [
+    {
+      "id": "approval:a",
+      "kind": "approval",
+      "paneId": "a"
+    },
+    {
+      "id": "approval:b",
+      "kind": "approval",
+      "paneId": "b"
+    },
+    {
+      "id": "error:c",
+      "kind": "error",
+      "paneId": "c"
+    },
+    {
+      "id": "stuck:d",
+      "kind": "stuck",
+      "paneId": "d"
+    },
+    {
+      "id": "answer:n",
+      "kind": "answer"
+    }
+  ]
+}

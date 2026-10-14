@@ -1,0 +1,22 @@
+{
+  "name": "gone-panes",
+  "note": "stuck signals and question panes for panes that no longer exist are ignored / unlinked",
+  "input": {
+    "panes": [],
+    "stuckPaneIds": [
+      "gone"
+    ],
+    "questions": [
+      {
+        "id": "q",
+        "pane_id": "gone"
+      }
+    ]
+  },
+  "expected": [
+    {
+      "id": "question:q",
+      "kind": "question"
+    }
+  ]
+}
