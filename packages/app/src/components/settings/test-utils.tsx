@@ -28,6 +28,7 @@ export const BASE_SETTINGS: Settings = {
   away_minutes: 5,
   budget_default_turns: 0,
   budget_default_minutes: 0,
+  agent_hooks_mode: 'shadow',
 };
 
 export interface TestEnv extends SettingsEnv {

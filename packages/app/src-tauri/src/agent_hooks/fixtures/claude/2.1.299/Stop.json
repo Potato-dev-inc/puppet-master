@@ -1,0 +1,16 @@
+{
+  "session_id": "82f9078c-d017-4e1b-bc87-38cb6b5548df",
+  "transcript_path": "C:\\Users\\user\\.claude\\projects\\D--pm-demo\\82f9078c-d017-4e1b-bc87-38cb6b5548df.jsonl",
+  "cwd": "D:\\pm-demo",
+  "scratchpad_dir": "C:\\Users\\user\\AppData\\Local\\Temp\\claude\\D--pm-demo\\82f9078c-d017-4e1b-bc87-38cb6b5548df\\scratchpad",
+  "prompt_id": "e0ab09c1-858f-449d-a4da-7e82f9249f44",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "v22.20.0",
+  "background_tasks": [],
+  "session_crons": []
+}

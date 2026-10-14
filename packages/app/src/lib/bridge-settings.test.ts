@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { clampMobileInputDelayMs } from './bridge-settings';
+import type { Settings } from '@puppet-master/shared';
+import { clampMobileInputDelayMs, toPublicSettings } from './bridge-settings';
 
 describe('clampMobileInputDelayMs', () => {
   it('allows zero to disable mobile input buffering', () => {
@@ -15,5 +16,19 @@ describe('clampMobileInputDelayMs', () => {
 
   it('uses the default for nonnumeric values', () => {
     expect(clampMobileInputDelayMs(undefined)).toBe(250);
+  });
+});
+
+describe('toPublicSettings live updates', () => {
+  it('defaults agent_hooks_mode to shadow and agent_hooks_agents to {}', () => {
+    const pub = toPublicSettings({} as Settings);
+    expect(pub.agent_hooks_mode).toBe('shadow');
+    expect(pub.agent_hooks_agents).toEqual({});
+  });
+
+  it('passes saved values through', () => {
+    const pub = toPublicSettings({ agent_hooks_mode: 'off', agent_hooks_agents: { codex: 'off' } } as unknown as Settings);
+    expect(pub.agent_hooks_mode).toBe('off');
+    expect(pub.agent_hooks_agents).toEqual({ codex: 'off' });
   });
 });

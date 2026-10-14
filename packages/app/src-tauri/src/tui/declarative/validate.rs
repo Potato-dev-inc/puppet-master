@@ -78,6 +78,9 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
     e.0.extend(def.limits.iter().flat_map(crate::handoff::validate_limits));
     check_instructions(def, &mut e);
     check_install(def, &mut e);
+    if let Some(hooks) = &def.hooks {
+        e.0.extend(super::hooks::validate_hooks(hooks));
+    }
     check_profile(def, &mut e);
     check_regexes(&regexes, &mut e);
     e.0

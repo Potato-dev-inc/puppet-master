@@ -194,7 +194,7 @@ mod tests {
         use super::StatusHook::*;
         assert_eq!(
             super::STATUS_HOOK_ORDER,
-            [PaneActivity, Ambient, Operations, Checkpoints, Attention, Push, TurnSummary],
+            [PaneActivity, Ambient, Operations, Checkpoints, Attention, Push, TurnSummary, HookShadow],
             "the status-hook order is a contract: edit STATUS_HOOK_ORDER and this test together"
         );
         let position = |hook| super::STATUS_HOOK_ORDER.iter().position(|h| *h == hook).unwrap();
@@ -230,6 +230,7 @@ pub(crate) enum StatusHook {
     Attention,
     Push,
     TurnSummary,
+    HookShadow,
 }
 
 /// Everything that reacts to a pane status change, in the order it runs. The order is a contract:
@@ -247,13 +248,15 @@ pub(crate) enum StatusHook {
 /// 6. `Push` (phone notifications) is independent of the others.
 /// 7. `TurnSummary` MUST come after `Checkpoints`: it waits on the newest ticket, which is the one
 ///    `Checkpoints` just took (`turn_summary::on_pane_status`).
+/// 8. `HookShadow` (Hook Lane) only records the screen's verdict beside the hook events; it never
+///    acts, so it goes last.
 ///
 /// These run on the caller's thread, which is the PTY reader thread (the `pty://status` listener
 /// in `lib.rs` runs inline in the emitter). Each must stay cheap and move slow work (git, disk,
 /// network) to its own worker thread; `Checkpoints` and `TurnSummary` do. A list of names rather
 /// than function pointers keeps the order testable without linking the tray and window code the
 /// hooks reach.
-pub(crate) const STATUS_HOOK_ORDER: [StatusHook; 7] = [
+pub(crate) const STATUS_HOOK_ORDER: [StatusHook; 8] = [
     StatusHook::PaneActivity,
     StatusHook::Ambient,
     StatusHook::Operations,
@@ -261,6 +264,7 @@ pub(crate) const STATUS_HOOK_ORDER: [StatusHook; 7] = [
     StatusHook::Attention,
     StatusHook::Push,
     StatusHook::TurnSummary,
+    StatusHook::HookShadow,
 ];
 
 /// Visit `order` front to back.
@@ -279,6 +283,7 @@ fn run_status_hook(hook: StatusHook, pane_id: &str, status: &str) {
         StatusHook::Attention => crate::attention::on_pane_status(pane_id, status),
         StatusHook::Push => crate::push::notify_pane_status(pane_id, status),
         StatusHook::TurnSummary => crate::turn_summary::on_pane_status(pane_id, status),
+        StatusHook::HookShadow => crate::agent_hooks::shadow::on_screen_status(pane_id, status),
     }
 }
 

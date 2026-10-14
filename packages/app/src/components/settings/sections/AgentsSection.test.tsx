@@ -8,7 +8,7 @@ import { DEFAULT_STANDBY_CONFIG } from '../../../lib/standby';
 import { tauri } from '../../../lib/tauri';
 import type { StandbyConfig, StandbyStatus } from '../../../lib/tauri-types';
 import { rowMatches, searchSections, type SectionDef } from '../model';
-import { blur, buttonByText, byLabel, click, hasText, mountRows, settle, type as typeInto, type Mounted } from '../test-utils';
+import { BASE_SETTINGS, blur, buttonByText, byLabel, click, hasText, mountRows, pickOption, settle, type as typeInto, type Mounted } from '../test-utils';
 import { agentsRows } from './AgentsSection';
 
 vi.mock('../../../lib/tauri', async (importOriginal) => {
@@ -36,6 +36,21 @@ vi.mock('../../../lib/accounts', async (importOriginal) => {
       rename: vi.fn(async (id: string, label: string) => ({ id, agent_id: 'claude', label, home: 'C:/data/accounts/work' })),
       remove: vi.fn(async () => false),
       openLoginPane: vi.fn(async () => 'pane-1'),
+    },
+  };
+});
+
+vi.mock('../../../lib/agent-health', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../lib/agent-health')>();
+  const note = 'Puppet Master adds a small file to .codex in each project; Codex asks you to review it once per folder.';
+  return {
+    ...real,
+    agentHealthApi: {
+      check: vi.fn(async () => [
+        { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.300', reason: '', install_hint: null, login_hint: null, can_test: true, hooks: { state: 'connected', mode: 'shadow', sentence: 'Connected.', opt_in: false, enabled: true } },
+        { id: 'codex', label: 'Codex', state: 'unchecked', installed: true, version: '0.162.1', reason: '', install_hint: null, login_hint: null, can_test: true, hooks: { state: 'off', mode: 'off', sentence: 'Live updates are off.', opt_in: true, opt_in_note: note, enabled: false } },
+      ]),
+      test: vi.fn(),
     },
   };
 });
@@ -157,10 +172,10 @@ describe('Agents: every row renders', () => {
     expect(buttonByText(m.host, 'Save changes')).toBeUndefined();
   });
 
-  it('groups the rows: Logins, Speed, Updates, then Definitions (whose own block carries the title)', async () => {
+  it('groups the rows: Logins, Speed, Updates, Live updates, then Definitions (whose own block carries the title)', async () => {
     await mount();
     const heads = [...m.host.querySelectorAll('section.st-group')].map((g) => g.querySelector(':scope > h2')?.textContent?.trim() ?? '');
-    expect(heads).toEqual(['Logins', 'Speed', 'Updates', '']);
+    expect(heads).toEqual(['Logins', 'Speed', 'Updates', 'Live updates', '']);
   });
 });
 
@@ -248,6 +263,71 @@ describe('Agents: destructive actions', () => {
     expect(agentsRows.every((row) => !row.danger)).toBe(true);
     await mount();
     expect(m.host.querySelector('[data-danger="true"]')).toBeNull();
+  });
+});
+
+describe('Agents: Live updates', () => {
+  const popup = () => byLabel<HTMLSelectElement>(m.host, 'Live updates')!;
+
+  it('renders the row and shows Watch only by default', async () => {
+    await mount();
+    expect(rowOf('live-updates')).toBeTruthy();
+    expect(popup().value).toBe('shadow');
+    expect([...popup().options].map((o) => [o.value, o.textContent])).toEqual([
+      ['shadow', 'Watch only'],
+      ['off', 'Off'],
+    ]);
+    expect(hasText(m.host, 'Claude Code and Codex tell Puppet Master when they start, ask and finish.')).toBe(true);
+  });
+
+  it('choosing Off saves agent_hooks_mode off', async () => {
+    await mount();
+    await pickOption(popup(), 'off');
+    expect(m.env.patch).toHaveBeenCalledWith({ agent_hooks_mode: 'off' });
+  });
+
+  it('a saved evidence mode still reads as Watch only', async () => {
+    m = await mountRows(agentsRows, { settings: { ...BASE_SETTINGS, agent_hooks_mode: 'evidence' } });
+    await settle(10);
+    expect(popup().value).toBe('shadow');
+  });
+
+  it('never says hooks, shadow or evidence in its text', async () => {
+    await mount();
+    const text = rowOf('live-updates')!.textContent ?? '';
+    expect(text).not.toMatch(/hook|shadow|evidence/i);
+  });
+});
+
+describe('Agents: Live updates for opt-in agents', () => {
+  const codexSwitch = () => byLabel<HTMLButtonElement>(m.host, 'Live updates from Codex');
+
+  it('shows an off switch for an opt-in agent, with what turning it on does', async () => {
+    await mount();
+    await settle(10);
+    expect(codexSwitch()).toBeTruthy();
+    expect(codexSwitch()!.getAttribute('aria-checked')).toBe('false');
+    expect(hasText(m.host, 'Puppet Master adds a small file to .codex in each project; Codex asks you to review it once per folder.')).toBe(true);
+    expect(byLabel(m.host, 'Live updates from Claude Code')).toBeNull();
+  });
+
+  it('turning it on saves only that agent', async () => {
+    await mount();
+    await settle(10);
+    await click(codexSwitch());
+    expect(m.env.patch).toHaveBeenCalledWith({ agent_hooks_agents: { codex: 'shadow' } });
+  });
+
+  it('a saved choice wins over the default, and the global Off disables the switch', async () => {
+    m = await mountRows(agentsRows, { settings: { ...BASE_SETTINGS, agent_hooks_agents: { codex: 'shadow' } } });
+    await settle(10);
+    expect(codexSwitch()!.getAttribute('aria-checked')).toBe('true');
+    await click(codexSwitch());
+    expect(m.env.patch).toHaveBeenCalledWith({ agent_hooks_agents: { codex: 'off' } });
+    await m.unmount();
+    m = await mountRows(agentsRows, { settings: { ...BASE_SETTINGS, agent_hooks_mode: 'off', agent_hooks_agents: { codex: 'shadow' } } });
+    await settle(10);
+    expect(codexSwitch()!.disabled).toBe(true);
   });
 });
 

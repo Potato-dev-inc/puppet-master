@@ -166,6 +166,18 @@ pub(super) fn startup_gate(screen: &str) -> Option<StartupGate> {
             dismiss: Some(SKIP_KEY),
         });
     }
+    // "Hooks need review" (live 0.162.1, `fixtures/hooks_need_review.txt`): shown at start when the
+    // project's `.codex/hooks.json` has entries the user has not trusted yet, e.g. Puppet Master's
+    // Hook Lane entries. Esc is the screen's own "esc skip": it continues WITHOUT trusting, for this
+    // launch only (checked live: nothing is saved and the screen returns at the next start). It
+    // never picks "Trust all": trusting stays the user's own step in `/hooks`.
+    if lower.contains("hooks need review") && lower.contains("continue without trusting") {
+        return Some(StartupGate {
+            id: "hooks_review",
+            summary: "Codex asks you to review new hooks",
+            dismiss: Some(SKIP_KEY),
+        });
+    }
     if TRUST_PHRASES.iter().any(|phrase| lower.contains(phrase)) {
         return Some(StartupGate {
             id: StartupGate::WORKSPACE_TRUST,
@@ -354,6 +366,20 @@ mod tests {
         // history never read as Ready.
         assert_eq!(standby_screen(LIVE_SUBMITTED), StandbyScreen::Ready);
         assert_eq!(standby_screen(LIVE_UNSENT_GLUED), StandbyScreen::NotReady);
+    }
+
+    #[test]
+    fn live_hooks_review_screen_is_skipped_with_esc_never_trusted() {
+        for screen in [
+            include_str!("fixtures/hooks_need_review.txt"),
+            include_str!("fixtures/hooks_need_review_one_changed.txt"),
+        ] {
+            let gate = startup_gate(screen).expect("the hooks review screen is a startup gate");
+            assert_eq!(gate.id, "hooks_review");
+            // Esc = "esc skip" = continue without trusting. Enter would open the review and "2"
+            // would trust every hook: neither is ever sent for the user.
+            assert_eq!(gate.dismiss, Some("\u{1b}"));
+        }
     }
 
     #[test]

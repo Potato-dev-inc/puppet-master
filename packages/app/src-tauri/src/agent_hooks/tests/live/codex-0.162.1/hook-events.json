@@ -1,0 +1,88 @@
+[
+  {
+    "seq": 1,
+    "at_ms": 1792000030821,
+    "pane_id": "live-codex-66712",
+    "agent": "codex",
+    "kind": "prompt_submitted",
+    "vendor_event": "UserPromptSubmit",
+    "session": "01a13b86-1442-70e2-87aa-bc0c09e5b53f",
+    "turn_key": "01a13b86-7254-7c82-8d28-41586e20cfea",
+    "subagent": null,
+    "foreign": false,
+    "applied": true,
+    "detail": {
+      "prompt_sha": "58f2f8c837bdad8c05e0fd66165af35846a40451d98233a99c03a13ce0901742",
+      "prompt_len": 81
+    }
+  },
+  {
+    "seq": 2,
+    "at_ms": 1792000030821,
+    "pane_id": "live-codex-66712",
+    "agent": "codex",
+    "kind": "session_start",
+    "vendor_event": "SessionStart",
+    "session": "01a13b86-1442-70e2-87aa-bc0c09e5b53f",
+    "turn_key": null,
+    "subagent": null,
+    "foreign": false,
+    "applied": true,
+    "detail": {
+      "source": "startup",
+      "cwd": "D:\\pm-scratch-hook\\cx2",
+      "model": "gpt-6-luna"
+    }
+  },
+  {
+    "seq": 3,
+    "at_ms": 1792000033211,
+    "pane_id": "live-codex-66712",
+    "agent": "codex",
+    "kind": "permission_request",
+    "vendor_event": "PermissionRequest",
+    "session": "01a13b86-1442-70e2-87aa-bc0c09e5b53f",
+    "turn_key": "01a13b86-7254-7c82-8d28-41586e20cfea",
+    "subagent": null,
+    "foreign": false,
+    "applied": true,
+    "detail": {
+      "tool": "apply_patch",
+      "command_len": 56
+    }
+  },
+  {
+    "seq": 4,
+    "at_ms": 1792000057682,
+    "pane_id": "live-codex-66712",
+    "agent": "codex",
+    "kind": "tool_post",
+    "vendor_event": "PostToolUse",
+    "session": "01a13b86-1442-70e2-87aa-bc0c09e5b53f",
+    "turn_key": "01a13b86-7254-7c82-8d28-41586e20cfea",
+    "subagent": null,
+    "foreign": false,
+    "applied": true,
+    "detail": {
+      "tool": "apply_patch",
+      "tool_use": "exec-95078d6c-2297-484f-9e7f-f8e7a3a57bf5"
+    }
+  },
+  {
+    "seq": 5,
+    "at_ms": 1792000058817,
+    "pane_id": "live-codex-66712",
+    "agent": "codex",
+    "kind": "turn_end",
+    "vendor_event": "Stop",
+    "session": "01a13b86-1442-70e2-87aa-bc0c09e5b53f",
+    "turn_key": "01a13b86-7254-7c82-8d28-41586e20cfea",
+    "subagent": null,
+    "foreign": false,
+    "applied": true,
+    "detail": {
+      "final_text_len": 4,
+      "continuing": false
+    }
+  }
+]

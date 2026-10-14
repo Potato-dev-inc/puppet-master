@@ -159,6 +159,7 @@ pub fn start_embedded_bridge(
     let _ = crate::app_paths::ensure_app_data_dir();
     let (listener, port) = bind_listener()?;
     let url = format!("http://{HOST}:{port}");
+    crate::agent_hooks::set_bridge_port(port);
     // S3: this launch's local secret, written before the port file so a client that finds the new
     // port also finds the new secret. Log-only for now, so a failure here never stops the bridge.
     if let Err(err) = mobile_pairing::local_secret::init(&port_file) {

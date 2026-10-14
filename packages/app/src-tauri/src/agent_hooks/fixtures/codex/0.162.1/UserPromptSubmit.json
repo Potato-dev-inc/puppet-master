@@ -1,0 +1,10 @@
+{
+  "session_id": "01a13b3c-be72-7dd1-ba63-395a3cfbd05e",
+  "turn_id": "01a13b3d-9902-7b30-a84e-4deb47b29a4b",
+  "transcript_path": "C:\\Users\\user\\.codex\\sessions\\2026\\10\\15\\rollout-2026-10-15T00-26-39-01a13b3c-be72-7dd1-ba63-395a3cfbd05e.jsonl",
+  "cwd": "D:\\pm-scratch-hook\\cx1",
+  "hook_event_name": "UserPromptSubmit",
+  "model": "gpt-6-luna",
+  "permission_mode": "default",
+  "prompt": "Create a file hello.txt containing the word hi using apply_patch, then reply DONE."
+}

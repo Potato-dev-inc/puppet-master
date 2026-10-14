@@ -1,0 +1,67 @@
+[
+  {
+    "seq": 1,
+    "at_ms": 1791998849409,
+    "pane_id": "live-claude-53320",
+    "agent": "claude",
+    "kind": "prompt_submitted",
+    "vendor_event": "UserPromptSubmit",
+    "session": "01407105-9371-4df8-afb1-04f09b2f916e",
+    "turn_key": "78b9d5f0-387f-40e2-afc6-d78b07c988df",
+    "subagent": null,
+    "foreign": false,
+    "applied": true,
+    "detail": {
+      "prompt_sha": "0d45bcaea38aa2d1fc48242f38a6e6dc4f35f6f11affed56bf3d70eb35d3aeb6",
+      "prompt_len": 76
+    }
+  },
+  {
+    "seq": 2,
+    "at_ms": 1791998854649,
+    "pane_id": "live-claude-53320",
+    "agent": "claude",
+    "kind": "permission_request",
+    "vendor_event": "PermissionRequest",
+    "session": "01407105-9371-4df8-afb1-04f09b2f916e",
+    "turn_key": "78b9d5f0-387f-40e2-afc6-d78b07c988df",
+    "subagent": null,
+    "foreign": false,
+    "applied": true,
+    "detail": {
+      "tool": "Bash",
+      "command_len": 152
+    }
+  },
+  {
+    "seq": 3,
+    "at_ms": 1791998898302,
+    "pane_id": "live-claude-53320",
+    "agent": "claude",
+    "kind": "turn_end",
+    "vendor_event": "Stop",
+    "session": "01407105-9371-4df8-afb1-04f09b2f916e",
+    "turn_key": "78b9d5f0-387f-40e2-afc6-d78b07c988df",
+    "subagent": null,
+    "foreign": false,
+    "applied": true,
+    "detail": {
+      "final_text_len": 4,
+      "continuing": false
+    }
+  },
+  {
+    "seq": 4,
+    "at_ms": 1791998900770,
+    "pane_id": "live-claude-53320",
+    "agent": "claude",
+    "kind": "subagent_end",
+    "vendor_event": "SubagentStop",
+    "session": "01407105-9371-4df8-afb1-04f09b2f916e",
+    "turn_key": "78b9d5f0-387f-40e2-afc6-d78b07c988df",
+    "subagent": "a3fbed62a49a02c6b",
+    "foreign": false,
+    "applied": false,
+    "detail": {}
+  }
+]

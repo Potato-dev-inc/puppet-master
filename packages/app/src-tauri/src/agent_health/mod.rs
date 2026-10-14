@@ -46,6 +46,9 @@ pub struct AgentHealth {
     pub login_hint: Option<String>,
     /// A deep check is possible (headless, read-only capable, installed).
     pub can_test: bool,
+    /// Hook Lane: whether this agent reports to Puppet Master directly, in one plain sentence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hooks: Option<crate::agent_hooks::health::HookHealth>,
 }
 
 /// What the checker needs to know about one agent (built from its profile; tests build their own).
@@ -105,6 +108,7 @@ pub fn check_probe(probe: &Probe, timeout: Duration) -> AgentHealth {
         install_fallback: probe.install_fallback.clone(),
         login_hint: probe.login_hint.clone(),
         can_test: probe.can_test,
+        hooks: None,
     };
     if !probe.installed {
         health.state = HealthState::NotInstalled;
@@ -122,6 +126,7 @@ pub fn check_probe(probe: &Probe, timeout: Duration) -> AgentHealth {
     };
     match run_version(command, timeout) {
         VersionOutcome::Version(version) => {
+            health.hooks = crate::agent_hooks::health::for_agent(&probe.id, &probe.label, Some(&version));
             health.version = Some(version);
             health.reason = installed_text.into();
         }
@@ -334,6 +339,7 @@ fn unknown_agent(id: &str) -> AgentHealth {
         install_fallback: None,
         login_hint: None,
         can_test: false,
+        hooks: None,
     }
 }
 

@@ -272,6 +272,14 @@ export function AgentDoctor({
                       {inst.text}
                     </p>
                   )}
+                  {r.installed && r.hooks && r.hooks.state !== 'not_supported' && r.hooks.state !== 'off' && (
+                    <>
+                      <p className="ck-doctor-live" data-live={r.hooks.state}>
+                        Live updates: {r.hooks.sentence}
+                      </p>
+                      {r.hooks.how_to && <p className="ck-doctor-hint">{r.hooks.how_to}</p>}
+                    </>
+                  )}
                   {r.state === 'not_installed' && !working && r.install_hint && <code className="ck-doctor-cmd">{r.install_hint}</code>}
                   {r.state === 'not_installed' && !working && r.install_fallback && (
                     <p className="ck-doctor-hint">

@@ -34,6 +34,8 @@ export type PublicSettings = Pick<
   | 'checkpoints_enabled'
   | 'checkpoints_keep'
   | 'away_minutes'
+  | 'agent_hooks_mode'
+  | 'agent_hooks_agents'
 >;
 
 export function toPublicSettings(settings: Settings): PublicSettings {
@@ -52,6 +54,8 @@ export function toPublicSettings(settings: Settings): PublicSettings {
     checkpoints_enabled: settings.checkpoints_enabled ?? true,
     checkpoints_keep: clampCheckpointsKeep(settings.checkpoints_keep),
     away_minutes: clampAwayMinutes(settings.away_minutes),
+    agent_hooks_mode: settings.agent_hooks_mode ?? 'shadow',
+    agent_hooks_agents: settings.agent_hooks_agents ?? {},
   };
 }
 
@@ -70,4 +74,6 @@ export const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
   checkpoints_enabled: true,
   checkpoints_keep: 50,
   away_minutes: 5,
+  agent_hooks_mode: 'shadow',
+  agent_hooks_agents: {},
 };

@@ -95,6 +95,40 @@ describe('AgentDoctor', () => {
     expect(button(b, 'Sign in')).toBeUndefined();
   });
 
+  it('shows the Live updates line and how-to for a row waiting on Codex, and nothing for unsupported agents', async () => {
+    const api: AgentHealthApi = {
+      check: async () => [
+        row({
+          id: 'a',
+          label: 'Agent A',
+          hooks: {
+            state: 'waiting_vendor_review',
+            mode: 'shadow',
+            sentence: 'Needs your OK in Codex.',
+            how_to: 'In a Codex pane in this project, type /hooks and trust the Puppet Master entries. Once per project.',
+          },
+        }),
+        row({
+          id: 'b',
+          label: 'Agent B',
+          hooks: { state: 'not_supported', mode: 'shadow', sentence: "This agent can't report to Puppet Master directly." },
+        }),
+      ],
+      test: vi.fn(),
+    };
+    await mount(api);
+    const a = rowOf('first');
+    const live = a.querySelector('.ck-doctor-live') as HTMLElement;
+    expect(live.textContent).toBe('Live updates: Needs your OK in Codex.');
+    expect(live.getAttribute('data-live')).toBe('waiting_vendor_review');
+    expect(a.querySelector('.ck-doctor-hint')?.textContent).toContain('type /hooks and trust');
+    // The word "hook" appears only inside the backend-supplied how-to.
+    expect(live.textContent).not.toMatch(/hook|shadow|evidence/i);
+    const b = rowOf('second');
+    expect(b.querySelector('.ck-doctor-live')).toBeNull();
+    expect(b.textContent).not.toContain('Live updates');
+  });
+
   it('copies the install command', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });

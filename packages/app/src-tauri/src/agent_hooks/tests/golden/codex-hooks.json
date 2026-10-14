@@ -1,0 +1,77 @@
+{
+  "hooks": {
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "C:\\Users\\user\\AppData\\Roaming\\com.puppetmaster.app\\hooks\\v1\\puppet-master-mcp.exe hook codex",
+            "timeout": 3,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "C:\\Users\\user\\AppData\\Roaming\\com.puppetmaster.app\\hooks\\v1\\puppet-master-mcp.exe hook codex",
+            "timeout": 3,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "C:\\Users\\user\\AppData\\Roaming\\com.puppetmaster.app\\hooks\\v1\\puppet-master-mcp.exe hook codex",
+            "timeout": 3,
+            "type": "command"
+          }
+        ],
+        "matcher": "apply_patch"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "C:\\Users\\user\\AppData\\Roaming\\com.puppetmaster.app\\hooks\\v1\\puppet-master-mcp.exe hook codex",
+            "timeout": 3,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "C:\\Users\\user\\AppData\\Roaming\\com.puppetmaster.app\\hooks\\v1\\puppet-master-mcp.exe hook codex",
+            "timeout": 3,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "C:\\Users\\user\\AppData\\Roaming\\com.puppetmaster.app\\hooks\\v1\\puppet-master-mcp.exe hook codex",
+            "timeout": 3,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

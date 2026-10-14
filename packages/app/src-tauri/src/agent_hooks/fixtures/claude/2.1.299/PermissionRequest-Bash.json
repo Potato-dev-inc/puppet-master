@@ -1,0 +1,30 @@
+{
+  "session_id": "82f9078c-d017-4e1b-bc87-38cb6b5548df",
+  "transcript_path": "C:\\Users\\user\\.claude\\projects\\D--pm-demo\\82f9078c-d017-4e1b-bc87-38cb6b5548df.jsonl",
+  "cwd": "D:\\pm-demo",
+  "scratchpad_dir": "C:\\Users\\user\\AppData\\Local\\Temp\\claude\\D--pm-demo\\82f9078c-d017-4e1b-bc87-38cb6b5548df\\scratchpad",
+  "prompt_id": "df7da653-761c-4c30-afaf-516db5a273b2",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "node -e \"console.log(6*7)\"",
+    "description": "Evaluate 6*7 with Node.js"
+  },
+  "permission_suggestions": [
+    {
+      "type": "addRules",
+      "rules": [
+        {
+          "toolName": "Bash",
+          "ruleContent": "node -e \"console.log(6*7)\""
+        }
+      ],
+      "behavior": "allow",
+      "destination": "localSettings"
+    }
+  ]
+}

@@ -11,6 +11,7 @@ mod agent_contexts;
 pub mod agent_runs;
 mod agent_health;
 mod agent_install;
+pub mod agent_hooks;
 mod app_lifecycle;
 mod app_paths;
 mod bridge;

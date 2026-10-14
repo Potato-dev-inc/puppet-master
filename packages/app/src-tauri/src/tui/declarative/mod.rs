@@ -8,6 +8,7 @@
 pub mod approvals;
 pub mod check;
 pub mod fingerprint;
+pub mod hooks;
 pub mod loader;
 pub mod output;
 pub mod resolve;
