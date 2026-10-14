@@ -90,6 +90,11 @@ pub fn tracker() -> &'static Tracker {
     &TRACKER
 }
 
+/// The turn number for a checkpoint taken now (see `Tracker::turn_for_checkpoint`).
+pub fn checkpoint_turn(pane_id: &str, before: bool) -> Option<u32> {
+    tracker().turn_for_checkpoint(pane_id, before)
+}
+
 /// `(kind, short text)` of the prompt a pane shows right now: `command` for a command approval.
 fn describe_prompt(
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,

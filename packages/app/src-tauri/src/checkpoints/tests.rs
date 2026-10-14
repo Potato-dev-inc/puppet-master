@@ -536,3 +536,23 @@ fn last_turn_patch_is_the_newest_after_against_where_that_turn_started() {
     // Another pane has none.
     assert!(engine::last_turn_patch(t.p(), "p2", 1 << 20).unwrap().is_none());
 }
+
+#[test]
+fn a_caller_supplied_turn_number_labels_the_checkpoints() {
+    // Live bug #5: the pane's third turn was its first with changes, and History said "turn 1".
+    let t = Tmp::new("hint");
+    t.write("a.txt", "one");
+    let lim = Limits::default();
+    let before = engine::snapshot_numbered(t.p(), "p1", Kind::Before, None, 1_000, &lim, Some(3)).unwrap();
+    let Snapshot::Created(before) = before else { panic!("created") };
+    assert_eq!((before.turn, before.label.as_str()), (3, "Before turn 3"));
+    t.write("a.txt", "two");
+    let after = engine::snapshot_numbered(t.p(), "p1", Kind::After, None, 2_000, &lim, Some(3)).unwrap();
+    let Snapshot::Created(after) = after else { panic!("created") };
+    assert_eq!(after.label, "After turn 3");
+    // Without a hint the old numbering still applies.
+    t.write("a.txt", "three");
+    let next = engine::snapshot(t.p(), "p1", Kind::Before, None, 3_000, &lim).unwrap();
+    let Snapshot::Created(next) = next else { panic!("created") };
+    assert_eq!(next.turn, 4);
+}
