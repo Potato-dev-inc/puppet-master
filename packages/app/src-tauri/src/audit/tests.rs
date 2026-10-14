@@ -147,3 +147,33 @@ fn a_long_summary_is_cut() {
     assert_eq!(entry.summary.chars().count(), MAX_SUMMARY_CHARS);
     assert!(log.verify().ok);
 }
+
+/// Review R12 3.4: each `AuditLog` cached its own tip, so two writers on one folder (two app
+/// instances, or a second recorder) wrote the same `seq` twice and the check reported tampering.
+#[test]
+fn two_writers_on_one_folder_keep_one_chain() {
+    let a = temp_log("two-writers");
+    let b = AuditLog::new(a.dir().to_path_buf());
+    for i in 0..3 {
+        a.append(Kind::Approval, &Who::Desktop, "from a", json!({ "i": i }), T0 + 10 * i).unwrap();
+        b.append(Kind::Approval, &Who::Desktop, "from b", json!({ "i": i }), T0 + 10 * i + 5).unwrap();
+    }
+    let report = a.verify();
+    assert!(report.ok, "{report:?}");
+    assert_eq!(report.entries, 6);
+}
+
+/// Review R12 3.4: the month file came from the entry's own clock, so a clock that moved back
+/// across a month boundary appended seq N+1 to the earlier month's file, which sorts first.
+#[test]
+fn a_clock_that_moves_back_across_a_month_boundary_does_not_break_the_chain() {
+    let log = temp_log("clock-back");
+    let nov_1 = 1_793_491_200_000; // 2026-11-01 00:00 UTC
+    assert_eq!(month_of(nov_1 + 1_000), "2026-11");
+    log.append(Kind::Approval, &Who::Desktop, "after midnight", json!({}), nov_1 + 1_000).unwrap();
+    log.append(Kind::Approval, &Who::Desktop, "clock stepped back", json!({}), nov_1 - 60_000).unwrap();
+    let report = log.verify();
+    assert!(report.ok, "{report:?}");
+    assert_eq!(report.entries, 2);
+    assert!(!log.dir().join("2026-10.jsonl").exists(), "nothing went back into October's file");
+}
