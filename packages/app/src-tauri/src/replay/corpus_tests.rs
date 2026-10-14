@@ -64,6 +64,14 @@ fn deliver_into_menu_cast(cast: &str, snapshot: &str) {
         "nothing but the composer clear came before Esc: {:?}",
         pane.inputs
     );
+    // While the menu was on screen only its own dismiss key and the composer clear (Ctrl-U) were sent.
+    for input in pane.inputs.iter().filter(|i| i.gate.is_some()) {
+        assert!(
+            !input.enter && (input.text == "\u{1b}" || input.text.chars().all(|c| c == '\u{15}')),
+            "typed into the update menu: {input:?}\n{}",
+            pane.timeline.render()
+        );
+    }
     assert_eq!(pane.inputs.iter().filter(|i| i.text == PROMPT).count(), 1, "the task is typed once");
     assert_eq!(pane.inputs.iter().filter(|i| i.enter).count(), 1, "one Enter: {:?}", pane.inputs);
     snap(snapshot, &pane.timeline);

@@ -69,6 +69,8 @@ pub struct Input {
     pub at: Duration,
     pub text: String,
     pub enter: bool,
+    /// The startup screen the profile saw on the pane when this was written, if any.
+    pub gate: Option<String>,
 }
 
 /// What the screen means right now, according to the code under test. Logged when it changes.
@@ -315,8 +317,10 @@ impl ReplayPane {
 impl DeliveryIo for ReplayPane {
     fn write(&mut self, text: &str, enter: bool) -> Result<(), String> {
         self.run_to(self.now);
-        self.inputs.push(Input { at: self.now, text: text.to_string(), enter });
-        self.note("input", format!("{text:?}{}", if enter { " + Enter" } else { "" }));
+        let gate = profile_for(&self.agent).startup_gate(&self.screen_text()).map(|g| g.id.to_string());
+        self.inputs.push(Input { at: self.now, text: text.to_string(), enter, gate: gate.clone() });
+        let over = gate.map(|id| format!("  [typed over '{id}']")).unwrap_or_default();
+        self.note("input", format!("{text:?}{}{over}", if enter { " + Enter" } else { "" }));
         if let Some(index) = self.matching_reaction(text, enter) {
             self.react(index);
         }

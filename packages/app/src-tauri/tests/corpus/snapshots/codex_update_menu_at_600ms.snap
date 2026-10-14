@@ -5,7 +5,7 @@ expression: timeline.render()
       0 ms  status    running (start)
     600 ms  gate      update_available
     600 ms  composer  Unknown
-    720 ms  input     "\u{1b}"
+    720 ms  input     "\u{1b}"  [typed over 'update_available']
     800 ms  gate      -
     800 ms  composer  Empty
     880 ms  input     "\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}"
