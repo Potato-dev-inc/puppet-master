@@ -22,6 +22,7 @@ mod bridge_http;
 mod call;
 mod dispatch;
 mod endpoint;
+pub(crate) mod hook;
 mod notices;
 mod progress;
 mod recovery;
