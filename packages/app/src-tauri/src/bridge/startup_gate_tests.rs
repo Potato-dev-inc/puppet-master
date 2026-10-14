@@ -378,9 +378,9 @@ enum Decline {
 
 /// A queued run, dispatched on its own thread through `run_operation_dispatch`, whose body is the
 /// parking step `await_pane_ready` runs for a pane showing the trust dialog.
-fn parked_run(pane: &'static str) -> (Arc<Mutex<PaneRegistry>>, OperationSnapshot, std::thread::JoinHandle<Result<OperationSnapshot, crate::operations::OperationError>>) {
+fn parked_run(pane: &'static str, card_screen: &'static str) -> (Arc<Mutex<PaneRegistry>>, OperationSnapshot, std::thread::JoinHandle<Result<OperationSnapshot, crate::operations::OperationError>>) {
     let registry = claude_pane(pane);
-    show(&registry, pane, TRUST);
+    show(&registry, pane, card_screen);
     set_status(&registry, pane, PaneStatus::WaitingInput);
     let op = operation(&std::env::temp_dir().join(format!("pm-gate-{}", uuid::Uuid::new_v4())));
     let handle = {
@@ -390,7 +390,7 @@ fn parked_run(pane: &'static str) -> (Arc<Mutex<PaneRegistry>>, OperationSnapsho
                 operation.pane_id = Some(pane.into());
                 operation.stage = Some("waiting_for_pane_readiness".into());
                 *operation = crate::operations::save_operation_snapshot(operation)?;
-                super::dispatch::park_on_startup_dialog(operation, &registry, pane, "claude", TRUST, &[])
+                super::dispatch::park_on_startup_dialog(operation, &registry, pane, "claude", card_screen, &[])
             })
         })
     };
@@ -402,7 +402,17 @@ fn stored(op: &OperationSnapshot) -> OperationSnapshot {
 }
 
 fn decline_and_finish(pane: &'static str, how: Decline, supervisor_sees_the_dialog: bool) {
-    let (registry, op, handle) = parked_run(pane);
+    decline_and_finish_on(pane, how, supervisor_sees_the_dialog, TRUST, DECLINED_HOST_SHELL);
+}
+
+fn decline_and_finish_on(
+    pane: &'static str,
+    how: Decline,
+    supervisor_sees_the_dialog: bool,
+    card_screen: &'static str,
+    declined_screen: &'static str,
+) {
+    let (registry, op, handle) = parked_run(pane, card_screen);
     // Parked on the card.
     let parked = wait_for(|| {
         let now = stored(&op);
@@ -442,7 +452,7 @@ fn decline_and_finish(pane: &'static str, how: Decline, supervisor_sees_the_dial
     if !matches!(how, Decline::InThePane) {
         crate::pane_prompt::note_gate_answer(pane, &card["raw_prompt"], "deny");
     }
-    show(&registry, pane, DECLINED_HOST_SHELL);
+    show(&registry, pane, declined_screen);
     set_status(&registry, pane, PaneStatus::Idle);
     if matches!(how, Decline::Handle) {
         // answer_guard::finish: the answered run is marked `running` while the pane redraws.
@@ -492,7 +502,7 @@ fn declining_in_the_pane_itself_ends_the_run_too() {
 #[test]
 fn accepting_the_dialog_still_resumes_the_dispatch() {
     let pane = "e2e-accept";
-    let (registry, op, handle) = parked_run(pane);
+    let (registry, op, handle) = parked_run(pane, TRUST);
     wait_for(|| (stored(&op).status == OperationStatus::WaitingInput).then_some(()));
     // The supervisor and pane observer touch the parked run; it must still resume afterwards.
     let card = stored(&op).required_action.unwrap();
@@ -506,4 +516,16 @@ fn accepting_the_dialog_still_resumes_the_dispatch() {
     let end = stored(&op);
     assert_eq!(end.status, OperationStatus::Running, "dispatch resumed and the run went on: {:?}", end.error);
     assert!(end.error.is_none());
+}
+
+/// The very screens of the live run that got stuck (`D:\pm-nighterify-r7\evidence	2b-pane-at-card.txt`
+/// and `t2b-pane-final.txt`, build 4ea9f63, folder D:\pm-verify2	rust-1), through both answer paths.
+const LIVE_CARD: &str = include_str!("../tui/claude/fixtures/trust_card_verify_r7_live.txt");
+const LIVE_DECLINED: &str = include_str!("../tui/claude/fixtures/trust_declined_verify_r7_live.txt");
+
+#[test]
+fn the_live_stuck_run_of_round_7_ends_failed_through_the_card_and_through_the_handle() {
+    decline_and_finish_on("e2e-live-card", Decline::Card, true, LIVE_CARD, LIVE_DECLINED);
+    decline_and_finish_on("e2e-live-handle", Decline::Handle, true, LIVE_CARD, LIVE_DECLINED);
+    decline_and_finish_on("e2e-live-pane", Decline::InThePane, false, LIVE_CARD, LIVE_DECLINED);
 }
