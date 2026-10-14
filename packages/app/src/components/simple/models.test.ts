@@ -7,7 +7,7 @@ import { pickAgent } from './agent-pick';
 import { conversationItems, stepText, summarySentence } from './conversation-model';
 import { currentProblem } from './error-text';
 import { agoText, versionsFrom } from './go-back-model';
-import { needsScreen, shouldResendTask } from './screen-model';
+import { endState, needsScreen, shouldResendTask } from './screen-model';
 import { fullPrompt, HOUSE_RULES, projectName, TEMPLATES, visiblePrompt } from './templates';
 
 const risky = (choices = 2): PanePrompt => ({
@@ -56,6 +56,18 @@ describe('the task is sent again after the folder-trust question', () => {
     expect(shouldResendTask({ ...base, errorCode: 'AGENT_EXITED' })).toBe(false);
     expect(shouldResendTask({ ...base, handle: undefined })).toBe(false);
     expect(shouldResendTask({ ...base, task: '' })).toBe(false);
+  });
+});
+
+describe('keep and throw away', () => {
+  it('wait while the agent works or waits for an answer (the run is still open)', () => {
+    expect(endState({ status: 'running', copyState: 'active', files: 3 })).toBe('working');
+    expect(endState({ status: 'waiting_input', copyState: 'active', files: 0 })).toBe('waiting');
+    expect(endState({ status: 'idle', copyState: 'active', files: 1 })).toBe('working');
+  });
+  it('work once the run has settled', () => {
+    expect(endState({ status: 'idle', copyState: 'unreviewed', files: 2 })).toBe('ready');
+    expect(endState({ status: 'idle', copyState: 'unreviewed', files: 0 })).toBe('empty');
   });
 });
 

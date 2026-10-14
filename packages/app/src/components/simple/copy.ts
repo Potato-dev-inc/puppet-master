@@ -44,6 +44,8 @@ export const T = {
   keepTitle: 'Keep these changes?',
   keepWorking: 'Claude Code is still working. Wait, or press Stop.',
   keepNothing: 'Nothing changed yet.',
+  keepWaiting: 'Claude Code is waiting for your answer. Answer first.',
+  throwFailed: 'PM could not throw the changes away. Your files are safe.',
   keepConfirm: 'Keep',
   keepDone: 'Kept. Your folder has the new files.',
   throwTitle: 'Throw away all changes?',

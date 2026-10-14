@@ -25,7 +25,7 @@ import { GoBackTab } from './GoBackTab';
 import { PreviewTab } from './PreviewTab';
 import { F, T } from './copy';
 import { currentProblem } from './error-text';
-import { needsScreen, shouldResendTask } from './screen-model';
+import { endState, needsScreen, shouldResendTask } from './screen-model';
 import { errorCode, simpleApi, type SimpleApi } from './simple-api';
 import { projectLabel, useCopy } from './use-copy';
 
@@ -151,6 +151,8 @@ export function SimpleProject({
   const item = copy.item;
   const name = projectLabel(item, agent);
   const files = item?.summary?.files_changed ?? 0;
+  const end = endState({ status, copyState: item?.state, files });
+  const endBusy = end === 'working' || end === 'waiting';
   const loopSignal = loop.signals[paneId];
   const problem = currentProblem({
     status,
@@ -197,7 +199,9 @@ export function SimpleProject({
     } catch (err) {
       setSheet(null);
       const text = err instanceof Error ? err.message : String(err);
-      c.notify(/CONFLICT|OVERLAP|DIRTY/.test(text) ? T.keepConflict : T.keepFailed);
+      c.notify(
+        /RUN_ACTIVE/.test(text) ? T.keepWorking : /CONFLICT|OVERLAP|DIRTY/.test(text) ? T.keepConflict : action === 'throw' ? T.throwFailed : T.keepFailed,
+      );
     } finally {
       setBusy(false);
     }
@@ -348,17 +352,19 @@ export function SimpleProject({
       </div>
 
       <footer className="sx-bar">
-        <span className="sx-quiet">{working ? T.keepWorking : files === 0 ? T.keepNothing : F.changedSummary(agent, files)}</span>
+        <span className="sx-quiet">
+          {end === 'working' ? T.keepWorking : end === 'waiting' ? T.keepWaiting : end === 'empty' ? T.keepNothing : F.changedSummary(agent, files)}
+        </span>
         <span className="sx-bar-actions">
           {working && (
             <button type="button" className="ck-btn ck-btn--secondary" onClick={() => void c.interrupt(paneId)}>
               {T.stop}
             </button>
           )}
-          <button type="button" className="ck-btn ck-btn--plain" disabled={!item || busy || working} onClick={() => setSheet('throw')}>
+          <button type="button" className="ck-btn ck-btn--plain" disabled={!item || busy || endBusy} onClick={() => setSheet('throw')}>
             {T.throwAway}
           </button>
-          <button type="button" className="ck-btn ck-btn--primary" disabled={!item || busy || working || files === 0} onClick={() => setSheet('keep')}>
+          <button type="button" className="ck-btn ck-btn--primary" disabled={!item || busy || endBusy || files === 0} onClick={() => setSheet('keep')}>
             {T.keep}
           </button>
         </span>

@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import cases from './folder-cases.json';
 import { folderVerdict, normalize, refusalCode, type KnownDirs, type Verdict } from './folder-guard';
+import { refusalText } from './MakeSomething';
+import { errorCode, simpleApi } from './simple-api';
 
 const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
@@ -45,7 +47,6 @@ describe('a copy is always used', () => {
   beforeEach(() => invoke.mockReset());
 
   it('the start command carries no setting that could turn the copy off', async () => {
-    const { simpleApi } = await import('./simple-api');
     invoke.mockResolvedValue({ pane_id: 'p1', handle: 'h1', folder: 'C:\\x' });
     await simpleApi.start({ name: 'Quiz', prompt: 'Make a quiz.', agent: 'claude' });
     expect(invoke).toHaveBeenCalledTimes(1);
@@ -71,9 +72,7 @@ describe('a copy is always used', () => {
     expect(rust).toContain('"isolation": "worktree"');
   });
 
-  it('a refusal from Rust becomes plain words, never a code', async () => {
-    const { errorCode } = await import('./simple-api');
-    const { refusalText } = await import('./MakeSomething');
+  it('a refusal from Rust becomes plain words, never a code', () => {
     for (const code of ['FOLDER_TOO_BROAD', 'FOLDER_TOO_BIG', 'FOLDER_MISSING', 'FOLDER_NEEDS_SETUP', 'ANYTHING_ELSE']) {
       expect(refusalText(code)).not.toMatch(/[A-Z]{3,}_[A-Z]/);
     }

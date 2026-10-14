@@ -1,7 +1,7 @@
 // "Make something": three tap questions, then she reads the words PM will send, then Start.
 // No blank prompt, no build step: the templates make one html file. The task always runs on a copy
 // (Rust decides that; nothing here can change it).
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { DotSpinner } from '../cockpit/DotSpinner';
 import { pickAgent } from './agent-pick';
@@ -107,8 +107,6 @@ export function MakeSomething({
     }
   };
 
-  const rules = useMemo(() => HOUSE_RULES, []);
-
   if (!agent && step === 'kind') {
     return (
       <div className="sx-page sx-make">
@@ -194,7 +192,7 @@ export function MakeSomething({
           <details className="sx-rules">
             <summary>{T.makeRulesTitle}</summary>
             <ul>
-              {rules.map((r) => (
+              {HOUSE_RULES.map((r) => (
                 <li key={r}>{r}</li>
               ))}
             </ul>

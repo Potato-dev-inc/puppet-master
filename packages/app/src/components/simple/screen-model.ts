@@ -37,3 +37,16 @@ export function shouldResendTask(facts: {
 }): boolean {
   return facts.status === 'idle' && facts.errorCode === 'PANE_BLOCKED_BY_PROMPT' && !!facts.handle && !!facts.task && !facts.alreadySent;
 }
+
+/**
+ * What the bottom bar says and whether Keep and Throw away work. The copy cannot be kept or thrown
+ * away while the agent still has the run open (`item.state === 'active'`: it works, or it waits for
+ * an answer). Rust refuses then (`RUN_ACTIVE`), so the buttons wait instead of failing.
+ */
+export type EndState = 'working' | 'waiting' | 'empty' | 'ready';
+
+export function endState(facts: { status: string; copyState: string | null | undefined; files: number }): EndState {
+  if (facts.status === 'running') return 'working';
+  if (facts.status === 'waiting_input' || facts.copyState === 'active') return facts.status === 'waiting_input' ? 'waiting' : 'working';
+  return facts.files === 0 ? 'empty' : 'ready';
+}
