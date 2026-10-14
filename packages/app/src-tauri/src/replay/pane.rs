@@ -148,10 +148,6 @@ impl ReplayPane {
         Self::new(Cast::corpus(relative))
     }
 
-    pub fn now(&self) -> Duration {
-        self.now
-    }
-
     pub fn status(&self) -> PaneStatus {
         self.status
     }
