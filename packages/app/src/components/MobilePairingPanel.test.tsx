@@ -92,9 +92,41 @@ describe('MobilePairingPanel: autosaving fields', () => {
   });
 });
 
+describe('MobilePairingPanel: a code is made only on a click', () => {
+  it('opening the panel makes no pairing code, with or without a public address', async () => {
+    await mount({ publicPwaUrl: 'https://pm.example.com' });
+    await settle(5);
+    expect(tauri.createMobilePairingSession).not.toHaveBeenCalled();
+    expect(hasText(host, 'ABCD1234')).toBe(false);
+    expect(host.querySelector('[data-testid="pair-a-phone"]')).not.toBeNull();
+  });
+
+  it('the Pair a phone button makes one code and shows it', async () => {
+    await mount({ publicPwaUrl: 'https://pm.example.com' });
+    await click(host.querySelector<HTMLButtonElement>('[data-testid="pair-a-phone"]')!);
+    await settle();
+    expect(tauri.createMobilePairingSession).toHaveBeenCalledTimes(1);
+    expect(hasText(host, 'ABCD1234')).toBe(true);
+    expect(hasText(host, 'Refresh QR')).toBe(true);
+  });
+
+  it('choosing what the phone may do before pairing does not make a code either', async () => {
+    await mount({ publicPwaUrl: 'https://pm.example.com' });
+    await click(host.querySelector<HTMLInputElement>('input[value="watch_answer"]')!);
+    await settle();
+    expect(tauri.createMobilePairingSession).not.toHaveBeenCalled();
+  });
+});
+
+async function pair() {
+  await click(host.querySelector<HTMLButtonElement>('[data-testid="pair-a-phone"]')!);
+  await settle();
+}
+
 describe('MobilePairingPanel: what the new phone may do', () => {
   it('defaults to full control, which is what pairing always gave', async () => {
     await mount({ publicPwaUrl: 'https://pm.example.com' });
+    await pair();
     const call = vi.mocked(tauri.createMobilePairingSession).mock.calls.at(-1)!;
     expect(call[1]).toEqual(['watch', 'answer', 'type', 'control']);
     const full = host.querySelector<HTMLInputElement>('input[value="full"]')!;
@@ -105,6 +137,7 @@ describe('MobilePairingPanel: what the new phone may do', () => {
 
   it('choosing "Watch and answer only" makes a new code bound to watch + answer', async () => {
     await mount({ publicPwaUrl: 'https://pm.example.com' });
+    await pair();
     const before = vi.mocked(tauri.createMobilePairingSession).mock.calls.length;
     await click(host.querySelector<HTMLInputElement>('input[value="watch_answer"]')!);
     await settle();

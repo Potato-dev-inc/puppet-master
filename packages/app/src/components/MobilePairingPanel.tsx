@@ -76,7 +76,6 @@ export function MobilePairingPanel({
   const localProxyTarget = localDevPwaUrl(devServerPort);
   const tunnelOrigin = devInfo?.tunnelUrl?.replace(/\/+$/, '') ?? null;
   const qrReadyRef = useRef(false);
-  const prevPwaOriginRef = useRef<string | null>(null);
 
   // A phone that pairs while this panel is open shows up in the Devices list below.
   const refreshDevices = useCallback(async () => {
@@ -137,20 +136,18 @@ export function MobilePairingPanel({
     return () => window.clearInterval(timer);
   }, [session, refreshDevices]);
 
+  // Opening this tab never makes a code: a code is a record in the audit log and a live way in, so it
+  // is made only by the "Pair a phone" button. If the address the phone would use changes while a code
+  // is up, that code points at the old address: drop it and let the person make a new one.
+  const shownOriginRef = useRef<string | null>(null);
   useEffect(() => {
-    const ready = Boolean(publicPwaUrl.trim()) || Boolean(devInfo?.tunnelUrl);
-    if (!ready) return;
-    const prev = prevPwaOriginRef.current;
-    prevPwaOriginRef.current = pwaOrigin;
-    if (!qrReadyRef.current) {
-      qrReadyRef.current = true;
-      void refreshPairing();
-      return;
+    const prev = shownOriginRef.current;
+    shownOriginRef.current = pwaOrigin;
+    if (prev !== null && prev !== pwaOrigin && qrReadyRef.current && !isLoopbackOrigin(pwaOrigin)) {
+      qrReadyRef.current = false;
+      setSession(null);
     }
-    if (prev !== pwaOrigin && !isLoopbackOrigin(pwaOrigin)) {
-      void refreshPairing();
-    }
-  }, [devInfo, publicPwaUrl, refreshPairing, pwaOrigin]);
+  }, [pwaOrigin]);
 
   const expiresLabel = session
     ? new Date(session.expires_at * 1000).toLocaleTimeString()
@@ -212,7 +209,7 @@ export function MobilePairingPanel({
           <p className="text-[10px] text-pm-muted mt-1">
             Phone opens ({qrSource}):{' '}
             <code className="font-mono break-all">
-              {session ? buildPairingInviteUrl(pwaOrigin, session.pairing_code) : '…'}
+              {session ? buildPairingInviteUrl(pwaOrigin, session.pairing_code) : 'Shown once you make a code'}
             </code>
           </p>
           <p className="text-[10px] text-pm-muted mt-1">
@@ -258,27 +255,45 @@ export function MobilePairingPanel({
           );
         })()}
         <div className="flex flex-col sm:flex-row gap-4 items-start">
-          <div className="rounded-lg border border-pm-border bg-pm-bg p-2 shrink-0">
+          <div className="rounded-lg border border-pm-border bg-pm-bg p-2 shrink-0" hidden={!session}>
             <canvas ref={canvasRef} className="block" aria-label="Mobile pairing QR code" />
           </div>
-          <div className="flex-1 min-w-0 space-y-2 text-xs">
-            <div>
-              <div className="text-[10px] text-pm-muted">Pairing code</div>
-              <code className="text-sm font-mono">{session?.pairing_code ?? '…'}</code>
+          {session ? (
+            <div className="flex-1 min-w-0 space-y-2 text-xs" data-testid="pairing-code">
+              <div>
+                <div className="text-[10px] text-pm-muted">Pairing code</div>
+                <code className="text-sm font-mono">{session.pairing_code}</code>
+              </div>
+              <div className="text-[10px] text-pm-muted">Expires {expiresLabel}</div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  qrReadyRef.current = true;
+                  void refreshPairing();
+                }}
+                className="px-2 py-1 text-xs rounded border border-pm-border hover:bg-pm-border/40 disabled:opacity-50"
+              >
+                {busy ? 'Refreshing…' : 'Refresh QR'}
+              </button>
             </div>
-            <div className="text-[10px] text-pm-muted">Expires {expiresLabel}</div>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                qrReadyRef.current = true;
-                void refreshPairing();
-              }}
-              className="px-2 py-1 text-xs rounded border border-pm-border hover:bg-pm-border/40 disabled:opacity-50"
-            >
-              {busy ? 'Refreshing…' : 'Refresh QR'}
-            </button>
-          </div>
+          ) : (
+            <div className="flex-1 min-w-0 space-y-2 text-xs">
+              <button
+                type="button"
+                data-testid="pair-a-phone"
+                disabled={busy}
+                onClick={() => {
+                  qrReadyRef.current = true;
+                  void refreshPairing();
+                }}
+                className="px-2 py-1 text-xs rounded border border-pm-border hover:bg-pm-border/40 disabled:opacity-50"
+              >
+                {busy ? 'Making a code…' : 'Pair a phone'}
+              </button>
+              <div className="text-[10px] text-pm-muted">Makes a one-time code. It expires after a few minutes.</div>
+            </div>
+          )}
         </div>
 
         {err && <Note role="alert">{err}</Note>}
