@@ -53,6 +53,12 @@ export interface WorktreeItem {
   /** `active`: an agent is still working in it. `unreviewed`: finished, not merged or discarded. */
   state: 'active' | 'unreviewed' | 'missing';
   summary: { files_changed: number; additions: number; deletions: number } | null;
+  /** The agent type that works in it (for "Send back to <agent>"). */
+  agent_type?: string | null;
+  /** What preparing the copy did (setup steps, files copied in). */
+  setup?: import('./ship-api').SetupReport | null;
+  /** The pull request made from this copy, with the last result of its GitHub checks. */
+  pr?: import('./ship-api').PrRef | null;
 }
 
 export interface WorktreeFile {
@@ -219,8 +225,13 @@ export const cockpitApi = {
   answerPanePrompt: (paneId: string, promptId: string, choice: string) =>
     call<void>('answer_pane_prompt', { paneId, promptId, choice }),
   interruptPane: (paneId: string) => call<void>('interrupt_pane', { paneId }),
-  newPane: (agentId: string, accountId?: string, isolation?: 'none' | 'worktree') =>
-    call<string>('new_pane', { agentId, accountId: accountId ?? null, isolation: isolation ?? null }),
+  newPane: (agentId: string, accountId?: string, isolation?: 'none' | 'worktree', projectPath?: string) =>
+    call<string>('new_pane', {
+      agentId,
+      accountId: accountId ?? null,
+      isolation: isolation ?? null,
+      projectPath: projectPath ?? null,
+    }),
   paneWorktree: (paneId: string) => call<WorktreeItem | null>('pane_worktree', { paneId }),
   worktreeDiff: (projectPath: string | null, handle: string, path?: string) =>
     call<WorktreeDiff>('worktree_diff', { projectPath, handle, path: path ?? null }),

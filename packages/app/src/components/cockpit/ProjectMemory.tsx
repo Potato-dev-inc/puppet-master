@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { memoryApi, type MemoryApi, type MemoryTargetStatus, type MemoryView } from '../../lib/memory-api';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
+import { ProjectCopies } from './ProjectCopies';
+import { SegTabs } from './SegTabs';
+import { projectOfCwd } from '../../lib/ship-model';
 
 const STATUS_TEXT: Record<MemoryTargetStatus, string> = {
   in_sync: 'In sync',
@@ -35,6 +38,7 @@ export function ProjectMemory({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [tab, setTab] = useState<'memory' | 'copies'>('memory');
 
   const apply = useCallback((next: MemoryView, keepDraft = false) => {
     setView(next);
@@ -95,8 +99,25 @@ export function ProjectMemory({
         </button>
       </header>
 
+      <div className="ck-memory-tabs">
+        <SegTabs
+          label="Project"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { id: 'memory', label: 'Memory' },
+            { id: 'copies', label: 'Copies' },
+          ]}
+          small
+        />
+      </div>
+
       {view && <p className="ck-memory-project">{projectName(view.project)}</p>}
 
+      {tab === 'copies' && <ProjectCopies project={view?.project ?? projectOfCwd(project)?.path} />}
+
+      {tab === 'memory' && (
+        <>
       <textarea
         className="ck-memory-editor"
         aria-label="Project memory"
@@ -157,6 +178,8 @@ export function ProjectMemory({
         />
         <span>Share memory in this project</span>
       </label>
+        </>
+      )}
     </div>
   );
 }

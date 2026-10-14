@@ -349,7 +349,14 @@ mod runtime {
         if chosen_project.is_some_and(|p| !p.trim().is_empty()) && chosen.is_none() {
             return Err("FOLDER_MISSING: that project folder does not exist any more".into());
         }
-        let project = chosen.clone().unwrap_or_else(|| crate::standby::default_project(&state.registry));
+        let default_project = crate::standby::default_project(&state.registry);
+        // The cockpit always names the project its chip shows; naming the default project is not
+        // a different project (a warm worker can still be claimed).
+        let chosen = chosen.filter(|p| {
+            crate::project_path::comparable_project_path(std::path::Path::new(p))
+                != crate::project_path::comparable_project_path(std::path::Path::new(&default_project))
+        });
+        let project = chosen.clone().unwrap_or(default_project);
         let account = account.map(str::trim).filter(|a| !a.is_empty());
         let key = if isolated || chosen.is_some() {
             None

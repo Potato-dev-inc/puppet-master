@@ -6,6 +6,11 @@ import { AnnotatedDiff } from './AnnotatedDiff';
 import { anchorFindings, reviewHasConcerns } from './review-diff';
 import { sendToAuthor, useReviewRun } from './second-opinion-store';
 import { Sheet } from './Sheet';
+import { CreatePrSheet } from './CreatePrSheet';
+import { PrBlock } from './PrBlock';
+import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
+import { shipApi, type PrRef, type ShipApi } from '../../lib/ship-api';
+import { setupLine } from '../../lib/ship-model';
 import '../../styles/cockpit-changes.css';
 
 /** The slice of the cockpit API this section needs (a test double can stand in for it). */
@@ -27,6 +32,7 @@ export function Changes({
   reviewApi = secondOpinionApi,
   secondOpinion,
   hideActions = false,
+  ship = shipApi,
 }: {
   paneId: string;
   /** Show the files and diffs only (no Merge / Discard): another surface owns those decisions. */
@@ -40,11 +46,16 @@ export function Changes({
   secondOpinion?: ReactNode;
   /** Where "Send to <agent>" on a second-opinion note goes (a test double can stand in). */
   reviewApi?: SecondOpinionApi;
+  /** Create PR and the GitHub checks (a test double can stand in). */
+  ship?: ShipApi;
 }) {
   const [item, setItem] = useState<WorktreeItem | null>(null);
   const [diff, setDiff] = useState<WorktreeDiff | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [sheet, setSheet] = useState<'merge' | 'discard' | null>(null);
+  const [prSheet, setPrSheet] = useState(false);
+  const [prRound, setPrRound] = useState(0);
+  const listing = useAgentRegistry();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +120,9 @@ export function Changes({
   // A review that found problems: Merge stops being the obvious button and says what it is.
   const concerns = reviewHasConcerns(reviewDone?.review ?? null);
 
+  const setup = item.setup ?? null;
+  const agentName = item.agent_type ? agentLabel(listing, item.agent_type) : 'the agent';
+
   const run = async (action: 'merge' | 'discard') => {
     setBusy(true);
     setError(null);
@@ -153,6 +167,31 @@ export function Changes({
           </>
         )}
       </p>
+
+      {setup && (
+        <div className={`ck-changes-setup${setup.status === 'failed' ? ' is-failed' : ''}`}>
+          <p className="ck-sub" role={setup.status === 'failed' ? 'alert' : undefined}>
+            {setupLine(setup)}
+          </p>
+          {setup.status === 'failed' && setup.steps.some((st) => st.tail) && (
+            <details className="ck-pr-details">
+              <summary>Last lines of the output</summary>
+              <pre className="ck-pr-command">{setup.steps.find((st) => !st.ok)?.tail}</pre>
+            </details>
+          )}
+        </div>
+      )}
+      {item.pr && (
+        <PrBlock
+          key={prRound}
+          repo={item.repo}
+          handle={item.handle}
+          pr={item.pr}
+          agentName={agentName}
+          ship={ship}
+          onPr={(next: PrRef) => setItem((cur) => (cur ? { ...cur, pr: next } : cur))}
+        />
+      )}
 
       {diff && files.length === 0 && <p className="ck-sub">No file changes yet.</p>}
       <ul className="ck-changes-files">
@@ -231,6 +270,15 @@ export function Changes({
         <button
           type="button"
           className="ck-btn ck-btn--secondary"
+          disabled={working || busy || item.state === 'missing'}
+          title={working ? 'The agent is still working' : undefined}
+          onClick={() => setPrSheet(true)}
+        >
+          {item.pr ? 'Update PR' : 'Create PR'}
+        </button>
+        <button
+          type="button"
+          className="ck-btn ck-btn--secondary"
           disabled={working || busy}
           title={working ? 'The agent is still working' : undefined}
           onClick={() => setSheet('discard')}
@@ -238,6 +286,21 @@ export function Changes({
           Discard
         </button>
       </div>
+      )}
+
+      {prSheet && (
+        <CreatePrSheet
+          item={item}
+          ship={ship}
+          agentName={agentName}
+          onClose={() => setPrSheet(false)}
+          onDone={(pr, updated) => {
+            setPrSheet(false);
+            setItem({ ...item, pr: { ...pr, checks: undefined } });
+            setPrRound((r) => r + 1);
+            setNotice(updated ? 'Pushed the new commits to the pull request.' : `Draft pull request #${pr.number} created.`);
+          }}
+        />
       )}
 
       {sheet && (
