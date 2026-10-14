@@ -1,4 +1,4 @@
-import { readBridgePort } from '@puppet-master/shared/bridge-port';
+import { readBridgePort, readLocalSecretHeaders } from '@puppet-master/shared/bridge-port';
 
 /** Where the desktop app serves its dev/production tunnel info (Vite in dev, PWA server otherwise). */
 export const PWA_INFO_URL = 'http://127.0.0.1:1420/__puppet_master_dev__.json';
@@ -86,7 +86,7 @@ async function postInvite(bridgeUrl: string): Promise<PairingSessionResponse> {
   try {
     res = await fetch(`http://${host}:${port}/pair/invite`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...(await readLocalSecretHeaders()), 'content-type': 'application/json' },
       body: JSON.stringify({ bridge_url: bridgeUrl }),
       signal: AbortSignal.timeout(10_000),
     });
