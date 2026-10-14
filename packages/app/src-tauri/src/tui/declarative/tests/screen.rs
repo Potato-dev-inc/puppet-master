@@ -224,7 +224,9 @@ fn unknown_key_in_a_prompt_is_rejected() {
 #[test]
 fn visible_pane_launch_renders_tui_argv() {
     use crate::tui::declarative::template::render_tui;
-    let text = KILO_LIKE.replace("argv = []\nidle_after_ms", "argv = [\"--pure\"]\nread_only_argv = [\"--read-only\"]\nidle_after_ms");
+    // `include_str!` bakes in the checkout's line endings (`core.autocrlf` makes them CRLF).
+    let kilo_like = KILO_LIKE.replace("\r\n", "\n");
+    let text = kilo_like.replace("argv = []\nidle_after_ms", "argv = [\"--pure\"]\nread_only_argv = [\"--read-only\"]\nidle_after_ms");
     let def = crate::tui::declarative::parse_definition(&text).unwrap();
     let tui = def.tui.as_ref().unwrap();
     assert_eq!(render_tui(tui, "C:/p", false, None, None), ["--pure"]);

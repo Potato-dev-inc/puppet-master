@@ -45,6 +45,27 @@ pub(super) fn temp() -> PathBuf {
     std::env::temp_dir().join(format!("pm-ops-{}", Uuid::new_v4()))
 }
 
+/// Scopes the project/task index to a private temp dir for the current test thread, so
+/// whole-index scans (e.g. `recover_all_interrupted_operations`) only see this test's projects
+/// and not those of tests running (and deleting their dirs) concurrently.
+pub(super) struct IsolatedIndex(PathBuf);
+
+impl IsolatedIndex {
+    pub(super) fn new() -> Self {
+        let dir = temp();
+        fs::create_dir_all(&dir).unwrap();
+        super::store::set_test_index_dir(Some(dir.clone()));
+        Self(dir)
+    }
+}
+
+impl Drop for IsolatedIndex {
+    fn drop(&mut self) {
+        super::store::set_test_index_dir(None);
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 pub(super) fn starting_in_dispatch(dir: &Path, key: &str) -> OperationSnapshot {
     let (queued, _) = create_operation(request(dir, key)).unwrap();
     mark_operation_state(

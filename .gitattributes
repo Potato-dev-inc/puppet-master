@@ -3,3 +3,8 @@ packages/app/src-tauri/resources/pwa-dist/** linguist-generated=true
 packages/app/dist/** linguist-generated=true
 packages/app/dev-dist/** linguist-generated=true
 packages/**/dist/** linguist-generated=true
+
+# Definition fixtures are include_str!-ed and patched with multi-line string replaces in tests;
+# keep them LF on every checkout (core.autocrlf=true would make them CRLF). Scoped to these dirs only.
+packages/app/src-tauri/src/tui/declarative/fixtures/definitions/*.toml text eol=lf
+packages/app/src-tauri/tests/agent-definitions/*.toml text eol=lf
