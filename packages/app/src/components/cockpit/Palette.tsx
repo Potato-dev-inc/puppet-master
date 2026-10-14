@@ -60,7 +60,7 @@ export function Palette({
         id: `new:${e.type}`,
         group: 'New agent',
         title: `New ${e.label}`,
-        desc: c.readyAgents.has(e.type) ? 'Warm standby ready' : undefined,
+        desc: c.readyAgents.has(e.type) ? 'Opens instantly' : undefined,
         icon: <IconPlus />,
         hint: c.readyAgents.has(e.type) ? 'ready' : undefined,
         run: () => void c.newAgent(e.type),
