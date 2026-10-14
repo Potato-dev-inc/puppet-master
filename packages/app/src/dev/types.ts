@@ -43,6 +43,8 @@ export interface HarnessScenario {
   headlessOnlyAgent?: boolean;
   /** Cockpit: start with the "While you were away" digest showing (as after a return). */
   awayDigest?: boolean;
+  /** Run info the mocked `pane_run_info` returns per pane id (default: only the example Claude pane has one). */
+  runs?: Record<string, import('../lib/cockpit-api').PaneRunInfo>;
   /** Override the example panes. */
   panes?: PaneInfo[];
   /** Pending `ask_user` questions the mocked `questions_list` returns. */

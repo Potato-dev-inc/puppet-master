@@ -3,12 +3,13 @@ import { projectName } from '../../lib/mobile-agent-tabs';
 import { hasEverSpawned } from '../../lib/agent-health';
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { DotSpinner } from './DotSpinner';
-import { OPEN_NEW_MENU, PaneStuckCard } from './StuckCard';
+import { PaneStuckCard } from './StuckCard';
 import { itemsOfKind } from '../../lib/attention';
 import { useNeedsYou } from '../../hooks/useNeedsYou';
 import { AskNotices } from './AskNotices';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
 import { QuestionCard } from './QuestionCard';
+import { PaneErrorBody } from './InboxError';
 import { paneHeading } from './titles';
 
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
@@ -128,19 +129,7 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
                   <span className="ck-row-sub">{projectName(p.info.cwd)}</span>
                   <span className="ck-row-time">{since ? `${formatElapsed(c.now - since)} ago` : ''}</span>
                 </div>
-                <p className="ck-inbox-q">Open the terminal to see what happened.</p>
-                <div className="ck-inbox-actions">
-                  <button type="button" className="ck-btn ck-btn--secondary" onClick={() => c.select(id)}>
-                    Open
-                  </button>
-                  <button
-                    type="button"
-                    className="ck-btn ck-btn--plain"
-                    onClick={() => window.dispatchEvent(new CustomEvent(OPEN_NEW_MENU))}
-                  >
-                    Ask another agent
-                  </button>
-                </div>
+                <PaneErrorBody c={c} paneId={id} agentType={p.info.agent_type} name={name} onOpenDoctor={onOpenDoctor} />
               </li>
             );
           })}

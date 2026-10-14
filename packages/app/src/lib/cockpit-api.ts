@@ -34,6 +34,8 @@ export interface PaneRunInfo {
   handle: string;
   status: string;
   receipt: unknown | null;
+  /** Why the run failed: the typed code (and the backend's message). Absent while it did not fail. */
+  error?: { code: string; message?: string } | null;
 }
 
 export interface PaneTranscript {

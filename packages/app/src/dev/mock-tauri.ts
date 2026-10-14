@@ -59,7 +59,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'agents_list':
           return agentsListing(scenario.headlessOnlyAgent);
         case 'pane_run_info':
-          return a.paneId === PANE_CLAUDE ? EXAMPLE_RUN : null;
+          return scenario.runs?.[String(a.paneId)] ?? (a.paneId === PANE_CLAUDE ? EXAMPLE_RUN : null);
         case 'pane_worktree':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_WORKTREE : null;
         case 'second_opinion_agents':
