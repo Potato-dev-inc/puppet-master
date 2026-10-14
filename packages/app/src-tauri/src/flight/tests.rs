@@ -358,3 +358,22 @@ fn recording_overhead_per_chunk_is_small_next_to_the_work_the_reader_already_doe
     assert!(ring_4k < 50_000.0, "ring too slow: {ring_4k} ns");
     assert!(ring_4k < vt_4k, "recording must cost less than the emulator work next to it");
 }
+
+/// Evidence helper: with `PM_FLIGHT_SAMPLE_DIR` set, writes a sample diagnostic zip and cast there so
+/// they can be opened with real tools (Expand-Archive, an asciinema player).
+#[test]
+fn sample_files_for_real_tools() {
+    let Ok(dir) = std::env::var("PM_FLIGHT_SAMPLE_DIR") else { return };
+    let ring = Ring::new(100, 30);
+    ring.output(b"\x1b[1mClaude\x1b[0m> ");
+    ring.input(InputTag::RunTask, b"fix the bug\r");
+    ring.output(b"working...\r\n");
+    ring.mark("readiness=Unknown(blank)");
+    let cast = cast::render(&ring.snapshot(), "PROMPT_NOT_SUBMITTED", Some("run failed: PROMPT_NOT_SUBMITTED"));
+    std::fs::write(std::path::Path::new(&dir).join("sample.cast"), cast.as_str()).unwrap();
+    let b = bundle::build(bundle_inputs(
+        vec![bundle::CastFile { operation_id: "op-1".into(), modified_ms: 9_000_000, text: cast.as_str().to_string() }],
+        vec!["INFO started".into()],
+    ));
+    bundle::save(&b, &[], &std::path::Path::new(&dir).join("sample-diagnostic.zip")).unwrap();
+}
