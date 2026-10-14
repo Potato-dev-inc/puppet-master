@@ -39,7 +39,7 @@ const OUTCOME: Record<string, string> = {
   failed: 'Failed',
   cancelled: 'Cancelled',
   needs_input: 'Needs you',
-  in_progress: 'Still running',
+  in_progress: 'Still working',
 };
 
 const VALUES: Record<string, Record<string, string>> = {
@@ -55,7 +55,7 @@ export function runStatusLabel(status: string): string {
   const known: Record<string, string> = {
     queued: 'Waiting to start',
     starting: 'Starting',
-    running: 'Running',
+    running: 'Working',
     waiting_input: 'Needs you',
     needs_input: 'Needs you',
     cancelling: 'Stopping',

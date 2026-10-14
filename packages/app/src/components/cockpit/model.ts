@@ -19,7 +19,7 @@ export function spinnerStatus(status: string): SpinnerStatus {
 export function stateText(status: string): string {
   switch (status) {
     case 'running':
-      return 'Running';
+      return 'Working';
     case 'waiting_input':
       return 'Needs you';
     case 'idle':
@@ -75,19 +75,19 @@ export function paneNames(list: PaneData[], label: (agentId: string) => string):
   return names;
 }
 
-export function spawnLogLine(e: SpawnStageEvent): string {
+export function spawnLogLine(e: SpawnStageEvent, agentName?: string): string {
   if (e.message) return e.message;
   switch (e.stage) {
     case 'claiming':
-      return 'Claiming warm standby';
+      return 'Getting a ready agent';
     case 'spawning':
-      return e.warm ? 'Starting from warm standby' : 'Starting process';
+      return agentName ? `Starting ${agentName}` : 'Starting the agent';
     case 'attached':
-      return 'Terminal attached';
+      return 'Connected';
     case 'ready':
       return 'Ready';
     case 'failed':
-      return 'Failed to start';
+      return 'Could not start';
   }
 }
 
