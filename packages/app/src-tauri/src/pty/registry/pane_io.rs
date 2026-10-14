@@ -24,9 +24,12 @@ pub fn write_input(
     let api_path = via_opencode_api
         && pane.info.agent_type == "opencode_native"
         && ((!text.trim().is_empty() && !is_pty_control_input(text)) || (text.is_empty() && append_newline));
+    // The output position the permit was checked against; read again once the writer is held.
+    let mut admitted_at: Option<u64> = None;
     if !api_path {
         let pid = pane.info.pid;
         let emitted = crate::pty::stream_pos::emitted(pane_id);
+        admitted_at = emitted;
         if let Err(refused) = origin.admit_terminal_write(pane_id, text, append_newline, emitted, || {
             crate::pty::agent_proc::state(pane_id, pid)
         }) {
@@ -86,6 +89,22 @@ pub fn write_input(
     let record = |bytes: &[u8]| crate::flight::input_as(pane_id, tag, bytes);
     {
         let mut writer = writer.lock();
+        // A run's input or a gate's keys: the permit was checked before the auto-title work and
+        // the writer lock. Output the reader thread took in since then is a screen nobody looked
+        // at, so the write is refused as stale (look again) rather than sent into it. Bytes still
+        // in the terminal's pipe are not visible here; delivery's quiet window before an Enter
+        // covers those (`agent_runs::delivery::press_enter`).
+        if matches!(origin, crate::pty::WriteOrigin::Task(_) | crate::pty::WriteOrigin::Gate(_)) {
+            if let (Some(seen), Some(now)) = (admitted_at, crate::pty::stream_pos::emitted(pane_id)) {
+                if now != seen {
+                    return Err(format!(
+                        "{}: the pane printed {} more byte(s) while the write was being prepared",
+                        crate::agent_runs::readiness::PERMIT_STALE,
+                        now.saturating_sub(seen)
+                    ));
+                }
+            }
+        }
         if !text.is_empty() {
             writer
                 .write_all(text.as_bytes())

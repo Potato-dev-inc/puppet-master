@@ -19,7 +19,7 @@
 //! // A permit cannot be built from its parts outside this module.
 //! let permit = puppet_master_app_lib::agent_runs::readiness::TypingPermit {
 //!     pane_id: String::new(),
-//!     output_pos: None,
+//!     output_pos: std::cell::Cell::new(None),
 //!     issued_at: std::time::Instant::now(),
 //!     used: std::cell::Cell::new(false),
 //! };
@@ -178,7 +178,7 @@ impl Verdict {
     pub fn typing_permit(&self) -> Option<TypingPermit> {
         self.is_ready().then(|| TypingPermit {
             pane_id: self.pane_id.clone(),
-            output_pos: self.output_pos,
+            output_pos: Cell::new(self.output_pos),
             issued_at: Instant::now(),
             used: Cell::new(false),
         })
@@ -198,11 +198,13 @@ impl Verdict {
 
 /// Permission to write one delivery's run input (the clear sequence, the task text, its Enter) into
 /// one pane. Its first write must find the pane's output exactly where the verdict saw it; later
-/// writes of the same delivery (Enter after the verified text) ride on it for [`PERMIT_MAX_AGE`].
+/// writes of the same delivery ride on it for [`PERMIT_MAX_AGE`]. An Enter is never one of those
+/// riders: delivery takes a fresh look first, stops on any gate or dialog, and re-arms the permit
+/// to that look ([`TypingPermit::rearm`]), so the Enter is refused when the pane printed after it.
 #[derive(Debug)]
 pub struct TypingPermit {
     pane_id: String,
-    output_pos: Option<u64>,
+    output_pos: Cell<Option<u64>>,
     issued_at: Instant,
     used: Cell<bool>,
 }
@@ -239,7 +241,7 @@ impl TypingPermit {
             return Err(format!("{PERMIT_REFUSED}: the permit expired; the pane must be checked again"));
         }
         if !self.used.get() {
-            if let (Some(seen), Some(now)) = (self.output_pos, emitted_now) {
+            if let (Some(seen), Some(now)) = (self.output_pos.get(), emitted_now) {
                 if now != seen {
                     return Err(format!(
                         "{PERMIT_STALE}: the pane printed {} more byte(s) after the readiness check",
@@ -255,6 +257,19 @@ impl TypingPermit {
         }
         self.used.set(true);
         Ok(())
+    }
+
+    /// Ties the permit's next write to a newer look at the same pane (the Enter after the verified
+    /// text, and the second Enter): that write is admitted only when the pane printed nothing after
+    /// `verdict` was taken, exactly like a first write. Refused (false, the permit unchanged) for a
+    /// look at another pane, or one no Enter may go into: a startup screen or dialog, a host shell.
+    pub(crate) fn rearm(&self, verdict: &Verdict) -> bool {
+        if verdict.pane_id != self.pane_id || matches!(verdict.readiness, Readiness::Gate(_) | Readiness::HostShell(_)) {
+            return false;
+        }
+        self.output_pos.set(verdict.output_pos);
+        self.used.set(false);
+        true
     }
 
     #[cfg(test)]

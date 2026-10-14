@@ -477,8 +477,9 @@ fn await_ready(
 ///
 /// Every write goes out under a permit (`agent_runs::readiness`): the clear sequence and the task
 /// text each need a `Ready` verdict from a look taken right before them (the pane refuses the write
-/// if anything was printed since, and delivery looks again), Enter rides on the permit of the text
-/// it submits, and a startup screen's keys need that screen's gate permit.
+/// if anything was printed since, and delivery looks again), each Enter goes in on the text's permit
+/// re-armed to a fresh look that found no gate or dialog ([`press_enter`]), and a startup screen's
+/// keys need that screen's gate permit.
 pub fn deliver_prompt_traced(
     io: &mut dyn DeliveryIo,
     clear: Option<&str>,
@@ -603,21 +604,18 @@ pub fn deliver_prompt_traced(
     if !settle.is_zero() {
         io.pause(settle);
     }
-    let verdict = readiness::assess(profile, io.observe());
-    if let Readiness::HostShell(shell) = verdict.readiness() {
-        trace.push(format!("{}; Enter was not pressed", verdict.why()));
-        return Delivery::AgentGone(shell.clone());
-    }
-    let before = verdict.screen().to_string();
-    if let Some(gate) = profile.startup_gate(&before) {
-        // Enter on a notice chooses one of its options ("Update now"): never press it there.
-        trace.push(format!("startup screen '{}' is on screen; Enter was not pressed", gate.id));
-        return Delivery::Blocked(gate);
-    }
+    let before = match press_enter(io, profile, &permit, trace, "Enter") {
+        Ok(before) => before,
+        Err(stop) => {
+            if matches!(stop, Delivery::NotReady { .. }) {
+                if let Some(clear) = clear {
+                    let _ = io.write(WriteOrigin::Task(&permit), clear, false);
+                }
+            }
+            return stop;
+        }
+    };
     let before_state = profile.composer_state(&before);
-    if let Err(error) = io.write(WriteOrigin::Task(&permit), "", true) {
-        return Delivery::WriteFailed(error);
-    }
     let mut resubmitted = false;
     for poll in 0..STARTED_POLLS {
         io.pause(POLL_INTERVAL);
@@ -635,11 +633,65 @@ pub fn deliver_prompt_traced(
         let swallowed = state == ComposerState::HasText && poll == RESUBMIT_IF_TEXT_AT_POLL;
         if (swallowed || poll == RESUBMIT_AT_POLL) && !resubmitted {
             resubmitted = true;
-            trace.push(format!("enter poll {poll}: Enter sent once more (composer={state:?})"));
-            let _ = io.write(WriteOrigin::Task(&permit), "", true);
+            // The second Enter gets its own look: a dialog drawn since the first one (a tool
+            // approval, a survey) would take it as its answer.
+            match press_enter(io, profile, &permit, trace, "second Enter") {
+                Ok(_) => trace.push(format!("enter poll {poll}: Enter sent once more (composer={state:?})")),
+                Err(Delivery::AgentGone(shell)) => return Delivery::AgentGone(shell),
+                // The first Enter went in; whatever is on screen now is for the turn watch and the
+                // person, not for a second Enter.
+                Err(_) => return Delivery::SubmittedUnconfirmed,
+            }
         }
     }
     Delivery::SubmittedUnconfirmed
+}
+
+/// How long the pane must stay quiet between the look before an Enter and the Enter: output the
+/// agent wrote just before the look but that was still in the terminal's pipe arrives in this
+/// window and makes the Enter stale (look again) instead of landing in a menu drawn by it.
+const ENTER_QUIET: Duration = Duration::from_millis(40);
+
+/// Presses one Enter for text already verified in the input box, never blind: a fresh look first
+/// (the agent gone: `AgentGone`; any startup screen or dialog, `detect_prompt` included:
+/// `Blocked`, no key), the permit re-armed to that look (`TypingPermit::rearm`), a short quiet
+/// window, then the key, which the pane's write path refuses as stale when anything was printed
+/// after the look. A pane that keeps printing through every look is `NotReady`; Enter is not pressed.
+/// `Ok` carries the screen of the look the Enter went in on.
+fn press_enter(
+    io: &mut dyn DeliveryIo,
+    profile: &dyn TuiProfile,
+    permit: &TypingPermit,
+    trace: &mut Vec<String>,
+    label: &str,
+) -> Result<String, Delivery> {
+    for _ in 0..=MAX_STALE_LOOKS {
+        let verdict = readiness::assess(profile, io.observe());
+        if let Readiness::HostShell(shell) = verdict.readiness() {
+            trace.push(format!("{}; {label} was not pressed", verdict.why()));
+            return Err(Delivery::AgentGone(shell.clone()));
+        }
+        if let Some(gate) = verdict.gate() {
+            // Enter on a notice or a dialog chooses its highlighted option: never press it there.
+            trace.push(format!("'{}' is on screen ({}); {label} was not pressed", gate.id, gate.summary));
+            return Err(Delivery::Blocked(gate));
+        }
+        if !permit.rearm(&verdict) {
+            return Err(Delivery::WriteFailed(format!("{}: the look before {label} was not for this pane", readiness::PERMIT_REFUSED)));
+        }
+        io.pause(ENTER_QUIET);
+        match io.write(WriteOrigin::Task(permit), "", true) {
+            Ok(()) => return Ok(verdict.screen().to_string()),
+            Err(error) if is_stale(&error) => {
+                trace.push(format!("the pane printed output after the look before {label}; looking again ({error})"));
+            }
+            Err(error) => return Err(Delivery::WriteFailed(error)),
+        }
+    }
+    Err(Delivery::NotReady {
+        why: format!("the pane kept printing output between every look and the {label}"),
+        screen: io.screen(),
+    })
 }
 
 /// Typing a task into a profile that cannot verify delivery (its input box is not readable enough to
@@ -1299,5 +1351,130 @@ working
         assert!(trace.iter().any(|l| l.contains("update_available")), "{trace:#?}");
         assert_eq!(outcome, Delivery::Started, "{trace:#?}");
         assert_eq!(io.inner.writes.iter().filter(|(t, _)| t == PROMPT).count(), 1, "typed once, on the composer");
+    }
+
+    // ---- review R12 1.1 / 1.2: no Enter into a dialog that drew after the text was verified ----
+
+    /// A Claude pane at its fresh box. After the task text goes in it shows the text in the box;
+    /// `dialog_on_look` / `dialog_in_quiet` / `dialog_after_enter` decide when a real captured
+    /// approval dialog draws over it. `pos` is the pane's output position (`stream_pos`).
+    struct Shifting {
+        screen: String,
+        pos: u64,
+        writes: Vec<(String, bool)>,
+        looks_after_text: u32,
+        /// The dialog draws as the Nth look after the text went in is taken (1 = the visible poll).
+        dialog_on_look: Option<u32>,
+        /// The dialog's bytes were still in the pipe at the look before Enter: they arrive during
+        /// the quiet pause before the key.
+        dialog_in_quiet: bool,
+        /// After the first Enter the text stays in the box (swallowed); the dialog draws at the
+        /// look before the second Enter.
+        dialog_after_enter: bool,
+        enters: u32,
+    }
+
+    const DIALOG: &str = include_str!("../tui/claude/fixtures/bash_approval_wide_2_1_299_live.txt");
+
+    impl Shifting {
+        fn new() -> Self {
+            Shifting {
+                screen: include_str!("../tui/claude/fixtures/ready_fresh_2_1_299_live.txt").to_string(),
+                pos: 5_000,
+                writes: Vec::new(),
+                looks_after_text: 0,
+                dialog_on_look: None,
+                dialog_in_quiet: false,
+                dialog_after_enter: false,
+                enters: 0,
+            }
+        }
+        fn draw(&mut self, screen: &str) {
+            self.screen = screen.to_string();
+            self.pos += 700;
+        }
+    }
+
+    impl DeliveryIo for Shifting {
+        fn write(&mut self, origin: WriteOrigin<'_>, text: &str, enter: bool) -> Result<(), String> {
+            origin.admit_terminal_write("", text, enter, Some(self.pos), || AgentProcess::Alive)?;
+            self.writes.push((text.to_string(), enter));
+            if text == PROMPT {
+                let shown = self.screen.replace("Try \"edit <filepath> to...\"", PROMPT);
+                self.screen = shown;
+                self.pos += PROMPT.len() as u64;
+            }
+            if enter {
+                self.enters += 1;
+            }
+            Ok(())
+        }
+        fn screen(&mut self) -> String {
+            self.screen.clone()
+        }
+        fn observe(&mut self) -> Observation {
+            if self.writes.iter().any(|(t, _)| t == PROMPT) {
+                self.looks_after_text += 1;
+                if self.dialog_on_look == Some(self.looks_after_text) {
+                    self.draw(DIALOG);
+                }
+                if self.dialog_after_enter && self.enters == 1 {
+                    self.draw(DIALOG);
+                }
+            }
+            Observation { pane_id: String::new(), screen: self.screen.clone(), output_pos: Some(self.pos), agent: AgentProcess::Alive }
+        }
+        fn busy(&mut self) -> bool {
+            false
+        }
+        fn pause(&mut self, d: Duration) {
+            if d == ENTER_QUIET && self.dialog_in_quiet && self.enters == 0 {
+                self.dialog_in_quiet = false;
+                self.draw(DIALOG);
+            }
+        }
+        fn profile(&mut self) -> Arc<dyn TuiProfile> {
+            crate::tui::profile_for("claude")
+        }
+    }
+
+    #[test]
+    fn the_fixture_is_a_dialog_claude_reads_as_a_gate() {
+        let verdict = readiness::assess(crate::tui::profile_for("claude").as_ref(), Observation::screen_only(DIALOG.to_string()));
+        assert_eq!(verdict.gate(), Some(readiness::PROMPT_GATE));
+    }
+
+    #[test]
+    fn enter_is_not_pressed_into_a_dialog_that_drew_after_the_text_was_verified() {
+        let mut io = Shifting::new();
+        // Look 1 is the visible poll (sees the text); the dialog draws before the look before Enter.
+        io.dialog_on_look = Some(2);
+        let mut trace = Vec::new();
+        let outcome = deliver_prompt_traced(&mut io, None, PROMPT, &mut trace);
+        assert_eq!(outcome, Delivery::Blocked(readiness::PROMPT_GATE), "{trace:#?}");
+        assert!(io.writes.iter().all(|(_, enter)| !enter), "Enter went into the dialog: {:?}", io.writes);
+        assert!(trace.iter().any(|l| l.contains("'prompt' is on screen") && l.contains("Enter was not pressed")), "{trace:#?}");
+    }
+
+    #[test]
+    fn a_dialog_whose_bytes_were_still_in_the_pipe_at_the_look_does_not_get_the_enter() {
+        let mut io = Shifting::new();
+        io.dialog_in_quiet = true;
+        let mut trace = Vec::new();
+        let outcome = deliver_prompt_traced(&mut io, None, PROMPT, &mut trace);
+        assert!(trace.iter().any(|l| l.contains("PERMIT_STALE")), "the Enter was refused as stale: {trace:#?}");
+        assert_eq!(outcome, Delivery::Blocked(readiness::PROMPT_GATE), "{trace:#?}");
+        assert!(io.writes.iter().all(|(_, enter)| !enter), "{:?}", io.writes);
+    }
+
+    #[test]
+    fn the_second_enter_is_not_pressed_into_a_dialog_either() {
+        let mut io = Shifting::new();
+        io.dialog_after_enter = true;
+        let mut trace = Vec::new();
+        let outcome = deliver_prompt_traced(&mut io, None, PROMPT, &mut trace);
+        assert_eq!(io.enters, 1, "one Enter, none into the dialog: {:?} {trace:#?}", io.writes);
+        assert_eq!(outcome, Delivery::SubmittedUnconfirmed, "{trace:#?}");
+        assert!(trace.iter().any(|l| l.contains("second Enter was not pressed")), "{trace:#?}");
     }
 }
