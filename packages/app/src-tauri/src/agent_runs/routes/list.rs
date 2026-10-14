@@ -131,7 +131,7 @@ pub(super) fn list_agents(
         .collect();
     let mut claimed = std::collections::BTreeSet::new();
     let mut live_workers = Vec::new();
-    let mut other = Vec::new();
+    let mut other: Vec<(crate::operations::OperationSnapshot, Value)> = Vec::new();
     for (snapshot, owned) in visible_runs(operations, session_id, now_ms) {
         if should_hide_from_agent_list(&snapshot) || !filter.keeps(&snapshot, owned, now_ms) {
             continue;
@@ -148,11 +148,20 @@ pub(super) fn list_agents(
             live_workers.push(run_worker_entry(&snapshot, owned, session_id, registry));
             continue;
         }
-        if snapshot.status.terminal() && !explicit_project {
-            continue;
-        }
-        other.push(run_worker_entry(&snapshot, owned, session_id, registry));
+        // Ended runs within the retention window are listed whether or not the caller named a
+        // project: an agent that just finished a run and asks "what do I have?" must find it
+        // again without its handle.
+        other.push((snapshot.clone(), run_worker_entry(&snapshot, owned, session_id, registry)));
     }
+    // Live panes first (below), then runs that are still active without a live pane, then ended
+    // runs, newest first.
+    other.sort_by_key(|(snapshot, _)| {
+        (
+            snapshot.status.terminal(),
+            std::cmp::Reverse(snapshot.finished_at_ms.unwrap_or(snapshot.created_at_ms)),
+        )
+    });
+    let other: Vec<Value> = other.into_iter().map(|(_, entry)| entry).collect();
     for pane in live.values() {
         let hidden_by_mine = filter.mine_only
             && !session_id.is_some_and(|session| {
