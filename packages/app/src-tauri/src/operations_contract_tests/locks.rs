@@ -82,3 +82,42 @@ fn concurrent_runs_locking_the_same_file_let_exactly_one_proceed() {
         .count();
     assert_eq!(winners, 1);
 }
+
+#[test]
+fn file_locks_name_the_same_file_however_the_path_is_spelled() {
+    let project = Project::new();
+    let holder = locked_operation(&project, "lock-a", "file:src/a.rs");
+    crate::bridge::acquire_operation_locks(&holder).unwrap();
+    for (n, spelling) in [
+        "file:./src/a.rs",
+        "file:src\a.rs",
+        "file:src//a.rs",
+        "file:src/sub/../a.rs",
+        "file: src/a.rs ",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let other = locked_operation(&project, &format!("lock-v{n}"), spelling);
+        assert_eq!(
+            crate::bridge::acquire_operation_locks(&other).unwrap_err().code,
+            "RESOURCE_LOCKED",
+            "{spelling} must conflict with file:src/a.rs"
+        );
+    }
+    // a genuinely different file and a non-file resource with the same name stay independent
+    let other_file = locked_operation(&project, "lock-b", "file:src/b.rs");
+    crate::bridge::acquire_operation_locks(&other_file).unwrap();
+    let task_named_like_path = locked_operation(&project, "lock-c", "task:src/a.rs");
+    crate::bridge::acquire_operation_locks(&task_named_like_path).unwrap();
+}
+
+#[test]
+fn a_lock_taken_with_one_spelling_is_released_by_another() {
+    let project = Project::new();
+    let first = locked_operation(&project, "lock-a", "file:./src/a.rs");
+    crate::bridge::acquire_operation_locks(&first).unwrap();
+    crate::bridge::release_operation_locks(&first).unwrap();
+    let second = locked_operation(&project, "lock-b", "file:src\a.rs");
+    crate::bridge::acquire_operation_locks(&second).unwrap();
+}
