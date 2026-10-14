@@ -360,3 +360,74 @@ Changed or new, all opened and checked:
 - **Toolbelt secrets**: Settings > Bridge & MCP > Toolbelt: tokens and passwords you add are stored in Windows Credential
   Manager, not in the settings file.
 - **Phone terminal**: scroll and reconnect on the phone; output should no longer repeat or drop lines across a handoff.
+
+---
+
+# Round 5
+
+Backup: `backup/integration-round5-start` (`f0e4760`).
+
+## Merged branch
+
+| # | Branch | Head | Merge commit |
+|---|---|---|---|
+| 23 | `feat/review-fixes` (11 commits: push Allow gated by risk, neutral ask_user with a countdown, palette undo through the restore sheet plus an Undo toast, runtime-only `.puppet-master` git exclude, one "Needs you" model in `lib/attention.ts`, sidebar identity, Second opinion above Merge, `--label-3` contrast tokens) | `99bda53` | `5215975` |
+
+No conflicts. The worktree `D:\pm-review-fixes` was not touched (only the branch ref was merged).
+
+## Flaky test found and fixed
+
+`operations_contract_tests::recovery::startup_recovery_releases_locks_held_by_interrupted_operations` failed once in 17 full
+`cargo test --lib` runs. Same class as the earlier recovery flake: startup recovery scans the whole process-wide operation
+index, so it could see projects of tests running (and deleting their dirs) at the same time. Fix (`3eb5308`): the contract
+tests' `Project` now sets a private, thread-scoped operation index (via a `#[cfg(test)]` `operations::set_test_index_dir`
+hook), as `0d9f20c` did for the `operations::tests` recovery tests. 10 consecutive full runs since: all green.
+
+## MCP catalog
+
+Unchanged: 68 tools, `68-e4687e50f1687299`.
+
+## Results
+
+```
+npm run build --workspace=@puppet-master/shared        -> tsc -p tsconfig.json (no errors)
+npx tsc --noEmit -p packages/app                       -> exit 0, no output
+npm test --workspace=@puppet-master/app                -> Test Files 111 passed (111); Tests 969 passed (969); no errors
+cargo test --lib   (src-tauri)                         -> test result: ok. 1496 passed; 0 failed; 2 ignored  (10 runs in a row)
+cargo test --bins  (src-tauri)                         -> ok. 33 passed (puppet-master-mcp); ok. 0 passed (app)
+npm run build --workspace=@puppet-master/app           -> built; tracked files under src-tauri/resources reverted, not committed
+```
+
+## Screenshots (round 5: `D:\pm-night\evidence\integration-r5`, 53 PNGs, every scenario)
+
+Run: `node scripts/evidence/screenshot.mjs --out D:\pm-night\evidence\integration-r5`. Almost every PNG differs from
+round 4 because the `--label-3` tokens (dim text) got darker/lighter for contrast and the sidebar gained identity lines.
+I opened the new one and a broad set of the changed ones (inbox, questions, approvals, Changes with and without second
+opinion, palette, history restore, stuck card, digest, agent doctor, light theme, Ask bar, settings General and Phone, and all
+six phone shots). No regressions.
+
+| File | Shows |
+|---|---|
+| review-fixes-restore-toast | History after a restore: toast "Files restored to Before turn 2." with an Undo button |
+| cockpit-inbox | "2 things need you": approval card and a "PowerShell hit an error" card (one attention model), sidebar "Needs you 2" with identity lines ("Error - puppet-master", "Waiting: allow `npm test`?") |
+| cockpit-questions | Inbox with two agent questions (neutral wording, "stops waiting in 9 min" countdown), the approval and the error card; "4 things need you" |
+| cockpit-changes | Receipt: Changes, Second opinion button above Merge/Discard, Last turn |
+| second-opinion-changes | After a review: notes pinned to lines, Second opinion panel above the buttons, the primary button becomes "Merge anyway" |
+| cockpit-palette | Palette with the sidebar "Needs you 2" and identity lines |
+| phone-agents-list / phone-agents | Phone: question card with the "stops waiting in 60 min" countdown, "Needs you" rows |
+| settings-*, askbar-*, phone-menu/-confirm/-new-agent/-terminal, cockpit-* (others) | Same screens as round 4 with the new contrast tokens |
+
+## Known issues (additions)
+
+- Not run in the real app: push Allow gating by risk, the Undo toast, and the runtime-only git exclude need real agents,
+  a phone and real git repositories.
+- `Cargo.toml` of `src-tauri` shows as modified in `git status` after builds (line endings only, no content change).
+
+## How to try it (additions)
+
+- **Needs you**: the sidebar group, the Inbox heading and the count now come from one model; approvals, agent questions
+  and errors all appear in it.
+- **Questions**: an `ask_user` question shows who is asking and how long the agent will wait ("stops waiting in 9 min").
+- **Undo**: palette "Undo last turn" opens the restore sheet; after a restore an Undo toast appears for a few seconds.
+- **Second opinion**: now sits above Merge. After a review with concerns, Merge turns into "Merge anyway".
+- **Git**: `.puppet-master` runtime data is excluded from git, but `memory.md` and `agents/` stay shareable.
