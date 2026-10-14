@@ -12,6 +12,9 @@ mod runtime;
 mod tests;
 
 pub use engine::{Checkpoint, CheckpointError, FileChange, RestoreReport};
+/// For tests in other modules that need a real checkpoint store inside a folder.
+#[cfg(test)]
+pub(crate) use engine::{snapshot as test_snapshot, Kind as TestKind, Limits as TestLimits};
 pub use runtime::{before_answer, before_dispatch, live, note_dispatched, on_pane_status, PaneFacts, Runtime};
 
 /// What the History tab and `GET /panes/{id}/checkpoints` show.

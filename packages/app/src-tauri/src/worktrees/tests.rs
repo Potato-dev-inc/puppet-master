@@ -464,3 +464,116 @@ fn a_pane_working_in_a_worktree_finds_its_changes() {
     assert_eq!(found.state, "unreviewed");
     assert_eq!(found.summary.map(|s| s.files_changed), Some(1));
 }
+
+// ---- Puppet Master's own data inside an isolated run's worktree (VERIFY-R7 finding A) ----------
+//
+// Round 7 made the run's pane checkpoint in its worktree, so `<worktree>/.puppet-master/` now exists
+// (checkpoint store, turn summaries). Whether the repo ignores it depends on the user's setup, and
+// `git add -- . :(exclude).puppet-master` fails when it does ("The following paths are ignored").
+
+/// An isolated run's worktree with a REAL checkpoint taken in it (what the run's pane does at
+/// dispatch) and the agent's edit, then the repo's ignore rules replaced by `exclude`.
+fn worktree_with_pm_data(repo: &Repo, handle: &str, exclude: &str) -> (WorktreeRef, PathBuf) {
+    let wt = create(&repo.path(), handle).unwrap();
+    let work = PathBuf::from(&wt.path);
+    let limits = crate::checkpoints::TestLimits::default();
+    crate::checkpoints::test_snapshot(&work, "pane-1", crate::checkpoints::TestKind::Before, None, 1_000, &limits).unwrap();
+    std::fs::write(work.join(".puppet-master").join("turn-summaries.json"), "{}").unwrap();
+    assert!(work.join(".puppet-master").join("checkpoints.git").is_dir(), "the store is inside the worktree");
+    std::fs::write(work.join("a.txt"), "alpha
+agent line
+").unwrap();
+    std::fs::write(work.join("wt-note.txt"), "hi
+").unwrap();
+    // The ignore rules of the user's repo (the checkpoint store may have written its own block).
+    std::fs::write(repo.root.join(".git/info/exclude"), exclude).unwrap();
+    (wt, work)
+}
+
+/// The ways a repo can treat `.puppet-master`: ignored as a folder (the old Puppet Master line, or
+/// a user's own `.gitignore` entry), ignored by Puppet Master's current block, or not ignored.
+const IGNORE_SETUPS: [(&str, &str); 3] = [
+    ("folder ignored", ".puppet-master/
+"),
+    ("block", "# Puppet Master runtime data (local, added automatically)
+.puppet-master/*
+!.puppet-master/memory.md
+!.puppet-master/agents/
+"),
+    ("not ignored", ".puppet-master/worktrees/
+"),
+];
+
+#[test]
+fn the_diff_of_an_isolated_run_ignores_puppet_masters_own_data_however_the_repo_ignores_it() {
+    for (name, exclude) in IGNORE_SETUPS {
+        let repo = repo();
+        let (wt, _work) = worktree_with_pm_data(&repo, "run-pm", exclude);
+        let view = diff(&wt, None).unwrap_or_else(|e| panic!("[{name}] the diff failed: {} {}", e.code, e.message));
+        let paths: Vec<&str> = view.changes.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["a.txt", "wt-note.txt"], "[{name}]");
+        assert!(!view.patch.contains(".puppet-master"), "[{name}] {}", view.patch);
+        let listed = changes(&wt).unwrap_or_else(|e| panic!("[{name}] changes failed: {} {}", e.code, e.message));
+        assert_eq!(listed.files_changed, 2, "[{name}]");
+    }
+}
+
+#[test]
+fn merging_an_isolated_run_never_brings_puppet_masters_data_into_the_users_branch() {
+    for (name, exclude) in IGNORE_SETUPS {
+        let repo = repo();
+        let (wt, work) = worktree_with_pm_data(&repo, "run-pm-merge", exclude);
+        let outcome = merge(&wt).unwrap_or_else(|e| panic!("[{name}] the merge failed: {} {}", e.code, e.message));
+        assert!(outcome.merged, "[{name}]");
+        assert_eq!(outcome.files, ["a.txt", "wt-note.txt"], "[{name}]");
+        assert_eq!(repo.read("a.txt"), "alpha
+agent line
+", "[{name}]");
+        let tracked = repo.git(&["ls-tree", "-r", "--name-only", "HEAD"]);
+        assert!(!tracked.contains(".puppet-master"), "[{name}] tracked in the user's branch: {tracked}");
+        let branch_files = repo.git(&["diff", "--name-only", &wt.base_commit, "HEAD"]);
+        assert_eq!(branch_files.lines().collect::<Vec<_>>(), ["a.txt", "wt-note.txt"], "[{name}]");
+        assert!(!work.exists(), "[{name}] worktree removed after the merge");
+    }
+}
+
+#[test]
+fn discarding_an_isolated_run_removes_its_worktree_with_puppet_masters_data_inside() {
+    for (name, exclude) in IGNORE_SETUPS {
+        let repo = repo();
+        let head = repo.head();
+        let (wt, work) = worktree_with_pm_data(&repo, "run-pm-discard", exclude);
+        discard(&wt).unwrap_or_else(|e| panic!("[{name}] the discard failed: {} {}", e.code, e.message));
+        assert!(!work.exists(), "[{name}]");
+        assert!(!repo.branches().lines().any(|b| b == "pm/run-pm-discard"), "[{name}]");
+        assert_eq!(repo.head(), head, "[{name}]");
+        assert_eq!(repo.read("a.txt"), "alpha
+", "[{name}]");
+        assert!(list(&repo.path()).is_empty(), "[{name}]");
+    }
+}
+
+#[test]
+fn an_edit_to_the_shared_project_memory_in_a_worktree_is_not_merged_either() {
+    // `.puppet-master/memory.md` is meant to be shared through git, but a run's worktree edit of it
+    // is not the user's work: the diff and the merge leave the whole folder alone.
+    let repo = repo();
+    repo.write(".puppet-master/memory.md", "remember
+");
+    repo.git(&["add", "-f", ".puppet-master/memory.md"]);
+    repo.git(&["commit", "-q", "-m", "memory"]);
+    let wt = create(&repo.path(), "run-mem").unwrap();
+    let work = PathBuf::from(&wt.path);
+    std::fs::write(work.join(".puppet-master/memory.md"), "remember
+more
+").unwrap();
+    std::fs::write(work.join("a.txt"), "alpha
+agent line
+").unwrap();
+    let view = diff(&wt, None).unwrap();
+    assert_eq!(view.changes.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["a.txt"]);
+    let outcome = merge(&wt).unwrap();
+    assert!(outcome.merged);
+    assert_eq!(repo.read(".puppet-master/memory.md"), "remember
+");
+}
