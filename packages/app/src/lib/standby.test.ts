@@ -5,10 +5,13 @@ import {
   NO_WARM_MODE_NOTE,
   clampInt,
   formatDuration,
+  idleDisplayValue,
+  idleUnitFor,
   preloadCount,
   preloadProviders,
   summarizePreload,
   withIdleMinutes,
+  withIdleValue,
   withPreloadCount,
   withPreloadEnabled,
 } from './standby';
@@ -111,5 +114,36 @@ describe('preload settings helpers', () => {
     ).toMatch(/no provider is ticked/);
     expect(summarizePreload(status({}))).toMatch(/start in a few seconds/);
     expect(summarizePreload(status({ counts: { total: 2, ready: 1, starting: 1 } }))).toBe('2 warm (1 ready, 1 starting)');
+  });
+});
+
+describe('idle timeout in a faithful unit', () => {
+  it('shows whole minutes in minutes and anything else in seconds', () => {
+    expect(idleUnitFor(5)).toBe('seconds');
+    expect(idleUnitFor(59)).toBe('seconds');
+    expect(idleUnitFor(60)).toBe('minutes');
+    expect(idleUnitFor(90)).toBe('seconds');
+    expect(idleUnitFor(1200)).toBe('minutes');
+  });
+
+  it('displays the stored value exactly in the chosen unit', () => {
+    expect(idleDisplayValue(5, 'seconds')).toBe(5);
+    expect(idleDisplayValue(1200, 'minutes')).toBe(20);
+  });
+
+  it('saves a typed value in seconds or minutes, clamped to the backend range', () => {
+    expect(withIdleValue(DEFAULT_STANDBY_CONFIG, 5, 'seconds').idle_timeout_secs).toBe(5);
+    expect(withIdleValue(DEFAULT_STANDBY_CONFIG, 1, 'seconds').idle_timeout_secs).toBe(5);
+    expect(withIdleValue(DEFAULT_STANDBY_CONFIG, 2, 'minutes').idle_timeout_secs).toBe(120);
+    expect(withIdleValue(DEFAULT_STANDBY_CONFIG, 99999, 'minutes').idle_timeout_secs).toBe(86400);
+  });
+
+  it('keeps the saved timeout when the typed value is not a number, and never mutates the input', () => {
+    const config = { ...DEFAULT_STANDBY_CONFIG, idle_timeout_secs: 1200 };
+    const before = structuredClone(config);
+    expect(withIdleValue(config, Number.NaN, 'seconds').idle_timeout_secs).toBe(1200);
+    expect(withIdleValue(config, 30, 'seconds').idle_timeout_secs).toBe(30);
+    expect(config).toEqual(before);
+    expect(config.idle_timeout_secs).toBe(1200);
   });
 });

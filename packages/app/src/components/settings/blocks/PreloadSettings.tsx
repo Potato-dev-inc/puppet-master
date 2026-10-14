@@ -10,11 +10,14 @@ import {
   preloadCount,
   preloadProviders,
   summarizePreload,
-  withIdleMinutes,
+  idleDisplayValue,
+  idleUnitFor,
+  withIdleValue,
+  type IdleUnit,
   withPreloadCount,
   withPreloadEnabled,
 } from '../../../lib/standby';
-import { NumberControl } from '../controls';
+import { NumberControl, Popup } from '../controls';
 import { FieldLabel, SettingBlock, SettingToggle } from '../settings-ui';
 
 export interface PreloadApi {
@@ -123,16 +126,7 @@ export function PreloadSettings({ api = DEFAULT_API, onSaved }: { api?: PreloadA
         label="Idle timeout"
         description={`A warm agent nobody used for ${formatDuration(config.idle_timeout_secs * 1000)} is closed; it warms again the next time you open that agent.`}
       >
-        <div className="max-w-xs">
-          <FieldLabel>Minutes</FieldLabel>
-          <NumberControl
-            min={1}
-            max={1440}
-            aria-label="Preload idle timeout (minutes)"
-            value={Math.round(config.idle_timeout_secs / 60)}
-            onCommit={(minutes) => save(withIdleMinutes(config, minutes))}
-          />
-        </div>
+        <IdleTimeoutField config={config} onChange={save} />
       </SettingBlock>
       <SettingBlock label="Status" description={summarizePreload(status)}>
         <div className="space-y-2 text-sm">
@@ -166,5 +160,47 @@ export function PreloadSettings({ api = DEFAULT_API, onSaved }: { api?: PreloadA
         </div>
       </SettingBlock>
     </>
+  );
+}
+
+/**
+ * The idle timeout in the unit that shows the stored value exactly (a 5 second value reads "5 seconds",
+ * not "0 minutes"). Showing it never rewrites it; only typing a number or switching the unit does.
+ */
+function IdleTimeoutField({ config, onChange }: { config: StandbyConfig; onChange: (next: StandbyConfig) => Promise<void> | void }) {
+  const secs = config.idle_timeout_secs;
+  const [unit, setUnit] = useState<IdleUnit>(() => idleUnitFor(secs));
+  // A change from outside (another window, a reload) that no longer fits the shown unit moves the unit.
+  useEffect(() => {
+    setUnit((current) => (current === 'minutes' && idleUnitFor(secs) === 'seconds' ? 'seconds' : current));
+  }, [secs]);
+  return (
+    <div className="flex max-w-xs items-end gap-2">
+      <div className="min-w-0 flex-1">
+        <FieldLabel>{unit === 'minutes' ? 'Minutes' : 'Seconds'}</FieldLabel>
+        <NumberControl
+          min={unit === 'minutes' ? 1 : 5}
+          max={unit === 'minutes' ? 1440 : 86400}
+          aria-label={`Preload idle timeout (${unit})`}
+          value={idleDisplayValue(secs, unit)}
+          onCommit={(value) => onChange(withIdleValue(config, value, unit))}
+        />
+      </div>
+      <Popup
+        aria-label="Idle timeout unit"
+        value={unit}
+        onChange={(event) => {
+          const next = event.target.value as IdleUnit;
+          setUnit(next);
+          // Seconds -> minutes can only show whole minutes, so the saved value follows what is shown.
+          if (next === 'minutes' && idleUnitFor(secs) === 'seconds') {
+            void onChange(withIdleValue(config, idleDisplayValue(secs, 'minutes'), 'minutes'));
+          }
+        }}
+      >
+        <option value="seconds">seconds</option>
+        <option value="minutes">minutes</option>
+      </Popup>
+    </div>
   );
 }

@@ -83,6 +83,29 @@ export function withIdleMinutes(config: StandbyConfig, minutes: number): Standby
   return { ...config, idle_timeout_secs: m * 60 };
 }
 
+/** The backend keeps the timeout between 5 seconds and 24 hours (`standby/config.rs`). */
+export const IDLE_TIMEOUT_MIN_SECS = 5;
+export const IDLE_TIMEOUT_MAX_SECS = 24 * 3600;
+
+export type IdleUnit = 'seconds' | 'minutes';
+
+/** The unit that shows a stored timeout exactly: whole minutes in minutes, anything else in seconds. */
+export function idleUnitFor(secs: number): IdleUnit {
+  return secs >= 60 && secs % 60 === 0 ? 'minutes' : 'seconds';
+}
+
+/** The number to show for a stored timeout in `unit` (exact for the unit `idleUnitFor` picks). */
+export function idleDisplayValue(secs: number, unit: IdleUnit): number {
+  return unit === 'minutes' ? Math.max(1, Math.round(secs / 60)) : secs;
+}
+
+/** A new config with the timeout set from a number typed in `unit`; the input is not mutated. */
+export function withIdleValue(config: StandbyConfig, value: number, unit: IdleUnit): StandbyConfig {
+  const fallback = config.idle_timeout_secs;
+  const raw = Number.isFinite(value) ? Math.round(value) * (unit === 'minutes' ? 60 : 1) : fallback;
+  return { ...config, idle_timeout_secs: clampInt(raw, IDLE_TIMEOUT_MIN_SECS, IDLE_TIMEOUT_MAX_SECS, fallback) };
+}
+
 /** Clamp an edited number into the range the backend accepts (it clamps too; this keeps the UI honest). */
 export function clampInt(value: number, min: number, max: number, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
