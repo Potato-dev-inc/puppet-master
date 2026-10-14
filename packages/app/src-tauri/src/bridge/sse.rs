@@ -29,6 +29,8 @@ pub fn get_sse_clients() -> SseClients {
 
 /// Push a raw SSE payload (e.g. "event: chat\ndata: {...}\n\n") to all connected clients.
 pub fn push_sse(payload: String) {
+    // Secrets never go out to phones: every event except the live terminal and structural ones is redacted.
+    let payload = crate::redact::fanout::sse_frame(payload);
     // Also kept for `GET /events/poll` (phones on a tunnel that does not pass SSE through).
     super::event_log::record(&payload);
     let clients = get_sse_clients();

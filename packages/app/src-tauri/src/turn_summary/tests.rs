@@ -318,7 +318,7 @@ fn ring_keeps_the_last_100_per_pane_in_memory_and_on_disk() {
     let tmp = Tmp::new("cap");
     let mut store = Store::default();
     for turn in 1..=(KEEP_PER_PANE as u32 + 5) {
-        store.record(tmp.p(), summary("p1", turn, u64::from(turn) * 1000)).unwrap();
+        store.record(tmp.p(), crate::redact::scrub(summary("p1", turn, u64::from(turn) * 1000))).unwrap();
     }
     let in_memory = store.for_pane("p1");
     assert_eq!(in_memory.len(), KEEP_PER_PANE);
@@ -335,7 +335,7 @@ fn the_ring_file_keeps_only_the_most_recent_panes() {
     let tmp = Tmp::new("panes");
     let mut store = Store::default();
     for i in 0..(MAX_PANES_IN_FILE as u64 + 5) {
-        store.record(tmp.p(), summary(&format!("pane-{i:02}"), 1, 1_000 * (i + 1))).unwrap();
+        store.record(tmp.p(), crate::redact::scrub(summary(&format!("pane-{i:02}"), 1, 1_000 * (i + 1)))).unwrap();
     }
     let mut reloaded = Store::default();
     reloaded.ensure_loaded(tmp.p());
@@ -348,8 +348,8 @@ fn the_ring_file_keeps_only_the_most_recent_panes() {
 fn the_same_turn_replaces_its_entry() {
     let tmp = Tmp::new("replace");
     let mut store = Store::default();
-    store.record(tmp.p(), summary("p1", 1, 1_000)).unwrap();
-    store.record(tmp.p(), summary("p1", 1, 2_000)).unwrap();
+    store.record(tmp.p(), crate::redact::scrub(summary("p1", 1, 1_000))).unwrap();
+    store.record(tmp.p(), crate::redact::scrub(summary("p1", 1, 2_000))).unwrap();
     let items = store.for_pane("p1");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].ended_at_ms, 2_000);
@@ -363,7 +363,7 @@ fn a_damaged_ring_file_is_an_empty_ring_and_is_rewritten() {
     let mut store = Store::default();
     store.ensure_loaded(tmp.p());
     assert!(store.since(0).is_empty());
-    store.record(tmp.p(), summary("p1", 1, 1_000)).unwrap();
+    store.record(tmp.p(), crate::redact::scrub(summary("p1", 1, 1_000))).unwrap();
     let mut again = Store::default();
     again.ensure_loaded(tmp.p());
     assert_eq!(again.for_pane("p1").len(), 1);
@@ -729,8 +729,8 @@ fn the_end_of_turn_summary_waits_for_its_own_snapshot_and_counts_the_file_edited
 fn a_stale_summary_never_replaces_a_later_one_of_the_same_turn() {
     let tmp = Tmp::new("stale");
     let mut store = Store::default();
-    store.record(tmp.p(), summary("p1", 4, 9_000)).unwrap();
-    store.record(tmp.p(), summary("p1", 4, 3_000)).unwrap();
+    store.record(tmp.p(), crate::redact::scrub(summary("p1", 4, 9_000))).unwrap();
+    store.record(tmp.p(), crate::redact::scrub(summary("p1", 4, 3_000))).unwrap();
     let items = store.for_pane("p1");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].ended_at_ms, 9_000);

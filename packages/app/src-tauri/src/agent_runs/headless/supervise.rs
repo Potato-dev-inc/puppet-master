@@ -195,7 +195,7 @@ impl Supervisor {
                     &current.project_path,
                     &current.operation_id,
                     "diagnostic",
-                    &format!("{}: {}", error.code, error.message),
+                    &crate::redact::text(&format!("{}: {}", error.code, error.message)),
                 );
                 if self.fail_run(current, error) {
                     return Step::Finished;
@@ -240,10 +240,10 @@ impl Supervisor {
                     &current.project_path,
                     &current.operation_id,
                     "delivery",
-                    "pane idle with no activity for 3s; Enter sent once more",
+                    &crate::redact::text("pane idle with no activity for 3s; Enter sent once more"),
                 );
                 // Empty text + newline writes just Enter.
-                let _ = crate::pty::registry_write_input(
+                let _ = crate::flight::with_tag(crate::flight::InputTag::Nudge, || crate::pty::registry_write_input(
                     &self.registry,
                     &self.app,
                     pane_id,
@@ -251,7 +251,7 @@ impl Supervisor {
                     true,
                     false,
                     None,
-                );
+                ));
                 false
             }
             TuiTurnDecision::NotSubmitted
@@ -302,10 +302,10 @@ impl Supervisor {
             &current.project_path,
             &current.operation_id,
             "permission",
-            action
+            &crate::redact::text(action
                 .get("summary")
                 .and_then(serde_json::Value::as_str)
-                .unwrap_or("permission required"),
+                .unwrap_or("permission required")),
         );
         if let Ok(waiting) = operations::mark_operation_waiting_input(
             &current.project_path,
@@ -357,7 +357,7 @@ impl Supervisor {
             &current.project_path,
             &current.operation_id,
             "assistant_final",
-            &result,
+            &crate::redact::text(&result),
         );
         self.finish_run(current, Some(result), capture)
     }
@@ -380,13 +380,13 @@ impl Supervisor {
                 &current.project_path,
                 &current.operation_id,
                 "delivery",
-                "reply was not on the visible rows when the pane went idle; recovered by re-reading the pane",
+                &crate::redact::text("reply was not on the visible rows when the pane went idle; recovered by re-reading the pane"),
             );
             transcript::append(
                 &current.project_path,
                 &current.operation_id,
                 "assistant_final",
-                &result,
+                &crate::redact::text(&result),
             );
             if self.finish_run(current, Some(result), ResultCapture::Inferred) {
                 return true;
@@ -402,7 +402,7 @@ impl Supervisor {
             &current.project_path,
             &current.operation_id,
             "diagnostic",
-            &error.context.to_string(),
+            &crate::redact::text(&error.context.to_string()),
         );
         self.fail_run(current, error)
     }
@@ -416,7 +416,7 @@ impl Supervisor {
                 &current.project_path,
                 &current.operation_id,
                 "assistant_final",
-                &result,
+                &crate::redact::text(&result),
             );
             if self.finish_run(current, Some(result), ResultCapture::Inferred) {
                 return true;
@@ -427,7 +427,7 @@ impl Supervisor {
             &current.project_path,
             &current.operation_id,
             "diagnostic",
-            &diagnostics.to_string(),
+            &crate::redact::text(&diagnostics.to_string()),
         );
         let _ = operations::add_warning(
             &current.project_path,
@@ -442,7 +442,7 @@ impl Supervisor {
     /// box (the unsent prompt is still typed there) and fail the run as safely retryable.
     fn on_not_submitted(&self, current: &OperationSnapshot, pane_id: &str) -> bool {
         if let Some(clear) = crate::tui::profile_for(&current.agent_type).clear_input_sequence() {
-            let _ = crate::pty::registry_write_input(
+            let _ = crate::flight::with_tag(crate::flight::InputTag::Nudge, || crate::pty::registry_write_input(
                 &self.registry,
                 &self.app,
                 pane_id,
@@ -450,7 +450,7 @@ impl Supervisor {
                 false,
                 false,
                 None,
-            );
+            ));
         }
         // Visible-first: the turn never started, so a headless-capable agent retries headless.
         if super::fallback::convert(current, Some("PROMPT_NOT_SUBMITTED"), &self.registry) {

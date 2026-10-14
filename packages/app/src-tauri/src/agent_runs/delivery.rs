@@ -151,12 +151,12 @@ pub fn record_delivery(project: &str, operation_id: &str, again: Option<&str>, o
     if let Some(why) = again {
         summary = format!("Sent again ({why}). {summary}");
     }
-    super::transcript::append(project, operation_id, "delivery", &summary);
+    super::transcript::append(project, operation_id, "delivery", &crate::redact::text(&summary));
     super::transcript::append(
         project,
         operation_id,
         super::transcript::TRACE_STREAM,
-        &format!("{outcome:?}\n{}", trace.join("\n")),
+        &crate::redact::text(&format!("{outcome:?}\n{}", trace.join("\n"))),
     );
 }
 
@@ -340,7 +340,7 @@ fn close_startup_gates(
         }
         *rounds += 1;
         trace.push(format!("startup screen '{}' on screen: closing it with its own keys before typing", gate.id));
-        if io.write(keys, false).is_err() {
+        if crate::flight::with_tag(crate::flight::InputTag::GateDismiss, || io.write(keys, false)).is_err() {
             return Err(gate);
         }
         let mut changed = false;
@@ -544,7 +544,7 @@ pub struct PaneIo<'a> {
 
 impl DeliveryIo for PaneIo<'_> {
     fn write(&mut self, text: &str, enter: bool) -> Result<(), String> {
-        crate::pty::registry_write_input(self.registry, self.app, self.pane_id, text, enter, false, None)
+        crate::flight::with_default_tag(crate::flight::InputTag::RunTask, || crate::pty::registry_write_input(self.registry, self.app, self.pane_id, text, enter, false, None))
     }
 
     fn screen(&mut self) -> String {

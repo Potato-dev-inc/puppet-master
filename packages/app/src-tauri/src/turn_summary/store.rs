@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::model::TurnSummary;
+use crate::redact::Redacted;
 
 pub const KEEP_PER_PANE: usize = 100;
 /// A project file keeps at most this many panes (the ones with the newest activity).
@@ -88,8 +89,10 @@ impl Store {
         }
     }
 
-    /// Record a finished turn and write the project's ring file.
-    pub fn record(&mut self, project: &Path, summary: TurnSummary) -> std::io::Result<()> {
+    /// Record a finished turn and write the project's ring file. The ring file sits in the project
+    /// folder, so only redacted text may be written to it.
+    pub fn record(&mut self, project: &Path, summary: Redacted<TurnSummary>) -> std::io::Result<()> {
+        let summary = summary.into_inner();
         self.ensure_loaded(project);
         self.project_of.insert(summary.pane_id.clone(), project.to_path_buf());
         upsert(self.rings.entry(summary.pane_id.clone()).or_default(), summary, KEEP_PER_PANE);

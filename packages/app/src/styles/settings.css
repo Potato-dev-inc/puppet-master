@@ -622,3 +622,58 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- diagnostic file (Settings > General) ---------- */
+.settings .st-diag-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.settings .st-diag-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 0.5px solid var(--separator, rgba(255, 255, 255, 0.08));
+}
+.settings .st-diag-item:first-child {
+  border-top: 0;
+}
+.settings .st-diag-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+}
+.settings .st-diag-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.settings .st-diag-size {
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.settings .st-diag-text {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--label-2);
+  background: var(--fill, rgba(255, 255, 255, 0.04));
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.settings .st-diag-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}

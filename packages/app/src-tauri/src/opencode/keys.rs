@@ -555,3 +555,26 @@ mod tests {
         assert!(!encoded.contains("sk-"));
     }
 }
+
+/// Every credential string in the stored key profiles (JSON fields named like a key, token, secret,
+/// access or refresh value), for `crate::redact`. Empty when the store cannot be read.
+pub fn secret_values() -> Vec<String> {
+    fn secret_field(name: &str) -> bool {
+        let n = name.to_ascii_lowercase();
+        ["key", "token", "secret", "access", "refresh", "password"].iter().any(|w| n.contains(w))
+    }
+    fn leaves(value: &Value, in_secret_field: bool, out: &mut Vec<String>) {
+        match value {
+            Value::String(s) if in_secret_field && s.len() >= 8 => out.push(s.clone()),
+            Value::Array(items) => items.iter().for_each(|v| leaves(v, in_secret_field, out)),
+            Value::Object(map) => map.iter().for_each(|(k, v)| leaves(v, secret_field(k), out)),
+            _ => {}
+        }
+    }
+    let Ok(store) = load_store() else { return Vec::new() };
+    let mut out = Vec::new();
+    for profile in store.profiles.values() {
+        leaves(&profile.auth, false, &mut out);
+    }
+    out
+}

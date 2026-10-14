@@ -176,6 +176,7 @@ impl PaneRegistry {
     pub fn take(&mut self, id: &str) -> Option<PaneState> {
         super::hidden::forget(id);
         super::resize_clock::forget(id);
+        crate::flight::closed(id);
         self.panes.remove(id)
     }
 
@@ -183,6 +184,7 @@ impl PaneRegistry {
         for id in self.panes.keys() {
             super::hidden::forget(id);
             super::resize_clock::forget(id);
+            crate::flight::closed(id);
         }
         std::mem::take(&mut self.panes).into_values().collect()
     }

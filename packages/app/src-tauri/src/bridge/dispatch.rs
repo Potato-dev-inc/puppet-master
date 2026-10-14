@@ -732,10 +732,10 @@ fn send_task_prompt(
             if let Some(clear) = profile.clear_input_sequence() {
                 // Empty the TUI's input box first (a no-op when it is already
                 // empty); otherwise a leftover prompt prefixes the new one.
-                let _ = registry_write_input(registry, app, pane_id, clear, false, false, None);
+                let _ = crate::flight::with_tag(crate::flight::InputTag::RunTask, || registry_write_input(registry, app, pane_id, clear, false, false, None));
                 thread::sleep(Duration::from_millis(250));
             }
-            registry_write_input(
+            crate::flight::with_tag(crate::flight::InputTag::RunTask, || registry_write_input(
                 registry,
                 app,
                 pane_id,
@@ -743,7 +743,7 @@ fn send_task_prompt(
                 true,
                 agent_type == "opencode_native",
                 None,
-            )
+            ))
             .map_err(|err| {
                 let code = if err.starts_with(crate::opencode::delivery::PROMPT_NOT_DELIVERED) {
                     crate::opencode::delivery::PROMPT_NOT_DELIVERED

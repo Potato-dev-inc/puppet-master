@@ -159,7 +159,7 @@ pub fn stop_worker_control(
     } else if snapshot.agent_type != "opencode_native" {
         let sequence = crate::pty::keys::sequence("ctrl+c")
             .map_err(|err| OperationError::new("CANCEL_FAILED", err, false))?;
-        crate::pty::registry_write_input(registry, app, pane_id, &sequence, false, false, None)
+        crate::flight::with_tag(crate::flight::InputTag::Nudge, || crate::pty::registry_write_input(registry, app, pane_id, &sequence, false, false, None))
             .map_err(|err| OperationError::new("CANCEL_FAILED", err, true))?;
     }
     Ok(())

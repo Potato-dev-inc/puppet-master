@@ -11,6 +11,7 @@ import { resolveSettingsFilePath } from '../../../lib/settings';
 import { tauri, type AppInstallInfo, type CoordinationStorageInfo } from '../../../lib/tauri';
 import { AmbientSettings } from '../blocks/AmbientSettings';
 import { AskBarSettingsBlock } from '../blocks/AskBarSettings';
+import { DiagnosticFile } from '../blocks/DiagnosticFile';
 import { LoopGuardSettingsBlock } from '../blocks/LoopGuardSettings';
 import { SharedMemoryToggle } from '../blocks/SharedMemoryToggle';
 import { NumberControl, TextControl } from '../controls';
@@ -329,5 +330,13 @@ export const generalRows: RowDef[] = [
   },
   { id: 'version', label: 'Version', hint: 'Check for updates and download the installer.', keywords: 'app version update release download install', group: 'About', render: (env) => <VersionRow env={env} /> },
   { id: 'settings-file', label: 'Settings file', hint: 'Where your settings are saved. Export a copy with keys removed.', keywords: 'export json backup path', group: 'About', render: (env) => <SettingsFile env={env} /> },
+  {
+    id: 'diagnostic-file',
+    label: 'Save a diagnostic file',
+    hint: 'One .zip with your settings (keys removed), recent app messages and recordings of runs that failed. Nothing is sent anywhere.',
+    keywords: 'diagnostic bug report support logs recording flight zip help',
+    group: 'About',
+    render: (env) => <DiagnosticFile onSaved={env.markSaved} />,
+  },
   { id: 'uninstall', label: 'Uninstall Puppet Master', hint: 'Remove the app from this computer.', keywords: 'remove delete', danger: true, render: (env) => <UninstallRow env={env} /> },
 ];

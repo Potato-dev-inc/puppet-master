@@ -55,6 +55,9 @@ tauri-plugin-global-shortcut = "2"
 arboard = { version = "3", default-features = false }
 # OS credential store for provider API keys (MIT OR Apache-2.0). 3.x: no default stores, pick per OS.
 keyring = "3.6"
+# Diagnostic file: deflate and checksums for the zip writer in flight/zip.rs (both MIT OR Apache-2.0, already built for ureq).
+flate2 = "1"
+crc32fast = "1"
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3.6", features = ["windows-native"] }

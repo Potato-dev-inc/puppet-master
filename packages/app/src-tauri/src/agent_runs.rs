@@ -16,7 +16,7 @@ pub(crate) mod quick;
 mod recovery;
 mod routes;
 mod runtime;
-pub(crate) mod transcript;
+pub mod transcript;
 
 #[cfg(test)]
 mod cursor_capture_tests;

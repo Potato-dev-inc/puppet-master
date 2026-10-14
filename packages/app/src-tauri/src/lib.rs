@@ -40,6 +40,8 @@ mod pane_prompt;
 mod prompt_risk;
 pub mod questions;
 mod push;
+pub mod redact;
+mod flight;
 mod secure_file;
 mod app_windows;
 mod cockpit;
@@ -90,6 +92,8 @@ pub fn run() {
             }),
         )
         .with_target(false)
+        // Console as before, plus the last lines kept in memory for the diagnostic file.
+        .with_writer(flight::applog::Tee)
         .init();
 
     tauri::Builder::default()
@@ -206,6 +210,9 @@ pub fn run() {
             commands::set_tunnel_config,
             commands::restart_tunnel,
             commands::test_tunnel_connection,
+            commands::diagnostic_preview,
+            commands::diagnostic_show,
+            commands::diagnostic_save,
             app_lifecycle::get_app_install_info,
             app_lifecycle::open_external_url,
             app_lifecycle::launch_uninstall,

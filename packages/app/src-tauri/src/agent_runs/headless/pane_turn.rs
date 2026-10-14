@@ -62,7 +62,7 @@ pub(super) fn auto_approve_allowed_command(
         &current.project_path,
         &current.operation_id,
         "permission",
-        &format!("auto-approved once (run policy allowed_commands): {program}"),
+        &crate::redact::text(&format!("auto-approved once (run policy allowed_commands): {program}")),
     );
     if current.status == OperationStatus::WaitingInput {
         if let Ok(running) = operations::mark_operation_observation(

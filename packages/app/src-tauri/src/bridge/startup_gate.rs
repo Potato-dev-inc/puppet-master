@@ -90,7 +90,7 @@ impl GateIo for PaneGateIo<'_> {
     }
 
     fn write(&mut self, keys: &str) -> Result<(), String> {
-        crate::pty::registry_write_input(
+        crate::flight::with_tag(crate::flight::InputTag::GateDismiss, || crate::pty::registry_write_input(
             self.registry,
             self.app,
             self.pane_id,
@@ -98,7 +98,7 @@ impl GateIo for PaneGateIo<'_> {
             false,
             false,
             None,
-        )
+        ))
     }
 
     fn pause(&mut self, duration: Duration) {
@@ -126,10 +126,10 @@ pub(super) fn dismiss_for_operation(
             &operation.project_path,
             &operation.operation_id,
             "startup",
-            &format!(
+            &crate::redact::text(&format!(
                 "closed startup screen before the task was typed: {}",
                 report.dismissed.join(", ")
-            ),
+            )),
         );
     }
     report

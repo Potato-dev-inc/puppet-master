@@ -343,7 +343,7 @@ pub fn answer(
         ));
     }
     let (key, reply_choice) = reply_key(&agent_type, &prompt, choice, allow_broad)?;
-    crate::pty::registry::write_input(registry, app, pane_id, &key, true, false, None)
+    crate::flight::with_tag(crate::flight::InputTag::Answer, || crate::pty::registry::write_input(registry, app, pane_id, &key, true, false, None))
         .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))?;
     note_gate_answer(pane_id, &prompt, &reply_choice);
     Ok(
