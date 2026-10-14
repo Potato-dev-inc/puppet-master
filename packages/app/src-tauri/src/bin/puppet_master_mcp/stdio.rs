@@ -185,7 +185,7 @@ fn handle_json_rpc_line_cancellable(
                 "version": SERVER_VERSION,
                 "catalog_version": tool_registry::catalog_version(),
             },
-            "instructions": tool_registry::mcp_instructions()
+            "instructions": instructions_with_notices()
         })),
         "tools/list" => Ok(json!({ "tools": mcp_tools() })),
         "resources/list" => Ok(json!({ "resources": tool_registry::resources() })),
@@ -200,24 +200,7 @@ fn handle_json_rpc_line_cancellable(
             ) {
                 Ok(value) => Ok(value),
                 Err(message) => {
-                    let mut detail = tool_error_detail(&message);
-                    // A rejected argument is the usual symptom of a stale schema; say so.
-                    if detail.get("code").and_then(Value::as_str) == Some("INVALID_ARGUMENT") {
-                        if let Some(drift) = detect_schema_drift() {
-                            let hint = drift["hint"].as_str().unwrap_or_default().to_string();
-                            if let Some(object) = detail.as_object_mut() {
-                                if let Some(text) = object.get("message").and_then(Value::as_str) {
-                                    let text = format!("{text} [SCHEMA_DRIFT: {hint}]");
-                                    object.insert("message".into(), json!(text));
-                                }
-                                if let Some(context) =
-                                    object.get_mut("context").and_then(Value::as_object_mut)
-                                {
-                                    context.insert("schema_drift".into(), drift);
-                                }
-                            }
-                        }
-                    }
+                    let detail = tool_error_detail(&message);
                     Ok(
                         json!({"content":[{"type":"text","text":detail.get("message").and_then(Value::as_str).unwrap_or("tool call failed")}],"isError":true,"structuredContent":detail}),
                     )
@@ -243,6 +226,16 @@ fn handle_json_rpc_line_cancellable(
                 });
                 annotate_set_mode(value, sent);
             }
+        }
+    }
+
+    if method == "tools/call" {
+        if let Ok(value) = result.as_mut() {
+            let name = request
+                .pointer("/params/name")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            annotate_tool_result(name, value);
         }
     }
 

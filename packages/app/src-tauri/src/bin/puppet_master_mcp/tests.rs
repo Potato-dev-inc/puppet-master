@@ -406,13 +406,14 @@ fn agent_mode_tools_list_is_local_and_includes_primary_controls() {
         "inspect_agent",
         "agent_transcript",
         "close_agent",
-        "send_agent",
-        "cancel_agent",
         "list_agents",
-        "list_workers",
         "list_panes",
     ] {
         assert!(names.iter().any(|item| item == name), "missing {name}");
+    }
+    // Aliases are hidden from tools/list (and stay callable; see notices_tests).
+    for hidden in ["send_agent", "cancel_agent", "list_workers"] {
+        assert!(!names.iter().any(|item| item == hidden), "{hidden} must be unlisted");
     }
     assert!(!names.iter().any(|name| name == "spawn_agent"));
     assert!(!names.iter().any(|name| name == "press_key"));
@@ -545,10 +546,15 @@ fn ensure_questions_bridge() {
                     let body: Value =
                         serde_json::from_slice(&raw[header_end..]).unwrap_or_else(|_| json!({}));
                     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
-                    let reply = puppet_master_app_lib::questions::routes::handle(
-                        method, &segments, &body, None, false, &|| {},
-                    )
-                    .unwrap_or_else(|| Err((404, json!({"error":"not found"}))));
+                    // The notices tests also need a bridge that answers the worker listing.
+                    let reply = if method == "GET" && path.starts_with("/agents") {
+                        Ok((200, json!({"agents": [], "workers": []})))
+                    } else {
+                        puppet_master_app_lib::questions::routes::handle(
+                            method, &segments, &body, None, false, &|| {},
+                        )
+                        .unwrap_or_else(|| Err((404, json!({"error":"not found"}))))
+                    };
                     let (status, value) = match reply {
                         Ok(r) | Err(r) => r,
                     };
@@ -653,3 +659,6 @@ fn ask_user_times_out_and_cancelling_the_call_withdraws_the_question() {
     // Cancelling the call removed the question from the Inbox.
     assert!(pending_question_id("mcp-test: cancel me").is_none(), "{id} should be withdrawn");
 }
+
+#[path = "notices_tests.rs"]
+mod notices_tests;
