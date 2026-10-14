@@ -45,6 +45,12 @@ impl TuiProfile for Claude {
         "claude"
     }
 
+    /// `-p --permission-prompts none --permission-mode acceptEdits` (or `plan`): edits only; shell
+    /// commands are denied, never asked about (`headless::policy_args`).
+    fn headless_runs_commands_unattended(&self) -> bool {
+        false
+    }
+
     fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
         crate::toolbelt::host_from_toml(MCP_HOST)
     }

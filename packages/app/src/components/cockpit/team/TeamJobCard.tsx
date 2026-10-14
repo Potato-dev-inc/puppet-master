@@ -48,7 +48,9 @@ function changesApiFor(job: TeamJob, api: TeamApi): ChangesApi {
 
 /**
  * A "Queue my agent" update: waiting for the pane's turn, merging, then the result with
- * Apply to my branch (fast-forward only, never a push) / See changes / Discard.
+ * Apply to my branch (fast-forward only, never a push) / See changes / Discard. When the merge
+ * stopped on conflicts and the agent would run commands without asking, it waits for Start
+ * (it then opens in a pane I can watch).
  */
 export function TeamJobCard({ job, api, paneName, onDone }: { job: TeamJob; api: TeamApi; paneName?: string; onDone?: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -58,7 +60,8 @@ export function TeamJobCard({ job, api, paneName, onDone }: { job: TeamJob; api:
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const changesApi = useMemo(() => changesApiFor(job, api), [job, api]);
   const ready = job.state === 'ready';
-  const canDiscard = job.state === 'ready' || job.state === 'failed' || job.state === 'waiting';
+  const needsStart = job.state === 'needs_start';
+  const canDiscard = job.state === 'ready' || job.state === 'failed' || job.state === 'waiting' || needsStart;
 
   const run = async (what: () => Promise<string | void>) => {
     setBusy(true);
@@ -91,8 +94,14 @@ export function TeamJobCard({ job, api, paneName, onDone }: { job: TeamJob; api:
           {error}
         </p>
       )}
+      {needsStart && job.conflicts.length > 0 && <p className="ck-team-meta">Conflicts: {job.conflicts.join(', ')}</p>}
       {(ready || canDiscard) && (
         <div className="ck-inbox-actions">
+          {needsStart && (
+            <button type="button" className="ck-btn ck-btn--primary" disabled={busy} onClick={() => void run(() => api.startJob(job.id))}>
+              Start {job.agentLabel}
+            </button>
+          )}
           {ready && (
             <button type="button" className="ck-btn ck-btn--primary" disabled={busy} onClick={() => void run(() => api.apply(job.id))}>
               Apply to my branch

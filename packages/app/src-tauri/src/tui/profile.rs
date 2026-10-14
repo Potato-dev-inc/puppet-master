@@ -120,6 +120,14 @@ pub trait TuiProfile: Send + Sync {
         ))
     }
 
+    /// The headless mode (as `headless_command` builds it without `allow_shell`) may run shell
+    /// commands without asking anyone. Work that hands an agent someone else's content (a
+    /// teammate's conflicted merge, `team::service`) never starts such an agent unattended.
+    /// Unknown: assume it may.
+    fn headless_runs_commands_unattended(&self) -> bool {
+        true
+    }
+
     /// Why a headless turn that produced no result failed, when the profile can tell: the CLI
     /// reported an error itself (`AGENT_REPORTED_ERROR`, message preserved) or exited cleanly with
     /// output the definition cannot read (`AGENT_OUTPUT_UNPARSEABLE`). `None` keeps the generic

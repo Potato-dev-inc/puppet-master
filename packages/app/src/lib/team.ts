@@ -82,7 +82,8 @@ export interface TeamCard {
   panes: PaneChoice[];
 }
 
-export type JobState = 'waiting' | 'working' | 'ready' | 'failed' | 'applied' | 'discarded';
+/** `needs_start`: the merge stopped on conflicts and the agent would run commands without asking, so it waits for my click. */
+export type JobState = 'waiting' | 'needs_start' | 'working' | 'ready' | 'failed' | 'applied' | 'discarded';
 
 /** A "Queue my agent" update and its result. */
 export interface TeamJob {
@@ -232,6 +233,8 @@ export interface TeamApi {
   approveJoin: (joinId: string) => Promise<TeamConfigView>;
   declineJoin: (joinId: string) => Promise<TeamConfigView>;
   removeMember: (memberId: string) => Promise<TeamConfigView>;
+  /** Admin: the member's claimed GitHub login is theirs (GitHub facts about it then show as theirs). */
+  confirmGithub: (memberId: string) => Promise<TeamConfigView>;
   clearGaps: () => Promise<void>;
   mergePlan: (cardId: string) => Promise<MergePlan>;
   /** Arms auto-merge at `headSha`, the commit the sheet showed. */
@@ -241,6 +244,8 @@ export interface TeamApi {
   dismissCard: (cardId: string) => Promise<void>;
   pull: (cardId: string) => Promise<string>;
   queue: (cardId: string, paneId: string, when: 'idle' | 'now') => Promise<TeamJob>;
+  /** Starts the agent on a `needs_start` update, in a visible pane (desktop only). */
+  startJob: (jobId: string) => Promise<void>;
   apply: (jobId: string) => Promise<string>;
   discard: (jobId: string) => Promise<void>;
   diff: (jobId: string) => Promise<WorktreeDiff>;
@@ -267,6 +272,7 @@ export const teamApi: TeamApi = {
   approveJoin: (joinId) => call('team_join_approve', { joinId }),
   declineJoin: (joinId) => call('team_join_decline', { joinId }),
   removeMember: (memberId) => call('team_member_remove', { memberId }),
+  confirmGithub: (memberId) => call('team_member_confirm_github', { memberId }),
   clearGaps: () => call('team_gaps_clear'),
   mergePlan: (cardId) => call('team_merge_plan', { cardId }),
   mergeWhenGreen: (cardId, headSha) => call('team_merge_when_green', { cardId, headSha }),
@@ -275,6 +281,7 @@ export const teamApi: TeamApi = {
   dismissCard: (cardId) => call('team_card_dismiss', { cardId }),
   pull: (cardId) => call('team_pull', { cardId }),
   queue: (cardId, paneId, when) => call('team_queue', { cardId, paneId, when }),
+  startJob: (jobId) => call('team_job_start', { jobId }),
   apply: (jobId) => call('team_job_apply', { jobId }),
   discard: (jobId) => call('team_job_discard', { jobId }),
   diff: (jobId) => call('team_job_diff', { jobId }),
@@ -386,6 +393,8 @@ export function jobTitle(job: TeamJob): string {
   switch (job.state) {
     case 'waiting':
       return `Queued: bring ${job.theirBranch} into ${job.into}`;
+    case 'needs_start':
+      return `${plural(job.conflicts.length, 'conflict')} to resolve: ${job.theirBranch} into ${job.into}`;
     case 'working':
       return job.agentRan ? `${job.agentLabel} is merging ${job.theirBranch}` : `Merging ${job.theirBranch}`;
     case 'ready':

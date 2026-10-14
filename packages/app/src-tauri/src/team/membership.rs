@@ -179,8 +179,17 @@ pub fn refresh(roster: &mut Roster, keys: &KeyStore, transport: &dyn TeamTranspo
     Ok(out)
 }
 
-/// Admin: let a checked join request in, as a watching member.
+/// Admin: let a checked join request in, as a watching member. A GitHub login someone on the
+/// team already has is refused: the admin decides who it belongs to.
 pub fn approve(roster: &mut Roster, request: &JoinRequest, keys: &KeyStore, transport: &dyn TeamTransport, now_ms: u64) -> Result<SignedOp, String> {
+    if let Some(login) = request.github.as_deref().filter(|g| !g.is_empty()) {
+        if let Some(holder) = roster.members.iter().find(|m| m.github.as_deref().is_some_and(|g| g.eq_ignore_ascii_case(login))) {
+            return Err(format!(
+                "{} already uses the GitHub login {login}. Decline this request, or remove {} first.",
+                holder.display, holder.display
+            ));
+        }
+    }
     let root = keys.member()?;
     let member = MemberEntry {
         id: request.member.clone(),
@@ -192,6 +201,24 @@ pub fn approve(roster: &mut Roster, request: &JoinRequest, keys: &KeyStore, tran
     };
     let mut next = roster.clone();
     let op = next.append(OpBody::Add { member }, &root, now_ms).map_err(|e| e.0)?;
+    publish(&next, keys, transport)?;
+    *roster = next;
+    Ok(op)
+}
+
+/// Admin: confirm a member's GitHub login (after checking it is theirs), so GitHub facts about
+/// that login are shown as theirs.
+pub fn confirm_github(roster: &mut Roster, member: &str, keys: &KeyStore, transport: &dyn TeamTransport, now_ms: u64) -> Result<SignedOp, String> {
+    let entry = roster.member(member).ok_or("They aren't on the team.")?;
+    if entry.github.is_none() {
+        return Err("They didn't give a GitHub login.".into());
+    }
+    if entry.github_confirmed {
+        return Err("Their GitHub login is already confirmed.".into());
+    }
+    let root = keys.member()?;
+    let mut next = roster.clone();
+    let op = next.append(OpBody::ConfirmGithub { member: member.to_string() }, &root, now_ms).map_err(|e| e.0)?;
     publish(&next, keys, transport)?;
     *roster = next;
     Ok(op)

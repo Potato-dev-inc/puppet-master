@@ -371,7 +371,11 @@ impl Roster {
     }
 
     /// The member whose GitHub login this is (for GitHub facts).
+    /// The member whose GitHub login the admin confirmed. A login a joiner only claimed counts
+    /// for nothing (security review L5): anyone can claim a teammate's login before they join.
     pub fn by_github(&self, login: &str) -> Option<&MemberEntry> {
-        self.members.iter().find(|m| m.github.as_deref().is_some_and(|g| g.eq_ignore_ascii_case(login)))
+        self.members
+            .iter()
+            .find(|m| m.github_confirmed && m.github.as_deref().is_some_and(|g| g.eq_ignore_ascii_case(login)))
     }
 }

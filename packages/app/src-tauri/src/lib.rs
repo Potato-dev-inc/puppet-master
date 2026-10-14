@@ -156,6 +156,8 @@ pub fn run() {
             team::commands::team_gaps_clear,
             team::commands::team_merge_plan,
             team::commands::team_merge_when_green,
+            team::commands::team_job_start,
+            team::commands::team_member_confirm_github,
             commands::spawn_pane,
             commands::kill_pane_cmd,
             commands::kill_all_panes,

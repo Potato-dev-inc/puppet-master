@@ -124,6 +124,11 @@ impl TuiProfile for CursorAgent {
         }
     }
 
+    /// `--print` runs commands only with `--force`, which is added only for `allow_shell`.
+    fn headless_runs_commands_unattended(&self) -> bool {
+        false
+    }
+
     fn is_installed(&self) -> bool {
         launch::is_installed()
     }

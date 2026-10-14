@@ -61,6 +61,9 @@ pub struct Card {
 pub enum JobState {
     /// Waiting for the chosen pane to finish its turn.
     Waiting,
+    /// The merge stopped on conflicts and the chosen agent would run commands without asking
+    /// (security review M6): it waits for the person to start it in a visible pane.
+    NeedsStart,
     /// Merging in the separate copy, or the agent is resolving conflicts there.
     Working,
     /// Done in the separate copy; Apply / See changes / Discard.
@@ -72,7 +75,7 @@ pub enum JobState {
 
 impl JobState {
     pub fn is_open(self) -> bool {
-        matches!(self, Self::Waiting | Self::Working | Self::Ready | Self::Failed)
+        matches!(self, Self::Waiting | Self::NeedsStart | Self::Working | Self::Ready | Self::Failed)
     }
 }
 

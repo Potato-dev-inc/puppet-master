@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CI_FAILED, GITHUB_CARDS, GITHUB_PR_OPEN, MAYA_PUSH, MY_DRAFT, READY_JOB, SAM_MERGED, SAM_PR, TEAM_CARDS, TEAM_DIFF, WAITING_JOB, teamConfig, teamState } from '../../../dev/team-fixtures';
+import { CI_FAILED, GITHUB_CARDS, GITHUB_PR_OPEN, MAYA_PUSH, MY_DRAFT, NEEDS_START_JOB, READY_JOB, SAM_MERGED, SAM_PR, TEAM_CARDS, TEAM_DIFF, WAITING_JOB, teamConfig, teamState } from '../../../dev/team-fixtures';
 import { cardActions, cardMeta, cardTitle, jobTitle, tellLabel, type MergePlan, type TeamApi, type TeamCard as Card, type TeamJob } from '../../../lib/team';
 import { TeamCard } from './TeamCard';
 import { TeamJobCard } from './TeamJobCard';
@@ -64,6 +64,7 @@ function fakeApi(overrides: Partial<TeamApi> = {}): TeamApi & { calls: string[] 
     dismissCard: rec('dismissCard', undefined),
     pull: rec('pull', 'Pulled feat/auth.'),
     queue: rec('queue', WAITING_JOB),
+    startJob: rec('startJob', undefined),
     apply: rec('apply', 'Applied to feat/billing. Nothing was pushed.'),
     discard: rec('discard', undefined),
     diff: rec('diff', TEAM_DIFF),
@@ -252,6 +253,17 @@ describe('TeamJobCard states', () => {
     render(WAITING_JOB);
     expect(host.textContent).toContain('Starts when Claude Code finishes its current turn.');
     expect(buttons()).toEqual(['Discard']);
+  });
+
+  it('needs start: an agent that runs commands without asking waits for my click', async () => {
+    const api = render(NEEDS_START_JOB);
+    expect(host.textContent).toContain('2 conflicts to resolve: feat/auth into feat/billing');
+    expect(host.textContent).toContain("Codex can run commands without asking, and it will read Maya's changes. Start it when you can watch.");
+    expect(host.textContent).toContain('Conflicts: src/auth.ts, src/session.ts');
+    expect(buttons()).toEqual(['Start Codex', 'Discard']);
+    expect(api.calls).toEqual([]);
+    await act(async () => button('Start Codex')!.click());
+    expect(api.calls).toEqual(['startJob("job-needs-start")']);
   });
 
   it('working: no buttons while the agent is in the copy', () => {

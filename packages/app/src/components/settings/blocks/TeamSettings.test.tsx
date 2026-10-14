@@ -43,6 +43,7 @@ function fakeApi(view: TeamConfigView) {
     approveJoin: rec('approveJoin', teamConfig({ joins: [] })),
     declineJoin: rec('declineJoin', teamConfig({ joins: [] })),
     removeMember: rec('removeMember', teamConfig()),
+    confirmGithub: rec('confirmGithub', teamConfig()),
   };
   return api as typeof api & TeamApi;
 }
@@ -139,6 +140,15 @@ describe('on a team as the admin', () => {
     expect(hasText(host, 'GitHub: samc (claimed)')).toBe(true);
     // Never an id.
     for (const id of ['team-7f3a91c2', 'm-maya', 'm-sam', 'm-leo', 'j-priya']) expect(host.textContent).not.toContain(id);
+  });
+
+  it('a claimed GitHub login can be confirmed by the admin; a confirmed one cannot', async () => {
+    const { api } = await mount(teamConfig());
+    const confirms = [...host.querySelectorAll('button')].filter((b) => b.textContent === 'Confirm GitHub');
+    expect(confirms.length).toBe(1);
+    await click(confirms[0] as HTMLButtonElement);
+    await settle();
+    expect(api.calls).toContain('confirmGithub("m-sam")');
   });
 
   it('says how the relay is doing, or that it is a shared folder', async () => {

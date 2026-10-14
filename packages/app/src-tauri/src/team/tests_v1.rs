@@ -712,10 +712,12 @@ fn pull_request_facts_from_recorded_gh_output() {
     let wire = folder(&dir);
     let mut w = world(&wire, &["Leo"], NOW);
     let leo_id = key_id(&w.others[0].1.member().unwrap());
-    // Leo claimed the login of #14640's author.
+    // Leo has the login of #14640's author, and the admin confirmed it (a claim alone counts for
+    // nothing, see tests_hardening).
     let author = first[0].author.clone();
     if let Some(m) = w.roster.members.iter_mut().find(|m| m.id == leo_id) {
         m.github = Some(author.clone());
+        m.github_confirmed = true;
     }
     let merged = github::fact_event("github.com/cli/cli", &facts[0], Some(&w.roster), NOW);
     assert_eq!(merged.kind, TeamEventKind::PrMerged);

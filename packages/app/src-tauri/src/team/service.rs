@@ -798,27 +798,44 @@ impl Service {
             });
         }
         let conflicts = prepared.conflicts.clone();
+        let unattended = actions::may_start_unattended(&job.agent_type);
         self.update_job(&job.id, |j| {
             j.copy_branch = Some(copy_branch);
             j.conflicts = conflicts.clone();
-            j.agent_ran = true;
+            if !unattended {
+                // The agent would run commands without asking while reading the teammate's
+                // files: the person starts it, in a pane they can see (security review M6).
+                j.state = JobState::NeedsStart;
+                j.message = Some(format!(
+                    "{} can run commands without asking, and it will read {}'s changes. Start it when you can watch.",
+                    j.agent_label, j.who
+                ));
+            }
         });
+        if !unattended {
+            tracing::info!(job = %job.id, "team.action queue: conflicts; waiting for the person to start the agent");
+            return;
+        }
         let mut with_conflicts = job.clone();
         with_conflicts.conflicts = conflicts;
+        // A background chore: headless (no window, no folder-trust prompt for the new copy), with
+        // an agent whose headless mode only edits files.
+        self.launch_agent(&with_conflicts, true);
+    }
+
+    /// Start the agent that resolves a queued merge's conflicts in the prepared copy.
+    fn launch_agent(&self, job: &Job, headless: bool) {
+        self.update_job(&job.id, |j| {
+            j.state = JobState::Working;
+            j.agent_ran = true;
+        });
         let Some(app) = self.app.clone() else {
             return self.fail_job(&job.id, "No agent can start here.".into());
         };
-        let request: crate::agent_runs::AgentRunRequest =
-            // A background chore: headless when the agent has a headless mode (no window, no
-            // folder-trust prompt for the new copy), else a visible pane.
-            match serde_json::from_value(actions::run_request(
-                &job.project,
-                &with_conflicts,
-                crate::tui::run_modes(&job.agent_type).headless,
-            )) {
-                Ok(r) => r,
-                Err(e) => return self.fail_job(&job.id, format!("Couldn't start the agent: {e}")),
-            };
+        let request: crate::agent_runs::AgentRunRequest = match serde_json::from_value(actions::run_request(&job.project, job, headless)) {
+            Ok(r) => r,
+            Err(e) => return self.fail_job(&job.id, format!("Couldn't start the agent: {e}")),
+        };
         match crate::agent_runs::run_agent(request, self.registry.clone(), app, None) {
             Ok(view) if view.handle == job.handle => {
                 tracing::info!(job = %job.id, handle = %view.handle, "team.action queue: agent started");
@@ -1414,6 +1431,23 @@ pub fn remove_member(member_id: &str) -> Result<ConfigView, String> {
     config_get()
 }
 
+/// **Confirm** a member's GitHub login (admin), after checking it is theirs.
+pub fn confirm_github(member_id: &str) -> Result<ConfigView, String> {
+    let svc = service()?;
+    let (mut session, transport) = admin_session(svc)?;
+    let now = now_ms();
+    membership::confirm_github(&mut session.roster, member_id, &svc.keystore, transport.as_ref(), now)?;
+    save_roster(&svc.dir, &session.roster)?;
+    svc.inner.lock().session = Some(session.clone());
+    let seq = next_seq(svc);
+    if let Err(error) = membership::announce(&session, seq, transport.as_ref(), now) {
+        tracing::warn!(%error, "team: couldn't nudge the team about the confirmed login");
+    }
+    audit::record(Kind::TeamRoleChanged, Who::Desktop, "You confirmed a teammate's GitHub login", json!({ "member": short_id(member_id) }));
+    svc.changed();
+    config_get()
+}
+
 /// "I've seen it": forget the missing-updates warning.
 pub fn clear_gaps() -> Result<(), String> {
     let svc = service()?;
@@ -1608,6 +1642,28 @@ fn close_copy_panes(svc: &Service, copy_path: &str) {
     for id in ids {
         let _ = crate::pty::registry_kill_pane_with_reason(&svc.registry, &id, Some("worktree_closed"));
     }
+}
+
+/// **Start {agent}** on a queued merge that waits for the person (its agent would run commands
+/// without asking): in a visible pane, so they can watch it and stop it. Desktop only.
+pub fn start_job(job_id: &str) -> Result<(), String> {
+    let svc = service()?;
+    let job = job(svc, job_id)?;
+    if job.state != JobState::NeedsStart {
+        return Err("This update isn't waiting for you.".into());
+    }
+    if crate::worktrees::find_by_handle(&job.project, &job.handle).is_none() {
+        return Err("The separate copy is gone.".into());
+    }
+    tracing::info!(job = %job_id, "team.action start: visible pane");
+    audit_action(
+        &format!("Started {} on a queued update, in a visible pane", job.agent_label),
+        json!({ "job": job_id }),
+        &Who::Desktop,
+    );
+    svc.update_job(job_id, |j| j.message = None);
+    svc.launch_agent(&job, false);
+    Ok(())
 }
 
 /// **Apply to my branch**: fast-forward only, local only.

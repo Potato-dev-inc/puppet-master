@@ -145,6 +145,11 @@ export function TeamSettings({ api = teamApi, onSaved }: { api?: TeamApi; onSave
                 </div>
                 <span className="st-team-role">{roleWords(m)}</span>
                 <span className="st-team-slot">
+                  {view.admin && !m.me && m.github && !m.githubConfirmed && (
+                    <Btn small disabled={busy} onClick={() => void run(() => api.confirmGithub(m.id))}>
+                      Confirm GitHub
+                    </Btn>
+                  )}
                   {view.admin && !m.me && (
                     <Btn small disabled={busy} onClick={() => setRemoving(m)}>
                       Remove
