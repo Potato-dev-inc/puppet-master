@@ -176,3 +176,15 @@ fn the_status_reads_the_trust_dialog_and_the_menus_as_waiting() {
     }
     assert_eq!(classify_agent_observation("claude", "\u{273b} Brewed for 1s \u{b7} done 23:01\n\u{276f} \n", ""), PaneStatus::Running);
 }
+
+#[test]
+fn a_crlf_checkout_of_the_captures_reads_the_same() {
+    // The fixtures are plain text files: git may check them out with CRLF line ends.
+    for screen in [BASH_MULTI_CD, BASH_FOUR_OPTIONS, EDIT_FILE, CREATE_FILE, TRUST] {
+        let lf = detect(screen, true);
+        let crlf = detect(&screen.replace('\n', "\r\n"), true);
+        for field in ["kind", "command", "path", "folder", "menu", "choices", "identity"] {
+            assert_eq!(lf.get(field), crlf.get(field), "{field}");
+        }
+    }
+}
