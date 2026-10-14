@@ -314,6 +314,16 @@ pub trait TuiProfile: Send + Sync {
         self.reads_composer().then(|| self.composer_state(screen))
     }
 
+    /// The screen as readiness and delivery read it (`pty::registry::read_snapshot_full`): the
+    /// emulator's text, minus text the AGENT drew inside its own input box. Claude draws a dimmed
+    /// suggestion of the next prompt there (`\u{276f} commit this`), Codex a dimmed placeholder; both
+    /// are text in the box but not the user's, and reading them as typed text parks every follow-up
+    /// on "the input box already holds text". Only cell attributes tell them from typed text, so a
+    /// profile that has such text overrides this and leaves those cells out. Default: every cell.
+    fn input_screen(&self, screen: &vt100::Screen) -> String {
+        screen.contents()
+    }
+
     /// A startup screen (update notice, trust, login, onboarding) that is on screen right now, if
     /// any. Generic code (a) dismisses one that declares `dismiss` before typing a task, (b) parks
     /// the run on one that does not, instead of answering for the user, and (c) never lets a screen

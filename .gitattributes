@@ -17,3 +17,6 @@ integrations/** text eol=lf
 
 # Golden files compared byte for byte by the agent pack tests.
 packages/app/src-tauri/src/agent_pack/golden/* text eol=lf
+
+# Raw terminal bytes (cursor moves, CR/LF as the pane sent them), read by tests through the terminal emulator: never convert.
+packages/app/src-tauri/src/tui/**/fixtures/*.ansi -text

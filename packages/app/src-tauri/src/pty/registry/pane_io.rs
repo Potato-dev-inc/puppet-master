@@ -188,33 +188,40 @@ pub fn read_buffer(
 /// pane shows a sidebar, but a TUI's home screen (no session yet) is centred over the full width,
 /// so cropping cut the input box and the typed prompt looked missing.
 pub fn read_snapshot_full(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {
-    let screen = {
+    let (screen, agent_type) = {
         let reg = registry.lock();
         let pane = reg
             .panes
             .get(pane_id)
             .ok_or_else(|| unknown_pane_message(pane_id))?;
-        pane.screen.clone()
+        (pane.screen.clone(), pane.info.agent_type.clone())
     };
     let parser = screen.lock();
-    Ok(snapshot_text(parser.screen(), None))
+    Ok(input_screen_text(parser.screen(), &agent_type))
+}
+
+/// The screen text readiness and delivery decide on: the whole screen as the profile reads it
+/// (`TuiProfile::input_screen`, which leaves out text the agent drew in its own input box, such as
+/// Claude's dimmed next-prompt suggestion).
+pub(crate) fn input_screen_text(screen: &vt100::Screen, agent_type: &str) -> String {
+    crate::tui::profile_for(agent_type).input_screen(screen)
 }
 
 /// [`read_snapshot_full`] plus how much of the pane's output the screen includes
 /// (`stream_pos::processed`, read under the same emulator lock as the screen), so a readiness
 /// verdict computed from it can later tell whether anything was printed after it.
 pub fn read_snapshot_full_at(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<(String, Option<u64>), String> {
-    let screen = {
+    let (screen, agent_type) = {
         let reg = registry.lock();
         let pane = reg
             .panes
             .get(pane_id)
             .ok_or_else(|| unknown_pane_message(pane_id))?;
-        pane.screen.clone()
+        (pane.screen.clone(), pane.info.agent_type.clone())
     };
     let parser = screen.lock();
     let pos = crate::pty::stream_pos::get(pane_id).map(|pos| pos.processed.load(std::sync::atomic::Ordering::SeqCst));
-    Ok((snapshot_text(parser.screen(), None), pos))
+    Ok((input_screen_text(parser.screen(), &agent_type), pos))
 }
 
 pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {

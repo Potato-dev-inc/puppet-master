@@ -172,6 +172,11 @@ impl TuiProfile for Claude {
         Some(screen::input_box(screen))
     }
 
+    /// The screen without the dimmed suggestion / hint in the input box (`screen::without_suggestion`).
+    fn input_screen(&self, screen: &vt100::Screen) -> String {
+        screen::without_suggestion(screen)
+    }
+
     /// No activity row and 800ms of stillness: the turn is over (live capture of a finished turn).
     fn quiet_idle_after(&self) -> std::time::Duration {
         std::time::Duration::from_millis(800)

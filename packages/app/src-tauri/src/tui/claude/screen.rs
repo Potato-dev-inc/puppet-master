@@ -122,6 +122,31 @@ pub(super) fn input_box(screen: &str) -> ComposerState {
     }
 }
 
+/// The screen text readiness reads (`TuiProfile::input_screen`): the emulator's text without the
+/// dimmed text Claude draws in its input box. Claude shows a suggestion of the next prompt there
+/// (`\u{276f} commit this`, `\u{276f} run npm test`) and, on a fresh session, the rotating `Try "..."`
+/// hint, both faint (SGR 2) like the footer. They are not typed text: counting them parked every
+/// follow-up on `screen_not_ready` ("the input box already holds text"). Typed text is drawn in the
+/// normal intensity, so it still reads as a draft. Claude replaces a suggestion as soon as a key is
+/// typed, so typing over one is fine.
+///
+/// The box is found the way [`input_box`] finds it: the last `\u{276f}` row that has a rule right above
+/// it; its faint cells after the glyph and the faint cells of the rows under it up to the closing
+/// rule are left out. Everything else on the screen, faint or not, is kept as is.
+pub(super) fn without_suggestion(screen: &vt100::Screen) -> String {
+    let (_, cols) = screen.size();
+    let rows: Vec<String> = screen.rows(0, cols).collect();
+    let is_rule = |row: &str| row.trim_start().starts_with('\u{2500}');
+    let Some(first) = (1..rows.len()).rev().find(|&at| rows[at].starts_with('\u{276f}') && is_rule(&rows[at - 1])) else {
+        return screen.contents();
+    };
+    let last = rows[first + 1..].iter().position(|row| is_rule(row)).map_or(rows.len(), |below| first + 1 + below);
+    crate::tui::faint::contents_without(screen, |row, col, cell| {
+        let row = usize::from(row);
+        cell.dim() && row >= first && row < last && (row > first || col > 0)
+    })
+}
+
 /// Whether `glyph` is one of the block elements Claude's startup logo is drawn with.
 fn is_logo_glyph(glyph: char) -> bool {
     ('\u{2580}'..='\u{259f}').contains(&glyph)
@@ -230,5 +255,50 @@ mod tests {
         assert!(shows_work_in_progress("  esc to interrupt\n"));
         assert!(!shows_work_in_progress(FINISHED));
         assert!(!shows_work_in_progress(READY));
+    }
+    // ---- the dimmed suggestion in the input box (VERIFY-R11 #1) ----
+
+    /// The pane's screen the way the app builds it: bytes through the emulator, then the profile's
+    /// `input_screen` (what readiness reads).
+    fn read_as_the_app_does(bytes: &str, rows: u16, cols: u16) -> String {
+        let mut parser = vt100::Parser::new(rows, cols, 0);
+        parser.process(bytes.as_bytes());
+        without_suggestion(parser.screen())
+    }
+
+    const RULE: &str = "\u{1b}[38;2;136;136;136m\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{1b}[m";
+
+    fn frame(composer: &str) -> String {
+        format!("\u{25cf} done\r\n{RULE}\r\n{composer}\r\n{RULE}\r\n  \u{23f5}\u{23f5} auto mode on")
+    }
+
+    #[test]
+    fn a_dimmed_suggestion_is_not_typed_text_but_the_same_words_typed_are() {
+        // Claude draws the next-prompt suggestion faint (SGR 2), the way it draws the `Try` hint.
+        let suggestion = read_as_the_app_does(&frame("\u{276f} \u{1b}[2mcommit this\u{1b}[m"), 12, 60);
+        assert_eq!(input_box(&suggestion), ComposerState::Empty, "{suggestion}");
+        assert!(!suggestion.contains("commit this"));
+        // The same words typed by the user are in the normal intensity: still text, never typed over.
+        let typed = read_as_the_app_does(&frame("\u{276f} commit this"), 12, 60);
+        assert_eq!(input_box(&typed), ComposerState::HasText, "{typed}");
+        // A wrapped, multi-row suggestion is all ghost too.
+        let long = read_as_the_app_does(
+            &frame("\u{276f} \u{1b}[2mrun the tests again and then commit everything\r\n  with a clear message\u{1b}[m"),
+            12,
+            60,
+        );
+        assert_eq!(input_box(&long), ComposerState::Empty, "{long}");
+    }
+
+    #[test]
+    fn faint_text_outside_the_input_box_is_kept() {
+        // Tool output and the footer are faint too; only what is in the box is read as the user's.
+        let screen = read_as_the_app_does(
+            &format!("\u{1b}[2m  \u{23bf}  Wrote 1 line\u{1b}[m\r\n{RULE}\r\n\u{276f} \r\n{RULE}\r\n  \u{1b}[2mfooter hint\u{1b}[m"),
+            10,
+            60,
+        );
+        assert!(screen.contains("Wrote 1 line") && screen.contains("footer hint"), "{screen}");
+        assert_eq!(input_box(&screen), ComposerState::Empty);
     }
 }
