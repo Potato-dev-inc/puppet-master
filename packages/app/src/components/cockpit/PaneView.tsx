@@ -331,7 +331,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                 title="No transcript"
                 body={
                   run.info === null
-                    ? 'This pane has no recorded run, so there is nothing to show. The terminal tab has the live session.'
+                    ? 'A transcript is kept for tasks that another agent handed to this one. What you typed here yourself is on the Terminal tab.'
                     : 'The run has not produced any output yet.'
                 }
               />
@@ -367,8 +367,8 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
               <p className="ck-sub ck-pad">Loading…</p>
             ) : run.info === null ? (
               <Empty
-                title="No run receipt"
-                body="This pane was not started by a delegated run, so there is no receipt. Receipts appear for runs started from the orchestrator or MCP."
+                title="No receipt for this pane"
+                body="A receipt is written for tasks that another agent handed to this one, and says what was checked. Work you started here yourself has none."
               />
             ) : (
               <div className="ck-receipt">
@@ -392,7 +392,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                 )}
               </div>
             )}
-            <button type="button" className="ck-btn ck-btn--plain ck-pad" onClick={run.refresh}>
+            <button type="button" className="ck-btn ck-btn--plain ck-refresh" onClick={run.refresh}>
               Refresh
             </button>
           </div>

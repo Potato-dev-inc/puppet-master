@@ -452,6 +452,14 @@
   gap: 6px;
   margin-bottom: 28px;
 }
+/* a lone action under the title is as wide as its label, not the whole column */
+.cockpit .ck-inbox-hero > .ck-btn {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+.cockpit .ck-refresh {
+  margin: 8px 4px 16px;
+}
 .cockpit .ck-doto {
   font-family: var(--font-doto);
   font-weight: 700;
