@@ -56,6 +56,10 @@ function answer(method: string, path: string, scenario: HarnessScenario): Respon
   }
   if (route === '/previews') return json({ previews: PHONE_PREVIEWS });
   if (route === '/settings') return json({ ...DEFAULT_PUBLIC_SETTINGS });
+  if (route === '/attention' && phone.attention) {
+    const { blocking, ready = 0 } = phone.attention;
+    return json({ v: 1, rev: 1, counts: { blocking, ready }, items: [], device: { can_answer: true, can_type: true, can_control: true } });
+  }
   if (route === '/questions') return json({ questions: phone.questions === false ? [] : [PHONE_QUESTION] });
   if (route === '/digest') return json(phone.digest === false ? { ...PHONE_DIGEST, empty: true } : PHONE_DIGEST);
   if (route === '/agents/types') return json(PHONE_AGENT_TYPES);
