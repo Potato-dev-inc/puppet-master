@@ -741,6 +741,11 @@ fn a_usage_limit_mid_turn_parks_the_run_as_waiting_input_and_raises_one_card() {
         assert!(!choice.label.to_lowercase().contains("hand"), "no hand-off button in this step: {}", choice.label);
         assert!(!choice.label.to_lowercase().contains("continue with"), "{}", choice.label);
     }
+    // Never a suggestion to use another login of the same vendor (kill list: rotating logins at a limit).
+    let words = format!("{} {} {}", card.question, card.context.clone().unwrap_or_default(), card.choices.iter().map(|c| c.label.as_str()).collect::<Vec<_>>().join(" ")).to_lowercase();
+    for forbidden in ["login", "account", "personal", "work profile", "switch to", "use your"] {
+        assert!(!words.contains(forbidden), "the card names `{forbidden}`: {words}");
+    }
 
     // Seeing the same limit again never raises a second card or a second state change.
     let claude = profile_for("claude");

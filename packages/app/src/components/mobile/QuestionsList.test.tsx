@@ -130,6 +130,7 @@ describe('phone usage-limit card', () => {
     const bridge = await mount([limit]);
     expect(host.querySelector('.ph-card-cap')?.textContent).toBe('Claude Code · usage limit');
     expect(host.querySelector('[data-testid="question-wait"]')).toBeNull();
+    expect([...host.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Remind me at 14:05', 'Stop here']);
     const stop = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Stop here')!;
     await act(async () => stop.click());
     expect(bridge.answerQuestion).toHaveBeenCalledWith('l1', { choice_id: 'stop' });

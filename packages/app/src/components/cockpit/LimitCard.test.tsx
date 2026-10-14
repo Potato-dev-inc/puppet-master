@@ -69,6 +69,11 @@ describe('LimitCard', () => {
     }
   });
 
+  it('never suggests another login of the same vendor', () => {
+    render(usage, { paneName: 'Claude Code 1', onOpenPane: () => {} });
+    expect(host.textContent ?? '').not.toMatch(/login|account|personal|use your|switch to/i);
+  });
+
   it('answers with the choice ids the backend reads', () => {
     const onAnswer = render(usage);
     act(() => button('Remind me at 14:05')!.click());

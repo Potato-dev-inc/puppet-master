@@ -135,14 +135,17 @@ export function QuestionsView({
               </button>
             </form>
           )}
-          <button
-            type="button"
-            onClick={() => void run(bridge.dismissQuestion(q.id))}
-            className="ph-btn ph-btn--plain"
-            style={{ marginTop: 4 }}
-          >
-            Dismiss
-          </button>
+          {/* A limit card's own choices end it ("Stop here" / "Dismiss"); a second Dismiss would leave the run parked. */}
+          {!q.limit && (
+            <button
+              type="button"
+              onClick={() => void run(bridge.dismissQuestion(q.id))}
+              className="ph-btn ph-btn--plain"
+              style={{ marginTop: 4 }}
+            >
+              Dismiss
+            </button>
+          )}
         </div>
       ))}
       {error && <div className="ph-error">{error}</div>}
