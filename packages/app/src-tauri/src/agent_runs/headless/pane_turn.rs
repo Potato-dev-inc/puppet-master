@@ -134,7 +134,9 @@ pub(super) fn redeliver_prompt(
     );
     if !matches!(
         delivery,
-        delivery::Delivery::NotVisible | delivery::Delivery::WriteFailed(_)
+        delivery::Delivery::NotVisible
+            | delivery::Delivery::Blocked(_)
+            | delivery::Delivery::WriteFailed(_)
     ) {
         runtime::record_user_task(&current.project_path, &current.operation_id, &prompt);
     }

@@ -20,7 +20,7 @@
 //!
 //! The pane I/O is behind [`DeliveryIo`] so the sequences are unit-tested without a PTY.
 
-use crate::tui::ComposerState;
+use crate::tui::{ComposerState, StartupGate};
 use std::time::Duration;
 
 /// Longest prompt prefix compared against the screen.
@@ -52,6 +52,11 @@ const READY_BUDGET_POLLS: u32 = 250;
 const READY_STABLE_POLLS: u32 = 2;
 /// Pause after the clear sequence so the TUI has processed it before the text arrives.
 const CLEAR_PAUSE: Duration = Duration::from_millis(120);
+/// Startup screens (an update notice, ...) closed during one delivery. More than this is a screen
+/// that keeps coming back, not a startup sequence.
+const MAX_DELIVERY_GATES: u32 = 4;
+/// How long a startup screen may take to react to its dismiss keys, as polls of [`POLL_INTERVAL`].
+const GATE_CHANGE_POLLS: u32 = 40;
 
 pub trait DeliveryIo {
     fn write(&mut self, text: &str, enter: bool) -> Result<(), String>;
@@ -67,6 +72,12 @@ pub trait DeliveryIo {
     fn composer_state(&mut self, _screen: &str) -> ComposerState {
         ComposerState::Unknown
     }
+    /// The startup screen (update notice, trust question, sign-in) `screen` shows, when the profile
+    /// knows it. Nothing is typed over one: a dismissible notice is closed with its own keys, any
+    /// other waits for the user (`Delivery::Blocked`).
+    fn startup_gate(&mut self, _screen: &str) -> Option<StartupGate> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +88,9 @@ pub enum Delivery {
     SubmittedUnconfirmed,
     /// The prompt never appeared in the input box, so Enter was not pressed.
     NotVisible,
+    /// A startup screen that only the user may pass (folder trust, sign-in), or a notice that
+    /// ignored its dismiss keys, is on screen. Nothing was submitted.
+    Blocked(StartupGate),
     WriteFailed(String),
 }
 
@@ -236,6 +250,50 @@ fn wait_for_screen(io: &mut dyn DeliveryIo, budget: &mut u32) -> bool {
     false
 }
 
+/// Closes the startup screens on the pane, one at a time, before anything is typed: a dismissible
+/// notice gets the keys its profile declares (and the screen must change and settle after them),
+/// any other gate is handed back for the caller to refuse. Typing a task over the notice is what
+/// lost a fresh Codex run (its update menu takes Enter as "Update now"). `rounds` is shared by the
+/// whole delivery so a screen that keeps returning stops the loop.
+fn close_startup_gates(
+    io: &mut dyn DeliveryIo,
+    budget: &mut u32,
+    rounds: &mut u32,
+    trace: &mut Vec<String>,
+) -> Result<(), StartupGate> {
+    loop {
+        let before = io.screen();
+        let Some(gate) = io.startup_gate(&before) else { return Ok(()) };
+        let Some(keys) = gate.dismiss else {
+            trace.push(format!("startup screen '{}' is on screen and only the user may pass it", gate.id));
+            return Err(gate);
+        };
+        if *rounds >= MAX_DELIVERY_GATES {
+            trace.push(format!("startup screen '{}' keeps coming back; not closing it again", gate.id));
+            return Err(gate);
+        }
+        *rounds += 1;
+        trace.push(format!("startup screen '{}' on screen: closing it with its own keys before typing", gate.id));
+        if io.write(keys, false).is_err() {
+            return Err(gate);
+        }
+        let mut changed = false;
+        for _ in 0..GATE_CHANGE_POLLS {
+            io.pause(POLL_INTERVAL);
+            if io.screen() != before {
+                changed = true;
+                break;
+            }
+        }
+        if !changed {
+            trace.push(format!("startup screen '{}' did not react to its keys", gate.id));
+            return Err(gate);
+        }
+        // Let what replaced it finish drawing; the next lap checks that it is not another gate.
+        wait_for_screen(io, budget);
+    }
+}
+
 /// [`deliver_prompt`] that also records what it saw, so a delivery that claimed success without a
 /// turn can be diagnosed from the operation transcript.
 pub fn deliver_prompt_traced(
@@ -248,6 +306,7 @@ pub fn deliver_prompt_traced(
     let mut ready_budget = READY_BUDGET_POLLS;
     let mut attempt = 0;
     let mut typed_any = false;
+    let mut gate_rounds = 0;
     while attempt < 2 {
         if !wait_for_screen(io, &mut ready_budget) {
             trace.push("screen stayed empty: the TUI drew nothing within the startup budget".to_string());
@@ -257,6 +316,11 @@ pub fn deliver_prompt_traced(
                 }
             }
             return Delivery::NotVisible;
+        }
+        // The settled screen may be a startup notice the readiness check could not have seen
+        // (the TUI draws it a moment after it starts): close it, or refuse, before typing.
+        if let Err(gate) = close_startup_gates(io, &mut ready_budget, &mut gate_rounds, trace) {
+            return Delivery::Blocked(gate);
         }
         if let Some(clear) = clear {
             if let Err(error) = io.write(clear, false) {
@@ -269,9 +333,16 @@ pub fn deliver_prompt_traced(
             return Delivery::WriteFailed(error);
         }
         typed_any = true;
+        let mut late_gate = None;
         for poll in 0..VISIBLE_POLLS {
             io.pause(POLL_INTERVAL);
             let screen = io.screen();
+            if let Some(gate) = io.startup_gate(&screen) {
+                // A notice drew over the box after the keys went in: they went into the notice.
+                trace.push(format!("typed poll {poll}: a startup screen appeared while typing"));
+                late_gate = Some(gate);
+                break;
+            }
             let seen = prompt_visible_in_input(&screen, prompt);
             trace.push(format!("typed poll {poll}: visible={seen} busy={} rows={}", io.busy(), trace_rows(&screen)));
             if seen {
@@ -281,6 +352,15 @@ pub fn deliver_prompt_traced(
         }
         if visible {
             break;
+        }
+        if let Some(gate) = late_gate {
+            // Closed (or refused) at the top of the loop, then typed again; this attempt does not
+            // count, the box never had the text.
+            gate_rounds += 1;
+            if gate_rounds > MAX_DELIVERY_GATES {
+                return Delivery::Blocked(gate);
+            }
+            continue;
         }
         if io.screen().trim().is_empty() && ready_budget > 0 {
             // The TUI had not drawn when the keys went in (they are lost), so this attempt does
@@ -304,6 +384,11 @@ pub fn deliver_prompt_traced(
         io.pause(settle);
     }
     let before = io.screen();
+    if let Some(gate) = io.startup_gate(&before) {
+        // Enter on a notice chooses one of its options ("Update now"): never press it there.
+        trace.push(format!("startup screen '{}' is on screen; Enter was not pressed", gate.id));
+        return Delivery::Blocked(gate);
+    }
     let before_state = io.composer_state(&before);
     if let Err(error) = io.write("", true) {
         return Delivery::WriteFailed(error);
@@ -367,6 +452,10 @@ impl DeliveryIo for PaneIo<'_> {
 
     fn composer_state(&mut self, screen: &str) -> ComposerState {
         self.profile().composer_state(screen)
+    }
+
+    fn startup_gate(&mut self, screen: &str) -> Option<StartupGate> {
+        self.profile().startup_gate(screen)
     }
 }
 

@@ -152,18 +152,13 @@ pub(crate) fn startup_gate(agent_type: &str, screen: &str) -> Option<Value> {
 pub(crate) fn dispatch_blocker(agent_type: &str, screen: &str) -> Option<OperationError> {
     let Some(prompt) = detect_in_screen(agent_type, screen, false) else {
         // Not an approval, but a startup screen (update notice, trust, login): typing a task into
-        // it is as lost as typing over a dialog. The dismissible ones were closed before this.
+        // it is as lost as typing over a dialog. A notice with its own dismiss keys is not a
+        // blocker here: delivery closes it before typing (and refuses if it will not close).
         let gate = crate::tui::profile_for(agent_type).startup_gate(screen)?;
-        let mut error = OperationError::new(
-            "PANE_BLOCKED_BY_PROMPT",
-            format!(
-                "the pane is showing a startup screen ({}); the task was not typed into it. Deal with it in the pane, then retry",
-                gate.summary
-            ),
-            true,
-        );
-        error.context = json!({"startup_gate": gate.id});
-        return Some(error);
+        if gate.dismiss.is_some() {
+            return None;
+        }
+        return Some(gate_blocked_error(gate));
     };
     let mut error = OperationError::new(
         "PANE_BLOCKED_BY_PROMPT",
@@ -172,6 +167,20 @@ pub(crate) fn dispatch_blocker(agent_type: &str, screen: &str) -> Option<Operati
     );
     error.context = json!({"prompt_id": prompt.get("prompt_id"), "kind": prompt.get("kind")});
     Some(error)
+}
+
+/// The refusal for a task that was not typed because a startup screen is up.
+pub(crate) fn gate_blocked_error(gate: crate::tui::StartupGate) -> OperationError {
+    let mut error = OperationError::new(
+        "PANE_BLOCKED_BY_PROMPT",
+        format!(
+            "the pane is showing a startup screen ({}); the task was not typed into it. Deal with it in the pane, then retry",
+            gate.summary
+        ),
+        true,
+    );
+    error.context = json!({"startup_gate": gate.id});
+    error
 }
 
 /// `Run command: <command> (in <cwd>)`, so a caller sees what it is approving without the pane.

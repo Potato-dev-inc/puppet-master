@@ -690,6 +690,9 @@ fn send_task_prompt(
                             true,
                         ))
                     }
+                    crate::agent_runs::delivery::Delivery::Blocked(gate) => {
+                        Err(crate::pane_prompt::gate_blocked_error(gate))
+                    }
                     crate::agent_runs::delivery::Delivery::WriteFailed(err) => Err(
                         crate::operations::OperationError::new("DISPATCH_FAILED", err, true),
                     ),
