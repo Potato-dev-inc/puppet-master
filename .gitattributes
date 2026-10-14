@@ -14,3 +14,6 @@ packages/app/src-tauri/tests/agent-definitions/*.toml text eol=lf
 integrations/** text eol=lf
 .claude-plugin/*.json text eol=lf
 .agents/plugins/*.json text eol=lf
+
+# Golden files compared byte for byte by the agent pack tests.
+packages/app/src-tauri/src/agent_pack/golden/* text eol=lf

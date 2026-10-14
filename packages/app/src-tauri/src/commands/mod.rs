@@ -30,6 +30,7 @@ mod worktrees;
 mod second_opinion;
 mod tunnel;
 mod toolbelt;
+mod agent_pack;
 
 pub use agent_models::*;
 pub use agents::*;
@@ -54,6 +55,7 @@ pub use worktrees::*;
 pub use second_opinion::*;
 pub use tunnel::*;
 pub use toolbelt::*;
+pub use agent_pack::*;
 
 use crate::pty::agents::AgentType;
 use crate::pty::{

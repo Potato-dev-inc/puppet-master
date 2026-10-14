@@ -66,6 +66,7 @@ pub mod shell_exec;
 mod standby;
 pub mod tool_registry;
 mod toolbelt;
+mod agent_pack;
 mod tui;
 mod turn_summary;
 mod worker_launch;
@@ -195,6 +196,9 @@ pub fn run() {
             commands::toolbelt_sync_apply,
             commands::toolbelt_import_preview,
             commands::toolbelt_import_apply,
+            commands::agent_pack_preview,
+            commands::agent_pack_apply,
+            commands::agent_pack_undo,
             commands::push_chat_event,
             commands::push_settings_event,
             commands::sync_public_settings,
