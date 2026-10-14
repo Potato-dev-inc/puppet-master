@@ -4,9 +4,9 @@
 //! (the reply, a command) stays in memory as [`crate::redact::Redacted`] and is never persisted;
 //! the prompt is kept only as a hash and a length.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HookKind {
     SessionStart,
@@ -64,7 +64,7 @@ impl HookKind {
 }
 
 /// Per-kind projected fields (§4.3). Strings are cut and sanitized; free text is redacted.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct HookDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
@@ -108,7 +108,7 @@ pub struct HookDetail {
     pub unparsed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HookEvent {
     /// Bridge-assigned, per pane, monotonic.
     pub seq: u64,
@@ -125,5 +125,8 @@ pub struct HookEvent {
     pub subagent: Option<String>,
     /// Another session than the one the pane is pinned to: never used for anything.
     pub foreign: bool,
+    /// Changed the pane's hook state (false for foreign, subagent and late events).
+    #[serde(default)]
+    pub applied: bool,
     pub detail: HookDetail,
 }

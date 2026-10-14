@@ -659,3 +659,6 @@ fn the_doctor_row_uses_plain_words() {
     apply_settings(&json!({}));
     assert_eq!((off.state, off.sentence.as_str()), (health::HookHealthState::Off, "Hooks are off."));
 }
+
+#[path = "live.rs"]
+mod live;

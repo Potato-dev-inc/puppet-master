@@ -84,6 +84,7 @@ pub fn project(
         turn_key: text("turn").map(|s| cut_chars(&s, MAX_ID)),
         subagent: text("subagent").filter(|s| !s.is_empty()).map(|s| cut_chars(&s, MAX_ID)),
         foreign: false,
+        applied: false,
         detail,
     })
 }

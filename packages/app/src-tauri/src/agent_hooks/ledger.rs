@@ -86,7 +86,8 @@ pub fn append(
         }
     };
     ledger.seq = event.seq;
-    let (event, applied) = ledger.apply(event);
+    let (mut event, applied) = ledger.apply(event);
+    event.applied = applied;
     if !event.foreign {
         EVER_CONNECTED.lock().insert(agent.to_string());
     }

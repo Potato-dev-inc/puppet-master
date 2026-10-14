@@ -248,3 +248,41 @@ fn big_strings_and_deep_nesting_are_shrunk_before_sending() {
     assert_eq!(sent["hook_event_name"], "Stop");
     assert!(sent["last_assistant_message"].as_str().unwrap().contains("…[cut "), "cut strings are marked");
 }
+
+/// Live finding (Claude Code 2.1.300 at startup): the event JSON arrives at once but stdin is closed
+/// only ~300-800 ms later. The emitter must post as soon as the JSON is complete, not wait for EOF.
+#[test]
+fn a_complete_event_is_posted_even_while_the_agent_keeps_stdin_open() {
+    warm_up();
+    let (addr, rx) = bridge(Some(202));
+    let dir = std::env::temp_dir().join(format!("pm-hook-emitter-open-{}", std::process::id()));
+    let started = Instant::now();
+    let mut child = Command::new(EXE)
+        .args(["hook", "claude"])
+        .env("PM_HOOK_TOKEN", "t".repeat(43))
+        .env("PM_HOOK_PANE", "pane-1")
+        .env("PM_HOOK_BRIDGE", &addr)
+        .env("PUPPET_MASTER_HOOKS_DIR", &dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    input.write_all(FIXTURE.as_bytes()).unwrap();
+    input.flush().unwrap();
+    // Keep stdin open well past the budget, like the agent does.
+    let holder = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1500));
+        drop(input);
+    });
+    let out = child.wait_with_output().unwrap();
+    let took = started.elapsed();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty() && out.stderr.is_empty());
+    assert!(took < LIMIT, "took {took:?}");
+    let raw = rx.recv_timeout(Duration::from_secs(2)).expect("the event reached the bridge before EOF");
+    assert!(raw.contains("\"hook_event_name\":\"Stop\""));
+    let _ = holder.join();
+    eprintln!("stdin held open: posted and exited 0 in {took:?}");
+}

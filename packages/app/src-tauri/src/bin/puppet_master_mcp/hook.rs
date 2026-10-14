@@ -94,6 +94,10 @@ fn drain(input: &mut impl Read, started: Instant) {
 }
 
 /// Keep the first [`MAX_STDIN`] bytes, drain the rest. Returns (kept, total bytes seen).
+///
+/// Stops as soon as the bytes so far are one complete JSON document: Claude Code writes the event
+/// at once but closes stdin only ~300-800 ms later (measured live at its startup), which would eat
+/// the whole budget waiting for EOF.
 pub fn read_capped(input: &mut impl Read, started: Instant) -> (Vec<u8>, usize) {
     let mut kept = Vec::new();
     let mut total = 0usize;
@@ -105,10 +109,19 @@ pub fn read_capped(input: &mut impl Read, started: Instant) -> (Vec<u8>, usize) 
                 total += n;
                 let room = MAX_STDIN.saturating_sub(kept.len());
                 kept.extend_from_slice(&buf[..n.min(room)]);
+                if total == kept.len() && complete_json(&kept) {
+                    break;
+                }
             }
         }
     }
     (kept, total)
+}
+
+/// One whole JSON object or array (cheap check first: it must end in `}` or `]`).
+fn complete_json(bytes: &[u8]) -> bool {
+    let last = bytes.iter().rev().find(|b| !b.is_ascii_whitespace());
+    matches!(last, Some(b'}' | b']')) && serde_json::from_slice::<serde::de::IgnoredAny>(bytes).is_ok()
 }
 
 /// The JSON body sent to the bridge: the vendor's JSON, shrunk; or only a marker when it is not
@@ -193,7 +206,10 @@ pub fn post(bridge: &str, token: &str, pane: &str, agent: &str, body: &[u8]) -> 
 
 /// One line per error, no payload content; the file is restarted at 1 MB.
 fn log_error(error: &str) {
-    let dir = app_data_dir().join("logs");
+    let dir = match std::env::var_os("PUPPET_MASTER_HOOKS_DIR") {
+        Some(hooks) => PathBuf::from(hooks),
+        None => app_data_dir().join("logs"),
+    };
     let path = dir.join("hook-emitter.log");
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > LOG_CAP) {
         let _ = std::fs::remove_file(&path);
