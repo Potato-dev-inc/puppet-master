@@ -1,6 +1,6 @@
 //! The interactive Claude Code TUI: what its screens show about whether a turn is running.
 
-use crate::tui::StandbyScreen;
+use crate::tui::{ComposerState, StandbyScreen};
 
 /// Spinner glyphs Claude cycles through in front of its activity verb.
 const SPINNER_GLYPHS: [char; 8] = ['\u{2722}', '*', '\u{2736}', '\u{273b}', '\u{273d}', '\u{2733}', '\u{b7}', '\u{2731}'];
@@ -71,6 +71,54 @@ pub(super) fn standby_screen(screen: &str) -> StandbyScreen {
         StandbyScreen::Ready
     } else {
         StandbyScreen::NotReady
+    }
+}
+
+/// Non-empty rows from the bottom that may hold the input box: the box (rule, prompt row, rule),
+/// a few continuation rows of a typed draft, and the footer under it.
+const INPUT_BOX_TAIL_ROWS: usize = 10;
+
+/// Claude's input box read POSITIVELY (`TuiProfile::ready_recogniser`). The box is the `\u{276f}` row
+/// that starts a row (dialog options are indented), with a rule above it (its own row, or glued in
+/// front of it when the rule filled the row and vt100 joined the two) and a rule below it within a
+/// few rows, near the bottom of the screen. Then: the activity row = `Working`; nothing or the
+/// rotating `Try "..."` placeholder after the glyph = `Empty`; anything else = `HasText`. No such box
+/// (a dialog, a menu, the login page, a splash, a blank pane) = `Unknown`. Works on follow-ups: it
+/// needs no banner (the startup logo scrolls away after the first turn).
+/// Live captures: `fixtures/ready_*_live.txt`, the delivery traces, the side-panel screen.
+pub(super) fn input_box(screen: &str) -> ComposerState {
+    let rows: Vec<&str> = screen.lines().map(str::trim_end).filter(|row| !row.trim().is_empty()).collect();
+    let is_rule = |row: &str| row.trim_start().starts_with('\u{2500}');
+    let first = rows.len().saturating_sub(INPUT_BOX_TAIL_ROWS);
+    let Some((at, rest)) = (first..rows.len()).rev().find_map(|at| {
+        let row = rows[at];
+        let glued = row.starts_with('\u{2500}');
+        if !glued && !row.starts_with('\u{276f}') {
+            return None;
+        }
+        let rest = row.trim_start_matches('\u{2500}').strip_prefix('\u{276f}')?;
+        let rule_above = glued || (at > 0 && is_rule(rows[at - 1]));
+        rule_above.then_some((at, rest))
+    }) else {
+        return ComposerState::Unknown;
+    };
+    // The rule under the box, after the prompt row and any continuation rows of a draft.
+    let Some(below) = rows[at + 1..].iter().position(|row| is_rule(row)) else {
+        return ComposerState::Unknown;
+    };
+    // A dialog drawn under the box is not an input box to type into.
+    let under = rows[at + 1..].join("\n").to_ascii_lowercase();
+    if DIALOG_PHRASES.iter().chain(ATTENTION_PHRASES.iter()).any(|phrase| under.contains(phrase)) {
+        return ComposerState::Unknown;
+    }
+    if shows_work_in_progress(screen) {
+        return ComposerState::Working;
+    }
+    let draft = rest.trim();
+    if below == 0 && (draft.is_empty() || draft.starts_with("Try \"")) {
+        ComposerState::Empty
+    } else {
+        ComposerState::HasText
     }
 }
 

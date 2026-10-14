@@ -73,6 +73,7 @@ pub async fn write_pane_input(
         args.append_newline,
         args.via_opencode_api,
         model,
+        crate::pty::WriteOrigin::User,
     )
 }
 

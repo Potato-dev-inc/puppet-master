@@ -7,10 +7,14 @@
 //!
 //! The pane I/O is behind [`GateIo`] so the sequence is unit-tested without a PTY.
 //!
+//! Keys are pressed only with a `GatePermit` (`agent_runs::readiness`): issued for a gate the profile
+//! declares, recognised on the latest screen, for exactly that gate's keys.
+//!
 //! Agent-agnostic: nothing here names an agent. Per-agent screens live in `tui/<agent>/screen.rs`.
 
 use std::time::Duration;
 
+use crate::agent_runs::readiness::{self, GatePermit, Observation, Readiness};
 use crate::tui::{StartupGate, TuiProfile};
 
 /// More than this many gates in a row is a loop, not a startup sequence.
@@ -23,7 +27,12 @@ const SETTLE: Duration = Duration::from_millis(300);
 
 pub(crate) trait GateIo {
     fn screen(&mut self) -> String;
-    fn write(&mut self, keys: &str) -> Result<(), String>;
+    /// The screen with the pane's output position and agent process, for a readiness verdict.
+    fn observe(&mut self) -> Observation {
+        Observation::screen_only(self.screen())
+    }
+    /// Presses the permit's keys (`GatePermit::keys`).
+    fn write(&mut self, permit: &GatePermit) -> Result<(), String>;
     fn pause(&mut self, duration: Duration);
 }
 
@@ -45,17 +54,26 @@ pub(crate) fn dismiss_startup_gates(io: &mut dyn GateIo, profile: &dyn TuiProfil
         blocked: None,
     };
     for _ in 0..MAX_GATES {
-        let before = io.screen();
-        let Some(gate) = profile.startup_gate(&before) else {
-            return report;
+        let verdict = readiness::assess(profile, io.observe());
+        // Only startup screens are closed here; a dialog (the prompt pseudo-gate), a shell prompt or
+        // an input box is somebody else's business.
+        let gate = match verdict.readiness() {
+            Readiness::Gate(gate) if gate.id != readiness::PROMPT_GATE.id => *gate,
+            _ => return report,
         };
-        let Some(keys) = gate.dismiss else {
+        let before = verdict.screen().to_string();
+        let Some(permit) = verdict.gate_permit() else {
             report.blocked = Some(gate);
             return report;
         };
-        if io.write(keys).is_err() {
-            report.blocked = Some(gate);
-            return report;
+        match io.write(&permit) {
+            Ok(()) => {}
+            // The screen moved between the look and the keys: look again (counts as a round).
+            Err(error) if error.starts_with(readiness::PERMIT_STALE) => continue,
+            Err(_) => {
+                report.blocked = Some(gate);
+                return report;
+            }
         }
         let mut changed = false;
         for _ in 0..CHANGE_POLLS {
@@ -89,15 +107,20 @@ impl GateIo for PaneGateIo<'_> {
         crate::pty::registry_read_snapshot(self.registry, self.pane_id).unwrap_or_default()
     }
 
-    fn write(&mut self, keys: &str) -> Result<(), String> {
+    fn observe(&mut self) -> Observation {
+        crate::agent_runs::delivery::observe_pane(self.registry, self.pane_id)
+    }
+
+    fn write(&mut self, permit: &GatePermit) -> Result<(), String> {
         crate::pty::registry_write_input(
             self.registry,
             self.app,
             self.pane_id,
-            keys,
+            permit.keys(),
             false,
             false,
             None,
+            crate::pty::WriteOrigin::Gate(permit),
         )
     }
 
@@ -151,8 +174,9 @@ mod tests {
         fn screen(&mut self) -> String {
             self.screens[self.at].to_string()
         }
-        fn write(&mut self, keys: &str) -> Result<(), String> {
-            self.written.push(keys.to_string());
+        fn write(&mut self, permit: &GatePermit) -> Result<(), String> {
+            permit.admit("", permit.keys(), false, None)?;
+            self.written.push(permit.keys().to_string());
             if !self.ignore_keys && self.at + 1 < self.screens.len() {
                 self.at += 1;
             }

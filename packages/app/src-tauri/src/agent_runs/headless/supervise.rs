@@ -266,6 +266,7 @@ impl Supervisor {
                     true,
                     false,
                     None,
+                    crate::pty::WriteOrigin::Nudge,
                 );
                 false
             }
@@ -459,6 +460,7 @@ impl Supervisor {
                 false,
                 false,
                 None,
+                crate::pty::WriteOrigin::Nudge,
             );
         }
         // Visible-first: the turn never started, so a headless-capable agent retries headless.

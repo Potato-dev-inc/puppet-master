@@ -3,7 +3,7 @@
 
 mod prompt;
 
-pub(crate) use prompt::host_prompt_visible;
+pub(crate) use prompt::{command_not_found, host_prompt_visible};
 
 use super::{Features, Kind, StandbyScreen, StandbySupport, TuiProfile};
 

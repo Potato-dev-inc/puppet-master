@@ -134,7 +134,7 @@ pub fn stop_all(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) -> StopRep
     stop_running_with(
         &list,
         &|c| checkpoints.get(&c.pane_id).cloned(),
-        &|id| crate::pty::registry_write_input(registry, app, id, "\u{3}", false, false, None),
+        &|id| crate::pty::registry_write_input(registry, app, id, "\u{3}", false, false, None, crate::pty::WriteOrigin::Nudge),
     )
 }
 

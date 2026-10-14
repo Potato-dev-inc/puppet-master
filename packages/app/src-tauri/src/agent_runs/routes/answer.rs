@@ -372,7 +372,7 @@ fn answer_prompt(
                 false,
             )
         })?;
-        crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None)
+        crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None, crate::pty::WriteOrigin::Answer)
             .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))?;
         // A "deny" on a startup gate (folder trust) is a final decline of the run waiting on it.
         crate::pane_prompt::note_gate_answer(pane_id, &prompt, choice);

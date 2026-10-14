@@ -54,7 +54,7 @@ pub(super) fn auto_approve_allowed_command(
     let Some(text) = reply.key.or(reply.text) else {
         return false;
     };
-    if crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None).is_err()
+    if crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None, crate::pty::WriteOrigin::Answer).is_err()
     {
         return false;
     }
@@ -134,6 +134,8 @@ pub(super) fn redeliver_prompt(
         delivery,
         delivery::Delivery::NotVisible
             | delivery::Delivery::Blocked(_)
+            | delivery::Delivery::AgentGone(_)
+            | delivery::Delivery::NotReady { .. }
             | delivery::Delivery::WriteFailed(_)
     ) {
         runtime::record_user_task(&current.project_path, &current.operation_id, &prompt);

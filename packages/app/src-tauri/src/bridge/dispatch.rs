@@ -619,7 +619,7 @@ fn send_task_prompt(
     // then debounced); a pane this run just spawned has not been, and its first turn would have no
     // checkpoints. For an isolated run the folder is the worktree.
     crate::checkpoints::before_dispatch(pane_id, &operation.task);
-    let _dispatch_guard = PANE_ASSIGNMENT_SERIAL.lock();
+    let mut dispatch_guard = Some(PANE_ASSIGNMENT_SERIAL.lock());
     let current =
         crate::operations::get_operation(&operation.project_path, &operation.operation_id)?;
     if current.status != crate::operations::OperationStatus::Starting {
@@ -664,96 +664,30 @@ fn send_task_prompt(
     crate::agent_runs::record_user_task(&operation.project_path, &operation.operation_id, &prompt);
     operation.started_at_ms = Some(crate::event_log::now_ms().max(0) as u64);
     *operation = crate::operations::save_operation_snapshot(operation)?;
-    crate::operations::dispatch_input_if_active(
-        &operation.project_path,
-        &operation.operation_id,
-        |active| {
-            if active.pane_id.as_deref() != Some(pane_id) {
-                return Err(crate::operations::OperationError::new(
-                    "PANE_RESERVATION_LOST",
-                    "operation no longer owns its dispatch pane",
-                    false,
-                ));
+    // A pane that never showed a screen that takes a task is parked once (the user can bring the
+    // agent to its input box) and then delivered to again; never typed into, never sent headless.
+    let mut parked = false;
+    loop {
+        let outcome = crate::operations::dispatch_input_if_active(
+            &operation.project_path,
+            &operation.operation_id,
+            |active| deliver_task(active, registry, app, pane_id, agent_type, &prompt),
+        );
+        match outcome {
+            Err(error) if error.code == crate::agent_runs::readiness::SCREEN_NOT_READY && !parked => {
+                parked = true;
+                // Parking can take minutes: never hold the pane-assignment lock through it.
+                drop(dispatch_guard.take());
+                park_on_unknown_screen(operation, registry, pane_id, agent_type, &error, UNKNOWN_SCREEN_PARK)?;
+                dispatch_guard = Some(PANE_ASSIGNMENT_SERIAL.lock());
             }
-            let profile = crate::tui::profile_for(agent_type);
-            if agent_type != "opencode_native" {
-                // The agent exited and its host shell is at a prompt: never type a task into it.
-                let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
-                if crate::tui::agent_gone_to_host_shell(agent_type, &screen) {
-                    return Err(crate::pane_prompt::dispatch_blocker(agent_type, &screen)
-                        .expect("a host shell prompt blocks dispatch"));
-                }
+            other => {
+                other?;
+                break;
             }
-            if profile.verifies_prompt_delivery() {
-                // A dialog on screen (trust, command approval) takes hotkeys: typing the
-                // task over it would answer it with the task's letters and lose the task.
-                let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
-                if let Some(blocked) = crate::pane_prompt::dispatch_blocker(agent_type, &screen) {
-                    return Err(blocked);
-                }
-                // Visible panes whose TUI is readable: clear, type, verify the text
-                // is in the input box, submit, verify a turn started.
-                let mut io = crate::agent_runs::delivery::PaneIo {
-                    registry,
-                    app,
-                    pane_id,
-                };
-                let mut trace = Vec::new();
-                let outcome = crate::agent_runs::delivery::deliver_prompt_traced(
-                    &mut io,
-                    profile.clear_input_sequence(),
-                    &prompt,
-                    &mut trace,
-                );
-                crate::agent_runs::delivery::record_delivery(
-                    &active.project_path,
-                    &active.operation_id,
-                    None,
-                    &outcome,
-                    &trace,
-                );
-                return match outcome {
-                    crate::agent_runs::delivery::Delivery::NotVisible => {
-                        Err(crate::operations::OperationError::new(
-                            "PROMPT_NOT_SUBMITTED",
-                            crate::agent_runs::delivery::NOT_VISIBLE_MESSAGE,
-                            true,
-                        ))
-                    }
-                    crate::agent_runs::delivery::Delivery::Blocked(gate) => {
-                        Err(crate::pane_prompt::gate_blocked_error(gate))
-                    }
-                    crate::agent_runs::delivery::Delivery::WriteFailed(err) => Err(
-                        crate::operations::OperationError::new("DISPATCH_FAILED", err, true),
-                    ),
-                    _ => Ok(()),
-                };
-            }
-            if let Some(clear) = profile.clear_input_sequence() {
-                // Empty the TUI's input box first (a no-op when it is already
-                // empty); otherwise a leftover prompt prefixes the new one.
-                let _ = registry_write_input(registry, app, pane_id, clear, false, false, None);
-                thread::sleep(Duration::from_millis(250));
-            }
-            registry_write_input(
-                registry,
-                app,
-                pane_id,
-                &prompt,
-                true,
-                agent_type == "opencode_native",
-                None,
-            )
-            .map_err(|err| {
-                let code = if err.starts_with(crate::opencode::delivery::PROMPT_NOT_DELIVERED) {
-                    crate::opencode::delivery::PROMPT_NOT_DELIVERED
-                } else {
-                    "DISPATCH_FAILED"
-                };
-                crate::operations::OperationError::new(code, err, true)
-            })
-        },
-    )?;
+        }
+    }
+    drop(dispatch_guard);
     // The agent has the task: the turn starts here for checkpoints and Last turn, even when the
     // pane's status never said `running` (a pane that went from boot straight into the task). Only
     // while the pane still reads running: a pane that already read idle again has had its events.
@@ -767,6 +701,182 @@ fn send_task_prompt(
         crate::turn_summary::note_dispatched(pane_id);
     }
     Ok(())
+}
+
+/// Types the task into the pane under the typing permit (`agent_runs::readiness`), as the dispatch
+/// closure: a verified delivery for a profile that can read its input box, a plain typed submit for
+/// the others, the agent's own API for a native pane. Nothing is typed into a screen that is not
+/// `Ready`; the refusals say why.
+fn deliver_task(
+    active: &OperationSnapshot,
+    registry: &Arc<Mutex<PaneRegistry>>,
+    app: &AppHandle,
+    pane_id: &str,
+    agent_type: &str,
+    prompt: &str,
+) -> Result<(), OperationError> {
+    use crate::agent_runs::delivery::{self, Delivery};
+    if active.pane_id.as_deref() != Some(pane_id) {
+        return Err(crate::operations::OperationError::new(
+            "PANE_RESERVATION_LOST",
+            "operation no longer owns its dispatch pane",
+            false,
+        ));
+    }
+    let profile = crate::tui::profile_for(agent_type);
+    if agent_type == "opencode_native" {
+        // The agent's own protocol: the prompt is never typed into the screen.
+        return registry_write_input(
+            registry,
+            app,
+            pane_id,
+            prompt,
+            true,
+            true,
+            None,
+            crate::pty::WriteOrigin::Structured,
+        )
+        .map_err(|err| {
+            let code = if err.starts_with(crate::opencode::delivery::PROMPT_NOT_DELIVERED) {
+                crate::opencode::delivery::PROMPT_NOT_DELIVERED
+            } else {
+                "DISPATCH_FAILED"
+            };
+            crate::operations::OperationError::new(code, err, true)
+        });
+    }
+    // A dialog on screen (trust, command approval) takes hotkeys: typing the task over it would
+    // answer it with the task's letters and lose the task. A host shell prompt: the agent is gone.
+    let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
+    if let Some(blocked) = crate::pane_prompt::dispatch_blocker(agent_type, &screen) {
+        if blocked.code != "AGENT_EXITED" {
+            return Err(blocked);
+        }
+    }
+    let mut io = delivery::PaneIo { registry, app, pane_id };
+    let mut trace = Vec::new();
+    let outcome = if profile.verifies_prompt_delivery() {
+        // Clear, type, verify the text is in the input box, submit, verify a turn started.
+        let outcome = delivery::deliver_prompt_traced(&mut io, profile.clear_input_sequence(), prompt, &mut trace);
+        delivery::record_delivery(&active.project_path, &active.operation_id, None, &outcome, &trace);
+        outcome
+    } else {
+        delivery::type_unverified(&mut io, profile.clear_input_sequence(), prompt, &mut trace)
+    };
+    if !crate::agent_runs::readiness::has_recogniser(profile.as_ref())
+        && !matches!(outcome, Delivery::NotReady { .. } | Delivery::AgentGone(_) | Delivery::Blocked(_))
+    {
+        crate::agent_runs::transcript::append(
+            &active.project_path,
+            &active.operation_id,
+            "readiness",
+            "READINESS_INFERRED: this agent has no input-box recogniser, so readiness was inferred (something drawn, no dialog, no shell prompt, not busy)",
+        );
+    }
+    match outcome {
+        Delivery::Started | Delivery::SubmittedUnconfirmed => Ok(()),
+        Delivery::NotVisible => Err(crate::operations::OperationError::new(
+            "PROMPT_NOT_SUBMITTED",
+            delivery::NOT_VISIBLE_MESSAGE,
+            true,
+        )),
+        Delivery::Blocked(gate) => Err(crate::pane_prompt::gate_blocked_error(gate)),
+        Delivery::AgentGone(shell) => {
+            Err(crate::agent_runs::readiness::host_shell_error(&shell, profile.as_ref(), pane_id))
+        }
+        Delivery::NotReady { why, screen } => {
+            Err(crate::agent_runs::readiness::not_ready_error(&why, &screen, pane_id))
+        }
+        Delivery::WriteFailed(err) => Err(crate::operations::OperationError::new("DISPATCH_FAILED", err, true)),
+    }
+}
+
+/// How long a run parked on a screen that is not ready keeps looking before it ends.
+const UNKNOWN_SCREEN_PARK: Duration = Duration::from_secs(300);
+
+/// The pane never read `Ready` within delivery's window (a blank pane, a splash, a screen no rule
+/// recognises, a turn still running). Parks the run as `waiting_input` with the screen and a plain
+/// explanation, keeps looking (and re-checking gates) and resumes the dispatch once the pane reads
+/// ready or shows a screen delivery can close itself. Ends the run when the agent is gone, the user
+/// declined a dialog, the run was cancelled, or five minutes pass (`SCREEN_NOT_READY`). Never types
+/// anything and never falls back to a background run.
+pub(super) fn park_on_unknown_screen(
+    operation: &mut OperationSnapshot,
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    agent_type: &str,
+    not_ready: &OperationError,
+    park_for: Duration,
+) -> Result<(), OperationError> {
+    let screen = not_ready.context.get("screen").and_then(|s| s.as_str()).unwrap_or_default().to_string();
+    let detail = not_ready.message.replace(" Get the agent to its input box, then start the run again.", "");
+    let required_action = json!({
+        "kind": "screen_not_ready",
+        "pane_id": pane_id,
+        "detail": format!("{detail} The run is waiting: bring the agent to its input box in the pane (close any menu or message) and it continues by itself."),
+        "screen": screen,
+    });
+    *operation = crate::operations::mark_operation_startup_wait(
+        &operation.project_path,
+        &operation.operation_id,
+        Some("waiting_input".into()),
+        Some(required_action),
+        crate::operations::StateSource::Inferred,
+    )?;
+    push_operation_sse(operation);
+    crate::agent_runs::transcript::append(
+        &operation.project_path,
+        &operation.operation_id,
+        "readiness",
+        &format!("Parked: {}", not_ready.message),
+    );
+    let profile = crate::tui::profile_for(agent_type);
+    let (project, id) = (operation.project_path.clone(), operation.operation_id.clone());
+    let deadline = std::time::Instant::now() + park_for;
+    let end = crate::agent_runs::readiness::wait_while_parked(
+        profile.as_ref(),
+        || crate::agent_runs::delivery::observe_pane(registry, pane_id),
+        || {
+            crate::operations::get_operation(&project, &id)
+                .map(|op| op.status != crate::operations::OperationStatus::WaitingInput)
+                .unwrap_or(true)
+        },
+        || crate::pane_prompt::gate_was_declined(pane_id),
+        || std::time::Instant::now() >= deadline,
+        || thread::sleep(Duration::from_millis(400)),
+    );
+    use crate::agent_runs::readiness::ParkEnd;
+    match end {
+        ParkEnd::Resume => {
+            let pane_state = registry
+                .lock()
+                .list()
+                .into_iter()
+                .find(|pane| pane.id == pane_id)
+                .map(|pane| pane.status)
+                .unwrap_or_else(|| "running".into());
+            *operation = crate::operations::resume_operation_dispatch_when_ready(
+                &operation.project_path,
+                &operation.operation_id,
+                &pane_state,
+                crate::operations::StateSource::Inferred,
+            )?;
+            push_operation_sse(operation);
+            Ok(())
+        }
+        ParkEnd::Gone(shell) => {
+            Err(crate::agent_runs::readiness::host_shell_error(&shell, profile.as_ref(), pane_id))
+        }
+        ParkEnd::Declined => Err(crate::bridge::startup_decline_error(pane_id, None)),
+        ParkEnd::Cancelled => Err(crate::operations::OperationError::new(
+            "OPERATION_CANCELLED",
+            "operation was cancelled while waiting for the agent's input box",
+            false,
+        )),
+        ParkEnd::TimedOut { why, screen } => {
+            Err(crate::agent_runs::readiness::not_ready_error(&why, &screen, pane_id))
+        }
+    }
 }
 
 #[cfg(test)]

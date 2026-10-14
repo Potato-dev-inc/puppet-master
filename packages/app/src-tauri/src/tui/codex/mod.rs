@@ -131,6 +131,14 @@ impl TuiProfile for Codex {
         screen::composer_state(screen)
     }
 
+    /// The composer, but not while Codex is still loading (it draws the box before it takes keys).
+    fn ready_recogniser(&self, screen: &str) -> Option<ComposerState> {
+        if screen::still_loading(screen) {
+            return Some(ComposerState::Unknown);
+        }
+        Some(screen::composer_state(screen))
+    }
+
     fn startup_gate(&self, screen: &str) -> Option<StartupGate> {
         screen::startup_gate(screen)
     }

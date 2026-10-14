@@ -148,6 +148,12 @@ impl TuiProfile for Claude {
         Some(screen::shows_work_in_progress(visible_tail))
     }
 
+    /// The input box read from the screen (`screen::input_box`): a task is typed only into an empty
+    /// box. There is no clear sequence, so a box that already holds text is not typed into either.
+    fn ready_recogniser(&self, screen: &str) -> Option<super::ComposerState> {
+        Some(screen::input_box(screen))
+    }
+
     /// No activity row and 800ms of stillness: the turn is over (live capture of a finished turn).
     fn quiet_idle_after(&self) -> std::time::Duration {
         std::time::Duration::from_millis(800)
