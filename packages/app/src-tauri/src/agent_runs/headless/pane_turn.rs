@@ -164,6 +164,38 @@ pub(super) fn redelivery_dead_end(
     (!blocker.recoverable).then_some(blocker)
 }
 
+/// Writes the transcript's Approval entry for the prompt a run is parked on, once per prompt, and
+/// returns whether it wrote one. `recorded` is the id of the prompt already written; the caller
+/// clears it when no prompt is on screen any more, so the same command asked again later is a new
+/// entry.
+///
+/// This is decided by the prompt's own id and not by "the run just changed state": two writers
+/// park a run on a dialog (this supervisor and the pane observer in `bridge/observe.rs`), and
+/// whichever came second used to see a run that was already `waiting_input` with the same prompt
+/// and write nothing, so a run with two approvals could show one entry (VERIFY-R8 #1: the second
+/// read like the first, a repeat of the old dialog drawn before Claude redrew).
+pub(super) fn record_approval(
+    current: &OperationSnapshot,
+    action: &serde_json::Value,
+    recorded: &mut Option<String>,
+) -> bool {
+    let summary = action
+        .get("summary")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("permission required");
+    let id = ["prompt_id", "id"]
+        .iter()
+        .find_map(|key| action.get(*key).and_then(serde_json::Value::as_str))
+        .unwrap_or(summary)
+        .to_string();
+    if recorded.as_deref() == Some(id.as_str()) {
+        return false;
+    }
+    *recorded = Some(id);
+    transcript::append(&current.project_path, &current.operation_id, "permission", summary);
+    true
+}
+
 /// Observations in a row that must show a bare host-shell prompt before a run is declared dead.
 /// One redrawn frame is not proof the agent left; two ticks (500 ms) apart are.
 const HOST_SHELL_CONFIRM_TICKS: u32 = 2;
