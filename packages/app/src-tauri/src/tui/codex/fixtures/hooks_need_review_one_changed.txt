@@ -1,2 +1,11 @@
-To continue this session, run:
-  codex resume 01a13b40-6ea6-7922-ad0b-fba266c024d0
+ 
+  Hooks need review
+  1 hook is new or changed.
+  Hooks can run outside the sandbox after you trust them.
+
+
+› 1. Review hooks                                                                                                       
+  2. Trust all and continue
+  3. Continue without trusting (hooks won't run)
+
+  enter confirm · esc skip                                                                                              

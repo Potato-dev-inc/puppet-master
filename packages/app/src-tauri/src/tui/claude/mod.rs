@@ -49,6 +49,10 @@ impl TuiProfile for Claude {
         crate::toolbelt::host_from_toml(MCP_HOST)
     }
 
+    fn hook_scheme(&self) -> Option<crate::tui::declarative::hooks::HooksTable> {
+        crate::tui::declarative::hooks::parse_hooks_toml(include_str!("hooks.toml"))
+    }
+
     fn skills_host(&self) -> Option<crate::agent_pack::SkillsHostTable> {
         crate::agent_pack::skills_host_from_toml(SKILLS_HOST)
     }

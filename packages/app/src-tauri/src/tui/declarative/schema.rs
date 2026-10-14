@@ -63,6 +63,8 @@ pub struct Definition {
     /// What this definition has been checked against (`[profile]`).
     #[serde(default)]
     pub profile: ProfileTable,
+    /// How this agent reports its lifecycle to Puppet Master (Hook Lane); absent = no hooks.
+    pub hooks: Option<super::hooks::HooksTable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

@@ -409,6 +409,13 @@ pub trait TuiProfile: Send + Sync {
     fn skills_host(&self) -> Option<crate::agent_pack::SkillsHostTable> {
         None
     }
+
+    /// How this agent reports its lifecycle (session, prompt, permission, edits, stop) to Puppet
+    /// Master through PM's fixed hook command (`crate::agent_hooks`). `None` (the default): no hooks;
+    /// the screen stays the only reader.
+    fn hook_scheme(&self) -> Option<crate::tui::declarative::hooks::HooksTable> {
+        None
+    }
 }
 
 /// What `TuiProfile::context` returns.

@@ -74,6 +74,11 @@ pub fn canonical_value(def: &Definition, source: Source, project: Option<&str>, 
     if let Some(i) = &def.instructions {
         value["instructions"] = json!({ "paths": i.all_paths(), "header": i.header });
     }
+    // Hooks run a command at the agent's lifecycle points: adding or changing them re-requires
+    // approval. Added only when present, like the tables above.
+    if let Some(h) = &def.hooks {
+        value["hooks"] = serde_json::to_value(h).unwrap_or(Value::Null);
+    }
     value
 }
 

@@ -1,0 +1,26 @@
+# expect-code: AGENT_DEF_HOOKS_GLOBAL_CONFIG
+# Hooks may never go into a user/global config file.
+schema_version = 1
+
+[agent]
+id = "hookbad"
+label = "Hook Bad"
+
+[binary]
+names = ["hookbad-fixture-not-installed"]
+install_hint = "fixture only"
+
+[tui]
+argv = []
+
+[hooks]
+schema = 1
+install = "user_file"
+[hooks.entry]
+type = "command"
+command = "{exe_quoted} {args_joined}"
+
+[[hooks.events]]
+vendor = "Stop"
+pm = "turn_end"
+fields = { session = "session_id" }

@@ -1,0 +1,66 @@
+# Claude Code reports its lifecycle to Puppet Master (Hook Lane, docs/specs/hook-lane/PROBES.md).
+# Installed with `--settings <file in PM's app data>` at spawn: no user or project file is written.
+# Probes on 2.1.299: `--settings` hooks MERGE with the user's own (P-A1); nothing fires before the
+# folder-trust dialog is accepted (P-A3); async hooks fire on PermissionRequest and Stop (P-A2).
+[hooks]
+schema = 1
+install = "launch_flag"
+delivery = "async"
+vendor_timeout_s = 5
+trust = "folder_trust"
+tested = ">=2.1.299, <=2.1.300"
+
+[hooks.launch]
+flag = "--settings"
+value = "file"
+layout = "event_groups"
+root_key = "hooks"
+
+[hooks.entry]
+type = "command"
+command = "{exe}"
+args = "{args}"
+async = true
+timeout = 5
+
+[[hooks.events]]
+vendor = "SessionStart"
+pm = "session_start"
+fields = { session = "session_id", source = "source", cwd = "cwd" }
+
+[[hooks.events]]
+vendor = "UserPromptSubmit"
+pm = "prompt_submitted"
+fields = { session = "session_id", turn = "prompt_id", prompt = "prompt" }
+
+[[hooks.events]]
+vendor = "PermissionRequest"
+pm = "permission_request"
+fields = { session = "session_id", turn = "prompt_id", tool = "tool_name", command = "tool_input.command", path = "tool_input.file_path", subagent = "agent_id" }
+
+[[hooks.events]]
+vendor = "PostToolUse"
+matcher = "Edit|Write|MultiEdit|NotebookEdit"
+pm = "tool_post"
+fields = { session = "session_id", turn = "prompt_id", tool = "tool_name", tool_use = "tool_use_id", path = "tool_input.file_path", subagent = "agent_id" }
+
+[[hooks.events]]
+vendor = "Stop"
+pm = "turn_end"
+fields = { session = "session_id", turn = "prompt_id", final_text = "last_assistant_message", continuing = "stop_hook_active" }
+
+[[hooks.events]]
+vendor = "StopFailure"
+pm = "turn_failed"
+fields = { session = "session_id", turn = "prompt_id", error = "error", final_text = "last_assistant_message" }
+
+# Fires after the top-level Stop too, with the same prompt_id (a background helper): never a turn end.
+[[hooks.events]]
+vendor = "SubagentStop"
+pm = "subagent_end"
+fields = { session = "session_id", turn = "prompt_id", subagent = "agent_id" }
+
+[[hooks.events]]
+vendor = "SessionEnd"
+pm = "session_end"
+fields = { session = "session_id", reason = "reason" }

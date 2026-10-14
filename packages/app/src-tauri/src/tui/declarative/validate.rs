@@ -76,6 +76,9 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
     check_mcp_host(def, &mut e);
     check_risk(def, &mut e, &mut regexes);
     check_instructions(def, &mut e);
+    if let Some(hooks) = &def.hooks {
+        e.0.extend(super::hooks::validate_hooks(hooks));
+    }
     check_profile(def, &mut e);
     check_regexes(&regexes, &mut e);
     e.0

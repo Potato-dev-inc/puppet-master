@@ -633,6 +633,10 @@ impl TuiProfile for DeclarativeProfile {
         self.def.mcp_host.clone()
     }
 
+    fn hook_scheme(&self) -> Option<super::hooks::HooksTable> {
+        self.def.hooks.clone()
+    }
+
     fn context(&self) -> Option<AgentContextProfile> {
         let c = &self.def.context;
         Some(AgentContextProfile {
