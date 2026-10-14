@@ -291,3 +291,27 @@ fn the_snapshot_serialises_with_the_design_shape() {
     assert_eq!(item["prompt"]["occurrence"], 1);
     assert!(item["resolution"].is_null());
 }
+
+#[test]
+fn a_budget_pause_card_is_a_budget_item_with_the_cards_own_line() {
+    let mut store = Store::default();
+    let mut f = facts(vec![pane("a", "idle")]);
+    f.questions = vec![QuestionFact {
+        id: "b".into(),
+        pane_id: Some("a".into()),
+        expires_at_ms: Some(50_000),
+        text: Some("Claude Code used its 20 turns.".into()),
+        kind: Some("budget".into()),
+        ..QuestionFact::default()
+    }];
+    store.recompute(&f, 1_000);
+    let item = &store.snapshot().items[0];
+    assert_eq!(item.key, "budget:b");
+    assert_eq!(item.kind, Kind::Budget);
+    assert_eq!(item.lane, Lane::Blocking);
+    assert_eq!(item.title, "Budget used up");
+    assert_eq!(item.sentence.as_deref(), Some("Claude Code used its 20 turns."));
+    assert_eq!(item.expires_at_ms, Some(50_000));
+    assert!(item.actions.is_empty(), "no lock-screen action for a budget card");
+    assert_eq!(store.counts().blocking, 1);
+}

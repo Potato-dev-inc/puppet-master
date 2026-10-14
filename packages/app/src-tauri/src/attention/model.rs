@@ -244,6 +244,10 @@ pub struct QuestionFact {
     /// did not start). It is then a `consent` item, not a `question`.
     #[serde(default)]
     pub consent: Option<serde_json::Value>,
+    /// What raised it when it was not an agent's `ask_user` (`questions::Question::kind`). `budget`
+    /// is the pause card of a run that used its budget: a `budget` item, not a `question`.
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

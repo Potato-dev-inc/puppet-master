@@ -430,6 +430,13 @@ fn build_item(d: &Derived, facts: &Facts) -> Item {
                 }
             }
         }
+        Kind::Budget => {
+            // "Budget used up" over the card's own line ("Claude Code used its 20 turns.").
+            if let Some(q) = facts.questions.iter().find(|q| q.id == subject) {
+                item.expires_at_ms = q.expires_at_ms;
+                item.sentence = q.text.clone().filter(|t| !t.trim().is_empty());
+            }
+        }
         Kind::Answer => {
             if let Some(n) = facts.notices.iter().find(|n| n.id == subject) {
                 item.sentence = n.text.clone();

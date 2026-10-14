@@ -1,9 +1,9 @@
 //! `derive`: everything that needs the person right now, one entry per thing.
 //!
-//! This is an exact port of `deriveNeedsYou` in `packages/app/src/lib/attention.ts`: the same five
-//! kinds in the same order (approvals in pane order, questions, errors in pane order, stuck panes,
-//! Ask-bar answers), the same ids, and the same quirks (an errored pane that is also stuck yields
-//! both items). `attention/tests/parity.rs` runs the shared corpus
+//! This is an exact port of `deriveNeedsYou` in `packages/app/src/lib/attention.ts`: the same kinds
+//! in the same order (approvals in pane order, questions with their consent and budget cards, errors
+//! in pane order, stuck panes, Ask-bar answers), the same ids, and the same quirks (an errored pane
+//! that is also stuck yields both items). `attention/tests/parity.rs` runs the shared corpus
 //! (`packages/shared/fixtures/attention/*.json`) through both implementations. Rule changes land
 //! in later, separate commits; this function does not change with them.
 
@@ -38,6 +38,9 @@ pub fn derive(facts: &Facts) -> Vec<Derived> {
         // A consent card is not a question the agent asked: it is a decision about the agent.
         if q.consent.as_ref().is_some_and(truthy) {
             items.push(Derived { id: format!("consent:{}", q.id), kind: Kind::Consent, pane_id: None, risk: Some(Level::High), since: q.created_at_ms });
+        } else if q.kind.as_deref() == Some("budget") {
+            // The pause card of a run that used its budget (`budgets::card`): Puppet Master asks, not the agent.
+            items.push(Derived { id: format!("budget:{}", q.id), kind: Kind::Budget, pane_id, risk: None, since: q.created_at_ms });
         } else {
             items.push(Derived { id: format!("question:{}", q.id), kind: Kind::Question, pane_id, risk: None, since: q.created_at_ms });
         }

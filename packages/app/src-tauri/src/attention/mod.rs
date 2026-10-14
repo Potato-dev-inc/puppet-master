@@ -141,6 +141,7 @@ pub fn collect_facts(now_ms: u64) -> Facts {
             text: Some(clean(&q.question)),
             agent: q.agent,
             consent: q.consent.and_then(|c| serde_json::to_value(c).ok()),
+            kind: q.kind,
         })
         .collect();
 
