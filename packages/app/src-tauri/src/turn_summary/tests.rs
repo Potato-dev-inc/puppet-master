@@ -661,3 +661,77 @@ fn checkpoint_turn_numbers_follow_the_trackers_turns() {
     tracker.on_status("p1", "idle");
     assert_eq!(tracker.turn_for_checkpoint("p1", false), Some(3), "after belongs to the turn that ended");
 }
+
+// ---- an approval-gated edit: Receipt (Last turn) and History must agree (VERIFY #5) --------------
+//
+// Live, Claude pane dc69ffa9, turn 4: running -> waiting_input (approval) -> running -> idle, the file
+// was edited after the approval. History read "After turn 4: 1 file", Last turn read "0 files, you
+// approved 1 request". The checkpoint worker of the approval prompt finished while the end-of-turn
+// one was still waiting out the 10 s debounce; its settle signal released the end-of-turn summary,
+// which read the checkpoints before the end-of-turn snapshot existed.
+
+fn one_file() -> FileStats {
+    FileStats::from_changes(&synthetic_diff()[..1])
+}
+
+#[test]
+fn the_end_of_turn_summary_waits_for_its_own_snapshot_and_counts_the_file_edited_after_the_approval() {
+    use super::settle::Settle;
+    use super::summarize;
+    use std::time::Duration;
+
+    let tmp = Tmp::new("approval-edit");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Arc::new(Tracker::new(env.clone()));
+    let settle = Arc::new(Settle::default());
+
+    env.at(1_000);
+    assert!(tracker.on_status("p1", "running").is_none());
+    env.at(3_000);
+    let at_approval = tracker.on_status("p1", "waiting_input").expect("rest point at the approval prompt");
+    let approval_capture = settle.request("p1");
+    tracker.record_approval("p1", approval("a1", "command", "allow"));
+    env.at(3_500);
+    assert!(tracker.on_status("p1", "running").is_none(), "the approval resumes the same turn");
+    env.at(6_000);
+    let at_idle = tracker.on_status("p1", "idle").expect("rest point at the end of the turn");
+    let end_capture = settle.request("p1");
+    assert_eq!(at_idle.turn, at_approval.turn);
+
+    // The snapshot taken at the approval prompt (no edit yet) finishes first.
+    *env.files.lock() = Some(FileStats::from_changes(&[]));
+    settle.settle("p1", approval_capture);
+    let final_summary = {
+        let (tracker, settle) = (tracker.clone(), settle.clone());
+        std::thread::spawn(move || summarize(&tracker, &settle, at_idle, end_capture, Duration::from_secs(10)))
+    };
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(!final_summary.is_finished(), "the approval prompt's snapshot is not the end-of-turn one");
+
+    // The end-of-turn snapshot lands, with the edit in it.
+    *env.files.lock() = Some(one_file());
+    settle.settle("p1", end_capture);
+    let last = final_summary.join().unwrap().expect("summary");
+    assert_eq!(last.files.as_ref().map(|f| f.count), Some(1), "{}", last.sentence);
+    assert_eq!(last.approvals.len(), 1);
+
+    // The approval prompt's own summary was built earlier and is only stored now: it must not win.
+    *env.files.lock() = Some(FileStats::from_changes(&[]));
+    let stale = summarize(&tracker, &settle, at_approval, approval_capture, Duration::from_secs(1)).expect("summary");
+    assert_eq!(stale.files.as_ref().map(|f| f.count), Some(0));
+    let kept = tracker.summaries("p1");
+    assert_eq!(kept.len(), 1, "one entry for the turn");
+    assert_eq!(kept[0].files.as_ref().map(|f| f.count), Some(1), "Last turn keeps the end-of-turn facts");
+    assert!(kept[0].sentence.contains("now idle"), "{}", kept[0].sentence);
+}
+
+#[test]
+fn a_stale_summary_never_replaces_a_later_one_of_the_same_turn() {
+    let tmp = Tmp::new("stale");
+    let mut store = Store::default();
+    store.record(tmp.p(), summary("p1", 4, 9_000)).unwrap();
+    store.record(tmp.p(), summary("p1", 4, 3_000)).unwrap();
+    let items = store.for_pane("p1");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].ended_at_ms, 9_000);
+}

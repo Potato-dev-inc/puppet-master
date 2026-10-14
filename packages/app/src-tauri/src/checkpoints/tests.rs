@@ -639,3 +639,44 @@ fn restore_names_an_open_run_precisely() {
     env.set_status("p1", "idle");
     assert!(respond(&rt, "POST", &["panes", "p1", "checkpoints", "1", "restore"]).unwrap().is_ok());
 }
+
+#[test]
+fn a_debounced_capture_waits_for_the_snapshot_that_is_being_written() {
+    // VERIFY #5: the capture for the end of a turn arrived while the capture for the approval
+    // prompt was writing its snapshot, was debounced at once, and "settled" the turn summary before
+    // the snapshot existed. A capture now queues behind the one in flight, so when it reports
+    // `Debounced` the newest snapshot is already there.
+    let t = Tmp::new("inflight");
+    for n in 0..300 {
+        t.write(&format!("src/file{n}.txt"), &format!("content {n}"));
+    }
+    let env = FakeEnv::new(t.p());
+    let rt = Arc::new(Runtime::new(env.clone()));
+    assert!(matches!(rt.capture("p1", Kind::Before, None), Outcome::Created(_)));
+    env.advance(DEBOUNCE_MS + 1);
+    t.write("src/file0.txt", "edited after the approval");
+
+    let first = {
+        let rt = rt.clone();
+        std::thread::spawn(move || rt.capture("p1", Kind::After, None))
+    };
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    let second = {
+        let (rt, dir) = (rt.clone(), t.p().to_path_buf());
+        std::thread::spawn(move || {
+            let outcome = rt.capture("p1", Kind::After, None);
+            (outcome, engine::list(&dir, "p1").unwrap().len())
+        })
+    };
+    let first = first.join().unwrap();
+    let (second, listed_when_it_returned) = second.join().unwrap();
+    let debounced = |o: &Outcome| matches!(o, Outcome::Debounced { .. });
+    assert!(
+        debounced(&first) != debounced(&second),
+        "exactly one of the two captures wrote the snapshot: {first:?} / {second:?}"
+    );
+    assert_eq!(
+        listed_when_it_returned, 2,
+        "the second capture returned ({second:?}) before the snapshot of the first one existed"
+    );
+}

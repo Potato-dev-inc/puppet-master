@@ -50,7 +50,11 @@ fn save_file(project: &Path, panes: BTreeMap<String, Vec<TurnSummary>>) -> std::
 /// Insert or replace the summary of the same turn, keeping order by turn and at most `cap` entries.
 pub(super) fn upsert(ring: &mut VecDeque<TurnSummary>, summary: TurnSummary, cap: usize) {
     if let Some(slot) = ring.iter_mut().find(|s| s.turn == summary.turn) {
-        *slot = summary;
+        // Summaries are built on worker threads: one for an earlier rest point of the turn (the
+        // approval prompt) can land after the one for the end of the turn. The later rest point wins.
+        if slot.ended_at_ms <= summary.ended_at_ms {
+            *slot = summary;
+        }
     } else {
         // Summaries are built on worker threads and can land out of order.
         let at = ring.iter().position(|s| s.turn > summary.turn).unwrap_or(ring.len());

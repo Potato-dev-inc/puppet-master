@@ -66,6 +66,10 @@ struct State {
 pub struct Runtime {
     env: Arc<dyn Env>,
     state: Mutex<State>,
+    /// One capture at a time per pane: a capture that arrives while another is writing its snapshot
+    /// waits for it. Without this a debounced capture returned at once, "settling" the turn summary
+    /// before the snapshot it was waiting for existed (the summary read "0 files").
+    capturing: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 fn is_turn_end(status: &str) -> bool {
@@ -74,7 +78,7 @@ fn is_turn_end(status: &str) -> bool {
 
 impl Runtime {
     pub fn new(env: Arc<dyn Env>) -> Self {
-        Self { env, state: Mutex::new(State::default()) }
+        Self { env, state: Mutex::new(State::default()), capturing: Mutex::new(HashMap::new()) }
     }
 
     fn limits(&self) -> Limits {
@@ -98,6 +102,8 @@ impl Runtime {
 
     /// Take (or skip) a snapshot for `pane_id`. Blocking.
     pub fn capture(&self, pane_id: &str, kind: Kind, note: Option<&str>) -> Outcome {
+        let pane_lock = self.capturing.lock().entry(pane_id.to_string()).or_default().clone();
+        let _one_capture_at_a_time = pane_lock.lock();
         let settings = self.env.settings();
         if !settings.enabled {
             return Outcome::Skipped("off");
@@ -250,14 +256,17 @@ pub fn live() -> &'static Runtime {
 pub fn on_pane_status(pane_id: &str, status: &str) {
     let Some(kind) = live().decide(pane_id, status) else { return };
     let pane_id = pane_id.to_string();
+    // The ticket is taken here, on the status-event thread, so the summary hook that runs right
+    // after this one waits for THIS rest point's capture and no earlier one's.
+    let ticket = (kind == Kind::After).then(|| crate::turn_summary::checkpoint_requested(&pane_id));
     let spawned = std::thread::Builder::new().name("pm-checkpoint".into()).spawn(move || {
         let outcome = live().capture_with_retry(&pane_id, kind);
         if let Outcome::Failed(message) = outcome {
             tracing::warn!(pane = %pane_id, error = %message, "checkpoint failed");
         }
         // The turn summary reads the checkpoints, so it waits for this capture to settle.
-        if kind == Kind::After {
-            crate::turn_summary::checkpoint_settled(&pane_id);
+        if let Some(ticket) = ticket {
+            crate::turn_summary::checkpoint_settled(&pane_id, ticket);
         }
     });
     if let Err(e) = spawned {
