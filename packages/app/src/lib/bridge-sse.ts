@@ -389,9 +389,13 @@ export function subscribeBridgeEventsViaWs(
   function handleFrame(text: string): void {
     if (text.startsWith('{')) {
       try {
-        const msg = JSON.parse(text) as { type?: string; pane_id?: string; error?: string; t?: number };
-        if (msg.type === 'input-error') console.warn('[bridge] input rejected', msg.pane_id, msg.error);
-        else if (msg.type === 'pong' && typeof msg.t === 'number') recordRtt(performance.now() - msg.t);
+        const msg = JSON.parse(text) as { type?: string; pane_id?: string; error?: unknown; t?: number };
+        if (msg.type === 'input-error') {
+          console.warn('[bridge] input rejected', msg.pane_id, msg.error);
+          // Not only the console: the person who typed must see that it did not arrive.
+          onEvent({ type: 'input-refused', pane_id: msg.pane_id ?? '', error: typeof msg.error === 'string' ? msg.error : JSON.stringify(msg.error ?? '') });
+        }
+        if (msg.type === 'pong' && typeof msg.t === 'number') recordRtt(performance.now() - msg.t);
       } catch {
         /* ignore malformed control frame */
       }

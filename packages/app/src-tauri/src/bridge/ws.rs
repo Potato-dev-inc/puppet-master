@@ -248,6 +248,7 @@ fn handle_client_text(
             let pane_id = value.get("pane_id").and_then(Value::as_str)?.to_string();
             // Same cap as `POST /panes/{id}/input` (device caps: `type`); re-read per frame.
             if !crate::mobile_pairing::caller_may(ctx.headers, ctx.peer_loopback, crate::mobile_pairing::Cap::Type) {
+                super::typing_refusals::note_refused(&pane_id, super::typing_refusals::Channel::Socket, "this device may not type");
                 return Some(json!({"type": "input-error", "pane_id": pane_id, "error": "not_allowed"}).to_string());
             }
             let body_text = value.get("text").and_then(Value::as_str)?.to_string();
@@ -287,7 +288,10 @@ fn write_input(
     if !paired_phone_typing {
         let route_path = format!("/panes/{pane_id}/input");
         crate::mcp_sessions::authorize(ctx.session, "POST", &route_path, message)
-            .map_err(|error| enrich_handle_error(error, ctx.registry))
+            .map_err(|error| {
+                super::typing_refusals::note_refused(pane_id, super::typing_refusals::Channel::Socket, &error.message);
+                enrich_handle_error(error, ctx.registry)
+            })
             .map_err(|error| {
                 let (_, value) = operation_http_error(error);
                 value.get("error").cloned().unwrap_or(value)

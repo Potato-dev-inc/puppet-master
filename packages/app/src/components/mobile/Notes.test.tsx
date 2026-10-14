@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PreviewNote } from './PreviewNote';
 import { StuckNote } from './StuckNote';
+import { InputRefusedNote } from './InputRefusedNote';
+import { AGENT_RUN_BY_ANOTHER_AGENT, inputRefusalNote } from '../../lib/input-refusal';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -39,5 +41,15 @@ describe('phone notes', () => {
     expect(note.textContent).toContain('Preview');
     expect(note.textContent).toContain('http://localhost:5173');
     expect(note.textContent).toContain('Open on your PC');
+  });
+
+  it('InputRefusedNote shows why typing was refused, in plain words', async () => {
+    await act(async () => {
+      root.render(<InputRefusedNote text={inputRefusalNote('managed pane mutations require an MCP session id')} />);
+    });
+    const note = host.querySelector('[data-testid="input-refused-note"]') as HTMLElement;
+    expect(note).not.toBeNull();
+    expect(note.getAttribute('role')).toBe('status');
+    expect(note.textContent).toBe(AGENT_RUN_BY_ANOTHER_AGENT);
   });
 });

@@ -32,6 +32,7 @@ mod startup_gate_tests;
 #[cfg(test)]
 mod tests;
 mod tool_names;
+pub(crate) mod typing_refusals;
 mod watchdog;
 mod ws;
 

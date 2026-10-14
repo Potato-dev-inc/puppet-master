@@ -31,6 +31,8 @@ import type { PreviewUrl } from './lib/pane-preview';
 import { AgentsOverview } from './components/mobile/AgentsOverview';
 import { usePushPresence } from './hooks/usePushPresence';
 import { usePhoneAbilities } from './hooks/usePhoneAbilities';
+import { inputRefusalNote } from './lib/input-refusal';
+import { InputRefusedNote } from './components/mobile/InputRefusedNote';
 import { TypingNote } from './components/mobile/TypingNote';
 import { MenuSheet, NewAgentSheet, type TypingEchoStats } from './components/mobile/MobileSheet';
 import { SetupScreen } from './components/pwa/SetupScreen';
@@ -141,7 +143,12 @@ export default function PwaApp() {
   // Offsets on the live stream show output that never arrived (see PaneStreamManager `onGap`): heal
   // it with the nudge, which redraws the open agent from the PC's current screen.
   const streamGapRef = useRef<() => void>(() => {});
-  const registry = useBridgePaneRegistry(bridge, socketInput, () => streamGapRef.current());
+  /** The PC refused what was typed: a plain line under the terminal (null = nothing refused lately). */
+  const [inputRefused, setInputRefused] = useState<{ paneId: string; text: string } | null>(null);
+  const noteInputRefused = useCallback((paneId: string, detail: unknown) => {
+    setInputRefused({ paneId, text: inputRefusalNote(detail) });
+  }, []);
+  const registry = useBridgePaneRegistry(bridge, socketInput, () => streamGapRef.current(), noteInputRefused);
   const registryRef = useRef(registry);
   registryRef.current = registry;
   const [linkStats, setLinkStats] = useState<BridgeLinkStats | null>(null);
@@ -250,6 +257,7 @@ export default function PwaApp() {
         registryRef.current.ingestPaneResize(ev.pane_id, ev.cols, ev.rows, ev.offset);
         registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows, true);
       }
+      if (ev.type === 'input-refused') noteInputRefused(ev.pane_id, ev.error);
       if (ev.type === 'settings') setSettings(ev.settings);
       if (ev.type === 'questions') setQuestionsRev((n) => n + 1);
       if (ev.type === 'resync') {
@@ -270,7 +278,7 @@ export default function PwaApp() {
       if (streamRef.current === stream) streamRef.current = null;
       stream.unsubscribe();
     };
-  }, [bridgeUrl, applyPanes, publishEcho]);
+  }, [bridgeUrl, applyPanes, publishEcho, noteInputRefused]);
 
   usePushPresence(bridgeUrl, setActive, () => setActive(ALL_TAB));
 
@@ -441,6 +449,13 @@ export default function PwaApp() {
       .catch((e) => setSpawnError(e instanceof Error ? e.message : String(e)));
   }, [bridge]);
 
+  // The refusal line stays while the person is looking at it, then goes (typing again brings it back).
+  useEffect(() => {
+    if (!inputRefused) return;
+    const t = window.setTimeout(() => setInputRefused(null), 12_000);
+    return () => window.clearTimeout(t);
+  }, [inputRefused]);
+
   useEffect(() => {
     if (!toast) return;
     const t = window.setTimeout(() => setToast(null), 3200);
@@ -544,6 +559,7 @@ export default function PwaApp() {
             <div className="ph-loading">Loading agent…</div>
           )}
           {activePane && abilities.typingNote && <TypingNote text={abilities.typingNote} />}
+          {activePane && inputRefused && inputRefused.paneId === active && <InputRefusedNote text={inputRefused.text} />}
         </main>
       </div>
       {sheet === 'new' && (

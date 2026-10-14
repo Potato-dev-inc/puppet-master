@@ -21,6 +21,23 @@ describe('pane-tunnel', () => {
     expect(writeInput).toHaveBeenCalledWith('pane-1', 'ls', true);
   });
 
+  // VERIFY-R11: the bridge's 403 for a loopback PWA tab typing into an agent-run pane was swallowed.
+  it('reports a 403 from the managed-pane guard instead of failing silently, and still throws other errors', async () => {
+    const refusal = new Error(
+      'bridge POST /panes/pane-1/input -> 403: {"code":"AUTHORIZATION_DENIED","error":"managed pane mutations require an MCP session id"}',
+    );
+    const writeInput = vi.fn().mockRejectedValueOnce(refusal).mockRejectedValueOnce(new Error('Failed to fetch'));
+    const bridge = { writeInput } as unknown as Parameters<typeof makePaneTunnelTransport>[0];
+    const onRefused = vi.fn();
+    const transport = makePaneTunnelTransport(bridge, 'pane-1', undefined, onRefused);
+
+    await expect(transport.writeInput('x', false)).resolves.toBeUndefined();
+    expect(onRefused).toHaveBeenCalledTimes(1);
+    expect(onRefused).toHaveBeenCalledWith('pane-1', refusal);
+    await expect(transport.writeInput('y', false)).rejects.toThrow('Failed to fetch');
+    expect(onRefused).toHaveBeenCalledTimes(1);
+  });
+
   it('ingestPaneTunnelData only accepts the bound pane id', async () => {
     const state = createPaneTunnelState('mobile');
     setPaneTunnelPane(state, 'orch');

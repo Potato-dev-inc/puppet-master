@@ -430,5 +430,7 @@ export type BridgeEvent =
   | { type: 'orchestrator-viewport'; width: number; height: number; active: boolean }
   /** Pending `ask_user` questions changed; refetch the list. `revision` increases with each change. */
   | { type: 'questions'; revision: number }
+  /** The PC refused typed input over the socket (`input-error` frame): `error` is its reason. */
+  | { type: 'input-refused'; pane_id: string; error: string }
   /** Long-poll only: events were missed (phone asleep, app restarted); re-read pane state. */
   | { type: 'resync' };
