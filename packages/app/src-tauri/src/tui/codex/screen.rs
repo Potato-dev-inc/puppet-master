@@ -110,7 +110,7 @@ pub(super) fn startup_gate(screen: &str) -> Option<StartupGate> {
     }
     if TRUST_PHRASES.iter().any(|phrase| lower.contains(phrase)) {
         return Some(StartupGate {
-            id: "workspace_trust",
+            id: StartupGate::WORKSPACE_TRUST,
             summary: "Codex asks whether to trust this folder",
             dismiss: None,
         });

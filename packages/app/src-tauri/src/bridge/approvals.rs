@@ -46,8 +46,9 @@ pub(super) fn startup_manual_approval_required(
     {
         return true;
     }
-    // A startup screen still up after the dismissable ones were closed (`startup_gate`): a trust
-    // question, a login page, or a notice that ignored its keys. Only the user moves past it.
+    // A startup gate (`TuiProfile::startup_gate`) still up. One that only the user may pass (trust,
+    // sign-in) is already a prompt card caught above; what this adds is a dismissible notice that
+    // ignored its keys. Either way the task must not be typed into it.
     if agent_type != "opencode_native"
         && crate::tui::profile_for(agent_type).startup_gate(current_screen).is_some()
     {
@@ -156,6 +157,17 @@ pub(super) fn wait_for_startup_permission_resolution(
 /// in the folder the user just refused.
 fn gate_declined(pane_id: &str, gate: Option<&serde_json::Value>) -> Option<crate::operations::OperationError> {
     let gate = gate?;
+    if gate.get("kind").and_then(|v| v.as_str()) == Some("startup_screen") {
+        // A sign-in or setup screen the agent exited on (the user closed it, or it failed).
+        let summary = gate.get("summary").and_then(|v| v.as_str()).unwrap_or("A startup screen");
+        let mut error = crate::operations::OperationError::new(
+            "STARTUP_SCREEN_NOT_COMPLETED",
+            format!("{summary}, and the agent exited before it was done, so the task was not typed. Finish it, then start the run again."),
+            false,
+        );
+        error.context = serde_json::json!({"pane_id": pane_id, "kind": "startup_screen", "startup_gate": gate.get("startup_gate")});
+        return Some(error);
+    }
     let folder = gate.get("folder").and_then(|v| v.as_str());
     let message = match folder {
         Some(folder) => format!("The folder {folder} was not trusted, so the agent exited and the task was not typed. Start the run again and choose Trust to let the agent work there."),

@@ -94,7 +94,8 @@ pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool
         return None;
     }
     let mut prompt = crate::agent_adapters::adapter_for(agent_type)
-        .detect_prompt(&prompt_region(screen), allow_broad)?;
+        .detect_prompt(&prompt_region(screen), allow_broad)
+        .or_else(|| gate_prompt(agent_type, screen))?;
     if prompt.get("command").and_then(Value::as_str).is_some() {
         if prompt.get("cwd").is_none() {
             let dir = prompt
@@ -113,12 +114,30 @@ pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool
     Some(prompt)
 }
 
+/// A startup gate only the user may pass (`TuiProfile::startup_gate` without `dismiss`: folder
+/// trust, sign-in, onboarding) shown as a prompt card, for a profile that has no answerable prompt
+/// of its own for it. The card has no choices (Puppet Master does not know the keys); the user
+/// answers in the pane, and the run waits. A profile that does detect the dialog (Claude, Cursor:
+/// trust / deny with keys) wins over this.
+fn gate_prompt(agent_type: &str, screen: &str) -> Option<Value> {
+    let gate = crate::tui::profile_for(agent_type).startup_gate(screen)?;
+    if gate.dismiss.is_some() {
+        return None;
+    }
+    let mut prompt = crate::tui::generic::prompt_json(agent_type, gate.prompt_kind(), gate.summary, Vec::new());
+    prompt["summary"] = Value::String(gate.summary.to_string());
+    prompt["identity"] = Value::String(gate.id.to_string());
+    prompt["startup_gate"] = Value::String(gate.id.to_string());
+    Some(prompt)
+}
+
 /// Prompt kinds that gate a pane's startup: the agent cannot take a task until the user has
-/// answered. A profile (code or TOML `[[tui.prompt]]`) opts in by reporting one of these kinds from
-/// `detect_prompt`. A run parks on such a prompt (`bridge/approvals.rs`), types its task only once
-/// the gate has cleared, and fails with `WORKSPACE_TRUST_DECLINED` when the user declines and the
-/// agent exits. Puppet Master never answers one itself.
-pub(crate) const STARTUP_GATE_KINDS: &[&str] = &["workspace_trust"];
+/// answered. They come from a profile's `detect_prompt` (answerable: trust / deny) or from its
+/// `startup_gate` (`gate_prompt`). A run parks on such a prompt (`bridge/approvals.rs`), types its
+/// task only once the gate has cleared, and fails with `WORKSPACE_TRUST_DECLINED` (trust) or
+/// `STARTUP_SCREEN_NOT_COMPLETED` (sign-in, setup) when the agent exits with it showing. Puppet
+/// Master never answers one itself. See `tui/README.md`, "Startup gates".
+pub(crate) const STARTUP_GATE_KINDS: &[&str] = &["workspace_trust", "startup_screen"];
 
 /// The startup gate the screen shows, if any (a prompt of one of `STARTUP_GATE_KINDS`).
 pub(crate) fn startup_gate(agent_type: &str, screen: &str) -> Option<Value> {

@@ -147,6 +147,22 @@ pub struct StartupGate {
     pub dismiss: Option<&'static str>,
 }
 
+impl StartupGate {
+    /// The id of the folder-trust gate: its prompt kind is `workspace_trust`.
+    pub const WORKSPACE_TRUST: &'static str = "workspace_trust";
+
+    /// The kind of the prompt card a gate that only the user may pass becomes (`pane_prompt`):
+    /// `workspace_trust` for the folder-trust question, `startup_screen` for any other (sign-in,
+    /// onboarding). A dismissible gate is closed with its keys and never becomes a card.
+    pub fn prompt_kind(&self) -> &'static str {
+        if self.id == Self::WORKSPACE_TRUST {
+            "workspace_trust"
+        } else {
+            "startup_screen"
+        }
+    }
+}
+
 /// A file an agent reads its project instructions from (`TuiProfile::instruction_files`). Puppet
 /// Master keeps the shared project memory inside a managed block of each such file.
 #[derive(Debug, Clone, PartialEq, Eq)]

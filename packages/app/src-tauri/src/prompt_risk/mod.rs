@@ -136,6 +136,11 @@ fn assess_without_command(input: &RiskInput, extra: &[RiskRule]) -> Risk {
             "The agent will be able to read and change files here and run commands in it.",
         ),
         "file_edit" => assess_file_edit(input.path, input.workspace),
+        "startup_screen" => plain(
+            RiskLevel::Low,
+            "Finish the startup screen",
+            "The agent is showing a sign-in or setup screen. Finish it in the terminal; nothing is asked of Puppet Master.",
+        ),
         "broad_approval" => plain(
             RiskLevel::Medium,
             "Allow without asking again",

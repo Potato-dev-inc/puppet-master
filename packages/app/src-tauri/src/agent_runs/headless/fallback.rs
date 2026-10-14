@@ -189,7 +189,7 @@ mod tests {
         for code in ["PROMPT_NOT_SUBMITTED", "DISPATCH_FAILED", "PANE_SPAWN_FAILED"] {
             assert_eq!(plan(&op, m, Some(code)), Some(VISIBLE_FAILED), "{code}");
         }
-        for code in ["TIMEOUT", "RESULT_NOT_CAPTURED", "ACCEPTANCE_FAILED", "PANE_BUSY", "CANCELLED", "WORKSPACE_TRUST_DECLINED", "PANE_BLOCKED_BY_PROMPT"] {
+        for code in ["TIMEOUT", "RESULT_NOT_CAPTURED", "ACCEPTANCE_FAILED", "PANE_BUSY", "CANCELLED", "WORKSPACE_TRUST_DECLINED", "STARTUP_SCREEN_NOT_COMPLETED", "PANE_BLOCKED_BY_PROMPT"] {
             assert_eq!(plan(&op, m, Some(code)), None, "{code} may follow a started turn");
         }
         assert_eq!(plan(&op, modes(false, true), None), Some(NO_VISIBLE_MODE));

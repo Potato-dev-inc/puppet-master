@@ -160,3 +160,124 @@ fn a_pane_that_dies_without_a_gate_keeps_the_old_error() {
     assert_eq!(ready.unwrap(), "running");
     assert_eq!(died.unwrap_err().code, "PANE_READINESS_FAILED");
 }
+
+// ---- one model for every agent -----------------------------------------------------------------
+//
+// `TuiProfile::startup_gate` is the one hook. A gate with `dismiss` (Codex's update notice) is
+// closed with those keys and is never a card. A gate without it (folder trust, sign-in) becomes a
+// user-answered prompt card (`workspace_trust` / `startup_screen`) that parks the run; declining it
+// (the agent exits) fails the run. Claude and Cursor have their own answerable trust card
+// (trust / deny with keys); Codex gets a card without choices (the user answers in the pane).
+
+/// Hand-written from the Codex CLI's layout (no live capture of these two exists).
+const CODEX_TRUST: &str = "> You are running Codex in ~/sandbox\n\n  Do you trust the files in this folder?\n\n\u{203a} 1. Yes, continue\n  2. No, quit\n\n  Press enter to continue\n";
+const CODEX_LOGIN: &str = ">_ Welcome to Codex\n\n  1. Sign in with ChatGPT\n  2. Provide your own API key\n";
+const CODEX_UPDATE_MENU: &str = include_str!("../tui/codex/fixtures/update_prompt_live.txt");
+const CODEX_READY: &str = include_str!("../tui/codex/fixtures/standby_ready_live.txt");
+
+fn pane_for(agent: &str, id: &str) -> Arc<Mutex<PaneRegistry>> {
+    let registry = claude_pane(id);
+    registry.lock().panes.get_mut(id).unwrap().info.agent_type = agent.into();
+    registry
+}
+
+#[test]
+fn every_agents_non_dismissible_gate_is_a_prompt_card_that_parks_the_run() {
+    use crate::pane_prompt::detect_in_screen;
+    // Claude: its own answerable card (trust / deny), and the profile reports the gate too.
+    let claude = detect_in_screen("claude", TRUST, false).expect("claude trust card");
+    assert_eq!(claude["kind"], "workspace_trust");
+    assert_eq!(claude["choices"], serde_json::json!(["trust", "deny"]));
+    let gate = crate::tui::profile_for("claude").startup_gate(TRUST).expect("claude reports the gate");
+    assert_eq!((gate.id, gate.dismiss), ("workspace_trust", None));
+    // Codex: a card with no choices (keys unknown), same kind.
+    let codex = detect_in_screen("codex", CODEX_TRUST, false).expect("codex trust card");
+    assert_eq!(codex["kind"], "workspace_trust");
+    assert_eq!(codex["choices"], serde_json::json!([]));
+    assert!(codex["prompt_id"].as_str().is_some_and(|id| !id.is_empty()));
+    // Codex sign-in: a startup_screen card.
+    let login = detect_in_screen("codex", CODEX_LOGIN, false).expect("codex login card");
+    assert_eq!(login["kind"], "startup_screen");
+    // Every one of them parks a run and refuses a typed task, whatever the pane status says.
+    for (agent, screen) in [("claude", TRUST), ("codex", CODEX_TRUST), ("codex", CODEX_LOGIN)] {
+        for status in [None, Some("running"), Some("idle")] {
+            assert!(startup_manual_approval_required(agent, status, screen, &[]), "{agent} {status:?}");
+        }
+        assert!(crate::pane_prompt::dispatch_blocker(agent, screen).is_some(), "{agent}");
+    }
+}
+
+#[test]
+fn a_dismissible_gate_is_closed_with_its_keys_and_is_never_a_card() {
+    use crate::pane_prompt::detect_in_screen;
+    let gate = crate::tui::profile_for("codex").startup_gate(CODEX_UPDATE_MENU).expect("update menu");
+    assert_eq!(gate.dismiss, Some("\u{1b}"));
+    assert!(detect_in_screen("codex", CODEX_UPDATE_MENU, false).is_none(), "a notice is not a card");
+    // Still up after the keys were tried: the run waits for the user rather than typing into it.
+    assert!(startup_manual_approval_required("codex", Some("idle"), CODEX_UPDATE_MENU, &[]));
+    // The ready screen (the banner above an empty composer) is no gate at all.
+    assert!(!startup_manual_approval_required("codex", Some("idle"), CODEX_READY, &[]));
+}
+
+#[test]
+fn declining_codex_trust_fails_with_the_same_code_as_claude() {
+    let pane = "gate-codex-decline";
+    let registry = pane_for("codex", pane);
+    show(&registry, pane, CODEX_TRUST);
+    set_status(&registry, pane, PaneStatus::WaitingInput);
+    let op = operation(&std::env::temp_dir().join(format!("pm-gate-{}", uuid::Uuid::new_v4())));
+    let handle = {
+        let (registry, project, id) = (registry.clone(), op.project_path.clone(), op.operation_id.clone());
+        std::thread::spawn(move || wait_for_startup_permission_resolution(&registry, &project, &id, pane, "codex"))
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!handle.is_finished(), "the run holds while the gate shows");
+    // "No, quit": Codex exits.
+    show(&registry, pane, "");
+    set_status(&registry, pane, PaneStatus::Error);
+    crate::pane_wait_notify::bump_waiters();
+    wait_for(|| handle.is_finished().then_some(()));
+    let error = handle.join().unwrap().expect_err("a declined trust screen fails the run");
+    assert_eq!(error.code, "WORKSPACE_TRUST_DECLINED");
+    assert!(!error.recoverable);
+}
+
+#[test]
+fn leaving_a_sign_in_screen_unfinished_fails_with_its_own_code_and_a_finished_one_releases_the_run() {
+    // Finished: the composer appears and the run continues.
+    let pane = "gate-codex-login-ok";
+    let registry = pane_for("codex", pane);
+    show(&registry, pane, CODEX_LOGIN);
+    set_status(&registry, pane, PaneStatus::WaitingInput);
+    let op = operation(&std::env::temp_dir().join(format!("pm-gate-{}", uuid::Uuid::new_v4())));
+    let handle = {
+        let (registry, project, id) = (registry.clone(), op.project_path.clone(), op.operation_id.clone());
+        std::thread::spawn(move || wait_for_startup_permission_resolution(&registry, &project, &id, pane, "codex"))
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!handle.is_finished());
+    show(&registry, pane, CODEX_READY);
+    set_status(&registry, pane, PaneStatus::Idle);
+    crate::pane_wait_notify::bump_waiters();
+    wait_for(|| handle.is_finished().then_some(()));
+    assert_eq!(handle.join().unwrap().expect("released"), "idle");
+
+    // Unfinished: the agent exits on the sign-in screen.
+    let pane = "gate-codex-login-exit";
+    let registry = pane_for("codex", pane);
+    show(&registry, pane, CODEX_LOGIN);
+    set_status(&registry, pane, PaneStatus::WaitingInput);
+    let op = operation(&std::env::temp_dir().join(format!("pm-gate-{}", uuid::Uuid::new_v4())));
+    let handle = {
+        let (registry, project, id) = (registry.clone(), op.project_path.clone(), op.operation_id.clone());
+        std::thread::spawn(move || wait_for_startup_permission_resolution(&registry, &project, &id, pane, "codex"))
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    show(&registry, pane, "");
+    set_status(&registry, pane, PaneStatus::Error);
+    crate::pane_wait_notify::bump_waiters();
+    wait_for(|| handle.is_finished().then_some(()));
+    let error = handle.join().unwrap().expect_err("an unfinished sign-in fails the run");
+    assert_eq!(error.code, "STARTUP_SCREEN_NOT_COMPLETED");
+    assert!(!error.recoverable);
+}

@@ -10,7 +10,7 @@ mod headless;
 mod prompt;
 mod screen;
 
-use super::{AccountScheme, Features, HeadlessLaunch, InstructionFile, LaunchSpec, PaneStatus, Reply, StandbyScreen, StandbySupport, TuiProfile};
+use super::{AccountScheme, Features, HeadlessLaunch, InstructionFile, LaunchSpec, PaneStatus, Reply, StandbyScreen, StandbySupport, StartupGate, TuiProfile};
 
 use serde_json::Value;
 
@@ -159,6 +159,17 @@ impl TuiProfile for Claude {
     fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<Value> {
         prompt::detect_prompt(self.id(), screen, allow_broad)
             .or_else(|| crate::tui::generic::detect_prompt(self.id(), screen, allow_broad))
+    }
+
+    /// The folder-trust dialog is a startup gate only the user may pass (no `dismiss`). Its
+    /// answerable card (trust / deny) comes from `detect_prompt`; this hook is how generic code
+    /// learns that the pane cannot take a task yet.
+    fn startup_gate(&self, screen: &str) -> Option<StartupGate> {
+        prompt::shows_trust_gate(screen).then_some(StartupGate {
+            id: StartupGate::WORKSPACE_TRUST,
+            summary: "Claude Code asks whether to trust this folder",
+            dismiss: None,
+        })
     }
 
     fn prompt_reply(&self, prompt: &Value, choice: &str, allow_broad: bool) -> Result<Reply, String> {

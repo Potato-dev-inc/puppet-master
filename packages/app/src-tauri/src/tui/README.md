@@ -75,8 +75,7 @@ Declared per profile, generic defaults, used by `agent_runs/delivery.rs`, `bridg
 
 - `submit_sequence()`: pause between typed text and the submit keys (Codex: 400 ms, its paste-burst window swallows a quicker Enter).
 - `composer_state(screen)`: `Empty / HasText / Working`, so delivery can confirm a submit.
-- `startup_gate(screen)`: an update notice, trust, login or onboarding screen. A gate with `dismiss` keys is closed before the
-  task is typed; one without parks the run for the user. A gate is never a run's answer.
+- `startup_gate(screen)`: a screen the agent shows before it can take a task. See "Startup gates" below: one model for every agent.
 
 ## Adding an agent without code
 
@@ -106,18 +105,42 @@ Code stays the right choice when the agent needs a protocol client (OpenCode nat
 Declarative profiles live in `tui/declarative/` (`DeclarativeProfile` implements `TuiProfile`; generic code never
 sees the difference) and register through `loader::reload`.
 
-## Startup gates (folder trust and similar)
+## Startup gates (update notices, folder trust, sign-in)
 
-A dialog the agent shows before it can take any task is a **startup gate**. There is no separate trait method: a profile
-(code or TOML `[[tui.prompt]]`) reports it from `detect_prompt` with a kind listed in `pane_prompt::STARTUP_GATE_KINDS`
-(today `workspace_trust`), gives it `choices` (`trust`, `deny`), and makes `classify_screen` read the dialog as
-`waiting_input` (many gates draw no y/n text). Generic code then does the rest and never names the agent:
+A screen the agent shows before it can take any task is a **startup gate**. One hook, one model, for every agent
+(`docs/features/fix-live-claude.md` and `fix-live-codex.md` are the two branches this merges):
 
-- `bridge/approvals.rs`: a run parks on the gate (`required_action` = the prompt, so the Inbox, the phone and
-  `answer_prompt` can answer it), types the task only after the gate is gone, and fails the run with
-  `WORKSPACE_TRUST_DECLINED` when the agent exits with the gate showing (no headless fallback).
-- `pane_prompt::dispatch_blocker` refuses to type over the gate (`PANE_BLOCKED_BY_PROMPT`).
-- Puppet Master never answers a gate itself. Claude: `claude/prompt.rs`; Cursor: `cursor/screen.rs`.
+```
+TuiProfile::startup_gate(screen) -> Option<StartupGate { id, summary, dismiss: Option<keys> }>
+```
+
+| gate | `dismiss` | what generic code does |
+|---|---|---|
+| Dismissible notice (Codex "Update available" menu) | `Some(keys)` (Esc: skip this launch, never Enter, never "update now") | `bridge/startup_gate.rs` closes it with those keys before the task is typed (one gate at a time, waits for the screen to change, at most 4 rounds). It is never a card. If it ignored its keys the run parks until the user deals with it. |
+| Only the user may pass it (folder trust, sign-in, onboarding) | `None` | It becomes a **prompt card** and parks the run (`required_action`): kind `workspace_trust` (the trust question) or `startup_screen` (anything else). The run types the task only after the screen is gone. Puppet Master never answers it. |
+
+How the card is built (`pane_prompt::detect_in_screen`): the profile's own `detect_prompt` wins, so Claude and Cursor
+give an answerable `workspace_trust` card with `choices [trust, deny]` and the keys to press them. A profile that only
+declares `startup_gate` (Codex trust, login, onboarding) gets a card with no choices (the keys are not known): the user
+answers in the pane and the card says so. A profile that has an answerable card should ALSO report the gate from
+`startup_gate`, so completion and delivery know the pane cannot take a task. `classify_screen` should read the gate as
+`waiting_input` (many gates print no y/n text).
+
+What happens around a gate, the same for every agent:
+
+- `bridge/dispatch.rs`: dismiss the dismissible ones, then park on whatever is left (`bridge/approvals.rs`).
+- `bridge/approvals.rs`: the wait ends when no gate and no prompt is on screen. If the agent exits while a gate
+  was showing, the run fails: `WORKSPACE_TRUST_DECLINED` for the trust gate (the user said no), `STARTUP_SCREEN_NOT_COMPLETED`
+  for a sign-in or setup screen. Neither is retried and neither falls back to a headless run in a folder the user just refused.
+- `pane_prompt::dispatch_blocker` refuses to type over a gate (`PANE_BLOCKED_BY_PROMPT`).
+- `agent_runs/completion.rs`: while a gate shows, the turn never completes, so a startup screen is never a run's answer.
+- `tui::conformance`: every registered and declarative profile's gates are sane (no panics on huge or blank screens,
+  nothing dismissible on a blank screen).
+
+Adding a gate for a new agent: return a `StartupGate` from `startup_gate` with a real capture as a fixture; give it
+`dismiss` only if the keys close the screen without choosing anything that changes the machine or grants trust.
+Tests that pin the model: `bridge/startup_gate_tests.rs` (Claude and Codex through the same functions),
+`bridge/startup_gate.rs`, `tui/claude/prompt_tests.rs`, `tui/codex/screen.rs`.
 
 ## Where a fix for an existing TUI goes
 
