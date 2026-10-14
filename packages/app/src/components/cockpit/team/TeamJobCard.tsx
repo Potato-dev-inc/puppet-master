@@ -85,7 +85,7 @@ export function TeamJobCard({ job, api, paneName, onDone }: { job: TeamJob; api:
       </div>
       <p className="ck-team-meta">{jobSub(job, paneName)}</p>
       {ready && job.conflicts.length > 0 && <p className="ck-team-meta">Resolved: {job.conflicts.join(', ')}</p>}
-      {notice && <p className="ck-team-meta">{notice}</p>}
+      {notice && notice !== job.message && <p className="ck-team-meta">{notice}</p>}
       {error && (
         <p className="ck-team-error" role="alert">
           {error}
