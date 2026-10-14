@@ -12,6 +12,7 @@ import { tauri } from '../lib/tauri';
 import { useBridge } from './useBridge';
 import { useQuestions, type QuestionsApi } from './useQuestions';
 import { paneNames } from '../components/cockpit/model';
+import { visibleSelection } from '../components/cockpit/selection';
 import { usePaneActivity, type ActivityMap } from '../lib/pane-activity';
 
 export interface SpawnState {
@@ -285,7 +286,17 @@ export function useCockpit(): CockpitApi {
     };
   }, []);
 
-  // Selected pane vanished: back to the inbox (after a short grace for registry refresh).
+  // Every pane this window has seen listed. A selected pane that was listed and is gone was
+  // closed (a merge, a discard, Close): the view leaves it at once instead of flashing "Opening
+  // pane". A pane that was never listed is still opening and gets the grace period below.
+  const everListed = useRef(new Set<string>());
+  for (const id of panes.keys()) everListed.current.add(id);
+  const shownId = visibleSelection(selectedId, panes, everListed.current, initialReady, !!spawn);
+  useEffect(() => {
+    if (selectedId && shownId === null) setSelectedId(null);
+  }, [selectedId, shownId]);
+
+  // Selected pane never showed up in the list: back to the inbox after a short grace for the refresh.
   useEffect(() => {
     if (!selectedId || !initialReady || panes.has(selectedId) || spawn) return;
     const t = window.setTimeout(() => setSelectedId(null), 1500);
@@ -407,7 +418,7 @@ export function useCockpit(): CockpitApi {
     readyAgents,
     mode,
     theme,
-    selectedId,
+    selectedId: shownId,
     select,
     prompts,
     statusSince,
