@@ -151,7 +151,16 @@ pub struct Refreshed {
 pub fn refresh(roster: &mut Roster, keys: &KeyStore, transport: &dyn TeamTransport) -> Result<Refreshed, String> {
     let mut out = Refreshed::default();
     let device = key_id(&keys.device_sign()?);
-    if let Some(blob) = transport.get_state("keys").map_err(|e| e.0)? {
+    let keys_slot = match transport.get_state("keys") {
+        Ok(slot) => slot,
+        // The relay's access list (root-signed) no longer has this device: removed.
+        Err(e) if e.is_denied() => {
+            out.removed = true;
+            return Ok(out);
+        }
+        Err(e) => return Err(e.0),
+    };
+    if let Some(blob) = keys_slot {
         if let Some(grant) = read_grant(&blob, &roster.team, &roster.root) {
             if keys.epoch_key(&roster.team, grant.epoch)?.is_none() {
                 if let Some(key) = open_grant(&grant, &device, &keys.device_kem()?) {

@@ -33,9 +33,17 @@ impl std::fmt::Display for TransportError {
     }
 }
 
+/// How a refusal by the relay's access list starts ([`TransportError::is_denied`]).
+pub const DENIED: &str = "The relay doesn't let this computer in";
+
 impl TransportError {
     pub fn new(text: impl Into<String>) -> Self {
         Self(text.into())
+    }
+
+    /// The relay refused this device: it is not (or no longer) on the team's access list.
+    pub fn is_denied(&self) -> bool {
+        self.0.starts_with(DENIED)
     }
 }
 

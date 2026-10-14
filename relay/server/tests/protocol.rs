@@ -177,6 +177,16 @@ fn the_websocket_sends_the_backlog_then_live_envelopes() {
     assert_eq!(read(&mut socket).envelope.seq, 1);
     assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, 2)), 200);
     assert_eq!(read(&mut socket).envelope.seq, 2);
+    // Taken off the access list: the open socket is closed.
+    let acl = SignedAcl::signed(&t.team, 2, vec![key_id(&key(9))], &t.root);
+    assert_eq!(status(ureq::put(&format!("{}/v1/teams/{}/acl", t.base, t.team)).send_bytes(&serde_json::to_vec(&acl).unwrap())), 204);
+    let closed = loop {
+        match socket.read() {
+            Ok(tungstenite::Message::Close(_)) | Err(_) => break true,
+            Ok(_) => continue,
+        }
+    };
+    assert!(closed, "a removed device's socket closes");
     // Without a signature the upgrade is refused.
     let bare = format!("{}{}", t.base.replace("http://", "ws://"), path);
     assert!(tungstenite::connect(bare).is_err());

@@ -292,6 +292,7 @@ async fn set_acl(State(relay): State<Arc<Relay>>, Path(team): Path<String>, body
             params![serde_json::to_string(&acl.devices).unwrap_or_default(), acl.version, team],
         )
         .map_err(internal)?;
+    let _ = relay.wake.send(team);
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
@@ -385,15 +386,23 @@ async fn get_envelopes(State(relay): State<Arc<Relay>>, Path(team): Path<String>
 }
 
 async fn ws(State(relay): State<Arc<Relay>>, Path(team): Path<String>, uri: Uri, headers: HeaderMap, upgrade: WebSocketUpgrade) -> Reply {
-    relay.authorize(&team, "GET", &uri, &headers, b"")?;
+    let device = relay.authorize(&team, "GET", &uri, &headers, b"")?;
     let after = query_u64(&uri, "after").unwrap_or(0);
-    Ok(upgrade.on_upgrade(move |socket| stream_team(socket, relay, team, after)))
+    Ok(upgrade.on_upgrade(move |socket| stream_team(socket, relay, team, device, after)))
 }
 
-async fn stream_team(mut socket: WebSocket, relay: Arc<Relay>, team: String, mut cursor: u64) {
+async fn stream_team(mut socket: WebSocket, relay: Arc<Relay>, team: String, device: String, mut cursor: u64) {
     let mut rx = relay.wake.subscribe();
     let mut ping = tokio::time::interval(Duration::from_secs(30));
     loop {
+        // A device taken off the access list loses its open socket too, not only new requests.
+        match relay.team_root(&team) {
+            Ok((_, devices, _)) if devices.contains(&device) => {}
+            _ => {
+                let _ = socket.send(Message::Close(None)).await;
+                return;
+            }
+        }
         // Send everything after the cursor.
         match relay.batch_after(&team, cursor, 200) {
             Ok(batch) => {

@@ -544,6 +544,33 @@ fn relay_end_to_end_create_invite_join_push_and_card_with_metadata_only_on_the_r
 }
 
 #[test]
+fn on_the_relay_a_removed_member_is_locked_out_and_told_so() {
+    let (addr, _relay) = pm_relay::spawn_local(pm_relay::Config::default());
+    let maya = person("maya");
+    let mut roster = membership::create_team("Acme", "Maya", &maya, |team| Ok(relay_transport(addr, team, &maya)), NOW).unwrap();
+    let maya_wire = relay_transport(addr, &roster.team, &maya);
+    let (inv, code) = invite::new_invite(now());
+    let link = membership::invite_link(&roster, &maya, Some(&format!("http://{addr}")), None, &inv.id).unwrap();
+    let leo = person("leo");
+    let leo_wire = relay_transport(addr, &link.team, &leo);
+    membership::send_join(&link, &code, "Leo", None, &leo, leo_wire.as_ref(), now()).unwrap();
+    let request = maya_wire.joins().unwrap().iter().find_map(|j| invite::open_join(&maya.device_kem().unwrap(), j)).unwrap();
+    membership::approve(&mut roster, &request, &maya, maya_wire.as_ref(), now()).unwrap();
+    let mut leo_roster = membership::try_finish_join(&link, &leo, leo_wire.as_ref()).unwrap().unwrap();
+    assert!(!membership::refresh(&mut leo_roster, &leo, leo_wire.as_ref()).unwrap().removed);
+
+    let leo_id = key_id(&leo.member().unwrap());
+    assert_eq!(membership::remove(&mut roster, &leo_id, &maya, maya_wire.as_ref(), now()).unwrap(), 2);
+    // The relay's access list no longer has Leo's device: his app learns it is out.
+    assert!(membership::refresh(&mut leo_roster, &leo, leo_wire.as_ref()).unwrap().removed);
+    assert!(leo.epoch_key(&roster.team, 2).unwrap().is_none());
+    let posted = Session::new(leo_roster.clone(), leo.clone())
+        .seal(&Payload::Event { event: event_from(&leo, &roster.team, now()) }, 1, now())
+        .unwrap();
+    assert!(leo_wire.send(&posted).unwrap_err().is_denied(), "the relay refuses his envelopes");
+}
+
+#[test]
 fn an_envelope_the_relay_drops_shows_up_as_a_gap() {
     let (addr, relay) = pm_relay::spawn_local(pm_relay::Config::default());
     let maya = person("maya");

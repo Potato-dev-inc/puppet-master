@@ -167,7 +167,8 @@ fn relay_error(code: u16, body: &str) -> String {
         .ok()
         .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string));
     match code {
-        401 | 403 => format!("The relay doesn't let this computer in yet{}.", said.map(|s| format!(" ({s})")).unwrap_or_default()),
+        403 => format!("{} yet{}.", super::DENIED, said.map(|s| format!(" ({s})")).unwrap_or_default()),
+        401 => format!("The relay refused this computer's signature{}.", said.map(|s| format!(" ({s})")).unwrap_or_default()),
         404 => "The relay doesn't know this team.".into(),
         409 => "The relay already has a newer copy.".into(),
         413 => "That's too large for the relay.".into(),
