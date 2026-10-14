@@ -6,6 +6,7 @@ import { decodeBase64, streamOffset } from './bridge-sse';
 import type { BridgeClient, PaneViewportResponse } from './bridge-types';
 import type { Question } from './questions';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
+import { localSecretHeaders } from './bridge-local-secret';
 import type { PreviewUrl } from './pane-preview';
 
 export type * from './bridge-types';
@@ -16,7 +17,7 @@ const DEFAULT_POLL_INTERVAL_MS = 200;
 
 export function makeBridgeClient(baseUrl: string): BridgeClient {
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const headers = mergeBridgeHeaders({ ...ngrokRequestHeaders(baseUrl) });
+    const headers = mergeBridgeHeaders({ ...ngrokRequestHeaders(baseUrl), ...localSecretHeaders(baseUrl) });
     if (body) headers['Content-Type'] = 'application/json';
     const res = await fetch(`${baseUrl}${path}`, {
       method,

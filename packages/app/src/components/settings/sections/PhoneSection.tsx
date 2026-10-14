@@ -9,6 +9,7 @@ import { NumberControl } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
 import { Btn, InfoRow, SettingRow, SettingToggle } from '../settings-ui';
 import { TunnelSection } from '../TunnelSection';
+import { PairedDevices } from '../blocks/PairedDevices';
 
 type PairedDevice = Awaited<ReturnType<typeof tauri.listPairedMobileDevices>>[number];
 
@@ -133,7 +134,7 @@ export const phoneRows: RowDef[] = [
     id: 'pairing',
     label: 'Pair a phone',
     hint: 'Scan the QR code with your phone camera. It opens a link and signs you in.',
-    keywords: 'qr code pairing code refresh public pwa url dev server port paired devices revoke',
+    keywords: 'qr code pairing code refresh public pwa url dev server port full control watch answer only',
     group: 'Pairing',
     render: (env) => (
       <MobilePairingPanel
@@ -143,6 +144,14 @@ export const phoneRows: RowDef[] = [
         onDevServerPortChange={(port) => env.patch({ dev_server_port: port })}
       />
     ),
+  },
+  {
+    id: 'paired-devices',
+    label: 'Paired phones',
+    hint: 'What each phone may do (Watch, Answer, Use the terminal, Start tasks) and when it signs out if unused.',
+    keywords: 'devices phones abilities permissions watch answer terminal start tasks expiry revoke sign out',
+    group: 'Devices',
+    render: () => <PairedDevices />,
   },
   {
     id: 'revoke-all-devices',

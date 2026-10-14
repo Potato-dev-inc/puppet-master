@@ -63,6 +63,8 @@ mod replay;
 mod pwa_server;
 #[cfg(test)]
 mod tunnel_auth_tests;
+#[cfg(test)]
+mod device_caps_tests;
 mod session_context;
 mod secrets;
 mod settings_store;
@@ -215,6 +217,9 @@ pub fn run() {
             commands::create_mobile_pairing_session,
             commands::list_paired_mobile_devices,
             commands::revoke_paired_mobile_device,
+            commands::set_paired_mobile_device_caps,
+            commands::bridge_local_secret,
+            commands::bridge_local_secret_status,
             commands::get_mobile_tunnel_info,
             commands::get_tunnel_status,
             commands::set_tunnel_config,

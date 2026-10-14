@@ -28,7 +28,6 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Error as WsError, Message, WebSocket};
 
 use super::errors::{enrich_handle_error, operation_http_error};
-use super::sse::get_sse_clients;
 use crate::pty::PaneRegistry;
 use crate::settings_store;
 
@@ -98,6 +97,7 @@ pub(super) fn serve(
     offered_pm_events: bool,
     auth_headers: &str,
     peer_loopback: bool,
+    viewer: crate::mobile_pairing::Viewer,
     registry: Arc<Mutex<PaneRegistry>>,
     app: &AppHandle,
 ) {
@@ -137,7 +137,7 @@ pub(super) fn serve(
     }
 
     let (tx, rx) = mpsc::sync_channel::<String>(CHANNEL_DEPTH);
-    get_sse_clients().lock().push(tx);
+    super::sse::register_client(tx, viewer);
 
     let session = super::http::request_session(auth_headers).map(str::to_string);
     let ctx = InputCtx {
@@ -246,6 +246,10 @@ fn handle_client_text(
         }
         "input" => {
             let pane_id = value.get("pane_id").and_then(Value::as_str)?.to_string();
+            // Same cap as `POST /panes/{id}/input` (device caps: `type`); re-read per frame.
+            if !crate::mobile_pairing::caller_may(ctx.headers, ctx.peer_loopback, crate::mobile_pairing::Cap::Type) {
+                return Some(json!({"type": "input-error", "pane_id": pane_id, "error": "not_allowed"}).to_string());
+            }
             let body_text = value.get("text").and_then(Value::as_str)?.to_string();
             let append_newline = value
                 .get("append_newline")

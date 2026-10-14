@@ -37,17 +37,48 @@ pub async fn push_settings_event(settings_json: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn create_mobile_pairing_session(
     bridge_url: String,
+    caps: Option<Vec<String>>,
 ) -> Result<crate::mobile_pairing::PairingSession, String> {
     let store = crate::mobile_pairing::pairing_store()
         .ok_or_else(|| "pairing store not initialized".to_string())?;
-    let session = store.lock().create_pairing_session(bridge_url);
+    // No choice sent (older UI): every cap, which is today's behaviour.
+    let caps = match caps {
+        Some(names) => crate::mobile_pairing::Caps::parse_names(&names)?,
+        None => crate::mobile_pairing::Caps::all(),
+    };
+    let session = store.lock().create_pairing_session_with_caps(bridge_url, caps);
     crate::audit::record(
         crate::audit::Kind::Pairing,
         crate::audit::Who::Desktop,
         "You made a pairing code for a phone",
-        serde_json::json!({ "via": "settings" }),
+        serde_json::json!({ "via": "settings", "caps": caps.list() }),
     );
     Ok(session)
+}
+
+/// Settings › Phone › Devices: change what one paired device may do.
+#[tauri::command]
+pub async fn set_paired_mobile_device_caps(
+    device_id: String,
+    caps: Vec<String>,
+) -> Result<bool, String> {
+    let caps = crate::mobile_pairing::Caps::parse_names(&caps)?;
+    let store = crate::mobile_pairing::pairing_store()
+        .ok_or_else(|| "pairing store not initialized".to_string())?;
+    let changed = store.lock().set_device_caps(&device_id, caps)?;
+    Ok(changed)
+}
+
+/// This launch's bridge local secret for the app's own webview (IPC only, never over HTTP).
+#[tauri::command]
+pub fn bridge_local_secret() -> Option<String> {
+    crate::mobile_pairing::local_secret::current().map(str::to_string)
+}
+
+/// How many local callers reached the bridge without the local secret (log-only mode).
+#[tauri::command]
+pub fn bridge_local_secret_status() -> crate::mobile_pairing::local_secret::Status {
+    crate::mobile_pairing::local_secret::status()
 }
 
 #[tauri::command]

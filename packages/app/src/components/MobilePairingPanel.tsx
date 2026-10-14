@@ -1,5 +1,12 @@
-import { buildPairingInviteUrl, encodePairingQrContent, PairingQrPayloadSchema, type PairingSession } from '@puppet-master/shared';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  buildPairingInviteUrl,
+  DEVICE_CAPS,
+  encodePairingQrContent,
+  PairingQrPayloadSchema,
+  type DeviceCap,
+  type PairingSession,
+} from '@puppet-master/shared';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { tauri } from '../lib/tauri';
 import {
@@ -15,10 +22,26 @@ import {
 import { watchTunnelDevInfo } from '../lib/load-tunnel-dev-info';
 import { originNotice } from '../lib/origin-notice';
 import { NumberControl, TextControl } from './settings/controls';
-import { Btn, Note } from './settings/settings-ui';
+import { Note } from './settings/settings-ui';
 
-/** Fired on window when paired devices change outside this panel (Settings > Phone > Revoke all). */
+/** Fired on window when paired devices change (a phone paired, Revoke, Revoke all, abilities). */
 export const DEVICES_CHANGED_EVENT = 'pm-devices-changed';
+
+/** What a newly paired phone may do. Full control is today's behaviour and the default. */
+export const PAIRING_CHOICES: { id: 'full' | 'watch_answer'; label: string; hint: string; caps: readonly DeviceCap[] }[] = [
+  {
+    id: 'full',
+    label: 'Full control',
+    hint: 'Watch, answer, use the terminal and start tasks, like sitting at this PC.',
+    caps: DEVICE_CAPS,
+  },
+  {
+    id: 'watch_answer',
+    label: 'Watch and answer only',
+    hint: "See your agents and answer their questions. It can't type or start anything.",
+    caps: ['watch', 'answer'],
+  },
+];
 
 interface Props {
   publicPwaUrl: string;
@@ -42,7 +65,9 @@ export function MobilePairingPanel({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [devInfo, setDevInfo] = useState<PublicBridgeDevInfo | null>(null);
   const [session, setSession] = useState<PairingSession | null>(null);
-  const [devices, setDevices] = useState<Awaited<ReturnType<typeof tauri.listPairedMobileDevices>>>([]);
+  const [choice, setChoice] = useState<(typeof PAIRING_CHOICES)[number]['id']>('full');
+  const choiceGroup = useId();
+  const [, setPairedCount] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -53,9 +78,13 @@ export function MobilePairingPanel({
   const qrReadyRef = useRef(false);
   const prevPwaOriginRef = useRef<string | null>(null);
 
+  // A phone that pairs while this panel is open shows up in the Devices list below.
   const refreshDevices = useCallback(async () => {
     const list = await tauri.listPairedMobileDevices();
-    setDevices(list);
+    setPairedCount((prev) => {
+      if (prev !== null && list.length !== prev) window.dispatchEvent(new Event(DEVICES_CHANGED_EVENT));
+      return list.length;
+    });
   }, []);
 
   useEffect(() => {
@@ -74,7 +103,8 @@ export function MobilePairingPanel({
     setBusy(true);
     setErr(null);
     try {
-      const next = await tauri.createMobilePairingSession(bridgeUrl);
+      const caps = PAIRING_CHOICES.find((c) => c.id === choice)?.caps ?? DEVICE_CAPS;
+      const next = await tauri.createMobilePairingSession(bridgeUrl, caps);
       const payload = PairingQrPayloadSchema.parse(next.qr_payload);
       setSession(next);
       const qrText = encodePairingQrContent(payload, pwaOrigin);
@@ -90,7 +120,22 @@ export function MobilePairingPanel({
     } finally {
       setBusy(false);
     }
-  }, [bridgeUrl, pwaOrigin]);
+  }, [bridgeUrl, pwaOrigin, choice]);
+
+  // A different choice needs a new code: the choice is bound to the code on the PC.
+  const prevChoiceRef = useRef(choice);
+  useEffect(() => {
+    if (prevChoiceRef.current === choice) return;
+    prevChoiceRef.current = choice;
+    if (qrReadyRef.current) void refreshPairing();
+  }, [choice, refreshPairing]);
+
+  // While the code is up, notice the phone that redeems it (the Devices list refreshes).
+  useEffect(() => {
+    if (!session) return;
+    const timer = window.setInterval(() => void refreshDevices().catch(() => undefined), 3000);
+    return () => window.clearInterval(timer);
+  }, [session, refreshDevices]);
 
   useEffect(() => {
     const ready = Boolean(publicPwaUrl.trim()) || Boolean(devInfo?.tunnelUrl);
@@ -106,16 +151,6 @@ export function MobilePairingPanel({
       void refreshPairing();
     }
   }, [devInfo, publicPwaUrl, refreshPairing, pwaOrigin]);
-
-  const revoke = async (deviceId: string) => {
-    setErr(null);
-    try {
-      await tauri.revokePairedMobileDevice(deviceId);
-      await refreshDevices();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    }
-  };
 
   const expiresLabel = session
     ? new Date(session.expires_at * 1000).toLocaleTimeString()
@@ -191,6 +226,26 @@ export function MobilePairingPanel({
           </p>
         </div>
 
+        <fieldset className="st-choices" data-testid="pairing-choice">
+          <legend>What can this phone do?</legend>
+          {PAIRING_CHOICES.map((option) => (
+            <label key={option.id} className="st-choice" data-selected={choice === option.id ? 'true' : undefined}>
+              <input
+                type="radio"
+                name={choiceGroup}
+                value={option.id}
+                checked={choice === option.id}
+                onChange={() => setChoice(option.id)}
+              />
+              <span className="st-label">
+                <span>{option.label}</span>
+                <small>{option.hint}</small>
+              </span>
+            </label>
+          ))}
+          <p className="st-note">You can change this later under Devices. A new choice makes a new code.</p>
+        </fieldset>
+
         {(() => {
           const notice = originNotice(pwaOrigin);
           if (!notice) return null;
@@ -228,24 +283,6 @@ export function MobilePairingPanel({
 
         {err && <Note role="alert">{err}</Note>}
 
-        <div>
-          <div className="text-[10px] text-pm-muted mb-1">Paired devices</div>
-          {devices.length === 0 ? (
-            <p className="text-[10px] text-pm-muted">No phones paired yet.</p>
-          ) : (
-            <ul className="space-y-1">
-              {devices.map((d) => (
-                <li key={d.id} className="flex items-center gap-2 text-xs">
-                  <span className="flex-1 truncate">{d.name}</span>
-                  <span className="text-[10px] text-pm-muted font-mono truncate max-w-[8rem]">{d.id.slice(0, 8)}…</span>
-                  <Btn small onClick={() => void revoke(d.id)}>
-                    Revoke
-                  </Btn>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
       </div>
     </div>
   );

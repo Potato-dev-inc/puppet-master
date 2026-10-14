@@ -15,7 +15,30 @@ use crate::settings_store;
 
 /// SSE client — each connected GET /events response gets a sender.
 pub(super) type SseSender = std::sync::mpsc::SyncSender<String>;
-pub type SseClients = Arc<Mutex<Vec<SseSender>>>;
+
+/// One live event stream (SSE or WebSocket) and who is on the other end. The fanout is filtered
+/// per viewer: a paired device without `watch` gets no terminal bytes, and a revoked or expired
+/// device's stream is dropped on the next payload.
+pub struct SseClient {
+    tx: SseSender,
+    viewer: crate::mobile_pairing::Viewer,
+}
+
+pub type SseClients = Arc<Mutex<Vec<SseClient>>>;
+
+/// Add a stream to the fanout.
+pub(super) fn register_client(tx: SseSender, viewer: crate::mobile_pairing::Viewer) {
+    get_sse_clients().lock().push(SseClient { tx, viewer });
+}
+
+/// Deliver one payload to one client. False: drop the client (gone, overflowing or revoked).
+fn deliver(client: &SseClient, payload: &str) -> bool {
+    match client.viewer.may_receive(payload) {
+        None => false,
+        Some(false) => true,
+        Some(true) => client.tx.try_send(payload.to_string()).is_ok(),
+    }
+}
 
 /// Global SSE client registry, shared between bridge thread and Tauri commands.
 pub(super) static SSE_CLIENTS: once_cell::sync::OnceCell<SseClients> =
@@ -35,7 +58,7 @@ pub fn push_sse(payload: String) {
     super::event_log::record(&payload);
     let clients = get_sse_clients();
     let mut guard = clients.lock();
-    guard.retain(|sender| sender.try_send(payload.clone()).is_ok());
+    guard.retain(|client| deliver(client, &payload));
 }
 
 /// The `event: terminal` SSE payload: the PTY bytes as standard base64 under `b64`
@@ -120,6 +143,50 @@ mod tests {
         let poll = log.since(0);
         assert!(poll.data.contains("\"offset\":10"), "{}", poll.data);
         assert!(poll.data.contains("\"offset\":15"), "{}", poll.data);
+    }
+
+    /// The SSE / WebSocket fanout filters per viewer: terminal bytes need `watch`, a revoked
+    /// device's stream is dropped, the local app gets everything.
+    #[test]
+    fn fanout_filters_terminal_bytes_per_device_and_drops_revoked_devices() {
+        use crate::mobile_pairing::{Caps, MobilePairingStore, PairRequestBody, Viewer};
+        let dir = std::env::temp_dir().join(format!("pm-sse-fanout-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut store = MobilePairingStore::load_or_create(dir.join("pairing.json")).unwrap();
+        let mut pair = |caps: Caps| {
+            let s = store.create_pairing_session_with_caps("http://127.0.0.1:1".into(), caps);
+            store
+                .pair_device(PairRequestBody {
+                    pairing_code: s.pairing_code,
+                    device_name: "p".into(),
+                    device_public_key: s.server_public_key,
+                })
+                .unwrap()
+                .device_id
+        };
+        let watcher = pair(Caps::watch_and_answer());
+        let answerer = pair(Caps::none().with(crate::mobile_pairing::Cap::Answer, true));
+        let client = |viewer: Viewer| {
+            let (tx, rx) = std::sync::mpsc::sync_channel::<String>(8);
+            (super::SseClient { tx, viewer }, rx)
+        };
+        let term = terminal_payload("p1", b"bytes", None).unwrap();
+        let status = "event: pane-status\ndata: {\"pane_id\":\"p1\",\"status\":\"idle\"}\n\n";
+        let (w, w_rx) = client(Viewer::Device(watcher));
+        let (a, a_rx) = client(Viewer::Device(answerer.clone()));
+        let (l, l_rx) = client(Viewer::Local);
+        for c in [&w, &a, &l] {
+            assert!(super::deliver(c, &term));
+            assert!(super::deliver(c, status));
+        }
+        let got = |rx: &std::sync::mpsc::Receiver<String>| rx.try_iter().collect::<Vec<_>>();
+        assert_eq!(got(&w_rx), vec![term.clone(), status.to_string()]);
+        assert_eq!(got(&a_rx), vec![status.to_string()], "no terminal bytes without watch");
+        assert_eq!(got(&l_rx), vec![term.clone(), status.to_string()]);
+        store.revoke_device(&answerer).unwrap();
+        assert!(!super::deliver(&a, status), "a revoked device's stream is dropped");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -283,14 +350,19 @@ pub(super) fn handle_sse(
     stream: &mut TcpStream,
     registry: Arc<Mutex<PaneRegistry>>,
     app: &AppHandle,
+    viewer: crate::mobile_pairing::Viewer,
+    cors: &str,
 ) {
-    let headers = "HTTP/1.1 200 OK\r\n\
+    // `cors`: the app's own origins only (see `http::cors_lines`), never `*`.
+    let headers = format!(
+        "HTTP/1.1 200 OK\r\n\
         Content-Type: text/event-stream\r\n\
         Cache-Control: no-cache\r\n\
         Connection: keep-alive\r\n\
-        Access-Control-Allow-Origin: *\r\n\
+        {cors}\
         \r\n\
-        : connected\n\n";
+        : connected\n\n"
+    );
     if stream.write_all(headers.as_bytes()).is_err() {
         return;
     }
@@ -314,7 +386,7 @@ pub(super) fn handle_sse(
     }
 
     let (tx, rx) = std::sync::mpsc::sync_channel::<String>(64);
-    get_sse_clients().lock().push(tx);
+    register_client(tx, viewer);
 
     for payload in rx {
         if stream.write_all(payload.as_bytes()).is_err() {

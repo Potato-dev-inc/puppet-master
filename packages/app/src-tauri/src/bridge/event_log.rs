@@ -47,11 +47,17 @@ impl EventLog {
 
     /// Payloads with a sequence number at or after `cursor`.
     pub fn since(&self, cursor: u64) -> Poll {
+        self.since_for(cursor, &|_| true)
+    }
+
+    /// [`since`](Self::since), keeping only the payloads this viewer may receive (a paired device
+    /// without `watch` gets no terminal bytes). The cursor still moves past what was left out.
+    pub fn since_for(&self, cursor: u64, keep: &dyn Fn(&str) -> bool) -> Poll {
         let first = self.items.front().map(|(seq, _)| *seq).unwrap_or(self.next);
         let data = self
             .items
             .iter()
-            .filter(|(seq, _)| *seq >= cursor)
+            .filter(|(seq, payload)| *seq >= cursor && keep(payload))
             .map(|(_, payload)| payload.as_str())
             .collect();
         Poll { cursor: self.next, data, gap: cursor < first || cursor > self.next }
@@ -73,7 +79,13 @@ pub fn record(payload: &str) {
 
 /// `GET /events/poll`. Without a cursor: the current cursor, at once (subscribe from now). With
 /// one: the payloads after it as soon as there are any, or an empty answer after `wait`.
+#[cfg(test)]
 pub fn poll(cursor: Option<u64>, wait: Duration) -> Poll {
+    poll_for(cursor, wait, &|_| true)
+}
+
+/// [`poll`] for one viewer: payloads `keep` refuses are left out (see `EventLog::since_for`).
+pub fn poll_for(cursor: Option<u64>, wait: Duration, keep: &dyn Fn(&str) -> bool) -> Poll {
     let (log, wake) = &*LOG;
     let mut guard = log.lock();
     let Some(cursor) = cursor else {
@@ -87,7 +99,7 @@ pub fn poll(cursor: Option<u64>, wait: Duration) -> Poll {
             }
         }
     }
-    guard.since(cursor)
+    guard.since_for(cursor, keep)
 }
 
 #[cfg(test)]
