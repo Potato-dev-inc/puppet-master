@@ -20,6 +20,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const DEFAULT_TIMEOUT_S: u64 = 600;
 pub const MAX_TIMEOUT_S: u64 = 3600;
+/// A pause card waits as long as the run does: the run stays paused until someone decides.
+pub const MAX_BUDGET_TIMEOUT_S: u64 = 24 * 3600;
 pub const MAX_CHOICES: usize = 6;
 pub const MAX_QUESTION_CHARS: usize = 2000;
 pub const MAX_CONTEXT_CHARS: usize = 1000;
@@ -101,6 +103,10 @@ pub struct Question {
     /// Set when this is a consent card, not a question an agent asked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub consent: Option<ConsentInfo>,
+    /// What raised it when it was not an agent's `ask_user`: `budget` for the pause card of a
+    /// run that used its budget. The Inbox renders those with their own wording.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     #[serde(skip)]
     resolved_at_ms: Option<u64>,
 }
@@ -118,6 +124,7 @@ pub struct NewQuestion {
     pub urgency: Option<String>,
     /// Only `agent_authority` sets this.
     pub consent: Option<ConsentInfo>,
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,11 +237,12 @@ impl QuestionStore {
                 format!("context is longer than {MAX_CONTEXT_CHARS} characters"),
             ));
         }
+        let max_timeout = if new.kind.as_deref() == Some("budget") { MAX_BUDGET_TIMEOUT_S } else { MAX_TIMEOUT_S };
         let timeout_s = new.timeout_s.unwrap_or(DEFAULT_TIMEOUT_S);
-        if timeout_s == 0 || timeout_s > MAX_TIMEOUT_S {
+        if timeout_s == 0 || timeout_s > max_timeout {
             return Err(QuestionError::new(
                 "INVALID_ARGUMENT",
-                format!("timeout_s must be between 1 and {MAX_TIMEOUT_S}"),
+                format!("timeout_s must be between 1 and {max_timeout}"),
             ));
         }
         let urgency = match new.urgency.as_deref() {
@@ -272,6 +280,7 @@ impl QuestionStore {
             state: QuestionState::Pending,
             answer: None,
             consent: new.consent,
+            kind: new.kind.map(|k| trimmed(&k)).filter(|k| !k.is_empty()),
             resolved_at_ms: None,
         };
         inner.items.push(question.clone());
@@ -324,6 +333,8 @@ impl QuestionStore {
         if let Ok(resolution) = &result {
             if resolution.accepted {
                 crate::agent_authority::consent::on_resolved(&resolution.question);
+                // A pause card for a run that used its budget: apply "Add turns" / "Stop here".
+                crate::budgets::answer_applied(&resolution.question);
             }
         }
         result

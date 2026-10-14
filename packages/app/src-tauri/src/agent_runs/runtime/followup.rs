@@ -28,6 +28,9 @@ pub fn send_agent(
     let serial = handle_guard.lock();
     let previous = current_agent(project, handle, session_id.as_deref())?;
     let project = previous.project_path.clone();
+    // A run whose budget is used up pauses here, before any turn is created or queued; a turn
+    // already running is never touched. No budget on the run: no change.
+    crate::budgets::check_next_turn(&project, handle)?;
     let blocked_on_trust = crate::agent_runs::headless::blocked_on_trust(&previous);
     if !previous.status.terminal() && !blocked_on_trust {
         let queued = queue_followup(
@@ -125,6 +128,9 @@ pub fn send_agent(
         allow_shell: false,
         allowed_commands: None,
         account: previous.worker.account.clone(),
+        budget_turns: None,
+        budget_minutes: None,
+        budget_parent: None,
     };
     drop(serial);
     run_agent(request, registry, app, session_id)

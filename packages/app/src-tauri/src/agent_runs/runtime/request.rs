@@ -142,4 +142,15 @@ pub struct AgentRunRequest {
     /// Absent = the CLI's own login.
     #[serde(default)]
     pub account: Option<String>,
+    /// Budget for the new run, in turns (`crate::budgets`). Absent: the Settings default, which is
+    /// off unless the person set one.
+    #[serde(default)]
+    pub budget_turns: Option<u32>,
+    /// Budget for the new run, in wall-clock minutes.
+    #[serde(default)]
+    pub budget_minutes: Option<u32>,
+    /// The run that is starting this one as a helper, so the new run draws from its budget. The
+    /// MCP shim fills it from `PUPPET_MASTER_PARENT_RUN`; an agent may pass it itself.
+    #[serde(default)]
+    pub budget_parent: Option<String>,
 }

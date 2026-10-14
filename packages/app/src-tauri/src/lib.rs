@@ -13,6 +13,7 @@ mod agent_health;
 mod app_lifecycle;
 mod app_paths;
 mod bridge;
+mod budgets;
 mod canary;
 mod checkpoints;
 mod commands;
@@ -312,6 +313,8 @@ pub fn run() {
             commands::interrupt_pane,
             commands::new_pane,
             commands::pane_run_info,
+            commands::budget_for_pane,
+            commands::budget_adjust,
             commands::pane_worktree,
             commands::worktree_list,
             commands::worktree_diff,

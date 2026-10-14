@@ -73,6 +73,17 @@ fn answer(id: &str, body: &Value, via_phone: bool) -> RouteReply {
             }),
         ));
     }
+    // The same goes for a budget pause card: an agent must not be able to add turns to itself.
+    if !via_phone && store().get(id, now_ms()).is_some_and(|q| q.kind.as_deref() == Some(crate::budgets::CARD_KIND)) {
+        return Err((
+            403,
+            json!({
+                "code": "BUDGET_NEEDS_PERSON",
+                "error": "this card asks the person whether an agent may keep going past its budget; answer it in the Puppet Master window or from a paired phone",
+                "recoverable": false,
+            }),
+        ));
+    }
     let by = match string_field(body, "answered_by").as_deref() {
         Some("phone") => "phone",
         Some("desktop") => "desktop",
@@ -129,6 +140,8 @@ fn ask(body: &Value, session: Option<&str>) -> RouteReply {
                     urgency: string_field(body, "urgency"),
                     // Only Puppet Master raises consent cards; the tool cannot ask for one.
                     consent: None,
+                    // Likewise the budget pause card: an agent cannot ask for a kind.
+                    kind: None,
                 },
                 now_ms(),
             )

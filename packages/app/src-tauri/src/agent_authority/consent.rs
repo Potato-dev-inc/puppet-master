@@ -199,6 +199,7 @@ fn raise(ask: &Ask, now: u64) -> Option<String> {
                 context: Some(context),
                 timeout_s: Some(CARD_TIMEOUT_S),
                 urgency: Some("high".into()),
+                kind: None,
                 consent: Some(ConsentInfo {
                     action: ask.action.as_str().into(),
                     requester: ask.requester.clone(),

@@ -67,6 +67,12 @@ pub fn run_agent(
         ));
     }
     let isolate = parse_isolation(&request)?;
+    let budget_asked = crate::budgets::Asked {
+        turns: request.budget_turns,
+        minutes: request.budget_minutes,
+        parent: request.budget_parent.clone().filter(|parent| !parent.trim().is_empty()),
+    };
+    crate::budgets::validate(&budget_asked)?;
     let explicit_project = request
         .project_path
         .clone()
@@ -412,15 +418,31 @@ pub fn run_agent(
     let validated_checks = request.checks.clone().unwrap_or_default();
     checks::validate(std::path::Path::new(&project_path), &validated_checks)
         .map_err(|message| OperationError::new("INVALID_ARGUMENT", message, false))?;
+    // A new run's budget: its own arguments, else the Settings default (off unless set), or a share
+    // of the run that started it (refused with BUDGET_EXHAUSTED when the parent has none to give).
+    // Decided before the worktree exists, so a refusal leaves nothing behind. No budget by default.
+    let budgeted = request.turn_index == 0
+        && crate::budgets::admit(
+            &project_path,
+            &handle,
+            &budget_asked,
+            crate::budgets::Defaults::from_settings(&crate::settings_store::read_public_settings(&app)),
+            crate::questions::now_ms(),
+        )?
+        .is_some();
     // Last step that can still be refused: create the worktree for a new isolated worker. A turn
     // after the first inherits the worktree through `previous` (see `persist::build_worker`).
     if isolate && request.turn_index == 0 {
-        worker.worktree = Some(
-            crate::worktrees::create(&project_path, &handle).map_err(|mut error| {
+        match crate::worktrees::create(&project_path, &handle) {
+            Ok(created) => worker.worktree = Some(created),
+            Err(mut error) => {
+                if budgeted {
+                    crate::budgets::discard(&project_path, &handle);
+                }
                 error.context = serde_json::json!({"isolation": "worktree", "project_path": project_path});
-                error
-            })?,
-        );
+                return Err(error);
+            }
+        }
     }
     let requested_criteria = request.acceptance_criteria.as_deref();
     let acceptance_criteria = stored_acceptance_criteria(requested_criteria);
@@ -452,7 +474,11 @@ pub fn run_agent(
         checks: validated_checks,
     };
     if !request.headless {
-        let snapshot = crate::bridge::delegate_operation(&registry, &app, operation_request)?;
+        let snapshot = crate::bridge::delegate_operation(&registry, &app, operation_request).inspect_err(|_| {
+            if budgeted {
+                crate::budgets::discard(&project_path, &handle);
+            }
+        })?;
         // The visible pane now exists: its auto title comes from the task it was started with.
         if let Some(pane_id) = snapshot.pane_id.as_deref() {
             crate::ambient::store::set_from_task(pane_id, &snapshot.agent_type, &request.task);
@@ -463,7 +489,11 @@ pub fn run_agent(
             wait_for_run(&snapshot, request.wait_ms, &registry)
         };
     }
-    let (snapshot, created) = operations::create_operation(operation_request)?;
+    let (snapshot, created) = operations::create_operation(operation_request).inspect_err(|_| {
+        if budgeted {
+            crate::budgets::discard(&project_path, &handle);
+        }
+    })?;
     if !created {
         return if request.background {
             Ok(present_view(&snapshot, &registry))

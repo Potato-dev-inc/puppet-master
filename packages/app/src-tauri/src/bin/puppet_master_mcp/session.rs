@@ -12,6 +12,18 @@ pub(crate) static INITIAL_MODE_SYNCED: AtomicBool = AtomicBool::new(false);
 /// id, so runs it started stay owned without take_over. Left unset, every process gets a fresh id.
 pub(crate) const CLIENT_ID_ENV: &str = "PUPPET_MASTER_CLIENT_ID";
 
+/// Set by Puppet Master on an agent it runs under a budget: that run's handle. `run_agent` forwards
+/// it as `budget_parent` so a helper draws from the run's budget (same name as `budgets::PARENT_ENV`).
+pub(crate) const PARENT_RUN_ENV: &str = "PUPPET_MASTER_PARENT_RUN";
+
+/// Names the run this process belongs to as `budget_parent`, unless the caller already did.
+pub(crate) fn inject_budget_parent(body: &mut Value, run: Option<String>) {
+    let named = body.get("budget_parent").and_then(Value::as_str).is_some_and(|p| !p.trim().is_empty());
+    if let (false, Some(run)) = (named, run.as_deref().map(str::trim).filter(|run| !run.is_empty())) {
+        body["budget_parent"] = json!(run);
+    }
+}
+
 pub(crate) fn session_id_from(client_id: Option<String>) -> String {
     let stable: String = client_id
         .unwrap_or_default()
