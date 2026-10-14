@@ -227,8 +227,8 @@ impl PushHub {
         // at 120 characters, and the cut tail could be what actually runs. Then it is open-only.
         let actionable = candidate.kind == Kind::WaitingInput
             && candidate.prompt.as_ref().is_some_and(|p| {
-                // Belt and braces: `actionable` already excludes high / unknown risk; check again here.
-                let calm = p.risk.as_ref().is_some_and(|r| r.level != crate::prompt_risk::RiskLevel::High);
+                // Belt and braces: `actionable` already means low risk; check again here.
+                let calm = p.risk.as_ref().is_some_and(|r| r.level == crate::prompt_risk::RiskLevel::Low);
                 p.actionable && calm && shown_in_full(&p.text)
             })
             && candidate.pane_id.is_some()
@@ -511,6 +511,27 @@ Run command: ls");
         // The same command short enough to show completely does get the buttons.
         let (_, d) = hub.plan(&waiting("p2", Some(command_prompt("ok"))), 1_000);
         assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_some());
+    }
+
+    #[test]
+    fn only_low_risk_gets_lock_screen_buttons() {
+        use super::super::triggers::PromptRisk;
+        use crate::prompt_risk::RiskLevel;
+        let hub = two_device_hub("only-low");
+        for (i, (level, buttons)) in [(RiskLevel::Low, true), (RiskLevel::Medium, false), (RiskLevel::High, false)].into_iter().enumerate() {
+            let prompt = PromptInfo {
+                prompt_id: format!("p{i}"),
+                text: "Run command: npm install".into(),
+                // Even a wrongly set flag must not produce buttons above low risk.
+                actionable: true,
+                risk: Some(PromptRisk { level, headline: "Install packages".into() }),
+            };
+            let (_, d) = hub.plan(&waiting(&format!("pane-{i}"), Some(prompt)), 1_000 + i as u64);
+            for delivery in &d {
+                let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+                assert_eq!(payload.get("act").is_some(), buttons, "{level:?}");
+            }
+        }
     }
 
     #[test]

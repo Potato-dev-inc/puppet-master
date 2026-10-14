@@ -164,9 +164,9 @@ pub struct PromptInfo {
     pub prompt_id: String,
     /// Summary if the profile produced one, else its prompt text. Not yet truncated.
     pub text: String,
-    /// A command approval that can be answered with exactly Allow once / Deny. Never true for a
-    /// high-risk prompt, nor when the risk is unknown (fail closed): Allow from a lock screen must
-    /// not be the easy path for `rm -rf ../`.
+    /// A command approval that can be answered with exactly Allow once / Deny. True only for LOW
+    /// risk: never for "Check first" (medium) or high risk, nor when the risk is unknown (fail
+    /// closed). Allow from a lock screen must not be the easy path for `npm install` or `rm -rf ../`.
     pub actionable: bool,
     /// The risk the desktop card shows (`risk.level` / `risk.headline` of the detected prompt).
     /// `None` when the prompt carried none.
@@ -222,7 +222,7 @@ impl PromptInfo {
             .unwrap_or_default();
         let has_command = get("command").is_some();
         let risk = PromptRisk::from_json(prompt);
-        let low_enough = risk.as_ref().is_some_and(|r| r.level != crate::prompt_risk::RiskLevel::High);
+        let low_enough = risk.as_ref().is_some_and(|r| r.level == crate::prompt_risk::RiskLevel::Low);
         let actionable = has_command && low_enough && choices.contains(&"allow_once") && choices.contains(&"deny");
         Some(Self { prompt_id, text, actionable, risk })
     }
@@ -414,10 +414,13 @@ mod tests {
     }
 
     #[test]
-    fn low_and_medium_risk_commands_are_actionable() {
-        for level in ["low", "medium"] {
+    fn only_low_risk_commands_are_actionable() {
+        // Allow from a lock screen is for the calm case only: "Check first" means look first.
+        let low = json!({"level": "low", "headline": "Read files"});
+        assert!(PromptInfo::from_detected(&command_with_risk(Some(low))).unwrap().actionable, "low");
+        for level in ["medium", "high"] {
             let risk = json!({"level": level, "headline": "Install packages"});
-            assert!(PromptInfo::from_detected(&command_with_risk(Some(risk))).unwrap().actionable, "{level}");
+            assert!(!PromptInfo::from_detected(&command_with_risk(Some(risk))).unwrap().actionable, "{level}");
         }
     }
 
