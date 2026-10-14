@@ -92,7 +92,7 @@ pub(crate) fn dismiss_startup_gates(io: &mut dyn GateIo, profile: &dyn TuiProfil
     }
     // Still a gate after the allowed number of rounds.
     let last = io.screen();
-    report.blocked = profile.startup_gate(&last);
+    report.blocked = crate::canary::strict::startup_gate(profile, &last);
     report
 }
 

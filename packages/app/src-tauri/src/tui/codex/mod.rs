@@ -12,6 +12,9 @@ use super::{AccountScheme, ComposerState, Features, HeadlessLaunch, InstructionF
 
 pub struct Codex;
 
+/// CLI versions the Codex fixtures and live checks cover (see `TuiProfile::tested_versions`).
+pub(crate) const TESTED_VERSIONS: &str = ">=0.159, <0.170";
+
 /// Where Codex keeps MCP servers (Toolbelt).
 const MCP_HOST: &str = r#"
 config_path = "~/.codex/config.toml"
@@ -67,6 +70,12 @@ impl TuiProfile for Codex {
             program: super::executable("codex").ok()?,
             args: vec!["--version".into()],
         })
+    }
+
+    /// Fixtures are live captures from 0.159.x; the canary (`crate::canary`) re-checks the start
+    /// screens whenever the installed version changes.
+    fn tested_versions(&self) -> Option<super::TestedRange> {
+        super::TestedRange::parse(TESTED_VERSIONS).ok()
     }
 
     fn install_hint(&self) -> Option<String> {

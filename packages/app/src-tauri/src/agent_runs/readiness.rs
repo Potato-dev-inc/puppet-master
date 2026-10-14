@@ -345,7 +345,9 @@ pub fn assess(profile: &dyn TuiProfile, observation: Observation) -> Verdict {
             "the terminal shows a shell prompt where the agent was",
         );
     }
-    if let Some(gate) = profile.startup_gate(&screen) {
+    // Strict mode (canary: an untested agent version) keeps the gate but drops its dismiss keys, so
+    // no gate permit is issued and the run parks on it. Every gate permit comes from here.
+    if let Some(gate) = crate::canary::strict::startup_gate(profile, &screen) {
         return verdict(Readiness::Gate(gate), Basis::Recognised, ComposerState::Unknown, gate.summary);
     }
     if crate::pane_prompt::detect_in_screen(profile.id(), &screen, false).is_some() {

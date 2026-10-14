@@ -2,6 +2,7 @@
 import type { Account } from '../lib/accounts';
 import type { Question } from '../lib/questions';
 import type { PaneInfo } from '../lib/tauri-types';
+import type { CanaryStatus } from '../lib/canary';
 
 export interface HarnessScenario {
   /** `?harness=<name>`; unique across scenarios. */
@@ -35,6 +36,8 @@ export interface HarnessScenario {
   standbyIdleSecs?: number;
   /** Settings > Agents > Preload: the "held back" rows the status reports. */
   standbyBlocked?: { key: string; reason: string; fails: number; retry_in_ms: number; cold: boolean }[];
+  /** Version checks (`canary_status`): what the mocked backend reports. Default: no agents flagged. */
+  canary?: CanaryStatus;
   /** Settings: tab id passed as `?tab=`. */
   settingsTab?: string;
   /** User accounts the mocked backend reports (Settings > Agents > Accounts, the "+" menu). */

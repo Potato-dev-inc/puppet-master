@@ -20,6 +20,8 @@ use crate::events::{PaneId, SystemEvent};
 
 mod command;
 mod idle;
+mod probe;
+pub(crate) use probe::{spawn_probe, ProbePty};
 mod pane_io;
 pub(crate) use pane_io::snapshot_text;
 mod spawn;

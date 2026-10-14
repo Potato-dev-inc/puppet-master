@@ -58,6 +58,8 @@ keyring = "3.6"
 # Diagnostic file: deflate and checksums for the zip writer in flight/zip.rs (both MIT OR Apache-2.0, already built for ureq).
 flate2 = "1"
 crc32fast = "1"
+# Version ranges for tested-version pins (MIT OR Apache-2.0).
+semver = "1"
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3.6", features = ["windows-native"] }

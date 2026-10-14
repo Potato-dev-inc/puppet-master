@@ -11,6 +11,7 @@ mod agent_health;
 mod app_lifecycle;
 mod app_paths;
 mod bridge;
+mod canary;
 mod checkpoints;
 mod commands;
 mod context_pack;
@@ -151,6 +152,11 @@ pub fn run() {
             commands::askbar_notice_open,
             commands::agents_health,
             commands::agents_health_test,
+            commands::canary_status,
+            commands::canary_check,
+            commands::canary_set_auto,
+            commands::canary_dismiss_notice,
+            commands::canary_open_captures,
             commands::agents_definitions_list,
             commands::agents_definitions_reload,
             commands::agents_definitions_validate,
@@ -417,6 +423,7 @@ pub fn run() {
             }
             ambient::init(app.handle());
             standby::init(registry_for_panes.clone(), app.handle().clone());
+            canary::init(app.handle().clone());
             pane_activity::init(registry_for_panes.clone(), app.handle().clone());
             loop_guard::init(app.handle().clone());
             panic::init_shortcut(app.handle());

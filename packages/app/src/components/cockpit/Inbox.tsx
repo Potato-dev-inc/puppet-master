@@ -7,6 +7,7 @@ import { PaneStuckCard } from './StuckCard';
 import { itemsOfKind } from '../../lib/attention';
 import { useNeedsYou } from '../../hooks/useNeedsYou';
 import { AskNotices } from './AskNotices';
+import { CanaryNotices } from './CanaryNotices';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
 import { QuestionCard } from './QuestionCard';
 import { PaneErrorBody } from './InboxError';
@@ -65,6 +66,7 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
       )}
 
       <AskNotices />
+      <CanaryNotices />
 
       {waiting.length > 0 && (
         <ul className="ck-list">
