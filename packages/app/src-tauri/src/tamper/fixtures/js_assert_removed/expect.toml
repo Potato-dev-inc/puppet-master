@@ -1,0 +1,2 @@
+blocks = ["assertions_removed"]
+contains = ["Removed 1 assertion in cart.test.ts"]

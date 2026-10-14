@@ -1,0 +1,239 @@
+# Python (pytest, unittest).
+
+id = "python"
+label = "Python"
+extensions = ["py"]
+test_globs = [
+  "**/test_*.py",
+  "**/*_test.py",
+  "**/tests/**/*.py",
+  "**/test/**/*.py",
+]
+
+[lexer]
+line_comments = ["#"]
+
+[[lexer.strings]]
+open = '"""'
+close = '"""'
+escape = '\'
+multiline = true
+[[lexer.strings]]
+open = "'''"
+close = "'''"
+escape = '\'
+multiline = true
+[[lexer.strings]]
+open = '"'
+close = '"'
+escape = '\'
+[[lexer.strings]]
+open = "'"
+close = "'"
+escape = '\'
+
+[names]
+def = '^\s*(?:(?:async\s+)?def|class)\s+(?P<name>[Tt]est\w*)\b'
+
+[[test]]
+regex = '(?:^|\s)def\s+test\w*\s*\('
+
+[[assertion]]
+regex = '\bassert\b'
+[[assertion]]
+regex = '\bself\s*\.\s*assert\w*\s*\('
+[[assertion]]
+regex = '\bpytest\s*\.\s*(?:raises|warns|deprecated_call)\b'
+[[assertion]]
+regex = '\.\s*assert_\w+\s*\('
+
+[[skip]]
+regex = '@\s*pytest\s*\.\s*mark\s*\.\s*(?:skip|skipif|xfail)\b'
+name_from = "next_def"
+[[skip]]
+regex = '\bpytest\s*\.\s*mark\s*\.\s*(?:skip|skipif|xfail)\b'
+name_from = "next_def"
+[[skip]]
+regex = '\bpytest\s*\.\s*(?:skip|xfail|importorskip)\s*\('
+name_from = "prev_def"
+[[skip]]
+regex = '@\s*unittest\s*\.\s*(?:skip|skipIf|skipUnless|expectedFailure)\b'
+name_from = "next_def"
+[[skip]]
+regex = '\bself\s*\.\s*skipTest\s*\('
+label = "self.skipTest"
+name_from = "prev_def"
+
+[[silence]]
+regex = '#\s*type:\s*ignore'
+label = "# type: ignore"
+check = "typecheck"
+[[silence]]
+regex = '#\s*pyright:\s*(?:ignore|basic)'
+label = "# pyright: ignore"
+check = "typecheck"
+[[silence]]
+regex = '#\s*mypy:\s*ignore-errors'
+label = "# mypy: ignore-errors"
+check = "typecheck"
+[[silence]]
+regex = '#\s*noqa\b'
+label = "# noqa"
+check = "lint"
+[[silence]]
+regex = '#\s*(?:pylint:\s*disable|ruff:\s*noqa)'
+label = "# pylint: disable"
+check = "lint"
+
+[[tautology]]
+regex = '\bassert\s+(?:True|1)\b'
+[[tautology]]
+regex = '\bself\s*\.\s*assertTrue\s*\(\s*True\s*\)'
+
+[[loosen]]
+to = '\bassert\s+(?:True|1)\s*(?:,|$)|\bassert\s+[\w.\[\]()]+\s+is\s+not\s+None\b|\bassert\s+[A-Za-z_][\w.]*\s*$|\bself\s*\.\s*(?:assertTrue|assertIsNotNone)\s*\('
+
+[[self_compare]]
+regex = '\bassert\s+(?P<actual>.+?)\s*==\s*(?P<expected>.+?)\s*$'
+
+[[tolerance]]
+regex = '\bapprox\s*\(.*\brel\s*=\s*(?P<n>[0-9][0-9.eE+\-]*)'
+direction = "up"
+[[tolerance]]
+regex = '\bapprox\s*\(.*\babs\s*=\s*(?P<n>[0-9][0-9.eE+\-]*)'
+direction = "up"
+[[tolerance]]
+regex = '\bassertAlmostEqual\s*\(.*\bplaces\s*=\s*(?P<n>\d+)'
+direction = "down"
+[[tolerance]]
+regex = '\bassertAlmostEqual\s*\(.*\bdelta\s*=\s*(?P<n>[0-9][0-9.eE+\-]*)'
+direction = "up"
+
+# ---- check config ----------------------------------------------------------------------------
+
+[[config]]
+glob = ["**/pytest.ini", "**/tox.ini", "**/setup.cfg"]
+format = "ini"
+sections = ["pytest", "tool:pytest", "coverage:run", "coverage:report", "testenv"]
+
+[[config.flag]]
+regex = '(?:^|[\s"=])(?:--snapshot-update|--update-snapshots?|--force-regen|--accept)(?:[\s"]|$)'
+kind = "snapshots"
+say = "rewrites the snapshots"
+[[config.flag]]
+regex = '(?:^|[\s"=])(?:-k|-m|--lf|--last-failed)(?:[\s"=]|$)'
+kind = "focus"
+say = "runs only some of the tests"
+[[config.flag]]
+regex = '(?:^|[\s"=])(?:--deselect|--ignore|--ignore-glob|--maxfail|-x|--exitfirst)(?:[\s"=]|$)'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '\b(?:collect_ignore|norecursedirs|python_files)\b'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '\bxfail_strict\b\W+(?:false|0)'
+say = "lets expected failures pass"
+
+[[config.threshold]]
+regex = '(?:--cov-fail-under[= ]|fail_under\s*[=:]\s*)(?P<n>\d+(?:\.\d+)?)'
+
+[[config]]
+glob = ["**/pyproject.toml"]
+format = "toml"
+sections = ["tool.pytest", "tool.coverage"]
+
+[[config.flag]]
+regex = '(?:^|[\s"=])(?:--snapshot-update|--update-snapshots?|--force-regen|--accept)(?:[\s"]|$)'
+kind = "snapshots"
+say = "rewrites the snapshots"
+[[config.flag]]
+regex = '(?:^|[\s"=])(?:-k|-m|--lf|--last-failed)(?:[\s"=]|$)'
+kind = "focus"
+say = "runs only some of the tests"
+[[config.flag]]
+regex = '(?:^|[\s"=])(?:--deselect|--ignore|--ignore-glob|--maxfail|-x|--exitfirst)(?:[\s"=]|$)'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '\b(?:collect_ignore|norecursedirs|python_files)\b'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '\bxfail_strict\b\W+(?:false|0)'
+say = "lets expected failures pass"
+
+[[config.threshold]]
+regex = '(?:--cov-fail-under[= ]|fail_under\s*[=:]\s*)(?P<n>\d+(?:\.\d+)?)'
+
+[[config]]
+glob = ["**/conftest.py"]
+format = "text"
+
+[[config.flag]]
+regex = '\bcollect_ignore(?:_glob)?\b'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '\bpytest_collection_modifyitems\b'
+say = "changes which tests are collected"
+[[config.flag]]
+regex = '\bpytest\s*\.\s*mark\s*\.\s*skip'
+say = "skips some tests"
+
+# Type check.
+[[config]]
+glob = ["**/pyproject.toml"]
+format = "toml"
+sections = ["tool.mypy", "tool.pyright"]
+check = "typecheck"
+
+[[config.flag]]
+regex = '\b(?:ignore_errors|ignore_missing_imports)\b\W+true'
+say = "hides type errors"
+[[config.flag]]
+regex = '\b(?:strict|check_untyped_defs|disallow_untyped_defs)\b\W+false'
+say = "turns off a strict type check"
+[[config.flag]]
+regex = '\btypeCheckingMode\b\W+(?:off|basic)'
+say = "turns down the type check"
+[[config.flag]]
+regex = '\breport\w+\W+(?:none|false)'
+say = "turns off a type check rule"
+[[config.flag]]
+regex = '\b(?:disable_error_code|exclude)\b'
+say = "hides some type errors"
+
+[[config]]
+glob = ["**/mypy.ini", "**/.mypy.ini", "**/pyrightconfig.json"]
+format = "text"
+check = "typecheck"
+
+[[config.flag]]
+regex = '\b(?:ignore_errors|ignore_missing_imports)\b\W+(?:true|True)'
+say = "hides type errors"
+[[config.flag]]
+regex = '\b(?:strict|check_untyped_defs|disallow_untyped_defs)\b\W+(?:false|False)'
+say = "turns off a strict type check"
+[[config.flag]]
+regex = '\btypeCheckingMode\b\W+(?:off|basic)'
+say = "turns down the type check"
+[[config.flag]]
+regex = '\breport\w+\W+(?:none|false)'
+say = "turns off a type check rule"
+
+# Lint config.
+[[config]]
+glob = ["**/pyproject.toml"]
+format = "toml"
+sections = ["tool.ruff", "tool.pylint", "tool.flake8"]
+check = "lint"
+
+[[config.flag]]
+regex = '\b(?:ignore|extend-ignore|per-file-ignores|exclude|extend-exclude|disable)\b'
+say = "turns off some lint rules"
+
+[[config]]
+glob = ["**/ruff.toml", "**/.ruff.toml", "**/.flake8", "**/.pylintrc"]
+format = "text"
+check = "lint"
+
+[[config.flag]]
+regex = '\b(?:ignore|extend-ignore|per-file-ignores|exclude|extend-exclude|disable)\b'
+say = "turns off some lint rules"

@@ -74,6 +74,7 @@ mod settings_store;
 mod settings_patch;
 mod shell_env;
 mod startup_timing;
+mod tamper;
 pub mod shell_exec;
 mod standby;
 mod team;
@@ -313,6 +314,7 @@ pub fn run() {
             commands::checkpoint_diff,
             commands::checkpoint_restore,
             commands::checkpoint_undo_last,
+            commands::tamper_check,
             commands::turn_summaries,
             commands::presence_cockpit_focus,
             commands::away_digest_pending,

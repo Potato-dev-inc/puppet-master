@@ -1,0 +1,2 @@
+blocks = ["checks_changed"]
+contains = ['"test" script in package.json']

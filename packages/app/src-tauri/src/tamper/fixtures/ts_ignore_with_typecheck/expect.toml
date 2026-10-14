@@ -1,0 +1,2 @@
+blocks = ["checks_silenced"]
+contains = ["Added 1 @ts-ignore line in cart.ts, which hides Type check errors"]

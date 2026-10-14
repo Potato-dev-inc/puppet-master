@@ -1,0 +1,2 @@
+blocks = ["skip_added"]
+contains = ['Added @pytest.mark.skip to "test_half_cent" in test_cart.py']
