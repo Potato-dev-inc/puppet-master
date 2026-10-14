@@ -8,7 +8,6 @@ use super::{Ctx, RouteResult};
 use crate::bridge::http::{parse_json, query_param};
 use crate::bridge::projects::{librarian_indexer_path, resolve_project_root};
 use crate::bridge::store::rebuild_read_models;
-use crate::pty::registry_set_project_path;
 use crate::settings_store;
 
 #[derive(Debug, Deserialize)]
@@ -152,12 +151,11 @@ fn settings_patch(cx: &Ctx) -> RouteResult {
 }
 
 fn project_path(cx: &Ctx) -> RouteResult {
-    let body = cx.body;
-    let registry = cx.registry;
-    let req: ProjectPathBody = parse_json(body)?;
-    let normalized = crate::project_path::normalize_project_path(std::path::Path::new(&req.path))
-        .map_err(|err| (400, json!({ "error": err })))?;
-    registry_set_project_path(registry, normalized.to_string_lossy().into_owned());
-    crate::event_log::set_active_project_path(Some(normalized));
+    let req: ProjectPathBody = parse_json(cx.body)?;
+    let app = cx.app;
+    crate::project_path::set_active_and_persist(cx.registry, &req.path, |patch| {
+        crate::settings_patch::apply(app, patch)
+    })
+    .map_err(|(status, error)| (status, json!({ "error": error })))?;
     Ok((200, json!({ "ok": true })))
 }

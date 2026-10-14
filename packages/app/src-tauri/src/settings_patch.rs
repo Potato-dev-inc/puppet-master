@@ -111,7 +111,7 @@ pub fn patch_file(path: &Path, patch: &Map<String, Value>) -> Result<Value, Stri
     patch_file_locked(path, patch)
 }
 
-fn patch_file_locked(path: &Path, patch: &Map<String, Value>) -> Result<Value, String> {
+pub(crate) fn patch_file_locked(path: &Path, patch: &Map<String, Value>) -> Result<Value, String> {
     let next = merge_into_file(&read_file_value(path), patch);
     let bytes = serde_json::to_vec_pretty(&next).map_err(|e| format!("could not encode settings: {e}"))?;
     write_atomic(path, &bytes).map_err(|e| format!("could not save settings: {e}"))?;

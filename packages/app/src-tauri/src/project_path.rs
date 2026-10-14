@@ -145,6 +145,26 @@ pub fn resolve_spawn_cwd(
     normalize_project_path(Path::new(&candidate))
 }
 
+
+/// Make `raw` the active project folder AND save it as the `project_path` setting.
+///
+/// The registry (what new panes use) and `settings.json` (what Settings, the "+" menu and the
+/// next launch read) used to be written by two different callers; the bridge route only did the
+/// first, so `POST /project-path` answered ok and the setting never changed. `persist` is the
+/// atomic settings patch (it also tells every window with `settings://changed`).
+pub fn set_active_and_persist(
+    registry: &parking_lot::Mutex<crate::pty::PaneRegistry>,
+    raw: &str,
+    persist: impl FnOnce(&serde_json::Value) -> Result<serde_json::Value, String>,
+) -> Result<PathBuf, (u16, String)> {
+    let normalized = normalize_project_path(Path::new(raw)).map_err(|e| (400, e))?;
+    let text = normalized.to_string_lossy().into_owned();
+    crate::pty::registry_set_project_path(registry, text.clone());
+    crate::event_log::set_active_project_path(Some(normalized.clone()));
+    persist(&serde_json::json!({ "project_path": text }))
+        .map_err(|e| (500, format!("The folder is active but could not be saved: {e}")))?;
+    Ok(normalized)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,5 +252,56 @@ mod tests {
         assert!(workspace_covers(&child, &child));
         assert!(!workspace_covers(&sibling, &child));
         let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn set_active_and_persist_writes_the_setting_and_tells_windows() {
+        let dir = std::env::temp_dir().join(format!("pm-projpath-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("settings.json");
+        std::fs::write(&file, r#"{"settings":{"project_path":"C:/old","theme":"dark"}}"#).unwrap();
+        let project = dir.join("repo");
+        std::fs::create_dir_all(&project).unwrap();
+
+        let registry = parking_lot::Mutex::new(crate::pty::PaneRegistry::new());
+        let events: std::cell::RefCell<Vec<(String, Value)>> = Default::default();
+        let out = set_active_and_persist(&registry, &project.to_string_lossy(), |patch| {
+            crate::settings_patch::apply_core(
+                patch,
+                false,
+                |clean| crate::settings_patch::patch_file_locked(&file, clean),
+                |_| {},
+                |name, payload| events.borrow_mut().push((name.to_string(), payload)),
+            )
+        })
+        .expect("persisted");
+
+        let saved: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(saved["settings"]["project_path"], json!(out.to_string_lossy()), "settings.json changed");
+        assert_eq!(saved["settings"]["theme"], "dark", "other settings are untouched");
+        assert_eq!(registry.lock().project_path, out.to_string_lossy());
+        let events = events.borrow();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, "settings://changed");
+        assert_eq!(events[0].1["project_path"], json!(out.to_string_lossy()));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_bad_path_is_a_400_and_a_failed_save_is_reported() {
+        let registry = parking_lot::Mutex::new(crate::pty::PaneRegistry::new());
+        let before = registry.lock().project_path.clone();
+        let err = set_active_and_persist(&registry, "/", |_| panic!("must not persist")).unwrap_err();
+        assert_eq!(err.0, 400);
+        assert_eq!(registry.lock().project_path, before);
+        let err = set_active_and_persist(&registry, std::env::temp_dir().to_str().unwrap(), |_| Err("disk full".into())).unwrap_err();
+        assert_eq!(err.0, 500);
+        assert!(err.1.contains("could not be saved") && err.1.contains("disk full"), "{}", err.1);
     }
 }
