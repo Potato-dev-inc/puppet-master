@@ -1,0 +1,4 @@
+● Bash(npm test)
+all tests passed
+● npm test passed: the output was "all tests passed."
+⏸ manual mode on · ? for shortcuts · ← for agents                                                                      ◐ medium · /effort

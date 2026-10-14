@@ -23,6 +23,8 @@ mod cursor_capture_tests;
 
 #[cfg(test)]
 mod codex_delivery_tests;
+#[cfg(test)]
+mod result_footer_tests;
 
 #[cfg(test)]
 mod cursor_delivery_tests;

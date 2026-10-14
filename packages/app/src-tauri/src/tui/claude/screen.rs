@@ -74,10 +74,31 @@ pub(super) fn standby_screen(screen: &str) -> StandbyScreen {
     }
 }
 
+/// Whether `glyph` is one of the block elements Claude's startup logo is drawn with.
+fn is_logo_glyph(glyph: char) -> bool {
+    ('\u{2580}'..='\u{259f}').contains(&glyph)
+}
+
 /// Status rows Claude draws under a reply: the finished-turn summary (`<glyph> Churned for 16s \u{b7}
-/// done 23:03`), the agents hint and the permission-mode footer. `lower` is the lowercased row.
+/// done 23:03`), the agents hint, the permission-mode footer (`\u{23f8} manual mode on \u{b7} ? for
+/// shortcuts`, `\u{23f5}\u{23f5} auto mode on (shift+tab to cycle)`), the effort indicator (`\u{25d0} medium \u{b7}
+/// /effort`, drawn at the right of the same row) and the startup logo banner. `lower` is the
+/// lowercased row.
 pub(super) fn is_chrome_line(lower: &str) -> bool {
     let row = lower.trim();
+    let first = row.chars().next();
+    // The footer: a pause or play glyph for the permission mode, the shortcuts hint, the effort
+    // indicator. A reply never starts with those glyphs.
+    let footer = first.is_some_and(|glyph| glyph == '\u{23f8}' || glyph == '\u{23f5}')
+        || row.starts_with("? for shortcuts")
+        || row.ends_with("\u{b7} /effort")
+        || row == "/effort";
+    // The logo banner: block-element glyphs, then two or more spaces, then text (`\u{2590}\u{259b}\u{2588}\u{2588}\u{2588}\u{259c}\u{258c}
+    // Claude Code v2.1.299`). A row of nothing but glyphs is a rule or fill (handled generically).
+    let banner = first.is_some_and(is_logo_glyph) && row.contains("  ") && row.chars().any(char::is_alphanumeric);
+    if footer || banner {
+        return true;
+    }
     let summary = row
         .chars()
         .next()
@@ -118,6 +139,29 @@ mod tests {
         assert_eq!(standby_screen("\u{276f} half typed text\n Claude Code"), StandbyScreen::NotReady);
         assert_eq!(standby_screen(""), StandbyScreen::NotReady);
         assert_eq!(standby_screen("Select login method:\n\u{276f} 1. Claude account"), StandbyScreen::NeedsAttention);
+    }
+
+    // Real run results (Claude Code 2.1.299, live run 2026-10-14): the screen's footer rows came along.
+    const RESULT_MANUAL: &str = include_str!("fixtures/result_footer_manual_mode_live.txt");
+
+    #[test]
+    fn the_footer_and_logo_banner_rows_of_live_screens_are_chrome() {
+        // NEW #5: `op.result` ended with these rows.
+        let footer = RESULT_MANUAL.lines().last().expect("footer row").to_lowercase();
+        assert!(footer.contains("manual mode on") && footer.contains("/effort"), "{footer}");
+        assert!(is_chrome_line(&footer));
+        assert!(is_chrome_line("⏸ manual mode on · ? for shortcuts"));
+        assert!(is_chrome_line("⏵⏵ accept edits on (shift+tab to cycle)"));
+        assert!(is_chrome_line("◐ medium · /effort"));
+        assert!(is_chrome_line("? for shortcuts"));
+        // The banner of a fresh session (live capture, startup_gate_tests::READY).
+        assert!(is_chrome_line("▐▛███▜▌   claude code v2.1.299"));
+        assert!(is_chrome_line("▝▜██████▛▀  haiku 5.5 · claude pro"));
+        assert!(is_chrome_line("▝▝   ▝▝   d:\\pm-demo-untrusted-2"));
+        // Replies are not.
+        assert!(!is_chrome_line("● npm test passed: the output was \"all tests passed.\""));
+        assert!(!is_chrome_line("the effort level is shown after the middle dot"));
+        assert!(!is_chrome_line("press ? for shortcuts, they said"), "a sentence that merely mentions it is chrome-adjacent but kept");
     }
 
     #[test]

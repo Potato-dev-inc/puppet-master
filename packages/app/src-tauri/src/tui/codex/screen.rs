@@ -1,6 +1,9 @@
 //! The interactive Codex CLI TUI: what its screen shows about whether a turn is running, a dialog is
 //! up, or the composer is empty.
 
+use once_cell::sync::Lazy;
+use regex::Regex;
+
 use crate::tui::{ComposerState, StandbyScreen, StartupGate};
 
 /// The questions Codex asks before it trusts a folder.
@@ -130,6 +133,19 @@ pub(super) fn startup_gate(screen: &str) -> Option<StartupGate> {
         });
     }
     None
+}
+
+/// Rows Codex draws around a reply that are not part of it: the footer (`GPT-6-Luna medium ·
+/// D:pm-demo · <thread title>`: model, reasoning effort, folder, title), the shortcuts hint and the
+/// `Worked for 5s • 11:29 AM` separator under a finished turn (live capture of a visible run,
+/// 0.159.3). `lower` is the trimmed, lowercased row.
+pub(super) fn is_chrome_line(lower: &str) -> bool {
+    static FOOTER: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"^[\w.\-/]+ (minimal|low|medium|high|xhigh)(?: \u{b7} |$)").expect("codex footer regex")
+    });
+    static WORKED: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"^worked for [0-9hms ]+(?: \u{2022} .*)?$").expect("codex worked-for regex"));
+    lower.contains("? for shortcuts") || FOOTER.is_match(lower) || WORKED.is_match(lower)
 }
 
 /// Whether the screen shows Codex working: the status row `Working (12s \u{2022} esc to interrupt)`.
@@ -310,14 +326,29 @@ mod tests {
         // The 12-row tail the classifier hands the profile.
         let tail = |screen: &str| {
             let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
-            lines[lines.len().saturating_sub(12)..].join("
-")
+            lines[lines.len().saturating_sub(12)..].join("\n")
         };
         for idle in [LIVE_READY_BANNER, LIVE_UNSENT, LIVE_SUBMITTED, LIVE_PASTED, READY, TYPED] {
             assert_eq!(codex.busy_marker(&tail(idle)), Some(false), "{idle:.60}");
         }
         assert_eq!(codex.busy_marker(&tail(LIVE_WORKING)), Some(true));
         assert_eq!(codex.busy_marker(&tail(WORKING)), Some(true));
+    }
+
+    #[test]
+    fn the_footer_and_separator_rows_of_a_live_run_are_chrome_and_replies_are_not() {
+        for row in ["gpt-6-luna medium · d:\\pm-demo · summarize readme.md", "gpt-5-codex high · ~/proj", "? for shortcuts", "worked for 5s • 11:29 am", "worked for 1m 3s"] {
+            assert!(is_chrome_line(row), "{row}");
+        }
+        for row in [
+            "• readme.md describes a tiny node.js demo for puppet master, where sum.js adds numbers.",
+            "medium · rare",
+            "high availability needs two nodes",
+            "the worked for example is below",
+            "• explored",
+        ] {
+            assert!(!is_chrome_line(row), "{row}");
+        }
     }
 
     #[test]

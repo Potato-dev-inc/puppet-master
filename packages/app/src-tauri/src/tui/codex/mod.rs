@@ -126,6 +126,11 @@ impl TuiProfile for Codex {
         Some(screen::CLEAR_COMPOSER)
     }
 
+    /// The footer, the shortcuts hint and the `Worked for` separator are not part of a reply.
+    fn is_chrome_line(&self, lower: &str) -> bool {
+        screen::is_chrome_line(lower)
+    }
+
     /// Codex draws `Working (12s • esc to interrupt)` above the composer for as long as a turn
     /// runs, and no such row otherwise (live captures `working_live.txt` / `standby_ready_live.txt`).
     /// So a redraw of an idle pane (selecting it remounts the terminal, the resize makes Codex reprint)

@@ -1,0 +1,8 @@
+Read 1 file (ctrl+o to expand)
+● Update(sum.js)
+⎿  Added 1 line
+1 +// verified                                                                                                                               2  // Adds up a list of numbers.
+3  function sum(numbers) {
+4    let total = 0;
+● I added // verified as the first line of sum.js, above the existing comment. I didn't run anything else.
+⏸ manual mode on · ? for shortcuts · ← for agents                                                                      ◐ medium · /effort
