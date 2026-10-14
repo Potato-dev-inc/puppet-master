@@ -657,7 +657,7 @@ fn the_doctor_row_uses_plain_words() {
     apply_settings(&json!({ "agent_hooks_mode": "off" }));
     let off = health::for_agent("claude", "Claude Code", Some("2.1.300")).unwrap();
     apply_settings(&json!({}));
-    assert_eq!((off.state, off.sentence.as_str()), (health::HookHealthState::Off, "Hooks are off."));
+    assert_eq!((off.state, off.sentence.as_str()), (health::HookHealthState::Off, "Live updates are off."));
 }
 
 #[path = "live.rs"]

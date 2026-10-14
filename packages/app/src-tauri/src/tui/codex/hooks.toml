@@ -29,7 +29,7 @@ timeout = 3
 
 [hooks.trust_screen]
 pending_phrases = ["hooks need review", "continue without trusting"]
-how_to = "In this Codex pane, type /hooks and trust the Puppet Master hooks. You do this once per project."
+how_to = "In a Codex pane in this project, type /hooks and trust the Puppet Master entries. Once per project."
 
 [[hooks.events]]
 vendor = "SessionStart"

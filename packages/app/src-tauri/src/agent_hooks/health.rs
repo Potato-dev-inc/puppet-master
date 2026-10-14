@@ -47,14 +47,14 @@ pub fn for_agent(agent: &str, label: &str, version: Option<&str>) -> Option<Hook
         );
     };
     if requested_mode(agent) == Mode::Off || mode == Mode::Off {
-        return row(HookHealthState::Off, "Hooks are off.".into(), None);
+        return row(HookHealthState::Off, "Live updates are off.".into(), None);
     }
     let how_to = (!scheme.trust_screen.how_to.is_empty()).then(|| scheme.trust_screen.how_to.clone());
     if let Some(v) = version.and_then(first_version) {
         if !scheme.tested.is_empty() && !in_range(&v, &scheme.tested) {
             return row(
                 HookHealthState::UntestedVersion,
-                format!("Untested {label} version. Puppet Master keeps hooks in watch-only mode."),
+                format!("Untested {label} version. Live updates stay watch only."),
                 how_to,
             );
         }
@@ -62,7 +62,7 @@ pub fn for_agent(agent: &str, label: &str, version: Option<&str>) -> Option<Hook
     if super::ledger::agent_ever_connected(agent) {
         return row(
             HookHealthState::Connected,
-            format!("Connected. {label} reports when it starts, asks and finishes. Watch-only: Puppet Master still reads the screen to decide."),
+            format!("Connected. {label} tells Puppet Master when it starts, asks and finishes. Watch only: Puppet Master still decides from the screen."),
             None,
         );
     }
@@ -70,17 +70,17 @@ pub fn for_agent(agent: &str, label: &str, version: Option<&str>) -> Option<Hook
         None => row(
             HookHealthState::NotStarted,
             match scheme.trust.as_str() {
-                "vendor_review" => format!("Turns on when you open {label} in a project. {label} then asks you once to trust the hooks."),
+                "vendor_review" => format!("Turns on when you open {label} in a project. {label} then asks for your OK once per project."),
                 _ => format!("Turns on the next time you open {label}."),
             },
             how_to,
         ),
         Some(InstallState::BlockedTracked) => row(
             HookHealthState::BlockedSharedFile,
-            format!("This project shares its {label} hooks in git, so Puppet Master doesn't change them."),
+            format!("This project shares its {label} settings in git, so Puppet Master doesn't change them."),
             None,
         ),
-        Some(InstallState::Off) => row(HookHealthState::Off, "Hooks are off.".into(), None),
+        Some(InstallState::Off) => row(HookHealthState::Off, "Live updates are off.".into(), None),
         Some(InstallState::NotSupported) => row(
             HookHealthState::NotSupported,
             "This agent can't report to Puppet Master directly. Puppet Master reads its screen.".into(),
@@ -94,12 +94,12 @@ pub fn for_agent(agent: &str, label: &str, version: Option<&str>) -> Option<Hook
             ),
             "vendor_review" => row(
                 HookHealthState::WaitingVendorReview,
-                format!("{label} hooks: waiting for you."),
+                format!("Needs your OK in {label}."),
                 how_to,
             ),
             _ => row(
                 HookHealthState::Silent,
-                format!("{label} hasn't reported in yet. It may have hooks turned off in its own settings."),
+                format!("{label} hasn't sent live updates yet. Its own settings may turn them off."),
                 None,
             ),
         },
