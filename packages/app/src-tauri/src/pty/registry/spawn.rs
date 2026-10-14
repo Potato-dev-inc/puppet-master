@@ -25,6 +25,8 @@ fn finish_exit(
         }
         *done = true;
     }
+    // Hook Lane: the pane's hook token stops working the moment the pane is gone.
+    crate::agent_hooks::revoke(pane_id);
     *status.lock() = PaneStatus::Error;
     crate::event_log::append_system_event(SystemEvent::PaneStatusChanged {
         pane_id: PaneId(pane_id.to_string()),
@@ -171,11 +173,18 @@ pub fn spawn_pane(
         }
         None => (crate::tui::LaunchEnv::default(), None),
     };
+    // Hook Lane (shadow): a per-pane token in env and, for a launch-flag agent, its flag. Empty when
+    // the agent has no hooks or they are off, so such a pane starts exactly as before.
+    let user_args = args.extra_args.clone().unwrap_or_default();
+    let hooks = crate::agent_hooks::prepare_spawn(profile.id(), &pane_id, &cwd, &user_args);
+    let mut account_env = account_env;
+    account_env.set.extend(hooks.env);
+    let extra_args: Vec<String> = user_args.into_iter().chain(hooks.extra_args).collect();
     let cmd = launch_command(
         profile.as_ref(),
         &crate::tui::SpawnRequest {
             cwd: &cwd,
-            extra_args: args.extra_args.as_deref().unwrap_or(&[]),
+            extra_args: &extra_args,
             cols,
             rows,
             read_only: args.read_only,

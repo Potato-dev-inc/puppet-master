@@ -104,6 +104,8 @@ pub(super) fn gate(req: &Request) -> Result<mobile_pairing::Caller, (u16, serde_
     let (path, _) = split_target(&req.target);
     let raw_segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
     let segments = mobile_pairing::normalize_bridge_segments(&raw_segments).to_vec();
+    // Hook Lane: a hook token is good for `POST /hooks/event` only (403 HOOK_TOKEN_SCOPE elsewhere).
+    crate::agent_hooks::route::scope_guard(&req.headers_raw, &segments, &req.method)?;
     if segments == ["events", "ws"] {
         let offer =
             mobile_pairing::header_value(&req.headers_raw, "Sec-WebSocket-Protocol").unwrap_or("");
@@ -179,8 +181,12 @@ pub(super) fn handle_connection(
     };
     if caller == mobile_pairing::Caller::Local {
         // S3, log-only: a local caller without the app's per-launch key is logged and still served.
+        // The hook emitter never gets the secret (it would sit in every agent tool's env); its
+        // per-pane hook token is its credential for `POST /hooks/event` only (Hook Lane §4.2.6).
         let (path, _) = split_target(&req.target);
-        mobile_pairing::local_secret::observe_local_request(&req.headers_raw, &req.method, path);
+        if !crate::agent_hooks::route::is_hook_ingest_path(&req.method, path) {
+            mobile_pairing::local_secret::observe_local_request(&req.headers_raw, &req.method, path);
+        }
     }
     let Request {
         method,
@@ -493,6 +499,11 @@ fn spawn_test_listener(real_poll: bool) -> std::net::SocketAddr {
                     // The real long-poll handler, so tests see what a device really receives.
                     Ok(caller) if real_poll && path.trim_start_matches("/bridge") == "/events/poll" => {
                         write_json_cors(&mut stream, 200, &events_poll(&caller, query))
+                    }
+                    // The real hook route (it needs no AppHandle), as `router::route` runs it.
+                    Ok(_) if crate::agent_hooks::route::is_hook_ingest_path(&req.method, path) => {
+                        let (status, value) = crate::agent_hooks::route::handle(&req.headers_raw, &req.body, req.peer_loopback);
+                        write_json_cors(&mut stream, status, &value)
                     }
                     Ok(caller) => write_json_cors(
                         &mut stream,

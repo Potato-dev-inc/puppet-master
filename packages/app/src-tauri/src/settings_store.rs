@@ -20,6 +20,8 @@ const PATCHABLE_KEYS: &[&str] = &[
     "checkpoints_enabled",
     "checkpoints_keep",
     "away_minutes",
+    "agent_hooks_mode",
+    "agent_hooks_agents",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -38,6 +40,9 @@ pub fn default_public_settings() -> Value {
         "checkpoints_enabled": true,
         "checkpoints_keep": 50,
         "away_minutes": 5,
+        // Hook Lane (founder decision 2026-10-14): watch-only hooks for agents that declare them.
+        "agent_hooks_mode": "shadow",
+        "agent_hooks_agents": {},
     })
 }
 
@@ -77,6 +82,7 @@ pub fn mirror_public_patch(app: &AppHandle, patch: &Value) -> Value {
         *state.public_settings.lock() = merged.clone();
     }
     crate::bridge::push_settings_sse(&merged);
+    crate::agent_hooks::apply_settings(&merged);
 
     if let Some(backend) = merged.get("orchestrator_backend").and_then(Value::as_str) {
         if backend != "api" {
@@ -116,6 +122,7 @@ pub fn load_saved_public_settings(app: &AppHandle) {
         *state.public_settings.lock() = merged.clone();
     }
     crate::bridge::push_settings_sse(&merged);
+    crate::agent_hooks::apply_settings(&merged);
 }
 
 #[cfg(test)]

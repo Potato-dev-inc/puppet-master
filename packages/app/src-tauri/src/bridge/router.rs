@@ -38,6 +38,11 @@ pub(super) fn route(
     peer_loopback: bool,
 ) -> RouteResult {
     mobile_pairing::authorize_bridge_request(headers, peer_loopback, segments, method)?;
+    // Hook Lane: append-only, local-only, its own token (agent_hooks::route); before body parsing.
+    if crate::agent_hooks::route::is_hook_ingest(method, segments) {
+        let (status, value) = crate::agent_hooks::route::handle(headers, body, peer_loopback);
+        return if status < 300 { Ok((status, value)) } else { Err((status, value)) };
+    }
     if segments.is_empty() && method == "GET" {
         return Ok((
             200,

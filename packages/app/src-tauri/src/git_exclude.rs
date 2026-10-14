@@ -219,6 +219,58 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     canon(a) == canon(b)
 }
 
+/// The anchored `info/exclude` line for one file PM created at `rel_file` inside `project`.
+fn file_line(project: &Path, repo: &Repo, rel_file: &str) -> String {
+    let base = project
+        .strip_prefix(&repo.work_tree)
+        .map(|p| p.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/"))
+        .unwrap_or_default();
+    let file = rel_file.replace('\\', "/");
+    if base.is_empty() { format!("/{file}") } else { format!("/{base}/{file}") }
+}
+
+/// Hide ONE file Puppet Master created (Hook Lane: `.codex/hooks.json`) in `info/exclude`. Only
+/// ever called for a file PM created, never for a file the user had. Best effort, like the block.
+pub fn exclude_file(project: &Path, rel_file: &str) -> bool {
+    let Some(repo) = find_repo(project) else { return false };
+    let exclude = repo.common_dir.join("info").join("exclude");
+    let line = file_line(project, &repo, rel_file);
+    let existing = std::fs::read_to_string(&exclude).unwrap_or_default();
+    if existing.lines().any(|l| l.trim_end() == line) {
+        return true;
+    }
+    let _ = std::fs::create_dir_all(exclude.parent().unwrap_or(&repo.common_dir));
+    let sep = if existing.is_empty() || existing.ends_with('\n') { "" } else { "\n" };
+    std::fs::write(&exclude, format!("{existing}{sep}# Puppet Master hook file (local, added automatically)\n{line}\n")).is_ok()
+}
+
+/// Undo [`exclude_file`]: its two lines go, every other line stays byte for byte.
+pub fn unexclude_file(project: &Path, rel_file: &str) {
+    let Some(repo) = find_repo(project) else { return };
+    let exclude = repo.common_dir.join("info").join("exclude");
+    let Ok(existing) = std::fs::read_to_string(&exclude) else { return };
+    let line = file_line(project, &repo, rel_file);
+    let lines: Vec<&str> = existing.split_inclusive('\n').collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let here = lines[i].trim_end();
+        if here == "# Puppet Master hook file (local, added automatically)" && lines.get(i + 1).map(|l| l.trim_end()) == Some(line.as_str()) {
+            i += 2;
+            continue;
+        }
+        if here == line {
+            i += 1;
+            continue;
+        }
+        out.push_str(lines[i]);
+        i += 1;
+    }
+    if out != existing {
+        let _ = std::fs::write(&exclude, out);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
