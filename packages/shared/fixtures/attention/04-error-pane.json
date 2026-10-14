@@ -15,5 +15,8 @@
       "kind": "error",
       "paneId": "ps"
     }
+  ],
+  "blocking": [
+    "error:ps"
   ]
 }

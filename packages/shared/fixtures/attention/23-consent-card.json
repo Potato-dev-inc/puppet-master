@@ -40,5 +40,9 @@
       "paneId": "a",
       "since": 5
     }
+  ],
+  "blocking": [
+    "consent:c1",
+    "question:q1"
   ]
 }

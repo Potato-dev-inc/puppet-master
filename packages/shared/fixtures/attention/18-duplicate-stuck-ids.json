@@ -24,5 +24,8 @@
       "kind": "stuck",
       "paneId": "a"
     }
+  ],
+  "blocking": [
+    "stuck:a"
   ]
 }

@@ -154,6 +154,59 @@ fn a_question_expires_at_its_deadline_with_an_expired_tombstone() {
     assert_eq!(store.counts().blocking, 0);
 }
 
+#[test]
+fn a_pane_has_one_pane_state_item_trust_gate_then_approval_then_error_then_stuck() {
+    let mut store = Store::default();
+    // An errored pane that the loop guard also flags: one problem, one item.
+    let mut f = facts(vec![pane("e", "error"), pane("w", "waiting_input"), pane("s", "running")]);
+    f.stuck_pane_ids = vec!["e".into(), "w".into(), "s".into()];
+    store.recompute(&f, 1_000);
+    let mut keys = open_keys(&store);
+    keys.sort();
+    assert_eq!(keys, ["approval:w", "error:e", "stuck:s"]);
+    assert_eq!(store.counts().blocking, 3);
+}
+
+#[test]
+fn a_question_about_a_pane_is_its_own_item_next_to_the_pane_state() {
+    let mut store = Store::default();
+    let mut f = facts(vec![pane("a", "waiting_input")]);
+    f.questions = vec![QuestionFact { id: "q".into(), pane_id: Some("a".into()), ..QuestionFact::default() }];
+    store.recompute(&f, 1_000);
+    assert_eq!(store.counts().blocking, 2);
+}
+
+#[test]
+fn a_folder_trust_screen_is_a_trust_gate_with_its_own_words_and_leads_the_list() {
+    let mut store = Store::default();
+    store.on_prompt(
+        "t",
+        true,
+        Some(PromptRec {
+            prompt_id: Some("pt".into()),
+            kind: Some("workspace_trust".into()),
+            choices: vec![ChoiceFact { id: "allow_once".into(), label: "Trust this folder".into(), broad: false }],
+            ..PromptRec::default()
+        }),
+    );
+    store.on_prompt("l", true, Some(rec("pl", "low")));
+    store.on_prompt("si", true, Some(PromptRec { prompt_id: Some("ps".into()), kind: Some("startup_screen".into()), ..PromptRec::default() }));
+    store.recompute(&facts(vec![pane("l", "waiting_input"), pane("t", "waiting_input"), pane("si", "waiting_input")]), 1_000);
+    let items = &store.snapshot().items;
+    let trust = items.iter().find(|i| i.pane.as_ref().unwrap().id == "t").unwrap();
+    assert_eq!(trust.kind, Kind::TrustGate);
+    assert_eq!(trust.rank, 0);
+    assert_eq!(trust.title, "Trust this folder?");
+    assert_eq!(trust.sentence.as_deref(), Some("Claude Code wants to work in shop. It can read and change files there."));
+    assert_eq!(trust.key, "approval:t", "clients that match on the old key keep working");
+    let signin = items.iter().find(|i| i.pane.as_ref().unwrap().id == "si").unwrap();
+    assert_eq!(signin.kind, Kind::TrustGate);
+    assert_eq!(signin.title, "Claude Code needs you on your PC", "a sign-in screen has no choices to offer");
+    assert!(signin.prompt.as_ref().unwrap().choices.is_empty());
+    assert!(items.iter().position(|i| i.id == trust.id).unwrap() < items.iter().position(|i| i.pane.as_ref().unwrap().id == "l").unwrap());
+    assert_eq!(store.counts().blocking, 3);
+}
+
 fn raised(key: &str, kind: Kind) -> Raised {
     Raised { key: key.into(), kind, pane_id: None, title: "x".into(), sentence: None, expires_at_ms: None, actions: vec![] }
 }

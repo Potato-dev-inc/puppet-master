@@ -24,5 +24,8 @@
       "kind": "approval",
       "paneId": "a"
     }
+  ],
+  "blocking": [
+    "approval:a"
   ]
 }

@@ -45,5 +45,10 @@
       "kind": "stuck",
       "paneId": "窓"
     }
+  ],
+  "blocking": [
+    "approval:päne-1",
+    "error:窓",
+    "question:é1"
   ]
 }

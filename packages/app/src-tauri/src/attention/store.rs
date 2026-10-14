@@ -197,6 +197,7 @@ impl Store {
         for (raised, since) in self.raised.values() {
             items.push(raised_item(raised, *since, &facts));
         }
+        keep_one_pane_state(&mut items);
         let mut seen = HashSet::new();
         items.retain(|item| seen.insert(item.key.clone()));
         sort_items(&mut items);
@@ -279,6 +280,39 @@ impl Store {
     }
 }
 
+/// A pane shows one dialog at a time, so it has at most ONE pane-state item: a trust gate beats an
+/// approval, which beats an error, which beats "stuck" (a waiting pane is not stuck, and an errored
+/// pane's loop signal is noise). `deriveNeedsYou` could emit both `error:x` and `stuck:x`; counting
+/// them twice made one problem look like two.
+fn keep_one_pane_state(items: &mut Vec<Item>) {
+    let precedence = |kind: Kind| match kind {
+        Kind::TrustGate => 0,
+        Kind::Approval => 1,
+        Kind::Error => 2,
+        _ => 3,
+    };
+    let mut best: HashMap<String, (u8, usize)> = HashMap::new();
+    for (index, item) in items.iter().enumerate() {
+        if !item.kind.is_pane_state() {
+            continue;
+        }
+        let Some(pane) = &item.pane else { continue };
+        let rank = precedence(item.kind);
+        match best.get(&pane.id) {
+            Some((current, _)) if *current <= rank => {}
+            _ => {
+                best.insert(pane.id.clone(), (rank, index));
+            }
+        }
+    }
+    let mut index = 0;
+    items.retain(|item| {
+        let keep = !item.kind.is_pane_state() || item.pane.as_ref().map_or(true, |p| best.get(&p.id).is_some_and(|(_, i)| *i == index));
+        index += 1;
+        keep
+    });
+}
+
 fn sort_items(items: &mut [Item]) {
     items.sort_by(|a, b| {
         let lane = |i: &Item| if i.lane == Lane::Blocking { 0 } else { 1 };
@@ -343,6 +377,17 @@ fn build_item(d: &Derived, facts: &Facts) -> Item {
         resolution: None,
     };
     let mut occurrence = 1;
+    let startup_gate = d.kind == Kind::Approval
+        && prompt_fact
+            .and_then(|p| p.kind.as_deref())
+            .is_some_and(|kind| crate::pane_prompt::STARTUP_GATE_KINDS.contains(&kind));
+    if startup_gate {
+        // Folder trust or a sign-in screen: only the person may pass it, and never from a lock screen.
+        // The `key` stays `approval:<pane>` so clients that match on it keep working.
+        item.kind = Kind::TrustGate;
+        item.lane = lane_of(Kind::TrustGate);
+        item.rank = rank_of(Kind::TrustGate, d.risk);
+    }
     match d.kind {
         Kind::Approval => {
             item.risk = d.risk.map(|level| RiskView {
@@ -355,6 +400,16 @@ fn build_item(d: &Derived, facts: &Facts) -> Item {
                     item.title = headline.to_string();
                 }
                 item.sentence = p.summary.clone();
+                if startup_gate {
+                    let project = item.pane.as_ref().and_then(|p| p.project.clone()).unwrap_or_else(|| "this folder".into());
+                    if p.choices.is_empty() {
+                        item.title = format!("{agent} needs you on your PC");
+                        item.sentence = Some("It's showing a sign-in screen. Puppet Master won't answer it for you.".into());
+                    } else {
+                        item.title = "Trust this folder?".into();
+                        item.sentence = Some(format!("{agent} wants to work in {project}. It can read and change files there."));
+                    }
+                }
                 occurrence = p.occurrence.unwrap_or(1);
                 if let Some(prompt_id) = &p.prompt_id {
                     item.prompt = Some(PromptView {
@@ -382,7 +437,7 @@ fn build_item(d: &Derived, facts: &Facts) -> Item {
         }
         _ => {}
     }
-    item.id = item_id(d.kind, subject, occurrence);
+    item.id = item_id(item.kind, subject, occurrence);
     item
 }
 

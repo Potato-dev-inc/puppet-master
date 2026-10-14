@@ -5,7 +5,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { deriveNeedsYou, type AttentionInput } from './attention';
+import { blockingItems, deriveNeedsYou, type AttentionInput } from './attention';
 
 const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../shared/fixtures/attention');
 
@@ -14,6 +14,8 @@ interface Case {
   note: string;
   input: Omit<AttentionInput, 'statusSince'> & { statusSince?: Record<string, number> };
   expected: unknown[];
+  /** Ids that count (sorted): the store's rules applied to `expected`. */
+  blocking: string[];
 }
 
 const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
@@ -30,6 +32,12 @@ describe('attention parity corpus', () => {
       const items = deriveNeedsYou({ ...c.input, statusSince });
       // JSON has no `undefined`: compare what a client would see on the wire.
       expect(JSON.parse(JSON.stringify(items))).toEqual(c.expected);
+    });
+
+    it(`${file}: what counts`, () => {
+      const statusSince = c.input.statusSince ? new Map(Object.entries(c.input.statusSince)) : undefined;
+      const counted = blockingItems(deriveNeedsYou({ ...c.input, statusSince })).map((i) => i.id).sort();
+      expect(counted).toEqual(c.blocking);
     });
   }
 });

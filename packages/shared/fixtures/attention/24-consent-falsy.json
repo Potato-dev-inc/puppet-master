@@ -48,5 +48,12 @@
       "kind": "consent",
       "risk": "high"
     }
+  ],
+  "blocking": [
+    "consent:e",
+    "question:a",
+    "question:b",
+    "question:c",
+    "question:d"
   ]
 }

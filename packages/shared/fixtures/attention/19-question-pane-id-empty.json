@@ -29,5 +29,9 @@
       "kind": "question",
       "paneId": "a"
     }
+  ],
+  "blocking": [
+    "question:q",
+    "question:r"
   ]
 }

@@ -40,5 +40,10 @@
       "kind": "approval",
       "paneId": "c"
     }
+  ],
+  "blocking": [
+    "approval:a",
+    "approval:b",
+    "approval:c"
   ]
 }

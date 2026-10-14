@@ -70,5 +70,12 @@
       "kind": "stuck",
       "paneId": "run"
     }
+  ],
+  "blocking": [
+    "approval:ap1",
+    "approval:ap2",
+    "error:ps",
+    "question:q1",
+    "stuck:run"
   ]
 }

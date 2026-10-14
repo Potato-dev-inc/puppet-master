@@ -18,5 +18,8 @@
       "id": "question:q",
       "kind": "question"
     }
+  ],
+  "blocking": [
+    "question:q"
   ]
 }

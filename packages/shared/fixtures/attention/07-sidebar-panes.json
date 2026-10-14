@@ -58,5 +58,11 @@
       "id": "answer:n",
       "kind": "answer"
     }
+  ],
+  "blocking": [
+    "approval:a",
+    "approval:b",
+    "error:c",
+    "stuck:d"
   ]
 }

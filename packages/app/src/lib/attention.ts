@@ -93,8 +93,28 @@ export function deriveNeedsYou(input: AttentionInput): NeedsYouItem[] {
  */
 export const isBlockingKind = (kind: NeedsYouKind): boolean => kind !== 'answer';
 
-/** The items that count: the length of this is the number every surface shows. */
-export const blockingItems = (items: ReadonlyArray<NeedsYouItem>): NeedsYouItem[] => items.filter((i) => isBlockingKind(i.kind));
+/** Lower wins: a pane shows one dialog at a time (the Rust store applies the same rule). */
+const PANE_STATE_PRECEDENCE: Partial<Record<NeedsYouKind, number>> = { approval: 1, error: 2, stuck: 3 };
+
+/**
+ * The items that count: the length of this is the number every surface shows. It is the Rust
+ * store's rule applied to the derived list: Ask-bar answers wait in Ready for you, one id counts
+ * once, and a pane has ONE pane-state item (approval beats error beats stuck), so an errored pane
+ * that the loop guard also flags is one problem, not two.
+ */
+export function blockingItems(items: ReadonlyArray<NeedsYouItem>): NeedsYouItem[] {
+  const seen = new Set<string>();
+  const unique = items.filter((i) => isBlockingKind(i.kind) && !seen.has(i.id) && seen.add(i.id));
+  const best = new Map<string, number>();
+  for (const item of unique) {
+    const rank = PANE_STATE_PRECEDENCE[item.kind];
+    if (rank !== undefined && item.paneId) best.set(item.paneId, Math.min(best.get(item.paneId) ?? rank, rank));
+  }
+  return unique.filter((item) => {
+    const rank = PANE_STATE_PRECEDENCE[item.kind];
+    return rank === undefined || !item.paneId || best.get(item.paneId) === rank;
+  });
+}
 
 /** Panes that have something waiting on them, for the sidebar's "Needs you" group. */
 export function needsYouPaneIds(items: ReadonlyArray<NeedsYouItem>): Set<string> {

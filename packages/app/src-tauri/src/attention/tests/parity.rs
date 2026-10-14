@@ -28,6 +28,30 @@ pub fn corpus() -> Vec<(String, Value)> {
         .collect()
 }
 
+/// The same files also say what COUNTS: the TS selector `blockingItems` and the Rust store must
+/// agree on every case (Ask-bar answers are ready, one key counts once, a pane has one pane-state item).
+#[test]
+fn the_store_counts_what_the_ts_selector_counts() {
+    use crate::attention::model::{Lane, State};
+    use crate::attention::store::Store;
+    for (file, case) in corpus() {
+        let facts: Facts = serde_json::from_value(case["input"].clone()).unwrap();
+        let mut store = Store::default();
+        store.recompute(&facts, 1_000);
+        let mut counted: Vec<String> = store
+            .snapshot()
+            .items
+            .iter()
+            .filter(|i| i.state == State::Open && i.lane == Lane::Blocking)
+            .map(|i| i.key.clone())
+            .collect();
+        counted.sort();
+        let expected: Vec<String> = serde_json::from_value(case["blocking"].clone()).unwrap();
+        assert_eq!(counted, expected, "{file}: {}", case["note"]);
+        assert_eq!(store.counts().blocking as usize, expected.len(), "{file}: the number");
+    }
+}
+
 #[test]
 fn attention_corpus_matches_ts() {
     let cases = corpus();

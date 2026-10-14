@@ -98,5 +98,13 @@
       "kind": "answer",
       "since": 9
     }
+  ],
+  "blocking": [
+    "approval:a",
+    "approval:b",
+    "error:c",
+    "question:q1",
+    "question:q2",
+    "stuck:d"
   ]
 }

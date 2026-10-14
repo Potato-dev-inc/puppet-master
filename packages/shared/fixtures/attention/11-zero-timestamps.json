@@ -52,5 +52,10 @@
       "kind": "answer",
       "since": 0
     }
+  ],
+  "blocking": [
+    "approval:a",
+    "error:b",
+    "question:q"
   ]
 }

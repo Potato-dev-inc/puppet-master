@@ -34,5 +34,8 @@
       "paneId": "a",
       "since": 2
     }
+  ],
+  "blocking": [
+    "question:q"
   ]
 }
