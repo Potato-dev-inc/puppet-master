@@ -255,6 +255,17 @@ export interface PaneViewportResponse {
   restored?: { cols: number; rows: number } | null;
 }
 
+/** Body of `GET /team/cards`; `can` is what this phone's pairing allows. */
+export interface TeamCardsReply {
+  enabled: boolean;
+  active: boolean;
+  missing: number;
+  error: string | null;
+  cards: import('./team').TeamCard[];
+  jobs: import('./team').TeamJob[];
+  can: { dismiss: boolean; act: boolean };
+}
+
 export interface BridgeClient {
   baseUrl: string;
   listPanes(): Promise<PaneInfo[]>;
@@ -290,6 +301,14 @@ export interface BridgeClient {
   listAgentTypes(): Promise<unknown>;
   /** `GET /digest`: what happened since `since` (default: this device's last visit); `seen` stores now as the last visit. */
   digest?(opts?: { since?: number; seen?: boolean }): Promise<import('./cockpit-api').Digest & { empty: boolean; previousSeenMs: number | null }>;
+  /** `GET /team/cards` (needs `watch`): teammates' updates and my queued ones. Absent on old bridges. */
+  teamCards?(): Promise<TeamCardsReply>;
+  /** The team action routes (`/team/cards/{id}/dismiss|pull|queue`, `/team/jobs/{id}/apply|discard`). */
+  teamDismiss?(cardId: string): Promise<{ ok: boolean }>;
+  teamPull?(cardId: string): Promise<{ ok: boolean; result: string }>;
+  teamQueue?(cardId: string, paneId: string, when: 'idle' | 'now'): Promise<{ ok: boolean; result: import('./team').TeamJob }>;
+  teamApply?(jobId: string): Promise<{ ok: boolean; result: string }>;
+  teamDiscard?(jobId: string): Promise<{ ok: boolean }>;
   readBuffer(paneId: string, lines: number): Promise<string>;
   readRawBuffer(paneId: string, lines: number): Promise<number[]>;
   /** `GET /panes/{id}/screen`: the pane redrawn at its current size, for a viewer to replay. */

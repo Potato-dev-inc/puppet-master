@@ -63,6 +63,12 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       const qs = q.toString();
       return call('GET', `/digest${qs ? `?${qs}` : ''}`);
     },
+    teamCards: () => call('GET', '/team/cards'),
+    teamDismiss: (id) => call('POST', `/team/cards/${encodeURIComponent(id)}/dismiss`, {}),
+    teamPull: (id) => call('POST', `/team/cards/${encodeURIComponent(id)}/pull`, {}),
+    teamQueue: (id, paneId, when) => call('POST', `/team/cards/${encodeURIComponent(id)}/queue`, { paneId, when }),
+    teamApply: (id) => call('POST', `/team/jobs/${encodeURIComponent(id)}/apply`, {}),
+    teamDiscard: (id) => call('POST', `/team/jobs/${encodeURIComponent(id)}/discard`, {}),
     readBuffer: async (id, lines) => {
       const res = await call<{ content: string }>('GET', `/panes/${encodeURIComponent(id)}/buffer?lines=${lines}`);
       return res.content;
