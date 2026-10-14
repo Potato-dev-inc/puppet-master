@@ -9,14 +9,14 @@ export interface AgentAuthority {
   agents_may_merge: boolean;
 }
 
-export type AuditKind = 'approval' | 'take_over' | 'consent' | 'pairing' | 'shell_exec' | 'gate_dismissal' | 'merge' | 'setting';
+export type AuditKind = 'approval' | 'take_over' | 'consent' | 'pairing' | 'shell_exec' | 'gate_dismissal' | 'merge' | 'setting' | 'team.sent' | 'team.received' | 'team.action' | 'team.joined' | 'team.role_changed' | 'team.key_rotated';
 
 export interface AuditEntry {
   seq: number;
   ts_ms: number;
   kind: AuditKind;
-  /** `desktop`, `device`, `agent` or `local`. */
-  who: 'desktop' | 'device' | 'agent' | 'local';
+  /** `desktop`, `device`, `agent`, `teammate` or `local`. */
+  who: 'desktop' | 'device' | 'agent' | 'teammate' | 'local';
   /** One plain sentence. */
   summary: string;
 }
@@ -52,6 +52,8 @@ export function whoText(who: AuditEntry['who']): string {
       return 'A paired phone';
     case 'agent':
       return 'An agent';
+    case 'teammate':
+      return 'A teammate';
     default:
       return 'A program on this computer';
   }

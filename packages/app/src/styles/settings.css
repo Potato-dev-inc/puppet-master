@@ -823,3 +823,118 @@
   min-height: 48px;
   padding: 6px 8px;
 }
+.st-team-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.st-team-section + .st-team-section {
+  padding-top: 12px;
+  border-top: 1px solid var(--sep);
+}
+.st-team-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--label-2);
+}
+.st-team .st-note[role='alert'] {
+  color: var(--label);
+}
+.st-team-h {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.st-team-head span,
+.st-team-line {
+  color: var(--label-2);
+}
+.st-team-line {
+  margin: 0;
+}
+.st-team-detail {
+  color: var(--label-4, var(--label-3));
+  overflow-wrap: anywhere;
+}
+.st-team-people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--sep);
+}
+.st-team-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--sep);
+}
+.st-team-who {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.st-team-who small {
+  color: var(--label-3);
+  overflow-wrap: anywhere;
+}
+.st-team-you,
+.st-team-role {
+  color: var(--label-3);
+}
+.st-team-role {
+  width: 80px;
+  text-align: right;
+}
+.st-team-slot {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  width: 62px;
+}
+.st-team-member > .st-btn {
+  flex: none;
+}
+.settings .st-sheet.st-invite {
+  width: 440px;
+}
+.st-invite-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 12px 0;
+}
+.st-invite-qr {
+  flex: none;
+  width: 168px;
+  height: 168px;
+  border-radius: 8px;
+  background: #121212;
+}
+.st-invite-codebox {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.st-invite-codebox small {
+  color: var(--label-3);
+}
+.st-invite-code {
+  font: 600 24px/1.2 var(--font-mono);
+  letter-spacing: 0.12em;
+  color: var(--label);
+}
+.st-invite-link {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.st-invite-link .st-field {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+}

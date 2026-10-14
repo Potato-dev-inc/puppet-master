@@ -10,6 +10,7 @@ import { DotSpinner } from '../cockpit/DotSpinner';
 import { DigestCard } from './DigestCard';
 import { isLive } from '../../lib/questions';
 import { QuestionsView, useQuestionPolling } from './QuestionsList';
+import { TeamGroup } from './TeamGroup';
 
 const PREVIEW_POLL_MS = 4000;
 
@@ -107,8 +108,8 @@ export function AgentsOverview({
       <div className="ph-scroll">
         {title}
         {header}
-      {cards}
         {cards}
+        <TeamGroup bridge={bridge} bridgeReady={bridgeReady} />
         <DigestCard bridge={bridge} bridgeReady={bridgeReady} onOpen={onOpen} />
         <div className="ph-empty">
           <div className="ph-dotgrid" aria-hidden="true" />
@@ -128,6 +129,7 @@ export function AgentsOverview({
       {title}
       {header}
       {cards}
+      <TeamGroup bridge={bridge} bridgeReady={bridgeReady} />
       <DigestCard bridge={bridge} bridgeReady={bridgeReady} onOpen={onOpen} />
       {groupPanes(panes).map((group) => (
         <section key={group.id} aria-label={group.title}>

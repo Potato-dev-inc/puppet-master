@@ -146,3 +146,12 @@
 .cockpit .ck-team-sheet .ck-team-error {
   padding-left: 0;
 }
+
+/* "Some team updates may be missing." */
+.cockpit .ck-team-gap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+}

@@ -156,12 +156,18 @@ const ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/accounts", "control"),
     ("POST", "/pair/invite", "control"),
     ("POST", "/some/future/route", "control"),
+    // Team cards on the phone (`team::phone`)
+    ("GET", "/team/cards", "watch"),
+    ("POST", "/team/cards/c1/dismiss", "answer|control"),
+    ("POST", "/team/cards/c1/queue", "control"),
+    ("POST", "/team/jobs/j1/apply", "control"),
 ];
 
 fn allowed(caps: Caps, need: &str) -> bool {
     match need {
         "device" => true,
         "watch|answer" => caps.has(Cap::Watch) || caps.has(Cap::Answer),
+        "answer|control" => caps.has(Cap::Answer) || caps.has(Cap::Control),
         "watch" => caps.has(Cap::Watch),
         "answer" => caps.has(Cap::Answer),
         "type" => caps.has(Cap::Type),

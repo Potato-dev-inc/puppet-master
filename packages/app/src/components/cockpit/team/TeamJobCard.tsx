@@ -112,7 +112,7 @@ export function TeamJobCard({ job, api, paneName, onDone }: { job: TeamJob; api:
       )}
       {showChanges && ready && (
         <div className="ck-team-changes">
-          <Changes paneId={`team:${job.id}`} status={job.state} api={changesApi} hideActions />
+          <Changes paneId={`team:${job.id}`} status={job.state} api={changesApi} hideActions copyLabel={`Separate copy of ${job.into}`} />
         </div>
       )}
       {confirmDiscard && (

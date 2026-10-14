@@ -21,6 +21,12 @@ export interface HarnessScenario {
     /** `false` hides the question card / the away digest. */
     questions?: boolean;
     digest?: boolean;
+    /**
+     * The Team group: absent or `false` = Team is off (the bridge answers `enabled: false`). An object
+     * turns it on; `can` is what this phone may do (default: everything), `missing` the count of
+     * updates the PC could not read.
+     */
+    team?: false | { can?: { dismiss: boolean; act: boolean }; missing?: number };
     /** Spoof navigator.userAgent (e.g. an iPhone, for the Add to Home Screen hint). */
     userAgent?: string;
     /** Bridge events delivered once the stream opens (`event: <name>`). */
@@ -64,6 +70,8 @@ export interface HarnessScenario {
   team?: import('../lib/team').TeamState;
   /** Worktrees that ship: what the mocked folder step, presets and GitHub commands answer. */
   ship?: import('./ship-fixtures').ShipScenario;
+  /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */
+  teamConfig?: Partial<import('../lib/team').TeamConfigView>;
   /** Runs once after the first paint (and after the panes loaded); click things, press keys. */
   after?: (api: HarnessDom) => void | Promise<void>;
 }

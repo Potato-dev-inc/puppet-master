@@ -1,5 +1,6 @@
-//! Where "something happened" comes from. v0: local git (pushes) and `gh` (the PR for a pushed
-//! branch). v1 adds a GitHub polling source (merges, CI, reviews) and background fetch.
+//! Where "something happened" comes from: local git (pushes), `gh` (the PR for a pushed branch),
+//! and the GitHub poller (pull requests opened, merged or closed; CI red or green).
 
 pub mod git_refs;
+pub mod github;
 pub mod pr;

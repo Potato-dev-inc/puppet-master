@@ -33,10 +33,13 @@ export function Changes({
   secondOpinion,
   hideActions = false,
   ship = shipApi,
+  copyLabel,
 }: {
   paneId: string;
   /** Show the files and diffs only (no Merge / Discard): another surface owns those decisions. */
   hideActions?: boolean;
+  /** Shown in place of the raw branch name when another surface owns the separate copy ("Separate copy of feat/billing"). */
+  copyLabel?: string;
   status: string;
   api?: ChangesApi;
   /**
@@ -157,7 +160,13 @@ export function Changes({
         <span className="ck-changes-state">{working ? 'Working' : 'Unreviewed'}</span>
       </div>
       <p className="ck-changes-meta">
-        <code>{item.branch}</code> from <code>{item.base}</code>
+        {copyLabel ? (
+          copyLabel
+        ) : (
+          <>
+            <code>{item.branch}</code> from <code>{item.base}</code>
+          </>
+        )}
         {total && (
           <>
             {' · '}

@@ -14,6 +14,8 @@ export type TeamEventKind =
   | 'pr_updated'
   | 'pr_merged'
   | 'pr_closed'
+  | 'ci_failed'
+  | 'ci_passed'
   | 'review_requested'
   | string;
 
@@ -33,6 +35,8 @@ export interface TeamEvent {
     pr?: { number: number; title: string; url: string; state: string; draft: boolean; files?: number; additions?: number; deletions?: number };
     paths?: string[];
     stats?: { files: number; additions: number; deletions: number };
+    /** GitHub checks on a PR or a branch (ci_failed / ci_passed). */
+    ci?: { conclusion: 'failure' | 'success' | 'pending' | 'none'; failedJobs: string[]; url: string };
   };
   note?: string;
   to?: string[];
@@ -105,41 +109,124 @@ export interface TeamJob {
   updatedAtMs: number;
 }
 
+export type TeamTransport = 'folder' | 'relay';
+/** How the relay connection is doing (null for a shared folder or when Team is off). */
+export type TeamLink = 'live' | 'polling' | 'offline';
+
 export interface TeamState {
   enabled: boolean;
   active: boolean;
   me: string;
+  /** Teammates' names (not mine). */
   members: string[];
-  transport: string | null;
+  transport: TeamTransport | null;
+  link: TeamLink | null;
   error: string | null;
+  /** How many teammate updates are known to be missing. */
+  missing: number;
   drafts: TeamDraft[];
   cards: TeamCard[];
   jobs: TeamJob[];
 }
 
+export type TeamRole = 'watch' | 'approve' | 'admin';
+
+export interface MemberView {
+  id: string;
+  name: string;
+  roles: TeamRole[];
+  admin: boolean;
+  me: boolean;
+  github: string | null;
+  githubConfirmed: boolean;
+  devices: number;
+}
+
+/** Someone waiting for my yes (admin only). */
+export interface JoinView {
+  id: string;
+  name: string;
+  github: string | null;
+  device: string;
+  receivedAtMs: number;
+}
+
 export interface TeamConfigView {
   enabled: boolean;
+  /** The team id. Never shown. '' means "not on a team". */
   team: string;
+  teamName: string;
+  relay: string;
   folder: string;
+  /** My name. */
   name: string;
-  members: string[];
   projects: string[];
   profile: string | null;
+  /** team.json exists but couldn't be read. */
+  readError: string | null;
+  error: string | null;
+  /** The team's name while waiting for the admin's yes. */
+  joining: string | null;
+  admin: boolean;
+  members: MemberView[];
+  joins: JoinView[];
+  epoch: number;
+  /** Where the keys live, e.g. "Windows Credential Manager". */
+  keyStore: string;
+  transport: TeamTransport | null;
+  link: TeamLink | null;
 }
 
 export interface TeamConfigInput {
   enabled: boolean;
-  team?: string;
-  folder: string;
-  name: string;
-  members: string[];
   projects: string[];
+}
+
+/** Exactly one of `relay` / `folder` is non-empty. */
+export interface TeamCreateInput {
+  teamName: string;
+  name: string;
+  relay: string;
+  folder: string;
+}
+
+export interface TeamJoinInput {
+  link: string;
+  code: string;
+  name: string;
+  github?: string | null;
+}
+
+export interface InviteView {
+  link: string;
+  code: string;
+  expiresAtMs: number;
+}
+
+export interface MergePlan {
+  repo: string;
+  number: number;
+  title: string;
+  method: 'merge' | 'squash' | 'rebase';
+  /** "squashed into one commit" */
+  methodWords: string;
+  autoMergeOff: boolean;
 }
 
 export interface TeamApi {
   state: () => Promise<TeamState>;
   configGet: () => Promise<TeamConfigView>;
   configSet: (config: TeamConfigInput) => Promise<TeamConfigView>;
+  create: (input: TeamCreateInput) => Promise<TeamConfigView>;
+  invite: () => Promise<InviteView>;
+  join: (input: TeamJoinInput) => Promise<TeamConfigView>;
+  leave: () => Promise<TeamConfigView>;
+  approveJoin: (joinId: string) => Promise<TeamConfigView>;
+  declineJoin: (joinId: string) => Promise<TeamConfigView>;
+  removeMember: (memberId: string) => Promise<TeamConfigView>;
+  clearGaps: () => Promise<void>;
+  mergePlan: (cardId: string) => Promise<MergePlan>;
+  mergeWhenGreen: (cardId: string) => Promise<string>;
   send: (draftId: string, note?: string) => Promise<void>;
   dismissDraft: (draftId: string) => Promise<void>;
   dismissCard: (cardId: string) => Promise<void>;
@@ -164,6 +251,16 @@ export const teamApi: TeamApi = {
   state: () => call('team_state'),
   configGet: () => call('team_config_get'),
   configSet: (config) => call('team_config_set', { config }),
+  create: (input) => call('team_create', { input }),
+  invite: () => call('team_invite'),
+  join: (input) => call('team_join', { input }),
+  leave: () => call('team_leave'),
+  approveJoin: (joinId) => call('team_join_approve', { joinId }),
+  declineJoin: (joinId) => call('team_join_decline', { joinId }),
+  removeMember: (memberId) => call('team_member_remove', { memberId }),
+  clearGaps: () => call('team_gaps_clear'),
+  mergePlan: (cardId) => call('team_merge_plan', { cardId }),
+  mergeWhenGreen: (cardId) => call('team_merge_when_green', { cardId }),
   send: (draftId, note) => call('team_send', { draftId, note: note ?? null }),
   dismissDraft: (draftId) => call('team_draft_dismiss', { draftId }),
   dismissCard: (cardId) => call('team_card_dismiss', { cardId }),
@@ -195,6 +292,16 @@ export function cardTitle(event: TeamEvent): string {
   const pr = event.subject.pr;
   if (pr && (event.kind === 'pr_opened' || event.kind === 'pr_ready')) return `${who} opened #${pr.number}`;
   if (pr && event.kind === 'pr_updated') return `${who} updated #${pr.number}`;
+  if (pr && event.kind === 'pr_merged') {
+    const base = event.subject.base;
+    return base ? `${who}'s #${pr.number} merged into ${base}` : `#${pr.number} merged`;
+  }
+  if (pr && event.kind === 'pr_closed') return `#${pr.number} closed without merging`;
+  if (event.kind === 'ci_failed' || event.kind === 'ci_passed') {
+    const verb = event.kind === 'ci_failed' ? 'failed' : 'passed';
+    const on = pr ? `#${pr.number}` : (event.subject.branch ?? 'a branch');
+    return `Checks ${verb} on ${on}`;
+  }
   const branch = event.subject.branch ?? 'a branch';
   return event.subject.forced ? `${who} force-pushed ${branch}` : `${who} pushed ${branch}`;
 }
@@ -213,6 +320,8 @@ export function cardMeta(event: TeamEvent): string {
   if (event.subject.branch) parts.push(event.subject.base ? `${event.subject.branch} → ${event.subject.base}` : event.subject.branch);
   const stats = statsText(event.subject.stats);
   if (stats) parts.push(stats);
+  const failed = event.subject.ci?.failedJobs ?? [];
+  if (event.kind === 'ci_failed' && failed.length > 0) parts.push(`${failed.join(', ')} failed`);
   return parts.filter(Boolean).join(' · ');
 }
 
@@ -220,6 +329,9 @@ export function cardMeta(event: TeamEvent): string {
 export function isGithubPr(event: TeamEvent): boolean {
   return !!event.subject.pr && event.project.key.startsWith('github.com/');
 }
+
+/** A GitHub fact (merged, closed, checks) has no commit to pull, so the pull/queue note does not apply. */
+const hasNothingToPull = (event: TeamEvent): boolean => event.source === 'github' && !event.subject.commit;
 
 /** "Tell Leo", "Tell Leo and Sam", "Tell Leo, Sam and Priya", "Tell the team". */
 export function tellLabel(members: string[]): string {
@@ -242,14 +354,15 @@ export function draftTitle(draft: TeamDraft): string {
 /** Which actions a teammate card shows. At most two buttons, plus Dismiss. */
 export interface CardActions {
   primary: 'pull' | 'queue' | null;
-  /** "Merge when green", shown disabled in v0 (GitHub pull requests only). */
+  /** "Merge when green": an open GitHub pull request only. */
   mergeWhenGreen: boolean;
   /** Why nothing is offered (a plain sentence), when it isn't. */
   note: string | null;
 }
 
 export function cardActions(card: TeamCard): CardActions {
-  const mergeWhenGreen = isGithubPr(card.event);
+  const mergeWhenGreen = isGithubPr(card.event) && card.event.subject.pr?.state === 'open';
+  if (!card.local && hasNothingToPull(card.event)) return { primary: null, mergeWhenGreen, note: null };
   if (!card.local) return { primary: null, mergeWhenGreen, note: "This project isn't open here. Open an agent in it to pull or queue." };
   if (card.state === 'queued') return { primary: null, mergeWhenGreen, note: 'Queued for your agent.' };
   if (card.state === 'pulled') return { primary: null, mergeWhenGreen, note: 'Pulled.' };

@@ -158,6 +158,9 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
 
         ("POST", ["panes", _, "input" | "key" | "resize"]) => Need::Cap(Type),
 
+        // Team cards (`team::phone`): dismissing is an answer; pull, queue, apply, discard act.
+        ("POST", ["team", "cards", _, "dismiss"]) => Need::AnyOf(Answer, Control),
+
         // Holding a pane at this phone's size while it is on screen is part of watching.
         ("POST", ["panes", _, "viewport"] | ["orchestrator", "viewport"]) => Need::Cap(Watch),
         // Long-poll waits are reads sent as POST.

@@ -99,7 +99,7 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
 }
 
 /** iOS-style action sheet: a message, one confirm action and Cancel. */
-function ConfirmSheet({
+export function ConfirmSheet({
   title,
   message,
   confirmLabel,

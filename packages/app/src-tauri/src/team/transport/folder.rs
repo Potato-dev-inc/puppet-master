@@ -1,16 +1,25 @@
-//! `FolderTransport`: the v0 wire. Every event is one file `<ulid>.json` in a folder all teammates
-//! can reach (a shared or synced folder, or one folder for two profiles on one computer). A
-//! `notify` watcher wakes the reader; a slow rescan catches anything a network share's watcher
-//! misses. No server, no crypto: it is a demo and test transport, not the v1 product wire.
+//! `FolderTransport`: a shared folder as the wire (a synced or network folder, or one folder for two
+//! profiles on one computer). It is a relay without a server:
+//!
+//! ```text
+//! <folder>/envelopes/<ULID>.json   sealed, signed envelopes (pruned after 7 days)
+//! <folder>/state/<slot>.json       the signed `roster` and `keys` slots
+//! <folder>/joins/<random>.json     sealed join requests
+//! ```
+//!
+//! Since v1 everything in the folder is sealed and signed: a file someone drops in without a
+//! team device key is refused by `secure::Session::open` before it can become a card (v0 let
+//! anyone who could write the folder create one).
 //!
 //! Files are written to a dot-prefixed temp name and renamed into place, so a reader never sees
-//! half an event. Names that are not `<ULID>.json`, files over `MAX_EVENT_BYTES` and files that do
-//! not parse are skipped (once) without failing the others.
+//! half a file. Names that do not fit, files over the size limit and files that do not parse are
+//! skipped (once) without failing the others.
 
-use super::{Inbound, TeamTransport, TransportError};
-use crate::team::event::{is_event_id, TeamEvent, MAX_EVENT_BYTES};
+use super::{now_ms, Inbound, TeamTransport, TransportError};
+use crate::team::event::is_event_id;
 use notify::{RecursiveMode, Watcher};
 use parking_lot::Mutex;
+use pm_relay_protocol::{Envelope, JoinBox, SignedBlob, MAILBOX_TTL_MS, MAX_ENVELOPE_BYTES, MAX_JOIN_BYTES, MAX_STATE_BYTES, SLOTS};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,56 +40,72 @@ impl FolderTransport {
         Self { folder: folder.into(), stops: Mutex::new(Vec::new()) }
     }
 
-    fn file_name(id: &str) -> String {
-        format!("{id}.json")
+    fn envelopes(&self) -> PathBuf {
+        self.folder.join("envelopes")
     }
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+/// Write `bytes` to `dir/name` through a temp file and a rename.
+fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), TransportError> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| TransportError(format!("could not open the team folder {}: {e}", dir.display())))?;
+    let tmp = dir.join(format!(".{name}.{}.tmp", uuid::Uuid::new_v4().simple()));
+    std::fs::write(&tmp, bytes).map_err(|e| TransportError(format!("could not write to the team folder: {e}")))?;
+    std::fs::rename(&tmp, dir.join(name)).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        TransportError(format!("could not write to the team folder: {e}"))
+    })
 }
 
-/// The event id a file name carries, when it is an event file.
-fn event_id_of(name: &str) -> Option<&str> {
+fn read_capped(path: &Path, cap: usize) -> Option<Vec<u8>> {
+    let len = std::fs::metadata(path).ok()?.len() as usize;
+    if len > cap {
+        return None;
+    }
+    std::fs::read(path).ok()
+}
+
+/// The envelope id a file name carries.
+fn envelope_id_of(name: &str) -> Option<&str> {
     let id = name.strip_suffix(".json")?;
     is_event_id(id).then_some(id)
 }
 
-/// Read every not-yet-seen event file in `folder` and send it on `tx`. Returns false once the
-/// receiver is gone.
-fn scan(folder: &Path, seen: &mut HashSet<String>, tx: &Sender<Inbound>) -> bool {
-    let Ok(read) = std::fs::read_dir(folder) else {
+/// Read every not-yet-seen envelope file and send it on `tx`; prune files past the mailbox TTL.
+/// Returns false once the receiver is gone.
+fn scan(dir: &Path, seen: &mut HashSet<String>, tx: &Sender<Inbound>) -> bool {
+    let Ok(read) = std::fs::read_dir(dir) else {
         return true; // the folder may appear later (a share that mounts late)
     };
+    let now = now_ms();
     let mut names: Vec<String> = read
         .filter_map(Result::ok)
         .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|name| event_id_of(name).is_some() && !seen.contains(name))
+        .filter(|name| envelope_id_of(name).is_some() && !seen.contains(name))
         .collect();
     names.sort(); // ULIDs sort by time: oldest first
     for name in names {
-        let path = folder.join(&name);
-        let too_big = std::fs::metadata(&path).map(|m| m.len() as usize > MAX_EVENT_BYTES).unwrap_or(true);
+        let path = dir.join(&name);
         seen.insert(name.clone());
-        if too_big {
-            tracing::debug!(file = %name, "team: skipped an event file that is too large");
+        let old = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age.as_millis() as u64 > MAILBOX_TTL_MS);
+        if old {
+            let _ = std::fs::remove_file(&path);
             continue;
         }
-        let parsed = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<TeamEvent>(&bytes).ok());
-        let Some(event) = parsed else {
-            tracing::debug!(file = %name, "team: skipped an event file that does not parse");
+        let Some(envelope) = read_capped(&path, MAX_ENVELOPE_BYTES).and_then(|b| serde_json::from_slice::<Envelope>(&b).ok())
+        else {
+            tracing::debug!(file = %name, "team: skipped a folder file that is not an envelope");
             continue;
         };
-        // The name must match the id inside, so one file cannot pose as another event.
-        if event_id_of(&name) != Some(event.id.as_str()) {
+        // The name must match the id inside, so one file cannot pose as another.
+        if envelope_id_of(&name) != Some(envelope.id.as_str()) {
             continue;
         }
-        if tx.send(Inbound { event, received_at_ms: now_ms() }).is_err() {
+        if tx.send(Inbound { envelope, received_at_ms: now, cursor: 0 }).is_err() {
             return false;
         }
     }
@@ -92,31 +117,20 @@ impl TeamTransport for FolderTransport {
         "folder"
     }
 
-    fn send(&self, event: &TeamEvent) -> Result<(), TransportError> {
-        if !is_event_id(&event.id) {
-            return Err(TransportError("the event has no valid id".into()));
+    fn send(&self, envelope: &Envelope) -> Result<(), TransportError> {
+        envelope.check_shape().map_err(TransportError::new)?;
+        let json = serde_json::to_vec(envelope).map_err(|e| TransportError(e.to_string()))?;
+        if json.len() > MAX_ENVELOPE_BYTES {
+            return Err(TransportError::new("the update is too large to send"));
         }
-        let json = serde_json::to_vec_pretty(event).map_err(|e| TransportError(e.to_string()))?;
-        if json.len() > MAX_EVENT_BYTES {
-            return Err(TransportError("the event is too large to send".into()));
-        }
-        std::fs::create_dir_all(&self.folder)
-            .map_err(|e| TransportError(format!("could not open the team folder {}: {e}", self.folder.display())))?;
-        let name = Self::file_name(&event.id);
-        let tmp = self.folder.join(format!(".{name}.tmp"));
-        std::fs::write(&tmp, &json)
-            .map_err(|e| TransportError(format!("could not write to the team folder: {e}")))?;
-        std::fs::rename(&tmp, self.folder.join(&name)).map_err(|e| {
-            let _ = std::fs::remove_file(&tmp);
-            TransportError(format!("could not write to the team folder: {e}"))
-        })
+        write_atomic(&self.envelopes(), &format!("{}.json", envelope.id), &json)
     }
 
-    fn subscribe(&self) -> Result<Receiver<Inbound>, TransportError> {
+    fn subscribe(&self, _after: u64) -> Result<Receiver<Inbound>, TransportError> {
         let (tx, rx) = mpsc::channel::<Inbound>();
         let stop = Arc::new(AtomicBool::new(false));
         self.stops.lock().push(stop.clone());
-        let folder = self.folder.clone();
+        let dir = self.envelopes();
         std::thread::Builder::new()
             .name("team-folder".into())
             .spawn(move || {
@@ -132,12 +146,12 @@ impl TeamTransport for FolderTransport {
                     if stop.load(Ordering::SeqCst) {
                         break;
                     }
-                    if !watching && folder.is_dir() {
+                    if !watching && dir.is_dir() {
                         if let Some(w) = watcher.as_mut() {
-                            watching = w.watch(&folder, RecursiveMode::NonRecursive).is_ok();
+                            watching = w.watch(&dir, RecursiveMode::NonRecursive).is_ok();
                         }
                     }
-                    if !scan(&folder, &mut seen, &tx) {
+                    if !scan(&dir, &mut seen, &tx) {
                         break;
                     }
                     match wake_rx.recv_timeout(RESCAN) {
@@ -153,6 +167,63 @@ impl TeamTransport for FolderTransport {
             })
             .map_err(|e| TransportError(format!("could not start the team folder reader: {e}")))?;
         Ok(rx)
+    }
+
+    fn put_state(&self, blob: &SignedBlob) -> Result<(), TransportError> {
+        if !SLOTS.contains(&blob.slot.as_str()) {
+            return Err(TransportError::new("unknown state slot"));
+        }
+        // Never go back: an older version does not replace a newer one.
+        if let Ok(Some(current)) = self.get_state(&blob.slot) {
+            if current.version > blob.version {
+                return Err(TransportError::new("a newer team list is already there"));
+            }
+        }
+        let json = serde_json::to_vec(blob).map_err(|e| TransportError(e.to_string()))?;
+        write_atomic(&self.folder.join("state"), &format!("{}.json", blob.slot), &json)
+    }
+
+    fn get_state(&self, slot: &str) -> Result<Option<SignedBlob>, TransportError> {
+        if !SLOTS.contains(&slot) {
+            return Err(TransportError::new("unknown state slot"));
+        }
+        let path = self.folder.join("state").join(format!("{slot}.json"));
+        if !path.exists() {
+            return Ok(None);
+        }
+        let bytes = read_capped(&path, MAX_STATE_BYTES).ok_or_else(|| TransportError::new("the team list is too large"))?;
+        serde_json::from_slice(&bytes).map(Some).map_err(|_| TransportError::new("the team list in the folder is damaged"))
+    }
+
+    fn post_join(&self, join: &JoinBox) -> Result<(), TransportError> {
+        join.check_shape().map_err(TransportError::new)?;
+        let json = serde_json::to_vec(join).map_err(|e| TransportError(e.to_string()))?;
+        if json.len() > MAX_JOIN_BYTES {
+            return Err(TransportError::new("the request is too large"));
+        }
+        write_atomic(&self.folder.join("joins"), &format!("{}.json", uuid::Uuid::new_v4().simple()), &json)
+    }
+
+    fn joins(&self) -> Result<Vec<JoinBox>, TransportError> {
+        let dir = self.folder.join("joins");
+        let Ok(read) = std::fs::read_dir(&dir) else { return Ok(Vec::new()) };
+        let now = now_ms();
+        let mut out = Vec::new();
+        for entry in read.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(join) = read_capped(&path, MAX_JOIN_BYTES).and_then(|b| serde_json::from_slice::<JoinBox>(&b).ok()) else {
+                continue;
+            };
+            if join.at_ms + pm_relay_protocol::JOIN_TTL_MS < now {
+                let _ = std::fs::remove_file(&path);
+                continue;
+            }
+            out.push(join);
+        }
+        Ok(out)
     }
 
     fn stop(&self) {

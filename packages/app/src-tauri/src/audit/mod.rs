@@ -47,6 +47,14 @@ pub enum Kind {
     GateDismissal,
     Merge,
     Setting,
+    /// Team ("Heads-up", `crate::team`): `team.sent`, `team.received`, `team.action`,
+    /// `team.joined`, `team.role_changed`, `team.key_rotated`.
+    TeamSent,
+    TeamReceived,
+    TeamAction,
+    TeamJoined,
+    TeamRoleChanged,
+    TeamKeyRotated,
 }
 
 impl Kind {
@@ -60,6 +68,12 @@ impl Kind {
             Self::GateDismissal => "gate_dismissal",
             Self::Merge => "merge",
             Self::Setting => "setting",
+            Self::TeamSent => "team.sent",
+            Self::TeamReceived => "team.received",
+            Self::TeamAction => "team.action",
+            Self::TeamJoined => "team.joined",
+            Self::TeamRoleChanged => "team.role_changed",
+            Self::TeamKeyRotated => "team.key_rotated",
         }
     }
 }
@@ -75,6 +89,8 @@ pub enum Who {
     Agent(String),
     /// A program on this computer with no MCP connection and no pairing (the plain loopback bridge).
     Local,
+    /// A teammate (Team), by the first characters of their member key.
+    Teammate(String),
 }
 
 impl Who {
@@ -85,6 +101,7 @@ impl Who {
             // A shortened connection id: enough to tell two agents apart, not a credential.
             Self::Agent(session) => ("agent", Some(session.chars().take(8).collect())),
             Self::Local => ("local", None),
+            Self::Teammate(member) => ("teammate", Some(member.chars().take(8).collect())),
         }
     }
 }
