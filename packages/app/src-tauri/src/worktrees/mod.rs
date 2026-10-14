@@ -888,7 +888,12 @@ fn remove_checkout(reference: &WorktreeRef, merged: bool) -> Result<(), Operatio
             let _ = git_raw(&origin, &["branch", "-D", &reference.branch], &[]);
         }
     }
-    let _ = std::fs::remove_file(meta_path(&origin, &dir_name_of(reference)));
+    let dir_name = dir_name_of(reference);
+    let _ = std::fs::remove_file(meta_path(&origin, &dir_name));
+    // The setup output and a leftover pull request text belong to the copy and go with it.
+    for suffix in ["setup.log", "pr-body.md"] {
+        let _ = std::fs::remove_file(worktrees_root(&origin).join(format!("{dir_name}.{suffix}")));
+    }
     Ok(())
 }
 

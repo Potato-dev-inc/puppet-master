@@ -289,11 +289,15 @@ fn a_new_copy_runs_the_setup_in_the_copy_and_logs_it() {
     assert_eq!(git(Path::new(&worktree.cwd), &["config", "--get", "pm.setup-ran"]), "yes");
     // Not silent: the full output is in a log next to the copy, and the receipt sentence says so.
     let log = Path::new(&worktree.path).parent().unwrap().join(setup.log.as_ref().unwrap());
-    assert!(std::fs::read_to_string(log).unwrap().contains("$ git config pm.setup-ran yes"));
+    assert!(std::fs::read_to_string(&log).unwrap().contains("$ git config pm.setup-ran yes"));
     assert!(setup.sentence().contains("Ran git config"), "{}", setup.sentence());
     // The record survives a restart (it is in the worktree's description file).
     let listed = list(&project_str(&root));
     assert_eq!(listed[0].worktree.setup.as_ref().unwrap().status, "ok");
+    // The log goes with the copy when it is discarded.
+    assert!(log.is_file());
+    discard(&worktree).unwrap();
+    assert!(!log.exists(), "the setup log is removed with the copy");
 }
 
 #[test]
@@ -759,4 +763,96 @@ fn the_preset_type_round_trips() {
     let (_guard, root) = repo();
     preset::save(&root, &preset).unwrap();
     assert_eq!(preset::load(&root).unwrap(), preset);
+}
+
+// ------------------------------------------------------------------------------------ live check
+
+/// The live check: a real project (`PM_LIVE_PROJECT`, run against D:\pm-demo), real `git`, real `npm` and
+/// `node`, a preset, a separate copy, a pretend agent edit, and Create PR through the FAKE `gh` into a
+/// temporary bare repository. No real GitHub call is made and no agent turn is spent. Everything it
+/// touches in the project is put back. Run: `PM_LIVE_PROJECT=D:/pm-demo cargo test --lib live_demo -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn live_demo_a_preset_a_copy_and_a_draft_pr_through_a_fake_gh() {
+    let Ok(project) = std::env::var("PM_LIVE_PROJECT") else { return };
+    let project_dir = PathBuf::from(&project);
+    let toml_path = project_dir.join(".puppet-master/project.toml");
+    let before_toml = std::fs::read_to_string(&toml_path).ok();
+    let env_path = project_dir.join(".env");
+    assert!(!env_path.exists(), "the live project already has a .env; refusing to overwrite it");
+    let bare = temp_dir("live-origin");
+    let _bare_guard = Dir(bare.clone());
+    git(&bare, &["init", "-q", "--bare", "-b", "main"]);
+    let had_origin = Command::new("git").args(["remote", "get-url", "origin"]).current_dir(&project_dir).output().map(|o| o.status.success()).unwrap_or(false);
+    assert!(!had_origin, "the live project already has an origin remote");
+
+    write(&project_dir, ".env", "LIVE_SECRET=demo\n");
+    write_project_toml(
+        &project_dir,
+        "[worktree]\nsetup = [[\"node\", \"--version\"], [\"npm\", \"--version\"], [\"node\", \"-p\", \"40+2\"]]\ncopy = [\".env\"]\nrun = [\"npm\", \"test\"]\n",
+    );
+    git(&project_dir, &["remote", "add", "origin", &bare.to_string_lossy()]);
+
+    let handle = format!("live-{}", &uuid::Uuid::new_v4().to_string()[..6]);
+    let result = std::panic::catch_unwind(|| {
+        let started = std::time::Instant::now();
+        let worktree = create(&project, &handle).expect("worktree");
+        let setup = worktree.setup.clone().expect("setup ran");
+        println!("LIVE setup status={} took={}ms", setup.status, started.elapsed().as_millis());
+        for step in &setup.steps {
+            println!("LIVE   step `{}` ok={} exit={:?} {}ms", step.command, step.ok, step.exit_code, step.duration_ms);
+        }
+        println!("LIVE   copied={:?} not_copied={:?}", setup.copied, setup.not_copied);
+        println!("LIVE   sentence: {}", setup.sentence());
+        let log = Path::new(&worktree.path).parent().unwrap().join(setup.log.as_ref().unwrap());
+        println!("LIVE   log {} ({} bytes)", log.display(), std::fs::metadata(&log).map(|m| m.len()).unwrap_or(0));
+        assert_eq!(setup.status, "ok", "{setup:?}");
+        assert!(Path::new(&worktree.cwd).join(".env").is_file());
+
+        // A pretend agent turn: one edit in the copy (no real agent was run).
+        write(Path::new(&worktree.cwd), "live-note.txt", "written in the copy\n");
+        let gh = FakeGh::new();
+        let facts = PrFacts {
+            task: Some("Live check of Create PR".into()),
+            summary: Some("A pretend agent added live-note.txt.".into()),
+            files: vec![("live-note.txt".into(), 1, 0)],
+            files_total: 1,
+            additions: 1,
+            checks: Some("1/1 passed".into()),
+            setup: Some(setup.sentence()),
+            ..Default::default()
+        };
+        assert!(commit_pending(&worktree).unwrap());
+        let made = pr::create(&worktree, &pr::default_title(&facts, &worktree.branch), &pr::render_body(&facts), "master", &gh.env()).expect("pr");
+        println!("LIVE PR #{} {} draft={}", made.number, made.url, made.draft);
+        println!("LIVE   remote branches: {}", git(&bare, &["branch", "--list"]).replace('\n', " | "));
+        println!("LIVE   gh calls: {}", gh.calls().replace("\r\n", " || ").replace('\n', " || "));
+        println!("LIVE   body sent to gh:\n{}", gh.body());
+        let tree = git(Path::new(&worktree.cwd), &["ls-tree", "-r", "--name-only", &worktree.branch]);
+        assert!(!tree.contains(".env"), ".env must never be in the branch: {tree}");
+        println!("LIVE   .env in the pushed branch: no (tree has {} files)", tree.lines().count());
+        assert!(git(&bare, &["branch", "--list"]).contains(&worktree.branch));
+        discard(&worktree).expect("discard");
+    });
+
+    // Put the project back exactly as it was.
+    let _ = Command::new("git").args(["remote", "remove", "origin"]).current_dir(&project_dir).output();
+    let _ = std::fs::remove_file(&env_path);
+    match before_toml {
+        Some(text) => std::fs::write(&toml_path, text).unwrap(),
+        None => {
+            let _ = std::fs::remove_file(&toml_path);
+        }
+    }
+    let exclude = project_dir.join(".git/info/exclude");
+    if let Ok(text) = std::fs::read_to_string(&exclude) {
+        let kept: Vec<&str> = text
+            .lines()
+            .filter(|l| l.trim() != "/.env" && l.trim() != "# Puppet Master: files copied into separate copies (never committed)")
+            .collect();
+        let _ = std::fs::write(&exclude, kept.join("\n") + "\n");
+    }
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
 }
