@@ -5,8 +5,9 @@ import { Sheet } from '../Sheet';
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /**
- * "Merge #142 when its checks pass?" The plan (repo, method, whether auto-merge is on) is read when the
- * sheet opens; nothing is asked of GitHub until the button is clicked. GitHub does the merge, not this app.
+ * "Merge #142 when its checks pass?" The plan is read from GitHub when the sheet opens (repository, title,
+ * author, branch and the commit it is at), never from the card. Confirming arms GitHub's auto-merge at that
+ * commit only. GitHub does the merge, not this app.
  */
 export function MergeSheet({
   card,
@@ -38,10 +39,11 @@ export function MergeSheet({
   }, [api, cardId]);
 
   const submit = async () => {
+    if (!plan) return;
     setBusy(true);
     setError(null);
     try {
-      onDone(await api.mergeWhenGreen(cardId));
+      onDone(await api.mergeWhenGreen(cardId, plan.headSha));
     } catch (err) {
       setError(errText(err));
       setBusy(false);
@@ -56,8 +58,12 @@ export function MergeSheet({
       {plan ? (
         <>
           <p className="ck-sub">{plan.title}</p>
+          <p className="ck-team-meta ck-team-merge-facts">
+            {plan.repo} · by {plan.author || 'unknown'} · {plan.headRef} → {plan.baseRef} · at commit {plan.headSha.slice(0, 7)}
+          </p>
           <p className="ck-team-meta">
-            GitHub merges it {plan.methodWords} once the required checks pass and branch protection allows it. Puppet Master never merges by itself.
+            GitHub merges it {plan.methodWords} once the required checks pass and branch protection allows it. If anyone pushes to it
+            first, nothing is merged. Puppet Master never merges by itself.
           </p>
           {plan.autoMergeOff && (
             <p className="ck-team-meta">Auto-merge is off for {plan.repo}. An admin can turn it on in GitHub.</p>

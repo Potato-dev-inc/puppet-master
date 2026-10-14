@@ -183,3 +183,74 @@ fn after_a_quiet_week_the_next_envelope_still_arrives() {
         wire.stop();
     }
 }
+
+// ---------------------------------------------------------------- M2: merge when green, steered
+
+/// A `gh` answering from the recorded fixtures; records every call.
+#[derive(Default)]
+struct FakeGh {
+    calls: parking_lot::Mutex<Vec<String>>,
+}
+
+fn fixture(name: &str) -> String {
+    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/team/fixtures/gh").join(name)).unwrap()
+}
+
+impl super::sources::github::Gh for FakeGh {
+    fn api(&self, path: &str, _etag: Option<&str>) -> Result<super::sources::github::GhResponse, String> {
+        self.calls.lock().push(format!("api {path}"));
+        let text = if path == "repos/cli/cli/pulls/14640" {
+            fixture("pull-14640.txt")
+        } else if path.contains("/pulls/") {
+            "HTTP/2.0 404 Not Found\n\n{\"message\":\"Not Found\"}".into()
+        } else {
+            "HTTP/2.0 200 OK\n\n{\"allow_merge_commit\":false,\"allow_squash_merge\":true,\"allow_auto_merge\":true}".into()
+        };
+        Ok(super::sources::github::parse_include(&text).unwrap())
+    }
+
+    fn run(&self, args: &[&str]) -> Result<String, String> {
+        self.calls.lock().push(format!("run {}", args.join(" ")));
+        Ok(String::new())
+    }
+}
+
+/// The card says #14640 in cli/cli is "Fix README typo"; GitHub says otherwise.
+fn pr_card(source: EventSource) -> TeamEvent {
+    let mut e = push_event(&person("maya"), "T", NOW);
+    e.kind = TeamEventKind::PrOpened;
+    e.project.key = "github.com/cli/cli".into();
+    e.subject.commit = None;
+    e.subject.pr = Some(PrRef {
+        number: 14640,
+        title: "Fix README typo".into(),
+        url: "https://github.com/cli/cli/pull/14640".into(),
+        state: "open".into(),
+        draft: false,
+        files: None,
+        additions: None,
+        deletions: None,
+    });
+    e.source = source;
+    e
+}
+
+#[test]
+fn merge_when_green_shows_githubs_pull_request_and_arms_only_that_commit() {
+    use super::merge_green;
+    // A teammate's card (their words: repo, number, title) never reaches gh.
+    let gh = FakeGh::default();
+    assert!(merge_green::plan(&gh, &pr_card(EventSource::Pm)).is_err(), "a teammate's card can't arm a merge");
+    assert!(merge_green::plan(&gh, &pr_card(EventSource::Git)).is_err());
+    assert!(gh.calls.lock().iter().all(|c| !c.starts_with("run ")));
+
+    // A GitHub fact card: the sheet is built from GitHub's own answer, not the card's title.
+    let plan = merge_green::plan(&gh, &pr_card(EventSource::Github)).unwrap();
+    assert_eq!(plan.repo, "cli/cli");
+    assert_eq!(plan.title, "`gh issue artifact` stack 11/12: Address review feedback");
+    assert!(gh.calls.lock().iter().any(|c| c == "api repos/cli/cli/pulls/14640"), "the pull request is fetched");
+    let args = merge_green::arm_args(&plan);
+    let at = args.iter().position(|a| a == "--match-head-commit").expect("bound to the head commit");
+    assert_eq!(args[at + 1], "e04bc0145a89bb85472ac53fa26cedc9f64a326f");
+    assert!(args.contains(&"--auto".to_string()));
+}

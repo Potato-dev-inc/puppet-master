@@ -1694,15 +1694,17 @@ pub fn merge_plan(card_id: &str) -> Result<merge_green::MergePlan, String> {
     merge_green::plan(svc.gh.as_ref(), &card.event)
 }
 
-/// **Merge when green**, after the sheet: arm GitHub's auto-merge. Never merges by itself.
-pub fn merge_when_green(card_id: &str) -> Result<String, String> {
+/// **Merge when green**, after the sheet: arm GitHub's auto-merge at the commit the sheet showed
+/// (`head_sha`). Never merges by itself.
+pub fn merge_when_green(card_id: &str, head_sha: &str) -> Result<String, String> {
     let svc = service()?;
     let card = svc.inner.lock().store.card(card_id).cloned().ok_or("That card is gone.")?;
     let plan = merge_green::plan(svc.gh.as_ref(), &card.event)?;
+    merge_green::check_shown(&plan, head_sha)?;
     let message = merge_green::arm(svc.gh.as_ref(), &plan)?;
     audit_action(
         &format!("Armed GitHub auto-merge for #{} in {}", plan.number, plan.repo),
-        json!({ "card": card_id, "pr": plan.number, "repo": plan.repo, "method": plan.method }),
+        json!({ "card": card_id, "pr": plan.number, "repo": plan.repo, "method": plan.method, "head": plan.head_sha }),
         &Who::Desktop,
     );
     Ok(message)

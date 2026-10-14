@@ -112,6 +112,6 @@ pub async fn team_merge_plan(card_id: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn team_merge_when_green(card_id: String) -> Result<Value, String> {
-    blocking(move || service::merge_when_green(&card_id)).await
+pub async fn team_merge_when_green(card_id: String, head_sha: String) -> Result<Value, String> {
+    blocking(move || service::merge_when_green(&card_id, &head_sha)).await
 }

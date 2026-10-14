@@ -23,7 +23,18 @@ afterEach(() => {
   host.remove();
 });
 
-const PLAN: MergePlan = { repo: 'acme/billing-service', number: 142, title: 'Invoice PDF export', method: 'squash', methodWords: 'squashed into one commit', autoMergeOff: false };
+const PLAN: MergePlan = {
+  repo: 'acme/billing-service',
+  number: 144,
+  title: 'Round invoice totals to cents',
+  author: 'priya-dev',
+  headRef: 'fix/rounding',
+  headSha: 'e04bc0145a89bb85472ac53fa26cedc9f64a326f',
+  baseRef: 'main',
+  method: 'squash',
+  methodWords: 'squashed into one commit',
+  autoMergeOff: false,
+};
 
 function fakeApi(overrides: Partial<TeamApi> = {}): TeamApi & { calls: string[] } {
   const calls: string[] = [];
@@ -129,16 +140,20 @@ describe('TeamCard states', () => {
     expect(host.textContent).toContain('Queued for your agent.');
   });
 
-  it('offers Merge when green on an open GitHub PR only', () => {
-    renderCard(TEAM_CARDS[1]);
+  it('offers Merge when green on an open pull request GitHub told this app about, never on a teammate card', () => {
+    renderCard(GITHUB_CARDS[0]);
     expect(button('Merge when green')!.disabled).toBe(false);
     expect(cardActions(CI_FAILED_CARD).mergeWhenGreen).toBe(true);
+    // A teammate's card about a pull request (their repo, number and title): no button.
+    expect(cardActions(TEAM_CARDS[1]).mergeWhenGreen).toBe(false);
+    renderCard(TEAM_CARDS[1]);
+    expect(button('Merge when green')).toBeUndefined();
     // Merged, closed, or not a pull request: nothing to merge.
     renderCard(GITHUB_CARDS[1]);
     expect(button('Merge when green')).toBeUndefined();
     expect(buttons()).toEqual(['Dismiss']);
     expect(host.textContent).not.toContain("isn't open here");
-    const closed = { ...TEAM_CARDS[1], event: { ...SAM_PR, subject: { ...SAM_PR.subject, pr: { ...SAM_PR.subject.pr!, state: 'closed' } } } };
+    const closed = { ...GITHUB_CARDS[0], event: { ...GITHUB_PR_OPEN, subject: { ...GITHUB_PR_OPEN.subject, pr: { ...GITHUB_PR_OPEN.subject.pr!, state: 'closed' } } } };
     expect(cardActions(closed).mergeWhenGreen).toBe(false);
     renderCard(card);
     expect(button('Merge when green')).toBeUndefined();
@@ -169,7 +184,7 @@ describe('TeamCard states', () => {
 });
 
 describe('Merge when green', () => {
-  const pr = TEAM_CARDS[1];
+  const pr = GITHUB_CARDS[0];
 
   it('reads the plan when the sheet opens and merges nothing until confirmed', async () => {
     const api = renderCard(pr);
@@ -177,13 +192,15 @@ describe('Merge when green', () => {
     await act(async () => button('Merge when green')!.click());
     await flush();
     expect(api.calls).toEqual([`mergePlan("${pr.id}")`]);
-    expect(host.textContent).toContain('Merge #142 when its checks pass?');
-    expect(host.textContent).toContain('Invoice PDF export');
-    expect(host.textContent).toContain('GitHub merges it squashed into one commit once the required checks pass and branch protection allows it. Puppet Master never merges by itself.');
+    expect(host.textContent).toContain('Merge #144 when its checks pass?');
+    // GitHub's own facts: repository, author, branches and the commit the arm is bound to.
+    expect(host.textContent).toContain('Round invoice totals to cents');
+    expect(host.textContent).toContain('acme/billing-service · by priya-dev · fix/rounding → main · at commit e04bc01');
+    expect(host.textContent).toContain('GitHub merges it squashed into one commit once the required checks pass and branch protection allows it. If anyone pushes to it first, nothing is merged. Puppet Master never merges by itself.');
     expect(host.textContent).not.toContain('Auto-merge is off');
     await act(async () => sheetButton('Merge when green')!.click());
     await flush();
-    expect(api.calls).toEqual([`mergePlan("${pr.id}")`, `mergeWhenGreen("${pr.id}")`]);
+    expect(api.calls).toEqual([`mergePlan("${pr.id}")`, `mergeWhenGreen("${pr.id}","${PLAN.headSha}")`]);
     // The sheet closes and the card says what GitHub will do.
     expect(host.querySelector('.ck-sheet')).toBeNull();
     expect(host.textContent).toContain('GitHub will merge #142 when its checks pass. Nothing was merged yet.');

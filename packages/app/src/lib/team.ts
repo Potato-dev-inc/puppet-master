@@ -203,10 +203,18 @@ export interface InviteView {
   expiresAtMs: number;
 }
 
+/** The "Merge when green" sheet: every field but the method is GitHub's own answer, not the card's. */
 export interface MergePlan {
+  /** owner/repo */
   repo: string;
   number: number;
   title: string;
+  /** GitHub login of the pull request's author. */
+  author: string;
+  headRef: string;
+  /** The commit the pull request is at; the arm is bound to it. */
+  headSha: string;
+  baseRef: string;
   method: 'merge' | 'squash' | 'rebase';
   /** "squashed into one commit" */
   methodWords: string;
@@ -226,7 +234,8 @@ export interface TeamApi {
   removeMember: (memberId: string) => Promise<TeamConfigView>;
   clearGaps: () => Promise<void>;
   mergePlan: (cardId: string) => Promise<MergePlan>;
-  mergeWhenGreen: (cardId: string) => Promise<string>;
+  /** Arms auto-merge at `headSha`, the commit the sheet showed. */
+  mergeWhenGreen: (cardId: string, headSha: string) => Promise<string>;
   send: (draftId: string, note?: string) => Promise<void>;
   dismissDraft: (draftId: string) => Promise<void>;
   dismissCard: (cardId: string) => Promise<void>;
@@ -260,7 +269,7 @@ export const teamApi: TeamApi = {
   removeMember: (memberId) => call('team_member_remove', { memberId }),
   clearGaps: () => call('team_gaps_clear'),
   mergePlan: (cardId) => call('team_merge_plan', { cardId }),
-  mergeWhenGreen: (cardId) => call('team_merge_when_green', { cardId }),
+  mergeWhenGreen: (cardId, headSha) => call('team_merge_when_green', { cardId, headSha }),
   send: (draftId, note) => call('team_send', { draftId, note: note ?? null }),
   dismissDraft: (draftId) => call('team_draft_dismiss', { draftId }),
   dismissCard: (cardId) => call('team_card_dismiss', { cardId }),
@@ -354,14 +363,15 @@ export function draftTitle(draft: TeamDraft): string {
 /** Which actions a teammate card shows. At most two buttons, plus Dismiss. */
 export interface CardActions {
   primary: 'pull' | 'queue' | null;
-  /** "Merge when green": an open GitHub pull request only. */
+  /** "Merge when green": an open pull request on a card this app learned from GitHub itself (never a teammate's). */
   mergeWhenGreen: boolean;
   /** Why nothing is offered (a plain sentence), when it isn't. */
   note: string | null;
 }
 
 export function cardActions(card: TeamCard): CardActions {
-  const mergeWhenGreen = isGithubPr(card.event) && card.event.subject.pr?.state === 'open';
+  // A teammate's card can name any repository, number and title, so only GitHub's own facts offer it.
+  const mergeWhenGreen = card.event.source === 'github' && isGithubPr(card.event) && card.event.subject.pr?.state === 'open';
   if (!card.local && hasNothingToPull(card.event)) return { primary: null, mergeWhenGreen, note: null };
   if (!card.local) return { primary: null, mergeWhenGreen, note: "This project isn't open here. Open an agent in it to pull or queue." };
   if (card.state === 'queued') return { primary: null, mergeWhenGreen, note: 'Queued for your agent.' };

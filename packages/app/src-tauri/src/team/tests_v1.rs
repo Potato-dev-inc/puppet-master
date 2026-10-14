@@ -768,7 +768,9 @@ struct FakeGh {
 impl Gh for FakeGh {
     fn api(&self, path: &str, etag: Option<&str>) -> Result<GhResponse, String> {
         self.calls.lock().push(format!("api {path} etag={}", etag.unwrap_or("-")));
-        let text = if path.contains("/pulls") {
+        let text = if path == "repos/cli/cli/pulls/14640" {
+            fixture("pull-14640.txt")
+        } else if path.contains("/pulls") {
             if etag.is_some() { fixture("pulls-304.txt") } else { fixture("pulls-200.txt") }
         } else if path.contains("/check-runs") {
             fixture("checks-passed.txt")
@@ -829,22 +831,33 @@ fn pr_event(state: &str, key: &str) -> TeamEvent {
 #[test]
 fn merge_when_green_only_arms_githubs_auto_merge() {
     let gh = FakeGh::default();
-    let plan = merge_green::plan(&gh, &pr_event("open", "github.com/acme/billing")).unwrap();
+    let mut card = pr_event("open", "github.com/cli/cli");
+    card.source = EventSource::Github;
+    card.subject.pr.as_mut().unwrap().number = 14640;
+    let plan = merge_green::plan(&gh, &card).unwrap();
     assert_eq!(plan.method, merge_green::Method::Squash, "the repository allows squash only");
+    let head = "e04bc0145a89bb85472ac53fa26cedc9f64a326f";
     let args = merge_green::arm_args(&plan);
-    assert_eq!(args, vec!["pr", "merge", "142", "--auto", "--squash", "--repo", "acme/billing"]);
+    assert_eq!(args, vec!["pr", "merge", "14640", "--auto", "--squash", "--match-head-commit", head, "--repo", "cli/cli"]);
     let message = merge_green::arm(&gh, &plan).unwrap();
     assert!(message.contains("when its checks pass") && message.contains("Nothing was merged"));
     let runs: Vec<String> = gh.calls.lock().iter().filter(|c| c.starts_with("run ")).cloned().collect();
-    assert_eq!(runs, vec!["run pr merge 142 --auto --squash --repo acme/billing"]);
+    assert_eq!(runs, vec![format!("run pr merge 14640 --auto --squash --match-head-commit {head} --repo cli/cli")]);
     assert!(runs.iter().all(|r| r.contains("--auto")), "never a direct merge");
+    // The click must name the commit the sheet showed.
+    assert!(merge_green::check_shown(&plan, head).is_ok());
+    assert!(merge_green::check_shown(&plan, "1111111111111111111111111111111111111111").unwrap_err().contains("changed since you looked"));
+    assert!(merge_green::check_shown(&plan, "").is_err());
 
-    // Not for merged or closed PRs, not for other forges, not without a PR.
-    assert!(merge_green::plan(&gh, &pr_event("merged", "github.com/acme/billing")).is_err());
-    assert!(merge_green::plan(&gh, &pr_event("open", "gitlab.com/acme/billing")).is_err());
-    let mut push = pr_event("open", "github.com/acme/billing");
+    // Not for other forges, not without a PR, not for a pull request GitHub doesn't show.
+    let mut other = card.clone();
+    other.project.key = "gitlab.com/acme/billing".into();
+    assert!(merge_green::plan(&gh, &other).is_err());
+    let mut push = card.clone();
     push.subject.pr = None;
     assert!(merge_green::plan(&gh, &push).is_err());
+    assert!(merge_green::offered(&card));
+    assert!(!merge_green::offered(&pr_event("open", "github.com/cli/cli")), "never on a teammate's card");
 
     // GitHub says auto-merge is off: a plain sentence.
     let off = FakeGh { run_error: Some("GraphQL: Auto merge is not allowed for this repository (enablePullRequestAutoMerge)".into()), ..FakeGh::default() };
