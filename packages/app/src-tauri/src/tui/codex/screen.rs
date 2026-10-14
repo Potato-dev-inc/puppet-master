@@ -388,6 +388,10 @@ mod tests {
             assert_eq!(gate.id, id);
             assert_eq!(gate.dismiss, None, "{id} needs the user");
         }
+        // The live 0.162 wording ("Trust this folder? ... 1. Trust and continue") has the composer glyph
+        // on its selected row, so it must be a gate and a standby dialog, never read as a composer.
+        assert_eq!(standby_screen(LIVE_TRUST_FOLDER), StandbyScreen::Dialog);
+        assert!(crate::pane_prompt::dispatch_blocker("codex", LIVE_TRUST_FOLDER).is_some());
         // A command approval is a prompt (`pane_prompt`), not a startup screen.
         assert_eq!(startup_gate(APPROVAL), None);
     }
