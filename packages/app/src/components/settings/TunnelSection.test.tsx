@@ -44,7 +44,7 @@ describe('tunnel model', () => {
     expect(statusLine(null).text).toMatch(/desktop app/);
     expect(statusLine({ ...named, state: 'starting' }).text).toBe('Starting…');
     expect(statusLine({ ...named, state: 'error', error: 'Cloudflare rejected the tunnel token.' }).tone).toBe('bad');
-    expect(statusLine({ ...quick, mode: 'env' }).text).toContain('PUPPET_MASTER_PUBLIC_URL');
+    expect(statusLine({ ...quick, mode: 'env' }).text).toContain('set outside the app');
   });
 });
 

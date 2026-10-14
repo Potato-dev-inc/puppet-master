@@ -86,9 +86,9 @@ export function CreatePrSheet({
           <p className="ck-sub" role="status">
             {blocked.text}
           </p>
-          {(blocked.command || prepared?.gh === 'missing') && (
+          {(blocked.command || blocked.byHand) && (
             <>
-              <p className="ck-sub">{blocked.command ? 'Command' : 'Or do it by hand'}</p>
+              <p className="ck-sub">{blocked.heading ?? (blocked.command ? 'Command' : 'Or do it by hand')}</p>
               <pre className="ck-pr-command">{blocked.command ?? command}</pre>
               <button type="button" className="ck-btn ck-btn--secondary ck-pr-copy" onClick={copy}>
                 {copied ? 'Copied' : 'Copy the command'}

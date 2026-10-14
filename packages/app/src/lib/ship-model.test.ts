@@ -45,8 +45,15 @@ describe('cannotCreate', () => {
   it('explains a missing gh, a signed-out gh and a project that is not on GitHub', () => {
     expect(cannotCreate(prepared({ gh: 'missing' }))?.text).toContain('GitHub command line');
     expect(cannotCreate(prepared({ gh: 'signed_out' }))).toEqual({ text: expect.stringContaining('Sign in to GitHub first'), command: 'gh auth login' });
-    expect(cannotCreate(prepared({ has_remote: false }))?.text).toContain("isn't on GitHub");
     expect(cannotCreate(prepared({ on_github: false }))?.text).toContain("isn't on GitHub");
+  });
+  it('a project with no GitHub remote is told so, and gets the commands for when it adds one', () => {
+    const blocked = cannotCreate(prepared({ has_remote: false, on_github: false }));
+    expect(blocked?.text).toContain('no GitHub remote');
+    expect(blocked?.text).toContain('Merge into the main branch');
+    expect(blocked?.byHand).toBe(true);
+    expect(blocked?.heading).toContain('git remote add origin');
+    expect(blocked?.text.length).toBeLessThan(200);
   });
 });
 

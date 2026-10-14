@@ -65,7 +65,7 @@ afterEach(() => {
 describe('MobilePairingPanel: autosaving fields', () => {
   it('the public URL is not saved while typing and saves once on blur, as the normalised origin', async () => {
     const props = await mount();
-    const url = field('Public PWA URL');
+    const url = field('Phone page address');
     await typeInto(url, 'pm.example.com/bridge');
     expect(props.onPublicPwaUrlChange).not.toHaveBeenCalled();
     await blur(url);
@@ -75,7 +75,7 @@ describe('MobilePairingPanel: autosaving fields', () => {
   it('the public URL also saves after a short pause in typing', async () => {
     vi.useFakeTimers();
     const props = await mount();
-    await typeInto(field('Public PWA URL'), 'https://Pm.Example.com');
+    await typeInto(field('Phone page address'), 'https://Pm.Example.com');
     expect(props.onPublicPwaUrlChange).not.toHaveBeenCalled();
     await act(async () => void (await vi.advanceTimersByTimeAsync(700)));
     expect(props.onPublicPwaUrlChange).toHaveBeenCalledExactlyOnceWith('https://pm.example.com');
@@ -83,7 +83,7 @@ describe('MobilePairingPanel: autosaving fields', () => {
 
   it('a port typed on the way to a value does not save; blur saves the clamped port', async () => {
     const props = await mount();
-    const port = field('Local dev server port');
+    const port = field('Port on this PC');
     await typeInto(port, '1');
     expect(props.onDevServerPortChange).not.toHaveBeenCalled();
     await typeInto(port, '80');

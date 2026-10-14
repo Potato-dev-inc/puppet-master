@@ -319,3 +319,60 @@ fn push_act_passes_the_tunnel_gate_without_a_bearer_but_the_other_push_routes_do
     let (status, body) = send(r.pwa, &post("/bridge/push/subscribe", subscribe, &[&auth]));
     assert_eq!(status, 200, "{body}");
 }
+
+/// Round 13 #1: the log flood. Every phone request proxied by `pwa_server` (`/bridge/*`) was said
+/// to log `LOCAL_SECRET_MISSING`. A proxied request always carries `X-PM-Proxied`, so it is a Device
+/// or Public caller and never "local without the key"; only a genuine local caller (no forwarder
+/// header) without the key is counted and logged, under its route class (no `/bridge` prefix).
+#[test]
+fn proxied_phone_requests_never_log_local_secret_missing_but_a_local_caller_does_once() {
+    use crate::mobile_pairing::local_secret;
+    let r = rig();
+    let port_file = std::env::temp_dir().join(format!("pm-tunnel-secret-{}", std::process::id())).join("x.port");
+    std::fs::create_dir_all(port_file.parent().unwrap()).unwrap();
+    local_secret::init(&port_file).unwrap();
+
+    let auth = format!("Authorization: Bearer {}", r.token);
+    for _ in 0..5 {
+        // a paired phone through the proxy, and an anonymous tunnel caller
+        let _ = send(r.pwa, &get("/bridge/r13-proxied-probe/panes", &[&auth]));
+        let _ = send(r.pwa, &get("/bridge/r13-proxied-probe/panes", &[]));
+    }
+    assert!(
+        !local_secret::logged_classes().iter().any(|class| class.contains("r13-proxied-probe")),
+        "proxied requests are not local callers: {:?}",
+        local_secret::logged_classes()
+    );
+
+    // The same route called directly on the bridge port, by a local program that has no key:
+    // logged once, under the class without the `/bridge` prefix.
+    for _ in 0..5 {
+        let _ = send(r.bridge, "GET /bridge/r13-direct-probe/panes HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    }
+    let classes = local_secret::logged_classes();
+    assert_eq!(classes.iter().filter(|c| c.contains("r13-direct-probe")).collect::<Vec<_>>(), ["GET /r13-direct-probe/panes"], "{classes:?}");
+}
+
+/// Log sample for the round 13 report (run alone: `cargo test --lib log_sample_for_the_report -- --ignored --nocapture`).
+/// 300 phone requests through the proxy plus 300 direct local calls on pane routes: prints what the app would log.
+#[test]
+#[ignore]
+fn log_sample_for_the_report() {
+    use crate::mobile_pairing::local_secret;
+    let _ = tracing_subscriber::fmt().with_writer(std::io::stdout).with_ansi(false).try_init();
+    let r = rig();
+    let port_file = std::env::temp_dir().join(format!("pm-tunnel-secret-sample-{}", std::process::id())).join("x.port");
+    std::fs::create_dir_all(port_file.parent().unwrap()).unwrap();
+    local_secret::init(&port_file).unwrap();
+    let auth = format!("Authorization: Bearer {}", r.token);
+    let before = local_secret::status().missing_count;
+    for i in 0..300 {
+        let pane = format!("47c0b972-dfba-4f82-beff-45fecf29bd{:02}", i % 10);
+        let _ = send(r.pwa, &get(&format!("/bridge/panes/{pane}/buffer"), &[&auth]));
+        let _ = send(r.bridge, &format!("GET /bridge/panes/{pane}/buffer HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"));
+        if i % 3 == 0 {
+            let _ = send(r.bridge, "POST /mcp/mode HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n");
+        }
+    }
+    println!("SAMPLE: 300 proxied phone requests + 300 local pane reads + 100 local POST /mcp/mode, counter {} -> {}", before, local_secret::status().missing_count);
+}

@@ -68,7 +68,7 @@ unchanged, so older readers keep working. The webview gets the key over IPC (`br
 sends `X-PM-Local-Secret` to loopback bridges only; with the key it streams events over `fetch`
 (EventSource cannot send headers). The MCP shim reads the file beside the port file it found
 (`endpoint.rs::local_secret_header`) and sends it on every request. A local caller without it is
-**logged** (`LOCAL_SECRET_MISSING`, once a minute per route), counted (`bridge_local_secret_status`)
+**logged** (`LOCAL_SECRET_MISSING`, once per route class per 10 minutes; proxied and tunnelled requests are Device/Public callers and are never counted here), counted (`bridge_local_secret_status`)
 and still served.
 
 ### CORS

@@ -214,3 +214,33 @@ fn claude_follow_up_typed_over_a_dimmed_suggestion_is_delivered_and_not_parked()
     );
     snap("claude_ghost_suggestion_followup", &pane.timeline);
 }
+
+// ---- (f) Claude's fullscreen renderer: the input box is pinned to the bottom of the alternate screen --
+//
+// Round 13 #2: some machines start Claude 2.1.300 in its "fullscreen renderer" (`/tui fullscreen`,
+// `CLAUDE_CODE_NO_FLICKER=1`): alternate screen buffer, the box drawn on the bottom rows with the effort
+// row above it. Readiness was only ever checked on the classic layout. Correct: the fresh pinned box is
+// Empty, the task is typed into it once, submitted with one Enter, and a turn starts. The cast is a real
+// session; what Claude wrote when the task was typed and submitted is its own bytes.
+
+#[test]
+fn claude_fullscreen_pinned_box_takes_a_task_and_starts_a_turn() {
+    let mut pane = ReplayPane::corpus("claude/2.1.300/fullscreen_task_into_pinned_box.cast");
+    pane.run_to(Duration::from_secs(4));
+    let seen = pane.screen_text();
+    assert!(pane.plain_text().contains("Claude Code v2.1.300"), "{}", pane.plain_text());
+    let profile = profile_for("claude");
+    assert_eq!(profile.ready_recogniser(&seen), Some(crate::tui::ComposerState::Empty), "{seen}");
+
+    let mut trace = Vec::new();
+    let outcome = deliver_prompt_traced(&mut pane, profile.clear_input_sequence(), FOLLOW_UP, &mut trace);
+    pane.note("deliver", format!("{outcome:?}"));
+    assert_eq!(outcome, Delivery::Started, "{trace:#?}\n{}", pane.timeline.render());
+    assert_eq!(
+        pane.inputs.iter().map(|i| (i.text.as_str(), i.enter)).collect::<Vec<_>>(),
+        [(FOLLOW_UP, false), ("", true)],
+        "{}",
+        pane.timeline.render()
+    );
+    snap("claude_fullscreen_task_into_pinned_box", &pane.timeline);
+}

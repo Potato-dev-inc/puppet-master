@@ -51,7 +51,7 @@ export interface StatusLine {
 
 export function statusLine(status: TunnelStatus | null): StatusLine {
   if (!status) return { tone: 'idle', text: 'Available in the desktop app.' };
-  const overridden = status.mode === 'env' ? ' (set by PUPPET_MASTER_PUBLIC_URL)' : '';
+  const overridden = status.mode === 'env' ? ' (set outside the app)' : '';
   switch (status.state) {
     case 'running':
       return { tone: 'ok', text: `Online${overridden}` };

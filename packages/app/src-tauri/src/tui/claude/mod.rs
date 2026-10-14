@@ -9,6 +9,8 @@
 mod headless;
 mod prompt;
 mod screen;
+#[cfg(test)]
+mod fullscreen_tests;
 
 use super::{AccountScheme, Features, HeadlessLaunch, InstructionFile, LaunchSpec, PaneStatus, Reply, StandbyScreen, StandbySupport, StartupGate, TuiProfile};
 

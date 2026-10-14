@@ -14,6 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod auth;
 mod caps;
 pub mod events;
+pub mod mint;
 pub mod local_secret;
 
 pub use auth::*;
@@ -321,6 +322,11 @@ impl MobilePairingStore {
             caps: caps.list(),
         });
         Ok(true)
+    }
+
+    /// Whether a code is pending and still good (not used, not expired). A new code replaces it.
+    pub fn has_live_pending_code(&self) -> bool {
+        self.pending.as_ref().is_some_and(|p| now_secs() <= p.expires_at)
     }
 
     /// A pairing code whose device gets every capability (today's behaviour).

@@ -89,12 +89,7 @@ fn invite(cx: &Ctx) -> RouteResult {
         .to_string();
     let store = mobile_pairing::pairing_store()
         .ok_or_else(|| (503, json!({ "error": "pairing_unavailable" })))?;
-    let session = store.lock().create_pairing_session(bridge_url);
-    crate::audit::record(
-        crate::audit::Kind::Pairing,
-        crate::audit::Who::Local,
-        "A pairing link was made from a program on this computer",
-        json!({ "via": "pair-link" }),
-    );
+    // One line in the log, saying so when it replaced a code that was still good.
+    let session = mobile_pairing::mint::mint(&store, bridge_url, mobile_pairing::Caps::all(), mobile_pairing::mint::Maker::Program);
     Ok((200, serde_json::to_value(session).unwrap()))
 }
