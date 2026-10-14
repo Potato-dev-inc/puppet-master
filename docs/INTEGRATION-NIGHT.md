@@ -431,3 +431,110 @@ six phone shots). No regressions.
 - **Undo**: palette "Undo last turn" opens the restore sheet; after a restore an Undo toast appears for a few seconds.
 - **Second opinion**: now sits above Merge. After a review with concerns, Merge turns into "Merge anyway".
 - **Git**: `.puppet-master` runtime data is excluded from git, but `memory.md` and `agents/` stay shareable.
+
+---
+
+# Round 6 (live fixes)
+
+Worktree `D:\pm-integration-live`, branch `integration/live`, cut from `93c8f2f` (the same point as `integration/night` at the end
+of round 5). Backup: `backup/integration-live-start`. `D:\pm-integration` (the user's live app) was not touched. Rust was built
+in its own target dir (`D:\pm-cargo-target-live`).
+
+## Merged branches
+
+| # | Branch | Head | Merge commit |
+|---|---|---|---|
+| 1 | `fix/live-standby` (per-agent standby backoff and cap, `agents_blocked` in StandbyStatus) | `f2885e0` | `a94f36d` |
+| 2 | `fix/live-ui` (turn flicker and checkpoint numbering, side-panel crop, view precedence, mdc header, settings errors, `settle_status`) | `0ce53f6` | `2d64e31` |
+| 3 | `fix/live-claude` (structural dialog detection, workspace_trust as a startup gate, `file_edit` risk) | `f5360c9` | `617742d` |
+| 4 | `fix/live-codex` (`startup_gate`, `SubmitSequence`, `ComposerState`, read-only skip-git flag) | `52d63f8` | `6fab397` |
+| 5 | `fix/live-hunt` ("Changes" tab for worktree panes, live status read in `checkpoint_pane_facts`, `set_active_and_persist`, registry refresh counter) | `f22f022` | `4201bd7` |
+
+Follow-up commits: `d07ad02` (one startup-gate model), `ce0b1ea` (picker scenario).
+
+## Conflicts
+
+Merges 1 to 4 were textually clean. `fix/live-hunt` had two conflicts, both in `checkpoints/`:
+
+- `runtime.rs`: the `Env` trait and `LiveEnv` kept both `turn_hint` (live-ui, one numbering for History and turn summaries)
+  and `run_open` (live-hunt, names an open run precisely).
+- `tests.rs`: kept both sets of tests.
+
+`PaneView.tsx` merged cleanly. Tabs for a worktree pane: Terminal, Changes (with a count), Transcript, Receipt, History.
+The Changes tab holds the diff, Second opinion, Merge and Discard. Receipt shows Second opinion only for a pane WITHOUT a
+worktree, so it is never duplicated. `usePaneRegistry.ts` and `project_path` / `settings_patch` merged cleanly.
+
+## The startup-gate reconciliation (the real work of this round)
+
+Claude's branch made a folder-trust dialog a prompt kind that parks the run; Codex's branch added a `TuiProfile::startup_gate`
+hook with dismissible and non-dismissible gates. They merged textually but ran side by side: a Codex trust or sign-in screen
+parked the run with no card and no decline error, and Claude's profile did not report its gate through the hook. Now one model
+(documented in `tui/README.md`, "Startup gates"; commit `d07ad02`):
+
+- `TuiProfile::startup_gate(screen)` returns `StartupGate { id, summary, dismiss: Option<keys> }`.
+- Dismissible notice (Codex update menu, `dismiss = Esc`): closed with the profile's keys before the task is typed, never a card.
+  If it ignored its keys the run waits for the user.
+- Only the user may pass it (Claude and Codex folder trust, Codex sign-in or onboarding): it becomes a prompt card that parks
+  the run: kind `workspace_trust`, or `startup_screen` for other screens. The profile's own answerable card (Claude, Cursor:
+  trust / deny with keys) wins; Codex gets a card with no choices (its keys are unknown, the user answers in the pane).
+- Declining (the agent exits with the gate showing) fails the run: `WORKSPACE_TRUST_DECLINED` for trust,
+  `STARTUP_SCREEN_NOT_COMPLETED` for a sign-in or setup screen (new). Neither retries, neither falls back to headless.
+- Completion never happens while a gate shows (`completion.rs`), and `dispatch_blocker` never types over one.
+- Claude now also reports its trust dialog from `startup_gate`, so completion and delivery see it too.
+- New risk entry for `startup_screen`. `StartupGate::prompt_kind()` and `StartupGate::WORKSPACE_TRUST` are the only places
+  that map gate ids to prompt kinds.
+
+Both branches' tests stayed as they were and pass. New tests in `bridge/startup_gate_tests.rs` run Claude and Codex through the
+same functions: every non-dismissible gate is a card and parks a run for any pane status; a dismissible gate is never a card;
+declining Codex trust gives `WORKSPACE_TRUST_DECLINED`; a finished sign-in releases the run and an unfinished one gives
+`STARTUP_SCREEN_NOT_COMPLETED`.
+
+## MCP catalog
+
+Unchanged: 68 tools, `68-e4687e50f1687299`.
+
+## Results (final, after all five merges)
+
+```
+npm run build --workspace=@puppet-master/shared        -> tsc -p tsconfig.json (no errors)
+npx tsc --noEmit -p packages/app                       -> exit 0, no output
+npm test --workspace=@puppet-master/app                -> Test Files 115 passed (115); Tests 985 passed (985); no errors
+cargo test --lib   (src-tauri)                         -> test result: ok. 1572 passed; 0 failed; 4 ignored  (3 runs in a row)
+cargo test --bins  (src-tauri)                         -> ok. 33 passed (puppet-master-mcp); ok. 0 passed (app)
+npm run build --workspace=@puppet-master/app           -> built; tracked files under src-tauri/resources reverted, not committed
+```
+
+The 4 ignored tests are the live-CLI tests (they spawn a real Codex or Claude), not run here.
+
+## Screenshots (`D:\pm-night\evidence\integration-live`, 54 PNGs, every scenario)
+
+Run: `node scripts/evidence/screenshot.mjs --out D:\pm-night\evidence\integration-live`. I opened the new and changed ones.
+
+| File | Shows |
+|---|---|
+| cockpit-view-doctor-then-memory | New (live-ui, view precedence): opening Set up agents and then Project memory shows Project memory, not the stale doctor view |
+| cockpit-changes | Worktree pane: tabs Terminal, Changes - 3, Transcript, Receipt, History; Changes holds the diff, Second opinion, Merge and Discard |
+| second-opinion-changes | Changes tab after a review: notes pinned to lines, Second opinion panel, "Merge anyway" |
+| second-opinion-picker | "Who should review?" sheet opened from the Changes tab (scenario fixed to click Changes, not Receipt) |
+| cockpit-changes-merge | Merge confirm over the Changes tab (light theme) |
+| cockpit-receipt / cockpit-last-turn | Receipt: Last turn and run facts only (Changes and Second opinion moved out) |
+| cockpit-pane, cockpit-pane-account, loop-stuck, cockpit-history*, cockpit-palette, review-fixes-restore-toast | Same screens with the new tab bar |
+| phone-agents-list, phone-agents, askbar-answer | Same screens, small layout/timing changes |
+
+## Known issues (additions)
+
+- Not run against the real CLIs in this worktree: the two live-Codex tests and the Claude live repro script
+  (`scripts/evidence/live-claude-dialogs.mjs`) need the user's logins and spawn real panes.
+- The Codex trust and sign-in screens are hand-written fixtures (no live capture), and a Codex trust card has no Trust / Don't
+  trust buttons (the keys are not known); the user answers in the pane.
+- Not in this round: Codex reply capture (a visible Codex turn's "result" is read from the whole screen), noted in
+  `docs/features/fix-live-codex.md`.
+
+## How to try it (additions)
+
+- Run `npm --prefix D:/pm-integration-live run dev` (quit the other app first; it is a separate worktree from the one you use now).
+- Start a visible Claude or Codex run in a folder the agent has not trusted: the Inbox shows a trust card and the run waits;
+  answering (or trusting in the pane) lets it continue; declining ends it with a clear message.
+- Worktree panes have a Changes tab (with a count): diff, Second opinion, Merge, Discard.
+- Settings errors, standby (an agent that keeps failing to warm up backs off instead of retrying forever), and the side-panel
+  crop of Claude's diff panel are fixed; see the three `docs/features/fix-live-*.md` files.
