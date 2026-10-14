@@ -42,5 +42,7 @@ pub mod transport;
 mod tests;
 #[cfg(test)]
 mod tests_v1;
+#[cfg(test)]
+mod tests_hardening;
 
 pub use service::init;

@@ -365,6 +365,13 @@ impl TuiProfile for DeclarativeProfile {
         }
     }
 
+    /// A definition whose shell needs the `allow_shell` opt-in runs no commands without it; one
+    /// whose shell is on by default does, and one that says nothing is assumed to.
+    fn headless_runs_commands_unattended(&self) -> bool {
+        let r = &self.def.run_options;
+        r.shell_default_on || !r.allow_shell
+    }
+
     /// Visible pane launch (TUI-1): resolved program + `[tui]` argv + the caller's extra args, in the
     /// project directory. `None` without a `[tui]` table or when the binary does not resolve (the
     /// spawn path then reports that no launch command exists).

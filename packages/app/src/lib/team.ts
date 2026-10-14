@@ -82,7 +82,8 @@ export interface TeamCard {
   panes: PaneChoice[];
 }
 
-export type JobState = 'waiting' | 'working' | 'ready' | 'failed' | 'applied' | 'discarded';
+/** `needs_start`: the merge stopped on conflicts and the agent would run commands without asking, so it waits for my click. */
+export type JobState = 'waiting' | 'needs_start' | 'working' | 'ready' | 'failed' | 'applied' | 'discarded';
 
 /** A "Queue my agent" update and its result. */
 export interface TeamJob {
@@ -149,6 +150,8 @@ export interface JoinView {
   github: string | null;
   device: string;
   receivedAtMs: number;
+  /** More than one person used this invite's code. */
+  warning?: string | null;
 }
 
 export interface TeamConfigView {
@@ -203,10 +206,18 @@ export interface InviteView {
   expiresAtMs: number;
 }
 
+/** The "Merge when green" sheet: every field but the method is GitHub's own answer, not the card's. */
 export interface MergePlan {
+  /** owner/repo */
   repo: string;
   number: number;
   title: string;
+  /** GitHub login of the pull request's author. */
+  author: string;
+  headRef: string;
+  /** The commit the pull request is at; the arm is bound to it. */
+  headSha: string;
+  baseRef: string;
   method: 'merge' | 'squash' | 'rebase';
   /** "squashed into one commit" */
   methodWords: string;
@@ -224,14 +235,19 @@ export interface TeamApi {
   approveJoin: (joinId: string) => Promise<TeamConfigView>;
   declineJoin: (joinId: string) => Promise<TeamConfigView>;
   removeMember: (memberId: string) => Promise<TeamConfigView>;
+  /** Admin: the member's claimed GitHub login is theirs (GitHub facts about it then show as theirs). */
+  confirmGithub: (memberId: string) => Promise<TeamConfigView>;
   clearGaps: () => Promise<void>;
   mergePlan: (cardId: string) => Promise<MergePlan>;
-  mergeWhenGreen: (cardId: string) => Promise<string>;
+  /** Arms auto-merge at `headSha`, the commit the sheet showed. */
+  mergeWhenGreen: (cardId: string, headSha: string) => Promise<string>;
   send: (draftId: string, note?: string) => Promise<void>;
   dismissDraft: (draftId: string) => Promise<void>;
   dismissCard: (cardId: string) => Promise<void>;
   pull: (cardId: string) => Promise<string>;
   queue: (cardId: string, paneId: string, when: 'idle' | 'now') => Promise<TeamJob>;
+  /** Starts the agent on a `needs_start` update, in a visible pane (desktop only). */
+  startJob: (jobId: string) => Promise<void>;
   apply: (jobId: string) => Promise<string>;
   discard: (jobId: string) => Promise<void>;
   diff: (jobId: string) => Promise<WorktreeDiff>;
@@ -258,14 +274,16 @@ export const teamApi: TeamApi = {
   approveJoin: (joinId) => call('team_join_approve', { joinId }),
   declineJoin: (joinId) => call('team_join_decline', { joinId }),
   removeMember: (memberId) => call('team_member_remove', { memberId }),
+  confirmGithub: (memberId) => call('team_member_confirm_github', { memberId }),
   clearGaps: () => call('team_gaps_clear'),
   mergePlan: (cardId) => call('team_merge_plan', { cardId }),
-  mergeWhenGreen: (cardId) => call('team_merge_when_green', { cardId }),
+  mergeWhenGreen: (cardId, headSha) => call('team_merge_when_green', { cardId, headSha }),
   send: (draftId, note) => call('team_send', { draftId, note: note ?? null }),
   dismissDraft: (draftId) => call('team_draft_dismiss', { draftId }),
   dismissCard: (cardId) => call('team_card_dismiss', { cardId }),
   pull: (cardId) => call('team_pull', { cardId }),
   queue: (cardId, paneId, when) => call('team_queue', { cardId, paneId, when }),
+  startJob: (jobId) => call('team_job_start', { jobId }),
   apply: (jobId) => call('team_job_apply', { jobId }),
   discard: (jobId) => call('team_job_discard', { jobId }),
   diff: (jobId) => call('team_job_diff', { jobId }),
@@ -354,14 +372,15 @@ export function draftTitle(draft: TeamDraft): string {
 /** Which actions a teammate card shows. At most two buttons, plus Dismiss. */
 export interface CardActions {
   primary: 'pull' | 'queue' | null;
-  /** "Merge when green": an open GitHub pull request only. */
+  /** "Merge when green": an open pull request on a card this app learned from GitHub itself (never a teammate's). */
   mergeWhenGreen: boolean;
   /** Why nothing is offered (a plain sentence), when it isn't. */
   note: string | null;
 }
 
 export function cardActions(card: TeamCard): CardActions {
-  const mergeWhenGreen = isGithubPr(card.event) && card.event.subject.pr?.state === 'open';
+  // A teammate's card can name any repository, number and title, so only GitHub's own facts offer it.
+  const mergeWhenGreen = card.event.source === 'github' && isGithubPr(card.event) && card.event.subject.pr?.state === 'open';
   if (!card.local && hasNothingToPull(card.event)) return { primary: null, mergeWhenGreen, note: null };
   if (!card.local) return { primary: null, mergeWhenGreen, note: "This project isn't open here. Open an agent in it to pull or queue." };
   if (card.state === 'queued') return { primary: null, mergeWhenGreen, note: 'Queued for your agent.' };
@@ -376,6 +395,8 @@ export function jobTitle(job: TeamJob): string {
   switch (job.state) {
     case 'waiting':
       return `Queued: bring ${job.theirBranch} into ${job.into}`;
+    case 'needs_start':
+      return `${plural(job.conflicts.length, 'conflict')} to resolve: ${job.theirBranch} into ${job.into}`;
     case 'working':
       return job.agentRan ? `${job.agentLabel} is merging ${job.theirBranch}` : `Merging ${job.theirBranch}`;
     case 'ready':

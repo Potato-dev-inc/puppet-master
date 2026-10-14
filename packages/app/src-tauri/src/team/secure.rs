@@ -276,8 +276,9 @@ impl Session {
                 if event.actor.member != member.id || event.actor.device != device.id {
                     return Err(Reject::Impersonation);
                 }
-                if event.source == super::event::EventSource::Github {
-                    // GitHub facts are learned from GitHub by each member, never from a teammate.
+                if event.source == super::event::EventSource::Github || event.kind.is_github_fact() {
+                    // GitHub facts ("checks passed", "merged", "closed") are learned from GitHub by
+                    // each member, never from a teammate, whatever the event says its source is.
                     return Err(Reject::NotAllowed);
                 }
                 let needs = match event.kind {

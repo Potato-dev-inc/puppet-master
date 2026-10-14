@@ -134,6 +134,12 @@ impl TeamEventKind {
         }
     }
 
+    /// Facts only GitHub knows (checks finished, merged, closed): each member's app learns them
+    /// from GitHub through its own `gh`, never from a teammate (security review L4).
+    pub fn is_github_fact(self) -> bool {
+        matches!(self, Self::CiFailed | Self::CiPassed | Self::PrMerged | Self::PrClosed)
+    }
+
     /// Kinds a recipient turns into a card. Everything else is dropped on arrival until it ships
     /// with its own safety rules (an `Answer` needs the approve role, and so on).
     pub fn shown_as_card(self) -> bool {
@@ -308,6 +314,12 @@ pub fn is_valid_commit(sha: &str) -> bool {
     (7..=64).contains(&sha.len()) && sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// A full commit id (SHA-1 or SHA-256), as teammates must send it: an abbreviated id could
+/// resolve to an object the sender didn't mean (security review L3).
+pub fn is_full_commit(sha: &str) -> bool {
+    matches!(sha.len(), 40 | 64) && is_valid_commit(sha)
+}
+
 /// A repo-relative path that is safe to show: not absolute, no `..`, no drive letter, no NUL.
 pub fn is_valid_repo_path(path: &str) -> bool {
     !path.is_empty()
@@ -367,6 +379,9 @@ pub fn validate_inbound(mut event: TeamEvent, now_ms: u64) -> Result<TeamEvent, 
     if event.at_ms > now_ms.saturating_add(MAX_FUTURE_SKEW_MS) {
         return Err(Rejected("dated in the future"));
     }
+    // The sender picks the expiry; nothing is kept (replay guard, card) for more than the default
+    // lifetime from when it was sent (security review L7).
+    event.expires_at_ms = event.expires_at_ms.min(event.at_ms.min(now_ms).saturating_add(DEFAULT_TTL_MS));
     if event.expires_at_ms <= now_ms {
         return Err(Rejected("expired"));
     }
@@ -396,7 +411,7 @@ pub fn validate_inbound(mut event: TeamEvent, now_ms: u64) -> Result<TeamEvent, 
         }
     }
     if let Some(commit) = &subject.commit {
-        if !is_valid_commit(commit) {
+        if !is_full_commit(commit) {
             return Err(Rejected("bad commit id"));
         }
     }

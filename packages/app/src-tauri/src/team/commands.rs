@@ -112,6 +112,16 @@ pub async fn team_merge_plan(card_id: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn team_merge_when_green(card_id: String) -> Result<Value, String> {
-    blocking(move || service::merge_when_green(&card_id)).await
+pub async fn team_merge_when_green(card_id: String, head_sha: String) -> Result<Value, String> {
+    blocking(move || service::merge_when_green(&card_id, &head_sha)).await
+}
+
+#[tauri::command]
+pub async fn team_job_start(job_id: String) -> Result<Value, String> {
+    blocking(move || service::start_job(&job_id)).await
+}
+
+#[tauri::command]
+pub async fn team_member_confirm_github(member_id: String) -> Result<Value, String> {
+    blocking(move || service::confirm_github(&member_id)).await
 }

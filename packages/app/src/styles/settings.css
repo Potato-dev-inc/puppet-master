@@ -893,6 +893,10 @@
   color: var(--label-3);
   overflow-wrap: anywhere;
 }
+.st-team-who small.st-team-warning {
+  color: var(--label);
+  font-weight: 500;
+}
 .st-team-you,
 .st-team-role {
   color: var(--label-3);

@@ -34,6 +34,10 @@ pub struct Invite {
     pub used: bool,
     #[serde(default)]
     pub attempts: u32,
+    /// A request with the right code arrived. Another one from someone else after that means the
+    /// code leaked, and both are flagged (security review L8).
+    #[serde(default)]
+    pub proved: bool,
 }
 
 impl Invite {
@@ -48,7 +52,7 @@ pub fn new_invite(now_ms: u64) -> (Invite, String) {
         .iter()
         .map(|b| CODE_ALPHABET[*b as usize % CODE_ALPHABET.len()] as char)
         .collect();
-    (Invite { id, created_ms: now_ms, expires_ms: now_ms + INVITE_TTL_MS, used: false, attempts: 0 }, code)
+    (Invite { id, created_ms: now_ms, expires_ms: now_ms + INVITE_TTL_MS, used: false, attempts: 0, proved: false }, code)
 }
 
 /// `ABCD-EFGH` for display.
@@ -174,8 +178,21 @@ impl InviteLink {
         if link.relay.is_none() == link.folder.is_none() {
             return Err("The invite link names no way to reach the team.".into());
         }
+        if link.folder.as_deref().is_some_and(is_network_path) {
+            // Joining writes into that folder; on Windows a \\host\share path makes the computer
+            // sign in to that host (an NTLM handshake) for whoever wrote the link.
+            return Err("This invite points at a network folder. Ask for a relay link, or pick the shared folder yourself in Settings.".into());
+        }
         Ok(link)
     }
+}
+
+/// A UNC or device path (`\\host\share`, `//host/share`, `\\?\…`, `\\.\…`, `\??\…`): not allowed in
+/// a folder that comes from a link (security review L2). Typed in Settings, a share is fine.
+pub fn is_network_path(folder: &str) -> bool {
+    let f = folder.trim();
+    let starts = |p: &str| f.len() >= p.len() && f.as_bytes()[..p.len()].iter().zip(p.bytes()).all(|(a, b)| (*a == b'/' && b == b'\\') || *a == b);
+    starts(r"\\") || starts(r"\??\")
 }
 
 /// What a joiner sends (sealed to the admin's device).

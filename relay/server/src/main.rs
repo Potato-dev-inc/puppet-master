@@ -1,13 +1,15 @@
 //! `pm-relay`: run the team relay.
 //!
 //! ```text
-//! pm-relay [--listen 127.0.0.1:8787] [--db relay.sqlite]
+//! pm-relay [--listen 127.0.0.1:8787] [--db relay.sqlite] [--trusted-proxy 127.0.0.1 ...]
 //! ```
 //!
 //! Put it behind TLS (a reverse proxy, or a tunnel) when teammates reach it over the internet:
-//! Puppet Master refuses plain `http://` relays that are not on the same computer.
+//! Puppet Master refuses plain `http://` relays that are not on the same computer. Behind a proxy,
+//! pass `--trusted-proxy <address or range>` (repeatable) so per-address limits count each client,
+//! not the proxy: `X-Forwarded-For` is read only from those addresses.
 
-use pm_relay::{serve, Config, Relay};
+use pm_relay::{serve, Cidr, Config, Relay};
 
 fn main() {
     tracing_subscriber::fmt()
@@ -21,8 +23,18 @@ fn main() {
             "--listen" => listen = args.next().expect("--listen needs an address"),
             "--db" => config.db = Some(args.next().expect("--db needs a path").into()),
             "--memory" => config.db = None,
+            "--trusted-proxy" => {
+                let range = args.next().expect("--trusted-proxy needs an address or range");
+                match Cidr::parse(&range) {
+                    Ok(cidr) => config.trusted_proxies.push(cidr),
+                    Err(error) => {
+                        eprintln!("{error}");
+                        std::process::exit(2);
+                    }
+                }
+            }
             "-h" | "--help" => {
-                println!("pm-relay [--listen 127.0.0.1:8787] [--db relay.sqlite | --memory]");
+                println!("pm-relay [--listen 127.0.0.1:8787] [--db relay.sqlite | --memory] [--trusted-proxy <address or range>]...");
                 return;
             }
             other => {
@@ -30,6 +42,9 @@ fn main() {
                 std::process::exit(2);
             }
         }
+    }
+    if config.trusted_proxies.is_empty() {
+        tracing::info!("relay: no --trusted-proxy; per-address limits count the TCP peer (behind a reverse proxy, that is the proxy)");
     }
     let relay = Relay::open(&config).expect("open the relay store");
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("runtime");

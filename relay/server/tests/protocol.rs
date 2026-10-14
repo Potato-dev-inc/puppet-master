@@ -42,7 +42,7 @@ fn setup(limits: Limits) -> Team {
     let (base, local) = match remote {
         Some(url) => (url, None),
         None => {
-            let (addr, relay) = spawn_local(Config { db: None, limits: limits.clone() });
+            let (addr, relay) = spawn_local(Config { db: None, limits: limits.clone(), ..Config::default() });
             (format!("http://{addr}"), Some(relay))
         }
     };
@@ -84,6 +84,16 @@ fn drop_envelope(t: &Team, seq: u64) {
             assert_eq!(r.status(), 200);
         }
     }
+}
+
+/// The in-process relay, for a test that looks inside it (sweeps, memory) or needs a limit the
+/// remote test hooks cannot set. `None` (the test then returns early, saying so) when
+/// `PM_RELAY_TEST_URL` points at another relay.
+fn local_only(t: &Team, test: &str) -> Option<std::sync::Arc<pm_relay::Relay>> {
+    if t.local.is_none() {
+        eprintln!("{test}: skipped, it needs the in-process relay (PM_RELAY_TEST_URL is set)");
+    }
+    t.local.clone()
 }
 
 fn status<T>(r: Result<T, ureq::Error>) -> u16
@@ -290,4 +300,199 @@ fn a_chatty_device_is_slowed_down() {
         assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, seq)), 200);
     }
     assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, 4)), 429);
+}
+
+#[test]
+fn the_mailbox_counter_never_restarts_after_a_quiet_week() {
+    let t = setup(Limits::default());
+    let Some(relay) = local_only(&t, "the_mailbox_counter_never_restarts_after_a_quiet_week") else { return };
+    for seq in 1..=3 {
+        assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, seq)), 200);
+    }
+    let cursor = poll(&t, 0, 0).next;
+    assert_eq!(cursor, 3);
+    // Nobody posts for more than the mailbox TTL: the cleanup empties the mailbox.
+    relay.sweep_at(now_ms() + MAILBOX_TTL_MS + 60_000).unwrap();
+    assert!(poll(&t, 0, 0).items.is_empty(), "everything expired");
+    // The next envelope must land after the cursor every client already holds.
+    assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, 4)), 200);
+    let after = poll(&t, cursor, 0);
+    assert_eq!(after.items.len(), 1, "a client at cursor {cursor} still receives new mail");
+    assert!(after.items[0].seq > cursor);
+}
+
+#[test]
+fn a_cursor_past_the_relays_counter_is_told_to_start_again() {
+    // A restored or replaced relay database: the client's cursor is ahead of the team's counter.
+    let t = setup(Limits::default());
+    for seq in 1..=2 {
+        assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, seq)), 200);
+    }
+    let batch = poll(&t, 812, 10);
+    assert!(batch.reset, "the relay says the cursor is ahead of it");
+    assert_eq!(batch.head, Some(2));
+    assert_eq!(batch.items.iter().map(|d| d.seq).collect::<Vec<_>>(), vec![1, 2], "and starts again from the beginning");
+    assert_eq!(batch.next, 2);
+    // A cursor that is not ahead: no reset, the head is reported.
+    let fine = poll(&t, 2, 0);
+    assert!(!fine.reset && fine.items.is_empty());
+    assert_eq!(fine.head, Some(2));
+    // Over the WebSocket: a {"reset":true,"head":2} frame, then the mailbox from the start.
+    let mut socket = open_ws(&t, &t.device, 812);
+    let first = read_text(&mut socket);
+    assert_eq!(serde_json::from_str::<Resync>(&first).unwrap(), Resync { reset: true, head: 2 });
+    let item: Delivered = serde_json::from_str(&read_text(&mut socket)).unwrap();
+    assert_eq!(item.seq, 1);
+}
+
+type Ws = tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
+
+fn ws_request(t: &Team, device: &SigningKey, after: u64) -> tungstenite::handshake::client::Request {
+    use tungstenite::client::IntoClientRequest;
+    let path = format!("/v1/teams/{}/ws?after={after}", t.team);
+    let mut request = format!("{}{}", t.base.replace("http://", "ws://"), path).into_client_request().unwrap();
+    request.headers_mut().insert(AUTH_HEADER, auth_header(device, "GET", &path, now_ms(), b"").parse().unwrap());
+    request
+}
+
+fn open_ws(t: &Team, device: &SigningKey, after: u64) -> Ws {
+    tungstenite::connect(ws_request(t, device, after)).unwrap().0
+}
+
+fn read_text(socket: &mut Ws) -> String {
+    loop {
+        if let tungstenite::Message::Text(text) = socket.read().unwrap() {
+            return text.to_string();
+        }
+    }
+}
+
+fn put_acl(t: &Team, version: u64, devices: Vec<String>) -> u16 {
+    let acl = SignedAcl::signed(&t.team, version, devices, &t.root);
+    status(ureq::put(&format!("{}/v1/teams/{}/acl", t.base, t.team)).send_bytes(&serde_json::to_vec(&acl).unwrap()))
+}
+
+#[test]
+fn a_new_device_reads_only_from_when_it_was_added() {
+    let t = setup(Limits::default());
+    for seq in 1..=3 {
+        assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, seq)), 200);
+    }
+    let newcomer = key(3);
+    assert_eq!(put_acl(&t, 2, vec![key_id(&t.device), key_id(&newcomer)]), 204);
+    assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, 4)), 200);
+    let path = format!("/v1/teams/{}/envelopes?after=0&wait=0", t.team);
+    let theirs: Batch = serde_json::from_reader(signed(&t, &newcomer, "GET", &path, b"").unwrap().into_reader()).unwrap();
+    assert_eq!(theirs.items.iter().map(|d| d.seq).collect::<Vec<_>>(), vec![4], "nothing from before they joined");
+    // Their WebSocket too.
+    let mut socket = open_ws(&t, &newcomer, 0);
+    let item: Delivered = serde_json::from_str(&read_text(&mut socket)).unwrap();
+    assert_eq!(item.seq, 4);
+    // Devices that were there keep the whole mailbox; a re-signed list doesn't move anyone.
+    assert_eq!(put_acl(&t, 3, vec![key_id(&t.device), key_id(&newcomer)]), 204);
+    assert_eq!(poll(&t, 0, 0).items.len(), 4);
+}
+
+#[test]
+fn strangers_requests_are_not_remembered_and_windows_are_pruned() {
+    let t = setup(Limits::default());
+    let Some(relay) = local_only(&t, "strangers_requests_are_not_remembered_and_windows_are_pruned") else { return };
+    let before = relay.memory();
+    // A flood of requests signed by throwaway keys, each with a fresh signature.
+    for i in 0..50u8 {
+        let stranger = SigningKey::from_bytes(&[100 + i; 32]);
+        let r = signed(&t, &stranger, "GET", &format!("/v1/teams/{}/state/keys", t.team), b"");
+        assert_eq!(status(r), 403);
+    }
+    assert_eq!(relay.memory().1, before.1, "no signature of a device off the access list is stored");
+    // A member's request is remembered (replay guard), and windows are forgotten once expired.
+    assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, 1)), 200);
+    let (windows, sigs, _) = relay.memory();
+    assert!(windows > 0 && sigs > before.1);
+    relay.sweep_at(now_ms() + 2 * 86_400_000).unwrap();
+    assert_eq!(relay.memory().0, 0, "expired rate-limit windows are pruned");
+}
+
+#[test]
+fn a_team_has_a_storage_quota() {
+    let t = setup(Limits { team_max_envelopes: 2, ..Limits::default() });
+    let Some(relay) = local_only(&t, "a_team_has_a_storage_quota") else { return };
+    assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, 1)), 200);
+    assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, 2)), 200);
+    assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, 3)), 507, "the mailbox is full");
+    // Expiry frees the quota.
+    relay.sweep_at(now_ms() + MAILBOX_TTL_MS + 60_000).unwrap();
+    assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, 3)), 200);
+    // Bytes count too.
+    let small = setup(Limits { team_max_bytes: 100, ..Limits::default() });
+    assert_eq!(post(&small, &small.device, &envelope(&small, &small.device, 1)), 507);
+}
+
+fn register_from(base: &str, seed: u8, forwarded: &str) -> u16 {
+    let root = key(seed);
+    let team = team_id(root.verifying_key().as_bytes(), b"s");
+    let reg = TeamRegistration { team: team.clone(), root: key_id(&root), salt: b64(b"s"), acl: SignedAcl::signed(&team, 1, vec![], &root) };
+    status(ureq::post(&format!("{base}/v1/teams")).set("x-forwarded-for", forwarded).send_bytes(&serde_json::to_vec(&reg).unwrap()))
+}
+
+#[test]
+fn per_address_limits_read_forwarded_addresses_only_from_trusted_proxies() {
+    let limits = Limits { unauthenticated_per_ip_per_hour: 1, ..Limits::default() };
+    let trusted = vec![pm_relay::Cidr::parse("127.0.0.1").unwrap()];
+    let (addr, _) = spawn_local(Config { db: None, limits: limits.clone(), trusted_proxies: trusted });
+    let base = format!("http://{addr}");
+    // Behind the (trusted) proxy every client has its own budget.
+    assert_eq!(register_from(&base, 11, "203.0.113.1"), 201);
+    assert_eq!(register_from(&base, 12, "203.0.113.2"), 201);
+    assert_eq!(register_from(&base, 13, "203.0.113.1"), 429, "the same client again");
+    // Without trusting the proxy the header is ignored: everyone is the peer.
+    let (plain, _) = spawn_local(Config { db: None, limits, ..Config::default() });
+    let base = format!("http://{plain}");
+    assert_eq!(register_from(&base, 21, "203.0.113.1"), 201);
+    assert_eq!(register_from(&base, 22, "203.0.113.2"), 429, "a spoofed header buys nothing");
+}
+
+#[test]
+fn join_limits_are_per_team_and_address_and_invite_counters_expire() {
+    let t = setup(Limits { joins_per_address_per_hour: 3, ..Limits::default() });
+    let Some(relay) = local_only(&t, "join_limits_are_per_team_and_address_and_invite_counters_expire") else { return };
+    let url = format!("{}/v1/teams/{}/joins", t.base, t.team);
+    let join = |invite: &str| JoinBox { team: t.team.clone(), invite: invite.into(), enc: b64(b"enc"), ct: b64(b"sealed"), at_ms: now_ms() };
+    for i in 0..3 {
+        assert_eq!(status(ureq::post(&url).send_bytes(&serde_json::to_vec(&join(&format!("JUNK{i}"))).unwrap())), 202);
+    }
+    assert_eq!(status(ureq::post(&url).send_bytes(&serde_json::to_vec(&join("REAL")).unwrap())), 429, "one address is capped for this team");
+    // Another team on the same relay is not affected by that address's flood.
+    let root2 = key(40);
+    let team2 = team_id(root2.verifying_key().as_bytes(), b"s2");
+    let reg = TeamRegistration { team: team2.clone(), root: key_id(&root2), salt: b64(b"s2"), acl: SignedAcl::signed(&team2, 1, vec![], &root2) };
+    assert_eq!(status(ureq::post(&format!("{}/v1/teams", t.base)).send_bytes(&serde_json::to_vec(&reg).unwrap())), 201);
+    let other = JoinBox { team: team2.clone(), invite: "INV".into(), enc: b64(b"enc"), ct: b64(b"sealed"), at_ms: now_ms() };
+    assert_eq!(status(ureq::post(&format!("{}/v1/teams/{team2}/joins", t.base)).send_bytes(&serde_json::to_vec(&other).unwrap())), 202);
+    // A day later the counters are gone (the per-invite one used to last forever).
+    relay.sweep_at(now_ms() + 2 * 86_400_000).unwrap();
+    assert_eq!(relay.memory().0, 0);
+}
+
+#[test]
+fn websockets_are_capped_per_device_and_client_frames_are_small() {
+    let t = setup(Limits { sockets_per_device: 1, ..Limits::default() });
+    let Some(_relay) = local_only(&t, "websockets_are_capped_per_device_and_client_frames_are_small") else { return };
+    let mut first = open_ws(&t, &t.device, 0);
+    assert!(tungstenite::connect(ws_request(&t, &t.device, 0)).is_err(), "a second socket for the same device is refused");
+    // A big client message closes the socket instead of being buffered.
+    let _ = first.send(tungstenite::Message::Text("x".repeat(64 * 1024).into()));
+    let closed = loop {
+        match first.read() {
+            Ok(tungstenite::Message::Close(_)) | Err(_) => break true,
+            Ok(_) => continue,
+        }
+    };
+    assert!(closed);
+    // The slot is free again once the socket is gone.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while tungstenite::connect(ws_request(&t, &t.device, 0)).is_err() {
+        assert!(Instant::now() < deadline, "the socket slot is released");
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }

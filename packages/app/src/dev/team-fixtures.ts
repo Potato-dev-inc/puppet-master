@@ -167,6 +167,18 @@ export const WAITING_JOB: TeamJob = {
   theirBranch: 'feat/invoices',
 };
 
+/** The merge stopped on conflicts and the chosen agent (Codex) runs commands without asking: it waits for Start. */
+export const NEEDS_START_JOB: TeamJob = {
+  ...READY_JOB,
+  id: 'job-needs-start',
+  agentType: 'codex',
+  agentLabel: 'Codex',
+  state: 'needs_start',
+  agentRan: false,
+  stats: null,
+  message: "Codex can run commands without asking, and it will read Maya's changes. Start it when you can watch.",
+};
+
 export function teamState(partial: Partial<TeamState> = {}): TeamState {
   return {
     enabled: true,

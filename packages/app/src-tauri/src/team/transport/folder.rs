@@ -30,6 +30,9 @@ use std::time::Duration;
 /// How often the folder is rescanned even when the watcher stays quiet.
 const RESCAN: Duration = Duration::from_secs(3);
 
+/// Join requests kept in the folder at once (security review L7).
+const MAX_FOLDER_JOINS: usize = 50;
+
 pub struct FolderTransport {
     folder: PathBuf,
     stops: Mutex<Vec<Arc<AtomicBool>>>,
@@ -105,7 +108,7 @@ fn scan(dir: &Path, seen: &mut HashSet<String>, tx: &Sender<Inbound>) -> bool {
         if envelope_id_of(&name) != Some(envelope.id.as_str()) {
             continue;
         }
-        if tx.send(Inbound { envelope, received_at_ms: now, cursor: 0 }).is_err() {
+        if tx.send(Inbound { envelope, received_at_ms: now, cursor: 0, reset: false }).is_err() {
             return false;
         }
     }
@@ -221,9 +224,15 @@ impl TeamTransport for FolderTransport {
                 let _ = std::fs::remove_file(&path);
                 continue;
             }
-            out.push(join);
+            out.push((join, path));
         }
-        Ok(out)
+        // Anyone who can write the folder can drop files in it: keep the newest few only.
+        out.sort_by(|a, b| b.0.at_ms.cmp(&a.0.at_ms));
+        for (_, path) in out.iter().skip(MAX_FOLDER_JOINS) {
+            let _ = std::fs::remove_file(path);
+        }
+        out.truncate(MAX_FOLDER_JOINS);
+        Ok(out.into_iter().map(|(join, _)| join).collect())
     }
 
     fn stop(&self) {

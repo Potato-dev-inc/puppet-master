@@ -13,7 +13,7 @@
 use super::{now_ms, Inbound, TeamTransport, TransportError};
 use crate::team::crypto::SigningKey;
 use parking_lot::Mutex;
-use pm_relay_protocol::{auth_header, Batch, Delivered, Envelope, JoinBox, SignedAcl, SignedBlob, TeamRegistration, AUTH_HEADER};
+use pm_relay_protocol::{auth_header, Batch, Delivered, Envelope, JoinBox, Resync, SignedAcl, SignedBlob, TeamRegistration, AUTH_HEADER};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
@@ -47,19 +47,51 @@ pub struct RelayTransport {
 }
 
 /// `base` with a scheme the relay speaks, or why not.
+///
+/// The address part must be a plain `host[:port]`: no user name or password (`http://127.0.0.1:x@evil.com`
+/// would otherwise pass the loopback check while the HTTP client connects to `evil.com`, and
+/// credentials would be saved in `team.json` and repeated in error messages), no backslash, no
+/// percent-escapes, no query or fragment. With those gone, this check and the HTTP client's URL
+/// parser read the same host.
 pub fn normalize_relay_url(raw: &str) -> Result<String, String> {
     let url = raw.trim().trim_end_matches('/').to_string();
-    let rest = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-        .ok_or("The relay address starts with https:// (or http:// on this computer).")?;
-    let host = rest.split('/').next().unwrap_or("");
-    if host.is_empty() || host.contains(char::is_whitespace) {
+    let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
+        ("https", rest)
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        ("http", rest)
+    } else {
+        return Err("The relay address starts with https:// (or http:// on this computer).".into());
+    };
+    if url.contains(['?', '#']) || url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("That relay address has extra parts. Use just https://host or https://host/path.".into());
+    }
+    let authority = rest.split('/').next().unwrap_or("");
+    if authority.contains(['@', '\\', '%']) {
+        return Err("A relay address can't carry a user name, a password or escaped characters.".into());
+    }
+    let host = if let Some(v6) = authority.strip_prefix('[') {
+        let (inside, after) = v6.split_once(']').ok_or("That relay address has no host.")?;
+        if !(after.is_empty() || after.strip_prefix(':').is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))) {
+            return Err("That relay address has a bad port.".into());
+        }
+        inside.parse::<std::net::Ipv6Addr>().map_err(|_| "That relay address has a bad IPv6 host.")?;
+        inside
+    } else {
+        let (host, port) = match authority.rsplit_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        };
+        if port.is_some_and(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit())) {
+            return Err("That relay address has a bad port.".into());
+        }
+        host
+    };
+    if host.is_empty() {
         return Err("That relay address has no host.".into());
     }
     // Plain http only on this machine: a relay elsewhere must use TLS.
-    let host_only = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
-    if url.starts_with("http://") && !matches!(host_only, "127.0.0.1" | "localhost" | "[::1]") {
+    let loopback = host.eq_ignore_ascii_case("localhost") || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback());
+    if scheme == "http" && !loopback {
         return Err("Use https:// for a relay on another computer.".into());
     }
     Ok(url)
@@ -142,6 +174,7 @@ impl RelayTransport {
             mode: self.mode.clone(),
             poll_only: self.poll_only,
             cursor: Arc::new(AtomicU64::new(after)),
+            pending_reset: AtomicBool::new(false),
         };
         let poller = RelayTransport {
             base: self.base.clone(),
@@ -172,6 +205,7 @@ fn relay_error(code: u16, body: &str) -> String {
         404 => "The relay doesn't know this team.".into(),
         409 => "The relay already has a newer copy.".into(),
         413 => "That's too large for the relay.".into(),
+        507 => "The team's mailbox on the relay is full. Try again later.".into(),
         429 => "The relay asks to slow down. Try again in a minute.".into(),
         _ => format!("The relay said {code}{}.", said.map(|s| format!(": {s}")).unwrap_or_default()),
     }
@@ -184,14 +218,26 @@ struct ReaderCtx {
     mode: Arc<AtomicU8>,
     poll_only: bool,
     cursor: Arc<AtomicU64>,
+    /// The relay said our cursor was past its counter; the next delivered envelope tells the
+    /// service to take its (lower) position as the saved cursor.
+    pending_reset: AtomicBool,
 }
 
 impl ReaderCtx {
     fn deliver(&self, item: Delivered, tx: &Sender<Inbound>) -> bool {
-        if item.seq > self.cursor.load(Ordering::SeqCst) {
+        let reset = self.pending_reset.swap(false, Ordering::SeqCst);
+        if reset || item.seq > self.cursor.load(Ordering::SeqCst) {
             self.cursor.store(item.seq, Ordering::SeqCst);
         }
-        tx.send(Inbound { envelope: item.envelope, received_at_ms: now_ms(), cursor: item.seq }).is_ok()
+        tx.send(Inbound { envelope: item.envelope, received_at_ms: now_ms(), cursor: item.seq, reset }).is_ok()
+    }
+
+    /// The relay's counter is behind our cursor (a restored or replaced relay database): start
+    /// again from what it has. Envelopes already seen are dropped by the session's replay guard.
+    fn resync(&self, head: u64) {
+        tracing::info!(head, cursor = self.cursor.load(Ordering::SeqCst), "team: the relay's mailbox counter went back; reading it again");
+        self.cursor.store(0, Ordering::SeqCst);
+        self.pending_reset.store(true, Ordering::SeqCst);
     }
 
     fn run(&self, poller: &RelayTransport, tx: &Sender<Inbound>, stop: &AtomicBool) {
@@ -216,12 +262,15 @@ impl ReaderCtx {
                 match poller.fetch_batch(self.cursor.load(Ordering::SeqCst), POLL_WAIT_S) {
                     Ok(batch) => {
                         self.mode.store(MODE_POLLING, Ordering::SeqCst);
+                        if batch.reset {
+                            self.resync(batch.head.unwrap_or(0));
+                        }
                         for item in batch.items {
                             if stop.load(Ordering::SeqCst) || !self.deliver(item, tx) {
                                 return;
                             }
                         }
-                        if batch.next > self.cursor.load(Ordering::SeqCst) {
+                        if batch.reset || batch.next > self.cursor.load(Ordering::SeqCst) {
                             self.cursor.store(batch.next, Ordering::SeqCst);
                         }
                     }
@@ -271,6 +320,8 @@ impl ReaderCtx {
                         if !self.deliver(item, tx) {
                             return WsEnd::ReceiverGone;
                         }
+                    } else if let Ok(Resync { reset: true, head }) = serde_json::from_str::<Resync>(&text) {
+                        self.resync(head);
                     }
                 }
                 Ok(tungstenite::Message::Close(_)) => return WsEnd::Failed("closed by the relay".into()),

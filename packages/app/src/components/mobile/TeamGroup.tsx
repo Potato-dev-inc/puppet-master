@@ -97,6 +97,7 @@ export function TeamGroup({ bridge, bridgeReady }: { bridge: BridgeClient; bridg
       <li key={`job-${job.id}`} className="ph-team" data-job-id={job.id}>
         <div className="ph-team-title">{jobTitle(job)}</div>
         {sub && <div className="ph-team-meta">{sub}</div>}
+        {job.state === 'needs_start' && <div className="ph-team-meta">Start it on your computer, where you can watch it.</div>}
         {job.state === 'ready' && can.act && bridge.teamApply && bridge.teamDiscard && (
           <div className="ph-team-btns">
             <button type="button" className="ph-btn ph-btn--primary" disabled={busy} onClick={() => setConfirm({ kind: 'apply', job })}>

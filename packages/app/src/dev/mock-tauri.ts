@@ -329,14 +329,28 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'team_join_approve':
         case 'team_join_decline':
         case 'team_member_remove':
+        case 'team_member_confirm_github':
           return teamConfig({ enabled: !!scenario.team?.enabled, name: scenario.team?.me ?? 'Leo', ...scenario.teamConfig });
         case 'team_invite':
           return { link: 'pm://team/join?t=Acme&r=relay.acme.dev&k=8Vh2mQ0pXn4cD7wLrT1uYb3sZaE5gJfK', code: 'KQ7M-4XPD', expiresAtMs: Date.now() + 10 * 60_000 };
         case 'team_gaps_clear':
           return null;
         case 'team_merge_plan': {
-          const pr = scenario.team?.cards.find((c) => c.id === a.cardId)?.event.subject.pr;
-          return { repo: 'acme/billing-service', number: pr?.number ?? 142, title: pr?.title ?? 'Invoice PDF export', method: 'squash', methodWords: 'squashed into one commit', autoMergeOff: false };
+          // What GitHub answers for the pull request (never the card's own words).
+          const card = scenario.team?.cards.find((c) => c.id === a.cardId)?.event;
+          const pr = card?.subject.pr;
+          return {
+            repo: 'acme/billing-service',
+            number: pr?.number ?? 142,
+            title: pr?.title ?? 'Invoice PDF export',
+            author: card?.actor.display ?? 'priya-dev',
+            headRef: card?.subject.branch ?? 'fix/rounding',
+            headSha: 'e04bc0145a89bb85472ac53fa26cedc9f64a326f',
+            baseRef: card?.subject.base ?? 'main',
+            method: 'squash',
+            methodWords: 'squashed into one commit',
+            autoMergeOff: false,
+          };
         }
         case 'team_merge_when_green': {
           const pr = scenario.team?.cards.find((c) => c.id === a.cardId)?.event.subject.pr;
@@ -348,6 +362,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'team_draft_dismiss':
         case 'team_card_dismiss':
         case 'team_job_discard':
+        case 'team_job_start':
           return null;
         case 'team_pull':
           return 'Pulled feat/auth. You are at 3f9c2a1.';
