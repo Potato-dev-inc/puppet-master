@@ -2,7 +2,7 @@
 // click is a transition on it, so "the last click wins" holds by construction (no stack of
 // booleans whose render order decides).
 
-export type MainView = 'inbox' | 'pane' | 'doctor' | 'memory' | 'spawn';
+export type MainView = 'inbox' | 'pane' | 'doctor' | 'memory' | 'spawn' | 'settings';
 
 /**
  * Where the main area rests when nothing was opened on top: an agent that is starting, else the

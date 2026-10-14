@@ -15,6 +15,8 @@ import { UndoSheet } from './components/cockpit/UndoSheet';
 import { panesSharingFolder } from './components/cockpit/history-model';
 import { ProjectMemory } from './components/cockpit/ProjectMemory';
 import { Sidebar } from './components/cockpit/Sidebar';
+import { SettingsView } from './components/cockpit/SettingsView';
+import { useInlineSettings } from './hooks/useInlineSettings';
 import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
@@ -36,6 +38,8 @@ export default function CockpitApp() {
     setView(homeView(c.spawn !== null, c.selectedId));
   }
   const closeOverlay = () => setView(homeView(c.spawn !== null, c.selectedId));
+  // Settings is a main view in Orchestration mode; in Individual mode `open` asks for the Settings window.
+  const settings = useInlineSettings<MainView>({ mode: c.mode, view, setView, home: homeView(c.spawn !== null, c.selectedId), openWindow: c.openSettings });
   // Pane whose last turn the person is being asked to undo (opened from the palette).
   const [undoPane, setUndoPane] = useState<string | null>(null);
   const loop = useLoopSignals();
@@ -63,6 +67,7 @@ export default function CockpitApp() {
   // "Set up agents" and "Project memory" views.
   const nav: typeof c = {
     ...c,
+    openSettings: async (tab) => settings.open(tab),
     select: (id) => {
       setView(viewAfterSelect(c.spawn, id));
       c.select(id);
@@ -118,6 +123,8 @@ export default function CockpitApp() {
             project={c.selectedId ? c.registry.panes.get(c.selectedId)?.info.cwd : undefined}
             onClose={closeOverlay}
           />
+        ) : view === 'settings' ? (
+          <SettingsView key={settings.viewKey} {...settings.viewProps} />
         ) : view === 'spawn' && c.spawn ? (
           <SpawnView spawn={c.spawn} onDismiss={c.dismissSpawn} />
         ) : view === 'pane' && c.selectedId ? (

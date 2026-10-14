@@ -17,6 +17,17 @@ pub fn cockpit_url(select: Option<&str>) -> String {
     }
 }
 
+/// `index.html?cockpit=1&view=settings&tab=bridge`: the cockpit window opened straight onto its inline Settings
+/// view (Orchestration mode, window created by a "Settings" request). Not `settings=1`: that is the standalone
+/// Settings window's route. The tab is sanitised like `settings_url`; a missing one lets the view choose.
+pub fn cockpit_settings_url(tab: Option<&str>) -> String {
+    let tab = tab.map(str::trim).filter(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
+    match tab {
+        Some(tab) => format!("index.html?cockpit=1&view=settings&tab={tab}"),
+        None => "index.html?cockpit=1&view=settings".to_string(),
+    }
+}
+
 /// `index.html?settings=1&tab=agents`: the route `src/main.tsx` renders as the standalone Settings.
 pub fn settings_url(tab: Option<&str>) -> String {
     let tab = tab.map(str::trim).filter(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
@@ -173,6 +184,72 @@ mod runtime {
         });
     }
 
+    /// Build the cockpit window at `url`. False when it could not be created.
+    fn build_cockpit_window(app: &AppHandle, url: String, focus: bool) -> bool {
+        let mut builder = WebviewWindowBuilder::new(app, COCKPIT_LABEL, WebviewUrl::App(url.into()))
+            .title(COCKPIT_TITLE)
+            .inner_size(1280.0, 820.0)
+            .min_inner_size(900.0, 560.0)
+            .resizable(true)
+            .focused(focus);
+        if let Some((x, y)) = next_position(app) {
+            builder = builder.position(x, y);
+        }
+        match builder.build() {
+            Ok(window) => {
+                show(&window, focus);
+                tracing::info!("cockpit window opened");
+                true
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "cockpit window failed to open");
+                false
+            }
+        }
+    }
+
+    /// Orchestration mode: show Settings INSIDE the cockpit (its inline view), on `tab` when given. The
+    /// separate Settings window is hidden if it is up, so a person never sees two Settings surfaces. A new
+    /// cockpit window carries the request in its URL; an existing one is told with `cockpit://settings`.
+    pub fn open_cockpit_settings(app: &AppHandle, tab: Option<&str>) {
+        use tauri::Emitter;
+        let app = app.clone();
+        let tab = tab.map(str::to_string);
+        std::thread::spawn(move || {
+            hide_settings_window(&app);
+            let payload = serde_json::json!({ "tab": tab });
+            if let Some(window) = app.get_webview_window(COCKPIT_LABEL) {
+                show(&window, true);
+                let _ = app.emit("cockpit://settings", payload);
+                return;
+            }
+            if !build_cockpit_window(&app, cockpit_settings_url(tab.as_deref()), true) && app.get_webview_window(COCKPIT_LABEL).is_some() {
+                // Another request created the window a moment ago; its page may not be listening yet.
+                std::thread::sleep(std::time::Duration::from_millis(1500));
+                let _ = app.emit("cockpit://settings", payload);
+            }
+        });
+    }
+
+    /// Hide the Settings window if there is one (it is hidden, never destroyed, so it reloads fast next time).
+    pub fn hide_settings_window(app: &AppHandle) {
+        if let Some(window) = app.get_webview_window(SETTINGS_LABEL) {
+            let _ = window.hide();
+        }
+    }
+
+    /// The mode switched to Orchestration: if the Settings window is on screen, ask it to move into the cockpit
+    /// (it knows which page it shows). Nothing happens for a hidden or missing window. Returns whether it asked.
+    pub fn ask_settings_to_move_inline(app: &AppHandle) -> bool {
+        match app.get_webview_window(SETTINGS_LABEL) {
+            Some(window) if window.is_visible().unwrap_or(false) => {
+                let _ = tauri::Emitter::emit_to(app, SETTINGS_LABEL, "settings://to-inline", serde_json::json!({}));
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Open the cockpit window, or show the one that exists (unminimized). `select` also selects that
     /// pane (`cockpit://select`). `focus` is true when a person asked for it.
     pub fn open_cockpit_window(app: &AppHandle, select: Option<&str>, focus: bool) {
@@ -183,28 +260,10 @@ mod runtime {
             let mut created = false;
             if let Some(window) = app.get_webview_window(COCKPIT_LABEL) {
                 show(&window, focus);
+            } else if build_cockpit_window(&app, cockpit_url(select.as_deref()), focus) {
+                created = true;
             } else {
-                let mut builder =
-                    WebviewWindowBuilder::new(&app, COCKPIT_LABEL, WebviewUrl::App(cockpit_url(select.as_deref()).into()))
-                        .title(COCKPIT_TITLE)
-                        .inner_size(1280.0, 820.0)
-                        .min_inner_size(900.0, 560.0)
-                        .resizable(true)
-                        .focused(focus);
-                if let Some((x, y)) = next_position(&app) {
-                    builder = builder.position(x, y);
-                }
-                match builder.build() {
-                    Ok(window) => {
-                        show(&window, focus);
-                        created = true;
-                        tracing::info!("cockpit window opened");
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "cockpit window failed to open");
-                        return;
-                    }
-                }
+                return;
             }
             if let Some(pane_id) = select {
                 if created {
@@ -334,8 +393,9 @@ mod runtime {
 }
 
 pub use runtime::{
-    close_warm_pane_window, destroy_pane_windows, hide_cockpit_window, on_close_requested, open_cockpit_window,
-    open_pane_window, open_settings_window, open_warm_pane_window, open_worker_host_window,
+    ask_settings_to_move_inline, close_warm_pane_window, destroy_pane_windows, hide_cockpit_window, hide_settings_window,
+    on_close_requested, open_cockpit_settings, open_cockpit_window, open_pane_window, open_settings_window,
+    open_warm_pane_window, open_worker_host_window,
 };
 
 #[cfg(test)]
@@ -348,6 +408,17 @@ mod tests {
         assert_eq!(settings_url(Some("mcp")), "index.html?settings=1&tab=mcp");
         assert_eq!(settings_url(Some("a&b=c")), "index.html?settings=1&tab=agents");
         assert_eq!(settings_url(Some("")), "index.html?settings=1&tab=agents");
+    }
+
+    #[test]
+    fn cockpit_settings_url_is_the_cockpit_route_not_the_settings_window_route() {
+        assert_eq!(cockpit_settings_url(None), "index.html?cockpit=1&view=settings");
+        assert_eq!(cockpit_settings_url(Some("bridge")), "index.html?cockpit=1&view=settings&tab=bridge");
+        // `settings=1` would make main.tsx render the standalone Settings window instead of the cockpit.
+        assert!(!cockpit_settings_url(Some("agents")).contains("settings=1"));
+        // Anything that is not a plain page id is dropped, like `settings_url`.
+        assert_eq!(cockpit_settings_url(Some("a&b=c")), "index.html?cockpit=1&view=settings");
+        assert_eq!(cockpit_settings_url(Some("  ")), "index.html?cockpit=1&view=settings");
     }
 
     #[test]

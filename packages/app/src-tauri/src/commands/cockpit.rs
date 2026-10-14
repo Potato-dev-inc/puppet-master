@@ -71,9 +71,10 @@ pub async fn pane_transcript(state: State<'_, AppState>, pane_id: String) -> Res
     crate::agent_runs::pane_api::pane_transcript(&state.registry, &pane_id)
 }
 
-/// Show (or create) the Settings window, optionally on a tab.
+/// Show Settings, optionally on a tab: inside the cockpit in Orchestration mode, the Settings window (shown
+/// or created) in Individual mode.
 #[tauri::command]
 pub async fn open_settings(app: AppHandle, tab: Option<String>) -> Result<(), String> {
-    crate::app_windows::open_settings_window(&app, tab.as_deref(), true);
+    crate::cockpit::open_settings(&app, tab.as_deref());
     Ok(())
 }

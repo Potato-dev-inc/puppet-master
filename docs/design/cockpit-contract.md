@@ -24,7 +24,7 @@ must deviate, update this file in the same change and say so in your report.
 | `get_ui_mode` | – | `"orchestration" \| "individual"` | from settings.json `ui_mode`, default orchestration |
 | `set_ui_mode` | `mode` | `()` | Persists and emits `ui://mode-changed {mode}`. → individual: open a pop-out for every live pane, then hide the cockpit. → orchestration: destroy all `detached-pane-*` windows **without killing their panes**, then show the cockpit. |
 | `open_cockpit` | `paneId?: string` | `()` | Show, unminimize and focus the cockpit; with `paneId`, also emit `cockpit://select {pane_id}` |
-| `open_settings` | `tab?: string` | `()` | Show or create the Settings window (focused), optionally on a tab |
+| `open_settings` | `tab?: string` | `()` | Show Settings, optionally on a tab. **Orchestration:** inside the cockpit's main area (the `settings` main view; the Settings window is hidden if it is up). **Individual:** show or create the Settings window (focused). |
 | `pane_prompt` | `paneId` | `PanePrompt \| null` | Wraps `pane_prompt::detect` / `required_action` |
 | `answer_pane_prompt` | `paneId, promptId, choice` | `()` | Same validation as `POST /agents/answer` (stale and replay guards; `allow_all` keeps its existing rules) |
 | `interrupt_pane` | `paneId` | `()` | Writes `\x03` |
@@ -38,6 +38,8 @@ must deviate, update this file in the same change and say so in your report.
 ### Events
 - `ui://mode-changed` `{ mode }`
 - `cockpit://select` `{ pane_id }`
+- `cockpit://settings` `{ tab }`: show Settings inline (Orchestration only; the cockpit window created for it carries `?cockpit=1&view=settings&tab=` instead)
+- `settings://to-inline` (to the Settings window only, only while it is visible): the mode became Orchestration; the window names its current page to `open_settings`, which moves Settings into the cockpit and hides the window
 - `pty://prompt` `{ pane_id, prompt: PanePrompt | null }`: emitted when a pane enters or leaves `waiting_input`,
   or when the detected prompt changes.
 - `pane://spawn-stage` `{ agent_id, pane_id: string|null, stage: "claiming"|"spawning"|"attached"|"ready"|"failed", warm: bool, message?: string }`
@@ -106,3 +108,10 @@ Deviations and additions, none of which change the table above:
 - The `detach` bridge route in orchestration shows the pane in the cockpit (no focus).
 - `pty://prompt` is emitted from the PTY reader on screen changes; `null` prompt is also sent when entering
   `waiting_input` without a parsable prompt.
+
+## Settings placement (inline in Orchestration)
+- The cockpit's main views are one value, last click wins: pane (selected pane, spawn or Inbox), Set up agents, Project memory, **Settings**.
+- Orchestration: Settings is the `settings` view (sidebar stays). It renders the same `SettingsPanel` as the Settings window (six sections, search, autosave, reload on `settings://changed`); it is not a copy. Back and Escape return to the view that was showing before (Escape first clears a search with text and leaves a field being typed into).
+- Every entry point goes through `c.openSettings(tab?)`: the sidebar, the palette (Toolbelt opens Bridge & MCP), Inbox cards and any deep link. Old tab ids (`preload`, `mcp`) still resolve. Rust-originated opens (tray "Settings") use `cockpit://settings`.
+- Individual: the separate Settings window, hidden not destroyed (reload on `settings://show` / `settings://changed`), as before.
+- Mode switch with Settings open: to Individual, the inline view opens the Settings window on the same page and the cockpit returns to its previous view; to Orchestration, the window moves inline on the same page and hides. There is never both.

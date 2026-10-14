@@ -8,6 +8,13 @@ import CockpitApp from './CockpitApp';
 const away = vi.hoisted(() => ({ digest: null as null | object }));
 // The spawn the (mocked) cockpit hook reports: null, running, or failed.
 const ui = vi.hoisted(() => ({ spawn: null as null | { failed: string | null } }));
+// The UI mode and the "open the Settings window" command (what Individual mode uses) the mocked cockpit reports.
+const cockpit = vi.hoisted(() => ({
+  mode: 'orchestration' as 'orchestration' | 'individual',
+  openSettings: (async () => {}) as (tab?: string) => Promise<void>,
+}));
+// Rust's "show Settings in this window" event (cockpit://settings).
+const rust = vi.hoisted(() => ({ openSettings: null as null | ((e: { tab?: string | null }) => void) }));
 
 vi.mock('./hooks/useCockpit', async () => {
   const { useState } = await import('react');
@@ -24,8 +31,9 @@ vi.mock('./hooks/useCockpit', async () => {
         },
         spawn: ui.spawn,
         dismissSpawn: () => {},
-        mode: 'orchestration',
+        mode: cockpit.mode,
         setMode: async () => {},
+        openSettings: cockpit.openSettings,
         newAgent: async () => {},
         notify: () => {},
         theme: 'dark',
@@ -37,6 +45,20 @@ vi.mock('./hooks/useCockpit', async () => {
           panes: new Map(),
         },
       };
+    },
+  };
+});
+
+vi.mock('./lib/cockpit-api', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('./lib/cockpit-api')>();
+  return {
+    ...orig,
+    cockpitApi: {
+      ...orig.cockpitApi,
+      onSettingsOpen: (cb: (e: { tab?: string | null }) => void) => {
+        rust.openSettings = cb;
+        return Promise.resolve(() => {});
+      },
     },
   };
 });
@@ -66,7 +88,7 @@ vi.mock('./lib/agent-health', () => ({ markSpawned: () => {} }));
 vi.mock('./components/cockpit/Sidebar', async () => {
   const { createElement: h } = await import('react');
   type Props = {
-    c: { select: (id: string | null) => void; registry: { paneList: { info: { id: string } }[] } };
+    c: { select: (id: string | null) => void; openSettings: (tab?: string) => Promise<void>; registry: { paneList: { info: { id: string } }[] } };
     onOpenDoctor: () => void;
     onOpenMemory: () => void;
   };
@@ -77,6 +99,7 @@ vi.mock('./components/cockpit/Sidebar', async () => {
         null,
         h('button', { type: 'button', onClick: onOpenDoctor }, 'Set up agents'),
         h('button', { type: 'button', onClick: onOpenMemory }, 'Project memory'),
+        h('button', { type: 'button', onClick: () => void c.openSettings() }, 'Settings'),
         h('button', { type: 'button', onClick: () => c.select(null) }, 'Inbox'),
         ...c.registry.paneList.map((p) =>
           h('button', { key: p.info.id, type: 'button', onClick: () => c.select(p.info.id) }, `pane ${p.info.id}`),
@@ -98,7 +121,31 @@ vi.mock('./components/cockpit/PaneView', async () => {
 });
 vi.mock('./components/cockpit/Inbox', async () => {
   const { createElement: h } = await import('react');
-  return { Inbox: () => h('div', null, 'INBOX VIEW') };
+  type Props = { c: { openSettings: (tab?: string) => Promise<void> } };
+  return {
+    Inbox: ({ c }: Props) =>
+      h('div', null, 'INBOX VIEW', h('button', { type: 'button', onClick: () => void c.openSettings('preload') }, 'Inbox deep link')),
+  };
+});
+let settingsMounts = 0;
+vi.mock('./components/cockpit/SettingsView', async () => {
+  const { createElement: h, useEffect } = await import('react');
+  type Props = { initialTab?: string; onBack: () => void; onPageChange?: (page: string) => void };
+  return {
+    SettingsView: ({ initialTab, onBack, onPageChange }: Props) => {
+      useEffect(() => {
+        settingsMounts += 1;
+        onPageChange?.(initialTab ?? 'agents');
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      return h(
+        'div',
+        null,
+        'SETTINGS VIEW tab=' + initialTab + ';',
+        h('button', { type: 'button', onClick: onBack }, 'Settings back'),
+        h('button', { type: 'button', onClick: () => onPageChange?.('keys') }, 'Go to Keys'),
+      );
+    },
+  };
 });
 vi.mock('./components/cockpit/AwayDigest', async () => {
   const { createElement: h } = await import('react');
@@ -122,6 +169,11 @@ let root: Root;
 beforeEach(() => {
   away.digest = null;
   ui.spawn = null;
+  cockpit.mode = 'orchestration';
+  cockpit.openSettings = vi.fn(async () => {});
+  rust.openSettings = null;
+  settingsMounts = 0;
+  window.history.replaceState(null, '', '/');
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -183,13 +235,13 @@ describe('CockpitApp main view precedence', () => {
     clickButton('Project memory');
     expect(mainText()).toBe('MEMORY VIEW');
     clickButton('Inbox');
-    expect(mainText()).toBe('INBOX VIEW');
+    expect(mainText()).toContain('INBOX VIEW');
     clickButton('Set up agents');
     expect(mainText()).toBe('DOCTOR VIEW');
     clickButton('pane p2');
     expect(mainText()).toBe('PANE VIEW p2');
     clickButton('Inbox');
-    expect(mainText()).toBe('INBOX VIEW');
+    expect(mainText()).toContain('INBOX VIEW');
     clickButton('pane p1');
     expect(mainText()).toBe('PANE VIEW p1');
   });
@@ -214,5 +266,122 @@ describe('CockpitApp main view precedence', () => {
     act(() => root.render(createElement(CockpitApp)));
     clickButton('pane p1');
     expect(mainText()).toBe('PANE VIEW p1');
+  });
+
+  // Integration (r10): Settings is one more value of the same view state.
+  it('(8) Settings covers a starting agent, and Back returns to its spawn view', () => {
+    ui.spawn = { failed: null };
+    act(() => root.render(createElement(CockpitApp)));
+    expect(mainText()).toBe('SPAWN VIEW');
+    clickButton('Settings');
+    expect(mainText()).toContain('SETTINGS VIEW');
+    clickButton('Settings back');
+    expect(mainText()).toBe('SPAWN VIEW');
+  });
+});
+
+describe('Settings in the cockpit', () => {
+  const rerender = () => act(() => root.render(createElement(CockpitApp)));
+  const openSettingsMock = () => cockpit.openSettings as unknown as ReturnType<typeof vi.fn>;
+  const settingsTab = () => /SETTINGS VIEW tab=([a-z]+);/.exec(mainText() ?? '')?.[1];
+  const fromRust = (e: { tab?: string }) => act(() => (rust.openSettings as (e: { tab?: string }) => void)(e));
+
+  it('Orchestration: Settings opens inside the main area and the sidebar stays', () => {
+    clickButton('Settings');
+    expect(mainText()).toContain('SETTINGS VIEW');
+    expect(host.querySelector('button')?.textContent).toBe('Set up agents'); // the sidebar is still there
+    expect(openSettingsMock()).not.toHaveBeenCalled(); // no separate window
+  });
+
+  it('Individual: Settings is the separate window, never an inline view', () => {
+    cockpit.mode = 'individual';
+    rerender();
+    clickButton('Settings');
+    expect(openSettingsMock()).toHaveBeenCalledTimes(1);
+    expect(openSettingsMock()).toHaveBeenCalledWith(undefined);
+    expect(mainText()).not.toContain('SETTINGS VIEW');
+  });
+
+  it('a deep link opens the inline view on that section', () => {
+    clickButton('pane p1');
+    fromRust({ tab: 'bridge' });
+    expect(settingsTab()).toBe('bridge');
+  });
+
+  it('a deep link from an Inbox card opens Settings on Agents (the old "preload" id means Agents)', () => {
+    clickButton('Inbox');
+    expect(mainText()).toContain('INBOX VIEW');
+    clickButton('Inbox deep link');
+    expect(settingsTab()).toBe('agents');
+    clickButton('Settings back');
+    expect(mainText()).toContain('INBOX VIEW');
+  });
+
+  it('a deep link while Settings is already open moves to that section; a plain open keeps the page', () => {
+    clickButton('Settings');
+    expect(settingsMounts).toBe(1);
+    fromRust({ tab: 'keys' });
+    expect(settingsTab()).toBe('keys');
+    expect(settingsMounts).toBe(2);
+    clickButton('Settings'); // same view, no tab: nothing reloads
+    expect(settingsMounts).toBe(2);
+    expect(settingsTab()).toBe('keys');
+  });
+
+  it('Back returns to the view that was showing before', () => {
+    clickButton('Set up agents');
+    clickButton('Settings');
+    expect(mainText()).toContain('SETTINGS VIEW');
+    clickButton('Settings back');
+    expect(mainText()).toBe('DOCTOR VIEW');
+  });
+
+  it('Back from the default view returns to the selected pane', () => {
+    clickButton('Settings');
+    clickButton('Settings back');
+    expect(mainText()).toBe('PANE VIEW p1');
+  });
+
+  it('the last click wins: a pane, Project memory or Set up agents replaces Settings, and Settings replaces them', () => {
+    clickButton('Settings');
+    clickButton('pane p2');
+    expect(mainText()).toBe('PANE VIEW p2');
+    clickButton('Settings');
+    clickButton('Project memory');
+    expect(mainText()).toBe('MEMORY VIEW');
+    clickButton('Settings');
+    expect(mainText()).toContain('SETTINGS VIEW');
+    clickButton('Set up agents');
+    expect(mainText()).toBe('DOCTOR VIEW');
+  });
+
+  it('switching to Individual with Settings open moves it to the Settings window, on the same page', () => {
+    clickButton('Settings');
+    clickButton('Go to Keys');
+    cockpit.mode = 'individual';
+    rerender();
+    expect(openSettingsMock()).toHaveBeenCalledTimes(1);
+    expect(openSettingsMock()).toHaveBeenCalledWith('keys');
+    // Back in Orchestration the cockpit is not stuck on a stale Settings view (the window has it now).
+    cockpit.mode = 'orchestration';
+    rerender();
+    expect(mainText()).toBe('PANE VIEW p1');
+    expect(host.textContent).not.toContain('SETTINGS VIEW');
+  });
+
+  it('switching to Individual with Settings closed opens no Settings window', () => {
+    cockpit.mode = 'individual';
+    rerender();
+    expect(openSettingsMock()).not.toHaveBeenCalled();
+  });
+
+  it('a cockpit window created for Settings (?view=settings&tab=) opens on it, after the view resets', async () => {
+    act(() => root.unmount());
+    window.history.replaceState(null, '', '/?cockpit=1&view=settings&tab=bridge');
+    root = createRoot(host);
+    await act(async () => root.render(createElement(CockpitApp)));
+    // Effects flush when act ends; the link opens on the next tick.
+    await act(async () => new Promise((r) => setTimeout(r, 20)));
+    expect(settingsTab()).toBe('bridge');
   });
 });
