@@ -839,3 +839,74 @@ fn a_shell_pane_never_gets_a_turn_from_a_prompt() {
     tracker.note_dispatched("p1");
     assert!(tracker.on_status("p1", "idle").is_none());
 }
+
+/// Live (VERIFY-R11 2b, still failing after the r11 fix): the first real task after the trust dialog
+/// was "Turn 2" and History held "Before answering a prompt (turn 1)". The r11 test fed
+/// `running, waiting_input, answer, running, idle`; the REAL order (captured from the round 11 app,
+/// `fixtures/trust_startup_live_events.txt`) is different: the pane starting sends no `running`
+/// event, the trust answer is recorded 70 ms BEFORE the `running` it causes (so it found no open
+/// turn and was dropped), and the start-up turn then looked like a 1.4 s task with no approvals.
+#[test]
+fn the_real_event_order_after_a_trust_prompt_makes_the_first_task_turn_one() {
+    let tmp = Tmp::new("startup-trust-live");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    let mut summaries = Vec::new();
+    for line in include_str!("fixtures/trust_startup_live_events.txt").lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+        let (at, what) = line.split_once(' ').expect("`<ms> <event>`");
+        env.at(1_000 + at.parse::<u64>().expect("ms"));
+        let mut words = what.split(' ');
+        match words.next() {
+            Some("pane-status") => {
+                if let Some(ended) = tracker.on_status("p1", words.next().expect("status")) {
+                    summaries.extend(tracker.finish(ended));
+                }
+            }
+            Some("answer") => {
+                let kind = words.next().expect("kind");
+                tracker.record_approval("p1", approval("trust-1", kind, "allow"));
+            }
+            Some("dispatched") => tracker.note_dispatched("p1"),
+            other => panic!("unknown event {other:?}"),
+        }
+    }
+    let turns: Vec<u32> = summaries.iter().map(|s| s.turn).collect();
+    assert_eq!(turns, vec![1], "start-up is not a turn; the first task is Turn 1 (before the fix: [1, 2])");
+    assert_eq!(tracker.summaries("p1").iter().map(|s| s.turn).collect::<Vec<_>>(), vec![1]);
+    assert_eq!(tracker.turn_for_checkpoint("p1", false), Some(1), "History numbers the same turn the same way");
+}
+
+/// The same answer arriving AFTER the `running` it caused (a slower machine) still counts as start-up.
+#[test]
+fn a_trust_answer_recorded_after_the_running_event_is_still_start_up() {
+    let tmp = Tmp::new("startup-trust-late");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(1_000);
+    tracker.on_status("p1", "waiting_input");
+    env.at(2_000);
+    tracker.on_status("p1", "running");
+    env.at(2_050);
+    tracker.record_approval("p1", approval("t1", "workspace_trust", "allow"));
+    env.at(3_800);
+    assert!(tracker.on_status("p1", "idle").is_none(), "start-up is not a turn");
+    env.at(4_000);
+    tracker.note_dispatched("p1");
+    env.at(7_000);
+    assert_eq!(tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap().turn, 1);
+}
+
+/// An old, unused trust answer must not turn a later hand-typed turn into "start-up".
+#[test]
+fn a_stale_trust_answer_does_not_hide_a_later_turn() {
+    let tmp = Tmp::new("startup-trust-stale");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(1_000);
+    tracker.record_approval("p1", approval("t1", "workspace_trust", "allow"));
+    env.at(1_000 + super::tracker::STARTUP_CARRY_MS + 1);
+    tracker.on_status("p1", "running");
+    env.at(1_000 + super::tracker::STARTUP_CARRY_MS + 5_000);
+    let ended = tracker.on_status("p1", "idle").expect("a real turn the user typed by hand");
+    assert_eq!(tracker.finish(ended).unwrap().turn, 1);
+}
