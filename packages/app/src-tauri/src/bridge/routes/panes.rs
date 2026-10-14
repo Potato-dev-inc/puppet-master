@@ -242,6 +242,16 @@ pub(in crate::bridge) fn registry_route(
 ) -> Option<RouteResult> {
     match (method, segments) {
         ("GET", ["panes", pane_id, "screen", ..]) => Some(screen_response(registry, pane_id)),
+        // Closing a pane that is not there is a 404 like every other pane route, not a silent
+        // `{"ok":true}` (a typo'd or stale id looked like a success). A known pane falls through to
+        // `kill`, which needs the app handle.
+        ("DELETE", ["panes", pane_id]) if !registry.lock().panes.contains_key(*pane_id) => {
+            Some(Err(operation_http_error(crate::operations::OperationError::new(
+                "PANE_NOT_FOUND",
+                crate::pty::registry::unknown_pane_message(pane_id),
+                false,
+            ))))
+        }
         _ => None,
     }
 }
