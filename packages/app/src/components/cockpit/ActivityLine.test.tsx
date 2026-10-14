@@ -68,7 +68,8 @@ describe('sidebar activity line', () => {
   it('replaces the project with the activity and keeps the project in the tooltip', () => {
     act(() => root.render(<Sidebar c={cockpit({ p1: { kind: 'working', text: 'Editing src/app.ts' } })} onOpenPalette={() => {}} />));
     expect(sub().textContent).toBe('Editing src/app.ts');
-    expect(host.querySelector('.ck-row:not(.ck-row--flat) .ck-row-main')!.getAttribute('title')).toBe('my-project');
+    // The tooltip carries the whole row (a long title or phrase is clipped on screen), project included.
+    expect(host.querySelector('.ck-row:not(.ck-row--flat) .ck-row-main')!.getAttribute('title')).toContain('my-project');
   });
 
   it('falls back to the project when there is no phrase yet', () => {

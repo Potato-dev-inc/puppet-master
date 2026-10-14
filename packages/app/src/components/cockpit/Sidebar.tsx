@@ -87,7 +87,7 @@ export function Sidebar({
               <span className="ck-row-glyph">
                 <DotSpinner status={spinnerStatus(p.status)} />
               </span>
-              <span className="ck-row-main" title={`${heading.primary} · ${subline}`}>
+              <span className="ck-row-main" title={[...new Set([heading.primary, subline, projectName(p.info.cwd)])].join(' · ')}>
                 <span className="ck-row-title">{heading.primary}</span>
                 <span className="ck-row-sub">{subline}</span>
               </span>

@@ -13,6 +13,7 @@ import { DotSpinner } from './DotSpinner';
 import { plural, splitPatch } from './diff';
 import { anchorFindings, reconcileVerdictText, severityGlyph, severityLabel, type ReviewFinding } from './review-diff';
 import { beginReview, cancelReview, clearReview, sendToAuthor, useReviewRun } from './second-opinion-store';
+import { Sheet } from './Sheet';
 import '../../styles/cockpit-changes.css';
 import '../../styles/cockpit-second-opinion.css';
 
@@ -63,8 +64,7 @@ function ReviewerSheet({
   const current = list.some((r) => r.id === picked) ? picked : defaultReviewer(list);
 
   return (
-    <div className="ck-scrim" onMouseDown={onClose}>
-      <div className="ck-sheet" role="dialog" aria-labelledby="ck-so-t" onMouseDown={(e) => e.stopPropagation()}>
+    <Sheet role="dialog" labelledBy="ck-so-t" onClose={onClose}>
         <h2 className="ck-section" id="ck-so-t">
           Who should review?
         </h2>
@@ -122,8 +122,7 @@ function ReviewerSheet({
             Start review
           </button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 

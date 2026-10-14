@@ -23,6 +23,7 @@ import { RenameTitle } from './RenameTitle';
 import { LastTurn } from './LastTurn';
 import { useLastTurn } from './away-context';
 import { SegTabs } from './SegTabs';
+import { Sheet } from './Sheet';
 import { paneHeading } from './titles';
 import { transcriptStreamLabel } from '../../lib/transcript-labels';
 
@@ -399,8 +400,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
       </div>
 
       {confirm && (
-        <div className="ck-scrim" onMouseDown={() => setConfirm(false)}>
-          <div className="ck-sheet" role="alertdialog" aria-labelledby="ck-close-t" onMouseDown={(e) => e.stopPropagation()}>
+        <Sheet labelledBy="ck-close-t" onClose={() => setConfirm(false)}>
             <h2 className="ck-section" id="ck-close-t">
               Close {name}?
             </h2>
@@ -420,8 +420,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                 Close pane
               </button>
             </div>
-          </div>
-        </div>
+        </Sheet>
       )}
     </div>
   );
