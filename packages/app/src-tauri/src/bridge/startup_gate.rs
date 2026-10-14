@@ -149,10 +149,10 @@ pub(super) fn dismiss_for_operation(
             &operation.project_path,
             &operation.operation_id,
             "startup",
-            &format!(
+            &crate::redact::text(&format!(
                 "closed startup screen before the task was typed: {}",
                 report.dismissed.join(", ")
-            ),
+            )),
         );
     }
     report

@@ -84,7 +84,7 @@ pub(in crate::agent_runs) fn interrupt_active_turns(
             project,
             &snapshot.operation_id,
             "interrupted",
-            partial.as_deref().unwrap_or("interrupted"),
+            &crate::redact::text(partial.as_deref().unwrap_or("interrupted")),
         );
         let interrupted =
             operations::mark_turn_interrupted(project, &snapshot.operation_id, partial)?;

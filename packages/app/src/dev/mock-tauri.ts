@@ -287,6 +287,23 @@ export function installTauriMock(scenario: HarnessScenario): void {
           store.set('settings', current);
           return current;
         }
+        case 'diagnostic_preview':
+          return {
+            totalBytes: 41_530,
+            files: [
+              { path: 'README.txt', label: 'A short note on what this file is', bytes: 812 },
+              { path: 'version.json', label: 'App and system versions', bytes: 148 },
+              { path: 'settings.json', label: 'Your settings, with keys and tokens removed', bytes: 1_204 },
+              { path: 'app-log.txt', label: "The last 400 lines of the app's log", bytes: 31_870 },
+              { path: 'recordings/op-1.cast', label: 'Recording of a run that failed, 2 hours ago', bytes: 7_496 },
+            ],
+          };
+        case 'diagnostic_show':
+          return ['{', '  "app": "Puppet Master",', '  "version": "0.9.0",', '  "os": "windows"', '}'].join('\n');
+        case 'diagnostic_save':
+          return { path: String(a.path ?? ''), files: 6, bytes: 9_120 };
+        case 'plugin:dialog|save':
+          return 'C:\\Users\\dev\\Desktop\\puppet-master-diagnostic.zip';
         case 'get_app_install_info':
           return {
             version: '0.9.0',

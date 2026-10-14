@@ -81,6 +81,9 @@ pub fn write_input(
     drop(reg);
     announce_title(app, pane_id, titled);
 
+    // Flight recorder: the writer is the origin (refined by the bridge for a person or API caller).
+    let tag = crate::flight::tag_for(&origin);
+    let record = |bytes: &[u8]| crate::flight::input_as(pane_id, tag, bytes);
     {
         let mut writer = writer.lock();
         if !text.is_empty() {
@@ -88,6 +91,7 @@ pub fn write_input(
                 .write_all(text.as_bytes())
                 .map_err(|e| format!("write_all: {e}"))?;
             writer.flush().map_err(|e| format!("flush: {e}"))?;
+            record(text.as_bytes());
             // Ink/React TUIs can drop a submitted prompt if the prompt text and
             // Enter arrive in the same instant. Raw terminal input must stay
             // immediate, so only pause for submit-style writes.
@@ -97,6 +101,7 @@ pub fn write_input(
         }
         if append_newline {
             write_submit_keys(&mut **writer, &submit)?;
+            record(submit.keys.as_bytes());
         }
     }
     crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
@@ -553,6 +558,7 @@ pub fn resize(
             pixel_height: 0,
         })
         .map_err(|e| format!("resize: {e}"))?;
+    crate::flight::resized(pane_id, cols, rows);
     // Keep the headless emulator's grid the same shape as the PTY so a later
     // screen reconstruction matches the live geometry.
     {

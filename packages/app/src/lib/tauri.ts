@@ -24,6 +24,8 @@ import type {
   EnsureMcpResult,
   McpStatusReport,
   CoordinationStorageInfo,
+  DiagnosticPreview,
+  DiagnosticSaved,
   OpenCodeKeyStatus,
   RotateOpenCodeKeyResult,
   AppInstallInfo,
@@ -334,6 +336,10 @@ export const tauri = {
   standbyGetStatus: () => safeInvoke<StandbyStatus | null>('standby_get_status', undefined, null, true),
   standbySetConfig: (config: StandbyConfig) =>
     safeInvoke<StandbyStatus | null>('standby_set_config', { config }, null, true),
+  diagnosticPreview: () => safeInvoke<DiagnosticPreview>('diagnostic_preview'),
+  diagnosticShow: (path: string) => safeInvoke<string>('diagnostic_show', { path }),
+  diagnosticSave: (path: string, exclude: string[]) =>
+    safeInvoke<DiagnosticSaved>('diagnostic_save', { path, exclude }),
   getAppInstallInfo: () =>
     safeInvoke<AppInstallInfo>(
       'get_app_install_info',

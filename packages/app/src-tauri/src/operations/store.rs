@@ -393,5 +393,10 @@ pub(super) fn bump(op: &mut OperationSnapshot) -> Result<(), OperationError> {
             });
         }
     }
-    persist(op)
+    let saved = persist(op);
+    if saved.is_ok() {
+        // A run that just failed gets its pane's flight recording frozen next to its record.
+        crate::flight::freeze::on_operation_saved(op);
+    }
+    saved
 }

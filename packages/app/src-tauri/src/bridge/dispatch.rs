@@ -770,7 +770,7 @@ fn deliver_task(
             &active.project_path,
             &active.operation_id,
             "readiness",
-            "READINESS_INFERRED: this agent has no input-box recogniser, so readiness was inferred (something drawn, no dialog, no shell prompt, not busy)",
+            &crate::redact::text("READINESS_INFERRED: this agent has no input-box recogniser, so readiness was inferred (something drawn, no dialog, no shell prompt, not busy)"),
         );
     }
     match outcome {
@@ -828,7 +828,7 @@ pub(super) fn park_on_unknown_screen(
         &operation.project_path,
         &operation.operation_id,
         "readiness",
-        &format!("Parked: {}", not_ready.message),
+        &crate::redact::text(&format!("Parked: {}", not_ready.message)),
     );
     let profile = crate::tui::profile_for(agent_type);
     let (project, id) = (operation.project_path.clone(), operation.operation_id.clone());

@@ -62,7 +62,7 @@ pub(super) fn auto_approve_allowed_command(
         &current.project_path,
         &current.operation_id,
         "permission",
-        &format!("auto-approved once (run policy allowed_commands): {program}"),
+        &crate::redact::text(&format!("auto-approved once (run policy allowed_commands): {program}")),
     );
     if current.status == OperationStatus::WaitingInput {
         if let Ok(running) = operations::mark_operation_observation(
@@ -194,7 +194,7 @@ pub(super) fn record_approval(
         return false;
     }
     *recorded = Some(id);
-    transcript::append(&current.project_path, &current.operation_id, "permission", summary);
+    transcript::append(&current.project_path, &current.operation_id, "permission", &crate::redact::text(summary));
     true
 }
 
@@ -267,7 +267,7 @@ pub(super) fn fail_if_agent_exited(
         &current.project_path,
         &current.operation_id,
         "diagnostic",
-        &format!("{}: {}", error.code, error.context["last_screen"].as_str().unwrap_or_default()),
+        &crate::redact::text(&format!("{}: {}", error.code, error.context["last_screen"].as_str().unwrap_or_default())),
     );
     operations::mark_operation_state(
         &current.project_path,

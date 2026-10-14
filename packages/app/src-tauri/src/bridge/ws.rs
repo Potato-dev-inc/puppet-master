@@ -291,8 +291,12 @@ fn write_input(
     }
     // A paired phone is a person typing; any other caller here is an authorised API session.
     let origin = if paired_phone_typing { crate::pty::WriteOrigin::User } else { crate::pty::WriteOrigin::Api };
-    crate::pty::registry_write_input(ctx.registry, ctx.app, pane_id, text, append_newline, false, None, origin)
-        .map_err(|err| Value::String(err))
+    // The flight recorder also wants which caller (an agent's session, a phone, the local app).
+    let tag = crate::flight::InputTag::for_bridge(ctx.session.is_some(), paired_phone_typing);
+    crate::flight::with_tag(tag, || {
+        crate::pty::registry_write_input(ctx.registry, ctx.app, pane_id, text, append_newline, false, None, origin)
+    })
+    .map_err(|err| Value::String(err))
 }
 
 /// Queue a message and push what can be written now. WouldBlock is fine: the rest goes out on

@@ -175,12 +175,12 @@ pub fn record_delivery(project: &str, operation_id: &str, again: Option<&str>, o
     if let Some(why) = again {
         summary = format!("Sent again ({why}). {summary}");
     }
-    super::transcript::append(project, operation_id, "delivery", &summary);
+    super::transcript::append(project, operation_id, "delivery", &crate::redact::text(&summary));
     super::transcript::append(
         project,
         operation_id,
         super::transcript::TRACE_STREAM,
-        &format!("{outcome:?}\n{}", trace.join("\n")),
+        &crate::redact::text(&format!("{outcome:?}\n{}", trace.join("\n"))),
     );
 }
 

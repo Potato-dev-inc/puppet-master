@@ -56,7 +56,7 @@ pub(in crate::agent_runs) fn append_valid_utf8(
         match std::str::from_utf8(pending) {
             Ok(text) => {
                 if !text.is_empty() {
-                    transcript::append(project, operation_id, stream, text);
+                    transcript::append(project, operation_id, stream, &crate::redact::text(text));
                 }
                 pending.clear();
                 return;
@@ -65,17 +65,17 @@ pub(in crate::agent_runs) fn append_valid_utf8(
                 let valid = error.valid_up_to();
                 if valid > 0 {
                     let text = std::str::from_utf8(&pending[..valid]).unwrap_or_default();
-                    transcript::append(project, operation_id, stream, text);
+                    transcript::append(project, operation_id, stream, &crate::redact::text(text));
                     pending.drain(..valid);
                 }
                 match error.error_len() {
                     Some(length) => {
-                        transcript::append(project, operation_id, stream, "\u{fffd}");
+                        transcript::append(project, operation_id, stream, &crate::redact::text("\u{fffd}"));
                         pending.drain(..length.min(pending.len()));
                     }
                     None if flush_incomplete => {
                         if !pending.is_empty() {
-                            transcript::append(project, operation_id, stream, "\u{fffd}");
+                            transcript::append(project, operation_id, stream, &crate::redact::text("\u{fffd}"));
                             pending.clear();
                         }
                         return;
