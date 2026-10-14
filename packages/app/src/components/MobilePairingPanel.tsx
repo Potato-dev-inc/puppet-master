@@ -72,7 +72,7 @@ export function MobilePairingPanel({
   const [busy, setBusy] = useState(false);
 
   const bridgeUrl = resolvePairingBridgeUrl(devInfo, publicPwaUrl, devServerPort);
-  const { origin: pwaOrigin, source: qrSource } = resolvePwaOriginForQr(devInfo, publicPwaUrl, devServerPort);
+  const { origin: pwaOrigin } = resolvePwaOriginForQr(devInfo, publicPwaUrl, devServerPort);
   const localProxyTarget = localDevPwaUrl(devServerPort);
   const tunnelOrigin = devInfo?.tunnelUrl?.replace(/\/+$/, '') ?? null;
   const qrReadyRef = useRef(false);
@@ -162,21 +162,21 @@ export function MobilePairingPanel({
       <div className="st-body space-y-3">
         <div>
           <label htmlFor="pairing-public-url" className="block text-[11px] text-pm-muted mb-1">
-            Public PWA URL
+            Phone page address
           </label>
           <TextControl
             id="pairing-public-url"
-            aria-label="Public PWA URL"
+            aria-label="Phone page address"
             type="url"
             mono
             value={publicPwaUrl}
-            placeholder="Leave empty to use dev tunnel URL"
+            placeholder="Leave empty to use the automatic address"
             normalize={normalizePwaUrlText}
             onCommit={onPublicPwaUrlChange}
           />
           {tunnelOrigin && publicPwaUrl.trim() && publicPwaUrl.replace(/\/+$/, '') !== tunnelOrigin && (
             <p className="text-[10px] text-pm-muted mb-1">
-              Custom URL must resolve on your phone. Dev tunnel:{' '}
+              This address must open on your phone. The automatic address is:{' '}
               <button
                 type="button"
                 className="underline font-mono"
@@ -188,38 +188,35 @@ export function MobilePairingPanel({
           )}
           {tunnelOrigin && !publicPwaUrl.trim() && (
             <p className="text-[10px] text-pm-muted mb-1">
-              Using dev tunnel for QR: <code className="font-mono">{tunnelOrigin}</code>
+              The QR code uses the automatic address: <code className="font-mono">{tunnelOrigin}</code>
             </p>
           )}
           <label htmlFor="pairing-dev-port" className="block text-[10px] text-pm-muted mb-1 mt-2">
-            Local dev server port
+            Port on this PC
           </label>
           <NumberControl
             id="pairing-dev-port"
-            aria-label="Local dev server port"
+            aria-label="Port on this PC"
             min={1024}
             max={65535}
             value={devServerPort}
             onCommit={onDevServerPortChange}
           />
           <p className="text-[10px] text-pm-muted mt-1">
-            Proxy your public URL to <code className="font-mono">{localProxyTarget}</code> (Vite default{' '}
+            Point your address at <code className="font-mono">{localProxyTarget}</code> (the usual port is{' '}
             <code className="font-mono">{DEFAULT_DEV_SERVER_PORT}</code>).
           </p>
           <p className="text-[10px] text-pm-muted mt-1">
-            Phone opens ({qrSource}):{' '}
+            The phone opens:{' '}
             <code className="font-mono break-all">
               {session ? buildPairingInviteUrl(pwaOrigin, session.pairing_code) : 'Shown once you make a code'}
             </code>
           </p>
           <p className="text-[10px] text-pm-muted mt-1">
-            Bridge: <code className="font-mono">{bridgeUrl}</code>
+            The phone connects to: <code className="font-mono">{bridgeUrl}</code>
             {devInfo?.tunnelUrl && !publicPwaUrl.trim() && (
-              <span> · from dev tunnel (set a custom URL above to override)</span>
+              <span> · the automatic address (type your own above to change it)</span>
             )}
-          </p>
-          <p className="text-[10px] text-pm-muted mt-1">
-            Dev CLI: <code className="font-mono">PUPPET_MASTER_PUBLIC_URL=https://your.domain</code>
           </p>
         </div>
 

@@ -83,12 +83,12 @@ export const phoneRows: RowDef[] = [
     id: 'mobile-input-delay',
     label: 'Typing delay',
     hint: 'How long to wait before sending what you type on the phone to the agent.',
-    keywords: 'mobile input buffer ms',
+    keywords: 'mobile input buffer ms delay',
     group: 'Phone app',
     render: (env) => (
       <SettingRow label="Typing delay" description="How long to wait before sending what you type on the phone to the agent.">
         <NumberControl
-          aria-label="Mobile input buffer (ms)"
+          aria-label="Typing delay (ms)"
           min={0}
           max={1000}
           step={10}
@@ -117,14 +117,14 @@ export const phoneRows: RowDef[] = [
   },
   {
     id: 'mobile-input-visible',
-    label: 'Show mobile input box',
-    hint: 'When disabled, the tap target stays invisible on the phone.',
-    keywords: 'input box tap target phone keyboard',
+    label: 'Show the typing box on the phone',
+    hint: 'When off, the box under the terminal is hidden, but the terminal still takes your taps.',
+    keywords: 'input box tap target mobile phone keyboard',
     group: 'Phone app',
     render: (env) => (
       <SettingToggle
-        label="Show mobile input box"
-        description="When disabled, the tap target stays invisible on the phone."
+        label="Show the typing box on the phone"
+        description="When off, the box under the terminal is hidden, but the terminal still takes your taps."
         checked={env.settings.mobile_input_visible ?? true}
         onChange={(value) => void env.patch({ mobile_input_visible: value })}
       />

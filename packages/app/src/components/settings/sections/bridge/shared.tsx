@@ -77,7 +77,7 @@ export function ResultLines({ results, note }: { results: EnsureMcpResult[]; not
       {results.map((r) => (
         <StatusLine
           key={r.backend}
-          label={<span className="font-mono">{r.backend}</span>}
+          label={backendName(r.backend)}
           value={r.installed ? (r.changed ? 'Updated' : 'Already set') : 'Incomplete'}
           detail={r.message}
         />
@@ -85,4 +85,19 @@ export function ResultLines({ results, note }: { results: EnsureMcpResult[]; not
       {note && <Note>{note}</Note>}
     </div>
   );
+}
+
+/**
+ * An install result's backend id (`claude_cli_global`) in words: the agent, then where it was written
+ * (this project, all projects or the home folder). An id nobody mapped yet is still read as words.
+ */
+export function backendName(id: string): string {
+  const agents: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
+  const [first = '', ...rest] = id.split('_').filter(Boolean);
+  const agent = agents[first] ?? first.charAt(0).toUpperCase() + first.slice(1);
+  const words = rest.filter((word) => word !== 'cli');
+  if (words.join('_') === 'global_home') return `${agent} · home folder`;
+  if (words.includes('global')) return `${agent} · all projects`;
+  if (rest.includes('cli')) return `${agent} · this project`;
+  return words.length ? `${agent} ${words.join(' ')}` : agent;
 }

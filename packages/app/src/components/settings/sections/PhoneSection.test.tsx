@@ -74,9 +74,9 @@ describe('Phone: every control renders', () => {
     expect(hasText(m.host, 'Tunnel stub')).toBe(true);
     expect(hasText(m.host, 'Notifications')).toBe(true);
     expect(hasText(m.host, 'On the phone')).toBe(true);
-    expect(byLabel(m.host, 'Mobile input buffer (ms)')).toBeTruthy();
+    expect(byLabel(m.host, 'Typing delay (ms)')).toBeTruthy();
     expect(switchFor('Keyboard resizes the agent')).toBeTruthy();
-    expect(switchFor('Show mobile input box')).toBeTruthy();
+    expect(switchFor('Show the typing box on the phone')).toBeTruthy();
     expect(hasText(m.host, 'Pairing stub')).toBe(true);
     expect(buttonByText(m.host, 'Stub set URL')).toBeTruthy();
     expect(buttonByText(m.host, 'Stub set port')).toBeTruthy();
@@ -106,7 +106,7 @@ describe('Phone: every control renders', () => {
 describe('Phone: each control saves a partial patch', () => {
   it('Typing delay clamps on blur: 10 -> 50, 5000 -> 1000, 0 -> 0', async () => {
     await mount();
-    const field = byLabel<HTMLInputElement>(m.host, 'Mobile input buffer (ms)')!;
+    const field = byLabel<HTMLInputElement>(m.host, 'Typing delay (ms)')!;
     await typeInto(field, '10');
     expect(m.env.patches).toEqual([]);
     await blur(field);
@@ -124,7 +124,7 @@ describe('Phone: each control saves a partial patch', () => {
 
   it('a delay typed on the way to a value saves nothing until blur', async () => {
     await mount();
-    const field = byLabel<HTMLInputElement>(m.host, 'Mobile input buffer (ms)')!;
+    const field = byLabel<HTMLInputElement>(m.host, 'Typing delay (ms)')!;
     await typeInto(field, '1');
     expect(m.env.patches).toEqual([]);
     await blur(field);
@@ -137,9 +137,9 @@ describe('Phone: each control saves a partial patch', () => {
     expect(m.env.patches).toEqual([{ mobile_keyboard_resizes_agent: true }]);
   });
 
-  it('Show mobile input box saves only {mobile_input_visible}', async () => {
+  it('Show the typing box on the phone saves only {mobile_input_visible}', async () => {
     await mount();
-    await click(switchFor('Show mobile input box'));
+    await click(switchFor('Show the typing box on the phone'));
     expect(m.env.patches).toEqual([{ mobile_input_visible: false }]);
   });
 

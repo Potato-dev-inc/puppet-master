@@ -189,6 +189,18 @@ export function installTauriMock(scenario: HarnessScenario): void {
             overallReady: true,
             repairResults: [],
           };
+        case 'install_npm_mcp_configs':
+          return [
+            { backend: 'claude_cli', installed: true, changed: true, message: 'Claude Code project MCP configured for puppet-master' },
+            { backend: 'codex_cli', installed: true, changed: false, message: 'Codex project MCP already set' },
+            { backend: 'opencode_cli', installed: true, changed: true, message: 'OpenCode project MCP configured for puppet-master' },
+          ];
+        case 'install_global_npm_mcp_configs':
+          return [
+            { backend: 'claude_cli_global', installed: true, changed: true, message: 'Claude Code user MCP configured for puppet-master' },
+            { backend: 'codex_cli_global', installed: true, changed: true, message: 'Codex global MCP configured for puppet-master' },
+            { backend: 'opencode_cli_global', installed: true, changed: false, message: 'OpenCode global MCP already set' },
+          ];
         case 'list_agent_contexts':
           return [];
         case 'secret_storage_info':
