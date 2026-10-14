@@ -223,10 +223,10 @@ impl TuiProfile for Claude {
         true
     }
 
-    /// Ctrl+U erases the input line Puppet Master typed (live, 2.1.300: it cleared two copies of a
-    /// follow-up left in the box). Not the readiness clear sequence: on a person's multi-line draft
-    /// it would erase only the cursor's line, and a draft is not Puppet Master's to erase.
+    /// Ctrl+U, one press per visual line, erases the text Puppet Master typed (live, 2.1.300: two
+    /// wrapped copies of a follow-up left in the box). Not the readiness clear sequence: a
+    /// person's draft is not Puppet Master's to erase.
     fn retype_clear_sequence(&self) -> Option<&'static str> {
-        Some(screen::CLEAR_TYPED_LINE)
+        Some(screen::CLEAR_TYPED_TEXT)
     }
 }

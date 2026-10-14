@@ -671,6 +671,8 @@ pub fn deliver_prompt_traced(
 
 /// Polls after the give-up clear in which the box must read empty for "cleared" to be said.
 const CLEARED_POLLS: u32 = 6;
+/// How many times the clear key is pressed at most while the box still shows text.
+const ERASE_ROUNDS: u32 = 3;
 
 /// Erases text this delivery typed, with the profile's clear key, after a look: not into a gate
 /// or dialog (stop), not into a shell the agent left (stop). Rides on the text's permit re-armed to
@@ -682,7 +684,8 @@ fn erase_typed(
     undo: &str,
     trace: &mut Vec<String>,
 ) -> Result<(), Delivery> {
-    for _ in 0..=MAX_STALE_LOOKS {
+    let mut presses = 1;
+    for _ in 0..=MAX_STALE_LOOKS + ERASE_ROUNDS {
         let verdict = readiness::assess(profile, io.observe());
         if let Readiness::HostShell(shell) = verdict.readiness() {
             trace.push(format!("{}; the typed text was not cleared", verdict.why()));
@@ -699,6 +702,12 @@ fn erase_typed(
             Ok(()) => {
                 trace.push("cleared the text typed so far with the profile's clear key".to_string());
                 io.pause(CLEAR_PAUSE);
+                // Text longer than one key's reach (a clear key erases a visual line at a time) is
+                // still there: press it again, a bounded number of times.
+                if presses < ERASE_ROUNDS && profile.composer_state(&io.screen()) == ComposerState::HasText {
+                    presses += 1;
+                    continue;
+                }
                 return Ok(());
             }
             Err(error) if is_stale(&error) => {
@@ -1603,7 +1612,7 @@ working
                 return;
             }
             for (text, enter) in std::mem::take(&mut self.queue) {
-                if text == "\u{15}" {
+                if !text.is_empty() && text.chars().all(|c| c == '\u{15}') {
                     self.box_text.clear();
                 } else {
                     self.box_text.push_str(&text);
@@ -1650,7 +1659,8 @@ working
 
     #[test]
     fn claude_has_a_key_to_erase_its_own_typed_text() {
-        assert_eq!(crate::tui::profile_for("claude").retype_clear_sequence(), Some("\u{15}"));
+        let key = crate::tui::profile_for("claude").retype_clear_sequence().expect("claude declares one");
+        assert!(key.len() >= 8 && key.chars().all(|c| c == '\u{15}'), "one Ctrl+U per visual line: {key:?}");
         assert_eq!(crate::tui::profile_for("claude").clear_input_sequence(), None, "a person's draft is still never cleared");
     }
 
@@ -1684,7 +1694,7 @@ working
         struct Stubborn(LaggyClaude);
         impl DeliveryIo for Stubborn {
             fn write(&mut self, o: WriteOrigin<'_>, t: &str, e: bool) -> Result<(), String> {
-                if t == "\u{15}" {
+                if !t.is_empty() && t.chars().all(|c| c == '\u{15}') {
                     return o.admit_terminal_write("", t, e, None, || AgentProcess::Alive);
                 }
                 self.0.write(o, t, e)
