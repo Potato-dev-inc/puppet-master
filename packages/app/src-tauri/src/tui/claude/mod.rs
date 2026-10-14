@@ -90,6 +90,15 @@ impl TuiProfile for Claude {
     }
 
     fn install_hint(&self) -> Option<String> {
+        Some(if cfg!(windows) {
+            "winget install Anthropic.ClaudeCode"
+        } else {
+            "curl -fsSL https://claude.ai/install.sh | bash"
+        }
+        .into())
+    }
+
+    fn install_fallback_hint(&self) -> Option<String> {
         Some("npm i -g @anthropic-ai/claude-code".into())
     }
 

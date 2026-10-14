@@ -49,6 +49,7 @@ fn probe(command: Option<VersionCommand>, installed: bool, can_test: bool) -> Pr
         installed,
         version_command: command,
         install_hint: Some("npm i -g fake".into()),
+        install_fallback: None,
         login_hint: Some("Run: fake login".into()),
         can_test,
     }
@@ -149,10 +150,18 @@ fn registered_agents_carry_hints_and_exclude_shells() {
         assert!(probes.iter().all(|p| p.id != id), "{id} is not an agent to set up");
     }
     let claude = probes.iter().find(|p| p.id == "claude").expect("claude listed");
-    assert_eq!(claude.install_hint.as_deref(), Some("npm i -g @anthropic-ai/claude-code"));
+    let expected = if cfg!(windows) { "winget install Anthropic.ClaudeCode" } else { "curl -fsSL https://claude.ai/install.sh | bash" };
+    assert_eq!(claude.install_hint.as_deref(), Some(expected));
+    assert_eq!(claude.install_fallback.as_deref(), Some("npm i -g @anthropic-ai/claude-code"));
     assert!(claude.login_hint.is_some());
     let codex = probes.iter().find(|p| p.id == "codex").expect("codex listed");
-    assert_eq!(codex.install_hint.as_deref(), Some("npm i -g @openai/codex"));
+    let expected = if cfg!(windows) {
+        "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
+    } else {
+        "curl -fsSL https://chatgpt.com/codex/install.sh | sh"
+    };
+    assert_eq!(codex.install_hint.as_deref(), Some(expected));
+    assert_eq!(codex.install_fallback.as_deref(), Some("npm i -g @openai/codex"));
     for p in &probes {
         assert!(p.install_hint.is_some(), "{} has no install hint", p.id);
         if !p.installed {

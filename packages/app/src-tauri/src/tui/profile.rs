@@ -68,6 +68,11 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// Second install route shown after `install_hint` (for example npm).
+    fn install_fallback_hint(&self) -> Option<String> {
+        None
+    }
+
     /// How the user signs in once the CLI is installed, shown by the agent doctor.
     fn login_hint(&self) -> Option<String> {
         None

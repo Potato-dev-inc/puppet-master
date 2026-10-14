@@ -45,6 +45,8 @@ export interface HarnessScenario {
   awayDigest?: boolean;
   /** Run info the mocked `pane_run_info` returns per pane id (default: only the example Claude pane has one). */
   runs?: Record<string, import('../lib/cockpit-api').PaneRunInfo>;
+  /** Cockpit History: make `checkpoints_list` answer with this state instead of the example list. */
+  checkpointsState?: 'too_big';
   /** Override the example panes. */
   panes?: PaneInfo[];
   /** Pending `ask_user` questions the mocked `questions_list` returns. */

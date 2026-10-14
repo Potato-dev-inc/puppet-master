@@ -28,8 +28,8 @@ import {
 } from './fixtures';
 
 const DOCTOR_ROWS = [
-  { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true },
-  { id: 'codex', label: 'Codex', state: 'needs_login', installed: true, version: 'codex-cli 0.9.0', reason: 'It needs you to sign in first.', install_hint: 'npm i -g @openai/codex', login_hint: 'Run: codex login', can_test: true },
+  { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'winget install Anthropic.ClaudeCode', install_fallback: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true },
+  { id: 'codex', label: 'Codex', state: 'needs_login', installed: true, version: 'codex-cli 0.9.0', reason: 'It needs you to sign in first.', install_hint: 'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"', install_fallback: 'npm i -g @openai/codex', login_hint: 'Run: codex login', can_test: true },
   { id: 'opencode', label: 'OpenCode', state: 'not_installed', installed: false, version: null, reason: 'Not installed on this computer.', install_hint: 'npm i -g opencode-ai', login_hint: 'Open OpenCode and type /connect', can_test: false },
   { id: 'cursor_agent', label: 'Cursor Agent', state: 'error', installed: true, version: null, reason: 'Found it, but it did not start properly: exit code 1', install_hint: null, login_hint: 'Run: agent login', can_test: true },
 ];
@@ -77,6 +77,9 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'pane_transcript':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_TRANSCRIPT : null;
         case 'checkpoints_list':
+          if (scenario.checkpointsState === 'too_big') {
+            return { state: 'too_big', message: 'Undo is off for this folder: it is too big. Add big folders to .gitignore.', items: [] };
+          }
           return a.paneId === PANE_CLAUDE ? EXAMPLE_CHECKPOINTS : { state: 'ok', message: '', items: [] };
         case 'checkpoint_diff':
           return EXAMPLE_FILE_CHANGES;

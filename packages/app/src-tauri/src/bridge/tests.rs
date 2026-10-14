@@ -727,7 +727,11 @@ fn agents_health_route_lists_cli_agents_with_hints() {
         assert!(agent["can_test"].is_boolean(), "{agent}");
     }
     let claude = agents.iter().find(|a| a["id"] == "claude").unwrap();
-    assert_eq!(claude["install_hint"], "npm i -g @anthropic-ai/claude-code");
+    let expected = if cfg!(windows) { "winget install Anthropic.ClaudeCode" } else { "curl -fsSL https://claude.ai/install.sh | bash" };
+    assert_eq!(claude["install_hint"], expected);
+    assert_eq!(claude["install_fallback"], "npm i -g @anthropic-ai/claude-code");
+    let codex = agents.iter().find(|a| a["id"] == "codex").unwrap();
+    assert_eq!(codex["install_fallback"], "npm i -g @openai/codex");
     assert!(super::routes::health::static_route("POST", &["agents", "health"]).is_none());
 }
 
@@ -778,12 +782,20 @@ fn stop_all_route_is_not_exposed_to_mcp_sessions() {
 #[test]
 fn stop_report_wire_shape() {
     let report = crate::panic::StopReport {
-        stopped: vec![crate::panic::StoppedPane { pane_id: "p1".into(), agent_type: "claude".into(), cwd: "/w".into() }],
+        stopped: vec![crate::panic::StoppedPane { pane_id: "p1".into(), agent_type: "claude".into(), cwd: "/w".into(), checkpoint_id: None }],
         failed: vec![],
     };
     assert_eq!(
         serde_json::to_value(report).unwrap(),
         json!({"stopped":[{"pane_id":"p1","agent_type":"claude","cwd":"/w"}],"failed":[]})
+    );
+    let with_checkpoint = crate::panic::StopReport {
+        stopped: vec![crate::panic::StoppedPane { pane_id: "p1".into(), agent_type: "claude".into(), cwd: "/w".into(), checkpoint_id: Some("4".into()) }],
+        failed: vec![],
+    };
+    assert_eq!(
+        serde_json::to_value(with_checkpoint).unwrap(),
+        json!({"stopped":[{"pane_id":"p1","agent_type":"claude","cwd":"/w","checkpoint_id":"4"}],"failed":[]})
     );
 }
 

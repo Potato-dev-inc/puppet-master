@@ -7,14 +7,20 @@
 //! `running` are touched; plain shell panes are left alone (a dev server in a shell is not an
 //! agent burning credits), and so are idle, waiting and errored panes.
 //!
-//! TODO(checkpoints): when `feat/checkpoints` lands, take a checkpoint of each stopped pane's
-//! project before interrupting (hook point: `stop_running`, `before_interrupt`).
+//! Before a pane is interrupted, a checkpoint of its project is taken (`checkpoints::before_stop`),
+//! so "Stop all agents" never leaves the user without a way back. The checkpoints run in parallel
+//! under a short time budget: a huge folder must not delay the stop, it just goes without one.
 
 use crate::pty::PaneRegistry;
 use parking_lot::Mutex;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
+
+/// How long the stop waits, in total, for the checkpoints taken before it interrupts.
+pub const CHECKPOINT_BUDGET: Duration = Duration::from_secs(4);
 
 /// What the panic button needs to know about one pane.
 #[derive(Debug, Clone)]
@@ -31,6 +37,9 @@ pub struct StoppedPane {
     pub pane_id: String,
     pub agent_type: String,
     pub cwd: String,
+    /// The checkpoint taken just before the interrupt (the way back), when one could be taken.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
@@ -42,13 +51,25 @@ pub struct StopReport {
 
 /// Interrupts every running agent pane through `interrupt` (pure; tests inject the interrupt).
 pub fn stop_running(candidates: &[Candidate], interrupt: &dyn Fn(&str) -> Result<(), String>) -> StopReport {
+    stop_running_with(candidates, &|_| None, interrupt)
+}
+
+/// [`stop_running`] that also records, per pane, the checkpoint `checkpoint_of` names. It is asked
+/// BEFORE the pane is interrupted.
+pub fn stop_running_with(
+    candidates: &[Candidate],
+    checkpoint_of: &dyn Fn(&Candidate) -> Option<String>,
+    interrupt: &dyn Fn(&str) -> Result<(), String>,
+) -> StopReport {
     let mut report = StopReport::default();
     for c in candidates.iter().filter(|c| c.status == "running" && !c.is_shell) {
+        let checkpoint_id = checkpoint_of(c);
         match interrupt(&c.pane_id) {
             Ok(()) => report.stopped.push(StoppedPane {
                 pane_id: c.pane_id.clone(),
                 agent_type: c.agent_type.clone(),
                 cwd: c.cwd.clone(),
+                checkpoint_id,
             }),
             Err(reason) => report.failed.push((c.pane_id.clone(), reason)),
         }
@@ -70,10 +91,51 @@ fn candidates(registry: &Arc<Mutex<PaneRegistry>>) -> Vec<Candidate> {
         .collect()
 }
 
-/// Interrupt every running agent pane of the registry.
+/// Checkpoints every running agent pane in `candidates` through `take` (one worker thread per pane,
+/// all at once) and waits up to `budget` in total. Panes whose checkpoint is late, absent or failed
+/// are simply missing from the result: the stop goes ahead without them.
+pub fn checkpoint_running(
+    candidates: &[Candidate],
+    budget: Duration,
+    take: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+) -> HashMap<String, String> {
+    let (tx, rx) = std::sync::mpsc::channel::<(String, Option<String>)>();
+    let mut expected = 0;
+    for c in candidates.iter().filter(|c| c.status == "running" && !c.is_shell) {
+        let (tx, take, pane_id) = (tx.clone(), take.clone(), c.pane_id.clone());
+        let spawned = std::thread::Builder::new().name("pm-panic-checkpoint".into()).spawn(move || {
+            let id = take(&pane_id);
+            let _ = tx.send((pane_id, id));
+        });
+        if spawned.is_ok() {
+            expected += 1;
+        }
+    }
+    drop(tx);
+    let deadline = Instant::now() + budget;
+    let mut ids = HashMap::new();
+    for _ in 0..expected {
+        let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
+        match rx.recv_timeout(left) {
+            Ok((pane_id, Some(id))) => {
+                ids.insert(pane_id, id);
+            }
+            Ok((_, None)) => {}
+            Err(_) => break,
+        }
+    }
+    ids
+}
+
+/// Interrupt every running agent pane of the registry, checkpointing each one's project first.
 pub fn stop_all(registry: &Arc<Mutex<PaneRegistry>>, app: &AppHandle) -> StopReport {
     let list = candidates(registry);
-    stop_running(&list, &|id| crate::pty::registry_write_input(registry, app, id, "\u{3}", false, false, None))
+    let checkpoints = checkpoint_running(&list, CHECKPOINT_BUDGET, Arc::new(crate::checkpoints::before_stop));
+    stop_running_with(
+        &list,
+        &|c| checkpoints.get(&c.pane_id).cloned(),
+        &|id| crate::pty::registry_write_input(registry, app, id, "\u{3}", false, false, None),
+    )
 }
 
 /// Shortcut and tray entry: stop everything, bring the cockpit forward and tell it to show the sheet.
@@ -152,6 +214,50 @@ mod tests {
         assert_eq!(report.stopped.len(), 1);
         assert_eq!(report.stopped[0].pane_id, "b");
         assert_eq!(report.failed, vec![("a".to_string(), "pane has exited".to_string())]);
+    }
+
+    #[test]
+    fn a_checkpoint_is_taken_before_each_interrupt_and_its_id_is_reported() {
+        let calls = RefCell::new(Vec::<String>::new());
+        let panes = [c("run-1", "running", false), c("idle-1", "idle", false), c("run-2", "running", false)];
+        let report = stop_running_with(
+            &panes,
+            &|p| {
+                calls.borrow_mut().push(format!("checkpoint {}", p.pane_id));
+                (p.pane_id == "run-1").then(|| "7".to_string())
+            },
+            &|id| {
+                calls.borrow_mut().push(format!("interrupt {id}"));
+                Ok(())
+            },
+        );
+        assert_eq!(
+            *calls.borrow(),
+            ["checkpoint run-1", "interrupt run-1", "checkpoint run-2", "interrupt run-2"],
+            "each pane is checkpointed first; idle panes are left alone"
+        );
+        assert_eq!(report.stopped[0].checkpoint_id.as_deref(), Some("7"));
+        assert_eq!(report.stopped[1].checkpoint_id, None, "a pane that could not be checkpointed is still stopped");
+    }
+
+    #[test]
+    fn checkpoints_run_in_parallel_and_a_slow_one_cannot_delay_the_stop() {
+        let panes = [c("fast", "running", false), c("slow", "running", false), c("idle", "idle", false), c("sh", "running", true)];
+        let started = Instant::now();
+        let ids = checkpoint_running(
+            &panes,
+            Duration::from_millis(300),
+            Arc::new(|pane: &str| {
+                if pane == "slow" {
+                    std::thread::sleep(Duration::from_secs(3));
+                }
+                Some(format!("ck-{pane}"))
+            }),
+        );
+        assert!(started.elapsed() < Duration::from_secs(2), "waited {:?}", started.elapsed());
+        assert_eq!(ids.get("fast").map(String::as_str), Some("ck-fast"));
+        assert!(!ids.contains_key("slow"), "the late checkpoint is dropped, the stop goes ahead");
+        assert!(!ids.contains_key("idle") && !ids.contains_key("sh"), "only running agent panes are checkpointed");
     }
 
     #[test]
