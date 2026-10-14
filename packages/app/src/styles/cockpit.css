@@ -642,11 +642,14 @@
 }
 .cockpit .ck-kv dt {
   color: var(--label-3);
-  font: 12px var(--font-mono);
+  font: 12.5px var(--font-ui);
 }
 .cockpit .ck-kv dd {
-  font: 12px var(--font-mono);
+  font: 12.5px var(--font-ui);
   overflow-wrap: anywhere;
+}
+.cockpit .ck-kv dd.ck-mono {
+  font: 12px var(--font-mono);
 }
 
 /* ---------- spawn ---------- */

@@ -7,6 +7,8 @@ import {
   DEFAULT_STANDBY_CONFIG,
   MAX_WARM_PER_PROVIDER,
   formatDuration,
+  holdKeyLabel,
+  holdReasonText,
   preloadCount,
   preloadProviders,
   summarizePreload,
@@ -153,7 +155,7 @@ export function PreloadSettings({ api = DEFAULT_API, onSaved }: { api?: PreloadA
           ))}
           {status?.blocked.map((blocked) => (
             <p key={blocked.key} className="text-xs text-pm-muted">
-              Held back: {blocked.key} ({blocked.reason}
+              Held back: {holdKeyLabel(blocked.key)} ({holdReasonText(blocked.reason)}
               {blocked.cold ? ', warms again when you open it' : `, retry in ${formatDuration(blocked.retry_in_ms)}`})
             </p>
           ))}

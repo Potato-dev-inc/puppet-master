@@ -55,7 +55,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'get_ui_mode':
           return 'orchestration';
         case 'standby_get_status':
-          return standbyStatus(scenario.standbyIdleSecs);
+          return standbyStatus(scenario.standbyIdleSecs, scenario.standbyBlocked);
         case 'agents_list':
           return agentsListing();
         case 'pane_run_info':

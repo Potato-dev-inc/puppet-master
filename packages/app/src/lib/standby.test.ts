@@ -5,6 +5,8 @@ import {
   NO_WARM_MODE_NOTE,
   clampInt,
   formatDuration,
+  holdKeyLabel,
+  holdReasonText,
   idleDisplayValue,
   idleUnitFor,
   preloadCount,
@@ -145,5 +147,21 @@ describe('idle timeout in a faithful unit', () => {
     expect(withIdleValue(config, 30, 'seconds').idle_timeout_secs).toBe(30);
     expect(config).toEqual(before);
     expect(config.idle_timeout_secs).toBe(1200);
+  });
+});
+
+describe('held-back rows in plain words', () => {
+  it('names the machine reasons without snake_case', () => {
+    expect(holdReasonText('idle_timeout')).toBe('closed after sitting unused');
+    expect(holdReasonText('needs_attention')).toBe('it stops at a login or update screen');
+    expect(holdReasonText('spawn_failed: no such file')).toBe('it would not start');
+    expect(holdReasonText('some_new_reason')).toBe('some new reason');
+  });
+
+  it('turns the pool key label into an agent name and a folder', () => {
+    expect(holdKeyLabel('claude C:/work/app')).toBe('Claude Code in C:/work/app');
+    expect(holdKeyLabel('codex (headless) C:/work/my app')).toBe('Codex CLI, headless in C:/work/my app');
+    expect(holdKeyLabel('cursor_agent [work] D:/x')).toBe('Cursor Agent CLI, work in D:/x');
+    expect(holdKeyLabel('nonsense')).toBe('nonsense');
   });
 });

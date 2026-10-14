@@ -12,7 +12,8 @@ import { DotSpinner } from './DotSpinner';
 import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
 import { IconClose, IconGlobe, IconCopy, IconMore, IconReflow, IconRename, IconStop } from './Icons';
 import { ApprovalPrompt } from './ApprovalPrompt';
-import { formatElapsed, promptSummary, receiptRows, spinnerStatus, stateText } from './model';
+import { formatElapsed, promptSummary, spinnerStatus, stateText } from './model';
+import { readableReceipt, runStatusLabel } from './receipt-view';
 import { Changes } from './Changes';
 import { changesTabLabel, usePaneWorktree } from './usePaneWorktree';
 import { SecondOpinion } from './SecondOpinion';
@@ -371,16 +372,16 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             ) : (
               <div className="ck-receipt">
                 <dl className="ck-kv">
-                  <dt>Handle</dt>
-                  <dd>{run.info.handle}</dd>
+                  <dt>Run ID</dt>
+                  <dd className="ck-mono">{run.info.handle}</dd>
                   <dt>Status</dt>
-                  <dd>{run.info.status}</dd>
+                  <dd>{runStatusLabel(run.info.status)}</dd>
                 </dl>
                 {run.info.receipt === null || run.info.receipt === undefined ? (
                   <p className="ck-sub">No receipt yet. It is written when the turn settles.</p>
                 ) : (
                   <dl className="ck-kv">
-                    {receiptRows(run.info.receipt).map((r) => (
+                    {readableReceipt(run.info.receipt).map((r) => (
                       <div className="ck-kv-row" key={r.key}>
                         <dt>{r.key}</dt>
                         <dd>{r.value}</dd>

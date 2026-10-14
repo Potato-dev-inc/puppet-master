@@ -129,3 +129,34 @@ export function summarizePreload(status: StandbyStatus | null): string {
   if (total === 0) return 'On: warm agents start in a few seconds.';
   return `${total} warm (${ready} ready, ${starting} starting)`;
 }
+
+/** Plain words for why a warm agent was held back (`standby/pool.rs` reasons); unknown ones lose their underscores. */
+export function holdReasonText(reason: string): string {
+  switch (reason) {
+    case 'idle_timeout':
+      return 'closed after sitting unused';
+    case 'dialog':
+      return 'it stops at a trust or approval prompt';
+    case 'needs_attention':
+      return 'it stops at a login or update screen';
+    case 'dead':
+      return 'it exited right after starting';
+    case 'startup_timeout':
+      return 'it never reached its input box';
+    case 'claim_health_check_failed':
+      return 'it was not ready when a run asked for it';
+    default:
+      return reason.startsWith('spawn_failed') ? 'it would not start' : reason.replace(/_/g, ' ');
+  }
+}
+
+/** "claude [work] (headless) D:/proj" (the pool's key label) as "Claude Code, headless, work: D:/proj". */
+export function holdKeyLabel(key: string): string {
+  const match = /^(\S+)((?: \[[^\]]*\])?)((?: \(headless\))?) (.*)$/.exec(key);
+  if (!match) return key;
+  const [, agent, account, headless, project] = match;
+  const parts = [backendLabel(agent)];
+  if (headless) parts.push('headless');
+  if (account) parts.push(account.trim().slice(1, -1));
+  return `${parts.join(', ')} in ${project}`;
+}

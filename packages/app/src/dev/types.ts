@@ -33,6 +33,8 @@ export interface HarnessScenario {
   select?: string;
   /** Settings > Agents > Preload: the stored idle timeout in seconds (default 1200). */
   standbyIdleSecs?: number;
+  /** Settings > Agents > Preload: the "held back" rows the status reports. */
+  standbyBlocked?: { key: string; reason: string; fails: number; retry_in_ms: number; cold: boolean }[];
   /** Settings: tab id passed as `?tab=`. */
   settingsTab?: string;
   /** User accounts the mocked backend reports (Settings > Agents > Accounts, the "+" menu). */
