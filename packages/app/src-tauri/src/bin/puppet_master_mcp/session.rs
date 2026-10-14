@@ -75,7 +75,7 @@ pub(crate) fn initial_mode_from(
         } else if arg == "--mode" {
             let value = iter
                 .next()
-                .ok_or_else(|| "--mode requires agent, shell, or both".to_string())?;
+                .ok_or_else(|| "--mode requires agent, shell, both, or all".to_string())?;
             requested = Some(value.clone());
         }
     }
@@ -89,7 +89,7 @@ pub(crate) fn initial_mode_from(
     }
     tool_registry::McpMode::parse(&value)
         .map(Some)
-        .ok_or_else(|| format!("invalid mode {raw:?}: expected agent, shell, or both"))
+        .ok_or_else(|| format!("invalid mode {raw:?}: expected agent, shell, both, or all"))
 }
 
 /// Tells the bridge which mode this connection started in. The local catalog is set at
@@ -118,8 +118,10 @@ pub(crate) fn ensure_tool_mode(name: &str) -> Result<(), String> {
             let requested =
                 if tool_registry::tool_visible_in_mode(name, tool_registry::McpMode::Agent) {
                     "agent"
-                } else {
+                } else if tool_registry::tool_visible_in_mode(name, tool_registry::McpMode::Shell) {
                     "shell"
+                } else {
+                    "both"
                 };
             return Err(json!({"code":"MODE_MISMATCH","message":format!("{name} is unavailable in {} mode",mode.as_str()),"recoverable":false,"context":{"current_mode":mode.as_str(),"switch_with":{"mode":requested}}}).to_string());
         }

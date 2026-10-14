@@ -33,7 +33,7 @@ pub fn set_mode(session_id: &str, requested: &str) -> Result<Vec<ToolDefinition>
     let mode = McpMode::parse(requested).ok_or_else(|| {
         OperationError::new(
             "INVALID_ARGUMENT",
-            "mode must be agent, shell, or both",
+            "mode must be agent, shell, both, or all",
             false,
         )
     })?;
