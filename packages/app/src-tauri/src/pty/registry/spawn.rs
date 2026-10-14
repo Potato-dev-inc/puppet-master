@@ -303,8 +303,9 @@ pub fn spawn_pane(
                                 continue;
                             }
                             idle_clock.screen_changed(Instant::now());
+                            let busy = crate::pty::status::busy_marker(&agent_type, &snapshot);
                             busy_state.store(
-                                match crate::pty::status::busy_marker(&agent_type, &snapshot) {
+                                match busy {
                                     Some(true) => 1,
                                     Some(false) => 2,
                                     None => 0,
@@ -321,6 +322,8 @@ pub fn spawn_pane(
                             );
                             let changed = {
                                 let mut s = status.lock();
+                                // A redraw of an idle pane that shows no work is not activity.
+                                let new_status = crate::pty::status::settle_status(*s, new_status, busy);
                                 if *s != new_status {
                                     *s = new_status;
                                     true

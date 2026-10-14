@@ -129,6 +129,20 @@ pub fn busy_marker(agent_type: &str, screen: &str) -> Option<bool> {
     crate::tui::profile_for(agent_type).busy_marker(&visible_tail)
 }
 
+/// The status to publish for a freshly classified screen. `classify_agent_observation` can only
+/// say `running` for a screen that is not a prompt, so every redraw of an idle pane (a resize
+/// reprint, a clock tick, typing into the input box) used to flip it to `running` until the idle
+/// watcher caught up: the sidebar flashed "Working 0s" on select and the turn tracker counted
+/// 0.8s phantom turns. When the profile proves the screen shows no work (`busy == Some(false)`),
+/// an idle pane stays idle. Real work shows its marker (spinner, stop hint) and flips it.
+pub fn settle_status(previous: PaneStatus, observed: PaneStatus, busy: Option<bool>) -> PaneStatus {
+    if previous == PaneStatus::Idle && observed == PaneStatus::Running && busy == Some(false) {
+        PaneStatus::Idle
+    } else {
+        observed
+    }
+}
+
 pub fn is_shell_agent(agent_type: &str) -> bool {
     crate::tui::is_shell(agent_type)
 }
@@ -140,6 +154,33 @@ pub fn shell_prompt_visible(agent_type: &str, screen: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Live bug #9: selecting an idle pane remounted its terminal, the TUI reprinted after the
+    // resize, and the redraw read as "Working 0s".
+    const IDLE_CLAUDE: &str = include_str!("../tui/claude/fixtures/side_diff_panel_screen.txt");
+    const WORKING_CLAUDE: &str = "\u{25cf} Update(sum.js)\n\n\u{273b} Cooking\u{2026} (3s \u{b7} esc to interrupt)\n\n\u{276f} \n  \u{23f8} manual mode on";
+
+    #[test]
+    fn a_redraw_of_an_idle_claude_pane_does_not_flip_it_to_running() {
+        let claude = "claude";
+        // The classifier alone cannot say idle: this is the flip the sidebar showed.
+        assert_eq!(classify_agent_observation(claude, IDLE_CLAUDE, ""), PaneStatus::Running);
+        let busy = busy_marker(claude, IDLE_CLAUDE);
+        assert_eq!(busy, Some(false));
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::Running, busy), PaneStatus::Idle);
+    }
+
+    #[test]
+    fn real_work_still_flips_an_idle_pane_to_running() {
+        let busy = busy_marker("claude", WORKING_CLAUDE);
+        assert_eq!(busy, Some(true));
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::Running, busy), PaneStatus::Running);
+        // A profile that cannot tell keeps the old behaviour.
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::Running, None), PaneStatus::Running);
+        // Prompts and a running pane are never held back.
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::WaitingInput, Some(false)), PaneStatus::WaitingInput);
+        assert_eq!(settle_status(PaneStatus::Running, PaneStatus::Running, Some(false)), PaneStatus::Running);
+    }
 
     #[test]
     fn generic_greater_than_is_not_a_blocked_prompt() {
