@@ -58,6 +58,14 @@ pub struct HooksTable {
     /// CLI versions these mappings were captured on, e.g. `>=2.1.299, <=2.1.300`. Empty = untested.
     #[serde(default)]
     pub tested: String,
+    /// This agent's mode when the user set none for it: `shadow`, or `off` for an agent whose hooks
+    /// change things outside Puppet Master (a project file the vendor asks to review). Absent: the
+    /// global setting. A global `off` always wins.
+    #[serde(default)]
+    pub default_mode: Option<String>,
+    /// One plain sentence shown next to this agent's on/off switch: what turning it on does.
+    #[serde(default)]
+    pub opt_in_note: String,
     /// The vendor JSON key that names the event (`hook_event_name` in Claude and Codex).
     #[serde(default = "default_event_field")]
     pub event_field: String,
@@ -219,6 +227,12 @@ pub fn validate_hooks(h: &HooksTable) -> Vec<DefError> {
         if !valid_key(&file.root_key) {
             add("AGENT_DEF_INCONSISTENT", "hooks.project_file.root_key", "must be [A-Za-z0-9_-]+".into());
         }
+    }
+    if h.default_mode.as_deref().is_some_and(|m| !matches!(m, "off" | "shadow")) {
+        add("AGENT_DEF_INCONSISTENT", "hooks.default_mode", "must be off or shadow".into());
+    }
+    if h.opt_in_note.chars().count() > 240 || h.opt_in_note.chars().any(char::is_control) {
+        add("AGENT_DEF_TOO_LARGE", "hooks.opt_in_note", "one line of at most 240 characters".into());
     }
     if !valid_path(&h.event_field) {
         add("AGENT_DEF_INCONSISTENT", "hooks.event_field", "must be a dotted path such as hook_event_name".into());

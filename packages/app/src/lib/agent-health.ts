@@ -10,6 +10,12 @@ export interface AgentHooksHealth {
   mode: string;
   sentence: string;
   how_to?: string;
+  /** Off unless the user turns it on (its own switch in Settings > Agents). */
+  opt_in?: boolean;
+  /** What turning it on does. */
+  opt_in_note?: string;
+  /** On by the user's choice or the default. */
+  enabled?: boolean;
 }
 
 export interface AgentHealth {

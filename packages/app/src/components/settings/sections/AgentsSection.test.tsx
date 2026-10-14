@@ -40,6 +40,21 @@ vi.mock('../../../lib/accounts', async (importOriginal) => {
   };
 });
 
+vi.mock('../../../lib/agent-health', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../lib/agent-health')>();
+  const note = 'Puppet Master adds a small file to .codex in each project; Codex asks you to review it once per folder.';
+  return {
+    ...real,
+    agentHealthApi: {
+      check: vi.fn(async () => [
+        { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.300', reason: '', install_hint: null, login_hint: null, can_test: true, hooks: { state: 'connected', mode: 'shadow', sentence: 'Connected.', opt_in: false, enabled: true } },
+        { id: 'codex', label: 'Codex', state: 'unchecked', installed: true, version: '0.162.1', reason: '', install_hint: null, login_hint: null, can_test: true, hooks: { state: 'off', mode: 'off', sentence: 'Live updates are off.', opt_in: true, opt_in_note: note, enabled: false } },
+      ]),
+      test: vi.fn(),
+    },
+  };
+});
+
 vi.mock('../../../lib/agentDefinitions', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../../lib/agentDefinitions')>();
   const listing = {
@@ -281,6 +296,38 @@ describe('Agents: Live updates', () => {
     await mount();
     const text = rowOf('live-updates')!.textContent ?? '';
     expect(text).not.toMatch(/hook|shadow|evidence/i);
+  });
+});
+
+describe('Agents: Live updates for opt-in agents', () => {
+  const codexSwitch = () => byLabel<HTMLButtonElement>(m.host, 'Live updates from Codex');
+
+  it('shows an off switch for an opt-in agent, with what turning it on does', async () => {
+    await mount();
+    await settle(10);
+    expect(codexSwitch()).toBeTruthy();
+    expect(codexSwitch()!.getAttribute('aria-checked')).toBe('false');
+    expect(hasText(m.host, 'Puppet Master adds a small file to .codex in each project; Codex asks you to review it once per folder.')).toBe(true);
+    expect(byLabel(m.host, 'Live updates from Claude Code')).toBeNull();
+  });
+
+  it('turning it on saves only that agent', async () => {
+    await mount();
+    await settle(10);
+    await click(codexSwitch());
+    expect(m.env.patch).toHaveBeenCalledWith({ agent_hooks_agents: { codex: 'shadow' } });
+  });
+
+  it('a saved choice wins over the default, and the global Off disables the switch', async () => {
+    m = await mountRows(agentsRows, { settings: { ...BASE_SETTINGS, agent_hooks_agents: { codex: 'shadow' } } });
+    await settle(10);
+    expect(codexSwitch()!.getAttribute('aria-checked')).toBe('true');
+    await click(codexSwitch());
+    expect(m.env.patch).toHaveBeenCalledWith({ agent_hooks_agents: { codex: 'off' } });
+    await m.unmount();
+    m = await mountRows(agentsRows, { settings: { ...BASE_SETTINGS, agent_hooks_mode: 'off', agent_hooks_agents: { codex: 'shadow' } } });
+    await settle(10);
+    expect(codexSwitch()!.disabled).toBe(true);
   });
 });
 

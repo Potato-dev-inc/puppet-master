@@ -30,14 +30,24 @@ pub struct HookHealth {
     /// The vendor's one-time step, when there is one (Codex `/hooks`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub how_to: Option<String>,
+    /// This agent is off unless the user turns it on (its own switch in Settings).
+    pub opt_in: bool,
+    /// What turning it on does, for that switch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opt_in_note: Option<String>,
+    /// Whether the user's choice (or the default) has it on.
+    pub enabled: bool,
 }
 
 /// `None` for an agent with no hooks table at all (shells, protocol backends).
 pub fn for_agent(agent: &str, label: &str, version: Option<&str>) -> Option<HookHealth> {
     let scheme = scheme_for(agent);
     let mode = effective_mode(agent);
+    let opt_in = scheme.as_ref().is_some_and(|s| s.default_mode.as_deref() == Some("off"));
+    let opt_in_note = scheme.as_ref().map(|s| s.opt_in_note.clone()).filter(|n| !n.is_empty());
+    let enabled = mode != Mode::Off;
     let row = |state, sentence: String, how_to: Option<String>| {
-        Some(HookHealth { state, mode: mode.as_str(), sentence, how_to })
+        Some(HookHealth { state, mode: mode.as_str(), sentence, how_to, opt_in, opt_in_note: opt_in_note.clone(), enabled })
     };
     let Some(scheme) = scheme else {
         return row(

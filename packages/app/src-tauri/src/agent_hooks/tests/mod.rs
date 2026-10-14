@@ -662,3 +662,41 @@ fn the_doctor_row_uses_plain_words() {
 
 #[path = "live.rs"]
 mod live;
+
+// ---- opt-in agents (coordinator decision 2026-10-15: Codex off by default) -------------------
+
+#[test]
+fn codex_is_opt_in_off_by_default_and_writes_no_file_until_turned_on() {
+    let _guard = SETTINGS_LOCK.lock();
+    apply_settings(&json!({}));
+    assert_eq!(effective_mode("claude"), Mode::Shadow, "Claude writes no file: watch only by default");
+    assert_eq!(effective_mode("codex"), Mode::Off, "Codex writes a project file: off until the user turns it on");
+    let note = health::for_agent("codex", "Codex", Some("codex-cli 0.162.1")).unwrap();
+    assert!(note.opt_in && !note.enabled);
+    assert_eq!(
+        note.opt_in_note.as_deref(),
+        Some("Puppet Master adds a small file to .codex in each project; Codex asks you to review it once per folder.")
+    );
+
+    let project = temp("optin-project");
+    let hooks = temp("optin-hooksdir");
+    let off = prepare_spawn_in("codex", &pane(), &project.to_string_lossy(), &[], &hooks, Some(&source_exe()), Some("127.0.0.1:17999".into()));
+    assert_eq!(off, (InstallState::Off, HookLaunch::default()));
+    assert!(!project.join(".codex").exists(), "no .codex/hooks.json while Codex live updates are off");
+
+    // Turned on: the file is written; turned off again: PM's entries (and the file it created) go.
+    apply_settings(&json!({ "agent_hooks_agents": { "codex": "shadow" } }));
+    let p = pane();
+    let (state, launch) = prepare_spawn_in("codex", &p, &project.to_string_lossy(), &[], &hooks, Some(&source_exe()), Some("127.0.0.1:17999".into()));
+    assert_eq!(state, InstallState::Installed);
+    assert!(launch.env.iter().any(|(k, _)| k == "PM_HOOK_TOKEN"));
+    assert!(project.join(".codex/hooks.json").is_file());
+    // Global off wins over the per-agent choice.
+    apply_settings(&json!({ "agent_hooks_mode": "off", "agent_hooks_agents": { "codex": "shadow" } }));
+    assert_eq!(effective_mode("codex"), Mode::Off);
+    apply_settings(&json!({ "agent_hooks_agents": { "codex": "off" } }));
+    turn_off_what_is_off(&hooks, false);
+    assert!(!project.join(".codex/hooks.json").exists(), "turning Codex off removes PM's file");
+    assert!(!token::is_live(&p), "and its tokens");
+    apply_settings(&json!({}));
+}

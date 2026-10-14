@@ -96,29 +96,51 @@ pub fn apply_settings(public: &Value) {
         .and_then(Value::as_object)
         .map(|o| o.iter().filter_map(|(k, v)| Some((k.clone(), Mode::parse(v.as_str()?)?))).collect())
         .unwrap_or_default();
-    let was_any_on = {
-        let s = SETTINGS.read();
-        s.mode != Mode::Off || s.agents.values().any(|m| *m != Mode::Off)
-    };
     *SETTINGS.write() = Settings { mode, agents };
     SCHEMES.lock().clear();
-    let all_off = mode == Mode::Off && SETTINGS.read().agents.values().all(|m| *m == Mode::Off);
-    if was_any_on && all_off {
-        token::revoke_all();
-        let dir = hooks_dir();
-        let _ = std::thread::Builder::new().name("pm-hooks-uninstall".into()).spawn(move || {
-            let removed = install::project::uninstall_all(&dir, |agent| {
-                scheme_for(agent).and_then(|s| s.project_file.as_ref().map(|f| f.root_key.clone()))
-            });
-            tracing::info!(removed, "hooks turned off: removed Puppet Master's project hook entries");
-        });
+    turn_off_what_is_off(&hooks_dir(), true);
+}
+
+/// Every agent whose hooks are now off loses its tokens and PM's project-file entries (from
+/// `installs.json`), on a worker thread unless `background` is false (tests).
+pub fn turn_off_what_is_off(dir: &Path, background: bool) {
+    token::revoke_where(|agent| effective_mode(agent) == Mode::Off);
+    let dir = dir.to_path_buf();
+    let work = move || {
+        let removed = install::project::uninstall_where(
+            &dir,
+            |agent| effective_mode(agent) == Mode::Off,
+            |agent| scheme_for(agent).and_then(|s| s.project_file.as_ref().map(|f| f.root_key.clone())),
+        );
+        if removed > 0 {
+            tracing::info!(removed, "live updates turned off: removed Puppet Master's project hook entries");
+        }
+    };
+    if background {
+        let _ = std::thread::Builder::new().name("pm-hooks-uninstall".into()).spawn(work);
+    } else {
+        work();
     }
 }
 
 /// The mode the user chose for `agent` (per-agent override, else the global one).
+///
+/// Order: a global `off` turns everything off; else the user's per-agent choice; else the agent's
+/// own `default_mode` from its `[hooks]` table (Codex: off, opt-in); else the global mode.
 pub fn requested_mode(agent: &str) -> Mode {
-    let s = SETTINGS.read();
-    s.agents.get(agent).copied().unwrap_or(s.mode)
+    let (global, chosen) = {
+        let s = SETTINGS.read();
+        (s.mode, s.agents.get(agent).copied())
+    };
+    if global == Mode::Off {
+        return Mode::Off;
+    }
+    if let Some(mode) = chosen {
+        return mode;
+    }
+    scheme_for(agent)
+        .and_then(|s| s.default_mode.as_deref().and_then(Mode::parse))
+        .unwrap_or(global)
 }
 
 /// The mode in force for `agent`. v0: `evidence` runs as `shadow`.

@@ -13,6 +13,10 @@ delivery = "async"
 # Codex clamps SessionEnd/Interrupt hooks to 3 s and warns about anything longer.
 vendor_timeout_s = 3
 trust = "vendor_review"
+# Opt-in (coordinator decision 2026-10-15): the entry makes plain `codex` in the user's own terminal
+# show "Hooks need review" at every start until trusted, and each folder (worktree) asks again.
+default_mode = "off"
+opt_in_note = "Puppet Master adds a small file to .codex in each project; Codex asks you to review it once per folder."
 tested = ">=0.162.1, <=0.162.1"
 
 [hooks.project_file]

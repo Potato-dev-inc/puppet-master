@@ -198,16 +198,35 @@ fn record_install(hooks_dir: &Path, project: &Path, rel: &str, agent: &str, crea
 
 /// Turning hooks off: remove PM's entries from every recorded project, then forget the list.
 pub fn uninstall_all(hooks_dir: &Path, root_key_for: impl Fn(&str) -> Option<String>) -> usize {
+    uninstall_where(hooks_dir, |_| true, root_key_for)
+}
+
+/// Remove PM's entries for every recorded install whose agent `off` says yes to; the others stay
+/// recorded.
+pub fn uninstall_where(hooks_dir: &Path, off: impl Fn(&str) -> bool, root_key_for: impl Fn(&str) -> Option<String>) -> usize {
+    let list = installs(hooks_dir);
+    if list.is_empty() {
+        return 0;
+    }
     let mut removed = 0;
-    for item in installs(hooks_dir) {
+    let mut kept = Vec::new();
+    for item in list {
         let (Some(project), Some(file), Some(agent)) = (item["project"].as_str(), item["file"].as_str(), item["agent"].as_str()) else {
             continue;
         };
+        if !off(agent) {
+            kept.push(item.clone());
+            continue;
+        }
         let Some(root_key) = root_key_for(agent) else { continue };
         if remove(Path::new(project), file, &root_key, agent, item["created"].as_bool() == Some(true)) {
             removed += 1;
         }
     }
-    let _ = std::fs::remove_file(hooks_dir.join("installs.json"));
+    if kept.is_empty() {
+        let _ = std::fs::remove_file(hooks_dir.join("installs.json"));
+    } else if let Ok(text) = serde_json::to_string_pretty(&kept) {
+        let _ = std::fs::write(hooks_dir.join("installs.json"), text);
+    }
     removed
 }

@@ -132,7 +132,7 @@ export function AgentDoctor({ onOpenAgent, onNotify, onClose, api = agentHealthA
                   <p className="ck-doctor-reason">
                     {busy ? 'Asking it a tiny question. This can take a minute.' : r.reason}
                   </p>
-                  {r.installed && r.hooks && r.hooks.state !== 'not_supported' && (
+                  {r.installed && r.hooks && r.hooks.state !== 'not_supported' && r.hooks.state !== 'off' && (
                     <>
                       <p className="ck-doctor-live" data-live={r.hooks.state}>
                         Live updates: {r.hooks.sentence}

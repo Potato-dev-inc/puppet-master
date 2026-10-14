@@ -28,7 +28,7 @@ Agent-agnostic: every per-agent fact is in a `[hooks]` TOML table (`tui/claude/h
 | Claude: `--settings <hooks dir>/claude-settings.v1.json` | `agent_hooks/install/launch.rs` |
 | Codex: managed entries in `.codex/hooks.json` | `agent_hooks/install/project.rs`, `git_exclude::exclude_file` |
 | Frozen hook exe path, recorded once | `agent_hooks/install/stable_exe.rs` |
-| Setting `agent_hooks_mode` (off / shadow / evidence; default shadow) | `settings_store.rs`, `agent_hooks::apply_settings` |
+| Setting `agent_hooks_mode` (off / shadow / evidence; default shadow) plus per-agent `agent_hooks_agents`; an agent may declare `default_mode = "off"` (Codex: opt-in, it writes a project file) | `settings_store.rs`, `agent_hooks::apply_settings` |
 | Settings > Agents > Live updates; doctor line | `AgentsSection.tsx`, `AgentDoctor.tsx` |
 
 No new crates (`sha2`, `rand`, `base64`, `subtle` were already dependencies).

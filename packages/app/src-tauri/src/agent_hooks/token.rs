@@ -49,6 +49,11 @@ pub fn revoke_all() {
     TOKENS.lock().clear();
 }
 
+/// Revoke every token minted for an agent `off` says yes to.
+pub fn revoke_where(off: impl Fn(&str) -> bool) {
+    TOKENS.lock().retain(|_, entry| !off(&entry.agent));
+}
+
 pub fn is_live(pane_id: &str) -> bool {
     TOKENS.lock().contains_key(pane_id)
 }
