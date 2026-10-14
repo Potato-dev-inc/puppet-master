@@ -40,6 +40,7 @@ mod panic;
 mod askbar;
 mod second_opinion;
 mod pane_prompt;
+mod plain_mode;
 mod prompt_risk;
 pub mod questions;
 mod push;
@@ -322,6 +323,10 @@ pub fn run() {
             commands::second_opinion_send,
             commands::worktree_merge,
             commands::worktree_discard,
+            commands::plain_check_folder,
+            commands::plain_start,
+            commands::plain_preview,
+            commands::plain_open_preview,
             commands::project_recent,
             commands::project_forget,
             commands::project_remember,
