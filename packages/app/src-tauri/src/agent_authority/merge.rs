@@ -54,3 +54,27 @@ pub fn note_agent_merged(session: Option<&str>, handle: &str, branch: &str, into
         json!({ "handle": handle, "branch": branch, "into": into, "allowed": true }),
     );
 }
+
+/// Written after `POST /worktrees/{handle}/merge` merged (review R12 3.3): the direct route a paired
+/// phone with `control`, or a program on this computer over the plain loopback bridge, can call.
+/// Only `review_worktree(merge)` was written down before.
+pub fn note_direct_merge(by_phone: bool, handle: &str, branch: &str, into: &str) {
+    let (who, summary) = if by_phone {
+        (Who::Device(None), "A paired phone merged a separate copy")
+    } else {
+        (Who::Local, "A program on this computer merged a separate copy over the local bridge")
+    };
+    audit::record(Kind::Merge, who, summary, json!({ "handle": handle, "branch": branch, "into": into, "route": "worktrees/merge" }));
+}
+
+#[cfg(test)]
+#[test]
+fn a_direct_merge_is_written_down_with_who_did_it() {
+    let handle = format!("wt-{}", uuid::Uuid::new_v4());
+    note_direct_merge(true, &handle, "pm/run-1", "main");
+    note_direct_merge(false, &handle, "pm/run-2", "main");
+    let lines: Vec<_> = audit::global().recent(200).into_iter().filter(|e| e.detail["handle"] == json!(handle)).collect();
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines.iter().all(|e| e.kind == "merge"));
+    assert!(lines.iter().any(|e| e.who == "device") && lines.iter().any(|e| e.who == "local"), "{lines:?}");
+}
