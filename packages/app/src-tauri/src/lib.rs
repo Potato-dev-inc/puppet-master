@@ -38,6 +38,7 @@ mod pane_preview;
 mod loop_guard;
 mod panic;
 mod askbar;
+mod attention;
 mod second_opinion;
 mod pane_prompt;
 mod prompt_risk;
@@ -301,6 +302,7 @@ pub fn run() {
             settings_patch::settings_patch,
             commands::pane_prompt,
             commands::answer_pane_prompt,
+            commands::attention_snapshot,
             commands::checkpoints_list,
             commands::checkpoint_diff,
             commands::checkpoint_restore,
@@ -488,6 +490,7 @@ pub fn run() {
             loop_guard::init(app.handle().clone());
             panic::init_shortcut(app.handle());
             turn_summary::start_presence();
+            attention::init();
             askbar::glue::init(app.handle());
             team::init(app.handle().clone(), registry_for_panes.clone());
             app.handle().listen("pty://panes-changed", move |_event| {

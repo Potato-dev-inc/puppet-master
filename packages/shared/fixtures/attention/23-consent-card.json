@@ -1,0 +1,44 @@
+{
+  "name": "consent-card",
+  "note": "a question that carries consent is a consent item: no pane link, high risk, never a question",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "running"
+      }
+    ],
+    "questions": [
+      {
+        "id": "c1",
+        "pane_id": "a",
+        "created_at_ms": 4,
+        "consent": {
+          "action": "take_over",
+          "requester": "Codex",
+          "target": "Claude Code",
+          "pane_id": "a"
+        }
+      },
+      {
+        "id": "q1",
+        "pane_id": "a",
+        "created_at_ms": 5
+      }
+    ]
+  },
+  "expected": [
+    {
+      "id": "consent:c1",
+      "kind": "consent",
+      "risk": "high",
+      "since": 4
+    },
+    {
+      "id": "question:q1",
+      "kind": "question",
+      "paneId": "a",
+      "since": 5
+    }
+  ]
+}

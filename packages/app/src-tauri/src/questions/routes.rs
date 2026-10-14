@@ -154,5 +154,6 @@ pub fn publish_changed(app: &tauri::AppHandle) {
     use tauri::Emitter;
     let payload = json!({ "revision": store().revision() });
     let _ = app.emit("questions://changed", payload.clone());
+    crate::attention::on_changed();
     crate::bridge::push_sse(format!("event: questions\ndata: {payload}\n\n"));
 }

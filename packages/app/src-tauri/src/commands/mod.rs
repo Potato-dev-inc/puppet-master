@@ -19,6 +19,7 @@ mod cockpit;
 mod coordination;
 mod diagnostics;
 mod loop_guard;
+mod attention;
 mod mcp;
 mod one_brain;
 mod opencode_keys;
@@ -36,6 +37,7 @@ mod toolbelt;
 mod agent_pack;
 
 pub use agent_models::*;
+pub use attention::*;
 pub use agents::*;
 pub use ambient::*;
 pub use askbar::*;

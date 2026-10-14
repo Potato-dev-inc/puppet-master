@@ -1,0 +1,52 @@
+{
+  "name": "consent-falsy",
+  "note": "a falsy consent value is an ordinary question (JavaScript truthiness)",
+  "input": {
+    "panes": [],
+    "questions": [
+      {
+        "id": "a",
+        "consent": null
+      },
+      {
+        "id": "b",
+        "consent": false
+      },
+      {
+        "id": "c",
+        "consent": 0
+      },
+      {
+        "id": "d",
+        "consent": ""
+      },
+      {
+        "id": "e",
+        "consent": {}
+      }
+    ]
+  },
+  "expected": [
+    {
+      "id": "question:a",
+      "kind": "question"
+    },
+    {
+      "id": "question:b",
+      "kind": "question"
+    },
+    {
+      "id": "question:c",
+      "kind": "question"
+    },
+    {
+      "id": "question:d",
+      "kind": "question"
+    },
+    {
+      "id": "consent:e",
+      "kind": "consent",
+      "risk": "high"
+    }
+  ]
+}

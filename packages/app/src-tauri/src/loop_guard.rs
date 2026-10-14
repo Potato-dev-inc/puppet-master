@@ -559,6 +559,7 @@ fn deliver(events: Vec<Event>) {
     if events.is_empty() {
         return;
     }
+    crate::attention::on_changed();
     if let Some(sink) = SINK.lock().as_ref() {
         for event in &events {
             sink(event);
