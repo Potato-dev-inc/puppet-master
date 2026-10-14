@@ -22,6 +22,11 @@ mod query;
 mod recovery;
 mod startup;
 mod store;
+/// Test hook: scope this thread's project index to a private dir (see `store::set_test_index_dir`).
+#[cfg(test)]
+pub(crate) fn set_test_index_dir(path: Option<std::path::PathBuf>) {
+    store::set_test_index_dir(path)
+}
 mod transitions;
 mod view;
 mod wait;

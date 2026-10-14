@@ -20,13 +20,19 @@ mod panes;
 mod recovery;
 mod waits;
 
-struct Project(PathBuf);
+/// A temp project plus a private, thread-scoped operation index: whole-index scans such as
+/// startup recovery then only see this test's project, not those of tests running (and deleting
+/// their dirs) at the same time.
+struct Project(PathBuf, PathBuf);
 
 impl Project {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!("pm-operation-contract-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
-        Self(path)
+        let index = std::env::temp_dir().join(format!("pm-operation-contract-index-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&index).unwrap();
+        operations::set_test_index_dir(Some(index.clone()));
+        Self(path, index)
     }
 
     fn str(&self) -> String {
@@ -36,7 +42,9 @@ impl Project {
 
 impl Drop for Project {
     fn drop(&mut self) {
+        operations::set_test_index_dir(None);
         let _ = std::fs::remove_dir_all(&self.0);
+        let _ = std::fs::remove_dir_all(&self.1);
     }
 }
 
