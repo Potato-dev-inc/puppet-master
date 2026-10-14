@@ -1,0 +1,26 @@
+[package]
+name = "pm-fake-tui"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "A scriptable fake agent TUI for Puppet Master's end-to-end tests: real ConPTY, real screens, zero tokens. Dev only."
+
+# Deliberately its own workspace root (an empty table): it has nothing to do with the app's build, is never shipped,
+# and its own Cargo.lock keeps the app's lock file untouched.
+[workspace]
+
+[lib]
+name = "pm_fake_tui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pm-fake-tui"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console"] }

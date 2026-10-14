@@ -97,3 +97,13 @@ pm-relay = { path = "../../../relay/server" }
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# Dev only, never enabled by the app or a release build: the fake agent types (`fake_claude`,
+# `fake_codex`) and the in-process harness behind the `pm-fake-tui` end-to-end tests
+# (`src/fake_tui/`, `tests/fake_tui_e2e.rs`, `tools/pm-fake-tui/`). Run them with
+# `cargo test --features dev-fake-tui --test fake_tui_e2e`.
+dev-fake-tui = []
+
+[[test]]
+name = "fake_tui_e2e"
+path = "tests/fake_tui_e2e.rs"
+required-features = ["dev-fake-tui"]

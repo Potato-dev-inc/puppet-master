@@ -64,6 +64,14 @@ pub(crate) use approvals::declined_error as startup_decline_error;
 pub(crate) use sse::push_operation_sse;
 use state::{BRIDGE_APP, BRIDGE_REGISTRY};
 
+/// Dev only (`dev-fake-tui`): install the process-wide handles the embedded bridge sets at startup, with
+/// no port bound and no port file written, so an in-process end-to-end test drives the real pane observers.
+#[cfg(feature = "dev-fake-tui")]
+pub(crate) fn install_for_e2e(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle) {
+    let _ = BRIDGE_APP.set(app);
+    let _ = BRIDGE_REGISTRY.set(registry);
+}
+
 /// Tell the desktop windows to re-read pane info (`pty://panes-changed`) and the bridge viewers.
 pub fn notify_panes_changed() {
     if let Some(app) = BRIDGE_APP.get() {

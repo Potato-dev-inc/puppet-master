@@ -1,0 +1,610 @@
+//! Draws the screens. Each function returns the rows of one layout (rows are strings that may carry
+//! SGR escapes and never exceed the terminal width in visible characters).
+//!
+//! The wording, glyphs and row structure are copied from live captures kept in the app repository
+//! (`packages/app/src-tauri/src/tui/{claude,codex}/fixtures/`): Claude Code 2.1.299/2.1.300 (banner,
+//! rules, `❯` composer with a no-break space, dimmed suggestion, the `Bash command` / `Edit file`
+//! dialogs, the folder-trust dialog, the `✻ Churned for 3s · done 15:27` summary) and Codex 0.162.1
+//! (`>_ OpenAI Codex` banner, `›` composer with the dimmed "Ask Codex to do anything", the update
+//! menu, `• Working (0s • esc to interrupt)`, `• Failed (exit -1)`, the `■` error line).
+//!
+//! The app's own tests read every one of these screens back through the real `TuiProfile`s, so a
+//! change here that the profiles no longer recognise fails there.
+
+use crate::script::{ApprovalKind, GateKind, Layout};
+
+const RESET: &str = "\x1b[0m";
+const DIM: &str = "\x1b[2m";
+const NO_DIM: &str = "\x1b[22m";
+const GRAY: &str = "\x1b[38;2;153;153;153m";
+const RULE_GRAY: &str = "\x1b[38;2;136;136;136m";
+const ORANGE: &str = "\x1b[38;2;215;119;87m";
+const YELLOW: &str = "\x1b[38;2;255;193;7m";
+const BOLD: &str = "\x1b[1m";
+
+const SPINNER: [char; 5] = ['\u{2722}', '\u{2733}', '\u{2736}', '\u{273b}', '\u{273d}'];
+
+/// One thing in the transcript.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Block {
+    /// What the user submitted.
+    User(String),
+    /// A paragraph of the agent's reply.
+    Reply(String),
+    /// A tool call: its label, an optional result line, and an optional failure exit code.
+    Tool { label: String, detail: Option<String>, failed: Option<i32> },
+    /// A status line (interrupted, rejected, ...).
+    Note(String),
+    /// The finished-turn row: `✻ Churned for 3s · done 15:27` / `Worked for 3s • 3:27 PM`.
+    Summary(String),
+    /// A vendor error line (`■ You've hit your usage limit ...`).
+    Error(String),
+    /// Literal rows.
+    Raw(Vec<String>),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Banner {
+    pub version: String,
+    pub model: String,
+    pub cwd: String,
+}
+
+/// The permission dialog being shown.
+#[derive(Debug, Clone)]
+pub struct Dialog {
+    pub kind: ApprovalKind,
+    pub command: String,
+    pub path: String,
+    pub diff: Vec<String>,
+    pub auto_mode_option: bool,
+    /// 0-based option the pointer is on.
+    pub selected: usize,
+}
+
+impl Dialog {
+    /// The option labels, in the order drawn. The last one is always the refusal.
+    pub fn options(&self, layout: Layout) -> Vec<String> {
+        match (layout, self.kind) {
+            (Layout::Claude, ApprovalKind::Bash) => {
+                let first = self.command.split_whitespace().next().unwrap_or("command");
+                let mut options = vec!["Yes".to_string(), format!("Yes, and don\u{2019}t ask again for: {first} *")];
+                if self.auto_mode_option {
+                    options.push("Yes, and switch to auto mode \u{b7} auto mode handles these prompts for you".into());
+                }
+                options.push("No".into());
+                options
+            }
+            (Layout::Claude, _) => vec![
+                "Yes".into(),
+                "Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)".into(),
+                "No".into(),
+            ],
+            (Layout::Codex, ApprovalKind::Bash) => vec![
+                "Yes, proceed (y)".into(),
+                "Yes, and don't ask again for this command (a)".into(),
+                "No, and tell Codex what to do differently (esc)".into(),
+            ],
+            (Layout::Codex, _) => vec![
+                "Yes, proceed (y)".into(),
+                "Yes, and don't ask again for these files (a)".into(),
+                "No, and tell Codex what to do differently (esc)".into(),
+            ],
+        }
+    }
+}
+
+/// A startup screen being shown.
+#[derive(Debug, Clone)]
+pub struct GateView {
+    pub kind: GateKind,
+    pub selected: usize,
+}
+
+/// What the screen shows right now.
+#[derive(Debug, Clone)]
+pub enum Mode {
+    /// The agent is still starting: the banner, no composer (Codex: the composer under `loading`).
+    Loading,
+    /// A composer that takes input.
+    Ready,
+    /// A startup screen (trust, update menu) is up and the composer is not.
+    Gate(GateView),
+    Approval(Dialog),
+}
+
+pub struct View<'a> {
+    pub layout: Layout,
+    pub cols: usize,
+    pub rows: usize,
+    pub banner: &'a Banner,
+    pub blocks: &'a [Block],
+    pub mode: Mode,
+    pub composer: &'a str,
+    pub suggestion: Option<&'a str>,
+    /// No turn has run yet: Claude shows its rotating `Try "..."` hint in an empty composer.
+    pub fresh: bool,
+    /// `(verb, elapsed_ms)` while a turn runs.
+    pub busy: Option<(&'a str, u64)>,
+    /// Replaces the footer's hint (`Press Ctrl-C again to exit`, the limit wait line).
+    pub notice: Option<&'a str>,
+    /// Animation phase: changes every ~200 ms while busy.
+    pub tick: u64,
+}
+
+pub struct Frame {
+    pub rows: Vec<String>,
+    /// 0-based `(row, col)` of the cursor, when the composer is showing.
+    pub cursor: Option<(usize, usize)>,
+}
+
+pub fn frame(view: &View) -> Frame {
+    let mut rows = match (&view.mode, view.layout) {
+        (Mode::Gate(gate), Layout::Claude) => (gate_rows(view, gate), None),
+        (Mode::Gate(gate), Layout::Codex) => (gate_rows(view, gate), None),
+        (_, Layout::Claude) => claude_rows(view),
+        (_, Layout::Codex) => codex_rows(view),
+    };
+    // Fit the viewport: keep the bottom rows (the composer), clip long rows.
+    let height = view.rows.max(1);
+    let overflow = rows.0.len().saturating_sub(height);
+    let mut out: Vec<String> = rows.0.drain(overflow..).map(|row| clip(&row, view.cols)).collect();
+    let cursor = rows.1.and_then(|(r, c)| r.checked_sub(overflow).map(|r| (r, c.min(view.cols.saturating_sub(1)))));
+    out.truncate(height);
+    Frame { rows: out, cursor }
+}
+
+// ---- helpers ------------------------------------------------------------------------------------
+
+/// Visible length of a row (escape sequences do not count).
+pub fn visible_len(row: &str) -> usize {
+    let mut count = 0;
+    let mut chars = row.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for c in chars.by_ref() {
+                    if ('\x40'..='\x7e').contains(&c) {
+                        break;
+                    }
+                }
+            }
+        } else {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// The row cut to `width` visible characters (escape sequences are kept whole).
+pub fn clip(row: &str, width: usize) -> String {
+    let mut out = String::with_capacity(row.len());
+    let mut count = 0;
+    let mut chars = row.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            out.push(ch);
+            if chars.peek() == Some(&'[') {
+                out.push(chars.next().unwrap_or('['));
+                for c in chars.by_ref() {
+                    out.push(c);
+                    if ('\x40'..='\x7e').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if count >= width {
+            break;
+        }
+        out.push(ch);
+        count += 1;
+    }
+    out
+}
+
+/// Word-wrap `text` into rows of at most `width` characters; embedded newlines start a row.
+pub fn wrap(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(8);
+    let mut rows = Vec::new();
+    for paragraph in text.split('\n') {
+        let mut line = String::new();
+        let mut len = 0;
+        for word in paragraph.split(' ') {
+            let word_len = word.chars().count();
+            if len > 0 && len + 1 + word_len > width {
+                rows.push(std::mem::take(&mut line));
+                len = 0;
+            }
+            if len > 0 {
+                line.push(' ');
+                len += 1;
+            }
+            // A word longer than a row is cut.
+            let mut rest = word;
+            while rest.chars().count() > width {
+                let cut: usize = rest.char_indices().nth(width).map_or(rest.len(), |(at, _)| at);
+                if !line.is_empty() {
+                    rows.push(std::mem::take(&mut line));
+                }
+                rows.push(rest[..cut].to_string());
+                rest = &rest[cut..];
+                len = 0;
+            }
+            line.push_str(rest);
+            len += rest.chars().count();
+        }
+        rows.push(line);
+    }
+    rows
+}
+
+fn rule(view: &View, ch: char) -> String {
+    format!("{RULE_GRAY}{}{RESET}", ch.to_string().repeat(view.cols))
+}
+
+fn right_align(left: String, right: &str, cols: usize) -> String {
+    let used = visible_len(&left);
+    let right_len = right.chars().count();
+    if used + 2 + right_len + 2 <= cols {
+        format!("{left}{}{right}", " ".repeat(cols - used - right_len - 2))
+    } else {
+        left
+    }
+}
+
+// ---- Claude -------------------------------------------------------------------------------------
+
+fn claude_banner(view: &View) -> Vec<String> {
+    let b = view.banner;
+    vec![
+        format!("{ORANGE} \u{2590}\u{259b}\u{2588}\u{2588}\u{2588}\u{259b}\u{2588}{RESET}   {BOLD}Claude Code{RESET} {GRAY}v{}{RESET}", b.version),
+        format!("{ORANGE}\u{259d}\u{259c}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2580}{RESET}  {GRAY}{}{RESET}", b.model),
+        format!("{ORANGE} \u{259d}\u{259d}   \u{259d}\u{259d}   {GRAY}{}{RESET}", b.cwd),
+    ]
+}
+
+fn claude_block(block: &Block, cols: usize) -> Vec<String> {
+    let inner = cols.saturating_sub(2);
+    let prefixed = |first: &str, text: &str| -> Vec<String> {
+        wrap(text, inner).into_iter().enumerate().map(|(i, row)| if i == 0 { format!("{first}{row}") } else { format!("  {row}") }).collect()
+    };
+    match block {
+        Block::User(text) => prefixed("\u{276f} ", text),
+        Block::Reply(text) => prefixed("\u{25cf} ", text),
+        Block::Tool { label, detail, failed } => {
+            let mut rows = vec![format!("\u{25cf} {label}")];
+            if let Some(code) = failed {
+                rows.push(format!("{GRAY}  \u{23bf} \u{a0}{RESET}Error: exit code {code}"));
+            }
+            if let Some(detail) = detail {
+                rows.push(format!("{GRAY}  \u{23bf} \u{a0}{RESET}{detail}"));
+            }
+            rows
+        }
+        Block::Note(text) => vec![format!("{GRAY}  \u{23bf} \u{a0}{RESET}{text}")],
+        Block::Summary(text) => vec![format!("{GRAY}{text}{RESET}")],
+        Block::Error(text) => prefixed("  ", text),
+        Block::Raw(rows) => rows.clone(),
+    }
+}
+
+fn claude_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
+    let mut rows = claude_banner(view);
+    rows.push(String::new());
+    if matches!(view.mode, Mode::Loading) {
+        return (rows, None);
+    }
+    for block in view.blocks {
+        rows.push(String::new());
+        rows.extend(claude_block(block, view.cols));
+    }
+    if let Some((verb, elapsed)) = view.busy {
+        rows.push(String::new());
+        let glyph = SPINNER[(view.tick as usize) % SPINNER.len()];
+        let secs = elapsed / 1000;
+        let timer = if secs >= 3 { format!(" {GRAY}({secs}s){RESET}") } else { String::new() };
+        rows.push(format!("{ORANGE}{glyph}{RESET} {verb}\u{2026}{timer}"));
+    }
+    rows.push(String::new());
+    let working = view.busy.is_some();
+    if let Mode::Approval(dialog) = &view.mode {
+        rows.extend(claude_dialog(view, dialog));
+        return (rows, None);
+    }
+    rows.push(rule(view, '\u{2500}'));
+    let inner = view.cols.saturating_sub(2);
+    let mut cursor_row = rows.len();
+    let mut cursor_col = 2;
+    if view.composer.is_empty() {
+        let ghost = match (view.suggestion, view.fresh) {
+            (Some(text), _) => format!("{DIM}{text}{NO_DIM}"),
+            (None, true) => format!("{DIM}Try \"edit <filepath> to...\"{NO_DIM}"),
+            (None, false) => String::new(),
+        };
+        rows.push(format!("\u{276f}\u{a0}{ghost}"));
+    } else {
+        let wrapped = wrap(view.composer, inner);
+        cursor_row = rows.len() + wrapped.len() - 1;
+        cursor_col = 2 + wrapped.last().map_or(0, |row| row.chars().count());
+        for (i, row) in wrapped.into_iter().enumerate() {
+            rows.push(if i == 0 { format!("\u{276f}\u{a0}{row}") } else { format!("  {row}") });
+        }
+    }
+    rows.push(rule(view, '\u{2500}'));
+    let left = match view.notice {
+        Some(note) => format!("  {GRAY}{note}{RESET}"),
+        None if working => format!("  {YELLOW}\u{23f5}\u{23f5} auto mode on {GRAY}(shift+tab to cycle) \u{b7} esc to interrupt{RESET}"),
+        None => format!("  {YELLOW}\u{23f5}\u{23f5} auto mode on {GRAY}(shift+tab to cycle){RESET}"),
+    };
+    rows.push(right_align(left, "\u{25d0} medium \u{b7} /effort", view.cols));
+    (rows, Some((cursor_row, cursor_col)))
+}
+
+fn claude_dialog(view: &View, dialog: &Dialog) -> Vec<String> {
+    let mut rows = vec![rule(view, '\u{2500}')];
+    let dashed = format!("{RULE_GRAY}{}{RESET}", "\u{254c}".repeat(view.cols));
+    let question = match dialog.kind {
+        ApprovalKind::Bash => {
+            rows.push(" Bash command".into());
+            rows.push(format!(" Run {}", dialog.command.lines().next().unwrap_or_default()));
+            rows.push(dashed.clone());
+            rows.extend(dialog.command.lines().map(|line| format!(" {line}")));
+            rows.push(dashed);
+            rows.push(" This command requires approval".into());
+            rows.push(String::new());
+            " Do you want to proceed?".to_string()
+        }
+        ApprovalKind::Edit | ApprovalKind::Create => {
+            let (title, verb) = if dialog.kind == ApprovalKind::Edit { ("Edit file", "make this edit to") } else { ("Create file", "create") };
+            rows.push(format!(" {title}"));
+            rows.push(format!(" {}", dialog.path));
+            rows.push(dashed.clone());
+            rows.extend(dialog.diff.iter().map(|line| format!(" {line}")));
+            rows.push(dashed);
+            format!(" Do you want to {verb} {}?", dialog.path)
+        }
+    };
+    rows.push(question);
+    for (i, option) in dialog.options(Layout::Claude).iter().enumerate() {
+        let pointer = if i == dialog.selected { "\u{276f} " } else { "  " };
+        rows.push(format!(" {pointer}{}. {option}", i + 1));
+    }
+    rows.push(String::new());
+    rows.push(" Esc to cancel \u{b7} Tab to amend".into());
+    rows
+}
+
+// ---- Codex --------------------------------------------------------------------------------------
+
+fn codex_banner(view: &View, loading: bool) -> Vec<String> {
+    let b = view.banner;
+    let second = if loading { "loading".to_string() } else { b.cwd.clone() };
+    vec![
+        String::new(),
+        format!("  {GRAY}>_ {RESET}{BOLD}OpenAI Codex{RESET}{DIM} (v{}){NO_DIM}", b.version),
+        format!("     {second}"),
+    ]
+}
+
+fn codex_block(block: &Block, cols: usize) -> Vec<String> {
+    let inner = cols.saturating_sub(2);
+    let prefixed = |first: &str, text: &str| -> Vec<String> {
+        wrap(text, inner).into_iter().enumerate().map(|(i, row)| if i == 0 { format!("{first}{row}") } else { format!("  {row}") }).collect()
+    };
+    match block {
+        Block::User(text) => prefixed("\u{203a} ", text),
+        Block::Reply(text) => prefixed("\u{2022} ", text),
+        Block::Tool { label, detail, failed } => match failed {
+            Some(code) => {
+                let mut rows = vec![format!("\u{2022} Failed (exit {code}) {label}")];
+                rows.push(format!("  \u{2514} {}", detail.as_deref().unwrap_or("the command could not be run")));
+                rows
+            }
+            None => {
+                let mut rows = vec![format!("\u{2022} {label}")];
+                if let Some(detail) = detail {
+                    rows.push(format!("  \u{2514} {detail}"));
+                }
+                rows
+            }
+        },
+        Block::Note(text) => prefixed("\u{25a0} ", text),
+        Block::Summary(text) => vec![format!("  {DIM}{text}{NO_DIM}")],
+        Block::Error(text) => prefixed("\u{25a0} ", text),
+        Block::Raw(rows) => rows.clone(),
+    }
+}
+
+fn codex_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
+    let loading = matches!(view.mode, Mode::Loading);
+    let mut top = codex_banner(view, loading);
+    for block in view.blocks {
+        top.push(String::new());
+        top.extend(codex_block(block, view.cols));
+    }
+    if let Some((_, elapsed)) = view.busy {
+        top.push(String::new());
+        top.push(format!("\u{2022} Working ({}s \u{2022} esc to interrupt)", elapsed / 1000));
+    }
+    let mut bottom: Vec<String> = Vec::new();
+    let mut cursor: Option<(usize, usize)> = None;
+    if let Mode::Approval(dialog) = &view.mode {
+        bottom.push(String::new());
+        match dialog.kind {
+            ApprovalKind::Bash => {
+                bottom.push("  Would you like to run the following command?".into());
+                bottom.push(String::new());
+                bottom.extend(dialog.command.lines().map(|line| format!("    $ {line}")));
+            }
+            _ => {
+                bottom.push("  Would you like to make the following edits?".into());
+                bottom.push(String::new());
+                bottom.push(format!("    {}", dialog.path));
+                bottom.extend(dialog.diff.iter().map(|line| format!("    {line}")));
+            }
+        }
+        bottom.push(String::new());
+        for (i, option) in dialog.options(Layout::Codex).iter().enumerate() {
+            let pointer = if i == dialog.selected { "\u{203a}" } else { " " };
+            bottom.push(format!("{pointer} {}. {option}", i + 1));
+        }
+        bottom.push(String::new());
+        bottom.push("  Press enter to confirm or esc to cancel".into());
+    } else {
+        bottom.push(String::new());
+        let composer_row = bottom.len();
+        if view.composer.is_empty() {
+            let ghost = match view.suggestion {
+                Some(text) => text.to_string(),
+                None => "Ask Codex to do anything".to_string(),
+            };
+            bottom.push(format!("{BOLD}\u{203a}{RESET} {DIM}{ghost}{NO_DIM}"));
+            cursor = Some((composer_row, 2));
+        } else {
+            let wrapped = wrap(view.composer, view.cols.saturating_sub(2));
+            let last = wrapped.len() - 1;
+            let width = wrapped[last].chars().count();
+            for (i, row) in wrapped.into_iter().enumerate() {
+                bottom.push(if i == 0 { format!("{BOLD}\u{203a}{RESET} {row}") } else { format!("  {row}") });
+            }
+            cursor = Some((composer_row + last, 2 + width));
+        }
+        bottom.push(String::new());
+        let model = if view.banner.model.is_empty() { "GPT-6-Luna medium" } else { view.banner.model.as_str() };
+        bottom.push(format!("  {GRAY}{model} \u{b7} {}{RESET}", view.banner.cwd));
+        let hint = view.notice.map_or("? for shortcuts".to_string(), str::to_string);
+        bottom.push(format!("  {GRAY}{hint}{RESET}"));
+    }
+    // The composer block sits at the bottom of the terminal; the transcript fills the rows above it.
+    let room = view.rows.saturating_sub(bottom.len());
+    let dropped = top.len().saturating_sub(room);
+    let mut rows: Vec<String> = top.drain(dropped..).collect();
+    rows.resize(room.max(rows.len()), String::new());
+    let base = rows.len();
+    rows.extend(bottom);
+    (rows, cursor.map(|(r, c)| (base + r, c)))
+}
+
+// ---- startup screens ----------------------------------------------------------------------------
+
+fn gate_rows(view: &View, gate: &GateView) -> Vec<String> {
+    let cwd = &view.banner.cwd;
+    match (view.layout, gate.kind) {
+        (Layout::Claude, GateKind::Trust) => {
+            let pointer = |i: usize| if gate.selected == i { "\u{276f} " } else { "  " };
+            let mut rows = vec![
+                String::new(),
+                rule(view, '\u{2500}'),
+                " Accessing workspace:".into(),
+                String::new(),
+                format!(" {cwd}"),
+                String::new(),
+            ];
+            rows.extend(wrap(
+                "Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If not, take a moment to review what's in this folder first.",
+                view.cols.saturating_sub(2),
+            ).into_iter().map(|row| format!(" {row}")));
+            rows.extend([
+                String::new(),
+                " Claude Code'll be able to read, edit, and execute files here.".into(),
+                String::new(),
+                " Security guide".into(),
+                String::new(),
+                format!(" {}No, exit", pointer(0)),
+                format!(" {}Yes, I trust this folder", pointer(1)),
+                String::new(),
+                " Enter to confirm \u{b7} Esc to cancel".into(),
+            ]);
+            rows
+        }
+        (Layout::Codex, GateKind::Trust) => {
+            let pointer = |i: usize| if gate.selected == i { "\u{203a}" } else { " " };
+            vec![
+                String::new(),
+                format!("> You are running Codex in {cwd}"),
+                String::new(),
+                "  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt injection.".into(),
+                String::new(),
+                format!("{} 1. Yes, continue", pointer(0)),
+                format!("{} 2. No, quit", pointer(1)),
+                String::new(),
+                "  Press enter to continue".into(),
+            ]
+        }
+        (_, GateKind::UpdateMenu) => {
+            let pointer = |i: usize| if gate.selected == i { "\u{203a}" } else { " " };
+            vec![
+                String::new(),
+                "  Update available \u{b7} 0.159.3 \u{2192} 0.162.1".into(),
+                "  Release notes: https://github.com/openai/codex/releases/latest".into(),
+                String::new(),
+                format!("{} 1. Update now (runs `powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex'`)", pointer(0)),
+                format!("{} 2. Skip", pointer(1)),
+                format!("{} 3. Skip until next version", pointer(2)),
+                String::new(),
+                "  enter continue \u{b7} esc skip".into(),
+            ]
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn view<'a>(layout: Layout, banner: &'a Banner, blocks: &'a [Block], mode: Mode) -> View<'a> {
+        View { layout, cols: 80, rows: 24, banner, blocks, mode, composer: "", suggestion: None, fresh: true, busy: None, notice: None, tick: 0 }
+    }
+
+    #[test]
+    fn rows_never_exceed_the_width_and_the_viewport() {
+        let banner = Banner { version: "2.1.299".into(), model: "Haiku 5.5".into(), cwd: "D:\\x".into() };
+        let blocks: Vec<Block> = (0..40).map(|i| Block::Reply(format!("paragraph {i} with some words in it to wrap around the line"))).collect();
+        for layout in [Layout::Claude, Layout::Codex] {
+            let f = frame(&view(layout, &banner, &blocks, Mode::Ready));
+            assert_eq!(f.rows.len(), 24, "{layout:?}");
+            assert!(f.rows.iter().all(|row| visible_len(row) <= 80), "{layout:?}");
+            assert!(f.cursor.is_some_and(|(row, _)| row < 24), "{layout:?} {:?}", f.cursor);
+        }
+    }
+
+    #[test]
+    fn the_claude_composer_is_the_row_between_two_rules() {
+        let banner = Banner { version: "2.1.299".into(), model: "Haiku 5.5".into(), cwd: "D:\\x".into() };
+        let f = frame(&view(Layout::Claude, &banner, &[], Mode::Ready));
+        let plain: Vec<String> = f.rows.iter().map(|r| strip(r)).collect();
+        let at = plain.iter().position(|r| r.starts_with('\u{276f}')).expect("composer row");
+        assert!(plain[at - 1].starts_with('\u{2500}') && plain[at + 1].starts_with('\u{2500}'), "{plain:?}");
+        assert!(plain[at].contains("Try \"edit <filepath> to...\""), "{}", plain[at]);
+    }
+
+    #[test]
+    fn wrapping_breaks_on_words_and_keeps_newlines() {
+        assert_eq!(wrap("aaa bbb ccc", 7), vec!["aaa bbb", "ccc"]);
+        assert_eq!(wrap("one\ntwo", 20), vec!["one", "two"]);
+        assert_eq!(wrap("abcdefghijkl", 8), vec!["abcdefgh", "ijkl"]);
+    }
+
+    pub fn strip(row: &str) -> String {
+        let mut out = String::new();
+        let mut chars = row.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                if chars.peek() == Some(&'[') {
+                    chars.next();
+                    for c in chars.by_ref() {
+                        if ('\x40'..='\x7e').contains(&c) {
+                            break;
+                        }
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
+}
