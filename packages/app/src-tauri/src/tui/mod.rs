@@ -133,6 +133,15 @@ pub fn require_registered(agent_type: &str) -> Result<Arc<dyn TuiProfile>, Unkno
     }
 }
 
+/// Whether an agent pane has fallen back to its host shell: the agent's process ended and the
+/// terminal shows a bare shell prompt (`PS C:\repo>`) where the agent's screen was. Typing a task
+/// there would run it as a shell command. Never true for a plain shell pane (its prompt is the
+/// point) or for a native-protocol pane.
+pub fn agent_gone_to_host_shell(agent_type: &str, screen: &str) -> bool {
+    matches!(profile_for(agent_type).features().kind, Kind::Cli | Kind::Unknown)
+        && shell::host_prompt_visible(screen)
+}
+
 /// A registered agent backend (not a plain shell) that `delegate_work` may be asked for.
 pub fn is_agent_backend(agent_type: &str) -> bool {
     is_registered(agent_type) && profile_for(agent_type).features().kind != Kind::Shell

@@ -136,7 +136,21 @@ pub fn busy_marker(agent_type: &str, screen: &str) -> Option<bool> {
 /// 0.8s phantom turns. When the profile proves the screen shows no work (`busy == Some(false)`),
 /// an idle pane stays idle. Real work shows its marker (spinner, stop hint) and flips it.
 pub fn settle_status(previous: PaneStatus, observed: PaneStatus, busy: Option<bool>) -> PaneStatus {
-    if previous == PaneStatus::Idle && observed == PaneStatus::Running && busy == Some(false) {
+    settle_status_after_resize(previous, observed, busy, false)
+}
+
+/// [`settle_status`] plus the generic guard for profiles that cannot read a busy marker: when the
+/// pane was resized a moment ago (`pty::resize_clock`), the agent's reprint of its screen is not
+/// work either, so an idle pane stays idle unless the profile's own evidence says it is busy
+/// (`busy == Some(true)`). Without a recent resize nothing changes.
+pub fn settle_status_after_resize(
+    previous: PaneStatus,
+    observed: PaneStatus,
+    busy: Option<bool>,
+    recently_resized: bool,
+) -> PaneStatus {
+    let no_proof_of_work = busy == Some(false) || (recently_resized && busy != Some(true));
+    if previous == PaneStatus::Idle && observed == PaneStatus::Running && no_proof_of_work {
         PaneStatus::Idle
     } else {
         observed
@@ -180,6 +194,37 @@ mod tests {
         // Prompts and a running pane are never held back.
         assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::WaitingInput, Some(false)), PaneStatus::WaitingInput);
         assert_eq!(settle_status(PaneStatus::Running, PaneStatus::Running, Some(false)), PaneStatus::Running);
+    }
+
+    // Live VERIFY #9 (Codex): selecting an idle Codex pane flipped it to running ("Working 0s") for 5 s
+    // or more, every time. Captures: Codex 0.159.3 in D:/pm-demo, ready composer / turn running.
+    const IDLE_CODEX: &str = include_str!("../tui/codex/fixtures/standby_ready_live.txt");
+    const WORKING_CODEX: &str = include_str!("../tui/codex/fixtures/working_live.txt");
+
+    #[test]
+    fn a_redraw_of_an_idle_codex_pane_does_not_flip_it_to_running() {
+        let codex = "codex";
+        assert_eq!(classify_agent_observation(codex, IDLE_CODEX, ""), PaneStatus::Running, "the classifier alone reads a redraw as work");
+        let busy = busy_marker(codex, IDLE_CODEX);
+        assert_eq!(busy, Some(false), "Codex shows no working row when idle");
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::Running, busy), PaneStatus::Idle);
+        // A turn in flight still flips it.
+        let working = busy_marker(codex, WORKING_CODEX);
+        assert_eq!(working, Some(true));
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::Running, working), PaneStatus::Running);
+    }
+
+    #[test]
+    fn a_resize_redraw_never_flips_an_idle_pane_unless_the_profile_proves_work() {
+        use PaneStatus::{Idle, Running, WaitingInput};
+        // A profile with no busy marker (None): the old behaviour flipped on any redraw.
+        assert_eq!(settle_status_after_resize(Idle, Running, None, false), Running, "no resize: unchanged");
+        assert_eq!(settle_status_after_resize(Idle, Running, None, true), Idle, "our own resize redraw");
+        // Proof of work wins over the guard, and the guard never holds back other transitions.
+        assert_eq!(settle_status_after_resize(Idle, Running, Some(true), true), Running);
+        assert_eq!(settle_status_after_resize(Idle, WaitingInput, None, true), WaitingInput);
+        assert_eq!(settle_status_after_resize(Running, Running, None, true), Running);
+        assert_eq!(settle_status_after_resize(Idle, Running, Some(false), false), Idle);
     }
 
     #[test]

@@ -639,3 +639,97 @@ fn restore_names_an_open_run_precisely() {
     env.set_status("p1", "idle");
     assert!(respond(&rt, "POST", &["panes", "p1", "checkpoints", "1", "restore"]).unwrap().is_ok());
 }
+
+#[test]
+fn a_debounced_capture_waits_for_the_snapshot_that_is_being_written() {
+    // VERIFY #5: the capture for the end of a turn arrived while the capture for the approval
+    // prompt was writing its snapshot, was debounced at once, and "settled" the turn summary before
+    // the snapshot existed. A capture now queues behind the one in flight, so when it reports
+    // `Debounced` the newest snapshot is already there.
+    let t = Tmp::new("inflight");
+    for n in 0..300 {
+        t.write(&format!("src/file{n}.txt"), &format!("content {n}"));
+    }
+    let env = FakeEnv::new(t.p());
+    let rt = Arc::new(Runtime::new(env.clone()));
+    assert!(matches!(rt.capture("p1", Kind::Before, None), Outcome::Created(_)));
+    env.advance(DEBOUNCE_MS + 1);
+    t.write("src/file0.txt", "edited after the approval");
+
+    let first = {
+        let rt = rt.clone();
+        std::thread::spawn(move || rt.capture("p1", Kind::After, None))
+    };
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    let second = {
+        let (rt, dir) = (rt.clone(), t.p().to_path_buf());
+        std::thread::spawn(move || {
+            let outcome = rt.capture("p1", Kind::After, None);
+            (outcome, engine::list(&dir, "p1").unwrap().len())
+        })
+    };
+    let first = first.join().unwrap();
+    let (second, listed_when_it_returned) = second.join().unwrap();
+    let debounced = |o: &Outcome| matches!(o, Outcome::Debounced { .. });
+    assert!(
+        debounced(&first) != debounced(&second),
+        "exactly one of the two captures wrote the snapshot: {first:?} / {second:?}"
+    );
+    assert_eq!(
+        listed_when_it_returned, 2,
+        "the second capture returned ({second:?}) before the snapshot of the first one existed"
+    );
+}
+
+#[test]
+fn a_pane_that_goes_from_boot_into_its_first_task_still_gets_an_after_snapshot() {
+    // NEW #3: a pane the run spawned is "running" from its start, reads no `idle` before the task
+    // and so never reports `running` for it. Its first status event is the `idle` that ends the
+    // turn, which used to be no turn end at all (no "after" snapshot, no summary).
+    let t = Tmp::new("firstturn");
+    let env = FakeEnv::new(t.p());
+    let rt = Runtime::new(env.clone());
+    assert_eq!(rt.decide("p1", "idle"), None, "events alone cannot tell: the pane's first event is idle");
+    let rt = Runtime::new(env);
+    rt.note_dispatched("p1");
+    assert_eq!(rt.decide("p1", "idle"), Some(Kind::After), "the prompt counts as the start of the turn");
+    assert_eq!(rt.decide("p1", "idle"), None, "and only once");
+}
+
+#[test]
+fn an_isolated_runs_pane_is_checkpointed_in_its_worktree() {
+    // NEW #3: Receipt said "Nothing yet" and History "No checkpoints yet" for a run in a git
+    // worktree. The worktree is the pane's folder and the checkpoint root; the main folder's
+    // checkpoints are not touched.
+    let t = Tmp::new("worktree");
+    user_git(t.p(), &["init", "-q", "-b", "master"]);
+    user_git(t.p(), &["config", "user.email", "a@b.c"]);
+    user_git(t.p(), &["config", "user.name", "x"]);
+    t.write("a.txt", "one");
+    user_git(t.p(), &["add", "-A"]);
+    user_git(t.p(), &["commit", "-q", "-m", "init"]);
+    let wt = t.p().join(".puppet-master").join("worktrees").join("w1");
+    std::fs::create_dir_all(wt.parent().unwrap()).unwrap();
+    user_git(t.p(), &["worktree", "add", "-q", "-b", "pm/w1", wt.to_str().unwrap()]);
+
+    let env = FakeEnv::new(t.p());
+    env.add("pw", &wt, "claude", "running");
+    let rt = Runtime::new(env.clone());
+    // What the dispatch does for the run's first task on its fresh pane.
+    assert!(matches!(rt.before_dispatch("pw", "create wt-note.txt"), Outcome::Created(_)));
+    rt.note_dispatched("pw");
+    std::fs::write(wt.join("wt-note.txt"), "hi").unwrap();
+    assert_eq!(rt.decide("pw", "idle"), Some(Kind::After));
+    env.advance(DEBOUNCE_MS + 1);
+    assert!(matches!(rt.capture("pw", Kind::After, None), Outcome::Created(_)));
+
+    let items = rt.list("pw").unwrap();
+    assert_eq!(items.iter().map(|c| c.kind.as_str()).collect::<Vec<_>>(), ["before", "after"]);
+    let changed = rt.turn_changes("pw", items[0].at_ms).unwrap().expect("a baseline");
+    assert_eq!(changed.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(), ["wt-note.txt"]);
+    assert!(wt.join(".puppet-master").join("checkpoints.git").is_dir(), "rooted at the worktree");
+    assert!(
+        engine::list(t.p(), "pw").unwrap().is_empty(),
+        "the main folder keeps no checkpoints of the isolated pane"
+    );
+}

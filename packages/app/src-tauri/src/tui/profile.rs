@@ -279,6 +279,14 @@ pub trait TuiProfile: Send + Sync {
         ComposerState::Unknown
     }
 
+    /// Whether `composer_state` is trustworthy enough to demand it: when true, delivery types a task
+    /// only once the screen is POSITIVELY an empty composer (an unknown screen is a blank pane, a
+    /// splash or a menu still being drawn, never "ready"). Default false: such profiles keep the
+    /// generic "something drawn and held still" readiness.
+    fn reads_composer(&self) -> bool {
+        false
+    }
+
     /// A startup screen (update notice, trust, login, onboarding) that is on screen right now, if
     /// any. Generic code (a) dismisses one that declares `dismiss` before typing a task, (b) parks
     /// the run on one that does not, instead of answering for the user, and (c) never lets a screen

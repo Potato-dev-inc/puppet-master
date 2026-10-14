@@ -825,6 +825,26 @@ mod screen_route {
         assert!(registry_route("GET", &["panes", id, "raw"], &registry).is_none());
     }
 
+    /// VERIFY NEW #6: `DELETE /panes/<nonexistent id>` answered 200 `{"ok":true}` (8 calls with the id
+    /// `undefined` all "succeeded"). A missing pane is a typed 404; a known pane is left to the kill
+    /// route (it needs the app handle, so this route table does not answer it).
+    #[test]
+    fn closing_a_pane_that_does_not_exist_is_a_typed_404() {
+        let id = "delete-route-pane";
+        let mut registry = PaneRegistry::new();
+        registry.panes.insert(id.into(), PaneRegistry::test_pane_stub(id));
+        let registry = Mutex::new(registry);
+
+        // DELETE /panes/undefined
+        let (status, body) = registry_route("DELETE", &["panes", "undefined"], &registry).expect("route").expect_err("404");
+        assert_eq!(status, 404);
+        assert_eq!(body["code"], "PANE_NOT_FOUND", "{body}");
+        assert!(body["message"].as_str().is_some_and(|m| m.contains("undefined")), "{body}");
+        // A pane that exists is not answered here; nor are other verbs on a missing one.
+        assert!(registry_route("DELETE", &["panes", id], &registry).is_none());
+        assert!(registry_route("POST", &["panes", "undefined"], &registry).is_none());
+    }
+
     #[test]
     fn a_pane_without_a_numbered_stream_answers_without_an_offset() {
         // Older producers (native OpenCode panes) never start a stream counter: the phone then

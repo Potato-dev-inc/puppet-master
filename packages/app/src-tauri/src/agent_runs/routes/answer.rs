@@ -374,6 +374,8 @@ fn answer_prompt(
         })?;
         crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None)
             .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))?;
+        // A "deny" on a startup gate (folder trust) is a final decline of the run waiting on it.
+        crate::pane_prompt::note_gate_answer(pane_id, &prompt, choice);
     }
     // The key is out. From here a failure is a warning on an applied receipt, not an error.
     Ok(crate::agent_runs::answer_guard::finish(

@@ -661,3 +661,125 @@ fn checkpoint_turn_numbers_follow_the_trackers_turns() {
     tracker.on_status("p1", "idle");
     assert_eq!(tracker.turn_for_checkpoint("p1", false), Some(3), "after belongs to the turn that ended");
 }
+
+// ---- an approval-gated edit: Receipt (Last turn) and History must agree (VERIFY #5) --------------
+//
+// Live, Claude pane dc69ffa9, turn 4: running -> waiting_input (approval) -> running -> idle, the file
+// was edited after the approval. History read "After turn 4: 1 file", Last turn read "0 files, you
+// approved 1 request". The checkpoint worker of the approval prompt finished while the end-of-turn
+// one was still waiting out the 10 s debounce; its settle signal released the end-of-turn summary,
+// which read the checkpoints before the end-of-turn snapshot existed.
+
+fn one_file() -> FileStats {
+    FileStats::from_changes(&synthetic_diff()[..1])
+}
+
+#[test]
+fn the_end_of_turn_summary_waits_for_its_own_snapshot_and_counts_the_file_edited_after_the_approval() {
+    use super::settle::Settle;
+    use super::summarize;
+    use std::time::Duration;
+
+    let tmp = Tmp::new("approval-edit");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Arc::new(Tracker::new(env.clone()));
+    let settle = Arc::new(Settle::default());
+
+    env.at(1_000);
+    assert!(tracker.on_status("p1", "running").is_none());
+    env.at(3_000);
+    let at_approval = tracker.on_status("p1", "waiting_input").expect("rest point at the approval prompt");
+    let approval_capture = settle.request("p1");
+    tracker.record_approval("p1", approval("a1", "command", "allow"));
+    env.at(3_500);
+    assert!(tracker.on_status("p1", "running").is_none(), "the approval resumes the same turn");
+    env.at(6_000);
+    let at_idle = tracker.on_status("p1", "idle").expect("rest point at the end of the turn");
+    let end_capture = settle.request("p1");
+    assert_eq!(at_idle.turn, at_approval.turn);
+
+    // The snapshot taken at the approval prompt (no edit yet) finishes first.
+    *env.files.lock() = Some(FileStats::from_changes(&[]));
+    settle.settle("p1", approval_capture);
+    let final_summary = {
+        let (tracker, settle) = (tracker.clone(), settle.clone());
+        std::thread::spawn(move || summarize(&tracker, &settle, at_idle, end_capture, Duration::from_secs(10)))
+    };
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(!final_summary.is_finished(), "the approval prompt's snapshot is not the end-of-turn one");
+
+    // The end-of-turn snapshot lands, with the edit in it.
+    *env.files.lock() = Some(one_file());
+    settle.settle("p1", end_capture);
+    let last = final_summary.join().unwrap().expect("summary");
+    assert_eq!(last.files.as_ref().map(|f| f.count), Some(1), "{}", last.sentence);
+    assert_eq!(last.approvals.len(), 1);
+
+    // The approval prompt's own summary was built earlier and is only stored now: it must not win.
+    *env.files.lock() = Some(FileStats::from_changes(&[]));
+    let stale = summarize(&tracker, &settle, at_approval, approval_capture, Duration::from_secs(1)).expect("summary");
+    assert_eq!(stale.files.as_ref().map(|f| f.count), Some(0));
+    let kept = tracker.summaries("p1");
+    assert_eq!(kept.len(), 1, "one entry for the turn");
+    assert_eq!(kept[0].files.as_ref().map(|f| f.count), Some(1), "Last turn keeps the end-of-turn facts");
+    assert!(kept[0].sentence.contains("now idle"), "{}", kept[0].sentence);
+}
+
+#[test]
+fn a_stale_summary_never_replaces_a_later_one_of_the_same_turn() {
+    let tmp = Tmp::new("stale");
+    let mut store = Store::default();
+    store.record(tmp.p(), summary("p1", 4, 9_000)).unwrap();
+    store.record(tmp.p(), summary("p1", 4, 3_000)).unwrap();
+    let items = store.for_pane("p1");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].ended_at_ms, 9_000);
+}
+
+#[test]
+fn a_pane_that_goes_from_boot_into_its_first_task_gets_a_turn_from_the_prompt() {
+    // NEW #3 (worktree runs always spawn a fresh pane): no `running` event ever arrives for the
+    // first task, the first event is the `idle` that ends it, and Last turn read "Nothing yet".
+    let tmp = Tmp::new("first-task");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    *env.files.lock() = Some(one_file());
+    env.at(2_000);
+    assert!(tracker.on_status("p1", "idle").is_none(), "an event alone finds no turn (the boot)");
+
+    let tracker = Tracker::new(env.clone());
+    env.at(5_000);
+    tracker.note_dispatched("p1");
+    assert_eq!(tracker.turn_for_checkpoint("p1", false), Some(1), "checkpoints and summary share the number");
+    env.at(12_000);
+    let ended = tracker.on_status("p1", "idle").expect("the first idle ends the task's turn");
+    assert!(ended.from_running);
+    let summary = tracker.finish(ended).expect("summary");
+    assert_eq!((summary.turn, summary.started_at_ms), (1, 5_000));
+    assert_eq!(summary.files.as_ref().map(|f| f.count), Some(1));
+    assert_eq!(tracker.summaries("p1").len(), 1);
+}
+
+#[test]
+fn a_running_event_that_follows_the_prompt_note_opens_no_second_turn() {
+    let tmp = Tmp::new("late-running");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(5_000);
+    tracker.note_dispatched("p1");
+    env.at(5_300);
+    assert!(tracker.on_status("p1", "running").is_none());
+    env.at(12_000);
+    let summary = tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap();
+    assert_eq!((summary.turn, summary.started_at_ms), (1, 5_000));
+}
+
+#[test]
+fn a_shell_pane_never_gets_a_turn_from_a_prompt() {
+    let tmp = Tmp::new("shell-note");
+    let env = FakeEnv::new(tmp.p());
+    env.has_turns.store(false, Ordering::SeqCst);
+    let tracker = Tracker::new(env.clone());
+    tracker.note_dispatched("p1");
+    assert!(tracker.on_status("p1", "idle").is_none());
+}

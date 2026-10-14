@@ -39,7 +39,15 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       if (!paneId) throw new Error('spawn returned no pane id');
       return { pane_id: paneId };
     },
-    killPane: (id) => call('DELETE', `/panes/${encodeURIComponent(id)}`),
+    // Closing a pane that is already gone is not an error for the caller: the route answers a typed
+    // 404 (PANE_NOT_FOUND) for an unknown id, which a stale phone screen can legitimately send.
+    killPane: async (id) => {
+      try {
+        await call('DELETE', `/panes/${encodeURIComponent(id)}`);
+      } catch (error) {
+        if (!(error instanceof Error && / -> 404:/.test(error.message))) throw error;
+      }
+    },
     stopAllPanes: () => call('POST', '/panes/stop-all', {}),
     listQuestions: async () => (await call<{ questions: Question[] }>('GET', '/questions')).questions,
     answerQuestion: (id, answer) => call('POST', `/questions/${encodeURIComponent(id)}/answer`, answer),

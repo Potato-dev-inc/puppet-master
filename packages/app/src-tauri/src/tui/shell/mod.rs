@@ -3,6 +3,8 @@
 
 mod prompt;
 
+pub(crate) use prompt::host_prompt_visible;
+
 use super::{Features, Kind, StandbyScreen, StandbySupport, TuiProfile};
 
 const FEATURES: Features = Features {

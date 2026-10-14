@@ -114,6 +114,10 @@ impl TuiProfile for Codex {
         }
     }
 
+    fn reads_composer(&self) -> bool {
+        true
+    }
+
     fn composer_state(&self, screen: &str) -> ComposerState {
         screen::composer_state(screen)
     }
@@ -124,6 +128,19 @@ impl TuiProfile for Codex {
 
     fn clear_input_sequence(&self) -> Option<&'static str> {
         Some(screen::CLEAR_COMPOSER)
+    }
+
+    /// The footer, the shortcuts hint and the `Worked for` separator are not part of a reply.
+    fn is_chrome_line(&self, lower: &str) -> bool {
+        screen::is_chrome_line(lower)
+    }
+
+    /// Codex draws `Working (12s • esc to interrupt)` above the composer for as long as a turn
+    /// runs, and no such row otherwise (live captures `working_live.txt` / `standby_ready_live.txt`).
+    /// So a redraw of an idle pane (selecting it remounts the terminal, the resize makes Codex reprint)
+    /// is provably not work and the pane stays idle instead of flashing "Working 0s".
+    fn busy_marker(&self, visible_tail: &str) -> Option<bool> {
+        Some(screen::shows_work_in_progress(visible_tail))
     }
 
     /// The composer is readable (`composer_state`), so a typed task is confirmed on screen before

@@ -13,6 +13,7 @@ pub mod digest;
 pub mod http;
 pub mod model;
 pub mod presence;
+pub mod settle;
 pub mod store;
 pub mod tracker;
 #[cfg(test)]
@@ -20,13 +21,12 @@ mod sentence_tests;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use once_cell::sync::Lazy;
-use parking_lot::{Condvar, Mutex};
+use parking_lot::Mutex;
 use serde_json::Value;
 use tauri::Emitter;
 
@@ -36,8 +36,6 @@ use tracker::{Env, PaneInfo, Tracker};
 
 /// How long a finished turn waits for its "after" checkpoint before the summary is built anyway.
 const SETTLE_TIMEOUT: Duration = Duration::from_secs(25);
-/// A checkpoint that settled this long before the status event was processed still counts.
-const SETTLE_SLACK: Duration = Duration::from_millis(250);
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -109,36 +107,47 @@ fn describe_prompt(
 
 // ---- turn boundaries ----
 
-/// When the last "after" checkpoint capture per pane finished (the summary waits for it).
-static SETTLED: Lazy<(Mutex<HashMap<String, Instant>>, Condvar)> = Lazy::new(|| (Mutex::new(HashMap::new()), Condvar::new()));
+/// Tickets of the "after" checkpoint captures (the summary waits for its own).
+static SETTLE: Lazy<settle::Settle> = Lazy::new(settle::Settle::default);
 
-/// Called by the checkpoints worker when an "after" capture is done (or skipped).
-pub fn checkpoint_settled(pane_id: &str) {
-    SETTLED.0.lock().insert(pane_id.to_string(), Instant::now());
-    SETTLED.1.notify_all();
+/// An "after" capture of `pane_id` is about to start (called on the status-event thread by the
+/// checkpoints hook). The returned ticket goes to [`checkpoint_settled`] when it is done.
+pub fn checkpoint_requested(pane_id: &str) -> u64 {
+    SETTLE.request(pane_id)
 }
 
-fn wait_settled(pane_id: &str, since: Instant) {
-    let deadline = since + SETTLE_TIMEOUT;
-    let floor = since.checked_sub(SETTLE_SLACK).unwrap_or(since);
-    let mut map = SETTLED.0.lock();
-    while !map.get(pane_id).is_some_and(|at| *at >= floor) {
-        if SETTLED.1.wait_until(&mut map, deadline).timed_out() {
-            break;
-        }
-    }
+/// Called by the checkpoints worker when the "after" capture behind `ticket` is done (or skipped).
+pub fn checkpoint_settled(pane_id: &str, ticket: u64) {
+    SETTLE.settle(pane_id, ticket);
+}
+
+/// A prompt was typed into `pane_id` (see `Tracker::note_dispatched`).
+pub fn note_dispatched(pane_id: &str) {
+    tracker().note_dispatched(pane_id);
+}
+
+/// Waits for the rest point's own checkpoint capture, then reads the facts and builds (and keeps) the
+/// summary. Blocking; run on a worker.
+fn summarize(
+    tracker: &Tracker,
+    settle: &settle::Settle,
+    ended: tracker::Ended,
+    ticket: u64,
+    timeout: Duration,
+) -> Option<TurnSummary> {
+    settle.wait(&ended.pane_id, ticket, timeout);
+    tracker.finish(ended)
 }
 
 /// Hook for `bridge/sse.rs::push_pane_status_sse` (called after the checkpoints hook). Cheap on
 /// the caller's thread: the summary is built on a short-lived worker.
 pub fn on_pane_status(pane_id: &str, status: &str) {
-    let seen = Instant::now();
     let Some(ended) = tracker().on_status(pane_id, status) else { return };
+    // The checkpoints hook ran just before this one: the newest ticket is this rest point's own
+    // capture (a later one only makes the wait longer, never shorter).
+    let ticket = if ended.from_running { SETTLE.latest(pane_id) } else { 0 };
     let spawned = std::thread::Builder::new().name("pm-turn-summary".into()).spawn(move || {
-        if ended.from_running {
-            wait_settled(&ended.pane_id, seen);
-        }
-        if let Some(summary) = tracker().finish(ended) {
+        if let Some(summary) = summarize(tracker(), &SETTLE, ended, ticket, SETTLE_TIMEOUT) {
             publish(&summary);
         }
     });

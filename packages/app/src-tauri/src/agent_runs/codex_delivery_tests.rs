@@ -11,7 +11,7 @@
 
 use super::completion::{observe_tui_turn, TuiTurnDecision, TuiTurnWatch};
 use super::delivery::{deliver_prompt_traced, prompt_visible_in_input, Delivery, DeliveryIo};
-use crate::tui::{profile_for, ComposerState};
+use crate::tui::{profile_for, ComposerState, StartupGate};
 use std::time::Duration;
 
 const PROMPT: &str = "Reply with the single word FIVE. Do not use any tools.";
@@ -37,6 +37,17 @@ struct CodexPane {
     settle: Option<Duration>,
     /// Every Enter is read as a line break (a worst case: the text can never be submitted).
     swallow_every_enter: bool,
+    /// Startup model (live run 7bef62a6): blank until `menu_at`, then the update menu until a key
+    /// closes it. `None`: the pane is already at its composer.
+    menu_at: Option<Duration>,
+    menu_up: bool,
+    /// Whether Esc closes the menu (it does on the real Codex; false is a worst case).
+    esc_closes_menu: bool,
+    /// Keys the menu received that were not its own dismiss key (the bug: a task typed into it).
+    typed_into_menu: Vec<String>,
+    esc_sent: usize,
+    /// A splash (not a gate, not a composer) that holds still until this moment, then the composer.
+    ready_at: Option<Duration>,
 }
 
 impl CodexPane {
@@ -49,12 +60,61 @@ impl CodexPane {
             enters: 0,
             settle: None,
             swallow_every_enter: false,
+            menu_at: None,
+            menu_up: false,
+            esc_closes_menu: true,
+            typed_into_menu: Vec::new(),
+            esc_sent: 0,
+            ready_at: None,
+        }
+    }
+
+    /// A fresh pane: nothing drawn for `menu_after`, then Codex's update menu.
+    fn fresh(menu_after: Duration) -> Self {
+        let mut pane = Self::new();
+        pane.clock = Duration::ZERO;
+        pane.screen = String::new();
+        pane.menu_at = Some(menu_after);
+        pane
+    }
+
+    fn draw_menu_when_due(&mut self) {
+        if self.ready_at.is_some_and(|at| self.clock >= at) {
+            self.ready_at = None;
+            self.screen = READY.to_string();
+        }
+        if self.menu_at.is_some_and(|at| self.clock >= at) && !self.menu_up {
+            self.menu_at = None;
+            self.menu_up = true;
+            self.screen = UPDATE_MENU.to_string();
         }
     }
 }
 
 impl DeliveryIo for CodexPane {
     fn write(&mut self, text: &str, enter: bool) -> Result<(), String> {
+        self.draw_menu_when_due();
+        if self.menu_up {
+            if text == "\u{1b}" && !enter {
+                self.esc_sent += 1;
+                if self.esc_closes_menu {
+                    self.menu_up = false;
+                    self.screen = READY.to_string();
+                }
+            } else {
+                self.typed_into_menu.push(format!("{text:?} enter={enter}"));
+            }
+            return Ok(());
+        }
+        if self.menu_at.is_some() {
+            // Not drawn yet: keys are lost.
+            return Ok(());
+        }
+        if self.ready_at.is_some() {
+            // A splash has no input handler: whatever is typed here is lost or misread.
+            self.typed_into_menu.push(format!("{text:?} enter={enter}"));
+            return Ok(());
+        }
         if !enter {
             if text.chars().all(|ch| ch == '\u{15}') {
                 // The clear sequence: an empty composer stays as it is.
@@ -79,6 +139,7 @@ impl DeliveryIo for CodexPane {
         Ok(())
     }
     fn screen(&mut self) -> String {
+        self.draw_menu_when_due();
         self.screen.clone()
     }
     fn busy(&mut self) -> bool {
@@ -86,6 +147,12 @@ impl DeliveryIo for CodexPane {
     }
     fn pause(&mut self, duration: Duration) {
         self.clock += duration;
+    }
+    fn startup_gate(&mut self, screen: &str) -> Option<StartupGate> {
+        profile_for("codex").startup_gate(screen)
+    }
+    fn reads_composer(&mut self) -> bool {
+        profile_for("codex").reads_composer()
     }
     fn enter_settle(&mut self) -> Duration {
         self.settle
@@ -154,6 +221,112 @@ fn a_pasted_content_placeholder_is_the_typed_prompt() {
     assert!(prompt_visible_in_input(placeholder, long.trim()));
     // A short prompt is not excused by a placeholder from an earlier paste.
     assert!(!prompt_visible_in_input(placeholder, PROMPT));
+}
+
+// ---- fresh visible run: the update menu is drawn after readiness was judged (VERIFY #4) --------
+//
+// Live (ops 7bef62a6, adfc0d1e; dev log 03:26:19 and 03:29:33): the pane counted as ready the moment
+// it was spawned, the dismissal ran on a blank screen, the menu was drawn about a second later, and
+// the task was typed into it. The menu takes Enter as "Update now", Codex quit, delivery logged
+// NotVisible and the run fell back to headless.
+
+#[test]
+fn a_menu_drawn_after_the_pane_counted_as_ready_is_closed_before_the_task_is_typed() {
+    let mut pane = CodexPane::fresh(Duration::from_millis(1_100));
+    let (delivery, trace) = deliver(&mut pane);
+    assert_eq!(delivery, Delivery::Started, "{trace:#?}");
+    assert_eq!(pane.esc_sent, 1, "the menu's own skip key, once: {trace:#?}");
+    assert!(pane.typed_into_menu.is_empty(), "nothing typed into the menu: {:?}", pane.typed_into_menu);
+    assert_eq!(pane.enters, 1, "one Enter, on the composer");
+}
+
+#[test]
+fn a_menu_that_draws_while_the_task_is_being_typed_is_closed_and_the_task_typed_again() {
+    // The first frame is not a gate (a splash), so typing starts; the menu lands during the
+    // verification polls. Esc, then the text goes in again on the composer.
+    let mut pane = CodexPane::fresh(Duration::from_millis(400));
+    pane.screen = "  >_ OpenAI Codex (v0.159.3)\n\n  starting...\n".to_string();
+    pane.menu_at = Some(Duration::from_millis(400));
+    pane.menu_up = false;
+    let (delivery, trace) = deliver(&mut pane);
+    assert_eq!(delivery, Delivery::Started, "{trace:#?}");
+    assert!(pane.esc_sent >= 1, "{trace:#?}");
+    assert!(
+        pane.typed_into_menu.iter().all(|key| key.contains("\u{15}")),
+        "only the clear sequence may have reached the menu, never the task: {:?}",
+        pane.typed_into_menu
+    );
+    assert!(trace.iter().any(|line| line.contains("startup screen")), "{trace:#?}");
+}
+
+#[test]
+fn a_screen_that_is_drawn_and_still_but_not_a_composer_is_not_ready() {
+    // "No gate found" used to mean ready: a splash that held still passed, and the task was typed
+    // into a pane with no input handler yet. Now nothing is typed until the composer is on screen.
+    let mut pane = CodexPane::new();
+    pane.screen = ">_ OpenAI Codex (v0.159.3)
+
+  starting...
+".to_string();
+    pane.ready_at = Some(pane.clock + Duration::from_millis(2_000));
+    let (delivery, trace) = deliver(&mut pane);
+    assert_eq!(delivery, Delivery::Started, "{trace:#?}");
+    assert!(pane.typed_into_menu.is_empty(), "typed before the composer existed: {:?}", pane.typed_into_menu);
+    assert_eq!(pane.enters, 1);
+}
+
+#[test]
+fn a_screen_that_never_becomes_a_composer_is_not_typed_into() {
+    let mut pane = CodexPane::new();
+    pane.screen = ">_ OpenAI Codex (v0.159.3)
+
+  starting...
+".to_string();
+    pane.ready_at = Some(pane.clock + Duration::from_secs(3_600));
+    let (delivery, trace) = deliver(&mut pane);
+    assert_eq!(delivery, Delivery::NotVisible, "{trace:#?}");
+    assert!(pane.typed_into_menu.is_empty());
+    assert!(trace.iter().any(|l| l.contains("composer never read as empty")), "{trace:#?}");
+}
+
+#[test]
+fn a_menu_drawn_during_the_clear_pause_is_seen_by_the_last_look_before_typing() {
+    // Live (codex_live_fresh_pane_gets_its_task_...): the settle check saw no menu, 120 ms later
+    // (the clear sequence's pause) the whole menu was up, and the task text was typed into it.
+    let mut pane = CodexPane::new();
+    pane.menu_at = Some(pane.clock + Duration::from_millis(100));
+    let (delivery, trace) = deliver(&mut pane);
+    assert_eq!(delivery, Delivery::Started, "{trace:#?}");
+    assert_eq!(pane.esc_sent, 1, "{trace:#?}");
+    assert!(
+        pane.typed_into_menu.iter().all(|key| key.contains("\u{15}")),
+        "the task was never typed into the menu: {:?}",
+        pane.typed_into_menu
+    );
+    assert!(trace.iter().any(|line| line.contains("just before typing")), "{trace:#?}");
+}
+
+#[test]
+fn a_menu_that_ignores_esc_blocks_the_run_and_nothing_is_typed_or_submitted() {
+    let mut pane = CodexPane::fresh(Duration::from_millis(300));
+    pane.esc_closes_menu = false;
+    let (delivery, trace) = deliver(&mut pane);
+    assert!(matches!(delivery, Delivery::Blocked(gate) if gate.id == "update_available"), "{delivery:?} {trace:#?}");
+    assert_eq!(pane.esc_sent, 1, "one attempt, no key mashing");
+    assert!(pane.typed_into_menu.is_empty(), "{:?}", pane.typed_into_menu);
+    assert_eq!(pane.enters, 0);
+}
+
+#[test]
+fn a_screen_only_the_user_may_pass_is_never_answered_and_nothing_is_typed() {
+    // Codex's folder-trust question (hand-written: no live capture exists): no dismiss keys.
+    const TRUST: &str = "> You are running Codex in ~/sandbox\n\n  Do you trust the files in this folder?\n\n\u{203a} 1. Yes, continue\n  2. No, quit\n\n  Press enter to continue\n";
+    let mut pane = CodexPane::new();
+    pane.screen = TRUST.to_string();
+    let (delivery, trace) = deliver(&mut pane);
+    assert!(matches!(delivery, Delivery::Blocked(gate) if gate.dismiss.is_none()), "{delivery:?} {trace:#?}");
+    assert_eq!(pane.esc_sent, 0);
+    assert_eq!(pane.enters, 0);
 }
 
 // ---- completion: a startup screen is never a turn's answer (bug #4) ----------------------------

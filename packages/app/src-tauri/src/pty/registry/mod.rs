@@ -175,12 +175,14 @@ impl PaneRegistry {
 
     pub fn take(&mut self, id: &str) -> Option<PaneState> {
         super::hidden::forget(id);
+        super::resize_clock::forget(id);
         self.panes.remove(id)
     }
 
     pub fn take_all(&mut self) -> Vec<PaneState> {
         for id in self.panes.keys() {
             super::hidden::forget(id);
+            super::resize_clock::forget(id);
         }
         std::mem::take(&mut self.panes).into_values().collect()
     }

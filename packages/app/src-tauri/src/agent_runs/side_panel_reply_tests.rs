@@ -29,7 +29,9 @@ fn reply_from(screen: &str) -> String {
 fn the_uncropped_screen_carries_the_panel_in_its_evidence() {
     // Documents the bug at its source: contents() glues rows and the panel text rides along.
     let evidence = tui_turn_evidence(&raw_contents(), "", AGENT).unwrap_or_default();
-    assert!(evidence.contains("source: Current"), "{evidence}");
+    // (The logo-banner row the panel header was glued to, `source: Current`, is chrome now and is
+    // dropped; the panel's own rows still ride along.)
+    assert!(evidence.contains("[ ask ]"), "{evidence}");
 }
 
 #[test]
