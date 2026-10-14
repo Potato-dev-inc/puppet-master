@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Puppet Master: Claude Code and Codex, working as one team</title>
+<meta name="description" content="Puppet Master runs the coding agents you already pay for in their real terminals on your Windows PC. One inbox, a phone on your own tunnel, and a checkpoint for every turn.">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cstyle%3Ecircle%7Bfill:%231d1d1f%7D@media(prefers-color-scheme:dark)%7Bcircle%7Bfill:%23f5f5f7%7D%7D%3C/style%3E%3Cg opacity='.4'%3E%3Ccircle cx='2.4' cy='2.4' r='2'/%3E%3Ccircle cx='8' cy='2.4' r='2'/%3E%3Ccircle cx='13.6' cy='2.4' r='2'/%3E%3Ccircle cx='2.4' cy='8' r='2'/%3E%3Ccircle cx='13.6' cy='8' r='2'/%3E%3Ccircle cx='2.4' cy='13.6' r='2'/%3E%3Ccircle cx='8' cy='13.6' r='2'/%3E%3Ccircle cx='13.6' cy='13.6' r='2'/%3E%3C/g%3E%3Ccircle cx='8' cy='8' r='2.1'/%3E%3C/svg%3E">
+<!-- The only external request on this page: Google Fonts (Inter, JetBrains Mono, Doto). Everything else is local. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<script>
+  /* Apply the saved theme before first paint so there is no flash. */
+  try { var t = localStorage.getItem('pm-site-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+</script>
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-row">
+    <a class="brand" href="#top" aria-label="Puppet Master, back to top"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><circle cx="2.4" cy="2.4" r="2" opacity=".4"/><circle cx="8.0" cy="2.4" r="2" opacity=".4"/><circle cx="13.6" cy="2.4" r="2" opacity=".4"/><circle cx="2.4" cy="8.0" r="2" opacity=".4"/><circle cx="8.0" cy="8.0" r="2.1"/><circle cx="13.6" cy="8.0" r="2" opacity=".4"/><circle cx="2.4" cy="13.6" r="2" opacity=".4"/><circle cx="8.0" cy="13.6" r="2" opacity=".4"/><circle cx="13.6" cy="13.6" r="2" opacity=".4"/></svg><span>Puppet Master</span></a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#pillars">Why</a>
+      <a href="#features">Features</a>
+      <a href="#cowork">Co-work</a>
+      <a href="#security">Security</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-end">
+      <button class="theme-toggle" type="button" id="theme-toggle" aria-label="Switch between light and dark">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.4M8 13.1v1.4M1.5 8h1.4M13.1 8h1.4M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></svg>
+      </button>
+      <a class="btn primary sm" href="#waitlist">Join the waitlist</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- 1. Hero -->
+<section class="hero" id="top">
+  <div class="wrap">
+    <span class="chip"><span class="dots run" style="--n:3" aria-hidden="true"><span style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span style="--r:2;--c:2"></span></span>Early access · built for Windows</span>
+    <h1>Claude Code and Codex, working as one team.</h1>
+    <p class="lede">Puppet Master runs the coding agents you already pay for, in their real terminals on your Windows PC. One agent can start another and get a receipt back. Your phone shows what needs you, over your own tunnel. Every turn is a checkpoint you can undo.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="#waitlist">Join the waitlist</a>
+      <a class="btn" href="#pillars">See how it works</a>
+    </div>
+    <p class="agents-line">Tested live with <b>Claude Code</b> and <b>Codex</b>. Also runs <b>OpenCode</b> and <b>Kilo Code</b>. <b>Cursor Agent</b> is in testing, so we don't list it as supported yet.</p>
+
+    <div class="stage">
+      <figure class="window" style="margin:0">
+        <picture>
+          <source media="(max-width: 759px)" srcset="assets/approval.webp" width="700" height="365">
+          <img src="assets/hero-desktop.webp" width="1280" height="820" alt="The Puppet Master Inbox on Windows. A Claude Code card reads Change a file in this project, Low risk, with Allow once and Deny buttons.">
+        </picture>
+      </figure>
+      <div class="phone">
+        <img src="assets/phone-agents.webp" width="390" height="844" alt="The phone view. A question from Claude Code with two answer buttons, and a summary of what three agents did while you were away.">
+      </div>
+      <div class="stage-cap">
+        <span>Desktop: a real run, Claude Code asking to change a file.</span>
+        <span>Phone: the app's own UI on example data.</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2. Three pillars -->
+<section id="pillars" class="hair">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow"><span class="dots " style="--n:3" aria-hidden="true"><span style="--r:0;--c:0"></span><span class="on" style="--r:0;--c:1"></span><span style="--r:0;--c:2"></span><span class="on" style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span class="on" style="--r:1;--c:2"></span><span style="--r:2;--c:0"></span><span class="on" style="--r:2;--c:1"></span><span style="--r:2;--c:2"></span></span>Why Puppet Master</div>
+      <h2 class="h2">One team. Anywhere. Safe by default.</h2>
+      <p class="sub">Three things we can show you, not just say. Each point below is something we ran on a real PC. What isn't finished is marked.</p>
+    </div>
+
+    <div class="pillars">
+      <article class="pillar">
+        <div class="num doto" aria-hidden="true">01</div>
+        <h3>One team</h3>
+        <h4>Your agents work together, not in separate windows.</h4>
+        <ul>
+          <li><b>One inbox.</b> Claude Code and Codex run side by side in real terminals, with one Needs you list for both.</li>
+          <li><b>Agents can start agents.</b> Through MCP, one agent starts another, even from another vendor. What comes back is a receipt, not just a message.</li>
+          <li><b>A second opinion.</b> Ask another agent to review what the first one did. The reviewer can only read.</li>
+        </ul>
+        <div class="later"><span class="chip"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span class="on" style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span class="on" style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>Coming</span><span>Hand-off at the limit: when one agent runs out, another picks up from a written brief.</span></div>
+      </article>
+
+      <article class="pillar">
+        <div class="num doto" aria-hidden="true">02</div>
+        <h3>Anywhere</h3>
+        <h4>Your phone sees what your agents see.</h4>
+        <ul>
+          <li><b>Pair with a QR code.</b> The phone lists what needs you and opens the live terminal.</li>
+          <li><b>Over a tunnel you run.</b> A quick tunnel, your own named tunnel, or your own domain. No vendor relay in the middle.</li>
+          <li><b>Four switches per phone.</b> Watch, answer, use the terminal, start tasks. Revoke any phone, or all of them.</li>
+        </ul>
+        <div class="later"><span class="chip"><span class="dots " style="--n:3" aria-hidden="true"><span style="--r:0;--c:0"></span><span class="on" style="--r:0;--c:1"></span><span style="--r:0;--c:2"></span><span class="on" style="--r:1;--c:0"></span><span style="--r:1;--c:1"></span><span class="on" style="--r:1;--c:2"></span><span style="--r:2;--c:0"></span><span class="on" style="--r:2;--c:1"></span><span style="--r:2;--c:2"></span></span>Preview</span><span>Allow and Deny from the lock screen is built. We are still proving it on real iOS and Android phones.</span></div>
+      </article>
+
+      <article class="pillar">
+        <div class="num doto" aria-hidden="true">03</div>
+        <h3>Safe by default</h3>
+        <h4>You stay the one who says yes.</h4>
+        <ul>
+          <li><b>Plain-word approvals.</b> "Change a file in this project. Low risk." Not a terminal menu.</li>
+          <li><b>Nothing answers for you.</b> Trust and permission prompts are never accepted on your behalf.</li>
+          <li><b>A separate copy, then your call.</b> Review the changes, then merge or discard.</li>
+          <li><b>Every turn is a checkpoint.</b> Restore your files from History. Each receipt says what was not verified.</li>
+        </ul>
+      </article>
+    </div>
+
+    <div class="legend">
+      <span>How we mark things:</span>
+      <span class="chip solid">Built</span><span>runs today, unmarked</span>
+      <span class="chip"><span class="dots " style="--n:3" aria-hidden="true"><span style="--r:0;--c:0"></span><span class="on" style="--r:0;--c:1"></span><span style="--r:0;--c:2"></span><span class="on" style="--r:1;--c:0"></span><span style="--r:1;--c:1"></span><span class="on" style="--r:1;--c:2"></span><span style="--r:2;--c:0"></span><span class="on" style="--r:2;--c:1"></span><span style="--r:2;--c:2"></span></span>Preview</span><span>built, still being proven</span>
+      <span class="chip"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span class="on" style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span class="on" style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>Coming</span><span>not in the app yet</span>
+    </div>
+  </div>
+</section>
+
+<!-- 3. Feature grid -->
+<section id="features" class="hair">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span class="on" style="--r:0;--c:1"></span><span class="on" style="--r:0;--c:2"></span><span class="on" style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span class="on" style="--r:1;--c:2"></span><span class="on" style="--r:2;--c:0"></span><span class="on" style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>What you get</div>
+      <h2 class="h2">Everything here works today.</h2>
+      <p class="sub">The shots are from real runs. Where a shot uses made-up content, it says Example data.</p>
+    </div>
+
+    <div class="grid">
+      <article class="card row-2" id="f-agents">
+        <div class="shot"><img src="assets/setup-agents.webp" width="540" height="570" alt="Set up your agents. A list showing Claude Code, Codex CLI, OpenCode, Cursor Agent CLI, Kilo Code and Kiro with their versions and whether they are installed." loading="eager" decoding="async"></div>
+        <div class="copy">
+          <h3>Your agents, found on your PC</h3>
+          <p>Puppet Master finds the agent CLIs you have installed, shows their versions and tells you what to do about the rest. They run unmodified, in real terminals, signed in the way their vendor intended.</p>
+          <p class="note">Add any other CLI agent with a small TOML file.</p>
+        </div>
+      </article>
+
+      <article class="card" id="f-approvals">
+        <div class="shot"><img src="assets/approval.webp" width="700" height="365" alt="An Inbox card: Claude Code wants to change a file in this project. Low risk. It only changes a file inside the project folder. Allow once, Deny." decoding="async"></div>
+        <div class="copy">
+          <h3>Approvals in plain words</h3>
+          <p>A card says what the agent wants, how risky it is and what it touches. Allow once, or Deny.</p>
+        </div>
+      </article>
+
+      <article class="card" id="f-trust">
+        <div class="shot"><img src="assets/trust.webp" width="700" height="365" alt="An Inbox card: Trust this folder. The agent will be able to read and change files here and run commands in it. Trust this folder, Don't trust." decoding="async"></div>
+        <div class="copy">
+          <h3>Trust a folder once, on purpose</h3>
+          <p>A new folder asks for trust. You see a card and you decide. Nothing in Puppet Master accepts a trust or permission prompt for you.</p>
+        </div>
+      </article>
+
+      <article class="card span-2" id="f-copy">
+        <div class="shot"><img src="assets/merge.webp" width="1040" height="420" alt="The Changes tab for a separate copy of the project: one added file, a Second opinion button, and a dialog asking Merge into master, which says that if anything conflicts, nothing is merged." decoding="async"></div>
+        <div class="copy">
+          <h3>Review in a separate copy, then merge</h3>
+          <p>Agents can work in their own copy of your project, so your files don't change while they try things. Changes shows the diff. Merge asks first, and if anything conflicts, nothing is merged. Second opinion asks another agent to review the work. It can only read.</p>
+        </div>
+      </article>
+
+      <article class="card" id="f-receipts">
+        <div class="shot"><img src="assets/receipt.webp" width="740" height="345" alt="A receipt for a Claude Code turn. Result: Finished, not verified. Checks: none configured. Not verified: no checks configured, result read from terminal screen." decoding="async"></div>
+        <div class="copy">
+          <h3>Receipts that say what they don't know</h3>
+          <p>Every turn ends in a receipt: the result, the agent, whether your checks ran. "Finished, not verified" is a real answer, and the row below it says why. When you declare checks, the receipt says whether they passed.</p>
+        </div>
+      </article>
+
+      <article class="card" id="f-phone">
+        <div class="shot phone-bg"><div class="phone"><img src="assets/phone-agents.webp" width="390" height="844" alt="The phone Agents screen with a question from Claude Code and a while-you-were-away summary." decoding="async"></div></div>
+        <div class="copy">
+          <h3>The same agents on your phone</h3>
+          <p>Needs you, then Working, then Idle, with live terminals one tap away. It's a web app you pair once and reach over your own tunnel.</p>
+          <p class="example">Example data</p>
+        </div>
+      </article>
+
+      <article class="card span-2" id="f-undo">
+        <div class="shot"><img src="assets/history.webp" width="1040" height="175" alt="The History tab. Restoring puts your files back. It doesn't change what the agent remembers. Two checkpoints: After turn 1 and Before turn 1, each with a Restore button." decoding="async"></div>
+        <div class="copy">
+          <h3>Every turn is a checkpoint</h3>
+          <p>History keeps a checkpoint before and after each turn. Restore puts your files back. It doesn't change what the agent remembers. A folder that is too big switches undo off for itself, and says so.</p>
+        </div>
+      </article>
+
+      <article class="card span-2 split" id="f-mcp">
+        <div class="shot" style="align-content:center; padding:24px;">
+          <pre class="code" style="width:100%; margin:0;"><span class="dim"># Codex config</span>
+[mcp_servers.puppet-master]
+command = "npx"
+args = ["-y","@puppet-master/mcp"]</pre>
+        </div>
+        <div class="copy">
+          <h3>Agents that start agents</h3>
+          <p>Add Puppet Master to your agent as an MCP server. It can start a worker in any agent, wait for it, steer it, and read back a receipt that separates "the agent finished" from "the checks passed".</p>
+          <p class="note">Works with any MCP-capable agent. The worker is a visible pane, never a hidden helper.</p>
+        </div>
+      </article>
+    </div>
+
+    <div class="subhead"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span class="on" style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span class="on" style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>On the way</div>
+    <div class="coming-grid">
+      <article class="coming">
+        <span class="chip" style="justify-self:start"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span class="on" style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span class="on" style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>Coming</span>
+        <h3>Hand-off at the limit</h3>
+        <p>When Claude Code runs out mid-task, Codex continues in the same copy from a written brief. One receipt shows who did what.</p>
+      </article>
+      <article class="coming">
+        <span class="chip" style="justify-self:start"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span class="on" style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span class="on" style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>Coming</span>
+        <h3>Missions</h3>
+        <p>Give a goal and a budget. Agents work in visible panes and you keep the stop button. A preview first: one copy, no fan-out.</p>
+      </article>
+      <article class="coming">
+        <span class="chip" style="justify-self:start"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span class="on" style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span class="on" style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>Coming</span>
+        <h3>Hook Lane</h3>
+        <p>Puppet Master will listen to the signals agents send about themselves, next to what it reads on screen. Recorded first, never acted on.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Co-work -->
+<section id="cowork" class="hair">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow"><span class="chip"><span class="dots " style="--n:3" aria-hidden="true"><span style="--r:0;--c:0"></span><span class="on" style="--r:0;--c:1"></span><span style="--r:0;--c:2"></span><span class="on" style="--r:1;--c:0"></span><span style="--r:1;--c:1"></span><span class="on" style="--r:1;--c:2"></span><span style="--r:2;--c:0"></span><span class="on" style="--r:2;--c:1"></span><span style="--r:2;--c:2"></span></span>Labs</span>Co-work, for teams</div>
+      <h2 class="h2">When a teammate pushes, your agent catches up.</h2>
+      <p class="sub">Maya pushes a branch. Puppet Master asks if the team should know. Leo's agent merges it into his branch in a separate copy, resolves the conflict and shows him the result. Nothing is pushed unless someone says so.</p>
+    </div>
+
+    <div class="steps">
+      <article class="step">
+        <div class="shot"><img src="assets/team-toast.webp" width="700" height="145" alt="A card: You pushed feat/auth, 1 file. Tell the team? Buttons: Tell Leo, Not now, Preview." decoding="async"></div>
+        <div class="copy">
+          <div class="n"><span class="doto" aria-hidden="true">1</span>Maya's PC</div>
+          <h3>She pushes. It asks.</h3>
+          <p>"You pushed feat/auth. Tell the team?" Telling the team is one click, and so is Not now.</p>
+        </div>
+      </article>
+      <article class="step">
+        <div class="shot narrow"><img src="assets/team-queue.webp" width="410" height="340" alt="A sheet: Bring feat/auth into feat/billing. Your agent merges it in a separate copy of your branch. Your files don't change until you apply. Choose the agent and when: after its current turn, or now." decoding="async"></div>
+        <div class="copy">
+          <div class="n"><span class="doto" aria-hidden="true">2</span>Leo's PC</div>
+          <h3>He chooses the agent and the moment.</h3>
+          <p>After its current turn, or now alongside it. If nothing conflicts, no agent is needed.</p>
+        </div>
+      </article>
+      <article class="step">
+        <div class="shot"><img src="assets/team-result.webp" width="700" height="320" alt="A card: feat/billing is up to date, in a separate copy. Claude Code merged feat/auth and resolved 1 conflict. Apply to my branch, See changes, Discard." decoding="async"></div>
+        <div class="copy">
+          <div class="n"><span class="doto" aria-hidden="true">3</span>A result, not a surprise</div>
+          <h3>Claude Code merged it and resolved the conflict.</h3>
+          <p>In a separate copy. See changes, then Apply to my branch, or Discard.</p>
+        </div>
+      </article>
+      <article class="step">
+        <div class="shot"><img src="assets/team-applied.webp" width="700" height="260" alt="A card: Applied to feat/billing. Nothing was pushed." decoding="async"></div>
+        <div class="copy">
+          <div class="n"><span class="doto" aria-hidden="true">4</span>Applied</div>
+          <h3>"Nothing was pushed."</h3>
+          <p>Your agent's work lands in your branch on your say-so. The push stays yours.</p>
+        </div>
+      </article>
+    </div>
+    <p class="note" style="margin-top:14px">Steps 1 to 4 are one real run of two Puppet Master profiles on one Windows PC.</p>
+
+    <div class="cowork-more">
+      <div class="rows">
+        <div><b>Join with an invite.</b><span>A link and an 8-character code. The code lasts 10 minutes and works once. The admin says yes by hand.</span></div>
+        <div><b>GitHub facts become cards.</b><span>A PR opened or merged, CI red or green. For an open PR, Merge when green hands the merge to GitHub's own auto-merge. Puppet Master never merges it.</span></div>
+        <div><b>On the phone too.</b><span>Team cards sit above Needs you: Apply, Queue my agent, Pull now.</span></div>
+        <div><b>Run the relay yourself.</b><span>A small server you host, or a shared folder between two PCs. Self-hosting is free.</span></div>
+      </div>
+      <div class="phone-wrap">
+        <div class="phone"><img src="assets/phone-team.webp" width="390" height="844" alt="The phone Agents screen with a Team group: an up-to-date branch with Apply to my branch, a teammate's push with Queue my agent, and a teammate's opened pull request with Pull now." decoding="async"></div>
+        <span class="example">Example data</span>
+      </div>
+    </div>
+
+    <div class="limits"><b>Where it stands.</b> Co-work is in Labs. A team has one admin today. The hosted relay is not open yet (see the waitlist below), and the relay server's licence is still to be decided.</div>
+  </div>
+</section>
+
+<!-- 5. Security and privacy -->
+<section id="security" class="hair">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow"><span class="dots " style="--n:3" aria-hidden="true"><span style="--r:0;--c:0"></span><span class="on" style="--r:0;--c:1"></span><span style="--r:0;--c:2"></span><span class="on" style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span class="on" style="--r:1;--c:2"></span><span style="--r:2;--c:0"></span><span class="on" style="--r:2;--c:1"></span><span style="--r:2;--c:2"></span></span>Security and privacy</div>
+      <h2 class="h2">Your code stays on your PC. Here is what moves.</h2>
+      <p class="sub">Three places data could go, and what we do about each.</p>
+    </div>
+
+    <div class="sec-rows">
+      <div class="sec-row">
+        <div>
+          <h3>Local-first</h3>
+          <ul>
+            <li><b>No cloud execution.</b> Agents run in terminals on your machine.</li>
+            <li><b>No proxy, no pooling.</b> Puppet Master doesn't sit in your model traffic, share logins or rotate accounts. Agents talk to their own vendors directly.</li>
+            <li><b>Account folders stay yours.</b> Puppet Master points an agent at a folder you control and never reads what is inside.</li>
+            <li><b>A log you can read.</b> Who allowed what, and when. Nothing in it can be changed from Settings.</li>
+          </ul>
+        </div>
+        <figure class="sec-fig">
+          <div class="frame"><img src="assets/security.webp" width="700" height="305" alt="Settings, Bridge and MCP, Security. Switches for asking before an agent controls a pane it didn't start, and for letting agents merge separate copies, and a read-only list of recent approvals and control changes." decoding="async"></div>
+          <figcaption>Settings, Bridge &amp; MCP, Security.</figcaption>
+        </figure>
+      </div>
+
+      <div class="sec-row">
+        <div>
+          <h3>Your tunnel</h3>
+          <ul>
+            <li><b>Three ways in.</b> A quick Cloudflare tunnel started from your PC, your own named tunnel, or your own domain. Our servers aren't in the path.</li>
+            <li><b>Pair with a QR code.</b> Pairing codes expire.</li>
+            <li><b>Four switches per phone.</b> Watch, answer, use the terminal, start tasks. A phone with only Watch can't type into anything.</li>
+            <li><b>Phones expire.</b> A phone unused for 30 days signs out. Revoke one or all at any time.</li>
+          </ul>
+        </div>
+        <figure class="sec-fig">
+          <div class="frame"><img src="assets/phone-devices.webp" width="690" height="435" alt="Settings, Phone, Devices. A paired Android phone with switches for Watch, Answer, Use the terminal and Start tasks, and a Revoke all devices row." decoding="async"></div>
+          <figcaption>Settings, Phone, Devices. The pairing code is cropped out.</figcaption>
+        </figure>
+      </div>
+
+      <div class="sec-row">
+        <div>
+          <h3>Encrypted team relay</h3>
+          <ul>
+            <li><b>Sealed before it leaves your PC.</b> Team messages are encrypted with XChaCha20-Poly1305 and signed by the sending device with Ed25519.</li>
+            <li><b>Keys stay in Windows Credential Manager.</b> Not in a file, a log or a message.</li>
+            <li><b>The relay sees who sends when.</b> And sizes. Never names, branches or code. A test searches the relay's whole database for them.</li>
+            <li><b>Removal is enforced.</b> Remove a member and the relay cuts their open connection and the team key is replaced. The admin's app also replaces it every 30 days.</li>
+            <li><b>A teammate's message is only a card.</b> Nothing runs when it arrives.</li>
+          </ul>
+        </div>
+        <figure class="sec-fig">
+          <div class="frame"><img src="assets/team-settings.webp" width="700" height="580" alt="Settings, Team. Keys are kept in Windows Credential Manager. Messages are end-to-end encrypted; the relay sees only who sends when, never names, branches or code. A member list with roles, and a join request." decoding="async"></div>
+          <figcaption>Settings, Team (Labs). Example data.</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="two">
+      <div class="panel">
+        <h3>Isolated, not sandboxed</h3>
+        <p>A separate copy keeps an agent's files apart from yours. It does not confine a process. An agent still runs with your permissions, under its own permission mode. We say "isolated" and we don't say "sandboxed", because it isn't one.</p>
+      </div>
+      <div class="panel">
+        <h3><span>Telemetry</span><span class="chip"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span class="on" style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span class="on" style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>Coming</span></h3>
+        <p>This page has no analytics. Usage counts in the app are not built yet. When they are: off by default, asked once, counted on your PC and sent once a week with no ID, with the exact payload shown before and after. Never prompts, code, file names, paths or errors.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. Pricing -->
+<section id="pricing" class="hair">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>Pricing</div>
+      <h2 class="h2">Free on your PC. Pay only for a service we run.</h2>
+      <p class="sub">Everything that runs on your machine is free and stays free. Team and Business pay for things a server has to do: a hosted relay, retention, integrations. Nothing is for sale yet. These are the planned prices.</p>
+    </div>
+
+    <div class="tiers">
+      <article class="tier">
+        <h3><span>Free</span><span class="chip">Early access</span></h3>
+        <div class="price"><span class="amt tabular">$0</span><span class="per">for everything on your PC</span></div>
+        <div class="alt">&nbsp;</div>
+        <ul>
+          <li>Every local feature: agents, approvals, receipts, undo, the phone over your own tunnel</li>
+          <li>Co-work on a relay you host yourself, with unlimited members</li>
+          <li class="planned">Hosted relay: 1 team, up to 3 active members, unlimited watch-only members, 24-hour mailbox</li>
+          <li>Community support</li>
+        </ul>
+        <a class="btn" href="#waitlist">Join the waitlist</a>
+      </article>
+
+      <article class="tier feature">
+        <h3><span>Team</span><span class="chip"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span class="on" style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span class="on" style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>Planned</span></h3>
+        <div class="price"><span class="amt tabular">$8</span><span class="per">per active member, per month</span></div>
+        <div class="alt">or $80 per member a year</div>
+        <ul>
+          <li>Everything in Free</li>
+          <li class="planned">More than 3 active members, and several teams</li>
+          <li class="planned">30-day mailbox</li>
+          <li class="planned">Phone push while your PC sleeps</li>
+          <li class="planned">Email digest</li>
+          <li class="planned">Linear and GitHub intake</li>
+          <li class="planned">Web admin, invoices, 1 GB of hand-off storage</li>
+          <li class="planned">Email support, 2 business days</li>
+        </ul>
+        <a class="btn primary" href="#waitlist">Join the waitlist</a>
+      </article>
+
+      <article class="tier">
+        <h3><span>Business</span><span class="chip"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span class="on" style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span class="on" style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>Planned</span></h3>
+        <div class="price"><span class="amt tabular">$16</span><span class="per">per active member, per month</span></div>
+        <div class="alt">or $160 per member a year · 5 members minimum</div>
+        <ul>
+          <li>Everything in Team</li>
+          <li class="planned">SSO (OIDC and SAML)</li>
+          <li class="planned">EU-only data residency and a DPA</li>
+          <li class="planned">Signed policy distribution</li>
+          <li class="planned">1-year audit and decision-log retention</li>
+          <li class="planned">Email support, 1 business day</li>
+        </ul>
+        <a class="btn" href="#waitlist">Join the waitlist</a>
+      </article>
+    </div>
+
+    <div class="pricing-notes">
+      <p>An <b>active member</b> is someone whose key connected to the relay at least once that month. Watch-only seats are free. Business opens when SSO exists.</p>
+      <p>We never charge for a feature that runs on your machine, and we never resell model usage. Your agents bill you through your own subscriptions.</p>
+    </div>
+
+    <div class="waitlist" id="waitlist">
+      <div>
+        <h3>Join the waitlist</h3>
+        <p class="sub">Early access to the free app, and first word when Team and Business open. Four quick questions help us build the right thing first.</p>
+        <p class="note" style="margin-top:16px">We use your email to tell you when it opens. Nothing else. This page has no analytics.</p>
+      </div>
+      <form class="form" id="waitlist-form" action="#" method="post" novalidate>
+        <div class="field"><label for="wl-email">Email</label><input id="wl-email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required></div>
+        <div class="row-2f">
+          <div class="field"><label for="wl-role">I mostly work as</label>
+            <select id="wl-role" name="role"><option>A developer</option><option>Building with AI agents, not a developer</option><option>Something else</option></select></div>
+          <div class="field"><label for="wl-team">Team size</label>
+            <select id="wl-team" name="team"><option>Just me</option><option>2 to 6</option><option>7 to 20</option><option>21 or more</option></select></div>
+        </div>
+        <div class="row-2f">
+          <div class="field"><label for="wl-os">My computer</label>
+            <select id="wl-os" name="os"><option>Windows</option><option>macOS</option><option>Both</option></select></div>
+          <div class="field"><label for="wl-plan">I'm most interested in</label>
+            <select id="wl-plan" name="plan"><option>The free app</option><option>Team</option><option>Business</option></select></div>
+        </div>
+        <button class="btn primary" type="submit">Join the waitlist</button>
+        <p class="form-msg" id="waitlist-msg" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </div>
+</section>
+
+<!-- 7. FAQ -->
+<section id="faq" class="hair">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow"><span class="dots " style="--n:3" aria-hidden="true"><span class="on" style="--r:0;--c:0"></span><span style="--r:0;--c:1"></span><span class="on" style="--r:0;--c:2"></span><span style="--r:1;--c:0"></span><span class="on" style="--r:1;--c:1"></span><span style="--r:1;--c:2"></span><span class="on" style="--r:2;--c:0"></span><span style="--r:2;--c:1"></span><span class="on" style="--r:2;--c:2"></span></span>FAQ</div>
+      <h2 class="h2">Questions people ask first.</h2>
+    </div>
+    <div class="faq">
+      <details>
+        <summary>How is this different from Claude Code's or Codex's own apps?</summary>
+        <div class="a"><p>Each vendor's app is built for its own agent. Puppet Master sits between them: one inbox for several agents, on Windows, in their real terminals, with a phone that connects over your own tunnel instead of a vendor's relay, and receipts that say what was and wasn't verified.</p><p>If you only use one agent and you're happy in its app, you may not need us. We don't run cloud tasks, and we don't try to out-polish a vendor at its own agent.</p></div>
+      </details>
+      <details>
+        <summary>Does it use my own subscriptions? Does it proxy or pool my logins?</summary>
+        <div class="a"><p><b>Your own, and no.</b> Puppet Master runs the unmodified agent CLI in a terminal, and you sign in the way the vendor intends. It doesn't read, copy or pool the credentials inside an account folder, and it doesn't rotate accounts to get around limits.</p></div>
+      </details>
+      <details>
+        <summary>Which agents work today?</summary>
+        <div class="a"><p>We test live with <b>Claude Code</b> and <b>Codex</b>. <b>OpenCode</b> and <b>Kilo Code</b> also run, and any other CLI agent can be added with a TOML file. <b>Cursor Agent</b> is detected but we haven't finished proving it, so it isn't on the supported list.</p></div>
+      </details>
+      <details>
+        <summary>Is it sandboxed?</summary>
+        <div class="a"><p><b>No, it's isolated.</b> A separate copy of your project keeps an agent's files apart from yours, every turn is a checkpoint, and approvals are in plain words. But an agent still runs with your permissions, under its own permission mode.</p></div>
+      </details>
+      <details>
+        <summary>What happens when an agent hits its usage limit?</summary>
+        <div class="a"><p>Today you see the limit in the pane and the Inbox, and you can start the same task in another agent yourself. Handing the task over automatically, from a written brief, is <b>coming</b>. It isn't in the app yet.</p></div>
+      </details>
+      <details>
+        <summary>Do I need a phone, or a team?</summary>
+        <div class="a"><p>No to both. The phone and Co-work are optional. The desktop app works on its own.</p></div>
+      </details>
+      <details>
+        <summary>What can undo do, and what can't it?</summary>
+        <div class="a"><p>Restore puts your files back to the checkpoint before or after any turn. It doesn't change what the agent remembers. If a folder is too big to checkpoint, undo switches itself off for that folder and tells you.</p></div>
+      </details>
+      <details>
+        <summary>What does it send about me?</summary>
+        <div class="a"><p>This page has no analytics. The app has no usage counts yet; when we add them they will be off by default, with the exact payload visible before and after it's sent. Your prompts and code never go through us. Team messages are end-to-end encrypted, and the relay sees only who sends when.</p></div>
+      </details>
+      <details>
+        <summary>Why Windows first?</summary>
+        <div class="a"><p>It's the platform most other agent managers skip, and it's where Puppet Master is built and tested, on Windows' own pseudo-terminals. A macOS build exists but gets less testing.</p></div>
+      </details>
+      <details>
+        <summary>What will it cost?</summary>
+        <div class="a"><p>Free for everything that runs on your PC. Team ($8 per active member a month) and Business ($16) are planned for the hosted services, and they aren't for sale yet. <a href="#waitlist">Join the waitlist</a> and we'll tell you when they open.</p></div>
+      </details>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- 8. Footer -->
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <a class="brand" href="#top"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><circle cx="2.4" cy="2.4" r="2" opacity=".4"/><circle cx="8.0" cy="2.4" r="2" opacity=".4"/><circle cx="13.6" cy="2.4" r="2" opacity=".4"/><circle cx="2.4" cy="8.0" r="2" opacity=".4"/><circle cx="8.0" cy="8.0" r="2.1"/><circle cx="13.6" cy="8.0" r="2" opacity=".4"/><circle cx="2.4" cy="13.6" r="2" opacity=".4"/><circle cx="8.0" cy="13.6" r="2" opacity=".4"/><circle cx="13.6" cy="13.6" r="2" opacity=".4"/></svg><span>Puppet Master</span></a>
+        <p>Agents that work as one team, on your Windows PC.</p>
+      </div>
+      <div>
+        <h4>Page</h4>
+        <ul>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#cowork">Co-work</a></li>
+          <li><a href="#security">Security and privacy</a></li>
+          <li><a href="#pricing">Pricing</a></li>
+          <li><a href="#faq">FAQ</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul>
+          <li><a href="https://github.com/Potato-dev-inc/puppet-master" rel="noopener">Source on GitHub</a></li>
+          <li><a href="#waitlist">Join the waitlist</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="legal">
+      <p>Claude Code, Codex, Cursor, OpenCode, Kilo Code and other agent names belong to their owners. We use them as plain text to say what runs with Puppet Master. They are not logos, and no one on that list has endorsed or reviewed this page.</p>
+      <p>Screenshots are from the app at the time they were taken. Pairing codes, QR codes and tunnel addresses are never shown.</p>
+      <p>© 2026 Puppet Master. Licence: placeholder. The repository carries an MIT licence today; the final licence for the app and for the team relay server is still to be decided.</p>
+    </div>
+  </div>
+</footer>
+
+<script src="js/site.js"></script>
+</body>
+</html>
