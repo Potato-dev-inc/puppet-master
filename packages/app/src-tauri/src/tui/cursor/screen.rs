@@ -171,7 +171,7 @@ pub(super) fn input_box(screen: &str) -> crate::tui::ComposerState {
             && border(rows[at - 1], '\u{2584}')
             && border(rows[at + 1], '\u{2580}')
     }) else {
-        return ComposerState::Unknown;
+        return unframed_input_box(&live);
     };
     let under = rows[at + 1..].join("\n");
     if BLOCKED_PATTERNS.iter().any(|re| re.is_match(&under)) {
@@ -186,6 +186,38 @@ pub(super) fn input_box(screen: &str) -> crate::tui::ComposerState {
         || text == "add a follow-up"
         || text == "add follow-up"
     {
+        ComposerState::Empty
+    } else {
+        ComposerState::HasText
+    }
+}
+
+/// The input box of a Cursor whose frame is painted with background colour instead of half-block
+/// glyphs: on a live pane (`fixtures/input_box_unframed_live.txt`, Cursor 2026.10.14) the rows above and
+/// below the arrow row are blank in the screen text, so [`input_box`]'s framed read finds nothing and
+/// every visible run sat at "the screen does not show the agent's input box" until it fell back to
+/// headless. The same box is read here by position: the last arrow row, a blank row on each side, and
+/// nothing under it but the footer (model, usage, folder).
+fn unframed_input_box(live: &str) -> crate::tui::ComposerState {
+    use crate::tui::ComposerState;
+    let lines: Vec<&str> = live.lines().collect();
+    let Some(at) = lines.iter().rposition(|line| line.trim_start().starts_with('\u{2192}')) else {
+        return ComposerState::Unknown;
+    };
+    let blank = |index: usize| lines.get(index).is_some_and(|line| line.trim().is_empty());
+    let footer_rows = lines[at + 1..].iter().filter(|line| !line.trim().is_empty()).count();
+    if at == 0 || !blank(at - 1) || !blank(at + 1) || footer_rows > 3 {
+        return ComposerState::Unknown;
+    }
+    let under = lines[at + 1..].join("\n");
+    if BLOCKED_PATTERNS.iter().any(|re| re.is_match(&under)) {
+        return ComposerState::Unknown;
+    }
+    if shows_work_in_progress(live) {
+        return ComposerState::Working;
+    }
+    let text = lines[at].trim().trim_start_matches('\u{2192}').trim().to_ascii_lowercase();
+    if text.is_empty() || text.starts_with("plan, search, build anything") || text == "add a follow-up" || text == "add follow-up" {
         ComposerState::Empty
     } else {
         ComposerState::HasText
@@ -405,6 +437,25 @@ mod tests {
         assert_eq!(cursor.prompt_reply(&prompt, "trust", false).unwrap(), Reply::key("y"));
         assert_eq!(cursor.prompt_reply(&prompt, "deny", false).unwrap(), Reply::key("n"));
         assert!(cursor.prompt_reply(&prompt, "allow_once", false).is_err());
+    }
+
+    // Real capture from a pane started by Puppet Master (Cursor 2026.10.14): the frame rows around the
+    // arrow row are blank in the screen text.
+    const UNFRAMED_LIVE: &str = include_str!("fixtures/input_box_unframed_live.txt");
+
+    #[test]
+    fn a_live_input_box_with_a_background_painted_frame_reads_as_an_empty_box() {
+        use crate::tui::ComposerState;
+        assert_eq!(input_box(UNFRAMED_LIVE), ComposerState::Empty);
+        let typed = UNFRAMED_LIVE.replace("Plan, search, build anything", "hello there");
+        assert_eq!(input_box(&typed), ComposerState::HasText);
+        let working = UNFRAMED_LIVE.replace("Plan, search, build anything", "Add a follow-up      ctrl+c to stop");
+        assert_eq!(input_box(&working), ComposerState::Working);
+        let dialog = format!("{UNFRAMED_LIVE}\n  Workspace Trust Required\n");
+        assert_eq!(input_box(&dialog), ComposerState::Unknown);
+        // An arrow in the answer text with plenty of screen under it is not the input box.
+        assert_eq!(input_box("  \u{2192} a\n\n  b\n  c\n  d\n  e\n"), ComposerState::Unknown);
+        assert_eq!(input_box("  Cursor Agent\n  v2026\n"), ComposerState::Unknown);
     }
 
     #[test]

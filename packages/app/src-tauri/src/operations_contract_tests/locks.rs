@@ -90,7 +90,7 @@ fn file_locks_name_the_same_file_however_the_path_is_spelled() {
     crate::bridge::acquire_operation_locks(&holder).unwrap();
     for (n, spelling) in [
         "file:./src/a.rs",
-        "file:src\a.rs",
+        r"file:src\a.rs",
         "file:src//a.rs",
         "file:src/sub/../a.rs",
         "file: src/a.rs ",
@@ -118,6 +118,6 @@ fn a_lock_taken_with_one_spelling_is_released_by_another() {
     let first = locked_operation(&project, "lock-a", "file:./src/a.rs");
     crate::bridge::acquire_operation_locks(&first).unwrap();
     crate::bridge::release_operation_locks(&first).unwrap();
-    let second = locked_operation(&project, "lock-b", "file:src\a.rs");
+    let second = locked_operation(&project, "lock-b", r"file:src\a.rs");
     crate::bridge::acquire_operation_locks(&second).unwrap();
 }

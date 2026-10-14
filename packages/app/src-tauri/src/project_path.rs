@@ -158,6 +158,15 @@ pub fn set_active_and_persist(
     persist: impl FnOnce(&serde_json::Value) -> Result<serde_json::Value, String>,
 ) -> Result<PathBuf, (u16, String)> {
     let normalized = normalize_project_path(Path::new(raw)).map_err(|e| (400, e))?;
+    // A relative or drive-relative path (`reports`, `C:Users`) would be resolved against whatever
+    // the app's working directory is: runs would create folders there (inside the source tree in
+    // a dev build) and the bad value would be saved and loaded again at every start.
+    if !normalized.is_absolute() {
+        return Err((
+            400,
+            format!("The project folder must be a full path (like C:/work/app), not `{}`", raw.trim()),
+        ));
+    }
     let text = normalized.to_string_lossy().into_owned();
     crate::pty::registry_set_project_path(registry, text.clone());
     crate::event_log::set_active_project_path(Some(normalized.clone()));
@@ -191,6 +200,22 @@ mod tests {
         let out = prepare_project_path(Path::new(&with_sep)).unwrap();
         assert!(out.is_dir());
         let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn setting_the_project_folder_refuses_a_path_that_is_not_absolute() {
+        let registry = parking_lot::Mutex::new(crate::pty::PaneRegistry::default());
+        for raw in ["relative/dir", "reports", "C:Users", "./x"] {
+            let mut saved = false;
+            let result = set_active_and_persist(&registry, raw, |_| {
+                saved = true;
+                Ok(serde_json::json!({}))
+            });
+            let (status, message) = result.expect_err(raw);
+            assert_eq!(status, 400, "{raw}");
+            assert!(message.contains("full path"), "{raw}: {message}");
+            assert!(!saved, "{raw} must not be saved");
+        }
     }
 
     #[test]
