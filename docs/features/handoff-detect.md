@@ -29,7 +29,10 @@ What it does, per agent that has a `[limits]` table:
 5. **Types nothing, ever.** At a usage limit (or the vendor's own limit menu) readiness is a gate with no keys, so no
    task is typed (`TypingPermit` and `GatePermit` are never issued). Claude's own "continue automatically at usage
    limit" wait is only read (`self_resume_armed`, shown on the card); `/rate-limit-options` is never answered.
-6. **Transient rate limits** raise no card and leave the run alone; the pane's status line says the agent is retrying.
+6. **The run's deadline stands still while it is parked at a limit.** The deadline stops the worker, which presses
+   keys in the pane (Esc is how Claude cancels its own wait), so a run waiting out its limit is never ended by its
+   `timeout_ms`; the clock runs again once the agent does.
+7. **Transient rate limits** raise no card and leave the run alone; the pane's status line says the agent is retrying.
 
 ## Design
 
