@@ -316,6 +316,26 @@ serve handle / free port / PTY reader, `reattach.rs` re-attach TUI to a running 
 and server-health changes, `keys.rs` API key profiles/rotation (never exposed through MCP),
 `quota.rs` rate limit / key-swap events, `link.rs` `OpenCodeLink` (native pane <-> serve process link) and worker event emit. TUI-facing parsing lives in `tui/opencode/`.
 
+### 3.6a `handoff/` (usage limits, detect-only)
+
+Hand-off at the limit, step one (`D:\pm-night\DESIGN-RELAY.md`; details in `docs/features/handoff-detect.md`). The feature
+is called "hand-off", never "relay" (`team/transport/relay.rs` is the team relay). Per-agent rules are DATA
+(`tui/<agent>/limits.toml`, or an inline `[limits]` table in a TOML agent definition); generic code reads only
+`TuiProfile::limits()` / `detect_limit()`.
+
+| File | What |
+|---|---|
+| `handoff/limits.rs` | `[limits]` schema (closed: no key presses anything), `validate_limits` (`AGENT_DEF_LIMITS_NO_VENDOR`, `AGENT_DEF_LIMITS_REGEX`), `CompiledLimits` |
+| `handoff/detect.rs` | the detector: one screen in, one `LimitHit` out (usage / transient / warning / unavailable / menu), guards against a quoted sentence |
+| `handoff/reset.rs` | "resets 5pm" / "try again at 9:45 PM" as a moment, `Clock` (a foreign zone is `None`) |
+| `handoff/watch.rs` | per-pane state machine: a limit must hold still 2 s, fires once, clears when the turn resumes (pure, virtual time) |
+| `handoff/card.rs` | the Inbox card (a `questions::Question` with `limit: LimitInfo`) and what "Remind me" / "Stop here" decide |
+| `handoff/mod.rs` | the `Engine` (tracker + cards + reminders), `limit_gate` (readiness: nothing is typed at a limit), live wiring |
+| wiring | `pane_activity` (observe + tick + status line), `agent_runs/headless/supervise.rs` (a run on a limit screen is held, never completed from it), `bridge/observe.rs` (stays parked), `agent_runs/readiness.rs` (gate, no keys), `agent_runs/routes/answer.rs` (`USAGE_LIMIT_NOT_ANSWERABLE`), `operations::{mark_operation_usage_limit, mark_operation_stopped_at_limit}`, receipt `usage_limit` |
+
+Invariants: this step never writes to a pane (a test scans the module for every write path); Claude's own "continue
+automatically at usage limit" wait is only read (`self_resume_armed`); the vendor's `/rate-limit-options` menu is never answered.
+
 ### 3.7 Watch
 
 `watch_command.rs`: builds the `watch_command` string returned for running turns

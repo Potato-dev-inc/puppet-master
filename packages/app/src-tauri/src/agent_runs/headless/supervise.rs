@@ -170,6 +170,15 @@ impl Supervisor {
 
     /// Reads the pane of a running/waiting turn and acts on what the completion watch decides.
     fn observe_pane(&mut self, current: &OperationSnapshot, pane_id: &str) -> Step {
+        // The pane shows a usage limit (or is about to be judged to): the limit text is not this
+        // turn's answer, and a turn that is waiting out its limit has not failed. The run is parked
+        // by `handoff` (`waiting_input`, `usage_limit`); nothing is pressed here, and the turn is
+        // never completed or failed from this screen while the limit stands.
+        if let Some(screen) = read_tui_screen(&self.registry, pane_id) {
+            if crate::handoff::observe_pane(pane_id, &current.agent_type, &screen) != crate::handoff::watch::Standing::Clear {
+                return Step::Continue;
+            }
+        }
         let pane_status = self
             .registry
             .lock()

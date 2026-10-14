@@ -1,0 +1,16 @@
+---
+source: src/replay/corpus_tests.rs
+expression: timeline.render()
+---
+      0 ms  status    idle (start)
+      0 ms  status    idle (screen read running, held back)
+      0 ms  composer  Unknown
+   1000 ms  status    running
+   6000 ms  limit     sees window 5pm (Asia/Taipei)
+   6500 ms  limit     sees self_resume_armed 5pm (Asia/Taipei)
+   7200 ms  status    idle (screen held still)
+   8000 ms  limit     FIRED self_resume_armed armed=true reset_at=Some("5pm (Asia/Taipei)")
+  14000 ms  status    running
+  14000 ms  limit     cleared Resumed
+  18000 ms  limit     sees window 5pm (Asia/Taipei)
+  18800 ms  status    idle (screen held still)

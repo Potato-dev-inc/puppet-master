@@ -60,6 +60,10 @@ flate2 = "1"
 crc32fast = "1"
 # Version ranges for tested-version pins (MIT OR Apache-2.0).
 semver = "1"
+# Usage-limit reset times ("resets 5pm", "try again at 9:45 PM") read in the machine's own zone
+# (both MIT OR Apache-2.0, already built for tauri; `handoff/reset.rs`).
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+iana-time-zone = "0.1"
 # Team ("Heads-up") end-to-end encryption, COWORK-PLAN §8.2 / §12. All MIT OR Apache-2.0
 # (RustCrypto / rust-hpke). XChaCha20-Poly1305 seals envelopes; HPKE (RFC 9180, X25519 +
 # HKDF-SHA256 + ChaCha20-Poly1305) seals team keys and join requests to one device; HMAC proves an

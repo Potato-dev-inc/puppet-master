@@ -119,6 +119,11 @@ pub(in crate::agent_runs) fn compact_prompt(action: serde_json::Value) -> serde_
             "pane_id",
             "command",
             "cwd",
+            // A usage limit (`handoff`): what ran out and when it can continue.
+            "window",
+            "reset_at_ms",
+            "reset_text",
+            "self_resume_armed",
         ] {
             if let Some(value) = action.get(key).cloned().filter(|value| !value.is_null()) {
                 object.insert(key.to_string(), value);

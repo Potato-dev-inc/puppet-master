@@ -1,0 +1,14 @@
+#! source: synthetic (built from openai/codex codex-rs/protocol/src/error.rs quoted in DESIGN-RELAY.md 1.2; NOT a live capture; live captures X1-X8 are TODO)
+#! now: 2026-10-15T12:00 +08:00 Asia/Taipei
+#! expect: kind=menu rule=rate_limit_switch_prompt menu=true
+  Approaching rate limits
+  Switch to gpt-5.4-mini for lower credit usage?
+
+  › 1. Switch to gpt-5.4-mini
+    2. Keep current model
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna medium · D:\pm-demo
+  ? for shortcuts

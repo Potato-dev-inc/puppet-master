@@ -1,0 +1,17 @@
+#! source: synthetic (built from the 2.1.300 string table texts in DESIGN-RELAY.md 1.2; NOT a live capture; live captures C1-C10 are TODO)
+#! now: 2026-10-15T12:00 +08:00 Asia/Taipei
+#! expect: kind=transient rule=limiting_requests
+ ▐▛███▛█   Claude Code v2.1.300
+▝▜██████▀  Opus 5 · Claude Max
+ ▝▝   ▝▝   D:\pm-demo
+
+❯ Make the cart total round to cents
+
+  ⎿  Server is temporarily limiting requests (not your usage limit) · Retrying in 8s · attempt 2/10
+
+✻ Generating…
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt

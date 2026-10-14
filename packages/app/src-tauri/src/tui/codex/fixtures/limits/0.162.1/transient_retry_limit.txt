@@ -1,0 +1,13 @@
+#! source: synthetic (built from openai/codex codex-rs/protocol/src/error.rs quoted in DESIGN-RELAY.md 1.2; NOT a live capture; live captures X1-X8 are TODO)
+#! now: 2026-10-15T12:00 +08:00 Asia/Taipei
+#! expect: kind=transient_final rule=retry_limit
+#! why: the CLI gave up retrying: an ordinary error, not a usage limit (transient_final is never a card and never blocks typing)
+› Make the cart total round to cents
+
+■ exceeded retry limit, last status: 429 Too Many Requests
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna medium · D:\pm-demo
+  ? for shortcuts

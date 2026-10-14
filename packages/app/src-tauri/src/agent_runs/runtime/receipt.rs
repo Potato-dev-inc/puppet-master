@@ -42,6 +42,43 @@ pub struct RunReceipt {
     /// which branch, what it changed, and whether the changes were merged. Absent otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<ReceiptWorktree>,
+    /// Set when the agent ran out of usage during the run: still waiting (`state: "waiting"`) or the
+    /// person chose to stop there (`state: "stopped"`). `outcome` stays `needs_input` / `cancelled`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_limit: Option<ReceiptLimit>,
+}
+
+/// The usage limit a run stopped at (`crate::handoff`), as the receipt shows it:
+/// "Stopped at a usage limit (resets 14:05)".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReceiptLimit {
+    /// `waiting` (the agent is at its limit now) or `stopped` (a person ended the run there).
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<String>,
+    /// When it can continue (epoch ms), when the screen printed a time Puppet Master could read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_at_ms: Option<u64>,
+    /// The time as the screen printed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_text: Option<String>,
+}
+
+/// The usage limit a run is parked at or was stopped at, read from what `handoff` recorded on it.
+pub(crate) fn usage_limit_of(snapshot: &OperationSnapshot) -> Option<ReceiptLimit> {
+    let read = |value: &serde_json::Value, state: &str| ReceiptLimit {
+        state: state.to_string(),
+        window: value.get("window").and_then(|v| v.as_str()).map(str::to_string),
+        reset_at_ms: value.get("reset_at_ms").and_then(|v| v.as_u64()),
+        reset_text: value.get("reset_text").and_then(|v| v.as_str()).map(str::to_string),
+    };
+    if let Some(error) = snapshot.error.as_ref().filter(|e| e.code == crate::operations::USAGE_LIMIT_STOPPED) {
+        return Some(read(&error.context, "stopped"));
+    }
+    let action = snapshot.required_action.as_ref()?;
+    (snapshot.status == OperationStatus::WaitingInput
+        && action.get("kind").and_then(|v| v.as_str()) == Some(crate::operations::USAGE_LIMIT_KIND))
+    .then(|| read(action, "waiting"))
 }
 
 /// The worktree facts of a receipt. `state` is `unreviewed` (still on disk, not merged),
@@ -182,6 +219,7 @@ pub(super) fn build_receipt(
                 copied: setup.copied.clone(),
             }),
         }),
+        usage_limit: usage_limit_of(snapshot),
     }
 }
 

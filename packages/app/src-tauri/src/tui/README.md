@@ -18,8 +18,8 @@ tui/
     screen.rs       interactive TUI: status, approval/trust prompts, footer model
     chrome.rs       which screen lines are furniture, not reply text
     fixtures/       real captures replayed by the tests
-  claude/         Claude Code        (mod.rs profile, headless.rs)
-  codex/          Codex              (mod.rs profile, headless.rs)
+  claude/         Claude Code        (mod.rs profile, headless.rs, limits.toml = what its screen says at a usage limit)
+  codex/          Codex              (mod.rs profile, headless.rs, limits.toml)
   opencode/       OpenCode TUI + opencode_native, TUI-facing part only (mod.rs, screen.rs)
                   (the HTTP client is crate::opencode)
   shell/          cmd / powershell / bash (mod.rs, prompt.rs)

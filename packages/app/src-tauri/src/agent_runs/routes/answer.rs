@@ -218,6 +218,10 @@ fn answer_prompt(
             return Err(error);
         }
     };
+    // A usage limit is not a prompt (`handoff`): nothing is typed for it, whatever the caller sends.
+    if let Some(error) = crate::handoff::refuse_answer(action) {
+        return Err(error);
+    }
     let matches_prompt = ["prompt_id", "request_id", "message_id", "id"]
         .iter()
         .filter_map(|key| action.get(*key).and_then(Value::as_str))

@@ -75,6 +75,7 @@ pub fn validate(def: &Definition, ctx: &ValidationContext<'_>) -> Vec<DefError> 
     check_run_options(def, &mut e);
     check_mcp_host(def, &mut e);
     check_risk(def, &mut e, &mut regexes);
+    e.0.extend(def.limits.iter().flat_map(crate::handoff::validate_limits));
     check_instructions(def, &mut e);
     check_profile(def, &mut e);
     check_regexes(&regexes, &mut e);

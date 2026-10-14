@@ -206,6 +206,7 @@ fn raise(ask: &Ask, now: u64) -> Option<String> {
                     pane_id: ask.pane_id.clone(),
                     risk: ask.risk.clone(),
                 }),
+                limit: None,
             },
             now,
         )

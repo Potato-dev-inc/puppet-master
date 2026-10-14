@@ -57,6 +57,9 @@ pub struct Definition {
     pub mcp_host: Option<McpHostTable>,
     /// Extra risk patterns for approval cards (can only raise a result).
     pub risk: Option<RiskTable>,
+    /// What this agent's screen says when its plan runs out (`[limits]`, `crate::handoff`). Absent =
+    /// Puppet Master cannot tell when this agent hits a limit and never reacts to one.
+    pub limits: Option<crate::handoff::LimitsTable>,
     /// Project files this agent reads its instructions from; Puppet Master keeps its shared
     /// project memory in a managed block of each (`crate::one_brain`).
     pub instructions: Option<InstructionsTable>,
