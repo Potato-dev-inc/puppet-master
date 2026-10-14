@@ -590,13 +590,18 @@
 }
 .cockpit .ck-chunk {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   gap: 12px;
 }
 .cockpit .ck-chunk-stream {
-  font: 11px var(--font-mono);
+  font: 500 11px var(--font-ui);
   color: var(--label-3);
   padding-top: 2px;
+  /* a label never spills into the message beside it */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cockpit .ck-chunk pre {
   margin: 0;

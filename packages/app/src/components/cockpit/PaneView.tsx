@@ -23,6 +23,7 @@ import { LastTurn } from './LastTurn';
 import { useLastTurn } from './away-context';
 import { SegTabs } from './SegTabs';
 import { paneHeading } from './titles';
+import { transcriptStreamLabel } from '../../lib/transcript-labels';
 
 type Tab = 'terminal' | 'changes' | 'transcript' | 'receipt' | 'history';
 
@@ -336,7 +337,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
               <div className="ck-transcript">
                 {run.transcript.chunks.map((chunk, i) => (
                   <div key={i} className="ck-chunk">
-                    <span className="ck-chunk-stream">{chunk.stream}</span>
+                    <span className="ck-chunk-stream">{transcriptStreamLabel(chunk.stream)}</span>
                     <pre>{chunk.text}</pre>
                   </div>
                 ))}
