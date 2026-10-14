@@ -81,7 +81,10 @@ pub(crate) fn dismiss_startup_gates(io: &mut dyn GateIo, profile: &dyn TuiProfil
         let mut changed = false;
         for _ in 0..CHANGE_POLLS {
             io.pause(POLL);
-            if io.screen() != before {
+            // The same rendering as `before` (`observe`, the full input screen): `screen()` is the
+            // cropped per-row snapshot, which never equals it for a profile with a side panel, so
+            // every poll read as "changed" (review R12 1.6).
+            if io.observe().screen != before {
                 changed = true;
                 break;
             }
@@ -334,5 +337,34 @@ mod tests {
         let report = dismiss_startup_gates(&mut pane, &Audited(gate));
         assert!(report.dismissed.is_empty());
         assert!(audited(gate).is_empty(), "{:?}", audited(gate));
+    }
+
+    /// Review R12 1.6: `before` came from `observe()` (the full input screen) and the change poll from
+    /// `screen()` (cropped, rendered per row). For a pane whose two renderings differ, a gate that
+    /// ignored its keys read as "changed": its keys were pressed again and it was never reported.
+    #[test]
+    fn a_gate_that_ignores_its_keys_is_reported_even_when_the_two_renderings_differ() {
+        struct Cropped(FakePane);
+        impl GateIo for Cropped {
+            fn screen(&mut self) -> String {
+                // The cropped snapshot: the side panel's column is cut off.
+                self.0.screen().replace(" | side panel", "")
+            }
+            fn observe(&mut self) -> Observation {
+                Observation::screen_only(self.0.screen())
+            }
+            fn write(&mut self, permit: &GatePermit) -> Result<(), String> {
+                self.0.write(permit)
+            }
+            fn pause(&mut self, d: Duration) {
+                self.0.pause(d)
+            }
+        }
+        let mut stuck = pane(vec!["NOTICE | side panel", "READY"]);
+        stuck.ignore_keys = true;
+        let mut io = Cropped(stuck);
+        let report = dismiss_startup_gates(&mut io, &Probe);
+        assert_eq!(report.blocked.map(|g| g.id), Some("notice"), "{report:?}");
+        assert_eq!(io.0.written.len(), 1, "the keys were pressed once, not every round: {:?}", io.0.written);
     }
 }
