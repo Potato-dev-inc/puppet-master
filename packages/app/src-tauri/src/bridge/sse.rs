@@ -121,6 +121,28 @@ mod tests {
     }
 
     #[test]
+    fn status_hooks_run_in_the_documented_order() {
+        use super::StatusHook::*;
+        assert_eq!(
+            super::STATUS_HOOK_ORDER,
+            [PaneActivity, Ambient, Operations, Checkpoints, Push, TurnSummary],
+            "the status-hook order is a contract: edit STATUS_HOOK_ORDER and this test together"
+        );
+        let position = |hook| super::STATUS_HOOK_ORDER.iter().position(|h| *h == hook).unwrap();
+        assert!(
+            position(Checkpoints) < position(TurnSummary),
+            "TurnSummary waits on the ticket Checkpoints takes, so it must run after it"
+        );
+    }
+
+    #[test]
+    fn the_runner_visits_the_real_list_front_to_back() {
+        let mut seen = Vec::new();
+        super::run_in_order(&super::STATUS_HOOK_ORDER, |hook| seen.push(hook));
+        assert_eq!(seen, super::STATUS_HOOK_ORDER);
+    }
+
+    #[test]
     fn terminal_payload_is_compact_for_large_chunks() {
         let bytes = vec![b'x'; 4096];
         let payload = terminal_payload("p", &bytes, None).unwrap();
@@ -129,14 +151,65 @@ mod tests {
     }
 }
 
+/// One reaction to a pane status change, named so the order can be pinned by a test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StatusHook {
+    PaneActivity,
+    Ambient,
+    Operations,
+    Checkpoints,
+    Push,
+    TurnSummary,
+}
+
+/// Everything that reacts to a pane status change, in the order it runs. The order is a contract:
+/// `status_hooks_run_in_the_documented_order` fails when one moves, so a reorder is a deliberate
+/// edit of this list AND that test.
+///
+/// Why this order:
+/// 1. `PaneActivity` first: the activity clock is fresh before any hook reads it.
+/// 2. `Ambient` (tray icon) is a cheap flag flip with no dependencies.
+/// 3. `Operations` records pane errors on the owning run before anything announces the change.
+/// 4. `Checkpoints` takes the settle ticket for this rest point (and starts its worker thread).
+/// 5. `Push` (phone notifications) is independent of the others.
+/// 6. `TurnSummary` MUST come after `Checkpoints`: it waits on the newest ticket, which is the one
+///    `Checkpoints` just took (`turn_summary::on_pane_status`).
+///
+/// These run on the caller's thread, which is the PTY reader thread (the `pty://status` listener
+/// in `lib.rs` runs inline in the emitter). Each must stay cheap and move slow work (git, disk,
+/// network) to its own worker thread; `Checkpoints` and `TurnSummary` do. A list of names rather
+/// than function pointers keeps the order testable without linking the tray and window code the
+/// hooks reach.
+pub(crate) const STATUS_HOOK_ORDER: [StatusHook; 6] = [
+    StatusHook::PaneActivity,
+    StatusHook::Ambient,
+    StatusHook::Operations,
+    StatusHook::Checkpoints,
+    StatusHook::Push,
+    StatusHook::TurnSummary,
+];
+
+/// Visit `order` front to back.
+fn run_in_order(order: &[StatusHook], mut run: impl FnMut(StatusHook)) {
+    for hook in order {
+        run(*hook);
+    }
+}
+
+fn run_status_hook(hook: StatusHook, pane_id: &str, status: &str) {
+    match hook {
+        StatusHook::PaneActivity => crate::pane_activity::note_output(pane_id),
+        StatusHook::Ambient => crate::ambient::notify_changed(),
+        StatusHook::Operations => observe_operation_pane_status(pane_id, status),
+        StatusHook::Checkpoints => crate::checkpoints::on_pane_status(pane_id, status),
+        StatusHook::Push => crate::push::notify_pane_status(pane_id, status),
+        StatusHook::TurnSummary => crate::turn_summary::on_pane_status(pane_id, status),
+    }
+}
+
 /// Forward pane status changes to mobile clients.
 pub fn push_pane_status_sse(pane_id: &str, status: &str) {
-    crate::pane_activity::note_output(pane_id);
-    crate::ambient::notify_changed();
-    observe_operation_pane_status(pane_id, status);
-    crate::checkpoints::on_pane_status(pane_id, status);
-    crate::push::notify_pane_status(pane_id, status);
-    crate::turn_summary::on_pane_status(pane_id, status);
+    run_in_order(&STATUS_HOOK_ORDER, |hook| run_status_hook(hook, pane_id, status));
     let payload = json!({ "pane_id": pane_id, "status": status });
     if let Ok(json) = serde_json::to_string(&payload) {
         push_sse(format!("event: pane-status\ndata: {json}\n\n"));
