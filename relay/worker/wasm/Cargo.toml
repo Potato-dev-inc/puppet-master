@@ -1,0 +1,23 @@
+[package]
+name = "pm-relay-wasm"
+version = "0.1.0"
+edition = "2021"
+# Part of the Worker variant of the relay: licence pending the founder's decision (see ../LICENSE).
+license-file = "../LICENSE"
+publish = false
+description = "The Puppet Master relay's protocol checks (signatures, shapes) compiled to WebAssembly for the Cloudflare Worker. It is relay/protocol itself, so the Worker accepts and refuses exactly what the axum relay does."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pm-relay-protocol = { path = "../../protocol" }
+serde_json = "1"
+# JS glue (MIT/Apache-2.0). Pinned to the exact CLI version used by ../scripts/build-wasm.mjs.
+wasm-bindgen = "=0.2.129"
+
+[dev-dependencies]
+ed25519-dalek = "2"
+
+# Size-optimised release settings are passed by ../scripts/build-wasm.mjs (a profile here would be
+# ignored: it is not the workspace root).
