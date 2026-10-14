@@ -1,5 +1,5 @@
 // Example Team data for the harness (dev only): a teammate's push, my unsent push, queued updates.
-import type { TeamCard, TeamDraft, TeamEvent, TeamJob, TeamState } from '../lib/team';
+import type { TeamCard, TeamConfigView, TeamDraft, TeamEvent, TeamJob, TeamState } from '../lib/team';
 import { PANE_CLAUDE } from './fixtures';
 
 const now = Date.now();
@@ -42,6 +42,54 @@ export const SAM_PR: TeamEvent = {
   dedupeKey: KEY + '#142:pr_opened',
 };
 
+/** A GitHub fact: no agent, no commit to pull. */
+const GITHUB_PR_KEY = 'github.com/acme/billing-service';
+
+export const SAM_MERGED: TeamEvent = {
+  ...MAYA_PUSH,
+  id: '01JA0SAMMERGED00000000000004',
+  actor: { member: 'sam', device: 'github', display: 'Sam' },
+  kind: 'pr_merged',
+  atMs: now - 9 * 60_000,
+  subject: {
+    base: 'main',
+    pr: { number: 141, title: 'Retry failed webhook deliveries', url: 'https://github.com/acme/billing-service/pull/141', state: 'merged', draft: false },
+  },
+  note: undefined,
+  tierHint: 'ambient',
+  dedupeKey: KEY + '#141:pr_merged',
+  source: 'github',
+};
+
+export const CI_FAILED: TeamEvent = {
+  ...SAM_MERGED,
+  id: '01JA0CIFAILED000000000000005',
+  kind: 'ci_failed',
+  atMs: now - 14 * 60_000,
+  subject: {
+    branch: 'feat/invoices',
+    pr: { number: 142, title: 'Invoice PDF export', url: 'https://github.com/acme/billing-service/pull/142', state: 'open', draft: false },
+    ci: { conclusion: 'failure', failedJobs: ['govulncheck'], url: 'https://github.com/acme/billing-service/actions/runs/1' },
+  },
+  tierHint: 'interrupt',
+  dedupeKey: KEY + '#142:ci_failed',
+};
+
+/** A pull request from someone who is not on the team: shown by their GitHub login. */
+export const GITHUB_PR_OPEN: TeamEvent = {
+  ...SAM_MERGED,
+  id: '01JA0GHPROPEN00000000000006',
+  actor: { member: '', device: 'github', display: 'priya-dev' },
+  kind: 'pr_opened',
+  atMs: now - 3 * 60_000,
+  subject: {
+    branch: 'fix/rounding',
+    base: 'main',
+    pr: { number: 144, title: 'Round invoice totals to cents', url: 'https://github.com/acme/billing-service/pull/144', state: 'open', draft: false },
+  },
+  dedupeKey: GITHUB_PR_KEY + '#144:pr_opened',
+};
+
 const local = {
   projectPath: 'C:\\Users\\dev\\work\\billing-service',
   currentBranch: 'feat/billing',
@@ -51,6 +99,10 @@ const local = {
   canQueue: true,
   note: null,
 };
+
+const ghCard = (event: TeamEvent): TeamCard => ({ id: event.id, event, receivedAtMs: event.atMs, state: 'new', local: null, panes: [] });
+
+export const GITHUB_CARDS: TeamCard[] = [ghCard(GITHUB_PR_OPEN), ghCard(SAM_MERGED), ghCard(CI_FAILED)];
 
 export const TEAM_CARDS: TeamCard[] = [
   {
@@ -121,11 +173,42 @@ export function teamState(partial: Partial<TeamState> = {}): TeamState {
     active: true,
     me: 'Leo',
     members: ['Maya', 'Sam'],
-    transport: 'folder',
+    transport: 'relay',
+    link: 'live',
     error: null,
+    missing: 0,
     drafts: [],
     cards: TEAM_CARDS,
     jobs: [],
+    ...partial,
+  };
+}
+
+/** Settings > Team: on a team as its admin, two others, one person waiting to be let in. */
+export function teamConfig(partial: Partial<TeamConfigView> = {}): TeamConfigView {
+  return {
+    enabled: true,
+    team: 'team-7f3a91c2',
+    teamName: 'Acme',
+    relay: 'https://relay.acme.dev',
+    folder: '',
+    name: 'Leo',
+    projects: [],
+    profile: null,
+    readError: null,
+    error: null,
+    joining: null,
+    admin: true,
+    members: [
+      { id: 'm-leo', name: 'Leo', roles: ['admin', 'approve', 'watch'], admin: true, me: true, github: 'leo-dev', githubConfirmed: true, devices: 1 },
+      { id: 'm-maya', name: 'Maya', roles: ['approve', 'watch'], admin: false, me: false, github: 'maya-dev', githubConfirmed: true, devices: 2 },
+      { id: 'm-sam', name: 'Sam', roles: ['watch'], admin: false, me: false, github: 'samc', githubConfirmed: false, devices: 1 },
+    ],
+    joins: [{ id: 'j-priya', name: 'Priya', github: 'priya-dev', device: "Priya's MacBook", receivedAtMs: now - 2 * 60_000 }],
+    epoch: 1,
+    keyStore: 'Windows Credential Manager',
+    transport: 'relay',
+    link: 'live',
     ...partial,
   };
 }

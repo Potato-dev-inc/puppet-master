@@ -26,7 +26,7 @@ import {
   EXAMPLE_REVIEW_START,
   EXAMPLE_REVIEW_POLL,
 } from './fixtures';
-import { TEAM_DIFF } from './team-fixtures';
+import { TEAM_DIFF, teamConfig } from './team-fixtures';
 
 const DOCTOR_ROWS = [
   { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'winget install Anthropic.ClaudeCode', install_fallback: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true },
@@ -263,22 +263,32 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'team_state':
           return scenario.team ?? null;
         case 'team_config_get':
-          return {
-            enabled: !!scenario.team?.enabled,
-            team: 'acme',
-            folder: 'D:\\pm-team-demo\\wire',
-            name: scenario.team?.me ?? '',
-            members: scenario.team?.members ?? [],
-            projects: [],
-            profile: null,
-          };
+        case 'team_config_set':
+        case 'team_create':
+        case 'team_join':
+        case 'team_leave':
+        case 'team_join_approve':
+        case 'team_join_decline':
+        case 'team_member_remove':
+          return teamConfig({ enabled: !!scenario.team?.enabled, name: scenario.team?.me ?? 'Leo', ...scenario.teamConfig });
+        case 'team_invite':
+          return { link: 'pm://team/join?t=Acme&r=relay.acme.dev&k=8Vh2mQ0pXn4cD7wLrT1uYb3sZaE5gJfK', code: 'KQ7M-4XPD', expiresAtMs: Date.now() + 10 * 60_000 };
+        case 'team_gaps_clear':
+          return null;
+        case 'team_merge_plan': {
+          const pr = scenario.team?.cards.find((c) => c.id === a.cardId)?.event.subject.pr;
+          return { repo: 'acme/billing-service', number: pr?.number ?? 142, title: pr?.title ?? 'Invoice PDF export', method: 'squash', methodWords: 'squashed into one commit', autoMergeOff: false };
+        }
+        case 'team_merge_when_green': {
+          const pr = scenario.team?.cards.find((c) => c.id === a.cardId)?.event.subject.pr;
+          return `GitHub will merge #${pr?.number ?? 142} when its checks pass. Nothing was merged yet.`;
+        }
         case 'team_job_diff':
           return TEAM_DIFF;
         case 'team_send':
         case 'team_draft_dismiss':
         case 'team_card_dismiss':
         case 'team_job_discard':
-        case 'team_config_set':
           return null;
         case 'team_pull':
           return 'Pulled feat/auth. You are at 3f9c2a1.';

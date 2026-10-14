@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { cardActions, cardMeta, cardTitle, type TeamApi, type TeamCard as Card } from '../../../lib/team';
 import { DotSpinner } from '../DotSpinner';
 import { formatElapsed } from '../model';
+import { MergeSheet } from './MergeSheet';
 import { QueueSheet } from './QueueSheet';
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -9,14 +10,15 @@ const errText = (err: unknown): string => (err instanceof Error ? err.message : 
 /**
  * A teammate's push or PR, in Inbox › Team. Everything in `card.event` came from a teammate and is
  * untrusted: it is rendered as plain text only, and the note always in quotes. Buttons: the one
- * action that fits (Pull now, or Queue my agent), Dismiss, and on a GitHub PR a disabled
- * "Merge when green" (coming soon).
+ * action that fits (Pull now, or Queue my agent), Dismiss, and on an open GitHub PR "Merge when green"
+ * (a sheet explains it first; GitHub does the merge).
  */
 export function TeamCard({ card, api, now, onDone }: { card: Card; api: TeamApi; now: number; onDone?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
   const actions = cardActions(card);
   const e = card.event;
 
@@ -63,14 +65,26 @@ export function TeamCard({ card, api, now, onDone }: { card: Card; api: TeamApi;
           </button>
         )}
         {actions.mergeWhenGreen && (
-          <button type="button" className="ck-btn ck-btn--secondary" disabled title="Coming soon: merges through GitHub once checks pass">
-            Merge when green · coming soon
+          <button type="button" className="ck-btn ck-btn--secondary" disabled={busy} onClick={() => setMergeOpen(true)}>
+            Merge when green
           </button>
         )}
         <button type="button" className="ck-btn ck-btn--plain" disabled={busy} onClick={() => void run(() => api.dismissCard(card.id))}>
           Dismiss
         </button>
       </div>
+      {mergeOpen && (
+        <MergeSheet
+          card={card}
+          api={api}
+          onClose={() => setMergeOpen(false)}
+          onDone={(text) => {
+            setMessage(text);
+            setMergeOpen(false);
+            onDone?.();
+          }}
+        />
+      )}
       {queueOpen && (
         <QueueSheet
           card={card}

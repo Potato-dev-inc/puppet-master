@@ -2,8 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MAYA_PUSH, MY_DRAFT, READY_JOB, SAM_PR, TEAM_CARDS, TEAM_DIFF, WAITING_JOB, teamState } from '../../../dev/team-fixtures';
-import { cardActions, cardMeta, cardTitle, jobTitle, tellLabel, type TeamApi, type TeamCard as Card, type TeamJob } from '../../../lib/team';
+import { CI_FAILED, GITHUB_CARDS, GITHUB_PR_OPEN, MAYA_PUSH, MY_DRAFT, READY_JOB, SAM_MERGED, SAM_PR, TEAM_CARDS, TEAM_DIFF, WAITING_JOB, teamConfig, teamState } from '../../../dev/team-fixtures';
+import { cardActions, cardMeta, cardTitle, jobTitle, tellLabel, type MergePlan, type TeamApi, type TeamCard as Card, type TeamJob } from '../../../lib/team';
 import { TeamCard } from './TeamCard';
 import { TeamJobCard } from './TeamJobCard';
 import { TeamSection } from './TeamSection';
@@ -23,6 +23,8 @@ afterEach(() => {
   host.remove();
 });
 
+const PLAN: MergePlan = { repo: 'acme/billing-service', number: 142, title: 'Invoice PDF export', method: 'squash', methodWords: 'squashed into one commit', autoMergeOff: false };
+
 function fakeApi(overrides: Partial<TeamApi> = {}): TeamApi & { calls: string[] } {
   const calls: string[] = [];
   const rec =
@@ -34,8 +36,18 @@ function fakeApi(overrides: Partial<TeamApi> = {}): TeamApi & { calls: string[] 
   return {
     calls,
     state: rec('state', teamState()),
-    configGet: rec('configGet', { enabled: true, team: 'acme', folder: 'D:\\wire', name: 'Leo', members: ['Maya'], projects: [], profile: null }),
-    configSet: rec('configSet', { enabled: true, team: 'acme', folder: 'D:\\wire', name: 'Leo', members: ['Maya'], projects: [], profile: null }),
+    configGet: rec('configGet', teamConfig()),
+    configSet: rec('configSet', teamConfig()),
+    create: rec('create', teamConfig()),
+    invite: rec('invite', { link: 'pm://team/join?t=x', code: 'ABCD-EFGH', expiresAtMs: Date.now() + 600_000 }),
+    join: rec('join', teamConfig()),
+    leave: rec('leave', teamConfig()),
+    approveJoin: rec('approveJoin', teamConfig()),
+    declineJoin: rec('declineJoin', teamConfig()),
+    removeMember: rec('removeMember', teamConfig()),
+    clearGaps: rec('clearGaps', undefined),
+    mergePlan: rec('mergePlan', PLAN),
+    mergeWhenGreen: rec('mergeWhenGreen', 'GitHub will merge #142 when its checks pass. Nothing was merged yet.'),
     send: rec('send', undefined),
     dismissDraft: rec('dismissDraft', undefined),
     dismissCard: rec('dismissCard', undefined),
@@ -50,6 +62,8 @@ function fakeApi(overrides: Partial<TeamApi> = {}): TeamApi & { calls: string[] 
   } as TeamApi & { calls: string[] };
 }
 
+const CI_FAILED_CARD: Card = GITHUB_CARDS[2];
+const sheetButton = (text: string) => [...host.querySelectorAll('.ck-sheet button')].find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
 const buttons = () => [...host.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim());
 const button = (text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.includes(text)) as HTMLButtonElement | undefined;
 const flush = () => act(async () => {
@@ -72,6 +86,18 @@ describe('copy', () => {
     expect(tellLabel(['Leo', 'Sam'])).toBe('Tell Leo and Sam');
     expect(tellLabel([])).toBe('Tell the team');
     expect(jobTitle(READY_JOB)).toBe('feat/billing is up to date, in a separate copy');
+  });
+
+  it('words the GitHub facts: merged, closed, checks', () => {
+    expect(cardTitle(SAM_MERGED)).toBe("Sam's #141 merged into main");
+    expect(cardTitle({ ...SAM_MERGED, subject: { ...SAM_MERGED.subject, base: undefined } })).toBe('#141 merged');
+    expect(cardTitle({ ...SAM_MERGED, kind: 'pr_closed' })).toBe('#141 closed without merging');
+    expect(cardTitle(CI_FAILED)).toBe('Checks failed on #142');
+    expect(cardTitle({ ...CI_FAILED, kind: 'ci_passed' })).toBe('Checks passed on #142');
+    expect(cardTitle({ ...CI_FAILED, subject: { ...CI_FAILED.subject, pr: undefined } })).toBe('Checks failed on feat/invoices');
+    expect(cardMeta(CI_FAILED)).toBe('billing-service · Invoice PDF export · feat/invoices · govulncheck failed');
+    expect(cardMeta({ ...CI_FAILED, kind: 'ci_passed' })).not.toContain('failed');
+    expect(cardTitle(GITHUB_PR_OPEN)).toBe('priya-dev opened #144');
   });
 });
 
@@ -103,11 +129,17 @@ describe('TeamCard states', () => {
     expect(host.textContent).toContain('Queued for your agent.');
   });
 
-  it('shows Merge when green on a GitHub PR, disabled as coming soon', () => {
+  it('offers Merge when green on an open GitHub PR only', () => {
     renderCard(TEAM_CARDS[1]);
-    const merge = button('Merge when green')!;
-    expect(merge.disabled).toBe(true);
-    expect(merge.textContent).toContain('coming soon');
+    expect(button('Merge when green')!.disabled).toBe(false);
+    expect(cardActions(CI_FAILED_CARD).mergeWhenGreen).toBe(true);
+    // Merged, closed, or not a pull request: nothing to merge.
+    renderCard(GITHUB_CARDS[1]);
+    expect(button('Merge when green')).toBeUndefined();
+    expect(buttons()).toEqual(['Dismiss']);
+    expect(host.textContent).not.toContain("isn't open here");
+    const closed = { ...TEAM_CARDS[1], event: { ...SAM_PR, subject: { ...SAM_PR.subject, pr: { ...SAM_PR.subject.pr!, state: 'closed' } } } };
+    expect(cardActions(closed).mergeWhenGreen).toBe(false);
     renderCard(card);
     expect(button('Merge when green')).toBeUndefined();
   });
@@ -133,6 +165,63 @@ describe('TeamCard states', () => {
     expect(api.calls).toEqual([]);
     await act(async () => button('Queue it')!.click());
     expect(api.calls).toEqual([`queue("${card.id}","pane-claude-1","idle")`.replace('pane-claude-1', card.panes[0].paneId)]);
+  });
+});
+
+describe('Merge when green', () => {
+  const pr = TEAM_CARDS[1];
+
+  it('reads the plan when the sheet opens and merges nothing until confirmed', async () => {
+    const api = renderCard(pr);
+    expect(api.calls).toEqual([]);
+    await act(async () => button('Merge when green')!.click());
+    await flush();
+    expect(api.calls).toEqual([`mergePlan("${pr.id}")`]);
+    expect(host.textContent).toContain('Merge #142 when its checks pass?');
+    expect(host.textContent).toContain('Invoice PDF export');
+    expect(host.textContent).toContain('GitHub merges it squashed into one commit once the required checks pass and branch protection allows it. Puppet Master never merges by itself.');
+    expect(host.textContent).not.toContain('Auto-merge is off');
+    await act(async () => sheetButton('Merge when green')!.click());
+    await flush();
+    expect(api.calls).toEqual([`mergePlan("${pr.id}")`, `mergeWhenGreen("${pr.id}")`]);
+    // The sheet closes and the card says what GitHub will do.
+    expect(host.querySelector('.ck-sheet')).toBeNull();
+    expect(host.textContent).toContain('GitHub will merge #142 when its checks pass. Nothing was merged yet.');
+  });
+
+  it('Cancel never merges', async () => {
+    const api = renderCard(pr);
+    await act(async () => button('Merge when green')!.click());
+    await flush();
+    await act(async () => sheetButton('Cancel')!.click());
+    expect(host.querySelector('.ck-sheet')).toBeNull();
+    expect(api.calls.some((c) => c.startsWith('mergeWhenGreen'))).toBe(false);
+  });
+
+  it('with auto-merge off, says so and cannot be confirmed', async () => {
+    const api = renderCard(pr, fakeApi({ mergePlan: async () => ({ ...PLAN, autoMergeOff: true }) }));
+    await act(async () => button('Merge when green')!.click());
+    await flush();
+    expect(host.textContent).toContain('Auto-merge is off for acme/billing-service. An admin can turn it on in GitHub.');
+    expect(sheetButton('Merge when green')!.disabled).toBe(true);
+    await act(async () => sheetButton('Merge when green')!.click());
+    expect(api.calls.some((c) => c.startsWith('mergeWhenGreen'))).toBe(false);
+  });
+
+  it('shows an error in the sheet and keeps it open', async () => {
+    renderCard(
+      pr,
+      fakeApi({
+        mergeWhenGreen: async () => {
+          throw new Error('GitHub said no.');
+        },
+      }),
+    );
+    await act(async () => button('Merge when green')!.click());
+    await flush();
+    await act(async () => sheetButton('Merge when green')!.click());
+    await flush();
+    expect(host.querySelector('.ck-sheet [role="alert"]')?.textContent).toBe('GitHub said no.');
   });
 });
 
@@ -168,6 +257,17 @@ describe('TeamJobCard states', () => {
     await act(async () => button('Apply to my branch')!.click());
     expect(api.calls).toContain('apply("job-ready")');
     expect(host.textContent).toContain('Nothing was pushed.');
+  });
+
+  it('never shows the raw pm/ branch of the separate copy', async () => {
+    expect(READY_JOB.copyBranch).toMatch(/^pm\//);
+    render(READY_JOB);
+    act(() => button('See changes')!.click());
+    await flush();
+    expect(host.querySelector('.ck-changes')).not.toBeNull();
+    expect(host.textContent).toContain('Separate copy of feat/billing');
+    expect(host.textContent).not.toContain('pm/');
+    expect(host.textContent).not.toContain(READY_JOB.copyBranch!);
   });
 
   it('failed: says why; Discard after a confirm', async () => {
@@ -209,6 +309,33 @@ describe('Tell the team?', () => {
     act(() => root.render(<TellTeamPrompt draft={MY_DRAFT} members={['Maya']} api={api} variant="row" />));
     await act(async () => button('Not now')!.click());
     expect(api.calls).toEqual([`dismissDraft("${MY_DRAFT.id}")`]);
+  });
+});
+
+describe('TeamSection notices', () => {
+  it('says updates may be missing, and OK clears it', async () => {
+    const api = fakeApi({ state: async () => teamState({ missing: 2 }) });
+    act(() => root.render(<TeamSection api={api} now={Date.now()} />));
+    await flush();
+    expect(host.textContent).toContain('Some team updates may be missing.');
+    await act(async () => button('OK')!.click());
+    await flush();
+    expect(api.calls).toContain('clearGaps()');
+  });
+
+  it('says nothing about gaps when none are missing', async () => {
+    act(() => root.render(<TeamSection api={fakeApi()} now={Date.now()} />));
+    await flush();
+    expect(host.textContent).not.toContain('may be missing');
+  });
+
+  it("says when the relay can't be reached", async () => {
+    act(() => root.render(<TeamSection api={fakeApi({ state: async () => teamState({ transport: 'relay', link: 'offline' }) })} now={Date.now()} />));
+    await flush();
+    expect(host.textContent).toContain("Can't reach the team's relay. Updates will arrive when it's back.");
+    act(() => root.render(<TeamSection api={fakeApi({ state: async () => teamState({ transport: 'folder', link: null }) })} now={Date.now()} />));
+    await flush();
+    expect(host.textContent).not.toContain("Can't reach");
   });
 });
 

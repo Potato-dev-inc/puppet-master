@@ -27,6 +27,26 @@ export function TeamSection({ api = teamApi, now, paneNames }: { api?: TeamApi; 
           {state.error}
         </p>
       )}
+      {state.transport === 'relay' && state.link === 'offline' && (
+        <p className="ck-sub ck-team-empty">Can't reach the team's relay. Updates will arrive when it's back.</p>
+      )}
+      {state.missing > 0 && (
+        <div className="ck-team-gap">
+          <span className="ck-sub">Some team updates may be missing.</span>
+          <button
+            type="button"
+            className="ck-btn ck-btn--plain"
+            onClick={() => {
+              api
+                .clearGaps()
+                .catch(() => {})
+                .finally(refresh);
+            }}
+          >
+            OK
+          </button>
+        </div>
+      )}
       {empty && state.active && <p className="ck-sub ck-team-empty">When a teammate pushes, it shows up here.</p>}
 
       {state.drafts.length > 0 && (
