@@ -1,6 +1,6 @@
 // Settings > General: "Save a diagnostic file". Shows what the zip would hold before anything is written;
 // the person can leave any file out and read one before saving. Nothing is uploaded.
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { tauri, type DiagnosticPreview } from '../../../lib/tauri';
 import { Btn, Note, SettingBlock, SettingRow } from '../settings-ui';
@@ -20,12 +20,18 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** While the list is open it re-reads itself this often, and whenever the window is focused again. */
+export const DIAGNOSTIC_REFRESH_MS = 5000;
+
 export function DiagnosticFile({ onSaved }: { onSaved?: () => void }) {
   const [preview, setPreview] = useState<DiagnosticPreview | null>(null);
   const [left, setLeft] = useState<Set<string>>(new Set());
   const [shown, setShown] = useState<{ path: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+
+  const busyRef = useRef(false);
+  busyRef.current = busy;
 
   const review = async () => {
     setBusy(true);
@@ -40,6 +46,33 @@ export function DiagnosticFile({ onSaved }: { onSaved?: () => void }) {
       setBusy(false);
     }
   };
+
+  // A run can fail while the list is open: keep it current without a click. What the person ticked off
+  // and the file they are reading stay as they are (a path that is gone drops out of both).
+  const reread = useCallback(async () => {
+    if (busyRef.current) return;
+    try {
+      const next = await tauri.diagnosticPreview();
+      setPreview(next);
+      const paths = new Set(next.files.map((file) => file.path));
+      setLeft((current) => new Set([...current].filter((path) => paths.has(path))));
+      setShown((current) => (current && paths.has(current.path) ? current : null));
+    } catch {
+      // The list on screen is still what was read last; a failed re-read is not worth an error.
+    }
+  }, []);
+
+  const open = preview !== null;
+  useEffect(() => {
+    if (!open) return;
+    const timer = window.setInterval(() => void reread(), DIAGNOSTIC_REFRESH_MS);
+    const onFocus = () => void reread();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [open, reread]);
 
   const toggle = (path: string) =>
     setLeft((current) => {

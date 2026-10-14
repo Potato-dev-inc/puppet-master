@@ -24,6 +24,9 @@ function answer(method: string, path: string, scenario: HarnessScenario): Respon
   const pane = /^\/panes\/([^/]+)\/(buffer|screen|raw|viewport)$/.exec(route);
   if (route === '/health') return json({ ok: true });
   if (route === '/panes' && method === 'GET') return json(scenario.phonePanes ?? PHONE_PANES);
+  if (route === '/pair/me') {
+    return json({ local: false, device_id: 'harness-phone', caps: scenario.phoneCaps ?? ['watch', 'answer', 'type', 'control'] });
+  }
   if (route === '/previews') return json({ previews: PHONE_PREVIEWS });
   if (route === '/settings') return json({ ...DEFAULT_PUBLIC_SETTINGS });
   if (route === '/questions') return json({ questions: phone.questions === false ? [] : [PHONE_QUESTION] });

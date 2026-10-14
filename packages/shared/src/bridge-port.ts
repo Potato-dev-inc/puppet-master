@@ -1,7 +1,12 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { BRIDGE_PORT_FILE_ENV, DEFAULT_BRIDGE_PORT_FILE } from './protocol.js';
+import { dirname, join } from 'node:path';
+import {
+  BRIDGE_LOCAL_SECRET_FILE,
+  BRIDGE_LOCAL_SECRET_HEADER,
+  BRIDGE_PORT_FILE_ENV,
+  DEFAULT_BRIDGE_PORT_FILE,
+} from './protocol.js';
 
 const APP_ID = 'com.puppetmaster.app';
 
@@ -66,4 +71,28 @@ export async function readBridgePort(filePath?: string): Promise<{ port: number;
     `Puppet Master bridge port file not found (tried: ${candidates.map((p) => `"${p}"`).join(', ')}). ` +
     `Start Puppet Master first (\`npx puppet-master\`).`
   );
+}
+
+/**
+ * The `X-PM-Local-Secret` header for a request to the local bridge, or `{}` when there is no secret
+ * file (an older app). The secret is read from beside the same port file `readBridgePort` uses, on
+ * every call, so a restarted app's new secret is picked up. Same lookup as the Rust MCP shim
+ * (`bin/puppet_master_mcp/endpoint.rs::local_secret_header`). The bridge only logs a missing secret
+ * for now; callers never fail because of it.
+ */
+export async function readLocalSecretHeaders(filePath?: string): Promise<Record<string, string>> {
+  for (const candidate of [...new Set(bridgePortCandidates(filePath))]) {
+    try {
+      if (!(await stat(candidate)).isFile()) continue;
+    } catch {
+      continue;
+    }
+    try {
+      const secret = (await readFile(join(dirname(candidate), BRIDGE_LOCAL_SECRET_FILE), 'utf-8')).trim();
+      return /^[0-9a-fA-F]+$/.test(secret) ? { [BRIDGE_LOCAL_SECRET_HEADER]: secret } : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }

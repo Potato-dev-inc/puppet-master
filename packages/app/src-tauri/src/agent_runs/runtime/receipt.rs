@@ -126,6 +126,12 @@ pub(super) fn build_receipt(
     {
         not_verified.push("shell commands rejected".to_string());
     }
+    if warnings
+        .iter()
+        .any(|warning| warning.code == "AGENT_REPORTED_ERROR")
+    {
+        not_verified.push("agent reported a tool failure".to_string());
+    }
     let outcome = receipt_outcome(snapshot, total);
     RunReceipt {
         backend: snapshot.agent_type.clone(),

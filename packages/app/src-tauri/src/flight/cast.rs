@@ -128,7 +128,3 @@ pub fn render(snap: &Snapshot, title: &str, closing_note: Option<&str>) -> Redac
     compose(&parts)
 }
 
-/// The window's size in bytes and events, for a preview ("1.2 MB of terminal activity").
-pub fn describe(snap: &Snapshot) -> (usize, usize) {
-    (snap.bytes.len(), snap.events.len())
-}

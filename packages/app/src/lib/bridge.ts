@@ -166,6 +166,7 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     replyOpencodeQuestion: (paneId, args) =>
       call('POST', `/panes/${encodeURIComponent(paneId)}/opencode/question/reply`, args),
     getSettings: () => call('GET', '/settings'),
+    pairMe: () => call('GET', '/pair/me'),
     patchSettings: (patch) => call('PATCH', '/settings', patch),
     postOrchestratorMessage: (text, messageId) =>
       call('POST', '/orchestrator/message', { text, message_id: messageId }),

@@ -152,7 +152,8 @@ impl Ring {
         }
     }
 
-    /// Bytes currently held and events kept (for the health view and tests).
+    /// Bytes currently held and events kept (tests).
+    #[cfg(test)]
     pub fn stats(&self) -> (usize, usize) {
         let g = self.inner.lock();
         let held = g.events.front().map(|e| (g.total - e.off) as usize).unwrap_or(0);

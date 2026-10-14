@@ -87,11 +87,6 @@ impl Engine {
         }
     }
 
-    /// The agents currently in strict mode.
-    pub fn strict_agents(&self) -> Vec<String> {
-        self.status().agents.iter().filter(|a| a.strict).map(|a| a.agent.clone()).collect()
-    }
-
     /// The version last read for `agent`, as a label (`0.162.1`).
     pub fn version_of(&self, agent: &str) -> Option<String> {
         let data = self.data.lock();

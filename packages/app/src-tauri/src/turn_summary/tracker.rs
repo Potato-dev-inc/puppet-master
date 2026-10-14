@@ -56,6 +56,9 @@ struct Live {
     started_at_ms: u64,
     last_status: String,
     approvals: Vec<Approval>,
+    /// A prompt was typed into this turn (`note_dispatched`). A turn only the status opened is
+    /// either the user typing in the pane themselves or the agent starting up.
+    dispatched: bool,
 }
 
 pub struct Tracker {
@@ -68,6 +71,11 @@ pub struct Tracker {
 /// (a redraw or resize read as "running"), not an agent turn. Live evidence: two 0.8s "turns"
 /// that followed a real 166s one and became its "Last turn".
 pub const BLIP_MS: u64 = 1_000;
+
+/// Only startup screens were answered (at least one): the folder-trust dialog, a sign-in or setup screen.
+fn is_startup(approvals: &[Approval]) -> bool {
+    !approvals.is_empty() && approvals.iter().all(|a| crate::pane_prompt::STARTUP_GATE_KINDS.contains(&a.kind.as_str()))
+}
 
 fn is_rest(status: &str) -> bool {
     matches!(status, "idle" | "waiting_input" | "error")
@@ -95,6 +103,7 @@ impl Tracker {
                 entry.open = true;
                 entry.started_at_ms = self.env.now_ms();
                 entry.approvals.clear();
+                entry.dispatched = false;
             }
             return None;
         }
@@ -108,6 +117,13 @@ impl Tracker {
             && now.saturating_sub(entry.started_at_ms) < BLIP_MS
         {
             // Not a turn: give its number back so numbering stays the one checkpoints use.
+            entry.turn = entry.turn.saturating_sub(1);
+            entry.open = false;
+            return None;
+        }
+        if matches!(status, "idle" | "error") && !entry.dispatched && is_startup(&entry.approvals) {
+            // The agent starting up (its folder-trust or sign-in screen answered, then its composer),
+            // not a turn: nobody asked it anything yet. Counting it made the first real turn "Turn 2".
             entry.turn = entry.turn.saturating_sub(1);
             entry.open = false;
             return None;
@@ -135,11 +151,16 @@ impl Tracker {
         let mut live = self.live.lock();
         let entry = live.entry(pane_id.to_string()).or_default();
         entry.last_status = "running".to_string();
-        if entry.open || !self.env.pane(pane_id).is_some_and(|p| p.has_turns) {
+        if entry.open {
+            entry.dispatched = true;
+            return;
+        }
+        if !self.env.pane(pane_id).is_some_and(|p| p.has_turns) {
             return;
         }
         entry.turn += 1;
         entry.open = true;
+        entry.dispatched = true;
         entry.started_at_ms = self.env.now_ms();
         entry.approvals.clear();
     }

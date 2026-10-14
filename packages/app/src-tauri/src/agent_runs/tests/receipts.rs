@@ -272,3 +272,48 @@ fn the_worktree_survives_a_snapshot_round_trip_so_a_restart_does_not_lose_it() {
     let old: operations::OperationSnapshot = serde_json::from_value(old).unwrap();
     assert!(old.worker.worktree.is_none());
 }
+
+/// Codex 0.162.1 on this PC could not start its command runner: the run ended `completed` and
+/// the receipt flagged nothing. The screen is the real capture
+/// (`tui/codex/fixtures/result_tool_failed_live.txt`); the result is read from it the way a pane run does.
+fn codex_failed_tool_snapshot() -> operations::OperationSnapshot {
+    let screen = include_str!("../../tui/codex/fixtures/result_tool_failed_live.txt");
+    let task = "Read README.md and tell me in one sentence what this project is. Do not change any files.";
+    let result = crate::agent_runs::completion::clean_extracted_result(screen, task, "codex")
+        .expect("the reply is read off the screen");
+    let mut snapshot = parked_snapshot(OperationStatus::Completed, "none");
+    snapshot.agent_type = "codex".into();
+    snapshot.read_only = false;
+    snapshot.result_capture = Some(operations::ResultCapture::Inferred);
+    snapshot.result = Some(format!("{}{result}", operations::UNVERIFIED_SCREEN_PREFIX));
+    snapshot
+}
+
+#[test]
+fn a_codex_run_whose_own_tool_failed_is_flagged_on_the_receipt() {
+    let snapshot = codex_failed_tool_snapshot();
+    let view = crate::agent_runs::runtime::AgentRunView::from(snapshot);
+    let receipt = view.receipt.expect("receipt");
+    assert!(
+        receipt.not_verified.iter().any(|line| line == "agent reported a tool failure"),
+        "{:?}",
+        receipt.not_verified
+    );
+    // The outcome enum is unchanged: still `completed_unchecked`, never `passed_checks`.
+    assert_eq!(receipt.outcome, "completed_unchecked");
+    assert!(
+        view.warnings.iter().any(|warning| warning.code == "AGENT_REPORTED_ERROR" && warning.source == "heuristic"),
+        "{:?}",
+        view.warnings.iter().map(|w| &w.code).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_codex_run_without_a_failed_tool_is_not_flagged() {
+    let mut snapshot = codex_failed_tool_snapshot();
+    snapshot.result = Some("[unverified: read from terminal screen] README.md says this is a tiny Node.js demo.".into());
+    let view = crate::agent_runs::runtime::AgentRunView::from(snapshot);
+    let receipt = view.receipt.expect("receipt");
+    assert!(!receipt.not_verified.iter().any(|line| line.contains("tool failure")), "{:?}", receipt.not_verified);
+    assert!(view.warnings.iter().all(|warning| warning.code != "AGENT_REPORTED_ERROR"));
+}

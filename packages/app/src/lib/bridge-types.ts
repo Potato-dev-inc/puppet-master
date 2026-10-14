@@ -375,6 +375,8 @@ export interface BridgeClient {
     args: { answer: string; request_id?: string },
   ): Promise<unknown>;
   getSettings(): Promise<PublicSettings>;
+  /** What this phone may do (`GET /pair/me`). Absent on clients that are not a phone. */
+  pairMe?(): Promise<{ local: boolean; device_id?: string; caps: string[] }>;
   patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;
   postOrchestratorMessage(text: string, messageId: string): Promise<void>;
   postOrchestratorViewport(viewport: {

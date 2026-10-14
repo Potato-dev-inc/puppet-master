@@ -23,6 +23,9 @@ pub const ACT_PATH: &str = "/bridge/push/act";
 pub trait DeviceDirectory: Send + Sync {
     fn device_for_token(&self, token: &str) -> Option<String>;
     fn device_exists(&self, device_id: &str) -> bool;
+    /// Whether the device may answer approvals (its `answer` ability). A notification only carries
+    /// Allow / Deny for a device that may use them: the tap would be refused anyway.
+    fn device_can_answer(&self, device_id: &str) -> bool;
 }
 
 /// What an Allow / Deny token is good for: one answer to one prompt on one pane, from one device.
@@ -246,7 +249,7 @@ impl PushHub {
             if let (Some(prompt), true) = (&candidate.prompt, candidate.kind != Kind::Question) {
                 extra.insert("prompt_id".into(), Value::String(prompt.prompt_id.clone()));
             }
-            if actionable {
+            if actionable && self.directory.device_can_answer(&device_id) {
                 let pane_id = candidate.pane_id.as_deref().unwrap_or_default();
                 let prompt_id = prompt_id.unwrap_or_default();
                 extra.insert(
@@ -285,11 +288,16 @@ pub(crate) mod testing {
     /// token -> device id; a device exists while it is in `devices`.
     pub struct FakeDirectory {
         pub tokens: Mutex<HashMap<String, String>>,
+        /// Devices paired without the `answer` ability.
+        pub cannot_answer: Mutex<Vec<String>>,
     }
 
     impl FakeDirectory {
         pub fn new(pairs: &[(&str, &str)]) -> Self {
-            Self { tokens: Mutex::new(pairs.iter().map(|(t, d)| (t.to_string(), d.to_string())).collect()) }
+            Self {
+                tokens: Mutex::new(pairs.iter().map(|(t, d)| (t.to_string(), d.to_string())).collect()),
+                cannot_answer: Mutex::new(Vec::new()),
+            }
         }
     }
 
@@ -299,6 +307,9 @@ pub(crate) mod testing {
         }
         fn device_exists(&self, device_id: &str) -> bool {
             self.tokens.lock().values().any(|d| d == device_id)
+        }
+        fn device_can_answer(&self, device_id: &str) -> bool {
+            !self.cannot_answer.lock().iter().any(|d| d == device_id)
         }
     }
 
@@ -390,6 +401,25 @@ Run command: ls");
         let (_, later) = hub.plan(&waiting("pane-2", Some(command_prompt("pid-2"))), 1_000);
         assert_eq!(hub.redeem_grant(&token_of(&later[0]), 1_000 + GRANT_TTL_MS), Err("expired_token"));
         assert_eq!(hub.redeem_grant("nonsense", 2_000), Err("unknown_or_used_token"));
+    }
+
+    #[test]
+    fn a_device_without_the_answer_ability_gets_the_notification_but_no_allow_or_deny() {
+        let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a"), ("tok-b", "dev-b")]));
+        dir.cannot_answer.lock().push("dev-a".into());
+        let hub = hub_with("no-answer", dir);
+        let (a, _, _) = test_subscription("https://fcm.googleapis.com/a");
+        let (b, _, _) = test_subscription("https://web.push.apple.com/b");
+        hub.store().lock().upsert("dev-a", a).unwrap();
+        hub.store().lock().upsert("dev-b", b).unwrap();
+        let (_, deliveries) = hub.plan(&waiting("pane-1", Some(command_prompt("pid-1"))), 1_000);
+        let payload_of = |id: &str| {
+            let d = deliveries.iter().find(|d| d.device_id == id).expect("both phones are told");
+            serde_json::from_slice::<Value>(&d.payload).unwrap()
+        };
+        assert!(payload_of("dev-a").get("act").is_none(), "watch-only: open-only notification");
+        assert!(payload_of("dev-a")["body"].as_str().is_some_and(|b| !b.is_empty()), "it still says what is happening");
+        assert!(payload_of("dev-b").get("act").is_some(), "a phone that may answer keeps Allow / Deny");
     }
 
     #[test]

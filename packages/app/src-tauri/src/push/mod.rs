@@ -46,6 +46,15 @@ impl DeviceDirectory for PairingDirectory {
         mobile_pairing::pairing_store()
             .is_some_and(|store| store.lock().is_active_device(device_id))
     }
+    fn device_can_answer(&self, device_id: &str) -> bool {
+        // Fails closed: a device the store does not know gets no Allow button.
+        mobile_pairing::pairing_store().is_some_and(|store| {
+            store
+                .lock()
+                .device_caps(device_id)
+                .is_some_and(|caps| caps.has(mobile_pairing::Cap::Answer))
+        })
+    }
 }
 
 pub fn now_ms() -> u64 {

@@ -253,6 +253,163 @@ fn a_run_that_fails_gets_its_recording_frozen_next_to_its_record() {
     let _ = std::fs::remove_dir_all(&project);
 }
 
+/// A run in `project` on `pane` (or none), with a short deadline.
+fn run_request(project: &str, pane: Option<&str>, timeout_ms: u64) -> crate::operations::DelegateWorkRequest {
+    crate::operations::DelegateWorkRequest {
+        project_path: project.to_string(),
+        task: "inspect".into(),
+        agent_type: "codex".into(),
+        pane_id: pane.map(str::to_string),
+        idempotency_key: uuid::Uuid::new_v4().to_string(),
+        acceptance_criteria: None,
+        task_id: None,
+        exclusive: false,
+        locks: vec![],
+        timeout_ms,
+        read_only: false,
+        keep_pane: false,
+        placement: None,
+        owner_session_id: None,
+        worker_has_mcp_tools: false,
+        agent_run_id: Some(format!("flight-run-{}", uuid::Uuid::new_v4())),
+        turn_index: 0,
+        worker: Default::default(),
+        context_policy: None,
+        checks: Vec::new(),
+    }
+}
+
+fn wait_for(path: &std::path::Path) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !path.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    path.exists()
+}
+
+/// VERIFY-R10 NEW #1, the half that must hold: a run the watchdog ends with TIMEOUT (its supervisor
+/// is gone, so nothing else would explain what happened) leaves its recording.
+#[test]
+fn a_run_the_watchdog_times_out_gets_its_recording_frozen() {
+    use crate::operations::{self, OperationStatus};
+    let project = temp_project("watchdog");
+    let pane = format!("flight-wd-{}", uuid::Uuid::new_v4());
+    let ring = start(&pane, 80, 24);
+    ring.output(b"the agent went quiet and nobody was watching\r\n");
+    let op = operations::delegate_work(run_request(&project, Some(&pane), 1_000), |_| Ok(())).unwrap();
+    assert_eq!(op.status, OperationStatus::Running);
+    let cast = std::path::Path::new(&project).join(".puppet-master/operations").join(&op.operation_id).join("flight.cast");
+    assert!(!cast.exists(), "a run that is still going is not frozen");
+    let deadline = op.started_at_ms.unwrap_or(op.created_at_ms) + op.timeout_ms;
+    let failed = operations::sweep_expired_runs(deadline + operations::WATCHDOG_GRACE_MS + 5, operations::WATCHDOG_GRACE_MS, Some(&project), &mut |_| Ok(()));
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0].error.as_ref().unwrap().code, "TIMEOUT");
+    assert!(wait_for(&cast), "the watchdog's TIMEOUT froze the recording");
+    let (header, events) = parse_cast(&std::fs::read_to_string(&cast).unwrap());
+    assert_eq!(header["title"], "TIMEOUT");
+    assert!(events.iter().any(|e| e[2].as_str().is_some_and(|t| t.contains("nobody was watching"))));
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// The decision on cancel: a person pressing Cancel is not a fault, so it leaves no recording by
+/// default (a failure of any kind does: `AGENT_EXITED`, `TIMEOUT`, the watchdog). The status is the
+/// whole test: only `Failed` freezes (`freeze::on_operation_saved`).
+#[test]
+fn a_run_the_person_cancels_leaves_no_recording_but_a_failed_one_does() {
+    use crate::operations::{self, OperationError, OperationStatus, StateSource};
+    let project = temp_project("cancel");
+    let (cancelled_pane, failed_pane) = (format!("flight-cx-{}", uuid::Uuid::new_v4()), format!("flight-fl-{}", uuid::Uuid::new_v4()));
+    start(&cancelled_pane, 80, 24).output(b"output of the run the person cancelled\r\n");
+    start(&failed_pane, 80, 24).output(b"output of the run that failed\r\n");
+    let cancelled = operations::delegate_work(run_request(&project, Some(&cancelled_pane), 60_000), |_| Ok(())).unwrap();
+    let failed = operations::delegate_work(run_request(&project, Some(&failed_pane), 60_000), |_| Ok(())).unwrap();
+    let cast_of = |id: &str| std::path::Path::new(&project).join(".puppet-master/operations").join(id).join("flight.cast");
+    let after = operations::cancel_operation_with(&project, &cancelled.operation_id, |_| Ok(())).unwrap();
+    assert_eq!(after.status, OperationStatus::Cancelled);
+    operations::mark_operation_state(
+        &project,
+        &failed.operation_id,
+        OperationStatus::Failed,
+        StateSource::Native,
+        Some("failed".into()),
+        None,
+        Some(OperationError::new("AGENT_EXITED", "the agent process ended", false)),
+    )
+    .unwrap();
+    // The failed one is written by a short thread: once it is there, the cancelled one had its chance.
+    assert!(wait_for(&cast_of(&failed.operation_id)), "a failure is recorded");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!cast_of(&cancelled.operation_id).exists(), "a cancel is not");
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// Write a frozen cast by hand (what `freeze::write` leaves), `gap` ms after the previous one.
+fn plant_cast(project: &str, operation_id: &str) {
+    let path = freeze::cast_path(project, operation_id).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "{\"version\":2,\"width\":80,\"height\":24}\n[0.1,\"o\",\"x\"]\n").unwrap();
+    std::thread::sleep(Duration::from_millis(25));
+}
+
+/// VERIFY-R10 NEW #3: the diagnostic file read recordings only from the default project folder, so
+/// the cast of a run that failed in another project never showed up.
+#[test]
+fn the_diagnostic_file_reads_recordings_from_every_project_a_run_started_in() {
+    use crate::operations::{self, DelegateWorkRequest};
+    let default_project = temp_project("diag-default");
+    let other = temp_project("diag-other");
+    let id = format!("diag-other-{}", uuid::Uuid::new_v4());
+    plant_cast(&other, &id);
+    // A project is "indexed" once a run was created in it.
+    operations::create_operation(DelegateWorkRequest {
+        project_path: other.clone(),
+        task: "inspect".into(),
+        agent_type: "codex".into(),
+        pane_id: None,
+        idempotency_key: uuid::Uuid::new_v4().to_string(),
+        acceptance_criteria: None,
+        task_id: None,
+        exclusive: false,
+        locks: vec![],
+        timeout_ms: 60_000,
+        read_only: false,
+        keep_pane: false,
+        placement: None,
+        owner_session_id: None,
+        worker_has_mcp_tools: false,
+        agent_run_id: Some("diag-other-run".into()),
+        turn_index: 0,
+        worker: Default::default(),
+        context_policy: None,
+        checks: Vec::new(),
+    })
+    .unwrap();
+    let inputs = bundle::gather(&default_project, serde_json::json!({}));
+    assert!(
+        inputs.casts.iter().any(|c| c.operation_id == id),
+        "the other project's recording is in the file: {:?}",
+        inputs.casts.iter().map(|c| &c.operation_id).collect::<Vec<_>>()
+    );
+    let _ = std::fs::remove_dir_all(&default_project);
+    let _ = std::fs::remove_dir_all(&other);
+}
+
+#[test]
+fn recordings_across_projects_are_the_newest_five_and_one_folder_is_read_once() {
+    let (a, b) = (temp_project("casts-a"), temp_project("casts-b"));
+    for n in 0..4 {
+        plant_cast(&a, &format!("a-{n}"));
+        plant_cast(&b, &format!("b-{n}"));
+    }
+    // `a` is listed twice, spelled two ways.
+    let spelled_again = format!("{}/", a.replace('\\', "/"));
+    let casts = bundle::collect_casts(&[a.clone(), b.clone(), spelled_again, String::new()]);
+    let ids: Vec<&str> = casts.iter().map(|c| c.operation_id.as_str()).collect();
+    assert_eq!(ids, ["b-3", "a-3", "b-2", "a-2", "b-1"], "newest first, five, both projects, no duplicates");
+    let _ = std::fs::remove_dir_all(&a);
+    let _ = std::fs::remove_dir_all(&b);
+}
+
 #[test]
 fn zip_round_trips_with_checksums() {
     let mut zip = zip::ZipWriter::new(Vec::new());
