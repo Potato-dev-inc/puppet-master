@@ -261,8 +261,9 @@ pub(super) fn handle_connection(
 pub(super) fn parse_json<T: for<'de> Deserialize<'de>>(
     body: &[u8],
 ) -> Result<T, (u16, serde_json::Value)> {
-    serde_json::from_slice(body)
-        .map_err(|err| (400, json!({ "error": format!("invalid json: {err}") })))
+    serde_json::from_slice(body).map_err(|err| {
+        super::errors::operation_http_error(crate::operations::OperationError::invalid_body(&err))
+    })
 }
 
 pub(super) fn normalize_optional_string(value: Option<String>) -> Option<String> {

@@ -127,6 +127,28 @@ impl OperationError {
         }
     }
 
+    /// A request body that did not parse. Always a client mistake, so every code here maps to a
+    /// 4xx in `bridge::errors::operation_http_error`:
+    /// - `INVALID_JSON`: not JSON at all (syntax error, truncated body);
+    /// - `MISSING_FIELD`: valid JSON without a required field (`context.field` names it);
+    /// - `INVALID_FIELD`: valid JSON whose shape or value is wrong (wrong type, unknown variant).
+    pub fn invalid_body(error: &serde_json::Error) -> Self {
+        use serde_json::error::Category;
+        let text = error.to_string();
+        let (code, field) = match error.classify() {
+            Category::Syntax | Category::Eof | Category::Io => ("INVALID_JSON", None),
+            Category::Data => match missing_field_name(&text) {
+                Some(field) => ("MISSING_FIELD", Some(field)),
+                None => ("INVALID_FIELD", None),
+            },
+        };
+        let mut out = Self::new(code, text, false);
+        if let Some(field) = field {
+            out.context = serde_json::json!({ "field": field });
+        }
+        out
+    }
+
     pub fn unknown_agent_type(id: impl Into<String>, valid: Vec<String>) -> Self {
         let id = id.into();
         let mut error = Self::new(
@@ -158,6 +180,12 @@ impl OperationError {
         error.context = serde_json::json!({"step": step, "path": path.display().to_string()});
         error
     }
+}
+
+/// `missing field `prompt_id` at line 1 column 40` -> `prompt_id`.
+fn missing_field_name(text: &str) -> Option<String> {
+    let rest = text.strip_prefix("missing field `")?;
+    rest.split('`').next().map(str::to_string)
 }
 
 #[cfg(test)]

@@ -224,3 +224,31 @@ fn unreadable_foreign_project_does_not_fail_handle_or_name_lookup() {
     let _ = std::fs::remove_dir_all(&project);
     let _ = std::fs::remove_dir_all(&foreign);
 }
+
+/// R8 verify finding: `POST /agents/answer {handle, choice}` (no `prompt_id`) answered 503
+/// INVALID_JSON. A body the caller got wrong is a 4xx with a typed code that names the field.
+#[test]
+fn a_request_body_with_a_missing_field_is_a_typed_4xx_that_names_the_field() {
+    use super::wire::{parse, AnswerPromptRequest};
+    let error = parse::<AnswerPromptRequest>(br#"{"handle":"h1","choice":"deny"}"#)
+        .expect_err("prompt_id is required");
+    assert_eq!(error.code, "MISSING_FIELD");
+    assert_eq!(error.context["field"], "prompt_id");
+    assert!(!error.recoverable);
+}
+
+#[test]
+fn a_request_body_that_is_not_json_or_has_a_wrong_type_is_a_typed_4xx() {
+    use super::wire::{parse, AnswerPromptRequest};
+    for (body, code) in [
+        (&br#"{"handle": "#[..], "INVALID_JSON"),
+        (&b"not json"[..], "INVALID_JSON"),
+        (
+            &br#"{"handle":"h","prompt_id":7,"choice":"deny"}"#[..],
+            "INVALID_FIELD",
+        ),
+    ] {
+        let error = parse::<AnswerPromptRequest>(body).expect_err("must not parse");
+        assert_eq!(error.code, code, "{error:?}");
+    }
+}
