@@ -134,3 +134,32 @@ fn a_sweep_scoped_to_one_project_leaves_the_runs_of_others_alone() {
     let _ = fs::remove_dir_all(mine);
     let _ = fs::remove_dir_all(other);
 }
+
+/// Review R12 1.7: a run parked by its dispatch thread (`waiting_for_pane_readiness`: a startup
+/// dialog, or a screen that is not ready, for up to 5 minutes) is supervised by that thread. With a
+/// `timeout_ms` under the park, the watchdog failed it as "nothing was supervising it" and stopped
+/// the worker in the user's pane.
+#[test]
+fn a_run_parked_by_its_dispatch_thread_is_not_failed_by_the_watchdog() {
+    let dir = temp();
+    let project = dir.to_string_lossy().into_owned();
+    let op = running_run(&dir, "wd-parked", 1_000);
+    let mut parked = get_operation(&project, &op.operation_id).unwrap();
+    parked.status = OperationStatus::WaitingInput;
+    parked.stage = Some("waiting_for_pane_readiness".into());
+    parked.required_action = Some(serde_json::json!({"kind": "screen_not_ready"}));
+    persist(&parked).unwrap();
+    let failed = sweep_expired_runs(deadline_of(&op) + GRACE + 5, GRACE, Some(&project), &mut |_| {
+        panic!("the parked run's worker must not be stopped")
+    });
+    assert!(failed.is_empty(), "{failed:?}");
+    assert_eq!(get_operation(&project, &op.operation_id).unwrap().status, OperationStatus::WaitingInput);
+    // Once the park is over and the run is past its deadline with no one on it, the watchdog acts.
+    let mut resumed = get_operation(&project, &op.operation_id).unwrap();
+    resumed.status = OperationStatus::Running;
+    resumed.stage = Some("running".into());
+    persist(&resumed).unwrap();
+    let failed = sweep_expired_runs(deadline_of(&op) + GRACE + 10, GRACE, Some(&project), &mut |_| Ok(()));
+    assert_eq!(failed.len(), 1);
+    let _ = fs::remove_dir_all(dir);
+}

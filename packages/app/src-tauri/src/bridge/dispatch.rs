@@ -883,6 +883,10 @@ pub(super) fn park_on_unknown_screen(
                 &pane_state,
                 crate::operations::StateSource::Inferred,
             )?;
+            // The task is typed now: the run's time limit counts from here, not from before the
+            // park (a parked run otherwise resumed already past its deadline).
+            operation.started_at_ms = Some(crate::event_log::now_ms().max(0) as u64);
+            *operation = crate::operations::save_operation_snapshot(operation)?;
             push_operation_sse(operation);
             Ok(())
         }

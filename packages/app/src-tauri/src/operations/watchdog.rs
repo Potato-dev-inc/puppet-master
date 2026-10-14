@@ -1,6 +1,9 @@
 //! The operation watchdog: a periodic sweep that fails any run still `running` or `waiting_input`
 //! well past its deadline.
 //!
+//! A run parked before its task was typed (`stage: waiting_for_pane_readiness`) is skipped: its
+//! dispatch thread supervises the park and ends it (review R12 1.7).
+//!
 //! A run's own supervisor (`agent_runs::headless::supervise`) enforces `timeout_ms`, but it is a
 //! thread: when it panics, or gives up after repeated snapshot read failures, nothing is left
 //! to end the run and it stays active for ever. The watchdog does not depend on any supervisor:
@@ -44,6 +47,12 @@ pub fn sweep_expired_runs(
             OperationStatus::Running | OperationStatus::WaitingInput
         ) {
             untrack_for_watchdog(&project, &id);
+            continue;
+        }
+        // Parked by its dispatch thread (a startup dialog, a screen that is not ready): that thread
+        // is supervising it and ends the park itself (answered, declined, gone, cancelled, or five
+        // minutes). Stays tracked, so it is looked at again once the park is over.
+        if current.stage.as_deref() == Some("waiting_for_pane_readiness") {
             continue;
         }
         let deadline = deadline_ms(&current);
