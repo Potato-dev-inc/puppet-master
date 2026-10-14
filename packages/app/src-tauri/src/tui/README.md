@@ -96,12 +96,25 @@ Code stays the right choice when the agent needs a protocol client (OpenCode nat
 Declarative profiles live in `tui/declarative/` (`DeclarativeProfile` implements `TuiProfile`; generic code never
 sees the difference) and register through `loader::reload`.
 
+## Startup gates (folder trust and similar)
+
+A dialog the agent shows before it can take any task is a **startup gate**. There is no separate trait method: a profile
+(code or TOML `[[tui.prompt]]`) reports it from `detect_prompt` with a kind listed in `pane_prompt::STARTUP_GATE_KINDS`
+(today `workspace_trust`), gives it `choices` (`trust`, `deny`), and makes `classify_screen` read the dialog as
+`waiting_input` (many gates draw no y/n text). Generic code then does the rest and never names the agent:
+
+- `bridge/approvals.rs`: a run parks on the gate (`required_action` = the prompt, so the Inbox, the phone and
+  `answer_prompt` can answer it), types the task only after the gate is gone, and fails the run with
+  `WORKSPACE_TRUST_DECLINED` when the agent exits with the gate showing (no headless fallback).
+- `pane_prompt::dispatch_blocker` refuses to type over the gate (`PANE_BLOCKED_BY_PROMPT`).
+- Puppet Master never answers a gate itself. Claude: `claude/prompt.rs`; Cursor: `cursor/screen.rs`.
+
 ## Where a fix for an existing TUI goes
 
 | Symptom | File |
 |---|---|
 | Pane shows idle/blocked/running wrongly | `<tui>/screen.rs` (`classify_screen`) |
-| Approval or trust prompt not detected / wrong key sent | `<tui>/screen.rs` (`detect_prompt`, `prompt_reply`) |
+| Approval or trust prompt not detected / wrong key sent | `<tui>/screen.rs` (`detect_prompt`, `prompt_reply`); Claude: `claude/prompt.rs` |
 | Headless result empty / session not resumed | `<tui>/headless.rs` or the `extract_*` methods |
 | Wrong flags on a headless launch | `<tui>/launch.rs` (`headless_command`) |
 | Reply text polluted with banner / tool rows | `<tui>/chrome.rs` |

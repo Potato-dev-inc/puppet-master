@@ -2,13 +2,17 @@
 //!
 //! - `headless` — command line for headless runs and reading their JSON output
 //! - `screen` — whether the interactive TUI is working (drives how soon a pane reads idle)
+//! - `prompt` - the folder-trust dialog and the numbered permission menus: detection and answers
 //!
-//! Other interactive-pane heuristics for Claude (status, approvals) use the generic defaults.
+//! The generic `Allow once` / `Always allow` wording is still read by the generic fallback.
 
 mod headless;
+mod prompt;
 mod screen;
 
-use super::{AccountScheme, Features, HeadlessLaunch, InstructionFile, LaunchSpec, StandbyScreen, StandbySupport, TuiProfile};
+use super::{AccountScheme, Features, HeadlessLaunch, InstructionFile, LaunchSpec, PaneStatus, Reply, StandbyScreen, StandbySupport, TuiProfile};
+
+use serde_json::Value;
 
 pub struct Claude;
 
@@ -142,6 +146,23 @@ impl TuiProfile for Claude {
 
     fn is_chrome_line(&self, lower: &str) -> bool {
         screen::is_chrome_line(lower)
+    }
+
+    /// The folder-trust dialog draws no "y/n" or "allow once" text, so the generic heuristic reads
+    /// it as a running pane; the permission menus are caught here too, whatever their wording.
+    /// Both are waiting for the user.
+    fn classify_screen(&self, visible_tail: &str) -> Option<PaneStatus> {
+        (prompt::shows_trust_gate(visible_tail) || prompt::shows_permission_menu(visible_tail)).then_some(PaneStatus::WaitingInput)
+    }
+
+    /// Claude's dialogs by structure (see `prompt`), then the generic wording.
+    fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<Value> {
+        prompt::detect_prompt(self.id(), screen, allow_broad)
+            .or_else(|| crate::tui::generic::detect_prompt(self.id(), screen, allow_broad))
+    }
+
+    fn prompt_reply(&self, prompt: &Value, choice: &str, allow_broad: bool) -> Result<Reply, String> {
+        prompt::prompt_reply(prompt, choice, allow_broad)
     }
 
     /// Typing the prompt and Enter in one burst is taken for a paste: Claude drops the Enter as an

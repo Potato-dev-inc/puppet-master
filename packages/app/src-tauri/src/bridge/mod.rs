@@ -27,6 +27,8 @@ mod sse;
 mod state;
 mod store;
 #[cfg(test)]
+mod startup_gate_tests;
+#[cfg(test)]
 mod tests;
 mod tool_names;
 mod ws;
