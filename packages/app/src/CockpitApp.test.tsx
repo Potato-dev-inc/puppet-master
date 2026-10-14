@@ -6,6 +6,8 @@ import CockpitApp from './CockpitApp';
 
 // Mutable per-test input for the digest (away) path.
 const away = vi.hoisted(() => ({ digest: null as null | object }));
+// The spawn the (mocked) cockpit hook reports: null, running, or failed.
+const ui = vi.hoisted(() => ({ spawn: null as null | { failed: string | null } }));
 
 vi.mock('./hooks/useCockpit', async () => {
   const { useState } = await import('react');
@@ -15,8 +17,12 @@ vi.mock('./hooks/useCockpit', async () => {
       const ids = ['p1', 'p2'];
       return {
         selectedId,
-        select: setSelectedId,
-        spawn: null,
+        // Like the real hook: picking a pane keeps a running spawn and clears a failed one.
+        select: (id: string | null) => {
+          if (id && ui.spawn?.failed) ui.spawn = null;
+          setSelectedId(id);
+        },
+        spawn: ui.spawn,
         dismissSpawn: () => {},
         mode: 'orchestration',
         setMode: async () => {},
@@ -71,6 +77,7 @@ vi.mock('./components/cockpit/Sidebar', async () => {
         null,
         h('button', { type: 'button', onClick: onOpenDoctor }, 'Set up agents'),
         h('button', { type: 'button', onClick: onOpenMemory }, 'Project memory'),
+        h('button', { type: 'button', onClick: () => c.select(null) }, 'Inbox'),
         ...c.registry.paneList.map((p) =>
           h('button', { key: p.info.id, type: 'button', onClick: () => c.select(p.info.id) }, `pane ${p.info.id}`),
         ),
@@ -100,7 +107,10 @@ vi.mock('./components/cockpit/AwayDigest', async () => {
       h('button', { type: 'button', onClick: () => onOpenPane('p2') }, 'Open digest pane'),
   };
 });
-vi.mock('./components/cockpit/SpawnView', () => ({ SpawnView: () => null }));
+vi.mock('./components/cockpit/SpawnView', async () => {
+  const { createElement: h } = await import('react');
+  return { SpawnView: () => h('div', null, 'SPAWN VIEW') };
+});
 vi.mock('./components/cockpit/Palette', () => ({ Palette: () => null }));
 vi.mock('./components/cockpit/UndoSheet', () => ({ UndoSheet: () => null }));
 vi.mock('./components/cockpit/PanicSheet', () => ({ PanicSheet: () => null }));
@@ -111,6 +121,7 @@ let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   away.digest = null;
+  ui.spawn = null;
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -162,5 +173,46 @@ describe('CockpitApp main view precedence', () => {
     expect(mainText()).toBe('DOCTOR VIEW');
     clickButton('Open digest pane');
     expect(mainText()).toBe('PANE VIEW p2');
+  });
+
+  // The live bug "last click wins": whatever the person clicked last is what the main area shows.
+  it('(5) the last click wins across every view', () => {
+    clickButton('Project memory');
+    clickButton('Set up agents');
+    expect(mainText()).toBe('DOCTOR VIEW');
+    clickButton('Project memory');
+    expect(mainText()).toBe('MEMORY VIEW');
+    clickButton('Inbox');
+    expect(mainText()).toBe('INBOX VIEW');
+    clickButton('Set up agents');
+    expect(mainText()).toBe('DOCTOR VIEW');
+    clickButton('pane p2');
+    expect(mainText()).toBe('PANE VIEW p2');
+    clickButton('Inbox');
+    expect(mainText()).toBe('INBOX VIEW');
+    clickButton('pane p1');
+    expect(mainText()).toBe('PANE VIEW p1');
+  });
+
+  it('(6) an agent that is starting shows its spawn view; Set up agents and Project memory cover it', () => {
+    ui.spawn = { failed: null };
+    act(() => root.render(createElement(CockpitApp)));
+    expect(mainText()).toBe('SPAWN VIEW');
+    clickButton('Set up agents');
+    expect(mainText()).toBe('DOCTOR VIEW');
+    clickButton('Project memory');
+    expect(mainText()).toBe('MEMORY VIEW');
+  });
+
+  it('(7) picking a pane keeps a running spawn in front, but a failed spawn gives way to the pane', () => {
+    ui.spawn = { failed: null };
+    act(() => root.render(createElement(CockpitApp)));
+    clickButton('pane p2');
+    expect(mainText()).toBe('SPAWN VIEW');
+
+    ui.spawn = { failed: 'could not start' };
+    act(() => root.render(createElement(CockpitApp)));
+    clickButton('pane p1');
+    expect(mainText()).toBe('PANE VIEW p1');
   });
 });
