@@ -71,6 +71,72 @@ impl DeliveryIo for Live {
     fn composer_state(&mut self, screen: &str) -> ComposerState {
         profile_for("codex").composer_state(screen)
     }
+    fn startup_gate(&mut self, screen: &str) -> Option<crate::tui::StartupGate> {
+        profile_for("codex").startup_gate(screen)
+    }
+}
+
+/// Codex on a PTY with NOTHING waited for: the state a fresh visible run's pane is in the moment it
+/// counts as ready (live: 0 ms after spawn, before Codex has drawn its update menu).
+fn spawn_codex() -> (Live, PtyChild) {
+    let cwd = std::env::var("PM_LIVE_CWD").unwrap_or_else(|_| "D:/pm-demo".into());
+    let cmd = build_command(AgentType::Codex, &cwd, &[], &crate::tui::LaunchEnv::default());
+    let mut child = open_pty_child(cmd, 30, 120).expect("start codex on a PTY");
+    let parser = Arc::new(Mutex::new(vt100::Parser::new(30, 120, 1000)));
+    let last_output = Arc::new(Mutex::new(Instant::now()));
+    let mut reader = child.master.try_clone_reader().expect("reader");
+    {
+        let (parser, last_output) = (Arc::clone(&parser), Arc::clone(&last_output));
+        thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = reader.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                parser.lock().process(&buf[..n]);
+                *last_output.lock() = Instant::now();
+            }
+        });
+    }
+    let sequence = profile_for("codex").submit_sequence();
+    let live = Live {
+        parser,
+        writer: child.master.take_writer().expect("writer"),
+        last_output,
+        submit_keys: sequence.keys,
+        settle: sequence.settle,
+    };
+    (live, child)
+}
+
+/// VERIFY #4 on the real CLI, the way a fresh visible run hits it: the task is delivered the moment
+/// the pane is spawned, with no startup pass beforehand. Before the fix the update menu (drawn
+/// about a second in) was typed over, Enter chose "Update now" and Codex quit. Run with
+/// `cargo test --lib codex_live_fresh -- --ignored --nocapture` (one tiny turn; needs a pending
+/// update notice to be a meaningful check, which the trace shows).
+#[test]
+#[ignore = "live: starts the real codex CLI and spends one tiny turn"]
+fn codex_live_fresh_pane_gets_its_task_although_the_menu_draws_after_readiness() {
+    let (mut live, mut child) = spawn_codex();
+    let codex = profile_for("codex");
+    let prompt = "Reply with the single word KUMQUAT. Do not use any tools.";
+    let mut trace = Vec::new();
+    let delivery = deliver_prompt_traced(&mut live, codex.clear_input_sequence(), prompt, &mut trace);
+    println!("delivery: {delivery:?}\n{}", trace.join("\n"));
+    let saw_menu = trace.iter().any(|line| line.contains("update_available"));
+    println!("update menu met and closed: {saw_menu}");
+    assert_eq!(delivery, Delivery::Started, "{}", live.text());
+    let deadline = Instant::now() + Duration::from_secs(90);
+    loop {
+        thread::sleep(Duration::from_millis(500));
+        let screen = live.text();
+        if screen.to_ascii_uppercase().contains("KUMQUAT") && screen.contains("Worked for") {
+            println!("--- final screen ---\n{screen}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "the turn did not finish:\n{screen}");
+    }
+    let _ = child.child.kill();
 }
 
 /// Codex on a PTY, past its startup screens and at an empty composer.
