@@ -103,7 +103,11 @@ export function useCanary(api: CanaryApi = tauriCanaryApi): { status: CanaryStat
     let disposed = false;
     const offs: (() => void)[] = [];
     refresh();
-    void api.onChanged((s) => s?.agents && setStatus(s)).then((off) => (disposed ? off() : offs.push(off)));
+    // A listener that cannot be registered (no Tauri event bridge) only means no live updates.
+    void api
+      .onChanged((s) => s?.agents && setStatus(s))
+      .then((off) => (disposed ? off() : offs.push(off)))
+      .catch(() => {});
     return () => {
       disposed = true;
       offs.forEach((off) => off());
