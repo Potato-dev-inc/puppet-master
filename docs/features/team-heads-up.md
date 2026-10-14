@@ -51,4 +51,5 @@ one rule, four matrix rows), `bridge/routes/mod.rs` (one line), `lib.rs` (comman
   device yet (the admin can).
 - A device that misses more than one rotation while offline can't read mail sealed under the skipped epochs; the
   gap warning says so.
-- No Cloudflare Worker variant yet (the axum relay is the tested one).
+- The Cloudflare Worker variant lives in `relay/worker/` (see its README and
+  `docs/features/relay-worker.md`); the axum relay remains the default.

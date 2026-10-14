@@ -1,4 +1,9 @@
 //! The relay's protocol, end to end over real HTTP and WebSocket on a loopback port.
+//!
+//! The same tests run against any relay that speaks the protocol: set `PM_RELAY_TEST_URL` (for
+//! example `http://127.0.0.1:8787`, a `wrangler dev` of `relay/worker` started with `TEST_HOOKS=1`)
+//! and they use it instead of the in-process axum relay. The few things only a test may do (drop an
+//! envelope, tighten a limit) go through the relay's `/v1/_test/{team}/...` hooks then.
 
 use ed25519_dalek::SigningKey;
 use pm_relay::{spawn_local, Config, Limits};
@@ -9,24 +14,42 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
+#[derive(Clone)]
 struct Team {
     base: String,
     team: String,
     root: SigningKey,
     salt: Vec<u8>,
     device: SigningKey,
+    /// The in-process relay (its test hooks), or `None` when `PM_RELAY_TEST_URL` points elsewhere.
+    local: Option<std::sync::Arc<pm_relay::Relay>>,
 }
 
 fn key(seed: u8) -> SigningKey {
     SigningKey::from_bytes(&[seed; 32])
 }
 
-fn setup(limits: Limits) -> (Team, std::sync::Arc<pm_relay::Relay>) {
-    let (addr, relay) = spawn_local(Config { db: None, limits });
+/// A salt no other test (or earlier run against a long-lived relay) has used.
+fn fresh_salt() -> Vec<u8> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    format!("salt-{nanos}-{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::SeqCst)).into_bytes()
+}
+
+fn setup(limits: Limits) -> Team {
+    let remote = std::env::var("PM_RELAY_TEST_URL").ok().map(|u| u.trim_end_matches('/').to_string());
+    let (base, local) = match remote {
+        Some(url) => (url, None),
+        None => {
+            let (addr, relay) = spawn_local(Config { db: None, limits: limits.clone() });
+            (format!("http://{addr}"), Some(relay))
+        }
+    };
     let root = key(1);
-    let salt = b"salt-1".to_vec();
+    let salt = fresh_salt();
     let team = team_id(root.verifying_key().as_bytes(), &salt);
-    let t = Team { base: format!("http://{addr}"), team, root, salt, device: key(2) };
+    let t = Team { base, team, root, salt, device: key(2), local };
     let reg = TeamRegistration {
         team: t.team.clone(),
         root: key_id(&t.root),
@@ -35,7 +58,32 @@ fn setup(limits: Limits) -> (Team, std::sync::Arc<pm_relay::Relay>) {
     };
     let r = ureq::post(&format!("{}/v1/teams", t.base)).send_bytes(&serde_json::to_vec(&reg).unwrap()).unwrap();
     assert_eq!(r.status(), 201);
-    (t, relay)
+    if t.local.is_none() {
+        // A remote relay has its own limits; tighten this team's through the test hook.
+        let tight = serde_json::json!({
+            "devicePerMinute": limits.device_per_minute,
+            "devicePerDay": limits.device_per_day,
+            "teamPerMinute": limits.team_per_minute,
+            "joinsPerInvite": limits.joins_per_invite,
+            "joinsPerTeamPerDay": limits.joins_per_team_per_day,
+        });
+        let r = ureq::post(&format!("{}/v1/_test/{}/limits", t.base, t.team)).send_json(tight).expect("the relay's test hooks are on");
+        assert_eq!(r.status(), 200);
+    }
+    t
+}
+
+/// Forget an envelope as if the relay dropped it.
+fn drop_envelope(t: &Team, seq: u64) {
+    match &t.local {
+        Some(relay) => {
+            relay.drop_envelope(&t.team, seq).unwrap();
+        }
+        None => {
+            let r = ureq::post(&format!("{}/v1/_test/{}/drop?seq={seq}", t.base, t.team)).send_bytes(&[]).unwrap();
+            assert_eq!(r.status(), 200);
+        }
+    }
 }
 
 fn status<T>(r: Result<T, ureq::Error>) -> u16
@@ -86,7 +134,7 @@ fn poll(t: &Team, after: u64, wait: u64) -> Batch {
 
 #[test]
 fn registration_binds_the_team_to_its_root_key() {
-    let (t, _) = setup(Limits::default());
+    let t = setup(Limits::default());
     let health: serde_json::Value = ureq::get(&format!("{}/v1/health", t.base)).call().unwrap().into_json().unwrap();
     assert_eq!(health["protocol"], PROTOCOL);
     // The same team again: refused.
@@ -110,7 +158,7 @@ fn registration_binds_the_team_to_its_root_key() {
 
 #[test]
 fn only_listed_devices_post_and_read_and_requests_cannot_be_replayed() {
-    let (t, _) = setup(Limits::default());
+    let t = setup(Limits::default());
     let outsider = key(5);
     // No signature at all.
     let body = serde_json::to_vec(&envelope(&t, &t.device, 1)).unwrap();
@@ -135,7 +183,7 @@ fn only_listed_devices_post_and_read_and_requests_cannot_be_replayed() {
 
 #[test]
 fn the_mailbox_hands_out_by_cursor_and_long_polls_wake_up() {
-    let (t, relay) = setup(Limits::default());
+    let t = setup(Limits::default());
     for seq in 1..=3 {
         assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, seq)), 200);
     }
@@ -144,7 +192,7 @@ fn the_mailbox_hands_out_by_cursor_and_long_polls_wake_up() {
     assert_eq!(all.next, 3);
     assert!(poll(&t, 3, 0).items.is_empty());
     // A waiting poll returns as soon as something arrives.
-    let t2 = Team { base: t.base.clone(), team: t.team.clone(), root: t.root.clone(), salt: t.salt.clone(), device: t.device.clone() };
+    let t2 = t.clone();
     let started = Instant::now();
     let waiter = std::thread::spawn(move || poll(&t2, 3, 10));
     std::thread::sleep(Duration::from_millis(400));
@@ -153,13 +201,13 @@ fn the_mailbox_hands_out_by_cursor_and_long_polls_wake_up() {
     assert_eq!(got.items.len(), 1);
     assert!(started.elapsed() < Duration::from_secs(5), "woke up early, not at the deadline");
     // A dropped envelope leaves a hole the cursor skips over (clients see the gap by counters).
-    relay.drop_envelope(&t.team, 2).unwrap();
+    drop_envelope(&t, 2);
     assert_eq!(poll(&t, 0, 0).items.iter().map(|d| d.envelope.seq).collect::<Vec<_>>(), vec![1, 3, 4]);
 }
 
 #[test]
 fn the_websocket_sends_the_backlog_then_live_envelopes() {
-    let (t, _) = setup(Limits::default());
+    let t = setup(Limits::default());
     assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, 1)), 200);
     let path = format!("/v1/teams/{}/ws?after=0", t.team);
     let url = format!("{}{}", t.base.replace("http://", "ws://"), path);
@@ -194,7 +242,7 @@ fn the_websocket_sends_the_backlog_then_live_envelopes() {
 
 #[test]
 fn access_lists_and_state_need_the_root_key_and_never_go_back() {
-    let (t, _) = setup(Limits::default());
+    let t = setup(Limits::default());
     let newcomer = key(3);
     // An access list signed by a device instead of the root: refused.
     let forged = SignedAcl::signed(&t.team, 2, vec![key_id(&t.device), key_id(&newcomer)], &t.device);
@@ -222,7 +270,7 @@ fn access_lists_and_state_need_the_root_key_and_never_go_back() {
 
 #[test]
 fn join_requests_are_open_to_post_but_limited_and_read_by_members_only() {
-    let (t, _) = setup(Limits::default());
+    let t = setup(Limits::default());
     let join = JoinBox { team: t.team.clone(), invite: "INVITE1".into(), enc: b64(b"enc"), ct: b64(b"sealed"), at_ms: now_ms() };
     let url = format!("{}/v1/teams/{}/joins", t.base, t.team);
     for _ in 0..5 {
@@ -237,7 +285,7 @@ fn join_requests_are_open_to_post_but_limited_and_read_by_members_only() {
 
 #[test]
 fn a_chatty_device_is_slowed_down() {
-    let (t, _) = setup(Limits { device_per_minute: 3, ..Limits::default() });
+    let t = setup(Limits { device_per_minute: 3, ..Limits::default() });
     for seq in 1..=3 {
         assert_eq!(post(&t, &t.device, &envelope(&t, &t.device, seq)), 200);
     }

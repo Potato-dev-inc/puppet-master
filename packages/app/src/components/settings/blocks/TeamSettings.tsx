@@ -2,6 +2,7 @@
 // the admin lets people in and removes them. Messages are end-to-end encrypted; the relay (or the shared
 // folder) only moves ciphertext. No ids are shown here: people are names, the team is its name.
 import { useEffect, useState } from 'react';
+import { tauri } from '../../../lib/tauri';
 import { teamApi, type MemberView, type TeamApi, type TeamConfigView, type TeamCreateInput, type TeamJoinInput } from '../../../lib/team';
 import { ConfirmSheet, Switch } from '../controls';
 import { Btn, FieldInput, Note, SettingBlock } from '../settings-ui';
@@ -21,6 +22,35 @@ function formatCode(text: string): string {
     .toUpperCase()
     .slice(0, 8);
   return raw.length > 4 ? `${raw.slice(0, 4)}-${raw.slice(4)}` : raw;
+}
+
+/** Where people learn to host their own relay (Cloudflare in a few clicks, or Docker). */
+export const RELAY_HELP_URL = 'https://github.com/Potato-dev-inc/puppet-master/blob/main/relay/README.md';
+
+function RelayHelp() {
+  return (
+    <div className="st-team-row">
+      <span />
+      <p className="st-note st-team-relay-help">
+        Use Puppet Master&apos;s relay, or host your own (Cloudflare or Docker).{' '}
+        <a
+          className="st-link"
+          href={RELAY_HELP_URL}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => {
+            // In the desktop app the system browser opens it; elsewhere the link works as usual.
+            if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+              e.preventDefault();
+              void tauri.openExternalUrl(RELAY_HELP_URL);
+            }
+          }}
+        >
+          How to host your own
+        </a>
+      </p>
+    </div>
+  );
 }
 
 function roleWords(m: MemberView): string {
@@ -285,6 +315,7 @@ function CreateForm({ busy, onCreate }: { busy: boolean; onCreate: (input: TeamC
           <FieldInput value={relay} className="font-mono" placeholder="https://relay.example.com" onChange={(e) => setRelay(e.target.value)} />
         </label>
       )}
+      {!useFolder && <RelayHelp />}
       <div className="st-team-row">
         <span />
         <div className="st-team-inline">
