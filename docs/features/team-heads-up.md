@@ -1,7 +1,7 @@
 # Team ("Heads-up") v1: real teams, end-to-end encrypted
 
 Branch `feat/cowork-v1` (base `integration/r10` @ 404e20d). Plan: `D:\pm-night\COWORK-PLAN.md` §3, §4, §8, §9 v1, §13.
-Full report: `D:\pm-night\p0\cowork-v1\REPORT.md`.
+Evidence logs and shots: `D:\pm-night\p0\cowork-v1\` (`lib1.log`, `lib2.log`, `bins.log`, `vitest.log`, `relay-tests.log`, `fail-before-v0.log`, `shots\`, `demo\`).
 
 **What.** v0 put a teammate's push in your Inbox through a shared folder, with no identity. v1 makes it a real
 team: people join with an invite and the admin's yes, every message is signed and sealed end to end, the wire is
@@ -30,6 +30,8 @@ own runs; no code path names an agent.
 - A teammate's event is untrusted text that can only become a card; nothing runs on arrival.
 - Team traffic never reaches the bridge: the transport only connects out, no team route is public, and the phone
   routes go through the normal bearer + device-caps gate.
+- The relay enforces removal: a device taken off the root-signed access list loses new requests and its open
+  WebSocket (found live and fixed: before, an open socket kept streaming ciphertext to a removed device).
 - The relay sees team id, device public keys, epoch, counters, sizes and times. Test
   `relay_end_to_end_…_metadata_only_on_the_relay` greps its whole database for names, branches, notes, the code
   and the team key.
