@@ -70,6 +70,15 @@ impl TuiProfile for Codex {
     }
 
     fn install_hint(&self) -> Option<String> {
+        Some(if cfg!(windows) {
+            "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
+        } else {
+            "curl -fsSL https://chatgpt.com/codex/install.sh | sh"
+        }
+        .into())
+    }
+
+    fn install_fallback_hint(&self) -> Option<String> {
         Some("npm i -g @openai/codex".into())
     }
 
