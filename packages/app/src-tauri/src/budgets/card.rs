@@ -83,7 +83,10 @@ pub fn raise(record: &BudgetRecord, standing: &Standing, reason: Reason) -> Opti
     let agent = agent_label(&record.project, &record.handle);
     let used = match reason {
         Reason::Time => format!("{} of {} min", standing.elapsed_ms / 60_000, standing.minutes_limit.unwrap_or(0)),
-        _ => format!("{} of {} turns", standing.committed(), standing.turns_limit.unwrap_or(standing.committed())),
+        _ => {
+            let limit = standing.turns_limit.unwrap_or(standing.committed());
+            format!("{} of {}", standing.committed(), plural(limit, "turn"))
+        }
     };
     let pane_id = operations::latest_agent_run(&record.project, &record.handle).ok().and_then(|turn| turn.pane_id);
     let created = questions::store()

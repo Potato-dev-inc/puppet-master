@@ -18,11 +18,6 @@ pub fn turns_used(project: &str, handle: &str) -> u32 {
         .unwrap_or(0)
 }
 
-/// Turns this run and every helper below it actually used.
-pub fn turns_used_in_tree(project: &str, handle: &str) -> u32 {
-    tree_sum(project, handle, 0)
-}
-
 fn tree_sum(project: &str, handle: &str, level: u32) -> u32 {
     let own = turns_used(project, handle);
     if level > MAX_DEPTH {

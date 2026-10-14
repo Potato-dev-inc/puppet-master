@@ -54,10 +54,6 @@ pub fn get(project: &str, handle: &str) -> Option<BudgetRecord> {
     with(project, |records| (records.get(handle).cloned(), false))
 }
 
-pub fn all(project: &str) -> Vec<BudgetRecord> {
-    with(project, |records| (records.values().cloned().collect(), false))
-}
-
 /// The runs that draw from `handle`'s budget, with the project each one lives in. Scans every
 /// project loaded in this process: a helper in another project than its parent is only seen
 /// once that project has been touched since the app started.
