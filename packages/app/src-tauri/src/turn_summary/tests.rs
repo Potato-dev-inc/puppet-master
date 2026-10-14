@@ -845,6 +845,28 @@ fn a_pane_that_goes_from_boot_into_its_first_task_gets_a_turn_from_the_prompt() 
     assert_eq!(tracker.summaries("p1").len(), 1);
 }
 
+/// Found by the fake-TUI harness (`a_run_whose_pane_auto_closes_still_gets_its_turn_summary`): a task the run
+/// dispatched that the agent finished in 0.8 s was judged a status flicker, so the run got no summary at all.
+#[test]
+fn a_dispatched_task_that_finishes_in_under_a_second_is_still_a_turn_but_a_bare_flicker_is_not() {
+    let tmp = Tmp::new("fast-dispatched");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(5_000);
+    tracker.note_dispatched("p1");
+    env.at(5_800);
+    let ended = tracker.on_status("p1", "idle").expect("a dispatched task is a turn however short");
+    let summary = tracker.finish(ended).expect("summary");
+    assert_eq!((summary.turn, summary.started_at_ms, summary.ended_at_ms), (1, 5_000, 5_800));
+
+    // Nobody dispatched anything: the same 0.8 s `running` is a redraw, not a turn.
+    env.at(20_000);
+    tracker.on_status("p1", "running");
+    env.at(20_800);
+    assert!(tracker.on_status("p1", "idle").is_none());
+    assert_eq!(tracker.summaries("p1").len(), 1);
+}
+
 #[test]
 fn a_running_event_that_follows_the_prompt_note_opens_no_second_turn() {
     let tmp = Tmp::new("late-running");

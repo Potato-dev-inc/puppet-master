@@ -564,7 +564,7 @@ fn a_run_whose_pane_auto_closes_still_gets_its_turn_summary() {
 agent = "claude"
 boot_ms = 200
 [[turn]]
-steps = [{ do = "write_file", path = "hello.txt", content = "hi\n" }, { do = "say", text = "Created hello.txt." }]
+steps = [{ do = "think", ms = 800 }, { do = "write_file", path = "hello.txt", content = "hi\n" }, { do = "say", text = "Created hello.txt." }]
 "#,
     );
     let done = run_until_stopped(&session, "fake_claude", "create hello.txt", json!({ "keep_pane": false }));

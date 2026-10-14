@@ -78,7 +78,7 @@ pub struct Tracker {
     store: Mutex<Store>,
 }
 
-/// A "turn" that runs for less than this, with no approval and no prompt, is a status flicker
+/// A "turn" that runs for less than this, with no approval and no dispatched prompt, is a status flicker
 /// (a redraw or resize read as "running"), not an agent turn. Live evidence: two 0.8s "turns"
 /// that followed a real 166s one and became its "Last turn".
 pub const BLIP_MS: u64 = 1_000;
@@ -132,8 +132,11 @@ impl Tracker {
             return None;
         }
         let now = self.env.now_ms();
+        // A turn PM itself dispatched (`note_dispatched`) is a turn however short: a trivial task a fast
+        // agent answers in under a second must still get its Last turn / History / digest entry.
         if prev == "running"
             && matches!(status, "idle" | "error")
+            && !entry.dispatched
             && entry.approvals.is_empty()
             && now.saturating_sub(entry.started_at_ms) < BLIP_MS
         {
