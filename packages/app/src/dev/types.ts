@@ -31,6 +31,8 @@ export interface HarnessScenario {
   theme?: 'dark' | 'light';
   /** Cockpit: pane id preselected through `?select=`. */
   select?: string;
+  /** Settings > Agents > Preload: the stored idle timeout in seconds (default 1200). */
+  standbyIdleSecs?: number;
   /** Settings: tab id passed as `?tab=`. */
   settingsTab?: string;
   /** User accounts the mocked backend reports (Settings > Agents > Accounts, the "+" menu). */

@@ -109,11 +109,18 @@ export const EXAMPLE_RUN: PaneRunInfo = {
   },
 };
 
+// The stream tags are the real ones the backend writes (`agent_runs/transcript.rs` callers).
 export const EXAMPLE_TRANSCRIPT: PaneTranscript = {
   chunks: [
-    { stream: 'user', text: 'Add retry with backoff to the bridge client.' },
-    { stream: 'agent', text: 'I will read bridge.ts first, then add a capped exponential backoff.' },
-    { stream: 'agent', text: 'Done. Retries use 250ms, 500ms, 1s, capped at 4s, with tests.' },
+    { stream: 'user_task', text: 'Add retry with backoff to the bridge client.' },
+    { stream: 'delivery', text: 'Started
+attempt 0: typing; busy=false' },
+    { stream: 'assistant_final', text: '● Bash(npm test --workspace=@puppet-master/app)
+  ⎿  41 tests passed' },
+    { stream: 'assistant_final', text: 'Done. Retries use 250ms, 500ms, 1s, capped at 4s, with tests.' },
+    { stream: 'user_steer', text: 'Also log each retry.' },
+    { stream: 'permission', text: 'Allowed once: npm test' },
+    { stream: 'execution_failure', text: 'The agent exited before it answered.' },
   ],
 };
 
@@ -171,7 +178,7 @@ export function agentsListing() {
   return { agents, dispatchable_ids: agents.filter((a) => a.dispatchable).map((a) => a.id) };
 }
 
-export function standbyStatus() {
+export function standbyStatus(idleTimeoutSecs = 1200) {
   return {
     enabled: true,
     config: {
@@ -181,7 +188,7 @@ export function standbyStatus() {
       max_total: 3,
       recent_projects: 2,
       recent_hours: 6,
-      idle_timeout_secs: 1200,
+      idle_timeout_secs: idleTimeoutSecs,
     },
     counts: { total: 1, ready: 1, starting: 0 },
     standbys: [
