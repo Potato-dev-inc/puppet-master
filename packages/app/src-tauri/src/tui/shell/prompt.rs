@@ -62,6 +62,18 @@ pub(super) fn bash_visible(screen: &str) -> bool {
     prompt_on_last_line(screen, &BASH_PROMPT)
 }
 
+/// A bare shell prompt as the last line, in the shapes a pane's host shell prints when the agent it
+/// launched has exited and given the terminal back: `PS C:\repo>`, `C:\repo>`, `user@host:~/repo$`.
+/// Stricter than `*_visible`: nothing typed after it, and a lone `$` or `#` does not count (an agent
+/// screen can end in one).
+pub(crate) fn host_prompt_visible(screen: &str) -> bool {
+    static BASH_HOST: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"^[^\s@]+@[^\s:]+:\S*[$#]$").expect("bash host prompt regex"));
+    prompt_on_last_line(screen, &POWERSHELL_READY)
+        || prompt_on_last_line(screen, &CMD_READY)
+        || prompt_on_last_line(screen, &BASH_HOST)
+}
+
 pub(super) fn powershell_ready(screen: &str) -> StandbyScreen {
     ready_on_last_line(screen, &POWERSHELL_READY)
 }
@@ -85,6 +97,20 @@ mod tests {
         assert!(cmd_visible("C:\\repo>"));
         assert!(bash_visible("user@host:~/repo$"));
         assert!(!bash_visible("Composing changes..."));
+    }
+
+    #[test]
+    fn a_host_prompt_is_a_bare_prompt_in_one_of_the_three_shapes() {
+        assert!(host_prompt_visible("some dialog text\nPS D:\\pm-r7-trust-a> "));
+        assert!(host_prompt_visible("C:\\repo>"));
+        assert!(host_prompt_visible("user@host:~/repo$"));
+        // Not prompts: typed commands, agent screens that end in `$`/`#`, ordinary output.
+        assert!(!host_prompt_visible("PS D:\\repo> npm test"));
+        assert!(!host_prompt_visible("PS D:\\repo>\nRunning tests..."));
+        assert!(!host_prompt_visible("## Heading\n#"));
+        assert!(!host_prompt_visible("price: 5$"));
+        assert!(!host_prompt_visible("\u{276f} \n  ? for shortcuts"));
+        assert!(!host_prompt_visible(""));
     }
 
     #[test]

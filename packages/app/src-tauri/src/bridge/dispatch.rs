@@ -655,6 +655,14 @@ fn send_task_prompt(
                 ));
             }
             let profile = crate::tui::profile_for(agent_type);
+            if agent_type != "opencode_native" {
+                // The agent exited and its host shell is at a prompt: never type a task into it.
+                let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
+                if crate::tui::agent_gone_to_host_shell(agent_type, &screen) {
+                    return Err(crate::pane_prompt::dispatch_blocker(agent_type, &screen)
+                        .expect("a host shell prompt blocks dispatch"));
+                }
+            }
             if profile.verifies_prompt_delivery() {
                 // A dialog on screen (trust, command approval) takes hotkeys: typing the
                 // task over it would answer it with the task's letters and lose the task.

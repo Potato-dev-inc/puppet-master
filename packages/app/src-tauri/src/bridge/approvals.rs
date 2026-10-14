@@ -97,6 +97,11 @@ pub(super) fn wait_for_startup_permission_resolution(
                 false,
             ));
         }
+        // A decline is final: the user answered "deny" on the gate's card, so the agent is leaving
+        // (or has left). Whether its pane shows that yet, or exits at all, does not matter.
+        if crate::pane_prompt::gate_was_declined(pane_id) {
+            return Err(declined_error(pane_id, gate.as_ref()));
+        }
         let pane = registry
             .lock()
             .list()
@@ -131,6 +136,17 @@ pub(super) fn wait_for_startup_permission_resolution(
         } else {
             Vec::new()
         };
+        // The gate was on screen and the agent is gone: declining the folder-trust dialog exits the
+        // agent, but the pane's host shell stays alive at its prompt (live: the task was typed into
+        // PowerShell and the run "completed" with its error). A gate seen and then a bare host-shell
+        // prompt where the agent was is a decline, whatever the pane status says and whether or not
+        // the dialog's text is still on screen above the prompt.
+        if gate.is_some()
+            && agent_type != "opencode_native"
+            && crate::tui::agent_gone_to_host_shell(agent_type, &screen)
+        {
+            return Err(declined_error(pane_id, gate.as_ref()));
+        }
         // Same test that parked the run: phrases a CLI prints, or a dialog its TUI profile
         // recognises (Cursor's trust dialog prints none of the phrases).
         let still_blocked = explicit_manual_approval_required(agent_type, &screen, &permissions)
@@ -155,6 +171,12 @@ pub(super) fn wait_for_startup_permission_resolution(
 /// declined it (the folder-trust dialog offers only "trust" or "exit"). Not recoverable and not a
 /// pre-turn failure, so the run neither retries nor falls back to a headless run that would work
 /// in the folder the user just refused.
+/// [`gate_declined`] for a decline that is known for certain (the user answered "deny", or the
+/// agent's pane fell back to its shell): with no gate details on hand it is the folder-trust error.
+fn declined_error(pane_id: &str, gate: Option<&serde_json::Value>) -> crate::operations::OperationError {
+    gate_declined(pane_id, gate).unwrap_or_else(|| gate_declined(pane_id, Some(&serde_json::json!({"kind": "workspace_trust"}))).expect("a trust decline"))
+}
+
 fn gate_declined(pane_id: &str, gate: Option<&serde_json::Value>) -> Option<crate::operations::OperationError> {
     let gate = gate?;
     if gate.get("kind").and_then(|v| v.as_str()) == Some("startup_screen") {

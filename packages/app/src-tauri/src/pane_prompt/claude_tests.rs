@@ -117,6 +117,20 @@ fn claudes_trust_dialog_is_a_startup_gate_the_user_answers() {
 }
 
 #[test]
+fn denying_the_trust_gate_is_recorded_as_a_final_decline_and_trusting_it_is_not() {
+    let prompt = detect_in_screen("claude", CLAUDE_TRUST, false).expect("trust card");
+    let (declined, trusted, other) = ("decline-pane-1", "decline-pane-2", "decline-pane-3");
+    note_gate_answer(trusted, &prompt, "trust");
+    note_gate_answer(declined, &prompt, "deny");
+    assert!(gate_was_declined(declined));
+    assert!(!gate_was_declined(trusted));
+    // Denying a command approval is not a gate decline.
+    let approval = detect_in_screen("claude", CLAUDE_BASH_MULTI_CD, false).expect("bash approval");
+    note_gate_answer(other, &approval, "deny");
+    assert!(!gate_was_declined(other));
+}
+
+#[test]
 fn a_task_is_never_typed_over_claudes_dialogs() {
     for dialog in [CLAUDE_TRUST, CLAUDE_BASH_MULTI_CD, CLAUDE_BASH_FOUR, CLAUDE_EDIT, CLAUDE_CREATE] {
         let blocker = dispatch_blocker("claude", dialog).expect("blocked");

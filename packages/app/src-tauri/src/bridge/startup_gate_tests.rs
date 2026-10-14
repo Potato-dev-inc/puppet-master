@@ -139,6 +139,78 @@ fn declining_the_dialog_fails_the_run_with_a_clear_code() {
     // (agent_runs/headless/fallback.rs tests that this code never falls back to a headless run.)
 }
 
+/// Real Claude Code capture (this branch, 2026-10-14, folder never trusted): after "No, exit" Claude
+/// quits, the dialog's text stays above, and the pane's host PowerShell prints its prompt on the
+/// last line. The pane stays alive and reads `idle`.
+const DECLINED_HOST_SHELL: &str = include_str!("../tui/claude/fixtures/trust_declined_host_shell.txt");
+
+#[test]
+fn declining_the_dialog_while_the_host_shell_stays_alive_still_fails_the_run() {
+    // VERIFY #2b: the pane never exits and shows no error, so the wait used to see "the gate is
+    // gone" and release the run, which then typed the task into PowerShell.
+    let pane = "gate-decline-host-shell";
+    let registry = claude_pane(pane);
+    show(&registry, pane, TRUST);
+    set_status(&registry, pane, PaneStatus::WaitingInput);
+    let op = operation(&std::env::temp_dir().join(format!("pm-gate-{}", uuid::Uuid::new_v4())));
+    let handle = {
+        let (registry, project, id) = (registry.clone(), op.project_path.clone(), op.operation_id.clone());
+        std::thread::spawn(move || wait_for_startup_permission_resolution(&registry, &project, &id, pane, "claude"))
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!handle.is_finished());
+
+    show(&registry, pane, DECLINED_HOST_SHELL);
+    set_status(&registry, pane, PaneStatus::Idle);
+    crate::pane_wait_notify::bump_waiters();
+    wait_for(|| handle.is_finished().then_some(()));
+    let error = handle.join().unwrap().expect_err("a declined trust dialog must not release the run");
+    assert_eq!(error.code, "WORKSPACE_TRUST_DECLINED");
+    assert!(!error.recoverable);
+}
+
+#[test]
+fn an_explicit_deny_on_the_gate_is_final_without_looking_at_the_pane() {
+    let pane = "gate-decline-explicit";
+    let registry = claude_pane(pane);
+    show(&registry, pane, TRUST);
+    set_status(&registry, pane, PaneStatus::WaitingInput);
+    let op = operation(&std::env::temp_dir().join(format!("pm-gate-{}", uuid::Uuid::new_v4())));
+    let handle = {
+        let (registry, project, id) = (registry.clone(), op.project_path.clone(), op.operation_id.clone());
+        std::thread::spawn(move || wait_for_startup_permission_resolution(&registry, &project, &id, pane, "claude"))
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!handle.is_finished(), "held while the dialog shows");
+    // The user clicked "Don't trust" on the card; the pane still shows the dialog for a moment.
+    crate::pane_prompt::mark_gate_declined(pane);
+    crate::pane_wait_notify::bump_waiters();
+    wait_for(|| handle.is_finished().then_some(()));
+    let error = handle.join().unwrap().expect_err("a decline is final");
+    assert_eq!(error.code, "WORKSPACE_TRUST_DECLINED");
+}
+
+#[test]
+fn a_task_is_never_typed_when_the_agent_has_fallen_back_to_the_host_shell() {
+    use crate::pane_prompt::dispatch_blocker;
+    let blocked = dispatch_blocker("claude", DECLINED_HOST_SHELL).expect("a shell prompt where the agent was blocks the task");
+    assert_eq!(blocked.code, "AGENT_EXITED");
+    assert!(!blocked.recoverable);
+    // Generic: another agent's pane in the same state is refused too, a plain shell pane is not.
+    assert!(dispatch_blocker("codex", "some output\nPS D:\\pm-demo> ").is_some());
+    assert!(dispatch_blocker("powershell", "PS D:\\pm-demo> ").is_none(), "a shell's own prompt is its input box");
+    // Agent screens, however they end, are not host shells.
+    for screen in [READY, TRUST, include_str!("../tui/claude/fixtures/side_diff_panel_screen.txt")] {
+        assert_ne!(
+            dispatch_blocker("claude", screen).map(|e| e.code),
+            Some("AGENT_EXITED".to_string()),
+            "{screen:.60}"
+        );
+    }
+    assert!(crate::tui::agent_gone_to_host_shell("claude", DECLINED_HOST_SHELL));
+    assert!(!crate::tui::agent_gone_to_host_shell("claude", READY));
+}
+
 #[test]
 fn a_pane_that_dies_without_a_gate_keeps_the_old_error() {
     let pane = "gate-none-pane";

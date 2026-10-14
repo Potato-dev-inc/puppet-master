@@ -140,6 +140,31 @@ fn gate_prompt(agent_type: &str, screen: &str) -> Option<Value> {
 pub(crate) const STARTUP_GATE_KINDS: &[&str] = &["workspace_trust", "startup_screen"];
 
 /// The startup gate the screen shows, if any (a prompt of one of `STARTUP_GATE_KINDS`).
+/// Panes whose startup gate the user answered "deny" to. Declining the folder-trust dialog makes the
+/// agent exit, but its host shell may stay alive at a prompt, so "the agent exited" cannot be
+/// relied on to tell a run it was declined: the decline itself is recorded here and is final.
+static DECLINED_GATES: once_cell::sync::Lazy<Mutex<std::collections::HashSet<String>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// The user declined the startup gate on `pane_id` (see [`gate_was_declined`]).
+pub(crate) fn mark_gate_declined(pane_id: &str) {
+    DECLINED_GATES.lock().insert(pane_id.to_string());
+}
+
+/// Whether the user declined the startup gate on this pane. The decline is final for the run that
+/// was waiting on the gate: it fails with `WORKSPACE_TRUST_DECLINED` and nothing is typed.
+pub(crate) fn gate_was_declined(pane_id: &str) -> bool {
+    DECLINED_GATES.lock().contains(pane_id)
+}
+
+/// Records an answer of "deny" to a startup gate (folder trust) as a decline of that pane's gate.
+pub(crate) fn note_gate_answer(pane_id: &str, prompt: &Value, choice: &str) {
+    let is_gate = prompt.get("kind").and_then(Value::as_str).is_some_and(|kind| STARTUP_GATE_KINDS.contains(&kind));
+    if is_gate && choice == "deny" {
+        mark_gate_declined(pane_id);
+    }
+}
+
 pub(crate) fn startup_gate(agent_type: &str, screen: &str) -> Option<Value> {
     let prompt = detect_in_screen(agent_type, screen, false)?;
     let kind = prompt.get("kind").and_then(Value::as_str)?;
@@ -150,6 +175,15 @@ pub(crate) fn startup_gate(agent_type: &str, screen: &str) -> Option<Value> {
 /// trust dialog takes `a`/`q`), so typing a prompt over one answers it with the prompt's letters
 /// and the task is lost. `None` when the pane is free for input.
 pub(crate) fn dispatch_blocker(agent_type: &str, screen: &str) -> Option<OperationError> {
+    // The agent is gone and its host shell is showing a prompt (the folder-trust dialog was
+    // declined, or the agent crashed): a task typed now would run as a shell command.
+    if crate::tui::agent_gone_to_host_shell(agent_type, screen) {
+        return Some(OperationError::new(
+            "AGENT_EXITED",
+            "the agent in this pane has exited and the terminal shows a shell prompt; the task was not typed into the shell. Start a new run",
+            false,
+        ));
+    }
     let Some(prompt) = detect_in_screen(agent_type, screen, false) else {
         // Not an approval, but a startup screen (update notice, trust, login): typing a task into
         // it is as lost as typing over a dialog. A notice with its own dismiss keys is not a
@@ -311,6 +345,7 @@ pub fn answer(
     let (key, reply_choice) = reply_key(&agent_type, &prompt, choice, allow_broad)?;
     crate::pty::registry::write_input(registry, app, pane_id, &key, true, false, None)
         .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))?;
+    note_gate_answer(pane_id, &prompt, &reply_choice);
     Ok(
         json!({"pane_id": pane_id, "prompt_id": prompt_id, "kind": prompt["kind"], "choice": reply_choice, "sent_key": key}),
     )
