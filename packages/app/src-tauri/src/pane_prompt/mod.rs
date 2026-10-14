@@ -19,6 +19,7 @@ const PROMPT_ANCHORS: &[&str] = &[
     "trust the authors",
     "allow all",
     "always allow",
+    "do you want to",
 ];
 /// Lines kept above the anchor: the command or file being approved is usually shown there.
 /// Wide enough for a wrapped multi-line command; the prompt id does not depend on these lines
@@ -66,13 +67,15 @@ pub fn detect(
 pub(crate) fn attach_risk(prompt: &mut Value, workspace: Option<&str>) {
     let agent_type = prompt.get("agent_type").and_then(Value::as_str).unwrap_or_default().to_string();
     let text_of = |key: &str| prompt.get(key).and_then(Value::as_str).map(str::to_string);
-    let (kind, command, cwd, text) = (text_of("kind"), text_of("command"), text_of("cwd"), text_of("text"));
+    let (kind, command, cwd, text, path) =
+        (text_of("kind"), text_of("command"), text_of("cwd"), text_of("text"), text_of("path"));
     let extra = crate::tui::profile_for(&agent_type).risk_rules();
     let risk = crate::prompt_risk::assess(
         &crate::prompt_risk::RiskInput {
             kind: kind.as_deref().unwrap_or_default(),
             command: command.as_deref(),
             cwd: cwd.as_deref(),
+            path: path.as_deref(),
             workspace: workspace.filter(|w| !w.is_empty()),
             text: text.as_deref().unwrap_or_default(),
         },
@@ -108,6 +111,20 @@ pub(crate) fn detect_in_screen(agent_type: &str, screen: &str, allow_broad: bool
     prompt["prompt_id"] = Value::String(id);
     attach_risk(&mut prompt, None);
     Some(prompt)
+}
+
+/// Prompt kinds that gate a pane's startup: the agent cannot take a task until the user has
+/// answered. A profile (code or TOML `[[tui.prompt]]`) opts in by reporting one of these kinds from
+/// `detect_prompt`. A run parks on such a prompt (`bridge/approvals.rs`), types its task only once
+/// the gate has cleared, and fails with `WORKSPACE_TRUST_DECLINED` when the user declines and the
+/// agent exits. Puppet Master never answers one itself.
+pub(crate) const STARTUP_GATE_KINDS: &[&str] = &["workspace_trust"];
+
+/// The startup gate the screen shows, if any (a prompt of one of `STARTUP_GATE_KINDS`).
+pub(crate) fn startup_gate(agent_type: &str, screen: &str) -> Option<Value> {
+    let prompt = detect_in_screen(agent_type, screen, false)?;
+    let kind = prompt.get("kind").and_then(Value::as_str)?;
+    STARTUP_GATE_KINDS.contains(&kind).then_some(prompt)
 }
 
 /// Refusal to type a task into a pane that is showing a prompt. Dialogs act on hotkeys (Cursor's
@@ -165,10 +182,13 @@ fn prompt_id_for(prompt: &Value) -> Option<String> {
                 .flat_map(char::to_lowercase)
                 .collect()
         });
+    // A named identity is the whole id: the choices on offer can differ between reads (a broad
+    // answer is only listed when asked for) and must not change it.
+    let named = prompt.get("identity").and_then(Value::as_str).is_some();
     crate::agent_runs::stable_prompt_id(&json!({
         "agent_type": prompt.get("agent_type"),
         "kind": prompt.get("kind"),
-        "choices": prompt.get("choices"),
+        "choices": if named { Value::Null } else { prompt.get("choices").cloned().unwrap_or(Value::Null) },
         "identity": identity,
     }))
 }
@@ -189,7 +209,7 @@ pub(crate) fn required_action_from_prompt(prompt: Value) -> Value {
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
-        .map(|choice| json!({"id": choice, "label": choice}))
+        .map(|choice| json!({"id": choice, "label": custom_label(&prompt, choice).unwrap_or_else(|| choice.to_string())}))
         .collect();
     let summary = prompt
         .get("summary")
@@ -311,6 +331,11 @@ pub struct PromptChoice {
     pub broad: bool,
 }
 
+/// A label the profile gave a choice (`labels`: "Don't trust" for `deny` on a trust dialog).
+fn custom_label(prompt: &Value, id: &str) -> Option<String> {
+    prompt.get("labels")?.get(id)?.as_str().map(str::to_string)
+}
+
 fn choice_label(id: &str) -> String {
     let spaced = id.replace('_', " ");
     let mut chars = spaced.chars();
@@ -331,7 +356,7 @@ impl PanePrompt {
             .flatten()
             .filter_map(Value::as_str)
             .map(|id| {
-                let label = choice_label(id);
+                let label = custom_label(prompt, id).unwrap_or_else(|| choice_label(id));
                 PromptChoice { broad: crate::prompt_risk::choice_is_broad(id, &label), id: id.to_string(), label }
             })
             .collect();
@@ -384,3 +409,6 @@ pub fn next_prompt_event(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod claude_tests;

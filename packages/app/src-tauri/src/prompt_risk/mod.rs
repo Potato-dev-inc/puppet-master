@@ -61,6 +61,8 @@ pub struct RiskInput<'a> {
     pub command: Option<&'a str>,
     /// Directory the command runs in, when the prompt names one (`cd dir && ...`).
     pub cwd: Option<&'a str>,
+    /// The file a `file_edit` prompt would change.
+    pub path: Option<&'a str>,
     /// The pane's project folder. Without it absolute paths cannot be judged.
     pub workspace: Option<&'a str>,
     /// Prompt text, used when there is no command.
@@ -133,6 +135,7 @@ fn assess_without_command(input: &RiskInput, extra: &[RiskRule]) -> Risk {
             "Trust this folder",
             "The agent will be able to read and change files here and run commands in it.",
         ),
+        "file_edit" => assess_file_edit(input.path, input.workspace),
         "broad_approval" => plain(
             RiskLevel::Medium,
             "Allow without asking again",
@@ -146,6 +149,22 @@ fn assess_without_command(input: &RiskInput, extra: &[RiskRule]) -> Risk {
         }
     }
     risk
+}
+
+/// A file the agent wants to create or change: routine inside the project, worth a look outside it
+/// or when it holds secrets or logins.
+fn assess_file_edit(path: Option<&str>, workspace: Option<&str>) -> Risk {
+    let Some(path) = path.map(str::trim).filter(|p| !p.is_empty()) else {
+        return plain(RiskLevel::Medium, "Change a file", "The agent wants to change a file. Check which one before allowing it.");
+    };
+    if rules::is_secret_path(path) {
+        return plain(RiskLevel::High, "Change a file that may hold secrets", "It looks like a key, a login or a settings file with passwords in it.");
+    }
+    match paths::locate(path, None, workspace) {
+        paths::Where::Inside => plain(RiskLevel::Low, "Change a file in this project", "It only changes a file inside the project folder."),
+        paths::Where::Outside => plain(RiskLevel::High, "Change a file outside this project", "The file is not in the project folder, so the change affects something else on this computer."),
+        paths::Where::Unknown => plain(RiskLevel::Medium, "Change a file", "Puppet Master cannot tell where this file is, so check it before allowing it."),
+    }
 }
 
 /// Should this choice be hidden behind "More options" on a high-risk prompt? True for answers that

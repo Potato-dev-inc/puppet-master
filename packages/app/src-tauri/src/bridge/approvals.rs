@@ -69,7 +69,16 @@ pub(super) fn wait_for_startup_permission_resolution(
 ) -> Result<String, crate::operations::OperationError> {
     let deadline = Instant::now() + Duration::from_secs(300);
     let mut wake_generation = 0_u64;
+    // The startup gate (folder trust) last seen on this pane. If the agent exits while one was
+    // showing, the user declined it.
+    let mut gate: Option<serde_json::Value> = None;
     loop {
+        if let Some(seen) = crate::pane_prompt::startup_gate(
+            agent_type,
+            &registry_read_snapshot(registry, pane_id).unwrap_or_default(),
+        ) {
+            gate = Some(seen);
+        }
         let operation = crate::operations::get_operation(project, operation_id)?;
         if operation.status == crate::operations::OperationStatus::Cancelling
             || operation.status == crate::operations::OperationStatus::Cancelled
@@ -86,13 +95,18 @@ pub(super) fn wait_for_startup_permission_resolution(
             .into_iter()
             .find(|pane| pane.id == pane_id)
             .ok_or_else(|| {
-                crate::operations::OperationError::new(
-                    "PANE_UNAVAILABLE",
-                    "assigned pane disappeared while waiting for permission resolution",
-                    true,
-                )
+                gate_declined(pane_id, gate.as_ref()).unwrap_or_else(|| {
+                    crate::operations::OperationError::new(
+                        "PANE_UNAVAILABLE",
+                        "assigned pane disappeared while waiting for permission resolution",
+                        true,
+                    )
+                })
             })?;
         if pane.status == "error" {
+            if let Some(declined) = gate_declined(pane_id, gate.as_ref()) {
+                return Err(declined);
+            }
             return Err(crate::operations::OperationError::new(
                 "PANE_READINESS_FAILED",
                 "assigned pane entered an error state while waiting for permission resolution",
@@ -126,4 +140,20 @@ pub(super) fn wait_for_startup_permission_resolution(
         }
         crate::pane_wait_notify::wait_for_change(deadline, &mut wake_generation);
     }
+}
+
+/// The run's error when the pane's agent exited while a startup gate was on screen: the user
+/// declined it (the folder-trust dialog offers only "trust" or "exit"). Not recoverable and not a
+/// pre-turn failure, so the run neither retries nor falls back to a headless run that would work
+/// in the folder the user just refused.
+fn gate_declined(pane_id: &str, gate: Option<&serde_json::Value>) -> Option<crate::operations::OperationError> {
+    let gate = gate?;
+    let folder = gate.get("folder").and_then(|v| v.as_str());
+    let message = match folder {
+        Some(folder) => format!("The folder {folder} was not trusted, so the agent exited and the task was not typed. Start the run again and choose Trust to let the agent work there."),
+        None => "The folder was not trusted, so the agent exited and the task was not typed. Start the run again and choose Trust to let the agent work there.".to_string(),
+    };
+    let mut error = crate::operations::OperationError::new("WORKSPACE_TRUST_DECLINED", message, false);
+    error.context = serde_json::json!({"pane_id": pane_id, "kind": gate.get("kind"), "folder": folder});
+    Some(error)
 }
