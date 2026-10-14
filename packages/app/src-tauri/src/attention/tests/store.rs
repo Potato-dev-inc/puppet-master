@@ -315,3 +315,27 @@ fn a_budget_pause_card_is_a_budget_item_with_the_cards_own_line() {
     assert!(item.actions.is_empty(), "no lock-screen action for a budget card");
     assert_eq!(store.counts().blocking, 1);
 }
+
+#[test]
+fn a_usage_limit_card_is_a_limit_item_with_the_cards_own_line() {
+    let mut store = Store::default();
+    let mut f = facts(vec![pane("a", "idle")]);
+    f.questions = vec![QuestionFact {
+        id: "l".into(),
+        pane_id: Some("a".into()),
+        expires_at_ms: Some(80_000),
+        text: Some("Claude Code ran out of usage. It can continue at 5:00 PM.".into()),
+        limit: Some(serde_json::json!({ "kind": "usage_limit", "agent_label": "Claude Code" })),
+        ..QuestionFact::default()
+    }];
+    store.recompute(&f, 1_000);
+    let item = &store.snapshot().items[0];
+    assert_eq!(item.key, "limit:l");
+    assert_eq!(item.kind, Kind::Limit);
+    assert_eq!(item.lane, Lane::Blocking);
+    assert_eq!(item.title, "Usage limit reached");
+    assert_eq!(item.sentence.as_deref(), Some("Claude Code ran out of usage. It can continue at 5:00 PM."));
+    assert_eq!(item.expires_at_ms, Some(80_000));
+    assert!(item.actions.is_empty(), "no lock-screen action for a usage-limit card");
+    assert_eq!(store.counts().blocking, 1);
+}

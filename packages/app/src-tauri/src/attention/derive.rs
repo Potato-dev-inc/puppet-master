@@ -1,7 +1,7 @@
 //! `derive`: everything that needs the person right now, one entry per thing.
 //!
 //! This is an exact port of `deriveNeedsYou` in `packages/app/src/lib/attention.ts`: the same kinds
-//! in the same order (approvals in pane order, questions with their consent and budget cards, errors
+//! in the same order (approvals in pane order, questions with their consent, budget and usage-limit cards, errors
 //! in pane order, stuck panes, Ask-bar answers), the same ids, and the same quirks (an errored pane
 //! that is also stuck yields both items). `attention/tests/parity.rs` runs the shared corpus
 //! (`packages/shared/fixtures/attention/*.json`) through both implementations. Rule changes land
@@ -41,6 +41,9 @@ pub fn derive(facts: &Facts) -> Vec<Derived> {
         } else if q.kind.as_deref() == Some("budget") {
             // The pause card of a run that used its budget (`budgets::card`): Puppet Master asks, not the agent.
             items.push(Derived { id: format!("budget:{}", q.id), kind: Kind::Budget, pane_id, risk: None, since: q.created_at_ms });
+        } else if q.limit.as_ref().is_some_and(truthy) {
+            // An agent ran out of usage, or the reminder for it (`handoff::card`).
+            items.push(Derived { id: format!("limit:{}", q.id), kind: Kind::Limit, pane_id, risk: None, since: q.created_at_ms });
         } else {
             items.push(Derived { id: format!("question:{}", q.id), kind: Kind::Question, pane_id, risk: None, since: q.created_at_ms });
         }

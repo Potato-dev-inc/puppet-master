@@ -142,6 +142,7 @@ pub fn collect_facts(now_ms: u64) -> Facts {
             agent: q.agent,
             consent: q.consent.and_then(|c| serde_json::to_value(c).ok()),
             kind: q.kind,
+            limit: q.limit.and_then(|l| serde_json::to_value(l).ok()),
         })
         .collect();
 

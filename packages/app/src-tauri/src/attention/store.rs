@@ -430,8 +430,9 @@ fn build_item(d: &Derived, facts: &Facts) -> Item {
                 }
             }
         }
-        Kind::Budget => {
-            // "Budget used up" over the card's own line ("Claude Code used its 20 turns.").
+        Kind::Budget | Kind::Limit => {
+            // "Budget used up" / "Usage limit reached" over the card's own line ("Claude Code used
+            // its 20 turns.", "Claude Code ran out of usage. It can continue at 5:00 PM.").
             if let Some(q) = facts.questions.iter().find(|q| q.id == subject) {
                 item.expires_at_ms = q.expires_at_ms;
                 item.sentence = q.text.clone().filter(|t| !t.trim().is_empty());

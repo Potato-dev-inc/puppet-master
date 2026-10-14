@@ -248,6 +248,10 @@ pub struct QuestionFact {
     /// is the pause card of a run that used its budget: a `budget` item, not a `question`.
     #[serde(default)]
     pub kind: Option<String>,
+    /// Set when this is a usage-limit card or its reminder (`questions::LimitInfo`, raised by
+    /// `handoff`): a `limit` item, not a `question`.
+    #[serde(default)]
+    pub limit: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
