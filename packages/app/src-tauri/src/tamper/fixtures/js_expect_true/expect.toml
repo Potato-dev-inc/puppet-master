@@ -1,0 +1,2 @@
+blocks = ["assertion_loosened"]
+contains = ["can't fail"]

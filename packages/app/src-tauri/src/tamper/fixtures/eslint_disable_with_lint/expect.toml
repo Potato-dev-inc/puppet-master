@@ -1,0 +1,2 @@
+blocks = ["checks_silenced"]
+contains = ["which hides Lint errors"]

@@ -1,0 +1,19 @@
+# Rules every language shares.
+
+# Folders that are never protected and never scanned: dependencies, build output, caches, our own storage.
+never_dirs = [
+  "node_modules", "target", "dist", ".git", ".puppet-master", ".next", ".nuxt", ".turbo", ".venv", "venv",
+  "__pycache__", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache", "coverage", ".gradle", ".idea",
+]
+
+# Snapshot files of any test runner (jest, vitest, insta, syrupy).
+snapshot_globs = ["**/__snapshots__/**", "**/*.snap", "**/*.snap.new", "**/*.ambr"]
+
+# A protected file bigger than this keeps only its hash and counts.
+max_file_bytes = 1048576
+
+# The snapshot keeps file text up to this many bytes in total (the design caps it at 20 MB).
+content_cap_bytes = 20971520
+
+# The walk stops after this many files.
+max_files = 200000

@@ -1,0 +1,2 @@
+blocks = ["skip_added"]
+contains = ['Added #[ignore] to "half_cent" in src/lib.rs']

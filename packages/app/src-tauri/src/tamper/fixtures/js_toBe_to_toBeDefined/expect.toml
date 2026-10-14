@@ -1,0 +1,2 @@
+blocks = ["assertion_loosened"]
+contains = ["Loosened an assertion in cart.test.ts: toBe(0.01) → toBeDefined()"]

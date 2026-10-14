@@ -1,0 +1,4 @@
+blocks = ["fewer_tests_ran"]
+contains = ["12 tests ran at the start; 9 ran now"]
+counts_before = { total = 12, skipped = 0 }
+counts_after = { total = 9, skipped = 0 }

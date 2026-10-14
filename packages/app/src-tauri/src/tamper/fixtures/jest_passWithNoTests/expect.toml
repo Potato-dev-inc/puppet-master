@@ -1,0 +1,2 @@
+blocks = ["checks_changed"]
+contains = ["passes even when no tests run"]

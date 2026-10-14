@@ -1,0 +1,3 @@
+blocks = []
+notes = ["assertions_removed"]
+may_change_tests = true

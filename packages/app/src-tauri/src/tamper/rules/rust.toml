@@ -1,0 +1,93 @@
+# Rust (cargo test, insta). Unit tests live next to the code, so a source file counts as a test file
+# when it holds a `#[cfg(test)]` or `#[test]`.
+
+id = "rust"
+label = "Rust"
+extensions = ["rs"]
+test_globs = ["**/tests/**/*.rs", "**/tests.rs", "**/*_tests.rs"]
+test_markers = ['#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]', '#\s*\[\s*test\s*\]']
+
+[lexer]
+line_comments = ["//"]
+block_comments = [["/*", "*/"]]
+# Character literals that hold a quote would otherwise open a string.
+skip_tokens = ["'\"'", "'\\\"'", "'\\''"]
+
+[[lexer.strings]]
+open = 'r##"'
+close = '"##'
+multiline = true
+[[lexer.strings]]
+open = 'r#"'
+close = '"#'
+multiline = true
+[[lexer.strings]]
+open = 'r"'
+close = '"'
+multiline = true
+[[lexer.strings]]
+open = '"'
+close = '"'
+escape = '\'
+multiline = true
+
+[names]
+def = '\bfn\s+(?P<name>\w+)'
+
+[[test]]
+regex = '#\s*\[\s*(?:\w+\s*::\s*)*(?:test|rstest|test_case)\b'
+
+[[assertion]]
+regex = '\b(?:debug_)?assert\w*\s*!'
+[[assertion]]
+regex = '#\s*\[\s*should_panic\b'
+
+[[skip]]
+regex = '#\s*\[\s*ignore\b'
+label = "#[ignore]"
+name_from = "next_def"
+
+[[silence]]
+regex = '#\s*!?\s*\[\s*(?:allow|expect)\s*\('
+label = "#[allow(...)]"
+check = "lint"
+
+[[tautology]]
+regex = '\bassert\s*!\s*\(\s*true\s*\)'
+[[tautology]]
+regex = '\bassert_eq\s*!\s*\(\s*true\s*,\s*true\s*\)'
+[[tautology]]
+regex = '\bassert\s*!\s*\(\s*1\s*==\s*1\s*\)'
+
+[[loosen]]
+to = '\bassert\s*!\s*\(\s*true\s*\)|\bassert\s*!\s*\(.*\.is_(?:some|ok)\s*\(\s*\)\s*\)|\bassert\s*!\s*\(.*\.len\s*\(\s*\)\s*>\s*0\s*\)'
+
+[[self_compare]]
+regex = '\bassert_eq\s*!\s*\(\s*(?P<actual>[^,]+?)\s*,\s*(?P<expected>[^,)]+?)\s*[,)]'
+
+[[tolerance]]
+regex = '\b(?:epsilon|max_relative|max_abs_diff|margin)\s*=\s*(?P<n>[0-9][0-9_.eE+\-]*)'
+direction = "up"
+
+# ---- check config ----------------------------------------------------------------------------
+
+[[config]]
+glob = ["**/Cargo.toml"]
+format = "toml"
+sections = ["test", "lib", "bin", "bench", "profile.test", "profile.dev"]
+
+[[config.flag]]
+regex = '(?:^|\.)(?:test|doctest)\s*=\s*false'
+say = "no longer runs some tests"
+[[config.flag]]
+regex = '\bharness\s*=\s*false'
+say = "no longer uses the test runner"
+
+[[config]]
+glob = ["**/clippy.toml", "**/.clippy.toml"]
+format = "text"
+check = "lint"
+
+[[config.flag]]
+regex = '\b(?:allow-[\w-]+|disallowed-[\w-]+|[\w-]+-threshold)\b'
+say = "relaxes a lint rule"

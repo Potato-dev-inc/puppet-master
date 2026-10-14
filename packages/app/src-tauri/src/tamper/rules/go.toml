@@ -1,0 +1,71 @@
+# Go (go test, testify, gomega). The shortest rule table: a good template for a new language.
+
+id = "go"
+label = "Go"
+extensions = ["go"]
+test_globs = ["**/*_test.go"]
+
+[lexer]
+line_comments = ["//"]
+block_comments = [["/*", "*/"]]
+
+[[lexer.strings]]
+open = '"'
+close = '"'
+escape = '\'
+[[lexer.strings]]
+open = "'"
+close = "'"
+escape = '\'
+[[lexer.strings]]
+open = '`'
+close = '`'
+multiline = true
+
+[names]
+def = '\bfunc\s+(?P<name>Test\w*)\s*\('
+
+[[test]]
+regex = '^\s*func\s+Test\w*\s*\(\s*\w+\s+\*testing\.T\b'
+
+[[assertion]]
+regex = '\bt\s*\.\s*(?:Error|Errorf|Fatal|Fatalf|Fail|FailNow)\s*\('
+[[assertion]]
+regex = '\b(?:assert|require)\s*\.\s*[A-Z]\w*\s*\('
+[[assertion]]
+regex = '\bExpect\s*\('
+
+[[skip]]
+regex = '\b\w+\s*\.\s*Skip(?:f|Now)?\s*\('
+name_from = "prev_def"
+
+[[silence]]
+regex = '//\s*nolint\b'
+label = "//nolint"
+check = "lint"
+
+[[tautology]]
+regex = '\b(?:assert|require)\s*\.\s*True\s*\(\s*\w+\s*,\s*true\s*\)'
+
+[[loosen]]
+from = '\bt\s*\.\s*(?:Error|Errorf|Fatal|Fatalf)\s*\('
+to = '\bt\s*\.\s*(?:Log|Logf)\s*\('
+[[loosen]]
+from = '\b(?:assert|require)\s*\.\s*(?:Equal|Equalf|EqualValues|JSONEq|Contains|Len|ElementsMatch)\s*\('
+to = '\b(?:assert|require)\s*\.\s*(?:NotNil|NotEmpty|NoError)\s*\('
+
+[[self_compare]]
+regex = '\b(?:assert|require)\s*\.\s*Equal\s*\(\s*\w+\s*,\s*(?P<actual>[^,]+?)\s*,\s*(?P<expected>[^,)]+?)\s*[,)]'
+
+[[tolerance]]
+regex = '\b(?:InDelta|InEpsilon)\s*\(.*,\s*(?P<n>\d[0-9.eE+\-]*)\s*\)'
+direction = "up"
+
+[[config]]
+glob = ["**/.golangci.yml", "**/.golangci.yaml", "**/.golangci.toml"]
+format = "text"
+check = "lint"
+
+[[config.flag]]
+regex = '\b(?:skip-dirs|skip-files|exclude-rules|exclude|disable)\b'
+say = "turns off some lint rules"

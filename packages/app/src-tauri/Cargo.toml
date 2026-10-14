@@ -33,6 +33,8 @@ parking_lot = "0.12"
 uuid = { version = "1", features = ["v4", "serde"] }
 regex = "1"
 strsim = "0.11"
+# Line diffs for the tamper guard (Apache-2.0).
+similar = "2"
 once_cell = "1"
 shlex = "2"
 tracing = "0.1"
