@@ -176,7 +176,7 @@ function IdleTimeoutField({ config, onChange }: { config: StandbyConfig; onChang
   }, [secs]);
   return (
     <div className="flex max-w-xs items-end gap-2">
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0">
         <FieldLabel>{unit === 'minutes' ? 'Minutes' : 'Seconds'}</FieldLabel>
         <NumberControl
           min={unit === 'minutes' ? 1 : 5}
