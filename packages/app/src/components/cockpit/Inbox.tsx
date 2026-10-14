@@ -1,7 +1,7 @@
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { hasEverSpawned } from '../../lib/agent-health';
-import { isConsent } from '../../lib/questions';
+import { isConsent, isLimit } from '../../lib/questions';
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { DotSpinner } from './DotSpinner';
 import { PaneStuckCard } from './StuckCard';
@@ -11,6 +11,7 @@ import { AskNotices } from './AskNotices';
 import { CanaryNotices } from './CanaryNotices';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
 import { ConsentCard } from './ConsentCard';
+import { LimitCard } from './LimitCard';
 import { QuestionCard } from './QuestionCard';
 import { PaneErrorBody } from './InboxError';
 import { paneHeading } from './titles';
@@ -23,7 +24,8 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
   const waiting = c.registry.paneList.filter((p) => itemsOfKind(needs, 'approval').some((i) => i.paneId === p.info.id));
   const errored = c.registry.paneList.filter((p) => itemsOfKind(needs, 'error').some((i) => i.paneId === p.info.id));
   const consents = c.asked.questions.filter(isConsent);
-  const asked = c.asked.questions.filter((q) => !isConsent(q));
+  const limits = c.asked.questions.filter(isLimit);
+  const asked = c.asked.questions.filter((q) => !isConsent(q) && !isLimit(q));
   const noPanes = c.registry.paneList.length === 0 && c.registry.initialReady;
   const firstRun = noPanes && !hasEverSpawned();
   const stuckIds = itemsOfKind(needs, 'stuck').flatMap((i) => (i.paneId ? [i.paneId] : []));
@@ -63,6 +65,21 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
               now={c.now}
               onAnswer={(answer) => void c.asked.answerQuestion(q.id, answer)}
               onOpenPane={q.consent?.pane_id && c.registry.panes.has(q.consent.pane_id) ? () => c.select(q.consent!.pane_id!) : undefined}
+            />
+          ))}
+        </ul>
+      )}
+
+      {limits.length > 0 && (
+        <ul className="ck-list ck-q-list" aria-label="Agents that ran out of usage">
+          {limits.map((q) => (
+            <LimitCard
+              key={q.id}
+              q={q}
+              paneName={q.pane_id ? c.names.get(q.pane_id) : undefined}
+              now={c.now}
+              onAnswer={(answer) => void c.asked.answerQuestion(q.id, answer)}
+              onOpenPane={q.pane_id && c.registry.panes.has(q.pane_id) ? () => c.select(q.pane_id!) : undefined}
             />
           ))}
         </ul>

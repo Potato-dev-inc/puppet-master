@@ -18,6 +18,26 @@ export interface ConsentInfo {
   risk?: 'medium' | 'high';
 }
 
+/**
+ * What a usage-limit card is about (Rust `questions::LimitInfo`). Only Puppet Master raises these, when an
+ * agent ran out of usage (`usage_limit`) or when a reminder the person asked for comes due (`reset_reminder`).
+ */
+export interface LimitInfo {
+  kind: 'usage_limit' | 'reset_reminder';
+  /** The agent's name in the words the card uses ("Claude Code"). */
+  agent_label: string;
+  /** What ran out ("session limit"), when the screen said. */
+  window?: string;
+  /** When it can continue (epoch ms), when the screen printed a time this computer could read. */
+  reset_at_ms?: number;
+  /** The time as the screen printed it. */
+  reset_text?: string;
+  /** The agent will carry on by itself at the reset. */
+  self_resume_armed?: boolean;
+  /** A run is bound to the pane, so "Stop here" has something to stop. */
+  has_run?: boolean;
+}
+
 export interface Question {
   id: string;
   asker?: string;
@@ -34,10 +54,15 @@ export interface Question {
   state: 'pending' | 'answered' | 'cancelled' | 'timed_out';
   /** Set when this is a consent card (an agent asking to control a pane it did not start). */
   consent?: ConsentInfo;
+  /** Set when this is a usage-limit card (an agent ran out of usage), not a question an agent asked. */
+  limit?: LimitInfo;
 }
 
 /** A consent card, not a question an agent asked. */
 export const isConsent = (q: Question): boolean => q.consent !== undefined;
+
+/** A usage-limit card (or the reminder for one), not a question an agent asked. */
+export const isLimit = (q: Question): boolean => q.limit !== undefined;
 
 /** What the person typed or picked: exactly one of the two. */
 export type QuestionAnswer = { choice_id: string } | { text: string };

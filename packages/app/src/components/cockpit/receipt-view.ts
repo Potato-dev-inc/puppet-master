@@ -1,6 +1,7 @@
 // The Receipt tab in plain words. The backend receipt (`RunReceipt`, `agent_runs/runtime/receipt.rs`) is
 // snake_case JSON for tools; people read "Result: Finished, not verified", not `outcome: completed_unchecked`.
 import { backendLabel } from '../../lib/standby';
+import { resetTimeText } from '../../lib/limit-time';
 import { receiptRows } from './model';
 
 export interface ReceiptLine {
@@ -22,6 +23,7 @@ const LABELS: Record<string, string> = {
   'fallback.from': 'Wanted',
   'fallback.to': 'Ran',
   'fallback.reason': 'Why',
+  usage_limit: 'Usage limit',
   worktree: 'Isolated copy',
   'worktree.path': 'Folder',
   'worktree.branch': 'Branch',
@@ -71,9 +73,27 @@ function sentence(text: string): string {
   return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : '—';
 }
 
+/**
+ * The line for a run that hit a usage limit: "Stopped at a usage limit (resets 14:05)" once a person chose
+ * to stop there, "Waiting at a usage limit (resets 14:05)" while the agent is still at it. `undefined` for
+ * any other run. The reset is the moment when it could be read, else the text the screen printed.
+ */
+export function usageLimitLine(receipt: unknown, now: number = Date.now()): string | undefined {
+  const limit = (receipt as { usage_limit?: { state?: string; reset_at_ms?: number; reset_text?: string } } | null | undefined)?.usage_limit;
+  if (!limit || (limit.state !== 'stopped' && limit.state !== 'waiting')) return undefined;
+  const resets =
+    typeof limit.reset_at_ms === 'number' ? resetTimeText(limit.reset_at_ms, now) : limit.reset_text?.trim() || undefined;
+  const lead = limit.state === 'stopped' ? 'Stopped at a usage limit' : 'Waiting at a usage limit';
+  return resets ? `${lead} (resets ${resets})` : lead;
+}
+
 /** Receipt rows with plain labels and values. An unknown field still shows (sentence case), never raw snake_case. */
-export function readableReceipt(receipt: unknown): ReceiptLine[] {
-  const lines = receiptRows(receipt).map(({ key, value }): ReceiptLine & { raw: string } => {
+export function readableReceipt(receipt: unknown, now: number = Date.now()): ReceiptLine[] {
+  const limitLine = usageLimitLine(receipt, now);
+  const lines = receiptRows(receipt)
+    // The limit's own fields fold into one line below.
+    .filter(({ key }) => !(limitLine && key.startsWith('usage_limit.')))
+    .map(({ key, value }): ReceiptLine & { raw: string } => {
     const tail = key.includes('.') ? key.slice(key.lastIndexOf('.') + 1) : key;
     const label = LABELS[key] ?? sentence(tail.replace(/\[\d+\]$/, ''));
     const mapped = VALUES[key]?.[value];
@@ -84,7 +104,7 @@ export function readableReceipt(receipt: unknown): ReceiptLine[] {
     if (key === 'not_verified') return { raw: key, key: label, value: value.split(', ').map(sentence).join('; ') };
     return { raw: key, key: label, value };
   });
-  // The answer to "did it work" leads.
-  const lead = lines.filter((line) => line.raw === 'outcome');
+  // The answer to "did it work" leads, and says where it stopped when it ran out of usage.
+  const lead = lines.filter((line) => line.raw === 'outcome').map((line) => (limitLine ? { ...line, value: limitLine } : line));
   return [...lead, ...lines.filter((line) => line.raw !== 'outcome')].map(({ key, value }) => ({ key, value }));
 }

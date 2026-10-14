@@ -20,6 +20,8 @@ export interface HarnessScenario {
     activeTab?: string;
     /** `false` hides the question card / the away digest. */
     questions?: boolean;
+    /** Answer `/questions` with these instead of the example question. */
+    questionList?: Question[];
     digest?: boolean;
     /**
      * The Team group: absent or `false` = Team is off (the bridge answers `enabled: false`). An object

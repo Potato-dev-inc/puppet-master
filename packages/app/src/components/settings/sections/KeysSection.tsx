@@ -18,7 +18,7 @@ const OPENCODE_HINT =
   'For OpenCode workers only. Kept in the system keychain when one is available. Never synced to the phone or returned by MCP.';
 /** The opt-in's name (founder decision 2026-10-15). Off by default; a person's earlier explicit choice is kept by the backend. */
 const AUTOMATION_LABEL = "Switch to another of your keys when one hits its rate limit (check your provider's terms)";
-const AUTOMATION_HINT = 'Off: Puppet Master only tells you the key needs swapping. Needs a second OpenCode key (B) below.';
+const AUTOMATION_HINT = 'When this is off, Puppet Master only tells you a key needs swapping. Needs a second OpenCode key (B).';
 const RESTART_HINT = 'Restart the OpenCode pane after a key switch so it picks up the new key.';
 const REMOVE_ALL_HINT =
   'Deletes the Anthropic, OpenAI and OpenRouter keys from this computer. Agents lose access until you add keys again. OpenCode keys are not removed.';

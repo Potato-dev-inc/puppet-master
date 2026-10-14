@@ -112,3 +112,26 @@ describe('phone QuestionsList', () => {
     });
   });
 });
+
+describe('phone usage-limit card', () => {
+  it('says so, has no waiting caption, and answers with its choice ids', async () => {
+    const limit: Question = {
+      ...q,
+      id: 'l1',
+      pane_id: 'p1',
+      question: 'Claude Code ran out of usage. It can continue at 14:05.',
+      choices: [
+        { id: 'remind', label: 'Remind me at 14:05' },
+        { id: 'stop', label: 'Stop here' },
+      ],
+      allow_free_text: false,
+      limit: { kind: 'usage_limit', agent_label: 'Claude Code', has_run: true },
+    };
+    const bridge = await mount([limit]);
+    expect(host.querySelector('.ph-card-cap')?.textContent).toBe('Claude Code · usage limit');
+    expect(host.querySelector('[data-testid="question-wait"]')).toBeNull();
+    const stop = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Stop here')!;
+    await act(async () => stop.click());
+    expect(bridge.answerQuestion).toHaveBeenCalledWith('l1', { choice_id: 'stop' });
+  });
+});
