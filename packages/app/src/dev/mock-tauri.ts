@@ -77,6 +77,9 @@ export function installTauriMock(scenario: HarnessScenario): void {
         case 'pane_transcript':
           return a.paneId === PANE_CLAUDE ? EXAMPLE_TRANSCRIPT : null;
         case 'checkpoints_list':
+          if (scenario.checkpointsState === 'too_big') {
+            return { state: 'too_big', message: 'Undo is off for this folder: it is too big. Add big folders to .gitignore.', items: [] };
+          }
           return a.paneId === PANE_CLAUDE ? EXAMPLE_CHECKPOINTS : { state: 'ok', message: '', items: [] };
         case 'checkpoint_diff':
           return EXAMPLE_FILE_CHANGES;

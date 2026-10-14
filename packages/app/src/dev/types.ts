@@ -41,6 +41,8 @@ export interface HarnessScenario {
   accounts?: Account[];
   /** Cockpit: start with the "While you were away" digest showing (as after a return). */
   awayDigest?: boolean;
+  /** Cockpit History: make `checkpoints_list` answer with this state instead of the example list. */
+  checkpointsState?: 'too_big';
   /** Override the example panes. */
   panes?: PaneInfo[];
   /** Pending `ask_user` questions the mocked `questions_list` returns. */
