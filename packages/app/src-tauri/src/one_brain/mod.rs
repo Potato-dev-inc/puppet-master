@@ -159,15 +159,25 @@ fn read_existing(path: &Path) -> Result<Option<Vec<u8>>, String> {
     }
 }
 
-/// True when the file holds non-blank text outside the managed block.
-fn has_user_content(bytes: &[u8]) -> bool {
+/// True when the file holds text outside the managed block that is not the file's own header.
+///
+/// The header (a rule's front matter) is written by Puppet Master when it creates the file, so
+/// text that equals it is not the user's. Anything else outside the block is.
+fn has_user_content(bytes: &[u8], header: Option<&str>) -> bool {
     let text = String::from_utf8_lossy(bytes);
     let text = text.trim_start_matches('\u{feff}');
-    match (text.find(START), text.find(END)) {
-        (Some(s), Some(e)) if e > s => {
-            !text[..s].trim().is_empty() || !text[e + END.len()..].trim().is_empty()
-        }
-        _ => !text.trim().is_empty(),
+    let outside = match (text.find(START), text.find(END)) {
+        (Some(s), Some(e)) if e > s => format!("{}{}", &text[..s], &text[e + END.len()..]),
+        _ => text.to_string(),
+    };
+    let outside = outside.replace("\r\n", "\n");
+    let outside = outside.trim();
+    if outside.is_empty() {
+        return false;
+    }
+    match header.map(|h| h.replace("\r\n", "\n")) {
+        Some(h) => outside != h.trim(),
+        None => true,
     }
 }
 
@@ -177,7 +187,7 @@ pub fn status(project: &Path, targets: &[Target], global: bool) -> Vec<TargetSta
         .iter()
         .map(|t| {
             let existing = read_existing(&project.join(&t.path)).unwrap_or(None);
-            let user_content = existing.as_deref().is_some_and(has_user_content);
+            let user_content = existing.as_deref().is_some_and(|b| has_user_content(b, t.header.as_deref()));
             let status = match render(existing.as_deref(), t.header.as_deref(), &memory) {
                 Err(_) => "blocked",
                 Ok(Outcome::NoChange) if memory.trim().is_empty() => "nothing",

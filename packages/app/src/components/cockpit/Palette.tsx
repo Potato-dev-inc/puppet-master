@@ -146,7 +146,11 @@ export function Palette({
         title: 'Toolbelt…',
         desc: 'MCP servers for every agent',
         icon: <IconLayers />,
-        run: () => void cockpitApi.openSettings('bridge').catch(() => {}),
+        run: () =>
+          void cockpitApi.openSettings('bridge').catch((err: unknown) => {
+            console.error('open_settings failed', err);
+            c.notify(`Settings did not open: ${err instanceof Error ? err.message : String(err)}`);
+          }),
       },
       {
         id: 'act:mode',

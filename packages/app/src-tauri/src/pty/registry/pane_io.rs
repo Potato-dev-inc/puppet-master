@@ -169,7 +169,23 @@ pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<St
     let (screen, agent_type) = screen;
     let parser = screen.lock();
     let keep = sidebar_keep_cols(&agent_type, parser.screen().size().1);
+    if keep.is_none() {
+        if let Some(text) = side_panel_snapshot(parser.screen(), &agent_type) {
+            return Ok(text);
+        }
+    }
     Ok(snapshot_text(parser.screen(), keep))
+}
+
+/// The screen one entry per row with a side panel cropped off, for a profile that can show one
+/// and a screen that does. `contents()` would glue each full-width chat+panel row to the next.
+pub(crate) fn side_panel_snapshot(screen: &vt100::Screen, agent_type: &str) -> Option<String> {
+    if !crate::tui::has_side_panel(agent_type) {
+        return None;
+    }
+    let (_, cols) = screen.size();
+    let rows: Vec<String> = screen.rows(0, cols).collect();
+    crate::tui::side_panel::crop_rows(&rows).map(|rows| rows.join("\n"))
 }
 
 /// The screen as text. With `keep_cols` set, one entry per row limited to that many columns
@@ -230,7 +246,14 @@ pub fn read_full_text(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<S
     let (screen, agent_type) = screen;
     let mut parser = screen.lock();
     let keep = sidebar_keep_cols(&agent_type, parser.screen().size().1);
-    Ok(full_text_of_cols(&mut parser, keep))
+    let full = full_text_of_cols(&mut parser, keep);
+    if keep.is_none() && crate::tui::has_side_panel(&agent_type) {
+        let rows: Vec<&str> = full.split('\n').collect();
+        if let Some(cropped) = crate::tui::side_panel::crop_rows(&rows) {
+            return Ok(cropped.join("\n"));
+        }
+    }
+    Ok(full)
 }
 
 /// The pane redrawn for a viewer: its scrollback (formatted, at the current width) followed by the
@@ -322,6 +345,29 @@ pub(super) fn full_text_of_cols(parser: &mut vt100::Parser, keep_cols: Option<u1
 
 #[cfg(test)]
 mod full_text_tests {
+    /// Live bug #6: Claude's diff panel was read as part of the chat. The screen is the layout of
+    /// `03b-claude-done.png` (164x50, divider at column 90), painted the way the TUI does.
+    #[test]
+    fn a_side_panel_is_cropped_and_rows_are_not_glued() {
+        let fixture = include_str!("../../tui/claude/fixtures/side_diff_panel_screen.txt");
+        let mut parser = vt100::Parser::new(50, 164, 0);
+        for row in fixture.lines() {
+            // A full-width row leaves the cursor in the wrap position, as in the live TUI.
+            parser.process(row.as_bytes());
+            if row.chars().count() < 164 {
+                parser.process(b"\r\n");
+            }
+        }
+        let glued = parser.screen().contents();
+        assert!(glued.lines().count() < 48, "the test needs the glue behaviour of contents()");
+        let text = super::side_panel_snapshot(parser.screen(), "claude").expect("panel found");
+        assert_eq!(text.split('\n').count(), 50, "one entry per row");
+        assert!(!text.contains("source: Current") && !text.contains("[ ask ]"), "{text}");
+        assert!(text.contains("\u{25cf} Update(sum.js)"), "{text}");
+        // Another agent's screen is read as before.
+        assert!(super::side_panel_snapshot(parser.screen(), "codex").is_none());
+    }
+
     #[test]
     fn screen_replay_redraws_history_and_screen_at_the_current_size() {
         let mut parser = vt100::Parser::new(5, 40, 1000);

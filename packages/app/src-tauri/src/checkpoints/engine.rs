@@ -351,10 +351,24 @@ pub fn snapshot(
     now_ms: u64,
     limits: &Limits,
 ) -> Result<Snapshot, CheckpointError> {
+    snapshot_numbered(project, pane, kind, note, now_ms, limits, None)
+}
+
+/// Like `snapshot`, but the checkpoint carries the caller's turn number (the pane's real turn
+/// count, which also counts turns that changed nothing and so left no checkpoint).
+pub fn snapshot_numbered(
+    project: &Path,
+    pane: &str,
+    kind: Kind,
+    note: Option<&str>,
+    now_ms: u64,
+    limits: &Limits,
+    turn: Option<u32>,
+) -> Result<Snapshot, CheckpointError> {
     let shadow = prepare(project)?;
     let gate = lock_for(&shadow);
     let _held = gate.lock();
-    snapshot_locked(&shadow, pane, kind, note, now_ms, limits)
+    snapshot_locked(&shadow, pane, kind, note, now_ms, limits, turn)
 }
 
 fn snapshot_locked(
@@ -364,6 +378,7 @@ fn snapshot_locked(
     note: Option<&str>,
     now_ms: u64,
     limits: &Limits,
+    turn_hint: Option<u32>,
 ) -> Result<Snapshot, CheckpointError> {
     let index = index_path(shadow, pane);
     let big = scan(shadow, &index, limits)?;
@@ -380,10 +395,10 @@ fn snapshot_locked(
     let added = rows.iter().map(|r| r.1).sum::<u32>();
     let deleted = rows.iter().map(|r| r.2).sum::<u32>();
     let max_turn = existing.iter().map(|c| c.turn).max().unwrap_or(0);
-    let turn = match (kind, newest.map(|c| c.kind.as_str())) {
+    let turn = turn_hint.filter(|t| *t > 0).unwrap_or_else(|| match (kind, newest.map(|c| c.kind.as_str())) {
         (Kind::Before, None | Some("after") | Some("undo")) => max_turn + 1,
         _ => max_turn.max(1),
-    };
+    });
     let n = existing.iter().filter_map(|c| c.id.parse::<u64>().ok()).max().unwrap_or(0) + 1;
     let note_clean: String = note.unwrap_or("").chars().filter(|c| !c.is_control()).take(80).collect();
     let mut message = format!(
@@ -606,7 +621,7 @@ pub fn restore(
     let items = list_in(&shadow, pane)?;
     let target = items[find(&items, id)?].clone();
     let mut report = RestoreReport::default();
-    let safety = snapshot_locked(&shadow, pane, Kind::Undo, None, now_ms, limits)?;
+    let safety = snapshot_locked(&shadow, pane, Kind::Undo, None, now_ms, limits, None)?;
     report.safety_id = match &safety {
         Snapshot::Created(c) => Some(c.id.clone()),
         Snapshot::Unchanged(c) => c.as_ref().map(|c| c.id.clone()),

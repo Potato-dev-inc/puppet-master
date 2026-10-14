@@ -20,10 +20,14 @@ import { PanicSheet } from './components/cockpit/PanicSheet';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
 import './styles/cockpit.css';
 
+// One main view at a time: the last click wins. 'pane' is the default and shows the
+// selected pane, the spawn view or the inbox (see the render chain below).
+export type MainView = 'pane' | 'doctor' | 'memory';
+
 export default function CockpitApp() {
   const c = useCockpit();
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [doctorOpen, setDoctorOpen] = useState(false);
+  const [view, setView] = useState<MainView>('pane');
   // Pane whose last turn the person is being asked to undo (opened from the palette).
   const [undoPane, setUndoPane] = useState<string | null>(null);
   const loop = useLoopSignals();
@@ -47,23 +51,23 @@ export default function CockpitApp() {
       off?.();
     };
   }, []);
-  // Any navigation (a pane, a spawn) leaves the "Set up agents" view.
+  // Any selection (a pane, the inbox), even of the already-selected pane, leaves the
+  // "Set up agents" and "Project memory" views.
   const nav: typeof c = {
     ...c,
     select: (id) => {
-      setDoctorOpen(false);
+      setView('pane');
       c.select(id);
     },
   };
   useEffect(() => {
-    if (c.spawn) setDoctorOpen(false);
+    if (c.spawn) setView('pane');
   }, [c.spawn]);
   useEffect(() => {
     if (c.registry.paneList.length > 0) markSpawned();
   }, [c.registry.paneList.length]);
-  const [memoryOpen, setMemoryOpen] = useState(false);
-  // Picking a pane or starting an agent leaves the memory view.
-  useEffect(() => setMemoryOpen(false), [c.selectedId, c.spawn]);
+  // A selection change made outside `nav` (e.g. a pane closing) also returns to the pane view.
+  useEffect(() => setView('pane'), [c.selectedId]);
   const away = useAway(c.registry.paneList.map((p) => p.info.id));
 
   useEffect(() => {
@@ -88,8 +92,8 @@ export default function CockpitApp() {
       <Sidebar
         c={nav}
         onOpenPalette={() => setPaletteOpen(true)}
-        onOpenDoctor={() => setDoctorOpen(true)}
-        onOpenMemory={() => setMemoryOpen(true)}
+        onOpenDoctor={() => setView('doctor')}
+        onOpenMemory={() => setView('memory')}
       />
       <main className="ck-main">
         {c.mode === 'individual' ? (
@@ -100,23 +104,23 @@ export default function CockpitApp() {
               Switch to Orchestration
             </button>
           </div>
-        ) : doctorOpen ? (
+        ) : view === 'doctor' ? (
           <AgentDoctor
             onOpenAgent={(id) => void c.newAgent(id)}
             onNotify={c.notify}
-            onClose={() => setDoctorOpen(false)}
+            onClose={() => setView('pane')}
           />
-        ) : memoryOpen ? (
+        ) : view === 'memory' ? (
           <ProjectMemory
             project={c.selectedId ? c.registry.panes.get(c.selectedId)?.info.cwd : undefined}
-            onClose={() => setMemoryOpen(false)}
+            onClose={() => setView('pane')}
           />
         ) : c.spawn ? (
           <SpawnView spawn={c.spawn} onDismiss={c.dismissSpawn} />
         ) : c.selectedId ? (
           <PaneView c={c} paneId={c.selectedId} key={c.selectedId} />
         ) : (
-          <Inbox c={nav} onOpenDoctor={() => setDoctorOpen(true)} />
+          <Inbox c={nav} onOpenDoctor={() => setView('doctor')} />
         )}
         {away.digest && c.mode !== 'individual' && (
           <AwayDigest
@@ -125,11 +129,11 @@ export default function CockpitApp() {
             onDismiss={away.dismissDigest}
             onOpenPane={(id) => {
               away.dismissDigest();
-              c.select(id);
+              nav.select(id);
             }}
             onOpenInbox={() => {
               away.dismissDigest();
-              c.select(null);
+              nav.select(null);
             }}
           />
         )}
@@ -138,9 +142,9 @@ export default function CockpitApp() {
         <Palette
           c={nav}
           onClose={() => setPaletteOpen(false)}
-          onOpenDoctor={() => setDoctorOpen(true)}
+          onOpenDoctor={() => setView('doctor')}
           onStopAll={stopAll}
-          onOpenMemory={() => setMemoryOpen(true)}
+          onOpenMemory={() => setView('memory')}
           onUndoLastTurn={setUndoPane}
         />
       )}

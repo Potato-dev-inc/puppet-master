@@ -276,6 +276,7 @@ fn a_pane_that_is_gone_has_no_summary() {
     let env = FakeEnv::new(tmp.p());
     let tracker = Tracker::new(env.clone());
     tracker.on_status("p1", "running");
+    env.at(5_000);
     let ended = tracker.on_status("p1", "idle").unwrap();
     env.pane_exists.store(false, Ordering::SeqCst);
     assert!(tracker.finish(ended).is_none());
@@ -573,4 +574,90 @@ fn digest_route_needs_a_paired_device_when_called_remotely() {
         .unwrap();
     assert_eq!(store.device_id_for_token(&paired.device_token), Some(paired.device_id));
     assert_eq!(store.device_id_for_token("AAAA"), None);
+}
+
+// ---- live bug #5: "Last turn" said Turn 5, 0s, 0 files while History said "After turn 1 ... 1 file" ----
+
+/// The real sequence from the live run (times are the ones in `turn-summaries.json`): two quiet
+/// turns, the edit turn (166s), then two sub-second "running" flickers after it.
+#[test]
+fn flickers_are_not_turns_and_do_not_replace_the_last_turn() {
+    let tmp = Tmp::new("blips");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    tracker.on_status("p1", "idle");
+    finish_idle(&tracker, &env, 21_404, 24_345);
+    finish_idle(&tracker, &env, 31_839, 33_471);
+    *env.files.lock() = Some(FileStats::from_changes(&[FileChange {
+        path: "sum.js".into(),
+        status: "M".into(),
+        added: 1,
+        deleted: 1,
+        binary: false,
+    }]));
+    let edit = finish_idle(&tracker, &env, 37_757, 203_604);
+    assert_eq!(edit.turn, 3);
+    *env.files.lock() = Some(FileStats::from_changes(&[]));
+
+    // The two flickers: running for 0.8s and 0.9s.
+    env.at(203_913);
+    tracker.on_status("p1", "running");
+    env.at(204_708);
+    assert!(tracker.on_status("p1", "idle").is_none(), "a flicker is not a turn");
+    env.at(210_669);
+    tracker.on_status("p1", "running");
+    env.at(211_529);
+    assert!(tracker.on_status("p1", "idle").is_none());
+
+    let all = tracker.summaries("p1");
+    let last = all.last().unwrap();
+    assert_eq!((last.turn, last.files.as_ref().map(|f| f.count)), (3, Some(1)), "Last turn is still the edit turn");
+    assert_eq!(all.iter().map(|s| s.turn).collect::<Vec<_>>(), vec![1, 2, 3]);
+
+    // The next real turn takes the number the flickers gave back.
+    let next = finish_idle(&tracker, &env, 300_000, 310_000);
+    assert_eq!(next.turn, 4);
+}
+
+#[test]
+fn a_short_turn_that_needed_an_approval_is_still_a_turn() {
+    let tmp = Tmp::new("short-approval");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    tracker.on_status("p1", "idle");
+    env.at(10_000);
+    tracker.on_status("p1", "running");
+    tracker.record_approval("p1", approval("a1", "command", "allow"));
+    env.at(10_300);
+    assert!(tracker.on_status("p1", "idle").is_some());
+}
+
+#[test]
+fn summaries_that_finish_out_of_order_are_listed_by_turn() {
+    let mut ring = std::collections::VecDeque::new();
+    for turn in [3, 5, 4] {
+        super::store::upsert(&mut ring, summary("p1", turn, u64::from(turn) * 1000), 100);
+    }
+    assert_eq!(ring.iter().map(|s| s.turn).collect::<Vec<_>>(), vec![3, 4, 5]);
+}
+
+/// Checkpoints take their turn number from the tracker, so History's "After turn N" is the
+/// "Turn N" of Last turn even when earlier turns changed nothing (and left no checkpoint).
+#[test]
+fn checkpoint_turn_numbers_follow_the_trackers_turns() {
+    let tmp = Tmp::new("ckpt-turn");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    assert_eq!(tracker.turn_for_checkpoint("p1", true), None, "unknown pane");
+    tracker.on_status("p1", "idle");
+    assert_eq!(tracker.turn_for_checkpoint("p1", true), Some(1), "the turn about to start");
+    finish_idle(&tracker, &env, 2_000, 5_000);
+    finish_idle(&tracker, &env, 6_000, 9_000);
+    assert_eq!(tracker.turn_for_checkpoint("p1", true), Some(3));
+    env.at(10_000);
+    tracker.on_status("p1", "running");
+    assert_eq!(tracker.turn_for_checkpoint("p1", true), Some(3), "before, once the turn is open");
+    env.at(20_000);
+    tracker.on_status("p1", "idle");
+    assert_eq!(tracker.turn_for_checkpoint("p1", false), Some(3), "after belongs to the turn that ended");
 }

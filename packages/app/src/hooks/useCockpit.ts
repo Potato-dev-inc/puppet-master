@@ -390,7 +390,8 @@ export function useCockpit(): CockpitApi {
     try {
       await cockpitApi.openSettings();
     } catch (err) {
-      notify(errText(err));
+      console.error('open_settings failed', err);
+      notify(`Settings did not open: ${errText(err)}`);
     }
   }, [notify]);
 

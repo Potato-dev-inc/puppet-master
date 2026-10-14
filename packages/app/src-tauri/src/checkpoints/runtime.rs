@@ -34,6 +34,11 @@ pub trait Env: Send + Sync {
     fn now_ms(&self) -> u64;
     /// Whether the agent's profile takes part in checkpoints.
     fn agent_takes_part(&self, agent_type: &str) -> bool;
+    /// The pane's own turn number for a snapshot of `kind` taken now (`None` = number by
+    /// checkpoint history alone). Keeps History and the turn summaries on one numbering.
+    fn turn_hint(&self, _pane_id: &str, _kind: Kind) -> Option<u32> {
+        None
+    }
 }
 
 /// What an automatic trigger did.
@@ -107,7 +112,8 @@ impl Runtime {
             }
             state.last_at.insert(pane_id.to_string(), now);
         }
-        match engine::snapshot(&PathBuf::from(&pane.cwd), pane_id, kind, note, now, &self.limits()) {
+        let turn = self.env.turn_hint(pane_id, kind);
+        match engine::snapshot_numbered(&PathBuf::from(&pane.cwd), pane_id, kind, note, now, &self.limits(), turn) {
             Ok(Snapshot::Created(c)) => Outcome::Created(c),
             Ok(Snapshot::Unchanged(_)) => Outcome::Unchanged,
             Err(e) => Outcome::Failed(e.to_string()),
@@ -216,6 +222,9 @@ impl Env for LiveEnv {
     }
     fn agent_takes_part(&self, agent_type: &str) -> bool {
         crate::tui::profile_for(agent_type).checkpoints()
+    }
+    fn turn_hint(&self, pane_id: &str, kind: Kind) -> Option<u32> {
+        crate::turn_summary::checkpoint_turn(pane_id, kind == Kind::Before)
     }
 }
 

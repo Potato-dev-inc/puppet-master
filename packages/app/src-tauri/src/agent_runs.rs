@@ -27,6 +27,9 @@ mod cursor_delivery_tests;
 #[cfg(test)]
 mod delivery_contract_tests;
 
+#[cfg(test)]
+mod side_panel_reply_tests;
+
 pub(crate) use native::stable_prompt_id;
 pub(crate) use persist::resolve_worker_name;
 pub use recovery::on_native_pane_replaced;

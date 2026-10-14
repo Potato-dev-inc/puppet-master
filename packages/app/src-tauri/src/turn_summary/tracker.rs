@@ -64,6 +64,11 @@ pub struct Tracker {
     store: Mutex<Store>,
 }
 
+/// A "turn" that runs for less than this, with no approval and no prompt, is a status flicker
+/// (a redraw or resize read as "running"), not an agent turn. Live evidence: two 0.8s "turns"
+/// that followed a real 166s one and became its "Last turn".
+pub const BLIP_MS: u64 = 1_000;
+
 fn is_rest(status: &str) -> bool {
     matches!(status, "idle" | "waiting_input" | "error")
 }
@@ -96,6 +101,17 @@ impl Tracker {
         if !(entry.open && is_rest(status)) {
             return None;
         }
+        let now = self.env.now_ms();
+        if prev == "running"
+            && matches!(status, "idle" | "error")
+            && entry.approvals.is_empty()
+            && now.saturating_sub(entry.started_at_ms) < BLIP_MS
+        {
+            // Not a turn: give its number back so numbering stays the one checkpoints use.
+            entry.turn = entry.turn.saturating_sub(1);
+            entry.open = false;
+            return None;
+        }
         let ended = Ended {
             pane_id: pane_id.to_string(),
             turn: entry.turn,
@@ -109,6 +125,15 @@ impl Tracker {
             entry.open = false;
         }
         Some(ended)
+    }
+
+    /// The turn number a checkpoint taken now belongs to. This is the single source of turn
+    /// numbering: checkpoints (History) and summaries (Last turn) both use it. A "before"
+    /// snapshot taken while no turn is open belongs to the turn about to start.
+    pub fn turn_for_checkpoint(&self, pane_id: &str, before: bool) -> Option<u32> {
+        let live = self.live.lock();
+        let entry = live.get(pane_id)?;
+        Some(if before && !entry.open { entry.turn + 1 } else { entry.turn.max(1) })
     }
 
     /// An answered prompt belongs to the open turn (ignored when no turn is open).

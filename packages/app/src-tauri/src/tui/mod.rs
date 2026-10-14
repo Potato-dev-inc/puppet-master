@@ -20,6 +20,7 @@ pub mod generic;
 pub mod opencode;
 pub mod registry;
 pub mod shell;
+pub mod side_panel;
 
 use crate::pty::status::PaneStatus;
 use serde_json::Value;
@@ -204,6 +205,11 @@ pub fn is_chrome_line(lower: &str, agent_type: &str) -> bool {
 /// Screen text with this agent's profile removing boxed dialogs (and related chrome) only.
 pub fn strip_dialogs(text: &str, agent_type: &str) -> String {
     profile_for(agent_type).strip_dialogs(text)
+}
+
+/// Whether this agent's screen readers should crop a side panel off every row.
+pub fn has_side_panel(agent_type: &str) -> bool {
+    profile_for(agent_type).side_panel()
 }
 
 /// Reply text after this agent's profile redraw-artifact cleanup only.
