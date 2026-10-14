@@ -50,6 +50,16 @@ impl TuiProfile for Claude {
         true
     }
 
+    /// Claude Code opens a diff panel to the right of the chat after an edit (`/diff`, 2.1.x).
+    fn side_panel(&self) -> bool {
+        true
+    }
+
+    /// Last line of defence for reply text that still carries the panel's column.
+    fn tidy_reply(&self, text: &str) -> String {
+        crate::tui::side_panel::strip_text(text)
+    }
+
     /// `CLAUDE_CONFIG_DIR` is the documented directory for this CLI's config and login.
     fn account_scheme(&self) -> Option<AccountScheme> {
         Some(AccountScheme {

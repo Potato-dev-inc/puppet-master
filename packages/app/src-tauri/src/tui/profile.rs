@@ -294,6 +294,13 @@ pub trait TuiProfile: Send + Sync {
         None
     }
 
+    /// The TUI can draw a second column (a diff or file panel) beside the chat, separated by a
+    /// vertical divider. Screen readers then crop every row at that divider (found by structure,
+    /// see `tui::side_panel`), so the panel's rows never mix into the reply or the transcript.
+    fn side_panel(&self) -> bool {
+        false
+    }
+
     /// Remove boxed dialogs (trust, approval) from screen text. Their text is never reply
     /// evidence, and the box stays in the scrollback after it was answered.
     fn strip_dialogs(&self, text: &str) -> String {

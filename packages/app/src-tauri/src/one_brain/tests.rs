@@ -169,6 +169,38 @@ fn backup_is_made_once_before_the_first_write_to_a_user_file() {
     assert!(!dir.join("AGENTS.md.bak").exists());
 }
 
+/// The Cursor rule file exactly as Puppet Master declares it (its front matter is the header).
+fn cursor_target() -> Target {
+    let file = crate::tui::profile_for("cursor_agent").instruction_files().into_iter().next().unwrap();
+    Target { path: file.path, header: file.header, agents: vec!["cursor_agent".into()] }
+}
+
+#[test]
+fn front_matter_puppet_master_wrote_is_not_user_text() {
+    let _serial = crate::tui::registry::test_serial();
+    let dir = project();
+    let t = [cursor_target()];
+    put_memory(&dir, "We use Postgres.");
+    sync(&dir, &t, true);
+    let created = String::from_utf8(read(&dir, &t[0].path)).unwrap();
+    assert!(created.starts_with("---\ndescription: Shared project memory kept by Puppet Master\nalwaysApply: true\n---\n"), "{created}");
+    let s = status(&dir, &t, true);
+    assert_eq!((s[0].status, s[0].user_content), ("in_sync", false), "{created}");
+
+    // text the user adds below the block is user text
+    let mut below = read(&dir, &t[0].path);
+    below.extend_from_slice(b"\nMy own rule.\n");
+    std::fs::write(dir.join(&t[0].path), &below).unwrap();
+    let s = status(&dir, &t, true);
+    assert_eq!((s[0].status, s[0].user_content), ("in_sync", true), "text below the block");
+
+    // text the user adds above the front matter is user text too
+    let mut above = b"Team note.\n".to_vec();
+    above.extend_from_slice(&read(&dir, &t[0].path));
+    std::fs::write(dir.join(&t[0].path), &above).unwrap();
+    assert!(status(&dir, &t, true)[0].user_content, "text above the front matter");
+}
+
 #[test]
 fn damaged_markers_are_reported_and_the_file_is_left_alone() {
     let dir = project();
