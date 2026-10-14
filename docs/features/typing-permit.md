@@ -90,6 +90,20 @@ drawn about a millisecond before a keystroke can still take it. The window is na
 
 Every write re-reads the agent process.
 
+### Retyping and giving up (live, plain mode r12)
+
+Claude Code 2.1.300 right after a turn took no keys for about 4 s and then took them all: delivery
+had typed the follow-up again, so the box held it twice, and the run said "the box was cleared,
+retrying is safe" (Claude has no readiness clear key, so nothing was cleared). Now:
+- `TuiProfile::retype_clear_sequence` (default: `clear_input_sequence`) erases text Puppet Master
+  itself typed. Claude declares sixteen Ctrl+U presses (one press erases one visual line, live-checked
+  with zero turns); it is not a readiness clear key, so a person's draft is still never cleared.
+- Before typing again, delivery erases its own text (after a look, never into a gate or a shell), so
+  keys a busy TUI takes late end as one copy, submitted once; it presses again (up to 3 rounds) while
+  the box still shows text.
+- On give-up it erases again and returns `NotVisible { cleared }`: "cleared, retrying is safe" only
+  when the box then reads empty; otherwise "clear it in the pane before retrying".
+
 ### Unknown parks
 
 Delivery keeps looking (and closing dismissible gates) for about 10 s. Then dispatch marks the run
