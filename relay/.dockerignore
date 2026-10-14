@@ -1,0 +1,3 @@
+target
+worker/node_modules
+worker/.wrangler
