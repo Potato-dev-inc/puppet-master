@@ -193,19 +193,11 @@ impl PromptRisk {
         Some(Self { level, headline })
     }
 
-    /// "High risk · Delete a folder outside this project".
+    /// "High risk · Delete a folder outside this project". The words are the desktop card's
+    /// (`attention::model::Level::word`: Low risk / Check first / High risk).
     fn sentence(&self) -> String {
-        let word = match self.level {
-            crate::prompt_risk::RiskLevel::Low => "Low",
-            crate::prompt_risk::RiskLevel::Medium => "Medium",
-            crate::prompt_risk::RiskLevel::High => "High",
-        };
         let headline = truncate_chars(&self.headline, MAX_RISK_CHARS);
-        if headline.is_empty() {
-            format!("{word} risk")
-        } else {
-            format!("{word} risk · {headline}")
-        }
+        crate::attention::copy::risk_line(crate::attention::model::Level::from(self.level), Some(&headline))
     }
 }
 
@@ -439,6 +431,24 @@ mod tests {
         let body = copy_for(Kind::WaitingInput, "X", None, Some(&long)).body;
         let command_line = body.split('\n').nth(1).unwrap();
         assert_eq!(command_line.chars().count(), MAX_BODY_CHARS);
+    }
+
+    #[test]
+    fn the_push_says_check_first_where_the_desktop_card_does() {
+        // The desktop card's words are `LEVEL_WORD` in lib/approval-risk.ts. A medium prompt was
+        // "Check first" on the PC and "Medium risk" on the phone.
+        let ts = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../src/lib/approval-risk.ts")).unwrap();
+        let word = |level: &str| {
+            let line = ts.lines().find(|l| l.trim_start().starts_with(&format!("{level}:"))).unwrap_or_else(|| panic!("no {level} word"));
+            line.split('\'').nth(1).unwrap().to_string()
+        };
+        for (level, tag) in [("low", "Low"), ("medium", "Medium"), ("high", "High")] {
+            let risk = json!({"level": level, "headline": "Install packages"});
+            let info = PromptInfo::from_detected(&command_with_risk(Some(risk))).unwrap();
+            let body = copy_for(Kind::WaitingInput, "X", None, Some(&info)).body;
+            assert!(body.starts_with(&format!("{} · Install packages", word(level))), "{tag}: {body}");
+        }
+        assert_eq!(word("medium"), "Check first");
     }
 
     #[test]
