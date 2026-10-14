@@ -443,3 +443,24 @@ fn origin_of_cwd_finds_the_project_above_a_worktree() {
     assert_eq!(origin_of_cwd("/home/u/p/.puppet-master/worktrees/x").as_deref(), None.or(Some("/home/u/p")));
     assert_eq!(origin_of_cwd("/home/u/p"), None);
 }
+
+fn registry_with_pane(id: &str, cwd: &str) -> std::sync::Arc<parking_lot::Mutex<crate::pty::PaneRegistry>> {
+    let registry = std::sync::Arc::new(parking_lot::Mutex::new(crate::pty::PaneRegistry::new()));
+    let mut pane = crate::pty::PaneRegistry::test_pane_stub(id);
+    pane.info.cwd = cwd.to_string();
+    *pane.status.lock() = crate::pty::status::PaneStatus::Idle;
+    registry.lock().panes.insert(id.to_string(), pane);
+    registry
+}
+
+#[test]
+fn a_pane_working_in_a_worktree_finds_its_changes() {
+    let repo = repo();
+    let wt = create(&repo.path(), "run-pane").unwrap();
+    std::fs::write(Path::new(&wt.path).join("a.txt"), "alpha\nchanged\n").unwrap();
+    let registry = registry_with_pane("pane-wt", &wt.cwd);
+    let found = service::for_pane(&registry, "pane-wt").expect("the pane's worktree");
+    assert_eq!(found.entry.worktree.handle, "run-pane");
+    assert_eq!(found.state, "unreviewed");
+    assert_eq!(found.summary.map(|s| s.files_changed), Some(1));
+}

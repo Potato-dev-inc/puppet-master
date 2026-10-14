@@ -6,7 +6,7 @@ const s: HarnessScenario = {
   route: 'cockpit',
   select: PANE_CLAUDE,
   after: async (dom) => {
-    await dom.clickText('[role="tab"]', 'Receipt');
+    await dom.clickText('[role="tab"]', 'Changes');
     await dom.waitFor('.ck-changes-file');
     await dom.click('.ck-changes-file');
     await dom.sleep(800);

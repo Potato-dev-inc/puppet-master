@@ -1,14 +1,14 @@
 import type { HarnessScenario } from '../types';
 import { PANE_CLAUDE } from '../fixtures';
 
-// Receipt tab, a review started from the picker; the answer lands and Changes opens the first file with notes.
+// Changes tab, a review started from the picker; the answer lands and Changes opens the first file with notes.
 const s: HarnessScenario = {
   name: 'second-opinion-changes',
   route: 'cockpit',
   window: { width: 1280, height: 1100 },
   select: PANE_CLAUDE,
   after: async (dom) => {
-    await dom.clickText('[role="tab"]', 'Receipt');
+    await dom.clickText('[role="tab"]', 'Changes');
     await dom.waitFor('.ck-changes-file');
     await dom.clickText('button', 'Second opinion');
     await dom.waitFor('.ck-sheet');
