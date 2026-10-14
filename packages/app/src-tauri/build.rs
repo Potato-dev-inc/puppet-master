@@ -56,5 +56,16 @@ fn main() {
     if release || std::env::var_os("PM_FORCE_NEW_BUILD_ID").is_some() {
         println!("cargo:rerun-if-changed=.pm-always-new-build-id");
     }
+    // The end-to-end tests (`tests/fake_tui_e2e.rs`, feature `dev-fake-tui`) link the whole app. Like
+    // the app they need the Common Controls v6 manifest, or the exe does not load.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+        && std::env::var_os("CARGO_FEATURE_DEV_FAKE_TUI").is_some()
+    {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_tui_e2e.manifest");
+        println!("cargo:rerun-if-changed=tests/fake_tui_e2e.manifest");
+        println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg-tests=/MANIFESTINPUT:{}", manifest.display());
+    }
     tauri_build::build();
 }

@@ -527,6 +527,30 @@ the header's `pm` object); (3) add a test in `corpus_tests.rs` using the driver 
 (`deliver_prompt_traced`, `startup::replay_startup`, `receipt::replay_receipts`, or `run_to_end` for status); (4) revert
 the fix locally, see the test fail, restore it. More in the docs of `src/replay/mod.rs`.
 
+### Fake TUI (`pm-fake-tui`: end-to-end runs at zero tokens)
+
+`tools/pm-fake-tui/` is a standalone crate (own `Cargo.lock`, not part of the app build): a scriptable fake agent that runs on a
+real ConPTY and draws Claude Code 2.1.299 or Codex 0.162.1 screens as captured live (composer, dimmed suggestion, trust
+dialog, Bash and edit approvals, update menu, `Working (esc to interrupt)`, `Failed (exit -1)`, the usage-limit lines). A
+TOML/JSON script says what it does: on this prompt show that, wait, ask for approval, on this key do that, write a file, hit
+the limit, exit, crash. Format and quirks: `tools/pm-fake-tui/README.md`. Engine and renderer unit tests need no console:
+`cd tools/pm-fake-tui && cargo test`.
+
+The app side exists only with the `dev-fake-tui` cargo feature (never default, never shipped): `src/fake_tui/` registers the
+dev agent types `fake_claude` / `fake_codex` (the REAL `Claude` / `Codex` profiles, forwarded method by method, launching the
+fake under a PowerShell host shell like a real pane), builds a windowless Tauri app handle and the real pane observers, and
+exposes a small `World` / `Session` API. `tests/fake_tui_e2e.rs` drives the real `/agents/*` routes through it: run_agent ->
+pane -> delivery -> readiness -> status -> turn summary -> receipt, plus tours that read every fake screen back through the
+real profiles. No HTTP, no bridge port, no windows; the process runs as app profile `fake-tui-e2e`.
+
+```
+cd packages/app/src-tauri
+cargo test --features dev-fake-tui --test fake_tui_e2e -- --test-threads=1            # Windows, needs ConPTY
+cargo test --features dev-fake-tui --test fake_tui_e2e -- --test-threads=1 --ignored  # the TODO(feat/handoff-detect) test
+```
+
+Every live bug fixed from now on can ship its quirk as a script here (`tools/pm-fake-tui/README.md`, "Script format").
+
 ### Live regression (`scripts/pm-regression.mjs`)
 
 Drives the REAL MCP binary against the RUNNING app and real backends (spawns agents, costs money/time).

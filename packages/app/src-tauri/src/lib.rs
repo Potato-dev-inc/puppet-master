@@ -60,6 +60,9 @@ mod projections;
 mod pty;
 #[cfg(test)]
 mod replay;
+#[cfg(feature = "dev-fake-tui")]
+#[doc(hidden)]
+pub mod fake_tui;
 mod pwa_server;
 #[cfg(test)]
 mod tunnel_auth_tests;
