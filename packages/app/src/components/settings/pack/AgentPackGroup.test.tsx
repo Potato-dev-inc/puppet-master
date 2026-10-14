@@ -75,7 +75,7 @@ describe('AgentPackGroup', () => {
     expect(rows[0].textContent).toContain('4 skills to add');
     expect(rows[0].textContent).toContain('Already connected to Puppet Master');
     expect(rows[1].textContent).toContain('Connection to Puppet Master will be added');
-    expect(document.querySelector('[data-testid="pack-absent"]')?.textContent).toContain('Cursor Agent');
+    expect(document.querySelector('[data-testid="pack-absent"]')?.textContent).toBe('Not on this computer: Cursor Agent.');
     expect(api.apply).not.toHaveBeenCalled();
     await click(button('Show details'));
     expect(document.body.textContent).toContain('puppet-master/SKILL.md');

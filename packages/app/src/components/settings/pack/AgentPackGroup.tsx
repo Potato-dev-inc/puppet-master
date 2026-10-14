@@ -59,8 +59,9 @@ function PackSheet({ api, onClose, onDone }: { api: AgentPackApi; onClose: () =>
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const rows = report ? visibleRows(groupAgents(report.agents)) : [];
-  const absent = report ? groupAgents(report.agents).filter((r) => !rows.includes(r)) : [];
+  const grouped = report ? groupAgents(report.agents) : [];
+  const rows = visibleRows(grouped);
+  const absent = grouped.filter((r) => !rows.includes(r));
   const pending = pendingCount(rows);
 
   const install = async () => {
