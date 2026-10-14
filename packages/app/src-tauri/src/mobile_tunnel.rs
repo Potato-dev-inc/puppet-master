@@ -19,7 +19,7 @@ use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager};
 
 use crate::app_paths;
-use crate::pwa_server::{self, DevInfoPayload, PWA_PORT};
+use crate::pwa_server::{self, DevInfoPayload};
 use crate::tunnel_config::{self, TunnelConfigInput, TunnelConfigView};
 
 static TUNNEL_STATE: OnceCell<Arc<Mutex<TunnelState>>> = OnceCell::new();
@@ -84,7 +84,7 @@ impl TunnelState {
     }
 
     fn dev_info_payload(&self) -> DevInfoPayload {
-        let local_url = format!("http://127.0.0.1:{PWA_PORT}");
+        let local_url = format!("http://127.0.0.1:{}", pwa_server::pwa_port());
         let tunnel_url = self.tunnel_url.clone();
         let bridge_proxy_url = tunnel_url
             .as_ref()
@@ -176,6 +176,12 @@ pub fn start_mobile_tunnel(app: &AppHandle, bridge_direct_url: String) -> Result
         guard.pwa_server = Some(pwa_server);
     }
 
+    // A second app on this computer (`PUPPET_MASTER_PROFILE`) opens no public address unless asked.
+    if crate::app_paths::profile().is_some() && std::env::var("PUPPET_MASTER_TUNNEL").ok().as_deref() != Some("1") {
+        tracing::info!("profile: public tunnel off (set PUPPET_MASTER_TUNNEL=1 to open one)");
+        return Ok(());
+    }
+
     launch_tunnel(app)
 }
 
@@ -252,7 +258,7 @@ fn launch_tunnel(app: &AppHandle) -> Result<(), String> {
     };
 
     let cloudflared_bin = resolve_cloudflared_bin(app).map_err(&fail)?;
-    let local_target = format!("http://127.0.0.1:{PWA_PORT}");
+    let local_target = format!("http://127.0.0.1:{}", pwa_server::pwa_port());
     let mut command = Command::new(&cloudflared_bin);
     command
         .args(tunnel_config::cloudflared_args(&plan, &local_target))

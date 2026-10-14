@@ -43,7 +43,7 @@ pub async fn answer_pane_prompt(
 
 #[tauri::command]
 pub async fn interrupt_pane(app: AppHandle, state: State<'_, AppState>, pane_id: String) -> Result<(), String> {
-    registry_write_input(&state.registry, &app, &pane_id, "\u{3}", false, false, None)
+    registry_write_input(&state.registry, &app, &pane_id, "\u{3}", false, false, None, crate::pty::WriteOrigin::User)
 }
 
 #[tauri::command]
@@ -52,13 +52,27 @@ pub async fn new_pane(
     agent_id: String,
     account_id: Option<String>,
     isolation: Option<String>,
+    project_path: Option<String>,
 ) -> Result<String, String> {
     let isolated = match isolation.as_deref() {
         None | Some("") | Some("none") => false,
         Some("worktree") => true,
         Some(other) => return Err(format!("INVALID_ARGUMENT: isolation must be \"none\" or \"worktree\", got {other:?}")),
     };
-    crate::tray::new_pane_with(&app, &agent_id, crate::cockpit::Origin::CockpitUi, account_id.as_deref(), isolated)
+    let started = crate::tray::new_pane_in(
+        &app,
+        &agent_id,
+        crate::cockpit::Origin::CockpitUi,
+        account_id.as_deref(),
+        isolated,
+        project_path.as_deref(),
+    );
+    if started.is_ok() {
+        if let Some(project) = project_path.as_deref().filter(|p| !p.trim().is_empty()) {
+            crate::worktrees::folder::remember(&crate::app_paths::app_data_dir(), project);
+        }
+    }
+    started
 }
 
 #[tauri::command]
@@ -71,9 +85,10 @@ pub async fn pane_transcript(state: State<'_, AppState>, pane_id: String) -> Res
     crate::agent_runs::pane_api::pane_transcript(&state.registry, &pane_id)
 }
 
-/// Show (or create) the Settings window, optionally on a tab.
+/// Show Settings, optionally on a tab: inside the cockpit in Orchestration mode, the Settings window (shown
+/// or created) in Individual mode.
 #[tauri::command]
 pub async fn open_settings(app: AppHandle, tab: Option<String>) -> Result<(), String> {
-    crate::app_windows::open_settings_window(&app, tab.as_deref(), true);
+    crate::cockpit::open_settings(&app, tab.as_deref());
     Ok(())
 }

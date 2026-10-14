@@ -1,0 +1,298 @@
+/* Worktrees that ship: the project chip and folder step of the "+" menu, Create PR, the pull request
+   block with its GitHub checks, and the Copies tab. Monochrome: tokens only, no colour. */
+
+/* ---------- "+" menu: project chip and folder step ---------- */
+.cockpit .ck-menu.ck-menu--wide {
+  min-width: 280px;
+  max-width: 320px;
+}
+.cockpit .ck-menu-cap--row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cockpit .ck-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 150px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--sep);
+  font-size: 11px;
+  color: var(--label-2);
+  cursor: pointer;
+  transition: background 160ms var(--ease);
+}
+.cockpit .ck-chip:hover {
+  background: var(--fill-active);
+}
+.cockpit .ck-chip:focus-visible {
+  box-shadow: var(--focus);
+}
+.cockpit .ck-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-menu-note {
+  padding: 4px 8px 6px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--label-3);
+}
+.cockpit .ck-menu-note--err {
+  color: var(--label);
+}
+.cockpit .ck-menu-project {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cockpit .ck-menu-item--project {
+  height: auto;
+  min-height: 34px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  text-align: left;
+}
+.cockpit .ck-menu-item--project .ck-menu-hint {
+  flex: none;
+  white-space: nowrap;
+}
+.cockpit .ck-menu-project-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.cockpit .ck-menu-project-name {
+  font-size: 13px;
+  color: var(--label);
+}
+.cockpit .ck-menu-project-name.is-dim {
+  color: var(--label-3);
+}
+.cockpit .ck-menu-project-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--label-3);
+  font-family: var(--font-mono);
+  max-width: 200px;
+}
+.cockpit .ck-menu-remove {
+  flex: none;
+  padding: 0 8px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--label-2);
+  cursor: pointer;
+}
+.cockpit .ck-menu-remove:hover {
+  background: var(--fill-active);
+}
+.cockpit .ck-gitstep {
+  padding: 2px 4px 4px;
+}
+.cockpit .ck-gitstep-text {
+  margin: 2px 4px 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--label);
+}
+.cockpit .ck-gitstep-cmds {
+  list-style: none;
+  margin: 0 4px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--label-2);
+}
+.cockpit .ck-gitstep-fine {
+  margin: 0 4px 6px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--label-3);
+}
+.cockpit .ck-gitstep-actions {
+  display: flex;
+  gap: 8px;
+  margin: 8px 4px 6px;
+  flex-wrap: wrap;
+}
+
+/* ---------- Create PR sheet ---------- */
+.cockpit .ck-sheet--pr {
+  width: 520px;
+}
+.cockpit .ck-pr-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-pr-field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.cockpit .ck-pr-input,
+.cockpit .ck-pr-body {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+}
+.cockpit .ck-pr-input--short {
+  width: 140px;
+}
+.cockpit .ck-pr-body {
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.cockpit .ck-pr-input:focus-visible,
+.cockpit .ck-pr-body:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-pr-fine code,
+.cockpit .ck-pr-title,
+.cockpit .ck-sub code {
+  font-family: var(--font-mono);
+}
+.cockpit .ck-pr-command {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+  color: var(--label-2);
+}
+.cockpit .ck-pr-copy {
+  align-self: flex-start;
+}
+
+/* ---------- the pull request block in Changes ---------- */
+.cockpit .ck-pr {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+}
+.cockpit .ck-pr-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cockpit .ck-pr-title {
+  font-size: 13px;
+  color: var(--label);
+}
+.cockpit .ck-link {
+  font-size: 12px;
+  color: var(--label-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cockpit .ck-link:hover {
+  color: var(--label);
+}
+.cockpit .ck-pr-checks {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--label);
+}
+.cockpit .ck-pr-glyph {
+  display: inline-grid;
+  flex: none;
+}
+.cockpit .ck-pr-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.cockpit .ck-pr-actions:empty {
+  display: none;
+}
+.cockpit .ck-pr-details {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-pr-details summary {
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.cockpit .ck-changes-setup {
+  margin: 0 0 10px;
+}
+.cockpit .ck-changes-setup .ck-sub {
+  margin: 0;
+}
+.cockpit .ck-changes-setup.is-failed .ck-sub {
+  color: var(--label);
+}
+
+/* ---------- Project view, Copies tab ---------- */
+.cockpit .ck-memory-tabs {
+  margin: 0 0 12px;
+}
+.cockpit .ck-copies {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 560px;
+}
+.cockpit .ck-copies-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cockpit .ck-copies-label {
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-copies-input {
+  font-size: 12.5px;
+}
+.cockpit .ck-copies-fine {
+  font-size: 11.5px;
+  color: var(--label-3);
+}
+.cockpit .ck-copies-conductor {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cockpit .ck-copies-conductor .ck-sub {
+  margin: 0;
+}

@@ -96,3 +96,31 @@ fn the_same_command_asked_again_after_its_dialog_went_away_is_a_new_entry() {
     assert!(record_approval(&run, &bash, &mut recorded));
     assert_eq!(entries(&run).len(), 2);
 }
+
+// The same Bash approval read at two pane widths (real Claude Code 2.1.299 captures of ONE pending
+// dialog: the pane at the phone's 52 columns, then at the desktop's 120). VERIFY-R11 #2: answering
+// from the phone's Keys panel re-wrapped the pane, the command text broke at different places, and the
+// transcript listed the approval once per width change (live: wrapped, wide, wrapped = 3 entries).
+const BASH_52: &str = include_str!("../../../tui/claude/fixtures/bash_approval_52col_2_1_299_live.txt");
+const BASH_WIDE: &str = include_str!("../../../tui/claude/fixtures/bash_approval_wide_2_1_299_live.txt");
+
+#[test]
+fn one_approval_read_at_two_widths_is_one_prompt() {
+    let (narrow, wide) = (action_of(BASH_52), action_of(BASH_WIDE));
+    assert_ne!(narrow["command"], wide["command"], "the screens really do read the command differently");
+    assert_eq!(narrow["prompt_id"], wide["prompt_id"], "{narrow} vs {wide}");
+}
+
+#[test]
+fn a_pane_re_wrapping_under_one_approval_writes_one_transcript_entry() {
+    let run = run();
+    let (narrow, wide) = (action_of(BASH_52), action_of(BASH_WIDE));
+    let mut recorded = None;
+    // The live order of the supervisor's reads while the Keys panel moved the selection: wrapped,
+    // wide, wrapped, wide.
+    assert!(record_approval(&run, &narrow, &mut recorded));
+    for action in [&wide, &narrow, &wide] {
+        assert!(!record_approval(&run, action, &mut recorded), "the same approval is not a new entry");
+    }
+    assert_eq!(entries(&run).len(), 1, "{:?}", entries(&run));
+}

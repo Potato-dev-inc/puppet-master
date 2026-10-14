@@ -36,6 +36,9 @@ pub enum McpMode {
     Agent,
     Shell,
     Both,
+    /// Everything callable, and everything listed: the full catalog including aliases and
+    /// advanced tools. `Both` makes the same tools callable but lists only the core surface.
+    All,
 }
 
 impl McpMode {
@@ -44,6 +47,7 @@ impl McpMode {
             "agent" => Some(Self::Agent),
             "shell" => Some(Self::Shell),
             "both" => Some(Self::Both),
+            "all" => Some(Self::All),
             _ => None,
         }
     }
@@ -52,6 +56,7 @@ impl McpMode {
             Self::Agent => "agent",
             Self::Shell => "shell",
             Self::Both => "both",
+            Self::All => "all",
         }
     }
 }

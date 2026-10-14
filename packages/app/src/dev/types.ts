@@ -2,6 +2,7 @@
 import type { Account } from '../lib/accounts';
 import type { Question } from '../lib/questions';
 import type { PaneInfo } from '../lib/tauri-types';
+import type { CanaryStatus } from '../lib/canary';
 
 export interface HarnessScenario {
   /** `?harness=<name>`; unique across scenarios. */
@@ -20,11 +21,19 @@ export interface HarnessScenario {
     /** `false` hides the question card / the away digest. */
     questions?: boolean;
     digest?: boolean;
+    /**
+     * The Team group: absent or `false` = Team is off (the bridge answers `enabled: false`). An object
+     * turns it on; `can` is what this phone may do (default: everything), `missing` the count of
+     * updates the PC could not read.
+     */
+    team?: false | { can?: { dismiss: boolean; act: boolean }; missing?: number };
     /** Spoof navigator.userAgent (e.g. an iPhone, for the Add to Home Screen hint). */
     userAgent?: string;
     /** Bridge events delivered once the stream opens (`event: <name>`). */
     events?: { name: string; data: unknown }[];
   };
+  /** Phone route: the abilities this phone was paired with (`GET /pair/me`); default: all four. */
+  phoneCaps?: string[];
   /** Phone route: override the panes the mocked bridge lists. */
   phonePanes?: PaneInfo[];
   /** App theme the mocked settings store reports (default dark). */
@@ -35,6 +44,8 @@ export interface HarnessScenario {
   standbyIdleSecs?: number;
   /** Settings > Agents > Preload: the "held back" rows the status reports. */
   standbyBlocked?: { key: string; reason: string; fails: number; retry_in_ms: number; cold: boolean }[];
+  /** Version checks (`canary_status`): what the mocked backend reports. Default: no agents flagged. */
+  canary?: CanaryStatus;
   /** Settings: tab id passed as `?tab=`. */
   settingsTab?: string;
   /** User accounts the mocked backend reports (Settings > Agents > Accounts, the "+" menu). */
@@ -45,10 +56,22 @@ export interface HarnessScenario {
   awayDigest?: boolean;
   /** Run info the mocked `pane_run_info` returns per pane id (default: only the example Claude pane has one). */
   runs?: Record<string, import('../lib/cockpit-api').PaneRunInfo>;
+  /** Cockpit History: make `checkpoints_list` answer with this state instead of the example list. */
+  checkpointsState?: 'too_big';
   /** Override the example panes. */
   panes?: PaneInfo[];
   /** Pending `ask_user` questions the mocked `questions_list` returns. */
   questions?: Question[];
+  /** Settings > Security: the two agent-authority switches the mocked backend reports. */
+  authority?: { ask_before_agent_control: boolean; agents_may_merge: boolean };
+  /** Settings > Security: lines of the audit log the mocked backend returns (newest first). */
+  audit?: { seq: number; ts_ms: number; kind: string; who: string; summary: string }[];
+  /** Team (Inbox > Team, the toast, Settings > Labs): what the mocked `team_state` returns. */
+  team?: import('../lib/team').TeamState;
+  /** Worktrees that ship: what the mocked folder step, presets and GitHub commands answer. */
+  ship?: import('./ship-fixtures').ShipScenario;
+  /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */
+  teamConfig?: Partial<import('../lib/team').TeamConfigView>;
   /** Runs once after the first paint (and after the panes loaded); click things, press keys. */
   after?: (api: HarnessDom) => void | Promise<void>;
 }

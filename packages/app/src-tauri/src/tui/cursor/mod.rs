@@ -85,6 +85,11 @@ url = "{url}"
 headers = "{headers}"
 "#;
 
+/// Where Cursor reads skills ("Add Puppet Master to your agents").
+const SKILLS_HOST: &str = r#"
+dir = "~/.agents/skills"
+"#;
+
 impl TuiProfile for CursorAgent {
     fn id(&self) -> &'static str {
         "cursor_agent"
@@ -92,6 +97,10 @@ impl TuiProfile for CursorAgent {
 
     fn mcp_host(&self) -> Option<crate::tui::declarative::schema::McpHostTable> {
         crate::toolbelt::host_from_toml(MCP_HOST)
+    }
+
+    fn skills_host(&self) -> Option<crate::agent_pack::SkillsHostTable> {
+        crate::agent_pack::skills_host_from_toml(SKILLS_HOST)
     }
 
     fn instruction_files(&self) -> Vec<InstructionFile> {
@@ -226,6 +235,11 @@ impl TuiProfile for CursorAgent {
 
     fn busy_marker(&self, visible_tail: &str) -> Option<bool> {
         Some(screen::shows_work_in_progress(visible_tail))
+    }
+
+    /// The framed input box read from the screen (`screen::input_box`).
+    fn ready_recogniser(&self, screen: &str) -> Option<crate::tui::ComposerState> {
+        Some(screen::input_box(screen))
     }
 
     /// With no spinner and no stop hint on screen, 700ms of stillness is a finished turn: the

@@ -1,0 +1,14 @@
+# Live capture 2026-10-14 22:33 (round 11 build 9136d1f-dirty), Claude Code 2.1.299, fresh git-init folder with the trust dialog,
+# one real task (Create a file named note.txt ... then reply done). Times are ms since the pane was created.
+# pane-status = the SSE event; answer = the trust choice POST returned (turn_summary::record_answer runs right after);
+# dispatched = the run typed the task (turn_summary::note_dispatched, just before the pane-status running it causes).
+# Source: D:/pm-night/r12/evidence/cap1-sse.jsonl and the cap3.mjs log. Note: NO pane-status running event for the pane starting.
+1478 pane-status waiting_input
+210856 answer workspace_trust trust
+210926 pane-status running
+212379 pane-status idle
+213212 dispatched
+213292 pane-status running
+218172 pane-status idle
+# (live result, before the fix) turn-summary turn=1 approvals=0
+# (live result, before the fix) turn-summary turn=2 approvals=0

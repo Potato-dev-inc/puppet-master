@@ -146,7 +146,7 @@ fn native_and_tui_paths_write_transcript_events() {
         &project_path,
         &operation,
         "assistant_final",
-        "The connection fails because the token expired.",
+        &crate::redact::text("The connection fails because the token expired."),
     );
     let page = transcript::read(&project_path, &operation, 0).unwrap();
     let kinds: Vec<_> = page

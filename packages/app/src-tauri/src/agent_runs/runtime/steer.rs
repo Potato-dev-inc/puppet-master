@@ -88,7 +88,7 @@ pub fn send_message(
             | Disposition::Queued
             | Disposition::Deferred
     ) {
-        transcript::append(project, &snapshot.operation_id, "user_steer", &message);
+        transcript::append(project, &snapshot.operation_id, "user_steer", &crate::redact::text(&message));
     }
     let mut value = messaging::receipt_value(&receipt);
     let live = capabilities::for_snapshot(&snapshot).live_messages;

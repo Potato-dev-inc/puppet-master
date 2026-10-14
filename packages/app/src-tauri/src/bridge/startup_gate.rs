@@ -7,10 +7,14 @@
 //!
 //! The pane I/O is behind [`GateIo`] so the sequence is unit-tested without a PTY.
 //!
+//! Keys are pressed only with a `GatePermit` (`agent_runs::readiness`): issued for a gate the profile
+//! declares, recognised on the latest screen, for exactly that gate's keys.
+//!
 //! Agent-agnostic: nothing here names an agent. Per-agent screens live in `tui/<agent>/screen.rs`.
 
 use std::time::Duration;
 
+use crate::agent_runs::readiness::{self, GatePermit, Observation, Readiness};
 use crate::tui::{StartupGate, TuiProfile};
 
 /// More than this many gates in a row is a loop, not a startup sequence.
@@ -23,7 +27,12 @@ const SETTLE: Duration = Duration::from_millis(300);
 
 pub(crate) trait GateIo {
     fn screen(&mut self) -> String;
-    fn write(&mut self, keys: &str) -> Result<(), String>;
+    /// The screen with the pane's output position and agent process, for a readiness verdict.
+    fn observe(&mut self) -> Observation {
+        Observation::screen_only(self.screen())
+    }
+    /// Presses the permit's keys (`GatePermit::keys`).
+    fn write(&mut self, permit: &GatePermit) -> Result<(), String>;
     fn pause(&mut self, duration: Duration);
 }
 
@@ -45,17 +54,29 @@ pub(crate) fn dismiss_startup_gates(io: &mut dyn GateIo, profile: &dyn TuiProfil
         blocked: None,
     };
     for _ in 0..MAX_GATES {
-        let before = io.screen();
-        let Some(gate) = profile.startup_gate(&before) else {
-            return report;
+        let verdict = readiness::assess(profile, io.observe());
+        // Only startup screens are closed here; a dialog (the prompt pseudo-gate), a shell prompt or
+        // an input box is somebody else's business.
+        let gate = match verdict.readiness() {
+            Readiness::Gate(gate) if gate.id != readiness::PROMPT_GATE.id => *gate,
+            _ => return report,
         };
-        let Some(keys) = gate.dismiss else {
+        let before = verdict.screen().to_string();
+        let Some(permit) = verdict.gate_permit() else {
             report.blocked = Some(gate);
             return report;
         };
-        if io.write(keys).is_err() {
-            report.blocked = Some(gate);
-            return report;
+        match io.write(&permit) {
+            // Audit: Puppet Master pressed keys on the person's behalf. Only after the write
+            // succeeded, the way delivery does it (`agent_runs/delivery.rs`): a refused or stale
+            // write pressed nothing.
+            Ok(()) => crate::audit::note_gate_dismissal(gate.id, gate.summary, permit.keys()),
+            // The screen moved between the look and the keys: look again (counts as a round).
+            Err(error) if error.starts_with(readiness::PERMIT_STALE) => continue,
+            Err(_) => {
+                report.blocked = Some(gate);
+                return report;
+            }
         }
         let mut changed = false;
         for _ in 0..CHANGE_POLLS {
@@ -74,7 +95,7 @@ pub(crate) fn dismiss_startup_gates(io: &mut dyn GateIo, profile: &dyn TuiProfil
     }
     // Still a gate after the allowed number of rounds.
     let last = io.screen();
-    report.blocked = profile.startup_gate(&last);
+    report.blocked = crate::canary::strict::startup_gate(profile, &last);
     report
 }
 
@@ -89,15 +110,20 @@ impl GateIo for PaneGateIo<'_> {
         crate::pty::registry_read_snapshot(self.registry, self.pane_id).unwrap_or_default()
     }
 
-    fn write(&mut self, keys: &str) -> Result<(), String> {
+    fn observe(&mut self) -> Observation {
+        crate::agent_runs::delivery::observe_pane(self.registry, self.pane_id)
+    }
+
+    fn write(&mut self, permit: &GatePermit) -> Result<(), String> {
         crate::pty::registry_write_input(
             self.registry,
             self.app,
             self.pane_id,
-            keys,
+            permit.keys(),
             false,
             false,
             None,
+            crate::pty::WriteOrigin::Gate(permit),
         )
     }
 
@@ -126,10 +152,10 @@ pub(super) fn dismiss_for_operation(
             &operation.project_path,
             &operation.operation_id,
             "startup",
-            &format!(
+            &crate::redact::text(&format!(
                 "closed startup screen before the task was typed: {}",
                 report.dismissed.join(", ")
-            ),
+            )),
         );
     }
     report
@@ -145,14 +171,20 @@ mod tests {
         at: usize,
         written: Vec<String>,
         ignore_keys: bool,
+        /// Every write is refused (a pane that is gone, a permit the pane no longer accepts).
+        fail_writes: bool,
     }
 
     impl GateIo for FakePane {
         fn screen(&mut self) -> String {
             self.screens[self.at].to_string()
         }
-        fn write(&mut self, keys: &str) -> Result<(), String> {
-            self.written.push(keys.to_string());
+        fn write(&mut self, permit: &GatePermit) -> Result<(), String> {
+            if self.fail_writes {
+                return Err("the pane refused the keys".into());
+            }
+            permit.admit("", permit.keys(), false, None)?;
+            self.written.push(permit.keys().to_string());
             if !self.ignore_keys && self.at + 1 < self.screens.len() {
                 self.at += 1;
             }
@@ -192,6 +224,7 @@ mod tests {
             at: 0,
             written: Vec::new(),
             ignore_keys: false,
+            fail_writes: false,
         }
     }
 
@@ -258,5 +291,48 @@ mod tests {
         let mut pane = pane(vec!["NOTICE"]);
         assert_eq!(dismiss_startup_gates(&mut pane, &Plain).blocked, None);
         assert!(pane.written.is_empty());
+    }
+
+    /// The audit lines about one gate id (the global test log is shared by parallel tests, so each
+    /// audit test uses a gate id of its own).
+    fn audited(gate: &str) -> Vec<crate::audit::Entry> {
+        crate::audit::global()
+            .recent(500)
+            .into_iter()
+            .filter(|entry| entry.kind == "gate_dismissal" && entry.detail["gate"] == gate)
+            .collect()
+    }
+
+    /// Notice with a gate id only one test uses.
+    struct Audited(&'static str);
+    impl TuiProfile for Audited {
+        fn id(&self) -> &'static str {
+            "gate_audit_probe"
+        }
+        fn startup_gate(&self, screen: &str) -> Option<StartupGate> {
+            screen.contains("NOTICE").then_some(StartupGate { id: self.0, summary: "an update notice", dismiss: Some("\u{1b}") })
+        }
+    }
+
+    #[test]
+    fn a_dismissal_the_bridge_makes_is_written_to_the_audit_log() {
+        let gate = "audit-probe-dismissed";
+        let mut pane = pane(vec!["NOTICE", "READY"]);
+        let report = dismiss_startup_gates(&mut pane, &Audited(gate));
+        assert_eq!(report.dismissed, vec![gate]);
+        let lines = audited(gate);
+        assert_eq!(lines.len(), 1, "one dismissal, one line: {lines:?}");
+        assert_eq!(lines[0].detail["keys"], "Esc");
+        assert!(lines[0].summary.contains("an update notice"), "{}", lines[0].summary);
+    }
+
+    #[test]
+    fn a_write_that_failed_is_not_audited_because_nothing_was_pressed() {
+        let gate = "audit-probe-refused";
+        let mut pane = pane(vec!["NOTICE", "READY"]);
+        pane.fail_writes = true;
+        let report = dismiss_startup_gates(&mut pane, &Audited(gate));
+        assert!(report.dismissed.is_empty());
+        assert!(audited(gate).is_empty(), "{:?}", audited(gate));
     }
 }

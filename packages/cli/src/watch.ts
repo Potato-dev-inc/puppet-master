@@ -1,4 +1,4 @@
-import { readBridgePort } from '@puppet-master/shared/bridge-port';
+import { readBridgePort, readLocalSecretHeaders } from '@puppet-master/shared/bridge-port';
 
 export type WatchTerminalStatus =
   | 'completed'
@@ -79,7 +79,7 @@ async function bridgeJson<T>(
     const init: RequestInit = {
       method,
       signal: controller.signal,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...(await readLocalSecretHeaders()), 'Content-Type': 'application/json' },
     };
     if (body !== undefined) {
       init.body = JSON.stringify(body);

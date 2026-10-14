@@ -56,6 +56,25 @@ pub struct Answer {
     pub answered_by: String,
 }
 
+/// What a consent card is about. Present only on questions Puppet Master itself raised for an agent
+/// that wants to control something it did not start (`agent_authority`); an agent cannot set it
+/// through `ask_user`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsentInfo {
+    /// `take_over` or `answer_prompt`.
+    pub action: String,
+    /// Who is asking, in the words the card uses ("Claude Code", or "An agent").
+    pub requester: String,
+    /// What it wants to control or answer in, in the words the card uses ("Codex").
+    pub target: String,
+    /// The pane it is about, when there is one: the card shows the pane's own name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+    /// For `answer_prompt`: the plain risk level of the prompt (`medium` or `high`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Question {
     pub id: String,
@@ -79,6 +98,9 @@ pub struct Question {
     pub state: QuestionState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub answer: Option<Answer>,
+    /// Set when this is a consent card, not a question an agent asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consent: Option<ConsentInfo>,
     #[serde(skip)]
     resolved_at_ms: Option<u64>,
 }
@@ -94,6 +116,8 @@ pub struct NewQuestion {
     pub context: Option<String>,
     pub timeout_s: Option<u64>,
     pub urgency: Option<String>,
+    /// Only `agent_authority` sets this.
+    pub consent: Option<ConsentInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -247,6 +271,7 @@ impl QuestionStore {
             expires_at_ms: now + timeout_s * 1000,
             state: QuestionState::Pending,
             answer: None,
+            consent: new.consent,
             resolved_at_ms: None,
         };
         inner.items.push(question.clone());
@@ -286,11 +311,20 @@ impl QuestionStore {
         answered_by: &str,
         now: u64,
     ) -> Result<Resolution, QuestionError> {
-        let mut inner = self.inner.lock();
-        let expired = Self::expire_locked(&mut inner, now);
-        let result = Self::answer_locked(&mut inner, id, choice_id, text, answered_by, now);
-        if expired || matches!(&result, Ok(r) if r.accepted) {
-            self.bump(&mut inner);
+        let result = {
+            let mut inner = self.inner.lock();
+            let expired = Self::expire_locked(&mut inner, now);
+            let result = Self::answer_locked(&mut inner, id, choice_id, text, answered_by, now);
+            if expired || matches!(&result, Ok(r) if r.accepted) {
+                self.bump(&mut inner);
+            }
+            result
+        };
+        // After the lock is released: the observer may take other locks and write the audit log.
+        if let Ok(resolution) = &result {
+            if resolution.accepted {
+                crate::agent_authority::consent::on_resolved(&resolution.question);
+            }
         }
         result
     }
@@ -351,24 +385,30 @@ impl QuestionStore {
 
     /// Dismiss (person) or cancel (asking agent). Idempotent like `answer`.
     pub fn dismiss(&self, id: &str, now: u64) -> Result<Resolution, QuestionError> {
-        let mut inner = self.inner.lock();
-        let expired = Self::expire_locked(&mut inner, now);
-        let Some(q) = inner.items.iter_mut().find(|q| q.id == id) else {
-            if expired {
+        let resolution = {
+            let mut inner = self.inner.lock();
+            let expired = Self::expire_locked(&mut inner, now);
+            let Some(q) = inner.items.iter_mut().find(|q| q.id == id) else {
+                if expired {
+                    self.bump(&mut inner);
+                }
+                return Err(QuestionError::new("QUESTION_NOT_FOUND", format!("no question {id}")));
+            };
+            let accepted = q.state == QuestionState::Pending;
+            if accepted {
+                q.state = QuestionState::Cancelled;
+                q.resolved_at_ms = Some(now);
+            }
+            let question = q.clone();
+            if accepted || expired {
                 self.bump(&mut inner);
             }
-            return Err(QuestionError::new("QUESTION_NOT_FOUND", format!("no question {id}")));
+            Resolution { accepted, question }
         };
-        let accepted = q.state == QuestionState::Pending;
-        if accepted {
-            q.state = QuestionState::Cancelled;
-            q.resolved_at_ms = Some(now);
+        if resolution.accepted {
+            crate::agent_authority::consent::on_resolved(&resolution.question);
         }
-        let question = q.clone();
-        if accepted || expired {
-            self.bump(&mut inner);
-        }
-        Ok(Resolution { accepted, question })
+        Ok(resolution)
     }
 
     /// Block until the question leaves `Pending` or `wait` passes. Returns its latest state,

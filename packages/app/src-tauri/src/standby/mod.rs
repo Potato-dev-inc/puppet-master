@@ -140,6 +140,13 @@ pub fn discard_agent(agent_type: &str) -> usize {
     pool().map_or(0, |pool| pool.discard_agent(agent_type, "definition_changed"))
 }
 
+/// The agents in strict mode (`crate::canary`) go cold: no warm worker for them until they leave it.
+pub fn set_strict_agents(agents: &[String]) {
+    if let Some(pool) = pool() {
+        pool.set_strict_agents(agents);
+    }
+}
+
 /// Save new settings and apply them at once (standbys that are no longer allowed are shut down).
 pub fn set_config(config: StandbyConfig) -> Result<StandbyConfig, String> {
     let pool = pool().ok_or("the standby pool is not running")?;

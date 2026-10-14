@@ -204,7 +204,7 @@ impl Supervisor {
                     &current.project_path,
                     &current.operation_id,
                     "diagnostic",
-                    &format!("{}: {}", error.code, error.message),
+                    &crate::redact::text(&format!("{}: {}", error.code, error.message)),
                 );
                 if self.fail_run(current, error) {
                     return Step::Finished;
@@ -255,7 +255,7 @@ impl Supervisor {
                     &current.project_path,
                     &current.operation_id,
                     "delivery",
-                    "pane idle with no activity for 3s; Enter sent once more",
+                    &crate::redact::text("pane idle with no activity for 3s; Enter sent once more"),
                 );
                 // Empty text + newline writes just Enter.
                 let _ = crate::pty::registry_write_input(
@@ -266,6 +266,7 @@ impl Supervisor {
                     true,
                     false,
                     None,
+                    crate::pty::WriteOrigin::Nudge,
                 );
                 false
             }
@@ -366,7 +367,7 @@ impl Supervisor {
             &current.project_path,
             &current.operation_id,
             "assistant_final",
-            &result,
+            &crate::redact::text(&result),
         );
         self.finish_run(current, Some(result), capture)
     }
@@ -389,13 +390,13 @@ impl Supervisor {
                 &current.project_path,
                 &current.operation_id,
                 "delivery",
-                "reply was not on the visible rows when the pane went idle; recovered by re-reading the pane",
+                &crate::redact::text("reply was not on the visible rows when the pane went idle; recovered by re-reading the pane"),
             );
             transcript::append(
                 &current.project_path,
                 &current.operation_id,
                 "assistant_final",
-                &result,
+                &crate::redact::text(&result),
             );
             if self.finish_run(current, Some(result), ResultCapture::Inferred) {
                 return true;
@@ -411,7 +412,7 @@ impl Supervisor {
             &current.project_path,
             &current.operation_id,
             "diagnostic",
-            &error.context.to_string(),
+            &crate::redact::text(&error.context.to_string()),
         );
         self.fail_run(current, error)
     }
@@ -425,7 +426,7 @@ impl Supervisor {
                 &current.project_path,
                 &current.operation_id,
                 "assistant_final",
-                &result,
+                &crate::redact::text(&result),
             );
             if self.finish_run(current, Some(result), ResultCapture::Inferred) {
                 return true;
@@ -436,7 +437,7 @@ impl Supervisor {
             &current.project_path,
             &current.operation_id,
             "diagnostic",
-            &diagnostics.to_string(),
+            &crate::redact::text(&diagnostics.to_string()),
         );
         let _ = operations::add_warning(
             &current.project_path,
@@ -459,6 +460,7 @@ impl Supervisor {
                 false,
                 false,
                 None,
+                crate::pty::WriteOrigin::Nudge,
             );
         }
         // Visible-first: the turn never started, so a headless-capable agent retries headless.

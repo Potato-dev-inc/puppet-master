@@ -86,6 +86,21 @@ pub struct TurnSummary {
     pub sentence: String,
 }
 
+/// The text parts of a summary, for `crate::redact::scrub` (ids, counts and fixed words are left alone).
+impl crate::redact::Scrub for TurnSummary {
+    fn scrub(&mut self, f: &mut dyn FnMut(&str) -> String) {
+        self.agent = f(&self.agent);
+        if let Some(files) = self.files.as_mut() {
+            files.paths.iter_mut().for_each(|p| *p = f(p));
+        }
+        self.approvals.iter_mut().for_each(|a| a.prompt = f(&a.prompt));
+        if let Some(prompt) = self.end.prompt.as_mut() {
+            *prompt = f(prompt);
+        }
+        self.sentence = f(&self.sentence);
+    }
+}
+
 /// Everything `assemble` needs; built by the tracker from the outside world.
 #[derive(Debug, Clone)]
 pub struct Facts {

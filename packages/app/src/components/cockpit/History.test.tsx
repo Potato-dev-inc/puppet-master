@@ -116,6 +116,10 @@ describe('History timeline', () => {
     expect(host.textContent).toContain('Checkpoints are off');
     await mount(mockApi({ state: 'no_git', message: "Checkpoints need Git, and Git isn't installed on this computer.", items: [] }));
     expect(host.textContent).toContain("Git isn't installed");
+    await mount(mockApi({ state: 'too_big', message: 'Undo is off for this folder: it is too big. Add big folders to .gitignore.', items: [] }));
+    expect(host.textContent).toContain('Undo is off for this folder');
+    expect(host.textContent).toContain('Add big folders to .gitignore.');
+    expect(host.querySelector('.ck-hist')).toBeNull();
   });
 
   it('shows the error when the list cannot be read', async () => {

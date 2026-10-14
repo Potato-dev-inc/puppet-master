@@ -56,6 +56,14 @@ struct Live {
     started_at_ms: u64,
     last_status: String,
     approvals: Vec<Approval>,
+    /// A prompt was typed into this turn (`note_dispatched`). A turn only the status opened is
+    /// either the user typing in the pane themselves or the agent starting up.
+    dispatched: bool,
+    /// Startup gates (folder trust, sign-in) answered while no turn was open, with the time they were
+    /// answered (tracker clock). The answer is sent before the pane's own `running` event arrives
+    /// (live: 104 ms before), so it finds no turn to belong to; the turn the status then opens takes
+    /// it over (see `on_status`), so the start-up can be told from a real turn.
+    startup_answers: Vec<(u64, Approval)>,
 }
 
 pub struct Tracker {
@@ -68,6 +76,15 @@ pub struct Tracker {
 /// (a redraw or resize read as "running"), not an agent turn. Live evidence: two 0.8s "turns"
 /// that followed a real 166s one and became its "Last turn".
 pub const BLIP_MS: u64 = 1_000;
+
+/// How long an answered startup gate waits for the pane's `running` event (live: about 0.1 s). A turn
+/// that opens later than this is not the agent starting up.
+pub const STARTUP_CARRY_MS: u64 = 10_000;
+
+/// Only startup screens were answered (at least one): the folder-trust dialog, a sign-in or setup screen.
+fn is_startup(approvals: &[Approval]) -> bool {
+    !approvals.is_empty() && approvals.iter().all(|a| crate::pane_prompt::STARTUP_GATE_KINDS.contains(&a.kind.as_str()))
+}
 
 fn is_rest(status: &str) -> bool {
     matches!(status, "idle" | "waiting_input" | "error")
@@ -93,8 +110,13 @@ impl Tracker {
                 }
                 entry.turn += 1;
                 entry.open = true;
-                entry.started_at_ms = self.env.now_ms();
+                let now = self.env.now_ms();
+                entry.started_at_ms = now;
                 entry.approvals.clear();
+                entry.dispatched = false;
+                // A startup gate answered just before this turn opened belongs to it.
+                let answers = std::mem::take(&mut entry.startup_answers);
+                entry.approvals.extend(answers.into_iter().filter(|(at, _)| now.saturating_sub(*at) <= STARTUP_CARRY_MS).map(|(_, a)| a));
             }
             return None;
         }
@@ -108,6 +130,13 @@ impl Tracker {
             && now.saturating_sub(entry.started_at_ms) < BLIP_MS
         {
             // Not a turn: give its number back so numbering stays the one checkpoints use.
+            entry.turn = entry.turn.saturating_sub(1);
+            entry.open = false;
+            return None;
+        }
+        if matches!(status, "idle" | "error") && !entry.dispatched && is_startup(&entry.approvals) {
+            // The agent starting up (its folder-trust or sign-in screen answered, then its composer),
+            // not a turn: nobody asked it anything yet. Counting it made the first real turn "Turn 2".
             entry.turn = entry.turn.saturating_sub(1);
             entry.open = false;
             return None;
@@ -135,13 +164,19 @@ impl Tracker {
         let mut live = self.live.lock();
         let entry = live.entry(pane_id.to_string()).or_default();
         entry.last_status = "running".to_string();
-        if entry.open || !self.env.pane(pane_id).is_some_and(|p| p.has_turns) {
+        if entry.open {
+            entry.dispatched = true;
+            return;
+        }
+        if !self.env.pane(pane_id).is_some_and(|p| p.has_turns) {
             return;
         }
         entry.turn += 1;
         entry.open = true;
+        entry.dispatched = true;
         entry.started_at_ms = self.env.now_ms();
         entry.approvals.clear();
+        entry.startup_answers.clear();
     }
 
     /// The turn number a checkpoint taken now belongs to. This is the single source of turn
@@ -153,14 +188,19 @@ impl Tracker {
         Some(if before && !entry.open { entry.turn + 1 } else { entry.turn.max(1) })
     }
 
-    /// An answered prompt belongs to the open turn (ignored when no turn is open).
+    /// An answered prompt belongs to the open turn. With no turn open it is ignored, except an answer
+    /// to a startup gate, which is kept for the turn the pane opens next (`startup_answers`).
     pub fn record_approval(&self, pane_id: &str, approval: Approval) {
         let mut live = self.live.lock();
-        if let Some(entry) = live.get_mut(pane_id).filter(|e| e.open) {
+        let now = self.env.now_ms();
+        let entry = live.entry(pane_id.to_string()).or_default();
+        if entry.open {
             let duplicate = !approval.prompt_id.is_empty() && entry.approvals.iter().any(|a| a.prompt_id == approval.prompt_id);
             if !duplicate {
                 entry.approvals.push(approval);
             }
+        } else if is_startup(std::slice::from_ref(&approval)) {
+            entry.startup_answers.push((now, approval));
         }
     }
 
@@ -180,10 +220,12 @@ impl Tracker {
             end_prompt,
             receipt: self.env.receipt(&ended.pane_id),
         });
+        // Secrets in a command or a prompt never reach the ring file (or the phone).
+        let summary = crate::redact::scrub(summary);
         if let Err(e) = self.store.lock().record(&PathBuf::from(&pane.cwd), summary.clone()) {
-            tracing::warn!(pane = %summary.pane_id, error = %e, "could not save turn summary ring file");
+            tracing::warn!(pane = %summary.get().pane_id, error = %e, "could not save turn summary ring file");
         }
-        Some(summary)
+        Some(summary.into_inner())
     }
 
     /// Oldest first; loads the pane's project file on first use so history survives a restart.

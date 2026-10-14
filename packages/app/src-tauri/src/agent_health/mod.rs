@@ -42,6 +42,7 @@ pub struct AgentHealth {
     /// Plain-language sentence for the state.
     pub reason: String,
     pub install_hint: Option<String>,
+    pub install_fallback: Option<String>,
     pub login_hint: Option<String>,
     /// A deep check is possible (headless, read-only capable, installed).
     pub can_test: bool,
@@ -55,6 +56,7 @@ pub struct Probe {
     pub installed: bool,
     pub version_command: Option<VersionCommand>,
     pub install_hint: Option<String>,
+    pub install_fallback: Option<String>,
     pub login_hint: Option<String>,
     pub can_test: bool,
 }
@@ -73,6 +75,7 @@ pub fn collect_probes() -> Vec<Probe> {
                 installed: d.installed,
                 version_command: if d.installed { profile.version_command() } else { None },
                 install_hint: d.install_hint,
+                install_fallback: d.install_fallback,
                 login_hint: d.login_hint,
                 can_test: d.installed && d.modes.headless && read_only.contains(&d.id),
             }
@@ -99,6 +102,7 @@ pub fn check_probe(probe: &Probe, timeout: Duration) -> AgentHealth {
         version: None,
         reason: String::new(),
         install_hint: probe.install_hint.clone(),
+        install_fallback: probe.install_fallback.clone(),
         login_hint: probe.login_hint.clone(),
         can_test: probe.can_test,
     };
@@ -327,6 +331,7 @@ fn unknown_agent(id: &str) -> AgentHealth {
         version: None,
         reason: "Puppet Master does not know this agent.".into(),
         install_hint: None,
+        install_fallback: None,
         login_hint: None,
         can_test: false,
     }

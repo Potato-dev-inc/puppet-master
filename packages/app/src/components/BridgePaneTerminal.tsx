@@ -24,6 +24,8 @@ interface Props {
   renderMode?: TerminalRenderMode;
   mobileInputDelayMs?: number;
   mobileInputVisible?: boolean;
+  /** This phone may not type (paired without it): no input box at all. */
+  disableMobileInput?: boolean;
   /** The grid that fits this view (the phone sizes the pane to it). */
   onFitGrid?: (grid: { cols: number; rows: number }) => void;
   /** Phone: false keeps the agent's rows while the keyboard is open (see useTerminalSession). */
@@ -42,6 +44,7 @@ export function BridgePaneTerminal({
   renderMode,
   mobileInputDelayMs,
   mobileInputVisible,
+  disableMobileInput,
   onFitGrid,
   keyboardResizesAgent,
   refreshSignal,
@@ -69,6 +72,7 @@ export function BridgePaneTerminal({
     ptyRows: pane.rows,
     mobileInputDelayMs,
     mobileInputVisible,
+    disableMobileInput,
     onFitGrid,
     keyboardResizesAgent,
     refreshSignal,

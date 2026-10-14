@@ -95,6 +95,11 @@ Only claim read-only if the CLI has a documented read-only mode AND you map it i
 `allow_shell`, `shell_default_on`, `trust_workspace`, `allowed_commands`. Each only works if the matching
 `when` segment exists (4.2) or, for `shell_default_on`, if the agent already runs shell commands unprompted.
 
+### `[profile]`
+`tested = ">=0.150, <0.170"`: the CLI versions the definition and its fixtures were checked on (a semver
+range). Outside it Puppet Master runs the agent in strict mode: it stops closing start-up notices for the
+person, shows an "Untested version" chip and keeps no warm copy. Optional; unset means no pin.
+
 ### `[env]`
 `set = { KEY = "value" }`, `unset = ["KEY"]`. Some keys are refused (`PATH`, `LD_PRELOAD`, `NODE_OPTIONS`,
 `PYTHONPATH`, ...).

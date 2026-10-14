@@ -27,6 +27,7 @@ class MockBridge {
   waits: Array<{ id: string; after_revision: number }> = [];
   getCount = 0;
   sessionHeaders: Array<string | undefined> = [];
+  secretHeaders: Array<string | undefined> = [];
   failNextWaitsWith = 0;
   private server?: Server;
   private sockets = new Set<import('node:net').Socket>();
@@ -79,6 +80,7 @@ class MockBridge {
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     this.sessionHeaders.push(req.headers['x-puppet-master-session'] as string | undefined);
+    this.secretHeaders.push(req.headers['x-pm-local-secret'] as string | undefined);
     const url = new URL(req.url ?? '/', 'http://x');
     const parts = url.pathname.split('/').filter(Boolean);
     let raw = '';
@@ -374,5 +376,26 @@ describe('puppet-master watch', () => {
     await done;
     assert.equal(code, 0);
     assert.equal(lines.filter((line) => line.status === 'completed').length, 1);
+  });
+});
+
+describe('the local secret', () => {
+  it('is sent on every request when the app wrote one beside the port file', async () => {
+    writeFileSync(join(dir, 'puppet-master.bridge.secret'), 'deadbeef0123\n');
+    bridge.add('op-1', 'completed', { result: 'r' });
+    const { code } = await watch(['op-1']);
+    assert.equal(code, 0);
+    assert.ok(bridge.secretHeaders.length > 0);
+    assert.deepEqual([...new Set(bridge.secretHeaders)], ['deadbeef0123']);
+  });
+
+  it('is simply left out for an older app that wrote none, and a garbled file is not sent', async () => {
+    bridge.add('op-1', 'completed', { result: 'r' });
+    assert.equal((await watch(['op-1'])).code, 0);
+    assert.deepEqual([...new Set(bridge.secretHeaders)], [undefined]);
+    bridge.secretHeaders.length = 0;
+    writeFileSync(join(dir, 'puppet-master.bridge.secret'), 'not hex!\r\nX-Evil: 1');
+    assert.equal((await watch(['op-1'])).code, 0);
+    assert.deepEqual([...new Set(bridge.secretHeaders)], [undefined]);
   });
 });

@@ -20,6 +20,8 @@ use crate::events::{PaneId, SystemEvent};
 
 mod command;
 mod idle;
+mod probe;
+pub(crate) use probe::{spawn_probe, ProbePty};
 mod pane_io;
 pub(crate) use pane_io::snapshot_text;
 mod spawn;
@@ -176,6 +178,7 @@ impl PaneRegistry {
     pub fn take(&mut self, id: &str) -> Option<PaneState> {
         super::hidden::forget(id);
         super::resize_clock::forget(id);
+        crate::flight::closed(id);
         self.panes.remove(id)
     }
 
@@ -183,6 +186,7 @@ impl PaneRegistry {
         for id in self.panes.keys() {
             super::hidden::forget(id);
             super::resize_clock::forget(id);
+            crate::flight::closed(id);
         }
         std::mem::take(&mut self.panes).into_values().collect()
     }
@@ -306,5 +310,9 @@ impl PaneRegistry {
 
 #[cfg(test)]
 mod codex_live_tests;
+#[cfg(test)]
+mod host_shell_tests;
+#[cfg(test)]
+mod live_permit_tests;
 #[cfg(test)]
 mod tests;

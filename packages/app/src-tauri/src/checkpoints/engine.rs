@@ -32,6 +32,9 @@ impl Default for Limits {
     }
 }
 
+/// What the user sees when a folder is too big to checkpoint (the History card and any error).
+pub const TOO_BIG_MESSAGE: &str = "Undo is off for this folder: it is too big. Add big folders to .gitignore.";
+
 #[derive(Debug, Clone)]
 pub enum CheckpointError {
     GitMissing,
@@ -49,11 +52,7 @@ impl std::fmt::Display for CheckpointError {
         match self {
             Self::GitMissing => f.write_str("Checkpoints need Git, and Git isn't installed on this computer."),
             Self::Disabled => f.write_str("Checkpoints are turned off in Settings."),
-            Self::TooLarge(bytes) => write!(
-                f,
-                "This folder has too much new data to checkpoint ({} MB). Add big folders to .gitignore.",
-                bytes / (1024 * 1024)
-            ),
+            Self::TooLarge(_) => f.write_str(TOO_BIG_MESSAGE),
             Self::NotFound => f.write_str("That checkpoint no longer exists."),
             Self::Running => f.write_str("The agent is working. Interrupt it first, then undo."),
             Self::RunOpen => f.write_str("A run is still open on this pane. Interrupt it first, then undo."),
@@ -79,6 +78,8 @@ pub enum Kind {
     After,
     /// Just before a prompt answer is sent.
     Answer,
+    /// Safety copy taken right before "Stop all agents" interrupts a running pane.
+    Stop,
     /// Safety copy taken right before a restore.
     Undo,
 }
@@ -89,6 +90,7 @@ impl Kind {
             Kind::Before => "before",
             Kind::After => "after",
             Kind::Answer => "answer",
+            Kind::Stop => "stop",
             Kind::Undo => "undo",
         }
     }
@@ -96,6 +98,7 @@ impl Kind {
         match s {
             "after" => Kind::After,
             "answer" => Kind::Answer,
+            "stop" => Kind::Stop,
             "undo" => Kind::Undo,
             _ => Kind::Before,
         }
@@ -271,6 +274,7 @@ fn label_for(kind: Kind, turn: u32) -> String {
         Kind::Before => format!("Before turn {turn}"),
         Kind::After => format!("After turn {turn}"),
         Kind::Answer => format!("Before answering a prompt (turn {turn})"),
+        Kind::Stop => format!("Before stopping (turn {turn})"),
         Kind::Undo => "Before undo".into(),
     }
 }
@@ -421,10 +425,53 @@ fn snapshot_locked(
     shadow.run(&["update-ref", refname.as_str(), commit.as_str()], None, None, &[])?;
     prune_locked(shadow, pane, limits.keep);
     if n % 10 == 0 {
-        // Occasional housekeeping; failures are not worth surfacing.
-        let _ = shadow.run(&["-c", "gc.auto=6700", "gc", "--auto", "--quiet"], None, None, &[]);
+        // Occasional housekeeping, off the snapshot path: `git gc --auto` can run for seconds.
+        schedule_gc(shadow);
     }
     Ok(Snapshot::Created(parse_message(n.to_string(), &commit, &tree, pane, &message)))
+}
+
+/// Shadow repositories with a `git gc` in flight (one at a time per repository).
+static GC_RUNNING: Lazy<Mutex<std::collections::HashSet<PathBuf>>> = Lazy::new(|| Mutex::new(Default::default()));
+
+/// Thread that runs `git gc`. Never the caller's: snapshots, the status hooks and the PTY reader
+/// must not wait for it.
+pub(crate) const GC_THREAD: &str = "pm-checkpoint-gc";
+
+/// Run `git gc --auto` on a short-lived worker thread. It does not take the snapshot lock: git
+/// makes gc safe next to other git commands, and `gc.pruneExpire` (one day) keeps objects a
+/// concurrent snapshot has written but not yet referenced. A second request while one is
+/// running is dropped; the next tenth snapshot asks again.
+fn schedule_gc(shadow: &Shadow) {
+    if !GC_RUNNING.lock().insert(shadow.git_dir.clone()) {
+        return;
+    }
+    let shadow = shadow.clone();
+    let spawned = std::thread::Builder::new().name(GC_THREAD.into()).spawn({
+        let shadow = shadow.clone();
+        move || {
+            #[cfg(test)]
+            gc_test_log::record(&shadow.git_dir);
+            // Failures are not worth surfacing. `autoDetach=false`: this thread is the background.
+            let _ = shadow.run(&["-c", "gc.auto=6700", "-c", "gc.autoDetach=false", "gc", "--auto", "--quiet"], None, None, &[]);
+            GC_RUNNING.lock().remove(&shadow.git_dir);
+        }
+    });
+    if spawned.is_err() {
+        GC_RUNNING.lock().remove(&shadow.git_dir);
+    }
+}
+
+/// Test probe: which thread ran gc for which repository.
+#[cfg(test)]
+pub(crate) mod gc_test_log {
+    use std::path::{Path, PathBuf};
+
+    pub(crate) static RAN: parking_lot::Mutex<Vec<(PathBuf, Option<String>)>> = parking_lot::Mutex::new(Vec::new());
+
+    pub(super) fn record(git_dir: &Path) {
+        RAN.lock().push((git_dir.to_path_buf(), std::thread::current().name().map(str::to_string)));
+    }
 }
 
 /// Delete refs beyond the newest `keep`. Returns how many were removed.

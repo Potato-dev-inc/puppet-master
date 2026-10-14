@@ -307,3 +307,13 @@ fn checkpoints_default_on_and_follow_the_definition() {
     let text = KILO.replace("dispatchable = true", "dispatchable = true\ncheckpoints = false");
     assert!(!profile(&text).checkpoints());
 }
+
+#[test]
+fn tested_versions_come_from_the_profile_table_and_default_to_no_pin() {
+    assert!(kilo().tested_versions().is_none(), "no [profile] table: no pin");
+    let pinned = profile(&format!("{KILO}\n[profile]\ntested = \">=0.150, <0.170\"\n"));
+    let range = pinned.tested_versions().expect("a declared range");
+    assert_eq!(range.as_str(), ">=0.150, <0.170");
+    assert!(range.contains(&semver::Version::parse("0.159.3").unwrap()));
+    assert!(!range.contains(&semver::Version::parse("0.170.0").unwrap()));
+}

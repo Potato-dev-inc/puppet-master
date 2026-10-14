@@ -245,7 +245,8 @@ pub fn copy_for(kind: Kind, label: &str, pane_title: Option<&str>, prompt: Optio
     match kind {
         Kind::WaitingInput => {
             let command = prompt
-                .map(|p| truncate_chars(&p.text, MAX_BODY_CHARS))
+                // Redact before cutting: a cut can leave half a secret that no rule recognises.
+                .map(|p| truncate_chars(crate::redact::text(&p.text).as_str(), MAX_BODY_CHARS))
                 .filter(|text| !text.is_empty())
                 .unwrap_or_else(|| "Waiting for your input".into());
             let body = match prompt.and_then(|p| p.risk.as_ref()) {
@@ -261,7 +262,8 @@ pub fn copy_for(kind: Kind, label: &str, pane_title: Option<&str>, prompt: Optio
         Kind::Question => Words {
             title: format!("{who} asks"),
             body: prompt
-                .map(|p| truncate_chars(&p.text, MAX_BODY_CHARS))
+                // Redact before cutting: a cut can leave half a secret that no rule recognises.
+                .map(|p| truncate_chars(crate::redact::text(&p.text).as_str(), MAX_BODY_CHARS))
                 .filter(|text| !text.is_empty())
                 .unwrap_or_else(|| "Has a question for you".into()),
         },

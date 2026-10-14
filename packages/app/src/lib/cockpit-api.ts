@@ -53,6 +53,12 @@ export interface WorktreeItem {
   /** `active`: an agent is still working in it. `unreviewed`: finished, not merged or discarded. */
   state: 'active' | 'unreviewed' | 'missing';
   summary: { files_changed: number; additions: number; deletions: number } | null;
+  /** The agent type that works in it (for "Send back to <agent>"). */
+  agent_type?: string | null;
+  /** What preparing the copy did (setup steps, files copied in). */
+  setup?: import('./ship-api').SetupReport | null;
+  /** The pull request made from this copy, with the last result of its GitHub checks. */
+  pr?: import('./ship-api').PrRef | null;
 }
 
 export interface WorktreeFile {
@@ -107,7 +113,7 @@ export interface Checkpoint {
 }
 
 export interface CheckpointList {
-  state: 'ok' | 'off' | 'no_git';
+  state: 'ok' | 'off' | 'no_git' | 'too_big';
   message: string;
   /** Newest first. */
   items: Checkpoint[];
@@ -219,8 +225,13 @@ export const cockpitApi = {
   answerPanePrompt: (paneId: string, promptId: string, choice: string) =>
     call<void>('answer_pane_prompt', { paneId, promptId, choice }),
   interruptPane: (paneId: string) => call<void>('interrupt_pane', { paneId }),
-  newPane: (agentId: string, accountId?: string, isolation?: 'none' | 'worktree') =>
-    call<string>('new_pane', { agentId, accountId: accountId ?? null, isolation: isolation ?? null }),
+  newPane: (agentId: string, accountId?: string, isolation?: 'none' | 'worktree', projectPath?: string) =>
+    call<string>('new_pane', {
+      agentId,
+      accountId: accountId ?? null,
+      isolation: isolation ?? null,
+      projectPath: projectPath ?? null,
+    }),
   paneWorktree: (paneId: string) => call<WorktreeItem | null>('pane_worktree', { paneId }),
   worktreeDiff: (projectPath: string | null, handle: string, path?: string) =>
     call<WorktreeDiff>('worktree_diff', { projectPath, handle, path: path ?? null }),
@@ -245,6 +256,10 @@ export const cockpitApi = {
 
   onModeChanged: (cb: (e: { mode: UiMode }) => void) => on('ui://mode-changed', cb),
   onSelect: (cb: (e: { pane_id: string }) => void) => on('cockpit://select', cb),
+  /** Rust asks the cockpit to show Settings inline (tray "Settings" in Orchestration mode). */
+  onSettingsOpen: (cb: (e: { tab?: string | null }) => void) => on('cockpit://settings', cb),
+  /** Rust asks a visible Settings window to move into the cockpit (the mode switched to Orchestration). */
+  onSettingsToInline: (cb: () => void) => on('settings://to-inline', cb),
   // The event is built where the pane's folder is unknown, so its risk cannot say "outside this
   // project". Re-read the prompt through the command (which knows the folder) before showing it.
   onPrompt: (cb: (e: { pane_id: string; prompt: PanePrompt | null }) => void) =>

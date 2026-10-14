@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaneInfo } from '@puppet-master/shared';
 import type { BridgeClient } from '../../lib/bridge';
+import type { Question } from '../../lib/questions';
 import type { LoopSignalInfo } from '../../lib/bridge-types';
 import { AgentsOverview } from './AgentsOverview';
 import { resetDigestCardForTests } from './DigestCard';
@@ -24,9 +25,24 @@ const pane = (id: string, status: string, created_at: number, extra = {}) =>
     ...extra,
   }) as unknown as PaneInfo;
 
+const QUESTION = {
+  id: 'q-1',
+  agent: 'Claude Code',
+  pane_id: null,
+  question: 'Keep the old route?',
+  choices: [{ id: 'keep', label: 'Keep it' }],
+  allow_free_text: false,
+  context: null,
+  urgency: 'normal',
+  created_at_ms: Date.now(),
+  expires_at_ms: Date.now() + 3_600_000,
+  state: 'pending',
+} as unknown as Question;
+
 const fakeBridge = {
   readBuffer: async () => 'Working on the thing\nsecond meaningful line here',
   digest: async () => ({ empty: true }),
+  listQuestions: async () => [QUESTION],
 } as unknown as BridgeClient;
 
 const labels = new Map([
@@ -63,6 +79,7 @@ async function mount(
     onOpen: (id: string) => void;
     onNew: () => void;
     stuck: Map<string, LoopSignalInfo>;
+    questionsRevision: number;
   }> = {},
 ) {
   const onOpen = props.onOpen ?? vi.fn();
@@ -77,6 +94,7 @@ async function mount(
         onOpen={onOpen}
         onNew={onNew}
         stuck={props.stuck}
+        questionsRevision={props.questionsRevision}
       />,
     );
   });
@@ -143,6 +161,12 @@ describe('phone AgentsOverview', () => {
     expect(open).toBeTruthy();
     act(() => open.click());
     expect(onNew).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a question card once when there are no panes', async () => {
+    await mount({ panes: [], questionsRevision: 0 });
+    expect(host.querySelectorAll('[data-question-id]')).toHaveLength(1);
+    expect(host.querySelectorAll('[aria-label="Questions from agents"]')).toHaveLength(1);
   });
 
   it('shows the connecting message until the bridge is ready', async () => {

@@ -1,16 +1,20 @@
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { projectName } from '../../lib/mobile-agent-tabs';
 import { hasEverSpawned } from '../../lib/agent-health';
+import { isConsent } from '../../lib/questions';
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { DotSpinner } from './DotSpinner';
 import { PaneStuckCard } from './StuckCard';
 import { itemsOfKind } from '../../lib/attention';
 import { useNeedsYou } from '../../hooks/useNeedsYou';
 import { AskNotices } from './AskNotices';
+import { CanaryNotices } from './CanaryNotices';
 import { formatElapsed, promptSummary, spinnerStatus } from './model';
+import { ConsentCard } from './ConsentCard';
 import { QuestionCard } from './QuestionCard';
 import { PaneErrorBody } from './InboxError';
 import { paneHeading } from './titles';
+import { TeamSection } from './team/TeamSection';
 
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
   // One list for every surface: the badge, the Doto counter and the sidebar group use its length.
@@ -18,7 +22,8 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
   const count = needs.length;
   const waiting = c.registry.paneList.filter((p) => itemsOfKind(needs, 'approval').some((i) => i.paneId === p.info.id));
   const errored = c.registry.paneList.filter((p) => itemsOfKind(needs, 'error').some((i) => i.paneId === p.info.id));
-  const asked = c.asked.questions;
+  const consents = c.asked.questions.filter(isConsent);
+  const asked = c.asked.questions.filter((q) => !isConsent(q));
   const noPanes = c.registry.paneList.length === 0 && c.registry.initialReady;
   const firstRun = noPanes && !hasEverSpawned();
   const stuckIds = itemsOfKind(needs, 'stuck').flatMap((i) => (i.paneId ? [i.paneId] : []));
@@ -48,6 +53,21 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
         )}
       </header>
 
+      {consents.length > 0 && (
+        <ul className="ck-list ck-q-list" aria-label="Agents asking to control a pane">
+          {consents.map((q) => (
+            <ConsentCard
+              key={q.id}
+              q={q}
+              paneName={q.consent?.pane_id ? c.names.get(q.consent.pane_id) : undefined}
+              now={c.now}
+              onAnswer={(answer) => void c.asked.answerQuestion(q.id, answer)}
+              onOpenPane={q.consent?.pane_id && c.registry.panes.has(q.consent.pane_id) ? () => c.select(q.consent!.pane_id!) : undefined}
+            />
+          ))}
+        </ul>
+      )}
+
       {asked.length > 0 && (
         <ul className="ck-list ck-q-list" aria-label="Questions from agents">
           {asked.map((q) => (
@@ -65,6 +85,7 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
       )}
 
       <AskNotices />
+      <CanaryNotices />
 
       {waiting.length > 0 && (
         <ul className="ck-list">
@@ -145,6 +166,8 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
           ))}
         </ul>
       )}
+
+      <TeamSection now={c.now} paneNames={c.names} />
     </div>
   );
 }

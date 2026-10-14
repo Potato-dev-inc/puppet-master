@@ -255,6 +255,17 @@ export interface PaneViewportResponse {
   restored?: { cols: number; rows: number } | null;
 }
 
+/** Body of `GET /team/cards`; `can` is what this phone's pairing allows. */
+export interface TeamCardsReply {
+  enabled: boolean;
+  active: boolean;
+  missing: number;
+  error: string | null;
+  cards: import('./team').TeamCard[];
+  jobs: import('./team').TeamJob[];
+  can: { dismiss: boolean; act: boolean };
+}
+
 export interface BridgeClient {
   baseUrl: string;
   listPanes(): Promise<PaneInfo[]>;
@@ -271,7 +282,7 @@ export interface BridgeClient {
   }): Promise<{ pane_id: string }>;
   killPane(paneId: string): Promise<void>;
   /** Panic button: interrupt every running agent pane. */
-  stopAllPanes(): Promise<{ stopped: { pane_id: string; agent_type: string; cwd: string }[]; failed: [string, string][] }>;
+  stopAllPanes(): Promise<{ stopped: { pane_id: string; agent_type: string; cwd: string; checkpoint_id?: string }[]; failed: [string, string][] }>;
   /** Pending `ask_user` questions. */
   listQuestions(): Promise<Question[]>;
   answerQuestion(id: string, answer: QuestionAnswer): Promise<{ accepted: boolean }>;
@@ -290,6 +301,14 @@ export interface BridgeClient {
   listAgentTypes(): Promise<unknown>;
   /** `GET /digest`: what happened since `since` (default: this device's last visit); `seen` stores now as the last visit. */
   digest?(opts?: { since?: number; seen?: boolean }): Promise<import('./cockpit-api').Digest & { empty: boolean; previousSeenMs: number | null }>;
+  /** `GET /team/cards` (needs `watch`): teammates' updates and my queued ones. Absent on old bridges. */
+  teamCards?(): Promise<TeamCardsReply>;
+  /** The team action routes (`/team/cards/{id}/dismiss|pull|queue`, `/team/jobs/{id}/apply|discard`). */
+  teamDismiss?(cardId: string): Promise<{ ok: boolean }>;
+  teamPull?(cardId: string): Promise<{ ok: boolean; result: string }>;
+  teamQueue?(cardId: string, paneId: string, when: 'idle' | 'now'): Promise<{ ok: boolean; result: import('./team').TeamJob }>;
+  teamApply?(jobId: string): Promise<{ ok: boolean; result: string }>;
+  teamDiscard?(jobId: string): Promise<{ ok: boolean }>;
   readBuffer(paneId: string, lines: number): Promise<string>;
   readRawBuffer(paneId: string, lines: number): Promise<number[]>;
   /** `GET /panes/{id}/screen`: the pane redrawn at its current size, for a viewer to replay. */
@@ -375,6 +394,8 @@ export interface BridgeClient {
     args: { answer: string; request_id?: string },
   ): Promise<unknown>;
   getSettings(): Promise<PublicSettings>;
+  /** What this phone may do (`GET /pair/me`). Absent on clients that are not a phone. */
+  pairMe?(): Promise<{ local: boolean; device_id?: string; caps: string[] }>;
   patchSettings(patch: Partial<PublicSettings>): Promise<PublicSettings>;
   postOrchestratorMessage(text: string, messageId: string): Promise<void>;
   postOrchestratorViewport(viewport: {
@@ -409,5 +430,7 @@ export type BridgeEvent =
   | { type: 'orchestrator-viewport'; width: number; height: number; active: boolean }
   /** Pending `ask_user` questions changed; refetch the list. `revision` increases with each change. */
   | { type: 'questions'; revision: number }
+  /** The PC refused typed input over the socket (`input-error` frame): `error` is its reason. */
+  | { type: 'input-refused'; pane_id: string; error: string }
   /** Long-poll only: events were missed (phone asleep, app restarted); re-read pane state. */
   | { type: 'resync' };

@@ -15,13 +15,14 @@ pub use engine::{Checkpoint, CheckpointError, FileChange, RestoreReport};
 /// For tests in other modules that need a real checkpoint store inside a folder.
 #[cfg(test)]
 pub(crate) use engine::{snapshot as test_snapshot, Kind as TestKind, Limits as TestLimits};
-pub use runtime::{before_answer, before_dispatch, live, note_dispatched, on_pane_status, PaneFacts, Runtime};
+pub use runtime::{before_answer, before_dispatch, before_stop, live, note_dispatched, on_pane_status, PaneFacts, Runtime};
 
 /// What the History tab and `GET /panes/{id}/checkpoints` show.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListView {
-    /// `ok`, `off` (turned off in Settings) or `no_git` (git is not installed).
+    /// `ok`, `off` (turned off in Settings), `no_git` (git is not installed) or `too_big` (the
+    /// folder has too much new data to snapshot; Undo is off for it).
     pub state: &'static str,
     pub message: String,
     /// Newest first.
@@ -36,6 +37,9 @@ pub(crate) fn list_view_with(rt: &Runtime, pane_id: &str) -> Result<ListView, St
     match rt.list(pane_id) {
         Ok(mut items) => {
             items.reverse();
+            if rt.folder_too_big(pane_id).is_some() {
+                return Ok(ListView { state: "too_big", message: engine::TOO_BIG_MESSAGE.to_string(), items });
+            }
             Ok(ListView { state: "ok", message: String::new(), items })
         }
         Err(CheckpointError::Disabled) => {

@@ -85,7 +85,13 @@ pub(super) fn route(
         && is_pane_typing_route(method, segments);
     if !paired_phone_typing {
         crate::mcp_sessions::authorize(session, method, &route_path, &request_body)
-            .map_err(|error| enrich_handle_error(error, registry))
+            .map_err(|error| {
+                // A refused write must not be silent: the app log hears of it once per pane.
+                if let (true, ["panes", pane_id, _]) = (is_pane_typing_route(method, segments), segments) {
+                    super::typing_refusals::note_refused(pane_id, super::typing_refusals::Channel::Http, &error.message);
+                }
+                enrich_handle_error(error, registry)
+            })
             .map_err(operation_http_error)?;
     }
 

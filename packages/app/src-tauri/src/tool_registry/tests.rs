@@ -333,12 +333,13 @@ fn agent_mode_advertises_worker_controls_without_terminal_tools() {
     ] {
         assert!(names.contains(&name), "agent mode missing {name}");
     }
-    assert!(names.contains(&"send_agent"));
-    assert!(names.contains(&"cancel_agent"));
+    // Aliases and OpenCode-specific tools stay callable in agent mode but are no longer listed.
+    for hidden in ["send_agent", "cancel_agent", "list_workers", "reply_opencode_question"] {
+        assert!(!names.contains(&hidden), "{hidden} must not be listed");
+        assert!(tool_visible_in_mode(hidden, McpMode::Agent), "{hidden} must stay callable");
+    }
     assert!(names.contains(&"list_agents"));
-    assert!(names.contains(&"list_workers"));
     assert!(names.contains(&"list_panes"));
-    assert!(names.contains(&"reply_opencode_question"));
     assert!(!names.contains(&"spawn_agent"));
     assert!(!names.contains(&"write_terminal_input"));
     assert!(!names.contains(&"press_key"));
@@ -399,7 +400,7 @@ fn prompts_include_status_check() {
 /// constant deliberately when a tool is added or changed; a pure refactor must not move it.
 #[test]
 fn catalog_version_is_pinned() {
-    assert_eq!(catalog_version(), "68-e4687e50f1687299");
+    assert_eq!(catalog_version(), "68-15f16298a721eee2");
 }
 
 /// Every tool input that names an agent (`agent_type`, or `backend` on quick_ask) uses the one

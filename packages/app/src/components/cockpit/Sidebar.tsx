@@ -1,5 +1,6 @@
 import { useContext, useEffect, useRef, useState } from 'react';
-import { NewAgentMenu } from './NewAgentMenu';
+import { NewAgentMenu, type ProjectChoice } from './NewAgentMenu';
+import { projectOfCwd, readCopyPreference, supportsCopies, writeCopyPreference } from '../../lib/ship-model';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { useNeedsYou } from '../../hooks/useNeedsYou';
 import { needsYouPaneIds } from '../../lib/attention';
@@ -34,7 +35,13 @@ export function Sidebar({
   const multiLogin = multiLoginAgents(list.map((p) => p.info));
   const lastTurn = useContext(LastTurnContext);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [isolated, setIsolated] = useState(false);
+  // The folder step: an explicit choice wins, else the selected pane's project.
+  const [chosen, setChosen] = useState<ProjectChoice | null>(null);
+  const selectedCwd = c.selectedId ? c.registry.panes.get(c.selectedId)?.info.cwd : undefined;
+  const project: ProjectChoice | null = chosen ?? projectOfCwd(selectedCwd);
+  const projectKey = project?.path ?? null;
+  const [isolated, setIsolated] = useState(() => readCopyPreference(projectKey));
+  useEffect(() => setIsolated(readCopyPreference(projectKey)), [projectKey]);
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const open = () => setMenuOpen(true);
@@ -123,26 +130,23 @@ export function Sidebar({
             <IconPlus />
           </button>
           {menuOpen && (
-            <div className="ck-menu ck-menu--left" role="menu">
+            <div className="ck-menu ck-menu--left ck-menu--wide" role="menu">
               <NewAgentMenu
                 entries={c.launchEntries}
                 readyAgents={c.readyAgents}
-                onStart={(agent, account) => void c.newAgent(agent, account, isolated)}
+                onStart={(agent, account) => {
+                  const copy = isolated && supportsCopies(project?.state);
+                  void (project ? c.newAgent(agent, account, copy, project.path) : c.newAgent(agent, account, copy));
+                }}
                 onClose={() => setMenuOpen(false)}
+                project={project}
+                onProject={setChosen}
+                isolated={isolated}
+                onIsolated={(on) => {
+                  setIsolated(on);
+                  writeCopyPreference(projectKey, on);
+                }}
               />
-              <div className="ck-menu-toggle" title="Work in a separate git copy so agents never edit the same files. Review and merge later.">
-                <span id="ck-sepcopy-label">Separate copy</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={isolated}
-                  aria-labelledby="ck-sepcopy-label"
-                  className="ck-switch"
-                  onClick={() => setIsolated(!isolated)}
-                >
-                  <span className="ck-switch-knob" />
-                </button>
-              </div>
             </div>
           )}
         </div>

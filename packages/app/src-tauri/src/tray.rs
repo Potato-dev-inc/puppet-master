@@ -308,8 +308,21 @@ mod runtime {
         account: Option<&str>,
         isolated: bool,
     ) -> Result<String, String> {
+        new_pane_in(app, agent, origin, account, isolated, None)
+    }
+
+    /// `new_pane_with` in a chosen project folder (the "+" menu's project chip) instead of the
+    /// default project. A warm worker belongs to the default project, so it is not claimed then.
+    pub fn new_pane_in(
+        app: &AppHandle,
+        agent: &str,
+        origin: crate::cockpit::Origin,
+        account: Option<&str>,
+        isolated: bool,
+        project: Option<&str>,
+    ) -> Result<String, String> {
         emit_stage(app, agent, None, "claiming", false, None);
-        let result = open_new_pane(app, agent, origin, account, isolated);
+        let result = open_new_pane(app, agent, origin, account, isolated, project);
         if let Err(e) = &result {
             emit_stage(app, agent, None, "failed", false, Some(e));
         }
@@ -322,13 +335,30 @@ mod runtime {
         origin: crate::cockpit::Origin,
         account: Option<&str>,
         isolated: bool,
+        chosen_project: Option<&str>,
     ) -> Result<String, String> {
         use tauri::Emitter;
         let started = std::time::Instant::now();
         let state = app.state::<AppState>();
-        let project = crate::standby::default_project(&state.registry);
+        let chosen = chosen_project
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(|p| crate::project_path::expand_user_path(std::path::Path::new(p)))
+            .filter(|p| p.is_dir())
+            .map(|p| p.to_string_lossy().into_owned());
+        if chosen_project.is_some_and(|p| !p.trim().is_empty()) && chosen.is_none() {
+            return Err("FOLDER_MISSING: that project folder does not exist any more".into());
+        }
+        let default_project = crate::standby::default_project(&state.registry);
+        // The cockpit always names the project its chip shows; naming the default project is not
+        // a different project (a warm worker can still be claimed).
+        let chosen = chosen.filter(|p| {
+            crate::project_path::comparable_project_path(std::path::Path::new(p))
+                != crate::project_path::comparable_project_path(std::path::Path::new(&default_project))
+        });
+        let project = chosen.clone().unwrap_or(default_project);
         let account = account.map(str::trim).filter(|a| !a.is_empty());
-        let key = if isolated {
+        let key = if isolated || chosen.is_some() {
             None
         } else {
             crate::standby::preload_key(agent, &project).map(|key| key.with_account(account))
@@ -353,9 +383,15 @@ mod runtime {
         emit_stage(app, agent, None, "spawning", false, None);
         let spawn_dir = if isolated {
             let handle = format!("pane-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
-            crate::worktrees::create(&project, &handle)
-                .map_err(|e| format!("{}: {}", e.code, e.message))?
-                .cwd
+            if crate::worktrees::preset::load(std::path::Path::new(&project)).is_ok_and(|p| !p.is_empty()) {
+                emit_stage(app, agent, None, "spawning", false, Some("Setting up the copy"));
+            }
+            let worktree = crate::worktrees::create(&project, &handle)
+                .map_err(|e| format!("{}: {}", e.code, e.message))?;
+            if let Some(setup) = &worktree.setup {
+                emit_stage(app, agent, None, "spawning", false, Some(&setup.sentence()));
+            }
+            worktree.cwd
         } else {
             project.clone()
         };
@@ -385,7 +421,7 @@ mod runtime {
 
     fn handle(app: &AppHandle, id: &str) {
         match parse_command(id) {
-            Some(Command::Settings) => crate::app_windows::open_settings_window(app, None, true),
+            Some(Command::Settings) => crate::cockpit::open_settings(app, None),
             Some(Command::Quit) => crate::pane_windows::request_quit(app),
             Some(Command::Cockpit) => crate::cockpit::open_cockpit(app, None),
             Some(Command::StopAll) => {
@@ -461,7 +497,7 @@ mod runtime {
     }
 }
 
-pub use runtime::{init, new_pane, new_pane_for, new_pane_for_account, new_pane_with};
+pub use runtime::{init, new_pane, new_pane_for, new_pane_for_account, new_pane_in, new_pane_with};
 
 #[cfg(test)]
 mod tests {

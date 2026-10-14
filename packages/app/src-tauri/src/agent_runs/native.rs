@@ -299,7 +299,7 @@ pub(super) fn supervise_native_observation(
                 &operation.project_path,
                 &operation.operation_id,
                 "execution_failure",
-                &error,
+                &crate::redact::text(&error),
             );
             let failure = OperationError::new("NATIVE_AGENT_ERROR", error, true);
             if let Ok(failed) = operations::mark_operation_state(
@@ -319,7 +319,7 @@ pub(super) fn supervise_native_observation(
                 &operation.project_path,
                 &operation.operation_id,
                 "assistant_final",
-                &evidence,
+                &crate::redact::text(&evidence),
             );
             let handle = if operation.agent_run_id.is_empty() {
                 operation.operation_id.as_str()

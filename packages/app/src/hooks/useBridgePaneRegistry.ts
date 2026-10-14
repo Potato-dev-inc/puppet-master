@@ -41,12 +41,16 @@ export function useBridgePaneRegistry(
   sendViaSocket?: SocketInputSender,
   /** Output went missing in transit (offsets show a hole): the viewer should redraw from the PC. */
   onStreamGap?: (paneId: string) => void,
+  /** The PC refused text typed into a pane (HTTP 403): the person must be told. */
+  onInputRefused?: (paneId: string, error: Error) => void,
 ): BridgePaneRegistryApi {
   const [panes, setPanes] = useState<Map<string, BridgePaneData>>(EMPTY);
   const panesRef = useRef(panes);
   panesRef.current = panes;
   const onStreamGapRef = useRef(onStreamGap);
   onStreamGapRef.current = onStreamGap;
+  const onInputRefusedRef = useRef(onInputRefused);
+  onInputRefusedRef.current = onInputRefused;
   const streamsRef = useRef<PaneStreamManager | null>(null);
   if (!streamsRef.current) {
     streamsRef.current = new PaneStreamManager({ onGap: (paneId) => onStreamGapRef.current?.(paneId) });
@@ -112,7 +116,8 @@ export function useBridgePaneRegistry(
   }, []);
 
   const makeTransport = useCallback(
-    (paneId: string) => makePaneTunnelTransport(bridge!, paneId, sendViaSocket),
+    (paneId: string) =>
+      makePaneTunnelTransport(bridge!, paneId, sendViaSocket, (id, error) => onInputRefusedRef.current?.(id, error)),
     [bridge, sendViaSocket],
   );
 

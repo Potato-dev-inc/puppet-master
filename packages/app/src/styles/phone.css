@@ -559,6 +559,50 @@ a.ph-row:active {
   color: var(--label-3);
 }
 
+/* ---------- team group (Agents screen) ---------- */
+.ph-team {
+  padding: 12px 14px 14px;
+}
+.ph-team-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ph-team-title {
+  font: 600 15px/1.3 var(--font-ui);
+  word-break: break-word;
+}
+.ph-team-when {
+  flex: none;
+  font: 400 13px/1.3 var(--font-ui);
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.ph-team-meta {
+  margin-top: 2px;
+  font: 400 13px/1.35 var(--font-ui);
+  color: var(--label-3);
+  word-break: break-word;
+}
+.ph-team-note {
+  margin: 6px 0 0;
+  font: 400 15px/1.35 var(--font-ui);
+  color: var(--label-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ph-team-btns {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ph-team-btns .ph-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 12px;
+}
+
 /* ---------- sheets ---------- */
 .ph-scrim {
   position: fixed;
@@ -866,4 +910,19 @@ a.ph-row:active {
 .ph-group > .ph-row + .ph-row,
 .ph-group > .ph-rowbtn + .ph-rowbtn {
   border-top: 1px solid var(--sep);
+}
+
+/* The PC refused what was typed: a plain line under the terminal. */
+.ph-note--refused {
+  border-top: 1px solid var(--sep);
+  border-bottom: 0;
+  padding-bottom: calc(8px + var(--safe-b));
+  color: var(--label);
+}
+
+/* A phone paired without "type": a line where the input box would be. */
+.ph-note--typing {
+  border-top: 1px solid var(--sep);
+  border-bottom: 0;
+  padding-bottom: calc(8px + var(--safe-b));
 }
