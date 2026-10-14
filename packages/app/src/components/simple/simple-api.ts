@@ -27,6 +27,8 @@ export interface PreviewFile {
 export interface SimpleApi {
   checkFolder: (path: string) => Promise<FolderCheck>;
   start: (input: StartInput) => Promise<Started>;
+  /** The next step on a project's run: a message, or the task again after the trust question. */
+  send: (project: string, handle: string, text: string) => Promise<{ status: string; pane_id: string | null }>;
   preview: (paneId: string) => Promise<PreviewFile | null>;
   openPreview: (paneId: string) => Promise<void>;
   pickFolder: () => Promise<{ path: string; name: string } | null>;
@@ -43,6 +45,7 @@ export const simpleApi: SimpleApi = {
   checkFolder: (path) => invoke<FolderCheck>('plain_check_folder', { path }),
   // Every field is a fact about what she wants. Nothing here can switch the copy off.
   start: (input) => invoke<Started>('plain_start', { input }),
+  send: (project, handle, text) => invoke<{ status: string; pane_id: string | null }>('plain_send', { project, handle, text }),
   preview: (paneId) => invoke<PreviewFile | null>('plain_preview', { paneId }),
   openPreview: (paneId) => invoke<void>('plain_open_preview', { paneId }),
   pickFolder: () => invoke<{ path: string; name: string } | null>('project_pick_folder'),

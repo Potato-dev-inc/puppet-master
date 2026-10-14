@@ -327,6 +327,7 @@ pub fn run() {
             commands::plain_start,
             commands::plain_preview,
             commands::plain_open_preview,
+            commands::plain_send,
             commands::project_recent,
             commands::project_forget,
             commands::project_remember,

@@ -75,3 +75,29 @@ pub async fn plain_open_preview(state: State<'_, AppState>, pane_id: String) -> 
     let Some(file) = plain_mode::preview::find_preview(&dir) else { return Err("NO_PAGE: nothing to open yet".into()) };
     plain_mode::open_in_default_app(&file)
 }
+
+/// Say something to the agent of a Simple project: the next step on its run. Used for the composer
+/// and to send the task again after she answered the folder-trust question (the run was parked on it
+/// and nothing was typed). A message sent while the agent works waits its turn (`send_agent` queues
+/// it). `project` is the folder the copy came from. Returns `{ status, pane_id }`.
+#[tauri::command]
+pub async fn plain_send(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project: String,
+    handle: String,
+    text: String,
+) -> Result<Value, String> {
+    if text.trim().is_empty() {
+        return Err("PROMPT_EMPTY: there is nothing to send".into());
+    }
+    let registry = state.registry.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let opts = crate::agent_runs::persist::FollowupOpts { background: true, ..Default::default() };
+        let view = crate::agent_runs::send_agent(&project, &handle, text, None, registry, app, opts)
+            .map_err(|e| format!("{}: {}", e.code, e.message))?;
+        Ok::<Value, String>(json!({ "status": view.status, "pane_id": view.pane_id }))
+    })
+    .await
+    .map_err(|e| format!("INTERNAL: {e}"))?
+}

@@ -27,7 +27,13 @@ const READ_ONLY = ['Look at files', 'Look at git', 'Look at git history', 'Look 
 
 const READ_WORDS: ApprovalWords = { what: 'look at your files', safe: NOTHING_CHANGES };
 
+/** Headlines Simple cannot put in its own words: the agent's screen shows instead (see screen-model.ts). */
+export const UNREADABLE = ['Answer the agent', 'Finish the startup screen', 'Allow without asking again'];
+
 const MEDIUM: Record<string, ApprovalWords> = {
+  'Trust this folder': { what: 'work in this folder', safe: 'It is a copy that PM made for you.' },
+  'Change a file': { what: 'change a file', safe: CHECK_FIRST },
+  'Run a command': { what: 'run a step that PM does not know', safe: CHECK_FIRST },
   'Change files in this project': { what: 'change files in your project', safe: CAN_GO_BACK },
   'Change files': { what: 'change files in your project', safe: CAN_GO_BACK },
   'Connect to another computer': { what: 'use the internet', safe: 'It may download something.' },
@@ -45,6 +51,8 @@ const MEDIUM: Record<string, ApprovalWords> = {
 };
 
 const LOW: Record<string, ApprovalWords> = {
+  'Change a file in this project': { what: 'change a file in your project', safe: CAN_GO_BACK },
+  'Run a simple command': { what: 'run a small step', safe: 'Nothing changes.' },
   'Run tests': { what: 'check that your project works', safe: 'Nothing changes.' },
   'Check or format the code': { what: 'check your project', safe: 'Nothing changes.' },
   'Check the code': { what: 'check your project', safe: 'Nothing changes.' },
@@ -57,6 +65,7 @@ const LOW: Record<string, ApprovalWords> = {
 
 /** What each high-risk headline would have done. Never asked, only told. */
 const BLOCKED: Record<string, string> = {
+  'Change a file outside this project': 'change a file outside your project',
   'Change files outside this project': 'change files outside your project',
   'Delete files outside this project': 'delete files outside your project',
   'Delete a folder outside this project': 'delete a folder outside your project',
@@ -97,7 +106,7 @@ export interface SimpleApproval {
 /** The plain version of a prompt with a risk, or `null` for a prompt without one. */
 export function simpleApproval(prompt: Pick<PanePrompt, 'risk'>): SimpleApproval | null {
   const risk = prompt.risk;
-  if (!risk) return null;
+  if (!risk || UNREADABLE.includes(risk.headline)) return null;
   if (risk.level === 'high') {
     const what = BLOCKED[risk.headline];
     return { kind: 'blocked', level: 'high', what: what ?? GENERIC.high.what, safe: '', matched: what ? risk.headline : null };
@@ -128,6 +137,7 @@ export function blockChoice(prompt: Pick<PanePrompt, 'choices'>): PromptChoice |
 
 /** Every headline this file knows, so the test can check them against `rules.rs`. */
 export const KNOWN_HEADLINES: string[] = [
+  ...UNREADABLE,
   ...READ_ONLY,
   ...Object.keys(MEDIUM),
   ...Object.keys(LOW),

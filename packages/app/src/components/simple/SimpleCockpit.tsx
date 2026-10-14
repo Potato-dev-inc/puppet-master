@@ -3,7 +3,7 @@
 //
 // Screens: Home (her projects), Make something, and one project. The project being looked at is
 // the cockpit's own selection, so a pane that closes (Keep, Throw away) lands back on Home.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { NeedsYouContext } from '../../hooks/useNeedsYou';
 import type { NeedsYouItem } from '../../lib/attention';
@@ -12,11 +12,13 @@ import { LastTurnContext } from '../cockpit/away-context';
 import type { TurnSummary } from '../../lib/cockpit-api';
 import '../../styles/simple.css';
 import { MakeSomething } from './MakeSomething';
-import { SimpleHome } from './SimpleHome';
+import { normalize } from './folder-guard';
+import { SimpleHome, useCopyMap } from './SimpleHome';
 import { SimpleProject } from './SimpleProject';
 import { useCopy } from './use-copy';
 
 type Screen = 'home' | 'make';
+
 
 function Project({ c, paneId, onBack }: { c: CockpitApi; paneId: string; onBack: () => void }) {
   return (
@@ -44,6 +46,19 @@ export function SimpleCockpit({
   lastTurn: ReadonlyMap<string, TurnSummary>;
 }) {
   const [screen, setScreen] = useState<Screen>('home');
+  // A project that was just started opens as soon as its pane is listed. The start answer may come
+  // before the pane exists, so the project is also found by its folder.
+  const [opening, setOpening] = useState<{ paneId: string | null; folder: string } | null>(null);
+  const copies = useCopyMap(c);
+  useEffect(() => {
+    if (!opening) return;
+    const byFolder = [...copies.entries()].find(([, item]) => normalize(item.repo) === normalize(opening.folder))?.[0];
+    const id = opening.paneId && c.registry.panes.has(opening.paneId) ? opening.paneId : byFolder;
+    if (id && c.registry.panes.has(id)) {
+      setOpening(null);
+      c.select(id);
+    }
+  }, [opening, copies, c]);
   const selected = c.selectedId && c.registry.panes.has(c.selectedId) ? c.selectedId : null;
   // Look the copy up here as well, so a pane that is not on a copy never opens as a Simple project.
   const status = selected ? (c.registry.panes.get(selected)?.status ?? '') : '';
@@ -64,7 +79,7 @@ export function SimpleCockpit({
                   onOpenSettings={() => void c.openSettings()}
                   onStarted={(started) => {
                     setScreen('home');
-                    if (started.pane_id) c.select(started.pane_id);
+                    setOpening({ paneId: started.pane_id, folder: started.folder });
                   }}
                 />
               ) : (

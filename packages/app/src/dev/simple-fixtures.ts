@@ -16,6 +16,8 @@ export interface SimplePaneFixture {
   filesChanged?: number;
   /** `pane_run_info` error code, for the problem card. */
   errorCode?: string;
+  /** The run failed while the agent is idle (`PROMPT_NOT_SUBMITTED`): a message that never reached it. */
+  runFailedCode?: string;
   /** No transcript lines at all. */
   emptyConversation?: boolean;
 }
@@ -161,6 +163,8 @@ export function simpleMock(
       return ok({ pane_id: 'pane-new', handle: 'h1', folder: QUIZ_REPO });
     case 'project_pick_folder':
       return ok(sc.pickedFolder ?? null);
+    case 'plain_send':
+      return ok({ status: 'running', pane_id: 'pane-quiz' });
     case 'plain_preview':
       return ok(pane?.html ? { name: 'tool.html', html: pane.html } : null);
     case 'plain_open_preview':
@@ -183,7 +187,7 @@ export function simpleMock(
     case 'pane_prompt':
       return pane ? ok(pane.prompt ?? null) : { handled: false };
     case 'pane_run_info':
-      return pane ? ok({ handle: 'run_1', status: pane.status === 'error' ? 'failed' : 'running', receipt: null, error: pane.errorCode ? { code: pane.errorCode } : null }) : { handled: false };
+      return pane ? ok({ handle: 'run_1', status: pane.status === 'error' || pane.runFailedCode ? 'failed' : 'running', receipt: null, error: pane.errorCode || pane.runFailedCode ? { code: pane.errorCode ?? pane.runFailedCode } : null }) : { handled: false };
     case 'pane_transcript':
       return pane ? ok(pane.emptyConversation ? { chunks: [] } : SIMPLE_TRANSCRIPT) : { handled: false };
     case 'checkpoints_list':

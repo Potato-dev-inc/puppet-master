@@ -24,8 +24,8 @@ import { ConversationTab } from './ConversationTab';
 import { GoBackTab } from './GoBackTab';
 import { PreviewTab } from './PreviewTab';
 import { F, T } from './copy';
-import { problemForCode, problemForLoop, type Problem } from './error-text';
-import { needsScreen } from './screen-model';
+import { currentProblem } from './error-text';
+import { needsScreen, shouldResendTask } from './screen-model';
 import { errorCode, simpleApi, type SimpleApi } from './simple-api';
 import { projectLabel, useCopy } from './use-copy';
 
@@ -69,14 +69,16 @@ export function SimpleProject({
   paneId: string;
   onBack: () => void;
   onStartedAgain: (paneId: string | null) => void;
-  api?: Pick<SimpleApi, 'preview' | 'openPreview' | 'start'>;
+  api?: Pick<SimpleApi, 'preview' | 'openPreview' | 'start' | 'send'>;
 }) {
   const pane = c.registry.panes.get(paneId);
   const status = pane?.status ?? '';
   const listing = useAgentRegistry();
   const agent = pane ? agentLabel(listing, pane.info.agent_type) : '';
-  const copy = useCopy(paneId, status);
   const run = useRunData(paneId, true, status);
+  // The copy's totals settle a moment after the agent goes idle: look again when the run's state changes too.
+  const settle = `${status}|${run.info?.status ?? ''}`;
+  const copy = useCopy(paneId, settle);
   const lastTurn = useLastTurn(paneId);
   const loop = useLoopGuard();
   const prompt = c.prompts[paneId];
@@ -89,7 +91,7 @@ export function SimpleProject({
   const [sheet, setSheet] = useState<'keep' | 'throw' | null>(null);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState('');
-  const [queued, setQueued] = useState<string | null>(null);
+  const [queuedNote, setQueuedNote] = useState(false);
   const answered = useRef(new Set<string>());
   const getSelectionRef = useRef<(() => string) | null>(null);
 
@@ -98,7 +100,7 @@ export function SimpleProject({
     setMenu(false);
     setScreenOpen(false);
     setBlocked(null);
-    setQueued(null);
+    setQueuedNote(false);
   }, [paneId]);
 
   // High risk is never asked. PM answers the agent's own No, then tells her (a blocked card).
@@ -122,18 +124,26 @@ export function SimpleProject({
   const refreshRun = useRef(run.refresh);
   refreshRun.current = run.refresh;
   useEffect(() => {
-    if (status !== 'running') return;
-    const timer = window.setInterval(() => refreshRun.current(), 3000);
+    // Not only while it works: the run settles a moment after the agent is idle.
+    const timer = window.setInterval(() => refreshRun.current(), status === 'running' ? 3000 : 6000);
     return () => window.clearInterval(timer);
   }, [status]);
 
-  // A message typed while the agent works and is sent when it is ready again.
+  // The folder-trust question parks the run before anything is typed. When she has answered it
+  // (the agent is idle again), send the same task once more: she already pressed Start on these words.
+  const resent = useRef(new Set<string>());
+  const firstTask = run.transcript?.chunks.find((chunk) => chunk.stream === 'user_task')?.text;
   useEffect(() => {
-    if (queued && status === 'idle') {
-      void c.registry.writeInput(paneId, queued, true).catch(() => c.notify(T.somethingWrong));
-      setQueued(null);
-    }
-  }, [queued, status, c, paneId]);
+    const handle = run.info?.handle;
+    if (!copy.item || !handle || !firstTask) return;
+    const errorCode = run.info?.error?.code;
+    if (!shouldResendTask({ status, errorCode, handle, task: firstTask, alreadySent: resent.current.has(handle) })) return;
+    resent.current.add(handle);
+    api
+      .send(copy.item.repo, handle, firstTask)
+      .then(() => refreshRun.current())
+      .catch(() => c.notify(T.somethingWrong));
+  }, [api, c, copy.item, firstTask, run.info, status]);
 
   if (!pane) return <div className="sx-page"><p className="sx-quiet">{T.thinking}</p></div>;
 
@@ -142,12 +152,13 @@ export function SimpleProject({
   const name = projectLabel(item, agent);
   const files = item?.summary?.files_changed ?? 0;
   const loopSignal = loop.signals[paneId];
-  const problem: Problem | null =
-    status === 'error'
-      ? problemForCode(run.info?.error?.code, agent)
-      : loopSignal
-        ? problemForLoop(loopSignal, agent)
-        : null;
+  const problem = currentProblem({
+    status,
+    runStatus: run.info?.status,
+    runCode: run.info?.error?.code,
+    loop: loopSignal,
+    agent,
+  });
   const forcedScreen = needsScreen({ status, prompt }) || (blocked !== null && !blocked.stoppable);
   const showScreen = screenOpen || forcedScreen;
   const ask = status === 'waiting_input' && prompt && prompt.risk && prompt.risk.level !== 'high' && prompt.choices.length > 0 ? prompt : null;
@@ -159,10 +170,15 @@ export function SimpleProject({
 
   const send = () => {
     const text = draft.trim();
-    if (!text) return;
+    const handle = run.info?.handle;
+    if (!text || !item || !handle) return;
     setDraft('');
-    if (status === 'idle') void c.registry.writeInput(paneId, text, true).catch(() => c.notify(T.somethingWrong));
-    else setQueued(text);
+    // The run queues a message that arrives while the agent works, and sends it when it finishes.
+    setQueuedNote(working);
+    api.send(item.repo, handle, text).then(
+      () => run.refresh(),
+      () => c.notify(T.somethingWrong),
+    );
   };
 
   const finish = async (action: 'keep' | 'throw') => {
@@ -292,7 +308,7 @@ export function SimpleProject({
         {tab === 'conversation' && <div className="sx-scroll">{convo}</div>}
         {tab === 'changed' && (
           <div className="sx-scroll">
-            <Changes paneId={paneId} status={status} plain hideActions />
+            <Changes paneId={paneId} status={settle} plain hideActions />
           </div>
         )}
         {tab === 'goback' && <GoBackTab paneId={paneId} status={status} now={c.now} agent={agent} notify={c.notify} />}
@@ -308,7 +324,7 @@ export function SimpleProject({
       )}
 
       <div className="sx-composer">
-        {queued && <p className="sx-quiet">{F.willSendWhenDone(agent)}</p>}
+        {queuedNote && working && <p className="sx-quiet">{F.willSendWhenDone(agent)}</p>}
         <div className="sx-composer-row">
           <textarea
             className="sx-input sx-composer-input"
@@ -325,7 +341,7 @@ export function SimpleProject({
               }
             }}
           />
-          <button type="button" className="ck-btn ck-btn--secondary" disabled={!draft.trim()} onClick={send}>
+          <button type="button" className="ck-btn ck-btn--secondary" disabled={!draft.trim() || !run.info?.handle} onClick={send}>
             {T.composerSend}
           </button>
         </div>

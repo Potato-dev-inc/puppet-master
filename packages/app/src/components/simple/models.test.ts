@@ -5,8 +5,9 @@ import type { AgentRegistryListing } from '../../lib/agentRegistry';
 import type { PanePrompt } from '../../lib/cockpit-api';
 import { pickAgent } from './agent-pick';
 import { conversationItems, stepText, summarySentence } from './conversation-model';
+import { currentProblem } from './error-text';
 import { agoText, versionsFrom } from './go-back-model';
-import { needsScreen } from './screen-model';
+import { needsScreen, shouldResendTask } from './screen-model';
 import { fullPrompt, HOUSE_RULES, projectName, TEMPLATES, visiblePrompt } from './templates';
 
 const risky = (choices = 2): PanePrompt => ({
@@ -31,8 +32,54 @@ describe('the agent screen shows by itself when PM cannot read it', () => {
     expect(needsScreen({ status: 'waiting_input', prompt: { ...risky(), risk: undefined } })).toBe(true);
     expect(needsScreen({ status: 'waiting_input', prompt: risky(0) })).toBe(true);
   });
+  it('shows for a question PM cannot word, even when it has answers', () => {
+    const unknown: PanePrompt = { ...risky(), risk: { level: 'medium', headline: 'Answer the agent', reasons: [] } };
+    expect(needsScreen({ status: 'waiting_input', prompt: unknown })).toBe(true);
+  });
   it('shows when the agent stopped with a problem, because the screen holds the reason', () => {
     expect(needsScreen({ status: 'error', prompt: null })).toBe(true);
+  });
+});
+
+describe('the task is sent again after the folder-trust question', () => {
+  const base = { status: 'idle', errorCode: 'PANE_BLOCKED_BY_PROMPT', handle: 'h1', task: 'Make a page.', alreadySent: false };
+  it('sends once, when the question is answered and the agent is idle', () => {
+    expect(shouldResendTask(base)).toBe(true);
+  });
+  it('waits while the question is open, and while the agent works', () => {
+    expect(shouldResendTask({ ...base, status: 'waiting_input' })).toBe(false);
+    expect(shouldResendTask({ ...base, status: 'running' })).toBe(false);
+  });
+  it('never sends twice, and never when the run was not parked on a prompt', () => {
+    expect(shouldResendTask({ ...base, alreadySent: true })).toBe(false);
+    expect(shouldResendTask({ ...base, errorCode: null })).toBe(false);
+    expect(shouldResendTask({ ...base, errorCode: 'AGENT_EXITED' })).toBe(false);
+    expect(shouldResendTask({ ...base, handle: undefined })).toBe(false);
+    expect(shouldResendTask({ ...base, task: '' })).toBe(false);
+  });
+});
+
+describe('the problem to show', () => {
+  const base = { status: 'idle', runStatus: 'completed', runCode: null as string | null, loop: null, agent: 'Claude Code' };
+  it('is none while all is well', () => {
+    expect(currentProblem(base)).toBeNull();
+    expect(currentProblem({ ...base, status: 'running', runStatus: 'running' })).toBeNull();
+  });
+  it('is the stop of a pane in a problem state, with Start again after an unexpected exit', () => {
+    const p = currentProblem({ ...base, status: 'error', runStatus: 'failed', runCode: 'AGENT_EXITED' });
+    expect(p?.button).toBe('start_again');
+    expect(p?.text).toMatch(/Your work is saved/);
+  });
+  it('is a message that never reached the agent, and says the work is safe', () => {
+    const p = currentProblem({ ...base, runStatus: 'failed', runCode: 'PROMPT_NOT_SUBMITTED' });
+    expect(p?.text).toBe('Your message did not reach Claude Code. Your work is safe.');
+    expect(p?.button).toBe('show_me');
+  });
+  it('is not a problem when the run is parked on the folder-trust question (the task is sent again)', () => {
+    expect(currentProblem({ ...base, runStatus: 'failed', runCode: 'PANE_BLOCKED_BY_PROMPT' })).toBeNull();
+  });
+  it('is the loop sentence for a stuck agent', () => {
+    expect(currentProblem({ ...base, loop: { kind: 'repeated_error' } })?.text).toMatch(/tried the same fix 3 times/);
   });
 });
 

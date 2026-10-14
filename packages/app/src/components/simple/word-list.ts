@@ -53,7 +53,7 @@ const ADJECTIVES =
 const MORE =
   'me my mine off else fewer full harm itself last lost mode moment plant saved save saves smaller switch ' +
   'time times undo web cancel copied control removed ran reach download expect called agent\'s ai helper ' +
-  'online unsafe showing delete deleted deletes outside inside danger';
+  'online unsafe showing delete deleted deletes outside inside danger know knows';
 
 const PEOPLE_AND_OTHER =
   'someone something anything nothing everything everyone anyone nobody ' +

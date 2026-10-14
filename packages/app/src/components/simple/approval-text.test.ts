@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { PanePrompt, PromptChoice, RiskLevel } from '../../lib/cockpit-api';
-import { blockChoice, KNOWN_HEADLINES, simpleApproval, yesNo } from './approval-text';
+import { blockChoice, KNOWN_HEADLINES, simpleApproval, UNREADABLE, yesNo } from './approval-text';
 
 const prompt = (level: RiskLevel, headline: string, choices: PromptChoice[] = []): PanePrompt => ({
   promptId: 'p1',
@@ -39,7 +39,8 @@ describe('approvals in plain words', () => {
   });
 
   it('every headline it knows still exists in the Rust rules (a rename cannot slip through)', () => {
-    const rules = readFileSync(join(__dirname, '../../../src-tauri/src/prompt_risk/rules.rs'), 'utf8');
+    const dir = join(__dirname, '../../../src-tauri/src/prompt_risk');
+    const rules = ['rules.rs', 'mod.rs', 'command.rs'].map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
     const missing = KNOWN_HEADLINES.filter((h) => !rules.includes(`"${h}"`));
     expect(missing).toEqual([]);
   });
@@ -73,6 +74,19 @@ describe('approvals in plain words', () => {
     // A broad "never ask" that happens to start with No is not used while a plain No exists.
     const tricky: PromptChoice[] = [{ id: 'never', label: "No, don't ask again", broad: true }, { id: 'deny', label: 'No' }];
     expect(blockChoice({ choices: tricky })?.id).toBe('deny');
+  });
+
+  it('a folder-trust question says what it asks, not "a step that may change things"', () => {
+    const words = simpleApproval(prompt('medium', 'Trust this folder', [{ id: 'trust', label: 'Trust this folder' }, { id: 'deny', label: "Don't trust" }]));
+    expect(words?.what).toBe('work in this folder');
+    expect(words?.matched).toBe('Trust this folder');
+    // Yes means trust, No means do not trust: the agent's own answers, never a broad one.
+    const { yes, no } = yesNo([{ id: 'trust', label: 'Trust this folder' }, { id: 'deny', label: "Don't trust" }]);
+    expect([yes?.id, no?.id]).toEqual(['trust', 'deny']);
+  });
+
+  it('what PM cannot word is left to the agent screen', () => {
+    for (const headline of UNREADABLE) expect(simpleApproval(prompt('medium', headline, CHOICES))).toBeNull();
   });
 
   it('a prompt without a risk is not an approval', () => {
