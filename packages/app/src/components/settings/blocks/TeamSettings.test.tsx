@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { teamConfig } from '../../../dev/team-fixtures';
 import type { TeamApi, TeamConfigView } from '../../../lib/team';
 import { buttonByText, click, hasText, settle, type as typeInto } from '../test-utils';
-import { TeamSettings } from './TeamSettings';
+import { RELAY_HELP_URL, TeamSettings } from './TeamSettings';
 
 vi.mock('qrcode', () => ({ default: { toCanvas: vi.fn(async () => undefined) } }));
 
@@ -75,6 +75,19 @@ describe('not on a team', () => {
     await click(buttonByText(host, 'Create team'));
     await settle();
     expect(api.calls.filter((c) => c.startsWith('create'))).toEqual(['create({"teamName":"Acme","name":"Maya","relay":"https://relay.example.com","folder":""})']);
+  });
+
+  it('create: the relay address says in plain words where to host your own, with a link to the guide', async () => {
+    await mount(teamConfig(NOT_ON_TEAM));
+    expect(hasText(host, "Use Puppet Master's relay, or host your own (Cloudflare or Docker).")).toBe(true);
+    const link = [...host.querySelectorAll('a')].find((a) => a.textContent === 'How to host your own') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe(RELAY_HELP_URL);
+    expect(RELAY_HELP_URL).toMatch(/\/relay\/README\.md$/);
+    expect(link.target).toBe('_blank');
+    expect(link.rel).toContain('noreferrer');
+    // The help is about the relay: with a shared folder instead there is nothing to explain.
+    await click(host.querySelector('[role="switch"][aria-label="Use a shared folder instead"]'));
+    expect(hasText(host, 'host your own')).toBe(false);
   });
 
   it('create: a shared folder replaces the relay address', async () => {

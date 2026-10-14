@@ -1,0 +1,36 @@
+# Puppet Master team relay on Cloudflare: a Worker (front door) + one Durable Object per team.
+# Docs: README.md. Deploy: the button there, or `npm run deploy` after `npx wrangler login`.
+name = "pm-relay"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+# One Durable Object per team (mailbox, access list, replay guard, rate limits) and one per client
+# address (counts unauthenticated registrations and join requests). SQLite-backed, which is also
+# what Cloudflare's free plan allows.
+[[durable_objects.bindings]]
+name = "TEAM"
+class_name = "Team"
+
+[[durable_objects.bindings]]
+name = "GATE"
+class_name = "IpGate"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Team", "IpGate"]
+
+# Optional limits (defaults match relay/server: 60 envelopes a minute and 5,000 a day per device,
+# 600 a minute per team, 5 join tries per invite, 20 join requests a day per team, 30 unauthenticated
+# requests an hour per address, long polls up to 25 s). Uncomment to change.
+# [vars]
+# LIMIT_DEVICE_PER_MINUTE = "60"
+# LIMIT_DEVICE_PER_DAY = "5000"
+# LIMIT_TEAM_PER_MINUTE = "600"
+# LIMIT_JOINS_PER_INVITE = "5"
+# LIMIT_JOINS_PER_TEAM_PER_DAY = "20"
+# LIMIT_UNAUTH_PER_IP_PER_HOUR = "30"
+# LIMIT_MAX_WAIT_S = "25"
+# Never set TEST_HOOKS on a real deployment: it opens /v1/_test (read and wipe a team's data).
+
+[observability]
+enabled = true

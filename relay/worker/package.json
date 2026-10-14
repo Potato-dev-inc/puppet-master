@@ -1,0 +1,22 @@
+{
+  "name": "pm-relay-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The Puppet Master team relay as a Cloudflare Worker + Durable Objects (same wire protocol as relay/server).",
+  "license": "SEE LICENSE IN LICENSE",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "test": "node scripts/run-tests.mjs",
+    "test:worker": "node scripts/run-tests.mjs --worker-only",
+    "test:app": "node scripts/run-tests.mjs --app-only"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261006.1",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
+  }
+}

@@ -474,24 +474,66 @@ fn an_invite_needs_its_code_its_link_and_the_admins_yes() {
 
 // ------------------------------------------------------------------------- relay end to end
 
-fn relay_transport(addr: std::net::SocketAddr, team: &str, keys: &KeyStore) -> Arc<dyn TeamTransport> {
-    Arc::new(RelayTransport::new(&format!("http://{addr}"), team, keys.device_sign().unwrap()).unwrap())
+/// The relay under test: the in-process axum relay, or any relay speaking the protocol when
+/// `PM_RELAY_TEST_URL` is set (for example `relay/worker` under `wrangler dev` with `TEST_HOOKS=1`,
+/// `http://127.0.0.1:8787`). The same end-to-end tests then prove both implementations.
+struct TestRelay {
+    /// `http://host:port`, no trailing slash.
+    base: String,
+    /// The in-process relay's own test hooks; `None` for a relay at `PM_RELAY_TEST_URL`.
+    local: Option<Arc<pm_relay::Relay>>,
+}
+
+impl TestRelay {
+    fn start() -> Self {
+        match std::env::var("PM_RELAY_TEST_URL") {
+            Ok(url) if !url.trim().is_empty() => Self { base: url.trim().trim_end_matches('/').to_string(), local: None },
+            _ => {
+                let (addr, relay) = pm_relay::spawn_local(pm_relay::Config::default());
+                Self { base: format!("http://{addr}"), local: Some(relay) }
+            }
+        }
+    }
+
+    /// Every byte the relay stored for `team` (to check nothing readable is kept).
+    fn dump(&self, team: &str) -> String {
+        match &self.local {
+            Some(relay) => relay.dump(),
+            None => ureq::get(&format!("{}/v1/_test/{team}/dump", self.base)).call().expect("relay test hooks are on").into_string().unwrap(),
+        }
+    }
+
+    /// Forget an envelope, as a relay that loses (or withholds) one would.
+    fn drop_envelope(&self, team: &str, seq: u64) {
+        match &self.local {
+            Some(relay) => {
+                relay.drop_envelope(team, seq).unwrap();
+            }
+            None => {
+                ureq::post(&format!("{}/v1/_test/{team}/drop?seq={seq}", self.base)).send_bytes(&[]).expect("relay test hooks are on");
+            }
+        }
+    }
+}
+
+fn relay_transport(relay: &TestRelay, team: &str, keys: &KeyStore) -> Arc<dyn TeamTransport> {
+    Arc::new(RelayTransport::new(&relay.base, team, keys.device_sign().unwrap()).unwrap())
 }
 
 #[test]
 fn relay_end_to_end_create_invite_join_push_and_card_with_metadata_only_on_the_relay() {
-    let (addr, relay) = pm_relay::spawn_local(pm_relay::Config::default());
+    let relay = TestRelay::start();
     let maya = person("maya");
-    let roster = membership::create_team("Acme", "Maya", &maya, |team| Ok(relay_transport(addr, team, &maya)), NOW).unwrap();
-    let maya_wire = relay_transport(addr, &roster.team, &maya);
+    let roster = membership::create_team("Acme", "Maya", &maya, |team| Ok(relay_transport(&relay, team, &maya)), NOW).unwrap();
+    let maya_wire = relay_transport(&relay, &roster.team, &maya);
     let mut roster = roster;
 
     // Invite → join → admin approves.
     let (inv, code) = invite::new_invite(now());
-    let link = membership::invite_link(&roster, &maya, Some(&format!("http://{addr}")), None, &inv.id).unwrap();
+    let link = membership::invite_link(&roster, &maya, Some(&relay.base), None, &inv.id).unwrap();
     let link = InviteLink::parse(&link.to_url()).unwrap();
     let leo = person("leo");
-    let leo_wire = relay_transport(addr, &link.team, &leo);
+    let leo_wire = relay_transport(&relay, &link.team, &leo);
     membership::send_join(&link, &invite::show_code(&code), "Leo", Some("leo-dev".into()), &leo, leo_wire.as_ref(), now()).unwrap();
     assert!(membership::try_finish_join(&link, &leo, leo_wire.as_ref()).unwrap().is_none(), "the relay keeps Leo out until the admin says yes");
     let kem = maya.device_kem().unwrap();
@@ -504,7 +546,7 @@ fn relay_end_to_end_create_invite_join_push_and_card_with_metadata_only_on_the_r
 
     // Leo listens over the WebSocket; a second listener of Leo's uses the long-poll fallback.
     let leo_rx = leo_wire.subscribe(0).unwrap();
-    let poll_wire = RelayTransport::new(&format!("http://{addr}"), &link.team, leo.device_sign().unwrap()).unwrap().poll_only();
+    let poll_wire = RelayTransport::new(&relay.base, &link.team, leo.device_sign().unwrap()).unwrap().poll_only();
     let poll_rx = poll_wire.subscribe(0).unwrap();
 
     // Maya pushes and tells the team.
@@ -535,7 +577,7 @@ fn relay_end_to_end_create_invite_join_push_and_card_with_metadata_only_on_the_r
     assert_eq!(poll_wire.status(), "polling");
 
     // What the relay stored: ciphertext and routing metadata, no names, branches, notes or keys.
-    let dump = relay.dump();
+    let dump = relay.dump(&roster.team);
     assert!(dump.contains(&roster.team));
     for readable in ["feat/auth", "Maya", "Leo", "leo-dev", "Acme", "session model", "github.com/acme", "Codex", &code] {
         assert!(!dump.contains(readable), "the relay must not hold {readable:?}");
@@ -549,14 +591,14 @@ fn relay_end_to_end_create_invite_join_push_and_card_with_metadata_only_on_the_r
 
 #[test]
 fn on_the_relay_a_removed_member_is_locked_out_and_told_so() {
-    let (addr, _relay) = pm_relay::spawn_local(pm_relay::Config::default());
+    let relay = TestRelay::start();
     let maya = person("maya");
-    let mut roster = membership::create_team("Acme", "Maya", &maya, |team| Ok(relay_transport(addr, team, &maya)), NOW).unwrap();
-    let maya_wire = relay_transport(addr, &roster.team, &maya);
+    let mut roster = membership::create_team("Acme", "Maya", &maya, |team| Ok(relay_transport(&relay, team, &maya)), NOW).unwrap();
+    let maya_wire = relay_transport(&relay, &roster.team, &maya);
     let (inv, code) = invite::new_invite(now());
-    let link = membership::invite_link(&roster, &maya, Some(&format!("http://{addr}")), None, &inv.id).unwrap();
+    let link = membership::invite_link(&roster, &maya, Some(&relay.base), None, &inv.id).unwrap();
     let leo = person("leo");
-    let leo_wire = relay_transport(addr, &link.team, &leo);
+    let leo_wire = relay_transport(&relay, &link.team, &leo);
     membership::send_join(&link, &code, "Leo", None, &leo, leo_wire.as_ref(), now()).unwrap();
     let request = maya_wire.joins().unwrap().iter().find_map(|j| invite::open_join(&maya.device_kem().unwrap(), j)).unwrap();
     membership::approve(&mut roster, &request, &maya, maya_wire.as_ref(), now()).unwrap();
@@ -576,14 +618,14 @@ fn on_the_relay_a_removed_member_is_locked_out_and_told_so() {
 
 #[test]
 fn an_envelope_the_relay_drops_shows_up_as_a_gap() {
-    let (addr, relay) = pm_relay::spawn_local(pm_relay::Config::default());
+    let relay = TestRelay::start();
     let maya = person("maya");
-    let mut roster = membership::create_team("Acme", "Maya", &maya, |team| Ok(relay_transport(addr, team, &maya)), NOW).unwrap();
-    let maya_wire = relay_transport(addr, &roster.team, &maya);
+    let mut roster = membership::create_team("Acme", "Maya", &maya, |team| Ok(relay_transport(&relay, team, &maya)), NOW).unwrap();
+    let maya_wire = relay_transport(&relay, &roster.team, &maya);
     let (inv, code) = invite::new_invite(now());
-    let link = membership::invite_link(&roster, &maya, Some(&format!("http://{addr}")), None, &inv.id).unwrap();
+    let link = membership::invite_link(&roster, &maya, Some(&relay.base), None, &inv.id).unwrap();
     let leo = person("leo");
-    let leo_wire = relay_transport(addr, &link.team, &leo);
+    let leo_wire = relay_transport(&relay, &link.team, &leo);
     membership::send_join(&link, &code, "Leo", None, &leo, leo_wire.as_ref(), now()).unwrap();
     let request = maya_wire.joins().unwrap().iter().find_map(|j| invite::open_join(&maya.device_kem().unwrap(), j)).unwrap();
     membership::approve(&mut roster, &request, &maya, maya_wire.as_ref(), now()).unwrap();
@@ -594,7 +636,7 @@ fn an_envelope_the_relay_drops_shows_up_as_a_gap() {
         let e = event_from(&maya, &roster.team, now() + seq);
         maya_wire.send(&maya_session.seal(&Payload::Event { event: e }, seq, now()).unwrap()).unwrap();
     }
-    relay.drop_envelope(&roster.team, 2).unwrap(); // a relay that loses (or withholds) one
+    relay.drop_envelope(&roster.team, 2); // a relay that loses (or withholds) one
 
     let rx = leo_wire.subscribe(0).unwrap();
     let leo_session = Session::new(leo_roster, leo.clone());

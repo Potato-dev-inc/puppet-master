@@ -838,6 +838,18 @@
   gap: 8px;
   color: var(--label-2);
 }
+.st-team .st-team-relay-help {
+  margin: -2px 0 0;
+}
+.settings .st-link {
+  color: var(--label-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.settings .st-link:hover {
+  color: var(--label);
+}
 .st-team .st-note[role='alert'] {
   color: var(--label);
 }
