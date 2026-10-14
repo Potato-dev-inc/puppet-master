@@ -168,6 +168,11 @@ export function TeamSettings({ api = teamApi, onSaved }: { api?: TeamApi; onSave
                 <div className="st-team-who">
                   <span>{j.name} wants to join</span>
                   <small>{[githubText(j.github, false), j.device].filter(Boolean).join(' · ')}</small>
+                  {j.warning && (
+                    <small className="st-team-warning" role="alert">
+                      {j.warning}
+                    </small>
+                  )}
                 </div>
                 <Btn small primary disabled={busy} onClick={() => void run(() => api.approveJoin(j.id))}>
                   Let {j.name} in

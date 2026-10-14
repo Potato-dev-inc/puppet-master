@@ -475,6 +475,28 @@ fn pull_now_fast_forwards_and_refuses_otherwise() {
     assert_eq!(actions::pull_now(&t2.leo, &event2).unwrap_err().code, "NOT_FAST_FORWARD");
 }
 
+/// Security review L3: a card that names my branch with a commit from another branch (which happens
+/// to descend from mine) must not fast-forward my branch to it.
+#[test]
+fn pull_now_refuses_a_commit_that_isnt_on_the_named_branch() {
+    let t = team();
+    git(&t.maya, &["checkout", "-q", "-b", "feat/other"]);
+    write(&t.maya, "other.txt", "not on main\n");
+    let other = commit_all(&t.maya, "other work");
+    git(&t.maya, &["push", "-q", "origin", "feat/other"]);
+    git(&t.leo, &["fetch", "-q", "origin"]); // the object is here now, from another branch
+    let before = git(&t.leo, &["rev-parse", "HEAD"]);
+    let mut e = push_event(NOW);
+    e.subject.branch = Some("main".into());
+    e.subject.commit = Some(other.clone());
+    assert_eq!(actions::pull_now(&t.leo, &e).unwrap_err().code, "COMMIT_NOT_ON_BRANCH");
+    assert_eq!(git(&t.leo, &["rev-parse", "HEAD"]), before, "nothing moved");
+    // An abbreviated commit id from a teammate is refused outright.
+    e.subject.commit = Some(other[..7].to_string());
+    assert!(actions::pull_now(&t.leo, &e).is_err());
+    assert!(validate_inbound(e.clone(), NOW).is_err(), "teammates send full commit ids");
+}
+
 #[test]
 fn a_clean_update_needs_no_agent_and_applies_as_a_fast_forward() {
     let t = team();

@@ -150,6 +150,8 @@ export interface JoinView {
   github: string | null;
   device: string;
   receivedAtMs: number;
+  /** More than one person used this invite's code. */
+  warning?: string | null;
 }
 
 export interface TeamConfigView {

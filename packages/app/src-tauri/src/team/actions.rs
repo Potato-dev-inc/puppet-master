@@ -15,7 +15,7 @@
 //!    the person's click (`service::start_job`).
 //! 8. Budget: one queued run, 20 minutes ([`QUEUED_RUN_TIMEOUT_MS`]).
 
-use super::event::{clean_text, is_valid_branch, is_valid_commit, TeamEvent};
+use super::event::{clean_text, is_full_commit, is_valid_branch, is_valid_commit, TeamEvent};
 use super::git;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -110,15 +110,23 @@ fn fetch(repo: &Path, branch: &str) -> Result<(), String> {
     git::run(repo, &["fetch", "--no-tags", REMOTE, branch]).map(|_| ())
 }
 
+/// Fetch `branch` and make sure `commit` (a full id) is on it at `origin`: a card that names my
+/// branch with a commit from somewhere else (security review L3) is refused, not pulled.
 fn ensure_commit(repo: &Path, branch: &str, commit: &str) -> Result<String, Refusal> {
-    if !is_valid_branch(branch) || !is_valid_commit(commit) {
+    if !is_valid_branch(branch) || !is_full_commit(commit) {
         return Err(refuse("BAD_EVENT", "This update names a branch or commit that isn't valid."));
     }
     let fetched = fetch(repo, branch);
-    git::rev_parse(repo, commit).ok_or_else(|| match fetched {
-        Err(e) => refuse("FETCH_FAILED", format!("Couldn't get {branch} from {REMOTE}: {}", first_line(&e))),
+    let full = git::rev_parse(repo, commit).ok_or_else(|| match &fetched {
+        Err(e) => refuse("FETCH_FAILED", format!("Couldn't get {branch} from {REMOTE}: {}", first_line(e))),
         Ok(()) => refuse("COMMIT_MISSING", format!("{} isn't on {REMOTE} any more.", short(commit))),
-    })
+    })?;
+    let tracking = format!("refs/remotes/{REMOTE}/{branch}");
+    let on_branch = git::is_ancestor(repo, &full, &tracking) || (fetched.is_ok() && git::is_ancestor(repo, &full, "FETCH_HEAD"));
+    if !on_branch {
+        return Err(refuse("COMMIT_NOT_ON_BRANCH", format!("{} isn't on {branch} at {REMOTE}, so it wasn't brought in.", short(commit))));
+    }
+    Ok(full)
 }
 
 fn first_line(text: &str) -> &str {

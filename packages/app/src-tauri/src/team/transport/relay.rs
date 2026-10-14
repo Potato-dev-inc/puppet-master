@@ -47,19 +47,51 @@ pub struct RelayTransport {
 }
 
 /// `base` with a scheme the relay speaks, or why not.
+///
+/// The address part must be a plain `host[:port]`: no user name or password (`http://127.0.0.1:x@evil.com`
+/// would otherwise pass the loopback check while the HTTP client connects to `evil.com`, and
+/// credentials would be saved in `team.json` and repeated in error messages), no backslash, no
+/// percent-escapes, no query or fragment. With those gone, this check and the HTTP client's URL
+/// parser read the same host.
 pub fn normalize_relay_url(raw: &str) -> Result<String, String> {
     let url = raw.trim().trim_end_matches('/').to_string();
-    let rest = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-        .ok_or("The relay address starts with https:// (or http:// on this computer).")?;
-    let host = rest.split('/').next().unwrap_or("");
-    if host.is_empty() || host.contains(char::is_whitespace) {
+    let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
+        ("https", rest)
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        ("http", rest)
+    } else {
+        return Err("The relay address starts with https:// (or http:// on this computer).".into());
+    };
+    if url.contains(['?', '#']) || url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("That relay address has extra parts. Use just https://host or https://host/path.".into());
+    }
+    let authority = rest.split('/').next().unwrap_or("");
+    if authority.contains(['@', '\\', '%']) {
+        return Err("A relay address can't carry a user name, a password or escaped characters.".into());
+    }
+    let host = if let Some(v6) = authority.strip_prefix('[') {
+        let (inside, after) = v6.split_once(']').ok_or("That relay address has no host.")?;
+        if !(after.is_empty() || after.strip_prefix(':').is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))) {
+            return Err("That relay address has a bad port.".into());
+        }
+        inside.parse::<std::net::Ipv6Addr>().map_err(|_| "That relay address has a bad IPv6 host.")?;
+        inside
+    } else {
+        let (host, port) = match authority.rsplit_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        };
+        if port.is_some_and(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit())) {
+            return Err("That relay address has a bad port.".into());
+        }
+        host
+    };
+    if host.is_empty() {
         return Err("That relay address has no host.".into());
     }
     // Plain http only on this machine: a relay elsewhere must use TLS.
-    let host_only = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
-    if url.starts_with("http://") && !matches!(host_only, "127.0.0.1" | "localhost" | "[::1]") {
+    let loopback = host.eq_ignore_ascii_case("localhost") || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback());
+    if scheme == "http" && !loopback {
         return Err("Use https:// for a relay on another computer.".into());
     }
     Ok(url)

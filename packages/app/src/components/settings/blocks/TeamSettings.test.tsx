@@ -151,6 +151,13 @@ describe('on a team as the admin', () => {
     expect(api.calls).toContain('confirmGithub("m-sam")');
   });
 
+  it('flags join requests when more than one person used the same code', async () => {
+    const base = teamConfig();
+    const warning = "Someone else also used this invite's code. Only let in the person you invited.";
+    await mount({ ...base, joins: base.joins.map((j) => ({ ...j, warning })) });
+    expect(host.querySelector('.st-team-warning[role="alert"]')?.textContent).toBe(warning);
+  });
+
   it('says how the relay is doing, or that it is a shared folder', async () => {
     await mount(teamConfig({ link: 'offline' }));
     expect(hasText(host, "Relay · can't reach it")).toBe(true);

@@ -400,3 +400,183 @@ fn a_queued_merge_never_starts_an_agent_that_runs_commands_without_asking() {
     assert_eq!(req["headless"], false);
     assert!(req.get("allow_shell").is_none());
 }
+
+// --------------------------------------------------------------------------- L1: relay address
+
+#[test]
+fn a_relay_address_with_a_user_name_cant_smuggle_plain_http_off_this_computer() {
+    use super::transport::relay::normalize_relay_url;
+    // `ureq` would connect to evil.com:80 in clear text, with 127.0.0.1:x as the user name.
+    assert!(normalize_relay_url("http://127.0.0.1:x@evil.com").is_err());
+    assert!(normalize_relay_url("http://localhost:8787@evil.com/pm").is_err());
+    assert!(normalize_relay_url(r"http://127.0.0.1\@evil.com").is_err());
+    assert!(normalize_relay_url("http://127.0.0.1.evil.com").is_err());
+    assert!(normalize_relay_url("http://localhost.evil.com:80").is_err());
+    // Credentials in a relay address would be saved in team.json and repeated in errors.
+    assert!(normalize_relay_url("https://user:pass@relay.example.com").is_err());
+    // Still fine.
+    assert_eq!(normalize_relay_url("http://[::1]:8787").unwrap(), "http://[::1]:8787", "IPv6 loopback works");
+    assert!(normalize_relay_url("http://127.0.0.1:8787/pm").is_ok());
+    assert!(normalize_relay_url("http://localhost:8787").is_ok());
+    assert!(normalize_relay_url("https://relay.example.com/pm/").is_ok());
+    assert!(normalize_relay_url("https://relay.example.com:8443").is_ok());
+    assert!(normalize_relay_url("http://relay.example.com").is_err());
+}
+
+// ------------------------------------------------------------------- L2: UNC paths in a link
+
+#[test]
+fn an_invite_link_cant_point_the_join_at_a_network_share() {
+    let maya = person("maya");
+    let dir = std::env::temp_dir().join(format!("pmteam-l2-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let wire: Arc<dyn TeamTransport> = Arc::new(super::transport::folder::FolderTransport::new(dir.clone()));
+    let roster = membership::create_team("Acme", "Maya", &maya, move |_| Ok(wire), NOW).unwrap();
+    // Joining would write to \\attacker.example\share, and Windows would send an NTLM handshake.
+    for folder in [r"\\attacker.example\share", "//attacker.example/share", r"\\?\UNC\attacker\share", r"\\.\pipe\x", r"\??\UNC\a\b"] {
+        let link = membership::invite_link(&roster, &maya, None, Some(folder), "INVITE1").unwrap();
+        assert!(InviteLink::parse(&link.to_url()).is_err(), "{folder} is refused");
+    }
+    let local = membership::invite_link(&roster, &maya, None, Some(r"D:\Team"), "INVITE1").unwrap();
+    assert!(InviteLink::parse(&local.to_url()).is_ok());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// ---------------------------------------------------------- L4: GitHub facts only from my own gh
+
+#[test]
+fn teammates_cant_send_github_facts_or_take_over_a_github_card() {
+    let t = relay_team();
+    let maya_session = Session::new(t.roster.clone(), t.maya.clone());
+    let leo_session = Session::new(t.leo_roster.clone(), t.leo.clone());
+    let mut tracker = super::secure::SeqTracker::default();
+    // "CI passed", "merged", "closed", "CI failed" from a teammate: refused before ingest.
+    for (i, kind) in [TeamEventKind::CiPassed, TeamEventKind::PrMerged, TeamEventKind::PrClosed, TeamEventKind::CiFailed].into_iter().enumerate() {
+        let mut event = push_event(&t.maya, &t.roster.team, now() + i as u64);
+        event.kind = kind;
+        let env = maya_session.seal(&Payload::Event { event }, 10 + i as u64, now()).unwrap();
+        assert!(leo_session.open(&env, &mut tracker, now()).is_err(), "{kind:?} from a teammate is refused");
+    }
+
+    // A GitHub fact card, then a teammate's event aimed at its dedupe key: the card stays GitHub's.
+    let config = config_for(&t.leo, &t.leo_roster, "Leo");
+    let mut store = super::store::TeamStore::default();
+    let mut fact = push_event(&t.maya, &t.roster.team, NOW);
+    fact.kind = TeamEventKind::PrOpened;
+    fact.subject.commit = None;
+    fact.subject.pr = Some(PrRef { number: 142, title: "Real title".into(), url: String::new(), state: "open".into(), draft: false, files: None, additions: None, deletions: None });
+    fact.dedupe_key = dedupe_key(&fact.project.key, fact.kind, &fact.subject);
+    fact.source = EventSource::Github;
+    fact.actor.member = "github:maya".into();
+    let at = now();
+    fact.at_ms = at;
+    fact.expires_at_ms = at + DEFAULT_TTL_MS;
+    assert!(matches!(super::store::ingest(&mut store, &config, super::secure::Verified::local_fact(fact.clone()).unwrap(), at), super::store::Ingested::Card(_)));
+    let mut spoof = push_event(&t.maya, &t.roster.team, at + 1);
+    spoof.dedupe_key = fact.dedupe_key.clone(); // a push that claims the PR card's key
+    let _ = super::store::ingest(&mut store, &config, super::secure::Verified::for_test(spoof.clone()), at + 2);
+    let github_card = store.cards.iter().find(|c| c.event.source == EventSource::Github).expect("the GitHub card is still there");
+    assert_eq!(github_card.event.subject.pr.as_ref().unwrap().title, "Real title");
+    // The push became its own card, under the key its own facts give.
+    let pushed = store.cards.iter().find(|c| c.event.id == spoof.id).expect("the push is its own card");
+    assert_eq!(pushed.event.dedupe_key, dedupe_key(&spoof.project.key, spoof.kind, &spoof.subject));
+    // A teammate's PR intent with the same key doesn't replace the GitHub card either.
+    let mut intent = fact.clone();
+    intent.id = new_event_id(at + 3);
+    intent.at_ms = at + 3;
+    intent.source = EventSource::Pm;
+    intent.actor.member = key_id(&t.maya.member().unwrap());
+    intent.subject.pr.as_mut().unwrap().title = "Fix README typo".into();
+    let _ = super::store::ingest(&mut store, &config, super::secure::Verified::for_test(intent), at + 4);
+    let card = store.cards.iter().find(|c| c.event.dedupe_key == fact.dedupe_key).unwrap();
+    assert_eq!(card.event.source, EventSource::Github);
+    assert_eq!(card.event.subject.pr.as_ref().unwrap().title, "Real title");
+}
+
+// ------------------------------------------------------------------------ L7: bounded state
+
+#[test]
+fn a_senders_far_future_expiry_doesnt_keep_state_forever() {
+    let t = relay_team();
+    let config = config_for(&t.leo, &t.leo_roster, "Leo");
+    let mut store = super::store::TeamStore::default();
+    let at = now();
+    let mut event = push_event(&t.maya, &t.roster.team, at);
+    event.expires_at_ms = u64::MAX;
+    let id = event.id.clone();
+    assert!(matches!(super::store::ingest(&mut store, &config, super::secure::Verified::for_test(event), at), super::store::Ingested::Card(_)));
+    let until = store.seen[&id];
+    assert!(until <= at + DEFAULT_TTL_MS, "kept until at most a week from now, not {until}");
+    assert!(store.cards[0].event.expires_at_ms <= at + DEFAULT_TTL_MS);
+}
+
+#[test]
+fn the_replay_guard_and_join_bookkeeping_stay_bounded() {
+    let mut store = super::store::TeamStore::default();
+    for i in 0..(super::store::MAX_SEEN as u64 + 50) {
+        store.remember_seen(format!("id-{i}"), NOW + i);
+    }
+    assert!(store.seen.len() <= super::store::MAX_SEEN);
+    assert!(store.seen.contains_key(&format!("id-{}", super::store::MAX_SEEN as u64 + 49)), "the newest are kept");
+    store.processed_joins.insert("box".into());
+    store.prune_processed_joins(true);
+    assert_eq!(store.processed_joins.len(), 1, "kept while an invite is open");
+    store.prune_processed_joins(false);
+    assert!(store.processed_joins.is_empty(), "forgotten once none is");
+}
+
+#[test]
+fn a_shared_folder_keeps_only_the_newest_join_requests() {
+    let dir = std::env::temp_dir().join(format!("pmteam-l7-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let wire = super::transport::folder::FolderTransport::new(dir.clone());
+    let at = now();
+    for i in 0..80u64 {
+        let join = pm_relay_protocol::JoinBox { team: "T".repeat(26), invite: "INV".into(), enc: pm_relay_protocol::b64(b"e"), ct: pm_relay_protocol::b64(b"c"), at_ms: at + i };
+        wire.post_join(&join).unwrap();
+    }
+    let joins = wire.joins().unwrap();
+    assert_eq!(joins.len(), 50);
+    assert!(joins.iter().all(|j| j.at_ms >= at + 30), "the oldest went first");
+    assert_eq!(std::fs::read_dir(dir.join("joins")).unwrap().count(), 50, "and their files are gone");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// --------------------------------------------------------------- L6: sending after a removal
+
+#[test]
+fn a_member_reads_the_keys_again_before_sending_when_its_last_look_is_old() {
+    use super::service::roster_due;
+    // The runtime loop: every minute, or at once when nudged.
+    assert!(!roster_due(false, NOW, NOW + 30_000, 60_000));
+    assert!(roster_due(true, NOW, NOW + 1, 60_000));
+    // Sending: anything older than 10 s is read again first, so a member who missed the admin's
+    // nudge doesn't seal with a removed member's key for up to a minute.
+    assert!(roster_due(false, NOW, NOW + 10_000, 10_000));
+    assert!(!roster_due(false, NOW, NOW + 9_999, 10_000));
+}
+
+// ------------------------------------------------------------ L8: one invite, one person
+
+#[test]
+fn a_second_correct_code_for_one_invite_flags_both_requests() {
+    use super::roster::DeviceEntry;
+    let mut store = super::store::TeamStore::default();
+    let (inv, _) = invite::new_invite(NOW);
+    store.invites.push(inv.clone());
+    let request = |member: &str| invite::JoinRequest {
+        invite: inv.id.clone(),
+        member: member.into(),
+        device: DeviceEntry { id: format!("{member}-dev"), kem: String::new(), name: "Laptop".into(), cert: String::new() },
+        display: "Leo".into(),
+        github: None,
+        proof: String::new(),
+        at_ms: NOW,
+    };
+    assert!(store.add_join_request(&inv.id, request("leo"), NOW));
+    assert!(store.joins[0].warning.is_none(), "the first is just a request");
+    assert!(!store.add_join_request(&inv.id, request("leo"), NOW), "the same person again is not a new request");
+    assert!(store.add_join_request(&inv.id, request("eve"), NOW), "someone else with the same code");
+    assert_eq!(store.joins.len(), 2);
+    assert!(store.joins.iter().all(|j| j.warning.as_deref() == Some(super::store::CODE_SHARED)), "both are flagged");
+}

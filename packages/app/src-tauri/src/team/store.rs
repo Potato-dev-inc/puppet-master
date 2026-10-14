@@ -25,6 +25,9 @@ use std::path::Path;
 const MAX_CARDS: usize = 100;
 const MAX_DRAFTS: usize = 20;
 const MAX_JOBS: usize = 50;
+/// Event ids the replay guard keeps (each until its event expires, at most a week).
+pub const MAX_SEEN: usize = 20_000;
+const MAX_PROCESSED_JOINS: usize = 1_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -160,7 +163,13 @@ pub struct PendingJoin {
     pub id: String,
     pub request: JoinRequest,
     pub received_at_ms: u64,
+    /// Shown with the request: more than one person had this invite's code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
+
+/// On every request for an invite whose code reached more than one person.
+pub const CODE_SHARED: &str = "Someone else also used this invite's code. Only let in the person you invited.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ingested {
@@ -182,10 +191,15 @@ pub fn ingest(store: &mut TeamStore, config: &TeamConfig, verified: Verified, no
     store.seen.retain(|_, until| *until > now_ms);
     // A GitHub fact about my own pull request is still news to me (CI went red on my PR).
     let local_fact = verified.member().is_none();
-    let event = match validate_inbound(verified.into_event(), now_ms) {
+    let mut event = match validate_inbound(verified.into_event(), now_ms) {
         Ok(event) => event,
         Err(why) => return Ingested::Ignored(why.0),
     };
+    if !local_fact {
+        // Which card a teammate's event lands on follows from its own facts, never from a key the
+        // sender chose (security review L4).
+        event.dedupe_key = super::event::dedupe_key(&event.project.key, event.kind, &event.subject);
+    }
     if event.team != config.team {
         return Ingested::Ignored("another team");
     }
@@ -195,7 +209,7 @@ pub fn ingest(store: &mut TeamStore, config: &TeamConfig, verified: Verified, no
     if store.seen.contains_key(&event.id) {
         return Ingested::Ignored("already seen");
     }
-    store.seen.insert(event.id.clone(), event.expires_at_ms);
+    store.remember_seen(event.id.clone(), event.expires_at_ms);
     if !event.kind.shown_as_card() {
         return Ingested::Ignored("kind not shown yet");
     }
@@ -203,6 +217,10 @@ pub fn ingest(store: &mut TeamStore, config: &TeamConfig, verified: Verified, no
         return Ingested::Ignored("addressed to someone else");
     }
     if let Some(existing) = store.cards.iter_mut().find(|c| c.event.dedupe_key == event.dedupe_key) {
+        // A card GitHub's own facts made is never replaced by a teammate's words about it.
+        if !local_fact && existing.event.source == super::event::EventSource::Github {
+            return Ingested::Ignored("GitHub's card already shows this");
+        }
         // A dismissed card stays gone until the state changes (a new commit, a new PR state).
         let same_state = existing.event.subject.commit == event.subject.commit
             && existing.event.kind == event.kind
@@ -232,6 +250,52 @@ pub fn ingest(store: &mut TeamStore, config: &TeamConfig, verified: Verified, no
 }
 
 impl TeamStore {
+    /// The replay guard remembers an event id until it expires, and at most [`MAX_SEEN`] ids
+    /// (the ones expiring soonest go first).
+    pub fn remember_seen(&mut self, id: String, until: u64) {
+        self.seen.insert(id, until);
+        if self.seen.len() > MAX_SEEN {
+            let mut by_time: Vec<(u64, String)> = self.seen.iter().map(|(k, v)| (*v, k.clone())).collect();
+            by_time.sort();
+            for (_, id) in by_time.into_iter().take(self.seen.len() - MAX_SEEN * 9 / 10) {
+                self.seen.remove(&id);
+            }
+        }
+    }
+
+    /// Join boxes already looked at matter only while one of my invites is open: a box for a
+    /// closed invite is never counted. Forget them all once none is (security review L7).
+    pub fn prune_processed_joins(&mut self, any_open_invite: bool) {
+        if !any_open_invite || self.processed_joins.len() > MAX_PROCESSED_JOINS {
+            self.processed_joins.clear();
+        }
+    }
+
+    /// A join request whose code checked out, for invite `invite_id`. The first waits for the
+    /// admin; one from someone else after it means the code leaked, and every request for that
+    /// invite is flagged. The same person asking again is not a new request. True when added.
+    pub fn add_join_request(&mut self, invite_id: &str, request: JoinRequest, now_ms: u64) -> bool {
+        if self.joins.iter().any(|p| p.request.member == request.member) {
+            return false;
+        }
+        let shared = self.invites.iter().any(|i| i.id == invite_id && i.proved);
+        if let Some(i) = self.invites.iter_mut().find(|i| i.id == invite_id) {
+            i.proved = true;
+        }
+        if shared {
+            for p in self.joins.iter_mut().filter(|p| p.request.invite == invite_id) {
+                p.warning = Some(CODE_SHARED.into());
+            }
+        }
+        self.joins.push(PendingJoin {
+            id: uuid::Uuid::new_v4().to_string(),
+            request,
+            received_at_ms: now_ms,
+            warning: shared.then(|| CODE_SHARED.to_string()),
+        });
+        true
+    }
+
     pub fn add_draft(&mut self, draft: Draft) {
         // A newer push of the same branch replaces the unsent draft about it.
         self.drafts.retain(|d| d.event.dedupe_key != draft.event.dedupe_key);

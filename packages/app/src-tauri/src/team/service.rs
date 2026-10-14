@@ -24,7 +24,7 @@ use super::secure::{Opened, Payload, Session, Verified};
 use super::sources::git_refs::{self, PaneFacts, PushFact, RepoWatch};
 use super::sources::github::{self, Gh, GhCli, RepoPoll};
 use super::sources::pr::{GhCli as PrGh, PrLookup, RETRY_AFTER_MS};
-use super::store::{ingest, Card, CardState, Draft, Ingested, Job, JobState, PendingJoin, TeamStore};
+use super::store::{ingest, Card, CardState, Draft, Ingested, Job, JobState, TeamStore};
 use super::transport::{folder::FolderTransport, relay::RelayTransport, Inbound, TeamTransport};
 use crate::audit::{self, Kind, Who};
 use crate::pty::PaneRegistry;
@@ -44,6 +44,10 @@ const TICK: Duration = Duration::from_millis(1000);
 const REF_RESCAN_MS: u64 = 15_000;
 /// How often the roster and keys are re-read without a nudge.
 const ROSTER_REFRESH_MS: u64 = 60_000;
+/// Before sending, the roster and keys are read again if the last look is older than this, so a
+/// member who missed the admin's nudge doesn't keep sealing with a removed member's key for a
+/// whole refresh period (security review L6).
+const SEND_FRESH_MS: u64 = 10_000;
 /// How often join requests (admin) or the admin's answer (joiner) are looked for.
 const JOIN_POLL_MS: u64 = 4_000;
 
@@ -152,6 +156,12 @@ pub(crate) fn load_config(dir: &Path) -> (TeamConfig, Option<String>) {
             (TeamConfig::default(), Some(error))
         }
     }
+}
+
+/// The roster and keys should be read again: nudged (a `RosterChanged`, or a message under a key
+/// I don't have), or the last look is older than `max_age_ms`.
+pub(crate) fn roster_due(nudged: bool, last_refresh_ms: u64, now: u64, max_age_ms: u64) -> bool {
+    nudged || now.saturating_sub(last_refresh_ms) >= max_age_ms
 }
 
 /// What one inbound envelope did.
@@ -454,9 +464,14 @@ impl Service {
 
     /// Member and admin: re-read the roster and keys when nudged, and now and then.
     fn keep_roster_current(self: &Arc<Self>, now: u64) {
+        self.keep_roster_fresh(now, ROSTER_REFRESH_MS);
+    }
+
+    /// Re-read the roster and keys when nudged or when the last look is older than `max_age_ms`.
+    fn keep_roster_fresh(self: &Arc<Self>, now: u64, max_age_ms: u64) {
         let (due, session, transport) = {
             let inner = self.inner.lock();
-            let due = inner.needs_refresh || now.saturating_sub(inner.last_refresh_ms) >= ROSTER_REFRESH_MS;
+            let due = roster_due(inner.needs_refresh, inner.last_refresh_ms, now, max_age_ms);
             (due, inner.session.clone(), inner.transport.clone())
         };
         let (true, Some(mut session), Some(transport)) = (due, session, transport) else { return };
@@ -516,7 +531,21 @@ impl Service {
                 return;
             }
             inner.last_join_poll_ms = now;
+            // Closed invites leave state, and their codes leave the credential store.
+            let closed: Vec<String> = inner.store.invites.iter().filter(|i| !i.is_open(now)).map(|i| i.id.clone()).collect();
+            if !closed.is_empty() {
+                let team = inner.config.team.clone();
+                for id in &closed {
+                    let _ = self.keystore.forget_invite(&team, id);
+                }
+                inner.store.invites.retain(|i| i.is_open(now));
+            }
             let open: Vec<invite::Invite> = inner.store.invites.iter().filter(|i| i.is_open(now)).cloned().collect();
+            let before = inner.store.processed_joins.len();
+            inner.store.prune_processed_joins(!open.is_empty());
+            if !closed.is_empty() || inner.store.processed_joins.len() != before {
+                self.save(&inner);
+            }
             (open, inner.transport.clone())
         };
         let (false, Some(transport)) = (open.is_empty(), transport) else { return };
@@ -536,8 +565,7 @@ impl Service {
             let mut inner = self.inner.lock();
             match invite::check_join(&team, &request, &code) {
                 Ok(()) => {
-                    if !inner.store.joins.iter().any(|p| p.request.member == request.member) {
-                        inner.store.joins.push(PendingJoin { id: uuid::Uuid::new_v4().to_string(), request, received_at_ms: now });
+                    if inner.store.add_join_request(&inv.id, request, now) {
                         found = true;
                     }
                 }
@@ -976,6 +1004,8 @@ pub struct JoinView {
     pub github: Option<String>,
     pub device: String,
     pub received_at_ms: u64,
+    /// More than one person used this invite's code.
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1071,6 +1101,7 @@ fn config_view(svc: &Service, inner: &Inner) -> ConfigView {
                 github: p.request.github.clone(),
                 device: event::clean_text(&p.request.device.name, 40),
                 received_at_ms: p.received_at_ms,
+                warning: p.warning.clone(),
             })
             .collect(),
         epoch: roster.map(|r| r.epoch).unwrap_or(0),
@@ -1252,6 +1283,9 @@ pub fn create_invite() -> Result<InviteView, String> {
     let view = InviteView { link: link.to_url(), code: invite::show_code(&code), expires_at_ms: inv.expires_ms };
     {
         let mut inner = svc.inner.lock();
+        for closed in inner.store.invites.iter().filter(|i| !i.is_open(now)) {
+            let _ = svc.keystore.forget_invite(&config.team, &closed.id);
+        }
         inner.store.invites.retain(|i| i.is_open(now));
         inner.store.invites.push(inv);
         inner.last_join_poll_ms = 0;
@@ -1406,6 +1440,8 @@ pub fn decline_join(join_id: &str) -> Result<ConfigView, String> {
         if let Some(i) = inner.store.invites.iter_mut().find(|i| i.id == pending.request.invite) {
             i.used = true;
         }
+        let team = inner.config.team.clone();
+        let _ = svc.keystore.forget_invite(&team, &pending.request.invite);
         svc.save(&inner);
     }
     svc.changed();
@@ -1463,6 +1499,7 @@ pub fn clear_gaps() -> Result<(), String> {
 /// computer.
 pub fn send(draft_id: &str, note: Option<String>) -> Result<(), String> {
     let svc = service()?;
+    svc.keep_roster_fresh(now_ms(), SEND_FRESH_MS);
     let (mut draft, transport, session) = {
         let mut inner = svc.inner.lock();
         let transport = inner.transport.clone().ok_or("Team is off. Turn it on in Settings first.")?;
