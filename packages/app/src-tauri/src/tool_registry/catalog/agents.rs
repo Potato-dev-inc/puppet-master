@@ -8,9 +8,9 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "set_mode",
-            description: "Choose which MCP tool catalog this connection can use: agent, shell, or both. The selection is isolated to this MCP connection.",
-            input_schema: object_schema(json!({"mode":{"type":"string","enum":["agent","shell","both"]}}), vec!["mode"]),
-            output_schema: Some(json!({"type":"object","properties":{"mode":{"type":"string","enum":["agent","shell","both"]},"tool_count":{"type":"integer","minimum":0}},"required":["mode","tool_count"]})),
+            description: "Choose which MCP tool catalog this connection can call: agent, shell, or both. The default list shows only the core tools of the chosen mode; mode=all is both plus a full list that also shows aliases and advanced tools (reconnect, OpenCode, task board, session context), which stay callable by name in every mode that allows them. The selection is isolated to this MCP connection.",
+            input_schema: object_schema(json!({"mode":{"type":"string","enum":["agent","shell","both","all"]}}), vec!["mode"]),
+            output_schema: Some(json!({"type":"object","properties":{"mode":{"type":"string","enum":["agent","shell","both","all"]},"tool_count":{"type":"integer","minimum":0}},"required":["mode","tool_count"]})),
             safety: ToolSafety::Mutating,
             visibility: visible_everywhere(),
             method: "POST",
@@ -54,7 +54,7 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "send_agent",
-            description: "Compatibility wrapper for followup_task. Prefer followup_task for a new turn or send_message for steering the current turn.",
+            description: "Alias of followup_task (same route, same behaviour: starts the next turn; it does NOT steer the current turn, that is send_message). Unlisted by default; prefer followup_task.",
             input_schema: object_schema(json!({"handle":{"type":"string"},"task":{"type":"string","minLength":1},"message":{"type":"string","minLength":1},"project_path":{"type":"string"}}), vec!["handle"]),
             output_schema: Some(agent_run_schema()), safety: ToolSafety::Mutating,
             visibility: visible_everywhere(), method: "POST", path: "/agents/followup",
@@ -80,7 +80,7 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "cancel_agent",
-            description: "Compatibility wrapper for interrupt_agent. Stops the current turn and keeps the worker handle.",
+            description: "Alias of interrupt_agent (same route, same behaviour). Unlisted by default; prefer interrupt_agent. Stops the current turn and keeps the worker handle.",
             input_schema: object_schema(json!({"handle":{"type":"string"}}), vec!["handle"]),
             output_schema: Some(agent_run_schema()), safety: ToolSafety::Mutating,
             visibility: visible_everywhere(), method: "POST", path: "/agents/cancel",
@@ -101,7 +101,7 @@ pub(super) fn tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "list_workers",
-            description: "Same as list_agents: discover UI panes and managed runs in agent mode, then adopt with run_agent(worker_id, task).",
+            description: "Alias of list_agents (same route, same behaviour). Unlisted by default; prefer list_agents.",
             input_schema: object_schema(json!({"project_path":{"type":"string"},"mine_only":{"type":"boolean","default":false},"active_only":{"type":"boolean","default":false},"ended_within_ms":{"type":"integer","minimum":0}}), vec![]),
             output_schema: Some(json!({"type":"object","properties":{"workers":{"type":"array"}},"required":["workers"]})),
             safety: ToolSafety::ReadOnly, visibility: visible_everywhere(), method: "GET", path: "/agents",
