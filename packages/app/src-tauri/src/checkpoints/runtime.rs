@@ -34,6 +34,10 @@ pub trait Env: Send + Sync {
     fn now_ms(&self) -> u64;
     /// Whether the agent's profile takes part in checkpoints.
     fn agent_takes_part(&self, agent_type: &str) -> bool;
+    /// Whether an agent run is still open on the pane (only asked when the pane is running).
+    fn run_open(&self, _pane_id: &str, _pane: &PaneFacts) -> bool {
+        false
+    }
 }
 
 /// What an automatic trigger did.
@@ -175,6 +179,9 @@ impl Runtime {
     /// Restore files to checkpoint `id`. Refused while the pane is running.
     pub fn restore(&self, pane_id: &str, id: &str) -> Result<RestoreReport, CheckpointError> {
         let (project, pane) = self.project_of(pane_id)?;
+        if pane.status == "running" && self.env.run_open(pane_id, &pane) {
+            return Err(CheckpointError::RunOpen);
+        }
         let report = engine::restore(&project, pane_id, id, pane.status == "running", self.env.now_ms(), &self.limits())?;
         // The safety snapshot counts as this pane's latest automatic snapshot.
         self.state.lock().last_at.insert(pane_id.to_string(), self.env.now_ms());
@@ -216,6 +223,9 @@ impl Env for LiveEnv {
     }
     fn agent_takes_part(&self, agent_type: &str) -> bool {
         crate::tui::profile_for(agent_type).checkpoints()
+    }
+    fn run_open(&self, pane_id: &str, pane: &PaneFacts) -> bool {
+        crate::bridge::pane_has_open_run(pane_id, &pane.cwd)
     }
 }
 

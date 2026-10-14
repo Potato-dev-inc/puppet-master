@@ -39,6 +39,8 @@ pub enum CheckpointError {
     TooLarge(u64),
     NotFound,
     Running,
+    /// An agent run is still open on the pane.
+    RunOpen,
     Other(String),
 }
 
@@ -54,6 +56,7 @@ impl std::fmt::Display for CheckpointError {
             ),
             Self::NotFound => f.write_str("That checkpoint no longer exists."),
             Self::Running => f.write_str("The agent is working. Interrupt it first, then undo."),
+            Self::RunOpen => f.write_str("A run is still open on this pane. Interrupt it first, then undo."),
             Self::Other(m) => f.write_str(m),
         }
     }

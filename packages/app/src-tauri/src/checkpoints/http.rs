@@ -13,6 +13,7 @@ fn fail(error: CheckpointError) -> (u16, Value) {
     let (status, code) = match &error {
         CheckpointError::NotFound => (404, "CHECKPOINT_NOT_FOUND"),
         CheckpointError::Running => (409, "PANE_RUNNING"),
+        CheckpointError::RunOpen => (409, "RUN_OPEN"),
         CheckpointError::Disabled => (409, "CHECKPOINTS_DISABLED"),
         CheckpointError::GitMissing => (501, "GIT_MISSING"),
         CheckpointError::TooLarge(_) => (413, "CHECKPOINT_TOO_LARGE"),

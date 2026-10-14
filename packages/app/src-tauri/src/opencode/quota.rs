@@ -146,7 +146,7 @@ pub fn handle_rate_limit(
         .lock()
         .panes
         .get(pane_id)
-        .map(|pane| pane.info.status.clone())
+        .map(|pane| pane.status.lock().as_str().to_string())
         .unwrap_or_else(|| "running".to_string());
 
     emit_opencode_worker_event(

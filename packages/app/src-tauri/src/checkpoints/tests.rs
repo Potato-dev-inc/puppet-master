@@ -273,6 +273,7 @@ struct FakeEnv {
     now: AtomicU64,
     enabled: AtomicBool,
     opted_out: Mutex<Vec<String>>,
+    run_open: AtomicBool,
 }
 
 impl FakeEnv {
@@ -282,6 +283,7 @@ impl FakeEnv {
             now: AtomicU64::new(100_000),
             enabled: AtomicBool::new(true),
             opted_out: Mutex::new(vec![]),
+            run_open: AtomicBool::new(false),
         });
         env.add("p1", dir, "claude", "idle");
         env
@@ -309,6 +311,9 @@ impl Env for FakeEnv {
     }
     fn now_ms(&self) -> u64 {
         self.now.load(Ordering::SeqCst)
+    }
+    fn run_open(&self, _pane_id: &str, _pane: &PaneFacts) -> bool {
+        self.run_open.load(Ordering::SeqCst)
     }
     fn agent_takes_part(&self, agent: &str) -> bool {
         !self.opted_out.lock().iter().any(|a| a == agent)
@@ -535,4 +540,82 @@ fn last_turn_patch_is_the_newest_after_against_where_that_turn_started() {
     assert!(cut.truncated && cut.patch.len() <= 20);
     // Another pane has none.
     assert!(engine::last_turn_patch(t.p(), "p2", 1 << 20).unwrap().is_none());
+}
+
+// ---- live-hunt bug: restore refused on an idle pane ---------------------------------------
+
+/// An `Env` backed by a REAL `PaneRegistry` and the same `pane_facts` the live app uses, so the
+/// status the runtime sees is exactly what `checkpoint_pane_facts` reports for a registered pane.
+struct RegistryEnv {
+    registry: Mutex<crate::pty::PaneRegistry>,
+}
+
+impl Env for RegistryEnv {
+    fn pane(&self, id: &str) -> Option<PaneFacts> {
+        self.registry.lock().panes.get(id).map(crate::bridge::pane_facts)
+    }
+    fn settings(&self) -> Settings {
+        Settings { enabled: true, keep: 50 }
+    }
+    fn now_ms(&self) -> u64 {
+        200_000
+    }
+    fn agent_takes_part(&self, _agent: &str) -> bool {
+        true
+    }
+}
+
+#[test]
+fn restore_succeeds_on_an_idle_pane_whose_spawn_snapshot_says_running() {
+    use crate::pty::status::PaneStatus;
+    let t = Tmp::new("liveidle");
+    t.write("a.txt", "v1");
+    let first = snap(&t, "dispatched", Kind::Before, 1_000);
+    t.write("a.txt", "v2");
+
+    // A pane as the registry holds it after a dispatched run finished: `info.status` was set to
+    // "running" at spawn and never changes; the live status lock says idle.
+    let mut pane = crate::pty::PaneRegistry::test_pane_stub("dispatched");
+    pane.info.cwd = t.p().to_string_lossy().into();
+    pane.info.agent_type = "claude".into();
+    assert_eq!(pane.info.status, "running", "the spawn snapshot is stale by construction");
+    *pane.status.lock() = PaneStatus::Idle;
+    let env = Arc::new(RegistryEnv { registry: Mutex::new(crate::pty::PaneRegistry::new()) });
+    env.registry.lock().panes.insert("dispatched".into(), pane);
+
+    let rt = Runtime::new(env.clone());
+    assert_eq!(env.pane("dispatched").unwrap().status, "idle");
+    rt.restore("dispatched", &first.id).expect("an idle pane must be restorable");
+    assert_eq!(t.read("a.txt").as_deref(), Some("v1"));
+
+    // The same pane really working is still refused.
+    *env.registry.lock().panes.get("dispatched").unwrap().status.lock() = PaneStatus::Running;
+    t.write("a.txt", "v3");
+    assert!(matches!(rt.restore("dispatched", &first.id), Err(CheckpointError::Running)));
+    assert_eq!(t.read("a.txt").as_deref(), Some("v3"));
+}
+
+#[test]
+fn restore_names_an_open_run_precisely() {
+    use super::http::respond;
+    let t = Tmp::new("runopen");
+    let env = FakeEnv::new(t.p());
+    let rt = Runtime::new(env.clone());
+    t.write("a.txt", "v1");
+    assert!(matches!(rt.capture("p1", Kind::Before, None), Outcome::Created(_)));
+    t.write("a.txt", "v2");
+
+    env.set_status("p1", "running");
+    let (code, body) = respond(&rt, "POST", &["panes", "p1", "checkpoints", "1", "restore"]).unwrap().unwrap_err();
+    assert_eq!((code, body["code"].as_str()), (409, Some("PANE_RUNNING")));
+
+    env.run_open.store(true, Ordering::SeqCst);
+    let (code, body) = respond(&rt, "POST", &["panes", "p1", "checkpoints", "1", "restore"]).unwrap().unwrap_err();
+    assert_eq!((code, body["code"].as_str()), (409, Some("RUN_OPEN")));
+    assert_eq!(body["error"], "A run is still open on this pane. Interrupt it first, then undo.");
+    assert_eq!(t.read("a.txt").as_deref(), Some("v2"), "nothing is touched");
+
+    // An idle pane is restorable even if an operation record lingers.
+    env.set_status("p1", "idle");
+    assert!(respond(&rt, "POST", &["panes", "p1", "checkpoints", "1", "restore"]).unwrap().is_ok());
 }
