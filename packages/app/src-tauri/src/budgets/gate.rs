@@ -24,7 +24,10 @@ pub fn check_next_turn_at(project: &str, handle: &str, now: u64) -> Result<(), O
     match state.exhausted() {
         None => Ok(()),
         Some(reason) => {
+            // The card is in the Inbox (and `GET /attention`) before the caller is told it is there:
+            // the 409 used to land seconds ahead of the card (VERIFY-R13 #6).
             card::raise(&record, &state, reason);
+            crate::attention::settle();
             Err(errors::run_exhausted(handle, reason, &state))
         }
     }

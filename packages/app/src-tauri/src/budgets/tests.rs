@@ -462,3 +462,23 @@ fn run_agent_schema_gains_only_optional_budget_args() {
     let followup = tools.iter().find(|tool| tool.name == "followup_task").unwrap();
     assert!(followup.input_schema["properties"].get("budget_turns").is_none());
 }
+
+#[test]
+fn the_pause_card_is_in_the_attention_list_by_the_time_the_409_is_returned() {
+    // VERIFY-R13 #6: BUDGET_EXHAUSTED came back at once, but the Inbox and GET /attention showed
+    // nothing for seconds, until the attention tick thread caught up.
+    let project = project();
+    let h = handle();
+    root(&project, &h, 1);
+    start_turn(&project, &h, 0);
+    let error = check_next_turn_at(&project, &h, T0).unwrap_err();
+    assert_eq!(error.code, "BUDGET_EXHAUSTED");
+    let card = pending_card_of(&project, &h).expect("the question exists");
+    let snapshot = crate::attention::snapshot();
+    assert!(
+        snapshot.items.iter().any(|item| item.key == format!("budget:{}", card.id)),
+        "no budget item in the attention snapshot right after the 409: {:?}",
+        snapshot.items.iter().map(|i| i.key.clone()).collect::<Vec<_>>()
+    );
+    assert!(snapshot.counts.blocking >= 1);
+}

@@ -185,6 +185,16 @@ pub fn snapshot_now() -> Snapshot {
     copy.snapshot().clone()
 }
 
+/// Rebuild the snapshot and broadcast it now, on the caller's thread, instead of waiting for the tick
+/// thread's debounce. For a producer that is about to tell someone "a card is waiting" (the 409 of an
+/// exhausted budget): the Inbox and `GET /attention` must already show it when that reply lands.
+/// Must not be called while holding the pane registry lock (the facts read the pane list).
+pub fn settle() {
+    if let Some(snapshot) = refresh() {
+        publish(&snapshot);
+    }
+}
+
 /// Start the `attention-tick` thread (once, from `setup`).
 pub fn init() {
     let _ = std::thread::Builder::new().name("attention-tick".into()).spawn(run);
@@ -221,6 +231,10 @@ fn publish(snapshot: &Snapshot) {
     if let Ok(json) = serde_json::to_string(snapshot) {
         crate::bridge::push_sse(frame(&json));
     }
+    // Not in unit tests: emitting through the app handle links the whole windowing runtime into the
+    // lib test exe, which then needs a Common Controls v6 manifest it does not have (it would not
+    // load). A test has no app handle anyway.
+    #[cfg(not(test))]
     if let Some(app) = crate::bridge::live_app() {
         use tauri::Emitter;
         let _ = app.emit("attention://changed", snapshot);

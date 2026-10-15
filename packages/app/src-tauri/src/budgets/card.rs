@@ -110,6 +110,7 @@ pub fn raise(record: &BudgetRecord, standing: &Standing, reason: Reason) -> Opti
         .ok()?;
     CARDS.lock().insert(created.id.clone(), (record.project.clone(), record.handle.clone()));
     crate::push::notify_question(&created);
+    crate::attention::on_changed();
     Some(created)
 }
 
