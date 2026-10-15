@@ -214,6 +214,9 @@ mod tests {
             "AGENT_NOT_INSTALLED",
             "PANE_BLOCKED_BY_PROMPT",
             "WORKSPACE_TRUST_DECLINED",
+            // A live pane that never took the typed task (still loading after Trust): the person's
+            // visible pane is kept, never re-run headless (live v0.2.0 hunt, cx4/cx5).
+            "PROMPT_NOT_TAKEN",
         ] {
             assert!(!is_pre_turn_failure(code), "{code}");
             assert_eq!(plan(&op, modes(true, true), Some(code)), None, "{code}");

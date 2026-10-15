@@ -216,6 +216,22 @@ fn undo_leaves_files_the_user_changed_since() {
 }
 
 #[test]
+fn undo_says_so_when_the_user_broke_the_config_since_and_keeps_the_record() {
+    let _serial = crate::tui::registry::test_serial();
+    let home = temp("broken");
+    seed(&home, ".codex/config.toml", "model = \"gpt-6\"\n");
+    let e = env(vec![spec("codex", true)], &home);
+    service::call(&e, "apply").unwrap();
+    let cfg = home.join(".codex/config.toml");
+    fs::write(&cfg, format!("{}\n// not toml\n", read(&cfg))).unwrap();
+    let u = service::call(&e, "undo").unwrap();
+    let skipped = u["skipped"].as_array().unwrap();
+    assert!(skipped.iter().any(|s| s["path"].as_str().unwrap().ends_with("config.toml")), "the broken config is reported, not forgotten: {u}");
+    assert!(read(&cfg).contains("puppet-master"), "nothing was guessed at in a file that cannot be parsed");
+    assert!(u["recorded"].as_u64().unwrap() >= 1, "the record stays so Undo can be pressed again: {u}");
+}
+
+#[test]
 fn agents_that_read_one_folder_share_one_write() {
     let _serial = crate::tui::registry::test_serial();
     let home = temp("shared");

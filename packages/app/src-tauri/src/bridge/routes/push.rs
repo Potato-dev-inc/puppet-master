@@ -68,6 +68,10 @@ fn act(cx: &Ctx, hub: &crate::push::hub::PushHub, now: u64) -> RouteResult {
         false,
     )
     .map_err(operation_http_error)?;
+    // A repeat of an answer already sent for this prompt pressed nothing: no second line.
+    if crate::pane_prompt::reply_was_repeat(&answered) {
+        return Ok((200, json!({"ok": true, "answered": answered})));
+    }
     // A lock-screen tap: the audit log says which device pressed which choice (never the command).
     crate::audit::record(
         crate::audit::Kind::Approval,

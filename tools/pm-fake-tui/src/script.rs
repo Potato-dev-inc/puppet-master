@@ -106,6 +106,17 @@ pub struct Gate {
     /// False: the screen ignores Esc (a menu that does not close), so a run can only park.
     #[serde(default = "yes")]
     pub honour_esc: bool,
+    /// After the screen is passed (Trust, Skip), the agent keeps loading this long: its composer is
+    /// drawn and looks ready, but typed keys are held and only taken, all at once and in order, when
+    /// the time is up (live v0.2.0 hunt, Codex 0.162.1 after Trust: the task typed into the drawn
+    /// composer showed up seconds later).
+    #[serde(default)]
+    pub warm_ms: u64,
+    /// The screen stays drawn this long after the answering key (the agent redraws late): keys
+    /// that arrive meanwhile are held and reach whatever comes next (live v0.2.0 hunt: five Trust
+    /// answers in 400 ms all found the dialog still drawn).
+    #[serde(default)]
+    pub linger_ms: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

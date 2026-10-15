@@ -16,6 +16,10 @@ enum Phase {
     /// Waiting for a startup screen to appear (the composer may already be showing).
     BeforeGate { until: u64, gate: Gate },
     Gate { gate: Gate, selected: usize },
+    /// A startup screen was passed and the agent is not taking keys yet: first the answered screen
+    /// stays drawn (`linger_ms`, `frozen`), then the composer is drawn while it loads (`warm_ms`).
+    /// Keys are held and taken in order when both are over.
+    Warming { until: u64, held: Vec<Key>, frozen: Option<GateView>, warm_after: u64 },
     Ready,
     /// A turn is running: the queue of steps, one of which may be sleeping.
     Busy,
@@ -178,7 +182,36 @@ impl Engine {
                 self.sleep = None;
                 self.run_queue(now);
             }
+            Phase::Warming { until, .. } if now >= *until => {
+                if let Phase::Warming { held, warm_after, .. } = std::mem::replace(&mut self.phase, Phase::Ready) {
+                    if warm_after > 0 {
+                        // The answered screen is gone; the agent still loads behind its composer.
+                        self.log(now, "warming", json!({ "ms": warm_after }));
+                        self.phase = Phase::Warming { until: now + warm_after, held, frozen: None, warm_after: 0 };
+                        return;
+                    }
+                    self.log(now, "warm_done", json!({ "held_keys": held.len() }));
+                    self.begin_next_startup(now);
+                    // The keys typed while it loaded arrive now, in one go and in order.
+                    for key in held {
+                        self.dispatch(key, now);
+                    }
+                }
+            }
             _ => {}
+        }
+    }
+
+    /// After a startup screen is passed: on to the next one, or first keep `view` drawn for
+    /// `linger_ms` and then load for `warm_ms`, holding keys.
+    fn after_gate(&mut self, view: GateView, linger_ms: u64, warm_ms: u64, now: u64) {
+        if linger_ms > 0 {
+            self.phase = Phase::Warming { until: now + linger_ms, held: Vec::new(), frozen: Some(view), warm_after: warm_ms };
+        } else if warm_ms > 0 {
+            self.log(now, "warming", json!({ "ms": warm_ms }));
+            self.phase = Phase::Warming { until: now + warm_ms, held: Vec::new(), frozen: None, warm_after: 0 };
+        } else {
+            self.begin_next_startup(now);
         }
     }
 
@@ -189,9 +222,17 @@ impl Engine {
         if !matches!(key, Key::Char(_) | Key::Paste(_)) {
             self.log(now, "key", json!({ "key": format!("{key:?}") }));
         }
+        if let Phase::Warming { held, .. } = &mut self.phase {
+            held.push(key);
+            return;
+        }
+        self.dispatch(key, now);
+    }
+
+    fn dispatch(&mut self, key: Key, now: u64) {
         // `0` ignores the key; `1` is a composer drawn before a startup screen (it takes typing).
         let kind = match &self.phase {
-            Phase::Loading { .. } | Phase::Exited { .. } => 0,
+            Phase::Loading { .. } | Phase::Exited { .. } | Phase::Warming { .. } => 0,
             Phase::BeforeGate { gate, .. } => u8::from(gate.composer_first),
             Phase::Gate { .. } => 2,
             Phase::Ready => 3,
@@ -242,7 +283,8 @@ impl Engine {
             _ => {}
         }
         let Some(choice) = confirm else { return };
-        let (kind, layout) = (gate.gate, self.layout);
+        let (kind, layout, warm_ms, linger_ms) = (gate.gate, self.layout, gate.warm_ms, gate.linger_ms);
+        let view = GateView { kind: gate.gate, selected: *selected };
         match kind {
             GateKind::UpdateMenu => match choice {
                 0 => {
@@ -253,7 +295,7 @@ impl Engine {
                 n => {
                     let answer = if n == 1 { "skip" } else { "skip_until_next_version" };
                     self.log(now, "gate_answer", json!({ "gate": "update_menu", "answer": answer }));
-                    self.begin_next_startup(now);
+                    self.after_gate(view, linger_ms, warm_ms, now);
                 }
             },
             GateKind::Trust => {
@@ -264,7 +306,7 @@ impl Engine {
                     self.exit_with(1, now);
                 } else {
                     self.log(now, "gate_answer", json!({ "gate": "trust", "answer": "trust" }));
-                    self.begin_next_startup(now);
+                    self.after_gate(view, linger_ms, warm_ms, now);
                 }
             }
         }
@@ -552,7 +594,10 @@ impl Engine {
         let mode = match &self.phase {
             Phase::Loading { .. } => Mode::Loading,
             Phase::BeforeGate { gate, .. } if !gate.composer_first => Mode::Loading,
-            Phase::BeforeGate { .. } | Phase::Ready | Phase::Busy | Phase::LimitWait => Mode::Ready,
+            // The answered screen still drawn (the agent redraws late).
+            Phase::Warming { frozen: Some(view), .. } => Mode::Gate(view.clone()),
+            // Still loading after a startup screen, but drawn like a ready composer (that is the trap).
+            Phase::BeforeGate { .. } | Phase::Warming { .. } | Phase::Ready | Phase::Busy | Phase::LimitWait => Mode::Ready,
             Phase::Gate { gate, selected } => Mode::Gate(GateView { kind: gate.gate, selected: *selected }),
             Phase::Approval { dialog, .. } => Mode::Approval(dialog.clone()),
             Phase::Exited { frozen: Some(gate) } => Mode::Gate(gate.clone()),
@@ -679,6 +724,42 @@ mod tests {
         yes.on_key(Key::Enter, 10);
         assert_eq!(yes.exit_code(), None);
         assert!(yes.plain(20).contains("\u{276f}\u{a0}"), "{}", yes.plain(20));
+    }
+
+    /// Codex 0.162.1 after Trust (live v0.2.0 hunt, cx5): the composer is drawn at once, but typed
+    /// keys show up only when it has finished loading, all at once and in order.
+    #[test]
+    fn after_trust_a_warming_codex_holds_keys_and_takes_them_in_order_when_ready() {
+        let mut e = engine("agent = \"codex\"\n[[startup]]\ngate = \"trust\"\nwarm_ms = 3000\n[[turn]]\nsteps = [{ do = \"say\", text = \"done\" }]");
+        e.tick(0);
+        e.on_key(Key::Enter, 10); // Trust and continue
+        let warming = e.plain(20);
+        assert!(warming.contains("Ask Codex to do anything") && !warming.contains("Do you trust"), "{warming}");
+        type_text(&mut e, "first", 100);
+        e.on_key(Key::CtrlU, 200);
+        type_text(&mut e, "second", 300);
+        assert_eq!(e.composer(), "", "nothing shows while it loads");
+        e.tick(2999);
+        assert_eq!(e.composer(), "");
+        e.tick(3010);
+        assert_eq!(e.composer(), "second", "the held keys arrive in order: the clear wiped the first copy");
+        e.on_key(Key::Enter, 3500);
+        assert!(e.plain(3600).contains("done"), "{}", e.plain(3600));
+    }
+
+    /// Codex redraws its trust dialog away a moment after the key: until then it is still drawn,
+    /// and further keys are held for whatever comes next.
+    #[test]
+    fn a_lingering_dialog_stays_drawn_and_holds_the_keys_that_follow() {
+        let mut e = engine("agent = \"codex\"\n[[startup]]\ngate = \"trust\"\nlinger_ms = 400");
+        e.tick(0);
+        e.on_key(Key::Enter, 10);
+        assert!(e.plain(100).contains("Do you trust"), "still drawn: {}", e.plain(100));
+        e.on_key(Key::Enter, 120);
+        e.on_key(Key::Enter, 200);
+        e.tick(500);
+        assert!(!e.plain(500).contains("Do you trust") && e.plain(500).contains("Ask Codex to do anything"), "{}", e.plain(500));
+        assert_eq!(e.composer(), "", "the held Enters met an empty composer");
     }
 
     #[test]

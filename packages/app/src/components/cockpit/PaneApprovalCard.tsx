@@ -1,8 +1,10 @@
 // The card for a pane that waits on the person: the same card in the Inbox list and docked in the pane's
 // Terminal tab. A rated prompt is an ApprovalPrompt card (Allow once / Always allow / Deny, Deny first on
 // high risk); a menu Puppet Master could not rate keeps the agent's own words, equal weight, no default.
+// Every answer carries the person's click (`lib/user-gesture.ts`): the backend refuses one without it.
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { ApprovalPrompt } from './ApprovalPrompt';
+import { gestureOf } from '../../lib/user-gesture';
 import { CardButton, InboxCard } from './InboxCard';
 import { promptSummary } from './model';
 import { projectWithCopy } from './shell-labels';
@@ -39,7 +41,7 @@ export function PaneApprovalCard({
         age={age}
         autoFocus={autoFocus}
         onOpen={onOpen}
-        onAnswer={(ch) => void c.answer(paneId, prompt.promptId, ch.id, ch.label)}
+        onAnswer={(ch, gesture) => void c.answer(paneId, prompt.promptId, ch.id, ch.label, gesture)}
       />
     );
   }
@@ -54,7 +56,7 @@ export function PaneApprovalCard({
         hasChoices ? (
           <>
             {prompt.choices.map((ch) => (
-              <CardButton key={ch.id} tone="secondary" role="answer" onClick={() => void c.answer(paneId, prompt.promptId, ch.id, ch.label)}>
+              <CardButton key={ch.id} tone="secondary" role="answer" onClick={(event) => void c.answer(paneId, prompt.promptId, ch.id, ch.label, gestureOf(event))}>
                 {ch.label}
               </CardButton>
             ))}

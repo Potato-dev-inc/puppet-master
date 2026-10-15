@@ -403,3 +403,52 @@ fn the_error_of_a_screen_that_never_became_ready_explains_itself() {
     assert!(error.context["screen"].as_str().unwrap().contains("half a thought"));
     assert_eq!(error.context["typed_bytes"], 0);
 }
+
+// ---- positive readiness after a startup screen (live v0.2.0 hunt, Codex after Trust) ----------
+
+/// A scripted pane for `wait_until_settled`: each look returns the next (screen, output position),
+/// the last one repeating; the clock advances 100 ms per pause.
+fn settle_run(agent: &str, looks: &[(&str, u64, AgentProcess)], quiet_ms: u64, max_ms: u64) -> (Settle, u64) {
+    let clock = std::cell::Cell::new(0u64);
+    let index = std::cell::Cell::new(0usize);
+    let outcome = wait_until_settled(
+        profile_for(agent).as_ref(),
+        || {
+            let (screen, pos, agent) = looks[index.get().min(looks.len() - 1)];
+            index.set(index.get() + 1);
+            Observation { pane_id: "p".into(), screen: screen.to_string(), output_pos: Some(pos), agent }
+        },
+        || clock.get(),
+        || clock.set(clock.get() + 100),
+        std::time::Duration::from_millis(quiet_ms),
+        std::time::Duration::from_millis(max_ms),
+    );
+    (outcome, clock.get())
+}
+
+/// The composer is drawn at once after Trust, but the pane is still printing: not settled until it
+/// has been quiet for the whole quiet time, even though every look reads `Ready`.
+#[test]
+fn a_ready_looking_composer_that_still_prints_is_not_settled_until_it_is_quiet() {
+    let printing: Vec<(&str, u64, AgentProcess)> = (0..20).map(|i| (CODEX_READY, 1_000 + i * 64, AgentProcess::Alive)).collect();
+    let (outcome, waited) = settle_run("codex", &printing, 1_500, 30_000);
+    assert_eq!(outcome, Settle::Settled);
+    // 20 looks that printed (2 s), then 1.5 s of quiet.
+    assert!(waited >= 1_900 + 1_500, "settled after {waited} ms");
+}
+
+#[test]
+fn a_quiet_ready_pane_settles_after_the_quiet_time_and_a_loading_one_does_not() {
+    let (outcome, waited) = settle_run("codex", &[(CODEX_READY, 500, AgentProcess::Alive)], 1_500, 30_000);
+    assert_eq!((outcome, waited), (Settle::Settled, 1_500));
+    // Codex's own `loading` banner is never ready, however quiet.
+    let (outcome, waited) = settle_run("codex", &[(CODEX_LOADING, 500, AgentProcess::Alive)], 1_500, 5_000);
+    assert_eq!((outcome, waited), (Settle::TimedOut, 5_000));
+}
+
+#[test]
+fn an_agent_that_left_ends_the_settle_wait_at_once() {
+    let (outcome, waited) = settle_run("codex", &[(CODEX_READY, 500, AgentProcess::Exited)], 1_500, 30_000);
+    assert!(matches!(outcome, Settle::Gone(HostShell::AgentExited)), "{outcome:?}");
+    assert_eq!(waited, 0);
+}

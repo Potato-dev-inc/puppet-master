@@ -216,6 +216,7 @@ pub fn kill_pane_with_reason(
     reason: Option<&str>,
 ) -> Result<(), String> {
     let pane = registry.lock().take(pane_id);
+    let cwd = pane.as_ref().map(|pane| pane.info.cwd.clone());
     if let Some(pane) = pane {
         shutdown_pane(pane);
     }
@@ -224,6 +225,14 @@ pub fn kill_pane_with_reason(
         reason: reason.map(str::to_string),
     });
     crate::pane_windows::notify_pane_removed();
+    // A declined or cancelled isolated run kept its pane; its empty worktree goes when the pane does
+    // (off this thread: the folder is released a moment after the shell is killed).
+    if let Some(cwd) = cwd.filter(|cwd| crate::worktrees::origin_of_cwd(cwd).is_some()) {
+        let pane_id = pane_id.to_string();
+        let _ = std::thread::Builder::new()
+            .name("pane-worktree-release".into())
+            .spawn(move || crate::agent_runs::pane_close::release_worktree_of_closed_pane(&pane_id, &cwd));
+    }
     Ok(())
 }
 

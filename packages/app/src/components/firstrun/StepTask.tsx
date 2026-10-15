@@ -163,7 +163,7 @@ export function StepTask({
 
       {run && !settled && prompt && prompt.risk && prompt.choices.length > 0 && pane && (
         <div className="fr-approval">
-          <ApprovalPrompt variant="card" prompt={prompt} autoFocus={false} onAnswer={(ch) => void c.answer(pane, prompt.promptId, ch.id, ch.label)} />
+          <ApprovalPrompt variant="card" prompt={prompt} autoFocus={false} onAnswer={(ch, gesture) => void c.answer(pane, prompt.promptId, ch.id, ch.label, gesture)} />
           <p className="fr-tip">{T.approvalTip}</p>
         </div>
       )}

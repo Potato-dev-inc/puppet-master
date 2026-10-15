@@ -57,8 +57,14 @@ impl TuiProfile for OpenCode {
         })
     }
 
+    /// The same order as the doctor's Install plan (`install.toml`: winget, then npm). The hint
+    /// said npm while the Install button used winget (live v0.2.0 hunt).
     fn install_hint(&self) -> Option<String> {
-        Some("npm i -g opencode-ai".into())
+        Some(if cfg!(windows) { "winget install SST.opencode" } else { "npm i -g opencode-ai" }.into())
+    }
+
+    fn install_fallback_hint(&self) -> Option<String> {
+        cfg!(windows).then(|| "npm i -g opencode-ai".into())
     }
 
     fn login_hint(&self) -> Option<String> {
@@ -137,5 +143,24 @@ impl TuiProfile for OpenCodeNative {
 
     fn looks_like_menu(&self, text: &str) -> bool {
         screen::looks_like_menu(text)
+    }
+}
+
+#[cfg(all(test, windows))]
+mod install_hint_tests {
+    use crate::tui::TuiProfile;
+
+    /// The doctor's hint and its Install plan name the same route first (live v0.2.0 hunt: the
+    /// hint said npm while the plan installed with winget).
+    #[test]
+    fn the_hint_names_the_install_plans_first_route_and_the_fallback_its_second() {
+        let profile = super::OpenCode;
+        let spec = profile.install_spec().expect("OpenCode has an install plan");
+        let order = spec.ordered_methods();
+        assert_eq!(&order[..2], ["winget", "npm"]);
+        let hint = profile.install_hint().unwrap();
+        assert!(hint.contains("winget") && hint.contains(spec.winget.as_deref().unwrap()), "{hint}");
+        let fallback = profile.install_fallback_hint().unwrap();
+        assert!(fallback.contains(spec.npm.as_deref().unwrap()), "{fallback}");
     }
 }

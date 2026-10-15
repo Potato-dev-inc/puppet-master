@@ -625,6 +625,63 @@ pub fn wait_while_parked(
     }
 }
 
+/// How a [`wait_until_settled`] ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Settle {
+    /// The pane printed nothing for the quiet time and reads `Ready` (or shows a gate, which
+    /// delivery stops on by itself).
+    Settled,
+    /// The time ran out with the pane still printing or not ready; delivery may try anyway.
+    TimedOut,
+    /// The agent is gone; nothing is typed.
+    Gone(HostShell),
+}
+
+/// Positive readiness after a startup screen was passed (folder trust) or after typed text did not
+/// show (live v0.2.0 hunt, Codex 0.162.1: the composer was drawn at once after Trust, but keys typed
+/// into it showed up seconds later). The pane must read `Ready` AND have printed nothing for `quiet`
+/// (its output position unchanged), checked every look; at most `max`. `now_ms` and `pause` are the
+/// clock (tests drive them). Agent-agnostic: only the profile's own recogniser and the byte count.
+pub fn wait_until_settled(
+    profile: &dyn TuiProfile,
+    mut observe: impl FnMut() -> Observation,
+    mut now_ms: impl FnMut() -> u64,
+    mut pause: impl FnMut(),
+    quiet: Duration,
+    max: Duration,
+) -> Settle {
+    let start = now_ms();
+    let quiet_ms = quiet.as_millis() as u64;
+    let mut last_pos: Option<Option<u64>> = None;
+    let mut last_screen = String::new();
+    let mut still_since = start;
+    loop {
+        let now = now_ms();
+        let observation = observe();
+        let moved = match last_pos {
+            None => true,
+            // No stream position (a test double): the screen text stands in for it.
+            Some(None) => observation.output_pos.is_none() && observation.screen != last_screen,
+            Some(previous) => observation.output_pos != previous,
+        };
+        if moved {
+            still_since = now;
+            last_pos = Some(observation.output_pos);
+            last_screen = observation.screen.clone();
+        }
+        let verdict = assess(profile, observation);
+        match verdict.readiness() {
+            Readiness::HostShell(shell) => return Settle::Gone(shell.clone()),
+            Readiness::Ready | Readiness::Gate(_) if now.saturating_sub(still_since) >= quiet_ms => return Settle::Settled,
+            _ => {}
+        }
+        if now.saturating_sub(start) >= max.as_millis() as u64 {
+            return Settle::TimedOut;
+        }
+        pause();
+    }
+}
+
 /// The last rows of a screen, for a parked run's explanation.
 pub fn screen_tail(screen: &str, rows: usize) -> String {
     let lines: Vec<&str> = screen.lines().map(str::trim_end).filter(|line| !line.trim().is_empty()).collect();

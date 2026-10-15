@@ -287,13 +287,41 @@ pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<St
     };
     let (screen, agent_type) = screen;
     let parser = screen.lock();
-    let keep = sidebar_keep_cols(&agent_type, parser.screen().size().1);
+    Ok(watch_snapshot(parser.screen(), &agent_type))
+}
+
+/// The screen as completion, approval and prompt detection read it. A profile may leave out text the
+/// agent drew in its own input box (`TuiProfile::input_screen`): Claude's dimmed next-prompt suggestion
+/// is not part of any reply, yet it sat on the final screen as `> Reply with only the word FUFIVE.` and
+/// came back inside the result of the turn before it (live, v0.2.0). With a sidebar to crop, rows are
+/// cropped as before.
+pub(crate) fn watch_snapshot(screen: &vt100::Screen, agent_type: &str) -> String {
+    let keep = sidebar_keep_cols(agent_type, screen.size().1);
     if keep.is_none() {
-        if let Some(text) = side_panel_snapshot(parser.screen(), &agent_type) {
-            return Ok(text);
+        if let Some(text) = side_panel_snapshot(screen, agent_type) {
+            return text;
         }
+        return input_screen_text(screen, agent_type);
     }
-    Ok(snapshot_text(parser.screen(), keep))
+    snapshot_text(screen, keep)
+}
+
+#[cfg(test)]
+#[test]
+fn a_dimmed_suggestion_in_the_input_box_is_not_part_of_the_screen_a_result_is_read_from() {
+    let rule = "\u{1b}[38;2;136;136;136m\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{1b}[m";
+    let frame = |composer: &str| format!("\u{276f} Reply with only the word FUFOUR.\r\n\u{25cf} FUFOUR\r\n{rule}\r\n{composer}\r\n{rule}\r\n  \u{23f5}\u{23f5} auto mode on");
+    let read = |agent: &str, bytes: &str| {
+        let mut parser = vt100::Parser::new(12, 60, 0);
+        parser.process(bytes.as_bytes());
+        watch_snapshot(parser.screen(), agent)
+    };
+    let ghost = read("claude", &frame("\u{276f} \u{1b}[2mReply with only the word FUFIVE.\u{1b}[m"));
+    assert!(!ghost.contains("FUFIVE"), "{ghost}");
+    assert!(ghost.contains("\u{25cf} FUFOUR"), "{ghost}");
+    // Typed text is the person's (normal intensity) and stays, and an agent with no such rule is read as is.
+    assert!(read("claude", &frame("\u{276f} Reply with only the word FUFIVE.")).contains("FUFIVE"));
+    assert!(read("powershell", &frame("\u{276f} \u{1b}[2mghost\u{1b}[m")).contains("ghost"));
 }
 
 /// The screen one entry per row with a side panel cropped off, for a profile that can show one

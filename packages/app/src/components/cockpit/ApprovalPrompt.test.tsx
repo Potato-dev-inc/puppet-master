@@ -106,7 +106,25 @@ describe('ApprovalPrompt', () => {
     act(() => btn('More options')!.click());
     expect(btn('Always allow')).toBeDefined();
     act(() => btn('Always allow')!.click());
-    expect(onAnswer).toHaveBeenCalledWith(expect.objectContaining({ id: 'allow_all' }));
+    expect(onAnswer).toHaveBeenCalledWith(expect.objectContaining({ id: 'allow_all' }), expect.objectContaining({ kind: 'click' }));
+  });
+
+  it('every answer carries the click that chose it: a fresh gesture per click', () => {
+    const onAnswer = render(prompt('medium', 'Delete a folder'));
+    act(() => btn('Deny')!.click());
+    act(() => btn('Deny')!.click());
+    expect(onAnswer).toHaveBeenCalledTimes(2);
+    const [first, second] = onAnswer.mock.calls.map((call) => call[1]);
+    expect(first).toMatchObject({ kind: 'click', trusted: false });
+    expect(typeof first.atMs).toBe('number');
+    expect(first.id).not.toBe(second.id);
+  });
+
+  it('nothing answers without a click: mounting, re-rendering and focusing send nothing', () => {
+    const onAnswer = render(prompt('high', 'Delete a folder outside this project'));
+    act(() => root.render(<ApprovalPrompt prompt={prompt('high', 'Delete a folder outside this project')} onAnswer={onAnswer} variant="card" />));
+    act(() => root.render(<ApprovalPrompt prompt={prompt('medium', 'Trust this folder')} onAnswer={onAnswer} variant="card" />));
+    expect(onAnswer).not.toHaveBeenCalled();
   });
 
   it('a click on Allow once still works on a high-risk prompt (explicit action only)', () => {
@@ -164,7 +182,7 @@ describe('ApprovalPrompt', () => {
     const p: PanePrompt = { ...prompt('low', 'Run tests'), choices: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No, and tell Codex what to do differently (esc)' }] };
     const onAnswer = render(p);
     act(() => btn('Deny')!.click());
-    expect(onAnswer).toHaveBeenCalledWith({ id: 'no', label: 'No, and tell Codex what to do differently (esc)' });
+    expect(onAnswer).toHaveBeenCalledWith({ id: 'no', label: 'No, and tell Codex what to do differently (esc)' }, expect.objectContaining({ kind: 'click' }));
   });
 
   it('the card carries the agent, the project, the risk word and one age', () => {

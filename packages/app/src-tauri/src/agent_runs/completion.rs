@@ -68,6 +68,11 @@ impl TuiTurnWatch {
         self
     }
 
+    /// Whether the task's echo has been seen since the baseline (the turn's output has begun).
+    pub fn saw_task_echo(&self) -> bool {
+        self.saw_task_echo
+    }
+
     /// Start watching again from `baseline` after the prompt was delivered a second time.
     pub fn restart(&mut self, baseline: impl Into<String>) {
         self.baseline = baseline.into();

@@ -225,9 +225,9 @@ describe('keyboard', () => {
     const low = cards()[1];
     expect(low.dataset.risk).toBe('low');
     press('1');
-    expect(answer).toHaveBeenCalledWith('lo', 'p-low', 'yes', 'Yes');
+    expect(answer).toHaveBeenCalledWith('lo', 'p-low', 'yes', 'Yes', expect.objectContaining({ id: expect.any(String) }));
     press('3');
-    expect(answer).toHaveBeenLastCalledWith('lo', 'p-low', 'no', 'No, tell Claude what to do differently');
+    expect(answer).toHaveBeenLastCalledWith('lo', 'p-low', 'no', 'No, tell Claude what to do differently', expect.objectContaining({ id: expect.any(String) }));
   });
 
   it('O opens the terminal of the focused card and Esc dismisses a question', () => {

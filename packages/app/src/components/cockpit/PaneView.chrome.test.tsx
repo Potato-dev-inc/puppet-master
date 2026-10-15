@@ -161,7 +161,7 @@ describe('the dock', () => {
     expect(card.textContent).toContain('10s');
     const allow = Array.from(card.querySelectorAll('button')).find((b) => b.textContent === 'Allow once')!;
     await act(async () => allow.click());
-    expect(c.answer).toHaveBeenCalledWith('p1', prompt.promptId, 'yes', 'Yes');
+    expect(c.answer).toHaveBeenCalledWith('p1', prompt.promptId, 'yes', 'Yes', expect.objectContaining({ kind: 'click' }));
   });
 
   it('has no dock and no bar when nothing waits', async () => {

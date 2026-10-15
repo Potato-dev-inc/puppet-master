@@ -54,9 +54,16 @@ pub(super) fn auto_approve_allowed_command(
     let Some(text) = reply.key.or(reply.text) else {
         return false;
     };
-    if crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None, crate::pty::WriteOrigin::Answer).is_err()
-    {
-        return false;
+    let prompt_id = action.get("prompt_id").and_then(serde_json::Value::as_str).unwrap_or_default();
+    // One key per prompt occurrence, like every other answer (`pane_prompt::answers`).
+    let sent = crate::pane_prompt::answers::answer_once(pane_id, prompt_id, "allow_once", crate::pane_prompt::answers::now_ms(), || {
+        crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None, crate::pty::WriteOrigin::Answer)
+    });
+    match sent {
+        Ok(crate::pane_prompt::answers::Slot::Sent(())) => {}
+        // Answered a moment ago and not redrawn yet: nothing more to press.
+        Ok(crate::pane_prompt::answers::Slot::Duplicate(_)) => return true,
+        Err(_) => return false,
     }
     transcript::append(
         &current.project_path,

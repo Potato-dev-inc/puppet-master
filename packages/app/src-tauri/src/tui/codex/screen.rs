@@ -422,6 +422,27 @@ mod tests {
         assert_eq!(startup_gate(APPROVAL), None);
     }
 
+    /// Live v0.2.0: Codex's folder-trust screen was classified `idle`, so no Needs-you card (and none of
+    /// its buttons) was ever raised. A screen only the person can pass is a waiting pane.
+    #[test]
+    fn a_startup_screen_only_the_person_can_pass_is_a_waiting_pane_and_nothing_else_is() {
+        use crate::pty::status::PaneStatus;
+        use crate::tui::TuiProfile;
+        let codex = crate::tui::codex::Codex;
+        let tail = |screen: &str| {
+            let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
+            lines[lines.len().saturating_sub(12)..].join("
+")
+        };
+        for gate in [LIVE_TRUST_FOLDER, TRUST_DIALOG, LOGIN] {
+            assert_eq!(codex.classify_screen(&tail(gate)), Some(PaneStatus::WaitingInput), "{gate:.60}");
+            assert_eq!(crate::pty::status::classify_agent_observation("codex", gate, ""), PaneStatus::WaitingInput, "{gate:.60}");
+        }
+        for other in [LIVE_READY_BANNER, LIVE_UNSENT, LIVE_SUBMITTED, LIVE_WORKING, READY, WORKING, TYPED, UPDATE] {
+            assert_eq!(codex.classify_screen(&tail(other)), None, "{other:.60}");
+        }
+    }
+
     #[test]
     fn the_clear_sequence_is_only_ctrl_u() {
         assert!(CLEAR_COMPOSER.chars().all(|ch| ch == '\u{15}'));

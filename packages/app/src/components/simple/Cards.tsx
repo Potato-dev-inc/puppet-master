@@ -2,12 +2,13 @@
 // a problem with one button. Short, one idea each, and never the word for a failure.
 import { useState } from 'react';
 import type { PanePrompt, PromptChoice } from '../../lib/cockpit-api';
+import { gestureOf, type UserGesture } from '../../lib/user-gesture';
 import { DotSpinner } from '../cockpit/DotSpinner';
 import { simpleApproval, yesNo } from './approval-text';
 import { F, T } from './copy';
 import type { Problem } from './error-text';
 
-export function AskCard({ agent, prompt, onAnswer }: { agent: string; prompt: PanePrompt; onAnswer: (choice: PromptChoice) => void }) {
+export function AskCard({ agent, prompt, onAnswer }: { agent: string; prompt: PanePrompt; onAnswer: (choice: PromptChoice, gesture: UserGesture) => void }) {
   const [details, setDetails] = useState(false);
   const words = simpleApproval(prompt);
   if (!words || words.kind !== 'ask') return null;
@@ -31,12 +32,12 @@ export function AskCard({ agent, prompt, onAnswer }: { agent: string; prompt: Pa
       </div>
       <div className="sx-card-actions">
         {no && (
-          <button type="button" className="ck-btn ck-btn--secondary" onClick={() => onAnswer(no)}>
+          <button type="button" className="ck-btn ck-btn--secondary" onClick={(event) => onAnswer(no, gestureOf(event))}>
             {T.no}
           </button>
         )}
         {yes && (
-          <button type="button" className={`ck-btn ${careful ? 'ck-btn--secondary' : 'ck-btn--primary'}`} onClick={() => onAnswer(yes)}>
+          <button type="button" className={`ck-btn ${careful ? 'ck-btn--secondary' : 'ck-btn--primary'}`} onClick={(event) => onAnswer(yes, gestureOf(event))}>
             {T.yes}
           </button>
         )}

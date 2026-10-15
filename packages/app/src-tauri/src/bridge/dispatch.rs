@@ -562,6 +562,10 @@ pub(super) fn park_on_startup_dialog(
         )?;
         push_operation_sse(operation);
         wait_for_pane_idle(registry, pane_id, Duration::from_secs(20));
+        // Positive readiness after the person passed the screen (live v0.2.0 hunt, Codex 0.162.1:
+        // after Trust the composer was drawn at once but took keys seconds later): the input box
+        // read ready AND the pane quiet for a moment, before the task is typed.
+        settle_before_typing(registry, pane_id, agent_type);
         if let Some(pane) = registry
             .lock()
             .list()
@@ -669,20 +673,7 @@ fn send_task_prompt(
             .filter_map(|message| message.id)
             .collect();
     }
-    // Snapshot the screen right before the prompt is written. A ConPTY screen can lag
-    // and read blank; a blank baseline makes startup furniture look like new output,
-    // so retry briefly before settling for none (completion also guards that case).
-    for attempt in 0..4 {
-        if attempt > 0 {
-            thread::sleep(Duration::from_millis(150));
-        }
-        if let Ok(screen) = registry_read_snapshot(registry, pane_id) {
-            operation.output_baseline = crate::operations::compact_output_baseline(&screen);
-        }
-        if operation.output_baseline.is_some() {
-            break;
-        }
-    }
+    take_output_baseline(operation, registry, pane_id);
     crate::agent_runs::record_user_task(&operation.project_path, &operation.operation_id, &prompt);
     operation.started_at_ms = Some(crate::event_log::now_ms().max(0) as u64);
     *operation = crate::operations::save_operation_snapshot(operation)?;
@@ -694,6 +685,8 @@ fn send_task_prompt(
     // `running` before the TUI painted its gate) parks the run on that dialog like one seen at
     // startup; the task, never typed, is delivered once it is answered.
     let mut dialog_parks = 0;
+    // Rounds of "typed, never showed" on a live pane (settle, type again).
+    let mut not_taken_rounds = 0;
     loop {
         let outcome = crate::operations::dispatch_input_if_active(
             &operation.project_path,
@@ -721,6 +714,10 @@ fn send_task_prompt(
                 );
                 let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
                 park_on_startup_dialog(operation, registry, pane_id, agent_type, &screen, &[])?;
+                // The screen before the park was the dialog: what the agent draws after the answer
+                // (Codex: its banner and folder line) is not the turn's output (live r16: the result
+                // was the folder path). Measure the turn from the screen as it is now.
+                take_output_baseline(operation, registry, pane_id);
                 // The run's time limit counts from the delivery, not from before the park.
                 operation.started_at_ms = Some(crate::event_log::now_ms().max(0) as u64);
                 *operation = crate::operations::save_operation_snapshot(operation)?;
@@ -732,6 +729,29 @@ fn send_task_prompt(
                 drop(dispatch_guard.take());
                 park_on_unknown_screen(operation, registry, pane_id, agent_type, &error, UNKNOWN_SCREEN_PARK)?;
                 dispatch_guard = Some(PANE_ASSIGNMENT_SERIAL.lock());
+            }
+            // The typed task never showed in a pane whose agent is alive (still loading: it drew
+            // its input box before it took keys). Wait for the pane to settle and type again: the
+            // profile's clear key empties the box first, so a late copy is not doubled. Never a
+            // headless re-run while the person's visible pane is alive (live v0.2.0 hunt, cx4/cx5).
+            Err(error) if not_taken_by_live_pane(&error) && not_taken_rounds < MAX_NOT_TAKEN_ROUNDS => {
+                not_taken_rounds += 1;
+                drop(dispatch_guard.take());
+                crate::agent_runs::transcript::append(
+                    &operation.project_path,
+                    &operation.operation_id,
+                    "readiness",
+                    &crate::redact::text(&format!(
+                        "The task did not show in the agent's input box (it may still be loading). Waiting for the pane to settle, then typing it again (try {} of {MAX_NOT_TAKEN_ROUNDS}); the visible pane is kept, no background re-run.",
+                        not_taken_rounds
+                    )),
+                );
+                settle_before_typing(registry, pane_id, agent_type);
+                dispatch_guard = Some(PANE_ASSIGNMENT_SERIAL.lock());
+            }
+            Err(error) if not_taken_by_live_pane(&error) => {
+                // Still not taken: end the run with the screen, keep the pane open for the person.
+                return Err(not_taken_error(&error, registry, pane_id));
             }
             other => {
                 other?;
@@ -845,11 +865,19 @@ fn deliver_task(
     }
     match outcome {
         Delivery::Started | Delivery::SubmittedUnconfirmed => Ok(()),
-        Delivery::NotVisible { cleared } => Err(crate::operations::OperationError::new(
-            "PROMPT_NOT_SUBMITTED",
-            delivery::not_visible_message(cleared),
-            true,
-        )),
+        Delivery::NotVisible { cleared } => {
+            let mut error = crate::operations::OperationError::new(
+                "PROMPT_NOT_SUBMITTED",
+                delivery::not_visible_message(cleared),
+                true,
+            );
+            // The dispatch loop waits for a live pane and types again instead of letting this
+            // fall back to headless (`not_taken_by_live_pane`).
+            if agent_alive(registry, pane_id) {
+                error.context = json!({ "pane_id": pane_id, "pane_alive": true, "cleared": cleared });
+            }
+            Err(error)
+        }
         Delivery::Blocked(gate) => {
             let error = crate::pane_prompt::gate_blocked_error(gate);
             // Delivered again after the dialog is answered only when that cannot leave two copies:
@@ -868,8 +896,87 @@ fn deliver_task(
     }
 }
 
+/// The screen right before the task is typed, the baseline the turn's output is measured against
+/// (stored on the run as `output_baseline`; the supervisor adopts it). A ConPTY screen can lag and
+/// read blank; a blank baseline makes startup furniture look like new output, so retry briefly
+/// before settling for none (completion also guards that case).
+fn take_output_baseline(operation: &mut OperationSnapshot, registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) {
+    for attempt in 0..4 {
+        if attempt > 0 {
+            thread::sleep(Duration::from_millis(150));
+        }
+        if let Ok(screen) = registry_read_snapshot(registry, pane_id) {
+            operation.output_baseline = crate::operations::compact_output_baseline(&screen);
+        }
+        if operation.output_baseline.is_some() {
+            break;
+        }
+    }
+}
+
 /// How many times one delivery parks on a dialog that drew before the task was typed.
 const MAX_DIALOG_PARKS: u32 = 3;
+
+/// How many times a task that never showed in a live pane's input box is typed again (after the
+/// pane settled) before the run ends with the screen. Never a headless re-run of a live pane.
+const MAX_NOT_TAKEN_ROUNDS: u32 = 3;
+/// How long a pane must print nothing (and read ready) to count as settled before typing.
+const SETTLE_QUIET: Duration = Duration::from_millis(1_500);
+/// Longest wait for that; past it delivery tries anyway (it has its own checks).
+const SETTLE_MAX: Duration = Duration::from_secs(30);
+const SETTLE_POLL: Duration = Duration::from_millis(100);
+
+/// The pane is there and its agent process is not known to have exited.
+fn agent_alive(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> bool {
+    let present = registry.lock().panes.contains_key(pane_id);
+    present
+        && crate::agent_runs::delivery::observe_pane(registry, pane_id).agent
+            != crate::agent_runs::readiness::AgentProcess::Exited
+}
+
+/// A delivery that typed the task into a live pane and never saw it (`deliver_task` marks it).
+fn not_taken_by_live_pane(error: &OperationError) -> bool {
+    error.code == "PROMPT_NOT_SUBMITTED" && error.context.get("pane_alive").and_then(|v| v.as_bool()) == Some(true)
+}
+
+/// Code of a run whose live pane never took the typed task. Not a pre-turn fallback code
+/// (`fallback::is_pre_turn_failure`): the person's visible pane is kept, never re-run headless.
+pub(crate) const PROMPT_NOT_TAKEN: &str = "PROMPT_NOT_TAKEN";
+
+fn not_taken_error(error: &OperationError, registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> OperationError {
+    let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
+    let cleared = error.context.get("cleared").and_then(|v| v.as_bool()).unwrap_or(false);
+    let mut out = OperationError::new(
+        PROMPT_NOT_TAKEN,
+        format!(
+            "The agent showed its input box but did not take the task: the typed text never showed there, after waiting for the pane to settle {MAX_NOT_TAKEN_ROUNDS} times. Nothing was submitted and the pane is left open. {}",
+            if cleared { "The input box reads empty: send the task again when the agent is ready." } else { "The box may still hold the typed text: check the pane before sending the task again." }
+        ),
+        true,
+    );
+    out.context = json!({ "pane_id": pane_id, "screen": crate::agent_runs::readiness::screen_tail(&screen, 12), "cleared": cleared });
+    out
+}
+
+/// Positive readiness before typing (`readiness::wait_until_settled`): the input box reads ready and
+/// the pane printed nothing for [`SETTLE_QUIET`], at most [`SETTLE_MAX`]. Best effort: delivery
+/// still makes every one of its own checks after it.
+fn settle_before_typing(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str, agent_type: &str) {
+    if agent_type == "opencode_native" {
+        return;
+    }
+    let profile = crate::tui::profile_for(agent_type);
+    let start = std::time::Instant::now();
+    let outcome = crate::agent_runs::readiness::wait_until_settled(
+        profile.as_ref(),
+        || crate::agent_runs::delivery::observe_pane(registry, pane_id),
+        || start.elapsed().as_millis() as u64,
+        || thread::sleep(SETTLE_POLL),
+        SETTLE_QUIET,
+        SETTLE_MAX,
+    );
+    tracing::debug!(pane_id, ?outcome, waited_ms = start.elapsed().as_millis() as u64, "settle before typing");
+}
 
 /// Marks a `PANE_BLOCKED_BY_PROMPT` refusal as one that leaves no copy of the task in the pane's box
 /// once delivery runs again (nothing typed, or a box delivery clears before typing).

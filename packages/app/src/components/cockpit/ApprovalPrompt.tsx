@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PanePrompt, PromptChoice } from '../../lib/cockpit-api';
 import { CAUTION, LEVEL_WORD, choiceWords, firstReason, layoutChoices } from '../../lib/approval-risk';
+import { gestureOf, type UserGesture } from '../../lib/user-gesture';
 import '../../styles/approval-card.css';
 import { CardButton, InboxCard, InlineCode, RiskGlyph, focusWithRing } from './InboxCard';
 
@@ -20,7 +21,8 @@ export function ApprovalPrompt({
   onOpen,
 }: {
   prompt: PanePrompt;
-  onAnswer: (choice: PromptChoice) => void;
+  /** `gesture` is the click that chose it (`lib/user-gesture.ts`); the backend needs it. */
+  onAnswer: (choice: PromptChoice, gesture: UserGesture) => void;
   variant: 'card' | 'bar';
   /** High risk only: move the keyboard to Deny when the card appears. */
   autoFocus?: boolean;
@@ -70,7 +72,7 @@ export function ApprovalPrompt({
         size={small ? 'sm' : undefined}
         data-choice={ch.id}
         title={w.text !== ch.label ? ch.label : undefined}
-        onClick={() => onAnswer(ch)}
+        onClick={(event) => onAnswer(ch, gestureOf(event))}
       >
         {w.code ? (
           <>

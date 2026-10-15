@@ -26,8 +26,10 @@ pub async fn pane_prompt(state: State<'_, AppState>, pane_id: String) -> Result<
     Ok(crate::pane_prompt::detect_for_ui(&state.registry, &pane_id))
 }
 
-/// Same validation as `POST /agents/answer` for a bare pane (stale and replay guards). Never opts
-/// into broad approvals.
+/// Same validation as `POST /agents/answer` for a bare pane (stale, replay and
+/// one-answer-per-occurrence guards). Never opts into broad approvals. `gesture` is the person's
+/// click (`pane_prompt::answers::UserGesture`); without one only a refusal of a prompt that is not a
+/// startup gate goes out (`ANSWER_NEEDS_A_PERSON` otherwise).
 #[tauri::command]
 pub async fn answer_pane_prompt(
     app: AppHandle,
@@ -35,8 +37,9 @@ pub async fn answer_pane_prompt(
     pane_id: String,
     prompt_id: String,
     choice: String,
+    gesture: Option<crate::pane_prompt::answers::UserGesture>,
 ) -> Result<(), String> {
-    crate::agent_runs::answer_for_pane(&state.registry, &app, &pane_id, &prompt_id, &choice)
+    crate::agent_runs::answer_for_pane(&state.registry, &app, &pane_id, &prompt_id, &choice, gesture.as_ref())
         .map(|_| crate::attention::note_desktop_answer(&pane_id, &choice))
         .map_err(|e| format!("{}: {}", e.code, e.message))
 }
