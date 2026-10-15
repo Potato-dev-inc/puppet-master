@@ -20,6 +20,8 @@ import { projectWithCopy } from './shell-labels';
 
 /** `localhost:5173`: where the preview is, without the scheme. */
 const previewAddress = (p: PreviewUrl): string => p.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+import { StartMissionSheet } from './mission/StartMissionSheet';
+import { onOpenStartMission, useMissions, useMissionsEnabled, isActive } from '../../lib/missions';
 
 export function Sidebar({
   c,
@@ -82,6 +84,14 @@ export function Sidebar({
   useEffect(() => setStored(readStoredCopyPreference(projectKey)), [projectKey]);
   const isolated = copyDefault(stored, project?.state);
   const menuRef = useRef<HTMLDivElement>(null);
+  // Missions (Preview, Labs): "+" → Start a mission… opens the start sheet for the menu's project.
+  const missionsOn = useMissionsEnabled();
+  const missions = useMissions();
+  const [missionFor, setMissionFor] = useState<ProjectChoice | null>(null);
+  useEffect(() => onOpenStartMission((path) => {
+    const p = path ? projectOfCwd(path) : project;
+    if (p) setMissionFor(p);
+  }), [project]);
   useEffect(() => {
     const open = () => setMenuOpen(true);
     window.addEventListener('pm:open-new-menu', open);
@@ -197,6 +207,14 @@ export function Sidebar({
                   writeCopyPreference(projectKey, on);
                 }}
                 ship={ship}
+                onStartMission={
+                  missionsOn && project
+                    ? () => {
+                        setMenuOpen(false);
+                        setMissionFor(project);
+                      }
+                    : undefined
+                }
               />
             </div>
           )}
@@ -273,6 +291,19 @@ export function Sidebar({
           </div>
         )}
       </div>
+      {missionFor && (
+        <StartMissionSheet
+          project={{ path: missionFor.path, name: missionFor.name, git: supportsCopies(missionFor.state) }}
+          entries={c.launchEntries}
+          activeMissions={missions.missions.filter(isActive).length}
+          onClose={() => setMissionFor(null)}
+          onStarted={() => {
+            setMissionFor(null);
+            missions.reload();
+            c.notify('Mission started. It shows in the Inbox while it works.');
+          }}
+        />
+      )}
     </aside>
   );
 }

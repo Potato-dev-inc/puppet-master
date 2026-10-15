@@ -47,13 +47,16 @@ pub struct Helper {
     pub used: u32,
     pub limit: Option<u32>,
     pub closed: bool,
+    /// The person (or a mission handing off to the next agent) chose "Stop here" for this helper:
+    /// it can start no more turns, so like a closed helper it only holds back what it spent.
+    pub stopped: bool,
 }
 
 impl Helper {
     /// What this helper holds back from its parent's budget: its whole share while it can still
     /// work, only what it spent once it is closed (the rest is refunded).
     fn reserved(&self) -> u32 {
-        if self.closed {
+        if self.closed || self.stopped {
             self.used
         } else {
             self.limit.unwrap_or(self.used).max(self.used)
@@ -128,6 +131,7 @@ pub fn standing(record: &BudgetRecord, now_ms: u64) -> Standing {
             agent_type: agent_type_of(&project, &child.handle),
             closed: is_closed(&project, &child.handle),
             limit: child.turns,
+            stopped: child.stopped,
             handle: child.handle,
             project,
         })

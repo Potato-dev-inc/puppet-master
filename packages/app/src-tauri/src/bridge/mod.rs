@@ -162,6 +162,13 @@ pub fn start_embedded_bridge(
             }
         }
     });
+    // Missions continue where they were, after the operations recovery above.
+    let _ = thread::Builder::new().name("missions-resume".into()).spawn(|| {
+        let resumed = crate::missions::resume_all();
+        if resumed > 0 {
+            tracing::info!(resumed, "resumed missions");
+        }
+    });
     mobile_pairing::init_pairing_store(pairing_file)?;
     crate::audit::watch_device_events();
     let _ = crate::app_paths::ensure_app_data_dir();

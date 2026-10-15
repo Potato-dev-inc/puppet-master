@@ -364,6 +364,22 @@ export const generalRows: RowDef[] = [
     group: 'Storage',
     render: (env) => <StorageInfo env={env} />,
   },
+  {
+    id: 'missions',
+    label: 'Missions (Preview)',
+    hint: 'Give agents a goal and the checks it must pass. They work in turns in a separate copy until the checks pass, within a budget. Nothing merges on its own.',
+    keywords: 'mission missions labs preview goal checks loop until tests pass backup agents',
+    group: 'Labs',
+    labs: { name: 'Missions', about: 'Give agents a goal and the checks it must pass, and they work in a separate copy until the checks pass.' },
+    render: (env) => (
+      <SettingToggle
+        label="Missions (Preview)"
+        description="Give agents a goal and the checks it must pass. They work in turns in a separate copy until the checks pass, within a budget. Every agent works in a visible pane. Nothing merges on its own."
+        checked={env.settings.missions_enabled ?? false}
+        onChange={(value) => void env.patch({ missions_enabled: value })}
+      />
+    ),
+  },
   { id: 'team', label: 'Team', hint: 'Tell teammates when your agent pushes; get a card when theirs does.', keywords: 'team heads-up co-work teammates push pull merge labs shared folder', group: 'Labs', labs: { name: 'Team', about: 'Tell teammates when your agent pushes, and see when theirs does.' }, render: (env) => <TeamSettings onSaved={env.markSaved} /> },
   { id: 'version', label: 'Version', hint: 'Check for updates and download the installer.', keywords: 'app version update release download install', group: 'About', render: (env) => <VersionRow env={env} /> },
   { id: 'whats-new', label: WHATS_NEW_LABEL, hint: 'The short version of what changed, with a link to each place.', keywords: 'release notes changelog new features changes version update 0.2.0', group: 'About', render: (env) => <WhatsNew env={env} /> },

@@ -39,6 +39,8 @@ interface Props {
   isolated?: boolean;
   onIsolated?: (on: boolean) => void;
   ship?: ShipApi;
+  /** "Start a mission…" (Preview, Labs). Without it the item is not drawn. */
+  onStartMission?: () => void;
 }
 
 type Step = 'agents' | 'projects' | 'git';
@@ -63,6 +65,7 @@ export function NewAgentMenu({
   isolated = false,
   onIsolated,
   ship = shipApi,
+  onStartMission,
 }: Props) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [picking, setPicking] = useState<LaunchEntry | null>(null);
@@ -342,6 +345,15 @@ export function NewAgentMenu({
           ) : (
             isolated && <div className="ck-menu-note">From the current branch · your uncommitted changes aren&apos;t included.</div>
           )}
+        </>
+      )}
+      {onStartMission && (
+        <>
+          <div className="ck-menu-sep" />
+          <button type="button" role="menuitem" className="ck-menu-item" onClick={onStartMission}>
+            <span>Start a mission…</span>
+            <span className="ck-menu-hint">Preview</span>
+          </button>
         </>
       )}
     </>

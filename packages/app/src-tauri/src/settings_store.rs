@@ -24,6 +24,7 @@ const PATCHABLE_KEYS: &[&str] = &[
     "budget_default_minutes",
     "agent_hooks_mode",
     "agent_hooks_agents",
+    "missions_enabled",
 ];
 
 pub fn default_public_settings() -> Value {
@@ -48,6 +49,8 @@ pub fn default_public_settings() -> Value {
         // Hook Lane (founder decision 2026-10-14): watch-only hooks for agents that declare them.
         "agent_hooks_mode": "shadow",
         "agent_hooks_agents": {},
+        // Missions (Preview): off until the person turns them on in Settings › General › Labs.
+        "missions_enabled": false,
     })
 }
 

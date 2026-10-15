@@ -482,3 +482,30 @@ fn the_pause_card_is_in_the_attention_list_by_the_time_the_409_is_returned() {
     );
     assert!(snapshot.counts.blocking >= 1);
 }
+
+// ---- a stopped helper refunds what it did not spend (missions hand off to the next agent) ---------
+
+/// A root that is not a run handle (a mission key) shares with helpers; when the first helper is
+/// stopped ("Stop here", or a mission handing off), only the turns it spent stay counted and the
+/// next helper can get the rest. Before: a stopped helper kept its whole share reserved, so the
+/// root looked used up and the next agent could not be admitted.
+#[test]
+fn a_stopped_helper_gives_back_the_turns_it_did_not_use() {
+    let project = project();
+    let mission = format!("mission-{}", &Uuid::new_v4().to_string()[..8]);
+    root(&project, &mission, 10);
+    let first = handle();
+    let share = admit(&project, &first, &helper_of(&mission, Some(10)), Defaults::default(), T0).unwrap().unwrap();
+    assert_eq!(share.turns, Some(10));
+    finish(&project, &start_turn(&project, &first, 0));
+    finish(&project, &start_turn(&project, &first, 1));
+    let parent = super::store::get(&project, &mission).unwrap();
+    assert_eq!(standing(&parent, T0).turns_left(), Some(0), "the active helper holds the whole share");
+
+    stop(&project, &first).unwrap();
+    let parent = super::store::get(&project, &mission).unwrap();
+    assert_eq!(standing(&parent, T0).turns_left(), Some(8), "only the 2 turns it spent stay counted");
+    let second = handle();
+    let next = admit(&project, &second, &helper_of(&mission, Some(8)), Defaults::default(), T0).unwrap().unwrap();
+    assert_eq!(next.turns, Some(8));
+}

@@ -748,3 +748,8 @@ steps = [{ do = "think", ms = 800 }, { do = "write_file", path = "hello.txt", co
     let recorded = session.until(40, || session.turn_summaries(&pane).as_array().filter(|l| !l.is_empty()).map(|l| l.len()));
     assert_eq!(recorded, Some(1), "no turn summary was recorded for the auto-closed pane");
 }
+
+// ---- missions (Preview) ----------------------------------------------------------------------------
+
+#[path = "fake_tui_missions.rs"]
+mod missions;

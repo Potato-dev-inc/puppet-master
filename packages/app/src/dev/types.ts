@@ -99,6 +99,8 @@ export interface HarnessScenario {
   firstRun?: import('./first-run-fixtures').FirstRunScenario;
   /** Worktrees that ship: what the mocked folder step, presets and GitHub commands answer. */
   ship?: import('./ship-fixtures').ShipScenario;
+  /** Missions (Preview): the Labs switch and what the mocked `mission_*` commands answer. */
+  missions?: import('./mission-fixtures').MissionScenario;
   /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */
   teamConfig?: Partial<import('../lib/team').TeamConfigView>;
   /** Set up agents > Install: what the mocked `agents_install_*` commands answer. */

@@ -42,7 +42,13 @@ pub(crate) fn plan(
     modes: Modes,
     error_code: Option<&str>,
 ) -> Option<&'static str> {
+    // A run that joined a separate copy someone else made (a mission's turn) is visible-only: a
+    // mission never runs headless, its failure goes to the person instead.
+    let joined_copy = snapshot.worker.worktree.as_ref().is_some_and(|w| {
+        !w.handle.is_empty() && !snapshot.agent_run_id.is_empty() && w.handle != snapshot.agent_run_id
+    });
     if snapshot.worker.fallback.is_some()
+        || joined_copy
         || !modes.headless
         || snapshot.agent_type == "opencode_native"
         || !app_owned_pane(snapshot)
@@ -212,6 +218,32 @@ mod tests {
             assert!(!is_pre_turn_failure(code), "{code}");
             assert_eq!(plan(&op, modes(true, true), Some(code)), None, "{code}");
         }
+    }
+
+    /// Missions are visible-only: a turn in a mission's separate copy never re-runs headless.
+    #[test]
+    fn a_turn_in_a_joined_copy_never_falls_back_headless() {
+        let mut op = operation("claude", None);
+        op.agent_run_id = "run-1".into();
+        let copy = |handle: &str| crate::worktrees::WorktreeRef {
+            path: "C:/p/.puppet-master/worktrees/m".into(),
+            cwd: "C:/p/.puppet-master/worktrees/m".into(),
+            branch: "pm/mission-m1".into(),
+            base: "main".into(),
+            base_commit: "abc".into(),
+            repo: "C:/p".into(),
+            handle: handle.into(),
+            created_at_ms: 0,
+            closed: None,
+            changes: None,
+            setup: None,
+            pr: None,
+        };
+        op.worker.worktree = Some(copy("mission-m1"));
+        assert_eq!(plan(&op, modes(true, true), Some("PROMPT_NOT_SUBMITTED")), None);
+        // The run's own isolated copy keeps today's behaviour.
+        op.worker.worktree = Some(copy("run-1"));
+        assert_eq!(plan(&op, modes(true, true), Some("PROMPT_NOT_SUBMITTED")), Some(VISIBLE_FAILED));
     }
 
     #[test]
