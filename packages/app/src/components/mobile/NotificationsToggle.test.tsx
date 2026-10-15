@@ -66,4 +66,48 @@ describe('NotificationsToggle', () => {
     expect(box().disabled).toBe(true);
     expect(host.textContent).toContain('blocked');
   });
+
+  describe('Hide details on lock screen', () => {
+    const hide = () => host.querySelector('input[aria-label="Hide details on lock screen"]') as HTMLInputElement | null;
+    const on = (over: Partial<PushDeps> = {}) =>
+      fakeDeps({ permission: () => 'granted', isSubscribed: async () => true, getHideDetails: vi.fn(async () => false), setHideDetails: vi.fn(async (h: boolean) => h), ...over });
+
+    it('is off by default, and only offered once notifications are on', async () => {
+      vi.stubGlobal('Notification', { permission: 'granted' });
+      const off = fakeDeps({ getHideDetails: vi.fn(async () => false), setHideDetails: vi.fn(async (h: boolean) => h) });
+      await act(async () => root.render(<NotificationsToggle baseUrl="u" bridgeReady deps={off} />));
+      await settle();
+      expect(hide()).toBeNull();
+      act(() => root.unmount());
+      root = createRoot(host);
+      await act(async () => root.render(<NotificationsToggle baseUrl="u" bridgeReady deps={on()} />));
+      await settle();
+      expect(hide()).not.toBeNull();
+      expect(hide()!.checked).toBe(false);
+      expect(host.textContent).toContain('Notifications can show what an agent wants to do.');
+    });
+
+    it('turning it on tells the PC and says what the lock screen now shows', async () => {
+      vi.stubGlobal('Notification', { permission: 'granted' });
+      const deps = on();
+      await act(async () => root.render(<NotificationsToggle baseUrl="u" bridgeReady deps={deps} />));
+      await settle();
+      await act(async () => hide()!.click());
+      await settle();
+      expect(deps.setHideDetails).toHaveBeenCalledWith(true);
+      expect(hide()!.checked).toBe(true);
+      expect(host.textContent).toContain('Notifications only say which agent needs you.');
+    });
+
+    it('goes back when the PC does not answer', async () => {
+      vi.stubGlobal('Notification', { permission: 'granted' });
+      const deps = on({ setHideDetails: vi.fn(async () => { throw new Error('down'); }) });
+      await act(async () => root.render(<NotificationsToggle baseUrl="u" bridgeReady deps={deps} />));
+      await settle();
+      await act(async () => hide()!.click());
+      await settle();
+      expect(hide()!.checked).toBe(false);
+      expect(host.querySelector('[role="alert"]')?.textContent).toContain("Couldn't change that");
+    });
+  });
 });

@@ -5,7 +5,8 @@ import type { PanePrompt, PromptChoice, RiskLevel } from '../../lib/cockpit-api'
 import { CAUTION, LEVEL_WORD, firstReason, layoutChoices, riskGlyph } from '../../lib/approval-risk';
 import '../../styles/approval-card.css';
 
-function Glyph({ level }: { level: RiskLevel }) {
+/** The risk glyph (ring / triangle / stop sign): the phone card draws the same one. */
+export function Glyph({ level }: { level: RiskLevel }) {
   const kind = riskGlyph(level);
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

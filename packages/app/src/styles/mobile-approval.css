@@ -1,0 +1,270 @@
+/* Phone approval card and the Needs you queue (components/mobile/ApprovalCard.tsx, NeedsYouList.tsx).
+   Monochrome: risk is a glyph, weight and words, never colour. Everything sits under `.ph`, whose
+   tokens come from phone.css. Targets are 44px; the page gutter is 16px. */
+
+.ph .ph-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 16px 0;
+}
+
+.ph .ph-queue-sec {
+  margin: 0;
+  padding: 18px 16px 0;
+  font: 400 13px/1.3 var(--font-ui);
+  color: var(--label-2);
+}
+
+.ph .ph-appr {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--sep);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi);
+  animation: ph-appr-in 280ms var(--ease-sheet) both;
+}
+.ph .ph-appr--high {
+  border-left: 2px solid var(--label);
+  padding-left: 13px;
+}
+.ph .ph-appr--docked {
+  margin: 8px 16px 0;
+  flex: none;
+}
+.ph .ph-appr--settled,
+.ph .ph-appr--answered,
+.ph .ph-appr--already,
+.ph .ph-appr--gone,
+.ph .ph-appr--expired {
+  background: var(--fill);
+  box-shadow: none;
+}
+
+.ph .ph-appr-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ph .ph-appr-glyph {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+.ph .ph-appr-pane {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 13px/1.3 var(--font-ui);
+  color: var(--label);
+}
+.ph .ph-appr-meta {
+  flex: none;
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 13px/1.3 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--label-3);
+}
+
+.ph .ph-appr-risk {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.ph .ph-appr-riskglyph {
+  display: inline-grid;
+  flex: none;
+  align-self: center;
+  color: var(--label-2);
+}
+.ph .ph-appr--high .ph-appr-riskglyph {
+  color: var(--label);
+}
+.ph .ph-appr-title {
+  flex: 1;
+  min-width: 0;
+  font: 600 17px/1.3 var(--font-ui);
+  overflow-wrap: anywhere;
+}
+.ph .ph-appr--high .ph-appr-title {
+  font-weight: 700;
+}
+.ph .ph-appr-word {
+  flex: none;
+  font: 600 13px/1.3 var(--font-ui);
+  color: var(--label-2);
+}
+.ph .ph-appr--high .ph-appr-word {
+  color: var(--label);
+}
+
+.ph .ph-appr-cmd {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font: 400 13px/1.45 var(--font-mono);
+  color: var(--label-2);
+  word-break: break-all;
+}
+.ph .ph-appr-cmd--full {
+  display: block;
+  -webkit-line-clamp: unset;
+  white-space: pre-wrap;
+}
+
+.ph .ph-appr-caution {
+  margin: 0;
+  font: 600 15px/1.35 var(--font-ui);
+  color: var(--label);
+}
+.ph .ph-appr-status {
+  margin: 0;
+  font: 400 15px/1.35 var(--font-ui);
+  color: var(--label-2);
+}
+.ph .ph-appr-status--failed,
+.ph .ph-appr-status--lost,
+.ph .ph-appr-status--offline,
+.ph .ph-appr-status--changed,
+.ph .ph-appr-status--answered {
+  font-weight: 600;
+  color: var(--label);
+}
+
+.ph .ph-appr-toggle {
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 0;
+  font: 400 13px/1.3 var(--font-ui);
+  color: var(--label-3);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ph .ph-appr-reasons {
+  margin: 0;
+  padding: 8px 12px 8px 28px;
+  border-radius: 8px;
+  background: var(--fill);
+  font: 400 15px/1.4 var(--font-ui);
+  color: var(--label-2);
+}
+
+.ph .ph-appr-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+.ph .ph-appr-actions .ph-btn {
+  width: 100%;
+  min-height: 48px;
+  white-space: normal;
+}
+.ph .ph-appr-actions .ph-btn--plain {
+  min-height: 44px;
+}
+.ph .ph-appr-prov {
+  margin: 0;
+  font: 400 13px/1.3 var(--font-ui);
+  color: var(--label-3);
+}
+
+/* The line under the docked card: how many more wait, and the next one. */
+.ph .ph-queue-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  margin: 0 16px;
+  padding: 0 2px;
+  font: 400 13px/1.3 var(--font-ui);
+  color: var(--label-2);
+}
+.ph .ph-queue-line button {
+  min-height: 44px;
+  padding: 0;
+  font: 500 13px/1.3 var(--font-ui);
+  color: var(--label);
+}
+
+/* "Nothing needs you" */
+.ph .ph-queue-empty {
+  margin: 28px 16px 0;
+  text-align: center;
+  font: 400 15px/1.4 var(--font-ui);
+  color: var(--label-3);
+}
+.ph .ph-queue-empty b {
+  display: block;
+  margin-bottom: 2px;
+  font: 600 17px/1.3 var(--font-ui);
+  color: var(--label);
+}
+
+/* A one-line card for an error, a stuck agent, a tamper warning: nothing to answer, a pane to open. */
+.ph .ph-appr--note .ph-appr-title {
+  font-size: 15px;
+}
+
+/* The docked card sits OVER the top of the terminal instead of pushing it down: a terminal that
+   shrinks is refitted and resized, and that must never happen because a card appeared. The terminal
+   behind it dims (UX 5.4): readable, not the thing to read. */
+.ph .ph-dock {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 20;
+  max-height: 78%;
+  overflow-y: auto;
+  padding-bottom: 6px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--sep);
+}
+.ph .ph-main:has(.ph-dock) .xterm {
+  opacity: 0.55;
+}
+
+/* The full-screen card of a push tap. */
+.ph .ph-sheet-card {
+  padding: 4px 16px 16px;
+}
+.ph .ph-sheet-card .ph-cards {
+  margin: 0;
+}
+.ph .ph-qwrap .ph-card {
+  margin: 0;
+}
+
+@keyframes ph-appr-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ph .ph-appr {
+    animation: none;
+  }
+}

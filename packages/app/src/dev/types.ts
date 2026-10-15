@@ -33,8 +33,24 @@ export interface HarnessScenario {
     userAgent?: string;
     /** Bridge events delivered once the stream opens (`event: <name>`). */
     events?: { name: string; data: unknown }[];
-    /** The PC's attention snapshot counts `GET /attention` answers; absent = an older PC (404). */
-    attention?: { blocking: number; ready?: number };
+    /**
+     * The PC's attention snapshot `GET /attention` answers; absent = an older PC (404). With `items` the
+     * counts are theirs (open blocking ones); without, `blocking` and `ready` are the counts and the list is empty.
+     */
+    attention?: {
+      blocking: number;
+      ready?: number;
+      items?: import('../lib/attention').AttentionItem[];
+      /** What this phone may do (default all). */
+      device?: { can_answer: boolean; can_type: boolean; can_control: boolean };
+      /**
+       * What `POST /attention/{id}/answer` does: `answered` (default), `changed`, `gone`, `already_pc` (answered on
+       * the PC first), `failed`, `hang` (never replies), `offline` (the request cannot leave the phone).
+       */
+      answer?: 'answered' | 'changed' | 'gone' | 'already_pc' | 'failed' | 'hang' | 'offline';
+    };
+    /** Extra launch query, as a notification tap would open it (`item=<id>`, `pane=<id>`). */
+    search?: string;
   };
   /** Phone route: the abilities this phone was paired with (`GET /pair/me`); default: all four. */
   phoneCaps?: string[];

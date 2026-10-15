@@ -446,7 +446,8 @@ fn build_item(d: &Derived, facts: &Facts) -> Item {
                             p.choices.iter().map(|c| c.id.as_str()),
                             d.risk.map(Level::as_str),
                         ),
-                        layout: super::layout::layout(&p.choices, d.risk),
+                        // A startup gate leads with "Don't trust" like a high-risk prompt leads with Deny.
+                        layout: super::layout::layout(&p.choices, if startup_gate { Some(Level::High) } else { d.risk }),
                         provenance: "screen",
                         kind,
                         summary: p.summary.clone(),

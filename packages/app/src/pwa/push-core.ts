@@ -14,6 +14,8 @@ export interface PushPayload {
   body: string;
   tag: string;
   pane_id?: string;
+  /** The attention card the notification is about (payload v2): a tap opens `/?item=<id>`. */
+  item_id?: string;
   prompt_id?: string;
   act?: PushAct;
   target?: 'questions';
@@ -27,7 +29,7 @@ export interface NotificationPlan {
     renotify: boolean;
     icon: string;
     badge: string;
-    data: { pane_id?: string; act?: PushAct; target?: 'questions' };
+    data: { pane_id?: string; item_id?: string; act?: PushAct; target?: 'questions' };
     actions?: { action: 'allow' | 'deny'; title: string }[];
   };
 }
@@ -57,6 +59,7 @@ export function parsePushPayload(text: string | null | undefined): PushPayload {
       body: str(raw.body, 240) ?? FALLBACK.body,
       tag: str(raw.tag, 80) ?? FALLBACK.tag,
       pane_id: str(raw.pane_id, 80),
+      item_id: str(raw.item_id, 40),
       prompt_id: str(raw.prompt_id, 80),
       act: actUrl && actToken && actUrl.startsWith('/') ? { url: actUrl, token: actToken } : undefined,
       target: raw.target === 'questions' ? 'questions' : undefined,
@@ -75,7 +78,7 @@ export function planNotification(payload: PushPayload, iconBase = '/'): Notifica
       renotify: true,
       icon: `${iconBase}icon-192.png`,
       badge: `${iconBase}icon-192.png`,
-      data: { pane_id: payload.pane_id, act: payload.act, target: payload.target },
+      data: { pane_id: payload.pane_id, item_id: payload.item_id, act: payload.act, target: payload.target },
       actions: payload.act
         ? [
             { action: 'allow', title: 'Allow' },
@@ -88,23 +91,46 @@ export function planNotification(payload: PushPayload, iconBase = '/'): Notifica
 
 export type ClickIntent =
   | { type: 'answer'; url: string; token: string; choice: 'allow' | 'deny' }
-  | { type: 'open'; paneId: string | null; view?: 'questions' };
+  | { type: 'open'; paneId: string | null; itemId?: string | null; view?: 'questions' };
 
 /** What a tap on the notification (or one of its buttons) should do. */
 export function clickIntent(
   action: string,
-  data: { pane_id?: string; act?: PushAct; target?: 'questions' } | undefined,
+  data: { pane_id?: string; item_id?: string; act?: PushAct; target?: 'questions' } | undefined,
 ): ClickIntent {
   if ((action === 'allow' || action === 'deny') && data?.act) {
     return { type: 'answer', url: data.act.url, token: data.act.token, choice: action };
   }
-  return { type: 'open', paneId: data?.pane_id ?? null, view: data?.target === 'questions' ? 'questions' : undefined };
+  return {
+    type: 'open',
+    paneId: data?.pane_id ?? null,
+    itemId: data?.item_id,
+    view: data?.target === 'questions' ? 'questions' : undefined,
+  };
 }
 
-/** `/?pane=<id>` for a fresh window, `/?view=questions` for the question list. */
-export function openUrl(paneId: string | null, view?: 'questions'): string {
-  if (paneId) return `/?pane=${encodeURIComponent(paneId)}`;
-  return view === 'questions' ? '/?view=questions' : '/';
+/** What a launch URL can ask for. The card (`?item=`) wins over the pane, the pane over the list. */
+export interface OpenTarget {
+  itemId?: string | null;
+  paneId?: string | null;
+  view?: 'questions';
+}
+
+/**
+ * `/?item=<id>` for the approval card a notification announced, `/?pane=<id>` for a pane, `/?view=questions`
+ * for the question list. The old call `openUrl(paneId, view)` still works.
+ */
+export function openUrl(target: OpenTarget | string | null, view?: 'questions'): string {
+  const t: OpenTarget = typeof target === 'object' && target !== null ? target : { paneId: target as string | null, view };
+  if (t.itemId) return `/?item=${encodeURIComponent(t.itemId)}`;
+  if (t.paneId) return `/?pane=${encodeURIComponent(t.paneId)}`;
+  return t.view === 'questions' ? '/?view=questions' : '/';
+}
+
+/** The card a launch URL asks to open (`?item=`), if any. */
+export function itemFromSearch(search: string): string | null {
+  const value = new URLSearchParams(search).get('item');
+  return value && value.length <= 40 && /^[A-Za-z0-9_-]+$/.test(value) ? value : null;
 }
 
 /** The pane a launch URL asks to open (`?pane=`), if any. */
@@ -140,4 +166,17 @@ export interface OpenViewMessage {
 export function isOpenViewMessage(value: unknown): value is OpenViewMessage {
   const v = value as Partial<OpenViewMessage> | null;
   return !!v && v.type === OPEN_VIEW_MESSAGE && v.view === 'questions';
+}
+
+export const OPEN_ITEM_MESSAGE = 'pm-open-item';
+
+export interface OpenItemMessage {
+  type: typeof OPEN_ITEM_MESSAGE;
+  item_id: string;
+  pane_id?: string;
+}
+
+export function isOpenItemMessage(value: unknown): value is OpenItemMessage {
+  const v = value as Partial<OpenItemMessage> | null;
+  return !!v && v.type === OPEN_ITEM_MESSAGE && typeof v.item_id === 'string' && v.item_id.length > 0;
 }

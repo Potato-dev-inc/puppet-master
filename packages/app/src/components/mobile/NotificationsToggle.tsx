@@ -44,6 +44,33 @@ export function NotificationsToggle({
     };
   }, [deps]);
 
+  // "Hide details on lock screen": this phone's own switch, kept on the PC. Off by default.
+  const [hideDetails, setHideDetails] = useState<boolean | null>(null);
+  const [hideError, setHideError] = useState(false);
+  useEffect(() => {
+    if (state.kind !== 'on' || !deps.getHideDetails) return;
+    let live = true;
+    void deps
+      .getHideDetails()
+      .then((hide) => live && setHideDetails(hide))
+      .catch(() => live && setHideDetails(false));
+    return () => {
+      live = false;
+    };
+  }, [state.kind, deps]);
+  const changeHide = async (next: boolean) => {
+    if (!deps.setHideDetails) return;
+    const before = hideDetails;
+    setHideDetails(next);
+    setHideError(false);
+    try {
+      setHideDetails(await deps.setHideDetails(next));
+    } catch {
+      setHideDetails(before ?? false);
+      setHideError(true);
+    }
+  };
+
   const view = toggleView(state);
   const toggle = async (next: boolean) => {
     // No await before enable(): the permission prompt needs the tap's user activation.
@@ -67,6 +94,29 @@ export function NotificationsToggle({
           />
         </label>
       </div>
+      {state.kind === 'on' && deps.setHideDetails && hideDetails !== null && (
+        <>
+          <div className="ph-group">
+            <label className="ph-switch-row">
+              <span className="ph-rowtext">Hide details on lock screen</span>
+              <input
+                type="checkbox"
+                aria-label="Hide details on lock screen"
+                className="ph-switch"
+                checked={hideDetails}
+                onChange={(e) => void changeHide(e.target.checked)}
+              />
+            </label>
+          </div>
+          <p role={hideError ? 'alert' : undefined} className={`ph-foot${hideError ? ' ph-foot--err' : ''}`}>
+            {hideError
+              ? "Couldn't change that. Your PC didn't answer."
+              : hideDetails
+                ? 'Notifications only say which agent needs you. The command, the question and your names stay off the lock screen.'
+                : 'Notifications can show what an agent wants to do. Turn this on to keep that off the lock screen.'}
+          </p>
+        </>
+      )}
       {view.hint && (
         <p
           role={state.kind === 'error' ? 'alert' : undefined}

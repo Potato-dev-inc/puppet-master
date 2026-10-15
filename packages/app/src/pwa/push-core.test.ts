@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   clickIntent,
+  isOpenItemMessage,
   isOpenPaneMessage,
+  itemFromSearch,
   isOpenViewMessage,
   openUrl,
   paneFromSearch,
@@ -93,5 +95,47 @@ describe('deep links', () => {
     expect(isOpenViewMessage({ type: 'pm-open-view', view: 'x' })).toBe(false);
     expect(isOpenViewMessage({ type: 'pm-open-pane', pane_id: 'p' })).toBe(false);
     expect(isOpenViewMessage(null)).toBe(false);
+  });
+});
+
+describe('payload v2 and the card deep link', () => {
+  const v2 = JSON.stringify({ v: 2, kind: 'waiting_input', title: 'cart rounding · Needs you', body: 'Low risk · Run tests\nCodex', tag: 'pm-p1', pane_id: 'p1', item_id: 'a7Kp2xQ9', prompt_id: 'x' });
+
+  it('reads the item id of a v2 payload and carries it to the notification', () => {
+    const payload = parsePushPayload(v2);
+    expect(payload.item_id).toBe('a7Kp2xQ9');
+    expect(planNotification(payload).options.data).toMatchObject({ item_id: 'a7Kp2xQ9', pane_id: 'p1' });
+    expect(parsePushPayload('{"item_id":5}').item_id).toBeUndefined();
+  });
+
+  it('a tap opens the card first, then the pane, then the list', () => {
+    expect(clickIntent('', { pane_id: 'p1', item_id: 'a7Kp2xQ9' })).toEqual({ type: 'open', paneId: 'p1', itemId: 'a7Kp2xQ9' });
+    expect(openUrl({ itemId: 'a7Kp2xQ9', paneId: 'p1' })).toBe('/?item=a7Kp2xQ9');
+    expect(openUrl({ paneId: 'p1' })).toBe('/?pane=p1');
+    expect(openUrl({ view: 'questions' })).toBe('/?view=questions');
+    expect(openUrl({})).toBe('/');
+  });
+
+  it('a version 1 payload (no item id) still opens the pane', () => {
+    const v1 = parsePushPayload('{"v":1,"kind":"waiting_input","title":"t","body":"b","tag":"x","pane_id":"p9"}');
+    expect(v1.item_id).toBeUndefined();
+    expect(clickIntent('', planNotification(v1).options.data)).toMatchObject({ type: 'open', paneId: 'p9' });
+    expect(openUrl({ itemId: undefined, paneId: 'p9' })).toBe('/?pane=p9');
+  });
+
+  it('the buttons still answer when the payload has an item', () => {
+    const data = planNotification(parsePushPayload(JSON.stringify({ title: 't', body: 'b', tag: 'x', item_id: 'a7Kp2xQ9', act: { url: '/bridge/push/act', token: 'T' } }))).options.data;
+    expect(clickIntent('allow', data)).toMatchObject({ type: 'answer', choice: 'allow' });
+  });
+
+  it('reads the card from a launch url and from the focus message, and refuses odd ids', () => {
+    expect(itemFromSearch('?item=a7Kp2xQ9')).toBe('a7Kp2xQ9');
+    expect(itemFromSearch('?pane=p')).toBeNull();
+    expect(itemFromSearch('?item=a%20b')).toBeNull();
+    expect(itemFromSearch(`?item=${'x'.repeat(41)}`)).toBeNull();
+    expect(isOpenItemMessage({ type: 'pm-open-item', item_id: 'a7Kp2xQ9', pane_id: 'p' })).toBe(true);
+    expect(isOpenItemMessage({ type: 'pm-open-item', item_id: '' })).toBe(false);
+    expect(isOpenItemMessage({ type: 'pm-open-pane', pane_id: 'p' })).toBe(false);
+    expect(isOpenItemMessage(null)).toBe(false);
   });
 });

@@ -75,6 +75,7 @@ export async function bootHarness(name: string): Promise<() => JSX.Element> {
   const q = new URLSearchParams();
   if (scenario.route === 'phone') {
     q.set('pwa', '1');
+    for (const [key, value] of new URLSearchParams(scenario.phone?.search ?? '')) q.set(key, value);
   } else if (scenario.route === 'settings') {
     q.set('settings', '1');
     if (scenario.settingsTab) q.set('tab', scenario.settingsTab);

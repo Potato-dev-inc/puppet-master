@@ -56,9 +56,27 @@ function answer(method: string, path: string, scenario: HarnessScenario): Respon
   }
   if (route === '/previews') return json({ previews: PHONE_PREVIEWS });
   if (route === '/settings') return json({ ...DEFAULT_PUBLIC_SETTINGS });
-  if (route === '/attention' && phone.attention) {
-    const { blocking, ready = 0 } = phone.attention;
-    return json({ v: 1, rev: 1, counts: { blocking, ready }, items: [], device: { can_answer: true, can_type: true, can_control: true } });
+  if (route === '/attention' && method === 'GET' && phone.attention) {
+    const { blocking, ready = 0, items, device } = phone.attention;
+    const open = items?.filter((i) => i.state === 'open') ?? [];
+    const counts = items
+      ? { blocking: open.filter((i) => i.lane === 'blocking').length, ready: open.filter((i) => i.lane === 'ready').length }
+      : { blocking, ready };
+    return json({ v: 1, rev: 1, counts, items: items ?? [], device: device ?? { can_answer: true, can_type: true, can_control: true } });
+  }
+  const answerRoute = /^\/attention\/([^/]+)\/answer$/.exec(route);
+  if (answerRoute && method === 'POST' && phone.attention) {
+    const mode = phone.attention.answer ?? 'answered';
+    if (mode === 'hang') return new Promise<Response>(() => {}) as unknown as Response;
+    if (mode === 'offline') throw new TypeError('Failed to fetch');
+    const outcome = {
+      answered: { outcome: 'answered', choice_label: 'Allowed once', at_ms: Date.now() },
+      changed: { outcome: 'changed' },
+      gone: { outcome: 'gone', reason: 'moved_on' },
+      already_pc: { outcome: 'already_answered', by: 'pc', choice_label: 'Allowed once' },
+      failed: { outcome: 'failed', code: 'PROMPT_REPLY_FAILED' },
+    }[mode];
+    return json(outcome);
   }
   if (route === '/questions') return json({ questions: phone.questions === false ? [] : (phone.questionList ?? [PHONE_QUESTION]) });
   if (route === '/digest') return json(phone.digest === false ? { ...PHONE_DIGEST, empty: true } : PHONE_DIGEST);

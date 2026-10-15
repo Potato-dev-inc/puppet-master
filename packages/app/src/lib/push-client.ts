@@ -44,7 +44,7 @@ export function toggleView(state: ToggleState): ToggleView {
     case 'working':
       return { checked: false, disabled: true, hint: null };
     case 'on':
-      return { checked: true, disabled: false, hint: 'You will get a notification when an agent needs you, errors, or finishes a run. Previews may show the command on your lock screen.' };
+      return { checked: true, disabled: false, hint: 'You will get a notification when an agent needs you, errors, or finishes a run. Previews may show the command on your lock screen unless you hide details.' };
     case 'error':
       return { checked: false, disabled: false, hint: state.message };
     default:
@@ -74,6 +74,9 @@ export interface PushDeps {
   fetchKey: () => Promise<string>;
   sendSubscription: (sub: BrowserSubscription) => Promise<void>;
   removeSubscription: () => Promise<void>;
+  /** "Hide details on lock screen" for THIS phone (the PC keeps it per device). Absent in old fakes. */
+  getHideDetails?: () => Promise<boolean>;
+  setHideDetails?: (hide: boolean) => Promise<boolean>;
 }
 
 /** Turn notifications on. MUST be called straight from the tap: the permission prompt is the
@@ -157,6 +160,8 @@ export function browserDeps(baseUrl: string): PushDeps {
     removeSubscription: async () => {
       await call('DELETE', '/push/subscribe');
     },
+    getHideDetails: async () => (await call<{ hide_details: boolean }>('GET', '/push/preferences')).hide_details === true,
+    setHideDetails: async (hide) => (await call<{ hide_details: boolean }>('POST', '/push/preferences', { hide_details: hide })).hide_details === true,
   };
 }
 

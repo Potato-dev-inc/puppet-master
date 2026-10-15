@@ -2,7 +2,9 @@
 // terminal tabs) plus an "All" overview. It does not drive the orchestrator. The previous
 // orchestrator-centric mobile UI is kept as PwaLegacyApp.tsx (open with `?pwa=legacy`).
 import { NudgeScheduler } from './lib/nudge-scheduler';
-import { newerSnapshot, type AttentionSnapshot } from './lib/attention';
+import { newerSnapshot, type AttentionItem, type AttentionSnapshot } from './lib/attention';
+import { COPY } from './lib/attention-copy';
+import { PROMPT_KINDS } from './lib/needs-you-queue';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentType, PaneInfo } from '@puppet-master/shared';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
@@ -30,7 +32,9 @@ import type { LoopSignalInfo } from './lib/bridge-types';
 import './styles/phone.css';
 import type { PreviewUrl } from './lib/pane-preview';
 import { AgentsOverview } from './components/mobile/AgentsOverview';
-import { usePushPresence } from './hooks/usePushPresence';
+import { DockedCard } from './components/mobile/DockedCard';
+import { CardSheet } from './components/mobile/CardSheet';
+import { usePushIntents } from './hooks/usePushIntents';
 import { usePhoneAbilities } from './hooks/usePhoneAbilities';
 import { inputRefusalNote } from './lib/input-refusal';
 import { InputRefusedNote } from './components/mobile/InputRefusedNote';
@@ -130,6 +134,12 @@ export default function PwaApp() {
   const [questionsRev, setQuestionsRev] = useState(0);
   /** The PC's one list of what needs you (event `attention`, `GET /attention`); null on an old PC. */
   const [attention, setAttention] = useState<AttentionSnapshot | null>(null);
+  /** A tapped notification points at this card; it is looked up on the PC's list once the bridge is up. */
+  const [intent, setIntent] = useState<{ itemId: string; paneId?: string | null } | null>(null);
+  /** A card shown full screen (an item with no pane to open, or one that already left the list). */
+  const [sheetItem, setSheetItem] = useState<AttentionItem | null>(null);
+  /** The card a push tap opened is docked: its focus choice takes the keyboard focus once. */
+  const [deepLinked, setDeepLinked] = useState(false);
   /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
   const [fitGrid, setFitGrid] = useState<{ cols: number; rows: number } | null>(null);
   /** Last grid measured on this phone: a pane spawned from here is created at this size. */
@@ -289,7 +299,11 @@ export default function PwaApp() {
     };
   }, [bridgeUrl, applyPanes, publishEcho, noteInputRefused]);
 
-  usePushPresence(bridgeUrl, setActive, () => setActive(ALL_TAB));
+  usePushIntents(bridgeUrl, {
+    onOpenItem: (itemId, paneId) => setIntent({ itemId, paneId }),
+    onOpenPane: setActive,
+    onOpenQuestions: () => setActive(ALL_TAB),
+  });
 
   // A closed agent's tab falls back to All (only once the real pane list has arrived).
   useEffect(() => {
@@ -305,6 +319,46 @@ export default function PwaApp() {
   }, [active]);
 
   const abilities = usePhoneAbilities(bridge, resyncKey);
+  // What the PC's list says this phone may do wins over the pairing read (it comes with every list read).
+  const canAnswer = attention?.device?.can_answer ?? abilities.canAnswer;
+
+  // A push tap on a card: read the list first (before the terminal stream is opened), then show it.
+  useEffect(() => {
+    if (!intent || !bridge) return;
+    let live = true;
+    void (async () => {
+      let snapshot = attention;
+      try {
+        const fresh = await bridge.attention?.();
+        if (fresh) {
+          snapshot = newerSnapshot(attention, fresh);
+          if (live) setAttention((cur) => newerSnapshot(cur, fresh));
+        }
+      } catch {
+        /* the stream will bring the list; use what is held */
+      }
+      if (!live) return;
+      const item = snapshot?.items.find((i) => i.id === intent.itemId);
+      if (item) {
+        if (item.pane && PROMPT_KINDS.includes(item.kind)) {
+          setActive(item.pane.id);
+          setDeepLinked(true);
+        } else {
+          setSheetItem(item);
+        }
+      } else {
+        // Older than the 15 s the list keeps what just left: say so and still show the way.
+        setActive(intent.paneId ?? ALL_TAB);
+        setToast(COPY.dealtWith);
+      }
+      setIntent(null);
+    })();
+    return () => {
+      live = false;
+    };
+    // The list at the time of the tap is read inside; it must not restart the lookup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intent, bridge]);
 
   const labels = useMemo(() => tabLabels(panes, agentListing), [panes, agentListing]);
   const activePane = active === ALL_TAB ? undefined : registry.panes.get(active);
@@ -547,6 +601,21 @@ export default function PwaApp() {
               stuck={stuck}
               questionsRevision={questionsRev}
               attention={attention}
+              canAnswer={canAnswer}
+            />
+          )}
+          {bridge && activePane && attention && (
+            <DockedCard
+              snapshot={attention}
+              paneId={active}
+              bridge={bridge}
+              canAnswer={canAnswer}
+              autoFocus={deepLinked}
+              onOpenPane={setActive}
+              onOpenItem={(id) => {
+                const next = attention.items.find((i) => i.id === id);
+                if (next) setSheetItem(next);
+              }}
             />
           )}
           {activePane && (
@@ -602,6 +671,20 @@ export default function PwaApp() {
           onEditConnection={() => {
             setEditingUrl(true);
             setSheet(null);
+          }}
+        />
+      )}
+      {bridge && sheetItem && (
+        <CardSheet
+          item={sheetItem}
+          snapshot={attention ?? { v: 1, rev: 0, counts: { blocking: 0, ready: 0 }, items: [sheetItem] }}
+          bridge={bridge}
+          canAnswer={canAnswer}
+          labels={labels}
+          onClose={() => setSheetItem(null)}
+          onOpenPane={(id) => {
+            setSheetItem(null);
+            setActive(id);
           }}
         />
       )}

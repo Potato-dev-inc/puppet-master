@@ -59,9 +59,11 @@ export interface DotSpinnerProps {
   status: 'running' | 'waiting_input' | 'idle' | 'error' | 'exited';
   size?: 3 | 5;
   className?: string;
+  /** What a screen reader says instead of the state's own name ("Sending to your PC"). */
+  label?: string;
 }
 
-export function DotSpinner({ status, size = 3, className }: DotSpinnerProps): JSX.Element {
+export function DotSpinner({ status, size = 3, className, label }: DotSpinnerProps): JSX.Element {
   const n = size;
   const px = n === 3 ? 12 : 36;
   // Gap is about 40% of the dot size (same formula as the mockup).
@@ -85,7 +87,7 @@ export function DotSpinner({ status, size = 3, className }: DotSpinnerProps): JS
     <span
       className={rootClass}
       role="img"
-      aria-label={STATE_LABEL[status]}
+      aria-label={label ?? STATE_LABEL[status]}
       style={{
         width: px,
         height: px,

@@ -9,7 +9,7 @@ import type {
 } from '@puppet-master/shared';
 import type { PublicSettings } from './bridge-settings';
 import type { PreviewUrl } from './pane-preview';
-import type { AttentionSnapshot } from './attention';
+import type { AttentionAnswerBody, AttentionAnswerOutcome, AttentionSnapshot } from './attention';
 import type { Question, QuestionAnswer } from './questions';
 
 export interface WriteInputOptions {
@@ -288,6 +288,12 @@ export interface BridgeClient {
   listQuestions(): Promise<Question[]>;
   /** The one list of things that need the person (`GET /attention`). Absent on old bridges. */
   attention?(): Promise<AttentionSnapshot>;
+  /**
+   * A paired person answers one item of the attention list (`POST /attention/{id}/answer`). Resolves with
+   * what the PC did (answered, already answered, changed, gone, failed); rejects with an
+   * `AttentionAnswerError` when it refuses the request, or with the network error when it never got there.
+   */
+  answerAttention?(itemId: string, body: AttentionAnswerBody, signal?: AbortSignal): Promise<AttentionAnswerOutcome>;
   answerQuestion(id: string, answer: QuestionAnswer): Promise<{ accepted: boolean }>;
   dismissQuestion(id: string): Promise<{ accepted: boolean }>;
   /**
