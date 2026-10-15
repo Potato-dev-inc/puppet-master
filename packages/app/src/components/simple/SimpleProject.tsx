@@ -161,7 +161,10 @@ export function SimpleProject({
     loop: loopSignal,
     agent,
   });
-  const forcedScreen = needsScreen({ status, prompt }) || (blocked !== null && !blocked.stoppable);
+  // Something PM cannot word as a card: say so, and keep the raw screen behind one button. A stop that
+  // cannot be told in words (blocked, not stoppable) still shows the screen at once.
+  const cantRead = needsScreen({ status, prompt });
+  const forcedScreen = blocked !== null && !blocked.stoppable;
   const showScreen = screenOpen || forcedScreen;
   const ask = status === 'waiting_input' && prompt && prompt.risk && prompt.risk.level !== 'high' && prompt.choices.length > 0 ? prompt : null;
 
@@ -284,6 +287,22 @@ export function SimpleProject({
           }}
         />
       )}
+      {cantRead && !showScreen && (
+        <section className="sx-card" role="group" aria-label={F.cantRead(agent)} data-testid="cant-read">
+          <span className="sx-card-glyph" aria-hidden="true">
+            <DotSpinner status="waiting_input" />
+          </span>
+          <div className="sx-card-body">
+            <p className="sx-card-text">{F.cantRead(agent)}</p>
+            <p className="sx-card-tag">{T.cantReadHint}</p>
+          </div>
+          <div className="sx-card-actions">
+            <button type="button" className="ck-btn ck-btn--primary" onClick={() => setScreenOpen(true)}>
+              {T.showScreen}
+            </button>
+          </div>
+        </section>
+      )}
       {problem && <ProblemCard problem={problem} onStartAgain={() => void startAgain()} onShowMe={() => setScreenOpen(true)} />}
 
       <div className="sx-tabs">
@@ -320,7 +339,7 @@ export function SimpleProject({
 
       {showScreen && (
         <section className="sx-screen" aria-label={T.agentScreen}>
-          <p className="sx-quiet">{forcedScreen ? F.cantRead(agent) : F.agentScreenCaption(agent)}</p>
+          <p className="sx-quiet">{F.agentScreenCaption(agent)}</p>
           <div className="sx-screen-term">
             <TerminalViewport pane={pane} registry={c.registry} chrome={false} getSelectionRef={getSelectionRef} />
           </div>

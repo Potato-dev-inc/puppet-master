@@ -8,7 +8,7 @@ export default simpleScenario({
   simple: { panes: [{ id: 'pane-quiz', status: 'waiting_input', repo: QUIZ_REPO, html: QUIZ_HTML, prompt: null }] },
   select: 'pane-quiz',
   after: async (dom) => {
-    await dom.waitFor('.sx-screen');
+    await dom.waitFor('[data-testid="cant-read"]');
     await dom.sleep(500);
   },
 });

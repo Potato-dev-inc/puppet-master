@@ -21,6 +21,8 @@ import { SpawnView } from './components/cockpit/SpawnView';
 import { PanicSheet } from './components/cockpit/PanicSheet';
 import { TellTeamToast } from './components/cockpit/team/TellTeam';
 import { SimpleCockpit } from './components/simple/SimpleCockpit';
+import { FirstRun } from './components/firstrun/FirstRun';
+import { useFirstRun } from './components/firstrun/useFirstRun';
 import { useSimpleMode } from './lib/simple-mode';
 import { projectOfCwd } from './lib/ship-model';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
@@ -81,6 +83,8 @@ export default function CockpitApp() {
     if (c.registry.paneList.length > 0) markSpawned();
   }, [c.registry.paneList.length]);
   const away = useAway(c.registry.paneList.map((p) => p.info.id));
+  // The first-run welcome: once on a fresh profile, again from the palette or Settings.
+  const welcome = useFirstRun(c.registry.paneList.length, c.registry.initialReady);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -97,7 +101,8 @@ export default function CockpitApp() {
   const needsYou = useNeedsYouSource(c, loop.signals);
   // Simple mode (Settings > General) swaps the whole face; off by default, so this line does nothing then.
   const simple = useSimpleMode();
-  if (simple && c.mode !== 'individual') return <SimpleCockpit c={c} loop={loop} needsYou={needsYou} lastTurn={away.lastTurn} />;
+  // While the welcome is open the normal face stays, so its sign-in and install windows are visible.
+  if (simple && c.mode !== 'individual' && !welcome.open) return <SimpleCockpit c={c} loop={loop} needsYou={needsYou} lastTurn={away.lastTurn} />;
 
   return (
     <LoopGuardContext.Provider value={loop}>
@@ -165,6 +170,7 @@ export default function CockpitApp() {
           onStopAll={stopAll}
           onOpenMemory={() => setView('memory')}
           onUndoLastTurn={setUndoPane}
+          onOpenWelcome={welcome.reopen}
         />
       )}
       {undoPane && (
@@ -175,6 +181,7 @@ export default function CockpitApp() {
           onClose={() => setUndoPane(null)}
         />
       )}
+      {welcome.open && c.mode !== 'individual' && <FirstRun key={welcome.openKey} c={nav} seed={welcome.seed} onFinish={welcome.finish} />}
       {c.mode !== 'individual' && <TellTeamToast />}
       {stopReport && <PanicSheet report={stopReport} names={c.names} onClose={() => setStopReport(null)} />}
       <div className="ck-toasts" aria-live="polite">

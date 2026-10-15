@@ -78,6 +78,8 @@ export interface HarnessScenario {
   team?: import('../lib/team').TeamState;
   /** Simple mode: turns the switch on and gives the panes, pages and answers it shows (see simple-fixtures.ts). */
   simple?: import('./simple-fixtures').SimpleScenario;
+  /** First-run welcome: where it starts and what the mocked first task does. Absent = the welcome never shows. */
+  firstRun?: import('./first-run-fixtures').FirstRunScenario;
   /** Worktrees that ship: what the mocked folder step, presets and GitHub commands answer. */
   ship?: import('./ship-fixtures').ShipScenario;
   /** Settings > Labs > Team: overrides on top of the example config (on a team as admin) the mocked `team_config_get` returns. */

@@ -1,0 +1,577 @@
+/* First-run welcome. Monochrome tokens of the cockpit (mockups/ui-proposal/STYLE.md): grayscale only, hairlines,
+   no shadows except the paused bar, state shown by the dot glyph. Everything is scoped under .cockpit. */
+
+.cockpit .fr-layer {
+  position: absolute;
+  inset: 0;
+  /* Below the palette and sheets (50), so Ctrl+K works while the welcome is open. */
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  background: var(--bg);
+}
+/* Paused (the person is in a sign-in or install window): only the bar stays, over the top of the cockpit. */
+.cockpit .fr-layer[data-docked='true'] {
+  inset: 0 0 auto 0;
+  background: transparent;
+  pointer-events: none;
+}
+.cockpit .fr-bar {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 12px 0;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--sep);
+  border-radius: 12px;
+  background: var(--bg-float);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: var(--float-shadow);
+}
+.cockpit .fr-bar > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.cockpit .fr-shell {
+  width: min(640px, 100%);
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  padding: 0 28px;
+}
+.cockpit .fr-shell[hidden] {
+  display: none;
+}
+
+/* ---------- top: progress dots, step count, skip ---------- */
+.cockpit .fr-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 56px;
+}
+.cockpit .fr-dots {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cockpit .fr-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--label-4);
+}
+.cockpit .fr-dot[data-state='done'] {
+  background: var(--label-3);
+}
+.cockpit .fr-dot[data-state='now'] {
+  background: var(--label);
+  box-shadow: 0 0 0 3px var(--fill-active);
+}
+.cockpit .fr-stepof {
+  color: var(--label-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .fr-skipall {
+  margin-left: auto;
+}
+
+/* ---------- body ---------- */
+.cockpit .fr-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 2px 28px;
+}
+.cockpit .fr-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cockpit .fr-num {
+  font-size: 40px;
+  color: var(--label-3);
+}
+.cockpit .fr-hero {
+  display: flex;
+  margin-bottom: 4px;
+}
+.cockpit .fr-lead {
+  margin: 0;
+  max-width: 52ch;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--label-2);
+}
+.cockpit .fr-hint {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--label-3);
+}
+.cockpit .fr-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .fr-cap {
+  margin: 10px 0 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--label-3);
+}
+.cockpit .fr-ask-q {
+  margin-top: 14px;
+}
+.cockpit .fr-note {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--label-4);
+  color: var(--label-2);
+}
+.cockpit .fr-tip {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--label-4);
+  color: var(--label-2);
+  max-width: 60ch;
+}
+.cockpit .fr-problem {
+  margin: 0;
+  color: var(--label);
+  font-weight: 500;
+}
+.cockpit .fr-status {
+  margin: 4px 0 0;
+  color: var(--label-2);
+}
+.cockpit .fr-status[data-ready='true'] {
+  color: var(--label);
+}
+.cockpit .fr-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.cockpit .fr-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi);
+}
+.cockpit .fr-card-line {
+  margin: 0;
+}
+
+/* ---------- 1. how do you work ---------- */
+.cockpit .fr-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .fr-choice {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi);
+  transition: background 160ms var(--ease), transform 160ms var(--ease);
+}
+.cockpit .fr-choice:hover {
+  background: var(--fill-hover);
+}
+.cockpit .fr-choice:active {
+  transform: scale(0.99);
+}
+.cockpit .fr-choice[aria-checked='true'] {
+  box-shadow: inset 0 0 0 1px var(--label);
+}
+.cockpit .fr-radio {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1.5px solid var(--label-3);
+  border-radius: 50%;
+  position: relative;
+}
+.cockpit .fr-choice[aria-checked='true'] .fr-radio {
+  border-color: var(--label);
+}
+.cockpit .fr-choice[aria-checked='true'] .fr-radio::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--label);
+}
+.cockpit .fr-choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cockpit .fr-choice-label {
+  font-weight: 600;
+}
+.cockpit .fr-choice-hint {
+  color: var(--label-3);
+}
+
+/* ---------- 2. agents (the doctor, inline) ---------- */
+.cockpit .ck-doctor--embedded {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  height: auto;
+  overflow: visible;
+}
+.cockpit .ck-doctor--embedded .ck-doctor-bar {
+  margin-top: 0;
+}
+.cockpit .ck-doctor--embedded .ck-doctor-list {
+  margin-top: 12px;
+}
+
+/* ---------- 3. project ---------- */
+.cockpit .fr-picked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--label);
+  border-radius: 10px;
+}
+.cockpit .fr-picked-name {
+  font-weight: 600;
+}
+.cockpit .fr-picked-ok {
+  margin-left: auto;
+  color: var(--label-2);
+}
+.cockpit .fr-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--label-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .fr-git {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+}
+.cockpit .fr-cmds {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cockpit .fr-cmds code {
+  display: block;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.cockpit .fr-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi);
+  overflow: hidden;
+}
+.cockpit .fr-list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 8px;
+}
+.cockpit .fr-list-row + .fr-list-row {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .fr-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+}
+.cockpit .fr-row:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+.cockpit .fr-row[data-selected='true'] {
+  background: var(--fill-active);
+}
+.cockpit .fr-row:disabled {
+  opacity: 1;
+}
+.cockpit .fr-row:disabled .fr-row-name,
+.cockpit .fr-row:disabled .fr-path {
+  opacity: 0.5;
+}
+.cockpit .fr-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.cockpit .fr-row-name {
+  font-weight: 500;
+}
+.cockpit .fr-row-hint {
+  flex-shrink: 0;
+  color: var(--label-3);
+  font-size: 11px;
+}
+
+/* ---------- 4. first task ---------- */
+.cockpit .fr-agent-pick {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cockpit .fr-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--sep);
+  border-radius: 999px;
+}
+.cockpit .fr-chip[aria-checked='true'] {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  border-color: var(--primary-bg);
+}
+.cockpit .fr-ask {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--label-2);
+}
+.cockpit .fr-working {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+}
+.cockpit .fr-working-line {
+  margin: 0;
+  font-weight: 600;
+}
+.cockpit .fr-working .fr-hint {
+  margin-top: 2px;
+}
+.cockpit .fr-approval {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .fr-result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cockpit .fr-result-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cockpit .fr-answer {
+  margin: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+.cockpit .fr-receipt {
+  padding: 4px 14px 10px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+}
+.cockpit .fr-kv {
+  display: flex;
+  flex-direction: column;
+  margin: 6px 0 0;
+}
+.cockpit .fr-kv-row {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 12px;
+  padding: 5px 0;
+}
+.cockpit .fr-kv-row + .fr-kv-row {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .fr-kv dt {
+  color: var(--label-3);
+}
+.cockpit .fr-kv dd {
+  margin: 0;
+}
+
+/* ---------- 5/6. phone and the pack reuse Settings blocks; their scope has no box of its own ---------- */
+.cockpit .fr-settings-scope.settings {
+  position: static;
+  display: contents;
+  overflow: visible;
+  background: transparent;
+}
+
+/* ---------- 7. done ---------- */
+.cockpit .fr-tips {
+  display: flex;
+  flex-direction: column;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi);
+}
+.cockpit .fr-tipr {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+}
+.cockpit .fr-tipr + .fr-tipr {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .fr-tipnum {
+  font-size: 28px;
+  color: var(--label-3);
+}
+.cockpit .fr-tipmain {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cockpit .fr-tipbody {
+  color: var(--label-2);
+}
+.cockpit .fr-kbd {
+  align-self: flex-start;
+  padding: 1px 7px;
+  border: 1px solid var(--sep);
+  border-radius: 6px;
+  box-shadow: inset 0 -1px 0 var(--sep);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ---------- foot ---------- */
+.cockpit .fr-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0 8px;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .fr-foot-gap {
+  flex: 1;
+}
+.cockpit .fr-reopen {
+  margin: 0;
+  padding: 0 0 16px;
+  color: var(--label-4);
+  font-size: 11px;
+}
+@media (max-width: 640px) {
+  .cockpit .fr-shell {
+    padding: 0 16px;
+  }
+  .cockpit .fr-kv-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .fr-choice {
+    transition: none;
+  }
+  .cockpit .fr-choice:active {
+    transform: none;
+  }
+}
+
+.cockpit .fr-layer .ck-btn--primary:disabled {
+  background: var(--fill);
+  color: var(--label-4);
+  opacity: 1;
+}
+
+/* The answer is words, not a terminal: paragraphs and lists, code in a quiet chip. */
+.cockpit .fr-answer p {
+  margin: 0;
+}
+.cockpit .fr-answer p + p,
+.cockpit .fr-answer p + ul,
+.cockpit .fr-answer ul + p {
+  margin-top: 8px;
+}
+.cockpit .fr-answer ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.cockpit .fr-code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.cockpit .fr-answer {
+  white-space: normal;
+}
+/* A quiet scrollbar, like the rest of the cockpit's lists. */
+.cockpit .fr-body,
+.cockpit .fr-answer {
+  scrollbar-width: thin;
+  scrollbar-color: var(--label-4) transparent;
+}
+.cockpit .fr-answer ul {
+  list-style: disc;
+}
+.cockpit .fr-answer li + li {
+  margin-top: 3px;
+}

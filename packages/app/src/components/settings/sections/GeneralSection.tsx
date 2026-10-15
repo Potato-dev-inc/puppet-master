@@ -20,6 +20,8 @@ import { WhatsNew, WHATS_NEW_LABEL } from '../blocks/WhatsNew';
 import { NumberControl, TextControl } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
 import { T as SIMPLE } from '../../simple/copy';
+import { T as WELCOME } from '../../firstrun/copy';
+import { reopenPatch } from '../../firstrun/model';
 import { Btn, FieldSelect, InfoRow, Note, SettingBlock, SettingRow, SettingToggle } from '../settings-ui';
 
 function useInstallInfo(): AppInstallInfo | null {
@@ -232,6 +234,18 @@ export const generalRows: RowDef[] = [
         checked={env.settings.simple_mode ?? false}
         onChange={(value) => void env.patch({ simple_mode: value })}
       />
+    ),
+  },
+  {
+    id: 'welcome',
+    label: WELCOME.settingLabel,
+    hint: WELCOME.settingHint,
+    keywords: 'welcome first run tour setup onboarding start again',
+    group: 'Appearance',
+    render: (env) => (
+      <SettingRow label={WELCOME.settingLabel} description={WELCOME.settingHint}>
+        <Btn onClick={() => void env.patch(reopenPatch())}>{WELCOME.settingButton}</Btn>
+      </SettingRow>
     ),
   },
   {

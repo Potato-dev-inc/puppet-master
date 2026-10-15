@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
+import { patchSettings } from '../../lib/settings';
 import { openPreview, previewLabel } from '../../lib/pane-preview';
+import { T as WELCOME } from '../firstrun/copy';
 import { DotSpinner } from './DotSpinner';
 import { IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
@@ -27,6 +29,7 @@ export function Palette({
   onStopAll,
   onOpenMemory,
   onUndoLastTurn,
+  onOpenWelcome,
 }: {
   c: CockpitApi;
   onClose: () => void;
@@ -35,6 +38,8 @@ export function Palette({
   onOpenMemory?: () => void;
   /** Opens the restore confirmation for the pane's last turn (never restores by itself). */
   onUndoLastTurn?: (paneId: string) => void;
+  /** Shows the first-run welcome again. */
+  onOpenWelcome?: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
@@ -122,6 +127,24 @@ export function Palette({
         desc: 'Check which agents work and fix the ones that do not',
         icon: <IconTerminal />,
         run: onOpenDoctor,
+      });
+    }
+    out.push({
+      id: 'act:simple',
+      group: 'Actions',
+      title: WELCOME.paletteSimpleTitle,
+      desc: WELCOME.paletteSimpleDesc,
+      icon: <IconLayers />,
+      run: () => void patchSettings({ simple_mode: true }),
+    });
+    if (onOpenWelcome) {
+      out.push({
+        id: 'act:welcome',
+        group: 'Actions',
+        title: WELCOME.paletteTitle,
+        desc: WELCOME.paletteDesc,
+        icon: <IconNote />,
+        run: onOpenWelcome,
       });
     }
     if (onOpenMemory) {

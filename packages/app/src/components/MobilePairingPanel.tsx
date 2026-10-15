@@ -48,6 +48,8 @@ interface Props {
   devServerPort: number;
   onPublicPwaUrlChange: (value: string) => void;
   onDevServerPortChange: (port: number) => void;
+  /** The first-run welcome: no address or port fields, only the choice, the code and the QR. */
+  compact?: boolean;
 }
 
 /** A typed address becomes its origin when it is saved ("pm.example.com" -> "https://pm.example.com"). */
@@ -61,6 +63,7 @@ export function MobilePairingPanel({
   devServerPort,
   onPublicPwaUrlChange,
   onDevServerPortChange,
+  compact = false,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [devInfo, setDevInfo] = useState<PublicBridgeDevInfo | null>(null);
@@ -160,6 +163,7 @@ export function MobilePairingPanel({
         <small>Scan the QR code with your phone camera. It opens a link and signs you in.</small>
       </div>
       <div className="st-body space-y-3">
+        {!compact && (
         <div>
           <label htmlFor="pairing-public-url" className="block text-[11px] text-pm-muted mb-1">
             Phone page address
@@ -219,6 +223,7 @@ export function MobilePairingPanel({
             )}
           </p>
         </div>
+        )}
 
         <fieldset className="st-choices" data-testid="pairing-choice">
           <legend>What can this phone do?</legend>

@@ -31,9 +31,9 @@ const READ_WORDS: ApprovalWords = { what: 'look at your files', safe: NOTHING_CH
 export const UNREADABLE = ['Answer the agent', 'Finish the startup screen', 'Allow without asking again'];
 
 const MEDIUM: Record<string, ApprovalWords> = {
-  'Trust this folder': { what: 'work in this folder', safe: 'It is a copy that PM made for you.' },
+  'Trust this folder': { what: 'work in this folder', safe: 'It is a copy that Puppet Master made for you.' },
   'Change a file': { what: 'change a file', safe: CHECK_FIRST },
-  'Run a command': { what: 'run a step that PM does not know', safe: CHECK_FIRST },
+  'Run a command': { what: 'run a step that Puppet Master does not know', safe: CHECK_FIRST },
   'Change files in this project': { what: 'change files in your project', safe: CAN_GO_BACK },
   'Change files': { what: 'change files in your project', safe: CAN_GO_BACK },
   'Connect to another computer': { what: 'use the internet', safe: 'It may download something.' },

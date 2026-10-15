@@ -41,7 +41,7 @@ function mcpLine(row: PackRow): string {
   return 'Connection to Puppet Master will be added';
 }
 
-function PackSheet({ api, onClose, onDone }: { api: AgentPackApi; onClose: () => void; onDone: (text: string, report: PackReport) => void }) {
+export function PackSheet({ api, onClose, onDone }: { api: AgentPackApi; onClose: () => void; onDone: (text: string, report: PackReport) => void }) {
   const [report, setReport] = useState<PackReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

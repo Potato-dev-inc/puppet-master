@@ -1,8 +1,21 @@
 // The global Ask bar UI. Works with any AskbarApi; the default is the Tauri one from lib/askbar.ts.
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { tauriAskbarApi, clipboardChipLabel, type AskbarAgent, type AskbarApi, type AskbarClipboard, type AskResult } from '../../lib/askbar';
 import { splitBlocks } from '../../lib/askbar-text';
 import { DotSpinner } from '../cockpit/DotSpinner';
+
+/** `code` between backticks shows as code, without the backticks. */
+function inlineCode(text: string): ReactNode[] {
+  return text.split(/(`[^`\r\n]+`)/g).map((part, i) =>
+    part.length > 2 && part.startsWith('`') && part.endsWith('`') ? (
+      <code key={i} className="askbar-inline">
+        {part.slice(1, -1)}
+      </code>
+    ) : (
+      part
+    ),
+  );
+}
 
 type View = 'empty' | 'running' | 'answer' | 'error';
 
@@ -347,7 +360,7 @@ export function AskBar({ api = tauriAskbarApi }: { api?: AskbarApi }): JSX.Eleme
                 </pre>
               ) : (
                 <p key={i} className="askbar-text">
-                  {b.text}
+                  {inlineCode(b.text)}
                 </p>
               ),
             )}
@@ -357,7 +370,7 @@ export function AskBar({ api = tauriAskbarApi }: { api?: AskbarApi }): JSX.Eleme
               {copied ? 'Copied' : 'Copy'}
             </button>
             <button type="button" className="askbar-btn askbar-btn--primary" onClick={() => void continueInPane()}>
-              Continue in a pane
+              Open as an agent
             </button>
             <button type="button" className="askbar-btn" onClick={() => ignore(api.hide())}>
               Close
