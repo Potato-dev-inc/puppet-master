@@ -95,7 +95,7 @@ pub mod watch_command;
 pub mod env_probe;
 
 use commands::AppState;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::path::BaseDirectory;
 use tauri::{Listener, Manager};
 
@@ -402,15 +402,10 @@ pub fn run() {
                 }
             }
             if mcp_runtime::bundled_mcp_binary().is_none() {
-                let binary_name = if cfg!(windows) {
-                    "puppet-master-mcp.exe"
-                } else {
-                    "puppet-master-mcp"
-                };
-                let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../mcp-server/dist")
-                    .join(binary_name);
-                if dev.is_file() {
+                // A dev build has no installed resource folder: look where the binary is built or
+                // staged (the package's dist, the staged `resources/bin`, next to the running exe).
+                let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(PathBuf::from));
+                if let Some(dev) = mcp_runtime::dev_mcp_binary(Path::new(env!("CARGO_MANIFEST_DIR")), exe_dir.as_deref()) {
                     mcp_runtime::set_bundled_mcp_binary(dev);
                 }
             }
