@@ -81,6 +81,11 @@ pub fn agent_object(m: &Mission) -> Value {
     let mut out = json!({
         "handle": m.handle(),
         "kind": "mission",
+        // The run fields every agent result carries: the current turn's operation, the record's
+        // revision, and `verified` = every check passed.
+        "operation_id": m.rounds.last().and_then(|r| r.operation_id.clone()).unwrap_or_default(),
+        "revision": m.rev,
+        "verified": m.state == MissionState::Green,
         "status": status,
         "stage": m.state.as_str(),
         "state_text": v.state_text,

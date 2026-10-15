@@ -1,6 +1,9 @@
 //! The live `RoundIo`: turns are ordinary `run_agent` / `followup_task` operations in visible panes,
 //! budgets are the budgets module, the loop guard is the loop guard.
 
+// Unit tests never reach the live world (`missions::live`).
+#![cfg_attr(test, allow(dead_code))]
+
 use super::engine::{RoundIo, Started};
 use super::model::{Mission, Round, RoundEnd};
 use crate::agent_runs::persist::FollowupOpts;
