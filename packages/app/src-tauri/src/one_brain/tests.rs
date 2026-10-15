@@ -361,6 +361,10 @@ fn a_git_tracked_file_holding_only_the_block_is_never_deleted() {
     git(&dir, &["commit", "-q", "-m", "memory blocks"]);
     // The project's memory is gone (memory.md removed): the blocks would be removed again.
     std::fs::remove_file(memory_path(&dir)).ok();
+    // The Memory view says what sync will do: nothing to a committed file (live v0.2.0 hunt: it
+    // said "Will remove" for both).
+    let shown: Vec<&str> = status(&dir, &[target("CLAUDE.md"), target("AGENTS.md")], true).iter().map(|s| s.status).collect();
+    assert_eq!(shown, ["nothing", "nothing"]);
     let before = read(&dir, "CLAUDE.md");
     let report = sync(&dir, &[target("CLAUDE.md"), target("AGENTS.md")], true);
     assert!(report.removed.is_empty() && report.errors.is_empty(), "{report:?}");
@@ -369,6 +373,7 @@ fn a_git_tracked_file_holding_only_the_block_is_never_deleted() {
 
     // An untracked file holding only our block is still removed (we created it).
     std::fs::write(dir.join("NEW.md"), &before).unwrap();
+    assert_eq!(status(&dir, &[target("NEW.md")], true)[0].status, "will_remove");
     let report = sync(&dir, &[target("NEW.md")], true);
     assert_eq!(report.removed, vec!["NEW.md"]);
     assert!(!dir.join("NEW.md").exists());

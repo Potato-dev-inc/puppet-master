@@ -192,6 +192,9 @@ pub fn status(project: &Path, targets: &[Target], global: bool) -> Vec<TargetSta
                 Err(_) => "blocked",
                 Ok(Outcome::NoChange) if memory.trim().is_empty() => "nothing",
                 Ok(Outcome::NoChange) => "in_sync",
+                // A committed file is never deleted (`sync_target`): say so instead of "Will remove"
+                // (live v0.2.0 hunt: the Memory view labelled tracked AGENTS.md / CLAUDE.md so).
+                Ok(Outcome::Delete) if crate::worktrees::is_git_tracked(project, &t.path) => "nothing",
                 Ok(Outcome::Delete) => "will_remove",
                 Ok(Outcome::Write(_)) => match existing.as_deref().map(block_state) {
                     None => "will_create",
