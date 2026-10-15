@@ -14,6 +14,8 @@ import { formatElapsed, groupPanes, spinnerStatus } from './model';
 import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 import { LastTurnContext } from './away-context';
 import { SegTabs } from './SegTabs';
+import { StartMissionSheet } from './mission/StartMissionSheet';
+import { onOpenStartMission, useMissions, useMissionsEnabled, isActive } from '../../lib/missions';
 
 export function Sidebar({
   c,
@@ -43,6 +45,14 @@ export function Sidebar({
   const [isolated, setIsolated] = useState(() => readCopyPreference(projectKey));
   useEffect(() => setIsolated(readCopyPreference(projectKey)), [projectKey]);
   const menuRef = useRef<HTMLDivElement>(null);
+  // Missions (Preview, Labs): "+" → Start a mission… opens the start sheet for the menu's project.
+  const missionsOn = useMissionsEnabled();
+  const missions = useMissions();
+  const [missionFor, setMissionFor] = useState<ProjectChoice | null>(null);
+  useEffect(() => onOpenStartMission((path) => {
+    const p = path ? projectOfCwd(path) : project;
+    if (p) setMissionFor(p);
+  }), [project]);
   useEffect(() => {
     const open = () => setMenuOpen(true);
     window.addEventListener('pm:open-new-menu', open);
@@ -146,6 +156,14 @@ export function Sidebar({
                   setIsolated(on);
                   writeCopyPreference(projectKey, on);
                 }}
+                onStartMission={
+                  missionsOn && project
+                    ? () => {
+                        setMenuOpen(false);
+                        setMissionFor(project);
+                      }
+                    : undefined
+                }
               />
             </div>
           )}
@@ -214,6 +232,19 @@ export function Sidebar({
         </div>
         <div className="ck-bridge">{c.bridgeLine}</div>
       </div>
+      {missionFor && (
+        <StartMissionSheet
+          project={{ path: missionFor.path, name: missionFor.name, git: supportsCopies(missionFor.state) }}
+          entries={c.launchEntries}
+          activeMissions={missions.missions.filter(isActive).length}
+          onClose={() => setMissionFor(null)}
+          onStarted={() => {
+            setMissionFor(null);
+            missions.reload();
+            c.notify('Mission started. It shows in the Inbox while it works.');
+          }}
+        />
+      )}
     </aside>
   );
 }

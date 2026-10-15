@@ -1,0 +1,443 @@
+/* Missions (Preview): start sheet, Progress, cards. STYLE.md v3: grayscale only, hairline rows,
+   sheets on float material, 13px body, tabular numbers, the Preview tag as a plain 11px word. */
+
+.cockpit .ck-preview-tag {
+  font-size: 11px;
+  color: var(--label-2);
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.cockpit .ck-mission-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  flex: none;
+}
+
+/* ---- start sheet ---------------------------------------------------------------------------- */
+
+.cockpit .ck-sheet.ck-mission-sheet {
+  width: 560px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  gap: 6px;
+}
+.cockpit .ck-mission-sheet-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.cockpit .ck-mission-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-mission-hint {
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-mission-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+.cockpit .ck-mission-goal,
+.cockpit .ck-mission-input,
+.cockpit .ck-mission-num,
+.cockpit .ck-mission-select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--label);
+  background: var(--bg-raised);
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  box-shadow: var(--raise-hi);
+}
+.cockpit .ck-mission-goal {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 52px;
+  padding: 8px 10px;
+  line-height: 1.45;
+}
+.cockpit .ck-mission-goal:focus-visible,
+.cockpit .ck-mission-input:focus-visible,
+.cockpit .ck-mission-num:focus-visible,
+.cockpit .ck-mission-select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-mission-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cockpit .ck-mission-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-mission-check:last-child {
+  border-bottom: 0;
+}
+.cockpit .ck-mission-check-name {
+  font-size: 13px;
+  color: var(--label);
+  min-width: 96px;
+}
+.cockpit .ck-mission-check-cmd {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--label-2);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-mission-check--add .ck-mission-input {
+  flex: 1;
+  padding: 5px 8px;
+  background: transparent;
+  box-shadow: none;
+  border-style: dashed;
+}
+.cockpit .ck-mission-note,
+.cockpit .ck-mission-where,
+.cockpit .ck-mission-foot,
+.cockpit .ck-mission-blocked {
+  margin: 0;
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-mission-foot {
+  color: var(--label-3);
+  font-size: 11px;
+}
+.cockpit .ck-mission-blocked {
+  text-align: right;
+}
+.cockpit .ck-mission-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--label);
+  border-left: 2px solid var(--label);
+  padding-left: 8px;
+}
+.cockpit .ck-mission-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.cockpit .ck-mission-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 13px;
+}
+.cockpit .ck-mission-agent-n {
+  font-variant-numeric: tabular-nums;
+  color: var(--label-3);
+  font-size: 11px;
+}
+.cockpit .ck-mission-x {
+  border: 0;
+  background: transparent;
+  color: var(--label-3);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 0 0 2px;
+}
+.cockpit .ck-mission-select {
+  height: 26px;
+  padding: 0 6px;
+}
+.cockpit .ck-mission-budget {
+  display: flex;
+  gap: 16px;
+}
+.cockpit .ck-mission-budget label,
+.cockpit .ck-mission-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--label-2);
+}
+.cockpit .ck-mission-num {
+  width: 64px;
+  height: 26px;
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-mission-more {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--label-2);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.cockpit .ck-mission-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ---- Progress -------------------------------------------------------------------------------- */
+
+.cockpit .ck-mission {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.cockpit .ck-mission-head {
+  padding: 12px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cockpit .ck-mission-title-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.cockpit .ck-mission-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cockpit .ck-mission-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--label-2);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.cockpit .ck-mission-budget-chip {
+  font-size: 12px;
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--fill);
+  white-space: nowrap;
+}
+.cockpit .ck-mission-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--label-3);
+}
+.cockpit .ck-mission-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.cockpit .ck-mission-body {
+  padding: 8px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cockpit .ck-mission-bar-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 2px;
+}
+.cockpit .ck-mission-bar {
+  flex: 1;
+  height: 2px;
+  background: var(--label-4);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.cockpit .ck-mission-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--label);
+  transition: width 280ms var(--ease);
+}
+.cockpit .ck-mission-bar-text {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--label);
+  white-space: nowrap;
+}
+.cockpit .ck-mission-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cockpit .ck-mission-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-mission-row-main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 16px 64px 112px 104px 1fr;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 0 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cockpit .ck-mission-row-main:disabled {
+  cursor: default;
+}
+.cockpit .ck-mission-row-main:not(:disabled):hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-mission-row--event .ck-mission-row-main {
+  grid-template-columns: 16px 1fr;
+}
+.cockpit .ck-mission-turn {
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-mission-agent-name {
+  color: var(--label-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-mission-counts {
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-mission-delta {
+  color: var(--label-3);
+}
+.cockpit .ck-mission-phrase,
+.cockpit .ck-mission-event {
+  color: var(--label-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-mission-row-checks {
+  flex-basis: 100%;
+  list-style: none;
+  margin: 0 0 6px 28px;
+  padding: 0;
+}
+.cockpit .ck-mission-row-checks li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+.cockpit .ck-mission-all {
+  align-self: flex-start;
+}
+.cockpit .ck-mission-notes {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--label-2);
+  white-space: pre-wrap;
+  border-left: 2px solid var(--label-4);
+  padding-left: 10px;
+}
+.cockpit .ck-mission-done {
+  padding: 10px 0 4px;
+  border-bottom: 1px solid var(--sep);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cockpit .ck-mission-done-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cockpit .ck-mission-kv {
+  margin: 0;
+}
+
+/* ---- cards and the Inbox list ------------------------------------------------------------------ */
+
+.cockpit .ck-mission-card .ck-preview-tag {
+  margin-left: 6px;
+}
+.cockpit .ck-mission-card-lines {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--label);
+}
+.cockpit .ck-mission-card-lines li {
+  margin: 2px 0;
+}
+.cockpit .ck-missions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cockpit .ck-mission-cap {
+  margin: 12px 0 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--label-3);
+}
+.cockpit .ck-mission-list-item {
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-mission-list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 0 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cockpit .ck-mission-list-row:hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-mission-list-row .ck-row-sub {
+  margin-left: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-mission-bar-fill {
+    transition: none;
+  }
+}

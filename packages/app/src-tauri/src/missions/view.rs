@@ -77,6 +77,8 @@ pub struct MissionView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub needs: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub card_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sentence: Option<String>,
     pub pause_requested: bool,
     pub turn: u32,
@@ -381,6 +383,7 @@ pub fn view(m: &Mission) -> MissionView {
         state_text: state_text(m),
         glyph: glyph(m.state),
         needs: m.needs.map(Needs::as_str),
+        card_title: super::cards::headline(m),
         sentence: m.sentence.clone(),
         pause_requested: m.pause_requested,
         turn: current.map(|r| r.n).unwrap_or(0),

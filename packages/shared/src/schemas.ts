@@ -112,6 +112,8 @@ export const SettingsSchema = z.object({
   agent_hooks_mode: z.enum(['off', 'shadow', 'evidence']).optional(),
   /** Per-agent override of agent_hooks_mode, keyed by agent id. */
   agent_hooks_agents: z.record(z.string(), z.enum(['off', 'shadow', 'evidence'])).optional(),
+  /** Missions (Preview, Settings › General › Labs): goal + checks + budget, worked on in rounds. Off unless chosen. Rust: missions. */
+  missions_enabled: z.boolean().optional(),
   /** Simple mode: the cockpit with fewer buttons and plain words, for people who do not write code. Off unless chosen. */
   simple_mode: z.boolean().optional(),
   /** Optional path to the librarian project indexer script (default scripts/project-indexer.py). */

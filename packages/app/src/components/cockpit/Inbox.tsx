@@ -17,6 +17,8 @@ import { QuestionCard } from './QuestionCard';
 import { PaneErrorBody } from './InboxError';
 import { paneHeading } from './titles';
 import { TeamSection } from './team/TeamSection';
+import { MissionsSection } from './mission/MissionCards';
+import { useMissions } from '../../lib/missions';
 
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
   // One list for every surface: the badge, the Doto counter and the sidebar group use its length.
@@ -31,6 +33,7 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
   const noPanes = c.registry.paneList.length === 0 && c.registry.initialReady;
   const firstRun = noPanes && !hasEverSpawned();
   const stuckIds = itemsOfKind(needs, 'stuck').flatMap((i) => (i.paneId ? [i.paneId] : []));
+  const missions = useMissions();
 
   return (
     <div className="ck-inbox">
@@ -87,6 +90,8 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
           ))}
         </ul>
       )}
+
+      <MissionsSection missions={missions.missions} onChanged={missions.reload} onOpenPane={(id) => c.select(id)} onNotify={c.notify} />
 
       {limits.length > 0 && (
         <ul className="ck-list ck-q-list" aria-label="Agents that ran out of usage">

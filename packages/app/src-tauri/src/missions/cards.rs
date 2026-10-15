@@ -61,6 +61,17 @@ pub fn stuck_sentence(m: &Mission) -> String {
     format!("{who} {verb} without progress.{still}")
 }
 
+/// The card's headline while the mission needs the person.
+pub fn headline(m: &Mission) -> Option<String> {
+    match (m.state, m.needs) {
+        (MissionState::NeedsYou, Some(Needs::Tamper)) => Some(tamper_headline(m)),
+        (MissionState::NeedsYou, Some(Needs::Stuck)) => Some("The mission isn't getting anywhere".into()),
+        (MissionState::NeedsYou, Some(Needs::Setup)) => Some("The mission can't go on".into()),
+        (MissionState::NeedsYou, Some(Needs::Budget)) => Some("The mission used its budget".into()),
+        _ => None,
+    }
+}
+
 fn raised(m: &Mission) -> Option<Raised> {
     let title_suffix = super::engine::short(&m.objective);
     match (m.state, m.needs) {

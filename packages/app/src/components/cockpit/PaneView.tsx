@@ -28,8 +28,10 @@ import { paneHeading } from './titles';
 import { transcriptStreamLabel } from '../../lib/transcript-labels';
 import { UntestedChip } from './UntestedChip';
 import { BudgetChip } from './BudgetChip';
+import { MissionProgress } from './mission/MissionProgress';
+import { missionOfPane, useMissions } from '../../lib/missions';
 
-type Tab = 'terminal' | 'changes' | 'transcript' | 'receipt' | 'history';
+type Tab = 'mission' | 'terminal' | 'changes' | 'transcript' | 'receipt' | 'history';
 
 /** Run info + transcript for the Transcript and Receipt tabs. `null` = the pane has no run. */
 export function useRunData(paneId: string, active: boolean, status: string) {
@@ -100,6 +102,9 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const run = useRunData(paneId, tab !== 'terminal', pane?.status ?? '');
   const lastTurn = useLastTurn(paneId);
   const worktree = usePaneWorktree(paneId, pane?.status ?? '');
+  // A pane one of a mission's agents works in gets a Mission tab: the mission's Progress.
+  const missions = useMissions();
+  const mission = missionOfPane(missions.missions, paneId);
 
   useEffect(() => {
     setTab('terminal');
@@ -110,7 +115,8 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
 
   useEffect(() => {
     if (tab === 'changes' && !worktree) setTab('terminal');
-  }, [tab, worktree]);
+    if (tab === 'mission' && !mission) setTab('terminal');
+  }, [tab, worktree, mission]);
 
   useEffect(() => {
     if (!menu) return;
@@ -313,6 +319,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
           value={tab}
           onChange={setTab}
           options={[
+            ...(mission ? [{ id: 'mission' as const, label: 'Mission' }] : []),
             { id: 'terminal', label: 'Terminal' },
             ...(worktree ? [{ id: 'changes' as const, label: changesTabLabel(worktree) }] : []),
             { id: 'transcript', label: 'Transcript' },
@@ -323,6 +330,11 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
       </div>
 
       <div className="ck-pane-body">
+        {tab === 'mission' && mission && (
+          <div className="ck-scroll ck-fade-in" key="mission">
+            <MissionProgress mission={mission} onChanged={missions.reload} onOpenPane={(id) => c.select(id)} onNotify={c.notify} />
+          </div>
+        )}
         {tab === 'terminal' && (
           <div className="ck-term-slot" key={paneId}>
             <TerminalViewport pane={pane} registry={c.registry} chrome={false}

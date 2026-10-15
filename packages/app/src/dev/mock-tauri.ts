@@ -30,6 +30,7 @@ import {
 import { TEAM_DIFF, teamConfig } from './team-fixtures';
 import { shipMock } from './ship-fixtures';
 import { simpleMock } from './simple-fixtures';
+import { missionMock } from './mission-fixtures';
 
 const DOCTOR_ROWS = [
   { id: 'claude', label: 'Claude Code', state: 'unchecked', installed: true, version: '2.1.4 (Claude Code)', reason: 'Installed. Press Test to check it can answer.', install_hint: 'winget install Anthropic.ClaudeCode', install_fallback: 'npm i -g @anthropic-ai/claude-code', login_hint: 'Open Claude Code and type /login', can_test: true, hooks: { state: 'connected', mode: 'shadow', sentence: 'Connected. Claude Code tells Puppet Master when it starts, asks and finishes. Watch only: Puppet Master still decides from the screen.' } },
@@ -43,7 +44,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
   // In-memory plugin-store (one store, rid 1), keyed as the app writes it.
   // The two agent-authority switches, at the shipped defaults unless the scenario says otherwise.
   let authority = scenario.authority ?? { ask_before_agent_control: false, agents_may_merge: true };
-  const store = new Map<string, unknown>([['settings', { theme: scenario.theme ?? 'dark', ...(scenario.simple ? { simple_mode: true } : {}) }]]);
+  const store = new Map<string, unknown>([['settings', { theme: scenario.theme ?? 'dark', ...(scenario.simple ? { simple_mode: true } : {}), ...(scenario.missions?.enabled ? { missions_enabled: true } : {}) }]]);
   // Settings > Phone > Devices: one phone with full control in daily use, one watch-and-answer.
   const now = Math.floor(Date.now() / 1000);
   const day = 24 * 60 * 60;
@@ -61,6 +62,8 @@ export function installTauriMock(scenario: HarnessScenario): void {
       if (simple.handled) return simple.value;
       const shipped = shipMock(scenario.ship, cmd, a);
       if (shipped.handled) return shipped.value;
+      const mission = missionMock(scenario.missions, cmd, a);
+      if (mission.handled) return mission.value;
       switch (cmd) {
         case 'list_panes':
           return panes;
