@@ -119,9 +119,9 @@ TuiProfile::startup_gate(screen) -> Option<StartupGate { id, summary, dismiss: O
 | Dismissible notice (Codex "Update available" menu) | `Some(keys)` (Esc: skip this launch, never Enter, never "update now") | `bridge/startup_gate.rs` closes it with those keys before the task is typed (one gate at a time, waits for the screen to change, at most 4 rounds). It is never a card. If it ignored its keys the run parks until the user deals with it. |
 | Only the user may pass it (folder trust, sign-in, onboarding) | `None` | It becomes a **prompt card** and parks the run (`required_action`): kind `workspace_trust` (the trust question) or `startup_screen` (anything else). The run types the task only after the screen is gone. Puppet Master never answers it. |
 
-How the card is built (`pane_prompt::detect_in_screen`): the profile's own `detect_prompt` wins, so Claude and Cursor
-give an answerable `workspace_trust` card with `choices [trust, deny]` and the keys to press them. A profile that only
-declares `startup_gate` (Codex trust, login, onboarding) gets a card with no choices (the keys are not known): the user
+How the card is built (`pane_prompt::detect_in_screen`): the profile's own `detect_prompt` wins, so Claude, Cursor and
+Codex (`codex/prompt.rs`) give an answerable `workspace_trust` card with `choices [trust, deny]` and the keys to press
+them. A profile that only declares `startup_gate` (Codex login, onboarding) gets a card with no choices (the keys are not known): the user
 answers in the pane and the card says so. A profile that has an answerable card should ALSO report the gate from
 `startup_gate`, so completion and delivery know the pane cannot take a task. `classify_screen` should read the gate as
 `waiting_input` (many gates print no y/n text).

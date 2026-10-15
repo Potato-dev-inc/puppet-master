@@ -7,7 +7,7 @@ use regex::Regex;
 use crate::tui::{ComposerState, StandbyScreen, StartupGate};
 
 /// The questions Codex asks before it trusts a folder.
-const TRUST_PHRASES: [&str; 5] = [
+pub(super) const TRUST_PHRASES: [&str; 5] = [
     "do you trust the files in this folder",
     "do you trust the contents of this directory",
     "allow codex to work in this folder",

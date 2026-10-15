@@ -2,10 +2,12 @@
 //!
 //! - `headless` — `codex exec` command line, session resume, JSONL output parsing
 //! - `screen` — whether the interactive TUI is working, waiting on a dialog, or at an empty composer
+//! - `prompt` — the folder-trust dialog as an answerable card (Trust / Don't trust)
 //!
 //! Interactive-pane heuristics beyond standby use the generic defaults.
 
 mod headless;
+mod prompt;
 mod screen;
 
 use super::{AccountScheme, ComposerState, Features, HeadlessLaunch, InstructionFile, LaunchSpec, RunFacts, StandbyScreen, StandbySupport, StartupGate, SubmitSequence, TuiProfile, Warning};
@@ -179,6 +181,16 @@ impl TuiProfile for Codex {
 
     fn startup_gate(&self, screen: &str) -> Option<StartupGate> {
         screen::startup_gate(screen)
+    }
+
+    /// The folder-trust dialog as a card with Trust / Don't trust (see `prompt`), then the generic
+    /// wording. Without it the trust card had no buttons and the person had to open the terminal.
+    fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<serde_json::Value> {
+        prompt::trust_prompt(self.id(), screen).or_else(|| super::generic::detect_prompt(self.id(), screen, allow_broad))
+    }
+
+    fn prompt_reply(&self, prompt: &serde_json::Value, choice: &str, allow_broad: bool) -> Result<super::Reply, String> {
+        prompt::prompt_reply(prompt, choice, allow_broad)
     }
 
     fn clear_input_sequence(&self) -> Option<&'static str> {

@@ -261,8 +261,8 @@ steps = [{ do = "think", ms = 300 }, { do = "say", text = "Hello after a late tr
     assert!(events_named(&session, "prompt").is_empty(), "the task must not be typed over the dialog");
     let pane = parked["pane_id"].as_str().expect("pane").to_string();
     assert_eq!(parked["prompt"]["kind"], "workspace_trust", "{}", parked["prompt"]);
-    // The person trusts the folder in the pane (Enter on "Yes, continue"); this fake Codex screen's
-    // card has no answer buttons.
+    // The person trusts the folder in the pane (Enter on "Yes, continue"). Answering from the card
+    // is covered by `codex_late_trust_card_offers_trust_and_dont_trust_and_trust_from_the_card_delivers_once`.
     session.type_as_user(&pane, "", true).unwrap_or_else(|e| panic!("could not answer in the pane: {e}"));
     let done = wait_for(&session, &handle_of(&parked), TERMINAL, 60);
     if status(&done) != "completed" {
@@ -271,6 +271,54 @@ steps = [{ do = "think", ms = 300 }, { do = "say", text = "Hello after a late tr
     assert!(done["result"].as_str().unwrap_or_default().contains("Hello after a late trust."), "{done}");
     assert_eq!(events_named(&session, "prompt").len(), 1, "the task is typed exactly once: {:#?}
 {}", session.events(), transcript_of(&session, &done));
+}
+
+/// Live r15 (Codex 0.162.1): the run parked on the late trust dialog, but its card "offers no buttons",
+/// so the person had to open the terminal. Codex's trust card now offers Trust / Don't trust like
+/// Claude's, and Trust from the card lets the parked run deliver its task exactly once.
+#[test]
+fn codex_late_trust_card_offers_trust_and_dont_trust_and_trust_from_the_card_delivers_once() {
+    let session = World::get().session("trust-late-card");
+    session.script(
+        r#"
+agent = "codex"
+boot_ms = 100
+[[startup]]
+gate = "trust"
+after_ms = 1000
+composer_first = true
+[[turn]]
+on_prompt = "late card"
+steps = [{ do = "think", ms = 300 }, { do = "say", text = "Hello after trust from the card." }]
+"#,
+    );
+    let parked = run_until_stopped(&session, "fake_codex", "late card", json!({}));
+    if status(&parked) != "needs_input" {
+        explain(&session, &parked, "the run should park on the trust dialog that opened late");
+    }
+    let pane = parked["pane_id"].as_str().expect("pane").to_string();
+    assert_eq!(parked["prompt"]["kind"], "workspace_trust", "{}", parked["prompt"]);
+    let offered: Vec<(&str, &str)> = parked["prompt"]["options"]
+        .as_array()
+        .map(|o| o.iter().filter_map(|x| Some((x["id"].as_str()?, x["label"].as_str()?))).collect())
+        .unwrap_or_default();
+    assert_eq!(offered, [("trust", "Trust this folder"), ("deny", "Don't trust")], "{}", parked["prompt"]);
+    // The desktop card (the Inbox buttons) offers the same two answers.
+    let card = session.card(&pane).expect("the desktop card for the pane");
+    assert_eq!(card["choices"], json!(["trust", "deny"]), "{card}");
+    assert_eq!(card["labels"], json!({"trust": "Trust this folder", "deny": "Don't trust"}), "{card}");
+    assert!(events_named(&session, "gate_answer").is_empty(), "nothing answered the dialog for the user");
+    assert!(events_named(&session, "prompt").is_empty(), "the task must not be typed over the dialog");
+
+    let prompt_id = parked["prompt"]["id"].as_str().expect("prompt id").to_string();
+    session.answer_card(&pane, &prompt_id, "trust").unwrap_or_else(|e| panic!("answer refused: {e}"));
+    let done = wait_for(&session, &handle_of(&parked), TERMINAL, 60);
+    if status(&done) != "completed" {
+        explain(&session, &done, "the run should finish after trust was given from the card");
+    }
+    assert!(done["result"].as_str().unwrap_or_default().contains("Hello after trust from the card."), "{done}");
+    assert_eq!(events_named(&session, "gate_answer")[0]["answer"], "trust");
+    assert_eq!(events_named(&session, "prompt").len(), 1, "the task is typed exactly once: {:#?}", session.events());
 }
 
 fn transcript_of(session: &Session, view: &Value) -> String {

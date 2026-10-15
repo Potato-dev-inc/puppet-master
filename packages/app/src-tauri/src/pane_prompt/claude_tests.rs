@@ -116,6 +116,35 @@ fn claudes_trust_dialog_is_a_startup_gate_the_user_answers() {
     assert!(startup_gate("claude", CLAUDE_READY).is_none());
 }
 
+/// Live r15 (Codex 0.162.1): a run parked on Codex's folder-trust question showed a card that
+/// "offers no buttons" (the startup-gate card has no choices), so the person had to open the
+/// terminal. Codex's card now offers the same Trust / Don't trust buttons as Claude's.
+#[test]
+fn codex_trust_card_offers_the_same_trust_and_dont_trust_buttons_as_claudes() {
+    const CODEX_TRUST: &str = include_str!("../tui/codex/fixtures/trust_folder_live.txt");
+    let buttons = |agent: &str, screen: &str| {
+        let prompt = startup_gate(agent, screen).unwrap_or_else(|| panic!("{agent}: the trust dialog is a startup gate"));
+        assert_eq!(prompt["kind"], "workspace_trust", "{agent}");
+        assert_eq!(prompt["risk"]["headline"], "Trust this folder", "{agent}");
+        let ui = PanePrompt::from_detected(&prompt).expect("ui prompt");
+        let action = required_action_from_prompt(prompt.clone());
+        assert_eq!(action["options"], json!([{"id": "trust", "label": "Trust this folder"}, {"id": "deny", "label": "Don't trust"}]), "{agent}");
+        (ui.choices.iter().map(|c| (c.id.clone(), c.label.clone(), c.broad)).collect::<Vec<_>>(), prompt)
+    };
+    let (codex, prompt) = buttons("codex", CODEX_TRUST);
+    let (claude, _) = buttons("claude", CLAUDE_TRUST);
+    assert_eq!(codex, claude);
+    assert_eq!(prompt["summary"], "Codex asks to trust D:\\pm-hunt10\\a");
+    // The buttons answer the dialog: Enter on "Trust and continue", Down + Enter for "Quit".
+    assert_eq!(reply_key("codex", &prompt, "trust", false).unwrap().0, "");
+    assert_eq!(reply_key("codex", &prompt, "deny", false).unwrap().0, "\u{1b}[B");
+    // "Don't trust" on Codex's card is a final decline, as on Claude's.
+    note_gate_answer("codex-decline-pane", &prompt, "deny");
+    assert!(gate_was_declined("codex-decline-pane"));
+    // Delivery still refuses to type over it.
+    assert!(dispatch_blocker("codex", CODEX_TRUST).is_some());
+}
+
 #[test]
 fn denying_the_trust_gate_is_recorded_as_a_final_decline_and_trusting_it_is_not() {
     let prompt = detect_in_screen("claude", CLAUDE_TRUST, false).expect("trust card");
