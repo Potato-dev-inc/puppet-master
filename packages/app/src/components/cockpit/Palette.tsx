@@ -6,6 +6,7 @@ import { DotSpinner } from './DotSpinner';
 import { IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
 import { settingsShortcuts } from './palette-shortcuts';
+import { useMissionsEnabled } from '../../lib/missions';
 import { projectWithCopy } from './shell-labels';
 import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 
@@ -44,6 +45,7 @@ export function Palette({
   const [index, setIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
+  const missionsOn = useMissionsEnabled();
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     const multiLogin = multiLoginAgents(c.registry.paneList.map((p) => p.info));
@@ -149,7 +151,7 @@ export function Palette({
         run: onOpenMemory,
       });
     }
-    out.push(...settingsShortcuts(c));
+    out.push(...settingsShortcuts(c, { missionsOn, projectPath: c.selectedId ? (c.registry.panes.get(c.selectedId)?.info?.cwd ?? null) : null }));
     out.push(
       {
         id: 'act:settings',
@@ -183,7 +185,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onUndoLastTurn, onOpenWelcome]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onUndoLastTurn, onOpenWelcome, missionsOn]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),

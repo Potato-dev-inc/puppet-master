@@ -7,6 +7,8 @@ import type { CockpitApi } from '../../hooks/useCockpit';
 import * as settings from '../../lib/settings';
 import { resolveSettingsTarget } from '../../lib/settings-target';
 import { Palette } from './Palette';
+import { settingsShortcuts } from './palette-shortcuts';
+import { onOpenStartMission } from '../../lib/missions';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -93,6 +95,21 @@ describe('palette commands for features that hide', () => {
     act(() => root.render(<Palette c={cockpit()} onClose={vi.fn()} onOpenWelcome={vi.fn()} />));
     expect(rows().filter((r) => /simple mode/i.test(titleOf(r) ?? ''))).toHaveLength(1);
     expect(rowFor('Welcome tour')).toBeTruthy();
+  });
+
+  it('Missions: with the Labs switch off, "Missions…" opens the switch; with it on, "Start a mission…" opens the sheet', () => {
+    const c = cockpit();
+    act(() => root.render(<Palette c={c} onClose={vi.fn()} />));
+    act(() => rowFor('Missions…')!.click());
+    expect(c.openSettings).toHaveBeenCalledWith('missions');
+    expect(resolveSettingsTarget('missions')).toEqual({ page: 'general', row: 'missions' });
+    const heard: (string | null)[] = [];
+    const off = onOpenStartMission((p) => heard.push(p));
+    const on = settingsShortcuts(c, { missionsOn: true, projectPath: 'C:\work\shop' });
+    expect(on.some((e) => e.title === 'Missions…')).toBe(false);
+    on.find((e) => e.title === 'Start a mission…')!.run();
+    off();
+    expect(heard).toEqual(['C:\work\shop']);
   });
 
   it('"Switch to Simple mode" turns the setting on', () => {

@@ -93,12 +93,12 @@ describe('General > Labs', () => {
   const labsRows = () => section('general').rows.filter((r) => r.group === LABS_GROUP);
 
   it('collects every early feature in one place, in a fixed order, after the overview', () => {
-    expect(labsRows().map((r) => r.id)).toEqual([LABS_INDEX_ID, 'team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation']);
+    expect(labsRows().map((r) => r.id)).toEqual([LABS_INDEX_ID, 'team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation', 'missions']);
   });
 
   it('each feature has a short name and one plain line (no second sentence, no raw ids)', () => {
     const features = collectLabs(BASE_SECTIONS);
-    expect(features.map((r) => r.id)).toEqual(['team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation']);
+    expect(features.map((r) => r.id)).toEqual(['team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-automation', 'missions']);
     for (const row of features) {
       const { name, about } = row.labs!;
       expect(name.length, row.id).toBeGreaterThan(2);
@@ -123,7 +123,7 @@ describe('General > Labs', () => {
 
   it('a feature another branch adds (a row with `labs`, in any section) is collected without touching this file', () => {
     const extra: RowDef = {
-      id: 'missions',
+      id: 'later-feature',
       label: 'Missions',
       hint: 'Run an agent until a goal is met.',
       labs: { name: 'Missions', about: 'Run an agent until its checks pass.' },
@@ -136,8 +136,8 @@ describe('General > Labs', () => {
       .find((s) => s.id === 'general')!
       .rows.filter((r) => r.group === LABS_GROUP)
       .map((r) => r.id);
-    expect(labs.slice(-2)).toEqual(['opencode-automation', 'missions']);
-    expect(arranged.find((s) => s.id === 'phone')!.rows.some((r) => r.id === 'missions')).toBe(false);
+    expect(labs.slice(-2)).toEqual(['missions', 'later-feature']);
+    expect(arranged.find((s) => s.id === 'phone')!.rows.some((r) => r.id === 'later-feature')).toBe(false);
   });
 
   it('a row nobody placed (for example a first-run row) stays in its own section, under its own group, after the named ones', () => {

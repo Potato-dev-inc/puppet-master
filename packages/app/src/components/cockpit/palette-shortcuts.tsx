@@ -5,6 +5,7 @@
 // Words follow the shared word list: Live updates, Budgets, Team, Simple mode, Pair a phone.
 import type { ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
+import { openStartMission } from '../../lib/missions';
 import { patchSettings } from '../../lib/settings';
 import { IconLayers, IconNote, IconSettings, IconTerminal } from './Icons';
 
@@ -19,9 +20,34 @@ export interface ShortcutEntry {
   run: () => void;
 }
 
-export function settingsShortcuts(c: Pick<CockpitApi, 'openSettings' | 'notify'>): ShortcutEntry[] {
+export function settingsShortcuts(
+  c: Pick<CockpitApi, 'openSettings' | 'notify'>,
+  opts: { missionsOn?: boolean; projectPath?: string | null } = {},
+): ShortcutEntry[] {
   const open = (tab: string) => () => void c.openSettings(tab);
+  // Missions (Preview): with the Labs switch on, the palette opens the start sheet (the "+" menu's
+  // item); with it off, it opens the switch, so the feature can be found but nothing starts by surprise.
+  const mission: ShortcutEntry = opts.missionsOn
+    ? {
+        id: 'act:start-mission',
+        group: 'Actions',
+        title: 'Start a mission…',
+        desc: 'Agents work in a separate copy until your checks pass. Preview.',
+        keywords: 'mission missions goal checks loop until tests pass preview labs',
+        icon: <IconLayers />,
+        run: () => openStartMission(opts.projectPath ?? null),
+      }
+    : {
+        id: 'act:missions',
+        group: 'Actions',
+        title: 'Missions…',
+        desc: 'Preview, in Labs. Turn it on to start one.',
+        keywords: 'mission missions goal checks loop until tests pass preview labs',
+        icon: <IconLayers />,
+        run: open('missions'),
+      };
   return [
+    mission,
     {
       id: 'act:simple-mode',
       group: 'Actions',

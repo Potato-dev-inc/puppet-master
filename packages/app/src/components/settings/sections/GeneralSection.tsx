@@ -370,7 +370,7 @@ export const generalRows: RowDef[] = [
     hint: 'Give agents a goal and the checks it must pass. They work in turns in a separate copy until the checks pass, within a budget. Nothing merges on its own.',
     keywords: 'mission missions labs preview goal checks loop until tests pass backup agents',
     group: 'Labs',
-    labs: { name: 'Missions', about: 'Give agents a goal and the checks it must pass, and they work in a separate copy until the checks pass.' },
+    labs: { name: 'Missions', about: 'Agents work in a separate copy, turn by turn, until your checks pass.' },
     render: (env) => (
       <SettingToggle
         label="Missions (Preview)"
