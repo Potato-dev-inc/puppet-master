@@ -10,10 +10,11 @@ import { UpdateAvailableBanner } from './components/UpdateAvailableBanner';
 import { useAppUpdateCheck } from './hooks/useAppUpdateCheck';
 import { useProjectPath } from './hooks/useProjectPath';
 import { cockpitApi } from './lib/cockpit-api';
-import { settingsEntryTab } from './lib/settings-entry';
+import { settingsEntryTarget } from './lib/settings-target';
 
 export default function SettingsApp() {
-  const initialTab = useMemo(() => settingsEntryTab(window.location.search), []);
+  const target = useMemo(() => settingsEntryTarget(window.location.search), []);
+  const initialTab = target.page;
   const { projectPath, setProjectPath } = useProjectPath();
   const appUpdate = useAppUpdateCheck(true);
   const page = useRef<SettingsPageId>(initialTab);
@@ -44,6 +45,7 @@ export default function SettingsApp() {
       <SettingsPanel
         open
         initialTab={initialTab}
+        initialRow={target.row}
         onPageChange={(p) => {
           page.current = p;
         }}

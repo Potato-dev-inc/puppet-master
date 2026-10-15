@@ -9,7 +9,8 @@
 // not care whether that state started as booleans or one union.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cockpitApi, type UiMode } from '../lib/cockpit-api';
-import { DEFAULT_SETTINGS_TAB, resolveSettingsTab } from '../lib/settings-entry';
+import { DEFAULT_SETTINGS_TAB } from '../lib/settings-entry';
+import { resolveSettingsTarget } from '../lib/settings-target';
 import type { SettingsPageId } from '../components/settings/model';
 
 interface Options<V extends string> {
@@ -29,6 +30,8 @@ export interface InlineSettings {
   viewKey: number;
   viewProps: {
     initialTab: SettingsPageId;
+    /** The row a deep link named, to scroll to. */
+    initialRow?: string;
     onBack: () => void;
     onPageChange: (page: SettingsPageId) => void;
   };
@@ -44,6 +47,7 @@ export function settingsLinkFromSearch(search: string): { tab?: string } | null 
 export function useInlineSettings<V extends string>({ mode, view, setView, home, openWindow }: Options<V>): InlineSettings {
   const SETTINGS = 'settings' as V;
   const [tab, setTab] = useState<SettingsPageId>(DEFAULT_SETTINGS_TAB);
+  const [row, setRow] = useState<string | undefined>(undefined);
   const [nonce, setNonce] = useState(0);
   const before = useRef<V>(home);
   // The page the panel shows now: a deep link without a page, and a hand-off to the window, keep it.
@@ -59,13 +63,16 @@ export function useInlineSettings<V extends string>({ mode, view, setView, home,
         void win(to);
         return;
       }
-      const target = resolveSettingsTab(to);
+      const resolved = resolveSettingsTarget(to);
+      const target = resolved?.page;
       if (v !== SETTINGS) {
         before.current = v;
         setTab(target ?? page.current);
+        setRow(resolved?.row);
         setNonce((n) => n + 1);
-      } else if (target && target !== page.current) {
+      } else if (target && (target !== page.current || resolved?.row)) {
         setTab(target);
+        setRow(resolved?.row);
         setNonce((n) => n + 1);
       }
       setView(SETTINGS);
@@ -107,12 +114,13 @@ export function useInlineSettings<V extends string>({ mode, view, setView, home,
       viewKey: nonce,
       viewProps: {
         initialTab: tab,
+        initialRow: row,
         onBack: back,
         onPageChange: (p: SettingsPageId) => {
           page.current = p;
         },
       },
     }),
-    [open, nonce, tab, back],
+    [open, nonce, tab, row, back],
   );
 }

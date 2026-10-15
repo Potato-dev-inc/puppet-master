@@ -235,7 +235,7 @@ export function AgentDefinitions({ api = tauriAgentDefinitionsApi }: { api?: Age
       )}
       <SettingBlock
         label="Definitions"
-        description="Agents defined by TOML files. A definition runs a program, so a new or changed one stays inactive until you review and approve it here."
+        description="Add your own agents with a small settings file. A definition runs a program, so a new or changed one stays off until you review and approve it here."
       >
         <div className="mb-3 flex items-center gap-2">
           <button type="button" className={BTN} disabled={busy} onClick={() => void reload()}>

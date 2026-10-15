@@ -13,6 +13,8 @@ import type { SettingsApi } from '../SettingsPanel';
 interface Props {
   /** Page to open on (a deep link such as Settings > Agents > Preload opens Agents). */
   initialTab?: SettingsPageId;
+  /** A row of that page to scroll to (a deep link such as Settings > Agents > Live updates). */
+  initialRow?: string;
   onBack: () => void;
   onPageChange?: (page: SettingsPageId) => void;
   /** Tests pass fakes for the panel's load/patch/subscribe. */
@@ -29,7 +31,7 @@ function isEditing(target: EventTarget | null): target is HTMLElement {
   return !['checkbox', 'radio', 'button', 'submit', 'range'].includes(target.type);
 }
 
-export function SettingsView({ initialTab, onBack, onPageChange, api }: Props) {
+export function SettingsView({ initialTab, initialRow, onBack, onPageChange, api }: Props) {
   const { projectPath, setProjectPath } = useProjectPath();
   const appUpdate = useAppUpdateCheck(true);
   const host = useRef<HTMLDivElement>(null);
@@ -62,6 +64,7 @@ export function SettingsView({ initialTab, onBack, onPageChange, api }: Props) {
         open
         inline
         initialTab={initialTab}
+        initialRow={initialRow}
         onPageChange={onPageChange}
         projectPath={projectPath}
         onProjectPathChange={setProjectPath}

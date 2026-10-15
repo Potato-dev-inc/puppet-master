@@ -15,7 +15,7 @@ type AutomationMode = 'auto_if_backup' | 'notify_only';
 const KEYWORDS = 'api key anthropic openai openrouter opencode rotate rate limit keychain credential';
 
 const OPENCODE_HINT =
-  'For OpenCode workers only. Kept in the system keychain when one is available. Never synced to the phone or returned by MCP.';
+  'For OpenCode workers only. Kept in the system keychain when one is available. Never sent to the phone or to other tools.';
 /** The opt-in's name (founder decision 2026-10-15). Off by default; a person's earlier explicit choice is kept by the backend. */
 const AUTOMATION_LABEL = "Switch to another of your keys when one hits its rate limit (check your provider's terms)";
 const AUTOMATION_HINT = 'When this is off, Puppet Master only tells you a key needs swapping. Needs a second OpenCode key (B).';
@@ -273,6 +273,7 @@ export const keysRows: RowDef[] = [
   },
   {
     id: 'opencode-automation',
+    labs: { name: 'Key switching', about: 'Move to your spare OpenCode key when one hits its rate limit.' },
     label: AUTOMATION_LABEL,
     hint: AUTOMATION_HINT,
     keywords: `${KEYWORDS} automation key automation mode switch backup second key terms`,

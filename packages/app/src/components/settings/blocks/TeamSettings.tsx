@@ -251,8 +251,8 @@ export function TeamSettings({ api = teamApi, onSaved }: { api?: TeamApi; onSave
 
   return (
     <SettingBlock
-      label="Team (Labs)"
-      description="When your agent pushes, offer to tell your teammates. When theirs pushes, show a card to pull it or have your agent merge it in a separate copy. Nothing runs or gets pushed without your click."
+      label="Team"
+      description="Tell teammates when your agent pushes, and get a card to pull or merge when theirs does. Nothing runs or gets pushed without your click."
     >
       <div className="st-team">
         {view?.readError && (

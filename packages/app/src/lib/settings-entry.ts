@@ -5,7 +5,7 @@ import { SECTION_IDS, type SettingsPageId } from '../components/settings/model';
 export const DEFAULT_SETTINGS_TAB: SettingsPageId = 'agents';
 
 /** The 22 old tab ids that callers may still send, and where each one lives now. */
-const LEGACY_TABS: Record<string, SettingsPageId> = {
+export const LEGACY_TABS: Record<string, SettingsPageId> = {
   appearance: 'general',
   storage: 'general',
   advanced: 'general',
@@ -16,16 +16,16 @@ const LEGACY_TABS: Record<string, SettingsPageId> = {
   mcp: 'bridge',
   developer: 'bridge',
   mobile: 'phone',
-  security: 'later',
+  security: 'general',
   notifications: 'later',
   backup: 'later',
   marketplace: 'later',
   rules: 'later',
   costs: 'later',
-  team: 'later',
+  team: 'general',
   automation: 'later',
   observability: 'later',
-  plugins: 'later',
+  plugins: 'bridge',
 };
 
 export function isSettingsEntry(search: string): boolean {

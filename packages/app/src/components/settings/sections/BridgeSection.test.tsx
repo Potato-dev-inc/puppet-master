@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 // Settings > Bridge & MCP: every row renders, the runtime switch and installs run the right calls, and uninstall is confirmed.
+import { unsearchableLabels } from '../test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buttonByText, click, hasText, mountRows, settle, type Mounted } from '../test-utils';
 import { bridgeRows } from './BridgeSection';
@@ -72,7 +73,7 @@ describe('Bridge & MCP: every row renders', () => {
       expect(m.host.querySelector(`[data-row="${row.id}"]`), `missing row: ${row.id}`).not.toBeNull();
     }
     expect(m.host.querySelector('[aria-label="Toolbelt"]')).not.toBeNull();
-    for (const label of ['Bridge endpoint', 'Runtime status', 'Use bundled Rust MCP', 'Install MCP runtime', 'Claude Desktop config', 'Codex config', 'Uninstall MCP']) {
+    for (const label of ['Bridge address', 'Runtime status', 'Use bundled Rust MCP', 'Install MCP runtime', 'Claude Desktop config', 'Codex config', 'Uninstall MCP']) {
       expect(hasText(m.host, label), `missing: ${label}`).toBe(true);
     }
     for (const text of ['Recheck & repair', 'Install in project', 'Install globally', 'Uninstall from project…', 'Uninstall globally…', 'Copy']) {
@@ -216,5 +217,12 @@ describe('Bridge & MCP: uninstall is always confirmed', () => {
     await mount();
     expect(rowText('mcp-uninstall')).toContain('.codex/config.toml');
     expect(rowText('mcp-uninstall')).toContain('Cursor and Claude Desktop configs are manual');
+  });
+});
+
+describe('Bridge: search covers what the section shows', () => {
+  it('every word of every label a row shows finds that row', async () => {
+    await mount();
+    expect(unsearchableLabels(m.host, bridgeRows)).toEqual([]);
   });
 });

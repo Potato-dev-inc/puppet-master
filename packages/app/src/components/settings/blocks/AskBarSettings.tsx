@@ -1,4 +1,4 @@
-// Settings > General > Ask bar: the global shortcut that opens a small bar to ask an agent a quick question.
+// Settings > General > Labs > Ask bar: the global shortcut that opens a small bar to ask an agent a quick question.
 // It saves through its own commands (`askbar_settings_get/set`), then flashes the row's "Saved" tick.
 import { useEffect, useState } from 'react';
 import { ASKBAR_SHORTCUTS, tauriAskbarApi, type AskbarAgent, type AskbarApi, type AskbarSettings } from '../../../lib/askbar';

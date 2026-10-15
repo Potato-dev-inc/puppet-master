@@ -84,6 +84,13 @@ vi.mock('./settings/catalog', async () => {
             hint: 'Stored in the keychain.',
             render: () => <SettingRow label="Anthropic API key" />,
           },
+          {
+            id: 'jump',
+            label: 'Jump',
+            hint: 'Goes to another row.',
+            pointer: true,
+            render: (env: import('./settings/model').SettingsEnv) => <Btn onClick={() => env.openRow?.('folder')}>Go to folder</Btn>,
+          },
         ],
       },
     ],
@@ -403,5 +410,66 @@ describe('destructive actions use the confirm sheet', () => {
     await settle();
     expect(api.patch).toHaveBeenCalledExactlyOnceWith({ project_path: null });
     expect(host.querySelector('[aria-modal="true"]')).toBeNull();
+  });
+});
+
+describe('deep links', () => {
+  const scrolled: HTMLElement[] = [];
+  beforeEach(() => {
+    scrolled.length = 0;
+    Element.prototype.scrollIntoView = function (this: HTMLElement) {
+      scrolled.push(this);
+    };
+  });
+  afterEach(() => {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+  const marked = () => [...host.querySelectorAll('[data-target="true"]')].map((el) => el.getAttribute('data-row'));
+
+  it('opens on the row it was asked for: scrolled to, and marked for a moment', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await mount({ initialTab: 'general', initialRow: 'folder' });
+    expect(scrolled.map((el) => el.getAttribute('data-row'))).toEqual(['folder']);
+    expect(marked()).toEqual(['folder']);
+    await act(async () => {
+      vi.advanceTimersByTime(2500);
+    });
+    expect(marked()).toEqual([]);
+  });
+
+  it('a row on the page that is not the first one opens that page', async () => {
+    await mount({ initialTab: 'keys', initialRow: 'key-anthropic' });
+    expect(main().querySelector('h1')!.textContent).toBe('Keys');
+    expect(scrolled.map((el) => el.getAttribute('data-row'))).toEqual(['key-anthropic']);
+  });
+
+  it('a "Show" link in one section jumps to a row in another, clears the search, and marks it', async () => {
+    await mount({ initialTab: 'keys' });
+    await click([...host.querySelectorAll('button')].find((b) => b.textContent === 'Go to folder') as HTMLElement);
+    expect(main().querySelector('h1')!.textContent).toBe('General');
+    expect(nav('General').getAttribute('aria-current')).toBe('page');
+    expect(scrolled.map((el) => el.getAttribute('data-row'))).toEqual(['folder']);
+    expect(marked()).toEqual(['folder']);
+  });
+
+  it('the window shown again with a row id as its tab goes to that row (what Rust sends)', async () => {
+    await mount({ initialTab: 'keys' });
+    await act(async () => refresh!({ reason: 'show', tab: 'folder' }));
+    await settle(3);
+    expect(main().querySelector('h1')!.textContent).toBe('General');
+    expect(scrolled.map((el) => el.getAttribute('data-row'))).toEqual(['folder']);
+  });
+
+  it('a row that is not there is ignored: the page opens at the top, nothing is marked', async () => {
+    await mount({ initialTab: 'general', initialRow: 'no-such-row' });
+    expect(main().querySelector('h1')!.textContent).toBe('General');
+    expect(scrolled).toEqual([]);
+    expect(marked()).toEqual([]);
+  });
+
+  it('search results never show a link row, only the real ones', async () => {
+    await mount();
+    await typeInto(search(), 'jump');
+    expect(main().textContent).toContain('No settings match');
   });
 });

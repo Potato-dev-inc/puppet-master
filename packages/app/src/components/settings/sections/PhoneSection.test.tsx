@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 // Settings > Phone: every control renders, saves the right partial patch, and revoking all devices is confirmed.
+import { unsearchableLabels } from '../test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { blur, buttonByText, byLabel, click, hasText, mountRows, settle, type as typeInto, type Mounted } from '../test-utils';
 import { phoneRows } from './PhoneSection';
@@ -178,5 +179,12 @@ describe('Phone: revoke all devices', () => {
     expect(tauri.revokePairedMobileDevice).toHaveBeenNthCalledWith(2, '22222222-bbbb-4bbb-8bbb-222222222222');
     expect(m.env.markSaved).toHaveBeenCalledTimes(1);
     expect(m.env.patches).toEqual([]);
+  });
+});
+
+describe('Phone: search covers what the section shows', () => {
+  it('every word of every label a row shows finds that row', async () => {
+    await mount();
+    expect(unsearchableLabels(m.host, phoneRows, ['pixel', 'iphone'])).toEqual([]);
   });
 });

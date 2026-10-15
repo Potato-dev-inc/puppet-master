@@ -42,7 +42,7 @@ function LiveUpdates({ env }: { env: SettingsEnv }) {
     <>
       <SettingRow
         label="Live updates"
-        description="Claude Code and Codex tell Puppet Master when they start, ask and finish. For now Puppet Master only records this next to what it reads on screen; it never acts on it."
+        description="Claude Code and Codex tell Puppet Master when they start, ask and finish. For now it is only recorded; Puppet Master never acts on it."
       >
         <Popup
           aria-label="Live updates"
@@ -79,7 +79,7 @@ export const agentsRows: RowDef[] = [
   {
     id: 'preload',
     label: 'Keep agents ready',
-    hint: 'Keep a warm agent ready so opening a pane feels instant.',
+    hint: 'Keep an agent started and waiting, so opening a pane feels instant.',
     keywords: 'preload warm standby idle timeout status agents to keep warm',
     group: 'Speed',
     render: (env) => <PreloadSettings onSaved={env.markSaved} />,
@@ -96,14 +96,15 @@ export const agentsRows: RowDef[] = [
     id: 'live-updates',
     label: 'Live updates',
     hint: 'Claude Code and Codex tell Puppet Master when they start, ask and finish.',
-    keywords: 'hooks live updates claude codex watch report trust',
+    keywords: 'hooks hook lane live updates claude codex watch report trust',
     group: 'Live updates',
+    labs: { name: 'Live updates', about: 'Claude Code and Codex report when they start, ask and finish.' },
     render: (env) => <LiveUpdates env={env} />,
   },
   {
     id: 'definitions',
     label: 'Agent definitions',
-    hint: 'Agents defined by TOML files. A new or changed one stays inactive until you review and approve it.',
+    hint: 'Add your own agents with a small settings file. A new or changed one stays off until you review and approve it.',
     keywords: 'toml consent project sources drafts import export fixtures revoke approve review extra directories generic agent reload',
     render: () => <AgentDefinitions />,
   },

@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { vi } from 'vitest';
 import type { Settings } from '@puppet-master/shared';
 import type { SettingsPatch } from '../../lib/settings';
-import type { RowDef, SettingsEnv } from './model';
+import { rowMatches, type RowDef, type SettingsEnv } from './model';
 import { SectionRows } from './SectionView';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -143,3 +143,25 @@ export const buttonByText = (host: ParentNode, text: string): HTMLButtonElement 
   [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
 
 export const hasText = (host: ParentNode, text: string): boolean => (host.textContent ?? '').includes(text);
+
+/**
+ * Search covers what a person sees: every word of every label a mounted row shows (a composite row has
+ * several, for example "Stuck warning sensitivity" inside the loop guard) finds that row. `ignore` is for words
+ * that come from data, such as a phone's name. Returns the words that found nothing, as "row-id: word".
+ */
+const FILLER = new Set(['they', 'didn', 'from', 'with', 'that', 'this', 'when', 'your', 'have', 'will', 'what', 'does', 'into', 'than', 'then', 'them', 'each', 'only']);
+
+export function unsearchableLabels(host: ParentNode, rows: RowDef[], ignore: string[] = []): string[] {
+  const missing: string[] = [];
+  for (const row of rows) {
+    const wrap = host.querySelector(`[data-row="${row.id}"]`);
+    if (!wrap) continue;
+    const texts = [...wrap.querySelectorAll('.st-label > span')].map((el) => el.textContent ?? '');
+    for (const text of texts) {
+      for (const word of text.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+        if (word.length >= 4 && !FILLER.has(word) && !ignore.includes(word) && !rowMatches(row, word)) missing.push(`${row.id}: ${word}`);
+      }
+    }
+  }
+  return [...new Set(missing)];
+}
