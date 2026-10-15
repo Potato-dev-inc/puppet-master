@@ -17,6 +17,10 @@ these are the differences in the backport, because 0.1.4 has a smaller bridge:
   `gate`, the `is_local_app` change and the WebSocket and poll tests do not exist in 0.1.5. The
   `/events` SSE route and every other route already went through `authorize_bridge_request`,
   which is the function that changed.
+- Pairing in 0.1.x: a pairing code can only be minted by the desktop UI (Tauri commands). 0.1.4 has
+  no bridge route that creates one, so the "mint a pairing code for yourself via `/pair/invite`"
+  step described under Impact does not apply to 0.1.0 to 0.1.4. The rest of the impact (pane
+  input, keys, buffers, agents, shell) does.
 - The `read_bridge_addr` fix (the proxy could never connect in 0.1.1 to 0.1.4) is included. Side
   effect: in 0.1.5 the `/bridge` proxy of the embedded PWA server actually reaches the bridge,
   and every proxied request is marked and needs a paired-device bearer.
