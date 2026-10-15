@@ -29,6 +29,7 @@ mod mcp_install;
 mod mcp_runtime;
 pub mod mcp_sessions;
 mod mcp_status;
+mod missions;
 mod mobile_pairing;
 mod mobile_tunnel;
 mod tunnel_config;
@@ -323,6 +324,14 @@ pub fn run() {
             commands::checkpoint_restore,
             commands::checkpoint_undo_last,
             commands::tamper_check,
+            commands::mission_list,
+            commands::mission_get,
+            commands::mission_detect,
+            commands::mission_start,
+            commands::mission_stop,
+            commands::mission_pause,
+            commands::mission_resume,
+            commands::mission_decide,
             commands::turn_summaries,
             commands::presence_cockpit_focus,
             commands::away_digest_pending,

@@ -82,3 +82,13 @@ pub fn mission_restore(copy: &std::path::Path, key: &str, id: &str) -> Result<Re
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
     engine::restore(copy, key, id, false, now, &engine::Limits::default())
 }
+
+/// Paths that changed in mission point `id` compared with the point before it.
+pub fn mission_changes(copy: &std::path::Path, key: &str, id: &str) -> Result<Vec<String>, CheckpointError> {
+    Ok(engine::diff(copy, key, id)?.into_iter().map(|c| c.path).collect())
+}
+
+/// Git is installed (checkpoints and missions need it).
+pub fn git_available() -> bool {
+    git::git_available()
+}

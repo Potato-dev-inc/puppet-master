@@ -55,6 +55,14 @@ pub enum Kind {
     TeamJoined,
     TeamRoleChanged,
     TeamKeyRotated,
+    /// Missions (`crate::missions`): `mission.started`, `mission.stopped`, `mission.rollback`,
+    /// `mission.tests_accepted`, `mission.tests_undone`, `mission.handed_off`.
+    MissionStarted,
+    MissionStopped,
+    MissionRollback,
+    MissionTestsAccepted,
+    MissionTestsUndone,
+    MissionHandedOff,
 }
 
 impl Kind {
@@ -74,6 +82,12 @@ impl Kind {
             Self::TeamJoined => "team.joined",
             Self::TeamRoleChanged => "team.role_changed",
             Self::TeamKeyRotated => "team.key_rotated",
+            Self::MissionStarted => "mission.started",
+            Self::MissionStopped => "mission.stopped",
+            Self::MissionRollback => "mission.rollback",
+            Self::MissionTestsAccepted => "mission.tests_accepted",
+            Self::MissionTestsUndone => "mission.tests_undone",
+            Self::MissionHandedOff => "mission.handed_off",
         }
     }
 }

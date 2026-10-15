@@ -41,6 +41,10 @@ pub fn handle_request(
     app: &AppHandle,
     session_id: Option<&str>,
 ) -> Option<Result<Value, OperationError>> {
+    // Mission handles (`mission-<id>`) and `run_agent(until_checks_pass)`: `crate::missions`.
+    if let Some(result) = crate::missions::routes::intercept(method, segments, body, registry, app, session_id) {
+        return Some(result);
+    }
     let result = match (method, segments) {
         ("POST", ["agents", "run"]) => parse::<AgentRunRequest>(body).and_then(|mut request| {
             if request
