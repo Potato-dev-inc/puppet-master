@@ -163,8 +163,8 @@
   flex: 1;
   padding: 0;
 }
-.cockpit .ck-hist-time,
-.cockpit .ck-hist-delta {
+.cockpit .ck-hist-row .ck-hist-time,
+.cockpit .ck-hist-row .ck-hist-delta {
   font: 12px var(--font-ui);
   font-variant-numeric: tabular-nums;
 }
