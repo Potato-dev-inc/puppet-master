@@ -183,6 +183,18 @@ impl TuiProfile for Codex {
         screen::startup_gate(screen)
     }
 
+    /// A startup screen only the person can pass (folder trust, sign-in, onboarding) is a pane waiting
+    /// for them. The generic heuristic reads Codex's trust screen as idle (it draws no `y/n` text and the
+    /// busy marker says "not working"), so the pane stayed `idle`, `deriveNeedsYou` raised no card and
+    /// the Trust / Don't trust buttons never reached the Inbox (live, v0.2.0: the run's own
+    /// `required_action` had them, `GET /attention` was empty). Gates Puppet Master dismisses itself
+    /// (update notice, hooks review) are not waits.
+    fn classify_screen(&self, visible_tail: &str) -> Option<crate::pty::status::PaneStatus> {
+        screen::startup_gate(visible_tail)
+            .filter(|gate| gate.dismiss.is_none())
+            .map(|_| crate::pty::status::PaneStatus::WaitingInput)
+    }
+
     /// The folder-trust dialog as a card with Trust / Don't trust (see `prompt`), then the generic
     /// wording. Without it the trust card had no buttons and the person had to open the terminal.
     fn detect_prompt(&self, screen: &str, allow_broad: bool) -> Option<serde_json::Value> {
