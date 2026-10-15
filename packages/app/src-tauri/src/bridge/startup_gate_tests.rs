@@ -238,8 +238,9 @@ fn a_pane_that_dies_without_a_gate_keeps_the_old_error() {
 // `TuiProfile::startup_gate` is the one hook. A gate with `dismiss` (Codex's update notice) is
 // closed with those keys and is never a card. A gate without it (folder trust, sign-in) becomes a
 // user-answered prompt card (`workspace_trust` / `startup_screen`) that parks the run; declining it
-// (the agent exits) fails the run. Claude and Cursor have their own answerable trust card
-// (trust / deny with keys); Codex gets a card without choices (the user answers in the pane).
+// (the agent exits) fails the run. Claude, Cursor and Codex have their own answerable trust card
+// (trust / deny with keys); a gate a profile cannot answer (Codex sign-in) is a card without choices
+// (the user answers in the pane).
 
 /// Hand-written from the Codex CLI's layout (no live capture of these two exists).
 const CODEX_TRUST: &str = "> You are running Codex in ~/sandbox\n\n  Do you trust the files in this folder?\n\n\u{203a} 1. Yes, continue\n  2. No, quit\n\n  Press enter to continue\n";
@@ -262,14 +263,15 @@ fn every_agents_non_dismissible_gate_is_a_prompt_card_that_parks_the_run() {
     assert_eq!(claude["choices"], serde_json::json!(["trust", "deny"]));
     let gate = crate::tui::profile_for("claude").startup_gate(TRUST).expect("claude reports the gate");
     assert_eq!((gate.id, gate.dismiss), ("workspace_trust", None));
-    // Codex: a card with no choices (keys unknown), same kind.
+    // Codex: its own answerable card too (live r15: the card had no buttons), same kind.
     let codex = detect_in_screen("codex", CODEX_TRUST, false).expect("codex trust card");
     assert_eq!(codex["kind"], "workspace_trust");
-    assert_eq!(codex["choices"], serde_json::json!([]));
+    assert_eq!(codex["choices"], serde_json::json!(["trust", "deny"]));
     assert!(codex["prompt_id"].as_str().is_some_and(|id| !id.is_empty()));
     // Codex sign-in: a startup_screen card.
     let login = detect_in_screen("codex", CODEX_LOGIN, false).expect("codex login card");
     assert_eq!(login["kind"], "startup_screen");
+    assert_eq!(login["choices"], serde_json::json!([]), "Puppet Master does not know the sign-in keys");
     // Every one of them parks a run and refuses a typed task, whatever the pane status says.
     for (agent, screen) in [("claude", TRUST), ("codex", CODEX_TRUST), ("codex", CODEX_LOGIN)] {
         for status in [None, Some("running"), Some("idle")] {
