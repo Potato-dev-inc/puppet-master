@@ -12,9 +12,11 @@
 //   GET  /v1/health
 //
 // This file is the front door: it sorts the request, caps the body, checks the device signature
-// (WebAssembly built from relay/protocol), counts unauthenticated calls per address, and hands the
-// rest to the team's Durable Object (`team.ts`), which owns every team's state.
+// (WebAssembly built from relay/protocol), counts team registrations per address, passes the client's
+// address to the team's Durable Object (join requests are limited per address and team there), and
+// hands the rest to `team.ts`, which owns every team's state.
 
+import { addressKeyOf } from "./addr";
 import { type Env, limitsFrom } from "./env";
 import { addressKey } from "./gate";
 import { readBody, refuse, json } from "./http";
@@ -29,7 +31,7 @@ interface Spec {
   slot?: string;
   /** Needs a device signature (`x-pm-auth`). */
   auth: boolean;
-  /** Counts against the client address (unauthenticated writes). */
+  /** Counts against the client address's registration budget (hourly, across all teams). */
   ip: boolean;
   /** Largest body, bytes. */
   max: number;
@@ -66,7 +68,8 @@ function match(method: string, parts: string[], testHooks: boolean): Spec | "met
       return method === "GET" ? { route: "ws", team, auth: true, ip: false, max: 0 } : "method";
     case "joins":
       if (parts.length !== 4) return undefined;
-      if (method === "POST") return { route: "join-post", team, auth: false, ip: true, max: C.maxJoinBytes };
+      // Join requests are limited per address *and team*, by the team's object (it is given the address).
+      if (method === "POST") return { route: "join-post", team, auth: false, ip: false, max: C.maxJoinBytes };
       return method === "GET" ? { route: "join-get", team, auth: true, ip: false, max: 0 } : "method";
     default:
       return undefined;
@@ -110,10 +113,15 @@ export default {
       sig = verdict.sig;
     }
 
-    // 3. Unauthenticated writes (registrations, join requests): per client address.
-    if (spec.ip) {
-      const address = request.headers.get("cf-connecting-ip") ?? "unknown";
-      const gate = env.GATE.get(env.GATE.idFromName(await addressKey(address)));
+    // 3. The client's address: `CF-Connecting-IP`, which Cloudflare sets and a client cannot forge, with an
+    // IPv6 address reduced to its /64 (as relay/server does). Team registrations are counted per address here;
+    // join requests are counted by the team's object, which is handed the (hashed) address.
+    let address: string | undefined;
+    if (spec.ip || spec.route === "join-post") {
+      address = await addressKey(addressKeyOf(request.headers.get("cf-connecting-ip")));
+    }
+    if (spec.ip && address !== undefined) {
+      const gate = env.GATE.get(env.GATE.idFromName(address));
       if (!(await gate.hit(3_600_000, limitsFrom(env).unauthenticatedPerIpPerHour))) return refuse(429, "slow down");
     }
 
@@ -134,6 +142,7 @@ export default {
     headers.set("x-pm-int-route", spec.route);
     headers.set("x-pm-int-team", team);
     if (spec.slot !== undefined) headers.set("x-pm-int-slot", spec.slot);
+    if (spec.route === "join-post" && address !== undefined) headers.set("x-pm-int-addr", address);
     if (device !== undefined && sig !== undefined) {
       headers.set("x-pm-int-device", device);
       headers.set("x-pm-int-sig", sig);

@@ -52,3 +52,16 @@ export const checkJoin = (body: Uint8Array, team: string) =>
   read<{ invite: string; join: string }>(wasm.check_join(body, team));
 
 export const utf8 = (text: string): Uint8Array => encoder.encode(text);
+
+/**
+ * A `Batch` (the reply to `GET /envelopes`) around stored `Delivered` objects joined by commas.
+ * Serialised by relay/protocol, so `head` and `reset` are exactly what clients read.
+ */
+export function batch(items: string, next: number, head: number, reset: boolean): string {
+  const text = wasm.batch(items, next, head, reset);
+  if (text === "") throw new Error("the protocol module could not build a batch");
+  return text;
+}
+
+/** The WebSocket control frame `{"reset":true,"head":N}` (relay/protocol `Resync`). */
+export const resync = (head: number): string => wasm.resync(head);

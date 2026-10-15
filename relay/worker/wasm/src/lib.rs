@@ -98,6 +98,21 @@ pub fn join_core(body: &[u8], team: &str) -> Result<Value, Refusal> {
     Ok(json!({ "invite": join.invite, "join": canonical }))
 }
 
+/// A `Batch` (the reply to `GET /envelopes`) around `items`, the stored `Delivered` JSON objects
+/// joined by commas (what the Worker keeps per envelope). Serialised by `relay/protocol` itself, so
+/// `head` and `reset` have exactly the shape every client reads.
+pub fn batch_core(items: &str, next: u64, head: u64, reset: bool) -> Result<String, Refusal> {
+    let Ok(items) = serde_json::from_str::<Vec<p::Delivered>>(&format!("[{items}]")) else {
+        return refuse(500, "internal error");
+    };
+    serde_json::to_string(&p::Batch { items, next, head: Some(head), reset }).or_else(|_| refuse(500, "internal error"))
+}
+
+/// The one control frame a WebSocket sends besides `Delivered`: `{"reset":true,"head":N}`.
+pub fn resync_core(head: u64) -> String {
+    serde_json::to_string(&p::Resync { reset: true, head }).unwrap_or_default()
+}
+
 /// The protocol's constants, so the Worker never restates them.
 pub fn constants_core() -> Value {
     json!({
@@ -128,6 +143,18 @@ pub fn is_team_id(id: &str) -> bool {
 #[wasm_bindgen]
 pub fn authenticate(header: &str, method: &str, path_and_query: &str, body: &[u8], now_ms: f64) -> String {
     answer(authenticate_core(header, method, path_and_query, body, now_ms as u64))
+}
+
+/// A `Batch` as JSON text (see `batch_core`); an empty string when `items` is not what the Worker stores.
+#[wasm_bindgen]
+pub fn batch(items: &str, next: f64, head: f64, reset: bool) -> String {
+    batch_core(items, next as u64, head as u64, reset).unwrap_or_default()
+}
+
+/// The WebSocket resync frame as JSON text.
+#[wasm_bindgen]
+pub fn resync(head: f64) -> String {
+    resync_core(head as u64)
 }
 
 #[wasm_bindgen]
@@ -260,6 +287,25 @@ mod tests {
         assert_eq!(join_core(&bytes, "ZZZZZZZZZZZZZZZZZZZZZZZZZZ").unwrap_err().error, "wrong team");
         let bad = p::JoinBox { invite: "no spaces!".into(), ..join };
         assert_eq!(join_core(&serde_json::to_vec(&bad).unwrap(), &team).unwrap_err().error, "bad invite id");
+    }
+
+    #[test]
+    fn batches_and_resync_frames_have_the_protocols_shape() {
+        let (root, device) = (key(1), key(2));
+        let team = registration(&root, &device).team;
+        let one = p::Delivered { seq: 7, at_ms: 5, envelope: envelope(&team, &device) };
+        let two = p::Delivered { seq: 9, at_ms: 6, envelope: envelope(&team, &device) };
+        let items = format!("{},{}", serde_json::to_string(&one).unwrap(), serde_json::to_string(&two).unwrap());
+        let text = batch_core(&items, 9, 12, true).unwrap();
+        let batch: p::Batch = serde_json::from_str(&text).unwrap();
+        assert_eq!(batch, p::Batch { items: vec![one.clone(), two], next: 9, head: Some(12), reset: true });
+        // No reset: the field is left out, the head is always there.
+        let quiet = batch_core("", 3, 3, false).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&quiet).unwrap(), json!({ "items": [], "next": 3, "head": 3 }));
+        assert_eq!(batch_core("{", 0, 0, false).unwrap_err().status, 500, "not what the Worker stores");
+        // The WebSocket frame is the protocol's `Resync`.
+        assert_eq!(serde_json::from_str::<p::Resync>(&resync_core(41)).unwrap(), p::Resync { reset: true, head: 41 });
+        assert_eq!(resync_core(41), r#"{"reset":true,"head":41}"#);
     }
 
     #[test]

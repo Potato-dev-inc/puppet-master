@@ -3,6 +3,11 @@
 
 export function authenticate(header: string, method: string, path_and_query: string, body: Uint8Array, now_ms: number): string;
 
+/**
+ * A `Batch` as JSON text (see `batch_core`); an empty string when `items` is not what the Worker stores.
+ */
+export function batch(items: string, next: number, head: number, reset: boolean): string;
+
 export function check_acl(body: Uint8Array, team: string, root: string): string;
 
 export function check_blob(body: Uint8Array, team: string, slot: string, root: string): string;
@@ -17,11 +22,17 @@ export function constants(): string;
 
 export function is_team_id(id: string): boolean;
 
+/**
+ * The WebSocket resync frame as JSON text.
+ */
+export function resync(head: number): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly authenticate: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
+    readonly batch: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly check_acl: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly check_blob: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
     readonly check_envelope: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
@@ -29,6 +40,7 @@ export interface InitOutput {
     readonly check_registration: (a: number, b: number, c: number) => void;
     readonly constants: (a: number) => void;
     readonly is_team_id: (a: number, b: number) => number;
+    readonly resync: (a: number, b: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;

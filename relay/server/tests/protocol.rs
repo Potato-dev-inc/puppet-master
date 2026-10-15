@@ -488,8 +488,9 @@ fn join_limits_are_per_team_and_address_and_invite_counters_expire() {
     assert_eq!(status(ureq::post(&url).send_bytes(&serde_json::to_vec(&join("REAL")).unwrap())), 429, "one address is capped for this team");
     // Another team on the same relay is not affected by that address's flood.
     let root2 = key(40);
-    let team2 = team_id(root2.verifying_key().as_bytes(), b"s2");
-    let reg = TeamRegistration { team: team2.clone(), root: key_id(&root2), salt: b64(b"s2"), acl: SignedAcl::signed(&team2, 1, vec![], &root2) };
+    let salt2 = fresh_salt();
+    let team2 = team_id(root2.verifying_key().as_bytes(), &salt2);
+    let reg = TeamRegistration { team: team2.clone(), root: key_id(&root2), salt: b64(&salt2), acl: SignedAcl::signed(&team2, 1, vec![], &root2) };
     assert_eq!(status(ureq::post(&format!("{}/v1/teams", t.base)).send_bytes(&serde_json::to_vec(&reg).unwrap())), 201);
     let other = JoinBox { team: team2.clone(), invite: "INV".into(), enc: b64(b"enc"), ct: b64(b"sealed"), at_ms: now_ms() };
     assert_eq!(status(ureq::post(&format!("{}/v1/teams/{team2}/joins", t.base)).send_bytes(&serde_json::to_vec(&other).unwrap())), 202);
@@ -574,19 +575,54 @@ fn a_full_mailbox_says_507_in_the_relays_words() {
     }
 }
 
+/// A WebSocket upgrade written by hand so that a refusal's whole body can be read (a WebSocket
+/// client library keeps only the part of it that arrived with the headers).
+fn refused_upgrade(t: &Team, device: &SigningKey, after: u64) -> (u16, serde_json::Value) {
+    use std::io::{Read, Write};
+    let path = format!("/v1/teams/{}/ws?after={after}", t.team);
+    let authority = t.base.trim_start_matches("http://");
+    let mut stream = std::net::TcpStream::connect(authority).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let lines = [
+        format!("GET {path} HTTP/1.1"),
+        format!("Host: {authority}"),
+        format!("{AUTH_HEADER}: {}", auth_header(device, "GET", &path, now_ms(), b"")),
+        "Connection: Upgrade".to_string(),
+        "Upgrade: websocket".to_string(),
+        "Sec-WebSocket-Version: 13".to_string(),
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==".to_string(),
+    ];
+    let request = format!("{}\r\n\r\n", lines.join("\r\n"));
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut raw = Vec::new();
+    let mut chunk = [0u8; 1024];
+    let (head_end, length) = loop {
+        let n = stream.read(&mut chunk).unwrap();
+        assert!(n > 0, "the relay closed the connection without an answer");
+        raw.extend_from_slice(&chunk[..n]);
+        if let Some(at) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+            let head = String::from_utf8_lossy(&raw[..at]).to_lowercase();
+            let length = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+            break (at + 4, length);
+        }
+    };
+    while raw.len() < head_end + length {
+        let n = stream.read(&mut chunk).unwrap();
+        assert!(n > 0, "the body ended early");
+        raw.extend_from_slice(&chunk[..n]);
+    }
+    let code: u16 = String::from_utf8_lossy(&raw[..12]).split(' ').nth(1).unwrap().parse().unwrap();
+    (code, serde_json::from_slice(&raw[head_end..head_end + length]).unwrap_or(serde_json::Value::Null))
+}
+
 #[test]
 fn a_socket_over_the_cap_is_refused_in_the_relays_words() {
     let t = setup(Limits { sockets_per_device: 2, ..Limits::default() });
     let _a = open_ws(&t, &t.device, 0);
     let _b = open_ws(&t, &t.device, 0);
-    match tungstenite::connect(ws_request(&t, &t.device, 0)) {
-        Err(tungstenite::Error::Http(resp)) => {
-            assert_eq!(resp.status(), 429);
-            let said: serde_json::Value = serde_json::from_slice(resp.body().as_deref().unwrap_or_default()).unwrap();
-            assert_eq!(said, serde_json::json!({ "error": "too many open connections for this device" }));
-        }
-        other => panic!("expected a 429, got {:?}", other.map(|_| ())),
-    }
+    let (code, said) = refused_upgrade(&t, &t.device, 0);
+    assert_eq!(code, 429);
+    assert_eq!(said, serde_json::json!({ "error": "too many open connections for this device" }));
     // Another device has its own count.
     let other = key(3);
     assert_eq!(put_acl(&t, 2, vec![key_id(&t.device), key_id(&other)]), 204);
