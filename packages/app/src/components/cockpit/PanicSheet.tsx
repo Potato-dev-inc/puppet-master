@@ -1,7 +1,7 @@
 import type { CockpitApi } from '../../hooks/useCockpit';
-import { projectName } from '../../lib/mobile-agent-tabs';
 import type { StopReport } from '../../lib/loop-guard';
 import { Sheet } from './Sheet';
+import { projectWithCopy } from './shell-labels';
 import '../../styles/loop-guard.css';
 
 /** "Stopped 2 agents": what the panic button interrupted. */
@@ -24,12 +24,12 @@ export function PanicSheet({
         {n === 0 && report.failed.length === 0 && <p className="ck-sub">No agent was working, so nothing needed stopping.</p>}
         {n > 0 && (
           <>
-            <p className="ck-sub">Each one got an interrupt (Ctrl+C). Their sessions are still open.</p>
+            <p className="ck-sub">Each one was stopped. Their conversations are still open.</p>
             <ul className="ck-panic-list">
               {report.stopped.map((p) => (
                 <li key={p.pane_id}>
                   <span className="ck-panic-name">{names.get(p.pane_id) ?? p.agent_type}</span>
-                  <span className="ck-panic-sub">{projectName(p.cwd)}</span>
+                  <span className="ck-panic-sub">{projectWithCopy(p.cwd)}</span>
                 </li>
               ))}
             </ul>

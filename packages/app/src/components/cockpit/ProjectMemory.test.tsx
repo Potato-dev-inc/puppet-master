@@ -40,9 +40,9 @@ function fakeApi(over: Partial<MemoryApi> = {}): MemoryApi {
   };
 }
 
-async function mount(api: MemoryApi) {
+async function mount(api: MemoryApi, project?: string) {
   await act(async () => {
-    root.render(<ProjectMemory api={api} onClose={() => undefined} />);
+    root.render(<ProjectMemory api={api} project={project} onClose={() => undefined} />);
   });
   await act(async () => {});
 }
@@ -126,9 +126,36 @@ describe('ProjectMemory', () => {
   it('turns sharing off for the project and says agent files carry no block', async () => {
     const api = fakeApi();
     await mount(api);
-    const box = host.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const box = host.querySelector('[role="switch"]') as HTMLButtonElement;
+    expect(host.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(box.getAttribute('aria-checked')).toBe('true');
     await act(async () => box.click());
     expect(api.setProjectEnabled).toHaveBeenCalledWith(false, undefined);
     expect(host.textContent).toContain('off for this project');
+  });
+
+  it('is the Project view: the project name is the title on both tabs, with Memory and Copies tabs', async () => {
+    await mount(fakeApi());
+    expect(host.querySelector('h1')!.textContent).toBe('shop');
+    const tabs = [...host.querySelectorAll('[role="tab"]')].map((t) => t.textContent);
+    expect(tabs).toEqual(['Memory', 'Copies']);
+    expect(host.querySelector('.ck-seg--sm')).toBeNull(); // the same tabs as a pane's, not a full-width bar
+    await act(async () => (host.querySelectorAll('[role="tab"]')[1] as HTMLButtonElement).click());
+    expect(host.querySelector('h1')!.textContent).toBe('shop');
+    expect(host.textContent).not.toContain('Project memory');
+  });
+
+  it('never shows the folder id of a separate copy as the project name', async () => {
+    const copy = 'C:\\work\\shop\\.puppet-master\\worktrees\\7d4cb2b3-2-209c';
+    const api = fakeApi({ get: vi.fn().mockResolvedValue({ ...VIEW, project: copy }) });
+    await mount(api, copy);
+    expect(host.querySelector('h1')!.textContent).toBe('shop');
+    expect(host.textContent).not.toContain('7d4cb2b3');
+  });
+
+  it('keeps a disabled Save a disabled primary button', async () => {
+    await mount(fakeApi());
+    expect(button('Save').disabled).toBe(true);
+    expect(button('Save').className).toContain('ck-btn--primary');
   });
 });

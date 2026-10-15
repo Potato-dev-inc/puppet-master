@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { ChecksReport, PrPrepared, SetupReport } from './ship-api';
-import { cannotCreate, checksSentence, copyCommands, projectOfCwd, readCopyPreference, setupLine, stateHint, supportsCopies, writeCopyPreference } from './ship-model';
+import { cannotCreate, checksSentence, copyCommands, copyDefault, projectOfCwd, readCopyPreference, readStoredCopyPreference, setupLine, stateHint, supportsCopies, writeCopyPreference } from './ship-model';
 
 const report = (state: ChecksReport['state'], items: ChecksReport['items']): ChecksReport => ({ state, items, checked_at_ms: 1 });
 
@@ -102,6 +102,25 @@ describe('projects', () => {
       expect(readCopyPreference('C:\\b')).toBe(false);
       writeCopyPreference('C:\\a', false);
       expect(readCopyPreference('C:\\a')).toBe(false);
+    });
+  });
+  describe('Separate copy starts on for a Git project with a first commit', () => {
+    beforeEach(() => localStorage.clear());
+    it('is on for a repo and off for anything else when nothing was chosen', () => {
+      expect(copyDefault(undefined, 'repo')).toBe(true);
+      expect(copyDefault(undefined, 'folder')).toBe(false);
+      expect(copyDefault(undefined, 'no_commits')).toBe(false);
+      expect(copyDefault(undefined, 'missing')).toBe(false);
+      expect(copyDefault(undefined, undefined)).toBe(false);
+    });
+    it('the remembered choice wins, either way', () => {
+      expect(copyDefault(false, 'repo')).toBe(false);
+      expect(copyDefault(true, 'folder')).toBe(true);
+    });
+    it('tells "never chose" from "chose off"', () => {
+      expect(readStoredCopyPreference('C:\\a')).toBeUndefined();
+      writeCopyPreference('C:\\a', false);
+      expect(readStoredCopyPreference('C:\\a')).toBe(false);
     });
   });
 });

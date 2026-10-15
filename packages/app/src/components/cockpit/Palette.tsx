@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
-import { projectName } from '../../lib/mobile-agent-tabs';
 import { openPreview, previewLabel } from '../../lib/pane-preview';
 import { DotSpinner } from './DotSpinner';
 import { IconGlobe, IconLayers, IconMoon, IconNote, IconPlus, IconReflow, IconSettings, IconStop, IconSun, IconTerminal } from './Icons';
 import { matchesQuery, spinnerStatus, stateText } from './model';
+import { settingsShortcuts } from './palette-shortcuts';
+import { projectWithCopy } from './shell-labels';
 import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 
 interface Item {
@@ -14,6 +15,8 @@ interface Item {
   desc?: string;
   icon: ReactNode;
   hint?: string;
+  /** Extra words that find the row (not shown). */
+  keywords?: string;
   run: () => void;
 }
 
@@ -48,7 +51,7 @@ export function Palette({
         id: `pane:${id}`,
         group: 'Panes',
         title: heading.primary,
-        desc: `${paneSubline(p.info, agentName, projectName(p.info.cwd), multiLogin)} · ${stateText(p.status)}`,
+        desc: `${paneSubline(p.info, agentName, projectWithCopy(p.info.cwd), multiLogin)} · ${stateText(p.status)}`,
         icon: <DotSpinner status={spinnerStatus(p.status)} />,
         run: () => c.select(id),
       });
@@ -70,7 +73,7 @@ export function Palette({
       out.push({
         id: 'act:interrupt',
         group: 'Actions',
-        title: 'Interrupt current pane',
+        title: 'Stop this agent',
         desc: c.names.get(sel),
         icon: <IconStop />,
         hint: '⌃C',
@@ -106,7 +109,7 @@ export function Palette({
         id: 'act:stop-all',
         group: 'Actions',
         title: 'Stop all agents',
-        desc: 'Interrupt every agent that is working',
+        desc: 'Stops every agent that is working. Their conversations stay open.',
         icon: <IconStop />,
         run: onStopAll,
       });
@@ -125,12 +128,14 @@ export function Palette({
       out.push({
         id: 'act:memory',
         group: 'Actions',
-        title: 'Project memory…',
-        desc: 'What every agent in this project reads',
+        title: 'Project…',
+        desc: 'Memory every agent reads, and how copies get ready',
+        keywords: 'project memory copies setup',
         icon: <IconNote />,
         run: onOpenMemory,
       });
     }
+    out.push(...settingsShortcuts(c));
     out.push(
       {
         id: 'act:settings',
@@ -167,7 +172,7 @@ export function Palette({
   }, [c, onOpenDoctor, onStopAll, onOpenMemory, onUndoLastTurn]);
 
   const filtered = useMemo(
-    () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.group}`, query)),
+    () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),
     [items, query],
   );
 

@@ -22,6 +22,7 @@ import { PanicSheet } from './components/cockpit/PanicSheet';
 import { TellTeamToast } from './components/cockpit/team/TellTeam';
 import { SimpleCockpit } from './components/simple/SimpleCockpit';
 import { useSimpleMode } from './lib/simple-mode';
+import { projectOfCwd } from './lib/ship-model';
 import { LoopGuardContext, tauriLoopApi, useLoopSignals, type StopReport } from './lib/loop-guard';
 import { homeView, viewAfterSelect, type MainView } from './components/cockpit/main-view';
 import './styles/cockpit.css';
@@ -127,7 +128,8 @@ export default function CockpitApp() {
           />
         ) : view === 'memory' ? (
           <ProjectMemory
-            project={c.selectedId ? c.registry.panes.get(c.selectedId)?.info.cwd : undefined}
+            // A pane in a separate copy belongs to the project the copy came from, not to the copy's folder.
+            project={c.selectedId ? projectOfCwd(c.registry.panes.get(c.selectedId)?.info.cwd)?.path : undefined}
             onClose={closeOverlay}
           />
         ) : view === 'settings' ? (

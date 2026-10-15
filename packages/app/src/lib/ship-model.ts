@@ -95,14 +95,32 @@ export function projectOfCwd(cwd: string | undefined | null): { path: string; na
 
 const KEY = 'pm.separate-copy';
 
-/** Separate copy is remembered per project (a per-viewer convenience: browser storage is fine). */
-export function readCopyPreference(project: string | null): boolean {
+/**
+ * What this person chose for a project last time: `true`, `false`, or `undefined` when they never chose.
+ * (A per-viewer convenience: browser storage is fine.)
+ */
+export function readStoredCopyPreference(project: string | null): boolean | undefined {
   try {
     const all = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, boolean>;
-    return all[project ?? ''] === true;
+    const value = all[project ?? ''];
+    return typeof value === 'boolean' ? value : undefined;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+/** Separate copy is remembered per project; no remembered choice reads as off. */
+export function readCopyPreference(project: string | null): boolean {
+  return readStoredCopyPreference(project) === true;
+}
+
+/**
+ * Whether the "Separate copy" switch starts on. The person's remembered choice for this project always
+ * wins; with none, it starts on for a Git project that has a first commit (the safe way to let an agent
+ * work) and off for anything else.
+ */
+export function copyDefault(remembered: boolean | undefined, state: GitState | undefined): boolean {
+  return remembered ?? state === 'repo';
 }
 
 export function writeCopyPreference(project: string | null, on: boolean): void {

@@ -75,7 +75,7 @@ describe('Project > Copies', () => {
 
   it('offers to use conductor.json and imports it', async () => {
     const ship = await mount({ ...VIEW, setup: [], run: '', conductor: { setup: ['npm ci', 'npm run build'], run: 'npm run dev', unsupported: null } });
-    expect(host.textContent).toContain('Found conductor.json in this project.');
+    expect(host.textContent).toContain('This project already has setup steps (conductor.json). Use them?');
     await act(async () => button('Use its setup')?.click());
     expect(ship.presetImportConductor).toHaveBeenCalledWith('D:/code/shop');
     expect(field('Set up with').value).toBe('npm ci\nnpm run build');

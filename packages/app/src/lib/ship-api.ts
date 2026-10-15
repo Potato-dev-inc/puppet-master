@@ -115,6 +115,8 @@ export const shipApi = {
   /** The system folder picker; `null` when cancelled. */
   pickFolder: () => call<RecentProject | null>('project_pick_folder'),
   forget: (path: string) => call<void>('project_forget', { path }),
+  /** `repo`, `no_commits`, `folder` (no Git) or `missing`. */
+  gitState: (path: string) => call<GitState>('project_git_state', { path }),
   gitInitPlan: (path: string) => call<GitInitPlan>('project_git_init_plan', { path }),
   gitInit: (path: string) => call<GitInitOutcome>('project_git_init', { path }),
   presetGet: (projectPath: string) => call<PresetView>('project_preset_get', { projectPath }),

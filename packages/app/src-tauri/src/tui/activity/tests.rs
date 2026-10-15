@@ -25,7 +25,9 @@ fn cursor_tool_rows_become_running_phrases() {
 fn cursor_approval_prompt_says_what_it_waits_for() {
     let a = cursor(APPROVAL, PaneStatus::WaitingInput);
     assert_eq!(a.kind, ActivityKind::Waiting);
-    assert!(a.text.starts_with("Waiting: allow `cd "), "{}", a.text);
+    // The risk headline, never the raw command (it lives in the card's Details).
+    assert!(a.text.starts_with("Needs you · "), "{}", a.text);
+    assert!(!a.text.contains('`') && !a.text.contains("cd "), "{}", a.text);
     assert!(a.text.chars().count() <= MAX_LEN, "{}", a.text);
 
     let a = cursor(TRUST, PaneStatus::WaitingInput);

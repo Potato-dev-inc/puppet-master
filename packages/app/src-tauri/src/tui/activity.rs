@@ -3,7 +3,7 @@
 //! `TuiProfile::activity` is the per-agent hook. This module is its generic default: it combines
 //! the pane status, the last tool-activity row on screen (`is_tool_activity_line`, which Cursor
 //! and declarative profiles teach) and the parsed approval prompt into phrases like
-//! "Running npm test", "Waiting: allow `npm test`?", "Idle". Agents that teach nothing get
+//! "Running npm test", "Needs you · Run tests", "Idle". Agents that teach nothing get
 //! status-level phrases ("Working"). No agent names appear here.
 
 use super::TuiProfile;
@@ -186,10 +186,16 @@ fn waiting_phrase<P: TuiProfile + ?Sized>(profile: &P, tail: &str) -> String {
     let Some(prompt) = profile.detect_prompt(tail, false) else {
         return "Waiting for you".into();
     };
-    if let Some(command) = prompt.get("command").and_then(|v| v.as_str()).filter(|c| !c.trim().is_empty()) {
-        return format!("Waiting: allow `{}`?", command.split_whitespace().collect::<Vec<_>>().join(" "));
-    }
     let kind = prompt.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_ascii_lowercase();
+    if let Some(command) = prompt.get("command").and_then(|v| v.as_str()).filter(|c| !c.trim().is_empty()) {
+        // The headline of the risk check ("Run tests"), never the command itself: the raw command
+        // belongs in the card's Details, not in a state line.
+        let risk = crate::prompt_risk::assess(
+            &crate::prompt_risk::RiskInput { kind: &kind, command: Some(command), ..Default::default() },
+            &profile.risk_rules(),
+        );
+        return format!("Needs you · {}", risk.headline);
+    }
     if kind.contains("trust") {
         "Waiting: trust this folder?".into()
     } else if kind.contains("command") || kind.contains("approval") {

@@ -1057,11 +1057,6 @@
 .cockpit .ck-memory-head .ck-sub {
   margin-top: 4px;
 }
-.cockpit .ck-memory-project {
-  margin: 0;
-  font: 12px/16px var(--font-mono);
-  color: var(--label-3);
-}
 .cockpit .ck-memory-editor {
   min-height: 220px;
   resize: vertical;
@@ -1154,11 +1149,11 @@
 .cockpit .ck-memory-switch {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--sep);
   color: var(--label-2);
-}
-.cockpit .ck-memory-switch input {
-  accent-color: var(--label);
 }
 
 /* ---------- last turn (Receipt tab) ---------- */
@@ -1263,4 +1258,57 @@
 }
 .cockpit .ck-lastturn .ck-caption {
   padding-left: 0;
+}
+
+/* ---------- shell polish: sidebar footer, the "+" menu, Project view, disabled primary ---------- */
+.cockpit .ck-bridge-fix {
+  color: var(--label-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cockpit .ck-bridge-fix:hover {
+  color: var(--label);
+}
+/* The Inbox badge is not the loudest thing on a light screen: a fill, as the glyphs use, not a black pill. */
+.cockpit[data-theme='light'] .ck-count,
+[data-theme='light'] .cockpit .ck-count {
+  background: var(--fill-active);
+  color: var(--label);
+}
+/* A disabled primary reads as unavailable, never as an enabled secondary. */
+.cockpit .ck-btn--primary:disabled {
+  background: var(--fill);
+  color: var(--label-4);
+  opacity: 1;
+}
+.cockpit .ck-menu-note--row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cockpit .ck-gitstep-details {
+  margin: 0 4px 6px;
+}
+.cockpit .ck-gitstep-details > summary {
+  width: max-content;
+  font-size: 11.5px;
+  color: var(--label-3);
+  cursor: default;
+  list-style: none;
+}
+.cockpit .ck-gitstep-details > summary::-webkit-details-marker {
+  display: none;
+}
+.cockpit .ck-gitstep-details > summary::after {
+  content: ' ›';
+}
+.cockpit .ck-gitstep-details[open] > summary::after {
+  content: ' ⌄';
+}
+.cockpit .ck-gitstep-details[open] > summary {
+  margin-bottom: 6px;
+}
+.cockpit .ck-gitstep-details .ck-gitstep-cmds {
+  margin: 0;
 }

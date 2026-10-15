@@ -1,12 +1,14 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { NewAgentMenu, type ProjectChoice } from './NewAgentMenu';
-import { projectOfCwd, readCopyPreference, supportsCopies, writeCopyPreference } from '../../lib/ship-model';
+import { shipApi, type GitState, type ShipApi } from '../../lib/ship-api';
+import { tauri } from '../../lib/tauri';
+import { isValidProjectPath } from '../../lib/project-path';
+import { copyDefault, projectOfCwd, readStoredCopyPreference, supportsCopies, writeCopyPreference } from '../../lib/ship-model';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { useNeedsYou } from '../../hooks/useNeedsYou';
-import { blockingItems, needsYouPaneIds } from '../../lib/attention';
-import { projectName } from '../../lib/mobile-agent-tabs';
+import { blockingItems, itemsOfKind, needsYouPaneIds } from '../../lib/attention';
 import { activityText } from '../../lib/pane-activity';
-import { mainPreview, previewLabel } from '../../lib/pane-preview';
+import { mainPreview, type PreviewUrl } from '../../lib/pane-preview';
 import '../../styles/live-preview.css';
 import { DotSpinner } from './DotSpinner';
 import { IconGlobe, IconInbox, IconMoon, IconNote, IconPlus, IconSearch, IconSettings, IconSun, IconTerminal } from './Icons';
@@ -14,17 +16,23 @@ import { formatElapsed, groupPanes, spinnerStatus } from './model';
 import { multiLoginAgents, paneHeading, paneSubline } from './titles';
 import { LastTurnContext } from './away-context';
 import { SegTabs } from './SegTabs';
+import { projectWithCopy } from './shell-labels';
+
+/** `localhost:5173`: where the preview is, without the scheme. */
+const previewAddress = (p: PreviewUrl): string => p.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
 export function Sidebar({
   c,
   onOpenPalette,
   onOpenDoctor,
   onOpenMemory,
+  ship = shipApi,
 }: {
   c: CockpitApi;
   onOpenPalette: () => void;
   onOpenDoctor?: () => void;
   onOpenMemory?: () => void;
+  ship?: ShipApi;
 }) {
   const list = c.registry.paneList;
   // The same list the Inbox badge and the Doto counter use, so the three numbers always agree.
@@ -32,16 +40,47 @@ export function Sidebar({
   const questionPanes = needsYouPaneIds(needs);
   const groups = groupPanes(list, questionPanes);
   const waiting = blockingItems(needs).length;
+  // Questions agents asked through ask_user: they belong to no pane row, so they get a row of their own.
+  const asks = itemsOfKind(blockingItems(needs), 'question').length;
   const multiLogin = multiLoginAgents(list.map((p) => p.info));
   const lastTurn = useContext(LastTurnContext);
   const [menuOpen, setMenuOpen] = useState(false);
   // The folder step: an explicit choice wins, else the selected pane's project.
   const [chosen, setChosen] = useState<ProjectChoice | null>(null);
   const selectedCwd = c.selectedId ? c.registry.panes.get(c.selectedId)?.info.cwd : undefined;
-  const project: ProjectChoice | null = chosen ?? projectOfCwd(selectedCwd);
+  // With neither, new agents start in the open project (the app's default folder): name it too.
+  const [openProject, setOpenProject] = useState<string | null>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    let live = true;
+    tauri
+      .getProjectPath()
+      .then((path) => live && setOpenProject(isValidProjectPath(path) ? path : null))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [menuOpen]);
+  const base: ProjectChoice | null = chosen ?? projectOfCwd(selectedCwd) ?? projectOfCwd(openProject);
+  // A folder taken from a pane has no Git state yet: ask once, so the Separate copy switch knows.
+  const [looked, setLooked] = useState<{ path: string; state: GitState } | null>(null);
+  useEffect(() => {
+    if (!base || base.state) return;
+    let live = true;
+    ship
+      .gitState(base.path)
+      .then((state) => live && setLooked({ path: base.path, state }))
+      .catch(() => undefined); // no desktop shell (a browser): the switch stays as it is
+    return () => {
+      live = false;
+    };
+  }, [base?.path, base?.state, ship]); // eslint-disable-line react-hooks/exhaustive-deps
+  const project: ProjectChoice | null = base ? { ...base, state: base.state ?? (looked?.path === base.path ? looked.state : undefined) } : null;
   const projectKey = project?.path ?? null;
-  const [isolated, setIsolated] = useState(() => readCopyPreference(projectKey));
-  useEffect(() => setIsolated(readCopyPreference(projectKey)), [projectKey]);
+  // The person's remembered choice for this project wins; with none, on for a Git project with a first commit.
+  const [stored, setStored] = useState(() => readStoredCopyPreference(projectKey));
+  useEffect(() => setStored(readStoredCopyPreference(projectKey)), [projectKey]);
+  const isolated = copyDefault(stored, project?.state);
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const open = () => setMenuOpen(true);
@@ -63,8 +102,8 @@ export function Sidebar({
     };
   }, [menuOpen]);
 
-  const section = (title: string, items: typeof list, count?: number) =>
-    items.length === 0 ? null : (
+  const section = (title: string, items: typeof list, count?: number, extraRow = 0) =>
+    items.length === 0 && extraRow === 0 ? null : (
       <div className="ck-group" key={title}>
         <div className="ck-caption">
           {title}
@@ -79,7 +118,7 @@ export function Sidebar({
             p.info,
             c.names.get(id) ?? p.info.agent_type,
             activityText(p.status, c.activities?.[id]) ??
-              (p.status === 'error' ? `Error · ${projectName(p.info.cwd)}` : projectName(p.info.cwd)),
+              (p.status === 'error' ? `Error · ${projectWithCopy(p.info.cwd)}` : projectWithCopy(p.info.cwd)),
             multiLogin,
           );
           return (
@@ -94,12 +133,12 @@ export function Sidebar({
               <span className="ck-row-glyph">
                 <DotSpinner status={spinnerStatus(p.status)} />
               </span>
-              <span className="ck-row-main" title={[...new Set([heading.primary, subline, projectName(p.info.cwd)])].join(' · ')}>
+              <span className="ck-row-main" title={[...new Set([heading.primary, subline, projectWithCopy(p.info.cwd)])].join(' · ')}>
                 <span className="ck-row-title">{heading.primary}</span>
                 <span className="ck-row-sub">{subline}</span>
               </span>
               {mainPreview(c.previews, id) && (
-                <span className="ck-row-preview" title={`Preview ${previewLabel(mainPreview(c.previews, id)!)}`} role="img" aria-label="Has a preview">
+                <span className="ck-row-preview" title={`Has a preview · ${previewAddress(mainPreview(c.previews, id)!)}`} role="img" aria-label="Has a preview">
                   <IconGlobe />
                 </span>
               )}
@@ -107,6 +146,17 @@ export function Sidebar({
             </button>
           );
         })}
+        {extraRow > 0 && (
+          <button type="button" className="ck-row" onClick={() => c.select(null)}>
+            <span className="ck-row-glyph">
+              <DotSpinner status="waiting_input" />
+            </span>
+            <span className="ck-row-main">
+              <span className="ck-row-title">Questions from agents</span>
+            </span>
+            <span className="ck-row-time">{extraRow}</span>
+          </button>
+        )}
       </div>
     );
 
@@ -143,9 +193,10 @@ export function Sidebar({
                 onProject={setChosen}
                 isolated={isolated}
                 onIsolated={(on) => {
-                  setIsolated(on);
+                  setStored(on);
                   writeCopyPreference(projectKey, on);
                 }}
+                ship={ship}
               />
             </div>
           )}
@@ -166,7 +217,7 @@ export function Sidebar({
           </span>
           {waiting > 0 && <span className="ck-count">{waiting}</span>}
         </button>
-        {section('Needs you', groups.needs, waiting)}
+        {section('Needs you', groups.needs, waiting, asks)}
         {section('Working', groups.working)}
         {section('Idle', groups.idle)}
         {list.length === 0 && c.registry.initialReady && <p className="ck-side-empty">No agents running.</p>}
@@ -192,7 +243,7 @@ export function Sidebar({
         {onOpenMemory && (
           <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenMemory}>
             <IconNote />
-            Project memory
+            Project
           </button>
         )}
         <div className="ck-foot-row">
@@ -212,7 +263,15 @@ export function Sidebar({
             </span>
           </button>
         </div>
-        <div className="ck-bridge">{c.bridgeLine}</div>
+        {c.bridgeLine && (
+          <div className="ck-bridge" role="status">
+            <span>{c.bridgeLine}</span>
+            <span aria-hidden="true"> · </span>
+            <button type="button" className="ck-bridge-fix" onClick={() => void c.openSettings('bridge')}>
+              Fix
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
