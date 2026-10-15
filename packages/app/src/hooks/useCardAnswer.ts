@@ -39,9 +39,16 @@ export interface CardAnswer {
   now: number;
   send: (choiceId: string) => void;
   retry: () => void;
+  /** Forget a refusal and draw the card again with what the PC lists now. */
+  reset: () => void;
 }
 
-export function useCardAnswer(bridge: Pick<BridgeClient, 'answerAttention'> | null, item: AttentionItem): CardAnswer {
+export function useCardAnswer(
+  bridge: Pick<BridgeClient, 'answerAttention'> | null,
+  item: AttentionItem,
+  /** The PC said something other than "answered" (changed, gone, already answered, not sent): read the list again now. */
+  onStale?: () => void,
+): CardAnswer {
   const [local, setLocal] = useState<LocalAnswer>(IDLE);
   const [now, setNow] = useState(() => Date.now());
   const keyRef = useRef<string | null>(null);
@@ -49,6 +56,8 @@ export function useCardAnswer(bridge: Pick<BridgeClient, 'answerAttention'> | nu
   const alive = useRef(true);
   const itemRef = useRef(item);
   itemRef.current = item;
+  const staleRef = useRef(onStale);
+  staleRef.current = onStale;
 
   useEffect(() => {
     alive.current = true;
@@ -87,7 +96,9 @@ export function useCardAnswer(bridge: Pick<BridgeClient, 'answerAttention'> | nu
         )
         .then(
           (outcome) => {
-            if (alive.current && inflight.current === controller) setLocal(localFromOutcome(outcome, { choiceId, label }, Date.now()));
+            if (!alive.current || inflight.current !== controller) return;
+            setLocal(localFromOutcome(outcome, { choiceId, label }, Date.now()));
+            if (outcome.outcome !== 'answered') staleRef.current?.();
           },
           (error: unknown) => {
             if (!alive.current || inflight.current !== controller) return;
@@ -123,5 +134,12 @@ export function useCardAnswer(bridge: Pick<BridgeClient, 'answerAttention'> | nu
     run(local.choiceId, local.label, keyRef.current);
   }, [run, local]);
 
-  return { local, now, send, retry };
+  const reset = useCallback(() => {
+    inflight.current?.abort();
+    inflight.current = null;
+    keyRef.current = null;
+    setLocal(IDLE);
+  }, []);
+
+  return { local, now, send, retry, reset };
 }

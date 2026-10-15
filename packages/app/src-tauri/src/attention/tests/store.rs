@@ -397,3 +397,14 @@ fn the_same_command_asked_again_has_a_new_fingerprint() {
     assert_ne!(first, second, "an answer to the first card can never land on the second");
     assert_eq!(store.occurrence("a"), 2);
 }
+
+#[test]
+fn a_prompt_that_wraps_differently_after_the_phone_resized_the_pane_keeps_its_fingerprint() {
+    // The phone fits the pane to its own width the moment its card opens; the command then reads in
+    // three lines instead of one. That is the same prompt, so an answer to the card must still match.
+    let wide = PromptRec { summary: Some("Run command: rm -rf D:/pm-phone-live/tmp-x/sub1/sub2".into()), ..command_rec("same-id", "low") };
+    let narrow = PromptRec { summary: Some("Run command: rm -rf D:/pm-phone-live/\ntmp-x/sub1/\nsub2".into()), ..command_rec("same-id", "low") };
+    assert_eq!(wide.fingerprint(4), narrow.fingerprint(4));
+    // But another command is another prompt id, and the fingerprint follows it.
+    assert_ne!(wide.fingerprint(4), PromptRec { prompt_id: Some("other-id".into()), ..narrow }.fingerprint(4));
+}

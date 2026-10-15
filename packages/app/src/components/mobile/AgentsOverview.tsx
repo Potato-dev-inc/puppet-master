@@ -38,6 +38,7 @@ export function AgentsOverview({
   questionsRevision,
   attention,
   canAnswer = true,
+  onRefreshAttention,
 }: {
   bridge: BridgeClient;
   bridgeReady: boolean;
@@ -62,6 +63,8 @@ export function AgentsOverview({
   attention?: AttentionSnapshot | null;
   /** This phone holds the `answer` ability (approval cards without it have no buttons). */
   canAnswer?: boolean;
+  /** An answer came back stale: read the PC's list again now. */
+  onRefreshAttention?: () => void;
 }) {
   const { questions, refresh } = useQuestionPolling(bridge, bridgeReady && questionsRevision !== undefined, questionsRevision ?? 0);
   const liveQuestions = questionsRevision === undefined ? [] : questions.filter((q) => isLive(q, Date.now()));
@@ -115,6 +118,7 @@ export function AgentsOverview({
       refreshQuestions={refresh}
       labels={labels}
       onOpenPane={onOpen}
+      onRefresh={onRefreshAttention}
     />
   ) : questionsRevision === undefined ? null : (
     <QuestionsView bridge={bridge} questions={questions} refresh={refresh} labels={labels} />

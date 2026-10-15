@@ -319,6 +319,10 @@ export default function PwaApp() {
   }, [active]);
 
   const abilities = usePhoneAbilities(bridge, resyncKey);
+  /** Read the PC's list now (an answer came back stale), instead of waiting for the next poll. */
+  const refreshAttentionNow = useCallback(() => {
+    void bridge?.attention?.().then((s) => setAttention((cur) => newerSnapshot(cur, s))).catch(() => {});
+  }, [bridge]);
   // What the PC's list says this phone may do wins over the pairing read (it comes with every list read).
   const canAnswer = attention?.device?.can_answer ?? abilities.canAnswer;
 
@@ -602,6 +606,7 @@ export default function PwaApp() {
               questionsRevision={questionsRev}
               attention={attention}
               canAnswer={canAnswer}
+              onRefreshAttention={refreshAttentionNow}
             />
           )}
           {bridge && activePane && attention && (
@@ -611,6 +616,7 @@ export default function PwaApp() {
               bridge={bridge}
               canAnswer={canAnswer}
               autoFocus={deepLinked}
+              onRefresh={refreshAttentionNow}
               onOpenPane={setActive}
               onOpenItem={(id) => {
                 const next = attention.items.find((i) => i.id === id);
@@ -681,6 +687,7 @@ export default function PwaApp() {
           bridge={bridge}
           canAnswer={canAnswer}
           labels={labels}
+          onRefresh={refreshAttentionNow}
           onClose={() => setSheetItem(null)}
           onOpenPane={(id) => {
             setSheetItem(null);

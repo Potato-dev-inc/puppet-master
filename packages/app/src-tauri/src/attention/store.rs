@@ -36,7 +36,6 @@ impl PromptRec {
             self.prompt_id.as_deref().unwrap_or(""),
             occurrence,
             self.kind.as_deref().unwrap_or("unknown"),
-            self.summary.as_deref(),
             self.choices.iter().map(|c| c.id.as_str()),
             self.risk_level.as_deref().and_then(Level::parse).map(Level::as_str),
         )
@@ -442,7 +441,6 @@ fn build_item(d: &Derived, facts: &Facts) -> Item {
                             prompt_id,
                             occurrence,
                             &kind,
-                            p.summary.as_deref(),
                             p.choices.iter().map(|c| c.id.as_str()),
                             d.risk.map(Level::as_str),
                         ),

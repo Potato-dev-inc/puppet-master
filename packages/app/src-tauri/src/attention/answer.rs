@@ -237,6 +237,12 @@ fn answer_prompt(env: &dyn Env, caller: &Caller, item: &Item, request: &Request,
     };
     // What the card showed must be what the list says is up.
     if prompt.prompt_id != prompt_id || prompt.occurrence != occurrence || prompt.fingerprint != fingerprint {
+        tracing::info!(
+            same_prompt = prompt.prompt_id == prompt_id,
+            same_occurrence = prompt.occurrence == occurrence,
+            same_fingerprint = prompt.fingerprint == fingerprint,
+            "an answer from a phone was refused: the card is older than the PC's list"
+        );
         return changed();
     }
     let Some(picked) = prompt.choices.iter().find(|c| c.id == choice) else {
@@ -262,10 +268,15 @@ fn answer_prompt(env: &dyn Env, caller: &Caller, item: &Item, request: &Request,
     for attempt in 0..MAX_ATTEMPTS {
         let Some(live) = env.live_prompt(&pane.id) else { return gone("moved_on") };
         let current = env.occurrence(&pane.id);
-        let same = live.rec.prompt_id.as_deref() == Some(prompt_id)
-            && current == occurrence
-            && live.rec.fingerprint(current) == fingerprint;
-        if !same {
+        let (same_prompt, same_occurrence, same_fingerprint) = (
+            live.rec.prompt_id.as_deref() == Some(prompt_id),
+            current == occurrence,
+            live.rec.fingerprint(current) == fingerprint,
+        );
+        if !(same_prompt && same_occurrence && same_fingerprint) {
+            // Which part differs, never what the prompt says: the pane was resized under the card (the
+            // dialog redrew and reads as another prompt), or the same command was asked again.
+            tracing::info!(same_prompt, same_occurrence, same_fingerprint, "an answer from a phone was refused: the prompt on screen is not the one on the card");
             return changed();
         }
         let permit = match AnswerPermit::for_prompt(&pane.id, prompt_id, fingerprint, decider.clone(), live.observed_pos, live.agent) {

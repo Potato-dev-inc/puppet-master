@@ -66,6 +66,8 @@ export const COPY = {
   hideDetails: 'Hide details',
   openPane: 'Open pane',
   tryAgain: 'Try again',
+  /** After "This question changed": show the card again with the PC's current list. */
+  lookAgain: 'Look again',
 } as const;
 
 /** How long a fresh "Sending" stays plain, then turns to "Sending to your PC", then "Still sending". */

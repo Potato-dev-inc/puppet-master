@@ -50,6 +50,7 @@ export function NeedsYouList({
   refreshQuestions,
   labels,
   onOpenPane,
+  onRefresh,
   showEmpty = false,
 }: {
   snapshot: AttentionSnapshot;
@@ -60,6 +61,8 @@ export function NeedsYouList({
   refreshQuestions: () => void;
   labels: Map<string, string>;
   onOpenPane: (paneId: string) => void;
+  /** An answer came back stale: read the PC's list again. */
+  onRefresh?: () => void;
   /** Draw "Nothing needs you" when the queue is empty. */
   showEmpty?: boolean;
 }) {
@@ -98,6 +101,7 @@ export function NeedsYouList({
               canAnswer={canAnswer}
               onOpenPane={onOpenPane}
               onAnswered={() => markOwn(item.id)}
+              onRefresh={onRefresh}
             />
           );
         }

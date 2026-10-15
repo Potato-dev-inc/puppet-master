@@ -57,8 +57,10 @@ export interface CardView {
   /** `Low risk` / `Check first` / `High risk`, when the prompt was rated. */
   riskWord: string | null;
   riskLevel: 'low' | 'medium' | 'high' | null;
-  /** The command or file, as the PC read it. */
+  /** The command or file, as the PC read it (or, for a folder-trust question, the sentence). */
   summary: string | null;
+  /** The summary is a command (drawn in mono) and not a sentence. */
+  summaryIsCommand: boolean;
   /** Plain sentences behind the risk, up to six (inside "Show details"). */
   reasons: string[];
   caution: string | null;
@@ -67,6 +69,8 @@ export interface CardView {
   buttons: CardButton[];
   /** "Try again" is offered. */
   retry: boolean;
+  /** "Look again" is offered: the card was refused as changed, and this puts its buttons back. */
+  lookAgain: boolean;
   /** "Open pane" is offered. */
   openPane: boolean;
   details: boolean;
@@ -111,23 +115,26 @@ function baseView(item: AttentionItem, now: number): CardView {
     heading: item.pane?.heading ?? agent,
     meta: `${item.pane?.agent ?? agent} · ${age}`,
     title: isTrust ? item.title : (item.risk?.headline?.trim() || item.title),
-    riskWord: item.risk ? (item.risk.word || LEVEL_WORD[item.risk.level]) : null,
-    riskLevel: level,
+    // A folder-trust question is a decision about a folder, not a risk reading: no risk word, no glyph.
+    riskWord: item.risk && !isTrust ? (item.risk.word || LEVEL_WORD[item.risk.level]) : null,
+    riskLevel: isTrust ? null : level,
     summary: isTrust ? item.sentence : (item.prompt?.summary ?? item.sentence),
-    reasons: (item.risk?.reasons ?? []).slice(0, 6),
-    caution: level === 'high' ? COPY.caution : null,
+    summaryIsCommand: !isTrust,
+    reasons: isTrust ? [] : (item.risk?.reasons ?? []).slice(0, 6),
+    caution: level === 'high' && !isTrust ? COPY.caution : null,
     status: null,
     buttons: [],
     retry: false,
+    lookAgain: false,
     openPane: false,
-    details: true,
+    details: !isTrust,
     provenance: item.prompt ? COPY.provenanceScreen : null,
     settled: false,
   };
 }
 
 function settledView(view: CardView, state: CardState, glyph: CardGlyph, status: string, openPane = false): CardView {
-  return { ...view, state, glyph, status, buttons: [], retry: false, openPane, details: false, caution: null, settled: true };
+  return { ...view, state, glyph, status, buttons: [], retry: false, lookAgain: false, openPane, details: false, caution: null, settled: true };
 }
 
 /** The card for one item. */
@@ -158,7 +165,7 @@ export function cardView(item: AttentionItem, { canAnswer, local, now }: Options
       return settledView(view, 'already', 'exited', text);
     }
     case 'changed':
-      return { ...view, state: 'changed', glyph: 'waiting_input', status: COPY.changed, buttons: [], openPane: true, details: false, caution: null };
+      return { ...view, state: 'changed', glyph: 'waiting_input', status: COPY.changed, buttons: [], lookAgain: true, openPane: true, details: false, caution: null };
     case 'gone':
       return settledView(view, 'gone', 'idle', COPY.gone(agent), true);
     default:

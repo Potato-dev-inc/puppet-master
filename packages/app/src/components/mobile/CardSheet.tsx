@@ -19,6 +19,7 @@ export function CardSheet({
   labels,
   onClose,
   onOpenPane,
+  onRefresh,
 }: {
   item: AttentionItem;
   snapshot: AttentionSnapshot;
@@ -27,6 +28,7 @@ export function CardSheet({
   labels: Map<string, string>;
   onClose: () => void;
   onOpenPane: (paneId: string) => void;
+  onRefresh?: () => void;
 }) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const isQuestion = QUESTION_KINDS.includes(item.kind);
@@ -48,7 +50,7 @@ export function CardSheet({
     <Sheet title={live.pane?.heading ?? 'Needs you'} onClose={onClose}>
       <div className="ph-sheet-card" data-testid="card-sheet">
         {PROMPT_KINDS.includes(live.kind) && (
-          <ApprovalCard item={live} bridge={bridge} canAnswer={canAnswer} onOpenPane={onOpenPane} autoFocus />
+          <ApprovalCard item={live} bridge={bridge} canAnswer={canAnswer} onOpenPane={onOpenPane} onRefresh={onRefresh} autoFocus />
         )}
         {isQuestion && isOpen(live) && question && (
           <QuestionsView bridge={bridge} questions={[question]} refresh={refresh} labels={labels} bare readOnly={canAnswer ? undefined : COPY.watchOnly} />

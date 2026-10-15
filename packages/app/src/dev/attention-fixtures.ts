@@ -108,7 +108,8 @@ export const ITEM_TRUST: AttentionItem = {
   pane: pane(PANE_CLAUDE, 'Fix login redirect', 'Claude Code', 'puppet-master'),
   title: 'Trust this folder?',
   sentence: 'Claude Code wants to work in puppet-master. It can read and change files there.',
-  risk: null,
+  // The PC rates this prompt too ("Check first"); the card does not show a risk reading for a folder question.
+  risk: { level: 'medium', word: 'Check first', headline: 'Trust this folder?', reasons: [] },
   prompt: {
     prompt_id: 'pid-trust',
     occurrence: 1,

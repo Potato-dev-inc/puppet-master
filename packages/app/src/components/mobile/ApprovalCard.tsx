@@ -30,6 +30,7 @@ export function ApprovalCard({
   autoFocus = false,
   localOverride,
   onAnswered,
+  onRefresh,
 }: {
   item: AttentionItem;
   bridge: Pick<BridgeClient, 'answerAttention'> | null;
@@ -44,8 +45,10 @@ export function ApprovalCard({
   localOverride?: LocalAnswer;
   /** This phone's own answer went through: the list lets the card leave 3 s later. */
   onAnswered?: () => void;
+  /** The PC's list may have moved on (a refused or stale answer): read it again now instead of at the next poll. */
+  onRefresh?: () => void;
 }) {
-  const { local, now, send, retry } = useCardAnswer(bridge, item);
+  const { local, now, send, retry, reset } = useCardAnswer(bridge, item, onRefresh);
   const view = cardView(item, { canAnswer, local: localOverride ?? local, now });
   const [details, setDetails] = useState(false);
   const root = useRef<HTMLElement>(null);
@@ -98,7 +101,9 @@ export function ApprovalCard({
         {view.riskWord && <span className="ph-appr-word">{view.riskWord}</span>}
       </div>
 
-      {view.summary && !view.settled && <p className={`ph-appr-cmd${details ? ' ph-appr-cmd--full' : ''}`}>{view.summary}</p>}
+      {view.summary && !view.settled && (
+        <p className={view.summaryIsCommand ? `ph-appr-cmd${details ? ' ph-appr-cmd--full' : ''}` : 'ph-appr-sentence'}>{view.summary}</p>
+      )}
       {view.caution && <p className="ph-appr-caution">{view.caution}</p>}
       {view.status && (
         <p className={`ph-appr-status ph-appr-status--${view.state}`} role={view.state === 'failed' || view.state === 'lost' || view.state === 'offline' ? 'alert' : 'status'} aria-live={live}>
@@ -121,7 +126,7 @@ export function ApprovalCard({
         </>
       )}
 
-      {(view.buttons.length > 0 || view.retry || view.openPane) && (
+      {(view.buttons.length > 0 || view.retry || view.lookAgain || view.openPane) && (
         <div className="ph-appr-actions">
           {view.buttons.map((b) => (
             <button
@@ -138,6 +143,11 @@ export function ApprovalCard({
           {view.retry && (
             <button type="button" className="ph-btn ph-btn--primary" data-role="retry" onClick={retry}>
               {COPY.tryAgain}
+            </button>
+          )}
+          {view.lookAgain && (
+            <button type="button" className="ph-btn ph-btn--primary" data-role="look-again" onClick={reset}>
+              {COPY.lookAgain}
             </button>
           )}
           {view.openPane && paneId && onOpenPane && (

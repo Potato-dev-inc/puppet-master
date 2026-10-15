@@ -38,9 +38,9 @@ function bridgeReturning(reply: (call: Call, n: number) => Promise<AttentionAnsw
 
 const answered: AttentionAnswerOutcome = { outcome: 'answered', choice_label: 'Allowed once', at_ms: new Date(2026, 9, 15, 9, 41).getTime() };
 
-async function render(item: AttentionItem, bridge: { answerAttention: unknown } | null, canAnswer = true, autoFocus = false) {
+async function render(item: AttentionItem, bridge: { answerAttention: unknown } | null, canAnswer = true, autoFocus = false, onRefresh?: () => void) {
   await act(async () => {
-    root.render(<ApprovalCard item={item} bridge={bridge as never} canAnswer={canAnswer} autoFocus={autoFocus} onOpenPane={() => undefined} />);
+    root.render(<ApprovalCard item={item} bridge={bridge as never} canAnswer={canAnswer} autoFocus={autoFocus} onOpenPane={() => undefined} onRefresh={onRefresh} />);
   });
 }
 
@@ -82,6 +82,20 @@ describe('the answer', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('reads the list again at once when the answer was not taken (changed, gone, already answered), not when it was', async () => {
+    const onRefresh = vi.fn();
+    const a = bridgeReturning(async () => answered);
+    await render(ITEM_LOW, a.bridge, true, false, onRefresh);
+    await click('Allow once');
+    expect(onRefresh).not.toHaveBeenCalled();
+    act(() => root.unmount());
+    root = createRoot(host);
+    const b = bridgeReturning(async () => ({ outcome: 'changed' }) as AttentionAnswerOutcome);
+    await render(ITEM_LOW, b.bridge, true, false, onRefresh);
+    await click('Allow once');
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
   it('says what the PC said: changed, gone, answered on the PC', async () => {
     for (const [reply, text, expected] of [
       [{ outcome: 'changed' }, 'changed', 'This question changed. Look again.'],
@@ -97,6 +111,20 @@ describe('the answer', () => {
       act(() => root.unmount());
       root = createRoot(host);
     }
+  });
+
+  it('Look again puts the buttons back after a changed answer (the next tap is a new answer with a new key)', async () => {
+    const { bridge, calls } = bridgeReturning(async (_call, n) => (n === 1 ? ({ outcome: 'changed' } as AttentionAnswerOutcome) : answered));
+    await render(ITEM_LOW, bridge);
+    await click('Allow once');
+    expect(state()).toBe('changed');
+    expect(button('Allow once')).toBeUndefined();
+    await click('Look again');
+    expect(state()).toBe('open');
+    await click('Allow once');
+    expect(calls).toHaveLength(2);
+    expect(calls[1].body.answer_key).not.toBe(calls[0].body.answer_key);
+    expect(state()).toBe('answered');
   });
 
   it('a refusal or a key that could not be written says nothing was typed and offers Try again', async () => {

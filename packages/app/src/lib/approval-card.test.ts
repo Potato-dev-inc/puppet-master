@@ -48,6 +48,9 @@ describe('the open card', () => {
     expect(v.title).toBe('Trust this folder?');
     expect(labels(v)).toEqual(['Don’t trust', 'Trust this folder']);
     expect(v.buttons[0]).toMatchObject({ role: 'primary', focus: true });
+    // A decision about a folder, not a risk reading: no risk word or glyph, and the sentence is not a command.
+    expect(v).toMatchObject({ riskWord: null, riskLevel: null, summaryIsCommand: false, details: false, caution: null });
+    expect(v.summary).toContain('wants to work in puppet-master');
   });
 
   it('the details never hold more than six reasons', () => {
@@ -149,7 +152,7 @@ describe('what the PC said back', () => {
 
   it('changed: the stale copy, a plus glyph and no buttons', () => {
     const v = cardView(ITEM_LOW, { canAnswer: true, local: { phase: 'changed' }, now: NOW });
-    expect(v).toMatchObject({ state: 'changed', glyph: 'waiting_input', status: 'This question changed. Look again.' });
+    expect(v).toMatchObject({ state: 'changed', glyph: 'waiting_input', status: 'This question changed. Look again.', lookAgain: true });
     expect(v.buttons).toEqual([]);
   });
 

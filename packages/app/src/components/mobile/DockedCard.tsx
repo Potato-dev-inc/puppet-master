@@ -16,6 +16,7 @@ export function DockedCard({
   canAnswer,
   onOpenPane,
   onOpenItem,
+  onRefresh,
   autoFocus = false,
 }: {
   snapshot: AttentionSnapshot;
@@ -25,6 +26,8 @@ export function DockedCard({
   onOpenPane: (paneId: string) => void;
   /** Open an item that has no pane of its own (a question, a consent request). */
   onOpenItem: (itemId: string) => void;
+  /** An answer came back stale: read the PC's list again. */
+  onRefresh?: () => void;
   autoFocus?: boolean;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -50,6 +53,7 @@ export function DockedCard({
           autoFocus={autoFocus}
           onOpenPane={onOpenPane}
           onAnswered={() => markOwn(current.id)}
+          onRefresh={onRefresh}
         />
       )}
       {more > 0 && next && (
