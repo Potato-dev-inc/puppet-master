@@ -169,6 +169,20 @@ describe('Changes section', () => {
     expect(host.querySelector('.ck-changes')).not.toBeNull();
   });
 
+  it('a dirty-project refusal is a plain sentence and keeps the code in the tooltip', async () => {
+    const raw =
+      'ORIGIN_DIRTY_OVERLAP: the project has uncommitted changes to 2 file(s) this worktree also changed; commit or stash them first (AGENTS.md, CLAUDE.md)';
+    const api = fakeApi({ worktreeMerge: vi.fn().mockRejectedValue(raw) });
+    await mount(api);
+    await click(button('Merge'));
+    await click(Array.from(host.querySelectorAll('.ck-sheet button')).find((b) => b.textContent === 'Merge') ?? null);
+    const alert = host.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('Your project has unsaved changes to the same files. Save or undo them first.');
+    expect(alert?.textContent).toContain('AGENTS.md, CLAUDE.md');
+    expect(alert?.textContent).not.toContain('ORIGIN_DIRTY_OVERLAP');
+    expect(alert?.getAttribute('title')).toContain('ORIGIN_DIRTY_OVERLAP');
+  });
+
   it('disables Merge and Discard while the agent is still working', async () => {
     await mount(fakeApi({ paneWorktree: vi.fn().mockResolvedValue({ ...ITEM, state: 'active' }) }), 'running');
     expect(host.querySelector('.ck-changes-state')?.textContent).toBe('Working');

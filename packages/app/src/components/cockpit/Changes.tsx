@@ -22,6 +22,16 @@ export type ChangesApi = Pick<
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
+/** Refusals that get a plain sentence; the raw text stays in the tooltip (`title`). */
+export function plainMergeError(raw: string): { text: string; title?: string } {
+  if (/ORIGIN_DIRTY_OVERLAP/.test(raw)) {
+    const files = /\(([^()]*)\)\s*$/.exec(raw.trim())?.[1];
+    const sentence = 'Your project has unsaved changes to the same files. Save or undo them first.';
+    return { text: files ? `${sentence} (${files})` : sentence, title: raw };
+  }
+  return { text: raw };
+}
+
 /**
  * "Changes" in the Receipt tab: what an isolated agent changed in its git worktree, with Merge and
  * Discard. Renders nothing for a pane that is not working in a worktree.
@@ -262,8 +272,8 @@ export function Changes({
       {diff?.changes.truncated && <p className="ck-sub">Only the first {files.length} files are listed.</p>}
 
       {error && (
-        <p className="ck-changes-error" role="alert">
-          {error}
+        <p className="ck-changes-error" role="alert" title={plainMergeError(error).title}>
+          {plainMergeError(error).text}
         </p>
       )}
       {notice && <p className="ck-sub">{notice}</p>}
