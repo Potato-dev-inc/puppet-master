@@ -248,6 +248,11 @@ fn sync_target(project: &Path, t: &Target, memory: &str, report: &mut SyncReport
         // block, but someone committed it): deleting it dirtied the project and made the worktree
         // Merge refuse (VERIFY-R13 #4). It stays as it is.
         Outcome::Delete if crate::worktrees::is_git_tracked(project, &t.path) => {}
+        // Inside a separate copy (`<project>/.puppet-master/worktrees/<copy>`) the project's memory is
+        // not there (`.puppet-master/` is not in git), so a sync would strip the block out of a tracked
+        // file the user also wrote in. That edit would show up in Changes as the agent's work and Merge
+        // would carry it into the user's branch. A tracked file in a copy stays exactly as committed.
+        Outcome::Write(_) if crate::worktrees::origin_of_cwd(&project.to_string_lossy()).is_some() && crate::worktrees::is_git_tracked(project, &t.path) => {}
         Outcome::Delete => match std::fs::remove_file(&path) {
             Ok(()) => report.removed.push(t.path.clone()),
             Err(e) => report.errors.push(format!("{}: {e}", t.path)),

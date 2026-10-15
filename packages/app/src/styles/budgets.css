@@ -85,3 +85,15 @@
   gap: 4px;
   margin-top: 8px;
 }
+/* One action row at the bottom: the primary add, then the quiet ones. */
+.cockpit .ck-budget-actions {
+  justify-content: flex-start;
+  gap: 6px;
+}
+.cockpit .ck-budget-row--helper {
+  flex-direction: column;
+  gap: 2px;
+}
+.cockpit .ck-budget-row--helper dd {
+  text-align: left;
+}

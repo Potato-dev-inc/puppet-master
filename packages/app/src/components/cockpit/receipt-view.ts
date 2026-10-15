@@ -15,16 +15,16 @@ const LABELS: Record<string, string> = {
   model: 'Model',
   read_only: 'Read-only',
   checks: 'Checks',
-  result_capture: 'Answer taken from',
+  result_capture: 'Answer read from',
   not_verified: 'Not verified',
   build_id: 'App build',
-  standby_used: 'Warm agent',
-  fallback: 'Ran headless instead',
+  standby_used: 'Started from',
+  fallback: 'Ran in the background instead',
   'fallback.from': 'Wanted',
   'fallback.to': 'Ran',
   'fallback.reason': 'Why',
   usage_limit: 'Usage limit',
-  worktree: 'Isolated copy',
+  worktree: 'Separate copy',
   'worktree.path': 'Folder',
   'worktree.branch': 'Branch',
   'worktree.base': 'Based on',
@@ -47,7 +47,7 @@ const OUTCOME: Record<string, string> = {
 const VALUES: Record<string, Record<string, string>> = {
   outcome: OUTCOME,
   read_only: { enforced: 'Yes', unenforced: 'Asked for, not enforced by this agent', off: 'No' },
-  result_capture: { authoritative: 'The agent', inferred: 'The terminal screen', missing: 'Nothing captured' },
+  result_capture: { authoritative: 'The agent', inferred: 'The screen', missing: 'Nothing captured' },
   'fallback.reason': { visible_failed: 'The visible pane did not start', no_visible_mode: 'This agent has no visible pane' },
   'worktree.state': { unreviewed: 'Not merged yet', merged: 'Merged', discarded: 'Discarded' },
 };
@@ -87,24 +87,117 @@ export function usageLimitLine(receipt: unknown, now: number = Date.now()): stri
   return resets ? `${lead} (resets ${resets})` : lead;
 }
 
-/** Receipt rows with plain labels and values. An unknown field still shows (sentence case), never raw snake_case. */
-export function readableReceipt(receipt: unknown, now: number = Date.now()): ReceiptLine[] {
+type RawLine = ReceiptLine & { raw: string };
+
+function labelled(receipt: unknown, now: number): { rows: RawLine[]; limitLine: string | undefined } {
   const limitLine = usageLimitLine(receipt, now);
-  const lines = receiptRows(receipt)
+  const rows = receiptRows(receipt)
     // The limit's own fields fold into one line below.
     .filter(({ key }) => !(limitLine && key.startsWith('usage_limit.')))
-    .map(({ key, value }): ReceiptLine & { raw: string } => {
-    const tail = key.includes('.') ? key.slice(key.lastIndexOf('.') + 1) : key;
-    const label = LABELS[key] ?? sentence(tail.replace(/\[\d+\]$/, ''));
-    const mapped = VALUES[key]?.[value];
-    if (mapped) return { raw: key, key: label, value: mapped };
-    if (key === 'backend') return { raw: key, key: label, value: backendLabel(value) };
-    if (key === 'standby_used') return { raw: key, key: label, value: value === 'true' ? 'Used a ready one' : value };
-    if (key === 'fallback.from' || key === 'fallback.to') return { raw: key, key: label, value: sentence(value) };
-    if (key === 'not_verified') return { raw: key, key: label, value: value.split(', ').map(sentence).join('; ') };
-    return { raw: key, key: label, value };
-  });
+    .map(({ key, value }): RawLine => {
+      const tail = key.includes('.') ? key.slice(key.lastIndexOf('.') + 1) : key;
+      const label = LABELS[key] ?? sentence(tail.replace(/\[\d+\]$/, ''));
+      const mapped = VALUES[key]?.[value];
+      if (mapped) return { raw: key, key: label, value: mapped };
+      if (key === 'backend') return { raw: key, key: label, value: backendLabel(value) };
+      if (key === 'standby_used') return { raw: key, key: label, value: value === 'true' ? 'A ready agent' : value };
+      if (key === 'fallback.from' || key === 'fallback.to') return { raw: key, key: label, value: sentence(value) };
+      if (key === 'not_verified') return { raw: key, key: label, value: value.split(', ').map(sentence).join('; ') };
+      return { raw: key, key: label, value };
+    });
+  return { rows, limitLine };
+}
+
+/** Receipt rows with plain labels and values. An unknown field still shows (sentence case), never raw snake_case. */
+export function readableReceipt(receipt: unknown, now: number = Date.now()): ReceiptLine[] {
+  const { rows, limitLine } = labelled(receipt, now);
   // The answer to "did it work" leads, and says where it stopped when it ran out of usage.
-  const lead = lines.filter((line) => line.raw === 'outcome').map((line) => (limitLine ? { ...line, value: limitLine } : line));
-  return [...lead, ...lines.filter((line) => line.raw !== 'outcome')].map(({ key, value }) => ({ key, value }));
+  const lead = rows.filter((line) => line.raw === 'outcome').map((line) => (limitLine ? { ...line, value: limitLine } : line));
+  return [...lead, ...rows.filter((line) => line.raw !== 'outcome')].map(({ key, value }) => ({ key, value }));
+}
+
+/** What a separate copy holds right now (the Changes tab's own numbers). */
+export interface CopyTotals {
+  files_changed: number;
+  additions: number;
+  deletions: number;
+}
+
+export interface ReceiptSummary {
+  /** One plain sentence on what was checked. */
+  checks: string;
+  /** At most five rows, the ones a person reads. */
+  facts: ReceiptLine[];
+  /** Everything else, for support and curious people. */
+  details: ReceiptLine[];
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** "3 files +14 −3". */
+export function copyTotalsText(t: CopyTotals): string {
+  return `${plural(t.files_changed, 'file')} +${t.additions} −${t.deletions}`;
+}
+
+/** The checks, in a sentence a person can read: "No checks are set up for this project." */
+export function checksSentence(receipt: unknown): string {
+  const checks = (receipt as { checks?: unknown } | null | undefined)?.checks;
+  const text = typeof checks === 'string' ? checks.trim() : '';
+  if (!text || text === 'none configured') return 'No checks are set up for this project, so nothing was verified.';
+  const counted = /^(\d+)\/(\d+) passed$/.exec(text);
+  if (counted) {
+    const [, passed, total] = counted;
+    return passed === total ? `All ${total} checks passed.` : `${passed} of ${total} checks passed.`;
+  }
+  return `${sentence(text)}.`;
+}
+
+function recordedTotals(receipt: unknown): CopyTotals | null {
+  const w = (receipt as { worktree?: { files_changed?: unknown; additions?: unknown; deletions?: unknown } } | null | undefined)?.worktree;
+  if (!w || typeof w.files_changed !== 'number') return null;
+  return {
+    files_changed: w.files_changed,
+    additions: typeof w.additions === 'number' ? w.additions : 0,
+    deletions: typeof w.deletions === 'number' ? w.deletions : 0,
+  };
+}
+
+/** Receipt fields that are shown as a fact, in the checks sentence or replaced by live numbers. */
+const NOT_IN_DETAILS = new Set([
+  'outcome',
+  'result_capture',
+  'checks',
+  'model',
+  'worktree.state',
+  'worktree.files_changed',
+  'worktree.additions',
+  'worktree.deletions',
+]);
+
+/**
+ * The Receipt as a short summary: the checks, at most five facts and the rest under Details.
+ *
+ * File counts have ONE source: `copy` (what the separate copy holds right now, the same numbers the
+ * Changes tab and its tab label show). The receipt's own snapshot of the counts is dropped, so the
+ * page cannot show two different totals; one turn's own count lives in the Last turn line.
+ */
+export function receiptSummary(receipt: unknown, copy: CopyTotals | null, now: number = Date.now()): ReceiptSummary {
+  const { rows, limitLine } = labelled(receipt, now);
+  const by = (raw: string) => rows.find((row) => row.raw === raw);
+  const facts: ReceiptLine[] = [];
+  const outcome = by('outcome');
+  if (outcome) facts.push({ key: 'Result', value: limitLine ?? outcome.value });
+  const capture = by('result_capture');
+  if (capture) facts.push({ key: capture.key, value: capture.value });
+  const state = by('worktree.state');
+  // The live numbers win; a copy that is gone (merged, discarded) has only what the receipt recorded.
+  const totals = copy ?? recordedTotals(receipt);
+  if (state || totals) {
+    const stateWord = state?.value ?? 'Not merged yet';
+    facts.push({ key: 'Separate copy', value: totals ? `${stateWord} · ${copyTotalsText(totals)} in all` : stateWord });
+  }
+  const model = by('model');
+  if (model) facts.push({ key: model.key, value: model.value });
+  const details = rows.filter((row) => !NOT_IN_DETAILS.has(row.raw)).map(({ key, value }) => ({ key, value }));
+  return { checks: checksSentence(receipt), facts: facts.slice(0, 5), details };
 }

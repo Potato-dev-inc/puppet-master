@@ -26,3 +26,15 @@ export function transcriptStreamLabel(stream: string): string {
   const text = stream.replace(/[_-]+/g, ' ').trim();
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : 'Other';
 }
+
+/** Streams that carry what a person or the agent said; they read as prose. The rest is output and stays monospace. */
+const PROSE = new Set(['user_task', 'user_steer', 'user', 'assistant_final', 'agent', 'result', 'success']);
+
+export function isProseStream(stream: string): boolean {
+  return PROSE.has(stream);
+}
+
+/** The speaker label of a transcript row: "You" and the agent's own name for its answers; other rows keep their plain label. */
+export function transcriptSpeaker(stream: string, agentName: string): string {
+  return stream === 'assistant_final' || stream === 'agent' ? agentName.trim() || transcriptStreamLabel(stream) : transcriptStreamLabel(stream);
+}

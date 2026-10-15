@@ -12,8 +12,12 @@ export function formatAgo(ms: number): string {
   return `${Math.floor(h / 24)} d ago`;
 }
 
-/** Row title. The backend label is plain English already ("Before turn 3"). */
-export function checkpointTitle(c: Pick<Checkpoint, 'label'>): string {
+/**
+ * Row title. The backend label is plain English already ("Before turn 3"); the one that says
+ * "a prompt" names who asked instead: "Before Claude Code's question (turn 3)".
+ */
+export function checkpointTitle(c: Pick<Checkpoint, 'label'> & Partial<Pick<Checkpoint, 'kind' | 'turn'>>, agentName = 'the agent'): string {
+  if (c.kind === 'answer' && typeof c.turn === 'number') return `Before ${agentName}'s question (turn ${c.turn})`;
   return c.label || 'Checkpoint';
 }
 

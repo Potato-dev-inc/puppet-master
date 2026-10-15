@@ -1,0 +1,198 @@
+/* Pane chrome: the header's plain line, the dock under the tabs, the Receipt's flat facts and the History rows.
+   Monochrome, on the STYLE.md scale (11 / 13 / 15 / 22). */
+
+/* ---------- dock: cards sit inside the Terminal tab; the tab strip never moves ---------- */
+.cockpit .ck-term-wrap {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cockpit .ck-dock {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 6px;
+  max-height: 55%;
+  overflow-y: auto;
+}
+.cockpit .ck-dock .ck-ask,
+.cockpit .ck-dock .ck-stuck {
+  margin: 0 20px;
+}
+.cockpit .ck-dock-more {
+  align-self: flex-start;
+  margin: 0 20px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--label-2);
+}
+.cockpit .ck-dock-more:hover {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+.cockpit .ck-dock-more:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+/* The slim bar on the other tabs: 28px, switches to the Terminal. */
+.cockpit .ck-dock-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  margin: 0 20px 6px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+.cockpit .ck-dock-bar:hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-dock-bar:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.cockpit .ck-dock-bar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--label);
+}
+.cockpit .ck-dock-bar-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-dock-bar-go {
+  font-weight: 400;
+  color: var(--label-2);
+}
+
+/* ---------- Receipt: checks, last turn, flat facts, details ---------- */
+.cockpit .ck-rc-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cockpit .ck-rc-block .ck-caption {
+  padding-left: 0;
+}
+.cockpit .ck-rc-line {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 500;
+  color: var(--label);
+}
+.cockpit .ck-receipt .ck-lastturn {
+  padding: 0;
+}
+.cockpit .ck-facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cockpit .ck-facts-row {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  gap: 16px;
+  padding: 7px 0;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-facts-row:first-child {
+  border-top: 0;
+}
+.cockpit .ck-facts dt,
+.cockpit .ck-facts dd {
+  margin: 0;
+  font: 13px/1.45 var(--font-ui);
+}
+.cockpit .ck-facts dt {
+  color: var(--label-2);
+}
+.cockpit .ck-facts dd {
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-facts dd.ck-mono,
+.cockpit .ck-facts .ck-mono {
+  font: 12px var(--font-mono);
+}
+.cockpit .ck-facts--details .ck-facts-row:first-child {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-code {
+  font: 12px var(--font-mono);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--fill);
+}
+.cockpit .ck-sheet .ck-facts {
+  margin-top: 4px;
+}
+.cockpit .ck-sheet .ck-facts-row {
+  grid-template-columns: 112px minmax(0, 1fr);
+}
+
+/* ---------- Transcript: a clean chat; monospace only for output ---------- */
+.cockpit .ck-chunk--prose pre {
+  font: 13px/1.55 var(--font-ui);
+  color: var(--label);
+}
+
+/* ---------- History: Restore on hover or focus, one primary at the top ---------- */
+.cockpit .ck-hist-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px 8px;
+}
+.cockpit .ck-hist-head .ck-hist-note {
+  flex: 1;
+  padding: 0;
+}
+.cockpit .ck-hist-row .ck-hist-time,
+.cockpit .ck-hist-row .ck-hist-delta {
+  font: 12px var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-hist-row .ck-hist-restore {
+  opacity: 0;
+  transition: opacity 160ms var(--ease);
+}
+.cockpit .ck-hist-row:hover .ck-hist-restore,
+.cockpit .ck-hist-row:focus-within .ck-hist-restore {
+  opacity: 1;
+}
+@media (hover: none) {
+  .cockpit .ck-hist-row .ck-hist-restore {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-hist-row .ck-hist-restore {
+    transition: none;
+  }
+}
+
+/* ---------- Changes ---------- */
+.cockpit .ck-changes-details {
+  margin: 4px 0 12px;
+}
+.cockpit .ck-changes-hint {
+  align-self: center;
+  font-size: 13px;
+  color: var(--label-2);
+}

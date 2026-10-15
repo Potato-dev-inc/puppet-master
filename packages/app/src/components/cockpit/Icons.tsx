@@ -114,3 +114,9 @@ export const IconNote = () => (
     <path d="M3.5 2.5h7l2 2v9h-9zM10.5 2.5v2h2M5.5 7.5h5M5.5 10h5" />
   </Icon>
 );
+export const IconInfo = () => (
+  <Icon>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M8 7.4v3.1M8 5.3v.1" />
+  </Icon>
+);

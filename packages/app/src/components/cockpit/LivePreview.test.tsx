@@ -90,7 +90,8 @@ describe('pane header chip', () => {
     act(() => root.render(<PaneView c={cockpit(PREVIEWS)} paneId="p1" />));
     const chip = host.querySelector<HTMLButtonElement>('.ck-preview-chip')!;
     expect(chip.textContent).toContain('Preview');
-    expect(chip.textContent).toContain(':5173');
+    expect(chip.textContent).not.toContain(':5173');
+    expect(chip.getAttribute('title')).toContain('localhost:5173');
     act(() => chip.click());
     expect(invoke).toHaveBeenCalledWith('open_external_url', { url: 'http://localhost:5173/' });
   });

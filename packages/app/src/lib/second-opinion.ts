@@ -83,3 +83,8 @@ export const secondOpinionApi: SecondOpinionApi = {
   cancel: (project, handle) => call('second_opinion_cancel', { project, handle }),
   send: (paneId, file, line, text) => call('second_opinion_send', { paneId, file, line, text }),
 };
+
+/** What the review looked at, in words a person uses: a separate copy is never "the worktree". */
+export function reviewedText(start: Pick<ReviewStart, 'source' | 'sourceLabel'>): string {
+  return start.source === 'worktree' ? 'this separate copy' : start.sourceLabel;
+}
