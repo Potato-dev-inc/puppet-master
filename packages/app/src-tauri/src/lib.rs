@@ -45,6 +45,7 @@ mod askbar;
 mod attention;
 mod second_opinion;
 mod pane_prompt;
+mod first_run;
 mod plain_mode;
 mod prompt_risk;
 pub mod questions;
@@ -347,6 +348,9 @@ pub fn run() {
             commands::plain_preview,
             commands::plain_open_preview,
             commands::plain_send,
+            commands::first_run_state,
+            commands::first_run_start_task,
+            commands::first_run_task_status,
             commands::project_recent,
             commands::project_forget,
             commands::project_remember,

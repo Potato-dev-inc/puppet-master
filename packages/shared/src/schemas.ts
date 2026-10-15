@@ -114,6 +114,14 @@ export const SettingsSchema = z.object({
   agent_hooks_agents: z.record(z.string(), z.enum(['off', 'shadow', 'evidence'])).optional(),
   /** Simple mode: the cockpit with fewer buttons and plain words, for people who do not write code. Off unless chosen. */
   simple_mode: z.boolean().optional(),
+  /** First-run welcome: absent = never decided (shown once on a fresh profile), true = finished or skipped, false = show it again. Rust reads it (first_run). */
+  onboarding_done: z.boolean().optional(),
+  /** First-run welcome: the step the person was on, so a restart resumes there. */
+  onboarding_step: z.string().optional(),
+  /** First-run welcome: the folder chosen for the first task, so a restart resumes with it. */
+  onboarding_project: z.string().optional(),
+  /** First-run welcome: the agent that was ready, so a restart can still offer the first task. */
+  onboarding_agent: z.string().optional(),
   /** Optional path to the librarian project indexer script (default scripts/project-indexer.py). */
   librarian_indexer_path: z.string().optional(),
   /** Default OpenCode provider for opencode_native API prompts (write_terminal_input). */

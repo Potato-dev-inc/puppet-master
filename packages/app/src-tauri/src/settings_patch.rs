@@ -187,7 +187,7 @@ pub fn apply(app: &AppHandle, patch: &Value) -> Result<Value, String> {
     )
 }
 
-fn current_settings(app: &AppHandle) -> Value {
+pub(crate) fn current_settings(app: &AppHandle) -> Value {
     use tauri_plugin_store::StoreExt;
     app.store(SETTINGS_FILE)
         .ok()
