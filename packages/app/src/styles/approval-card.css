@@ -6,15 +6,8 @@
   min-width: 0;
   flex: 1;
 }
-.cockpit .ck-appr--card {
-  padding-left: 24px;
-}
 .cockpit .ck-appr--high {
   border-left: 2px solid var(--label);
-  padding-left: 10px;
-}
-.cockpit .ck-appr--card.ck-appr--high {
-  margin-left: 24px;
   padding-left: 10px;
 }
 .cockpit .ck-appr-head {
@@ -85,6 +78,7 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+.cockpit .ck-appr button[data-ring],
 .cockpit .ck-appr button:focus-visible {
   outline: none;
   box-shadow: var(--focus);

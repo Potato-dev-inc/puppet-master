@@ -3,7 +3,9 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PanePrompt } from '../../lib/cockpit-api';
-import { isBroadChoice, layoutChoices } from '../../lib/approval-risk';
+import { LEVEL_WORD, choiceWords, isBroadChoice, layoutChoices } from '../../lib/approval-risk';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { ApprovalPrompt } from './ApprovalPrompt';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -53,7 +55,8 @@ describe('layoutChoices', () => {
 
   it('demotes the always-allow family on high risk and makes Deny the default', () => {
     const l = layoutChoices(prompt('high', 'x'));
-    expect(l.visible.map((c) => c.id)).toEqual(['allow_once', 'deny']);
+    // Deny comes BEFORE Allow once on high risk.
+    expect(l.visible.map((c) => c.id)).toEqual(['deny', 'allow_once']);
     expect(l.more.map((c) => c.id)).toEqual(['allow_all']);
     expect(l.focusId).toBe('deny');
     expect(l.primaryId).toBe('deny');
@@ -69,23 +72,33 @@ describe('layoutChoices', () => {
 describe('ApprovalPrompt', () => {
   it('low risk: headline, one reason, Allow is the primary button, nothing hidden', () => {
     render(prompt('low', 'Run tests'));
-    expect(host.querySelector('.ck-appr-headline')?.textContent).toBe('Run tests');
-    expect(host.querySelector('.ck-appr-reason')?.textContent).toBe('It deletes ../old and everything in it.');
-    expect(host.querySelector('.ck-appr-caution')).toBeNull();
+    expect(host.querySelector('.ib-title')?.textContent).toBe('Run tests');
+    expect(host.querySelector('.ib-reason')?.textContent).toBe('It deletes ../old and everything in it.');
+    expect(host.querySelector('.ib-caution')).toBeNull();
     expect(btn('More options')).toBeUndefined();
     expect(btn('Allow once')?.className).toContain('ck-btn--primary');
     expect(btn('Always allow')).toBeDefined();
+    // low risk keeps the agent's order: Allow once, Always allow, Deny
+    expect(Array.from(host.querySelectorAll('[data-ib="answer"]')).map((b) => b.textContent)).toEqual(['Allow once', 'Always allow', 'Deny']);
   });
 
   it('high risk: caution line, Always allow behind More options, focus on Deny not Allow', () => {
     render(prompt('high', 'Delete a folder outside this project'));
-    expect(host.querySelector('.ck-appr-caution')?.textContent).toMatch(/hard to undo/);
+    expect(host.querySelector('.ib-caution')?.textContent).toMatch(/hard to undo/);
     expect(btn('Always allow')).toBeUndefined();
     expect(btn('More options')).toBeDefined();
     expect(document.activeElement).toBe(btn('Deny'));
+    // the focus ring is drawn for focus that came from code
+    expect(btn('Deny')?.hasAttribute('data-ring')).toBe(true);
+    // and Deny leads the row
+    expect(Array.from(host.querySelectorAll('[data-ib="answer"]')).map((b) => b.textContent)).toEqual(['Deny', 'Allow once']);
+    expect(host.querySelector('[data-ib-card]')?.hasAttribute('data-guard')).toBe(true);
     expect(document.activeElement).not.toBe(btn('Allow once'));
     expect(btn('Allow once')?.className).not.toContain('ck-btn--primary');
     expect(btn('Deny')?.className).toContain('ck-btn--primary');
+    // the ring goes when focus leaves
+    act(() => btn('Allow once')!.focus());
+    expect(btn('Deny')?.hasAttribute('data-ring')).toBe(false);
   });
 
   it('high risk: the demoted choices are still reachable and answer normally', () => {
@@ -105,10 +118,13 @@ describe('ApprovalPrompt', () => {
 
   it('Show details expands the full command and every reason', () => {
     render(prompt('medium', 'Delete a folder'));
-    expect(host.querySelector('.ck-appr-cmd')).toBeNull();
-    act(() => btn('Show details')!.click());
-    expect(host.querySelector('.ck-appr-cmd')?.textContent).toBe('Run command: rm -rf ../old');
-    expect(host.querySelectorAll('.ck-appr-details li')).toHaveLength(2);
+    expect(host.querySelector('.ib-cmd')).toBeNull();
+    act(() => btn('Details')!.click());
+    expect(host.querySelector('.ib-cmd')?.textContent).toBe('Run command: rm -rf ../old');
+    // the first reason is already on the card; Details adds only what it did not say
+    const reasons = Array.from(host.querySelectorAll('.ib-details li')).map((li) => li.textContent);
+    expect(reasons).toEqual(['That is outside this project.']);
+    expect(host.querySelector('.ib-details')?.textContent).not.toContain('It deletes ../old and everything in it.');
     expect(btn('Hide details')).toBeDefined();
   });
 
@@ -124,5 +140,83 @@ describe('ApprovalPrompt', () => {
   it('is monochrome: no inline colours', () => {
     render(prompt('high', 'x'));
     expect(host.innerHTML).not.toMatch(/#[0-9a-f]{3,6}\b|rgb\(|red/i);
+  });
+
+  it('says the same words whatever the agent menu says, and keeps the agent words in the tooltip', () => {
+    const p: PanePrompt = {
+      ...prompt('low', 'Run tests'),
+      choices: [
+        { id: 'yes', label: 'Yes' },
+        { id: 'yes-always', label: 'Yes, and do not ask again for npm test' },
+        { id: 'no', label: 'No, tell Claude what to do differently' },
+      ],
+    };
+    render(p);
+    const answers = Array.from(host.querySelectorAll<HTMLElement>('[data-ib="answer"]'));
+    expect(answers.map((b) => b.textContent)).toEqual(['Allow once', 'Always allow npm test', 'Deny']);
+    // the command is inline code, never backticks
+    expect(answers[1].querySelector('code')?.textContent).toBe('npm test');
+    expect(host.textContent).not.toContain('`');
+    expect(answers[2].getAttribute('title')).toBe('No, tell Claude what to do differently');
+  });
+
+  it('answers with the agent choice, not the renamed word', () => {
+    const p: PanePrompt = { ...prompt('low', 'Run tests'), choices: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No, and tell Codex what to do differently (esc)' }] };
+    const onAnswer = render(p);
+    act(() => btn('Deny')!.click());
+    expect(onAnswer).toHaveBeenCalledWith({ id: 'no', label: 'No, and tell Codex what to do differently (esc)' });
+  });
+
+  it('the card carries the agent, the project, the risk word and one age', () => {
+    act(() => root.render(<ApprovalPrompt prompt={prompt('high', 'Delete a folder')} onAnswer={vi.fn()} variant="card" who="Codex · billing-service" age={125_000} />));
+    expect(host.querySelector('.ib-meta')?.textContent).toBe('Codex · billing-service');
+    expect(host.querySelector('.ib-status')?.textContent).toBe(LEVEL_WORD.high);
+    expect(host.querySelector('.ib-age')?.textContent).toBe('2m');
+  });
+
+  it('the docked bar uses the same words and the same order', () => {
+    act(() => root.render(<ApprovalPrompt prompt={prompt('high', 'x')} onAnswer={vi.fn()} variant="bar" />));
+    expect(Array.from(host.querySelectorAll('[data-ib="answer"]')).map((b) => b.textContent)).toEqual(['Deny', 'Allow once']);
+  });
+});
+
+describe('choiceWords', () => {
+  const words = (choices: { id: string; label: string; broad?: boolean }[]) => Object.fromEntries([...choiceWords(choices)].map(([id, w]) => [id, w.code ? `${w.text} ${w.code}` : w.text]));
+
+  it('maps Claude and Codex menus onto Allow once / Always allow <command> / Deny', () => {
+    expect(
+      words([
+        { id: 'a', label: 'Yes' },
+        { id: 'b', label: 'Yes, and do not ask again for npm test' },
+        { id: 'c', label: 'No, tell Claude what to do differently' },
+      ]),
+    ).toEqual({ a: 'Allow once', b: 'Always allow npm test', c: 'Deny' });
+    expect(
+      words([
+        { id: 'a', label: 'Yes, proceed (y)' },
+        { id: 'b', label: "Yes, and don't ask again for commands that start with `git status` (p)" },
+        { id: 'c', label: 'No, and tell Codex what to do differently (esc)' },
+      ]),
+    ).toEqual({ a: 'Allow once', b: 'Always allow commands starting with git status', c: 'Deny' });
+  });
+
+  it('does not flatten a scope it cannot name: it keeps the agent words (or says "for this session")', () => {
+    expect(words([{ id: 'a', label: 'Yes' }, { id: 'b', label: 'Yes, allow all edits during this session (shift+tab)' }])).toEqual({ a: 'Allow once', b: 'Allow for this session' });
+    expect(words([{ id: 'a', label: 'Yes' }, { id: 'b', label: 'Yes, and always trust this folder' }, { id: 'c', label: 'Yes, but only the first file' }])).toEqual({
+      a: 'Allow once',
+      b: 'Yes, and always trust this folder',
+      c: 'Yes, but only the first file',
+    });
+  });
+
+  it('renames only the first no; a second one keeps its words', () => {
+    expect(words([{ id: 'a', label: 'No' }, { id: 'b', label: 'Cancel the whole task' }])).toEqual({ a: 'Deny', b: 'Cancel the whole task' });
+  });
+});
+
+describe('risk words', () => {
+  it('are the words the Rust side uses (attention::model Level::word), so desktop, phone and push agree', () => {
+    const rust = readFileSync(resolve(__dirname, '../../../src-tauri/src/attention/model.rs'), 'utf8');
+    for (const word of Object.values(LEVEL_WORD)) expect(rust).toContain(`"${word}"`);
   });
 });
