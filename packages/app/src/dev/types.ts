@@ -42,8 +42,9 @@ export interface HarnessScenario {
   phonePanes?: PaneInfo[];
   /** App theme the mocked settings store reports (default dark). */
   theme?: 'dark' | 'light';
-  /** Cockpit: start as a brand-new install (no agent was ever opened here). Default: an install that has been used. */
-  firstRun?: boolean;
+  /** Cockpit: start as a brand-new install (no agent was ever opened here). Default: an install that has been used.
+   *  A `firstRun` scenario is a brand-new install too. */
+  newInstall?: boolean;
   /** Cockpit: pane id preselected through `?select=`. */
   select?: string;
   /** Settings > Agents > Preload: the stored idle timeout in seconds (default 1200). */
