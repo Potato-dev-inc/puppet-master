@@ -14,6 +14,7 @@ export function AgentTabBar({
   onSelect,
   onNew,
   onMenu,
+  needsYou,
 }: {
   panes: PaneInfo[];
   labels: Map<string, string>;
@@ -22,9 +23,11 @@ export function AgentTabBar({
   onSelect: (tab: string) => void;
   onNew: () => void;
   onMenu: () => void;
+  /** The PC's one number (open blocking items). Without it (an older PC) the bar counts waiting and failed panes. */
+  needsYou?: number;
 }) {
   const stripRef = useRef<HTMLDivElement>(null);
-  const attention = panes.filter((pane) => statusMeta(pane.status).attention).length;
+  const attention = needsYou ?? panes.filter((pane) => statusMeta(pane.status).attention).length;
 
   useEffect(() => {
     stripRef.current

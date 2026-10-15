@@ -2,7 +2,7 @@
 // terminal tabs) plus an "All" overview. It does not drive the orchestrator. The previous
 // orchestrator-centric mobile UI is kept as PwaLegacyApp.tsx (open with `?pwa=legacy`).
 import { NudgeScheduler } from './lib/nudge-scheduler';
-import { newerSnapshot, type AttentionItem, type AttentionSnapshot } from './lib/attention';
+import { blockingCount, newerSnapshot, type AttentionItem, type AttentionSnapshot } from './lib/attention';
 import { COPY } from './lib/attention-copy';
 import { PROMPT_KINDS } from './lib/needs-you-queue';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -585,6 +585,7 @@ export default function PwaApp() {
           onSelect={selectTab}
           onNew={openNewAgentSheet}
           onMenu={() => setSheet('menu')}
+          needsYou={attention ? blockingCount(attention) : undefined}
         />
         {active !== ALL_TAB && stuck.get(active) && <StuckNote signal={stuck.get(active)!} />}
         {active !== ALL_TAB && previews[active]?.[0] && <PreviewNote preview={previews[active][0]} />}
