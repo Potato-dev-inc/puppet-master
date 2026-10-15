@@ -673,20 +673,7 @@ fn send_task_prompt(
             .filter_map(|message| message.id)
             .collect();
     }
-    // Snapshot the screen right before the prompt is written. A ConPTY screen can lag
-    // and read blank; a blank baseline makes startup furniture look like new output,
-    // so retry briefly before settling for none (completion also guards that case).
-    for attempt in 0..4 {
-        if attempt > 0 {
-            thread::sleep(Duration::from_millis(150));
-        }
-        if let Ok(screen) = registry_read_snapshot(registry, pane_id) {
-            operation.output_baseline = crate::operations::compact_output_baseline(&screen);
-        }
-        if operation.output_baseline.is_some() {
-            break;
-        }
-    }
+    take_output_baseline(operation, registry, pane_id);
     crate::agent_runs::record_user_task(&operation.project_path, &operation.operation_id, &prompt);
     operation.started_at_ms = Some(crate::event_log::now_ms().max(0) as u64);
     *operation = crate::operations::save_operation_snapshot(operation)?;
@@ -727,6 +714,10 @@ fn send_task_prompt(
                 );
                 let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
                 park_on_startup_dialog(operation, registry, pane_id, agent_type, &screen, &[])?;
+                // The screen before the park was the dialog: what the agent draws after the answer
+                // (Codex: its banner and folder line) is not the turn's output (live r16: the result
+                // was the folder path). Measure the turn from the screen as it is now.
+                take_output_baseline(operation, registry, pane_id);
                 // The run's time limit counts from the delivery, not from before the park.
                 operation.started_at_ms = Some(crate::event_log::now_ms().max(0) as u64);
                 *operation = crate::operations::save_operation_snapshot(operation)?;
@@ -902,6 +893,24 @@ fn deliver_task(
             Err(crate::agent_runs::readiness::not_ready_error(&why, &screen, pane_id))
         }
         Delivery::WriteFailed(err) => Err(crate::operations::OperationError::new("DISPATCH_FAILED", err, true)),
+    }
+}
+
+/// The screen right before the task is typed, the baseline the turn's output is measured against
+/// (stored on the run as `output_baseline`; the supervisor adopts it). A ConPTY screen can lag and
+/// read blank; a blank baseline makes startup furniture look like new output, so retry briefly
+/// before settling for none (completion also guards that case).
+fn take_output_baseline(operation: &mut OperationSnapshot, registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) {
+    for attempt in 0..4 {
+        if attempt > 0 {
+            thread::sleep(Duration::from_millis(150));
+        }
+        if let Ok(screen) = registry_read_snapshot(registry, pane_id) {
+            operation.output_baseline = crate::operations::compact_output_baseline(&screen);
+        }
+        if operation.output_baseline.is_some() {
+            break;
+        }
     }
 }
 

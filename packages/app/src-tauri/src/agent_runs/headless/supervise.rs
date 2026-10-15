@@ -60,6 +60,8 @@ struct Supervisor {
     host_shell: HostShellWatch,
     /// Id of the prompt whose Approval entry is already in the transcript (see `record_approval`).
     recorded_prompt: Option<String>,
+    /// The dispatch baseline (`output_baseline`) the watch measures against, once adopted.
+    adopted_baseline: Option<String>,
 }
 
 impl Supervisor {
@@ -80,6 +82,7 @@ impl Supervisor {
             redelivered: false,
             host_shell: HostShellWatch::default(),
             recorded_prompt: None,
+            adopted_baseline: None,
         }
     }
 
@@ -104,7 +107,20 @@ impl Supervisor {
     }
 
     /// Before the turn starts, the screen is the baseline that its output is measured against.
+    ///
+    /// The dispatch's own baseline (`output_baseline`, the screen right before the task is typed,
+    /// taken again after a dialog park) wins over the first screen this supervisor happened to read.
+    /// Live r16 (Codex 0.162.1): the first screen read was the folder-trust dialog; after Trust,
+    /// Codex redrew its banner and folder line, which then counted as the turn's output, and the
+    /// run's result was the folder path.
     fn capture_baseline(&mut self, current: &OperationSnapshot) {
+        if let Some(dispatched) = current.output_baseline.as_ref().filter(|b| !b.trim().is_empty()) {
+            if self.adopted_baseline.as_ref() != Some(dispatched) && !self.watch.saw_task_echo() {
+                self.watch.baseline = dispatched.clone();
+                self.adopted_baseline = Some(dispatched.clone());
+            }
+            return;
+        }
         if !self.watch.baseline.is_empty() {
             return;
         }
