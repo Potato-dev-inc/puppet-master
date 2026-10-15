@@ -86,6 +86,9 @@ pub enum Delivered {
     Stale,
     /// The key could not be written. Nothing was typed.
     Failed { code: String, message: String },
+    /// Nothing was typed: this prompt occurrence was already answered a moment ago (the person's click
+    /// on the PC, `pane_prompt::answers::answer_once`). One key per occurrence, whoever answers.
+    Repeat,
 }
 
 /// What the questions store did.
@@ -292,6 +295,15 @@ fn answer_prompt(env: &dyn Env, caller: &Caller, item: &Item, request: &Request,
             Delivered::Stale if attempt + 1 < MAX_ATTEMPTS => continue,
             Delivered::Stale => return if env.live_prompt(&pane.id).is_some() { changed() } else { gone("moved_on") },
             Delivered::Failed { code, message } => return ok(json!({"outcome": "failed", "code": code, "detail": message})),
+            // The PC answered this very prompt first (the dialog had not redrawn yet): no key, no
+            // second audit line, and the phone is told who did, from the tombstone when it is there.
+            Delivered::Repeat => {
+                let now = env.snapshot();
+                if let Some(done) = now.items.iter().find(|i| i.id == item.id && i.state == State::Resolved) {
+                    return resolved(done, caller);
+                }
+                return ok(json!({"outcome": "already_answered", "by": "pc"}));
+            }
         }
     }
     changed()
@@ -398,6 +410,7 @@ impl Env for RealEnv {
 
     fn deliver(&self, pane_id: &str, prompt_id: &str, choice: &str, permit: &AnswerPermit) -> Delivered {
         match crate::agent_runs::answer_decided(&self.registry, &self.app, pane_id, prompt_id, choice, permit) {
+            Ok(reply) if crate::pane_prompt::reply_was_repeat(&reply) => Delivered::Repeat,
             Ok(_) => Delivered::Typed,
             Err(error) => match error.code.as_str() {
                 "STALE_PROMPT" | "PROMPT_NOT_PENDING" => Delivered::Stale,

@@ -348,3 +348,16 @@ fn a_retry_after_the_tombstone_is_gone_is_still_told_it_went_through_and_never_p
     assert_eq!(outcome(&answer(&env, &all(), &item_id, &env.request_with("allow_once", Some("tap-2"), "pid-1", 3, "x"))), "gone");
     assert_eq!(outcome(&answer(&env, &caller("ben", DeviceCaps::all()), &item_id, &env.request_with("allow_once", Some("tap-1"), "pid-1", 3, "x"))), "gone");
 }
+
+#[test]
+fn the_pc_answered_this_occurrence_a_moment_ago_so_the_phone_is_told_and_nothing_is_typed_or_recorded() {
+    // `answer_once` saw the person's click on the PC first (the dialog had not redrawn yet): the route
+    // reports a repeat. The phone hears "already answered on your PC"; no key, no ledger entry, no line.
+    let env = fresh();
+    *env.deliver_result.lock() = Some(Delivered::Repeat);
+    let reply = answer(&env, &all(), &env.item_id(), &env.request("allow_once", Some("k9")));
+    assert_eq!((reply.0, outcome(&reply), reply.1["by"].as_str()), (200, "already_answered", Some("pc")), "{reply:?}");
+    assert!(env.typed.lock().is_empty());
+    assert!(env.audits.lock().is_empty());
+    assert!(env.notes.lock().is_empty());
+}

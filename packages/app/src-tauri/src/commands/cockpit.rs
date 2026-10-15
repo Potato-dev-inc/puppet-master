@@ -40,7 +40,13 @@ pub async fn answer_pane_prompt(
     gesture: Option<crate::pane_prompt::answers::UserGesture>,
 ) -> Result<(), String> {
     crate::agent_runs::answer_for_pane(&state.registry, &app, &pane_id, &prompt_id, &choice, gesture.as_ref())
-        .map(|_| crate::attention::note_desktop_answer(&pane_id, &choice))
+        // A repeat (this occurrence was already answered, by a phone or an earlier click) sent nothing:
+        // it must not rewrite the card's tombstone as "answered on your PC".
+        .map(|reply| {
+            if !crate::pane_prompt::reply_was_repeat(&reply) {
+                crate::attention::note_desktop_answer(&pane_id, &choice)
+            }
+        })
         .map_err(|e| format!("{}: {}", e.code, e.message))
 }
 

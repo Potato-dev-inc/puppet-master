@@ -242,6 +242,17 @@ steps = [
     let (status_code, reply) = session.answer_from_phone(&item_id, right.clone());
     assert_eq!((status_code, reply["outcome"].as_str()), (200, Some("answered")), "{reply}");
     assert_eq!(reply["choice_label"], "Allowed once");
+    // The person also clicks the same card on the PC a moment later (the dialog may still be drawn):
+    // one key per prompt occurrence, whoever answers (`pane_prompt::answers::answer_once`). The click is
+    // either a repeat that sends nothing or refused as stale; it never types a second key.
+    let prompt_id = prompt["prompt_id"].as_str().expect("a prompt id").to_string();
+    match session.answer_card(&pane, &prompt_id, "allow_once") {
+        Ok(reply) => assert!(
+            reply["already_applied"] == true || reply["answer"]["already_applied"] == true,
+            "a desktop click after the phone's answer must be a repeat: {reply}"
+        ),
+        Err(error) => assert!(matches!(error["code"].as_str(), Some("STALE_PROMPT" | "PROMPT_NOT_PENDING")), "{error}"),
+    }
     let done = wait_for(&session, &handle_of(&parked), TERMINAL, 60);
     if status(&done) != "completed" {
         explain(&session, &done, "the run should complete after the phone's answer");
