@@ -331,3 +331,20 @@ fn a_lock_screen_button_goes_through_the_same_checks_and_is_audited_as_one() {
     let revoked = Caller { lock_screen: true, ..watch_only() };
     assert_eq!(answer(&env, &revoked, &env.item_id(), &env.request("allow_once", None)).0, 403);
 }
+
+#[test]
+fn a_retry_after_the_tombstone_is_gone_is_still_told_it_went_through_and_never_presses_again() {
+    // The answer went through, the reply was lost, and the phone only retries after the card has left the list
+    // (the tombstone lives 15 s): the ledger still knows the key.
+    let env = fresh();
+    let first = answer(&env, &all(), &env.item_id(), &env.request("allow_once", Some("tap-1")));
+    assert_eq!(outcome(&first), "answered");
+    let item_id = env.item_id();
+    env.items.lock().clear();
+    let retry = answer(&env, &all(), &item_id, &env.request_with("allow_once", Some("tap-1"), "pid-1", 3, "x"));
+    assert_eq!((outcome(&retry), retry.1["by"].as_str(), retry.1["choice_label"].as_str()), ("already_answered", Some("you"), Some("Allowed once")));
+    assert_eq!(env.writes(), 1);
+    // Another phone, or a new tap with a new key, gets no such answer: the item is simply gone.
+    assert_eq!(outcome(&answer(&env, &all(), &item_id, &env.request_with("allow_once", Some("tap-2"), "pid-1", 3, "x"))), "gone");
+    assert_eq!(outcome(&answer(&env, &caller("ben", DeviceCaps::all()), &item_id, &env.request_with("allow_once", Some("tap-1"), "pid-1", 3, "x"))), "gone");
+}

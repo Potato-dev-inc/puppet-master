@@ -554,6 +554,18 @@ pub(crate) mod testing {
             }
         }
 
+        /// A request with these exact fields (what a card that has since left the list would send).
+        pub fn request_with(&self, choice: &str, key: Option<&str>, prompt_id: &str, occurrence: u32, fingerprint: &str) -> Request {
+            Request {
+                choice: Some(choice.into()),
+                text: None,
+                prompt_id: Some(prompt_id.into()),
+                occurrence: Some(occurrence),
+                fingerprint: Some(fingerprint.into()),
+                answer_key: key.map(str::to_string),
+            }
+        }
+
         pub fn writes(&self) -> usize {
             self.typed.lock().len()
         }
