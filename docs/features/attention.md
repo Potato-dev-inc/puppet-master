@@ -1,6 +1,6 @@
 # Attention: one list of what needs you
 
-Code: `packages/app/src-tauri/src/attention/`. Design: `D:\pm-night\DESIGN-ATTENTION-PHONE.md` (phases A to C and the M3 rules; the phone card, the answer path and push v2 are not in this build).
+Code: `packages/app/src-tauri/src/attention/`. Design: `D:\pm-night\DESIGN-ATTENTION-PHONE.md` (phases A to F and the M3 rules: the list, the answer path, push v2, the phone card).
 
 ## What and why
 
@@ -18,6 +18,8 @@ The number is `counts.blocking`: open items in the blocking lane. `ready` items 
 | `copy.rs` | the pane heading ("Claude Code 2"), the risk line, plain sentences |
 | `mod.rs` | the process-wide store, `on_pane_status` / `on_prompt` / `on_changed` hooks, `raise` / `clear`, the `attention-tick` thread |
 | `routes.rs`, `caps.rs` | `GET /attention` body; the device's capabilities (`mobile_pairing::Caps`) |
+| `layout.rs`, `fingerprint.rs` | which choice leads and which is focused (`layoutChoices` ported, so the phone and the desktop cannot drift); the screen fingerprint an answer must send back |
+| `answer.rs` | `POST /attention/{id}/answer`: the whole answer sequence, over an `Env` so it is tested with a fake screen |
 
 Wire: `GET /attention` (a paired device needs `watch` or `answer`), `event: attention` carrying the FULL snapshot on the SSE, WebSocket and poll fanout, and the Tauri event `attention://changed` plus command `attention_snapshot`. A client applies a frame only when its `rev` is greater than the last one it applied (`newerSnapshot`), and re-reads `GET /attention` on reconnect. There are no deltas, so there is no drift.
 
@@ -45,6 +47,38 @@ The desktop Inbox still derives its list in TypeScript; dev builds also read the
 - A second prompt on the same pane inside the 30 s window is held, not dropped. When the window ends the attention list says what is still open: nothing (silence), one thing (its normal push) or several (one summary, `<pane> · 2 things need you`, never with a button).
 - `push/golden/*.json` pin the exact payloads (`PM_UPDATE_GOLDEN=1 cargo test --lib push::tests_golden` regenerates them).
 
+## Answering from the phone (`POST /attention/{id}/answer`)
+
+A paired person answers an approval, a folder-trust question, an agent's question, a consent request, a spent budget or a usage limit. Body: `{choice, prompt_id, occurrence, fingerprint, answer_key}` (a question may send `text`). Always HTTP 200 with an `outcome`, so a card never has to guess from a status code:
+
+| `outcome` | When | Typed? |
+|---|---|---|
+| `answered` | everything matched; one key went out | once |
+| `already_answered` | this device's `answer_key` was already answered (a retry), or the item is a tombstone that says who answered (`by`: `you`, `pc`, `phone` + `device_name`) | never |
+| `changed` | a different prompt is up on that pane, or the pane printed under the key | never |
+| `gone` | no prompt is up any more, the agent exited, or the item left | never |
+| `failed` | the key could not be written (`PROMPT_REPLY_FAILED`) | nothing |
+
+Refusals: 403 `DEVICE_CAP_REQUIRED` (`answer`; a budget or usage-limit card needs `control` too), 403 `PERSON_ONLY` (the caller is not a paired device: an MCP session or a plain local program answers with `answer_prompt`, where the agent-authority consent rules apply), 403 `broad_not_from_phone` (no "don't ask again" from a phone), 400 for a missing choice, fingerprint or a choice the prompt does not offer.
+
+The sequence (`answer.rs`): ability, then the idempotency ledger (per device and `answer_key`, 512 entries, 10 min; a `failed` is not remembered, so "Try again" really retries), then the item, then what the card showed against the list, then under the existing answer lock (`agent_runs::serialize_answers`) the live screen is read again and compared (prompt id, occurrence, fingerprint). The key goes through the current answer route (`agent_runs::answer_decided`: checkpoint, run ledger, turn summary) under an `AnswerPermit` (`agent_runs/readiness.rs`): one pane, one prompt, used once, refused when the pane printed since the prompt was re-read (the answer then reads the screen once more and gives up as `changed` if it is not the same prompt). It is never a `GatePermit`, which stays Puppet Master's own dismiss key on a profile-declared notice.
+
+The fingerprint is `sha256(prompt_id, occurrence, kind, summary, choice ids, risk level)[..16]`: not the raw screen (a ticking status line would make every answer stale), but everything the card printed, so a risk read that changed under the same command is refused too. The desktop's own answer (`answer_pane_prompt`) leaves a tombstone note, so a phone that answers late is told "Already answered on your PC: Allowed once."
+
+## The phone card
+
+`components/mobile/ApprovalCard.tsx` draws one item; `lib/approval-card.ts` is the pure view (`cardView`), so every state is tested without React: open, watch-only (no buttons), sending, lost (`Try again` re-sends the same key), offline, failed, answered, already answered, changed ("This question changed. Look again."), gone, expired, no readable prompt, sign-in screen. High risk leads with Deny and focuses it; a folder-trust question leads with Don't trust. `NeedsYouList` is the queue: every open blocking item in the PC's order, a tombstone for 15 s (3 s for this phone's own answer), and a new card is held while a finger is on the list. `DockedCard` sits OVER the top of the open agent's terminal (a terminal that shrinks is refitted and resized, which must never happen because a card appeared) with "n more waiting · Next: ..." under it. Questions, consent, budget and limit cards keep `QuestionsView` (their choices and text come from `GET /questions`).
+
+Deep link: a v2 push carries `item_id`; a tap writes the intent to Cache Storage (`pm-intent`, 60 s) BEFORE it focuses or opens the app, then posts `pm-open-item` or opens `/?item=<id>`. The app (`hooks/usePushIntents.ts`) reads the launch URL, the message and the cache, on start and on every return to the front (an iOS PWA frozen in the background misses the message), opens each intent once, and resolves it against a fresh `GET /attention`: an open card docks in its pane (or opens as a sheet when it has no pane), a tombstone says what happened, an older item says "That request has been dealt with."
+
+## Push v2
+
+Payload `v: 2` adds `item_id`. Each phone gets its own words (`triggers::View`): Android and desktop browsers (`Full`: the calm command line and Allow / Deny when the phone may answer), an iPhone (`Ios`: Apple's push service shows no action buttons, so no command line and no grant; a question is "Question from Claude Code"), and a phone with **Hide details on lock screen** on (`Hidden`: the agent's name and the risk word only; the title is the agent, never the pane's title, which is often the task). The switch is per phone, default OFF (today's behaviour), kept on the PC (`push/store.rs`, `GET|POST /push/preferences`) and shown in the phone's notification settings. New kinds: folder trust (`Trust this folder? · shop`, or `<agent> needs you on your PC` for a sign-in screen), consent (`Codex wants to control Claude Code`), budget (`Budget used up · 20 of 20 turns`), usage limit (`Usage limit · resets 14:05`); none has a lock-screen action. A lock-screen Allow / Deny is bound to the occurrence and fingerprint the notification announced and is answered through the same function as the card (`bridge/routes/push.rs`): a stale tap types nothing and the service worker says "Couldn't send your answer".
+
 ## Not built yet
 
-The phone approval card, `POST /attention/{id}/answer` with the screen fingerprint and the answer ledger, `done` / `review` producers, the iOS / hide-details push variants, `?item=` deep links and the service-worker intent cache. See the design, phases D to H.
+`done` / `review` producers and the phone's "Ready for you" rows, the loop-guard `stuck` card with Give it a hint / Stop / Ask another agent, the phone's "More options" for broad answers (the PC refuses them from a phone), the desktop reading the Rust list instead of deriving in TypeScript (M4, see below). See the design, phases G and H.
+
+## Why the TypeScript derive is still there (M4)
+
+`lib/attention.ts` `deriveNeedsYou` and `useNeedsYouSource` stay. The only thing that would justify deleting them is a dev-only shadow warning that has never fired in a live run, and that warning cannot fire in a built app: it is compiled in only when `import.meta.env.DEV` is true (`hooks/useNeedsYou.ts`), and the live run of this branch is a built exe. The harness and tests without a bridge also render the desktop from the TypeScript derive. The shared corpus keeps the two implementations equal in CI until the desktop reads the Rust list.

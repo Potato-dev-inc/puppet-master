@@ -86,10 +86,23 @@ fn a_screen_that_changed_after_the_card_was_drawn_is_changed_or_gone() {
 }
 
 #[test]
-fn a_write_the_pane_refused_as_stale_is_changed_when_a_prompt_is_up() {
+fn a_pane_that_printed_while_the_route_took_its_checkpoint_gets_one_more_look_at_the_same_prompt() {
+    // The permit refused the first write (output arrived after the prompt was read). The screen is read
+    // again; it is the same prompt, so the key goes out once, under a new permit.
     let env = fresh();
     *env.deliver_result.lock() = Some(Delivered::Stale);
-    assert_eq!(outcome(&answer(&env, &all(), &env.item_id(), &env.request("allow_once", None))), "changed");
+    let reply = answer(&env, &all(), &env.item_id(), &env.request("allow_once", None));
+    assert_eq!(outcome(&reply), "answered");
+    assert_eq!(env.writes(), 1, "typed exactly once");
+}
+
+#[test]
+fn a_screen_that_keeps_changing_under_the_key_is_changed_and_types_nothing() {
+    let env = fresh();
+    *env.always_stale.lock() = true;
+    let reply = answer(&env, &all(), &env.item_id(), &env.request("allow_once", None));
+    assert_eq!(outcome(&reply), "changed");
+    assert_eq!(env.writes(), 0);
     assert_eq!(env.notes.lock().len(), 0, "nothing was answered, so no receipt");
 }
 

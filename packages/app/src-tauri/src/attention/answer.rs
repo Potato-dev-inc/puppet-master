@@ -34,6 +34,8 @@ use std::collections::HashMap;
 pub const LEDGER_CAP: usize = 512;
 pub const LEDGER_TTL_MS: u64 = 10 * 60_000;
 const MAX_KEY_CHARS: usize = 80;
+/// Reads of the live screen an answer makes before it gives up as `changed`.
+const MAX_ATTEMPTS: usize = 2;
 
 pub type Reply = (u16, Value);
 
@@ -251,41 +253,37 @@ fn answer_prompt(env: &dyn Env, caller: &Caller, item: &Item, request: &Request,
     if let Some(label) = key.and_then(|k| env.ledger().lock().get(&caller.device_id, k, env.now_ms())) {
         return already_by_you(&label);
     }
-    // The live screen, again, under the lock: what the card showed is what is answered.
-    let Some(live) = env.live_prompt(&pane.id) else { return gone("moved_on") };
-    let current = env.occurrence(&pane.id);
-    let same = live.rec.prompt_id.as_deref() == Some(prompt_id)
-        && current == occurrence
-        && live.rec.fingerprint(current) == fingerprint;
-    if !same {
-        return changed();
-    }
-    let permit = match AnswerPermit::for_prompt(
-        &pane.id,
-        prompt_id,
-        fingerprint,
-        if caller.lock_screen { Decider::LockScreen(caller.device_id.clone()) } else { Decider::Device(caller.device_id.clone()) },
-        live.observed_pos,
-        live.agent,
-    ) {
-        Ok(permit) => permit,
-        Err(_) => return gone("agent_exited"),
-    };
-    match env.deliver(&pane.id, prompt_id, choice, &permit) {
-        Delivered::Typed => {
-            let now = env.now_ms();
-            recorded(env, caller, item, &label, key, now);
-            ok(json!({"outcome": "answered", "choice_label": label, "at_ms": now}))
+    // The live screen, again, under the lock: what the card showed is what is answered. The key goes
+    // out under a permit for exactly that read; when the pane printed since (a status line ticking
+    // while the route took its checkpoint), the permit refuses and the screen is read ONCE more: the
+    // same prompt still up gets one more try, anything else is `changed` or `gone`. Nothing is typed
+    // into a screen nobody looked at.
+    let decider = if caller.lock_screen { Decider::LockScreen(caller.device_id.clone()) } else { Decider::Device(caller.device_id.clone()) };
+    for attempt in 0..MAX_ATTEMPTS {
+        let Some(live) = env.live_prompt(&pane.id) else { return gone("moved_on") };
+        let current = env.occurrence(&pane.id);
+        let same = live.rec.prompt_id.as_deref() == Some(prompt_id)
+            && current == occurrence
+            && live.rec.fingerprint(current) == fingerprint;
+        if !same {
+            return changed();
         }
-        Delivered::Stale => {
-            if env.live_prompt(&pane.id).is_some() {
-                changed()
-            } else {
-                gone("moved_on")
+        let permit = match AnswerPermit::for_prompt(&pane.id, prompt_id, fingerprint, decider.clone(), live.observed_pos, live.agent) {
+            Ok(permit) => permit,
+            Err(_) => return gone("agent_exited"),
+        };
+        match env.deliver(&pane.id, prompt_id, choice, &permit) {
+            Delivered::Typed => {
+                let now = env.now_ms();
+                recorded(env, caller, item, &label, key, now);
+                return ok(json!({"outcome": "answered", "choice_label": label, "at_ms": now}));
             }
+            Delivered::Stale if attempt + 1 < MAX_ATTEMPTS => continue,
+            Delivered::Stale => return if env.live_prompt(&pane.id).is_some() { changed() } else { gone("moved_on") },
+            Delivered::Failed { code, message } => return ok(json!({"outcome": "failed", "code": code, "detail": message})),
         }
-        Delivered::Failed { code, message } => ok(json!({"outcome": "failed", "code": code, "detail": message})),
     }
+    changed()
 }
 
 fn answer_card(env: &dyn Env, caller: &Caller, item: &Item, request: &Request, key: Option<&str>) -> Reply {
@@ -449,6 +447,8 @@ pub(crate) mod testing {
         pub occurrence: Mutex<u32>,
         pub typed: Mutex<Vec<(String, String)>>,
         pub deliver_result: Mutex<Option<Delivered>>,
+        /// The permit is refused on every write (the pane never stops printing).
+        pub always_stale: Mutex<bool>,
         pub question_result: Mutex<Option<QuestionResult>>,
         pub notes: Mutex<Vec<(String, Resolution)>>,
         pub audits: Mutex<Vec<String>>,
@@ -517,6 +517,7 @@ pub(crate) mod testing {
                 occurrence: Mutex::new(occurrence),
                 typed: Mutex::new(Vec::new()),
                 deliver_result: Mutex::new(None),
+                always_stale: Mutex::new(false),
                 question_result: Mutex::new(None),
                 notes: Mutex::new(Vec::new()),
                 audits: Mutex::new(Vec::new()),
@@ -565,6 +566,9 @@ pub(crate) mod testing {
             Box::new(())
         }
         fn deliver(&self, pane_id: &str, _prompt_id: &str, choice: &str, _permit: &AnswerPermit) -> Delivered {
+            if *self.always_stale.lock() {
+                return Delivered::Stale;
+            }
             if let Some(result) = self.deliver_result.lock().take() {
                 if result != Delivered::Typed {
                     return result;

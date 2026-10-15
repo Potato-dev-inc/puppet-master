@@ -286,6 +286,35 @@ impl Session {
             .map_err(|error| json!({ "code": error.code, "message": error.message }))
     }
 
+    /// The card the attention list shows for the approval or trust question on `pane_id`, as a paired phone
+    /// gets it (`GET /attention`): its opaque id and what an answer must send back. `None` while the list
+    /// has no such card yet.
+    pub fn attention_card(&self, pane_id: &str) -> Option<Value> {
+        let snapshot = crate::attention::snapshot_now();
+        let item = snapshot.items.iter().find(|item| {
+            item.state == crate::attention::model::State::Open
+                && matches!(item.kind, crate::attention::model::Kind::Approval | crate::attention::model::Kind::TrustGate)
+                && item.pane.as_ref().is_some_and(|pane| pane.id == pane_id)
+                && item.prompt.is_some()
+        })?;
+        serde_json::to_value(item).ok()
+    }
+
+    /// A paired phone (all four abilities) answers `item_id` through `POST /attention/{id}/answer`: the very
+    /// function the route calls, on the real registry, the real screen and the real write path. `body` is
+    /// the request JSON; the reply is `(status, body)` as the route would send it.
+    pub fn answer_from_phone(&self, item_id: &str, body: Value) -> (u16, Value) {
+        let request: crate::attention::answer::Request = serde_json::from_value(body).expect("a request body");
+        let caller = crate::attention::answer::Caller {
+            device_id: "e2e-phone".into(),
+            device_name: "E2E phone".into(),
+            caps: crate::attention::caps::DeviceCaps::all(),
+            lock_screen: false,
+        };
+        let env = crate::attention::answer::RealEnv { registry: self.world.registry.clone(), app: self.world.app.clone() };
+        crate::attention::answer::answer(&env, &caller, item_id, &request)
+    }
+
     /// The turn summaries kept for a pane (the card the cockpit shows after a turn).
     pub fn turn_summaries(&self, pane_id: &str) -> Value {
         serde_json::to_value(crate::turn_summary::tracker().summaries(pane_id)).unwrap_or(Value::Null)
