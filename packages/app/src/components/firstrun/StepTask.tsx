@@ -10,6 +10,7 @@ import { explainError } from '../cockpit/error-sentences';
 import { formatElapsed } from '../cockpit/model';
 import { readableReceipt } from '../cockpit/receipt-view';
 import { codeOf, type FirstRunApi, type TaskStarted, type TaskStatus } from './first-run-api';
+import { Answer } from './answer-text';
 import { T, TASK_PROMPT } from './copy';
 import type { Flow, StepId } from './model';
 
@@ -196,7 +197,7 @@ export function StepTask({
             <DotSpinner status="exited" size={3} />
             <h2 className="ck-section">{T.taskAnswerTitle}</h2>
           </div>
-          <p className="fr-answer">{status.result?.trim() || T.taskNoAnswer}</p>
+          {status.result?.trim() ? <Answer text={status.result} /> : <p className="fr-answer">{T.taskNoAnswer}</p>}
 
           <div className="fr-receipt" data-testid="task-receipt">
             <h3 className="fr-cap">{T.receiptTitle}</h3>

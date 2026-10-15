@@ -539,3 +539,39 @@
   color: var(--label-4);
   opacity: 1;
 }
+
+/* The answer is words, not a terminal: paragraphs and lists, code in a quiet chip. */
+.cockpit .fr-answer p {
+  margin: 0;
+}
+.cockpit .fr-answer p + p,
+.cockpit .fr-answer p + ul,
+.cockpit .fr-answer ul + p {
+  margin-top: 8px;
+}
+.cockpit .fr-answer ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.cockpit .fr-code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.cockpit .fr-answer {
+  white-space: normal;
+}
+/* A quiet scrollbar, like the rest of the cockpit's lists. */
+.cockpit .fr-body,
+.cockpit .fr-answer {
+  scrollbar-width: thin;
+  scrollbar-color: var(--label-4) transparent;
+}
+.cockpit .fr-answer ul {
+  list-style: disc;
+}
+.cockpit .fr-answer li + li {
+  margin-top: 3px;
+}

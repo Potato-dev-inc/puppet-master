@@ -27,8 +27,17 @@ export const FIRST_RUN_RECENT: RecentProject[] = [
   { path: 'D:\\code\\old-experiment', name: 'old-experiment', state: 'missing', last_used_ms: now - 9 * 86_400_000 },
 ];
 
-export const TASK_ANSWER =
-  'This is a small online shop. It has a product list, a cart and a checkout page, written in TypeScript with React. The server code is in the api folder, and the pages are in the web folder.';
+// The shape of a real answer from the live run: paragraphs, a list, bold and code marks.
+export const TASK_ANSWER = [
+  'This is a tiny plant shop. The README says it lists plants and lets a visitor add them to a cart, but the code only does the listing part so far.',
+  '',
+  'The project has three files:',
+  '- **`README.md`** is a two-line description.',
+  '- **`package.json`** names the project `tiny-shop` and defines one script, `npm start`, which runs `node src/server.js`.',
+  '- **`src/server.js`** is a plain Node `http` server on port 3000 with two hard-coded plants.',
+  '',
+  "I didn't change any files.",
+].join('\n');
 
 const RECEIPT = {
   backend: 'claude',
