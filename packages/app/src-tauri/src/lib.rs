@@ -95,6 +95,7 @@ mod worker_launch;
 pub mod worktrees;
 pub mod watch_command;
 pub mod env_probe;
+mod webview_service_worker;
 
 use commands::AppState;
 use std::path::{Path, PathBuf};
@@ -385,6 +386,8 @@ pub fn run() {
             commands::audit_verify,
         ])
         .setup(|app| {
+            // Before the first window: an older version's desktop service worker would serve its UI.
+            webview_service_worker::remove_at_startup(app.path().app_local_data_dir().ok());
             // Register approved declarative agent definitions before anything resolves a profile.
             tui::declarative::loader::reload();
             bridge::start_definitions_watcher(app.handle().clone());
