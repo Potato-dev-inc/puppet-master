@@ -20,15 +20,22 @@ tag = "v1"
 new_sqlite_classes = ["Team", "IpGate"]
 
 # Optional limits (defaults match relay/server: 60 envelopes a minute and 5,000 a day per device,
-# 600 a minute per team, 5 join tries per invite, 20 join requests a day per team, 30 unauthenticated
-# requests an hour per address, long polls up to 25 s). Uncomment to change.
+# 600 a minute per team, 300 signed requests a minute per device, 5 join tries per invite, 200 join
+# requests a day per team and 10 an hour per address and team, 30 team registrations an hour per address,
+# 4 open sockets per device, 20,000 envelopes or 128 MiB stored per team, long polls up to 25 s).
+# Uncomment to change.
 # [vars]
 # LIMIT_DEVICE_PER_MINUTE = "60"
 # LIMIT_DEVICE_PER_DAY = "5000"
 # LIMIT_TEAM_PER_MINUTE = "600"
+# LIMIT_DEVICE_REQUESTS_PER_MINUTE = "300"
 # LIMIT_JOINS_PER_INVITE = "5"
-# LIMIT_JOINS_PER_TEAM_PER_DAY = "20"
+# LIMIT_JOINS_PER_TEAM_PER_DAY = "200"
+# LIMIT_JOINS_PER_ADDRESS_PER_HOUR = "10"
 # LIMIT_UNAUTH_PER_IP_PER_HOUR = "30"
+# LIMIT_SOCKETS_PER_DEVICE = "4"
+# LIMIT_TEAM_MAX_ENVELOPES = "20000"
+# LIMIT_TEAM_MAX_BYTES = "134217728"
 # LIMIT_MAX_WAIT_S = "25"
 # Never set TEST_HOOKS on a real deployment: it opens /v1/_test (read and wipe a team's data).
 

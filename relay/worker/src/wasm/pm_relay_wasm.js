@@ -34,6 +34,33 @@ export function authenticate(header, method, path_and_query, body, now_ms) {
 }
 
 /**
+ * A `Batch` as JSON text (see `batch_core`); an empty string when `items` is not what the Worker stores.
+ * @param {string} items
+ * @param {number} next
+ * @param {number} head
+ * @param {boolean} reset
+ * @returns {string}
+ */
+export function batch(items, next, head, reset) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(items, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.batch(retptr, ptr0, len0, next, head, reset);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred2_0 = r0;
+        deferred2_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * @param {Uint8Array} body
  * @param {string} team
  * @param {string} root
@@ -201,6 +228,28 @@ export function is_team_id(id) {
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.is_team_id(ptr0, len0);
     return ret !== 0;
+}
+
+/**
+ * The WebSocket resync frame as JSON text.
+ * @param {number} head
+ * @returns {string}
+ */
+export function resync(head) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.resync(retptr, head);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred1_0 = r0;
+        deferred1_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
+    }
 }
 function __wbg_get_imports() {
     const import0 = {

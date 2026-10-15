@@ -19,7 +19,7 @@ an address, and invite links carry it.
 |---|---|---|
 | Front door | `relay/worker/src/index.ts` | Routes, body caps (413 before anything else, as the server), the device signature, the per-address budget for unauthenticated calls, then the team's object. Works under a path prefix (the app signs the path it used). |
 | Team object | `src/team.ts` | One Durable Object per team, SQLite-backed: team and access list, `roster`/`keys` slots, mailbox, join requests, replay guard, rate-limit windows. Long polls; WebSockets on the **hibernation API** (`acceptWebSocket`, per-socket cursor in the attachment). A device taken off the access list has its open socket closed. |
-| Address gate | `src/gate.ts` | One object per client address (named by a hash, so no address is stored): the 30-an-hour counter for registrations and join requests. |
+| Address gate | `src/gate.ts`, `src/addr.ts` | One object per client address (named by a hash, so no address is stored): the 30-an-hour counter for team registrations. `addr.ts` reduces `CF-Connecting-IP` the way the server does (IPv6 to its /64, IPv4-mapped to IPv4). Join requests are counted in the team's object under the hashed address. |
 | Protocol checks | `relay/worker/wasm` (crate `pm-relay-wasm`) -> `src/wasm/` | `relay/protocol` itself, compiled to WebAssembly: strict Ed25519 verify, the signed bytes, team id = hash(root key, salt), shapes and size rules. It returns the same status codes and messages as the server. Committed, so deploy needs no Rust; `npm run build:wasm` rebuilds it (pinned wasm-bindgen 0.2.129). |
 | Expiry | `Team.alarm()` | Mailbox 7 days, join requests 1 day, replay guard and counters shortly after. Hourly while anything can expire, none when empty. Reads also refuse an expired envelope, so the alarm is housekeeping, not correctness. |
 | Tests | `relay/worker/test`, `scripts/run-tests.mjs` | See Evidence. |
@@ -51,6 +51,34 @@ The deploy button copies the folder into the user's Git account, so the founder'
   `ureq` (the app's HTTP client) then cannot read that body to its end and `RelayTransport::call` fails with "unexpected
   end of file". Every empty reply therefore carries `content-encoding: identity` (`src/http.ts`, `empty()`).
 
+## Mirroring the hardened server (branch `feat/relay-worker-mirror`)
+
+`fix/cowork-hardening` changed the axum relay's protocol and limits; the Worker now follows it rule for rule, and the
+SAME end-to-end tests (`relay/server/tests/protocol.rs`, 20 tests) pass against both:
+
+1. `head` (= `next_seq - 1`) in every `/envelopes` reply.
+2. `reset`: `after > head` gives `reset: true` and the items from the device's join point (`next` = last seq, or
+   `max(head, from_seq)`); a WebSocket connecting past the head first gets `{"reset":true,"head":N}`. `Batch` and
+   `Resync` come from `relay/protocol` through two new wasm functions (`batch`, `resync`); the wasm is rebuilt.
+3. Join points in a `devices(device, from_seq)` table: everyone listed at registration starts at 0; an access-list
+   update deletes the removed and inserts the new at `head`; reads use `seq > max(after, from_seq)`; authorization
+   reads this table. Existing objects are migrated on wake (all listed devices at 0).
+4. A removed device's waiting long poll re-checks membership on wake and gets 403.
+5. `dev-req:{device}`: 300 signed requests a minute, then 429.
+6. Quota: 20,000 envelopes or 128 MiB per team, checked before the insert: `507 {"error":"the team's mailbox is full"}`
+   (replaces the old 429 cap). Counters live in the team row.
+7. At most 4 WebSockets per device: `429 {"error":"too many open connections for this device"}` (the old behaviour
+   closed the oldest). A socket this side is closing no longer counts. Client frames over 4 KiB close the socket.
+8. Join limits in the server's order: `join-ip:{team}:{addr}` 10 an hour, `joins-day` 200 a day, `invite` 5 per
+   join lifetime. Registrations keep their own address bucket. The front door passes the hashed
+   `CF-Connecting-IP` (IPv6 by /64) to the team's object.
+9. Defaults for all of the above in `env.ts` (`LIMIT_*` variables, listed in `wrangler.toml`).
+10. Only the trusted-proxy test stays axum-only: the Worker has no proxy setting, Cloudflare sets `CF-Connecting-IP`.
+
+Test hooks (`TEST_HOOKS=1` only) gained `legacy` (put a team back as the old code left it and wake it, for the
+migration test), and `dump` includes the rate-limit windows. The `limits` hook takes the server's names in camelCase
+(`deviceRequestsPerMinute`, `joinsPerAddressPerHour`, `teamMaxEnvelopes`, `teamMaxBytes`, `socketsPerDevice`, ...).
+
 ## Security review items (D:\pm-night\SECURITY-REVIEW-COWORK.md) not copied into the Worker
 
 - M1 mailbox counter restart: a monotonic per-team counter (`team.next_seq`), test "the relay's cursor never goes back".
@@ -58,12 +86,11 @@ The deploy button copies the folder into the user's Git account, so the founder'
   pruned (every 200 hits and by the alarm); the per-team join budget is counted before per-invite counters. Tests:
   "only devices on the access list leave a trace in the replay guard", "junk invite ids cannot grow the counters".
 - M4: broadcast built once per post to every socket (cursor == seq-1), no per-socket query; catch-up only for a socket
-  that is behind; ACL change closes removed sockets without queries; client frames are ignored; 5 sockets per device.
+  that is behind; ACL change closes removed sockets without queries; client frames are ignored (4 KiB cap); 4 sockets per device.
 - M5: per-address limits read `CF-Connecting-IP`; invite windows have a finite life (1 day); counters are persisted
-  in the team's SQLite; a per-team cap of 20,000 stored envelopes (test "a team's mailbox has a cap").
+  in the team's SQLite; a per-team cap of 20,000 stored envelopes or 128 MiB (507; test "a team's mailbox has a cap").
 - Not done: rate-limiting failed signatures per address (left to a Cloudflare WAF rule, noted in the README).
-- `fix/cowork-hardening` (D:\pm-cowork-harden) had not landed when this was written (no commits past 2111483), so the
-  semantics are from the review text; compare the final server numbers (invite lifetime, caps) when it lands.
+- The hardening has landed and is mirrored (section above), so the numbers are the server's.
 
 ## Settings copy
 
@@ -107,6 +134,8 @@ likely merge hot-spots with any other co-work branch.
 - `relay/Dockerfile` was written but not built (no Docker engine running here).
 - The wasm in `src/wasm/` is committed. Rebuilding it here twice gave the same sha256 (`597eeb36...`), but a CI check
   that a rebuild matches the committed file is not set up.
-- The server's `MAX(seq)+1` behaviour (above) is not fixed on this branch.
+- The server's `MAX(seq)+1` behaviour (above) was fixed by the hardening; the Worker's counter now agrees with it.
 - There is no Puppet Master-hosted relay yet; the Settings line mentions it as the founder asked.
-- Not done: billing/auth for a paid hosted relay, per-team storage caps, an admin page.
+- Not done: billing/auth for a paid hosted relay, an admin page.
+- The Worker still writes its rate-limit windows to storage (the server keeps them in memory), so a read costs about
+  three row writes; the paid plan or a lower `LIMIT_DEVICE_REQUESTS_PER_MINUTE` is the lever if that matters.
