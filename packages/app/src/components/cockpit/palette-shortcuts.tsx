@@ -1,5 +1,7 @@
 // Palette commands for features that otherwise hide three screens deep in Settings. Each one only
 // opens the place where the feature lives (or flips Simple mode), so nothing happens by surprise.
+// They open Settings on the feature's own row (a row id is a deep link, `lib/settings-target.ts`).
+// This is the palette's only Simple mode command (the welcome flow adds "Welcome tour" in Palette.tsx).
 // Words follow the shared word list: Live updates, Budgets, Team, Simple mode, Pair a phone.
 import type { ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
@@ -36,7 +38,7 @@ export function settingsShortcuts(c: Pick<CockpitApi, 'openSettings' | 'notify'>
       desc: 'What Claude Code and Codex report while they work',
       keywords: 'hooks watch report trust agents',
       icon: <IconTerminal />,
-      run: open('agents'),
+      run: open('live-updates'),
     },
     {
       id: 'act:budgets',
@@ -45,7 +47,7 @@ export function settingsShortcuts(c: Pick<CockpitApi, 'openSettings' | 'notify'>
       desc: 'Pause an agent after a number of turns or minutes',
       keywords: 'budget limit cost spend brake turns time',
       icon: <IconSettings />,
-      run: open('general'),
+      run: open('budget-turns'),
     },
     {
       id: 'act:team',
@@ -54,7 +56,7 @@ export function settingsShortcuts(c: Pick<CockpitApi, 'openSettings' | 'notify'>
       desc: 'Tell teammates when your agent pushes',
       keywords: 'team heads-up co-work teammates push labs shared',
       icon: <IconSettings />,
-      run: open('general'),
+      run: open('team'),
     },
     {
       id: 'act:pair-phone',
@@ -63,7 +65,7 @@ export function settingsShortcuts(c: Pick<CockpitApi, 'openSettings' | 'notify'>
       desc: 'Watch and answer your agents from your phone',
       keywords: 'phone mobile qr code pairing connect remote',
       icon: <IconSettings />,
-      run: open('phone'),
+      run: open('pairing'),
     },
     {
       id: 'act:diagnostic',
@@ -72,7 +74,7 @@ export function settingsShortcuts(c: Pick<CockpitApi, 'openSettings' | 'notify'>
       desc: 'One .zip for support. You see what is in it first.',
       keywords: 'diagnostic bug report logs support export zip help problem',
       icon: <IconNote />,
-      run: open('general'),
+      run: open('diagnostic-file'),
     },
   ];
 }

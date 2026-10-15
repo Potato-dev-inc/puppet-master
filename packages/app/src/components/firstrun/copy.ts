@@ -120,8 +120,6 @@ export const T = {
 
   // Palette and Settings
   paletteTitle: 'Welcome tour',
-  paletteSimpleTitle: 'Turn on Simple mode',
-  paletteSimpleDesc: 'Fewer buttons and plain words. Turn it off on its home screen.',
   paletteDesc: 'Set up agents, pick a project and try a first task',
   settingLabel: 'Welcome',
   settingHint: 'Go through the first-run welcome again. It never changes your settings unless you choose.',

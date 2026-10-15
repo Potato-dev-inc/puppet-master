@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import * as settings from '../../lib/settings';
+import { resolveSettingsTarget } from '../../lib/settings-target';
 import { Palette } from './Palette';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -64,18 +65,34 @@ describe('palette commands for features that hide', () => {
   });
 
   it.each([
-    ['Pair a phone…', 'phone'],
-    ['Live updates…', 'agents'],
-    ['Budgets…', 'general'],
-    ['Team…', 'general'],
-    ['Save a diagnostic file…', 'general'],
-  ])('"%s" opens Settings on %s and closes the palette', (title, tab) => {
+    ['Pair a phone…', 'pairing'],
+    ['Live updates…', 'live-updates'],
+    ['Budgets…', 'budget-turns'],
+    ['Team…', 'team'],
+    ['Save a diagnostic file…', 'diagnostic-file'],
+  ])('"%s" opens Settings on its row (%s) and closes the palette', (title, tab) => {
     const c = cockpit();
     const onClose = vi.fn();
     act(() => root.render(<Palette c={c} onClose={onClose} />));
     act(() => rowFor(title)!.click());
     expect(c.openSettings).toHaveBeenCalledWith(tab);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['live-updates', 'general'],
+    ['budget-turns', 'general'],
+    ['team', 'general'],
+    ['pairing', 'phone'],
+    ['diagnostic-file', 'general'],
+  ])('the row %s is a real Settings row (in %s)', (row, page) => {
+    expect(resolveSettingsTarget(row)).toEqual({ page, row });
+  });
+
+  it('has one Simple mode command, next to the welcome flow\'s "Welcome tour"', () => {
+    act(() => root.render(<Palette c={cockpit()} onClose={vi.fn()} onOpenWelcome={vi.fn()} />));
+    expect(rows().filter((r) => /simple mode/i.test(titleOf(r) ?? ''))).toHaveLength(1);
+    expect(rowFor('Welcome tour')).toBeTruthy();
   });
 
   it('"Switch to Simple mode" turns the setting on', () => {

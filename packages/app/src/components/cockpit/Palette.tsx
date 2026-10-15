@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
-import { patchSettings } from '../../lib/settings';
 import { openPreview, previewLabel } from '../../lib/pane-preview';
 import { T as WELCOME } from '../firstrun/copy';
 import { DotSpinner } from './DotSpinner';
@@ -129,14 +128,6 @@ export function Palette({
         run: onOpenDoctor,
       });
     }
-    out.push({
-      id: 'act:simple',
-      group: 'Actions',
-      title: WELCOME.paletteSimpleTitle,
-      desc: WELCOME.paletteSimpleDesc,
-      icon: <IconLayers />,
-      run: () => void patchSettings({ simple_mode: true }),
-    });
     if (onOpenWelcome) {
       out.push({
         id: 'act:welcome',
@@ -192,7 +183,7 @@ export function Palette({
       },
     );
     return out;
-  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onUndoLastTurn]);
+  }, [c, onOpenDoctor, onStopAll, onOpenMemory, onUndoLastTurn, onOpenWelcome]);
 
   const filtered = useMemo(
     () => items.filter((i) => matchesQuery(`${i.title} ${i.desc ?? ''} ${i.keywords ?? ''} ${i.group}`, query)),
