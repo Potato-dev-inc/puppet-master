@@ -642,3 +642,86 @@ fn a_refused_agent_merge_is_written_to_the_audit_log() {
     let lines = crate::audit::global().recent(500);
     assert!(lines.iter().any(|e| e.kind == "merge" && e.detail["handle"] == "gate-audit" && e.detail["allowed"] == false), "{lines:?}");
 }
+
+// ---- one brain inside a separate copy (UX audit: `D AGENTS.md` / `D CLAUDE.md` in Changes) ----
+
+fn brain_targets() -> Vec<crate::one_brain::Target> {
+    ["CLAUDE.md", "AGENTS.md"]
+        .iter()
+        .map(|p| crate::one_brain::Target { path: (*p).into(), header: None, agents: vec!["x".into()] })
+        .collect()
+}
+
+/// A project whose AGENTS.md / CLAUDE.md are committed holding only Puppet Master's block (the R13
+/// fixture), with the memory kept out of git like a normal project.
+fn repo_with_committed_blocks() -> Repo {
+    let repo = repo();
+    repo.write(".git/info/exclude", ".puppet-master/\n");
+    crate::one_brain::write_memory(&repo.root, "We use Postgres.").unwrap();
+    let report = crate::one_brain::sync(&repo.root, &brain_targets(), true);
+    assert_eq!(report.written.len(), 2, "{report:?}");
+    repo.commit_all("commit the memory blocks");
+    repo
+}
+
+#[test]
+fn a_separate_copy_of_a_project_with_committed_memory_blocks_never_shows_them_as_deleted_or_merges_a_deletion() {
+    for memory_in_origin in [false, true] {
+        let repo = repo_with_committed_blocks();
+        let claude = repo.read("CLAUDE.md");
+        let agents = repo.read("AGENTS.md");
+        assert!(claude.contains("We use Postgres."));
+        if !memory_in_origin {
+            std::fs::remove_file(crate::one_brain::memory_path(&repo.root)).unwrap(); // R13: no memory.md
+        }
+        // What a spawn does in the project, then in the new copy.
+        crate::one_brain::sync(&repo.root, &brain_targets(), true);
+        let wt = create(&repo.path(), "run-brain").unwrap();
+        let work = PathBuf::from(&wt.path);
+        let report = crate::one_brain::sync(&work, &brain_targets(), true);
+        assert!(report.errors.is_empty(), "[origin memory {memory_in_origin}] {report:?}");
+        std::fs::write(work.join("added.txt"), "one new file\n").unwrap();
+
+        let listed = changes(&wt).unwrap();
+        let paths: Vec<(&str, &str)> = listed.files.iter().map(|f| (f.path.as_str(), f.status.as_str())).collect();
+        assert_eq!(paths, [("added.txt", "added")], "[origin memory {memory_in_origin}] only the added file");
+        assert!(work.join("CLAUDE.md").is_file() && work.join("AGENTS.md").is_file());
+
+        let outcome = merge(&wt).unwrap();
+        assert!(outcome.merged);
+        assert_eq!(outcome.files, ["added.txt"]);
+        assert_eq!(repo.read("CLAUDE.md"), claude, "[origin memory {memory_in_origin}] merge left CLAUDE.md alone");
+        assert_eq!(repo.read("AGENTS.md"), agents, "[origin memory {memory_in_origin}] merge left AGENTS.md alone");
+        let dirty = repo.git(&["status", "--porcelain"]);
+        assert!(!dirty.contains("AGENTS.md") && !dirty.contains("CLAUDE.md"), "[origin memory {memory_in_origin}] the project is dirty: {dirty}");
+        let gone = repo.git(&["diff", "--diff-filter=D", "--name-only", &wt.base_commit, "HEAD"]);
+        assert_eq!(gone, "", "[origin memory {memory_in_origin}] the merge deleted nothing");
+    }
+}
+
+#[test]
+fn a_separate_copy_keeps_the_projects_memory_block_in_a_tracked_file_the_user_also_wrote_in() {
+    // CLAUDE.md is the user's own file with Puppet Master's block inside; the memory itself is not in
+    // git. The copy has no memory.md, so a naive sync would strip the block there, and Merge would
+    // then strip it from the user's tracked file.
+    let repo = repo();
+    repo.write(".git/info/exclude", ".puppet-master/\n");
+    repo.write("CLAUDE.md", "# My rules\n\nUse tabs.\n");
+    crate::one_brain::write_memory(&repo.root, "We use Postgres.").unwrap();
+    crate::one_brain::sync(&repo.root, &brain_targets(), true);
+    repo.commit_all("rules plus the memory block");
+    let claude = repo.read("CLAUDE.md");
+    assert!(claude.contains("We use Postgres.") && claude.contains("Use tabs."));
+
+    let wt = create(&repo.path(), "run-brain-user").unwrap();
+    let work = PathBuf::from(&wt.path);
+    crate::one_brain::sync(&work, &brain_targets(), true);
+    std::fs::write(work.join("added.txt"), "one new file\n").unwrap();
+    assert_eq!(std::fs::read_to_string(work.join("CLAUDE.md")).unwrap(), claude, "the copy carries the same block");
+
+    let listed = changes(&wt).unwrap();
+    let paths: Vec<&str> = listed.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["added.txt"], "the memory block is not the agent's change");
+    assert!(merge(&wt).unwrap().merged);
+    assert_eq!(repo.read("CLAUDE.md"), claude);
+}
