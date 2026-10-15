@@ -53,10 +53,20 @@ impl World {
         std::env::set_var(crate::app_paths::PROFILE_ENV, "fake-tui-e2e");
         // Leftovers of earlier runs (a failed test keeps its folder to be looked at).
         if let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) {
-            let mine = format!("pm-fake-tui-e2e-{}", std::process::id());
+            // `pm-ftui-e2e-<pid>`: older builds of this harness wipe every `pm-fake-tui-e2e-*` folder but their
+            // own, including a parallel run's from another worktree.
+            let mine = format!("pm-ftui-e2e-{}", std::process::id());
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with("pm-fake-tui-e2e-") && name != mine {
+                // Only old leftovers: another worktree's e2e run may be using its folder right now (several
+                // branches run this suite at once on one machine, and each wiped the others' projects).
+                let stale = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age > Duration::from_secs(6 * 3600));
+                if (name.starts_with("pm-fake-tui-e2e-") || name.starts_with("pm-ftui-e2e-")) && name != mine && stale {
                     let _ = std::fs::remove_dir_all(entry.path());
                 }
             }
@@ -115,7 +125,7 @@ impl World {
     /// test opens is closed again when the session drops.
     pub fn session(&'static self, name: &str) -> Session {
         let guard = self.serial.lock();
-        let root = std::env::temp_dir().join(format!("pm-fake-tui-e2e-{}", std::process::id())).join(name);
+        let root = std::env::temp_dir().join(format!("pm-ftui-e2e-{}", std::process::id())).join(name);
         let _ = std::fs::remove_dir_all(&root);
         let project = root.join("project");
         let aux = root.join("aux");
@@ -332,8 +342,71 @@ impl Session {
     }
 }
 
+/// Missions (Preview) driven the way the desktop's commands drive them: the real engine, the real
+/// live world (`run_agent` / `followup_task` into fake panes), real checks in the mission's copy.
+impl Session {
+    /// Starts a mission in this session's project. `checks` are argvs; the budget is in turns.
+    pub fn mission_start(&self, agents: &[&str], objective: &str, checks: &[&[&str]], turns: u32, may_change_tests: bool) -> Result<Value, Value> {
+        let checks = checks
+            .iter()
+            .map(|argv| crate::missions::model::MissionCheck {
+                name: crate::missions::routes::name_for(&argv.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+                check: crate::agent_runs::checks::Check::CommandExits { command: argv.iter().map(|s| s.to_string()).collect(), expect_exit: 0, timeout_ms: Some(60_000) },
+            })
+            .collect();
+        let agents = agents.iter().map(|a| crate::missions::model::AgentChoice { agent_type: a.to_string(), account: None, model: None }).collect();
+        let mut req = crate::missions::StartRequest::new(&self.project.to_string_lossy(), objective, checks, agents);
+        req.budget_turns = Some(turns);
+        req.may_change_tests = Some(may_change_tests);
+        req.round_timeout_ms = 120_000;
+        crate::missions::start(req)
+            .map(|m| crate::missions::routes::agent_object(&m))
+            .map_err(|e| json!({ "code": e.code, "message": e.message }))
+    }
+
+    /// The mission's view (what `inspect_agent` returns for its handle).
+    pub fn mission(&self, id: &str) -> Value {
+        crate::missions::find(id).map(|m| crate::missions::routes::agent_object(&m)).unwrap_or(Value::Null)
+    }
+
+    /// Waits until the mission's state is one of `states` (`green`, `needs_you`, `stopped`...).
+    pub fn mission_wait(&self, id: &str, states: &[&str], secs: u64) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        loop {
+            let view = self.mission(id);
+            let state = view["stage"].as_str().unwrap_or_default().to_string();
+            if states.contains(&state.as_str()) || Instant::now() >= deadline {
+                return view;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+
+    /// The person's answer to a mission card (`undo_tests`, `accept_tests`, `hand_to_me`...).
+    pub fn mission_decide(&self, id: &str, choice: &str) -> Result<Value, Value> {
+        crate::missions::decide_card(id, choice, "you")
+            .map(|m| crate::missions::routes::agent_object(&m))
+            .map_err(|e| json!({ "code": e.code, "message": e.message }))
+    }
+
+    pub fn mission_stop(&self, id: &str) {
+        let _ = crate::missions::stop(id, "you");
+    }
+
+    /// The mission's own event log (`rounds.jsonl`).
+    pub fn mission_log(&self, id: &str) -> Vec<Value> {
+        crate::missions::store::project_of(id).map(|p| crate::missions::store::read_log_all(&p, id)).unwrap_or_default()
+    }
+}
+
 impl Drop for Session {
     fn drop(&mut self) {
+        // A mission the test left running stops with it (its engine would keep starting turns).
+        for m in crate::missions::store::list(&self.project.to_string_lossy()) {
+            if m.state.active() {
+                let _ = crate::missions::stop(&m.id, "you");
+            }
+        }
         let panes = self.pane_ids();
         for pane in panes {
             self.close_pane(&pane);
