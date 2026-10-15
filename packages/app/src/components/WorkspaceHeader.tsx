@@ -1,7 +1,8 @@
 import { homeDir } from '@tauri-apps/api/path';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useCallback, useState } from 'react';
-import { listLaunchPresets, type AgentType } from '@puppet-master/shared';
+import type { AgentType } from '@puppet-master/shared';
+import { launchMenuEntries, useAgentRegistry } from '../lib/agentRegistry';
 import logoUrl from '../assets/branding/logo.svg';
 
 interface Props {
@@ -24,7 +25,7 @@ export function WorkspaceHeader({
   onGoHome,
 }: Props) {
   const [showNewSession, setShowNewSession] = useState(false);
-  const presets = listLaunchPresets();
+  const presets = launchMenuEntries(useAgentRegistry());
 
   const pickPath = useCallback(async () => {
     const result = await openDialog({
@@ -72,7 +73,7 @@ export function WorkspaceHeader({
             New session
           </button>
           {showNewSession && (
-            <div className="absolute top-full right-0 mt-1 z-20 w-44 rounded-md border border-pm-border bg-pm-panel shadow-lg">
+            <div className="absolute top-full right-0 mt-1 z-20 w-64 rounded-md border border-pm-border bg-pm-panel shadow-lg">
               {presets.map((p) => (
                 <button
                   key={p.type}
@@ -80,9 +81,16 @@ export function WorkspaceHeader({
                     setShowNewSession(false);
                     void onNewSession(p.type);
                   }}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-pm-border/40"
+                  disabled={p.disabled}
+                  title={p.disabledReason}
+                  data-testid={`new-session-${p.type}`}
+                  className="w-full text-left px-3 py-2 text-xs hover:bg-pm-border/40 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                 >
                   {p.label}
+                  {p.experimental && <span className="ml-1 text-[10px] text-pm-warn">experimental</span>}
+                  {p.disabledReason && (
+                    <span className="block text-[10px] text-pm-muted">{p.disabledReason}</span>
+                  )}
                 </button>
               ))}
             </div>

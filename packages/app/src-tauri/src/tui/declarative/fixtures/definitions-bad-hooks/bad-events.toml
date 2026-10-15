@@ -1,0 +1,40 @@
+# expect-code: AGENT_DEF_HOOKS_EVENT
+# Unknown PM event kind, a field turn_end may not carry, and a missing required field.
+schema_version = 1
+
+[agent]
+id = "hookbad"
+label = "Hook Bad"
+
+[binary]
+names = ["hookbad-fixture-not-installed"]
+install_hint = "fixture only"
+
+[tui]
+argv = []
+
+[hooks]
+schema = 1
+install = "project_file"
+[hooks.project_file]
+path = ".mycoder/hooks.json"
+layout = "event_groups"
+root_key = "hooks"
+[hooks.entry]
+type = "command"
+command = "{exe_quoted} {args_joined}"
+
+[[hooks.events]]
+vendor = "Stop"
+pm = "turn_finished"
+fields = { session = "session_id" }
+
+[[hooks.events]]
+vendor = "UserPromptSubmit"
+pm = "prompt_submitted"
+fields = { session = "session_id", final_text = "last_assistant_message" }
+
+[[hooks.events]]
+vendor = "PermissionRequest"
+pm = "permission_request"
+fields = { session = "session_id" }

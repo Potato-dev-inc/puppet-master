@@ -1,0 +1,96 @@
+HTTP/2.0 200 OK
+Cache-Control: private, max-age=60, s-maxage=60
+Content-Type: application/json; charset=utf-8
+Etag: W/"389507365279232f453d267e0f1b32d591530ff1fbc31160108aba5d1e900ffe"
+X-Ratelimit-Remaining: 4998
+
+[
+ {
+  "url": "https://api.github.com/repos/cli/cli/pulls/14640",
+  "html_url": "https://github.com/cli/cli/pull/14640",
+  "number": 14640,
+  "state": "open",
+  "title": "`gh issue artifact` stack 11/12: Address review feedback",
+  "draft": false,
+  "created_at": "2026-10-09T19:39:42Z",
+  "updated_at": "2026-10-14T09:38:22Z",
+  "closed_at": null,
+  "merged_at": null,
+  "user": {
+   "login": "BagToad"
+  },
+  "head": {
+   "ref": "bagtoad/artifact-review-feedback",
+   "sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f"
+  },
+  "base": {
+   "ref": "bagtoad/artifact-restore-version"
+  }
+ },
+ {
+  "url": "https://api.github.com/repos/cli/cli/pulls/14679",
+  "html_url": "https://github.com/cli/cli/pull/14679",
+  "number": 14679,
+  "state": "open",
+  "title": "Reject terminal stdin for `gh auth login --with-token`",
+  "draft": true,
+  "created_at": "2026-10-14T05:05:15Z",
+  "updated_at": "2026-10-14T05:07:25Z",
+  "closed_at": null,
+  "merged_at": null,
+  "user": {
+   "login": "BagToad"
+  },
+  "head": {
+   "ref": "bagtoad/auth-login-with-token-tty-error",
+   "sha": "2de1e0886a0cf896165db70e7729b28bd5b0febc"
+  },
+  "base": {
+   "ref": "trunk"
+  }
+ },
+ {
+  "url": "https://api.github.com/repos/cli/cli/pulls/14678",
+  "html_url": "https://github.com/cli/cli/pull/14678",
+  "number": 14678,
+  "state": "open",
+  "title": "`gh issue artifact` stack 12/12: Add artifact URLs",
+  "draft": true,
+  "created_at": "2026-10-14T04:39:25Z",
+  "updated_at": "2026-10-14T04:40:25Z",
+  "closed_at": null,
+  "merged_at": null,
+  "user": {
+   "login": "BagToad"
+  },
+  "head": {
+   "ref": "bagtoad/artifact-urls",
+   "sha": "ea5512228b30fe38b68b18232acc4dc8f29acd3a"
+  },
+  "base": {
+   "ref": "bagtoad/artifact-review-feedback"
+  }
+ },
+ {
+  "url": "https://api.github.com/repos/cli/cli/pulls/14676",
+  "html_url": "https://github.com/cli/cli/pull/14676",
+  "number": 14676,
+  "state": "closed",
+  "title": "Fix: `gh auth login --with-token` hangs",
+  "draft": false,
+  "created_at": "2026-10-14T00:48:16Z",
+  "updated_at": "2026-10-14T02:35:14Z",
+  "closed_at": "2026-10-14T02:35:13Z",
+  "merged_at": null,
+  "user": {
+   "login": "goransh-walia"
+  },
+  "head": {
+   "ref": "fix/issue-9789-768",
+   "sha": "1786bb716d516b06a24ed3d0b4236b350f0ce961"
+  },
+  "base": {
+   "ref": "trunk"
+  }
+ }
+]

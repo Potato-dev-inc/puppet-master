@@ -1,0 +1,16 @@
+---
+source: src/replay/corpus_tests.rs
+expression: timeline.render()
+---
+      0 ms  status    running (start)
+    600 ms  gate      update_available
+    600 ms  composer  Unknown
+    720 ms  input     "\u{1b}"  [typed over 'update_available']
+    800 ms  gate      -
+    800 ms  composer  Empty
+    880 ms  input     "\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}\u{15}"
+   1000 ms  input     "Reply with the single word FIVE. Do not use any tools."
+   1030 ms  composer  HasText
+   1520 ms  input     "" + Enter
+   1570 ms  composer  Empty
+   1600 ms  deliver   Started

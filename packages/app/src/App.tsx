@@ -8,7 +8,7 @@ import { HomeDashboard } from './components/HomeDashboard';
 import { usePaneRegistry } from './hooks/usePaneRegistry';
 import { useProjectPath } from './hooks/useProjectPath';
 import { useBridge } from './hooks/useBridge';
-import { clampSidebarWidth, loadSettings, saveSettings, syncPublicSettingsToBridge } from './lib/settings';
+import { clampSidebarWidth, loadSettings, patchSettings, syncPublicSettingsToBridge } from './lib/settings';
 import {
   applyRemoteOrchestratorProviderPatch,
   publicSettingsToProviderPatch,
@@ -30,6 +30,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsRevision, setSettingsRevision] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(360);
+  const [runPaneIds, setRunPaneIds] = useState<Set<string>>(() => new Set());
   const [detachedPaneIds, setDetachedPaneIds] = useState<Set<string>>(() => new Set());
   const bumpSettings = useCallback(() => setSettingsRevision((n) => n + 1), []);
   const markPaneDetached = useCallback((paneId: string) => {
@@ -65,6 +66,7 @@ export default function App() {
     let unlistenApply: (() => void) | null = null;
     let unlistenDetach: (() => void) | null = null;
     let unlistenReattach: (() => void) | null = null;
+    let unlistenShowInGrid: (() => void) | null = null;
 
     void (async () => {
       unlistenDetach = await tauri.onPaneDetach((event) => {
@@ -75,12 +77,18 @@ export default function App() {
               event.pane_id,
               event.title ?? `Pane ${event.pane_id.slice(0, 8)}`,
               detachedWindowSizeFromGrid(event.cols, event.rows),
+              { background: true },
             );
             markPaneDetached(event.pane_id);
           } catch (err) {
             console.error('[App] failed to detach pane', err);
           }
         })();
+      });
+      // An agent run's visible pane lives in the left grid: show the Workspace (no focus steal).
+      unlistenShowInGrid = await tauri.onPaneShowInGrid((event) => {
+        setRunPaneIds((prev) => new Set(prev).add(event.pane_id));
+        setScreen('workspace');
       });
       unlistenReattach = await tauri.onPaneReattach((event) => {
         markPaneAttached(event.pane_id);
@@ -93,26 +101,29 @@ export default function App() {
         }
 
         if (typeof patch.mobile_input_delay_ms === 'number' || typeof patch.mobile_input_visible === 'boolean') {
-          const current = await loadSettings();
-          const merged = { ...current };
-          if (typeof patch.mobile_input_delay_ms === 'number') {
-            merged.mobile_input_delay_ms = patch.mobile_input_delay_ms;
-          }
-          if (typeof patch.mobile_input_visible === 'boolean') {
-            merged.mobile_input_visible = patch.mobile_input_visible;
-          }
-          await saveSettings(merged);
+          const changed: { mobile_input_delay_ms?: number; mobile_input_visible?: boolean } = {};
+          if (typeof patch.mobile_input_delay_ms === 'number') changed.mobile_input_delay_ms = patch.mobile_input_delay_ms;
+          if (typeof patch.mobile_input_visible === 'boolean') changed.mobile_input_visible = patch.mobile_input_visible;
+          await patchSettings(changed);
         }
 
         bumpSettings();
       });
-      if (cancelled) unlistenApply?.();
+      if (cancelled) {
+        // StrictMode / hot reload can run cleanup before these async listeners resolve:
+        // a leaked pane://detach listener opens a second window for every pane.
+        unlistenDetach?.();
+        unlistenReattach?.();
+        unlistenShowInGrid?.();
+        unlistenApply?.();
+      }
     })();
 
     return () => {
       cancelled = true;
       unlistenDetach?.();
       unlistenReattach?.();
+      unlistenShowInGrid?.();
       unlistenApply?.();
     };
   }, [bumpSettings, markPaneAttached, markPaneDetached]);
@@ -170,6 +181,7 @@ export default function App() {
               projectPath={projectPath}
               onClosePane={handleClose}
               detachedPaneIds={detachedPaneIds}
+              runPaneIds={runPaneIds}
               onDetachPane={markPaneDetached}
             />
             <div
@@ -188,7 +200,7 @@ export default function App() {
                   const delta = startX - moveEvent.clientX;
                   const next = clampSidebarWidth(startWidth + delta);
                   setSidebarWidth(next);
-                  void loadSettings().then((current) => saveSettings({ ...current, sidebar_width: next }));
+                  void patchSettings({ sidebar_width: next });
                 };
                 const up = (upEvent: globalThis.PointerEvent) => {
                   target.releasePointerCapture(upEvent.pointerId);
@@ -221,8 +233,6 @@ export default function App() {
         onSaved={bumpSettings}
         projectPath={projectPath}
         onProjectPathChange={setProjectPath}
-        onSidebarWidthChange={setSidebarWidth}
-        currentSidebarWidth={sidebarWidth}
         onCheckForUpdates={() => void appUpdate.refresh()}
         updateCheck={appUpdate.result}
         updateChecking={appUpdate.checking}

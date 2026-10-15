@@ -1,6 +1,6 @@
 {
   "name": "@puppet-master/mcp",
-  "version": "0.1.5",
+  "version": "0.2.1",
   "description": "Puppet Master MCP server — stdio JSON-RPC bridge to the local HTTP bridge",
   "license": "MIT",
   "repository": {

@@ -15,6 +15,14 @@ use std::thread;
 const HOST: &str = "127.0.0.1";
 pub const PWA_PORT: u16 = 1420;
 
+/// The port the PWA server really listens on: `PWA_PORT` for the default profile, a free one for
+/// a non-default profile (`app_paths::pwa_port_for`). `PWA_PORT` until the server has started.
+pub fn pwa_port() -> u16 {
+    BOUND_PORT.get().copied().unwrap_or(PWA_PORT)
+}
+
+static BOUND_PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DevInfoPayload {
@@ -48,8 +56,12 @@ pub fn start_pwa_server(
         ));
     }
 
-    let listener = TcpListener::bind((HOST, PWA_PORT))
-        .map_err(|err| format!("bind PWA server on {HOST}:{PWA_PORT}: {err}"))?;
+    let wanted = crate::app_paths::pwa_port_for(crate::app_paths::profile().as_deref());
+    let listener = TcpListener::bind((HOST, wanted))
+        .map_err(|err| format!("bind PWA server on {HOST}:{wanted}: {err}"))?;
+    if let Ok(addr) = listener.local_addr() {
+        let _ = BOUND_PORT.set(addr.port());
+    }
 
     let join = thread::Builder::new()
         .name("puppet-master-pwa-server".into())
@@ -136,13 +148,24 @@ fn handle_connection(
         } else {
             bridge_path
         };
-        // The query string travels with the path (`/panes/x/buffer?view=...`).
+        // The query string travels with the path (`/events/poll?cursor=...`, `/panes/x/buffer?view=...`).
         let bridge_path = if query.is_empty() {
             bridge_path.to_string()
         } else {
             format!("{bridge_path}?{query}")
         };
         let bridge_path = bridge_path.as_str();
+        if is_websocket_upgrade(&headers_raw) {
+            // Bytes the client sent after the head belong to the tunnel, not to a body.
+            return proxy_upgrade(
+                &mut stream,
+                bridge_port_file,
+                method,
+                bridge_path,
+                &headers_raw,
+                &buf[body_start..],
+            );
+        }
         return proxy_bridge(
             &mut stream,
             bridge_port_file,
@@ -225,6 +248,15 @@ fn serve_static(
     write_bytes(stream, 200, content_type, &bytes, method == "HEAD")
 }
 
+fn is_websocket_upgrade(headers_raw: &str) -> bool {
+    headers_raw.lines().skip(1).any(|line| {
+        line.split_once(':').is_some_and(|(name, value)| {
+            name.trim().eq_ignore_ascii_case("upgrade")
+                && value.trim().eq_ignore_ascii_case("websocket")
+        })
+    })
+}
+
 /// Header the bridge reads as "this request came through the PWA proxy, so it is a remote caller":
 /// it then demands a paired-device bearer token (`mobile_pairing::requires_pairing_token`).
 const PROXY_MARKER: &str = "X-PM-Proxied";
@@ -241,6 +273,62 @@ fn is_header_line(line: &str, name: &str) -> bool {
 fn push_proxy_marker(request: &mut String) {
     request.push_str(PROXY_MARKER);
     request.push_str(": 1\r\n");
+}
+
+/// Pass a WebSocket upgrade through: the request head goes upstream as the client sent it
+/// (Connection/Upgrade/Sec-WebSocket-* included) except that any client `X-PM-Proxied` is dropped
+/// and ours is added, then bytes are copied both ways until either side closes.
+fn proxy_upgrade(
+    stream: &mut TcpStream,
+    bridge_port_file: &Path,
+    method: &str,
+    path: &str,
+    headers_raw: &str,
+    leftover: &[u8],
+) -> Result<(), String> {
+    let bridge_addr = read_bridge_addr(bridge_port_file);
+    let mut upstream = TcpStream::connect(&bridge_addr)
+        .map_err(|err| format!("connect bridge {bridge_addr}: {err}"))?;
+
+    let mut request = format!("{method} {path} HTTP/1.1\r\n");
+    for line in headers_raw.lines().skip(1) {
+        if is_header_line(line, PROXY_MARKER) {
+            continue;
+        }
+        request.push_str(line);
+        request.push_str("\r\n");
+    }
+    push_proxy_marker(&mut request);
+    request.push_str("\r\n");
+    upstream
+        .write_all(request.as_bytes())
+        .map_err(|err| format!("write bridge upgrade request: {err}"))?;
+    if !leftover.is_empty() {
+        upstream
+            .write_all(leftover)
+            .map_err(|err| format!("write bridge upgrade body: {err}"))?;
+    }
+
+    let mut client_reader = stream
+        .try_clone()
+        .map_err(|err| format!("clone client socket: {err}"))?;
+    let mut upstream_writer = upstream
+        .try_clone()
+        .map_err(|err| format!("clone bridge socket: {err}"))?;
+    let client_shutdown = stream
+        .try_clone()
+        .map_err(|err| format!("clone client socket: {err}"))?;
+
+    // client -> bridge; when the client stops, close the bridge side so the other copy ends too.
+    let to_bridge = thread::spawn(move || {
+        let _ = std::io::copy(&mut client_reader, &mut upstream_writer);
+        let _ = upstream_writer.shutdown(std::net::Shutdown::Both);
+    });
+    // bridge -> client; when the bridge stops, close the client side so the other copy ends too.
+    let _ = std::io::copy(&mut upstream, stream);
+    let _ = client_shutdown.shutdown(std::net::Shutdown::Both);
+    let _ = to_bridge.join();
+    Ok(())
 }
 
 fn proxy_bridge(
@@ -401,10 +489,7 @@ fn write_bytes(
 /// Test hook: serve `handle_connection` on an ephemeral loopback port (the production listener is
 /// pinned to `PWA_PORT`). Returns the address to connect to.
 #[cfg(test)]
-pub(crate) fn spawn_test_server(
-    dist_root: PathBuf,
-    bridge_port_file: PathBuf,
-) -> std::net::SocketAddr {
+pub(crate) fn spawn_test_server(dist_root: PathBuf, bridge_port_file: PathBuf) -> std::net::SocketAddr {
     let listener = TcpListener::bind((HOST, 0)).expect("bind test pwa server");
     let addr = listener.local_addr().expect("test pwa server addr");
     let dev_info: DevInfoSupplier = Arc::new(|| unreachable!("dev info is not used in tests"));

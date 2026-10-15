@@ -1,0 +1,37 @@
+/* Dot-matrix state glyph (components/cockpit/DotSpinner.tsx). Classes are prefixed pm-dots. */
+.pm-dots {
+  display: inline-grid;
+  flex: none;
+  vertical-align: middle;
+}
+.pm-dots-dot {
+  display: block;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.2; /* off */
+}
+.pm-dots-dim {
+  opacity: 0.4;
+}
+.pm-dots-on {
+  opacity: 1;
+}
+.pm-dots-sweep {
+  /* One revolution per second; per-dot animation-delay (set inline) staggers the sweep around the perimeter. */
+  animation: pm-dots-sweep 1s linear infinite;
+}
+@keyframes pm-dots-sweep {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.15;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Static perimeter ring instead of the running sweep. */
+  .pm-dots-sweep {
+    animation: none;
+    opacity: 0.6;
+  }
+}

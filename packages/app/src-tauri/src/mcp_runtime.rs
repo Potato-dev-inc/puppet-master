@@ -22,6 +22,35 @@ pub fn bundled_mcp_binary() -> Option<&'static Path> {
     BUNDLED_MCP_BINARY.get().map(|p| p.as_path())
 }
 
+/// The MCP binary's file name on this platform.
+fn mcp_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "puppet-master-mcp.exe"
+    } else {
+        "puppet-master-mcp"
+    }
+}
+
+/// Where a dev build (no installed resource folder) may find the Rust MCP binary, best first: the
+/// package's `dist` (where it is built), the staged `src-tauri/resources/bin`, `<exe dir>/bin` (what
+/// Tauri's resource folder is in a dev run, e.g. `target/debug/bin`).
+pub fn dev_mcp_binary_candidates(manifest_dir: &Path, exe_dir: Option<&Path>) -> Vec<PathBuf> {
+    let name = mcp_binary_name();
+    let mut list = vec![
+        manifest_dir.join("../../mcp-server/dist").join(name),
+        manifest_dir.join("resources/bin").join(name),
+    ];
+    if let Some(dir) = exe_dir {
+        list.push(dir.join("bin").join(name));
+    }
+    list
+}
+
+/// The first of [`dev_mcp_binary_candidates`] that exists.
+pub fn dev_mcp_binary(manifest_dir: &Path, exe_dir: Option<&Path>) -> Option<PathBuf> {
+    dev_mcp_binary_candidates(manifest_dir, exe_dir).into_iter().find(|path| path.is_file())
+}
+
 pub fn using_bundled_mcp() -> bool {
     bundled_mcp_binary().is_some() || bundled_mcp_script().is_some()
 }
@@ -115,5 +144,29 @@ mod tests {
         let spec = mcp_launch_spec();
         assert_eq!(spec.command, "npx");
         assert!(spec.args.contains(&"@puppet-master/mcp".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod dev_fallback_tests {
+    use super::*;
+
+    #[test]
+    fn a_dev_build_finds_the_mcp_binary_in_the_staged_resources_folder() {
+        // VERIFY-R13 #3: the exe sat in src-tauri/resources/bin only, so Hook Lane stayed inactive.
+        let root = std::env::temp_dir().join(format!("pm-mcp-dev-{}", uuid::Uuid::new_v4()));
+        let manifest = root.join("packages/app/src-tauri");
+        let staged = manifest.join("resources/bin");
+        std::fs::create_dir_all(&staged).unwrap();
+        assert_eq!(dev_mcp_binary(&manifest, None), None, "nothing built or staged yet");
+        std::fs::write(staged.join(mcp_binary_name()), "x").unwrap();
+        assert_eq!(dev_mcp_binary(&manifest, None), Some(manifest.join("resources/bin").join(mcp_binary_name())));
+        // The exe-side `bin` folder (a dev run's resource dir) counts too, after the other two.
+        let exe_dir = root.join("target/debug");
+        std::fs::create_dir_all(exe_dir.join("bin")).unwrap();
+        std::fs::write(exe_dir.join("bin").join(mcp_binary_name()), "x").unwrap();
+        let only_exe = root.join("elsewhere");
+        assert_eq!(dev_mcp_binary(&only_exe, Some(&exe_dir)), Some(exe_dir.join("bin").join(mcp_binary_name())));
+        std::fs::remove_dir_all(&root).ok();
     }
 }

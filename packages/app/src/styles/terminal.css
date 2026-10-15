@@ -1,0 +1,567 @@
+/* xterm host surface: scaled/grid mirror modes, mobile keyboard capture, special-key controls, snapshot. */
+
+.terminal-host {
+  contain: strict;
+  height: 100%;
+  width: 100%;
+  background: rgb(var(--pm-bg));
+  cursor: text;
+  position: relative;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+  width: 100%;
+  padding: 8px 10px;
+}
+
+.terminal-host .xterm-viewport,
+.terminal-host .xterm-screen {
+  background: rgb(var(--pm-bg)) !important;
+}
+
+.terminal-host .xterm-rows {
+  color: rgb(var(--pm-text));
+}
+
+.terminal-host .xterm-cursor {
+  background: rgb(var(--pm-accent)) !important;
+  color: rgb(var(--pm-bg)) !important;
+}
+
+.terminal-host .xterm-screen canvas {
+  image-rendering: auto;
+}
+
+.terminal-host--mirror-grid .xterm {
+  width: max-content;
+  min-width: 100%;
+}
+
+.terminal-host--mirror-grid .xterm-screen {
+  width: max-content !important;
+  min-width: 100%;
+}
+
+.terminal-host--mirror-scale {
+  overflow: hidden;
+}
+
+.terminal-scale-viewport {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.terminal-scale-stage {
+  transform-origin: top left;
+  will-change: transform;
+}
+
+.terminal-host--mirror-scale.terminal-host--mirror-grid .xterm {
+  width: max-content;
+  min-width: 100%;
+}
+
+.terminal-host--mirror-scale.terminal-host--mirror-grid .xterm-screen {
+  width: max-content !important;
+  min-width: 100%;
+}
+
+/* Mobile mirror: terminal is the app surface; keyboard capture is independent. */
+.terminal-host--mobile-input {
+  display: flex;
+  flex-direction: column;
+  contain: layout style;
+  overflow: hidden;
+  --pm-mobile-keyboard-panel-height: 42dvh;
+  --pm-mobile-input-bar-height: var(--pm-mobile-keyboard-panel-height);
+}
+
+.terminal-host--mobile-input > .xterm,
+.terminal-host--mobile-input > .terminal-scale-viewport {
+  order: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto !important;
+  width: 100%;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.terminal-host--mobile-input > .xterm {
+  overflow: auto;
+}
+
+.terminal-host--mobile-input.terminal-host--mirror-grid > .xterm,
+.terminal-host--mobile-input.terminal-host--mirror-scale > .terminal-scale-viewport .xterm {
+  width: max-content;
+  min-width: 100%;
+}
+
+.terminal-host--mobile-input.terminal-host--mobile-input-hidden {
+  display: block;
+  --pm-mobile-input-bar-height: 0px;
+}
+
+.terminal-host--mobile-input.terminal-host--mobile-input-hidden > .xterm,
+.terminal-host--mobile-input.terminal-host--mobile-input-hidden > .terminal-scale-viewport {
+  height: calc(100% - var(--pm-mobile-input-bar-height)) !important;
+}
+
+.terminal-host--mobile-input-hidden.terminal-host--mobile-input-engaged {
+  --pm-mobile-input-bar-height: var(--pm-mobile-keyboard-panel-height);
+}
+
+.terminal-mobile-keyboard-sink-zone {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  width: auto;
+  height: 44px;
+  overflow: hidden;
+  opacity: 0.01;
+  pointer-events: none;
+  padding: 0;
+}
+
+.terminal-mobile-keyboard-sink-zone .terminal-mobile-command-form {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  padding: 0;
+  background: transparent;
+  border-top-color: transparent;
+}
+
+.terminal-mobile-keyboard-sink-zone .terminal-mobile-command-input {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  box-shadow: none;
+}
+
+.terminal-mobile-keyboard-sink-zone .terminal-mobile-command-input::placeholder {
+  color: transparent;
+}
+
+.terminal-mobile-keyboard-sink-zone .terminal-mobile-command-input:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* Floating "scroll to bottom" for the phone terminal; shown only when scrolled up. */
+.terminal-scroll-bottom {
+  position: absolute;
+  right: 12px;
+  bottom: calc(var(--pm-mobile-input-bar-height, 0px) + 12px);
+  z-index: 16;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--sep, currentColor);
+  background: var(--bg-float, rgba(0, 0, 0, 0.6));
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: var(--float-shadow, none);
+  color: var(--label, #fff);
+  font-size: 18px;
+  line-height: 42px;
+  text-align: center;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.terminal-scroll-bottom--visible {
+  opacity: 0.9;
+  pointer-events: auto;
+}
+
+.terminal-mobile-tap-zone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: var(--pm-mobile-input-bar-height);
+  z-index: 15;
+  pointer-events: none;
+}
+
+.terminal-mobile-input-zone {
+  flex: 0 0 auto;
+  width: 100%;
+  order: 2;
+}
+
+
+/* Special keys: an iOS-style glass button and a floating panel of key caps. */
+.terminal-mobile-special-controls {
+  /* Monochrome float material (STYLE.md). Phone tokens (--bg-float, --fill, ...) come from .ph in phone.css. */
+  --pm-special-glass: var(--bg-float, rgb(250 250 252 / 0.82));
+  --pm-special-edge: var(--sep, rgb(0 0 0 / 0.09));
+  --pm-special-key: var(--fill-hover, rgb(0 0 0 / 0.06));
+  --pm-special-key-pressed: var(--fill-active, rgb(0 0 0 / 0.12));
+  --pm-special-muted: var(--label-3, rgb(var(--pm-text) / 0.6));
+  position: absolute;
+  right: 10px;
+  bottom: calc(var(--pm-mobile-input-bar-height) + 12px);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+:root:not([data-theme='light']) .terminal-mobile-special-controls {
+  --pm-special-glass: var(--bg-float, rgb(28 28 30 / 0.82));
+  --pm-special-edge: var(--sep, rgb(255 255 255 / 0.08));
+  --pm-special-key: var(--fill-hover, rgb(255 255 255 / 0.08));
+  --pm-special-key-pressed: var(--fill-active, rgb(255 255 255 / 0.18));
+}
+
+.terminal-host--mobile-input-hidden .terminal-mobile-special-controls {
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Toggle: a 44px glass circle that morphs from the keyboard glyph to a close mark. */
+.terminal-mobile-special-toggle {
+  pointer-events: auto;
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--pm-special-edge);
+  border-radius: 50%;
+  background: var(--pm-special-glass);
+  color: var(--label, rgb(var(--pm-text)));
+  box-shadow: var(--float-shadow, 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.45));
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.terminal-mobile-special-toggle:active {
+  transform: scale(0.94);
+}
+
+.terminal-mobile-special-icon {
+  grid-area: 1 / 1;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.terminal-mobile-special-icon--close {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.6);
+}
+
+.terminal-mobile-special-controls--open .terminal-mobile-special-icon--keyboard {
+  opacity: 0;
+  transform: rotate(90deg) scale(0.6);
+}
+
+.terminal-mobile-special-controls--open .terminal-mobile-special-icon--close {
+  opacity: 1;
+  transform: none;
+}
+
+/* Panel: floating glass card above the toggle. */
+.terminal-mobile-special-panel {
+  pointer-events: auto;
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(60dvh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px;
+  border: 1px solid var(--pm-special-edge);
+  border-radius: 14px;
+  background: var(--pm-special-glass);
+  box-shadow: var(--float-shadow, 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.45));
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  transform-origin: bottom right;
+  animation: terminal-mobile-special-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.terminal-mobile-special-panel[hidden] {
+  display: none;
+}
+
+.terminal-mobile-special-panel--closing {
+  pointer-events: none;
+  animation: terminal-mobile-special-out 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes terminal-mobile-special-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes terminal-mobile-special-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+
+.terminal-mobile-special-section + .terminal-mobile-special-section {
+  margin-top: 14px;
+}
+
+/* Sentence-case caption, like the grouped-list captions elsewhere on the phone. */
+.terminal-mobile-special-title {
+  margin: 0 2px 8px;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--label-2, var(--pm-special-muted));
+}
+
+.terminal-mobile-special-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.terminal-mobile-special-section--control .terminal-mobile-special-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.terminal-mobile-special-section--edit .terminal-mobile-special-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Key caps: glyph over a small caption. */
+.terminal-mobile-special-key {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--pm-special-key);
+  color: var(--label, rgb(var(--pm-text)));
+  box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.25);
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  transition:
+    transform 120ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.terminal-mobile-special-key--wide {
+  grid-column: span 2;
+}
+
+.terminal-mobile-special-key:active {
+  transform: scale(0.97);
+  background: var(--pm-special-key-pressed);
+}
+
+/* Latched (Ctrl held): the one inverted key, white on dark / black on light. */
+.terminal-mobile-special-key--latched,
+.terminal-mobile-special-key--latched:active {
+  background: var(--primary-bg, rgb(var(--pm-accent)));
+  color: var(--primary-fg, rgb(var(--pm-bg)));
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 0.25);
+}
+
+.terminal-mobile-special-glyph {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.terminal-mobile-special-caption {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--pm-special-muted);
+}
+
+.terminal-mobile-special-key--latched .terminal-mobile-special-caption {
+  color: var(--primary-fg, rgb(var(--pm-bg)));
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-mobile-special-panel,
+  .terminal-mobile-special-panel--closing {
+    transform: none;
+    animation-name: terminal-mobile-special-fade-in;
+    animation-duration: 120ms;
+  }
+
+  .terminal-mobile-special-panel--closing {
+    animation-name: terminal-mobile-special-fade-out;
+  }
+
+  .terminal-mobile-special-toggle:active,
+  .terminal-mobile-special-key:active {
+    transform: none;
+  }
+
+  .terminal-mobile-special-icon,
+  .terminal-mobile-special-icon--close,
+  .terminal-mobile-special-controls--open .terminal-mobile-special-icon--keyboard,
+  .terminal-mobile-special-controls--open .terminal-mobile-special-icon--close {
+    transform: none;
+    transition-duration: 120ms;
+  }
+}
+
+@keyframes terminal-mobile-special-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes terminal-mobile-special-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.terminal-mobile-command-form {
+  margin: 0;
+  box-sizing: border-box;
+  height: var(--pm-mobile-keyboard-panel-height);
+  min-height: var(--pm-mobile-keyboard-panel-height);
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  background: rgb(var(--pm-bg) / 0.98);
+  border-top: 1px solid rgb(var(--pm-border));
+}
+
+.terminal-mobile-command-input {
+  display: block;
+  box-sizing: border-box;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  height: auto;
+  padding: 14px;
+  border: 1px solid rgb(var(--pm-border));
+  border-radius: 12px;
+  background: rgb(var(--pm-bg));
+  color: rgb(var(--pm-text));
+  font: 16px/1.45 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  caret-color: rgb(var(--pm-accent));
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.terminal-mobile-command-input::placeholder {
+  color: rgb(var(--pm-muted));
+  opacity: 0.85;
+}
+
+.terminal-mobile-command-input:focus {
+  border-color: rgb(var(--pm-accent));
+  box-shadow: 0 0 0 2px rgb(var(--pm-accent) / 0.2);
+}
+
+.terminal-snapshot {
+  margin: 0;
+  padding: 8px 10px;
+  color: rgb(var(--pm-text));
+  font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre;
+  tab-size: 4;
+  transform: translateZ(0);
+  text-rendering: geometricPrecision;
+  user-select: text;
+}
+
+.terminal-snapshot:focus {
+  box-shadow: inset 0 0 0 1px rgb(var(--pm-accent) / 0.35);
+}
+
+.resize-both {
+  resize: both;
+}
+
+/*
+ * The page already ends at the software keyboard (mobile agent tabs): nothing here reserves room
+ * for it. Hidden input: the terminal keeps the whole area. Visible input: a one-line bar.
+ */
+.terminal-host--keyboard-outside {
+  --pm-mobile-keyboard-panel-height: 0px;
+  --pm-mobile-input-bar-height: 0px;
+}
+
+.terminal-host--keyboard-outside:not(.terminal-host--mobile-input-hidden) {
+  --pm-mobile-input-bar-height: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+
+.terminal-host--keyboard-outside:not(.terminal-host--mobile-input-hidden) .terminal-mobile-command-form {
+  height: auto;
+  min-height: 0;
+}
+
+.terminal-host--keyboard-outside:not(.terminal-host--mobile-input-hidden) .terminal-mobile-command-input {
+  flex: none;
+  height: 44px;
+  padding: 10px 12px;
+}

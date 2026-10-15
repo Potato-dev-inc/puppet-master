@@ -1,0 +1,38 @@
+# capture: kilo 7.8.8 home screen, pane 121x36, prompt typed but not submitted, 'Move your opencode configuration' notice;
+# reconstructed row by row from the live delivery trace of a failed run (Puppet Master screen snapshot, user name scrubbed)
+                                                                                                                         
+                                                                                                                         
+                                                                                                                         
+                                                                                                                         
+                                                                                                                         
+                                  ██  ██ ████   ██  ██   ██       ████ ██     ████                                       
+                                  ████   ▀▀██   ██  ▀▀ ██▀▀██   ██▀▀▀▀ ██     ▀▀██                                       
+                                  ██  ██ ██████ ██████   ██▀▀     ████   ████ ██████                                     
+                                  ▀▀  ▀▀ ▀▀▀▀▀▀  ▀▀▀▀▀   ▀▀       ▀▀▀▀   ▀▀▀▀ ▀▀▀▀▀▀                                     
+                                                                                                                         
+                                                                                                                         
+                       ┃                                                                                                 
+                       ┃  Demo for a video: in two short sentences, say what Puppet Master is                            
+                       ┃  based on the README in this folder. Do not edit any files.                                     
+                       ┃                                                                                                 
+                       ┃  Code  · Auto Free Kilo Gateway                                                                 
+                       ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                       
+                                                                       tab agents  ctrl+p commands                       
+                                                                                                                         
+                         ● Move your opencode configuration                                                              
+                           Kilo no longer falls back to opencode configuration. Found opencode                           
+                           config at C:\Users\Ren-pc\.config\opencode. Move it into a .kilo                              
+                           directory (project) or C:\Users\Ren-pc\.config\kilo (global).                                 
+                                                                                                                         
+                         ● Tip Start a message with ! to run shell commands directly (e.g., !ls -la)                     
+                                                                                                                         
+                                                                                                                         
+                                                                                                                         
+                                                                                                                         
+                                                                                                                         
+                                                                                                                         
+                                                                                                                         
+                                                                                                                         
+                                                                                                                         
+                                                                                                                         
+~\Desktop\work2\puppet-master:refactor/tui-profiles                                                                      7.8.8

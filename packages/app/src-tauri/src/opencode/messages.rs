@@ -103,6 +103,34 @@ pub fn read_pane_messages(
     ))
 }
 
+/// `read_pane_messages` without the pending-question request. The run supervisor lists the
+/// session's questions itself on every tick, so asking again inside the message read doubled
+/// that request; `pending_question` here comes from the messages alone.
+pub fn read_pane_messages_without_question_lookup(
+    registry: &Mutex<crate::pty::PaneRegistry>,
+    pane_id: &str,
+    limit: usize,
+) -> Result<SessionMessagesView, String> {
+    let (base_url, session_id, directory) = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| format!("unknown pane: {pane_id}"))?;
+        let link = pane
+            .opencode
+            .as_ref()
+            .ok_or_else(|| format!("pane {pane_id} is not an opencode native worker"))?;
+        (
+            link.base_url.clone(),
+            link.session_id.clone(),
+            link.directory.clone(),
+        )
+    };
+    let raw = client::list_session_messages(&base_url, &session_id, Some(&directory))?;
+    Ok(build_view(pane_id, &session_id, raw, limit.max(1), None, None))
+}
+
 pub fn pending_question_for_pane(
     registry: &Mutex<crate::pty::PaneRegistry>,
     pane_id: &str,

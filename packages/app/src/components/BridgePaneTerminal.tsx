@@ -5,6 +5,7 @@ import { useTerminalSession, type TerminalTransport } from '../hooks/useTerminal
 import { isMobileInputDevice } from '../terminal/mobile-input-guard';
 import { mirrorLayoutSessionKey } from '../terminal/mirror-layout-session';
 import type { TerminalRenderMode } from '../terminal';
+import type { PaneDataSubscriber } from '../terminal/types';
 
 const STATUS_COLOR: Record<string, string> = {
   running: 'bg-pm-ok',
@@ -16,13 +17,21 @@ const STATUS_COLOR: Record<string, string> = {
 interface Props {
   pane: PaneInfo;
   status: PaneInfo['status'];
-  subscribePaneData: (paneId: string, cb: (data: Uint8Array) => void) => () => void;
+  subscribePaneData: PaneDataSubscriber;
   transport: TerminalTransport;
   title?: string;
   syncPTYResize?: boolean;
   renderMode?: TerminalRenderMode;
   mobileInputDelayMs?: number;
   mobileInputVisible?: boolean;
+  /** This phone may not type (paired without it): no input box at all. */
+  disableMobileInput?: boolean;
+  /** The grid that fits this view (the phone sizes the pane to it). */
+  onFitGrid?: (grid: { cols: number; rows: number }) => void;
+  /** Phone: false keeps the agent's rows while the keyboard is open (see useTerminalSession). */
+  keyboardResizesAgent?: boolean;
+  /** Bump `n` to redraw from the PC's current screen (phone nudge after an action). */
+  refreshSignal?: { n: number; skipIfScrolledUp: boolean };
 }
 
 export function BridgePaneTerminal({
@@ -35,6 +44,10 @@ export function BridgePaneTerminal({
   renderMode,
   mobileInputDelayMs,
   mobileInputVisible,
+  disableMobileInput,
+  onFitGrid,
+  keyboardResizesAgent,
+  refreshSignal,
 }: Props) {
   const mobileMirror = !syncPTYResize && isMobileInputDevice();
   const layout = useDebouncedMirrorLayout(pane.cols, pane.rows);
@@ -42,11 +55,15 @@ export function BridgePaneTerminal({
     renderMode ?? 'mirror-same-grid';
   const { containerRef } = useTerminalSession({
     paneId: pane.id,
-    sessionKey: mirrorLayoutSessionKey(
-      pane.created_at,
-      mobileMirror ? layout.cols : pane.cols,
-      mobileMirror ? layout.rows : pane.rows,
-    ),
+    // A phone that sizes the pane resizes this terminal in place: remounting on every size change
+    // (keyboard up/down) would destroy the focused input and close the keyboard again.
+    sessionKey: onFitGrid
+      ? pane.created_at
+      : mirrorLayoutSessionKey(
+          pane.created_at,
+          mobileMirror ? layout.cols : pane.cols,
+          mobileMirror ? layout.rows : pane.rows,
+        ),
     subscribePaneData,
     transport,
     syncPTYResize,
@@ -55,6 +72,11 @@ export function BridgePaneTerminal({
     ptyRows: pane.rows,
     mobileInputDelayMs,
     mobileInputVisible,
+    disableMobileInput,
+    onFitGrid,
+    keyboardResizesAgent,
+    refreshSignal,
+    reprintsOnResize: pane.reprints_on_resize,
   });
 
   const label = title ?? pane.agent_type;

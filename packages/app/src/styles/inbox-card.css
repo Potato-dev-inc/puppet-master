@@ -1,0 +1,266 @@
+/* The one Inbox card (components/cockpit/InboxCard.tsx). Monochrome: weight, glyph and contrast, never hue.
+   Cards sit in a list 12px apart; nothing is boxed inside another box. */
+
+.cockpit .ib-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cockpit .ck-inbox > .ib-list + .ib-list {
+  margin-top: 12px;
+}
+
+.cockpit .ib-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  row-gap: 6px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi), 0 0 0 1px var(--sep);
+  outline: none;
+}
+.cockpit .ib-card[data-ring] {
+  box-shadow: var(--raise-hi), 0 0 0 1px var(--sep), var(--focus);
+}
+.cockpit .ib-card[data-risk='high']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--label);
+}
+
+/* row 1 */
+.cockpit .ib-glyph {
+  grid-column: 1;
+  display: grid;
+  place-items: center;
+  height: 18px;
+  color: var(--label);
+}
+.cockpit .ib-card[data-risk='low'] .ib-glyph,
+.cockpit .ib-card[data-risk='medium'] .ib-glyph,
+.cockpit .ib-card[data-info] .ib-glyph {
+  color: var(--label-2);
+}
+.cockpit .ib-main {
+  grid-column: 2;
+  min-width: 0;
+}
+.cockpit .ib-title {
+  font-weight: 600;
+  color: var(--label);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cockpit .ib-card[data-risk='high'] .ib-title {
+  font-weight: 700;
+}
+.cockpit .ib-card[data-info] .ib-title {
+  font-weight: 500;
+}
+.cockpit .ib-meta {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--label-3);
+  white-space: nowrap;
+}
+.cockpit .ib-aside {
+  grid-column: 3;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--label-3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ib-card[data-risk='high'] .ib-status {
+  color: var(--label);
+  font-weight: 600;
+}
+
+/* row 2 */
+.cockpit .ib-body {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.cockpit .ib-reason,
+.cockpit .ib-caution,
+.cockpit .ib-note {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.cockpit .ib-reason {
+  color: var(--label-2);
+  white-space: pre-wrap;
+}
+.cockpit .ib-caution {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ib-note {
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ib-quote {
+  margin: 0;
+  color: var(--label-2);
+  overflow-wrap: anywhere;
+}
+.cockpit .ib-error {
+  margin: 0;
+  color: var(--label);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.cockpit .ib-details {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--label-2);
+}
+.cockpit .ib-details ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+.cockpit .ib-details ul:first-child {
+  margin-top: 0;
+}
+.cockpit .ib-cmd {
+  margin: 0;
+  font: 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--label);
+}
+.cockpit .ib-evidence {
+  margin: 0;
+  padding: 8px 10px;
+  list-style: none;
+  border-radius: 8px;
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--label-2);
+}
+.cockpit .ib-evidence li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ib-field {
+  display: flex;
+  gap: 6px;
+}
+.cockpit .ib-field input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  font: inherit;
+  color: var(--label);
+  background: var(--fill);
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+}
+.cockpit .ib-field input::placeholder {
+  color: var(--label-3);
+}
+.cockpit .ib-code {
+  font: 12px var(--font-mono);
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--fill);
+}
+.cockpit .ck-btn--primary .ib-code {
+  background: transparent;
+  padding: 0;
+}
+
+/* row 3: ONE action row. Answers left, plain buttons right. */
+.cockpit .ib-actions {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.cockpit .ib-actions-end {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.cockpit .ib-card button[data-ring],
+.cockpit .ib-card button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+/* keyboard hint under the Inbox title */
+.cockpit .ib-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ib-hint > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cockpit .ib-kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  text-align: center;
+  font: 600 11px/16px var(--font-ui);
+  color: var(--label-2);
+  border: 1px solid var(--sep);
+  border-radius: 4px;
+  box-shadow: inset 0 -1px 0 var(--sep);
+}
+
+/* the welcome */
+.cockpit .ib-welcome-alt {
+  margin: 14px 0 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--label-3);
+}
+
+/* the surface of a row that is not an InboxCard (the unsent "Tell the team?" drafts) */
+.cockpit .ib-surface {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi), 0 0 0 1px var(--sep);
+}
+
+/* The docked stuck card (inside a pane) keeps its own margin. */
+.cockpit .ib-dock {
+  margin: 10px 16px 0;
+}
+.cockpit .ck-inbox:focus {
+  outline: none;
+}

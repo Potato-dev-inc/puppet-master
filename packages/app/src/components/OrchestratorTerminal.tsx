@@ -67,6 +67,7 @@ function OrchestratorTerminalLive({
     ptyRows: pane.info.rows,
     mobileInputDelayMs,
     mobileInputVisible,
+    reprintsOnResize: pane.info.reprints_on_resize,
   });
   const label = BACKEND_LABEL[backend];
 

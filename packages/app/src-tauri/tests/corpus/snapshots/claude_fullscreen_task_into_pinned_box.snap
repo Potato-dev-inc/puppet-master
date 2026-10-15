@@ -1,0 +1,12 @@
+---
+source: src/replay/corpus_tests.rs
+expression: timeline.render()
+---
+      0 ms  status    idle (start)
+   1548 ms  status    idle (screen read running, held back)
+   1548 ms  composer  Unknown
+   4080 ms  input     "Reply with only the word OK. Use no tools."
+   4098 ms  status    idle (screen read running, held back)
+   4200 ms  input     "" + Enter
+   4322 ms  status    running
+   4360 ms  deliver   Started

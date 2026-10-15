@@ -34,6 +34,17 @@ export function isBackspaceEcho(chunk: string): boolean {
   return BACKSPACE_ECHO_PATTERNS.some((pattern) => chunk === pattern || chunk.startsWith(pattern));
 }
 
+/**
+ * Replies xterm generates by itself to queries in the PTY output, not keys a person pressed:
+ * cursor position (CSI r;c R), device attributes (CSI ? ... c / CSI > ... c), mode reports
+ * (CSI ? ... $ y), OSC colour/clipboard replies and focus in/out (CSI I / CSI O).
+ */
+const TERMINAL_REPORT = /^(?:\x1b\[\d+;\d+R|\x1b\[[?>][\d;]*c|\x1b\[\??[\d;]*\$y|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[IO])+$/;
+
+export function isTerminalReport(data: string): boolean {
+  return TERMINAL_REPORT.test(data);
+}
+
 /** Mirror viewers locally render outbound input while waiting for remote PTY echo. */
 export function applyMirrorLocalEcho(
   terminal: Terminal,

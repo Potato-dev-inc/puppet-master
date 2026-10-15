@@ -1,0 +1,2 @@
+blocks = ["snapshots_rewritten"]
+contains = ["Rewrote 1 snapshot file (cart.test.ts.snap)"]

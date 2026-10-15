@@ -1,0 +1,16 @@
+# Languages the guard has no patterns for yet (Java, Kotlin, Ruby, PHP, C#, Swift, Elixir). Their test
+# files are still protected: a change shows up as "Couldn't check changes in ... for skipped tests".
+# `scannable = false` keeps the guard from pretending it read them.
+
+id = "other"
+label = "Other languages"
+scannable = false
+extensions = ["java", "kt", "kts", "rb", "php", "cs", "swift", "scala", "ex", "exs"]
+test_globs = [
+  "**/*Test.{java,kt,kts,scala,php,cs}",
+  "**/*Tests.{java,kt,kts,scala,php,cs,swift}",
+  "**/*Spec.{kt,scala,swift}",
+  "**/*_spec.rb",
+  "**/*_test.rb",
+  "**/*_test.exs",
+]

@@ -4,6 +4,7 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { usePaneRegistry } from './hooks/usePaneRegistry';
 import {
   detachedPaneTitle,
+  detachedPaneUrl,
   detachedWindowSizeFromGrid,
   openDetachedPaneWindow,
 } from './lib/detached-pane-window';
@@ -64,12 +65,14 @@ async function launchDetachedWorker(
   const cols = pane?.cols ?? config.cols;
   const rows = pane?.rows ?? config.rows;
 
-  await openDetachedPaneWindow(
-    paneId,
-    detachedPaneTitle(agentType, paneId),
-    detachedWindowSizeFromGrid(cols, rows),
-    { workerHost: true },
-  );
+  const size = detachedWindowSizeFromGrid(cols, rows);
+  const win = getCurrentWebviewWindow();
+  await tauri.resizeCurrentWindow(size.width, size.height);
+  await win.setTitle(detachedPaneTitle(agentType, paneId));
+  await win.show();
+  await win.setFocus();
+  // Stay in this window. A second webview + hiding main makes Tauri quit on Windows.
+  window.location.replace(detachedPaneUrl(paneId, { workerHost: true }));
 }
 
 /**
@@ -89,10 +92,6 @@ export default function WorkerHostBootstrap() {
   }, [error]);
 
   useEffect(() => {
-    void getCurrentWebviewWindow().hide().catch(() => {});
-  }, []);
-
-  useEffect(() => {
     let unlisten: (() => void) | null = null;
     let disposed = false;
     void tauri.onPaneDetach((event) => {
@@ -100,7 +99,7 @@ export default function WorkerHostBootstrap() {
         event.pane_id,
         event.title ?? detachedPaneTitle('worker', event.pane_id),
         detachedWindowSizeFromGrid(event.cols, event.rows),
-        { workerHost: true },
+        { workerHost: true, background: true },
       );
     }).then((next) => {
       if (disposed) next();
@@ -153,7 +152,15 @@ export default function WorkerHostBootstrap() {
     };
   }, []);
 
-  if (!error) return <div hidden />;
+  if (!error) {
+    return (
+      <div className="pm-terminal-app">
+        <main className="pm-terminal-shell">
+          <div className="pm-terminal-empty">Starting worker…</div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="pm-terminal-app">

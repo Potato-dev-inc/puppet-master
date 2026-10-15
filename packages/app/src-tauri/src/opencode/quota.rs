@@ -146,7 +146,7 @@ pub fn handle_rate_limit(
         .lock()
         .panes
         .get(pane_id)
-        .map(|pane| pane.info.status.clone())
+        .map(|pane| pane.status.lock().as_str().to_string())
         .unwrap_or_else(|| "running".to_string());
 
     emit_opencode_worker_event(
@@ -260,6 +260,21 @@ mod tests {
             assert_eq!(plan.to_profile.as_deref(), Some("b"));
             assert!(plan.auto_rotated);
             assert!(plan.should_rotate);
+        });
+    }
+
+    #[test]
+    fn with_the_default_settings_a_rate_limit_never_switches_keys_even_with_two_keys() {
+        // Opt-in (founder decision 2026-10-15): nothing was chosen, so the other key is not used.
+        with_test_keys_store(|| {
+            keys::set_profile_api_key("a", "key-a", None).expect("set a");
+            keys::set_profile_api_key("b", "key-b", None).expect("set b");
+            let mode = keys::automation_mode().expect("mode");
+            assert_eq!(mode, KeyAutomationMode::NotifyOnly);
+            let plan = plan_rate_limit_action(mode, "a", true);
+            assert_eq!(plan.kind, KEY_SWAP_REQUIRED);
+            assert!(!plan.should_rotate && !plan.auto_rotated);
+            assert!(plan.to_profile.is_none());
         });
     }
 

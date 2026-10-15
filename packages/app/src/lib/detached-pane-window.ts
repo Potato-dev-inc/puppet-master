@@ -7,19 +7,26 @@ function isTauriRuntime(): boolean {
 export interface DetachedPaneWindowOptions {
   /** Standalone worker host — closing the window quits instead of reattaching to the grid. */
   workerHost?: boolean;
+  /**
+   * Opened by a backend `pane://detach` event (an agent, not a click): do not take
+   * focus, and open next to the main window so it lands on the monitor the app is on.
+   */
+  background?: boolean;
 }
 
 export function detachedPaneTitle(agentType: string, paneId: string): string {
   return `${agentType} · ${paneId.slice(0, 8)}`;
 }
 
-function detachedPaneUrl(paneId: string, options?: DetachedPaneWindowOptions): string {
+export function detachedPaneUrl(paneId: string, options?: DetachedPaneWindowOptions): string {
   const params = new URLSearchParams();
   params.set('terminal', '1');
   params.set('pane', paneId);
   params.set('detached', '1');
   if (options?.workerHost) params.set('worker-host', '1');
-  return `${window.location.pathname}?${params.toString()}`;
+  // Vite and Tauri's custom protocol both serve the app from index.html.
+  // `/?terminal=1` works in `tauri dev` but the production webview never loads.
+  return `index.html?${params.toString()}`;
 }
 
 function detachedPaneLabel(paneId: string): string {
@@ -55,7 +62,36 @@ export function detachedWindowSizeFromGrid(cols?: number, rows?: number): Detach
   };
 }
 
-export async function openDetachedPaneWindow(
+const inFlightOpens = new Map<string, Promise<void>>();
+
+/**
+ * Run `task` once per key at a time: concurrent callers share the running promise. Several
+ * webviews (and a StrictMode double mount) can hear the same `pane://detach` event and each
+ * checks `getByLabel` before any of them has created the window, so without this every listener
+ * creates its own window for one pane; the extra one is unreachable by label and outlives the pane.
+ */
+export function runOncePerKey(key: string, task: () => Promise<void>): Promise<void> {
+  const running = inFlightOpens.get(key);
+  if (running) return running;
+  const next = task().finally(() => {
+    if (inFlightOpens.get(key) === next) inFlightOpens.delete(key);
+  });
+  inFlightOpens.set(key, next);
+  return next;
+}
+
+export function openDetachedPaneWindow(
+  paneId: string,
+  title = 'Terminal pane',
+  size?: DetachedPaneWindowSize,
+  options?: DetachedPaneWindowOptions,
+): Promise<void> {
+  return runOncePerKey(detachedPaneLabel(paneId), () =>
+    openDetachedPaneWindowOnce(paneId, title, size, options),
+  );
+}
+
+async function openDetachedPaneWindowOnce(
   paneId: string,
   title = 'Terminal pane',
   size?: DetachedPaneWindowSize,
@@ -73,13 +109,15 @@ export async function openDetachedPaneWindow(
   }
 
   const label = detachedPaneLabel(paneId);
+  const background = options?.background === true;
   const existing = await WebviewWindow.getByLabel(label);
   if (existing) {
     await existing.show();
-    await existing.setFocus();
+    if (!background) await existing.setFocus();
     return;
   }
 
+  const position = background ? await positionNearMainWindow() : null;
   const view = new WebviewWindow(label, {
     url,
     title,
@@ -88,11 +126,39 @@ export async function openDetachedPaneWindow(
     minWidth: 260,
     minHeight: 140,
     resizable: true,
-    focus: true,
+    focus: !background,
+    visible: true,
+    ...(position ?? {}),
   });
 
   await new Promise<void>((resolve, reject) => {
-    void view.once('tauri://created', () => resolve());
-    void view.once('tauri://error', (event) => reject(event.payload));
+    const timer = setTimeout(() => {
+      reject(new Error(`timed out opening detached pane window ${label}`));
+    }, 8000);
+    void view.once('tauri://created', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    void view.once('tauri://error', (event) => {
+      clearTimeout(timer);
+      reject(event.payload);
+    });
   });
+  await view.show();
+  if (!background) await view.setFocus();
+}
+
+let backgroundWindowCount = 0;
+
+/** Logical x/y just inside the main window, staggered so background windows do not stack exactly. */
+async function positionNearMainWindow(): Promise<{ x: number; y: number } | null> {
+  try {
+    const main = await WebviewWindow.getByLabel('main');
+    if (!main) return null;
+    const [pos, scale] = await Promise.all([main.outerPosition(), main.scaleFactor()]);
+    const step = (backgroundWindowCount++ % 8) * 28;
+    return { x: Math.round(pos.x / scale) + 40 + step, y: Math.round(pos.y / scale) + 60 + step };
+  } catch {
+    return null;
+  }
 }

@@ -1,0 +1,15 @@
+{
+  "session_id": "01a13b3c-be72-7dd1-ba63-395a3cfbd05e",
+  "turn_id": "01a13b3d-9902-7b30-a84e-4deb47b29a4b",
+  "transcript_path": "C:\\Users\\user\\.codex\\sessions\\2026\\10\\15\\rollout-2026-10-15T00-26-39-01a13b3c-be72-7dd1-ba63-395a3cfbd05e.jsonl",
+  "cwd": "D:\\pm-scratch-hook\\cx1",
+  "hook_event_name": "PostToolUse",
+  "model": "gpt-6-luna",
+  "permission_mode": "default",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Add File: hello.txt\n+hi\n*** End Patch"
+  },
+  "tool_response": "Exit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nA hello.txt\n",
+  "tool_use_id": "exec-451ae7cf-5c48-4326-8f81-a21b662be90a"
+}

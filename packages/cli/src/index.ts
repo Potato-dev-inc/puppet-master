@@ -17,6 +17,8 @@ import { dirname, join, resolve } from 'node:path';
 import { getDefaultTerminalAgentType } from '@puppet-master/shared';
 import { launchWorkerTerminal } from './launch-worker.js';
 import { runWatch } from './watch.js';
+import { WATCH_USAGE, validateWatchFlags } from './watch-args.js';
+import { runPairLink } from './pair-link.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,7 +28,7 @@ interface ParsedArgs {
   flags: Record<string, string | boolean>;
 }
 
-const BOOLEAN_FLAGS = new Set(['help', 'h', 'version', 'v', 'force-new', 'new', 'force_new']);
+const BOOLEAN_FLAGS = new Set(['help', 'h', 'version', 'v', 'force-new', 'new', 'force_new', 'stream']);
 
 function parseArgs(argv: string[]): ParsedArgs {
   const [, , ...rest] = argv;
@@ -65,7 +67,11 @@ Usage:
   puppet-master --project PATH  Open with a preset cwd
   puppet-master worker [AGENT]  Open a standalone worker terminal (no main grid UI)
   puppet-master mcp             Run stdio MCP server (GUI or worker host must be running)
-  puppet-master watch ID        Block until an operation reaches a terminal or needs-input state (JSON on stdout)
+  puppet-master watch ID        Block until an operation is terminal or needs input; prints one JSON result.
+                                Exit codes: 0 completed, 1 failed/cancelled, 2 needs input, 3 timeout, 4 error.
+                                Waits out bridge restarts; --timeout-ms N sets the deadline (default 3600000).
+  puppet-master pair-link       Print a fresh phone pairing link (needs the running app and its public tunnel).
+                                Prints the link on stdout; the expiry goes to stderr.
   puppet-master version         Print version
   puppet-master --help          Show this help
 
@@ -142,11 +148,20 @@ async function main(): Promise<void> {
     await runMcp();
     return;
   }
+  if (command === 'pair-link') {
+    process.exit(await runPairLink());
+  }
   if (command === 'watch') {
     const ids = positional.length > 0 ? positional : [];
+    const problem = validateWatchFlags(flags);
+    if (problem) {
+      console.error(`puppet-master watch: ${problem}`);
+      console.error(WATCH_USAGE);
+      process.exit(4);
+    }
     if (ids.length === 0) {
-      console.error('usage: puppet-master watch <operation_id|handle> [--project-path P] [--timeout-ms N] [--stream]');
-      process.exit(3);
+      console.error(WATCH_USAGE);
+      process.exit(4);
     }
     const projectPath =
       typeof flags['project-path'] === 'string'

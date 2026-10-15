@@ -1,3 +1,5 @@
+import { isTuiAgentId } from './agentRegistry';
+
 /** Strip ANSI/VT escape sequences from PTY scrollback. */
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
@@ -21,10 +23,8 @@ export function summarizeBuffer(text: string, maxChars = 3500): string {
   return `…(truncated)\n${clean.slice(-maxChars)}`;
 }
 
-const TUI_AGENTS = new Set(['claude', 'codex', 'opencode', 'opencode_native']);
-
 export function isTuiAgent(agentType: string): boolean {
-  return TUI_AGENTS.has(agentType);
+  return isTuiAgentId(agentType);
 }
 
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {

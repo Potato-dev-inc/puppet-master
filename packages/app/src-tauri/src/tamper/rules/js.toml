@@ -1,0 +1,274 @@
+# JavaScript and TypeScript (jest, vitest, mocha, node:test, playwright, chai).
+# Patterns run on a line with comments and string contents blanked, except `silence`, which runs
+# on a line with only the string contents blanked (its markers live in comments).
+
+id = "js"
+label = "JavaScript and TypeScript"
+extensions = ["js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts"]
+test_globs = [
+  "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+  "**/__tests__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+  "**/test/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+  "**/tests/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+  "**/spec/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+]
+
+[lexer]
+line_comments = ["//"]
+block_comments = [["/*", "*/"]]
+
+[[lexer.strings]]
+open = '"'
+close = '"'
+escape = '\'
+[[lexer.strings]]
+open = "'"
+close = "'"
+escape = '\'
+[[lexer.strings]]
+open = '`'
+close = '`'
+escape = '\'
+multiline = true
+
+[names]
+quoted = '''["'`](?P<name>[^"'`]{1,80})'''
+
+# ---- tests and assertions -------------------------------------------------------------------
+
+[[test]]
+regex = '(?:^|[^.\w$])(?:x|f)?(?:it|test)(?:\s*\.\s*(?:skip|only|concurrent|failing|fails|todo|each|sequential|fixme))*\s*\('
+
+[[assertion]]
+regex = '(?:^|[^.\w$])expect\s*(?:\.\s*(?:soft|poll))?\s*\('
+[[assertion]]
+regex = '(?:^|[^.\w$])assert(?:\s*\.\s*\w+)?\s*\('
+[[assertion]]
+regex = '\.\s*should\b'
+[[assertion]]
+regex = '\.\s*expect\s*\(\s*(?:\d|["`/])'
+
+# ---- skips and focus --------------------------------------------------------------------------
+
+[[skip]]
+regex = '\b(?:it|test|describe|context|suite|specify)\s*\.\s*skip\b'
+label = ".skip"
+name_from = "quoted"
+[[skip]]
+regex = '\b(?:it|test|describe|context|suite|specify)\s*\.\s*todo\b'
+label = ".todo"
+name_from = "quoted"
+[[skip]]
+regex = '\b(?:it|test|describe|context|suite|specify)\s*\.\s*fixme\b'
+label = ".fixme"
+name_from = "quoted"
+[[skip]]
+regex = '(?:^|[^.\w$])x(?:it|describe|test|context|specify)\s*\('
+name_from = "quoted"
+[[skip]]
+regex = '\bthis\s*\.\s*skip\s*\('
+label = "this.skip()"
+[[skip]]
+regex = '(?:^|[^.\w$])pending\s*\('
+label = "pending()"
+[[skip]]
+regex = '''\bskip\s*:\s*(?:true\b|["'`])'''
+label = "skip: true"
+
+[[focus]]
+regex = '\b(?:it|test|describe|context|suite|specify)\s*\.\s*only\b'
+label = ".only"
+name_from = "quoted"
+[[focus]]
+regex = '(?:^|[^.\w$])f(?:it|describe)\s*\('
+name_from = "quoted"
+
+# ---- markers that hide check errors -----------------------------------------------------------
+
+[[silence]]
+regex = '@ts-ignore'
+label = "@ts-ignore"
+check = "typecheck"
+[[silence]]
+regex = '@ts-expect-error'
+label = "@ts-expect-error"
+check = "typecheck"
+[[silence]]
+regex = '@ts-nocheck'
+label = "@ts-nocheck"
+check = "typecheck"
+[[silence]]
+regex = 'eslint-disable'
+label = "eslint-disable"
+check = "lint"
+[[silence]]
+regex = 'biome-ignore'
+label = "biome-ignore"
+check = "lint"
+
+# ---- weaker assertions ------------------------------------------------------------------------
+
+[[tautology]]
+regex = '\bexpect\s*\(\s*true\s*\)'
+[[tautology]]
+regex = '\bassert\s*(?:\.\s*ok\s*)?\(\s*true\s*\)'
+
+[[loosen]]
+from = '\.\s*(?:toBe|toEqual|toStrictEqual|toMatchObject|toHaveLength|toContain|toContainEqual|toHaveProperty|toBeCloseTo|toBeGreaterThan|toBeLessThan|toMatch|toThrow\w*|toHaveBeenCalledWith|toHaveBeenCalledTimes)\s*\('
+to = '\.\s*(?:toBeDefined|toBeTruthy|toBeInstanceOf)\s*\(|\.\s*not\s*\.\s*(?:toBeNull|toBeUndefined|toBeNaN)\s*\(|\bexpect\s*\.\s*(?:anything|any|objectContaining)\s*\(|\.\s*toBeGreaterThanOrEqual\s*\(\s*0\s*\)'
+[[loosen]]
+from = '\.\s*(?:to\s*\.\s*)?(?:equal|eql|include|lengthOf|closeTo)\s*\('
+to = '\.\s*to\s*\.\s*(?:exist|be\s*\.\s*ok)\b'
+[[loosen]]
+from = '\bassert\s*\.\s*(?:strictEqual|deepStrictEqual|equal|deepEqual|throws|match)\s*\('
+to = '\bassert\s*\.\s*(?:ok|doesNotThrow|notStrictEqual)\s*\(|\bassert\s*\(\s*(?:true|1)\b'
+
+[[self_compare]]
+regex = '\bexpect\s*\(\s*(?P<actual>.+?)\s*\)\s*\.\s*(?:toBe|toEqual|toStrictEqual)\s*\(\s*(?P<expected>.+?)\s*\)\s*;?\s*$'
+[[self_compare]]
+regex = '\bassert\s*\.\s*(?:strictEqual|equal|deepStrictEqual|deepEqual)\s*\(\s*(?P<actual>[^,]+?)\s*,\s*(?P<expected>[^,)]+?)\s*[,)]'
+
+[[tolerance]]
+regex = '\btoBeCloseTo\s*\(.*,\s*(?P<n>\d+)\s*\)'
+direction = "down"
+
+# ---- check config ----------------------------------------------------------------------------
+
+[[config]]
+glob = ["**/package.json"]
+format = "json"
+sections = ["scripts", "jest", "vitest", "mocha", "ava", "nyc", "c8"]
+scripts_section = "scripts"
+
+[[config.script]]
+key = '^(?:pre|post)?test(?::.*)?$'
+check = "tests"
+[[config.script]]
+key = '^(?:pre|post)?(?:typecheck|type-check|check-types|tsc|types)(?::.*)?$'
+check = "typecheck"
+[[config.script]]
+key = '^(?:pre|post)?lint(?::.*)?$'
+check = "lint"
+[[config.script]]
+key = '^(?:pre|post)?build(?::.*)?$'
+check = "build"
+
+[[config.flag]]
+regex = '(?:^|[\s"=])(?:-u|--updateSnapshot|--update|--update-snapshots?|--ci=false)(?:[\s"]|$)'
+kind = "snapshots"
+say = "rewrites the snapshots"
+[[config.flag]]
+regex = '(?:^|[\s"=])(?:--testNamePattern|--grep|--fgrep|--testPathPattern|-t|-g)(?:[\s"=]|$)'
+kind = "focus"
+say = "runs only some of the tests"
+[[config.flag]]
+regex = '(?:^|[\s"=])--(?:passWithNoTests|testPathIgnorePatterns|exclude|testPathIgnore)(?:[\s"=]|$)'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '(?:^|[\s"=])--bail(?:[\s"=]|$)'
+say = "stops at the first failure"
+[[config.flag]]
+regex = '\b(?:testPathIgnorePatterns|testIgnore|modulePathIgnorePatterns)\b'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '\bexclude\b'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '\bpassWithNoTests\b\W+true'
+say = "passes even when no tests run"
+[[config.flag]]
+regex = '\bbail\b\W+(?:true|[1-9])'
+say = "stops at the first failure"
+
+[[config.threshold]]
+regex = '''(?P<key>[\w.\["-]*(?:[Tt]hreshold|fail_under|fail-under)[\w.\]"-]*)\s*[=:]\s*(?P<n>\d+(?:\.\d+)?)'''
+[[config.threshold]]
+regex = '\b(?P<key>lines|functions|branches|statements)\s*[:=]\s*(?P<n>\d+(?:\.\d+)?)'
+
+[[config]]
+glob = [
+  "**/jest.config.*", "**/vitest.config.*", "**/vitest.workspace.*", "**/vitest.setup.*",
+  "**/playwright.config.*", "**/.mocharc*", "**/ava.config.*", "**/karma.conf.*", "**/.nycrc*", "**/.c8rc*",
+]
+format = "text"
+
+[[config.flag]]
+regex = '\b(?:testPathIgnorePatterns|testIgnore|modulePathIgnorePatterns)\b'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '\bexclude\b'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '\b(?:grep|fgrep)\b\s*[:=]'
+kind = "focus"
+say = "runs only some of the tests"
+[[config.flag]]
+regex = '\bpassWithNoTests\b\W+true'
+say = "passes even when no tests run"
+[[config.flag]]
+regex = '\bbail\b\W+(?:true|[1-9])'
+say = "stops at the first failure"
+[[config.flag]]
+regex = '\bupdateSnapshot\b\W+true'
+kind = "snapshots"
+say = "rewrites the snapshots"
+
+[[config.threshold]]
+regex = '\b(?P<key>lines|functions|branches|statements)\s*[:=]\s*(?P<n>\d+(?:\.\d+)?)'
+[[config.threshold]]
+regex = '''(?P<key>[\w"]*(?:[Tt]hreshold|fail_under|fail-under)[\w"]*)\s*[=:]\s*(?P<n>\d+(?:\.\d+)?)'''
+
+# The `test` block of a Vite config belongs to vitest; the rest of the file is not about tests.
+[[config]]
+glob = ["**/vite.config.*"]
+format = "text"
+block = '\btest\s*:\s*\{'
+
+[[config.flag]]
+regex = '\b(?:testPathIgnorePatterns|testIgnore)\b'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '\bexclude\b'
+say = "leaves out some tests"
+[[config.flag]]
+regex = '\bpassWithNoTests\b\W+true'
+say = "passes even when no tests run"
+[[config.flag]]
+regex = '\bbail\b\W+(?:true|[1-9])'
+say = "stops at the first failure"
+
+[[config.threshold]]
+regex = '\b(?P<key>lines|functions|branches|statements)\s*[:=]\s*(?P<n>\d+(?:\.\d+)?)'
+
+# Type check strictness.
+[[config]]
+glob = ["**/tsconfig.json", "**/tsconfig.*.json", "**/jsconfig.json"]
+format = "jsonc"
+check = "typecheck"
+
+[[config.flag]]
+regex = '\b(?:strict|noImplicitAny|strictNullChecks|strictFunctionTypes|strictBindCallApply|strictPropertyInitialization|noImplicitThis|useUnknownInCatchVariables|alwaysStrict|noUncheckedIndexedAccess|noImplicitReturns|exactOptionalPropertyTypes)\b\W+false'
+say = "turns off a strict type check"
+[[config.flag]]
+regex = '\bskipLibCheck\b\W+true'
+say = "skips type checking of library files"
+[[config.flag]]
+regex = '\bstrict\b\W+true'
+on = "removed"
+say = "no longer turns on strict type checking"
+
+# Lint config.
+[[config]]
+glob = ["**/.eslintrc", "**/.eslintrc.*", "**/eslint.config.*", "**/biome.json", "**/biome.jsonc"]
+format = "text"
+check = "lint"
+
+[[config.flag]]
+regex = '''["']off["']'''
+say = "turns off a lint rule"
+[[config.flag]]
+regex = '''["'][\w@/-]+["']\s*:\s*0\b'''
+say = "turns off a lint rule"
+[[config.flag]]
+regex = '\b(?:ignorePatterns|ignores)\b'
+say = "leaves out some files from Lint"

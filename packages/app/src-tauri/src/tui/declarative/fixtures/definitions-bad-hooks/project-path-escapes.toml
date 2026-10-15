@@ -1,0 +1,30 @@
+# expect-code: AGENT_DEF_HOOKS_GLOBAL_CONFIG
+# A project file path must stay inside the project.
+schema_version = 1
+
+[agent]
+id = "hookbad"
+label = "Hook Bad"
+
+[binary]
+names = ["hookbad-fixture-not-installed"]
+install_hint = "fixture only"
+
+[tui]
+argv = []
+
+[hooks]
+schema = 1
+install = "project_file"
+[hooks.project_file]
+path = "../.codex/hooks.json"
+layout = "event_groups"
+root_key = "hooks"
+[hooks.entry]
+type = "command"
+command = "{exe_quoted} {args_joined}"
+
+[[hooks.events]]
+vendor = "Stop"
+pm = "turn_end"
+fields = { session = "session_id" }

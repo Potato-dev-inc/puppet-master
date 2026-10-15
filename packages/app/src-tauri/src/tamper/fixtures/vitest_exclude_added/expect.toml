@@ -1,0 +1,2 @@
+blocks = ["checks_changed"]
+contains = ["leaves out some tests"]

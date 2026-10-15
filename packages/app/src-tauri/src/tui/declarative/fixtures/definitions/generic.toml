@@ -1,0 +1,84 @@
+# Generic test definition: every [tui] table at once, plus a JSON-lines headless half.
+schema_version = 1
+
+[agent]
+id = "gentui"
+label = "Generic TUI"
+
+[binary]
+names = ["gentui-fixture-not-installed"]
+install_hint = "fixture only"
+
+[features]
+dispatchable = true
+
+[headless]
+argv = ["run", "--json"]
+task_separator = "--"
+
+[headless.output]
+format = "json_lines"
+
+[headless.output.result]
+where = { kind = "answer" }
+path = "text"
+pick = "last"
+
+[tui]
+argv = []
+idle_after_ms = 3000
+quiet_idle_after_ms = 900
+clear_input_keys = "\u0015"
+
+[tui.ready]
+regex = "^>\\s*$"
+not_regex = ["trust this folder"]
+
+[tui.busy]
+working_regex = ["working\\.\\.\\.", "esc to stop"]
+idle_regex = ["^>\\s*$"]
+
+[tui.chrome]
+line_regex = ["^model:", "^\\? for help"]
+
+[tui.tool_activity]
+line_regex = ["^running: ", "^\u2022 ran "]
+
+[tui.menu]
+regex = ["enter to select", "\\d+\\.\\s*yes\\b"]
+
+[tui.dialogs]
+strip_blocks = [{ start_regex = "^\\+-+ trust", end_regex = "^\\+-+\\+$" }]
+
+[tui.tidy]
+dedupe_adjacent_lines = true
+
+[tui.footer_model]
+regex = "model:\\s*(?P<model>[\\w/.-]+)"
+
+[tui.classify]
+waiting_regex = ["do you want to proceed\\?"]
+
+[[tui.prompt]]
+kind = "command_approval"
+detect_regex = "allow once\\?"
+not_when_regex = "answered: "
+choices = [
+  { id = "allow_once", key = "y" },
+  { id = "deny", key = "n" },
+]
+
+[[tui.prompt]]
+kind = "broad_approval"
+detect_regex = "always allow this command"
+broad = true
+choices = [
+  { id = "allow_once", key = "y" },
+  { id = "deny", key = "n" },
+  { id = "allow_all", key = "enter" },
+]
+
+[[tui.prompt]]
+kind = "question"
+detect_regex = "type your answer"
+choices = [{ id = "skip", text = "skip\r" }]

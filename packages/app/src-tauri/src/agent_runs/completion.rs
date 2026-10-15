@@ -1,21 +1,44 @@
 //! Deterministic turn-completion for TUI workers.
 //!
 //! A fake backend drives `observe_tui_turn` with pane status + screen snapshots.
-//! Live supervision is a thin loop over the same function.
+//! Live supervision is a thin loop over the same function. Reply-text cleaning is in `clean`.
+
+mod clean;
 
 use crate::operations::ResultCapture;
-use std::collections::HashMap;
+use clean::normalize_echo;
+pub use clean::{clean_extracted_result, clean_extracted_result_after, tui_turn_evidence};
 
 pub const STABLE_IDLE_TICKS: u8 = 2;
 pub const RECONCILE_IDLE_TICKS: u8 = 4;
+/// A turn that was seen running but has shown no reply text yet gets this many idle ticks (250ms
+/// each) before it is declared ambiguous. The TUI can look idle (echoed prompt, input footer) for
+/// seconds between submitting and the first token, so a 1s window ended turns before the reply.
+pub const AWAITING_REPLY_TICKS: u8 = 40;
+/// A turn that never showed activity gets this many idle ticks (250ms each) before it is declared
+/// not submitted. Cursor can take several seconds to start reacting, and its screen lags the PTY.
+pub const NOT_SUBMITTED_TICKS: u8 = 24;
+/// Halfway to that, Enter is sent once more in case the first one was dropped.
+pub const RETRY_SUBMIT_TICKS: u8 = 12;
 
 #[derive(Debug, Clone, Default)]
 pub struct TuiTurnWatch {
     pub baseline: String,
     pub task: String,
+    /// The previous turn's prompt on this pane. Its echo is still on screen (and a failed delivery
+    /// can leave a stale copy in the input box), so it is never evidence for this turn.
+    pub previous_task: String,
     idle_evidence: Option<String>,
     idle_ticks: u8,
     reconcile_ticks: u8,
+    saw_activity: bool,
+    saw_task_echo: bool,
+    /// Reply text (after cleaning) has been on screen at some point this turn.
+    saw_reply: bool,
+    submit_retried: bool,
+    /// The delivery protocol already verified the prompt was typed, submitted and the turn
+    /// started (`TuiProfile::verifies_prompt_delivery`), so no blind second Enter is ever sent.
+    delivery_verified: bool,
 }
 
 impl TuiTurnWatch {
@@ -30,6 +53,70 @@ impl TuiTurnWatch {
         self.task = task.into();
         self
     }
+
+    pub fn with_verified_delivery(mut self, verified: bool) -> Self {
+        self.delivery_verified = verified;
+        self
+    }
+
+    pub fn set_delivery_verified(&mut self, verified: bool) {
+        self.delivery_verified = verified;
+    }
+
+    pub fn with_previous_task(mut self, previous: impl Into<String>) -> Self {
+        self.previous_task = previous.into();
+        self
+    }
+
+    /// Whether the task's echo has been seen since the baseline (the turn's output has begun).
+    pub fn saw_task_echo(&self) -> bool {
+        self.saw_task_echo
+    }
+
+    /// Start watching again from `baseline` after the prompt was delivered a second time.
+    pub fn restart(&mut self, baseline: impl Into<String>) {
+        self.baseline = baseline.into();
+        self.idle_evidence = None;
+        self.idle_ticks = 0;
+        self.reconcile_ticks = 0;
+        self.saw_activity = false;
+        self.saw_task_echo = false;
+        self.saw_reply = false;
+        self.submit_retried = false;
+    }
+}
+
+/// The model to record for a completed pane run: the TUI footer when it is on screen (confirmed),
+/// else the CLI's configured default (not a confirmation). `None` only when neither is known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletionModel {
+    pub model: String,
+    pub confirmed: bool,
+}
+
+pub fn completion_model(
+    agent_type: &str,
+    screen: &str,
+    already_resolved: Option<&str>,
+    default_model: impl FnOnce() -> Option<String>,
+) -> Option<CompletionModel> {
+    let profile = crate::tui::profile_for(agent_type);
+    if let Some(model) = profile.detect_footer_model(screen) {
+        return Some(CompletionModel {
+            model,
+            confirmed: true,
+        });
+    }
+    if already_resolved.is_some_and(|model| !model.trim().is_empty()) {
+        return None;
+    }
+    if !profile.probes_default_model() {
+        return None;
+    }
+    default_model().map(|model| CompletionModel {
+        model,
+        confirmed: false,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +128,10 @@ pub enum TuiTurnDecision {
         capture: ResultCapture,
     },
     AmbiguousIdle,
+    /// The pane has not reacted yet: press Enter once more (typed text is waiting in the input).
+    RetrySubmit,
+    /// The pane never left idle and showed no new output: the prompt was not submitted.
+    NotSubmitted,
 }
 
 pub fn observe_tui_turn(
@@ -48,22 +139,46 @@ pub fn observe_tui_turn(
     pane_status: &str,
     screen: &str,
     has_prompt: bool,
+    agent_type: &str,
 ) -> TuiTurnDecision {
-    if has_prompt || pane_status == "waiting_input" {
+    // A startup screen (an update notice, a trust question, a login page) is never a turn's answer.
+    // The pane reads "running" while the task is typed into it and "idle" once it settles, which
+    // looked exactly like a finished turn: a Codex run completed with its update menu as the reply.
+    // The turn cannot have ended while the TUI has not even reached its input box.
+    let startup_gate = crate::tui::profile_for(agent_type).startup_gate(screen).is_some();
+    if has_prompt || startup_gate || pane_status == "waiting_input" {
         watch.idle_evidence = None;
         watch.idle_ticks = 0;
         watch.reconcile_ticks = 0;
         return TuiTurnDecision::WaitingInput;
     }
     if pane_status != "idle" {
+        watch.saw_activity = true;
         watch.idle_evidence = None;
         watch.idle_ticks = 0;
         watch.reconcile_ticks = 0;
         return TuiTurnDecision::Continue;
     }
-    if let Some(evidence) = tui_turn_evidence(screen, &watch.baseline)
-        .and_then(|raw| clean_extracted_result(&raw, &watch.task))
-    {
+    if !watch.saw_task_echo && task_echo_on_screen(screen, &watch.baseline, &watch.task) {
+        watch.saw_task_echo = true;
+    }
+    // With a blank baseline (the snapshot raced a lagging screen) everything already on screen,
+    // banner, model footer, update notices, counts as "new". Until the pane was seen running or
+    // the task's own echo appeared, there is no proof this turn started, so accept no evidence.
+    // With a task to look for, a non-blank baseline is not proof either: whatever else changed on
+    // screen (a wrapped footer row, an update notice) is not a reply. Only a task-less watch,
+    // which has nothing to echo, falls back to the baseline alone.
+    let turn_started = watch.saw_activity
+        || watch.saw_task_echo
+        || (watch.task.trim().is_empty() && !watch.baseline.trim().is_empty());
+    let evidence = turn_started
+        .then(|| tui_turn_evidence(screen, &watch.baseline, agent_type))
+        .flatten()
+        .and_then(|raw| {
+            clean_extracted_result_after(&raw, &watch.task, &watch.previous_task, agent_type)
+        });
+    if let Some(evidence) = evidence {
+        watch.saw_reply = true;
         if watch.idle_evidence.as_deref() == Some(evidence.as_str()) {
             watch.idle_ticks = watch.idle_ticks.saturating_add(1);
         } else {
@@ -84,146 +199,153 @@ pub fn observe_tui_turn(
     watch.idle_evidence = None;
     watch.idle_ticks = 0;
     watch.reconcile_ticks = watch.reconcile_ticks.saturating_add(1);
-    if watch.reconcile_ticks >= RECONCILE_IDLE_TICKS {
-        TuiTurnDecision::AmbiguousIdle
+    if watch.saw_activity {
+        let patience = if watch.saw_reply {
+            RECONCILE_IDLE_TICKS
+        } else {
+            AWAITING_REPLY_TICKS
+        };
+        return if watch.reconcile_ticks >= patience {
+            TuiTurnDecision::AmbiguousIdle
+        } else {
+            TuiTurnDecision::Continue
+        };
+    }
+    if watch.reconcile_ticks >= NOT_SUBMITTED_TICKS {
+        TuiTurnDecision::NotSubmitted
+    } else if watch.reconcile_ticks >= RETRY_SUBMIT_TICKS
+        && !watch.submit_retried
+        && !watch.delivery_verified
+    {
+        watch.submit_retried = true;
+        TuiTurnDecision::RetrySubmit
     } else {
         TuiTurnDecision::Continue
     }
 }
 
-pub fn is_tui_chrome_line(line: &str) -> bool {
-    let lower = line.trim().to_ascii_lowercase();
-    lower.is_empty()
-        || lower.contains("add follow-up")
-        || lower == "composing"
-        || lower == "working"
-        || lower.starts_with("working...")
-        || lower.contains("allow once")
-        || lower.contains("yes, allow")
-        || lower.contains("don't ask again")
-        || lower.contains("[pasted text")
-        || lower.starts_with("pasted text")
-        || lower.starts_with("acceptance criteria")
-        || lower.starts_with("expected output:")
-        || lower.starts_with("# context packet")
-        || lower.starts_with("task:")
-        || lower.starts_with("scope:")
-        || lower.starts_with("constraints:")
-        || lower.starts_with("facts:")
-        || lower.chars().all(|ch| !ch.is_alphanumeric())
+/// Whether the start of the task text is visible on screen (the TUI echoes the submitted prompt).
+/// Whitespace and punctuation are ignored so a wrapped line still matches.
+fn task_echo_on_screen(screen: &str, baseline: &str, task: &str) -> bool {
+    let task_n = normalize_echo(task);
+    let head: String = task_n.chars().take(40).collect();
+    let screen_n = normalize_echo(screen);
+    if head.len() >= 8 {
+        return screen_n.contains(head.trim_end());
+    }
+    // Too short to be distinctive on its own: its echo must be new since the baseline.
+    !head.is_empty()
+        && screen_n.matches(head.as_str()).count()
+            > normalize_echo(baseline).matches(head.as_str()).count()
 }
 
-/// Drop Cursor paste markers, prompt echoes, and acceptance tables so they
-/// cannot be stored as an assistant result or reused as follow-up context.
-pub fn clean_extracted_result(evidence: &str, task: &str) -> Option<String> {
-    let lines: Vec<&str> = evidence
-        .lines()
-        .map(str::trim)
-        .filter(|line| !is_tui_chrome_line(line) && !line_echoes_task(line, task))
-        .collect();
-    if lines.is_empty() {
+/// A captured reply, and whether it is known to be only the tail of the real one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WidenedReply {
+    pub text: String,
+    /// The start of the turn could not be found, so lines above the visible rows may be missing.
+    pub truncated: bool,
+}
+
+/// `result` was read from the visible rows. When this turn's prompt echo is not on them, the
+/// reply scrolled past the top and `result` is only its tail: re-read the turn from `full` (the
+/// scrollback plus the screen), starting at the last echo of the prompt. When even `full` does not
+/// hold the echo (alternate screen, history too short) the result is flagged `truncated` rather
+/// than passed off as whole.
+pub fn widen_reply(
+    visible: &str,
+    full: &str,
+    task: &str,
+    previous_task: &str,
+    result: &str,
+    agent_type: &str,
+) -> WidenedReply {
+    let unchanged = |truncated| WidenedReply {
+        text: result.to_string(),
+        truncated,
+    };
+    let task_n = normalize_echo(task);
+    let head: String = task_n.chars().take(40).collect();
+    let head = head.trim_end();
+    if head.len() < 8 || normalize_echo(visible).contains(head) {
+        return unchanged(false);
+    }
+    match scrollback_reply(full, task, previous_task, agent_type) {
+        Some(text) => WidenedReply {
+            text,
+            truncated: false,
+        },
+        None => unchanged(true),
+    }
+}
+
+/// The reply to `task` read from `full` (scrollback plus screen): what follows the last echo of
+/// the prompt, cleaned. `None` when the echo is not there or nothing but chrome follows it, so a
+/// reply is never attributed to a turn on the strength of an older turn's text.
+pub fn scrollback_reply(
+    full: &str,
+    task: &str,
+    previous_task: &str,
+    agent_type: &str,
+) -> Option<String> {
+    let task_n = normalize_echo(task);
+    let head: String = task_n.chars().take(40).collect();
+    let head = head.trim_end();
+    if head.len() < 8 {
         return None;
     }
-    let cleaned = lines.join("\n");
-    if is_mostly_prompt_echo(&cleaned, task) {
-        None
-    } else {
-        Some(cleaned)
-    }
-}
-
-fn normalize_echo(text: &str) -> String {
-    text.chars()
-        .filter(|ch| ch.is_alphanumeric() || ch.is_whitespace())
-        .flat_map(char::to_lowercase)
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn line_echoes_task(line: &str, task: &str) -> bool {
-    if task.is_empty() {
-        return false;
-    }
-    let trimmed = line.trim();
-    let is_bullet = trimmed.starts_with(['-', '*', '•']);
-    let stripped = trimmed.trim_start_matches(['-', '*', '•', '>']).trim();
-    if stripped.len() < 8 {
-        return false;
-    }
-    let task_n = normalize_echo(task);
-    let line_n = normalize_echo(stripped);
-    if line_n.is_empty() || !task_n.contains(&line_n) {
-        return false;
-    }
-    is_bullet
-        || stripped.len() >= 24
-        || task.lines().any(|task_line| normalize_echo(task_line) == line_n)
-}
-
-fn is_mostly_prompt_echo(cleaned: &str, task: &str) -> bool {
-    if task.is_empty() {
-        return false;
-    }
-    let task_n = normalize_echo(task);
-    let out_n = normalize_echo(cleaned);
-    if out_n.is_empty() {
-        return true;
-    }
-    if out_n.len() >= 40 && task_n.contains(&out_n) {
-        return true;
-    }
-    let content_lines = cleaned
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
-    if content_lines.len() < 3 {
-        return false;
-    }
-    let echoed = content_lines
-        .iter()
-        .filter(|line| line_echoes_task(line, task) || is_tui_chrome_line(line))
-        .count();
-    echoed * 2 >= content_lines.len()
-}
-
-/// New non-chrome TUI text since `baseline`. Occurrence counts so a repeated
-/// identical answer still counts as this turn's result.
-pub fn tui_turn_evidence(screen: &str, baseline: &str) -> Option<String> {
-    if screen == baseline {
-        return None;
-    }
-    if let Some(suffix) = screen.strip_prefix(baseline) {
-        let added = suffix
-            .lines()
-            .map(str::trim)
-            .filter(|line| !is_tui_chrome_line(line))
-            .collect::<Vec<_>>();
-        if !added.is_empty() {
-            return Some(added.join("\n"));
+    let lines: Vec<&str> = full.lines().collect();
+    let echo_at = (0..lines.len()).rev().find(|&index| {
+        let own = normalize_echo(lines[index]);
+        if own.is_empty() || !(head.starts_with(own.as_str()) || own.starts_with(head)) {
+            return false;
         }
-    }
-    let mut before: HashMap<&str, usize> = HashMap::new();
-    for line in baseline.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        *before.entry(line).or_insert(0) += 1;
-    }
-    let mut seen: HashMap<&str, usize> = HashMap::new();
-    let mut added = Vec::new();
-    for line in screen.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        if is_tui_chrome_line(line) {
-            continue;
+        own.len() >= 8 && {
+            let span = lines[index..lines.len().min(index + 6)].join(" ");
+            normalize_echo(&span).contains(head)
         }
-        let count = seen.entry(line).or_insert(0);
-        *count += 1;
-        if *count > *before.get(line).unwrap_or(&0) {
-            added.push(line);
-        }
-    }
-    if added.is_empty() {
-        None
-    } else {
-        Some(added.join("\n"))
+    })?;
+    let turn = lines[echo_at..].join(
+        "
+",
+    );
+    tui_turn_evidence(&turn, "", agent_type)
+        .and_then(|raw| clean_extracted_result_after(&raw, task, previous_task, agent_type))
+}
+
+/// A last attempt to read this turn's reply before it is declared not captured: the visible rows
+/// again (the screen may have finished painting), then the whole history.
+pub fn recapture_reply(
+    watch: &TuiTurnWatch,
+    visible: &str,
+    full: &str,
+    agent_type: &str,
+) -> Option<String> {
+    tui_turn_evidence(visible, &watch.baseline, agent_type)
+        .and_then(|raw| {
+            clean_extracted_result_after(&raw, &watch.task, &watch.previous_task, agent_type)
+        })
+        .or_else(|| scrollback_reply(full, &watch.task, &watch.previous_task, agent_type))
+}
+
+impl TuiTurnWatch {
+    /// What the watch saw, attached to a not-captured failure so the next occurrence is diagnosable.
+    pub fn diagnostics(&self) -> serde_json::Value {
+        let tail = |text: &str| {
+            let lines: Vec<&str> = text.lines().collect();
+            lines[lines.len().saturating_sub(40)..].join(
+                "
+",
+            )
+        };
+        serde_json::json!({
+            "saw_activity": self.saw_activity,
+            "saw_task_echo": self.saw_task_echo,
+            "saw_reply": self.saw_reply,
+            "delivery_verified": self.delivery_verified,
+            "reconcile_ticks": self.reconcile_ticks,
+            "task_head": self.task.chars().take(80).collect::<String>(),
+            "baseline_tail": tail(&self.baseline),
+        })
     }
 }

@@ -1,0 +1,610 @@
+/* Simple mode (components/simple). Scoped under .cockpit.sx so the normal cockpit is untouched.
+   Monochrome, from mockups/ui-proposal/STYLE.md: grayscale tokens, hairlines, no hue. Larger type and
+   larger targets than the full cockpit, because people read this in a second language. */
+
+.cockpit.sx {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sx .sx-main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.sx .sx-page {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.sx .sx-lead {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--label);
+}
+
+.sx .sx-quiet {
+  margin: 0;
+  font-size: 13px;
+  color: var(--label-3);
+}
+
+.sx .sx-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--label-2);
+}
+
+.sx .sx-ask {
+  margin: 8px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sx .sx-pad {
+  padding: 16px 20px;
+}
+
+.sx .sx-problem {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--fill);
+  font-size: 13px;
+}
+
+.sx .sx-link {
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--label-2);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.sx .sx-link:hover {
+  color: var(--label);
+}
+
+.sx .sx-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.sx .sx-actions .ck-btn,
+.sx .sx-make-btn {
+  min-height: 40px;
+  padding-inline: 18px;
+  font-size: 14px;
+}
+
+.sx .sx-make-btn {
+  align-self: flex-start;
+}
+
+/* Home */
+.sx .sx-home-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.sx .sx-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.sx .sx-foot {
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: var(--label-3);
+}
+
+.sx .sx-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--label-2);
+}
+
+/* Rows: hairlines, no boxes inside boxes */
+.sx .sx-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--sep);
+}
+
+.sx .sx-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--sep);
+  background: none;
+  color: var(--label);
+  font: inherit;
+  text-align: left;
+}
+
+.sx .sx-row--button {
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.sx .sx-row--button:hover {
+  background: var(--fill);
+}
+
+.sx .sx-row.is-needs .sx-row-title {
+  font-weight: 700;
+}
+
+.sx .sx-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sx .sx-row-title {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sx .sx-row-sub,
+.sx .sx-row-side {
+  font-size: 12px;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.sx .sx-row-side {
+  color: var(--label-2);
+}
+
+/* Make something */
+.sx .sx-choices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sx .sx-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 16px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi);
+  color: var(--label);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms var(--ease), transform 160ms var(--ease);
+}
+
+.sx .sx-choice:hover {
+  background: var(--fill-hover);
+}
+
+.sx .sx-choice:active {
+  transform: scale(0.99);
+}
+
+.sx .sx-choice:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.sx .sx-choice-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sx .sx-choice-sub {
+  font-size: 13px;
+  color: var(--label-2);
+}
+
+.sx .sx-other {
+  display: flex;
+  gap: 8px;
+}
+
+.sx .sx-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--label);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.sx .sx-input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.sx .sx-textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.sx .sx-rules {
+  font-size: 13px;
+  color: var(--label-2);
+}
+
+.sx .sx-rules summary {
+  cursor: pointer;
+}
+
+.sx .sx-rules ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+/* Project */
+.sx .sx-project {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.sx .sx-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--sep);
+}
+
+.sx .sx-back {
+  border: 0;
+  background: none;
+  color: var(--label-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sx .sx-back:hover {
+  color: var(--label);
+}
+
+.sx .sx-head-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sx .sx-head-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--label-2);
+}
+
+.sx .sx-tabs {
+  padding: 10px 20px 0;
+}
+
+.sx .sx-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 10px;
+}
+
+.sx .sx-body.has-screen {
+  flex: 1 1 0;
+}
+
+.sx .sx-fill {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sx .sx-split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+}
+
+.sx .sx-side {
+  border-left: 1px solid var(--sep);
+}
+
+.sx .sx-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 20px 16px;
+}
+
+.sx .sx-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 20px;
+}
+
+.sx .sx-frame {
+  flex: 1;
+  min-height: 240px;
+  width: 100%;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.sx .sx-preview-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 8px;
+}
+
+/* Conversation */
+.sx .sx-convo {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 8px 20px 16px;
+}
+
+.sx .sx-msg p,
+.sx .sx-summary p {
+  margin: 2px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.sx .sx-who {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--label-3);
+}
+
+.sx .sx-step {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--label-2);
+}
+
+.sx .sx-step--problem {
+  color: var(--label);
+  font-weight: 600;
+}
+
+.sx .sx-summary {
+  padding-top: 10px;
+  border-top: 1px solid var(--sep);
+}
+
+/* Cards */
+.sx .sx-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 20px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--sep);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  box-shadow: var(--raise-hi);
+}
+
+.sx .sx-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sx .sx-card-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.sx .sx-card-tag {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--label-2);
+}
+
+.sx .sx-card-cmd {
+  margin: 4px 0 0;
+  max-height: 120px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sx .sx-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.sx .sx-card-actions .ck-btn {
+  min-height: 36px;
+  min-width: 64px;
+}
+
+/* The agent's screen, only when asked for or when PM cannot read it */
+.sx .sx-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 280px;
+  padding: 10px 20px 0;
+  border-top: 1px solid var(--sep);
+}
+
+.sx .sx-screen-term {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--sep);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Composer and the bottom bar */
+.sx .sx-composer {
+  padding: 8px 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sx .sx-composer-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.sx .sx-composer-input {
+  resize: none;
+  max-height: 120px;
+}
+
+.sx .sx-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--sep);
+  margin-top: 8px;
+}
+
+.sx .sx-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sx .sx-bar .ck-btn {
+  min-height: 36px;
+}
+
+@media (max-width: 900px) {
+  .sx .sx-page {
+    padding: 24px 16px 24px;
+  }
+
+  .sx .sx-head,
+  .sx .sx-tabs,
+  .sx .sx-composer,
+  .sx .sx-bar {
+    padding-inline: 16px;
+  }
+
+  .sx .sx-card {
+    grid-template-columns: auto minmax(0, 1fr);
+    margin-inline: 16px;
+  }
+
+  .sx .sx-card-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
+  .sx .sx-bar {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sx .sx-choice {
+    transition: none;
+  }
+
+  .sx .sx-choice:active {
+    transform: none;
+  }
+}
+
+/* Set up agents inside Simple mode, and a sign-in or install window opened from it. */
+.sx .sx-helpers {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.sx .sx-window {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sx .sx-window > .sx-back {
+  align-self: flex-start;
+  padding: 10px 16px;
+}
+
+/* A disabled primary button must not look like an enabled secondary one: Simple mode's root is also
+   .cockpit, so the one rule in cockpit.css (.cockpit .ck-btn--primary:disabled) covers it. */

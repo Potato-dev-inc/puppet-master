@@ -1,0 +1,14 @@
+
+
+  Cursor Agent
+  v2026.10.14-0f9edde
+  Tip: Use /debug to instrument and debug complex problems.
+
+
+
+ 
+  → Plan, search, build anything
+ 
+
+  Composer 2.5
+  D:\pm-hunt10\a · master

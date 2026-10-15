@@ -1,44 +1,22 @@
+// Standalone terminal window (?terminal=1 / detached pane / worker host): pane dashboard or a single pane.
+import { useNudgeOnAction } from './lib/desktop-nudge';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getDefaultTerminalAgentType,
-  listLaunchPresets,
   type AgentType,
 } from '@puppet-master/shared';
 import { useBridge } from './hooks/useBridge';
-import { usePaneRegistry, type PaneData } from './hooks/usePaneRegistry';
+import { usePaneRegistry } from './hooks/usePaneRegistry';
 import { useProjectPath } from './hooks/useProjectPath';
-import { useTerminalSession } from './hooks/useTerminalSession';
+import { agentLabel, launchMenuEntries, useAgentRegistry } from './lib/agentRegistry';
 import { tauri } from './lib/tauri';
 import { detachedWindowSizeFromGrid, openDetachedPaneWindow } from './lib/detached-pane-window';
+import { detachedCloseAction } from './lib/detached-close';
+import { applyTheme, loadSettings } from './lib/settings';
+import { subscribeSettingsTheme } from './lib/settings-sync';
+import { ClosePaneConfirm } from './components/ClosePaneConfirm';
+import { TerminalViewport } from './components/TerminalViewport';
 import { WorkerOpenCodeAuthPanel } from './components/WorkerOpenCodeAuthPanel';
-
-const STATUS_COLOR: Record<string, string> = {
-  running: 'bg-pm-ok',
-  waiting_input: 'bg-pm-warn',
-  idle: 'bg-pm-muted',
-  error: 'bg-pm-err',
-};
-
-function paneTitle(agentType: string): string {
-  switch (agentType) {
-    case 'cmd':
-      return 'Command Prompt';
-    case 'powershell':
-      return 'Terminal (PowerShell)';
-    case 'bash':
-      return 'Terminal (Shell)';
-    case 'claude':
-      return 'Claude Code';
-    case 'codex':
-      return 'Codex CLI';
-    case 'opencode':
-      return 'OpenCode';
-    case 'opencode_native':
-      return 'OpenCode (API)';
-    default:
-      return agentType;
-  }
-}
 
 function apiSnippet(baseUrl: string, paneId: string | null, draft: string, appendNewline: boolean): string {
   const safePaneId = paneId ?? '<pane-id>';
@@ -51,91 +29,6 @@ function apiSnippet(baseUrl: string, paneId: string | null, draft: string, appen
     `curl "${baseUrl}/panes/${safePaneId}/snapshot"`,
   ].join('\n');
 }
-
-function TerminalViewport({
-  pane,
-  registry,
-  chrome = true,
-  disableMobileInput = false,
-  onReattach,
-  reflowKey,
-  workerHost = false,
-  workerTrayOpen = false,
-  onToggleWorkerTray,
-}: {
-  pane: PaneData;
-  registry: ReturnType<typeof usePaneRegistry>;
-  chrome?: boolean;
-  disableMobileInput?: boolean;
-  onReattach?: () => void;
-  reflowKey?: number | string;
-  workerHost?: boolean;
-  workerTrayOpen?: boolean;
-  onToggleWorkerTray?: () => void;
-}) {
-  const { containerRef, nudgeReflow } = useTerminalSession({
-    paneId: pane.info.id,
-    sessionKey: pane.info.created_at,
-    subscribePaneData: registry.subscribePaneData,
-    syncPTYResize: true,
-    disableMobileInput,
-    reflowKey,
-  });
-
-  return (
-    <section
-      className={chrome ? 'pm-terminal-stage' : 'pm-terminal-stage pm-terminal-stage--bare'}
-      aria-label="Command terminal"
-    >
-      {chrome && (
-        <div className="pm-terminal-titlebar">
-          <span className={`pm-terminal-status ${STATUS_COLOR[pane.status] ?? 'bg-pm-muted'}`} />
-          <strong>{paneTitle(pane.info.agent_type)}</strong>
-          <span>pid {pane.info.pid}</span>
-          <span>{pane.info.cols}x{pane.info.rows}</span>
-        </div>
-      )}
-      <div ref={containerRef} className="terminal-host pm-terminal-host" />
-      {!chrome && (onReattach || workerHost || onToggleWorkerTray) && (
-        <div className="pm-terminal-floating-controls">
-          {onReattach && (
-            <button
-              type="button"
-              className="pm-terminal-control-button"
-              title="Move pane back to app"
-              aria-label="Move pane back to app"
-              onClick={onReattach}
-            >
-              ↙
-            </button>
-          )}
-          {workerHost && pane.info.agent_type === 'opencode_native' && onToggleWorkerTray && (
-            <button
-              type="button"
-              className={`pm-terminal-control-button pm-terminal-control-button--tray${workerTrayOpen ? ' is-open' : ''}`}
-              title={workerTrayOpen ? 'Hide API key setup' : 'Open API key setup'}
-              aria-label={workerTrayOpen ? 'Hide API key setup' : 'Open API key setup'}
-              aria-expanded={workerTrayOpen}
-              onClick={onToggleWorkerTray}
-            >
-              ˄
-            </button>
-          )}
-          <button
-            type="button"
-            className="pm-terminal-control-button"
-            title="Nudge layout reflow"
-            aria-label="Nudge layout reflow"
-            onClick={nudgeReflow}
-          >
-            ↻
-          </button>
-        </div>
-      )}
-    </section>
-  );
-}
-
 export default function TerminalApp() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const lockedPaneId = params.get('pane');
@@ -160,7 +53,8 @@ export default function TerminalApp() {
   const panes = registry.paneList;
   const selectedPane = selectedPaneId ? registry.panes.get(selectedPaneId) ?? null : null;
   const apiBaseUrl = bridge.client?.baseUrl ?? 'http://127.0.0.1:17321';
-  const presets = useMemo(() => listLaunchPresets(), []);
+  const registryListing = useAgentRegistry();
+  const presets = useMemo(() => launchMenuEntries(registryListing), [registryListing]);
 
   const selectOrSpawnTerminal = useCallback(async () => {
     if (lockedPaneId || !registry.initialReady || selectedPaneId) return;
@@ -190,8 +84,25 @@ export default function TerminalApp() {
     void selectOrSpawnTerminal();
   }, [selectOrSpawnTerminal]);
 
+  // Pane windows follow the saved dark/light theme, same as the main window and SettingsApp.
   useEffect(() => {
-    if (detached) return;
+    let cancelled = false;
+    void loadSettings()
+      .then((s) => {
+        if (!cancelled) applyTheme(s.theme ?? 'dark');
+      })
+      .catch(() => {
+        /* keep the default theme */
+      });
+    const offTheme = subscribeSettingsTheme((next) => applyTheme(next));
+    return () => {
+      cancelled = true;
+      offTheme();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (detached && !workerHost) return;
     let unlisten: (() => void) | null = null;
     let disposed = false;
     void tauri.onPaneDetach((event) => {
@@ -199,6 +110,7 @@ export default function TerminalApp() {
         event.pane_id,
         event.title ?? `Pane ${event.pane_id.slice(0, 8)}`,
         detachedWindowSizeFromGrid(event.cols, event.rows),
+        { workerHost, background: true },
       );
     }).then((next) => {
       if (disposed) {
@@ -211,7 +123,7 @@ export default function TerminalApp() {
       disposed = true;
       unlisten?.();
     };
-  }, [detached]);
+  }, [detached, workerHost]);
 
   useEffect(() => {
     if (lockedPaneId) return;
@@ -219,12 +131,41 @@ export default function TerminalApp() {
     setSelectedPaneId(panes[0]?.info.id ?? null);
   }, [lockedPaneId, panes, registry.panes, selectedPaneId]);
 
+  // A detached window is bound to one pane. When something else closes that pane (an agent
+  // closing its subagent, a kill from the MCP) or the pane process has exited, there is nothing
+  // left to show, so close the window instead of leaving a blank terminal or "No terminal pane
+  // selected." A short grace period covers the window opening a moment before the registry
+  // learns about its pane. Worker hosts keep theirs: they explain the exit and quit the app.
+  const lockedPane = lockedPaneId ? registry.panes.get(lockedPaneId) ?? null : null;
+  // A Preload warm window (`warm=1`) is built hidden while its pane is still unlisted (a warm worker
+  // is in no pane list until it is claimed), so "not in the list" only means "gone" once the pane
+  // has been seen at least once.
+  const warm = params.has('warm');
+  const seenLockedPaneRef = useRef(false);
+  if (lockedPane !== null) seenLockedPaneRef.current = true;
+  const lockedPaneGone =
+    registry.initialReady && lockedPaneId !== null && lockedPane === null && (!warm || seenLockedPaneRef.current);
+  const lockedPaneDead = lockedPane !== null && lockedPane.status === 'error';
+  useEffect(() => {
+    if (!detached || workerHost || !(lockedPaneGone || lockedPaneDead)) return;
+    const timer = window.setTimeout(() => {
+      void tauri.closeCurrentWindow().catch((err) => {
+        console.warn('[TerminalApp] failed to close detached window for a closed pane', err);
+      });
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [detached, workerHost, lockedPaneGone, lockedPaneDead]);
+
   useEffect(() => {
     if (!detached || !selectedPaneId) return;
     let unlisten: (() => void) | null = null;
     let disposed = false;
     void tauri.onCurrentWindowCloseRequested(() => {
-      if (workerHost) {
+      const action = detachedCloseAction({ workerHost });
+      // Panes-first: closing a pane window kills its pane (the Rust CloseRequested hook does it),
+      // so the default close that follows this handler is all that is needed.
+      if (action === 'close') return;
+      if (action === 'kill-and-exit') {
         void (async () => {
           try {
             await registry.killPane(selectedPaneId);
@@ -235,7 +176,6 @@ export default function TerminalApp() {
         })();
         return;
       }
-      void tauri.emitPaneReattach(selectedPaneId);
     }).then((next) => {
       if (disposed) {
         next();
@@ -387,19 +327,10 @@ export default function TerminalApp() {
     }
   };
 
-  const reattachSelected = async () => {
-    if (!selectedPaneId) return;
-    setError(null);
-    try {
-      await tauri.emitPaneReattach(selectedPaneId);
-      await tauri.closeCurrentWindow();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
+  const { onClickCapture } = useNudgeOnAction();
 
   return (
-    <div className="pm-terminal-app">
+    <div className="pm-terminal-app" onClickCapture={onClickCapture}>
       <main className={detached ? 'pm-terminal-shell pm-terminal-shell--detached' : 'pm-terminal-shell'}>
         <section className="pm-terminal-main">
           {selectedPane && detached ? (
@@ -419,7 +350,6 @@ export default function TerminalApp() {
                   workerHost={workerHost}
                   workerTrayOpen={workerTrayOpen}
                   onToggleWorkerTray={() => setWorkerTrayOpen((open) => !open)}
-                  onReattach={workerHost ? undefined : () => void reattachSelected()}
                   reflowKey={`detached:${selectedPane.info.id}:${selectedPane.info.cols}:${selectedPane.info.rows}`}
                 />
               </>
@@ -471,8 +401,10 @@ export default function TerminalApp() {
                 onChange={(event) => setAgentType(event.target.value as AgentType)}
               >
                 {presets.map((preset) => (
-                  <option key={preset.type} value={preset.type}>
+                  <option key={preset.type} value={preset.type} disabled={preset.disabled} title={preset.disabledReason}>
                     {preset.label}
+                    {preset.experimental ? ' (experimental)' : ''}
+                    {preset.disabled ? ' - headless only' : ''}
                   </option>
                 ))}
               </select>
@@ -535,6 +467,9 @@ export default function TerminalApp() {
         </aside>
         )}
       </main>
+      {detached && !workerHost && selectedPaneId && (
+        <ClosePaneConfirm paneId={selectedPaneId} agentLabel={agentLabel(registryListing, selectedPane?.info.agent_type ?? '')} />
+      )}
     </div>
   );
 }

@@ -1,0 +1,4 @@
+result = ""
+done = true
+error_code = "AGENT_REPORTED_ERROR"
+error = "Model not found: nosuchprovider/nosuchmodel."

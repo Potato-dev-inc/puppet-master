@@ -1,5 +1,7 @@
 # Contributing
 
+How the repo is laid out, how to build/test, and where to change things: **[docs/wiki/](docs/wiki/README.md)**. Start with [Developing](docs/wiki/developing.md) and [Extending](docs/wiki/extending.md).
+
 ## Local Tool Config
 
 Local agent and editor configuration is intentionally not tracked:

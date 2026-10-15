@@ -1,3 +1,4 @@
+// Typed wrapper over Tauri invoke/events with safe no-op fallbacks when running in a plain browser (PWA / dev server).
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -5,109 +6,38 @@ import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import type {
   AgentContextProfile,
   AgentModelInspection,
+  DeviceCap,
   PairedDeviceInfo,
   PairingSession,
 } from '@puppet-master/shared';
 
-export type PaneInfo = {
-  id: string;
-  agent_type: string;
-  pid: number;
-  status: 'running' | 'waiting_input' | 'idle' | 'error';
-  created_at: number;
-  last_output_at: number | null;
-  cwd: string;
-  cols: number;
-  rows: number;
-};
+import type {
+  PaneInfo,
+  TerminalSnapshotEvent,
+  TerminalDataEvent,
+  PaneStatusEvent,
+  PaneExitEvent,
+  PanesChangedEvent,
+  PtyResizedEvent,
+  PaneDetachEvent,
+  PaneReattachEvent,
+  WorkerLaunchConfig,
+  EnsureMcpResult,
+  McpStatusReport,
+  CoordinationStorageInfo,
+  DiagnosticPreview,
+  DiagnosticSaved,
+  OpenCodeKeyStatus,
+  RotateOpenCodeKeyResult,
+  AppInstallInfo,
+  StandbyConfig,
+  StandbyStatus,
+  TunnelConfigInput,
+  TunnelConnectionTest,
+  TunnelStatus,
+} from './tauri-types';
 
-export type TerminalSnapshotEvent = { pane_id: string; snapshot: string };
-export type TerminalDataEvent = { pane_id: string; data: number[] };
-export type PaneStatusEvent = { pane_id: string; status: PaneInfo['status'] };
-export type PaneExitEvent = { pane_id: string };
-export type PanesChangedEvent = { changed: boolean };
-export type PaneDetachEvent = { pane_id: string; title?: string; cols?: number; rows?: number };
-export type PaneReattachEvent = { pane_id: string };
-
-export interface WorkerLaunchConfig {
-  agent_type: string;
-  cwd?: string | null;
-  pane_id?: string | null;
-  cols: number;
-  rows: number;
-  force_new: boolean;
-}
-
-export interface EnsureMcpResult {
-  installed: boolean;
-  changed: boolean;
-  backend: string;
-  message: string;
-}
-
-export interface McpBackendStatus {
-  backend: string;
-  label: string;
-  installed: boolean;
-  usesNpm: boolean;
-  configPath: string;
-  message: string;
-}
-
-export interface McpStatusReport {
-  bridgeReachable: boolean;
-  bridgeUrl: string | null;
-  bridgeVersion: string | null;
-  portFileExists: boolean;
-  portFilePath: string;
-  nodeAvailable: boolean;
-  npmAvailable: boolean;
-  npmPackageVersion: string | null;
-  launchCommand: string;
-  backends: McpBackendStatus[];
-  overallReady: boolean;
-  repairResults: EnsureMcpResult[];
-}
-
-export interface CoordinationStorageInfo {
-  scope: 'project' | 'global_fallback' | string;
-  project_path: string | null;
-  storage_dir: string;
-  event_log_path: string;
-  event_count: number;
-  task_count: number;
-  lock_count: number;
-  exists: boolean;
-}
-
-export interface OpenCodeKeyProfileInfo {
-  id: string;
-  label: string;
-  configured: boolean;
-}
-
-export interface OpenCodeKeyStatus {
-  active_profile: string;
-  profiles: OpenCodeKeyProfileInfo[];
-  key_automation_mode: string;
-  restart_pane_on_rotate: boolean;
-}
-
-export interface RotateOpenCodeKeyResult {
-  ok: boolean;
-  active_profile: string;
-  profiles: OpenCodeKeyProfileInfo[];
-  restarted_panes: string[];
-}
-
-export interface AppInstallInfo {
-  version: string;
-  isPackaged: boolean;
-  platform: string;
-  uninstallAvailable: boolean;
-  uninstallInstructions: string;
-  dataDir: string;
-}
+export type * from './tauri-types';
 
 const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 const noopUnlisten: UnlistenFn = () => {};
@@ -124,6 +54,8 @@ async function safeInvoke<T>(
   }
   return invoke<T>(command, args);
 }
+
+const pendingResizes = new Map<string, Promise<unknown>>();
 
 async function safeListen<T>(event: string, cb: (e: T) => void): Promise<UnlistenFn> {
   if (!isTauriRuntime()) return noopUnlisten;
@@ -203,8 +135,25 @@ export const tauri = {
       'switch_agent_model',
       { paneId, args },
     ),
-  resize: (paneId: string, cols: number, rows: number) =>
-    safeInvoke<void>('resize_pane', { paneId, cols, rows }, undefined, true),
+  readScreenReplay: (paneId: string) =>
+    safeInvoke<{ data: number[]; cols: number; rows: number; offset?: number } | null>(
+      'read_pane_screen_replay',
+      { paneId },
+      null,
+      true,
+    ),
+  /** This window's latest resize of the pane while the PTY has not applied it yet. */
+  pendingResize: (paneId: string): Promise<unknown> | undefined => pendingResizes.get(paneId),
+  resize: (paneId: string, cols: number, rows: number) => {
+    const call = safeInvoke<void>('resize_pane', { paneId, cols, rows }, undefined, true);
+    const tracked: Promise<unknown> = call.catch(() => undefined).finally(() => {
+      if (pendingResizes.get(paneId) === tracked) pendingResizes.delete(paneId);
+    });
+    pendingResizes.set(paneId, tracked);
+    return call;
+  },
+  /** Take the pane back from a phone: the PTY returns to the size this window last asked for. */
+  reclaimPaneSize: (paneId: string) => safeInvoke<void>('reclaim_pane_size', { paneId }, undefined, true),
   setProjectPath: (path: string) => safeInvoke<void>('set_project_path', { path }, undefined, true),
   getProjectPath: () => safeInvoke<string>('get_project_path_cmd', undefined, '', true),
   getCoordinationStorageInfo: () =>
@@ -337,8 +286,12 @@ export const tauri = {
     safeListen<PaneExitEvent>('pty://exit', cb),
   onPanesChanged: (cb: (e: PanesChangedEvent) => void): Promise<UnlistenFn> =>
     safeListen<PanesChangedEvent>('pty://panes-changed', cb),
+  onPtyResized: (cb: (e: PtyResizedEvent) => void): Promise<UnlistenFn> =>
+    safeListen<PtyResizedEvent>('pty://resized', cb),
   onPaneDetach: (cb: (e: PaneDetachEvent) => void): Promise<UnlistenFn> =>
     safeListen<PaneDetachEvent>('pane://detach', cb),
+  onPaneShowInGrid: (cb: (e: { pane_id: string }) => void): Promise<UnlistenFn> =>
+    safeListen<{ pane_id: string }>('pane://show-in-grid', cb),
   onPaneReattach: (cb: (e: PaneReattachEvent) => void): Promise<UnlistenFn> =>
     safeListen<PaneReattachEvent>('pane://reattach', cb),
   emitPaneReattach: (paneId: string) => safeEmit<PaneReattachEvent>('pane://reattach', { pane_id: paneId }),
@@ -346,10 +299,11 @@ export const tauri = {
   resizeCurrentWindow,
   onCurrentWindowCloseRequested,
 
-  createMobilePairingSession: (bridgeUrl: string) =>
+  /** `caps`: what the phone that scans this code may do (omitted: everything, as before). */
+  createMobilePairingSession: (bridgeUrl: string, caps?: readonly DeviceCap[]) =>
     safeInvoke<PairingSession>(
       'create_mobile_pairing_session',
-      { bridgeUrl },
+      caps ? { bridgeUrl, caps: [...caps] } : { bridgeUrl },
       {
         pairing_code: '',
         expires_at: 0,
@@ -363,6 +317,11 @@ export const tauri = {
     safeInvoke<PairedDeviceInfo[]>('list_paired_mobile_devices', undefined, [], true),
   revokePairedMobileDevice: (deviceId: string) =>
     safeInvoke<boolean>('revoke_paired_mobile_device', { deviceId }, false, true),
+  setPairedMobileDeviceCaps: (deviceId: string, caps: readonly DeviceCap[]) =>
+    safeInvoke<boolean>('set_paired_mobile_device_caps', { deviceId, caps: [...caps] }, false, true),
+  /** This launch's bridge key for the app's own HTTP calls (IPC only; null outside the app). */
+  bridgeLocalSecret: () =>
+    safeInvoke<string | null>('bridge_local_secret', undefined, null, true).catch(() => null),
 
   getMobileTunnelInfo: () =>
     safeInvoke<{
@@ -375,6 +334,19 @@ export const tauri = {
       updatedAt: number;
     } | null>('get_mobile_tunnel_info', undefined, null, true),
 
+  getTunnelStatus: () => safeInvoke<TunnelStatus | null>('get_tunnel_status', undefined, null, true),
+  setTunnelConfig: (input: TunnelConfigInput) => safeInvoke<TunnelStatus>('set_tunnel_config', { input }),
+  restartTunnel: () => safeInvoke<TunnelStatus>('restart_tunnel'),
+  testTunnelConnection: (url?: string) =>
+    safeInvoke<TunnelConnectionTest>('test_tunnel_connection', { url: url ?? null }),
+
+  standbyGetStatus: () => safeInvoke<StandbyStatus | null>('standby_get_status', undefined, null, true),
+  standbySetConfig: (config: StandbyConfig) =>
+    safeInvoke<StandbyStatus | null>('standby_set_config', { config }, null, true),
+  diagnosticPreview: () => safeInvoke<DiagnosticPreview>('diagnostic_preview'),
+  diagnosticShow: (path: string) => safeInvoke<string>('diagnostic_show', { path }),
+  diagnosticSave: (path: string, exclude: string[]) =>
+    safeInvoke<DiagnosticSaved>('diagnostic_save', { path, exclude }),
   getAppInstallInfo: () =>
     safeInvoke<AppInstallInfo>(
       'get_app_install_info',
@@ -403,7 +375,7 @@ export const tauri = {
           { id: 'a', label: 'Primary', configured: false },
           { id: 'b', label: 'Secondary', configured: false },
         ],
-        key_automation_mode: 'auto_if_backup',
+        key_automation_mode: 'notify_only',
         restart_pane_on_rotate: true,
       },
       true,

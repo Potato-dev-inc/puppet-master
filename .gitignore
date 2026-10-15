@@ -49,6 +49,9 @@ puppet-master.pairing.json
 opencode.json
 packages/app/src-tauri/.mcp.json
 packages/app/src-tauri/opencode.json
+# ...except the shipped agent pack (integrations/), whose plugin files have these names
+!integrations/**/.mcp.json
+!integrations/**/opencode.json
 # OS
 Thumbs.db
 
@@ -59,3 +62,7 @@ packages/app/src-tauri/resources/bin/
 plan.md
 .codex
 .docs
+
+# per-machine dev window overrides (see scripts/with-cargo-path.mjs)
+packages/app/src-tauri/tauri.dev.local.json
+packages/app/src-tauri/pm-dev.local.json

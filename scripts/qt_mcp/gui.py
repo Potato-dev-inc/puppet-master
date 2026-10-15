@@ -1,9 +1,12 @@
-"""Button-first PySide6 dashboard for operating Puppet Master over local MCP."""
+"""Button-first PySide6 dashboard for operating Puppet Master over local MCP.
+
+Window logic only: payload discovery lives in discovery.py, tool-call rules in operations.py,
+dialogs in dialogs.py, the stylesheet in style.py.
+"""
 
 from __future__ import annotations
 
 import json
-import os
 import sys
 import uuid
 from datetime import datetime
@@ -14,15 +17,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
-    QDialog,
-    QDialogButtonBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -36,224 +35,23 @@ from PySide6.QtWidgets import (
 try:
     from transport import McpTransport
     from forms import ask_tool_arguments, render_result
+    from discovery import REPO_ROOT, agent_runs, default_command, extract_panes, operation_snapshot, pane_id_of, pane_label
+    from dialogs import ask_worker_pane
+    from operations import (
+        AGENT_CATALOG_TOOLS, BUTTON_LABELS, MODES, TERMINAL_STATES,
+        as_revision, call_timeout_ms, input_properties, tool_defaults, without_idempotency_key,
+    )
+    from style import STYLESHEET
 except ImportError:
     from .transport import McpTransport
     from .forms import ask_tool_arguments, render_result
-
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-TERMINAL_STATES = ["waiting_input", "completed", "failed", "cancelled"]
-BUTTON_LABELS = {
-    "bridge_health": "Check bridge",
-    "list_panes": "List workers",
-    "delegate_work": "Delegate task",
-    "get_operation": "Get operation status",
-    "wait_for_operation": "Wait for update",
-    "cancel_operation": "Cancel operation",
-    "run_agent": "Run agent",
-    "wait_agents": "Wait for agents",
-    "cancel_agent": "Cancel agent",
-    "list_agents": "List agents",
-    "agent_transcript": "Agent transcript",
-    "take_over": "Take over worker",
-    "set_mode": "Set tool mode",
-    "send_agent": "Send follow-up",
-    "answer_prompt": "Answer prompt",
-}
-AGENT_CATALOG_TOOLS = {
-    "run_agent", "wait_agents", "cancel_agent", "list_agents", "agent_transcript", "take_over",
-}
-MODES = ("agent", "shell", "both")
-
-
-def default_command() -> tuple[str, list[str]]:
-    binary_name = "puppet-master-mcp.exe" if os.name == "nt" else "puppet-master-mcp"
-    updated_name = "puppet-master-mcp-updated.exe" if os.name == "nt" else "puppet-master-mcp-updated"
-    debug_dir = REPO_ROOT / "packages/app/src-tauri/target/debug"
-    available = [path for path in (debug_dir / binary_name, debug_dir / updated_name) if path.is_file()]
-    if available:
-        return str(max(available, key=lambda path: path.stat().st_mtime_ns)), []
-    for candidate in (
-        REPO_ROOT / "packages/mcp-server/dist" / binary_name,
-    ):
-        if candidate.is_file():
-            return str(candidate), []
-    launcher = REPO_ROOT / "packages/mcp-server/dist/index.js"
-    if launcher.is_file():
-        return "node", [str(launcher)]
-    return binary_name, []
-
-
-def operation_snapshot(value: Any) -> dict[str, Any] | None:
-    """Find an operation in structured MCP content, progress, or text output."""
-    pending = [value]
-    visited: set[int] = set()
-    while pending:
-        current = pending.pop(0)
-        if not isinstance(current, dict) or id(current) in visited:
-            continue
-        visited.add(id(current))
-        if current.get("isError") is True:
-            continue
-        if "operation_id" in current:
-            return current
-        for key in ("structuredContent", "snapshot", "message"):
-            nested = current.get(key)
-            if isinstance(nested, dict):
-                pending.append(nested)
-            elif isinstance(nested, str):
-                try:
-                    parsed = json.loads(nested)
-                except (ValueError, TypeError):
-                    continue
-                if isinstance(parsed, dict):
-                    pending.append(parsed)
-        content = current.get("content")
-        if isinstance(content, list):
-            for item in content:
-                if isinstance(item, dict) and isinstance(item.get("text"), str):
-                    try:
-                        parsed = json.loads(item["text"])
-                    except (ValueError, TypeError):
-                        continue
-                    if isinstance(parsed, dict):
-                        pending.append(parsed)
-    return None
-
-
-def agent_runs(value: Any) -> list[dict[str, Any]]:
-    """Extract structured agent records from MCP results and progress payloads."""
-    found: dict[str, dict[str, Any]] = {}
-    pending = [value]
-    visited: set[int] = set()
-    while pending:
-        current = pending.pop(0)
-        if isinstance(current, list):
-            pending.extend(current)
-            continue
-        if not isinstance(current, dict) or id(current) in visited:
-            continue
-        visited.add(id(current))
-        if current.get("isError") is True:
-            continue
-        handle = current.get("handle")
-        if isinstance(handle, str) and handle and ("status" in current or "operation_id" in current):
-            found[handle] = current
-        for key in ("structuredContent", "agent", "agents", "message", "data"):
-            nested = current.get(key)
-            if isinstance(nested, (dict, list)):
-                pending.append(nested)
-            elif isinstance(nested, str):
-                try:
-                    parsed = json.loads(nested)
-                except (ValueError, TypeError):
-                    continue
-                if isinstance(parsed, (dict, list)):
-                    pending.append(parsed)
-        content = current.get("content")
-        if isinstance(content, list):
-            for item in content:
-                if isinstance(item, dict) and isinstance(item.get("text"), str):
-                    try:
-                        parsed = json.loads(item["text"])
-                    except (ValueError, TypeError):
-                        continue
-                    if isinstance(parsed, (dict, list)):
-                        pending.append(parsed)
-    return list(found.values())
-
-
-def _is_pane(item: Any) -> bool:
-    return (
-        isinstance(item, dict)
-        and bool(item.get("pane_id") or item.get("id"))
-        and ("agent_type" in item or "agent" in item)
+    from .discovery import REPO_ROOT, agent_runs, default_command, extract_panes, operation_snapshot, pane_id_of, pane_label
+    from .dialogs import ask_worker_pane
+    from .operations import (
+        AGENT_CATALOG_TOOLS, BUTTON_LABELS, MODES, TERMINAL_STATES,
+        as_revision, call_timeout_ms, input_properties, tool_defaults, without_idempotency_key,
     )
-
-
-def _pane_id(pane: dict[str, Any]) -> str:
-    return str(pane.get("pane_id") or pane.get("id") or "")
-
-
-def _pane_label(pane: dict[str, Any]) -> str:
-    pane_id = _pane_id(pane)
-    short = pane_id[:8] if pane_id else "unknown"
-    agent = str(pane.get("agent_type") or pane.get("agent") or "worker")
-    status = str(pane.get("status") or "")
-    cwd = str(pane.get("cwd") or pane.get("working_directory") or "")
-    cwd_name = Path(cwd).name if cwd else ""
-    parts = [agent, short]
-    if status:
-        parts.append(status)
-    if cwd_name:
-        parts.append(cwd_name)
-    return " · ".join(parts)
-
-
-def _extract_panes(value: Any) -> list[dict[str, Any]]:
-    """Collect every worker pane in an MCP result, not just the first nested list."""
-    found: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    pending: list[Any] = [value]
-    visited: set[int] = set()
-    while pending:
-        current = pending.pop(0)
-        identity = id(current)
-        if identity in visited:
-            continue
-        if isinstance(current, dict):
-            visited.add(identity)
-            if _is_pane(current):
-                pane_id = _pane_id(current)
-                if pane_id.startswith("puppet-master-orchestrator-"):
-                    continue
-                if pane_id and pane_id not in seen:
-                    seen.add(pane_id)
-                    found.append(current)
-                continue
-            pending.extend(current.values())
-            continue
-        if isinstance(current, list):
-            pending.extend(current)
-            continue
-        if isinstance(current, str):
-            try:
-                pending.append(json.loads(current))
-            except (ValueError, TypeError):
-                continue
-    return found
-
-
-def ask_worker_pane(parent: QWidget | None, panes: list[dict[str, Any]]) -> dict[str, Any] | None:
-    dialog = QDialog(parent)
-    dialog.setWindowTitle("Choose worker")
-    dialog.setMinimumWidth(520)
-    dialog.setMinimumHeight(280)
-    layout = QVBoxLayout(dialog)
-    layout.addWidget(QLabel("Worker panes"))
-    listing = QListWidget()
-    for pane in panes:
-        item = QListWidgetItem(_pane_label(pane))
-        item.setToolTip(_pane_id(pane))
-        item.setData(Qt.ItemDataRole.UserRole, pane)
-        listing.addItem(item)
-    if listing.count():
-        listing.setCurrentRow(0)
-    listing.itemDoubleClicked.connect(dialog.accept)
-    layout.addWidget(listing, 1)
-    buttons = QDialogButtonBox(
-        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-    )
-    buttons.accepted.connect(dialog.accept)
-    buttons.rejected.connect(dialog.reject)
-    layout.addWidget(buttons)
-    if dialog.exec() != QDialog.DialogCode.Accepted:
-        return None
-    item = listing.currentItem()
-    if item is None:
-        return None
-    chosen = item.data(Qt.ItemDataRole.UserRole)
-    return chosen if isinstance(chosen, dict) else None
+    from .style import STYLESHEET
 
 
 class MainWindow(QMainWindow):
@@ -530,41 +328,23 @@ class MainWindow(QMainWindow):
         pane = ask_worker_pane(self, self._pane_cache)
         if pane is None:
             return
-        self._pane_id = _pane_id(pane)
+        self._pane_id = pane_id_of(pane)
         self._agent_type = str(pane.get("agent_type") or pane.get("agent") or "codex")
-        self.worker_label.setText(_pane_label(pane))
+        self.worker_label.setText(pane_label(pane))
         self.worker_label.setToolTip(self._pane_id)
 
     def _defaults_for_tool(self, name: str) -> dict[str, Any]:
-        common: dict[str, Any] = {}
-        schema = self._tools.get(name, {}).get("inputSchema", {})
-        properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
-        if "project_path" in properties:
-            common["project_path"] = self._project_path
-        if "pane_id" in properties and self._pane_id:
-            common["pane_id"] = self._pane_id
-        if "operation_id" in properties and self._operation_id:
-            common["operation_id"] = self._operation_id
-        if "handle" in properties and self._agent_handle:
-            common["handle"] = self._agent_handle
-        if "handles" in properties and self._agent_handle:
-            common["handles"] = [self._agent_handle]
-        if "after_revisions" in properties and self._agent_handle:
-            common["after_revisions"] = {self._agent_handle: self._agent_revision}
-        if name == "delegate_work":
-            common.setdefault("agent_type", self._agent_type)
-            common.setdefault("acceptance_criteria", ["Complete the requested task and report the result."])
-            if self._pane_id and "pane_id" in properties:
-                common["pane_id"] = self._pane_id
-        if name == "run_agent":
-            available_agents = properties.get("agent_type", {}).get("enum", [])
-            common.setdefault("agent_type", self._agent_type if self._agent_type in available_agents else "codex")
-            common.setdefault("acceptance_criteria", ["Complete the requested task and report the result."])
-        if name == "wait_for_operation":
-            common.setdefault("after_revision", self._revision)
-            common.setdefault("until", TERMINAL_STATES)
-            common.setdefault("timeout_ms", 30_000)
-        return common
+        return tool_defaults(
+            name,
+            self._tools.get(name),
+            project_path=self._project_path,
+            pane_id=self._pane_id,
+            operation_id=self._operation_id,
+            revision=self._revision,
+            agent_type=self._agent_type,
+            agent_handle=self._agent_handle,
+            agent_revision=self._agent_revision,
+        )
 
     def _set_mode_visual(self, mode: str) -> None:
         if mode not in MODES:
@@ -592,11 +372,7 @@ class MainWindow(QMainWindow):
     def _operation_context(self) -> dict[str, Any] | None:
         if not self._operation_id:
             return None
-        context: dict[str, Any] = {
-            "operation_id": self._operation_id,
-            "project_path": self._project_path,
-        }
-        return context
+        return {"operation_id": self._operation_id, "project_path": self._project_path}
 
     def _new_task(self) -> None:
         # A deliberate same-task rerun needs a fresh idempotency key; existing work
@@ -642,18 +418,11 @@ class MainWindow(QMainWindow):
         if tool is None:
             QMessageBox.information(self, "Tool unavailable", f"The MCP server did not advertise {name}.")
             return
-        schema = tool.get("inputSchema", {})
-        props = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        props = input_properties(tool)
         defaults = self._defaults_for_tool(name)
         form_tool = tool
         if name == "delegate_work" and "idempotency_key" in props:
-            form_tool = dict(tool)
-            form_tool["inputSchema"] = dict(schema)
-            form_tool["inputSchema"]["properties"] = dict(props)
-            form_tool["inputSchema"]["properties"].pop("idempotency_key", None)
-            form_tool["inputSchema"]["required"] = [
-                key for key in schema.get("required", []) if key != "idempotency_key"
-            ]
+            form_tool = without_idempotency_key(tool)
         if props:
             args = ask_tool_arguments(self, form_tool, defaults)
             if args is None:
@@ -674,8 +443,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Not connected", "Connect to the local MCP process first.")
             return
         if timeout_ms is None:
-            wait_ms = args.get("timeout_ms", 120_000) if name == "wait_for_operation" else 30_000
-            timeout_ms = int(wait_ms) + 5_000 if isinstance(wait_ms, int) and wait_ms > 0 else 35_000
+            timeout_ms = call_timeout_ms(name, args)
         try:
             request_id = self.transport.call_tool(name, args, timeout_ms=timeout_ms)
         except Exception as exc:
@@ -710,7 +478,7 @@ class MainWindow(QMainWindow):
             return
         self._log(f"✓ {name}")
         if name == "list_panes":
-            self._pane_cache = _extract_panes(result)
+            self._pane_cache = extract_panes(result)
             self._log(f"Loaded {len(self._pane_cache)} worker panes")
         if name == "set_mode":
             mode = self._requested_mode
@@ -768,15 +536,8 @@ class MainWindow(QMainWindow):
             handle = run.get("handle")
             if not isinstance(handle, str) or not handle:
                 continue
-            try:
-                revision = int(run.get("revision", 0))
-            except (TypeError, ValueError):
-                revision = 0
-            previous = self._agent_cache.get(handle, {})
-            try:
-                previous_revision = int(previous.get("revision", 0))
-            except (TypeError, ValueError):
-                previous_revision = 0
+            revision = as_revision(run.get("revision", 0))
+            previous_revision = as_revision(self._agent_cache.get(handle, {}).get("revision", 0))
             if revision >= previous_revision:
                 self._agent_cache[handle] = dict(run)
             if focus or not self._agent_handle:
@@ -788,10 +549,7 @@ class MainWindow(QMainWindow):
         if not isinstance(handle, str) or not handle:
             return
         self._agent_handle = handle
-        try:
-            self._agent_revision = int(run.get("revision", 0))
-        except (TypeError, ValueError):
-            self._agent_revision = 0
+        self._agent_revision = as_revision(run.get("revision", 0))
         status = str(run.get("status", "unknown"))
         self.operation_status.setText(f"Agent {status} · {handle[:10]}")
         self.operation_stage.setText(str(run.get("stage") or ""))
@@ -807,10 +565,7 @@ class MainWindow(QMainWindow):
             return
         if self._operation_id and self._operation_id != incoming_id and not force:
             return
-        try:
-            incoming_revision = int(snapshot.get("revision", 0))
-        except (TypeError, ValueError):
-            incoming_revision = 0
+        incoming_revision = as_revision(snapshot.get("revision", 0))
         if self._operation_id == incoming_id and incoming_revision < self._revision:
             return
         self._operation_id = incoming_id
@@ -828,23 +583,7 @@ class MainWindow(QMainWindow):
         self.connection_status.setToolTip(f"[{stamp}] {message}")
 
     def _apply_style(self) -> None:
-        self.setStyleSheet("""
-            QWidget { background: #10141c; color: #e5eaf2; font-size: 13px; }
-            QGroupBox { border: 1px solid #293344; border-radius: 9px; margin-top: 10px; padding: 12px 10px 10px; font-weight: 600; }
-            QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 5px; color: #aab7c9; }
-            QPushButton { background: #222d3c; border: 1px solid #35445a; border-radius: 6px; padding: 9px 12px; }
-            QPushButton:hover { background: #2c3b50; }
-            QPushButton:disabled { color: #657184; background: #181e27; }
-            QPushButton#primary { background: #2362a5; border-color: #347cc7; font-weight: 600; }
-            QPushButton#primary:hover { background: #2a73be; }
-            QPushButton#danger { color: #ffb7b7; border-color: #70404a; }
-            QLabel#title { font-size: 22px; font-weight: 700; }
-            QLabel#subtitle, QLabel#note { color: #91a0b4; }
-            QLabel#connection { color: #82d5a6; font-weight: 600; }
-            QLabel#opstatus { color: #8fc4ff; font-weight: 600; }
-            QPlainTextEdit { background: #0b0f15; border: 1px solid #293344; border-radius: 6px; padding: 9px; font-family: Consolas, 'Cascadia Code', monospace; font-size: 12px; }
-            QScrollArea { border: 0; }
-        """)
+        self.setStyleSheet(STYLESHEET)
 
     def closeEvent(self, event: Any) -> None:  # noqa: N802
         # Stop only this MCP client process. Worker operations keep running.

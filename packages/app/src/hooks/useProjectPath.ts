@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { loadSettings, saveSettings } from '../lib/settings';
+import { loadSettings, patchSettings } from '../lib/settings';
 import { isValidProjectPath } from '../lib/project-path';
+import { subscribeSettingsRefresh } from '../lib/settings-sync';
 import { tauri } from '../lib/tauri';
 
 export function useProjectPath() {
@@ -18,7 +19,7 @@ export function useProjectPath() {
           const resolved = await tauri.getProjectPath();
           setProjectPathState(resolved);
           if (settings.project_path !== resolved) {
-            await saveSettings({ ...settings, project_path: resolved });
+            await patchSettings({ project_path: resolved });
           }
         }
       } finally {
@@ -27,11 +28,30 @@ export function useProjectPath() {
     })();
   }, []);
 
+  // The folder can also change behind this window's back (`POST /project-path`, another window): the
+  // backend saves it and tells every window with `settings://changed`. Follow the saved value, otherwise
+  // `projectPath` (which wins over the settings object in Settings > General) shows the old folder forever.
+  useEffect(() => {
+    let disposed = false;
+    const off = subscribeSettingsRefresh(() => {
+      void loadSettings()
+        .then((settings) => {
+          const saved = settings.project_path;
+          if (disposed || !saved || !isValidProjectPath(saved)) return;
+          setProjectPathState((current) => (current === saved ? current : saved));
+        })
+        .catch(() => undefined);
+    });
+    return () => {
+      disposed = true;
+      off();
+    };
+  }, []);
+
   const setProjectPath = useCallback(async (path: string) => {
     await tauri.setProjectPath(path);
     const resolved = await tauri.getProjectPath();
-    const settings = await loadSettings();
-    await saveSettings({ ...settings, project_path: resolved });
+    await patchSettings({ project_path: resolved });
     setProjectPathState(resolved);
   }, []);
 

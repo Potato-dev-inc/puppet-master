@@ -1,0 +1,148 @@
+//! Bridge adapter for the push routes (`crate::push::routes` holds the logic).
+
+use serde_json::json;
+
+use super::{Ctx, RouteResult};
+use crate::bridge::errors::operation_http_error;
+
+pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
+    if cx.segments.first() != Some(&"push") {
+        return None;
+    }
+    let Some(hub) = crate::push::hub() else {
+        return Some(Err((503, json!({"error": "push_unavailable"}))));
+    };
+    let now = crate::push::now_ms();
+    if cx.method == "POST" && cx.segments == ["push", "act"] {
+        return Some(act(cx, &hub, now));
+    }
+    let reply = crate::push::routes::handle(&hub, cx.method, cx.segments, cx.headers, cx.body, now);
+    // A phone that just went hidden may release a notification held back while it was visible.
+    crate::push::flush_outbox(&hub);
+    reply.map(
+        |(status, body)| {
+            if status < 400 {
+                Ok((status, body))
+            } else {
+                Err((status, body))
+            }
+        },
+    )
+}
+
+/// An Allow / Deny tap: the one-shot token names the pane and prompt, and, when the notification
+/// knew its attention card, the occurrence and screen fingerprint it showed. The tap is answered
+/// through the SAME path as the phone card (`attention::answer`): it re-reads the live screen under
+/// the answer lock and types nothing when this is no longer that prompt (`changed` / `gone`).
+fn act(cx: &Ctx, hub: &crate::push::hub::PushHub, now: u64) -> RouteResult {
+    let act = crate::push::routes::redeem_act(hub, cx.body, now)?;
+    // The tap acts for the device the notification went to: it needs that device's `answer` cap.
+    if !device_may_answer(&act.grant.device_id) {
+        return Err((403, json!({"error": "not_allowed", "code": "DEVICE_NOT_ALLOWED", "needs": "answer"})));
+    }
+    if let Some(item) = act.grant.item.as_ref().filter(|item| !item.fingerprint.is_empty()) {
+        let caller = crate::attention::answer::Caller {
+            device_name: crate::attention::caps::device_name(&act.grant.device_id).unwrap_or_else(|| "A phone".to_string()),
+            caps: crate::attention::caps::for_device(&act.grant.device_id),
+            device_id: act.grant.device_id.clone(),
+            lock_screen: true,
+        };
+        let request = crate::attention::answer::Request {
+            choice: Some(act.choice.to_string()),
+            text: None,
+            prompt_id: Some(act.grant.prompt_id.clone()),
+            occurrence: Some(item.occurrence),
+            fingerprint: Some(item.fingerprint.clone()),
+            answer_key: Some(format!("lock-{}", item.id)),
+        };
+        let env = crate::attention::answer::RealEnv { registry: cx.registry.clone(), app: cx.app.clone() };
+        let (status, body) = crate::attention::answer::answer(&env, &caller, &item.id, &request);
+        return lock_screen_reply(status, body);
+    }
+    let answered = crate::pane_prompt::answer(
+        cx.registry,
+        cx.app,
+        &act.grant.pane_id,
+        &act.grant.prompt_id,
+        act.choice,
+        false,
+    )
+    .map_err(operation_http_error)?;
+    // A repeat of an answer already sent for this prompt pressed nothing: no second line.
+    if crate::pane_prompt::reply_was_repeat(&answered) {
+        return Ok((200, json!({"ok": true, "answered": answered})));
+    }
+    // A lock-screen tap: the audit log says which device pressed which choice (never the command).
+    crate::audit::record(
+        crate::audit::Kind::Approval,
+        crate::audit::Who::Device(Some(act.grant.device_id.clone())),
+        &format!("A phone answered from its lock screen: {}", if act.choice == "deny" { "Said no" } else { "Allowed once" }),
+        json!({ "pane_id": act.grant.pane_id, "prompt_id": act.grant.prompt_id, "choice": act.choice, "via": "push" }),
+    );
+    Ok((200, json!({"ok": true, "answered": answered})))
+}
+
+/// What the notification's button gets back: `ok` only when the key really went out. Anything else
+/// is an error the service worker turns into "Couldn't send your answer".
+fn lock_screen_reply(status: u16, body: serde_json::Value) -> RouteResult {
+    if status >= 400 {
+        return Err((status, body));
+    }
+    match body["outcome"].as_str() {
+        Some("answered") => Ok((200, json!({"ok": true, "answered": body}))),
+        Some("failed") => Err((502, body)),
+        // changed, gone, already answered: nothing was typed
+        _ => Err((409, body)),
+    }
+}
+
+pub(in crate::bridge) fn device_may_answer(device_id: &str) -> bool {
+    crate::mobile_pairing::pairing_store()
+        .and_then(|store| store.lock().device_caps(device_id))
+        .is_some_and(|caps| caps.has(crate::mobile_pairing::Cap::Answer))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::mobile_pairing::{init_pairing_store, pairing_store, Cap, Caps, PairRequestBody};
+    use serde_json::json;
+
+    #[test]
+    fn a_lock_screen_button_is_ok_only_when_the_key_really_went_out() {
+        let ok = super::lock_screen_reply(200, json!({"outcome": "answered", "choice_label": "Allowed once"}));
+        assert_eq!(ok.unwrap().0, 200);
+        // Nothing was typed in any of these: the service worker says "Couldn't send your answer".
+        for outcome in ["changed", "gone", "already_answered"] {
+            let reply = super::lock_screen_reply(200, json!({"outcome": outcome}));
+            assert_eq!(reply.unwrap_err().0, 409, "{outcome}");
+        }
+        assert_eq!(super::lock_screen_reply(200, json!({"outcome": "failed"})).unwrap_err().0, 502);
+        assert_eq!(super::lock_screen_reply(403, json!({"error": "not_allowed"})).unwrap_err().0, 403);
+    }
+
+    #[test]
+    fn a_notification_tap_needs_the_answer_cap_of_its_device() {
+        if pairing_store().is_none() {
+            let dir = std::env::temp_dir().join(format!("pm-push-act-caps-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = init_pairing_store(dir.join("pairing.json"));
+        }
+        let pair = |caps: Caps| {
+            let store = pairing_store().unwrap();
+            let mut guard = store.lock();
+            let s = guard.create_pairing_session_with_caps("http://127.0.0.1:1".into(), caps);
+            guard
+                .pair_device(PairRequestBody {
+                    pairing_code: s.pairing_code,
+                    device_name: "p".into(),
+                    device_public_key: s.server_public_key,
+                })
+                .unwrap()
+                .device_id
+        };
+        assert!(super::device_may_answer(&pair(Caps::all())));
+        assert!(super::device_may_answer(&pair(Caps::watch_and_answer())));
+        assert!(!super::device_may_answer(&pair(Caps::none().with(Cap::Watch, true))));
+        assert!(!super::device_may_answer("no-such-device"));
+    }
+}

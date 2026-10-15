@@ -1,0 +1,698 @@
+//! Pane I/O: writing input, reading buffers/snapshots, resizing.
+
+use super::*;
+
+pub fn write_input(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    app: &AppHandle,
+    pane_id: &str,
+    text: &str,
+    append_newline: bool,
+    via_opencode_api: bool,
+    opencode_model: Option<crate::opencode::OpenCodeModelRef>,
+    origin: crate::pty::WriteOrigin<'_>,
+) -> Result<(), String> {
+    let reg = registry.lock();
+    let pane = reg
+        .panes
+        .get(pane_id)
+        .ok_or_else(|| unknown_pane_message(pane_id))?;
+
+    // The typing permit (`agent_runs::readiness`): a run's input reaches the terminal only with a
+    // permit whose screen is still the latest, a gate's keys only with that gate's permit. Checked
+    // before anything else looks at the input, so a refused write leaves no trace.
+    let api_path = via_opencode_api
+        && pane.info.agent_type == "opencode_native"
+        && ((!text.trim().is_empty() && !is_pty_control_input(text)) || (text.is_empty() && append_newline));
+    // The output position the permit was checked against; read again once the writer is held.
+    let mut admitted_at: Option<u64> = None;
+    if !api_path {
+        let pid = pane.info.pid;
+        let emitted = crate::pty::stream_pos::emitted(pane_id);
+        admitted_at = emitted;
+        if let Err(refused) = origin.admit_terminal_write(pane_id, text, append_newline, emitted, || {
+            crate::pty::agent_proc::state(pane_id, pid)
+        }) {
+            debug!(pane_id, origin = origin.tag(), %refused, "pane write refused");
+            return Err(refused);
+        }
+    }
+
+    // Auto-title: the first submitted line of an agent pane becomes its title (`ambient::title`).
+    // The screen's last line tells whether the line answers a secret prompt; shells are not titled.
+    // The same line keeps typed secrets out of the flight recording (shells included: `sudo`,
+    // `ssh` and `git` ask there).
+    let screen_line = crate::ambient::title::last_line(&pane.screen.lock().screen().contents()).to_string();
+    let at_secret_prompt = crate::ambient::title::is_secret_prompt(&screen_line);
+    let titled = crate::ambient::store::observe_input(pane_id, &pane.info.agent_type, &screen_line, text, append_newline);
+
+    let agent = pane.info.agent_type.clone();
+    // How this TUI wants a submit to look (a pause after the text, the keys): per-agent, from its profile.
+    let submit = crate::tui::profile_for(&agent).submit_sequence();
+
+    if *pane.exited.lock() {
+        return Err(format!(
+            "pane {pane_id} has exited — close the worker window and run `npm run worker` again"
+        ));
+    }
+
+    if via_opencode_api
+        && agent == "opencode_native"
+        && !text.trim().is_empty()
+        && !is_pty_control_input(text)
+    {
+        drop(reg);
+        announce_title(app, pane_id, titled);
+        crate::opencode::write_native_input(registry, app, pane_id, text, opencode_model.as_ref())?;
+        crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
+            pane_id: PaneId(pane_id.to_string()),
+            byte_count: text.len(),
+            append_newline,
+        });
+        return Ok(());
+    }
+
+    if via_opencode_api && agent == "opencode_native" && text.is_empty() && append_newline {
+        // API prompts don't need a trailing PTY Enter on the attach TUI.
+        return Ok(());
+    }
+
+    // ponytail: ConPTY write_all/flush can block; holding PaneRegistry across
+    // that freezes list_panes, keyboard input, and the HTTP bridge.
+    let writer = pane.writer.clone();
+    drop(reg);
+    announce_title(app, pane_id, titled);
+
+    // Flight recorder: the writer is the origin (refined by the bridge for a person or API caller).
+    let tag = crate::flight::tag_for(&origin);
+    let record = |bytes: &[u8]| crate::flight::input_as(pane_id, tag, &recorded_input(at_secret_prompt, bytes));
+    {
+        let mut writer = writer.lock();
+        // A run's input or a gate's keys: the permit was checked before the auto-title work and
+        // the writer lock. Output the reader thread took in since then is a screen nobody looked
+        // at, so the write is refused as stale (look again) rather than sent into it. Bytes still
+        // in the terminal's pipe are not visible here; delivery's quiet window before an Enter
+        // covers those (`agent_runs::delivery::press_enter`).
+        if matches!(origin, crate::pty::WriteOrigin::Task(_) | crate::pty::WriteOrigin::Gate(_) | crate::pty::WriteOrigin::Decided(_)) {
+            if let (Some(seen), Some(now)) = (admitted_at, crate::pty::stream_pos::emitted(pane_id)) {
+                if now != seen {
+                    return Err(format!(
+                        "{}: the pane printed {} more byte(s) while the write was being prepared",
+                        crate::agent_runs::readiness::PERMIT_STALE,
+                        now.saturating_sub(seen)
+                    ));
+                }
+            }
+        }
+        if !text.is_empty() {
+            writer
+                .write_all(text.as_bytes())
+                .map_err(|e| format!("write_all: {e}"))?;
+            writer.flush().map_err(|e| format!("flush: {e}"))?;
+            record(text.as_bytes());
+            // Ink/React TUIs can drop a submitted prompt if the prompt text and
+            // Enter arrive in the same instant. Raw terminal input must stay
+            // immediate, so only pause for submit-style writes.
+            if append_newline {
+                thread::sleep(submit_pause(text, &submit));
+            }
+        }
+        if append_newline {
+            write_submit_keys(&mut **writer, &submit)?;
+            record(submit.keys.as_bytes());
+        }
+    }
+    crate::event_log::append_system_event(SystemEvent::PaneInputWritten {
+        pane_id: PaneId(pane_id.to_string()),
+        byte_count: text.len() + usize::from(append_newline),
+        append_newline,
+    });
+    Ok(())
+}
+
+/// What the flight recorder keeps of input written while the screen shows a secret prompt
+/// (`Password:`, `Enter passphrase ...:`, a PIN): a password does not look like a token, so pattern
+/// redaction would keep it, and the input stream is saved in shareable casts (review R12 4.1). The
+/// text is replaced by a fixed marker (no length); control keys (Enter, Ctrl-C, arrows) are kept so
+/// the recording still shows what happened.
+pub(crate) fn recorded_input(at_secret_prompt: bool, bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    let control_only = bytes.first() == Some(&0x1b) || bytes.iter().all(|b| *b < 0x20 || *b == 0x7f);
+    if at_secret_prompt && !control_only {
+        std::borrow::Cow::Borrowed(SECRET_INPUT_MARKER.as_bytes())
+    } else {
+        std::borrow::Cow::Borrowed(bytes)
+    }
+}
+
+/// Recorded in place of what was typed at a secret prompt.
+pub(crate) const SECRET_INPUT_MARKER: &str = "[typed at a secret prompt: not recorded]";
+
+#[cfg(test)]
+#[test]
+fn input_at_a_secret_prompt_is_not_recorded_but_control_keys_are() {
+    for prompt in ["[sudo] password for maya:", "Enter passphrase for key 'C:/Users/m/.ssh/id_ed25519':", "Password:"] {
+        let at_secret = crate::ambient::title::is_secret_prompt(prompt);
+        assert!(at_secret, "{prompt}");
+        let kept = recorded_input(at_secret, b"hunter2-correct-horse");
+        assert!(!String::from_utf8_lossy(&kept).contains("hunter2"), "{prompt}: {kept:?}");
+        assert_eq!(&*kept, SECRET_INPUT_MARKER.as_bytes());
+        assert_eq!(&*recorded_input(at_secret, b"\r"), b"\r", "Enter is kept");
+        assert_eq!(&*recorded_input(at_secret, b"\x03"), b"\x03", "Ctrl-C is kept");
+        assert_eq!(&*recorded_input(at_secret, b"\x1b[A"), b"\x1b[A", "an arrow key is kept");
+    }
+    let normal = crate::ambient::title::last_line("PS C:\\work> ");
+    assert_eq!(&*recorded_input(crate::ambient::title::is_secret_prompt(normal), b"git status"), b"git status");
+}
+
+/// A title was just set: tell the windows and the tray (never while the registry lock is held).
+fn announce_title(app: &AppHandle, pane_id: &str, titled: bool) {
+    if titled {
+        crate::ambient::announce_title_change(app, pane_id);
+    }
+}
+
+/// Pause between pasted text and Enter. Multi-line or long text is a bracketed paste that the
+/// TUI needs time to ingest; an Enter that lands mid-paste is dropped and the prompt stays in
+/// the input box unsubmitted.
+pub(super) fn submit_delay(text: &str) -> Duration {
+    if text.contains('\n') || text.len() > 200 {
+        Duration::from_millis((300 + text.len() as u64 / 10).min(1_500))
+    } else {
+        Duration::from_millis(50)
+    }
+}
+
+/// Pause between the typed text and the submit keys: the generic one, or the profile's `settle`
+/// when that is longer (a TUI that reads a quick Enter as a line break inside a paste burst).
+pub(super) fn submit_pause(text: &str, submit: &crate::tui::SubmitSequence) -> Duration {
+    submit_delay(text).max(submit.settle)
+}
+
+/// Write a profile's submit keys (Enter for every TUI so far).
+pub(super) fn write_submit_keys(
+    writer: &mut dyn Write,
+    submit: &crate::tui::SubmitSequence,
+) -> Result<(), String> {
+    writer
+        .write_all(submit.keys.as_bytes())
+        .map_err(|e| format!("write enter: {e}"))?;
+    writer.flush().map_err(|e| format!("flush enter: {e}"))?;
+    Ok(())
+}
+
+/// True when input should never be routed to OpenCode prompt_async (keys, mouse, escapes).
+/// Line breaks and tabs are ordinary prompt text: a multi-line task (acceptance criteria, a
+/// context packet) must still go through the API, or it is typed into the attached TUI and lost.
+pub(super) fn is_pty_control_input(text: &str) -> bool {
+    text.contains('\x1b')
+        || text
+            .bytes()
+            .any(|byte| byte < 32 && !matches!(byte, b'\t' | b'\n' | b'\r'))
+}
+
+/// Send Enter to the PTY. Uses \r (xterm/ConPTY).
+pub(super) fn write_enter_bytes(writer: &mut dyn Write, _agent_type: &str) -> Result<(), String> {
+    writer
+        .write_all(b"\r")
+        .map_err(|e| format!("write enter: {e}"))?;
+    writer.flush().map_err(|e| format!("flush enter: {e}"))?;
+    Ok(())
+}
+
+pub fn read_buffer(
+    registry: &Mutex<PaneRegistry>,
+    pane_id: &str,
+    lines: usize,
+) -> Result<String, String> {
+    let scrollback = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        pane.scrollback.clone()
+    };
+    let text = scrollback.lock().tail_text(lines);
+    Ok(strip_ansi(&text))
+}
+
+/// The whole screen, never cropped. Prompt delivery reads this: the sidebar crop assumes a wide
+/// pane shows a sidebar, but a TUI's home screen (no session yet) is centred over the full width,
+/// so cropping cut the input box and the typed prompt looked missing.
+pub fn read_snapshot_full(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {
+    let (screen, agent_type) = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        (pane.screen.clone(), pane.info.agent_type.clone())
+    };
+    let parser = screen.lock();
+    Ok(input_screen_text(parser.screen(), &agent_type))
+}
+
+/// The screen text readiness and delivery decide on: the whole screen as the profile reads it
+/// (`TuiProfile::input_screen`, which leaves out text the agent drew in its own input box, such as
+/// Claude's dimmed next-prompt suggestion).
+pub(crate) fn input_screen_text(screen: &vt100::Screen, agent_type: &str) -> String {
+    crate::tui::profile_for(agent_type).input_screen(screen)
+}
+
+/// [`read_snapshot_full`] plus how much of the pane's output the screen includes
+/// (`stream_pos::processed`, read under the same emulator lock as the screen), so a readiness
+/// verdict computed from it can later tell whether anything was printed after it.
+pub fn read_snapshot_full_at(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<(String, Option<u64>), String> {
+    let (screen, agent_type) = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        (pane.screen.clone(), pane.info.agent_type.clone())
+    };
+    let parser = screen.lock();
+    let pos = crate::pty::stream_pos::get(pane_id).map(|pos| pos.processed.load(std::sync::atomic::Ordering::SeqCst));
+    Ok((input_screen_text(parser.screen(), &agent_type), pos))
+}
+
+pub fn read_snapshot(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {
+    let screen = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        (pane.screen.clone(), pane.info.agent_type.clone())
+    };
+    let (screen, agent_type) = screen;
+    let parser = screen.lock();
+    Ok(watch_snapshot(parser.screen(), &agent_type))
+}
+
+/// The screen as completion, approval and prompt detection read it. A profile may leave out text the
+/// agent drew in its own input box (`TuiProfile::input_screen`): Claude's dimmed next-prompt suggestion
+/// is not part of any reply, yet it sat on the final screen as `> Reply with only the word FUFIVE.` and
+/// came back inside the result of the turn before it (live, v0.2.0). With a sidebar to crop, rows are
+/// cropped as before.
+pub(crate) fn watch_snapshot(screen: &vt100::Screen, agent_type: &str) -> String {
+    let keep = sidebar_keep_cols(agent_type, screen.size().1);
+    if keep.is_none() {
+        if let Some(text) = side_panel_snapshot(screen, agent_type) {
+            return text;
+        }
+        return input_screen_text(screen, agent_type);
+    }
+    snapshot_text(screen, keep)
+}
+
+#[cfg(test)]
+#[test]
+fn a_dimmed_suggestion_in_the_input_box_is_not_part_of_the_screen_a_result_is_read_from() {
+    let rule = "\u{1b}[38;2;136;136;136m\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{1b}[m";
+    let frame = |composer: &str| format!("\u{276f} Reply with only the word FUFOUR.\r\n\u{25cf} FUFOUR\r\n{rule}\r\n{composer}\r\n{rule}\r\n  \u{23f5}\u{23f5} auto mode on");
+    let read = |agent: &str, bytes: &str| {
+        let mut parser = vt100::Parser::new(12, 60, 0);
+        parser.process(bytes.as_bytes());
+        watch_snapshot(parser.screen(), agent)
+    };
+    let ghost = read("claude", &frame("\u{276f} \u{1b}[2mReply with only the word FUFIVE.\u{1b}[m"));
+    assert!(!ghost.contains("FUFIVE"), "{ghost}");
+    assert!(ghost.contains("\u{25cf} FUFOUR"), "{ghost}");
+    // Typed text is the person's (normal intensity) and stays, and an agent with no such rule is read as is.
+    assert!(read("claude", &frame("\u{276f} Reply with only the word FUFIVE.")).contains("FUFIVE"));
+    assert!(read("powershell", &frame("\u{276f} \u{1b}[2mghost\u{1b}[m")).contains("ghost"));
+}
+
+/// The screen one entry per row with a side panel cropped off, for a profile that can show one
+/// and a screen that does. `contents()` would glue each full-width chat+panel row to the next.
+pub(crate) fn side_panel_snapshot(screen: &vt100::Screen, agent_type: &str) -> Option<String> {
+    if !crate::tui::has_side_panel(agent_type) {
+        return None;
+    }
+    let (_, cols) = screen.size();
+    let rows: Vec<String> = screen.rows(0, cols).collect();
+    crate::tui::side_panel::crop_rows(&rows).map(|rows| rows.join("\n"))
+}
+
+/// The screen as text. With `keep_cols` set, one entry per row limited to that many columns
+/// (`contents()` would glue a full-width row to the next one and cannot crop).
+pub(crate) fn snapshot_text(screen: &vt100::Screen, keep_cols: Option<u16>) -> String {
+    match keep_cols {
+        Some(keep) => {
+            let rows: Vec<String> = screen.rows(0, keep).map(|row| row.trim_end().to_string()).collect();
+            rows.join("
+")
+        }
+        None => screen.contents(),
+    }
+}
+
+/// Columns to keep per row for a profile that declares a right sidebar: the columns left after
+/// the sidebar is cropped, or every column when the pane is too narrow to show one (a narrow grid
+/// tile). Either way the text is one entry per row, because `contents()` glues a full-width row
+/// to the next one and its reply parsing then fails. `None` when the profile has no sidebar.
+pub(super) fn sidebar_keep_cols(agent_type: &str, cols: u16) -> Option<u16> {
+    keep_cols_for(crate::tui::profile_for(agent_type).sidebar_crop()?, cols)
+}
+
+fn keep_cols_for(crop: crate::tui::SidebarCrop, cols: u16) -> Option<u16> {
+    if cols >= crop.min_cols && cols > crop.width {
+        Some(cols - crop.width)
+    } else {
+        Some(cols)
+    }
+}
+
+#[cfg(test)]
+mod sidebar_keep_tests {
+    use super::keep_cols_for;
+    use crate::tui::SidebarCrop;
+
+    #[test]
+    fn narrow_panes_keep_every_column_and_wide_ones_crop_the_sidebar() {
+        let crop = || SidebarCrop { min_cols: 121, width: 42 };
+        assert_eq!(keep_cols_for(crop(), 121), Some(79));
+        assert_eq!(keep_cols_for(crop(), 101), Some(101));
+        assert_eq!(keep_cols_for(crop(), 48), Some(48));
+    }
+}
+
+/// The pane's text with its scrollback: up to `FULL_TEXT_MAX_LINES` of history above the visible
+/// rows, one entry per row (trailing blanks trimmed). A TUI on the alternate screen has no history,
+/// so this is then just the screen.
+pub fn read_full_text(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<String, String> {
+    let screen = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        (pane.screen.clone(), pane.info.agent_type.clone())
+    };
+    let (screen, agent_type) = screen;
+    let mut parser = screen.lock();
+    let keep = sidebar_keep_cols(&agent_type, parser.screen().size().1);
+    let full = full_text_of_cols(&mut parser, keep);
+    if keep.is_none() && crate::tui::has_side_panel(&agent_type) {
+        let rows: Vec<&str> = full.split('\n').collect();
+        if let Some(cropped) = crate::tui::side_panel::crop_rows(&rows) {
+            return Ok(cropped.join("\n"));
+        }
+    }
+    Ok(full)
+}
+
+/// The pane redrawn for a viewer: its scrollback (formatted, at the current width) followed by the
+/// screen and input modes, plus the grid size it was drawn for. A phone replays this instead of the
+/// raw byte history, which was written for whatever sizes the pane had back then and came out
+/// wrapped and overlapping when replayed at the phone's size.
+pub fn read_screen_replay(registry: &Mutex<PaneRegistry>, pane_id: &str) -> Result<(Vec<u8>, u16, u16), String> {
+    read_screen_replay_at(registry, pane_id).map(|(bytes, cols, rows, _)| (bytes, cols, rows))
+}
+
+/// `read_screen_replay` plus the stream offset the snapshot was taken at (`pty::stream_pos`): every
+/// byte before it is drawn in the replay, so a viewer writes only live bytes from there on.
+pub fn read_screen_replay_at(
+    registry: &Mutex<PaneRegistry>,
+    pane_id: &str,
+) -> Result<(Vec<u8>, u16, u16, Option<u64>), String> {
+    let screen = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        pane.screen.clone()
+    };
+    let mut parser = screen.lock();
+    let offset = crate::pty::stream_pos::get(pane_id)
+        .map(|pos| pos.processed.load(std::sync::atomic::Ordering::SeqCst));
+    let (rows, cols) = parser.screen().size();
+    Ok((screen_replay_of(&mut parser, 3000), cols, rows, offset))
+}
+
+pub(super) fn screen_replay_of(parser: &mut vt100::Parser, max_history: usize) -> Vec<u8> {
+    let (rows, cols) = parser.screen().size();
+    let mut out = Vec::new();
+    if parser.screen().alternate_screen() {
+        out.extend_from_slice(b"\x1b[?1049h");
+    } else {
+        parser.screen_mut().set_scrollback(usize::MAX);
+        let total = parser.screen().scrollback().min(max_history);
+        // At offset `n` the first visible row is the n-th line above the live screen.
+        for offset in (1..=total).rev() {
+            parser.screen_mut().set_scrollback(offset);
+            if let Some(row) = parser.screen().rows_formatted(0, cols).next() {
+                out.extend_from_slice(b"\x1b[m");
+                out.extend_from_slice(&row);
+                out.extend_from_slice(b"\x1b[m\r\n");
+            }
+        }
+        parser.screen_mut().set_scrollback(0);
+        // Scroll the history above the viewer's screen before the screen is drawn over it.
+        if total > 0 {
+            for _ in 1..rows {
+                out.extend_from_slice(b"\r\n");
+            }
+        }
+    }
+    out.extend_from_slice(&parser.screen().state_formatted());
+    out
+}
+
+pub(super) fn full_text_of(parser: &mut vt100::Parser) -> String {
+    full_text_of_cols(parser, None)
+}
+
+/// `full_text_of` limited to the first `keep_cols` columns of every row.
+pub(super) fn full_text_of_cols(parser: &mut vt100::Parser, keep_cols: Option<u16>) -> String {
+    const FULL_TEXT_MAX_LINES: usize = 4000;
+    let (_, cols) = parser.screen().size();
+    let cols = keep_cols.unwrap_or(cols).min(cols);
+    parser.screen_mut().set_scrollback(usize::MAX);
+    let total = parser.screen().scrollback().min(FULL_TEXT_MAX_LINES);
+    let mut lines: Vec<String> = Vec::new();
+    // At offset `n` the first visible row is the n-th line above the live screen.
+    for offset in (1..=total).rev() {
+        parser.screen_mut().set_scrollback(offset);
+        if let Some(row) = parser.screen().rows(0, cols).next() {
+            lines.push(row.trim_end().to_string());
+        }
+    }
+    parser.screen_mut().set_scrollback(0);
+    lines.extend(
+        parser
+            .screen()
+            .rows(0, cols)
+            .map(|row| row.trim_end().to_string()),
+    );
+    lines.join("\n")
+}
+
+#[cfg(test)]
+mod full_text_tests {
+    /// Live bug #6: Claude's diff panel was read as part of the chat. The screen is the layout of
+    /// `03b-claude-done.png` (164x50, divider at column 90), painted the way the TUI does.
+    #[test]
+    fn a_side_panel_is_cropped_and_rows_are_not_glued() {
+        let fixture = include_str!("../../tui/claude/fixtures/side_diff_panel_screen.txt");
+        let mut parser = vt100::Parser::new(50, 164, 0);
+        for row in fixture.lines() {
+            // A full-width row leaves the cursor in the wrap position, as in the live TUI.
+            parser.process(row.as_bytes());
+            if row.chars().count() < 164 {
+                parser.process(b"\r\n");
+            }
+        }
+        let glued = parser.screen().contents();
+        assert!(glued.lines().count() < 48, "the test needs the glue behaviour of contents()");
+        let text = super::side_panel_snapshot(parser.screen(), "claude").expect("panel found");
+        assert_eq!(text.split('\n').count(), 50, "one entry per row");
+        assert!(!text.contains("source: Current") && !text.contains("[ ask ]"), "{text}");
+        assert!(text.contains("\u{25cf} Update(sum.js)"), "{text}");
+        // Another agent's screen is read as before.
+        assert!(super::side_panel_snapshot(parser.screen(), "codex").is_none());
+    }
+
+    #[test]
+    fn screen_replay_redraws_history_and_screen_at_the_current_size() {
+        let mut parser = vt100::Parser::new(5, 40, 1000);
+        for n in 0..12 {
+            parser.process(format!("line {n:02}\r\n").as_bytes());
+        }
+        let replay = super::screen_replay_of(&mut parser, 1000);
+        let mut viewer = vt100::Parser::new(5, 40, 1000);
+        viewer.process(&replay);
+        assert_eq!(viewer.screen().contents(), parser.screen().contents());
+        viewer.screen_mut().set_scrollback(usize::MAX);
+        parser.screen_mut().set_scrollback(usize::MAX);
+        assert_eq!(viewer.screen().scrollback(), parser.screen().scrollback());
+    }
+
+    #[test]
+    fn screen_replay_of_a_tui_enters_the_alternate_screen() {
+        let mut parser = vt100::Parser::new(5, 40, 1000);
+        parser.process(b"history\r\n\x1b[?1049hvisible");
+        let replay = super::screen_replay_of(&mut parser, 1000);
+        assert!(replay.starts_with(b"\x1b[?1049h"));
+        let mut viewer = vt100::Parser::new(5, 40, 1000);
+        viewer.process(&replay);
+        assert!(viewer.screen().alternate_screen());
+        assert!(viewer.screen().contents().contains("visible"));
+    }
+
+    #[test]
+    fn wipe_history_keeps_the_screen_and_drops_the_scrollback() {
+        let mut parser = vt100::Parser::new(5, 40, 1000);
+        for n in 1..=30 {
+            parser.process(format!("line {n:02}\r\n").as_bytes());
+        }
+        parser.process(b"prompt> ");
+        let screen_before = parser.screen().contents();
+        let cursor = parser.screen().cursor_position();
+        super::wipe_history(&mut parser);
+        assert_eq!(parser.screen().contents(), screen_before);
+        assert_eq!(parser.screen().cursor_position(), cursor);
+        parser.screen_mut().set_scrollback(usize::MAX);
+        assert_eq!(parser.screen().scrollback(), 0);
+        let replay = super::screen_replay_of(&mut parser, 1000);
+        assert!(!String::from_utf8_lossy(&replay).contains("line 01"));
+    }
+
+    use super::full_text_of;
+
+    #[test]
+    fn scrollback_and_screen_are_returned_in_order() {
+        let mut parser = vt100::Parser::new(10, 40, 1000);
+        for n in 1..=60 {
+            parser.process(format!("line {n:02}\r\n").as_bytes());
+        }
+        let full = full_text_of(&mut parser);
+        let lines: Vec<&str> = full.lines().filter(|l| l.starts_with("line")).collect();
+        assert_eq!(lines.len(), 60, "{full}");
+        assert_eq!(lines[0], "line 01");
+        assert_eq!(lines[59], "line 60");
+        assert_eq!(
+            parser.screen().scrollback(),
+            0,
+            "the view offset is restored"
+        );
+    }
+
+    #[test]
+    fn an_alternate_screen_has_no_history() {
+        let mut parser = vt100::Parser::new(5, 40, 1000);
+        parser.process(b"history\r\n\r\n\r\n\r\n\r\n\r\n\x1b[?1049hvisible");
+        let full = full_text_of(&mut parser);
+        assert!(full.contains("visible"));
+        assert!(!full.contains("history"), "{full}");
+    }
+}
+
+pub fn read_raw_buffer(
+    registry: &Mutex<PaneRegistry>,
+    pane_id: &str,
+    lines: usize,
+) -> Result<Vec<u8>, String> {
+    let scrollback = {
+        let reg = registry.lock();
+        let pane = reg
+            .panes
+            .get(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        pane.scrollback.clone()
+    };
+    let raw = scrollback.lock().tail_raw_bytes(lines);
+    Ok(raw)
+}
+
+/// Drops the emulator's scrollback and keeps the screen, cursor and modes.
+pub(super) fn wipe_history(parser: &mut vt100::Parser) {
+    let (rows, cols) = parser.screen().size();
+    let state = parser.screen().state_formatted();
+    let mut fresh = vt100::Parser::new(rows, cols, SCROLLBACK_CAP);
+    fresh.process(&state);
+    *parser = fresh;
+}
+
+pub fn resize(
+    registry: &Mutex<PaneRegistry>,
+    pane_id: &str,
+    cols: u16,
+    rows: u16,
+) -> Result<bool, String> {
+    let (master, screen, reprints) = {
+        let mut reg = registry.lock();
+        let pane = reg
+            .panes
+            .get_mut(pane_id)
+            .ok_or_else(|| unknown_pane_message(pane_id))?;
+        if pane.info.cols == cols && pane.info.rows == rows {
+            return Ok(false);
+        }
+        let reprints = crate::tui::profile_for(&pane.info.agent_type).reprints_on_resize();
+        (pane.master.clone(), pane.screen.clone(), reprints)
+    };
+    // ponytail: ConPTY resize can block; holding PaneRegistry across it
+    // freezes list_panes and keyboard input the same way write_all did.
+    master
+        .lock()
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("resize: {e}"))?;
+    crate::flight::resized(pane_id, cols, rows);
+    // Keep the headless emulator's grid the same shape as the PTY so a later
+    // screen reconstruction matches the live geometry.
+    {
+        let mut parser = screen.lock();
+        parser.screen_mut().set_size(rows, cols);
+        // The agent reprints its whole conversation after this resize: keeping the history it
+        // already drew would replay a second copy to a viewer that mounts later (viewers wipe
+        // their own scrollback at the resize point, see `terminal/reprint-wipe.ts`).
+        if reprints {
+            wipe_history(&mut parser);
+        }
+    }
+    if let Some(pane) = registry.lock().panes.get_mut(pane_id) {
+        pane.info.cols = cols;
+        pane.info.rows = rows;
+    }
+    // The redraw this resize makes the agent print is not work (see `pty::resize_clock`).
+    crate::pty::resize_clock::note_resize(pane_id);
+    Ok(true)
+}
+
+#[cfg(test)]
+mod submit_delay_tests {
+    use super::*;
+
+    #[test]
+    fn a_profile_can_lengthen_the_pause_before_enter_but_never_shorten_it() {
+        use crate::tui::SubmitSequence;
+        let slow = SubmitSequence { settle: Duration::from_millis(400), keys: "\r" };
+        assert_eq!(submit_pause("hi", &SubmitSequence::ENTER), Duration::from_millis(50));
+        assert_eq!(submit_pause("hi", &slow), Duration::from_millis(400));
+        assert!(submit_pause(&"x
+".repeat(20_000), &slow) >= Duration::from_millis(1_500));
+        // Codex's profile declares the long settle (live: Enter 50 ms after the text stayed unsent).
+        let codex = crate::tui::profile_for("codex").submit_sequence();
+        assert!(codex.settle >= Duration::from_millis(300), "{codex:?}");
+        assert_eq!(codex.keys, "\r");
+        assert_eq!(crate::tui::profile_for("claude").submit_sequence(), SubmitSequence::ENTER);
+    }
+
+    #[test]
+    fn multiline_paste_waits_longer_than_a_short_line() {
+        assert_eq!(submit_delay("hi"), Duration::from_millis(50));
+        assert!(submit_delay("a\nb") >= Duration::from_millis(300));
+        assert_eq!(
+            submit_delay(&"x\n".repeat(20_000)),
+            Duration::from_millis(1_500)
+        );
+    }
+}

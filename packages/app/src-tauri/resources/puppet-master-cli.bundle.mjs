@@ -4255,7 +4255,7 @@ function findReusableWorkerPane(panes, agentType) {
 
 // packages/cli/src/launch-worker.ts
 import { spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
 import { dirname, join as join2, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -4284,12 +4284,15 @@ function parseBridgePort(raw) {
   }
   return { host: "127.0.0.1", port: Number(trimmed) };
 }
+function expandEnvVars(input, env = process.env) {
+  return input.replace(/%([^%]+)%/g, (match, name) => env[name] ?? match);
+}
 function bridgePortCandidates(filePath) {
   if (filePath)
     return [filePath];
   const envPath = process.env[BRIDGE_PORT_FILE_ENV];
   if (envPath)
-    return [envPath];
+    return [expandEnvVars(envPath)];
   return [DEFAULT_BRIDGE_PORT_FILE, defaultAppDataBridgePortFile()];
 }
 async function readAllBridgePorts(filePath) {
@@ -4342,19 +4345,6 @@ function portInUse(port) {
     socket.on("error", () => resolvePort(false));
   });
 }
-function releaseBinary(root) {
-  const binary = appBinary(root, "release");
-  if (!binary) return null;
-  const agentsSrc = join2(root, "packages", "app", "src-tauri", "src", "pty", "agents.rs");
-  try {
-    if (statSync(agentsSrc).mtimeMs > statSync(binary).mtimeMs) {
-      console.error("[puppet-master] release binary is older than source; using tauri dev");
-      return null;
-    }
-  } catch {
-  }
-  return binary;
-}
 async function resolveWorkerBinary(root) {
   const explicitBin = process.env.PUPPET_MASTER_BIN;
   if (explicitBin && existsSync(explicitBin)) return explicitBin;
@@ -4365,7 +4355,7 @@ async function resolveWorkerBinary(root) {
       return debug;
     }
   }
-  return releaseBinary(root);
+  return null;
 }
 function buildWorkerArgs(options) {
   const args = [
@@ -4508,8 +4498,22 @@ function waitForChild(child) {
 }
 
 // packages/cli/src/watch.ts
+var EXIT_COMPLETED = 0;
+var EXIT_FAILED = 1;
+var EXIT_NEEDS_INPUT = 2;
+var EXIT_TIMEOUT = 3;
+var EXIT_ERROR = 4;
 var TERMINAL = /* @__PURE__ */ new Set(["completed", "failed", "cancelled"]);
 var NEEDS_INPUT = /* @__PURE__ */ new Set(["waiting_input", "needs_input"]);
+var BridgeHttpError = class extends Error {
+  constructor(status, code, message) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+  status;
+  code;
+};
 async function bridgeJson(method, path, body, timeoutMs = 3e4) {
   const { host, port } = await readBridgePort();
   const url = new URL(path, `http://${host}:${port}`);
@@ -4530,53 +4534,41 @@ async function bridgeJson(method, path, body, timeoutMs = 3e4) {
     try {
       parsed = JSON.parse(text);
     } catch {
-      throw new Error(`bridge returned non-JSON (${response.status}): ${text.slice(0, 200)}`);
+      throw new BridgeHttpError(
+        response.ok ? 502 : response.status,
+        void 0,
+        `bridge returned non-JSON (${response.status}): ${text.slice(0, 200)}`
+      );
     }
     if (!response.ok) {
       const err = parsed;
-      throw new Error(err.message ?? err.error ?? `bridge error ${response.status}`);
+      throw new BridgeHttpError(
+        response.status,
+        err.code,
+        err.message ?? err.error ?? `bridge error ${response.status}`
+      );
     }
     return parsed;
   } finally {
     clearTimeout(timer);
   }
 }
-async function resolveOperation(idOrHandle, projectPath) {
-  const query = new URLSearchParams();
-  if (projectPath) query.set("project_path", projectPath);
-  const projectQuery = query.toString() ? `?${query.toString()}` : "";
-  try {
-    const snap = await bridgeJson(
-      "GET",
-      `/operations/${encodeURIComponent(idOrHandle)}${projectQuery}`
-    );
-    const project = String(snap.project_path ?? projectPath ?? "");
-    return {
-      operationId: String(snap.operation_id ?? idOrHandle),
-      projectPath: project,
-      snapshot: snap
-    };
-  } catch {
-    const handleQuery = new URLSearchParams({ agent_run_id: idOrHandle });
-    if (projectPath) handleQuery.set("project_path", projectPath);
-    const snap = await bridgeJson(
-      "GET",
-      `/operations/by-handle?${handleQuery.toString()}`
-    );
-    return {
-      operationId: String(snap.operation_id ?? idOrHandle),
-      projectPath: String(snap.project_path ?? projectPath ?? ""),
-      snapshot: snap
-    };
-  }
+function isRetryable(err) {
+  return !(err instanceof BridgeHttpError) || err.status >= 500;
+}
+function snapshotFields(snapshot) {
+  return {
+    status: String(snapshot.status ?? ""),
+    revision: typeof snapshot.revision === "number" ? snapshot.revision : void 0
+  };
 }
 function watchLine(snapshot, operationId, projectPath) {
-  const status = String(snapshot.status ?? "unknown");
+  const { status, revision } = snapshotFields(snapshot);
   return {
     operation_id: operationId,
     project_path: projectPath || void 0,
-    status,
-    revision: typeof snapshot.revision === "number" ? snapshot.revision : void 0,
+    status: status || "unknown",
+    revision,
     result: snapshot.result ?? null,
     error: snapshot.error
   };
@@ -4584,97 +4576,177 @@ function watchLine(snapshot, operationId, projectPath) {
 function isDone(status) {
   return TERMINAL.has(status) || NEEDS_INPUT.has(status);
 }
-async function runWatch(options) {
-  const targets = await Promise.all(
-    options.ids.map(async (id) => {
-      const resolved = await resolveOperation(id, options.projectPath);
-      return {
-        operationId: resolved.operationId,
-        projectPath: resolved.projectPath,
-        revision: typeof resolved.snapshot.revision === "number" ? resolved.snapshot.revision : 0,
-        lastStatus: String(resolved.snapshot.status ?? "unknown")
-      };
-    })
-  );
-  const deadline = Date.now() + options.timeoutMs;
-  const lastPrinted = /* @__PURE__ */ new Map();
-  while (Date.now() < deadline) {
-    const remaining = targets.filter((t) => !isDone(t.lastStatus));
-    if (remaining.length === 0) break;
-    const sliceMs = Math.min(6e4, Math.max(1e3, deadline - Date.now()));
-    await Promise.all(
-      remaining.map(async (target) => {
-        const body = {
-          after_revision: target.revision,
-          until: ["completed", "failed", "cancelled", "waiting_input", "needs_input"],
-          timeout_ms: sliceMs
-        };
-        const query = target.projectPath ? `?project_path=${encodeURIComponent(target.projectPath)}` : "";
-        try {
-          const wait = await bridgeJson(
-            "POST",
-            `/operations/${encodeURIComponent(target.operationId)}/wait${query}`,
-            body,
-            sliceMs + 25e3
-          );
-          const snap = wait.snapshot ?? {};
-          target.revision = typeof snap.revision === "number" ? snap.revision : target.revision;
-          target.lastStatus = String(snap.status ?? target.lastStatus);
-          if (options.stream) {
-            const key = `${target.operationId}:${target.revision}:${target.lastStatus}`;
-            if (!lastPrinted.has(target.operationId) || lastPrinted.get(target.operationId) !== key) {
-              lastPrinted.set(target.operationId, key);
-              console.log(
-                JSON.stringify(
-                  watchLine(snap, target.operationId, target.projectPath)
-                )
-              );
-            }
-          }
-        } catch (err) {
-          if (err instanceof Error && err.name === "AbortError") {
-            return;
-          }
-          throw err;
-        }
-      })
+var sleep = (ms) => new Promise((resolve3) => setTimeout(resolve3, Math.max(0, ms)));
+async function resolveOperation(idOrHandle, projectPath) {
+  const query = new URLSearchParams();
+  if (projectPath) query.set("project_path", projectPath);
+  const projectQuery = query.toString() ? `?${query.toString()}` : "";
+  let snap;
+  try {
+    snap = await bridgeJson(
+      "GET",
+      `/operations/${encodeURIComponent(idOrHandle)}${projectQuery}`
+    );
+  } catch (err) {
+    if (!(err instanceof BridgeHttpError) || err.status !== 404) throw err;
+    const handleQuery = new URLSearchParams({ agent_run_id: idOrHandle });
+    if (projectPath) handleQuery.set("project_path", projectPath);
+    snap = await bridgeJson(
+      "GET",
+      `/operations/by-handle?${handleQuery.toString()}`
     );
   }
-  const finals = await Promise.all(
-    targets.map(async (target) => {
-      const query = target.projectPath ? `?project_path=${encodeURIComponent(target.projectPath)}` : "";
-      const snap = await bridgeJson(
-        "GET",
-        `/operations/${encodeURIComponent(target.operationId)}${query}`
-      );
-      return watchLine(snap, target.operationId, target.projectPath);
-    })
-  );
-  if (!options.stream) {
-    const last = finals[finals.length - 1];
-    if (last) console.log(JSON.stringify(last));
-  } else {
-    for (const line of finals) {
-      if (!isDone(line.status)) {
-        console.log(JSON.stringify({ ...line, status: "timeout" }));
+  return {
+    operationId: String(snap.operation_id ?? idOrHandle),
+    projectPath: String(snap.project_path ?? projectPath ?? ""),
+    snapshot: snap
+  };
+}
+async function runWatch(options) {
+  const out = options.out ?? ((line) => console.log(line));
+  const retryBase = options.retryBaseMs ?? 500;
+  const retryMax = options.retryMaxMs ?? 5e3;
+  const deadline = Date.now() + options.timeoutMs;
+  const remaining = () => deadline - Date.now();
+  const printed = /* @__PURE__ */ new Map();
+  const emitStream = (target) => {
+    if (!options.stream) return;
+    const { status, revision } = snapshotFields(target.snapshot);
+    const key = `${revision}:${status}`;
+    if (printed.get(target.operationId) === key) return;
+    printed.set(target.operationId, key);
+    out(JSON.stringify(watchLine(target.snapshot, target.operationId, target.projectPath)));
+  };
+  const track = async (id) => {
+    const target = {
+      operationId: id,
+      projectPath: options.projectPath ?? "",
+      revision: 0,
+      snapshot: {},
+      unreachable: false
+    };
+    let backoff = retryBase;
+    const failed = async (err) => {
+      if (!isRetryable(err)) {
+        const http = err;
+        target.fatal = { code: http.code ?? `HTTP_${http.status}`, message: http.message };
+        return true;
+      }
+      target.unreachable = true;
+      await sleep(Math.min(backoff, Math.max(0, remaining())));
+      backoff = Math.min(backoff * 2, retryMax);
+      return false;
+    };
+    while (remaining() > 0 && !target.snapshot.status) {
+      try {
+        const resolved = await resolveOperation(id, options.projectPath);
+        target.operationId = resolved.operationId;
+        target.projectPath = resolved.projectPath;
+        target.snapshot = resolved.snapshot;
+        target.revision = snapshotFields(resolved.snapshot).revision ?? 0;
+        target.unreachable = false;
+        backoff = retryBase;
+      } catch (err) {
+        if (await failed(err)) return target;
       }
     }
+    if (!target.snapshot.status) return target;
+    emitStream(target);
+    const query = target.projectPath ? `?project_path=${encodeURIComponent(target.projectPath)}` : "";
+    while (!isDone(snapshotFields(target.snapshot).status) && remaining() > 0) {
+      const sliceMs = Math.min(6e4, Math.max(1, remaining()));
+      try {
+        const wait = await bridgeJson(
+          "POST",
+          `/operations/${encodeURIComponent(target.operationId)}/wait${query}`,
+          {
+            after_revision: target.revision,
+            until: ["completed", "failed", "cancelled", "waiting_input", "needs_input"],
+            timeout_ms: sliceMs
+          },
+          Math.min(sliceMs + 25e3, remaining() + 2e3)
+        );
+        target.unreachable = false;
+        backoff = retryBase;
+        const snap = wait.snapshot ?? {};
+        const fields = snapshotFields(snap);
+        if (fields.revision !== void 0 && fields.revision < target.revision) {
+          continue;
+        }
+        target.snapshot = snap;
+        target.revision = fields.revision ?? target.revision;
+        emitStream(target);
+      } catch (err) {
+        if (await failed(err)) return target;
+      }
+    }
+    return target;
+  };
+  const targets = await Promise.all(options.ids.map(track));
+  let timedOut = false;
+  let errored = false;
+  let needsInput = false;
+  let failedAny = false;
+  for (const target of targets) {
+    const status = snapshotFields(target.snapshot).status;
+    if (target.fatal) {
+      errored = true;
+      out(
+        JSON.stringify({
+          operation_id: target.operationId,
+          project_path: target.projectPath || void 0,
+          status: "error",
+          error: target.fatal
+        })
+      );
+    } else if (!status || !isDone(status)) {
+      timedOut = true;
+      out(
+        JSON.stringify({
+          operation_id: target.operationId,
+          project_path: target.projectPath || void 0,
+          status: "timeout",
+          revision: target.revision || void 0,
+          last_status: status || void 0,
+          bridge_unreachable: target.unreachable || void 0
+        })
+      );
+    } else {
+      if (!options.stream) {
+        out(JSON.stringify(watchLine(target.snapshot, target.operationId, target.projectPath)));
+      }
+      if (NEEDS_INPUT.has(status)) needsInput = true;
+      else if (status !== "completed") failedAny = true;
+    }
   }
-  if (finals.some((line) => !isDone(line.status))) {
-    return 3;
+  if (errored) return EXIT_ERROR;
+  if (timedOut) return EXIT_TIMEOUT;
+  if (needsInput) return EXIT_NEEDS_INPUT;
+  return failedAny ? EXIT_FAILED : EXIT_COMPLETED;
+}
+
+// packages/cli/src/watch-args.ts
+var WATCH_USAGE = "usage: puppet-master watch <operation_id|handle> [--project-path P] [--timeout-ms N] [--stream]";
+var WATCH_FLAGS = /* @__PURE__ */ new Set(["project-path", "project", "timeout-ms", "stream", "help", "h"]);
+function validateWatchFlags(flags) {
+  for (const key of Object.keys(flags)) {
+    if (!WATCH_FLAGS.has(key)) {
+      return `unknown flag --${key} (milliseconds are given as --timeout-ms N)`;
+    }
   }
-  if (finals.some((line) => NEEDS_INPUT.has(line.status))) {
-    return 2;
+  if ("timeout-ms" in flags) {
+    const value = flags["timeout-ms"];
+    const parsed = typeof value === "string" ? Number(value) : Number.NaN;
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return `--timeout-ms needs a positive number of milliseconds, got ${String(value)}`;
+    }
   }
-  if (finals.every((line) => line.status === "completed")) {
-    return 0;
-  }
-  return 1;
+  return null;
 }
 
 // packages/cli/src/index.ts
 var __dirname2 = dirname2(fileURLToPath2(import.meta.url));
-var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["help", "h", "version", "v", "force-new", "new", "force_new"]);
+var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["help", "h", "version", "v", "force-new", "new", "force_new", "stream"]);
 function parseArgs(argv) {
   const [, , ...rest] = argv;
   const command = rest[0] && !rest[0].startsWith("-") ? rest[0] : "gui";
@@ -4711,7 +4783,9 @@ Usage:
   puppet-master --project PATH  Open with a preset cwd
   puppet-master worker [AGENT]  Open a standalone worker terminal (no main grid UI)
   puppet-master mcp             Run stdio MCP server (GUI or worker host must be running)
-  puppet-master watch ID        Block until an operation reaches a terminal or needs-input state (JSON on stdout)
+  puppet-master watch ID        Block until an operation is terminal or needs input; prints one JSON result.
+                                Exit codes: 0 completed, 1 failed/cancelled, 2 needs input, 3 timeout, 4 error.
+                                Waits out bridge restarts; --timeout-ms N sets the deadline (default 3600000).
   puppet-master version         Print version
   puppet-master --help          Show this help
 
@@ -4778,9 +4852,15 @@ async function main() {
   }
   if (command === "watch") {
     const ids = positional.length > 0 ? positional : [];
+    const problem = validateWatchFlags(flags);
+    if (problem) {
+      console.error(`puppet-master watch: ${problem}`);
+      console.error(WATCH_USAGE);
+      process.exit(4);
+    }
     if (ids.length === 0) {
-      console.error("usage: puppet-master watch <operation_id|handle> [--project-path P] [--timeout-ms N] [--stream]");
-      process.exit(3);
+      console.error(WATCH_USAGE);
+      process.exit(4);
     }
     const projectPath = typeof flags["project-path"] === "string" ? flags["project-path"] : typeof flags.project === "string" ? flags.project : void 0;
     const timeoutMs = typeof flags["timeout-ms"] === "string" ? Number(flags["timeout-ms"]) : 36e5;

@@ -7,6 +7,13 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use uuid::Uuid;
 
+use crate::redact::Redacted;
+
+/// The stream for raw diagnostics (the screen rows a delivery looked at). It is stored with the run
+/// but only returned when a reader asks for details: the transcript people read has the one-line
+/// `delivery` summary instead.
+pub const TRACE_STREAM: &str = "delivery_trace";
+
 const MAX_TRANSCRIPT_BYTES: usize = 256 * 1024;
 const MAX_RETURN_CHUNKS: usize = 200;
 
@@ -44,7 +51,10 @@ fn transcript_path(project: &str, operation_id: &str) -> PathBuf {
         .join(format!("{operation_id}.transcript.jsonl"))
 }
 
-pub fn append(project: &str, operation_id: &str, stream: &str, text: &str) {
+/// Add a chunk to an operation's transcript. The text must already be redacted (`crate::redact::text`):
+/// the transcript lives inside the project folder, which cloud-sync tools copy.
+pub fn append(project: &str, operation_id: &str, stream: &str, text: &Redacted<String>) {
+    let text = text.as_str();
     if text.is_empty() {
         return;
     }
@@ -131,6 +141,11 @@ fn last_sequence(path: &PathBuf) -> u64 {
 }
 
 pub fn read(project: &str, operation_id: &str, after: u64) -> std::io::Result<TranscriptPage> {
+    read_with(project, operation_id, after, false)
+}
+
+/// [`read`], with the raw diagnostics ([`TRACE_STREAM`]) too when `details` is set.
+pub fn read_with(project: &str, operation_id: &str, after: u64, details: bool) -> std::io::Result<TranscriptPage> {
     let path = transcript_path(project, operation_id);
     if !path.exists() {
         return Ok(TranscriptPage {
@@ -151,7 +166,7 @@ pub fn read(project: &str, operation_id: &str, after: u64) -> std::io::Result<Tr
     let mut truncated = chunks
         .first()
         .is_some_and(|chunk| chunk.sequence > after.saturating_add(1));
-    chunks.retain(|chunk| chunk.sequence > after);
+    chunks.retain(|chunk| chunk.sequence > after && (details || chunk.stream != TRACE_STREAM));
     let mut bytes = chunks.iter().map(|chunk| chunk.text.len()).sum::<usize>();
     while chunks.len() > MAX_RETURN_CHUNKS || bytes > MAX_TRANSCRIPT_BYTES {
         if let Some(chunk) = chunks.first() {
@@ -172,10 +187,20 @@ pub fn read_turns(
     operation_ids: &[String],
     after: u64,
 ) -> std::io::Result<TranscriptPage> {
+    read_turns_with(project, operation_ids, after, false)
+}
+
+/// [`read_turns`], with the raw diagnostics ([`TRACE_STREAM`]) too when `details` is set.
+pub fn read_turns_with(
+    project: &str,
+    operation_ids: &[String],
+    after: u64,
+    details: bool,
+) -> std::io::Result<TranscriptPage> {
     let mut chunks = Vec::new();
     let mut sequence = 0_u64;
     for operation_id in operation_ids {
-        let page = read(project, operation_id, 0)?;
+        let page = read_with(project, operation_id, 0, details)?;
         for chunk in page.chunks {
             sequence = sequence.saturating_add(1);
             chunks.push(TranscriptChunk {
@@ -213,7 +238,7 @@ mod tests {
     fn transcript_pages_advance_cursor_and_report_gaps() {
         let dir = std::env::temp_dir().join(format!("pm-transcript-{}", Uuid::new_v4()));
         for n in 0..(MAX_RETURN_CHUNKS + 3) {
-            append(dir.to_str().unwrap(), "op-1", "stdout", &format!("{n}\n"));
+            append(dir.to_str().unwrap(), "op-1", "stdout", &crate::redact::text(&format!("{n}\n")));
         }
         let page = read(dir.to_str().unwrap(), "op-1", 0).unwrap();
         assert_eq!(page.chunks.len(), MAX_RETURN_CHUNKS);
@@ -226,8 +251,8 @@ mod tests {
     fn worker_transcript_merges_turns_in_order() {
         let dir = std::env::temp_dir().join(format!("pm-transcript-{}", Uuid::new_v4()));
         let project = dir.to_str().unwrap();
-        append(project, "op-a", "user_task", "first");
-        append(project, "op-b", "stdout", "second");
+        append(project, "op-a", "user_task", &crate::redact::text("first"));
+        append(project, "op-b", "stdout", &crate::redact::text("second"));
         let page = read_turns(
             project,
             &["op-a".into(), "op-b".into(), "op-missing".into()],

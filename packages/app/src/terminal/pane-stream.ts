@@ -1,7 +1,11 @@
-import type { PaneDataListener } from './types';
+import type { PaneDataListener, PaneResizeListener } from './types';
 
 export const MAX_BACKLOG_CHUNKS = 128;
+/** While a replay is loading for a subscriber: generous, a replay takes tens of milliseconds. */
+const MAX_LOADING_CHUNKS = 8192;
 export const RAW_REPLAY_LINES = 10_000;
+/** Screen fetches per subscribe when the PTY keeps resizing while one is in flight. */
+const MAX_REPLAY_ATTEMPTS = 3;
 
 export type PaneStreamMode = 'buffering' | 'live';
 
@@ -10,9 +14,63 @@ export interface PaneStream {
   backlog: Uint8Array[];
   truncated: boolean;
   listener: PaneDataListener | null;
+  resizeListener: PaneResizeListener | null;
+  /** The latest resize that arrived while the replay was loading. */
+  pendingResize: { cols: number; rows: number; offset?: number } | null;
+  /** Stream offset of each `backlog` chunk (bytes since the pane started); undefined when unknown. */
+  backlogOffsets: Array<number | undefined>;
+  /** Resizes that arrived while the replay was loading, with how many chunks preceded each. */
+  resizeLog: Array<{ cols: number; rows: number; offset?: number; after: number }>;
+  /**
+   * Live: where the next chunk should start (end of the last one delivered). A chunk that starts
+   * later means bytes were lost in transit (see `PaneStreamManagerOptions.onGap`). Undefined while
+   * the stream carries no offsets.
+   */
+  liveEnd?: number;
 }
 
-export type ReadRawBufferFn = (paneId: string, lines: number) => Promise<number[]>;
+export interface PaneStreamManagerOptions {
+  /**
+   * A live chunk started past the end of the previous one: output went missing between them (an
+   * event filter that took effect late, a dropped connection, a tunnel hiccup). The viewer should
+   * redraw from the source, which is what the phone's nudge does.
+   */
+  onGap?: (paneId: string) => void;
+}
+
+/** The pane redrawn at its current size (`GET /panes/{id}/screen`): replayed after a resize to it. */
+export interface PaneScreenReplay {
+  data: Uint8Array;
+  cols: number;
+  rows: number;
+  /**
+   * Stream offset the snapshot was taken at: every byte before it is drawn in `data`. Chunks
+   * (`ingest`'s `offset`) and resizes carry offsets of the same stream, so the hand-over to live
+   * output loses nothing and writes nothing twice. Absent: the backlog cannot be placed and is dropped.
+   */
+  offset?: number;
+}
+
+export type ReadRawBufferFn = (
+  paneId: string,
+  lines: number,
+) => Promise<number[] | Uint8Array | PaneScreenReplay>;
+
+function isScreenReplay(value: number[] | Uint8Array | PaneScreenReplay): value is PaneScreenReplay {
+  return !Array.isArray(value) && !(value instanceof Uint8Array);
+}
+
+/** True when the buffered chunks do not join the snapshot end (`snapshotAt`) without a hole. */
+function hasGapAfter(stream: PaneStream, snapshotAt: number): boolean {
+  let expected = snapshotAt;
+  for (let i = 0; i < stream.backlog.length; i++) {
+    const start = stream.backlogOffsets[i];
+    if (start === undefined) continue;
+    if (start > expected) return true;
+    expected = Math.max(expected, start + stream.backlog[i].length);
+  }
+  return false;
+}
 
 function copyBytes(data: Uint8Array | number[]): Uint8Array {
   return data instanceof Uint8Array ? new Uint8Array(data) : Uint8Array.from(data);
@@ -26,25 +84,59 @@ function copyBytes(data: Uint8Array | number[]): Uint8Array {
 export class PaneStreamManager {
   private readonly streams = new Map<string, PaneStream>();
 
-  ingest(paneId: string, data: Uint8Array | number[]): void {
+  constructor(private readonly options: PaneStreamManagerOptions = {}) {}
+
+  /** `offset`: where this chunk starts in the pane's byte stream (bytes since the pane started). */
+  ingest(paneId: string, data: Uint8Array | number[], offset?: number): void {
     const chunk = copyBytes(data);
     const stream = this.streamFor(paneId);
 
     if (stream.mode === 'live') {
+      const expected = stream.liveEnd;
+      stream.liveEnd = offset === undefined ? undefined : offset + chunk.length;
       stream.listener?.(chunk);
+      if (offset !== undefined && expected !== undefined && offset > expected) this.options.onGap?.(paneId);
       return;
     }
 
     stream.backlog.push(chunk);
-    while (stream.backlog.length > MAX_BACKLOG_CHUNKS) {
+    stream.backlogOffsets.push(offset);
+    // A replay in flight must not lose the chunks it will be joined with: only a pane nobody is
+    // looking at keeps just the latest ones.
+    const cap = stream.listener ? MAX_LOADING_CHUNKS : MAX_BACKLOG_CHUNKS;
+    while (stream.backlog.length > cap) {
       stream.backlog.shift();
+      stream.backlogOffsets.shift();
+      for (const entry of stream.resizeLog) entry.after = Math.max(0, entry.after - 1);
       stream.truncated = true;
     }
   }
 
-  subscribe(paneId: string, cb: PaneDataListener, readRawBuffer: ReadRawBufferFn): () => void {
+  /**
+   * A pane resize, delivered between the chunks it came between. While the replay is loading it is
+   * remembered: opening a tab claims the pane for the phone, so the PTY often resizes while the
+   * screen is in flight, and a snapshot taken before that resize must not set the viewer's size.
+   */
+  ingestResize(paneId: string, cols: number, rows: number, offset?: number): void {
+    const stream = this.streams.get(paneId);
+    if (!stream) return;
+    if (stream.mode === 'live') {
+      stream.resizeListener?.(cols, rows);
+      return;
+    }
+    stream.pendingResize = { cols, rows, offset };
+    if (stream.listener) stream.resizeLog.push({ cols, rows, offset, after: stream.backlog.length });
+  }
+
+  subscribe(
+    paneId: string,
+    cb: PaneDataListener,
+    readRawBuffer: ReadRawBufferFn,
+    onResize?: PaneResizeListener,
+  ): () => void {
     const stream = this.streamFor(paneId);
     stream.listener = cb;
+    stream.resizeListener = onResize ?? null;
 
     if (stream.mode === 'live') {
       return this.makeUnsub(paneId, cb);
@@ -52,15 +144,52 @@ export class PaneStreamManager {
 
     stream.truncated = false;
     stream.backlog = [];
+    stream.backlogOffsets = [];
+    stream.resizeLog = [];
+    stream.pendingResize = null;
 
-    void readRawBuffer(paneId, RAW_REPLAY_LINES).then((raw) => {
-      const current = this.streams.get(paneId);
-      if (!current || current.listener !== cb || current.mode === 'live') return;
-      if (raw.length > 0) {
-        cb(Uint8Array.from(raw));
-      }
-      this.discardBacklogAndGoLive(current);
-    });
+    const load = (attempt: number): void => {
+      void readRawBuffer(paneId, RAW_REPLAY_LINES).then((replay) => {
+        const current = this.streams.get(paneId);
+        if (!current || current.listener !== cb || current.mode === 'live') return;
+        let pending = current.pendingResize;
+        current.pendingResize = null;
+        if (isScreenReplay(replay)) {
+          const snapshotAt = replay.offset;
+          // A resize placed after the snapshot is replayed in order below; only one the snapshot
+          // may not have seen (before it, or unplaced) makes the screen stale.
+          if (snapshotAt !== undefined && pending?.offset !== undefined && pending.offset >= snapshotAt) {
+            const stale = [...current.resizeLog].reverse().find((r) => r.offset !== undefined && r.offset < snapshotAt);
+            pending = stale ? { cols: stale.cols, rows: stale.rows, offset: stale.offset } : null;
+          }
+          // The PTY resized after this snapshot was taken: it shows the old grid, and the repaint
+          // for the new one is in the backlog that going live drops. Take the screen again.
+          if (pending && (pending.cols !== replay.cols || pending.rows !== replay.rows) && attempt < MAX_REPLAY_ATTEMPTS) {
+            load(attempt + 1);
+            return;
+          }
+          // The chunks that arrived while the screen loaded must start where the snapshot ends. If
+          // the first one starts later, output in between never reached us (a filter that took
+          // effect after the snapshot was taken): take the screen again, now that it is flowing.
+          if (snapshotAt !== undefined && attempt < MAX_REPLAY_ATTEMPTS && hasGapAfter(current, snapshotAt)) {
+            load(attempt + 1);
+            return;
+          }
+          // Size the viewer to the grid the screen was drawn for, then draw it.
+          current.resizeListener?.(replay.cols, replay.rows);
+          if (replay.data.length > 0) cb(replay.data);
+          if (snapshotAt !== undefined) {
+            this.joinLive(current, cb, snapshotAt);
+            return;
+          }
+        } else {
+          if (replay.length > 0) cb(Uint8Array.from(replay));
+          if (pending) current.resizeListener?.(pending.cols, pending.rows);
+        }
+        this.discardBacklogAndGoLive(current);
+      });
+    };
+    load(1);
 
     return this.makeUnsub(paneId, cb);
   }
@@ -88,11 +217,56 @@ export class PaneStreamManager {
       backlog: [],
       truncated: false,
       listener: null,
+      resizeListener: null,
+      pendingResize: null,
+      backlogOffsets: [],
+      resizeLog: [],
+      liveEnd: undefined,
     };
+  }
+
+  /**
+   * Hand the viewer over to live output after a snapshot taken at stream offset `snapshotAt`:
+   * chunks (and resizes) that arrived while it loaded are written in order, minus the bytes the
+   * snapshot already drew. Nothing is lost and nothing is drawn twice.
+   */
+  private joinLive(stream: PaneStream, cb: PaneDataListener, snapshotAt: number): void {
+    const { backlog, backlogOffsets, resizeLog } = stream;
+    let next = 0;
+    const applyResizesBefore = (index: number): void => {
+      while (next < resizeLog.length && resizeLog[next].after <= index) {
+        const r = resizeLog[next++];
+        if (r.offset === undefined || r.offset >= snapshotAt) stream.resizeListener?.(r.cols, r.rows);
+      }
+    };
+    for (let i = 0; i < backlog.length; i++) {
+      applyResizesBefore(i);
+      const chunk = backlog[i];
+      const start = backlogOffsets[i];
+      if (start === undefined) {
+        cb(chunk);
+      } else if (start + chunk.length > snapshotAt) {
+        cb(start < snapshotAt ? chunk.subarray(snapshotAt - start) : chunk);
+      }
+    }
+    applyResizesBefore(Number.MAX_SAFE_INTEGER);
+    let end = snapshotAt;
+    for (let i = 0; i < backlog.length; i++) {
+      const start = backlogOffsets[i];
+      if (start !== undefined) end = Math.max(end, start + backlog[i].length);
+    }
+    stream.liveEnd = end;
+    stream.backlog = [];
+    stream.backlogOffsets = [];
+    stream.resizeLog = [];
+    stream.mode = 'live';
   }
 
   private discardBacklogAndGoLive(stream: PaneStream): void {
     stream.backlog = [];
+    stream.backlogOffsets = [];
+    stream.resizeLog = [];
+    stream.liveEnd = undefined;
     stream.mode = 'live';
   }
 
@@ -101,7 +275,9 @@ export class PaneStreamManager {
       const current = this.streams.get(paneId);
       if (current && current.listener === cb) {
         current.listener = null;
+        current.resizeListener = null;
         current.mode = 'buffering';
+        current.liveEnd = undefined;
       }
     };
   }

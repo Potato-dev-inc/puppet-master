@@ -1,0 +1,22 @@
+# expect: empty_screen_never_blocked
+# The prompt and waiting regexes match an empty screen.
+schema_version = 1
+
+[agent]
+id = "badempty"
+label = "Bad Empty"
+
+[binary]
+names = ["bad-fixture-not-installed"]
+install_hint = "fixture only"
+
+[tui]
+argv = []
+
+[tui.classify]
+waiting_regex = ["x*"]
+
+[[tui.prompt]]
+kind = "command_approval"
+detect_regex = "z*"
+choices = [{ id = "allow_once", key = "y" }]

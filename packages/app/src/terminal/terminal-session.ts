@@ -4,15 +4,16 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { InputBatcher } from './input-batcher';
 import { MirrorEchoFilter } from './mirror-echo-filter';
-import { applyMirrorLocalEcho } from './mirror-local-echo';
+import { applyMirrorLocalEcho, isTerminalReport } from './mirror-local-echo';
 import {
   configureXtermTextareaForMobileMirror,
   isMobileInputDevice,
-  MOBILE_INPUT_HIDDEN_CLASS,
   MobileInputGuard,
   type MobileInputDelivery,
 } from './mobile-input-guard';
 import { configureDesktopXtermTextarea, isTerminalPasteShortcut } from './xterm-textarea';
+import { TouchScrollController } from './touch-scroll';
+import { OwnerGrid } from './owner-follow';
 import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
@@ -23,8 +24,14 @@ import {
   createTerminalScaleMount,
   TerminalScaleController,
 } from './scaled-viewport';
-import type { PaneDataListener, TerminalRenderMode, TerminalSessionOptions } from './types';
+import { ReprintWipe } from './reprint-wipe';
+import type { PaneDataSubscriber, TerminalRenderMode, TerminalSessionOptions } from './types';
 import '@xterm/xterm/css/xterm.css';
+
+/** Rows shown under the cursor row on a phone mirror (e.g. Claude's status line). */
+const CURSOR_ROWS_BELOW = 2;
+
+type GridMetrics = { cellWidth: number; cellHeight: number; padX: number; padY: number };
 
 function isWindowsRuntime(): boolean {
   return navigator.userAgent.includes('Windows');
@@ -33,6 +40,8 @@ function isWindowsRuntime(): boolean {
 function openExternalUrl(uri: string): void {
   window.open(uri, '_blank', 'noopener,noreferrer');
 }
+
+const SETTLE_MIN_INTERVAL_MS = 1500;
 
 /**
  * Owns one xterm.js instance for a pane: raw PTY rendering, resize, input
@@ -43,6 +52,10 @@ export class TerminalSession {
   private fitAddon: FitAddon | null = null;
   private inputBatcher: InputBatcher | null = null;
   private unlistenData: (() => void) | null = null;
+  /** The pane stream subscription parts, kept so `refreshFromSource` can subscribe again. */
+  private paneSubscriber: PaneDataSubscriber | null = null;
+  private paneDataHandler: ((data: Uint8Array) => void) | null = null;
+  private paneResizeHandler: ((cols: number, rows: number) => void) | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private intersectionObserver: IntersectionObserver | null = null;
   private imeObserver: MutationObserver | null = null;
@@ -55,10 +68,25 @@ export class TerminalSession {
   private openFrame: number | null = null;
   private resizeFrame: number | null = null;
   private refreshFrame: number | null = null;
-  private lastSentCols = 0;
-  private lastSentRows = 0;
+  /** Cell size and padding, measured once and reset on resize, theme, container and font changes. */
+  private gridMetricsCache: GridMetrics | null = null;
+  private fontsListener: (() => void) | null = null;
+  private lastSettleAt = 0;
+  /** What this owner window asked of the PTY, what it has, and whether a phone holds it. */
+  private readonly ownerGrid = new OwnerGrid();
   private ptyCols: number;
   private ptyRows: number;
+  /**
+   * The pane's resizes arrive in order with its output (`applyStreamResize`): from then on the
+   * React prop path (`setPtyDimensions`) must not resize ahead of bytes still being parsed.
+   */
+  private streamSized = false;
+  /** Owner window: a PTY resize has arrived in stream order, so a size seen at mount is stale. */
+  private ownerStreamResizeSeen = false;
+  /** Owner window: the size a phone holds, from the registry; applied once the grid is open. */
+  private heldPty: { cols: number; rows: number } | null = null;
+  /** Wipes scrollback at the stream position of a resize, for agents that reprint on resize. */
+  private readonly reprintWipe = new ReprintWipe();
   private readonly syncPTYResize: boolean;
   private readonly mirrorPTY: boolean;
   private readonly renderMode: TerminalRenderMode;
@@ -68,6 +96,7 @@ export class TerminalSession {
   private scaleController: TerminalScaleController | null = null;
   private scaleViewport: HTMLElement | null = null;
   private mountContainer: HTMLElement | null = null;
+  private touchScroll: TouchScrollController | null = null;
   private disposed = false;
 
   constructor(private readonly options: TerminalSessionOptions) {
@@ -75,6 +104,11 @@ export class TerminalSession {
     this.mirrorPTY = !this.syncPTYResize;
     this.renderMode = options.renderMode ?? (this.syncPTYResize ? 'owner' : 'mirror-same-grid');
     this.mobileInputDisabled = options.disableMobileInput === true;
+    this.reprintWipe.enabled = options.reprintsOnResize === true;
+    if (options.assumePtyGrid) {
+      this.ownerGrid.lastSent = { ...options.assumePtyGrid };
+      this.ownerGrid.pty = { ...options.assumePtyGrid };
+    }
     this.ptyCols = options.ptyCols ?? 80;
     this.ptyRows = options.ptyRows ?? 24;
   }
@@ -86,6 +120,46 @@ export class TerminalSession {
    * shrink-and-restore animation on the cell (see `pm-pane-settle`), which drives
    * the ResizeObserver every frame; this call just guarantees a final clean fit.
    */
+  /**
+   * Nudge for a viewer of someone else's PTY (phone): redraw from the PC's current screen, in
+   * place. Leaving the stream puts it back to buffering, so subscribing again replays the pane's
+   * screen at its current size (what reopening the tab did) without rebuilding the terminal or
+   * the input box. Never resizes the PTY, so the agent does not reprint. With `skipIfScrolledUp`
+   * nothing happens while the user reads history above the screen.
+   */
+  refreshFromSource(options: { skipIfScrolledUp?: boolean } = {}): boolean {
+    const terminal = this.term;
+    const subscribe = this.paneSubscriber;
+    const onData = this.paneDataHandler;
+    if (!terminal || !subscribe || !onData || !this.unlistenData || this.syncPTYResize) return false;
+    if (options.skipIfScrolledUp) {
+      const buffer = terminal.buffer.active;
+      if (buffer.viewportY < buffer.baseY) return false;
+    }
+    this.unlistenData();
+    terminal.reset();
+    this.reprintWipe.reset();
+    this.unlistenData = subscribe(this.options.paneId, onData, this.paneResizeHandler ?? undefined);
+    this.scheduleRefresh();
+    return true;
+  }
+
+  /** The agent reprints its conversation on every resize: wipe scrollback at each one. */
+  setReprintsOnResize(enabled: boolean): void {
+    this.reprintWipe.enabled = enabled;
+  }
+
+  /** The user is reading history above the screen. */
+  isScrolledUp(): boolean {
+    const buffer = this.term?.buffer.active;
+    return !!buffer && buffer.viewportY < buffer.baseY;
+  }
+
+  /** Text currently selected in the terminal ("" when nothing is). */
+  getSelection(): string {
+    return this.term?.getSelection() ?? '';
+  }
+
   nudgeReflow(): boolean {
     if (!this.term) return false;
     if (this.syncPTYResize) {
@@ -97,7 +171,184 @@ export class TerminalSession {
     return true;
   }
 
+  /**
+   * The grid (cols x rows) that fits this terminal's on-screen area at the current font: what a
+   * phone asks the PC to size the pane to (`POST /panes/{id}/viewport`) so the agent redraws for
+   * the phone. Null until xterm has measured its cells.
+   */
+  measureFitGrid(): { cols: number; rows: number } | null {
+    const metrics = this.gridMetrics();
+    const host = this.scaleViewport ?? this.mountContainer;
+    if (!metrics || !host) return null;
+    const cols = Math.floor((host.clientWidth - metrics.padX) / metrics.cellWidth);
+    const rows = Math.floor((host.clientHeight - metrics.padY) / metrics.cellHeight);
+    return cols > 0 && rows > 0 ? { cols, rows } : null;
+  }
+
+  /**
+   * Cell size and the padding xterm draws around the grid. Arithmetic only: the rendered boxes
+   * (`.xterm`, `.xterm-screen`, the scale stage) keep an old size after an in-place resize, and
+   * sizing from them shrank or scaled the grid wrongly.
+   */
+  private gridMetrics(): GridMetrics | null {
+    if (this.gridMetricsCache) return this.gridMetricsCache;
+    const metrics = this.measureGridMetrics();
+    this.gridMetricsCache = metrics;
+    return metrics;
+  }
+
+  /** Forget the cached cell/padding size: the next read measures again. */
+  private invalidateGridMetrics(): void {
+    this.gridMetricsCache = null;
+  }
+
+  /** Reads the cell size and padding (getComputedStyle). Cached by gridMetrics(). */
+  private measureGridMetrics(): GridMetrics | null {
+    const terminal = this.term;
+    if (!terminal?.element) return null;
+    // Same private measurement FitAddon.proposeDimensions uses.
+    const core = (terminal as unknown as {
+      _core?: { _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } } };
+    })._core;
+    const cell = core?._renderService?.dimensions?.css?.cell;
+    if (!cell || cell.width <= 0 || cell.height <= 0) return null;
+    const style = getComputedStyle(terminal.element);
+    const px = (value: string) => Number.parseFloat(value) || 0;
+    return {
+      cellWidth: cell.width,
+      cellHeight: cell.height,
+      padX: px(style.paddingLeft) + px(style.paddingRight),
+      padY: px(style.paddingTop) + px(style.paddingBottom),
+    };
+  }
+
+  /** Pixel size of the current grid (cells plus padding), for the scale controller. */
+  private gridContentSize(): { width: number; height: number } | null {
+    const metrics = this.gridMetrics();
+    const terminal = this.term;
+    if (!metrics || !terminal) return null;
+    return {
+      width: terminal.cols * metrics.cellWidth + metrics.padX,
+      height: terminal.rows * metrics.cellHeight + metrics.padY,
+    };
+  }
+
+  /**
+   * Px from the top of the grid to the bottom of the cursor row plus a few rows below it (clamped
+   * to the grid). Null when the view is scrolled back into history, so the caller bottom-anchors.
+   */
+  private cursorBottomPx(): number | null {
+    const metrics = this.gridMetrics();
+    const terminal = this.term;
+    if (!metrics || !terminal) return null;
+    const buffer = terminal.buffer.active;
+    if (buffer.viewportY !== buffer.baseY) return null;
+    const contentHeight = terminal.rows * metrics.cellHeight + metrics.padY;
+    const rowBottom =
+      metrics.padY / 2 + (buffer.cursorY + 1 + CURSOR_ROWS_BELOW) * metrics.cellHeight;
+    return Math.min(rowBottom, contentHeight);
+  }
+
   setPtyDimensions(cols: number, rows: number): void {
+    if (this.streamSized) return;
+    this.resizeToPty(cols, rows);
+  }
+
+  /**
+   * A pane resize from the PC, in order with its output: applied once every byte before it has
+   * been parsed, so output drawn for the old grid is never laid out on the new one (and output
+   * for the new grid never on the old one).
+   */
+  applyStreamResize(cols: number, rows: number): void {
+    const terminal = this.term;
+    if (!terminal || cols <= 0 || rows <= 0) return;
+    // Queued here, in order with the bytes: the reprint that follows becomes the only copy.
+    this.reprintWipe.resizeTo(terminal, cols, rows);
+    if (this.syncPTYResize) {
+      this.ownerStreamResizeSeen = true;
+      terminal.write(new Uint8Array(0), () => {
+        if (this.term === terminal && !this.disposed) this.applyOwnerFollow(cols, rows);
+      });
+      return;
+    }
+    this.streamSized = true;
+    terminal.write(new Uint8Array(0), () => {
+      if (this.term === terminal && !this.disposed) this.resizeToPty(cols, rows);
+    });
+  }
+
+  /**
+   * Owner window, in stream order: follow the PTY while a phone holds it, and stop following when
+   * the PTY is back at the size this window asked for.
+   */
+  private applyOwnerFollow(cols: number, rows: number): void {
+    const terminal = this.term;
+    if (!terminal) return;
+    const decision = this.ownerGrid.onStreamResize({ cols, rows }, { cols: terminal.cols, rows: terminal.rows });
+    if (decision.resizeTo) terminal.resize(decision.resizeTo.cols, decision.resizeTo.rows);
+    if (decision.refit) this.refitAndRedraw();
+    this.scheduleRefresh();
+  }
+
+  /**
+   * Owner window opened while a phone already holds the pane: no resize event comes for that, so
+   * follow the held size. Ignored once an ordered resize has arrived.
+   */
+  followHeldPty(cols: number, rows: number): void {
+    if (!this.syncPTYResize || cols <= 0 || rows <= 0) return;
+    this.heldPty = { cols, rows };
+    this.applyHeldPty();
+  }
+
+  private applyHeldPty(): void {
+    const terminal = this.term;
+    const held = this.heldPty;
+    if (!terminal || !held || this.ownerStreamResizeSeen) return;
+    terminal.write(new Uint8Array(0), () => {
+      if (this.term !== terminal || this.disposed || this.ownerStreamResizeSeen) return;
+      this.applyOwnerFollow(held.cols, held.rows);
+    });
+  }
+
+  /**
+   * This window asked the app to take the pane back from the phone (`reclaim_pane_size`, resolved).
+   * What the PTY is given back is the size remembered while the phone held it: after a mode switch
+   * that is the previous window's, and `lastSent` (what this window sent, ignored meanwhile) says
+   * nothing about it, so the dedupe in `fitAndNotify` would keep a wrong grid. Forget `lastSent`,
+   * stop following, fit to the container and tell the PTY once; the app ignores a size the PTY
+   * already has, so a PTY that is already right is not resized and Claude does not reprint.
+   */
+  afterReclaim(): void {
+    const terminal = this.term;
+    if (!terminal || !this.syncPTYResize) return;
+    // After the bytes and resizes already queued, so a `pty://resized` of the reclaim is applied first.
+    terminal.write(new Uint8Array(0), () => {
+      if (this.term !== terminal || this.disposed) return;
+      this.ownerGrid.reclaimed();
+      this.refitAndRedraw();
+    });
+  }
+
+  private refitAndRedraw(): void {
+    const terminal = this.term;
+    if (!terminal) return;
+    requestAnimationFrame(() => {
+      if (this.disposed || this.term !== terminal || this.ownerGrid.following) return;
+      const buffer = terminal.buffer.active;
+      const atBottom = buffer.viewportY >= buffer.baseY;
+      this.fitAndNotify();
+      // The grid changed under a reader at the bottom: keep the newest rows (and the top of the
+      // screen) in view instead of leaving rows above the visible area.
+      if (atBottom) terminal.scrollToBottom();
+      if (!atBottom) return;
+      const now = Date.now();
+      if (now - this.lastSettleAt < SETTLE_MIN_INTERVAL_MS) return;
+      this.lastSettleAt = now;
+      this.scheduleRefresh();
+    });
+  }
+
+  private resizeToPty(cols: number, rows: number): void {
     if (cols <= 0 || rows <= 0) return;
     if (this.mirrorPTY) {
       this.ptyCols = cols;
@@ -114,13 +365,43 @@ export class TerminalSession {
     return !this.mobileInputDisabled && this.mirrorPTY && isMobileInputDevice();
   }
 
+  /** Swipe-to-scroll for the phone mirror. Touch points are mapped to cells through the scale. */
+  private createTouchScroll(container: HTMLElement, terminal: Terminal): TouchScrollController {
+    // Screen pixels per layout pixel (the scale-to-fit transform), so drags map to rows on screen.
+    const screenScale = (): number => {
+      const el = terminal.element;
+      if (!el || el.offsetWidth <= 0) return 1;
+      return el.getBoundingClientRect().width / el.offsetWidth || 1;
+    };
+    return new TouchScrollController(container, terminal, {
+      sendInput: (data) => this.options.onInput(data, false),
+      cellHeight: () => (this.gridMetrics()?.cellHeight ?? 0) * screenScale(),
+      cellFromPoint: (clientX, clientY) => {
+        const metrics = this.gridMetrics();
+        const el = terminal.element;
+        if (!metrics || !el) return { col: 1, row: 1 };
+        const rect = el.getBoundingClientRect();
+        const scale = screenScale();
+        const x = (clientX - rect.left) / scale - metrics.padX / 2;
+        const y = (clientY - rect.top) / scale - metrics.padY / 2;
+        const col = Math.min(Math.max(Math.floor(x / metrics.cellWidth) + 1, 1), Math.max(terminal.cols, 1));
+        const row = Math.min(Math.max(Math.floor(y / metrics.cellHeight) + 1, 1), Math.max(terminal.rows, 1));
+        return { col, row };
+      },
+      onScrollStart: () => this.mobileInputGuard?.abandonGesture(),
+      panViewport: (dy) => this.scaleController?.panBy(dy) ?? dy,
+      isPanned: () => this.scaleController?.isPanned() ?? false,
+      resetPan: () => this.scaleController?.resetPan(),
+    });
+  }
+
   private shouldScaleMirrorToContainer(): boolean {
     return this.isMobileMirror() && this.renderMode === 'mirror-same-grid';
   }
 
   mount(
     container: HTMLElement,
-    subscribePaneData: (paneId: string, cb: PaneDataListener) => () => void,
+    subscribePaneData: PaneDataSubscriber,
   ): void {
     const gen = ++this.generation;
     this.disposed = false;
@@ -173,10 +454,24 @@ export class TerminalSession {
 
       this.term = terminal;
       this.fitAddon = fitAddon;
+      terminal.onResize(() => this.invalidateGridMetrics());
+      this.fontsListener = () => {
+        this.invalidateGridMetrics();
+        this.scheduleRefresh();
+      };
+      document.fonts?.addEventListener('loadingdone', this.fontsListener);
       if (this.scaleViewport) {
         this.scaleController = new TerminalScaleController(
           this.scaleViewport,
           mountTarget,
+          this.options.sizesPane
+            ? {
+                keyboardPushUp: false,
+                measureContent: () => this.gridContentSize(),
+                measureCursorBottom: () => this.cursorBottomPx(),
+                noScale: true,
+              }
+            : {},
         );
       }
       this.inputBatcher = new InputBatcher((text) => {
@@ -188,20 +483,25 @@ export class TerminalSession {
         if (!mobileMirror) {
           this.inputBatcher?.push(data);
           this.scrollToCursor();
-          this.scheduleRefresh();
+          this.scheduleWriteFollowUp();
           return;
         }
 
+        // xterm answering the agent's own queries (cursor position, device attributes): the
+        // desktop window that owns the pane answers those; a mirror must not type them too.
+        if (isTerminalReport(data)) return;
+
         // Hardware keyboard — local echo immediately; PTY echo is deduped on ingest.
-        applyMirrorLocalEcho(terminal, data, this.mirrorEchoFilter);
+        this.applyLocalEcho(terminal, data);
         this.inputBatcher?.push(data);
         this.scrollToCursor();
-        this.scheduleRefresh();
+        this.scheduleWriteFollowUp();
       });
 
-      this.unlistenData = subscribePaneData(this.options.paneId, (data) => {
+      this.paneDataHandler = (data) => {
         if (
           this.mirrorPTY &&
+          !this.options.sizesPane &&
           isMobileInputDevice() &&
           this.mirrorEchoFilter.shouldSkipInbound(data)
         ) {
@@ -209,11 +509,20 @@ export class TerminalSession {
         }
         terminal.write(data, () => {
           this.scrollToCursor();
-          this.scheduleRefresh();
+          this.scheduleWriteFollowUp();
         });
-      });
+      };
+      this.paneResizeHandler = (cols, rows) => this.applyStreamResize(cols, rows);
+      // Owner: ask for this window's grid before the screen replay is requested, so the replay is
+      // drawn for the grid this window will have (see createOwnerReplayReader).
+      if (this.syncPTYResize) this.fitAndNotify();
+      this.paneSubscriber = subscribePaneData;
+      this.unlistenData = subscribePaneData(this.options.paneId, this.paneDataHandler, this.paneResizeHandler);
       this.installFileLinkProvider(terminal);
       this.installTextareaGuards(container, terminal, this.inputBatcher);
+      if (mobileMirror) {
+        this.touchScroll = this.createTouchScroll(container, terminal);
+      }
       this.installResizeObservers(container);
       this.installFocusHandlers(container);
       this.installThemeObserver(terminal);
@@ -227,6 +536,7 @@ export class TerminalSession {
           if (this.disposed || gen !== this.generation) return;
           this.fitAndNotify();
         });
+        this.applyHeldPty();
       } else {
         this.applyMirrorDimensions();
       }
@@ -251,6 +561,12 @@ export class TerminalSession {
       this.refreshFrame = null;
     }
 
+    if (this.fontsListener) {
+      document.fonts?.removeEventListener('loadingdone', this.fontsListener);
+      this.fontsListener = null;
+    }
+    this.invalidateGridMetrics();
+
     this.unlistenData?.();
     this.unlistenData = null;
 
@@ -265,6 +581,9 @@ export class TerminalSession {
 
     this.mobileInputGuard?.dispose();
     this.mobileInputGuard = null;
+
+    this.touchScroll?.dispose();
+    this.touchScroll = null;
 
     this.scaleController?.dispose();
     this.scaleController = null;
@@ -296,6 +615,7 @@ export class TerminalSession {
   private installResizeObservers(container: HTMLElement): void {
     const observed = this.scaleViewport ?? container;
     this.resizeObserver = new ResizeObserver(() => {
+      this.invalidateGridMetrics();
       this.scheduleFit();
     });
     this.resizeObserver.observe(observed);
@@ -321,6 +641,7 @@ export class TerminalSession {
   private installThemeObserver(terminal: Terminal): void {
     const applyTheme = () => {
       terminal.options.theme = terminalThemeFromCss();
+      this.invalidateGridMetrics();
       this.scheduleRefresh();
     };
     this.themeObserver = new MutationObserver(applyTheme);
@@ -434,17 +755,14 @@ export class TerminalSession {
     if (mobileMirror) {
       const emitMobileInput = (text: string, delivery: MobileInputDelivery) => {
         if (!text) return;
+        // Typing brings the view back to the line being typed on after a swipe.
+        this.scaleController?.resetPan();
         if (delivery === 'immediate') {
           inputBatcher.flushNow();
         }
 
         // Local echo only erases chars we echoed; filter tracks outbound for dedupe.
-        this.muteOnData = true;
-        try {
-          applyMirrorLocalEcho(terminal, text, this.mirrorEchoFilter);
-        } finally {
-          this.muteOnData = false;
-        }
+        this.applyLocalEcho(terminal, text);
 
         if (delivery === 'immediate') {
           this.options.onInput(text, false);
@@ -452,7 +770,7 @@ export class TerminalSession {
           inputBatcher.push(text);
         }
         this.scrollToCursor();
-        this.scheduleRefresh();
+        this.scheduleWriteFollowUp();
       };
 
       this.mobileInputGuard = new MobileInputGuard({
@@ -461,12 +779,30 @@ export class TerminalSession {
         scrollToCursor: () => this.scrollToCursor(),
         bufferDelayMs: this.options.mobileInputDelayMs,
         inputVisible: this.options.mobileInputVisible,
+        // Phone-sized panes live in a shell that already ends at the keyboard (PwaApp).
+        reserveKeyboardSpace: !this.options.sizesPane,
       });
       requestAnimationFrame(() => {
         if (this.disposed) return;
         this.applyMirrorDimensions();
         this.scrollToCursor();
       });
+    }
+  }
+
+  /**
+   * Draw typed text before the PTY echoes it (mirrors over a slow link feel instant). Muted:
+   * echoing an escape key re-enters xterm's input, which would fire onData again forever. Not for
+   * phone-sized panes: a full-screen agent redraws its input box its own way, so guessed
+   * characters land in the wrong cells and survive; there the agent's echo is the only truth.
+   */
+  private applyLocalEcho(terminal: Terminal, text: string): void {
+    if (this.options.sizesPane) return;
+    this.muteOnData = true;
+    try {
+      applyMirrorLocalEcho(terminal, text, this.mirrorEchoFilter);
+    } finally {
+      this.muteOnData = false;
     }
   }
 
@@ -547,6 +883,20 @@ export class TerminalSession {
     const fitAddon = this.fitAddon;
     if (!terminal || !fitAddon) return;
 
+    if (this.ownerGrid.following) {
+      // A phone holds the PTY: the grid stays at the PTY size; the PC learns this window's own size.
+      let dims: { cols: number; rows: number } | undefined;
+      try {
+        dims = fitAddon.proposeDimensions();
+      } catch {
+        return;
+      }
+      const send = dims ? this.ownerGrid.fitted(dims.cols, dims.rows) : null;
+      if (send) this.options.onResize(send.cols, send.rows);
+      return;
+    }
+
+    const before = { cols: terminal.cols, rows: terminal.rows };
     try {
       fitAddon.fit();
     } catch {
@@ -554,11 +904,10 @@ export class TerminalSession {
     }
 
     const { cols, rows } = terminal;
-    if (cols > 0 && rows > 0 && (cols !== this.lastSentCols || rows !== this.lastSentRows)) {
-      this.lastSentCols = cols;
-      this.lastSentRows = rows;
-      this.options.onResize(cols, rows);
-    }
+    // The owner resizes its grid locally and gets no echo: wipe now, before any later byte.
+    if (cols > 0 && rows > 0) this.reprintWipe.resizeTo(terminal, cols, rows, before);
+    const send = this.ownerGrid.fitted(cols, rows);
+    if (send) this.options.onResize(send.cols, send.rows);
   }
 
   private applyPtyDimensions(): void {
@@ -595,6 +944,15 @@ export class TerminalSession {
     this.fitViewportOnly();
   }
 
+  /**
+   * After output or local input was written. xterm already repaints the rows that changed, so this
+   * does not refresh the grid or clear the texture atlas; it only re-anchors the scaled stage to the
+   * cursor, coalesced to once per frame by the scale controller.
+   */
+  private scheduleWriteFollowUp(): void {
+    this.scaleController?.scheduleCursorFit();
+  }
+
   private scheduleRefresh(): void {
     if (this.refreshFrame !== null) return;
     this.refreshFrame = requestAnimationFrame(() => {
@@ -609,7 +967,8 @@ export class TerminalSession {
 
   private refreshAndNudgeAltBuffer(): void {
     const terminal = this.term;
-    if (!terminal) return;
+    // While following a phone-held PTY, the fake resize below would fight the lease.
+    if (!terminal || this.ownerGrid.following) return;
     this.scheduleRefresh();
 
     if (terminal.buffer.active.type !== 'alternate') return;

@@ -3,36 +3,6 @@
 Severity: critical (latent in the shipped proxy, live behind any forwarder pointed at the bridge).
 Branch: `fix/tunnel-auth`. Fix commits: `a9f7fc3`, `9055cae` (tests `9b3a6cd`, refactor `182fa8f`).
 
-## Backport to 0.1.5 (read this first)
-
-The fix was written against the post-0.1.4 tree and backported to the shipped 0.1.4 code as
-**0.1.5** (branch `release/0.1.5-security`). Everything below describes the original fix;
-these are the differences in the backport, because 0.1.4 has a smaller bridge:
-
-- 0.1.4 keeps the bridge in one file (`bridge.rs`) and the pairing code in one file
-  (`mobile_pairing.rs`); the same functions (`read_request`, `gate`, `requires_pairing_token`)
-  were added there. The rule, header list, Host and Origin checks are identical.
-- 0.1.4 has no WebSocket events endpoint, no `/events/poll`, no `/pair/invite` and no
-  `routes/definitions.rs`. So `pwa_server::proxy_upgrade`, the `pm-bearer` subprotocol branch of
-  `gate`, the `is_local_app` change and the WebSocket and poll tests do not exist in 0.1.5. The
-  `/events` SSE route and every other route already went through `authorize_bridge_request`,
-  which is the function that changed.
-- Pairing in 0.1.x: a pairing code can only be minted by the desktop UI (Tauri commands). 0.1.4 has
-  no bridge route that creates one, so the "mint a pairing code for yourself via `/pair/invite`"
-  step described under Impact does not apply to 0.1.0 to 0.1.4. The rest of the impact (pane
-  input, keys, buffers, agents, shell) does.
-- The `read_bridge_addr` fix (the proxy could never connect in 0.1.1 to 0.1.4) is included. Side
-  effect: in 0.1.5 the `/bridge` proxy of the embedded PWA server actually reaches the bridge,
-  and every proxied request is marked and needs a paired-device bearer.
-- Version scope, corrected: the bridge trusted every loopback caller, with
-  `Access-Control-Allow-Origin: *`, already in 0.1.0 (tag `puppet-master`, no pairing yet). So
-  the "any web page in the browser can drive the bridge" route applies from 0.1.0 to 0.1.4, and
-  it does not need the phone tunnel to be enabled, only the app to be running.
-- Tests in 0.1.5: `src/tunnel_auth_tests.rs` has 11 end-to-end tests. Against the 0.1.4 trust
-  rule they fail: 10 of 11 with the 0.1.4 proxy (which cannot connect), 8 of 11 with only the
-  proxy address repaired (anonymous tunnel request answered 200 and treated as the local app).
-  With the fix all 11 pass.
-
 ## Impact
 
 The bridge (`bridge/*`, loopback HTTP on 17321-17399) decides whether a request needs a

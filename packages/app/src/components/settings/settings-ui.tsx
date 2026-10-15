@@ -1,289 +1,127 @@
-import type { ReactNode } from 'react';
+// Row building blocks for the Settings window (macOS System Settings style). Everything here is a row
+// inside a grouped inset list (`.st-list`); the panel supplies the list, the groups and the "Saved" tick.
+// Monochrome: no colour, no badges. Styles live in styles/settings.css.
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
+import { Popup, Switch } from './controls';
 
-export type SettingsTabId =
-  | 'general'
-  | 'appearance'
-  | 'session'
-  | 'orchestrator'
-  | 'api'
-  | 'mcp'
-  | 'mobile'
-  | 'security'
-  | 'storage'
-  | 'notifications'
-  | 'backup'
-  | 'marketplace'
-  | 'rules'
-  | 'costs'
-  | 'team'
-  | 'automation'
-  | 'observability'
-  | 'plugins'
-  | 'developer'
-  | 'advanced';
-
-export interface SettingsTabDef {
-  id: SettingsTabId;
-  label: string;
-  /** Entire tab is mock / no backend yet. */
-  planned: boolean;
-}
-
-export const SETTINGS_TABS: SettingsTabDef[] = [
-  { id: 'general', label: 'General', planned: false },
-  { id: 'appearance', label: 'Appearance', planned: false },
-  { id: 'session', label: 'Sessions', planned: false },
-  { id: 'orchestrator', label: 'Orchestrator', planned: false },
-  { id: 'api', label: 'API keys', planned: false },
-  { id: 'mcp', label: 'MCP & bridge', planned: false },
-  { id: 'mobile', label: 'Mobile PWA', planned: false },
-  { id: 'security', label: 'Security', planned: true },
-  { id: 'storage', label: 'Storage', planned: false },
-  { id: 'notifications', label: 'Notifications', planned: true },
-  { id: 'backup', label: 'Backup & sync', planned: true },
-  { id: 'marketplace', label: 'Agent marketplace', planned: true },
-  { id: 'rules', label: 'Rules & guardrails', planned: true },
-  { id: 'costs', label: 'Cost controls', planned: true },
-  { id: 'team', label: 'Team workspace', planned: true },
-  { id: 'automation', label: 'Automation', planned: true },
-  { id: 'observability', label: 'Observability', planned: true },
-  { id: 'plugins', label: 'Plugins', planned: true },
-  { id: 'developer', label: 'Developer', planned: false },
-  { id: 'advanced', label: 'Advanced', planned: false },
-];
-
-export function PlannedBadge({ compact }: { compact?: boolean }) {
+/** A label with its one-line hint. */
+function Label({ label, description }: { label: ReactNode; description?: ReactNode }) {
   return (
-    <span
-      className={[
-        'inline-flex shrink-0 items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 font-medium text-red-400',
-        compact ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]',
-      ].join(' ')}
-      title="Not wired to a backend yet"
-    >
-      <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden />
-      {compact ? 'Planned' : 'Not implemented'}
-    </span>
-  );
-}
-
-export function LiveBadge() {
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-      Live
-    </span>
-  );
-}
-
-export function SettingsSection({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <div>
-      <div className="mb-5">
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-        <p className="mt-1 text-sm leading-6 text-pm-muted">{description}</p>
-      </div>
-      <div className="space-y-4">{children}</div>
+    <div className="st-label">
+      <span>{label}</span>
+      {description && <small>{description}</small>}
     </div>
   );
 }
 
+/** A row with the control on its right: a switch, a popup, a short field, a value, a button. */
+export function SettingRow({
+  label,
+  description,
+  children,
+}: {
+  label: ReactNode;
+  description?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="st-row">
+      <Label label={label} description={description} />
+      {children !== undefined && <div className="st-control">{children}</div>}
+    </div>
+  );
+}
+
+/** A row with a body below its label: lists, forms, status panels, snippets. */
 export function SettingBlock({
   label,
   description,
-  implemented,
   children,
 }: {
-  label: string;
-  description?: string;
-  implemented: boolean;
-  children: ReactNode;
+  label: ReactNode;
+  description?: ReactNode;
+  children?: ReactNode;
 }) {
   return (
-    <div
-      className={[
-        'rounded-xl border border-pm-border bg-pm-panel p-4',
-        implemented ? '' : 'border-red-500/20',
-      ].join(' ')}
-    >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold">{label}</h3>
-            {!implemented && <PlannedBadge />}
-          </div>
-          {description && <p className="mt-1 text-sm leading-6 text-pm-muted">{description}</p>}
-        </div>
-      </div>
-      <div className={implemented ? '' : 'pointer-events-none opacity-60'}>{children}</div>
+    <div className="st-row is-block">
+      <Label label={label} description={description} />
+      {children !== undefined && <div className="st-body">{children}</div>}
     </div>
   );
 }
 
-export function FieldLabel({ children }: { children: ReactNode }) {
-  return <label className="mb-1 block text-xs font-medium text-pm-muted">{children}</label>;
-}
-
-export function FieldInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={[
-        'w-full rounded-lg border border-pm-border bg-pm-bg px-3 py-2 text-sm outline-none focus:border-pm-accent/50',
-        props.className ?? '',
-      ].join(' ')}
-    />
-  );
-}
-
-export function FieldSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      {...props}
-      className={[
-        'w-full rounded-lg border border-pm-border bg-pm-bg px-3 py-2 text-sm outline-none focus:border-pm-accent/50',
-        props.className ?? '',
-      ].join(' ')}
-    />
-  );
-}
-
+/** An on/off row. The change is saved by the caller the moment you flip it. */
 export function SettingToggle({
   label,
   description,
   checked,
   onChange,
-  implemented,
+  disabled,
 }: {
   label: string;
-  description: string;
+  description?: ReactNode;
   checked: boolean;
   onChange: (value: boolean) => void;
-  implemented: boolean;
+  disabled?: boolean;
 }) {
   return (
-    <SettingBlock label={label} description={description} implemented={implemented}>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        disabled={!implemented}
-        onClick={() => implemented && onChange(!checked)}
-        className={[
-          'relative h-7 w-12 shrink-0 rounded-full transition',
-          checked ? 'bg-pm-accent' : 'bg-pm-border',
-          implemented ? '' : 'cursor-not-allowed',
-        ].join(' ')}
-      >
-        <span
-          className={[
-            'absolute top-1 h-5 w-5 rounded-full bg-pm-bg shadow-sm transition',
-            checked ? 'left-6' : 'left-1',
-          ].join(' ')}
-        />
-      </button>
-    </SettingBlock>
+    <SettingRow label={label} description={description}>
+      <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} />
+    </SettingRow>
   );
 }
 
-export function InfoCard({
-  title,
-  description,
-  implemented = true,
-}: {
-  title: string;
-  description: string;
-  implemented?: boolean;
-}) {
+/** A read-only value on the right of a label. */
+export function InfoRow({ label, description, value }: { label: ReactNode; description?: ReactNode; value: ReactNode }) {
   return (
-    <div className="rounded-xl border border-pm-border bg-pm-raised p-4">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold">{title}</h3>
-            {implemented ? null : <PlannedBadge compact />}
-          </div>
-          <p className="mt-1 text-sm leading-6 text-pm-muted">{description}</p>
-        </div>
-      </div>
-    </div>
+    <SettingRow label={label} description={description}>
+      <span className="st-value">{value}</span>
+    </SettingRow>
+  );
+}
+
+export function FieldLabel({ children }: { children: ReactNode }) {
+  return <label className="st-field-label">{children}</label>;
+}
+
+export function FieldInput(props: InputHTMLAttributes<HTMLInputElement>) {
+  const { className, ...rest } = props;
+  return <input {...rest} className={`st-field${className ? ` ${className.replace('font-mono', 'is-mono')}` : ''}`} />;
+}
+
+export function FieldSelect(props: SelectHTMLAttributes<HTMLSelectElement>) {
+  return <Popup {...props} />;
+}
+
+/** A button. `primary` is the single white action of a row; the default is the quiet grey one. */
+export function Btn({
+  primary,
+  small,
+  className,
+  type = 'button',
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & { primary?: boolean; small?: boolean }) {
+  return <button {...rest} type={type} className={`st-btn${primary ? ' is-primary' : ''}${small ? ' is-small' : ''}${className ? ` ${className}` : ''}`} />;
+}
+
+/** A small error or status line under a control. */
+export function Note({ children, role }: { children: ReactNode; role?: 'alert' | 'status' }) {
+  return (
+    <p className="st-note" role={role}>
+      {children}
+    </p>
   );
 }
 
 export function CodeBlock({ title, code }: { title: string; code: string }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-pm-border bg-pm-panel">
-      <div className="flex items-center justify-between border-b border-pm-border px-4 py-2">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <button
-          type="button"
-          onClick={() => void navigator.clipboard.writeText(code)}
-          className="rounded-lg border border-pm-border px-2 py-1 text-xs text-pm-muted hover:bg-pm-border/40"
-        >
+    <SettingBlock label={title}>
+      <div className="st-code">
+        <Btn small onClick={() => void navigator.clipboard.writeText(code)}>
           Copy
-        </button>
+        </Btn>
+        <pre>{code}</pre>
       </div>
-      <pre className="overflow-auto p-4 font-mono text-xs leading-6 text-pm-muted">{code}</pre>
-    </div>
-  );
-}
-
-export function MockListCard({
-  title,
-  description,
-  items,
-}: {
-  title: string;
-  description: string;
-  items: Array<{ title: string; meta: string; status?: string }>;
-}) {
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <PlannedBadge />
-      </div>
-      <p className="text-sm text-pm-muted">{description}</p>
-      <div className="space-y-2 opacity-70">
-        {items.map((item) => (
-          <div
-            key={item.title}
-            className="flex items-center justify-between gap-3 rounded-xl border border-pm-border border-red-500/15 bg-pm-panel p-4"
-          >
-            <div className="min-w-0">
-              <div className="text-sm font-semibold">{item.title}</div>
-              <div className="mt-1 text-xs text-pm-muted">{item.meta}</div>
-            </div>
-            {item.status && (
-              <span className="shrink-0 rounded-full bg-pm-border/40 px-2 py-0.5 text-xs text-pm-muted">
-                {item.status}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export function StorageBarMock({ label, value, percent }: { label: string; value: string; percent: string }) {
-  return (
-    <div className="rounded-xl border border-pm-border border-red-500/15 bg-pm-panel p-4 opacity-70">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold">{label}</div>
-        <div className="text-sm text-pm-muted">{value}</div>
-      </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-pm-border/40">
-        <div className={`h-full rounded-full bg-pm-muted/50 ${percent}`} />
-      </div>
-    </div>
+    </SettingBlock>
   );
 }

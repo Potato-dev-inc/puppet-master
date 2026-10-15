@@ -1,0 +1,21 @@
+# Tools an install can need first. Same install-spec format as an agent's `install.toml`, so
+# nothing here is code: a winget id, a source page and the programs that prove the tool is there.
+# Checked 2026-10-14 with `winget show --id <id> -e --source winget`.
+
+[tools.git]
+label = "Git"
+# Needed by agents whose install spec says `requires = ["git"]`. Claude Code does not need it.
+programs = ["git.exe"]
+[tools.git.install.windows]
+source = "https://git-scm.com/download/win"
+winget = "Git.Git"
+note = "Windows may ask if the installer can make changes. That is expected."
+
+[tools.node]
+label = "Node.js"
+# npm ships with Node.js; both must be on PATH for `npm install -g` to work.
+programs = ["node.exe", "npm.cmd"]
+[tools.node.install.windows]
+source = "https://nodejs.org/en/download"
+winget = "OpenJS.NodeJS.LTS"
+note = "Windows may ask if the installer can make changes. That is expected."

@@ -1,0 +1,31 @@
+[?9001h[?1004h[?25l[2J[m[H]0;claude[?25h[?2004h[?2031h[?1004h[?1049h[2J[?1000h[?1002h[?1003h[?1006h[K[38;2;215;119;87m
+ ▐[48;2;0;0;0m▛███▛█[m   [1mClaude Code[22m [38;2;153;153;153mv2.1.300[K[38;2;215;119;87m
+▝▜[48;2;0;0;0m█████[49m█▀  [38;2;153;153;153mOpus 5.5 · API Usage Billing[K[38;2;215;119;87m
+ ▝▝   ▝▝   [38;2;153;153;153mD:\pm-scratch-r13\proj[K[m
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[100X[38;2;153;153;153m[100C◐ medium · /effort  [38;2;136;136;136m
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m❯ [7m [27m[K[38;2;136;136;136m
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m  [38;2;255;193;7m⏵⏵ auto mode on [38;2;153;153;153m(shift+tab to cycle) · ← for agents[K[?25l[67C[>0q[m[?u[38;2;153;153;153m[48;2;55;55;55m[7;1H❯ [38;2;255;255;255m/model                                                                                                                [38;2;215;119;87m[49m[25;1H✻[1CH[38;2;235;159;127monk[38;2;215;119;87ming… [38;2;153;153;153m[28;1H❯ [30;42Hesc to interrupt · ← for agents[m[7;1H                                                                                                                        [38;2;177;185;249m[15;1H▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔[38;2;153;153;153m[1C◐ medium · /effort [38;2;177;185;249m▔[1m[16;4HSelect model[38;2;153;153;153m[22m[17;4HSwitch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, [18;4Hspecify with --model.[38;2;177;185;249m[20;4H❯[38;2;153;153;153m[1C1. [38;2;78;186;101mDefault (recommended)[1C✔[38;2;153;153;153m[2CUse the default model (currently [38;2;215;119;87mOpus 5.5[38;2;153;153;153m) · $4/$20 per Mtok[21;6H2. [mOpus[38;2;215;119;87m[21COpus 5.5 [38;2;153;153;153m· Best for everyday, complex tasks · $4/$20 per Mtok[22;6H3. [mFable[38;2;153;153;153m[20CFable 5.1 · Most capable for your hardest and longest-running tasks · $10/$50 per [23;34HMtok[24;6H4. [mSonnet[38;2;153;153;153m[19CSonnet 5.5 · Efficient for routine tasks · $2/$10 per Mtok[m
+ [1C   [38;2;153;153;153m5. [mHaiku[38;2;153;153;153m[20CHaiku 5.5 · Fastest for quick answers · $0.10/$0.50 per Mtok ($0.50/$2.50 for [26;34Hprompts over 100k)[m[49C[K
+                                                                                                                           [38;2;215;119;87m◐ [38;2;153;153;153mMedium effort (default) [38;2;80;80;80m←/→ to adjust[m
+                                                                                                                        [30;3H [38;2;153;153;153mEnter to set as defaul[1C ·[1Cs to us[1C this sessio[1C only ·[1CEsc[1Ct[1C c[1Cncel[K[49C[m

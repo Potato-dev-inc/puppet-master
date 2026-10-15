@@ -1,0 +1,16 @@
+ ▐▛███▛█   Claude Code v2.1.299
+▝▜██████▀  Haiku 5.5 · Claude Pro
+ ▝▝   ▝▝   D:\pm-demo
+
+
+❯ Reply with the single word KIWI. Do not use any tools.                                                                
+
+● KIWI
+
+✻ Churned for 3s · done 15:27
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_CODE_FORCE_SESSION_PE…
+  ⏵⏵ auto mode on (shift+tab to cycle)                                                              ◐ medium · /effort

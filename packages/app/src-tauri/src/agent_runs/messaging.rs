@@ -35,6 +35,9 @@ impl DeliveryMode {
 pub enum Disposition {
     #[serde(alias = "delivered")]
     Accepted,
+    /// The running turn was stopped and the message started a new turn on the same provider
+    /// session (`--resume`). The in-flight turn's unfinished work is not carried over.
+    AcceptedViaRestart,
     Queued,
     Processed,
     Deferred,
@@ -44,9 +47,39 @@ pub enum Disposition {
 }
 
 impl Disposition {
+    /// True when the message reached the turn it was meant to steer (live, or by restarting it).
+    pub fn applied(self) -> bool {
+        matches!(self, Self::Accepted | Self::AcceptedViaRestart | Self::Processed)
+    }
+
+    /// What the caller should do next, in plain words.
+    pub fn next_action(self) -> &'static str {
+        match self {
+            Self::Accepted => "wait for the turn; the message was delivered to the running turn",
+            Self::AcceptedViaRestart => {
+                "wait for the restarted turn; work the interrupted turn had not finished was not carried over"
+            }
+            Self::Processed => "none: the turn's result reflects the message",
+            Self::Queued => {
+                "not applied yet and it does NOT change the running turn; it expires when the turn ends, so send it with followup_task if you still need it"
+            }
+            Self::Deferred => {
+                "not applied yet; it is held until the worker can take it, then it is delivered or expires"
+            }
+            Self::Expired => {
+                "not applied: the turn ended before the message was delivered; send it with followup_task(handle, task)"
+            }
+            Self::Rejected => "not applied: the turn already finished; use followup_task for the next turn",
+            Self::Unsupported => {
+                "not applied: this backend cannot steer a running turn; wait for it to finish and use followup_task, or cancel_agent"
+            }
+        }
+    }
+
     #[allow(dead_code)]
     pub const ALL: &'static [&'static str] = &[
         "accepted",
+        "accepted_via_restart",
         "queued",
         "processed",
         "deferred",
@@ -58,6 +91,7 @@ impl Disposition {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Accepted => "accepted",
+            Self::AcceptedViaRestart => "accepted_via_restart",
             Self::Queued => "queued",
             Self::Processed => "processed",
             Self::Deferred => "deferred",
@@ -94,6 +128,9 @@ pub struct SteerTarget<'a> {
     pub waiting_input: bool,
     pub has_pane: bool,
     pub can_live_steer: bool,
+    /// A headless run on a resumable backend with a known provider session: the turn can be
+    /// stopped and the message sent as the next turn on that session.
+    pub can_restart_steer: bool,
 }
 
 pub fn steer_target(snapshot: &OperationSnapshot) -> SteerTarget<'_> {
@@ -108,7 +145,19 @@ pub fn steer_target(snapshot: &OperationSnapshot) -> SteerTarget<'_> {
                 .provider_session_id
                 .as_deref()
                 .is_some_and(|id| !id.is_empty()),
+        can_restart_steer: can_restart_steer(snapshot),
     }
+}
+
+/// Steering by restart: only a headless child of a resumable profile that is actually running
+/// (not parked on a prompt) and whose provider session id is already known. Without the id there
+/// is nothing to resume, so the message is queued as before.
+pub fn can_restart_steer(snapshot: &OperationSnapshot) -> bool {
+    snapshot.status == OperationStatus::Running
+        && snapshot.pane_id.is_none()
+        && super::persist::snapshot_can_resume(snapshot)
+        && snapshot.worker.context_policy != crate::operations::ContextPolicy::Fresh
+        && snapshot.agent_type != "opencode_native"
 }
 
 /// Decide how a current-turn message is handled. Never claims TUI injection succeeded.
@@ -129,6 +178,12 @@ pub fn decide_delivery(mode: DeliveryMode, target: SteerTarget<'_>) -> Dispositi
         return match mode {
             DeliveryMode::Queue => Disposition::Queued,
             DeliveryMode::Live | DeliveryMode::LiveOrQueue => Disposition::Accepted,
+        };
+    }
+    if target.can_restart_steer && !target.has_pane {
+        return match mode {
+            DeliveryMode::Queue => Disposition::Queued,
+            DeliveryMode::Live | DeliveryMode::LiveOrQueue => Disposition::AcceptedViaRestart,
         };
     }
     // Busy TUI or headless CLI: do not inject arbitrary text.
@@ -231,6 +286,9 @@ pub fn receipt_value(receipt: &MessageReceipt) -> serde_json::Value {
     if receipt.disposition == Disposition::Rejected {
         value["suggestion"] = json!("turn already finished; use followup_task for the next turn");
     }
+    // Spell out what the disposition means so a caller never has to infer it from the final answer.
+    value["applied"] = json!(receipt.disposition.applied());
+    value["next_action"] = json!(receipt.disposition.next_action());
     value
 }
 
@@ -247,7 +305,10 @@ pub fn expire_unsettled_steers(project: &str, handle: &str) {
     expire_matching(project, handle, |receipt| {
         matches!(
             receipt.disposition,
-            Disposition::Accepted | Disposition::Queued | Disposition::Deferred
+            Disposition::Accepted
+                | Disposition::AcceptedViaRestart
+                | Disposition::Queued
+                | Disposition::Deferred
         )
     });
 }
@@ -267,7 +328,24 @@ pub fn latest_steer(project: &str, handle: &str) -> Option<MessageReceipt> {
     load_all(project, handle).into_iter().next_back()
 }
 
+#[cfg(test)]
 pub fn mark_open_steers_processed(project: &str, handle: &str, result: &str) {
+    mark_steers_processed(project, handle, result, None);
+}
+
+/// Called when `turn_index` finishes. A live-accepted steer was applied during this turn. A
+/// queued message was held for the NEXT turn, so it is only processed once a later turn ran;
+/// finishing the turn it was queued in must not report it as applied.
+pub fn mark_open_steers_processed_for_turn(
+    project: &str,
+    handle: &str,
+    result: &str,
+    turn_index: u32,
+) {
+    mark_steers_processed(project, handle, result, Some(turn_index));
+}
+
+fn mark_steers_processed(project: &str, handle: &str, result: &str, finishing_turn: Option<u32>) {
     let result = result.trim();
     if result.is_empty() {
         return;
@@ -275,10 +353,15 @@ pub fn mark_open_steers_processed(project: &str, handle: &str, result: &str) {
     let open: Vec<MessageReceipt> = load_all(project, handle)
         .into_iter()
         .filter(|receipt| {
-            matches!(
-                receipt.disposition,
-                Disposition::Accepted | Disposition::Queued
-            ) && receipt.result.is_none()
+            let queued_this_turn = finishing_turn
+                .is_some_and(|turn| receipt.turn_id == format!("turn-{turn}"));
+            match receipt.disposition {
+                Disposition::Accepted | Disposition::AcceptedViaRestart => {
+                    receipt.result.is_none()
+                }
+                Disposition::Queued => receipt.result.is_none() && !queued_this_turn,
+                _ => false,
+            }
         })
         .collect();
     for mut receipt in open {
@@ -355,7 +438,7 @@ fn upsert_receipt(
 ) -> Result<(), OperationError> {
     let key = store_key(project, handle);
     let mut all = cache().lock();
-    let entries = all.entry(key).or_insert_with(Vec::new);
+    let entries = all.entry(key).or_default();
     if let Some(existing) = entries
         .iter_mut()
         .find(|existing| existing.idempotency_key == receipt.idempotency_key)
@@ -369,6 +452,7 @@ fn upsert_receipt(
     }
     let path = path_for(project, handle);
     if let Some(parent) = path.parent() {
+        crate::git_exclude::ensure_project_storage_excluded(std::path::Path::new(project));
         fs::create_dir_all(parent).map_err(|error| {
             OperationError::new("STORAGE_ERROR", error.to_string(), true)
         })?;

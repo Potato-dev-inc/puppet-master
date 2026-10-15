@@ -1,0 +1,104 @@
+# Test definition modelled on the spec Kilo example (synthetic screens only).
+schema_version = 1
+
+[agent]
+id = "kilolike"
+label = "Kilo Code"
+icon = "KC"
+description = "Kilo Code CLI (@kilocode/cli), an OpenCode-derived agent with a JSON event stream."
+
+[binary]
+names = ["kilo-fixture-not-installed"]
+windows_extensions = ["exe", "cmd"]
+version_args = ["--version"]
+install_hint = "npm install -g @kilocode/cli"
+
+[features]
+dispatchable = true
+read_only_headless = false
+resumable_headless = true
+
+[run_options]
+allow_shell = true
+
+[headless]
+argv = ["run", "--format", "json"]
+task_separator = "--"
+
+[[headless.optional]]
+when = "model"
+args = ["-m", "{model}"]
+
+[[headless.optional]]
+when = "resume"
+args = ["-s", "{session}"]
+
+[[headless.optional]]
+when = "allow_shell"
+args = ["--auto"]
+
+[headless.output]
+format = "json_lines"
+
+[headless.output.result]
+where = { type = "text" }
+path = "part.text"
+pick = "last"
+
+[headless.output.session]
+where = { "~sessionID" = true }
+path = "sessionID"
+pick = "first"
+
+[headless.output.done]
+where = { type = "step_finish", "part.reason" = "stop" }
+
+[headless.output.error]
+where = { type = "error" }
+path = "error.data.message"
+
+[model]
+source = "none"
+
+[tui]
+argv = []
+idle_after_ms = 2500
+quiet_idle_after_ms = 1200
+clear_input_keys = "\u0015"
+
+[[tui.optional]]
+when = "model"
+args = ["-m", "{model}"]
+
+[[tui.optional]]
+when = "resume"
+args = ["-s", "{session}"]
+
+[tui.busy]
+working_regex = ["esc\\s+interrupt"]
+
+[tui.ready]
+regex = "ask anything"
+not_regex = ["permission required"]
+
+[tui.tool_activity]
+line_regex = ["^[$>] "]
+
+[tui.footer_model]
+regex = "model:\\s*(?P<model>[\\w/.-]+)"
+
+[tui.chrome]
+line_regex = ["^ctrl\\+[a-z] ", "^tab agents"]
+
+[[tui.prompt]]
+kind = "command_approval"
+detect_regex = "permission required"
+choices = [
+  { id = "allow_once", key = "enter" },
+  { id = "deny", key = "escape" },
+]
+
+[context]
+smartness = 6
+strengths = ["implementation", "debugging"]
+notes = ["Model is chosen as provider/model, for example kilo/kilo-auto/free; the JSON stream does not echo it."]

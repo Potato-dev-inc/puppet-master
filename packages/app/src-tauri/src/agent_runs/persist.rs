@@ -1,12 +1,20 @@
-//! Worker-handle adoption, context modes, and requested-vs-resolved model choice.
+//! Worker-handle adoption, context modes, and requested-vs-resolved model choice. Turn prompt
+//! rendering lives in `prompt`, the `inspect_agent` field set in `inspect`.
+
+mod inspect;
+mod prompt;
 
 use crate::operations::{
-    self, ContextContinuity, ContextPolicy, OperationError, OperationSnapshot, OperationStatus,
-    WorkerPersist,
+    self, ContextContinuity, ContextPolicy, OperationError, OperationSnapshot, WorkerPersist,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 
-const PARENT_SUMMARY_LIMIT: usize = 2000;
+pub use inspect::apply_inspect_fields;
+#[cfg(test)]
+pub(super) use prompt::original_task_for_test;
+pub use prompt::{conversation_facts, render_turn_prompt, TurnPrompt, TurnPromptArgs};
+
+pub(super) const PARENT_SUMMARY_LIMIT: usize = 2000;
 pub(crate) const FOLLOWUP_WAIT_MS: u64 = 120_000;
 /// Foreground wait budget for run_agent and followup_task (MCP + bridge defaults).
 pub(crate) const FOREGROUND_WAIT_MS: u64 = FOLLOWUP_WAIT_MS;
@@ -34,6 +42,12 @@ pub struct FollowupOpts {
     pub background: bool,
     pub wait_ms: Option<u64>,
     pub idempotency_key: Option<String>,
+    /// Carried through so a run that adopts an existing worker keeps its acceptance gate and locks.
+    pub acceptance_criteria: Option<Vec<String>>,
+    pub checks: Option<Vec<super::checks::Check>>,
+    pub locks: Vec<String>,
+    /// Re-run a run that was parked on the workspace-trust prompt with `--trust`.
+    pub trust_workspace: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,34 +59,53 @@ pub struct ModelChoice {
     pub mismatch: bool,
 }
 
-#[derive(Debug, Clone)]
-pub struct TurnPromptArgs<'a> {
-    pub policy: ContextPolicy,
-    pub task: &'a str,
-    pub scope: Option<&'a str>,
-    pub prior_result: Option<&'a str>,
-    pub prior_user: Option<&'a str>,
-    pub selected_history: &'a [String],
-    pub can_resume: bool,
-    pub is_followup: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TurnPrompt {
-    pub prompt: String,
-    pub policy: ContextPolicy,
-    pub continuity: ContextContinuity,
-}
-
+/// The key a worker is found by: an explicit run handle wins, otherwise the worker name. A name is
+/// folded with the account (`name@acc_1234`) so asking for the same name under another account
+/// starts a separate worker instead of adopting one that is logged in as someone else.
 pub fn worker_key(
     agent_run_id: Option<&str>,
     handle: Option<&str>,
     name: Option<&str>,
+    account: Option<&str>,
 ) -> Option<String> {
-    [agent_run_id, handle, name]
-        .into_iter()
-        .find_map(|value| value.map(str::trim).filter(|value| !value.is_empty()))
-        .map(str::to_string)
+    fn clean(value: Option<&str>) -> Option<&str> {
+        value.map(str::trim).filter(|value| !value.is_empty())
+    }
+    if let Some(explicit) = clean(agent_run_id).or(clean(handle)) {
+        return Some(explicit.to_string());
+    }
+    let name = clean(name)?;
+    Some(match clean(account) {
+        Some(account) => format!("{name}@{account}"),
+        None => name.to_string(),
+    })
+}
+
+/// A handle derived from the project and the caller's idempotency key. A retry of the same
+/// `run_agent` call (after a transport timeout, a reconnect) must see the same handle, or the
+/// request fingerprint differs and the retry is rejected as IDEMPOTENCY_KEY_CONFLICT instead of
+/// replaying the run that is already in flight. Uuid-shaped so it reads like any other handle.
+pub fn stable_handle(project: &str, idempotency_key: &str) -> String {
+    fn fnv1a(seed: u64, parts: &[&str]) -> u64 {
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64 ^ seed;
+        for part in parts {
+            for byte in part.bytes().chain(std::iter::once(0u8)) {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        hash
+    }
+    let parts = [project, idempotency_key.trim()];
+    let (high, low) = (fnv1a(0, &parts), fnv1a(0x9e37_79b9_7f4a_7c15, &parts));
+    format!(
+        "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
+        (high >> 32) as u32,
+        (high >> 16) as u16,
+        (high & 0x0fff) as u16,
+        0x8000 | ((low >> 48) as u16 & 0x3fff),
+        low & 0xffff_ffff_ffff
+    )
 }
 
 pub fn decide_worker(
@@ -108,11 +141,13 @@ pub fn decide_worker(
 pub fn find_worker(project: &str, key: &str) -> Result<OperationSnapshot, OperationError> {
     match operations::resolve_agent_run(project, key) {
         Ok(snapshot) => Ok(snapshot),
-        Err(error) if error.code == "AGENT_NOT_FOUND" => operations::list_indexed_operations(project)?
-            .into_iter()
-            .filter(|snapshot| snapshot.worker.name.as_deref() == Some(key))
-            .max_by_key(|snapshot| (snapshot.turn_index, snapshot.created_at_ms))
-            .ok_or(error),
+        Err(error) if error.code == "AGENT_NOT_FOUND" => {
+            operations::list_indexed_operations(project)?
+                .into_iter()
+                .filter(|snapshot| snapshot.worker.name.as_deref() == Some(key))
+                .max_by_key(|snapshot| (snapshot.turn_index, snapshot.created_at_ms))
+                .ok_or(error)
+        }
         Err(error) => Err(error),
     }
 }
@@ -188,14 +223,35 @@ pub fn visible_mismatch(
     differs(requested_model, resolved_model) || differs(requested_reasoning, resolved_reasoning)
 }
 
+/// Status a persisted run reports when its `agent_type` is no longer registered (SPEC 9).
+pub const AGENT_GONE: &str = "agent_gone";
+
+/// A persisted run whose agent definition is gone: it stays viewable but is never resumed. An agent
+/// whose definition still exists but is stale/unapproved is not gone: new runs are refused with
+/// `AGENT_DEF_*`, and a turn in flight keeps the profile it started under.
+pub fn agent_gone(snapshot: &OperationSnapshot) -> bool {
+    !crate::tui::is_registered(&snapshot.agent_type)
+        && crate::tui::declarative::loader::last_entry_for(&snapshot.agent_type).is_none()
+}
+
 pub fn snapshot_can_resume(snapshot: &OperationSnapshot) -> bool {
-    !snapshot.worker.session_reset
+    !agent_gone(snapshot)
+        && !snapshot.worker.session_reset
         && super::capabilities::for_snapshot(snapshot).session_resume
         && snapshot
             .worker
             .provider_session_id
             .as_deref()
             .is_some_and(|id| !id.is_empty())
+}
+
+/// A follow-up that goes back into the same live pane continues that pane's own conversation, so
+/// pasting a rebuilt "Prior context" block would repeat what the TUI already shows. Native opencode
+/// resumes through its provider session instead.
+pub fn pane_keeps_context(previous: &OperationSnapshot) -> bool {
+    previous.pane_id.is_some()
+        && previous.agent_type != "opencode_native"
+        && !previous.worker.session_reset
 }
 
 pub fn resolve_continuity(
@@ -218,80 +274,6 @@ pub fn followup_policy(requested: Option<ContextPolicy>, previous: ContextPolicy
         Some(policy) => policy,
         None if previous == ContextPolicy::Fresh => ContextPolicy::Packet,
         None => previous,
-    }
-}
-
-pub fn conversation_facts(project: &str, handle: &str) -> Option<String> {
-    let turns = operations::turns_for_handle(project, handle).ok()?;
-    let mut parts = Vec::new();
-    for turn in turns {
-        let task = turn.task.trim();
-        if !task.is_empty() {
-            parts.push(format!("User: {task}"));
-        }
-        if let Some(result) = turn
-            .result
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            parts.push(format!("Assistant: {result}"));
-        }
-    }
-    let text = parts.join("\n");
-    if text.is_empty() {
-        None
-    } else {
-        Some(owned_bound_summary(&text))
-    }
-}
-
-pub fn render_turn_prompt(args: TurnPromptArgs<'_>) -> TurnPrompt {
-    let continuity = resolve_continuity(args.policy, args.can_resume, args.is_followup);
-    let cleaned_prior = args
-        .prior_result
-        .and_then(|text| super::completion::clean_extracted_result(text, ""));
-    let reconstructed = if args.is_followup && !args.can_resume {
-        Some(reconstruct_facts(args.prior_user, cleaned_prior.as_deref()))
-            .filter(|text| !text.is_empty())
-    } else {
-        None
-    };
-    let reconstructed_facts = reconstructed.as_deref();
-    let prompt = match args.policy {
-        ContextPolicy::Fresh => args.task.to_string(),
-        ContextPolicy::Packet => {
-            context_packet(args.task, args.scope, reconstructed_facts)
-        }
-        ContextPolicy::ParentSummary => {
-            let summary = if args.is_followup {
-                reconstructed_facts.or(cleaned_prior.as_deref()).unwrap_or("(none)")
-            } else {
-                "(none)"
-            };
-            format!(
-                "{}\n\nParent summary:\n{}",
-                args.task,
-                bound_summary(summary)
-            )
-        }
-        ContextPolicy::Resume => context_packet(args.task, args.scope, reconstructed_facts),
-        ContextPolicy::SelectedHistory => {
-            let mut prompt = context_packet(args.task, args.scope, reconstructed_facts);
-            if !args.selected_history.is_empty() {
-                prompt.push_str("\nSelected history:");
-                for message in args.selected_history {
-                    prompt.push_str("\n- ");
-                    prompt.push_str(message);
-                }
-            }
-            prompt
-        }
-    };
-    TurnPrompt {
-        prompt,
-        policy: args.policy,
-        continuity,
     }
 }
 
@@ -375,6 +357,16 @@ pub fn overlay_live_model(
     );
     object.insert("requested_model".into(), opt_string(requested.as_deref()));
     object.insert("resolved_model".into(), opt_string(resolved.as_deref()));
+    if agent_gone(snapshot) {
+        object.insert("agent_status".into(), Value::String(AGENT_GONE.into()));
+        object.insert(
+            "agent_status_detail".into(),
+            Value::String(format!(
+                "agent_type {} is not registered any more; the run is viewable but cannot be resumed",
+                snapshot.agent_type
+            )),
+        );
+    }
 }
 
 pub fn live_resolved_model(
@@ -382,7 +374,9 @@ pub fn live_resolved_model(
     snapshot: &OperationSnapshot,
 ) -> Option<String> {
     let pane_id = snapshot.pane_id.as_deref()?;
-    let agent_type = crate::pty::agents::AgentType::parse(&snapshot.agent_type)?;
+    let agent_type = crate::agent_contexts::registered_context_agent(&snapshot.agent_type)
+        .ok()
+        .flatten()?;
     let buffer = crate::pty::registry_read_snapshot(registry, pane_id).unwrap_or_default();
     let inspection = crate::agent_contexts::inspect_agent_model_with_registry(
         Some(registry),
@@ -390,186 +384,10 @@ pub fn live_resolved_model(
         agent_type,
         &buffer,
     );
-    if let Some(model) = inspection
-        .last_user_model
-        .or(inspection.session_model)
-    {
+    if let Some(model) = inspection.last_user_model.or(inspection.session_model) {
         return Some(format!("{}/{}", model.provider_id, model.model_id));
     }
     inspection.detected_model
-}
-
-pub fn apply_inspect_fields(value: &mut Value, snapshot: &OperationSnapshot, siblings: &[OperationSnapshot]) {
-    let Some(object) = value.as_object_mut() else {
-        return;
-    };
-    let handle = if snapshot.agent_run_id.is_empty() {
-        snapshot.operation_id.as_str()
-    } else {
-        snapshot.agent_run_id.as_str()
-    };
-    let queued: Vec<String> = siblings
-        .iter()
-        .filter(|item| item.agent_run_id == handle && item.status == OperationStatus::Queued)
-        .map(|item| item.operation_id.clone())
-        .collect();
-    object.insert(
-        "backend".into(),
-        Value::String(snapshot.agent_type.clone()),
-    );
-    object.insert(
-        "current_task".into(),
-        Value::String(snapshot.task.clone()),
-    );
-    object.insert(
-        "name".into(),
-        snapshot
-            .worker
-            .name
-            .clone()
-            .map(Value::String)
-            .unwrap_or(Value::String(handle.to_string())),
-    );
-    object.insert(
-        "role".into(),
-        opt_string(snapshot.worker.role.as_deref()),
-    );
-    object.insert(
-        "scope".into(),
-        opt_string(snapshot.worker.scope.as_deref()),
-    );
-    object.insert(
-        "workspace".into(),
-        snapshot
-            .worker
-            .workspace
-            .clone()
-            .map(Value::String)
-            .unwrap_or_else(|| Value::String(snapshot.project_path.clone())),
-    );
-    object.insert(
-        "provider_session_id".into(),
-        opt_string(snapshot.worker.provider_session_id.as_deref()),
-    );
-    object.insert(
-        "session_reset".into(),
-        Value::Bool(snapshot.worker.session_reset),
-    );
-    object.insert(
-        "context_policy".into(),
-        Value::String(snapshot.worker.context_policy.as_str().into()),
-    );
-    object.insert(
-        "context_continuity".into(),
-        Value::String(snapshot.worker.context_continuity.as_str().into()),
-    );
-    object.insert(
-        "requested_model".into(),
-        opt_string(snapshot.worker.requested_model.as_deref()),
-    );
-    object.insert(
-        "resolved_model".into(),
-        opt_string(snapshot.worker.resolved_model.as_deref()),
-    );
-    object.insert(
-        "requested_reasoning".into(),
-        opt_string(snapshot.worker.requested_reasoning.as_deref()),
-    );
-    object.insert(
-        "resolved_reasoning".into(),
-        opt_string(snapshot.worker.resolved_reasoning.as_deref()),
-    );
-    object.insert(
-        "model_mismatch".into(),
-        Value::Bool(visible_mismatch(
-            snapshot.worker.requested_model.as_deref(),
-            snapshot.worker.resolved_model.as_deref(),
-            snapshot.worker.requested_reasoning.as_deref(),
-            snapshot.worker.resolved_reasoning.as_deref(),
-        )),
-    );
-    object.insert("current_turn".into(), json!(snapshot.turn_index));
-    let pending = if snapshot.worker.pending_messages.is_empty() {
-        super::messaging::pending_texts(&snapshot.project_path, handle)
-    } else {
-        snapshot.worker.pending_messages.clone()
-    };
-    object.insert("pending_messages".into(), json!(pending));
-    object.insert("queued_tasks".into(), json!(queued));
-    object.insert(
-        "ownership".into(),
-        opt_string(snapshot.owner_session_id.as_deref()),
-    );
-    object.insert(
-        "event_cursor".into(),
-        json!(snapshot.worker.event_cursor.max(snapshot.revision)),
-    );
-    object.insert("closed".into(), json!(snapshot.worker.closed));
-    object.insert(
-        "capabilities".into(),
-        super::capabilities::for_snapshot(snapshot).value(),
-    );
-    if let Some(receipt) = super::messaging::latest_steer(&snapshot.project_path, handle) {
-        object.insert(
-            "last_steer".into(),
-            json!({
-                "message_id": receipt.message_id,
-                "state": receipt.disposition.as_str(),
-                "turn_id": receipt.turn_id,
-                "result": receipt.result,
-            }),
-        );
-    }
-}
-
-fn context_packet(task: &str, scope: Option<&str>, facts: Option<&str>) -> String {
-    let scope = scope.map(str::trim).filter(|value| !value.is_empty());
-    let facts = facts
-        .map(bound_summary)
-        .filter(|value| !value.is_empty());
-    if scope.is_none() && facts.is_none() {
-        return task.to_string();
-    }
-    let mut prompt = task.to_string();
-    if let Some(scope) = scope {
-        prompt.push_str("\n\nScope: ");
-        prompt.push_str(scope);
-    }
-    if let Some(facts) = facts {
-        prompt.push_str("\n\nPrior context:\n");
-        prompt.push_str(facts);
-    }
-    prompt
-}
-
-fn reconstruct_facts(prior_user: Option<&str>, prior_result: Option<&str>) -> String {
-    let mut parts = Vec::new();
-    if let Some(user) = prior_user.map(str::trim).filter(|value| !value.is_empty()) {
-        parts.push(user.to_string());
-    }
-    if let Some(result) = prior_result.map(str::trim).filter(|value| !value.is_empty()) {
-        if !parts.iter().any(|part| part.contains(result)) {
-            parts.push(format!("Assistant: {result}"));
-        }
-    }
-    parts.join("\n")
-}
-
-fn bound_summary(text: &str) -> &str {
-    if text.len() <= PARENT_SUMMARY_LIMIT {
-        return text;
-    }
-    let end = text
-        .char_indices()
-        .map(|(index, ch)| index + ch.len_utf8())
-        .take_while(|end| *end <= PARENT_SUMMARY_LIMIT)
-        .last()
-        .unwrap_or(0);
-    &text[..end]
-}
-
-fn owned_bound_summary(text: &str) -> String {
-    bound_summary(text).to_string()
 }
 
 fn nonempty(value: Option<&str>) -> Option<String> {
@@ -583,9 +401,103 @@ fn differs(requested: Option<&str>, resolved: Option<&str>) -> bool {
     matches!((requested, resolved), (Some(left), Some(right)) if left != right)
 }
 
-fn opt_string(value: Option<&str>) -> Value {
+pub(super) fn opt_string(value: Option<&str>) -> Value {
     value
         .map(str::to_string)
         .map(Value::String)
         .unwrap_or(Value::Null)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::operations::{DelegateWorkRequest, WorkerPersist};
+
+    /// A persisted run whose agent definition has since been removed reloads from disk without a
+    /// panic, reports `agent_gone` with an explanation, and is not resumable (SPEC 9).
+    #[test]
+    fn reload_with_unregistered_agent_type_is_agent_gone() {
+        let project = std::env::temp_dir().join(format!("pm-agent-gone-{}", uuid::Uuid::new_v4()));
+        let project = project.to_string_lossy().into_owned();
+        let request = DelegateWorkRequest {
+            project_path: project.clone(),
+            task: "inspect".into(),
+            agent_type: "codex".into(),
+            pane_id: None,
+            idempotency_key: uuid::Uuid::new_v4().to_string(),
+            acceptance_criteria: None,
+            task_id: None,
+            exclusive: false,
+            locks: vec![],
+            timeout_ms: 60_000,
+            read_only: false,
+            keep_pane: false,
+            placement: None,
+            owner_session_id: Some("agent-gone".into()),
+            worker_has_mcp_tools: false,
+            agent_run_id: Some("agent-gone-run".into()),
+            turn_index: 0,
+            worker: WorkerPersist {
+                provider_session_id: Some("session-1".into()),
+                ..Default::default()
+            },
+            context_policy: None,
+            checks: Vec::new(),
+        };
+        let created = operations::create_operation(request).unwrap().0;
+        assert!(!agent_gone(&created));
+        assert!(snapshot_can_resume(&created), "control: the codex run itself is resumable");
+
+        // Rewrite the persisted snapshot as if it had been written by an agent that is gone now.
+        let file = std::path::Path::new(&project)
+            .join(".puppet-master")
+            .join("operations")
+            .join(format!("{}.json", created.operation_id));
+        let mut raw: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        raw["agent_type"] = Value::String("zzz".into());
+        raw["pane_id"] = Value::String("pane-agent-gone".into());
+        std::fs::write(&file, serde_json::to_vec(&raw).unwrap()).unwrap();
+
+        let reloaded = operations::get_operation(&project, &created.operation_id).unwrap();
+        assert_eq!(reloaded.agent_type, "zzz");
+        assert!(agent_gone(&reloaded));
+        assert!(!snapshot_can_resume(&reloaded), "an agent_gone run is not resumable");
+
+        let registry = std::sync::Arc::new(parking_lot::Mutex::new(
+            crate::pty::PaneRegistry::default(),
+        ));
+        assert_eq!(live_resolved_model(&registry, &reloaded), None);
+        let mut view = serde_json::json!({ "handle": "agent-gone-run" });
+        overlay_live_model(&mut view, &reloaded, Some(&registry));
+        assert_eq!(view["agent_status"], AGENT_GONE);
+        let detail = view["agent_status_detail"].as_str().unwrap();
+        assert!(detail.contains("zzz"), "{detail}");
+        assert!(detail.contains("not registered"), "{detail}");
+
+        let _ = std::fs::remove_file(&file);
+    }
+}
+
+#[cfg(test)]
+mod account_key_tests {
+    use super::worker_key;
+
+    #[test]
+    fn named_worker_keys_are_folded_with_the_account() {
+        assert_eq!(worker_key(None, None, Some("planner"), None).as_deref(), Some("planner"));
+        assert_eq!(worker_key(None, None, Some("planner"), Some("acc_1")).as_deref(), Some("planner@acc_1"));
+        assert_ne!(
+            worker_key(None, None, Some("planner"), Some("acc_1")),
+            worker_key(None, None, Some("planner"), Some("acc_2")),
+            "the same name under two accounts is two workers"
+        );
+        assert_eq!(worker_key(None, None, Some("planner"), Some("  ")).as_deref(), Some("planner"));
+    }
+
+    #[test]
+    fn an_explicit_handle_is_never_folded() {
+        assert_eq!(worker_key(Some("run-7"), None, Some("planner"), Some("acc_1")).as_deref(), Some("run-7"));
+        assert_eq!(worker_key(None, Some("pane-9"), None, Some("acc_1")).as_deref(), Some("pane-9"));
+        assert_eq!(worker_key(None, None, None, Some("acc_1")), None);
+    }
 }

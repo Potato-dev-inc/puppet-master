@@ -1,0 +1,3 @@
+busy = "unknown"
+menu = true
+prompt_kind = "command_approval"

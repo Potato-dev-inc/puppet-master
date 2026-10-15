@@ -1,0 +1,10 @@
+{
+  "session_id": "82f9078c-d017-4e1b-bc87-38cb6b5548df",
+  "transcript_path": "C:\\Users\\user\\.claude\\projects\\D--pm-demo\\82f9078c-d017-4e1b-bc87-38cb6b5548df.jsonl",
+  "cwd": "D:\\pm-demo",
+  "scratchpad_dir": "C:\\Users\\user\\AppData\\Local\\Temp\\claude\\D--pm-demo\\82f9078c-d017-4e1b-bc87-38cb6b5548df\\scratchpad",
+  "prompt_id": "e0ab09c1-858f-449d-a4da-7e82f9249f44",
+  "permission_mode": "default",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "Create a file named hook-probe.txt containing the word hi, then run the shell command: node --version. Reply with the version only."
+}

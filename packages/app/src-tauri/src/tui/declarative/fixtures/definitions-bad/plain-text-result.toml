@@ -1,0 +1,18 @@
+# expect: extract_result_rejects_garbage_and_failed_exits
+# plain_text output turns any text into a result, including garbage and failed exits.
+schema_version = 1
+
+[agent]
+id = "badplain"
+label = "Bad Plain"
+
+[binary]
+names = ["bad-fixture-not-installed"]
+install_hint = "fixture only"
+
+[headless]
+argv = ["run"]
+task_separator = "--"
+
+[headless.output]
+format = "plain_text"

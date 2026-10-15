@@ -1,0 +1,192 @@
+/* Agent doctor ("Set up agents"). Uses the cockpit monochrome tokens only. */
+.cockpit .ck-doctor {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 40px 28px 56px;
+  height: 100%;
+  overflow-y: auto;
+}
+.cockpit .ck-doctor-head .ck-sub {
+  max-width: 56ch;
+}
+.cockpit .ck-doctor-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.cockpit .ck-doctor-list {
+  margin-top: 22px;
+}
+.cockpit .ck-doctor-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 4px;
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-doctor-row:last-child {
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-doctor-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cockpit .ck-doctor-state {
+  font-size: 11px;
+  color: var(--label-2);
+}
+.cockpit .ck-doctor-row[data-state='ready'] .ck-doctor-state,
+.cockpit .ck-doctor-row[data-state='error'] .ck-doctor-state,
+.cockpit .ck-doctor-row[data-state='needs_login'] .ck-doctor-state {
+  color: var(--label);
+}
+.cockpit .ck-doctor-version {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-doctor-reason,
+.cockpit .ck-doctor-hint {
+  margin: 3px 0 0;
+  color: var(--label-2);
+}
+.cockpit .ck-doctor-live {
+  margin: 3px 0 0;
+  color: var(--label-3);
+}
+.cockpit .ck-doctor-cmd {
+  display: block;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+  user-select: all;
+}
+.cockpit .ck-doctor-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.cockpit .ck-doctor-error {
+  color: var(--label);
+}
+.cockpit .ck-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+@media (max-width: 640px) {
+  .cockpit .ck-doctor-row {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+  .cockpit .ck-doctor-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}
+
+/* Install: the confirm sheet, the running line and the result line. */
+.cockpit .ck-sheet--install {
+  width: 520px;
+}
+.cockpit .ck-sheet--install .ck-doctor-cmd {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cockpit .ck-doctor-inline {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--label-2);
+  word-break: break-all;
+}
+.cockpit .ck-install-risk {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 6px;
+  color: var(--label);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.cockpit .ck-install-risk input {
+  margin-top: 2px;
+  accent-color: var(--label);
+}
+.cockpit .ck-doctor-result[data-tone='problem'] {
+  color: var(--label);
+}
+.cockpit .ck-doctor-result[data-tone='ok'] {
+  color: var(--label);
+}
+
+/* One next step per row; the rest is under More and Details. Rows are grouped by need. */
+.cockpit .ck-doctor-bar {
+  justify-content: flex-end;
+}
+.cockpit .ck-doctor-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 18px;
+}
+.cockpit .ck-doctor-groups .ck-doctor-list {
+  margin-top: 0;
+}
+.cockpit .ck-doctor-cap {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--label-3);
+}
+.cockpit .ck-doctor-details,
+.cockpit .ck-doctor-more {
+  margin-top: 4px;
+}
+.cockpit .ck-doctor-details > summary,
+.cockpit .ck-doctor-more > summary {
+  display: inline-block;
+  color: var(--label-3);
+  font-size: 11px;
+  cursor: default;
+  list-style: none;
+}
+.cockpit .ck-doctor-details > summary::-webkit-details-marker,
+.cockpit .ck-doctor-more > summary::-webkit-details-marker {
+  display: none;
+}
+.cockpit .ck-doctor-more {
+  position: relative;
+  margin-top: 0;
+  align-self: center;
+}
+.cockpit .ck-doctor-more > summary {
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.cockpit .ck-doctor-more > summary:hover {
+  background: var(--fill-hover);
+}
+.cockpit .ck-doctor-more-list {
+  position: absolute;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 160px;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  background: var(--bg-float);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: var(--float-shadow);
+}

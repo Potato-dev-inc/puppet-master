@@ -1,0 +1,19 @@
+# expect: validates
+# A prompt choice names a key the PTY layer does not know.
+schema_version = 1
+
+[agent]
+id = "badkey"
+label = "Bad Key"
+
+[binary]
+names = ["bad-fixture-not-installed"]
+install_hint = "fixture only"
+
+[tui]
+argv = []
+
+[[tui.prompt]]
+kind = "command_approval"
+detect_regex = "allow"
+choices = [{ id = "allow_once", key = "hyper+q" }]

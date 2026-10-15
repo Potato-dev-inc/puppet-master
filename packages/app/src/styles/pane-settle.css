@@ -1,0 +1,32 @@
+/* Pane settle nudge: brief size animation when a pane returns to the grid. */
+
+/* ── Pane "settle" nudge ─────────────────────────────────────────────
+   When a pane returns to the grid (e.g. from an individual/detached window)
+   we briefly shrink the cell's real height/width and let it animate back.
+   Animating actual layout dimensions (not just a transform) means the
+   terminal's ResizeObserver fires on every frame, so the contents genuinely
+   re-fit and reformat as the box moves — the same reliable path as dragging
+   the resize handle, but visible and automatic. */
+.pm-pane-settle {
+  transition: height 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: height;
+}
+
+.pm-pane-settle--shrink {
+  /* Snap to a shorter box instantly (no transition on the way in), then let
+     the rule above animate the height back to its natural 280px. Animating a
+     real dimension keeps the terminal's ResizeObserver firing every frame so
+     the contents reflow as the box grows. */
+  transition: none;
+  height: 248px !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-pane-settle {
+    transition: none;
+  }
+  .pm-pane-settle--shrink {
+    height: 280px !important;
+  }
+}
+

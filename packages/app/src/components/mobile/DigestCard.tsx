@@ -1,0 +1,120 @@
+// "While you were away" card for the All view of the phone PWA. Asks the PC once per visit for the
+// digest since this device's last visit (`seen: true` stores the visit), shows it until "Got it".
+import { useEffect, useState } from 'react';
+import type { BridgeClient } from '../../lib/bridge-types';
+import type { Digest } from '../../lib/cockpit-api';
+
+type DigestResult = Digest & { empty: boolean; previousSeenMs: number | null };
+
+const AWAY_MS = 30_000;
+/** A visit within this long of the last one is not an absence: the card stays quiet. */
+const MIN_ABSENCE_MS = 2 * 60_000;
+const MAX_LINES = 3;
+
+/** Survives unmounts (the All view unmounts on tab switches) until dismissed. */
+let held: DigestResult | null = null;
+/** nowMs of the last digest the user dismissed; older or equal digests are not shown again. */
+let dismissedNowMs: number | null = null;
+
+export function resetDigestCardForTests() {
+  held = null;
+  dismissedNowMs = null;
+}
+
+function plural(n: number, one: string, many: string) {
+  return n === 1 ? one : many;
+}
+
+export function DigestCard({
+  bridge,
+  bridgeReady,
+  onOpen,
+}: {
+  bridge: BridgeClient;
+  bridgeReady: boolean;
+  onOpen: (paneId: string) => void;
+}) {
+  const [digest, setDigest] = useState<DigestResult | null>(held);
+
+  useEffect(() => {
+    if (!bridgeReady) return;
+    let live = true;
+    const load = async () => {
+      if (!bridge.digest) return;
+      try {
+        const result = await bridge.digest({ seen: true });
+        if (!live || result.empty || result.nowMs - result.sinceMs < MIN_ABSENCE_MS) return;
+        if (dismissedNowMs !== null && result.nowMs <= dismissedNowMs) return;
+        held = result;
+        setDigest(result);
+      } catch {
+        // The card is optional; a failed fetch shows nothing.
+      }
+    };
+    void load();
+
+    let hiddenAt: number | null = null;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (hiddenAt !== null && Date.now() - hiddenAt >= AWAY_MS) void load();
+      hiddenAt = null;
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      live = false;
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [bridge, bridgeReady]);
+
+  if (!bridge.digest || !digest || digest.empty) return null;
+
+  const dismiss = () => {
+    dismissedNowMs = digest.nowMs;
+    held = null;
+    setDigest(null);
+  };
+
+  const shown = digest.lines.slice(0, MAX_LINES);
+  const more = digest.lines.length - shown.length;
+  const needs = digest.needsYou.length;
+
+  return (
+    <section aria-label="While you were away" className="ph-cards">
+      <div className="ph-card">
+        <div className="ph-card-cap">
+          <span>While you were away</span>
+          <button type="button" onClick={dismiss} className="ph-btn ph-btn--plain">
+            Got it
+          </button>
+        </div>
+        <p className="ph-card-q">
+          {digest.agentsWorked} {plural(digest.agentsWorked, 'agent worked', 'agents worked')}
+        </p>
+        {shown.length > 0 && (
+          <ul className="ph-digest-lines">
+            {shown.map((line) => (
+              <li key={line.paneId}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(line.paneId)}
+                  className="ph-digest-line"
+                >
+                  <span className="ph-clamp">{line.sentence}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {more > 0 && <p className="ph-digest-more">+{more} more</p>}
+        {needs > 0 && (
+          <p className="ph-digest-more">
+            {needs} {plural(needs, 'needs', 'need')} you
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}

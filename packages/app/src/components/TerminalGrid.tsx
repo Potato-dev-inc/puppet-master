@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { listLaunchPresets, type AgentType } from '@puppet-master/shared';
+import type { AgentType } from '@puppet-master/shared';
+import { launchMenuEntries, useAgentRegistry } from '../lib/agentRegistry';
 import { TerminalPane } from './TerminalPane';
 import type { PaneRegistryApi } from '../hooks/usePaneRegistry';
 import { isOrchestratorPaneId } from '../lib/orchestrator-panes';
@@ -10,6 +11,8 @@ interface Props {
   projectPath: string | null;
   onClosePane: (paneId: string) => void;
   detachedPaneIds?: Set<string>;
+  /** Panes an agent run opened in the grid: given a wide, tall tile so the TUI keeps a readable PTY size. */
+  runPaneIds?: Set<string>;
   onDetachPane?: (paneId: string) => void;
 }
 
@@ -18,6 +21,7 @@ export function TerminalGrid({
   projectPath,
   onClosePane,
   detachedPaneIds = new Set(),
+  runPaneIds = new Set(),
   onDetachPane,
 }: Props) {
   const { paneList, spawnPane, replacePaneAgent } = registry;
@@ -33,6 +37,7 @@ export function TerminalGrid({
     [workerPanes],
   );
   const [showAdd, setShowAdd] = useState(false);
+  const launchEntries = launchMenuEntries(useAgentRegistry());
   const [paneOrder, setPaneOrder] = useState<string[]>([]);
   const [draggingPaneId, setDraggingPaneId] = useState<string | null>(null);
   // Bumped whenever the set of panes in the grid changes (e.g. a pane returning
@@ -175,7 +180,9 @@ export function TerminalGrid({
               setDraggingPaneId(null);
             }}
             onDragEnd={() => setDraggingPaneId(null)}
-            className={`resize-both min-w-[320px] min-h-[240px] h-[280px] overflow-hidden rounded border border-pm-border/40 ${
+            className={`resize-both min-w-[320px] min-h-[240px] overflow-hidden rounded border border-pm-border/40 ${
+              runPaneIds.has(pane.info.id) ? 'xl:col-span-2 h-[580px]' : 'h-[280px]'
+            } ${
               draggingPaneId === pane.info.id ? 'opacity-60' : ''
             }`}
             title="Drag the header grip to reorder, or drag the lower-right corner to resize this pane"
@@ -205,14 +212,20 @@ export function TerminalGrid({
             <span>New session</span>
           </button>
           {showAdd && (
-            <div className="absolute top-full left-0 mt-1 z-10 w-48 rounded-md border border-pm-border bg-pm-panel shadow-lg">
-              {listLaunchPresets().map((p) => (
+            <div className="absolute top-full left-0 mt-1 z-10 w-64 rounded-md border border-pm-border bg-pm-panel shadow-lg">
+              {launchEntries.map((p) => (
                 <button
                   key={p.type}
                   onClick={() => addPane(p.type)}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-pm-border/40"
+                  disabled={p.disabled}
+                  title={p.disabledReason}
+                  className="w-full text-left px-3 py-2 text-xs hover:bg-pm-border/40 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                 >
                   {p.label}
+                  {p.experimental && <span className="ml-1 text-[10px] text-pm-warn">experimental</span>}
+                  {p.disabledReason && (
+                    <span className="block text-[10px] text-pm-muted">{p.disabledReason}</span>
+                  )}
                 </button>
               ))}
             </div>

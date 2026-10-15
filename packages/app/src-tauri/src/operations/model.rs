@@ -1,3 +1,6 @@
+//! Operation record types: status and source enums, the delegate request, the persisted
+//! snapshot, errors and wait results.
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -53,6 +56,9 @@ pub struct DelegateWorkRequest {
     /// Keep a worker pane after its operation ends.
     #[serde(default)]
     pub keep_pane: bool,
+    /// Where a visible pane opens: `auto` | `grid` | `window` (`None` = auto).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<String>,
     /// MCP client session that owns this run, when supplied by the host.
     #[serde(default)]
     pub owner_session_id: Option<String>,
@@ -88,6 +94,7 @@ impl Default for DelegateWorkRequest {
             timeout_ms: default_timeout_ms(),
             read_only: false,
             keep_pane: false,
+            placement: None,
             owner_session_id: None,
             worker_has_mcp_tools: false,
             agent_run_id: None,
@@ -119,6 +126,42 @@ impl OperationError {
             context: Value::Null,
         }
     }
+
+    /// A request body that did not parse. Always a client mistake, so every code here maps to a
+    /// 4xx in `bridge::errors::operation_http_error`:
+    /// - `INVALID_JSON`: not JSON at all (syntax error, truncated body);
+    /// - `MISSING_FIELD`: valid JSON without a required field (`context.field` names it);
+    /// - `INVALID_FIELD`: valid JSON whose shape or value is wrong (wrong type, unknown variant).
+    pub fn invalid_body(error: &serde_json::Error) -> Self {
+        use serde_json::error::Category;
+        let text = error.to_string();
+        let (code, field) = match error.classify() {
+            Category::Syntax | Category::Eof | Category::Io => ("INVALID_JSON", None),
+            Category::Data => match missing_field_name(&text) {
+                Some(field) => ("MISSING_FIELD", Some(field)),
+                None => ("INVALID_FIELD", None),
+            },
+        };
+        let mut out = Self::new(code, text, false);
+        if let Some(field) = field {
+            out.context = serde_json::json!({ "field": field });
+        }
+        out
+    }
+
+    pub fn unknown_agent_type(id: impl Into<String>, valid: Vec<String>) -> Self {
+        let id = id.into();
+        let mut error = Self::new(
+            "UNKNOWN_AGENT_TYPE",
+            format!("unknown agent_type: {id}"),
+            false,
+        );
+        error.context = serde_json::json!({
+            "valid": valid,
+            "hint": "GET /agents/types",
+        });
+        error
+    }
     pub(super) fn io(err: impl std::fmt::Display) -> Self {
         Self::new("STORAGE_ERROR", err.to_string(), true)
     }
@@ -139,6 +182,12 @@ impl OperationError {
     }
 }
 
+/// `missing field `prompt_id` at line 1 column 40` -> `prompt_id`.
+fn missing_field_name(text: &str) -> Option<String> {
+    let rest = text.strip_prefix("missing field `")?;
+    rest.split('`').next().map(str::to_string)
+}
+
 #[cfg(test)]
 mod io_at_tests {
     use super::*;
@@ -155,6 +204,13 @@ mod io_at_tests {
         assert!(error.message.contains("Roaming/ws"));
         assert_eq!(error.context["step"], "create operations dir");
     }
+}
+
+/// A caveat recorded on an operation while it ran or was stopped (never changes its status).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OperationWarning {
+    pub code: String,
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,6 +253,13 @@ pub struct OperationSnapshot {
     pub read_only: bool,
     #[serde(default)]
     pub keep_pane: bool,
+    /// What the caller asked for. `keep_pane` is forced on when a turn is interrupted (so the
+    /// worker can be resumed), which loses the request; `cancel_agent` needs it to know whether
+    /// to release the pane. `None` on operations stored before this field existed.
+    #[serde(default)]
+    pub keep_pane_requested: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<String>,
     #[serde(default)]
     pub owner_session_id: Option<String>,
     #[serde(default)]
@@ -227,6 +290,8 @@ pub struct OperationSnapshot {
     pub checks: Vec<crate::agent_runs::checks::Check>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub check_results: Vec<crate::agent_runs::checks::CheckResult>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<OperationWarning>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -271,6 +336,13 @@ impl ContextContinuity {
     }
 }
 
+/// When a run entered a `stage` (spawning_pane, waiting_for_pane_readiness, ...).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StageMark {
+    pub stage: String,
+    pub at_ms: u64,
+}
+
 /// Durable collaborator record that outlives a single turn.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct WorkerPersist {
@@ -308,6 +380,92 @@ pub struct WorkerPersist {
     pub event_cursor: u64,
     #[serde(default)]
     pub closed: bool,
+    /// True once the app closed this run's pane on its own (`keep_pane=false` terminal cleanup).
+    #[serde(default)]
+    pub pane_disposed: bool,
+    /// `resolved_model` came from the CLI's configured default, not from the TUI footer: a best
+    /// answer, not a confirmation of what ran.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub model_unconfirmed: bool,
+    /// Caller opted in to `cursor-agent --trust` for headless runs in this workspace.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trust_workspace: bool,
+    /// Caller opted in to `cursor-agent --force` (shell commands run unreviewed) for this run.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_shell: bool,
+    /// The user account (`crate::accounts`) this worker runs under; absent = the CLI's own login.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    /// A warm standby worker (`crate::standby`) ran this turn instead of a freshly spawned one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub standby_used: bool,
+    /// The agent definition this turn started from (OBS-2); absent for code profiles. Set at every
+    /// turn's spawn, so a later edit to the file never rewrites an earlier run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_definition: Option<crate::tui::DefinitionRef>,
+    /// What the profile this turn started under could enforce, recorded at spawn so the receipt
+    /// never re-reads a registry that an edit may have changed mid-run. Absent on old snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_features: Option<RunFeatures>,
+    /// This turn asked for a visible pane but ran headless (see `agent_runs::fallback`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<RunFallback>,
+    /// Programs pre-authorised for allow-once on Cursor shell prompts (see approval_policy).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_commands: Vec<String>,
+    /// Stage entries for the current turn, oldest first (capped), for startup diagnosis.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stage_log: Vec<StageMark>,
+    /// The git worktree this handle works in (`isolation: "worktree"`). The operation's
+    /// `project_path` stays the origin repo; only the spawn cwd moves (see `work_dir`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<crate::worktrees::WorktreeRef>,
+}
+
+impl OperationSnapshot {
+    /// Directory the worker runs in: its worktree while that exists, else the project.
+    pub fn work_dir(&self) -> &str {
+        self.worker
+            .worktree
+            .as_ref()
+            .and_then(|worktree| worktree.active_cwd())
+            .unwrap_or(&self.project_path)
+    }
+}
+
+/// A run that wanted a visible pane and ran headless instead. `reason` is `no_visible_mode` (the
+/// agent has no visible mode) or `visible_failed` (the pane failed to launch or the prompt could
+/// not be delivered before the turn started).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunFallback {
+    pub from: String,
+    pub to: String,
+    pub reason: String,
+}
+
+impl RunFallback {
+    pub fn to_headless(reason: &str) -> Self {
+        Self { from: "visible".into(), to: "headless".into(), reason: reason.into() }
+    }
+}
+
+/// Facts about the profile a turn ran under that the receipt reports (see `WorkerPersist::run_features`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunFeatures {
+    pub read_only_headless: bool,
+    pub read_only_spawned_pane: bool,
+    pub experimental: bool,
+}
+
+impl RunFeatures {
+    pub fn of(profile: &dyn crate::tui::TuiProfile) -> Self {
+        let features = profile.features();
+        Self {
+            read_only_headless: features.read_only_headless,
+            read_only_spawned_pane: features.read_only_spawned_pane,
+            experimental: profile.experimental(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

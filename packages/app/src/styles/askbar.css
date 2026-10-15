@@ -1,0 +1,398 @@
+/* Ask bar window. Everything is scoped under .askbar. Monochrome tokens from mockups/ui-proposal/STYLE.md. */
+
+html.askbar-root,
+html.askbar-root body,
+html.askbar-root #root {
+  background: transparent;
+  margin: 0;
+  overflow: hidden;
+}
+
+html.askbar-root #root {
+  height: 100vh;
+}
+
+.askbar {
+  --bg: #0a0a0b;
+  --bg-side: #111112;
+  --bg-raised: #18181a;
+  --bg-float: rgba(28, 28, 30, 0.82);
+  --fill: rgba(255, 255, 255, 0.05);
+  --fill-hover: rgba(255, 255, 255, 0.08);
+  --fill-active: rgba(255, 255, 255, 0.12);
+  --sep: rgba(255, 255, 255, 0.08);
+  --label: #f5f5f7;
+  --label-2: rgba(245, 245, 247, 0.64);
+  --label-3: rgba(245, 245, 247, 0.52);
+  --label-4: rgba(245, 245, 247, 0.22);
+  --primary-bg: #f5f5f7;
+  --primary-fg: #0a0a0b;
+  --focus: 0 0 0 3px rgba(245, 245, 247, 0.28);
+  --raise-hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI Variable Text', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  .askbar {
+    --bg: #ffffff;
+    --bg-side: #f5f5f7;
+    --bg-raised: #ffffff;
+    --bg-float: rgba(250, 250, 252, 0.82);
+    --fill: rgba(0, 0, 0, 0.04);
+    --fill-hover: rgba(0, 0, 0, 0.06);
+    --fill-active: rgba(0, 0, 0, 0.09);
+    --sep: rgba(0, 0, 0, 0.09);
+    --label: #1d1d1f;
+    --label-2: rgba(29, 29, 31, 0.74);
+    --label-3: rgba(29, 29, 31, 0.64);
+    --label-4: rgba(29, 29, 31, 0.24);
+    --primary-bg: #1d1d1f;
+    --primary-fg: #ffffff;
+    --focus: 0 0 0 3px rgba(0, 0, 0, 0.18);
+    --raise-hi: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.14);
+  }
+}
+
+/* The panel fills the window. The window itself is sized by the shell: the input line alone, or taller for an answer. */
+.askbar {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid var(--sep);
+  background: var(--bg-float);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: none;
+  color: var(--label);
+  font-family: var(--font-ui);
+  font-feature-settings: 'cv11', 'ss01';
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+.askbar *,
+.askbar *::before,
+.askbar *::after {
+  box-sizing: border-box;
+}
+
+:where(.askbar) button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: default;
+  text-align: left;
+  transition: background-color 160ms var(--ease), box-shadow 160ms var(--ease), transform 160ms var(--ease);
+}
+
+.askbar button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.askbar input:focus,
+.askbar input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.askbar button:disabled {
+  opacity: 0.4;
+}
+
+/* ---------- input row (64px) ---------- */
+.askbar-row {
+  flex: 0 0 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 0 14px;
+}
+
+.askbar-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  color: var(--label);
+  font: 400 17px/1.2 var(--font-ui);
+  letter-spacing: -0.01em;
+}
+
+.askbar-input::placeholder {
+  color: var(--label-3);
+  opacity: 1;
+}
+
+/* ---------- agent chip and menu ---------- */
+.askbar-agent {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+}
+
+.askbar-chip {
+  height: 26px;
+  max-width: 160px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--label-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.askbar-chip:hover:not(:disabled),
+.askbar-chip[aria-expanded='true'] {
+  background: var(--fill-hover);
+  color: var(--label);
+}
+
+.askbar-chip:active:not(:disabled) {
+  transform: scale(0.97);
+  background: var(--fill-active);
+}
+
+.askbar-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.askbar-chip-ready {
+  color: var(--label);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.askbar-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  min-width: 220px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--sep);
+  background: var(--bg-float);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: var(--float-shadow);
+}
+
+.askbar-menu-row {
+  width: 100%;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--label);
+  font-size: 13px;
+}
+
+.askbar-menu-row:hover {
+  background: var(--fill-hover);
+}
+
+.askbar-menu-row[aria-checked='true'] {
+  background: var(--fill-active);
+}
+
+.askbar-menu-ready {
+  color: var(--label-3);
+  font-size: 11px;
+}
+
+/* ---------- clipboard chip ---------- */
+.askbar-clip {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fill-hover);
+  color: var(--label-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.askbar-clip:hover {
+  background: var(--fill-active);
+}
+
+.askbar-clip.is-off {
+  background: transparent;
+  color: var(--label-3);
+  box-shadow: inset 0 0 0 1px var(--sep);
+}
+
+.askbar-clip:active {
+  transform: scale(0.97);
+}
+
+/* Attached: the label plus a small × to detach. */
+.askbar-clip-wrap {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.askbar-clip-x {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: var(--label-3);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.askbar-clip-x:hover {
+  background: var(--fill-hover);
+  color: var(--label-2);
+}
+
+/* ---------- status, answer, error ---------- */
+.askbar-status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px 14px 18px;
+  color: var(--label-2);
+  font-size: 13px;
+}
+
+.askbar-answer {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 18px;
+  border-top: 1px solid var(--sep);
+}
+
+.askbar-text {
+  margin: 0 0 10px;
+  white-space: pre-wrap;
+  color: var(--label);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.askbar-text:last-child {
+  margin-bottom: 0;
+}
+
+.askbar-code {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: inset 0 0 0 1px var(--sep), var(--raise-hi);
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.askbar-code:last-child {
+  margin-bottom: 0;
+}
+
+.askbar-error {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 12px 18px 4px 18px;
+  color: var(--label);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.askbar-actions {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 14px 14px;
+  border-top: 1px solid var(--sep);
+}
+
+.askbar-btn {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.askbar-btn:hover {
+  background: var(--fill-hover);
+}
+
+.askbar-btn:active {
+  transform: scale(0.97);
+  background: var(--fill-active);
+}
+
+.askbar-btn--primary {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+
+.askbar-btn--primary:hover {
+  background: var(--primary-bg);
+  opacity: 0.88;
+}
+
+/* ---------- reduced motion: no transforms, no pulse, no spinner sweep ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .askbar *,
+  .askbar *::before,
+  .askbar *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .askbar button:active {
+    transform: none;
+  }
+}
+
+.askbar-inline {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.16);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+}

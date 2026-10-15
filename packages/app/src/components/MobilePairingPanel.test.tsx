@@ -1,0 +1,166 @@
+// @vitest-environment jsdom
+// Pairing panel inside Settings > Phone: the URL and port autosave on pause or blur, and the choice of
+// what a new phone may do (full control by default) is bound to the code.
+import { act, type ComponentProps } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MobilePairingPanel } from './MobilePairingPanel';
+import { tauri } from '../lib/tauri';
+import { blur, click, hasText, settle, type as typeInto } from './settings/test-utils';
+
+const mocks = vi.hoisted(() => ({
+  devices: [] as Array<{ id: string; name: string; public_key: string; paired_at: number }>,
+  session: {
+    pairing_code: 'ABCD1234',
+    expires_at: 4102444800,
+    server_public_key: 'pk',
+    bridge_url: 'https://pm.example.com/bridge',
+    qr_payload: { v: 1, u: 'https://pm.example.com', pk: 'pk', c: 'ABCD1234', e: 4102444800 },
+  },
+}));
+
+vi.mock('qrcode', () => ({ default: { toCanvas: vi.fn(async () => undefined) } }));
+vi.mock('../lib/load-tunnel-dev-info', () => ({ watchTunnelDevInfo: vi.fn(() => () => undefined) }));
+vi.mock('../lib/tauri', () => ({
+  tauri: {
+    createMobilePairingSession: vi.fn(async () => mocks.session),
+    listPairedMobileDevices: vi.fn(async () => mocks.devices),
+    revokePairedMobileDevice: vi.fn(async () => true),
+  },
+}));
+
+type Props = ComponentProps<typeof MobilePairingPanel>;
+
+let host: HTMLDivElement;
+let root: Root;
+
+async function mount(overrides: Partial<Props> = {}) {
+  const props: Props = {
+    publicPwaUrl: '',
+    devServerPort: 1420,
+    onPublicPwaUrlChange: vi.fn(),
+    onDevServerPortChange: vi.fn(),
+    ...overrides,
+  };
+  host = document.createElement('div');
+  document.body.appendChild(host);
+  root = createRoot(host);
+  await act(async () => root.render(<MobilePairingPanel {...props} />));
+  await settle(5);
+  return props;
+}
+
+const field = (label: string) => host.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.devices = [];
+});
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+  vi.useRealTimers();
+});
+
+describe('MobilePairingPanel: autosaving fields', () => {
+  it('the public URL is not saved while typing and saves once on blur, as the normalised origin', async () => {
+    const props = await mount();
+    const url = field('Phone page address');
+    await typeInto(url, 'pm.example.com/bridge');
+    expect(props.onPublicPwaUrlChange).not.toHaveBeenCalled();
+    await blur(url);
+    expect(props.onPublicPwaUrlChange).toHaveBeenCalledExactlyOnceWith('https://pm.example.com');
+  });
+
+  it('the public URL also saves after a short pause in typing', async () => {
+    vi.useFakeTimers();
+    const props = await mount();
+    await typeInto(field('Phone page address'), 'https://Pm.Example.com');
+    expect(props.onPublicPwaUrlChange).not.toHaveBeenCalled();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(700)));
+    expect(props.onPublicPwaUrlChange).toHaveBeenCalledExactlyOnceWith('https://pm.example.com');
+  });
+
+  it('a port typed on the way to a value does not save; blur saves the clamped port', async () => {
+    const props = await mount();
+    const port = field('Port on this PC');
+    await typeInto(port, '1');
+    expect(props.onDevServerPortChange).not.toHaveBeenCalled();
+    await typeInto(port, '80');
+    await blur(port);
+    expect(props.onDevServerPortChange).toHaveBeenCalledExactlyOnceWith(1024);
+  });
+});
+
+describe('MobilePairingPanel: a code is made only on a click', () => {
+  it('opening the panel makes no pairing code, with or without a public address', async () => {
+    await mount({ publicPwaUrl: 'https://pm.example.com' });
+    await settle(5);
+    expect(tauri.createMobilePairingSession).not.toHaveBeenCalled();
+    expect(hasText(host, 'ABCD1234')).toBe(false);
+    expect(host.querySelector('[data-testid="pair-a-phone"]')).not.toBeNull();
+  });
+
+  it('the Pair a phone button makes one code and shows it', async () => {
+    await mount({ publicPwaUrl: 'https://pm.example.com' });
+    await click(host.querySelector<HTMLButtonElement>('[data-testid="pair-a-phone"]')!);
+    await settle();
+    expect(tauri.createMobilePairingSession).toHaveBeenCalledTimes(1);
+    expect(hasText(host, 'ABCD1234')).toBe(true);
+    expect(hasText(host, 'Refresh QR')).toBe(true);
+  });
+
+  it('choosing what the phone may do before pairing does not make a code either', async () => {
+    await mount({ publicPwaUrl: 'https://pm.example.com' });
+    await click(host.querySelector<HTMLInputElement>('input[value="watch_answer"]')!);
+    await settle();
+    expect(tauri.createMobilePairingSession).not.toHaveBeenCalled();
+  });
+});
+
+async function pair() {
+  await click(host.querySelector<HTMLButtonElement>('[data-testid="pair-a-phone"]')!);
+  await settle();
+}
+
+describe('MobilePairingPanel: what the new phone may do', () => {
+  it('defaults to full control, which is what pairing always gave', async () => {
+    await mount({ publicPwaUrl: 'https://pm.example.com' });
+    await pair();
+    const call = vi.mocked(tauri.createMobilePairingSession).mock.calls.at(-1)!;
+    expect(call[1]).toEqual(['watch', 'answer', 'type', 'control']);
+    const full = host.querySelector<HTMLInputElement>('input[value="full"]')!;
+    expect(full.checked).toBe(true);
+    expect(hasText(host, 'What can this phone do?')).toBe(true);
+    expect(hasText(host, 'Watch and answer only')).toBe(true);
+  });
+
+  it('choosing "Watch and answer only" makes a new code bound to watch + answer', async () => {
+    await mount({ publicPwaUrl: 'https://pm.example.com' });
+    await pair();
+    const before = vi.mocked(tauri.createMobilePairingSession).mock.calls.length;
+    await click(host.querySelector<HTMLInputElement>('input[value="watch_answer"]')!);
+    await settle();
+    const calls = vi.mocked(tauri.createMobilePairingSession).mock.calls;
+    expect(calls.length).toBe(before + 1);
+    expect(calls.at(-1)![1]).toEqual(['watch', 'answer']);
+    const selected = [...host.querySelectorAll('.st-choice[data-selected="true"] input')].map((i) => (i as HTMLInputElement).value);
+    expect(selected).toEqual(['watch_answer']);
+  });
+
+  it('no longer lists devices or shows raw device ids (they live under Devices)', async () => {
+    mocks.devices = [{ id: 'dev-1', name: 'Pixel 8', public_key: 'k1', paired_at: 1 }];
+    await mount();
+    expect(hasText(host, 'Pixel 8')).toBe(false);
+    expect(host.innerHTML).not.toContain('dev-1');
+  });
+});
+
+describe('MobilePairingPanel: layout', () => {
+  it('is a plain settings row that names itself, with no colour classes', async () => {
+    await mount();
+    expect(host.firstElementChild?.className).toBe('st-row is-block');
+    expect(host.querySelector('.st-label span')?.textContent).toBe('Pair a phone');
+    expect(host.innerHTML).not.toMatch(/text-pm-(err|amber|accent)|text-(red|emerald|amber)-/);
+  });
+});

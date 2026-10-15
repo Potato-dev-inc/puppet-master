@@ -1,0 +1,28 @@
+---
+source: src/replay/corpus_tests.rs
+expression: timeline.render()
+---
+      0 ms  status    idle (start)
+     10 ms  status    idle (screen read running, held back)
+     10 ms  composer  Unknown
+   1220 ms  status    idle (screen read running, held back)
+   1350 ms  status    running
+   1350 ms  tracker   idle -> running
+   3870 ms  status    waiting_input
+   3870 ms  tracker   running -> waiting_input, the turn came to rest
+   3870 ms  capture   ticket 1 requested, runs 3870 ms to 12870 ms
+   3870 ms  summary   turn 1 waits for ticket 1
+   5490 ms  recorded-input "1"
+   5490 ms  approval  answered #1
+   5600 ms  status    running
+   5600 ms  tracker   waiting_input -> running
+   5650 ms  marker    edit:r9-note.txt
+   5650 ms  workspace agent edited r9-note.txt
+  11300 ms  status    idle (screen held still)
+  11300 ms  tracker   running -> idle, the turn came to rest
+  11300 ms  capture   ticket 2 requested, runs 13870 ms to 22870 ms
+  11300 ms  summary   turn 1 waits for ticket 2
+  12870 ms  capture   ticket 1 done, snapshot holds 0 file(s)
+  12870 ms  summary   turn 1 (waiting_input) built after ticket 1: files=0 approvals=0
+  22870 ms  capture   ticket 2 done, snapshot holds 1 file(s)
+  22870 ms  summary   turn 1 (idle) built after ticket 2: files=1 approvals=1

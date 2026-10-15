@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { appConfigDir, join } from '@tauri-apps/api/path';
 import { LazyStore } from '@tauri-apps/plugin-store';
 import {
@@ -7,7 +8,7 @@ import {
   type LlmProvider,
   type Settings,
 } from '@puppet-master/shared';
-import { clampMobileInputDelayMs, toPublicSettings } from './bridge-settings';
+import { clampAwayMinutes, clampCheckpointsKeep, clampMobileInputDelayMs, toPublicSettings } from './bridge-settings';
 import {
   parseDevServerPort,
   publicOriginFromBridgeUrl,
@@ -71,12 +72,21 @@ const DEFAULT_SETTINGS: Settings = {
   default_model: 'claude-sonnet-4-6',
   custom_models: [],
   orchestrator_backend: 'api',
-  mobile_input_delay_ms: 250,
+  mobile_input_delay_ms: 60,
   mobile_input_visible: true,
+  mobile_keyboard_resizes_agent: false,
   dev_server_port: 1420,
   sidebar_width: 360,
   theme: 'dark',
+  ui_mode: 'orchestration',
   developer_use_rust_mcp: false,
+  confirm_close_running_pane: true,
+  checkpoints_enabled: true,
+  checkpoints_keep: 50,
+  away_minutes: 5,
+  budget_default_turns: 0,
+  budget_default_minutes: 0,
+  agent_hooks_mode: 'shadow',
 };
 
 function readLegacySidebarWidth(): number | undefined {
@@ -95,10 +105,14 @@ function mergeLoadedSettings(raw: Settings | null | undefined): Settings {
     ...merged,
     mobile_input_delay_ms: clampMobileInputDelayMs(merged.mobile_input_delay_ms),
     mobile_input_visible: merged.mobile_input_visible ?? true,
+    mobile_keyboard_resizes_agent: merged.mobile_keyboard_resizes_agent ?? false,
     dev_server_port: parseDevServerPort(merged.dev_server_port),
     sidebar_width: clampSidebarWidth(merged.sidebar_width ?? legacySidebar ?? 360),
     theme: merged.theme ?? 'dark',
     developer_use_rust_mcp: merged.developer_use_rust_mcp ?? false,
+    checkpoints_enabled: merged.checkpoints_enabled ?? true,
+    checkpoints_keep: clampCheckpointsKeep(merged.checkpoints_keep),
+    away_minutes: clampAwayMinutes(merged.away_minutes),
     public_pwa_url:
       merged.public_pwa_url?.trim() ||
       (legacyPublic ? publicOriginFromBridgeUrl(legacyPublic) : undefined),
@@ -148,20 +162,56 @@ export async function loadSettings(): Promise<Settings> {
   }
 }
 
-export async function saveSettings(s: Settings): Promise<void> {
-  const normalized: Settings = {
-    ...s,
-    sidebar_width: clampSidebarWidth(s.sidebar_width ?? 360),
-    theme: s.theme ?? 'dark',
-    mobile_input_delay_ms: clampMobileInputDelayMs(s.mobile_input_delay_ms),
-    dev_server_port: parseDevServerPort(s.dev_server_port),
-    developer_use_rust_mcp: s.developer_use_rust_mcp ?? false,
-  };
-  applyTheme(normalized.theme ?? 'dark');
-  await store().set(SETTINGS_KEY, normalized);
-  await store().save();
-  await syncPublicSettingsToBridge();
-  void tauri.pushSettingsEvent(JSON.stringify(toPublicSettings(normalized)));
+/** A partial settings object. `null` (or `undefined`) removes a key. */
+export type SettingsPatch = { [K in keyof Settings]?: Settings[K] | null };
+
+/** RFC 7386 JSON merge patch: objects merge, `null` removes a key, everything else replaces. */
+export function mergePatch<T extends Record<string, unknown>>(target: T, patch: Record<string, unknown>): T {
+  const out: Record<string, unknown> = { ...target };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null || value === undefined) delete out[key];
+    else if (typeof value === 'object' && !Array.isArray(value) && typeof out[key] === 'object' && out[key] !== null && !Array.isArray(out[key])) {
+      out[key] = mergePatch(out[key] as Record<string, unknown>, value as Record<string, unknown>);
+    } else out[key] = value;
+  }
+  return out as T;
+}
+
+function normalizePatch(patch: SettingsPatch): Record<string, unknown> {
+  const wire: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) wire[key] = value === undefined ? null : value;
+  if (typeof wire.sidebar_width === 'number') wire.sidebar_width = clampSidebarWidth(wire.sidebar_width);
+  if (typeof wire.mobile_input_delay_ms === 'number') wire.mobile_input_delay_ms = clampMobileInputDelayMs(wire.mobile_input_delay_ms);
+  if ('dev_server_port' in wire && wire.dev_server_port !== null) wire.dev_server_port = parseDevServerPort(wire.dev_server_port as number);
+  return wire;
+}
+
+function inTauri(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+/**
+ * Save only the keys in `patch`. Rust merges them into the file under a lock, so a window that
+ * holds an older copy of the settings can never write old values back (the old read-modify-write of
+ * the whole object did). `ui_mode` is ignored here: it belongs to `set_ui_mode`. Returns the
+ * settings as saved. Outside Tauri (a plain browser) it falls back to the store.
+ */
+export async function patchSettings(patch: SettingsPatch): Promise<Settings> {
+  const wire = normalizePatch(patch);
+  let saved: Settings;
+  if (inTauri()) {
+    saved = mergeLoadedSettings(await invoke<Settings>('settings_patch', { patch: wire }));
+  } else {
+    const current = (await store().get<Settings>(SETTINGS_KEY)) ?? ({} as Settings);
+    const rest = { ...wire };
+    delete rest.ui_mode;
+    const next = mergePatch(current as unknown as Record<string, unknown>, rest) as unknown as Settings;
+    await store().set(SETTINGS_KEY, next);
+    await store().save();
+    saved = mergeLoadedSettings(next);
+  }
+  if (typeof wire.theme === 'string') applyTheme(saved.theme ?? 'dark');
+  return saved;
 }
 
 export async function syncPublicSettingsToBridge(): Promise<void> {

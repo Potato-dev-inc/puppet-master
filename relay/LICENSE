@@ -1,0 +1,9 @@
+LICENCE PENDING FOUNDER DECISION
+
+The relay server in this folder (`relay/server`, and `relay/worker` if present) has no licence yet.
+The founder is choosing between copyleft (AGPL-3.0: open, but a hosted clone must publish its
+changes) and proprietary (all rights reserved, closed source, still freely self-hostable as a
+binary). Until that decision is recorded here, all rights are reserved and no licence is granted.
+
+The protocol crate (`relay/protocol`) is not covered by this notice: it is MIT-licensed (see
+`relay/protocol/LICENSE`), like the Puppet Master app, so any client can speak to any relay.

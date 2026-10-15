@@ -23,12 +23,17 @@ function readBridgeTarget(): string {
 /** Proxy `/bridge/*` to the desktop app's embedded HTTP bridge (dynamic port from port file). */
 export const bridgeProxyConfig: Record<string, ProxyOptions> = {
   '/bridge': {
-    target: 'http://127.0.0.1:17321',
+    // `router` is not applied to websocket upgrades, so `target` carries the port-file value too.
+    target: readBridgeTarget(),
     changeOrigin: true,
+    ws: true,
     rewrite: (path) => path.replace(/^\/bridge/, '') || '/',
     router: () => readBridgeTarget(),
     configure: (proxy) => {
       proxy.on('proxyReq', (proxyReq) => {
+        proxyReq.setHeader('X-PM-Proxied', '1');
+      });
+      proxy.on('proxyReqWs', (proxyReq) => {
         proxyReq.setHeader('X-PM-Proxied', '1');
       });
     },

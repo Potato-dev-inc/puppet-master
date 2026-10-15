@@ -1,0 +1,9 @@
+# Add to ~/.codex/config.toml (or a trusted project's .codex/config.toml).
+# `codex mcp add puppet-master -- npx -y @puppet-master/mcp` writes the first three lines.
+[mcp_servers.puppet-master]
+command = "npx"
+args = ["-y", "@puppet-master/mcp"]
+# run_agent and wait_agents wait up to 120-300 s; Codex's default tool timeout is 60 s.
+tool_timeout_sec = 330
+# The first `npx` run downloads the package; the default start-up timeout is 10 s.
+startup_timeout_sec = 60

@@ -1,0 +1,15 @@
+#! source: synthetic (built from the 2.1.300 string table texts in DESIGN-RELAY.md 1.2; NOT a live capture; live captures C1-C10 are TODO)
+#! now: 2026-10-15T12:00 +08:00 Asia/Taipei
+#! expect: kind=usage rule=window window="weekly limit" reset="Oct 18, 5pm (Asia/Taipei)" reset_at=2026-10-18T17:00
+ ▐▛███▛█   Claude Code v2.1.300
+▝▜██████▀  Opus 5 · Claude Max
+ ▝▝   ▝▝   D:\pm-demo
+
+❯ Run the tests
+
+  ⎿  You've hit your weekly limit · resets Oct 18, 5pm (Asia/Taipei)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)

@@ -1,3 +1,5 @@
+// Provider-agnostic streaming LLM client for the built-in orchestrator (Anthropic, OpenAI, OpenRouter): shared chat
+// types plus per-provider SSE streaming behind streamLlm.
 import type { LlmProvider } from '@puppet-master/shared';
 
 export type ChatRole = 'user' | 'assistant' | 'system';
@@ -29,7 +31,7 @@ export interface AssistantMessage {
 export type ChatMessage = UserMessage | AssistantMessage | { role: 'system'; content: string };
 
 /** Normalize assistant message content from UI history or API quirks. */
-export function assistantBlocks(content: unknown): AssistantBlock[] {
+function assistantBlocks(content: unknown): AssistantBlock[] {
   if (Array.isArray(content)) {
     return content.filter(
       (b): b is AssistantBlock =>
@@ -43,22 +45,6 @@ export function assistantBlocks(content: unknown): AssistantBlock[] {
     return [{ type: 'text', text: content }];
   }
   return [];
-}
-
-/** Extract plain text from OpenAI-compatible message content (string or parts array). */
-function openAiMessageText(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .map((part) => {
-      if (typeof part === 'string') return part;
-      if (typeof part === 'object' && part !== null && 'text' in part) {
-        return String((part as { text?: unknown }).text ?? '');
-      }
-      return '';
-    })
-    .filter(Boolean)
-    .join('\n');
 }
 
 export interface ToolDef {
@@ -100,36 +86,6 @@ function anthropicMessages(req: LlmRequest) {
     });
 }
 
-export async function callAnthropic(apiKey: string, req: LlmRequest): Promise<LlmResponse> {
-  const body = {
-    model: req.model,
-    system: req.system,
-    messages: anthropicMessages(req),
-    tools: req.tools,
-    max_tokens: req.max_tokens ?? 4096,
-  };
-  const res = await fetch(ANTHROPIC_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`anthropic ${res.status}: ${text}`);
-  }
-  const j = await res.json();
-  return {
-    content: j.content as AssistantBlock[],
-    stop_reason: j.stop_reason,
-    usage: j.usage,
-  };
-}
-
 async function parseSseStream(
   body: ReadableStream<Uint8Array>,
   onEvent: (event: string, data: string) => void,
@@ -162,7 +118,7 @@ async function parseSseStream(
   }
 }
 
-export async function streamAnthropic(
+async function streamAnthropic(
   apiKey: string,
   req: LlmRequest,
   cb: LlmStreamCallbacks,
@@ -271,6 +227,16 @@ interface OpenAICompatibleOptions {
   extraHeaders?: Record<string, string>;
 }
 
+const OPENAI_OPTIONS: OpenAICompatibleOptions = { url: OPENAI_URL, providerLabel: 'openai' };
+const OPENROUTER_OPTIONS: OpenAICompatibleOptions = {
+  url: OPENROUTER_URL,
+  providerLabel: 'openrouter',
+  extraHeaders: {
+    'HTTP-Referer': 'https://github.com/tmux-puppet-master',
+    'X-Title': 'Puppet Master',
+  },
+};
+
 function buildOpenAiMessages(req: LlmRequest) {
   const messages: Array<{ role: string; content?: string; tool_calls?: unknown[]; tool_call_id?: string }> = [];
   messages.push({ role: 'system', content: req.system });
@@ -307,57 +273,6 @@ function buildOpenAiMessages(req: LlmRequest) {
     }
   }
   return messages;
-}
-
-async function callOpenAICompatible(
-  apiKey: string,
-  req: LlmRequest,
-  { url, providerLabel, extraHeaders }: OpenAICompatibleOptions,
-): Promise<LlmResponse> {
-  const messages = buildOpenAiMessages(req);
-  const tools = req.tools.map((t) => ({
-    type: 'function',
-    function: { name: t.name, description: t.description, parameters: t.input_schema },
-  }));
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${apiKey}`,
-      ...extraHeaders,
-    },
-    body: JSON.stringify({
-      model: req.model,
-      messages,
-      tools,
-      max_tokens: req.max_tokens ?? 4096,
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${providerLabel} ${res.status}: ${text}`);
-  }
-  const j = await res.json();
-  const msg = j.choices?.[0]?.message ?? {};
-  const blocks: AssistantBlock[] = [];
-  const text = openAiMessageText(msg.content);
-  if (text) blocks.push({ type: 'text', text });
-  if (Array.isArray(msg.tool_calls)) {
-    for (const tc of msg.tool_calls) {
-      let input: unknown = {};
-      try {
-        input = JSON.parse(tc.function.arguments);
-      } catch {
-        input = {};
-      }
-      blocks.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input });
-    }
-  }
-  return {
-    content: blocks,
-    stop_reason: blocks.some((b) => b.type === 'tool_use') ? 'tool_use' : 'end_turn',
-    usage: j.usage,
-  };
 }
 
 async function streamOpenAICompatible(
@@ -459,40 +374,6 @@ async function streamOpenAICompatible(
   };
 }
 
-export async function callOpenAI(apiKey: string, req: LlmRequest): Promise<LlmResponse> {
-  return callOpenAICompatible(apiKey, req, { url: OPENAI_URL, providerLabel: 'openai' });
-}
-
-export async function callOpenRouter(apiKey: string, req: LlmRequest): Promise<LlmResponse> {
-  return callOpenAICompatible(apiKey, req, {
-    url: OPENROUTER_URL,
-    providerLabel: 'openrouter',
-    extraHeaders: {
-      'HTTP-Referer': 'https://github.com/tmux-puppet-master',
-      'X-Title': 'Puppet Master',
-    },
-  });
-}
-
-export async function callLlm(
-  provider: LlmProvider,
-  apiKey: string,
-  req: LlmRequest,
-): Promise<LlmResponse> {
-  switch (provider) {
-    case 'anthropic':
-      return callAnthropic(apiKey, req);
-    case 'openai':
-      return callOpenAI(apiKey, req);
-    case 'openrouter':
-      return callOpenRouter(apiKey, req);
-    default: {
-      const _exhaustive: never = provider;
-      throw new Error(`unsupported provider: ${String(_exhaustive)}`);
-    }
-  }
-}
-
 /** Stream tokens to callbacks; returns the assembled response for tool routing. */
 export async function streamLlm(
   provider: LlmProvider,
@@ -504,21 +385,9 @@ export async function streamLlm(
     case 'anthropic':
       return streamAnthropic(apiKey, req, cb);
     case 'openai':
-      return streamOpenAICompatible(apiKey, req, { url: OPENAI_URL, providerLabel: 'openai' }, cb);
+      return streamOpenAICompatible(apiKey, req, OPENAI_OPTIONS, cb);
     case 'openrouter':
-      return streamOpenAICompatible(
-        apiKey,
-        req,
-        {
-          url: OPENROUTER_URL,
-          providerLabel: 'openrouter',
-          extraHeaders: {
-            'HTTP-Referer': 'https://github.com/tmux-puppet-master',
-            'X-Title': 'Puppet Master',
-          },
-        },
-        cb,
-      );
+      return streamOpenAICompatible(apiKey, req, OPENROUTER_OPTIONS, cb);
     default: {
       const _exhaustive: never = provider;
       throw new Error(`unsupported provider: ${String(_exhaustive)}`);

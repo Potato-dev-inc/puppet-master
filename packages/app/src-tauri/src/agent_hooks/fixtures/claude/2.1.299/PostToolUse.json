@@ -1,0 +1,27 @@
+{
+  "session_id": "82f9078c-d017-4e1b-bc87-38cb6b5548df",
+  "transcript_path": "C:\\Users\\user\\.claude\\projects\\D--pm-demo\\82f9078c-d017-4e1b-bc87-38cb6b5548df.jsonl",
+  "cwd": "D:\\pm-demo",
+  "scratchpad_dir": "C:\\Users\\user\\AppData\\Local\\Temp\\claude\\D--pm-demo\\82f9078c-d017-4e1b-bc87-38cb6b5548df\\scratchpad",
+  "prompt_id": "e0ab09c1-858f-449d-a4da-7e82f9249f44",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "D:\\pm-demo\\hook-probe.txt",
+    "content": "hi\n"
+  },
+  "tool_response": {
+    "type": "create",
+    "filePath": "D:\\pm-demo\\hook-probe.txt",
+    "content": "hi\n",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+  },
+  "tool_use_id": "toolu_01BYYV2wiw3arKX9dt1hARh6",
+  "duration_ms": 575
+}

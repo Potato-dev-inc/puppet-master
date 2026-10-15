@@ -52,11 +52,7 @@ pub fn on_native_pane_replaced(
                 "previous_session": previous_session,
                 "session_id": new_session,
                 "pane_id": pane_id,
-                "context": if previous_session == new_session {
-                    "replayed"
-                } else {
-                    "replayed"
-                },
+                "context": "replayed",
                 "detail": "OpenCode process was replaced under the same pane id; rebound to the current native session"
             })),
         ) {
@@ -67,6 +63,7 @@ pub fn on_native_pane_replaced(
         if running {
             let facts = persist::conversation_facts(&snapshot.project_path, &handle);
             let rendered = persist::render_turn_prompt(persist::TurnPromptArgs {
+                agent_type: &snapshot.agent_type,
                 policy: persist::followup_policy(None, snapshot.worker.context_policy),
                 task: &snapshot.task,
                 scope: snapshot.worker.scope.as_deref(),

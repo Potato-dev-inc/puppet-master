@@ -1,0 +1,44 @@
+{
+  "name": "budget-card",
+  "note": "a question of kind budget is the pause card of a run that used its budget: a budget item that keeps its pane and counts, never a question",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "idle"
+      }
+    ],
+    "questions": [
+      {
+        "id": "b1",
+        "pane_id": "a",
+        "created_at_ms": 7,
+        "kind": "budget"
+      },
+      {
+        "id": "q1",
+        "pane_id": "a",
+        "created_at_ms": 8,
+        "kind": "something_else"
+      }
+    ]
+  },
+  "expected": [
+    {
+      "id": "budget:b1",
+      "kind": "budget",
+      "paneId": "a",
+      "since": 7
+    },
+    {
+      "id": "question:q1",
+      "kind": "question",
+      "paneId": "a",
+      "since": 8
+    }
+  ],
+  "blocking": [
+    "budget:b1",
+    "question:q1"
+  ]
+}

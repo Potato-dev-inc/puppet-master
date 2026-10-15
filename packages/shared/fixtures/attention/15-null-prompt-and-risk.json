@@ -1,0 +1,49 @@
+{
+  "name": "null-prompt-and-risk",
+  "note": "null prompt entries and null risks are fine",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "waiting_input"
+      },
+      {
+        "id": "b",
+        "status": "waiting_input"
+      },
+      {
+        "id": "c",
+        "status": "waiting_input"
+      }
+    ],
+    "prompts": {
+      "a": null,
+      "b": {
+        "risk": null
+      },
+      "c": {}
+    }
+  },
+  "expected": [
+    {
+      "id": "approval:a",
+      "kind": "approval",
+      "paneId": "a"
+    },
+    {
+      "id": "approval:b",
+      "kind": "approval",
+      "paneId": "b"
+    },
+    {
+      "id": "approval:c",
+      "kind": "approval",
+      "paneId": "c"
+    }
+  ],
+  "blocking": [
+    "approval:a",
+    "approval:b",
+    "approval:c"
+  ]
+}

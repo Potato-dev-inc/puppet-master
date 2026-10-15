@@ -1,0 +1,99 @@
+/* Budget chip in the pane header and its popover. Grayscale only, cockpit tokens. */
+.cockpit .ck-budget-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.cockpit .ck-budget-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--sep);
+  color: var(--label-2);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* 80% or more: bold, no colour. */
+.cockpit .ck-budget-chip.is-nearly,
+.cockpit .ck-budget-chip.is-used_up,
+.cockpit .ck-budget-chip.is-stopped {
+  color: var(--label);
+  font-weight: 600;
+}
+.cockpit .ck-budget-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: 288px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-float);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--sep);
+  box-shadow: var(--float-shadow);
+  animation: ck-pop 160ms var(--ease);
+  font-size: 12px;
+  color: var(--label-2);
+}
+.cockpit .ck-budget-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cockpit .ck-budget-pop-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+}
+.cockpit .ck-budget-add {
+  height: 26px;
+}
+.cockpit .ck-budget-rows {
+  margin: 0;
+}
+.cockpit .ck-budget-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+}
+.cockpit .ck-budget-row dt {
+  color: var(--label-3);
+}
+.cockpit .ck-budget-row dd {
+  margin: 0;
+  text-align: right;
+  color: var(--label);
+}
+.cockpit .ck-budget-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-budget-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 8px;
+}
+/* One action row at the bottom: the primary add, then the quiet ones. */
+.cockpit .ck-budget-actions {
+  justify-content: flex-start;
+  gap: 6px;
+}
+.cockpit .ck-budget-row--helper {
+  flex-direction: column;
+  gap: 2px;
+}
+.cockpit .ck-budget-row--helper dd {
+  text-align: left;
+}

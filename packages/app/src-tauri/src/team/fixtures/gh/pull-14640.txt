@@ -1,0 +1,27 @@
+HTTP/2.0 200 OK
+Cache-Control: private, max-age=60, s-maxage=60
+Content-Type: application/json; charset=utf-8
+Etag: W/"6c1e0d5a4f2b9e7d3c8a1b0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d"
+X-Ratelimit-Remaining: 4996
+
+{
+  "url": "https://api.github.com/repos/cli/cli/pulls/14640",
+  "html_url": "https://github.com/cli/cli/pull/14640",
+  "number": 14640,
+  "state": "open",
+  "title": "`gh issue artifact` stack 11/12: Address review feedback",
+  "draft": false,
+  "merged": false,
+  "user": {
+    "login": "BagToad"
+  },
+  "head": {
+    "ref": "bagtoad/artifact-review-feedback",
+    "sha": "e04bc0145a89bb85472ac53fa26cedc9f64a326f",
+    "repo": { "full_name": "cli/cli" }
+  },
+  "base": {
+    "ref": "bagtoad/artifact-restore-version",
+    "repo": { "full_name": "cli/cli" }
+  }
+}

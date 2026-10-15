@@ -36,11 +36,27 @@ export const PairResponseSchema = z.object({
 });
 export type PairResponse = z.infer<typeof PairResponseSchema>;
 
+/**
+ * What a paired device may do (the bridge enforces it per route):
+ * `watch` terminals, `answer` approval and question cards, `type` into a live terminal,
+ * `control` everything else (start and close agents, shell commands, settings).
+ */
+export const DEVICE_CAPS = ['watch', 'answer', 'type', 'control'] as const;
+export type DeviceCap = (typeof DEVICE_CAPS)[number];
+
 export const PairedDeviceInfoSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   public_key: z.string(),
   paired_at: z.number().int(),
+  /** Absent from an app older than device caps: treat as every cap. */
+  caps: z.array(z.enum(DEVICE_CAPS)).optional(),
+  /** Unix seconds: signed out unless used before then (slides with every use). */
+  expires_at: z.number().int().optional(),
+  last_seen: z.number().int().nullable().optional(),
+  /** Signed out after going unused for the whole window. */
+  expired: z.boolean().optional(),
+  idle_expiry_secs: z.number().int().optional(),
 });
 export type PairedDeviceInfo = z.infer<typeof PairedDeviceInfoSchema>;
 

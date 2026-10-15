@@ -1,0 +1,38 @@
+  Write test_todo.py with pytest tests for every command supported by todo.py. Isolate storage in temporary
+  directories. Run python -m pytest -q and report the exact pass/fail count. Do not modify todo.py.
+
+    Read, globbed 1 file, 1 glob
+    Read todo.py
+    Globbed "**/test*.py" in .
+
+  Using subprocess with each test's tmp_path as cwd to isolate todos.json without changing todo.py.
+
+    Edited test_todo.py +69
+
+    ▎+ import subprocess
+    ▎+ import sys
+    ▎+ from pathlib import Path
+    ▎+
+    ▎+ import pytest
+    ▎+
+    ▎ … truncated (57 more lines) · ctrl+r to review
+
+  $ python -m pytest -q 1m 27s
+    .......                                                                  [100%]
+    7 passed in 1.26s
+
+  Added test_todo.py with seven tests that run todo.py via subprocess and use pytest’s tmp_path as the working
+  directory so each case gets its own todos.json. Coverage: add, list (empty and with items), done (including list
+  showing [x]), rm, and error paths for missing ids on done and rm.
+
+  Exact python -m pytest -q output:
+
+  .......                                                                  [100%]
+  7 passed in 1.26s
+
+  7 passed, 0 failed.
+
+ ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+  → Add a follow-up
+ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  Composer 2.5 · 10.6% · 1 file edited

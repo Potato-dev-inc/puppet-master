@@ -8,6 +8,7 @@ import {
 } from '@puppet-master/shared';
 import type { PaneRegistryApi } from '../hooks/usePaneRegistry';
 import { loadSettings, resolveSettingsFilePath } from '../lib/settings';
+import { AgentsOverviewCard } from './AgentsOverviewCard';
 import logoUrl from '../assets/branding/logo.svg';
 
 interface Props {
@@ -241,6 +242,8 @@ export function HomeDashboard({
               )}
             </section>
 
+            <AgentsOverviewCard onOpenSettings={onOpenSettings} />
+
             <section className="pm-home-panel">
               <div className="pm-home-panel-head">
                 <h2>Saved defaults</h2>
@@ -265,7 +268,7 @@ export function HomeDashboard({
                 </div>
                 <div>
                   <dt>Mobile input delay</dt>
-                  <dd>{settings?.mobile_input_delay_ms ?? 250} ms</dd>
+                  <dd>{settings?.mobile_input_delay_ms ?? 60} ms</dd>
                 </div>
               </dl>
             </section>

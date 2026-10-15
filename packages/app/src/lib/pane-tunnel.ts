@@ -2,6 +2,7 @@ import { PaneStreamManager } from '../terminal';
 import type { TerminalTransport } from '../hooks/useTerminalSession';
 import type { BridgeClient } from './bridge';
 import { tauri } from './tauri';
+import { isInputRefusal } from './input-refusal';
 
 /** Local PTY owner — desktop sidebar resizes and writes through Tauri. */
 export function makeDesktopOrchestratorTransport(paneId: string): TerminalTransport {
@@ -15,14 +16,32 @@ export function makeDesktopOrchestratorTransport(paneId: string): TerminalTransp
   };
 }
 
-/** Shared bridge mirror transport — viewers must not resize the backend PTY. */
-export function makePaneTunnelTransport(bridge: BridgeClient, paneId: string): TerminalTransport {
+/**
+ * Shared bridge mirror transport — viewers must not resize the backend PTY.
+ * `sendViaSocket` is tried first; when it returns false (socket not open) the POST is used.
+ */
+export function makePaneTunnelTransport(
+  bridge: BridgeClient,
+  paneId: string,
+  sendViaSocket?: (paneId: string, text: string, appendNewline: boolean) => boolean,
+  /** The PC refused the typed text (403): tell the person; a refused write is never silent. */
+  onRefused?: (paneId: string, error: Error) => void,
+): TerminalTransport {
   return {
     resize: async () => {
       void paneId;
     },
     writeInput: async (text: string, appendNewline = false) => {
-      await bridge.writeInput(paneId, text, appendNewline);
+      if (sendViaSocket?.(paneId, text, appendNewline)) return;
+      try {
+        await bridge.writeInput(paneId, text, appendNewline);
+      } catch (error) {
+        if (onRefused && isInputRefusal(error)) {
+          onRefused(paneId, error as Error);
+          return;
+        }
+        throw error;
+      }
     },
   };
 }

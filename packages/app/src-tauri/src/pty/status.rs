@@ -1,5 +1,8 @@
 //! Status heuristics for a pane — looks at recent scrollback to decide if
 //! the agent is waiting on input, idle, etc.
+//!
+//! Only the TUI-independent part lives here. Screens that one TUI draws differently (Cursor's
+//! approval dialog, a shell prompt) are classified by that TUI's `crate::tui` profile.
 
 use super::ansi::strip_ansi;
 use once_cell::sync::Lazy;
@@ -56,30 +59,6 @@ static PROMPT_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     .collect()
 });
 
-/// Cursor Agent screens that block on the user: command approval and workspace trust. These
-/// take priority over the "Add follow-up" footer, which can stay visible underneath a dialog.
-static CURSOR_BLOCKED_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
-    [
-        r"(?i)run this command\??",
-        r"(?i)\brun once\b",
-        r"(?i)\brun everything\b",
-        r"(?i)\bskip\s*\((esc|n)\b",
-        r"(?i)workspace trust required",
-        r"(?i)trust this workspace",
-        r"(?i)do you trust the contents",
-    ]
-    .into_iter()
-    .map(|p| Regex::new(p).expect("valid cursor blocked regex"))
-    .collect()
-});
-
-static POWERSHELL_PROMPT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)^PS\s+.+>\s*$").expect("powershell prompt regex"));
-static CMD_PROMPT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)^[a-z]:\\.*>\s*$").expect("cmd prompt regex"));
-static BASH_PROMPT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?:^|\s)[^\s]*[$#]\s*$").expect("bash prompt regex"));
-
 /// Returns true if the recent scrollback (typically last 1–3 lines) looks
 /// like the agent is waiting on user input.
 pub fn looks_like_prompt(text: &str) -> bool {
@@ -112,35 +91,18 @@ pub fn classify_agent_observation(agent_type: &str, screen: &str, _recent: &str)
         .rev()
         .collect::<Vec<_>>()
         .join("\n");
+    let profile = crate::tui::profile_for(agent_type);
     if is_shell_agent(agent_type) {
         // A shell sitting at its prompt is ready for a command, not blocked on a question.
-        return if shell_prompt_visible(agent_type, &clean_screen) {
+        return if profile.prompt_visible(&clean_screen) {
             PaneStatus::Idle
         } else {
             PaneStatus::Running
         };
     }
 
-    if matches!(
-        agent_type.to_ascii_lowercase().as_str(),
-        "cursor" | "cursor_agent"
-    ) {
-        if CURSOR_BLOCKED_PATTERNS
-            .iter()
-            .any(|re| re.is_match(&visible_tail))
-        {
-            return PaneStatus::WaitingInput;
-        }
-        if visible_tail.contains("Composing") || visible_tail.contains("Working") {
-            return PaneStatus::Running;
-        }
-        if visible_tail.contains("Add follow-up") {
-            return PaneStatus::Idle;
-        }
-        if looks_like_prompt(&visible_tail) {
-            return PaneStatus::WaitingInput;
-        }
-        return PaneStatus::Running;
+    if let Some(status) = profile.classify_screen(&visible_tail) {
+        return status;
     }
 
     if looks_like_prompt(&visible_tail) {
@@ -150,53 +112,13 @@ pub fn classify_agent_observation(agent_type: &str, screen: &str, _recent: &str)
     }
 }
 
-pub fn is_shell_agent(agent_type: &str) -> bool {
-    matches!(
-        agent_type.to_ascii_lowercase().as_str(),
-        "cmd" | "powershell" | "bash"
-    )
-}
-
-pub fn shell_prompt_visible(agent_type: &str, screen: &str) -> bool {
-    let clean = strip_ansi(screen);
-    let line = clean
+/// The profile's view of whether the screen shows work in progress (`None` = cannot tell). Built
+/// from the same last-12-rows tail the classifier uses.
+pub fn busy_marker(agent_type: &str, screen: &str) -> Option<bool> {
+    let clean_screen = strip_ansi(screen);
+    let visible_tail = clean_screen
         .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("")
-        .trim();
-    if line.is_empty() {
-        return false;
-    }
-    match agent_type.to_ascii_lowercase().as_str() {
-        "powershell" => POWERSHELL_PROMPT.is_match(line),
-        "cmd" => CMD_PROMPT.is_match(line),
-        "bash" => BASH_PROMPT.is_match(line),
-        _ => false,
-    }
-}
-
-/// OpenCode TUI menus (numbered yes/no, submit hints) — used by wait `settled`.
-static OPENCODE_TUI_MENU_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
-    [
-        r"(?i)enter submit",
-        r"(?i)esc dismiss",
-        r"(?i)↑↓ select",
-        r"(?i)\d+\.\s*yes\b",
-        r"(?i)\d+\.\s*no\b",
-        r"(?i)type your own answer",
-    ]
-    .into_iter()
-    .map(|p| Regex::new(p).expect("valid opencode tui regex"))
-    .collect()
-});
-
-/// OpenCode TUI menus (numbered yes/no, submit hints) — used by wait `settled`.
-pub fn looks_like_opencode_tui_menu(text: &str) -> bool {
-    let clean = strip_ansi(text);
-    let tail: String = clean
-        .lines()
-        .filter(|l| !l.trim().is_empty())
+        .filter(|line| !line.trim().is_empty())
         .rev()
         .take(12)
         .collect::<Vec<_>>()
@@ -204,48 +126,110 @@ pub fn looks_like_opencode_tui_menu(text: &str) -> bool {
         .rev()
         .collect::<Vec<_>>()
         .join("\n");
-    OPENCODE_TUI_MENU_PATTERNS
-        .iter()
-        .any(|re| re.is_match(&tail))
+    crate::tui::profile_for(agent_type).busy_marker(&visible_tail)
+}
+
+/// The status to publish for a freshly classified screen. `classify_agent_observation` can only
+/// say `running` for a screen that is not a prompt, so every redraw of an idle pane (a resize
+/// reprint, a clock tick, typing into the input box) used to flip it to `running` until the idle
+/// watcher caught up: the sidebar flashed "Working 0s" on select and the turn tracker counted
+/// 0.8s phantom turns. When the profile proves the screen shows no work (`busy == Some(false)`),
+/// an idle pane stays idle. Real work shows its marker (spinner, stop hint) and flips it.
+pub fn settle_status(previous: PaneStatus, observed: PaneStatus, busy: Option<bool>) -> PaneStatus {
+    settle_status_after_resize(previous, observed, busy, false)
+}
+
+/// [`settle_status`] plus the generic guard for profiles that cannot read a busy marker: when the
+/// pane was resized a moment ago (`pty::resize_clock`), the agent's reprint of its screen is not
+/// work either, so an idle pane stays idle unless the profile's own evidence says it is busy
+/// (`busy == Some(true)`). Without a recent resize nothing changes.
+pub fn settle_status_after_resize(
+    previous: PaneStatus,
+    observed: PaneStatus,
+    busy: Option<bool>,
+    recently_resized: bool,
+) -> PaneStatus {
+    let no_proof_of_work = busy == Some(false) || (recently_resized && busy != Some(true));
+    if previous == PaneStatus::Idle && observed == PaneStatus::Running && no_proof_of_work {
+        PaneStatus::Idle
+    } else {
+        observed
+    }
+}
+
+pub fn is_shell_agent(agent_type: &str) -> bool {
+    crate::tui::is_shell(agent_type)
+}
+
+pub fn shell_prompt_visible(agent_type: &str, screen: &str) -> bool {
+    crate::tui::profile_for(agent_type).prompt_visible(screen)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // Live bug #9: selecting an idle pane remounted its terminal, the TUI reprinted after the
+    // resize, and the redraw read as "Working 0s".
+    const IDLE_CLAUDE: &str = include_str!("../tui/claude/fixtures/side_diff_panel_screen.txt");
+    const WORKING_CLAUDE: &str = "\u{25cf} Update(sum.js)\n\n\u{273b} Cooking\u{2026} (3s \u{b7} esc to interrupt)\n\n\u{276f} \n  \u{23f8} manual mode on";
+
     #[test]
-    fn detects_opencode_numbered_yes_no_menu() {
-        let text = "1. Yes\n2. No\n3. Type your own answer\n↑↓ select  enter submit  esc dismiss";
-        assert!(looks_like_opencode_tui_menu(text));
+    fn a_redraw_of_an_idle_claude_pane_does_not_flip_it_to_running() {
+        let claude = "claude";
+        // The classifier alone cannot say idle: this is the flip the sidebar showed.
+        assert_eq!(classify_agent_observation(claude, IDLE_CLAUDE, ""), PaneStatus::Running);
+        let busy = busy_marker(claude, IDLE_CLAUDE);
+        assert_eq!(busy, Some(false));
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::Running, busy), PaneStatus::Idle);
+    }
+
+    #[test]
+    fn real_work_still_flips_an_idle_pane_to_running() {
+        let busy = busy_marker("claude", WORKING_CLAUDE);
+        assert_eq!(busy, Some(true));
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::Running, busy), PaneStatus::Running);
+        // A profile that cannot tell keeps the old behaviour.
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::Running, None), PaneStatus::Running);
+        // Prompts and a running pane are never held back.
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::WaitingInput, Some(false)), PaneStatus::WaitingInput);
+        assert_eq!(settle_status(PaneStatus::Running, PaneStatus::Running, Some(false)), PaneStatus::Running);
+    }
+
+    // Live VERIFY #9 (Codex): selecting an idle Codex pane flipped it to running ("Working 0s") for 5 s
+    // or more, every time. Captures: Codex 0.159.3 in D:/pm-demo, ready composer / turn running.
+    const IDLE_CODEX: &str = include_str!("../tui/codex/fixtures/standby_ready_live.txt");
+    const WORKING_CODEX: &str = include_str!("../tui/codex/fixtures/working_live.txt");
+
+    #[test]
+    fn a_redraw_of_an_idle_codex_pane_does_not_flip_it_to_running() {
+        let codex = "codex";
+        assert_eq!(classify_agent_observation(codex, IDLE_CODEX, ""), PaneStatus::Running, "the classifier alone reads a redraw as work");
+        let busy = busy_marker(codex, IDLE_CODEX);
+        assert_eq!(busy, Some(false), "Codex shows no working row when idle");
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::Running, busy), PaneStatus::Idle);
+        // A turn in flight still flips it.
+        let working = busy_marker(codex, WORKING_CODEX);
+        assert_eq!(working, Some(true));
+        assert_eq!(settle_status(PaneStatus::Idle, PaneStatus::Running, working), PaneStatus::Running);
+    }
+
+    #[test]
+    fn a_resize_redraw_never_flips_an_idle_pane_unless_the_profile_proves_work() {
+        use PaneStatus::{Idle, Running, WaitingInput};
+        // A profile with no busy marker (None): the old behaviour flipped on any redraw.
+        assert_eq!(settle_status_after_resize(Idle, Running, None, false), Running, "no resize: unchanged");
+        assert_eq!(settle_status_after_resize(Idle, Running, None, true), Idle, "our own resize redraw");
+        // Proof of work wins over the guard, and the guard never holds back other transitions.
+        assert_eq!(settle_status_after_resize(Idle, Running, Some(true), true), Running);
+        assert_eq!(settle_status_after_resize(Idle, WaitingInput, None, true), WaitingInput);
+        assert_eq!(settle_status_after_resize(Running, Running, None, true), Running);
+        assert_eq!(settle_status_after_resize(Idle, Running, Some(false), false), Idle);
     }
 
     #[test]
     fn generic_greater_than_is_not_a_blocked_prompt() {
         assert!(!looks_like_prompt("Add follow-up >"));
-        assert_eq!(
-            classify_agent_observation("cursor_agent", "Add follow-up >", ""),
-            PaneStatus::Idle
-        );
-    }
-
-    #[test]
-    fn cursor_working_beats_the_follow_up_footer() {
-        assert_eq!(
-            classify_agent_observation("cursor_agent", "Working...\n\n→ Add follow-up\n", "",),
-            PaneStatus::Running
-        );
-        assert_eq!(
-            classify_agent_observation("cursor_agent", "Composing\n\n→ Add follow-up\n", "",),
-            PaneStatus::Running
-        );
-    }
-
-    #[test]
-    fn detects_real_cursor_command_approval() {
-        assert_eq!(
-            classify_agent_observation("cursor_agent", "Run this command?", ""),
-            PaneStatus::WaitingInput
-        );
     }
 
     #[test]
@@ -274,52 +258,5 @@ mod tests {
             classify_agent_observation("bash", "Composing changes...", ""),
             PaneStatus::Running
         );
-    }
-
-    // Built from the option line reported from a live Cursor Agent session, keeping the
-    // "Add follow-up" footer underneath to cover the idle-while-blocked regression.
-    const CURSOR_APPROVAL_SCREEN: &str = "\
- $ cargo test --lib\n\
-\n\
- Run this command?\n\
- Run once (y)\n\
- Add to allowlist (tab)\n\
- Run Everything (shift+tab)\n\
- Skip (esc or n)\n\
-\n\
- → Add follow-up\n";
-
-    #[test]
-    fn cursor_approval_is_blocked_even_with_the_follow_up_footer_visible() {
-        assert_eq!(
-            classify_agent_observation("cursor_agent", CURSOR_APPROVAL_SCREEN, ""),
-            PaneStatus::WaitingInput
-        );
-    }
-
-    #[test]
-    fn cursor_workspace_trust_screen_is_blocked() {
-        // Real capture from a headless cursor-agent run in an untrusted folder.
-        let screen = include_str!("fixtures/cursor_workspace_trust.txt");
-        assert_eq!(
-            classify_agent_observation("cursor_agent", screen, ""),
-            PaneStatus::WaitingInput
-        );
-    }
-
-    /// Drop a real capture at `fixtures/cursor_approval_real.txt` to extend golden coverage;
-    /// a no-op while the file is absent.
-    #[test]
-    fn real_cursor_approval_capture_when_present() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/pty/fixtures/cursor_approval_real.txt"
-        );
-        if let Ok(screen) = std::fs::read_to_string(path) {
-            assert_eq!(
-                classify_agent_observation("cursor_agent", &screen, ""),
-                PaneStatus::WaitingInput
-            );
-        }
     }
 }

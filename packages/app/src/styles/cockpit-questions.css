@@ -1,0 +1,6 @@
+/* Question, consent, budget and limit cards in the cockpit Inbox. They are InboxCards (inbox-card.css);
+   this is what only they need. Monochrome: state is shown by weight and contrast. */
+.cockpit .ib-card[data-urgent] .ib-title,
+.cockpit .ib-card[data-guard] .ib-title {
+  font-weight: 700;
+}

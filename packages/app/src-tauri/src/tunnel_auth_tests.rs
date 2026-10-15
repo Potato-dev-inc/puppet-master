@@ -1,8 +1,8 @@
 //! End-to-end authorization tests for the remote path: client -> `pwa_server` (the loopback server
 //! cloudflared points at) -> bridge listener. The bridge side is the real request reader and the
 //! real `gate` (see `bridge::spawn_gate_listener`); only the `AppHandle`-bound route dispatch is
-//! replaced, by a reply that says whether the caller was authorized and whether it would have been
-//! treated as the desktop app. The pairing store is the real one.
+//! replaced, by a reply that says whether the caller was authorized and whether the route layer
+//! would have treated it as the desktop app. The pairing store is the real one.
 //!
 //! Regression for the 2026-10-14 tunnel auth bypass (docs/security/2026-10-14-tunnel-auth-bypass.md):
 //! `pwa_server` forwarded requests without `X-PM-Proxied`, so the bridge saw a loopback peer and
@@ -93,6 +93,17 @@ fn tunnel_request_without_bearer_is_rejected() {
 }
 
 #[test]
+fn the_attention_list_needs_a_paired_device_over_the_tunnel() {
+    let r = rig();
+    let (status, body) = send(r.pwa, &get("/bridge/attention", &[]));
+    assert_eq!(status, 401, "an anonymous tunnel caller must not read what needs the person: {body}");
+    let auth = format!("Authorization: Bearer {}", r.token);
+    let (status, body) = send(r.pwa, &get("/bridge/attention", &[&auth]));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(json(&body)["local_app"], false);
+}
+
+#[test]
 fn tunnel_caller_cannot_forge_or_strip_the_proxied_marker() {
     let r = rig();
     for header in ["X-PM-Proxied: 0", "x-pm-proxied: 0", "X-PM-Proxied:", " X-PM-Proxied: 0"] {
@@ -128,7 +139,7 @@ fn tunnel_request_with_a_paired_bearer_is_authorized_but_is_not_the_local_app() 
     assert_eq!(reply["authorized"], true);
     assert_eq!(
         reply["local_app"], false,
-        "a paired phone is never the desktop app"
+        "a paired phone is never the desktop app (definitions approval, /pair/invite)"
     );
 }
 
@@ -205,10 +216,51 @@ fn a_web_page_in_the_users_browser_cannot_use_the_loopback_bridge_as_the_app() {
     }
 }
 
+fn upgrade(path: &str, extra_headers: &[&str]) -> String {
+    let mut request = format!(
+        "GET {path} HTTP/1.1\r\nHost: tunnel.example\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n"
+    );
+    for header in extra_headers {
+        request.push_str(header);
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
+    request
+}
+
 #[test]
-fn sse_stream_through_the_tunnel_needs_a_bearer() {
+fn websocket_upgrade_through_the_tunnel_without_a_token_is_rejected() {
     let r = rig();
-    for path in ["/bridge/events"] {
+    let (status, body) = send(r.pwa, &upgrade("/bridge/events/ws", &[]));
+    assert_eq!(status, 401, "{body}");
+    assert_eq!(json(&body)["error"], "pairing_required");
+
+    // a forged marker on the upgrade changes nothing
+    let (status, _) = send(r.pwa, &upgrade("/bridge/events/ws", &["X-PM-Proxied: 0"]));
+    assert_eq!(status, 401);
+
+    // a bad subprotocol token is rejected too
+    let (status, _) = send(
+        r.pwa,
+        &upgrade("/bridge/events/ws", &["Sec-WebSocket-Protocol: pm-events, pm-bearer.not-a-token"]),
+    );
+    assert_eq!(status, 401);
+}
+
+#[test]
+fn websocket_upgrade_through_the_tunnel_accepts_the_subprotocol_bearer() {
+    let r = rig();
+    let protocols = format!("Sec-WebSocket-Protocol: pm-events, pm-bearer.{}", r.token);
+    let (status, body) = send(r.pwa, &upgrade("/bridge/events/ws", &[&protocols]));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(json(&body)["local_app"], false);
+}
+
+#[test]
+fn sse_and_poll_twins_through_the_tunnel_need_a_bearer() {
+    let r = rig();
+    for path in ["/bridge/events", "/bridge/events/poll"] {
         let (status, _) = send(r.pwa, &get(path, &[]));
         assert_eq!(status, 401, "{path}");
         let auth = format!("Authorization: Bearer {}", r.token);
@@ -225,12 +277,113 @@ fn proxy_sends_exactly_one_marker_of_its_own_and_keeps_the_query_string() {
     let (status, body) = send(
         r.pwa,
         &get(
-            "/bridge/panes/p1/buffer?view=screen&lines=5",
+            "/bridge/events/poll?cursor=5&wait_ms=100",
             &[&auth, "X-PM-Proxied: 0", "x-pm-proxied: nope"],
         ),
     );
     assert_eq!(status, 200, "{body}");
     let reply = json(&body);
     assert_eq!(reply["proxied_markers"], serde_json::json!(["1"]));
-    assert_eq!(reply["target"], "/panes/p1/buffer?view=screen&lines=5");
+    assert_eq!(reply["target"], "/events/poll?cursor=5&wait_ms=100");
+
+    // same for the WebSocket upgrade path
+    let protocols = format!("Sec-WebSocket-Protocol: pm-events, pm-bearer.{}", r.token);
+    let (_, body) = send(r.pwa, &upgrade("/bridge/events/ws", &[&protocols, "X-PM-Proxied: 0"]));
+    assert_eq!(json(&body)["proxied_markers"], serde_json::json!(["1"]));
+}
+
+fn post(path: &str, body: &str, extra_headers: &[&str]) -> String {
+    let mut request = format!(
+        "POST {path} HTTP/1.1\r\nHost: tunnel.example\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        body.len()
+    );
+    for header in extra_headers {
+        request.push_str(header);
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
+    request.push_str(body);
+    request
+}
+
+#[test]
+fn push_act_passes_the_tunnel_gate_without_a_bearer_but_the_other_push_routes_do_not() {
+    let r = rig();
+    // The Allow/Deny tap from a notification carries its own one-shot token, no device bearer.
+    let act = r#"{"token":"one-shot-token","choice":"allow"}"#;
+    let (status, body) = send(r.pwa, &post("/bridge/push/act", act, &[]));
+    assert_eq!(status, 200, "push/act must get past the gate with no bearer: {body}");
+    assert_eq!(json(&body)["authorized"], true);
+
+    // Everything else under /push still needs a paired device, through the proxy.
+    let subscribe = r#"{"endpoint":"https://fcm.googleapis.com/x","keys":{"p256dh":"a","auth":"b"}}"#;
+    let (status, body) = send(r.pwa, &post("/bridge/push/subscribe", subscribe, &[]));
+    assert_eq!(status, 401, "subscribe without a bearer: {body}");
+    assert_eq!(json(&body)["error"], "pairing_required");
+    let (status, _) = send(r.pwa, &get("/bridge/push/key", &[]));
+    assert_eq!(status, 401);
+    let (status, _) = send(r.pwa, &post("/bridge/push/presence", r#"{"visible":true}"#, &[]));
+    assert_eq!(status, 401);
+
+    // With a paired bearer the same subscribe request is authorized at the gate.
+    let auth = format!("Authorization: Bearer {}", r.token);
+    let (status, body) = send(r.pwa, &post("/bridge/push/subscribe", subscribe, &[&auth]));
+    assert_eq!(status, 200, "{body}");
+}
+
+/// Round 13 #1: the log flood. Every phone request proxied by `pwa_server` (`/bridge/*`) was said
+/// to log `LOCAL_SECRET_MISSING`. A proxied request always carries `X-PM-Proxied`, so it is a Device
+/// or Public caller and never "local without the key"; only a genuine local caller (no forwarder
+/// header) without the key is counted and logged, under its route class (no `/bridge` prefix).
+#[test]
+fn proxied_phone_requests_never_log_local_secret_missing_but_a_local_caller_does_once() {
+    use crate::mobile_pairing::local_secret;
+    let r = rig();
+    let port_file = std::env::temp_dir().join(format!("pm-tunnel-secret-{}", std::process::id())).join("x.port");
+    std::fs::create_dir_all(port_file.parent().unwrap()).unwrap();
+    local_secret::init(&port_file).unwrap();
+
+    let auth = format!("Authorization: Bearer {}", r.token);
+    for _ in 0..5 {
+        // a paired phone through the proxy, and an anonymous tunnel caller
+        let _ = send(r.pwa, &get("/bridge/r13-proxied-probe/panes", &[&auth]));
+        let _ = send(r.pwa, &get("/bridge/r13-proxied-probe/panes", &[]));
+    }
+    assert!(
+        !local_secret::logged_classes().iter().any(|class| class.contains("r13-proxied-probe")),
+        "proxied requests are not local callers: {:?}",
+        local_secret::logged_classes()
+    );
+
+    // The same route called directly on the bridge port, by a local program that has no key:
+    // logged once, under the class without the `/bridge` prefix.
+    for _ in 0..5 {
+        let _ = send(r.bridge, "GET /bridge/r13-direct-probe/panes HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    }
+    let classes = local_secret::logged_classes();
+    assert_eq!(classes.iter().filter(|c| c.contains("r13-direct-probe")).collect::<Vec<_>>(), ["GET /r13-direct-probe/panes"], "{classes:?}");
+}
+
+/// Log sample for the round 13 report (run alone: `cargo test --lib log_sample_for_the_report -- --ignored --nocapture`).
+/// 300 phone requests through the proxy plus 300 direct local calls on pane routes: prints what the app would log.
+#[test]
+#[ignore]
+fn log_sample_for_the_report() {
+    use crate::mobile_pairing::local_secret;
+    let _ = tracing_subscriber::fmt().with_writer(std::io::stdout).with_ansi(false).try_init();
+    let r = rig();
+    let port_file = std::env::temp_dir().join(format!("pm-tunnel-secret-sample-{}", std::process::id())).join("x.port");
+    std::fs::create_dir_all(port_file.parent().unwrap()).unwrap();
+    local_secret::init(&port_file).unwrap();
+    let auth = format!("Authorization: Bearer {}", r.token);
+    let before = local_secret::status().missing_count;
+    for i in 0..300 {
+        let pane = format!("47c0b972-dfba-4f82-beff-45fecf29bd{:02}", i % 10);
+        let _ = send(r.pwa, &get(&format!("/bridge/panes/{pane}/buffer"), &[&auth]));
+        let _ = send(r.bridge, &format!("GET /bridge/panes/{pane}/buffer HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"));
+        if i % 3 == 0 {
+            let _ = send(r.bridge, "POST /mcp/mode HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n");
+        }
+    }
+    println!("SAMPLE: 300 proxied phone requests + 300 local pane reads + 100 local POST /mcp/mode, counter {} -> {}", before, local_secret::status().missing_count);
 }

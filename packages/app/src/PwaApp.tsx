@@ -1,829 +1,107 @@
+// Mobile PWA root: watch and reply to the agents running on the PC, one tab per agent pane (like
+// terminal tabs) plus an "All" overview. It does not drive the orchestrator. The previous
+// orchestrator-centric mobile UI is kept as PwaLegacyApp.tsx (open with `?pwa=legacy`).
+import { NudgeScheduler } from './lib/nudge-scheduler';
+import { blockingCount, newerSnapshot, type AttentionItem, type AttentionSnapshot } from './lib/attention';
+import { COPY } from './lib/attention-copy';
+import { PROMPT_KINDS } from './lib/needs-you-queue';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  DEFAULT_LLM_MODELS,
-  ORCHESTRATOR_BACKEND_LABELS,
-  modelKey,
-  type OrchestratorBackend,
-  type OrchestratorChatEvent,
-  type PaneInfo,
-} from '@puppet-master/shared';
-import { listLaunchPresets, type AgentType } from '@puppet-master/shared';
-import { BridgePaneTerminal, useBridgePaneTransport } from './components/BridgePaneTerminal';
-import { OrchestratorTerminal } from './components/OrchestratorTerminal';
+import type { AgentType, PaneInfo } from '@puppet-master/shared';
 import { useBridgePaneRegistry } from './hooks/useBridgePaneRegistry';
-import { useOrchestratorViewportReporter } from './hooks/useOrchestratorViewportReporter';
-import { usePaneTunnel, type PaneTunnelApi } from './hooks/usePaneTunnel';
+import type { TerminalTransport } from './hooks/useTerminalSession';
+import { usePaneViewportLease, VIEWER_ID } from './hooks/usePaneViewportLease';
 import { useVisualViewportSync } from './hooks/useVisualViewport';
-import { makeBridgeClient, subscribeBridgeEvents, type BridgeClient } from './lib/bridge';
-import { routeBridgeEventToPaneTunnel } from './lib/bridge-pane-tunnel';
+import { makeBridgeClient, type BridgeClient } from './lib/bridge';
+import { subscribeBridgeEventsHandle, type BridgeEventsHandle, type BridgeLinkStats } from './lib/bridge-sse';
 import { DEFAULT_PUBLIC_SETTINGS, type PublicSettings } from './lib/bridge-settings';
 import { ngrokRequestHeaders } from './lib/bridge-ngrok';
 import { mergeBridgeHeaders } from './lib/mobile-pairing-auth';
-import {
-  clearMobilePairingCredentials,
-  loadMobilePairingCredentials,
-  pairFromInviteCode,
-  pairFromQrJson,
-} from './lib/mobile-pairing';
-import { LS_BRIDGE_URL, resolveBridgeBaseUrl, shouldUseSameOriginBridgeProxy } from './lib/bridge-url';
-import {
-  applyOrchestratorChatEvent,
-  chatEventToMcpLog,
-  type ChatLine,
-  type McpLogLine,
-} from './lib/orchestrator-chat';
-import {
-  findOrchestratorPane,
-  isCliOrchestratorBackend,
-  isOrchestratorPaneId,
-} from './lib/orchestrator-panes';
+import { LS_BRIDGE_URL, resolveBridgeBaseUrl } from './lib/bridge-url';
+import { fallbackListing, listingFromBody, type AgentRegistryListing, type LaunchEntry } from './lib/agentRegistry';
+import { ALL_TAB, orderPanes, phoneLaunchEntries, tabLabels } from './lib/mobile-agent-tabs';
 import {
   PairInviteScreen,
   readPairingInviteCode,
   clearPairingInviteFromUrl,
 } from './components/PairInviteScreen';
+import { BridgePaneTerminal, useBridgePaneTransport } from './components/BridgePaneTerminal';
+import { AgentTabBar } from './components/mobile/AgentTabBar';
+import { PreviewNote } from './components/mobile/PreviewNote';
+import { StuckNote } from './components/mobile/StuckNote';
+import type { LoopSignalInfo } from './lib/bridge-types';
+import './styles/phone.css';
+import type { PreviewUrl } from './lib/pane-preview';
+import { AgentsOverview } from './components/mobile/AgentsOverview';
+import { DockedCard } from './components/mobile/DockedCard';
+import { CardSheet } from './components/mobile/CardSheet';
+import { usePushIntents } from './hooks/usePushIntents';
+import { usePhoneAbilities } from './hooks/usePhoneAbilities';
+import { inputRefusalNote } from './lib/input-refusal';
+import { InputRefusedNote } from './components/mobile/InputRefusedNote';
+import { TypingNote } from './components/mobile/TypingNote';
+import { MenuSheet, NewAgentSheet, type TypingEchoStats } from './components/mobile/MobileSheet';
+import { SetupScreen } from './components/pwa/SetupScreen';
 
+const LS_ACTIVE_TAB = 'pm.mobile.activeTab';
+const RESIZES_CONTENT = 'interactive-widget=resizes-content';
 
-async function syncBridgePanes(
-  client: BridgeClient,
-  apply: (panes: PaneInfo[]) => void,
-): Promise<void> {
-  const list = await client.listPanes();
-  apply(list);
-}
-
-interface DevInfo {
-  tunnelUrl?: string | null;
-  ngrokUrl?: string | null;
-  bridgeProxyUrl?: string;
-  tunnelProvider?: string | null;
-}
-
-// ---- Connection setup screen ----
-
-function SetupScreen({ onConnect }: { onConnect: (url: string) => void }) {
-  const [mode, setMode] = useState<'pair' | 'manual'>('pair');
-  const [url, setUrl] = useState(() => resolveBridgeBaseUrl(localStorage.getItem(LS_BRIDGE_URL), window.location));
-  const [testing, setTesting] = useState(false);
-  const [pairing, setPairing] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [devInfo, setDevInfo] = useState<DevInfo | null>(null);
-  const [qrJson, setQrJson] = useState('');
-  const [manualCode, setManualCode] = useState('');
-  const [deviceName, setDeviceName] = useState(() => {
-    const ua = navigator.userAgent;
-    if (/iPhone/i.test(ua)) return 'iPhone';
-    if (/iPad/i.test(ua)) return 'iPad';
-    if (/Android/i.test(ua)) return 'Android';
-    return 'Mobile device';
-  });
-  const existingCreds = loadMobilePairingCredentials();
-
+/**
+ * Android Chrome: let the software keyboard shrink the page (layout viewport) instead of panning
+ * it up. Only while this UI is mounted, so the legacy PWA keeps its own keyboard behaviour.
+ * Browsers that ignore the hint (iOS Safari) are covered by `.pwa-shell--fit-visual`.
+ */
+function useKeyboardResizesContent(): void {
   useEffect(() => {
-    fetch('/__puppet_master_dev__.json', { cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() as Promise<DevInfo> : null))
-      .then((info) => {
-        const publicUrl = info?.tunnelUrl ?? info?.ngrokUrl;
-        if (publicUrl) setDevInfo({ ...info, tunnelUrl: publicUrl });
-      })
-      .catch(() => {});
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    if (!meta || meta.content.includes('interactive-widget')) return;
+    const original = meta.content;
+    meta.content = `${original}, ${RESIZES_CONTENT}`;
+    return () => {
+      meta.content = original;
+    };
   }, []);
+}
+/** Health re-check and pane list refresh: the SSE stream can drop silently on a phone. */
+const RESYNC_MS = 5000;
+/** Typing-echo samples kept (median over these). */
+const ECHO_WINDOW = 10;
+/** A keystroke still waiting for its echo after this long is dropped (no output came back). */
+const ECHO_PENDING_MAX_MS = 3000;
+/** Echo stats are published to state at most this often. */
+const ECHO_PUBLISH_MS = 1000;
 
-  const handleConnect = async (targetUrl?: string) => {
-    setTesting(true);
-    setErr(null);
-    const base = (targetUrl ?? url).replace(/\/$/, '');
-    try {
-      const res = await fetch(`${base}/health`, {
-        signal: AbortSignal.timeout(4000),
-        headers: mergeBridgeHeaders(ngrokRequestHeaders(base)),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      localStorage.setItem(LS_BRIDGE_URL, base);
-      onConnect(base);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setTesting(false);
+function medianOf(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+const LS_LAST_FIT_GRID = 'pm.mobile.lastFitGrid';
+/** A touch that moves less than this and lifts within TAP_MAX_MS is a tap, not a swipe. */
+const TAP_MAX_MOVE_PX = 10;
+const TAP_MAX_MS = 500;
+
+/** The last grid that fit this phone's terminal area, so a spawn right after a reload is phone-sized. */
+function readLastFitGrid(): { cols: number; rows: number } | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LS_LAST_FIT_GRID) ?? 'null') as { cols?: unknown; rows?: unknown } | null;
+    if (parsed && typeof parsed.cols === 'number' && typeof parsed.rows === 'number' && parsed.cols > 0 && parsed.rows > 0) {
+      return { cols: parsed.cols, rows: parsed.rows };
     }
-  };
-
-  const handlePairFromInvite = async (pairingCode: string) => {
-    setPairing(true);
-    setErr(null);
-    try {
-      const creds = await pairFromInviteCode(
-        pairingCode,
-        deviceName.trim() || 'Mobile device',
-        window.location,
-        localStorage.getItem(LS_BRIDGE_URL),
-      );
-      setUrl(creds.bridgeUrl);
-      await handleConnect(creds.bridgeUrl);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPairing(false);
-    }
-  };
-
-  const handlePair = async (payload?: string) => {
-    const json = (payload ?? qrJson).trim();
-    if (!json) return;
-    setPairing(true);
-    setErr(null);
-    try {
-      const creds = await pairFromQrJson(json, deviceName.trim() || 'Mobile device');
-      setUrl(creds.bridgeUrl);
-      setQrJson(json);
-      await handleConnect(creds.bridgeUrl);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPairing(false);
-    }
-  };
-
-  const useTunnelBridge = () => {
-    if (!devInfo?.bridgeProxyUrl) return;
-    setUrl(devInfo.bridgeProxyUrl);
-  };
-
-  return (
-    <div className="flex flex-col items-center justify-center h-full p-6 gap-4 text-sm">
-      <img src="/app-icon.svg" alt="Puppet Master" className="w-16 h-16 rounded-xl" />
-      <h1 className="text-lg font-semibold">Puppet Master</h1>
-      <p className="text-pm-muted text-center text-xs max-w-xs">
-        {shouldUseSameOriginBridgeProxy(window.location)
-          ? 'On desktop: Settings → Mobile pairing. Scan the QR with your phone camera — it opens this app and signs you in.'
-          : 'Pair with the desktop QR code first. Direct localhost works without pairing on this machine.'}
-      </p>
-      {devInfo?.tunnelUrl && !shouldUseSameOriginBridgeProxy(window.location) && (
-        <div className="w-full max-w-xs rounded border border-pm-border bg-pm-raised/40 p-3 text-xs space-y-2">
-          <div className="text-pm-muted uppercase tracking-wide text-[10px]">Phone / other network</div>
-          <a
-            href={devInfo.tunnelUrl}
-            className="block text-pm-accent break-all hover:underline"
-            target="_blank"
-            rel="noreferrer"
-          >
-            {devInfo.tunnelUrl}
-          </a>
-          {devInfo.tunnelProvider && (
-            <div className="text-[10px] text-pm-muted">via {devInfo.tunnelProvider}</div>
-          )}
-          {devInfo.bridgeProxyUrl && (
-            <button
-              type="button"
-              onClick={useTunnelBridge}
-              className="text-[10px] text-pm-muted hover:text-zinc-200 underline"
-            >
-              Use tunnel bridge URL for testing on this machine
-            </button>
-          )}
-        </div>
-      )}
-      <div className="flex gap-2 text-xs">
-        <button
-          type="button"
-          onClick={() => setMode('pair')}
-          className={`px-3 py-1 rounded border ${mode === 'pair' ? 'border-pm-accent text-pm-accent bg-pm-accent/10' : 'border-pm-border text-pm-muted'}`}
-        >
-          Pair
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode('manual')}
-          className={`px-3 py-1 rounded border ${mode === 'manual' ? 'border-pm-accent text-pm-accent bg-pm-accent/10' : 'border-pm-border text-pm-muted'}`}
-        >
-          Manual URL
-        </button>
-      </div>
-
-      {existingCreds && (
-        <div className="w-full max-w-xs rounded border border-pm-border bg-pm-raised/40 p-3 text-xs space-y-2">
-          <div className="text-pm-muted">Paired as <span className="text-zinc-200">{existingCreds.deviceName}</span></div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => void handleConnect(existingCreds.bridgeUrl)}
-              disabled={testing}
-              className="flex-1 px-3 py-1.5 rounded border border-pm-accent/50 text-pm-accent"
-            >
-              Reconnect
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                clearMobilePairingCredentials();
-                window.location.reload();
-              }}
-              className="px-3 py-1.5 rounded border border-pm-border text-pm-muted"
-            >
-              Unpair
-            </button>
-          </div>
-        </div>
-      )}
-
-      {mode === 'pair' ? (
-        <div className="w-full max-w-xs space-y-2">
-          <div className="rounded border border-pm-border bg-pm-raised/30 p-3 text-xs text-pm-muted space-y-1">
-            <p>1. Open <strong className="text-zinc-200">Settings → Mobile pairing</strong> on desktop.</p>
-            <p>2. Scan the QR with your phone <strong className="text-zinc-200">Camera</strong> app.</p>
-            <p>3. Tap the link — Puppet Master opens and connects.</p>
-          </div>
-          {err && <p className="text-pm-err text-xs">{err}</p>}
-          {pairing && (
-            <p className="text-xs text-pm-muted text-center">Pairing…</p>
-          )}
-          <details className="text-xs">
-            <summary className="text-pm-muted cursor-pointer select-none">Advanced: paste code or legacy JSON</summary>
-            <div className="mt-2 space-y-2">
-              <label className="block text-[10px] text-pm-muted uppercase tracking-wide">Device name</label>
-              <input
-                value={deviceName}
-                onChange={(e) => setDeviceName(e.target.value)}
-                className="w-full bg-pm-bg border border-pm-border rounded px-3 py-2 text-xs"
-              />
-              <label className="block text-[10px] text-pm-muted uppercase tracking-wide">Pairing code</label>
-              <input
-                value={manualCode}
-                onChange={(e) => setManualCode(e.target.value.toUpperCase())}
-                placeholder="PM8K2X4Q"
-                className="w-full bg-pm-bg border border-pm-border rounded px-3 py-2 text-xs font-mono uppercase"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && manualCode.trim()) void handlePairFromInvite(manualCode.trim());
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => manualCode.trim() && void handlePairFromInvite(manualCode.trim())}
-                disabled={pairing || !manualCode.trim()}
-                className="w-full px-4 py-2 rounded border border-pm-border text-pm-muted text-xs disabled:opacity-50"
-              >
-                Pair with code
-              </button>
-              <textarea
-                value={qrJson}
-                onChange={(e) => setQrJson(e.target.value)}
-                placeholder='Legacy JSON QR payload'
-                className="w-full min-h-[56px] bg-pm-bg border border-pm-border rounded px-3 py-2 text-[10px] font-mono"
-              />
-              <button
-                type="button"
-                onClick={() => void handlePair()}
-                disabled={pairing || !qrJson.trim()}
-                className="w-full px-4 py-2 rounded border border-pm-border text-pm-muted text-xs disabled:opacity-50"
-              >
-                Pair legacy JSON
-              </button>
-            </div>
-          </details>
-        </div>
-      ) : (
-        <>
-      <input
-        type="url"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder={shouldUseSameOriginBridgeProxy(window.location) ? 'https://your.domain.com/bridge' : 'http://127.0.0.1:17321'}
-        className="w-full max-w-xs bg-pm-bg border border-pm-border rounded px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-pm-accent"
-      />
-      {err && <p className="text-pm-err text-xs">{err}</p>}
-      <button
-        onClick={() => void handleConnect()}
-        disabled={testing}
-        className="px-4 py-2 rounded bg-pm-accent/20 border border-pm-accent text-pm-accent text-xs disabled:opacity-50"
-      >
-        {testing ? 'Connecting…' : 'Connect'}
-      </button>
-        </>
-      )}
-    </div>
-  );
+  } catch {
+    /* private mode or bad value */
+  }
+  return null;
 }
 
-// ---- Orchestrator (mirrors desktop sidebar) ----
-
-function OrchestratorTab({
-  bridge,
-  bridgeReady,
-  chatEvents,
-  settings,
-  registry,
-  orchestratorTunnel,
-  settingsHydrated,
-}: {
-  bridge: BridgeClient;
-  bridgeReady: boolean;
-  settingsHydrated: boolean;
-  chatEvents: OrchestratorChatEvent[];
-  settings: PublicSettings;
-  registry: ReturnType<typeof useBridgePaneRegistry>;
-  orchestratorTunnel: PaneTunnelApi;
-}) {
-  const backend = settings.orchestrator_backend ?? 'api';
-  const cliBackend = isCliOrchestratorBackend(backend) ? backend : null;
-
-  const orchestratorPane = useMemo(() => {
-    if (!cliBackend) return undefined;
-    const info = findOrchestratorPane(registry.paneList.map((p) => p.info), cliBackend);
-    if (!info) return undefined;
-    return registry.panes.get(info.id);
-  }, [cliBackend, registry.paneList, registry.panes]);
-
-  const orchestratorPaneView = useMemo(() => {
-    if (!orchestratorPane) return undefined;
-    const info = orchestratorTunnel.mergePaneInfo(orchestratorPane.info) ?? orchestratorPane.info;
-    return { ...orchestratorPane, info };
-  }, [orchestratorPane, orchestratorTunnel.mergePaneInfo]);
-
-  const patchBackend = async (next: OrchestratorBackend) => {
-    await bridge.patchSettings({ orchestrator_backend: next });
-  };
-
-  return (
-    <div className="flex flex-col h-full min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col">
-        {cliBackend ? (
-          <OrchestratorTerminal
-            backend={cliBackend}
-            pane={orchestratorPaneView}
-            starting={!orchestratorPane && bridgeReady && settingsHydrated}
-            error={null}
-            subscribePaneData={orchestratorTunnel.subscribePaneData}
-            onRetry={() => void patchBackend(cliBackend)}
-            transport={orchestratorTunnel.transport}
-            syncPTYResize={false}
-            mobileInputDelayMs={settings.mobile_input_delay_ms}
-            mobileInputVisible={settings.mobile_input_visible}
-          />
-        ) : (
-          <ChatTab bridge={bridge} chatEvents={chatEvents} bridgeReady={bridgeReady} />
-        )}
-      </div>
-    </div>
-  );
+function readActiveTab(): string {
+  try {
+    return localStorage.getItem(LS_ACTIVE_TAB) || ALL_TAB;
+  } catch {
+    return ALL_TAB;
+  }
 }
-
-// ---- Chat (API backend) ----
-
-function ChatTab({
-  bridge,
-  chatEvents,
-  bridgeReady,
-}: {
-  bridge: BridgeClient;
-  chatEvents: OrchestratorChatEvent[];
-  bridgeReady: boolean;
-}) {
-  const [lines, setLines] = useState<ChatLine[]>([]);
-  const [logs, setLogs] = useState<McpLogLine[]>([]);
-  const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const seenCount = useRef(0);
-
-  useEffect(() => {
-    const newEvents = chatEvents.slice(seenCount.current);
-    if (newEvents.length === 0) return;
-    seenCount.current = chatEvents.length;
-    setLines((prev) => {
-      let next = prev;
-      for (const ev of newEvents) next = applyOrchestratorChatEvent(ev, next);
-      return next;
-    });
-    setLogs((prev) => {
-      const fresh = newEvents
-        .map(chatEventToMcpLog)
-        .filter((entry): entry is McpLogLine => entry !== null);
-      return [...fresh, ...prev].slice(0, 50);
-    });
-  }, [chatEvents]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [lines]);
-
-  const sendMessage = useCallback(async () => {
-    const text = draft.trim();
-    if (!text || sending || !bridgeReady) return;
-    const messageId = crypto.randomUUID();
-    setDraft('');
-    setSending(true);
-    setLines((prev) => applyOrchestratorChatEvent(
-      { type: 'user', message_id: messageId, text },
-      prev,
-    ));
-    try {
-      await bridge.postOrchestratorMessage(text, messageId);
-    } catch (e) {
-      setLines((prev) => [
-        ...prev,
-        {
-          id: `${messageId}-send-err`,
-          role: 'error',
-          text: e instanceof Error ? e.message : String(e),
-        },
-      ]);
-    } finally {
-      setSending(false);
-    }
-  }, [bridge, bridgeReady, draft, sending]);
-
-  return (
-    <div className="flex flex-col h-full min-h-0">
-      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
-        {!bridgeReady && (
-          <div className="text-xs text-pm-muted text-center py-4">Connecting to desktop…</div>
-        )}
-        {lines.length === 0 && bridgeReady && (
-          <div className="text-xs text-pm-muted">
-            Ask the Puppet Master to coordinate your panes — same as the desktop sidebar.
-          </div>
-        )}
-        {lines.map((line) => (
-          <div
-            key={line.id}
-            className={`text-xs whitespace-pre-wrap ${
-              line.role === 'user'
-                ? 'text-zinc-100'
-                : line.role === 'assistant'
-                ? 'text-zinc-200'
-                : line.role === 'tool'
-                ? 'text-pm-muted font-mono'
-                : line.role === 'error' || line.role === 'system'
-                ? 'text-pm-warn'
-                : 'text-pm-muted'
-            }`}
-          >
-            <span className="text-pm-muted mr-1">[{line.role}]</span>
-            {line.role === 'assistant' && line.streaming ? `${line.text}▋` : line.text}
-          </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="border-t border-pm-border max-h-28 overflow-auto shrink-0">
-        <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-pm-muted border-b border-pm-border bg-pm-bg/40">
-          MCP log
-        </div>
-        {logs.length === 0 ? (
-          <div className="px-3 py-1 text-[10px] text-pm-muted">No tool calls yet.</div>
-        ) : (
-          logs.slice(0, 20).map((log) => (
-            <div key={log.id} className="px-3 py-0.5 text-[10px] font-mono">
-              <span className={log.error ? 'text-pm-err' : 'text-pm-accent'}>{log.tool}</span>
-              {log.text && <span className="text-pm-muted"> → {log.text}</span>}
-            </div>
-          ))
-        )}
-      </div>
-
-      <div className="border-t border-pm-border p-2 shrink-0">
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault();
-              void sendMessage();
-            }
-          }}
-          rows={2}
-          placeholder="Ask the Puppet Master… (Ctrl+Enter)"
-          className="w-full text-xs bg-pm-bg border border-pm-border rounded p-2 resize-none text-zinc-100 focus:outline-none focus:border-pm-accent"
-          disabled={sending || !bridgeReady}
-        />
-        <div className="flex justify-end mt-1">
-          <button
-            onClick={() => void sendMessage()}
-            disabled={sending || !bridgeReady || !draft.trim()}
-            className="px-3 py-1 text-xs rounded border border-pm-accent bg-pm-accent/20 text-pm-accent disabled:opacity-40"
-          >
-            {sending ? 'Working…' : 'Send'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---- Panes Tab ----
-
-const STATUS_COLOR: Record<string, string> = {
-  running: 'bg-pm-ok',
-  waiting_input: 'bg-pm-accent',
-  idle: 'bg-pm-muted',
-  error: 'bg-pm-err',
-};
-
-function PanesTab({
-  panes,
-  bridgeReady,
-  registry,
-  mobileInputDelayMs,
-  mobileInputVisible,
-  selected,
-  onSelect,
-}: {
-  panes: PaneInfo[];
-  bridgeReady: boolean;
-  registry: ReturnType<typeof useBridgePaneRegistry>;
-  mobileInputDelayMs?: number;
-  mobileInputVisible?: boolean;
-  selected: string | null;
-  onSelect: (paneId: string | null) => void;
-}) {
-  const selectedPane = selected ? registry.panes.get(selected) : undefined;
-  const selectedTransport = useBridgePaneTransport(registry.makeTransport, selected ?? 'pane-placeholder');
-
-  return (
-    <div className="flex flex-col h-full min-h-0">
-      {selected && selectedPane ? (
-        <BridgePaneTerminal
-          pane={selectedPane.info}
-          status={selectedPane.status}
-          subscribePaneData={registry.subscribePaneData}
-          transport={selectedTransport}
-          title={selectedPane.info.agent_type}
-          mobileInputDelayMs={mobileInputDelayMs}
-          mobileInputVisible={mobileInputVisible}
-        />
-      ) : (
-      <div className="flex-1 min-h-0 overflow-y-auto pt-16">
-        {!bridgeReady && (
-          <div className="text-xs text-pm-muted text-center py-6">Connecting to desktop…</div>
-        )}
-        {bridgeReady && panes.length === 0 && (
-          <div className="text-xs text-pm-muted text-center py-6 px-4">
-            No panes yet. Open the menu to spawn an agent on your PC.
-          </div>
-        )}
-        {panes.map((pane) => (
-          <div
-            key={pane.id}
-            className={`flex items-center gap-1 border-b border-pm-border/50 ${selected === pane.id ? 'bg-pm-raised' : ''}`}
-          >
-            <button
-              type="button"
-              onClick={() => onSelect(pane.id)}
-              className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 text-left hover:bg-pm-raised/60 text-xs"
-            >
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLOR[pane.status] ?? 'bg-pm-muted'}`} />
-              <span className="font-mono text-zinc-200 truncate flex-1">{pane.agent_type}</span>
-              <span className="text-pm-muted text-[10px]">{pane.status}</span>
-            </button>
-          </div>
-        ))}
-      </div>
-      )}
-    </div>
-  );
-}
-
-function FloatingMobileMenu({
-  open,
-  onOpenChange,
-  bridgeReady,
-  tab,
-  onTabChange,
-  onEditConnection,
-  settings,
-  onPatchSettings,
-  panes,
-  selectedPaneId,
-  onSelectPane,
-  onRefreshPanes,
-  onSpawnPane,
-  onKillSelectedPane,
-  spawning,
-  spawnError,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  bridgeReady: boolean;
-  tab: 'chat' | 'panes';
-  onTabChange: (tab: 'chat' | 'panes') => void;
-  onEditConnection: () => void;
-  settings: PublicSettings;
-  onPatchSettings: (patch: Partial<PublicSettings>) => Promise<void>;
-  panes: PaneInfo[];
-  selectedPaneId: string | null;
-  onSelectPane: (paneId: string | null) => void;
-  onRefreshPanes: () => Promise<void>;
-  onSpawnPane: (agentType: AgentType) => Promise<void>;
-  onKillSelectedPane: () => Promise<void>;
-  spawning: boolean;
-  spawnError: string | null;
-}) {
-  const models = DEFAULT_LLM_MODELS;
-  const presets = listLaunchPresets();
-  const backend = settings.orchestrator_backend ?? 'api';
-  const activeModel =
-    models.find((m) => m.provider === settings.default_provider && m.model_id === settings.default_model) ??
-    models[0];
-
-  const patchMobileInputDelay = async (value: number) => {
-    const delayMs = Number.isFinite(value)
-      ? value <= 0
-        ? 0
-        : Math.min(1000, Math.max(50, Math.round(value)))
-      : 250;
-    await onPatchSettings({ mobile_input_delay_ms: delayMs });
-  };
-
-  return (
-    <div className="fixed top-[calc(10px+env(safe-area-inset-top,0px))] right-3 z-50 flex flex-col items-end gap-2">
-      {open && (
-        <div className="w-[min(calc(100vw-24px),22rem)] max-h-[calc(100dvh-92px)] overflow-y-auto rounded-lg border border-pm-border bg-pm-panel/95 p-3 text-xs shadow-2xl backdrop-blur">
-          <div className="flex items-center gap-2 pb-2 border-b border-pm-border">
-            <span
-              className={`w-2 h-2 rounded-full ${bridgeReady ? 'bg-pm-ok' : 'bg-pm-warn'}`}
-              title={bridgeReady ? 'Connected' : 'Connecting'}
-            />
-            <span className="font-semibold text-zinc-100 flex-1">Puppet Master</span>
-            <button
-              type="button"
-              onClick={onEditConnection}
-              className="rounded border border-pm-border px-2 py-1 text-pm-muted hover:bg-pm-border/40 hover:text-zinc-100"
-            >
-              Edit
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 py-3">
-            <button
-              type="button"
-              onClick={() => onTabChange('chat')}
-              className={`rounded border px-2 py-2 ${
-                tab === 'chat'
-                  ? 'border-pm-accent bg-pm-accent/15 text-pm-accent'
-                  : 'border-pm-border text-pm-muted hover:bg-pm-border/40'
-              }`}
-            >
-              Orchestrator
-            </button>
-            <button
-              type="button"
-              onClick={() => onTabChange('panes')}
-              className={`rounded border px-2 py-2 ${
-                tab === 'panes'
-                  ? 'border-pm-accent bg-pm-accent/15 text-pm-accent'
-                  : 'border-pm-border text-pm-muted hover:bg-pm-border/40'
-              }`}
-            >
-              Panes
-            </button>
-          </div>
-
-          {tab === 'chat' && (
-            <div className="space-y-2 border-t border-pm-border pt-3">
-              <label className="flex items-center gap-2 text-pm-muted">
-                <span className="w-16 shrink-0">Backend</span>
-                <select
-                  value={backend}
-                  disabled={!bridgeReady}
-                  onChange={(e) => void onPatchSettings({ orchestrator_backend: e.target.value as OrchestratorBackend })}
-                  className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-2 py-1 text-xs text-pm-text"
-                >
-                  {(Object.keys(ORCHESTRATOR_BACKEND_LABELS) as OrchestratorBackend[]).map((b) => (
-                    <option key={b} value={b}>
-                      {ORCHESTRATOR_BACKEND_LABELS[b]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {backend === 'api' && (
-                <label className="flex items-center gap-2 text-pm-muted">
-                  <span className="w-16 shrink-0">Model</span>
-                  <select
-                    value={modelKey(activeModel)}
-                    disabled={!bridgeReady}
-                    onChange={(e) => {
-                      const found = models.find((m) => modelKey(m) === e.target.value);
-                      if (found) void onPatchSettings({
-                        default_provider: found.provider,
-                        default_model: found.model_id,
-                      });
-                    }}
-                    className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-2 py-1 text-xs text-pm-text"
-                  >
-                    {models.map((m) => (
-                      <option key={modelKey(m)} value={modelKey(m)}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </div>
-          )}
-
-          {tab === 'panes' && (
-            <div className="space-y-2 border-t border-pm-border pt-3">
-              <label className="flex items-center gap-2 text-pm-muted">
-                <span className="w-16 shrink-0">Pane</span>
-                <select
-                  value={selectedPaneId ?? ''}
-                  disabled={!bridgeReady || panes.length === 0}
-                  onChange={(e) => onSelectPane(e.target.value || null)}
-                  className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-2 py-1 text-xs text-pm-text"
-                >
-                  <option value="">Pane list</option>
-                  {panes.map((pane) => (
-                    <option key={pane.id} value={pane.id}>
-                      {pane.agent_type} · {pane.status}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => void onRefreshPanes()}
-                  className="rounded border border-pm-border px-2 py-2 text-pm-muted hover:bg-pm-border/40"
-                >
-                  Refresh
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedPaneId}
-                  onClick={() => void onKillSelectedPane()}
-                  className="rounded border border-pm-border px-2 py-2 text-pm-muted hover:bg-pm-border/40 disabled:opacity-40"
-                >
-                  Close
-                </button>
-              </div>
-              {spawnError && (
-                <div className="rounded border border-pm-err/40 bg-pm-err/5 p-2 text-[10px] text-pm-err">
-                  {spawnError}
-                </div>
-              )}
-              <div className="pt-1">
-                <div className="pb-1 text-[10px] uppercase tracking-wide text-pm-muted">
-                  New pane
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {presets.map((preset) => (
-                    <button
-                      key={preset.type}
-                      type="button"
-                      disabled={!bridgeReady || spawning}
-                      onClick={() => void onSpawnPane(preset.type)}
-                      className="rounded border border-pm-border px-2 py-2 text-left text-zinc-100 hover:bg-pm-border/40 disabled:opacity-40"
-                    >
-                      <span className="block truncate">{preset.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-2 border-t border-pm-border mt-3 pt-3">
-            <label className="flex items-center justify-between gap-2 text-pm-muted">
-              <span>Input box</span>
-              <input
-                type="checkbox"
-                checked={settings.mobile_input_visible ?? true}
-                disabled={!bridgeReady}
-                onChange={(e) => void onPatchSettings({ mobile_input_visible: e.target.checked })}
-                className="h-4 w-4 accent-pm-accent"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-pm-muted">
-              <span className="w-16 shrink-0">Buffer</span>
-              <input
-                type="number"
-                min={0}
-                max={1000}
-                step={50}
-                value={settings.mobile_input_delay_ms ?? 250}
-                disabled={!bridgeReady}
-                onChange={(e) => void patchMobileInputDelay(Number(e.target.value))}
-                className="flex-1 min-w-0 bg-pm-bg border border-pm-border rounded px-2 py-1 text-xs font-mono text-pm-text"
-              />
-              <span className="shrink-0">ms</span>
-            </label>
-          </div>
-        </div>
-      )}
-      <button
-        type="button"
-        aria-label={open ? 'Close controls' : 'Open controls'}
-        aria-expanded={open}
-        onClick={() => onOpenChange(!open)}
-        className="flex h-12 w-12 items-center justify-center rounded-full border border-pm-border bg-pm-accent text-pm-bg text-2xl leading-none shadow-2xl"
-      >
-        {open ? '×' : '⋯'}
-      </button>
-    </div>
-  );
-}
-
-// ---- Root PWA shell ----
 
 export default function PwaApp() {
   const [inviteCode, setInviteCode] = useState(() => readPairingInviteCode());
@@ -834,201 +112,450 @@ export default function PwaApp() {
   );
   const [bridge, setBridge] = useState<BridgeClient | null>(null);
   const [bridgeReady, setBridgeReady] = useState(false);
-  const [chatEvents, setChatEvents] = useState<OrchestratorChatEvent[]>([]);
   const [panes, setPanes] = useState<PaneInfo[]>([]);
+  const [panesLoaded, setPanesLoaded] = useState(false);
+  const [previews, setPreviews] = useState<Record<string, PreviewUrl[]>>({});
+  /** Panes the loop guard flagged as stuck (event `loop-signal`). */
+  const [stuck, setStuck] = useState<Map<string, LoopSignalInfo>>(new Map());
+  /** Short confirmation shown at the bottom (replaces browser alerts). */
+  const [toast, setToast] = useState<string | null>(null);
   const [settings, setSettings] = useState<PublicSettings>(DEFAULT_PUBLIC_SETTINGS);
-  const [settingsHydrated, setSettingsHydrated] = useState(false);
-  const [tab, setTab] = useState<'chat' | 'panes'>('chat');
+  const [active, setActive] = useState<string>(readActiveTab);
   const [editingUrl, setEditingUrl] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [selectedPaneId, setSelectedPaneId] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<'menu' | 'new' | null>(null);
   const [spawning, setSpawning] = useState(false);
   const [spawnError, setSpawnError] = useState<string | null>(null);
-  const registry = useBridgePaneRegistry(bridge);
+  const [launchEntries, setLaunchEntries] = useState<LaunchEntry[] | null>(null);
+  /** The agent registry from the PC: display names for tabs and rows (compiled agents until it answers). */
+  const [agentListing, setAgentListing] = useState<AgentRegistryListing>(() => fallbackListing());
+  /** Bumped when the event stream missed events: the open terminal is rebuilt from scrollback. */
+  const [resyncKey, setResyncKey] = useState(0);
+  /** Bumped on each `questions` event (and on resync) so the pending-questions list refetches. */
+  const [questionsRev, setQuestionsRev] = useState(0);
+  /** The PC's one list of what needs you (event `attention`, `GET /attention`); null on an old PC. */
+  const [attention, setAttention] = useState<AttentionSnapshot | null>(null);
+  /** A tapped notification points at this card; it is looked up on the PC's list once the bridge is up. */
+  const [intent, setIntent] = useState<{ itemId: string; paneId?: string | null } | null>(null);
+  /** A card shown full screen (an item with no pane to open, or one that already left the list). */
+  const [sheetItem, setSheetItem] = useState<AttentionItem | null>(null);
+  /** The card a push tap opened is docked: its focus choice takes the keyboard focus once. */
+  const [deepLinked, setDeepLinked] = useState(false);
+  /** The grid that fits the open agent's terminal on this phone; the pane is sized to it. */
+  const [fitGrid, setFitGrid] = useState<{ cols: number; rows: number } | null>(null);
+  /** Last grid measured on this phone: a pane spawned from here is created at this size. */
+  const lastFitGridRef = useRef<{ cols: number; rows: number } | null>(readLastFitGrid());
+  /** A pane this phone spawned: it takes the phone's size as soon as its fitting grid is measured. */
+  const claimOnOpenRef = useRef<string | null>(null);
+  /** Live event stream handle; input prefers its socket while it is open. */
+  const streamRef = useRef<BridgeEventsHandle | null>(null);
+  const socketInput = useCallback(
+    (paneId: string, text: string, appendNewline: boolean) =>
+      streamRef.current?.sendInput(paneId, text, appendNewline) ?? false,
+    [],
+  );
+  // Offsets on the live stream show output that never arrived (see PaneStreamManager `onGap`): heal
+  // it with the nudge, which redraws the open agent from the PC's current screen.
+  const streamGapRef = useRef<() => void>(() => {});
+  /** The PC refused what was typed: a plain line under the terminal (null = nothing refused lately). */
+  const [inputRefused, setInputRefused] = useState<{ paneId: string; text: string } | null>(null);
+  const noteInputRefused = useCallback((paneId: string, detail: unknown) => {
+    setInputRefused({ paneId, text: inputRefusalNote(detail) });
+  }, []);
+  const registry = useBridgePaneRegistry(bridge, socketInput, () => streamGapRef.current(), noteInputRefused);
   const registryRef = useRef(registry);
   registryRef.current = registry;
+  const [linkStats, setLinkStats] = useState<BridgeLinkStats | null>(null);
+  const [echoStats, setEchoStats] = useState<TypingEchoStats | null>(null);
+  /** Keystroke waiting for the pane's next output. Refs only; state is published at most once a second. */
+  const echoPendingRef = useRef<{ paneId: string; at: number } | null>(null);
+  const echoSamplesRef = useRef<number[]>([]);
+  const echoLastRef = useRef<number | null>(null);
+  const echoTimerRef = useRef<number | null>(null);
+  const publishEcho = useCallback(() => {
+    if (echoTimerRef.current !== null) return;
+    echoTimerRef.current = window.setTimeout(() => {
+      echoTimerRef.current = null;
+      setEchoStats({ lastMs: echoLastRef.current, medianMs: medianOf(echoSamplesRef.current) });
+    }, ECHO_PUBLISH_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (echoTimerRef.current !== null) window.clearTimeout(echoTimerRef.current);
+    },
+    [],
+  );
 
-  const orchestratorBackend = settings.orchestrator_backend ?? 'api';
-  const cliOrchestratorBackend = isCliOrchestratorBackend(orchestratorBackend)
-    ? orchestratorBackend
-    : null;
-  const orchestratorPaneId = useMemo(() => {
-    if (!cliOrchestratorBackend) return null;
-    const info = findOrchestratorPane(panes, cliOrchestratorBackend);
-    return info?.id ?? null;
-  }, [cliOrchestratorBackend, panes]);
-
-
-  const orchestratorReady = useMemo(() => {
-    if (!cliOrchestratorBackend) return true;
-    return !!findOrchestratorPane(panes, cliOrchestratorBackend);
-  }, [cliOrchestratorBackend, panes]);
-
-  const mobileOrchestratorTunnel = usePaneTunnel(bridge, orchestratorPaneId, 'mobile');
-  const orchestratorTunnelRef = useRef(mobileOrchestratorTunnel);
-  orchestratorTunnelRef.current = mobileOrchestratorTunnel;
+  const applyPanes = useCallback((list: PaneInfo[]) => {
+    setPanes(orderPanes(list));
+    setPanesLoaded(true);
+    registryRef.current.setPanesFromList(list);
+  }, []);
 
   useVisualViewportSync(!!bridge);
-  useOrchestratorViewportReporter(bridge, tab === 'chat' && !!cliOrchestratorBackend);
+  useKeyboardResizesContent();
 
   useEffect(() => {
     if (!bridgeUrl) return;
-    const c = makeBridgeClient(bridgeUrl);
-    setBridge(c);
+    const client = makeBridgeClient(bridgeUrl);
+    setBridge(client);
     setBridgeReady(false);
-    setSettingsHydrated(false);
+    setPanesLoaded(false);
+    let live = true;
 
-    const applyPanes = (list: PaneInfo[]) => {
-      setPanes(list);
-      registryRef.current.setPanesFromList(list);
+    const refreshAttention = () => {
+      void client.attention?.().then((s) => live && setAttention((cur) => newerSnapshot(cur, s))).catch(() => {});
     };
-
-    fetch(`${bridgeUrl}/health`, {
-      signal: AbortSignal.timeout(3000),
-      headers: mergeBridgeHeaders(ngrokRequestHeaders(bridgeUrl)),
-    })
-      .then((r) => { if (r.ok) setBridgeReady(true); })
-      .catch(() => {});
-
-    void c
-      .getSettings()
-      .then((next) => {
-        setSettings(next);
-        setSettingsHydrated(true);
-        return syncBridgePanes(c, applyPanes);
+    const resync = () => {
+      fetch(`${bridgeUrl}/health`, {
+        signal: AbortSignal.timeout(3000),
+        headers: mergeBridgeHeaders(ngrokRequestHeaders(bridgeUrl)),
       })
-      .catch(() => {
-        setSettingsHydrated(true);
-      });
-
-    const unsub = subscribeBridgeEvents(
-      bridgeUrl,
-      (ev) => {
-        if (ev.type === 'chat') {
-          setChatEvents((prev) => [...prev, ev.event].slice(-500));
-        }
-        if (ev.type === 'panes') {
-          setPanes(ev.panes);
-          registryRef.current.setPanesFromList(ev.panes);
-        }
-        if (ev.type === 'terminal') {
-          if (isOrchestratorPaneId(ev.pane_id)) {
-            routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
-          } else {
-            registryRef.current.ingestTerminalData(ev.pane_id, ev.data);
-          }
-        }
-        if (ev.type === 'pane-status') {
-          registryRef.current.updatePaneStatus(ev.pane_id, ev.status);
-        }
-        if (ev.type === 'pane-resize') {
-          if (isOrchestratorPaneId(ev.pane_id)) {
-            routeBridgeEventToPaneTunnel(ev, orchestratorTunnelRef.current);
-          } else {
-            registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows);
-          }
-        }
-        if (ev.type === 'settings') {
-          setSettings(ev.settings);
-        }
-      },
-    );
-
-    return unsub;
-  }, [bridgeUrl]);
-
-  useEffect(() => {
-    if (tab !== 'panes') return;
-    if (selectedPaneId && panes.some((pane) => pane.id === selectedPaneId)) return;
-    setSelectedPaneId(panes[0]?.id ?? null);
-  }, [panes, selectedPaneId, tab]);
-
-  const patchSettings = useCallback(async (patch: Partial<PublicSettings>) => {
-    if (!bridge) return;
-    const updated = await bridge.patchSettings(patch);
-    setSettings(updated);
-  }, [bridge]);
-
-  const refreshPanes = useCallback(async () => {
-    if (!bridge) return;
-    const list = await bridge.listPanes();
-    setPanes(list);
-    registryRef.current.setPanesFromList(list);
-  }, [bridge]);
-
-  const spawnPane = useCallback(async (agentType: AgentType) => {
-    if (!bridge) return;
-    setSpawning(true);
-    setSpawnError(null);
-    try {
-      const { pane_id } = await bridge.spawnPane({ agent_type: agentType, cols: 120, rows: 30 });
-      await refreshPanes();
-      setSelectedPaneId(pane_id);
-      setTab('panes');
-      setMenuOpen(false);
-    } catch (e) {
-      setSpawnError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSpawning(false);
-    }
-  }, [bridge, refreshPanes]);
-
-  const killSelectedPane = useCallback(async () => {
-    if (!bridge || !selectedPaneId) return;
-    setSpawnError(null);
-    try {
-      await bridge.killPane(selectedPaneId);
-      setSelectedPaneId(null);
-      await refreshPanes();
-    } catch (e) {
-      setSpawnError(e instanceof Error ? e.message : String(e));
-    }
-  }, [bridge, refreshPanes, selectedPaneId]);
-
-
-  useEffect(() => {
-    if (!bridge || !bridgeReady || !settingsHydrated || !cliOrchestratorBackend || orchestratorReady) {
-      return;
-    }
-
-    let cancelled = false;
-    const applyPanes = (list: PaneInfo[]) => {
-      if (cancelled) return;
-      setPanes(list);
-      registryRef.current.setPanesFromList(list);
+        .then((r) => {
+          if (live) setBridgeReady(r.ok);
+        })
+        .catch(() => {
+          if (live) setBridgeReady(false);
+        });
+      client
+        .listPanes()
+        .then((list) => {
+          if (live) applyPanes(list);
+        })
+        .catch(() => {});
+      void client.listPreviews?.().then((m) => live && setPreviews(m)).catch(() => {});
+      refreshAttention();
     };
+    resync();
+    void client.getSettings().then((next) => live && setSettings(next)).catch(() => {});
+    void client
+      .listAgentTypes()
+      .then((body) => {
+        const listing = listingFromBody(body);
+        if (live && listing) setAgentListing(listing);
+      })
+      .catch(() => {});
+    const timer = window.setInterval(resync, RESYNC_MS);
 
-    const tick = () => {
-      void syncBridgePanes(bridge, applyPanes).catch(() => {});
-    };
+    const stream = subscribeBridgeEventsHandle(bridgeUrl, (ev) => {
+      if (ev.type === 'panes') applyPanes(ev.panes);
+      if (ev.type === 'terminal') {
+        registryRef.current.ingestTerminalData(ev.pane_id, ev.data, ev.offset);
+        const pending = echoPendingRef.current;
+        if (pending && pending.paneId === ev.pane_id) {
+          echoPendingRef.current = null;
+          echoLastRef.current = performance.now() - pending.at;
+          echoSamplesRef.current.push(echoLastRef.current);
+          if (echoSamplesRef.current.length > ECHO_WINDOW) echoSamplesRef.current.shift();
+          publishEcho();
+        }
+      }
+      if (ev.type === 'pane-preview') {
+        setPreviews((cur) => {
+          if (ev.urls.length > 0) return { ...cur, [ev.pane_id]: ev.urls };
+          const { [ev.pane_id]: _gone, ...rest } = cur;
+          return rest;
+        });
+      }
+      if (ev.type === 'loop-signal') {
+        setStuck((cur) => {
+          const next = new Map(cur);
+          if (ev.signal) next.set(ev.pane_id, ev.signal);
+          else next.delete(ev.pane_id);
+          return next;
+        });
+      }
+      if (ev.type === 'pane-status') {
+        registryRef.current.updatePaneStatus(ev.pane_id, ev.status);
+        setPanes((prev) => prev.map((p) => (p.id === ev.pane_id ? { ...p, status: ev.status } : p)));
+      }
+      // Panes are sized to this phone and resized in place: keep the live stream connected.
+      if (ev.type === 'pane-resize') {
+        // The terminal resizes at this point of the output stream; the state update is for the header.
+        registryRef.current.ingestPaneResize(ev.pane_id, ev.cols, ev.rows, ev.offset);
+        registryRef.current.updatePaneDimensions(ev.pane_id, ev.cols, ev.rows, true);
+      }
+      if (ev.type === 'input-refused') noteInputRefused(ev.pane_id, ev.error);
+      if (ev.type === 'settings') setSettings(ev.settings);
+      if (ev.type === 'questions') setQuestionsRev((n) => n + 1);
+      if (ev.type === 'attention') setAttention((cur) => newerSnapshot(cur, ev.snapshot));
+      if (ev.type === 'resync') {
+        registryRef.current.resetStreams();
+        client.listPanes().then((list) => live && applyPanes(list)).catch(() => {});
+        setResyncKey((n) => n + 1);
+        setQuestionsRev((n) => n + 1);
+        refreshAttention();
+      }
+    });
+    streamRef.current = stream;
+    setLinkStats(stream.stats());
+    const offStats = stream.onStats(setLinkStats);
 
-    tick();
-    const id = window.setInterval(tick, 1500);
     return () => {
-      cancelled = true;
-      window.clearInterval(id);
+      live = false;
+      window.clearInterval(timer);
+      offStats();
+      if (streamRef.current === stream) streamRef.current = null;
+      stream.unsubscribe();
     };
-  }, [bridge, bridgeReady, settingsHydrated, cliOrchestratorBackend, orchestratorReady]);
+  }, [bridgeUrl, applyPanes, publishEcho, noteInputRefused]);
 
-  const handleInviteConnected = useCallback((url: string) => {
-    clearPairingInviteFromUrl();
-    setInviteCode(null);
-    setBridgeUrl(url);
-    setEditingUrl(false);
-  }, []);
+  usePushIntents(bridgeUrl, {
+    onOpenItem: (itemId, paneId) => setIntent({ itemId, paneId }),
+    onOpenPane: setActive,
+    onOpenQuestions: () => setActive(ALL_TAB),
+  });
 
-  const handleInviteGiveUp = useCallback(() => {
-    clearPairingInviteFromUrl();
-    setInviteCode(null);
+  // A closed agent's tab falls back to All (only once the real pane list has arrived).
+  useEffect(() => {
+    if (panesLoaded && active !== ALL_TAB && !panes.some((p) => p.id === active)) setActive(ALL_TAB);
+  }, [active, panes, panesLoaded]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_ACTIVE_TAB, active);
+    } catch {
+      /* private mode */
+    }
+  }, [active]);
+
+  const abilities = usePhoneAbilities(bridge, resyncKey);
+  /** Read the PC's list now (an answer came back stale), instead of waiting for the next poll. */
+  const refreshAttentionNow = useCallback(() => {
+    void bridge?.attention?.().then((s) => setAttention((cur) => newerSnapshot(cur, s))).catch(() => {});
+  }, [bridge]);
+  // What the PC's list says this phone may do wins over the pairing read (it comes with every list read).
+  const canAnswer = attention?.device?.can_answer ?? abilities.canAnswer;
+
+  // A push tap on a card: read the list first (before the terminal stream is opened), then show it.
+  useEffect(() => {
+    if (!intent || !bridge) return;
+    let live = true;
+    void (async () => {
+      let snapshot = attention;
+      try {
+        const fresh = await bridge.attention?.();
+        if (fresh) {
+          snapshot = newerSnapshot(attention, fresh);
+          if (live) setAttention((cur) => newerSnapshot(cur, fresh));
+        }
+      } catch {
+        /* the stream will bring the list; use what is held */
+      }
+      if (!live) return;
+      const item = snapshot?.items.find((i) => i.id === intent.itemId);
+      if (item) {
+        if (item.pane && PROMPT_KINDS.includes(item.kind)) {
+          setActive(item.pane.id);
+          setDeepLinked(true);
+        } else {
+          setSheetItem(item);
+        }
+      } else {
+        // Older than the 15 s the list keeps what just left: say so and still show the way.
+        setActive(intent.paneId ?? ALL_TAB);
+        setToast(COPY.dealtWith);
+      }
+      setIntent(null);
+    })();
+    return () => {
+      live = false;
+    };
+    // The list at the time of the tap is read inside; it must not restart the lookup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intent, bridge]);
+
+  const labels = useMemo(() => tabLabels(panes, agentListing), [panes, agentListing]);
+  const activePane = active === ALL_TAB ? undefined : registry.panes.get(active);
+  const transport = useBridgePaneTransport(registry.makeTransport, activePane ? active : 'pane-placeholder');
+  // Only the open agent's terminal is streamed; the All overview reads previews by polling.
+  const watchedPane = activePane ? active : null;
+  useEffect(() => {
+    streamRef.current?.setWatchedPanes(watchedPane ? [watchedPane] : []);
+  }, [watchedPane, bridgeUrl]);
+  useEffect(() => setFitGrid(null), [active]);
+  const claimPaneSize = usePaneViewportLease(bridge, activePane ? active : null, fitGrid);
+  useEffect(() => {
+    if (!fitGrid) return;
+    lastFitGridRef.current = fitGrid;
+    try {
+      localStorage.setItem(LS_LAST_FIT_GRID, JSON.stringify(fitGrid));
+    } catch {
+      /* private mode */
+    }
+  }, [fitGrid]);
+  // Any phone action takes the size: opening the PWA, switching to a tab, bringing the app back
+  // to the front (and spawning, typing, touching the terminal below). Claimed once the tab's
+  // fitting grid is known; the PC window takes it back on a click or focus there.
+  useEffect(() => {
+    if (active !== ALL_TAB) claimOnOpenRef.current = active;
+  }, [active]);
+  // Nudge: after a phone action (not typing) redraw the open agent from the PC's current screen,
+  // in place. Actions close together share one redraw; at most one per NUDGE_MIN_GAP_MS. A tap
+  // while reading history above the screen does not jump back to the bottom.
+  const [refreshSignal, setRefreshSignal] = useState({ n: 0, skipIfScrolledUp: false });
+  const nudgeSchedulerRef = useRef<NudgeScheduler | null>(null);
+  if (!nudgeSchedulerRef.current) {
+    nudgeSchedulerRef.current = new NudgeScheduler((skip) =>
+      setRefreshSignal((prev) => ({ n: prev.n + 1, skipIfScrolledUp: skip })),
+    );
+  }
+  const requestNudge = useCallback((skipIfScrolledUp: boolean) => {
+    nudgeSchedulerRef.current?.request(skipIfScrolledUp);
   }, []);
+  streamGapRef.current = () => requestNudge(true);
+  useEffect(() => () => nudgeSchedulerRef.current?.cancel(), []);
+  const tapRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const onAgentPointerDown = useCallback(
+    (event: React.PointerEvent) => {
+      claimPaneSize(true);
+      tapRef.current = { x: event.clientX, y: event.clientY, t: Date.now() };
+    },
+    [claimPaneSize],
+  );
+  const onAgentPointerUp = useCallback(
+    (event: React.PointerEvent) => {
+      const start = tapRef.current;
+      tapRef.current = null;
+      if (!start || Date.now() - start.t > TAP_MAX_MS) return;
+      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > TAP_MAX_MOVE_PX) return;
+      // The Keys panel, the input box and the jump-to-bottom button are typing / their own actions.
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[data-mobile-terminal-arrows],[data-mobile-terminal-input-zone],[data-mobile-terminal-input],[data-terminal-scroll-bottom]')) return;
+      requestNudge(true);
+    },
+    [requestNudge],
+  );
+  const selectTab = useCallback(
+    (id: string) => {
+      setActive(id);
+      if (id !== ALL_TAB) requestNudge(false);
+    },
+    [requestNudge],
+  );
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || active === ALL_TAB) return;
+      requestNudge(false);
+      claimOnOpenRef.current = active;
+      if (fitGrid) {
+        claimOnOpenRef.current = null;
+        claimPaneSize(true);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [active, fitGrid, claimPaneSize, requestNudge]);
+  useEffect(() => {
+    if (!fitGrid || !activePane || claimOnOpenRef.current !== active) return;
+    claimOnOpenRef.current = null;
+    claimPaneSize(true);
+  }, [fitGrid, activePane, active, claimPaneSize]);
+  const leasedTransport = useMemo<TerminalTransport>(
+    () => ({
+      ...transport,
+      writeInput: (text, appendNewline) => {
+        claimPaneSize();
+        const now = performance.now();
+        const pending = echoPendingRef.current;
+        if (!pending || now - pending.at > ECHO_PENDING_MAX_MS) echoPendingRef.current = { paneId: active, at: now };
+        return transport.writeInput(text, appendNewline);
+      },
+    }),
+    [transport, claimPaneSize, active],
+  );
+
+  const patchSettings = useCallback(
+    (patch: Partial<PublicSettings>) => {
+      if (!bridge) return;
+      void bridge.patchSettings(patch).then(setSettings).catch(() => {});
+    },
+    [bridge],
+  );
+
+  const spawnAgent = useCallback(
+    async (agentType: AgentType) => {
+      if (!bridge) return;
+      setSpawning(true);
+      setSpawnError(null);
+      try {
+        // Known phone grid (kept across reloads): spawn at it and hold it from the start.
+        const grid = lastFitGridRef.current;
+        const { pane_id } = await bridge.spawnPane(
+          grid
+            ? { agent_type: agentType, cols: grid.cols, rows: grid.rows, viewer: VIEWER_ID }
+            : { agent_type: agentType, cols: 120, rows: 30 },
+        );
+        claimOnOpenRef.current = pane_id;
+        applyPanes(await bridge.listPanes());
+        setActive(pane_id);
+        setSheet(null);
+      } catch (e) {
+        setSpawnError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setSpawning(false);
+      }
+    },
+    [bridge, applyPanes],
+  );
+
+  const openNewAgentSheet = useCallback(() => {
+    setSpawnError(null);
+    setSheet('new');
+    if (!bridge) return;
+    bridge
+      .listAgentTypes()
+      .then((body) => {
+        const listing = listingFromBody(body);
+        if (listing) {
+          setAgentListing(listing);
+          setLaunchEntries(phoneLaunchEntries(listing));
+        }
+        else setSpawnError('Could not read the agent list from your PC.');
+      })
+      .catch((e) => setSpawnError(e instanceof Error ? e.message : String(e)));
+  }, [bridge]);
+
+  // The refusal line stays while the person is looking at it, then goes (typing again brings it back).
+  useEffect(() => {
+    if (!inputRefused) return;
+    const t = window.setTimeout(() => setInputRefused(null), 12_000);
+    return () => window.clearTimeout(t);
+  }, [inputRefused]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 3200);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
+  const closeActive = useCallback(async () => {
+    if (!bridge || active === ALL_TAB) return;
+    try {
+      await bridge.killPane(active);
+      setActive(ALL_TAB);
+      setSheet(null);
+      applyPanes(await bridge.listPanes());
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : String(e));
+    }
+  }, [bridge, active, applyPanes]);
 
   if (inviteCode) {
     return (
-      <div className="pwa-shell bg-pm-bg text-zinc-100">
+      <div className="pwa-shell ph bg-pm-bg text-zinc-100">
         <PairInviteScreen
           pairingCode={inviteCode}
-          onConnected={handleInviteConnected}
-          onGiveUp={handleInviteGiveUp}
+          onConnected={(url) => {
+            clearPairingInviteFromUrl();
+            setInviteCode(null);
+            setBridgeUrl(url);
+            setEditingUrl(false);
+          }}
+          onGiveUp={() => {
+            clearPairingInviteFromUrl();
+            setInviteCode(null);
+          }}
         />
       </div>
     );
@@ -1036,7 +563,7 @@ export default function PwaApp() {
 
   if (!bridgeUrl || editingUrl) {
     return (
-      <div className="pwa-shell bg-pm-bg text-zinc-100">
+      <div className="pwa-shell ph bg-pm-bg text-zinc-100">
         <SetupScreen
           onConnect={(url) => {
             setBridgeUrl(url);
@@ -1048,67 +575,132 @@ export default function PwaApp() {
   }
 
   return (
-    <div className="pwa-shell bg-pm-bg text-zinc-100">
-      <main className="pwa-main" aria-label="Puppet Master mobile workspace">
-        {bridge && tab === 'chat' && (
-          <section className="pwa-stage" aria-label="Orchestrator">
-            <OrchestratorTab
+    <div className="pwa-shell pwa-shell--fit-visual ph">
+      <div className="flex h-full min-h-0 min-w-0 flex-col">
+        <AgentTabBar
+          panes={panes}
+          labels={labels}
+          active={active}
+          bridgeReady={bridgeReady}
+          onSelect={selectTab}
+          onNew={openNewAgentSheet}
+          onMenu={() => setSheet('menu')}
+          needsYou={attention ? blockingCount(attention) : undefined}
+        />
+        {active !== ALL_TAB && stuck.get(active) && <StuckNote signal={stuck.get(active)!} />}
+        {active !== ALL_TAB && previews[active]?.[0] && <PreviewNote preview={previews[active][0]} />}
+        <main
+          className="ph-main relative flex min-h-0 flex-1 flex-col"
+          aria-label="Agent"
+          onPointerDownCapture={activePane ? onAgentPointerDown : undefined}
+          onPointerUpCapture={activePane ? onAgentPointerUp : undefined}
+        >
+          {bridge && active === ALL_TAB && (
+            <AgentsOverview
               bridge={bridge}
-              chatEvents={chatEvents}
               bridgeReady={bridgeReady}
-              settings={settings}
-              registry={registry}
-              orchestratorTunnel={mobileOrchestratorTunnel}
-              settingsHydrated={settingsHydrated}
-            />
-          </section>
-        )}
-        {bridge && tab === 'panes' && (
-          <section className="pwa-stage" aria-label="Panes">
-            <PanesTab
               panes={panes}
-              bridgeReady={bridgeReady}
-              registry={registry}
+              labels={labels}
+              onOpen={setActive}
+              onNew={openNewAgentSheet}
+              stuck={stuck}
+              questionsRevision={questionsRev}
+              attention={attention}
+              canAnswer={canAnswer}
+              onRefreshAttention={refreshAttentionNow}
+            />
+          )}
+          {bridge && activePane && attention && (
+            <DockedCard
+              snapshot={attention}
+              paneId={active}
+              bridge={bridge}
+              canAnswer={canAnswer}
+              autoFocus={deepLinked}
+              onRefresh={refreshAttentionNow}
+              onOpenPane={setActive}
+              onOpenItem={(id) => {
+                const next = attention.items.find((i) => i.id === id);
+                if (next) setSheetItem(next);
+              }}
+            />
+          )}
+          {activePane && (
+            <BridgePaneTerminal
+              key={`${active}:${resyncKey}`}
+              pane={activePane.info}
+              status={activePane.status}
+              subscribePaneData={registry.subscribePaneData}
+              transport={leasedTransport}
+              title={`${labels.get(active) ?? activePane.info.agent_type}`}
               mobileInputDelayMs={settings.mobile_input_delay_ms}
               mobileInputVisible={settings.mobile_input_visible}
-              selected={selectedPaneId}
-              onSelect={setSelectedPaneId}
+              disableMobileInput={!abilities.canType}
+              onFitGrid={setFitGrid}
+              refreshSignal={refreshSignal}
+              keyboardResizesAgent={settings.mobile_keyboard_resizes_agent ?? false}
             />
-          </section>
-        )}
-        {!bridge && (
-          <div className="flex items-center justify-center h-full text-xs text-pm-muted">
-            Connecting…
-          </div>
-        )}
-      </main>
-      <FloatingMobileMenu
-        open={menuOpen}
-        onOpenChange={setMenuOpen}
-        bridgeReady={bridgeReady}
-        tab={tab}
-        onTabChange={(next) => {
-          setTab(next);
-          setMenuOpen(false);
-        }}
-        onEditConnection={() => {
-          setEditingUrl(true);
-          setMenuOpen(false);
-        }}
-        settings={settings}
-        onPatchSettings={patchSettings}
-        panes={panes}
-        selectedPaneId={selectedPaneId}
-        onSelectPane={(paneId) => {
-          setSelectedPaneId(paneId);
-          setMenuOpen(false);
-        }}
-        onRefreshPanes={refreshPanes}
-        onSpawnPane={spawnPane}
-        onKillSelectedPane={killSelectedPane}
-        spawning={spawning}
-        spawnError={spawnError}
-      />
+          )}
+          {active !== ALL_TAB && !activePane && (
+            <div className="ph-loading">Loading agent…</div>
+          )}
+          {activePane && abilities.typingNote && <TypingNote text={abilities.typingNote} />}
+          {activePane && inputRefused && inputRefused.paneId === active && <InputRefusedNote text={inputRefused.text} />}
+        </main>
+      </div>
+      {sheet === 'new' && (
+        <NewAgentSheet
+          entries={launchEntries}
+          onClose={() => setSheet(null)}
+          onSpawn={(type) => void spawnAgent(type)}
+          spawning={spawning}
+          error={spawnError}
+        />
+      )}
+      {sheet === 'menu' && (
+        <MenuSheet
+          onClose={() => setSheet(null)}
+          bridgeUrl={bridgeUrl}
+          bridgeReady={bridgeReady}
+          settings={settings}
+          onPatchSettings={patchSettings}
+          link={linkStats}
+          echo={echoStats}
+          activeLabel={activePane ? labels.get(active) ?? activePane.info.agent_type : null}
+          onCloseActive={() => void closeActive()}
+          onStopAll={() => {
+            if (!bridge) return;
+            bridge
+              .stopAllPanes()
+              .then((r) => setToast(r.stopped.length === 0 ? 'Nothing was running.' : `Stopped ${r.stopped.length} agent${r.stopped.length === 1 ? '' : 's'}.`))
+              .catch((e) => setToast(e instanceof Error ? e.message : String(e)));
+          }}
+          onEditConnection={() => {
+            setEditingUrl(true);
+            setSheet(null);
+          }}
+        />
+      )}
+      {bridge && sheetItem && (
+        <CardSheet
+          item={sheetItem}
+          snapshot={attention ?? { v: 1, rev: 0, counts: { blocking: 0, ready: 0 }, items: [sheetItem] }}
+          bridge={bridge}
+          canAnswer={canAnswer}
+          labels={labels}
+          onRefresh={refreshAttentionNow}
+          onClose={() => setSheetItem(null)}
+          onOpenPane={(id) => {
+            setSheetItem(null);
+            setActive(id);
+          }}
+        />
+      )}
+      {toast && (
+        <div className="ph-toast" role="status">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

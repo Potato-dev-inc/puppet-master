@@ -1,0 +1,12 @@
+LICENCE PENDING FOUNDER DECISION
+
+The Cloudflare Worker variant of the Puppet Master relay in this folder (`relay/worker`, including
+`relay/worker/wasm`) has no licence yet. It follows the same decision as the relay server
+(`relay/server`): the founder is choosing between copyleft (AGPL-3.0: open, but a hosted clone must
+publish its changes) and proprietary (all rights reserved, closed source, still freely
+self-hostable). Until that decision is recorded in `relay/LICENSE`, all rights are reserved and no
+licence is granted.
+
+The protocol crate (`relay/protocol`) that the Worker's WebAssembly module is built from is not
+covered by this notice: it is MIT-licensed (see `relay/protocol/LICENSE`), so any client can speak to
+any relay.

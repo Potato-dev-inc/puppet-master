@@ -1,0 +1,11 @@
+# How Codex is installed on Windows. Checked 2026-10-14.
+# Sources: https://developers.openai.com/codex/quickstart (CLI tab: the PowerShell script, and
+# `npm install -g @openai/codex`), and `winget show --id OpenAI.Codex` (portable codex.exe zip from
+# github.com/openai/codex releases; winget is not in OpenAI's docs and can lag behind npm).
+[install.windows]
+source = "https://developers.openai.com/codex/quickstart"
+order = ["winget", "npm", "script"]
+winget = "OpenAI.Codex"
+npm = "@openai/codex"
+script_url = "https://chatgpt.com/codex/install.ps1"
+note = "Sign in with your ChatGPT account. The winget package can be a little behind the newest release."

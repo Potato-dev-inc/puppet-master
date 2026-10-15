@@ -1,0 +1,17 @@
+#! source: synthetic (built from openai/codex codex-rs/protocol/src/error.rs quoted in DESIGN-RELAY.md 1.2; NOT a live capture; live captures X1-X8 are TODO)
+#! now: 2026-10-15T12:00 +08:00 Asia/Taipei
+#! cols: 52
+#! expect: kind=usage rule=usage reset="9:45 PM" reset_at=2026-10-15T21:45
+› Make the cart total round to cents
+
+■ You’ve hit your usage limit. Upgrade to Pro
+  (https://chatgpt.com/explore/pro), visit
+  https://chatgpt.com/settings/usage to purchase
+  more credits or try again at 9:45
+  PM.
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna medium · D:\pm-demo
+  ? for shortcuts

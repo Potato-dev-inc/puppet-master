@@ -1,0 +1,12 @@
+# my config
+model = "gpt-5"
+
+[mcp_servers.mine]
+command = "mine"
+
+[mcp_servers.puppet-master]
+args = ["-y", "@puppet-master/mcp"]
+command = "npx"
+
+[mcp_servers.puppet-master.env]
+PUPPET_MASTER_BRIDGE_PORT_FILE = "C:/pm/puppet-master.bridge.port"

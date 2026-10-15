@@ -14,6 +14,12 @@ export const PaneInfoSchema = z.object({
   cwd: z.string(),
   cols: z.number().int(),
   rows: z.number().int(),
+  /** A phone viewing this pane holds its size; desktop windows show a notice meanwhile. */
+  viewer_held: z.boolean().optional(),
+  /** The agent reprints its whole conversation on every resize; viewers wipe scrollback at each one. */
+  reprints_on_resize: z.boolean().optional(),
+  /** Human title (user name, else derived from the first task); absent until the pane has one. */
+  title: z.string().nullable().optional(),
 });
 export type PaneInfo = z.infer<typeof PaneInfoSchema>;
 
@@ -56,6 +62,9 @@ export type McpLogEntry = z.infer<typeof McpLogEntrySchema>;
 
 export const BRIDGE_PORT_FILE_ENV = 'PUPPET_MASTER_BRIDGE_PORT_FILE';
 export const DEFAULT_BRIDGE_PORT_FILE = 'puppet-master.bridge.port';
+/** Per-launch local secret the app writes beside the port file; sent as `X-PM-Local-Secret`. */
+export const BRIDGE_LOCAL_SECRET_FILE = 'puppet-master.bridge.secret';
+export const BRIDGE_LOCAL_SECRET_HEADER = 'X-PM-Local-Secret';
 export const DEFAULT_BRIDGE_HOST = '127.0.0.1';
 export const BRIDGE_HTTP_PORT_RANGE = { min: 17321, max: 17399 };
 

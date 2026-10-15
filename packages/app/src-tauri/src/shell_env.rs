@@ -23,6 +23,52 @@ pub fn apply_to_process() {
     std::env::set_var("PATH", path);
     #[cfg(windows)]
     std::env::set_var("Path", path);
+    scrub_host_session_env();
+}
+
+/// Variables a launching Claude Code session exports to its children. A pane or headless `claude`
+/// that inherits them believes it is a nested child session: it turns transcript saving off, shows
+/// a warning row instead of its input hint and repaints the prompt box, which breaks screen-based
+/// prompt delivery and completion capture. Auth and config variables are deliberately not listed.
+const HOST_SESSION_ENV: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_HOST_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_DESKTOP_APP_VERSION",
+    "CLAUDE_CODE_TERMINAL_MCP_TOOLS",
+    "CLAUDE_AGENT_SDK_VERSION",
+    "CLAUDE_PID",
+];
+
+/// Remove [`HOST_SESSION_ENV`] from this process so every child (panes, headless runs, opencode
+/// serve) starts as a top-level session no matter what launched the app.
+pub fn scrub_host_session_env() {
+    for name in HOST_SESSION_ENV {
+        std::env::remove_var(name);
+    }
+}
+
+#[cfg(test)]
+mod scrub_tests {
+    use super::*;
+
+    #[test]
+    fn host_session_markers_are_removed_and_auth_is_kept() {
+        std::env::set_var("CLAUDE_CODE_CHILD_SESSION", "1");
+        std::env::set_var("CLAUDECODE", "1");
+        std::env::set_var("CLAUDE_CODE_OAUTH_TOKEN", "keep-me");
+        scrub_host_session_env();
+        assert!(std::env::var("CLAUDE_CODE_CHILD_SESSION").is_err());
+        assert!(std::env::var("CLAUDECODE").is_err());
+        assert_eq!(std::env::var("CLAUDE_CODE_OAUTH_TOKEN").as_deref(), Ok("keep-me"));
+        std::env::remove_var("CLAUDE_CODE_OAUTH_TOKEN");
+    }
 }
 
 /// Resolve the OpenCode binary for `std::process::Command` / PTY spawn.

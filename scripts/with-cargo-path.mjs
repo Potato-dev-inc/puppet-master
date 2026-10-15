@@ -4,7 +4,7 @@
  * Fixes "cargo metadata: program not found" when rustup didn't update the shell PATH.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,10 +40,30 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 if (args[0] === 'dev') {
   ensureWorkspaceBuilt(repoRoot);
   ensureTauriResources();
+  // Optional, gitignored per-machine window overrides (position, focus) for dev runs.
+  const localConfig = join(repoRoot, 'packages', 'app', 'src-tauri', 'tauri.dev.local.json');
+  if (existsSync(localConfig) && !args.includes('--config') && !args.includes('-c')) {
+    args.push('--config', localConfig);
+    console.error(`[puppet-master] using ${localConfig}`);
+  }
+  // Panes-first has no main window to anchor pop-outs to: the dev anchor (logical x/y of the
+  // secondary monitor) comes from a gitignored per-machine file and reaches Rust as PM_WINDOW_ANCHOR.
+  const anchorFile = join(repoRoot, 'packages', 'app', 'src-tauri', 'pm-dev.local.json');
+  if (existsSync(anchorFile) && !env.PM_WINDOW_ANCHOR) {
+    try {
+      const anchor = JSON.parse(readFileSync(anchorFile, 'utf8')).window_anchor;
+      if (Number.isFinite(anchor?.x) && Number.isFinite(anchor?.y)) {
+        env.PM_WINDOW_ANCHOR = `${anchor.x},${anchor.y}`;
+        console.error(`[puppet-master] window anchor ${env.PM_WINDOW_ANCHOR} (pm-dev.local.json)`);
+      }
+    } catch (err) {
+      console.error(`[puppet-master] ignoring ${anchorFile}: ${err.message}`);
+    }
+  }
   console.error('[puppet-master] starting dev stack (vite + tauri + embedded bridge)…');
 }
 
-const result = spawnSync(npm, ['run', 'tauri', '--workspace=@puppet-master/app', ...args], {
+const result = spawnSync(npm, ['run', 'tauri', '--workspace=@puppet-master/app', '--', ...args], {
   stdio: 'inherit',
   env,
   cwd: repoRoot,

@@ -81,6 +81,8 @@ export const SettingsSchema = z.object({
   mobile_input_delay_ms: z.number().int().min(0).max(1000).default(250),
   /** Show the mobile terminal command input bar. When false, the tap target remains invisible. */
   mobile_input_visible: z.boolean().default(true),
+  /** Phone: let the keyboard shrink the agent (PTY redraw per open/close). Off keeps the agent at its size. */
+  mobile_keyboard_resizes_agent: z.boolean().default(false),
   project_path: z.string().optional(),
   /** Public HTTPS origin for mobile PWA (reverse proxy target). Used in pairing QR. */
   public_pwa_url: z.string().optional(),
@@ -90,8 +92,38 @@ export const SettingsSchema = z.object({
   sidebar_width: z.number().int().min(300).max(800).default(360),
   /** Desktop UI chrome theme. */
   theme: z.enum(['dark', 'light']).default('dark'),
+  /** Where panes are shown: one cockpit window (orchestration) or a pop-out per pane (individual). Owned by Rust (set_ui_mode). */
+  ui_mode: z.enum(['orchestration', 'individual']).default('orchestration'),
+  /** Ask before closing a pane window, a cockpit pane or the app while an agent is working. */
+  confirm_close_running_pane: z.boolean().default(true),
   /** Developer option: install MCP configs to launch the bundled Rust binary instead of npm. */
   developer_use_rust_mcp: z.boolean().default(false),
+  /** Save the project's files at each agent turn so a turn can be undone (Rust: checkpoints). */
+  checkpoints_enabled: z.boolean().default(true),
+  /** Checkpoints kept per pane before the oldest are pruned. */
+  checkpoints_keep: z.number().int().min(5).max(500).default(50),
+  /** Minutes without keyboard or mouse before you count as away (the "While you were away" digest); 0 = off. */
+  away_minutes: z.number().int().min(0).max(1440).default(5),
+  /** Budget every agent run that agents start gets, in turns; 0 = no budget (the default). Rust: budgets. */
+  budget_default_turns: z.number().int().min(0).max(10000).default(0),
+  /** Same, in wall-clock minutes; 0 = no limit. */
+  budget_default_minutes: z.number().int().min(0).max(10080).default(0),
+  /** Live updates from agents (Claude Code, Codex): off, or watch only for now. Owned by Rust (settings_store). */
+  agent_hooks_mode: z.enum(['off', 'shadow', 'evidence']).optional(),
+  /** Per-agent override of agent_hooks_mode, keyed by agent id. */
+  agent_hooks_agents: z.record(z.string(), z.enum(['off', 'shadow', 'evidence'])).optional(),
+  /** Missions (Preview, Settings › General › Labs): goal + checks + budget, worked on in rounds. Off unless chosen. Rust: missions. */
+  missions_enabled: z.boolean().optional(),
+  /** Simple mode: the cockpit with fewer buttons and plain words, for people who do not write code. Off unless chosen. */
+  simple_mode: z.boolean().optional(),
+  /** First-run welcome: absent = never decided (shown once on a fresh profile), true = finished or skipped, false = show it again. Rust reads it (first_run). */
+  onboarding_done: z.boolean().optional(),
+  /** First-run welcome: the step the person was on, so a restart resumes there. */
+  onboarding_step: z.string().optional(),
+  /** First-run welcome: the folder chosen for the first task, so a restart resumes with it. */
+  onboarding_project: z.string().optional(),
+  /** First-run welcome: the agent that was ready, so a restart can still offer the first task. */
+  onboarding_agent: z.string().optional(),
   /** Optional path to the librarian project indexer script (default scripts/project-indexer.py). */
   librarian_indexer_path: z.string().optional(),
   /** Default OpenCode provider for opencode_native API prompts (write_terminal_input). */

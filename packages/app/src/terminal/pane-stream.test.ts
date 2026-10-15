@@ -100,4 +100,103 @@ describe('PaneStreamManager', () => {
       expect(received).toHaveLength(0);
     });
   });
+
+  it('sizes the viewer to a screen replay before drawing it, then passes resizes in order', async () => {
+    const manager = new PaneStreamManager();
+    const events: string[] = [];
+    const readScreen = vi.fn(async () => ({ data: bytes('SCREEN'), cols: 46, rows: 20 }));
+
+    manager.subscribe(
+      'pane-1',
+      (chunk) => events.push(dec.decode(chunk)),
+      readScreen,
+      (cols, rows) => events.push(`resize ${cols}x${rows}`),
+    );
+
+    await vi.waitFor(() => {
+      expect(events).toEqual(['resize 46x20', 'SCREEN']);
+    });
+
+    manager.ingest('pane-1', bytes('old-size output'));
+    manager.ingestResize('pane-1', 46, 45);
+    manager.ingest('pane-1', bytes('new-size output'));
+    expect(events).toEqual(['resize 46x20', 'SCREEN', 'old-size output', 'resize 46x45', 'new-size output']);
+  });
+
+  it('ignores resizes while the replay is still loading', () => {
+    const manager = new PaneStreamManager();
+    const onResize = vi.fn();
+    manager.subscribe('pane-1', () => {}, () => new Promise<number[]>(() => {}), onResize);
+
+    manager.ingestResize('pane-1', 40, 20);
+
+    expect(onResize).not.toHaveBeenCalled();
+  });
+
+  it('takes the screen again when the PTY resized while a snapshot was in flight', async () => {
+    const manager = new PaneStreamManager();
+    const events: string[] = [];
+    let call = 0;
+    const readScreen = vi.fn(async () => {
+      call += 1;
+      if (call === 1) {
+        // Opening the tab claimed the pane: the resize arrives before this old snapshot.
+        manager.ingestResize('pane-1', 46, 45);
+        return { data: bytes('OLD'), cols: 121, rows: 36 };
+      }
+      return { data: bytes('NEW'), cols: 46, rows: 45 };
+    });
+    manager.subscribe('pane-1', (c) => events.push(dec.decode(c)), readScreen, (c, r) => events.push(`resize ${c}x${r}`));
+
+    await vi.waitFor(() => expect(events).toEqual(['resize 46x45', 'NEW']));
+    expect(readScreen).toHaveBeenCalledTimes(2);
+    manager.ingestResize('pane-1', 46, 20);
+    expect(events).toEqual(['resize 46x45', 'NEW', 'resize 46x20']);
+  });
+
+  it('does not take the screen again when the snapshot already has the new size', async () => {
+    const manager = new PaneStreamManager();
+    const events: string[] = [];
+    const readScreen = vi.fn(async () => {
+      manager.ingestResize('pane-1', 46, 45);
+      return { data: bytes('NEW'), cols: 46, rows: 45 };
+    });
+    manager.subscribe('pane-1', (c) => events.push(dec.decode(c)), readScreen, (c, r) => events.push(`resize ${c}x${r}`));
+
+    await vi.waitFor(() => expect(events).toEqual(['resize 46x45', 'NEW']));
+    expect(readScreen).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a resize that arrived during a raw replay after drawing it', async () => {
+    const manager = new PaneStreamManager();
+    const events: string[] = [];
+    const readRaw = vi.fn(async () => {
+      manager.ingestResize('pane-1', 46, 45);
+      return Array.from(bytes('RAW'));
+    });
+    manager.subscribe('pane-1', (c) => events.push(dec.decode(c)), readRaw, (c, r) => events.push(`resize ${c}x${r}`));
+
+    await vi.waitFor(() => expect(events).toEqual(['RAW', 'resize 46x45']));
+  });
+
+  it('a nudge (leave the stream, subscribe again with the same handlers) replays the current screen', async () => {
+    const manager = new PaneStreamManager();
+    const events: string[] = [];
+    let n = 0;
+    const readScreen = vi.fn(async () => {
+      n += 1;
+      return { data: bytes(`SCREEN${n}`), cols: 46, rows: 45 };
+    });
+    const onData = (c: Uint8Array) => events.push(dec.decode(c));
+    const onResize = (c: number, r: number) => events.push(`resize ${c}x${r}`);
+    const unsub = manager.subscribe('pane-1', onData, readScreen, onResize);
+    await vi.waitFor(() => expect(events).toEqual(['resize 46x45', 'SCREEN1']));
+
+    unsub();
+    manager.ingest('pane-1', bytes('missed while away'));
+    manager.subscribe('pane-1', onData, readScreen, onResize);
+    await vi.waitFor(() => expect(events).toEqual(['resize 46x45', 'SCREEN1', 'resize 46x45', 'SCREEN2']));
+    manager.ingest('pane-1', bytes('LIVE'));
+    expect(events.at(-1)).toBe('LIVE');
+  });
 });

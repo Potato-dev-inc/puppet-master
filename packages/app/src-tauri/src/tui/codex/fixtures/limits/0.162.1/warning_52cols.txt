@@ -1,0 +1,14 @@
+#! source: synthetic (built from openai/codex codex-rs/protocol/src/error.rs quoted in DESIGN-RELAY.md 1.2; NOT a live capture; live captures X1-X8 are TODO)
+#! now: 2026-10-15T12:00 +08:00 Asia/Taipei
+#! cols: 52
+#! expect: kind=warning rule=heads_up
+• Done. All tests pass.
+
+⚠ Heads up, you have less than 25% of your
+  5h limit left. Run /status for a breakdown.
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna medium · D:\pm-demo
+  ? for shortcuts

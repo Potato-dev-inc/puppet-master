@@ -1,0 +1,22 @@
+{
+  "name": "error-pane",
+  "note": "an errored pane counts",
+  "input": {
+    "panes": [
+      {
+        "id": "ps",
+        "status": "error"
+      }
+    ]
+  },
+  "expected": [
+    {
+      "id": "error:ps",
+      "kind": "error",
+      "paneId": "ps"
+    }
+  ],
+  "blocking": [
+    "error:ps"
+  ]
+}

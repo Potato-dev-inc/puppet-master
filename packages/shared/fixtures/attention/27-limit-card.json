@@ -1,0 +1,86 @@
+{
+  "name": "limit-card",
+  "note": "a question that carries limit info is a usage-limit card: a limit item that keeps its pane and counts; a null limit is an ordinary question; consent still wins",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "idle"
+      }
+    ],
+    "questions": [
+      {
+        "id": "l1",
+        "pane_id": "a",
+        "created_at_ms": 9,
+        "limit": {
+          "kind": "usage_limit",
+          "agent_label": "Claude Code",
+          "window": "session limit",
+          "reset_text": "5pm",
+          "self_resume_armed": false,
+          "has_run": true
+        }
+      },
+      {
+        "id": "r1",
+        "pane_id": "gone",
+        "created_at_ms": 10,
+        "limit": {
+          "kind": "reset_reminder",
+          "agent_label": "Codex"
+        }
+      },
+      {
+        "id": "q1",
+        "pane_id": "a",
+        "created_at_ms": 11,
+        "limit": null
+      },
+      {
+        "id": "c1",
+        "created_at_ms": 12,
+        "consent": {
+          "action": "take_over",
+          "requester": "Codex",
+          "target": "Claude Code"
+        },
+        "limit": {
+          "kind": "usage_limit",
+          "agent_label": "Codex"
+        }
+      }
+    ]
+  },
+  "expected": [
+    {
+      "id": "limit:l1",
+      "kind": "limit",
+      "paneId": "a",
+      "since": 9
+    },
+    {
+      "id": "limit:r1",
+      "kind": "limit",
+      "since": 10
+    },
+    {
+      "id": "question:q1",
+      "kind": "question",
+      "paneId": "a",
+      "since": 11
+    },
+    {
+      "id": "consent:c1",
+      "kind": "consent",
+      "risk": "high",
+      "since": 12
+    }
+  ],
+  "blocking": [
+    "consent:c1",
+    "limit:l1",
+    "limit:r1",
+    "question:q1"
+  ]
+}

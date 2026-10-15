@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   AgentTypeSchema,
+  BUILTIN_AGENT_TYPES,
   getDefaultTerminalAgentType,
   getPreset,
   listLaunchPresets,
   listPresets,
+  presetFor,
 } from './agents';
 
 describe('agent presets', () => {
   it('includes a first-class command prompt preset', () => {
-    expect(AgentTypeSchema.options).toContain('cmd');
+    expect(BUILTIN_AGENT_TYPES).toContain('cmd');
     expect(listPresets('windows').map((preset) => preset.type)).toContain('cmd');
   });
 
@@ -57,5 +59,61 @@ describe('agent presets', () => {
     expect(getPreset('cursor', 'windows').command).toBe('cursor.cmd');
     expect(getPreset('cursor_agent', 'windows').command).toBe('cursor-agent');
     expect(getPreset('cursor_agent', 'windows').isTui).toBe(true);
+  });
+});
+
+describe('agent id schema', () => {
+  it.each([
+    ['claude', true],
+    ['opencode_native', true],
+    ['cursor_agent', true],
+    ['kilo', true],
+    ['k2', true],
+    ['a'.repeat(32), true],
+    ['Bad Id', false],
+    ['Kilo', false],
+    ['k', false],
+    ['1kilo', false],
+    ['_kilo', false],
+    ['kilo-code', false],
+    ['a'.repeat(33), false],
+    ['', false],
+  ])('%j valid=%s', (id, valid) => {
+    expect(AgentTypeSchema.safeParse(id).success).toBe(valid);
+  });
+
+  it('keeps the nine built-in ids as known presets, in the existing order', () => {
+    expect(BUILTIN_AGENT_TYPES).toEqual([
+      'claude',
+      'codex',
+      'opencode',
+      'opencode_native',
+      'cmd',
+      'powershell',
+      'bash',
+      'cursor',
+      'cursor_agent',
+    ]);
+    expect(listPresets('windows').map((preset) => preset.type)).toEqual([...BUILTIN_AGENT_TYPES]);
+  });
+});
+
+describe('presetFor', () => {
+  it('returns the built-in preset for a known id', () => {
+    expect(presetFor('codex', 'windows')).toEqual(getPreset('codex', 'windows'));
+    expect(presetFor('claude', 'windows').label).toBe('Claude Code');
+  });
+
+  it('falls back to a neutral preset for an unknown id', () => {
+    const preset = presetFor('kilo', 'windows');
+    expect(preset.type).toBe('kilo');
+    expect(preset.label).toBe('kilo');
+    expect(preset.icon).toBe('KI');
+    expect(preset.isTui).toBe(true);
+    expect(preset.baseArgs).toEqual([]);
+  });
+
+  it('getPreset accepts any id through the same fallback', () => {
+    expect(getPreset('kilo', 'linux').label).toBe('kilo');
   });
 });

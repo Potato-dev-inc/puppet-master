@@ -2,6 +2,7 @@
 //! except `visible_terminal` (true only when a pane exists).
 
 use crate::operations::OperationSnapshot;
+use crate::tui::Kind;
 use serde::{Deserialize, Serialize};
 
 pub const NOTE_INTERRUPT_ACK: &str =
@@ -14,15 +15,8 @@ pub const NOTE_HEADLESS_INTERRUPT: &str =
     "headless interrupt stops the child; a follow-up starts a new child; pane kill is close_agent only";
 pub const NOTE_LIVE_NATIVE_ONLY: &str =
     "live_messages is opencode_native only; other backends queue or report unsupported and never inject text into a busy TUI";
-pub const NOTE_CURSOR_BOUNDARIES: &str =
-    "cursor TUI response boundaries are version-specific screen heuristics, not protocol events";
-pub const NOTE_CURSOR_QUESTIONS: &str =
-    "cursor questions (trust / allow-once) are version-specific screen matches, not a stable question API";
-pub const NOTE_CURSOR_INTERRUPT: &str =
-    "cursor interrupt is Ctrl+C on a visible TUI or child stop when headless; not a graceful provider abort";
-pub const NOTE_CURSOR_EXTRACT: &str =
-    "cursor output extraction is headless JSON (--print) or TUI screen delta; exact parity across versions is not guaranteed";
-
+pub const NOTE_STEER_VIA_RESTART: &str =
+    "steer_via_restart: send_message on a busy headless run stops the child and starts a new turn with --resume (disposition accepted_via_restart) once the provider session id is known, which is after the run's first turn finishes; the stopped turn's unfinished work is lost, and before that the message is queued";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackendInterface {
@@ -52,40 +46,34 @@ impl BackendCapabilities {
 }
 
 pub fn read_only_supported(agent_type: &str, has_pane: bool) -> bool {
-    !has_pane && READ_ONLY_BACKENDS.contains(&agent_type)
+    let features = crate::tui::profile_for(agent_type).features();
+    // No pane named: the run spawns its own (headless process, or a pane started read-only).
+    !has_pane && (features.read_only_headless || features.read_only_spawned_pane)
 }
 
-#[cfg(test)]
-mod read_only_tests {
-    use super::*;
-
-    #[test]
-    fn flag_matches_supported_backends_and_native_is_unsupported() {
-        for backend in READ_ONLY_BACKENDS {
-            assert!(read_only_supported(backend, false));
-            assert!(!read_only_supported(backend, true));
+/// Like [`read_only_supported`], but a named pane counts when it was spawned with enforced
+/// read-only permissions. Adopted shared panes never do.
+pub fn read_only_supported_for(agent_type: &str, pane_id: Option<&str>) -> bool {
+    match pane_id {
+        None => read_only_supported(agent_type, false),
+        Some(pane_id) => {
+            crate::tui::profile_for(agent_type).features().read_only_spawned_pane
+                && crate::tui::opencode::read_only::is_enforced(pane_id)
         }
-        assert!(!read_only_supported("opencode_native", false));
-        assert!(!read_only_supported("opencode_native", true));
-    }
-
-    #[test]
-    fn message_names_backend_and_supported_list() {
-        let msg = read_only_unsupported_message("opencode_native", false);
-        assert!(msg.contains("opencode_native"));
-        assert!(msg.contains("claude, codex, cursor_agent"));
     }
 }
-
-/// Backends whose headless launch enforces read-only (see `launch_spec`).
-pub const READ_ONLY_BACKENDS: &[&str] = &["claude", "codex", "cursor_agent"];
 
 /// Clear error for `read_only=true` on a backend/mode that cannot enforce it.
 pub fn read_only_unsupported_message(agent_type: &str, has_pane: bool) -> String {
     let mode = if has_pane { " in a shared terminal pane" } else { "" };
     format!(
-        "read_only=true cannot be enforced for backend '{agent_type}'{mode}; read_only is supported only for headless runs on: {}. Retry with read_only=false or a supported backend",
-        READ_ONLY_BACKENDS.join(", ")
+        "read_only=true cannot be enforced for backend '{agent_type}'{mode}; read_only is supported only for headless runs on: {}, and for a pane the run spawns itself on: {}. Retry with read_only=false or a supported backend",
+        crate::tui::read_only_backends().join(", "),
+        crate::tui::read_only_spawned_pane_backends()
+            .into_iter()
+            .map(|id| format!("{id} (run-spawned pane only)"))
+            .collect::<Vec<_>>()
+            .join(", ")
     )
 }
 
@@ -94,13 +82,22 @@ pub fn for_snapshot(snapshot: &OperationSnapshot) -> BackendCapabilities {
 }
 
 pub fn for_backend(agent_type: &str, has_pane: bool) -> BackendCapabilities {
-    match agent_type {
-        "opencode_native" => native_protocol(has_pane),
-        "cursor_agent" | "cursor" => cursor_contract(has_pane),
-        "codex" => cli_contract(has_pane, !has_pane),
-        "claude" | "opencode" => cli_contract(has_pane, false),
-        _ => shell_contract(has_pane),
-    }
+    let profile = crate::tui::profile_for(agent_type);
+    let features = profile.features();
+    let mut caps = match features.kind {
+        Kind::NativeProtocol => native_protocol(has_pane),
+        Kind::Cli => {
+            let mut caps = cli_contract(has_pane, features.resumable_headless && !has_pane);
+            caps.model_selection = profile.accepts_headless_model() && !has_pane;
+            if caps.session_resume {
+                caps.notes.push(NOTE_STEER_VIA_RESTART.into());
+            }
+            caps
+        }
+        Kind::Shell | Kind::Unknown => shell_contract(has_pane),
+    };
+    caps.notes.extend(profile.capability_notes(has_pane));
+    caps
 }
 
 fn shared_ceilings() -> Vec<String> {
@@ -150,17 +147,6 @@ fn cli_contract(has_pane: bool, session_resume: bool) -> BackendCapabilities {
     }
 }
 
-fn cursor_contract(has_pane: bool) -> BackendCapabilities {
-    let mut caps = cli_contract(has_pane, false);
-    caps.notes.extend([
-        NOTE_CURSOR_BOUNDARIES.into(),
-        NOTE_CURSOR_QUESTIONS.into(),
-        NOTE_CURSOR_INTERRUPT.into(),
-        NOTE_CURSOR_EXTRACT.into(),
-    ]);
-    caps
-}
-
 fn shell_contract(has_pane: bool) -> BackendCapabilities {
     let mut notes = shared_ceilings();
     notes.push(NOTE_HEADLESS_INTERRUPT.into());
@@ -175,5 +161,35 @@ fn shell_contract(has_pane: bool) -> BackendCapabilities {
         visible_terminal: has_pane,
         interface: BackendInterface::TuiObservation,
         notes,
+    }
+}
+
+#[cfg(test)]
+mod read_only_tests {
+    use super::*;
+
+    #[test]
+    fn flag_matches_supported_backends_and_native_is_unsupported() {
+        for backend in crate::tui::read_only_backends() {
+            assert!(read_only_supported(backend, false));
+            assert!(!read_only_supported(backend, true));
+        }
+        // Native: supported only for a pane the run spawns itself with read-only config.
+        assert!(read_only_supported("opencode_native", false));
+        assert!(!read_only_supported("opencode_native", true));
+        assert!(!read_only_supported("opencode", false));
+        assert!(!read_only_supported_for("opencode_native", Some("adopted-pane")));
+        crate::tui::opencode::read_only::set_enforced("cap-test-pane", true);
+        assert!(read_only_supported_for("opencode_native", Some("cap-test-pane")));
+        assert!(!read_only_supported_for("codex", Some("cap-test-pane")));
+        crate::tui::opencode::read_only::set_enforced("cap-test-pane", false);
+    }
+
+    #[test]
+    fn message_names_backend_and_supported_list() {
+        let msg = read_only_unsupported_message("opencode_native", true);
+        assert!(msg.contains("opencode_native"));
+        assert!(msg.contains("claude, codex, cursor_agent"));
+        assert!(msg.contains("opencode_native (run-spawned pane only)"));
     }
 }

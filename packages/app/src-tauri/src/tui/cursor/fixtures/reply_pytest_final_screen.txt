@@ -1,0 +1,35 @@
+
+  Writing tests that run todo.py in temporary working directories via subprocess.
+
+    Edited test_todo.py +76
+
+    ▎+ import json
+    ▎+ import subprocess
+    ▎+ import sys
+    ▎+ from pathlib import Path
+    ▎+
+    ▎+ import pytest
+    ▎+
+    ▎+ TODO_PY = Path(__file__).resolve().parent / "todo.py"
+    ▎+
+    ▎+
+    ▎+ def run_todo(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    ▎+     return subprocess.run(
+    ▎ … truncated (64 more lines) · ctrl+r to review
+
+  $ python -m pytest -q 9.3s
+    ........                                                                 [100%]
+    8 passed in 0.93s
+
+  Added test_todo.py with pytest coverage for todo.py’s add and list commands (plus no-args behavior). Each test runs
+  the CLI in a fresh tmp_path so todos.json stays isolated.
+
+  python -m pytest -q: 8 passed, 0 failed (0.93s)
+
+
+ ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+  → Add a follow-up
+ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  Composer 2.5 · 8.9% · 1 file edited
+  ~\AppData\Local\Temp\claude\C--Users-Ren-pc-Desktop-work2-puppet-master\7f91bd8b-8ce7-4122-9d68-3ea20af2faed\scratchpa
+  d\verify5-1

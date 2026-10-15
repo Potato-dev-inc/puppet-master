@@ -1,0 +1,8 @@
+/* Activity phrase in the pane header: one line, truncated. */
+.cockpit .ck-pane-doing {
+  min-width: 0;
+  max-width: 38ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

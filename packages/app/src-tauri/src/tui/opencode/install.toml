@@ -1,0 +1,10 @@
+# How OpenCode is installed on Windows. Checked 2026-10-14.
+# Source: https://opencode.ai/docs/ lists npm (`npm install -g opencode-ai`), Scoop, Chocolatey and
+# Mise. winget has a package too (`winget show --id SST.opencode`: portable opencode-windows-x64.zip
+# from github.com/anomalyco/opencode releases) although the docs do not list it.
+[install.windows]
+source = "https://opencode.ai/docs/"
+order = ["winget", "npm"]
+winget = "SST.opencode"
+npm = "opencode-ai"
+note = "OpenCode runs best inside WSL, but the Windows version works."

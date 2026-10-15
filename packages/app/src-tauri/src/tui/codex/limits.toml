@@ -1,0 +1,71 @@
+# Codex: what its screen says when the plan runs out. Read by `handoff::detect`; the rules are DATA.
+#
+# Source of every text below: openai/codex `main` (`codex-rs/protocol/src/error.rs`, last changed
+# 2026-10-13; rendering in `codex-rs/tui/src/history_cell/notices.rs`), as cited in
+# D:\pm-night\DESIGN-RELAY.md 1.2, for Codex 0.162.x. An error is one history line with the prefix
+# `■ ` and the apostrophe is U+2019. NO rule has been checked against a LIVE screen yet: the fixtures
+# under `fixtures/limits/0.162.1/` are SYNTHETIC (built from the quoted source).
+# TODO(live capture, DESIGN-RELAY 7.1): X1 same-day reset, X2 other-day reset, X3 "Try again later",
+# X4 per-model, X5 warning wrapped at 52 columns, X6 reconnect / retry limit, X7 the switch popup,
+# N1/N2 negatives.
+[limits]
+schema = 1
+vendor = "openai"
+tested = ">=0.162, <0.170"
+self_resume = "none"
+tail_lines = 12
+stable_ms = 2000
+# Codex's replies start with a bullet and wrap with a hanging indent, and the error row starts in
+# column 0 with `■ `: the anchor in the rules is what keeps a quoted sentence out. No markers needed.
+
+# Per model: "You’ve hit your usage limit for gpt-5.5. Switch to another model now, or try again at 9:45 PM."
+[[limits.usage]]
+id = "model"
+regex = '''^■\s+You[’']ve\s+hit\s+your\s+usage\s+limit\s+for\s+(?P<window>.+?)\.\s+Switch\s+to\s+another\s+model\s+now,\s+or\s+try\s+again\s+(?:at\s+(?P<reset>[A-Z][a-z]{2}\s+\d{1,2}(?:st|nd|rd|th),\s+\d{4}\s+\d{1,2}:\d{2}\s+[AP]M|\d{1,2}:\d{2}\s+[AP]M)|later)\.'''
+
+# Every plan variant (generic, Plus, Pro, Free/Go, Team/Business, promo) ends in "[Tt]ry again at T." or
+# "try again later.", after at most one more sentence, so one rule covers them. The gap is bounded and
+# cannot cross into the next `■` row.
+[[limits.usage]]
+id = "usage"
+regex = '''^■\s+You[’']ve\s+hit\s+your\s+usage\s+limit\.[^■]{0,400}?[Tt]ry\s+again\s+(?:at\s+(?P<reset>[A-Z][a-z]{2}\s+\d{1,2}(?:st|nd|rd|th),\s+\d{4}\s+\d{1,2}:\d{2}\s+[AP]M|\d{1,2}:\d{2}\s+[AP]M)|later)\.'''
+
+# Workspace credits / spend cap: no reset time.
+[[limits.usage]]
+id = "workspace"
+regex = '''^■\s+(?:Your\s+workspace\s+is\s+out\s+of\s+credits\.|You\s+hit\s+your\s+spend\s+cap\s+set\s+)'''
+
+# API key: "Quota exceeded. Check your plan and billing details."
+[[limits.usage]]
+id = "api_quota"
+regex = '''^■\s+Quota\s+exceeded\.\s+Check\s+your\s+plan\s+and\s+billing\s+details\.'''
+
+[[limits.unavailable]]
+id = "plan_missing"
+regex = '''^■\s+To\s+use\s+Codex\s+with\s+your\s+ChatGPT\s+plan,\s+upgrade\s+to\s+Plus'''
+
+# Seconds-long throttling: Codex retries by itself.
+[[limits.transient]]
+id = "retrying"
+regex = '''Reconnecting\.\.\.\s+\d+/\d+|stream\s+disconnected\s+-\s+retrying\s+sampling\s+request|^■\s+rate\s+limit\s+exceeded:|Selected\s+model\s+is\s+at\s+capacity\.|We[’']re\s+currently\s+experiencing\s+high\s+demand'''
+
+# Codex gave up retrying and the turn ended.
+[[limits.transient_final]]
+id = "retry_limit"
+regex = '''^■\s+exceeded\s+retry\s+limit,\s+last\s+status:\s+429'''
+
+[[limits.warning]]
+id = "heads_up"
+regex = '''Heads\s+up,\s+you\s+have\s+less\s+than\s+(?P<pct>\d+)%\s+of\s+your\s+(?P<window>.+?)\s+limit\s+left\.'''
+
+# The "Approaching rate limits / Switch to {model}?" popup is a menu. Never answered.
+[[limits.menu]]
+id = "rate_limit_switch_prompt"
+regex = '''Approaching\s+rate\s+limits'''
+
+# Same day: `9:45 PM`. Another day: `Oct 16th, 2026 9:45 PM`. No zone is printed (local time).
+[limits.reset_formats]
+formats = [
+  '''^(?P<hour>\d{1,2}):(?P<minute>\d{2})\s*(?P<ampm>[ap]m)$''',
+  '''^(?P<mon>[a-z]{3,9})\.?\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?,?\s+(?:(?P<year>\d{4}),?\s+)?(?P<hour>\d{1,2}):(?P<minute>\d{2})\s*(?P<ampm>[ap]m)$''',
+]

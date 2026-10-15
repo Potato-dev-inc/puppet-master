@@ -1,0 +1,78 @@
+# T20: Fingerprint/binary enforcement at spawn; agent_definition in receipts
+
+Size: M. Depends on: T19. Covers (PLAN ids): P2-12. User-visible effect: run receipts for declarative agents show agent_definition; edits after approval block new runs.
+
+## Goal
+
+Record `agent_definition` in run snapshots/receipts, enforce fingerprint and pinned binary at spawn (`AGENT_DEF_APPROVAL_STALE`, `AGENT_DEF_BINARY_CHANGED`), and map extract failures to `AGENT_OUTPUT_UNPARSEABLE`/`AGENT_REPORTED_ERROR`.
+
+## Why now / depends on
+
+Makes runs auditable and edits safe; must precede the live proof so receipts can be checked in the same session. Depends on: T19. Index: `phases/README.md`. Spec: `SPEC.md`; original tasks: `PLAN.md` (P2-12).
+
+## In scope
+
+- Snapshot struct field + persistence.
+- Spawn-time checks.
+- Error mapping in completion.
+
+## Out of scope
+
+- Approval UX diff view (T34).
+
+## Tasks
+
+File allow-list = the union of the files named below (`src/` = `packages/app/src-tauri/src/`). Anything else needs a plan edit.
+
+- [ ] Snapshot/receipt field + persistence — `src/agent_runs/persist.rs` and the snapshot struct file it points at (`src/agent_runs/` only) — done-when: OBS-2 holds in a test
+- [ ] Spawn-time enforcement — `src/tui/registry.rs`, `src/bridge/errors.rs` — done-when: run after an edit returns APPROVAL_STALE; changed binary returns BINARY_CHANGED
+- [ ] Completion mapping — `src/agent_runs/completion/` (only the files where extract failures map) — done-when: garbage output yields AGENT_OUTPUT_UNPARSEABLE; error event yields AGENT_REPORTED_ERROR
+
+## Tests to write first
+
+- `agent_runs::receipt_has_agent_definition_for_declarative`: id, fingerprint, binary path
+- `agent_runs::run_in_flight_unaffected_by_edit`: two snapshots, old one keeps old fingerprint
+- `agent_runs::stale_approval_blocks_new_run`: error code
+
+## Verification commands
+
+Run from `packages/app/src-tauri` with `CARGO_TARGET_DIR=C:\Users\Ren-pc\cargo-target-shared` unless noted.
+
+- `cargo test --lib agent_runs`
+- `cargo test --lib tui::`
+- `cargo test --lib`
+
+End-of-phase invariant: the repo builds and all suites touched above pass; no half-migrated state.
+
+## Risks and rollback
+
+Persisted snapshot compatibility: new field must be optional (`serde(default)`). Rollback: revert.
+
+## Open questions this phase depends on
+
+None. (SPEC section 11.)
+
+## Agent prompt
+
+Paste everything inside the block below.
+
+````text
+You are implementing phase T20 (Fingerprint/binary enforcement at spawn; agent_definition in receipts) of the declarative agent definitions plan. Goal: Record `agent_definition` in run snapshots/receipts, enforce fingerprint and pinned binary at spawn (`AGENT_DEF_APPROVAL_STALE`, `AGENT_DEF_BINARY_CHANGED`), and map extract failures to `AGENT_OUTPUT_UNPARSEABLE`/`AGENT_REPORTED_ERROR`.
+
+Read first: docs/REPO_MAP.md, docs/specs/agent-definitions/SPEC.md (requirements referenced by P2-12), docs/specs/agent-definitions/phases/T20-run-integration-receipts.md (your task list, tests, allow-list, verification) and the relevant PLAN.md tasks (P2-12). Prerequisite phases already merged: T19.
+
+Work: 1) write the tests listed under "Tests to write first" and see them fail; 2) do the tasks in order, touching only the allow-listed files; 3) run every command under "Verification commands" and fix until green; 4) commit with explicit `git add <paths>` (1-4 commits). Out of scope: Approval UX diff view (T34).
+Phase note: Make the new snapshot field `#[serde(default)]` so old persisted runs still load.
+Hard rules (non-negotiable):
+- Repo: C:\Users\Ren-pc\Desktop\work2\puppet-master, branch refactor/tui-profiles. `src/` means packages/app/src-tauri/src/. Read docs/REPO_MAP.md, docs/specs/agent-definitions/SPEC.md (the requirement ids your phase covers) and this phase file first.
+- Tests first: write the failing tests listed, then implement, then run the verification commands. Commit finished work unasked, 1-4 commits.
+- Touch only files in this phase's allow-list. If reality diverges from SPEC (a file/function is not where the plan says, a behaviour differs), STOP and ask the caller; do not improvise a redesign.
+- No recursive deletes (no `rm -rf`, `Remove-Item -Recurse`), no `git worktree remove`, no junctions/symlink tricks. Delete only single files you created.
+- NEVER stage the user's uncommitted README.md, docs/wiki/README.md, package-lock.json, or packages/app/src-tauri/Cargo.toml wholesale. Always `git add <explicit paths>`; if you must add a dependency line to Cargo.toml, use `git add -p` for only your hunk (or ask). `git status` must show those four files still modified-and-unstaged afterwards. Never `git add -A` / `git add .`.
+- Commit message ends with the trailer line: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Do not push.
+- Use the shared target dir: `$env:CARGO_TARGET_DIR='C:\Users\Ren-pc\cargo-target-shared'` (PowerShell) or `export CARGO_TARGET_DIR=/c/Users/Ren-pc/cargo-target-shared` (bash); run cargo from packages/app/src-tauri.
+- If this phase changes any MCP tool schema, rebuild the dist MCP exe (separate CARGO_TARGET_DIR + rename swap) and make sure catalog_version / the pinned test agree. Edits to src-tauri restart the live dev app (~1 minute): never edit while a live test runs.
+- Each handoff/report needs a fresh build_id. Use unique handle names in live tests.
+
+Final report: commits (hashes), test counts for each verification command, any divergence from SPEC, and the fresh build_id if a live check ran.
+````

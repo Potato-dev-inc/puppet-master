@@ -1,0 +1,41 @@
+{
+  "name": "duplicate-question-ids",
+  "note": "two questions with one id give two items (ids are not deduped by the legacy derive)",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "idle"
+      }
+    ],
+    "questions": [
+      {
+        "id": "q",
+        "pane_id": "a",
+        "created_at_ms": 1
+      },
+      {
+        "id": "q",
+        "pane_id": "a",
+        "created_at_ms": 2
+      }
+    ]
+  },
+  "expected": [
+    {
+      "id": "question:q",
+      "kind": "question",
+      "paneId": "a",
+      "since": 1
+    },
+    {
+      "id": "question:q",
+      "kind": "question",
+      "paneId": "a",
+      "since": 2
+    }
+  ],
+  "blocking": [
+    "question:q"
+  ]
+}

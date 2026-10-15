@@ -1,0 +1,10 @@
+# How Cursor Agent (the `agent` CLI, not the Cursor editor) is installed on Windows. Checked 2026-10-14.
+# Source: https://cursor.com/docs/cli/installation
+#  - Native Windows: `irm 'https://cursor.com/install?win32=true' | iex` is the only documented way.
+#  - `winget search cursor` only lists the Cursor editor (Anysphere.Cursor), not the CLI, and the CLI
+#    is not on npm, so there is no package-manager method to prefer.
+[install.windows]
+source = "https://cursor.com/docs/cli/installation"
+order = ["script"]
+script_url = "https://cursor.com/install?win32=true"
+note = "This installs the Cursor Agent command line tool, not the Cursor editor."

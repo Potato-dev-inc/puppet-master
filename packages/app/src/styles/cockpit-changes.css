@@ -1,0 +1,176 @@
+/* Receipt tab "Changes" section and the sidebar's isolation toggle. Monochrome: additions are heavier
+   and carry a solid left rule, deletions are dimmer with a hairline rule; no red or green. */
+
+.cockpit .ck-changes {
+  padding: 16px;
+  border-bottom: 1px solid var(--sep);
+}
+.cockpit .ck-changes-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cockpit .ck-changes-state {
+  font-size: 11px;
+  color: var(--label-3);
+}
+.cockpit .ck-changes-meta {
+  margin: 4px 0 12px;
+  font-size: 13px;
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-changes-meta code,
+.cockpit .ck-changes-path,
+.cockpit .ck-diff {
+  font-family: var(--font-mono);
+}
+.cockpit .ck-changes-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sep);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.cockpit .ck-changes-files > li + li {
+  border-top: 1px solid var(--sep);
+}
+.cockpit .ck-changes-file {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  color: var(--label);
+  cursor: pointer;
+  transition: background 160ms var(--ease);
+}
+.cockpit .ck-changes-file:hover,
+.cockpit .ck-changes-file.is-open {
+  background: var(--fill);
+}
+.cockpit .ck-changes-file:focus-visible {
+  box-shadow: var(--focus);
+}
+.cockpit .ck-changes-mark {
+  width: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--label-3);
+}
+.cockpit .ck-changes-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit .ck-changes-counts {
+  font-size: 11px;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.cockpit .ck-diff {
+  margin: 0;
+  padding: 6px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg);
+  border-top: 1px solid var(--sep);
+  overflow-x: auto;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.cockpit .ck-diff-line {
+  display: block;
+  padding: 0 12px;
+  white-space: pre;
+  border-left: 2px solid transparent;
+  color: var(--label-3);
+}
+.cockpit .ck-diff-add {
+  font-weight: 600;
+  color: var(--label);
+  border-left-color: var(--label);
+}
+.cockpit .ck-diff-del {
+  color: var(--label-2);
+  border-left-color: var(--label-4);
+}
+.cockpit .ck-diff-hunk {
+  color: var(--label-3);
+  font-style: italic;
+  padding-top: 4px;
+}
+.cockpit .ck-changes-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.cockpit .ck-changes-error {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--label);
+  font-weight: 600;
+  border-left: 2px solid var(--label);
+  padding-left: 10px;
+}
+.cockpit .ck-menu-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 8px 10px 4px;
+  border-top: 1px solid var(--sep);
+  font-size: 12px;
+  color: var(--label-2);
+  cursor: pointer;
+}
+.cockpit .ck-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 0;
+  padding: 0;
+  background: var(--label-4);
+  cursor: pointer;
+  transition: background 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.cockpit .ck-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg);
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.cockpit .ck-switch[aria-checked='true'] {
+  background: var(--label);
+}
+.cockpit .ck-switch[aria-checked='true'] .ck-switch-knob {
+  transform: translateX(16px);
+}
+.cockpit .ck-switch:focus-visible {
+  box-shadow: var(--focus);
+  outline: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cockpit .ck-changes-file {
+    transition: none;
+  }
+  .cockpit .ck-switch,
+  .cockpit .ck-switch-knob {
+    transition: none;
+  }
+}

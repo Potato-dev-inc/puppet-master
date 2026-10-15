@@ -1,0 +1,110 @@
+{
+  "name": "every-kind",
+  "note": "attention.test.ts: one item per approval, question, error, stuck pane and Ask-bar answer, in that order",
+  "input": {
+    "panes": [
+      {
+        "id": "a",
+        "status": "waiting_input"
+      },
+      {
+        "id": "b",
+        "status": "waiting_input"
+      },
+      {
+        "id": "c",
+        "status": "error"
+      },
+      {
+        "id": "d",
+        "status": "running"
+      },
+      {
+        "id": "e",
+        "status": "idle"
+      }
+    ],
+    "prompts": {
+      "a": {
+        "risk": {
+          "level": "high"
+        }
+      },
+      "b": {
+        "risk": {
+          "level": "low"
+        }
+      }
+    },
+    "questions": [
+      {
+        "id": "q1",
+        "pane_id": "d",
+        "created_at_ms": 5
+      },
+      {
+        "id": "q2"
+      }
+    ],
+    "stuckPaneIds": [
+      "d"
+    ],
+    "notices": [
+      {
+        "id": "n1",
+        "at_ms": 9
+      }
+    ],
+    "statusSince": {
+      "a": 100
+    }
+  },
+  "expected": [
+    {
+      "id": "approval:a",
+      "kind": "approval",
+      "paneId": "a",
+      "risk": "high",
+      "since": 100
+    },
+    {
+      "id": "approval:b",
+      "kind": "approval",
+      "paneId": "b",
+      "risk": "low"
+    },
+    {
+      "id": "question:q1",
+      "kind": "question",
+      "paneId": "d",
+      "since": 5
+    },
+    {
+      "id": "question:q2",
+      "kind": "question"
+    },
+    {
+      "id": "error:c",
+      "kind": "error",
+      "paneId": "c"
+    },
+    {
+      "id": "stuck:d",
+      "kind": "stuck",
+      "paneId": "d"
+    },
+    {
+      "id": "answer:n1",
+      "kind": "answer",
+      "since": 9
+    }
+  ],
+  "blocking": [
+    "approval:a",
+    "approval:b",
+    "error:c",
+    "question:q1",
+    "question:q2",
+    "stuck:d"
+  ]
+}

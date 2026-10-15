@@ -1,3 +1,4 @@
+// Coordination board (tasks, locks, audit, session context, agent contexts, delegation preview) shown in the sidebar Tools tab.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   AuditEntryProjection,
@@ -17,6 +18,7 @@ import {
   mcpHealthLabel,
   paneRoleLabel,
 } from './coordination-panel-model';
+import { DataList, Metric, relativeTime, shortId } from './coordination/coordination-parts';
 
 type TabKey = 'overview' | 'tasks' | 'locks' | 'audit' | 'session' | 'context' | 'agents';
 
@@ -45,18 +47,6 @@ const emptySnapshot: CoordinationSnapshot = {
   mcpTools: [],
 };
 
-function shortId(id: string): string {
-  if (id.length <= 10) return id;
-  return `${id.slice(0, 4)}…${id.slice(-4)}`;
-}
-
-function relativeTime(timestampMs: number): string {
-  const delta = Date.now() - timestampMs;
-  if (delta < 1000) return 'now';
-  if (delta < 60_000) return `${Math.floor(delta / 1000)}s`;
-  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
-  return `${Math.floor(delta / 3_600_000)}h`;
-}
 
 export function CoordinationPanel({ bridge, bridgeReady }: Props) {
   const [tab, setTab] = useState<TabKey>('overview');
@@ -477,61 +467,5 @@ export function CoordinationPanel({ bridge, bridgeReady }: Props) {
         )}
       </div>
     </section>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="pm-coordination-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function DataList({
-  empty,
-  items,
-  selectedId,
-  onSelect,
-}: {
-  empty: string;
-  items: Array<{ id: string; title: string; meta: string }>;
-  selectedId?: string;
-  onSelect?: (id: string) => void;
-}) {
-  if (items.length === 0) {
-    return <div className="pm-coordination-empty">{empty}</div>;
-  }
-  return (
-    <ul className="pm-coordination-list">
-      {items.map((item) => (
-        <li key={item.id} className={selectedId === item.id ? 'selected' : undefined}>
-          {onSelect ? (
-            <button
-              type="button"
-              className="pm-coordination-row-button"
-              onClick={() => onSelect(item.id)}
-            >
-              <RowContent item={item} />
-            </button>
-          ) : (
-            <RowContent item={item} />
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function RowContent({ item }: { item: { id: string; title: string; meta: string } }) {
-  return (
-    <>
-          <span className="pm-coordination-list-main">
-            <strong>{item.title}</strong>
-            <small>{item.meta}</small>
-          </span>
-          <code>{shortId(item.id)}</code>
-    </>
   );
 }

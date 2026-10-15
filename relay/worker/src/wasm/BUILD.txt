@@ -1,0 +1,3 @@
+Built from relay/protocol and relay/worker/wasm by scripts/build-wasm.mjs.
+wasm-bindgen 0.2.129, cargo build --release --target wasm32-unknown-unknown.
+pm_relay_wasm_bg.wasm sha256 0ccd3a3cc026614805b8e947e755f92dd07cdefe8c83bd60edd184bfda078977

@@ -1,0 +1,25 @@
+# Minimal TUI-only definition (SPEC 7.2b).
+schema_version = 1
+
+[agent]
+id = "minitui"
+label = "My Coder"
+experimental = true
+
+[binary]
+names = ["minitui-fixture-not-installed"]
+install_hint = "see https://example.invalid/mycoder"
+
+[tui]
+argv = []
+
+[tui.busy]
+working_regex = ["thinking\\.\\.\\."]
+
+[[tui.prompt]]
+kind = "command_approval"
+detect_regex = "allow this command\\?"
+choices = [
+  { id = "allow_once", key = "y" },
+  { id = "deny", key = "n" },
+]

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { detectPlatform, type PuppetPlatform } from './platform.js';
 
-export const AgentTypeSchema = z.enum([
+/** The code agents compiled into the app (SPEC UI-1). Other ids come from the runtime registry. */
+export const BUILTIN_AGENT_TYPES = [
   'claude',
   'codex',
   'opencode',
@@ -11,8 +12,21 @@ export const AgentTypeSchema = z.enum([
   'bash',
   'cursor',
   'cursor_agent',
-]);
-export type AgentType = z.infer<typeof AgentTypeSchema>;
+] as const;
+export type BuiltinAgentType = (typeof BUILTIN_AGENT_TYPES)[number];
+
+/** Agent id pattern shared with the backend registry (SPEC VAL-1). */
+export const AGENT_ID_PATTERN = /^[a-z][a-z0-9_]{1,31}$/;
+
+/** Any pattern-valid agent id; whether it is registered is the backend's call. */
+export const AgentTypeSchema = z
+  .string()
+  .regex(AGENT_ID_PATTERN, 'agent_type must match ^[a-z][a-z0-9_]{1,31}$');
+export type AgentType = string;
+
+export function isBuiltinAgentType(id: string): id is BuiltinAgentType {
+  return (BUILTIN_AGENT_TYPES as readonly string[]).includes(id);
+}
 
 export interface AgentPreset {
   type: AgentType;
@@ -31,7 +45,7 @@ interface AgentCommandSpec {
 }
 
 const AGENT_META: Record<
-  AgentType,
+  BuiltinAgentType,
   Pick<AgentPreset, 'type' | 'label' | 'isTui' | 'icon'>
 > = {
   claude: {
@@ -92,9 +106,9 @@ const AGENT_META: Record<
 
 const CODEX_ARGS = ['--sandbox', 'workspace-write', '--ask-for-approval', 'never'];
 /** Spawn UI: OpenCode API workers plus PowerShell (multiple panes of either type). */
-const AGENT_LAUNCH_TYPES: AgentType[] = ['opencode_native', 'powershell'];
+const AGENT_LAUNCH_TYPES: BuiltinAgentType[] = ['opencode_native', 'powershell'];
 
-const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSpec>> = {
+const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<BuiltinAgentType, AgentCommandSpec>> = {
   windows: {
     claude: {
       command: 'claude',
@@ -226,7 +240,7 @@ const PLATFORM_COMMANDS: Record<PuppetPlatform, Record<AgentType, AgentCommandSp
   },
 };
 
-function buildPreset(type: AgentType, platform: PuppetPlatform): AgentPreset {
+function buildPreset(type: BuiltinAgentType, platform: PuppetPlatform): AgentPreset {
   const meta = AGENT_META[type];
   const spec = PLATFORM_COMMANDS[platform][type];
   return {
@@ -237,13 +251,31 @@ function buildPreset(type: AgentType, platform: PuppetPlatform): AgentPreset {
   };
 }
 
+/** Neutral preset for an id outside the compiled set (SPEC UI-1). */
+function neutralPreset(id: AgentType): AgentPreset {
+  return {
+    type: id,
+    label: id,
+    description: '',
+    command: id,
+    baseArgs: [],
+    isTui: true,
+    icon: id.slice(0, 2).toUpperCase(),
+  };
+}
+
+/** Preset for any agent id: the built-in one, else a neutral fallback labelled with the id. */
+export function presetFor(id: AgentType, platform?: PuppetPlatform): AgentPreset {
+  return isBuiltinAgentType(id) ? buildPreset(id, platform ?? detectPlatform()) : neutralPreset(id);
+}
+
 export function getPreset(type: AgentType, platform?: PuppetPlatform): AgentPreset {
-  return buildPreset(type, platform ?? detectPlatform());
+  return presetFor(type, platform);
 }
 
 export function listPresets(platform?: PuppetPlatform): AgentPreset[] {
   const resolved = platform ?? detectPlatform();
-  return AgentTypeSchema.options.map((type) => buildPreset(type, resolved));
+  return BUILTIN_AGENT_TYPES.map((type) => buildPreset(type, resolved));
 }
 
 export function getDefaultTerminalAgentType(_platform?: PuppetPlatform): AgentType {
@@ -255,9 +287,9 @@ export function listLaunchPresets(platform?: PuppetPlatform): AgentPreset[] {
   return AGENT_LAUNCH_TYPES.map((type) => buildPreset(type, resolved));
 }
 
-export function getAgentPresets(platform?: PuppetPlatform): Record<AgentType, AgentPreset> {
+export function getAgentPresets(platform?: PuppetPlatform): Record<BuiltinAgentType, AgentPreset> {
   const resolved = platform ?? detectPlatform();
   return Object.fromEntries(
-    AgentTypeSchema.options.map((type) => [type, buildPreset(type, resolved)]),
-  ) as Record<AgentType, AgentPreset>;
+    BUILTIN_AGENT_TYPES.map((type) => [type, buildPreset(type, resolved)]),
+  ) as Record<BuiltinAgentType, AgentPreset>;
 }

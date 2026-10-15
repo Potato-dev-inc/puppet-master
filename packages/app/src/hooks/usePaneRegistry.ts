@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PaneStreamManager } from '../terminal';
+import { PaneStreamManager, createOwnerReplayReader } from '../terminal';
+import type { PaneDataSubscriber } from '../terminal/types';
 import {
   tauri,
   type PaneInfo,
@@ -25,8 +26,15 @@ export interface PaneRegistryApi {
   writeInput: (paneId: string, text: string, appendNewline?: boolean) => Promise<void>;
   resize: (paneId: string, cols: number, rows: number) => Promise<void>;
   refresh: () => Promise<void>;
-  subscribePaneData: (paneId: string, cb: (data: Uint8Array) => void) => () => void;
+  subscribePaneData: PaneDataSubscriber;
 }
+
+/** Mount replay for this window: the screen at the PTY's current size, not size-mixed raw history. */
+const readOwnerReplay = createOwnerReplayReader({
+  readScreen: tauri.readScreenReplay,
+  readRaw: tauri.readRawBuffer,
+  pendingResize: tauri.pendingResize,
+});
 
 const EMPTY: Map<string, PaneData> = new Map();
 
@@ -39,10 +47,16 @@ export function usePaneRegistry(): PaneRegistryApi {
   const streamsRef = useRef(new PaneStreamManager());
   const replacingRef = useRef<Set<string>>(new Set());
   const exitRefreshTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Refreshes overlap (a pane event fires one while another is in flight). Only the newest one may
+  // write: a slower, older list would bring back a pane that just closed (a ghost sidebar row) or
+  // hide one that just opened.
+  const refreshSeq = useRef(0);
 
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeq.current;
     try {
       const list = await tauri.listPanes();
+      if (seq !== refreshSeq.current) return;
       const next = new Map<string, PaneData>();
       for (const info of list) {
         next.set(info.id, { info, status: info.status });
@@ -51,7 +65,7 @@ export function usePaneRegistry(): PaneRegistryApi {
     } catch (err) {
       console.error('[usePaneRegistry] refresh failed', err);
     } finally {
-      setInitialReady(true);
+      if (seq === refreshSeq.current) setInitialReady(true);
     }
   }, []);
 
@@ -66,15 +80,19 @@ export function usePaneRegistry(): PaneRegistryApi {
     let unsubStatus: (() => void) | undefined;
     let unsubExit: (() => void) | undefined;
     let unsubPanesChanged: (() => void) | undefined;
+    let unsubResized: (() => void) | undefined;
 
     (async () => {
       unsubPanesChanged = await tauri.onPanesChanged(() => {
         void refresh();
       });
       const ingestData = (e: TerminalDataEvent) => {
-        streamsRef.current.ingest(e.pane_id, e.data);
+        streamsRef.current.ingest(e.pane_id, e.data, e.offset);
       };
       unsubData = await tauri.onTerminalData(ingestData);
+      unsubResized = await tauri.onPtyResized((e) => {
+        streamsRef.current.ingestResize(e.pane_id, e.cols, e.rows, e.offset);
+      });
       unsubSnapshot = await tauri.onTerminalSnapshot((e: TerminalSnapshotEvent) => {
         // Snapshot events are retained for MCP/debug consumers; xterm rendering
         // consumes raw terminal-data events instead.
@@ -114,6 +132,7 @@ export function usePaneRegistry(): PaneRegistryApi {
 
       if (disposed) {
         unsubData?.();
+        unsubResized?.();
         unsubSnapshot?.();
         unsubStatus?.();
         unsubExit?.();
@@ -124,6 +143,7 @@ export function usePaneRegistry(): PaneRegistryApi {
     return () => {
       disposed = true;
       unsubData?.();
+      unsubResized?.();
       unsubSnapshot?.();
       unsubStatus?.();
       unsubExit?.();
@@ -197,8 +217,8 @@ export function usePaneRegistry(): PaneRegistryApi {
     await tauri.resize(paneId, cols, rows);
   }, []);
 
-  const subscribePaneData = useCallback((paneId: string, cb: (data: Uint8Array) => void) => {
-    return streamsRef.current.subscribe(paneId, cb, tauri.readRawBuffer);
+  const subscribePaneData = useCallback<PaneDataSubscriber>((paneId, cb, onResize) => {
+    return streamsRef.current.subscribe(paneId, cb, readOwnerReplay, onResize);
   }, []);
 
 
