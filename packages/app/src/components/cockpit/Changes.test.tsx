@@ -98,13 +98,49 @@ describe('Changes section', () => {
     expect(host.textContent).toBe('');
   });
 
-  it('shows the branch, totals and files with their +/- counts', async () => {
+  it('says "Separate copy of main" with the totals, and keeps the branch under a closed Details', async () => {
+    const api = fakeApi();
+    await mount(api);
+    const meta = host.querySelector('.ck-changes-meta')!.textContent!;
+    expect(meta).toBe('Separate copy of main · 2 files · +1 −1');
+    expect(meta).not.toContain('pm/');
+    const details = host.querySelector<HTMLDetailsElement>('.ck-changes-details')!;
+    expect(details.open).toBe(false);
+    expect(details.querySelector('summary')!.textContent).toBe('Details');
+    expect(details.textContent).toContain('pm/run-1');
+    // outside Details, no branch anywhere on the page
+    const outside = (host.textContent ?? '').replace(details.textContent ?? '', '');
+    expect(outside).not.toContain('pm/run-1');
+  });
+
+  it('the merge and discard sheets use plain words and never name the branch', async () => {
+    await mount(fakeApi());
+    await click(button('Merge'));
+    const merge = host.querySelector('[role="alertdialog"]')!.textContent!;
+    expect(merge).toContain('Merge into main?');
+    expect(merge).toContain('Brings 2 changed files from this separate copy into main and closes the agent.');
+    expect(merge).toContain('If anything conflicts, nothing is merged.');
+    expect(merge).not.toContain('pm/');
+    await click(button('Cancel'));
+    await click(button('Discard'));
+    const discard = host.querySelector('[role="alertdialog"]')!.textContent!;
+    expect(discard).toContain('Discard this separate copy?');
+    expect(discard).toContain('Deletes this separate copy and its 2 changed files');
+    expect(discard).not.toContain('pm/');
+  });
+
+  it('a copy whose setup failed makes Merge secondary and says why', async () => {
+    const failed = { ...ITEM, setup: { status: 'failed', copied: [], not_copied: [], steps: [], duration_ms: 1 } } as unknown as WorktreeItem;
+    await mount(fakeApi({ paneWorktree: vi.fn().mockResolvedValue(failed) }));
+    expect((button('Merge') as HTMLButtonElement).className).toContain('ck-btn--secondary');
+    expect(host.querySelector('.ck-changes-hint')!.textContent).toBe("Setup failed, checks didn't run.");
+  });
+
+  it('shows the totals and files with their +/- counts', async () => {
     const api = fakeApi();
     await mount(api);
     expect(api.worktreeDiff).toHaveBeenCalledWith('C:/proj', 'run-1');
     const text = host.textContent ?? '';
-    expect(text).toContain('pm/run-1');
-    expect(text).toContain('main');
     expect(text).toContain('2 files');
     expect(text).toContain('+1 −1');
     const rows = host.querySelectorAll('.ck-changes-file');
@@ -133,7 +169,8 @@ describe('Changes section', () => {
     const confirm = Array.from(host.querySelectorAll('.ck-sheet button')).find((b) => b.textContent === 'Merge');
     await click(confirm ?? null);
     expect(api.worktreeMerge).toHaveBeenCalledWith('C:/proj', 'run-1');
-    expect(host.textContent).toContain('Merged pm/run-1 into main.');
+    expect(host.textContent).toContain('Merged into main.');
+    expect(host.textContent).not.toContain('pm/run-1');
     expect(host.querySelector('.ck-changes')).toBeNull();
   });
 
@@ -164,7 +201,9 @@ describe('Changes section', () => {
     await mount(api);
     await click(button('Merge'));
     await click(Array.from(host.querySelectorAll('.ck-sheet button')).find((b) => b.textContent === 'Merge') ?? null);
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('MERGE_CONFLICT');
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('Some files changed in both places, so nothing was merged.');
+    expect(host.querySelector('[role="alert"]')?.textContent).not.toContain('MERGE_CONFLICT');
+    expect(host.querySelector('[role="alert"]')?.getAttribute('title')).toContain('MERGE_CONFLICT');
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('a.txt');
     expect(host.querySelector('.ck-changes')).not.toBeNull();
   });

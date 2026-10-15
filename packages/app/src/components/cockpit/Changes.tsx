@@ -22,12 +22,28 @@ export type ChangesApi = Pick<
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
+/** What a separate copy is called on screen: never its branch. */
+export function copyHeadline(copyLabel: string | undefined, base: string): string {
+  return copyLabel ?? `Separate copy of ${base}`;
+}
+
 /** Refusals that get a plain sentence; the raw text stays in the tooltip (`title`). */
 export function plainMergeError(raw: string): { text: string; title?: string } {
   if (/ORIGIN_DIRTY_OVERLAP/.test(raw)) {
     const files = /\(([^()]*)\)\s*$/.exec(raw.trim())?.[1];
     const sentence = 'Your project has unsaved changes to the same files. Save or undo them first.';
     return { text: files ? `${sentence} (${files})` : sentence, title: raw };
+  }
+  if (/MERGE_CONFLICT/.test(raw)) {
+    const files = /\(([^()]*)\)\s*$/.exec(raw.trim())?.[1];
+    const sentence = 'Some files changed in both places, so nothing was merged. Your project is unchanged and the copy is safe.';
+    return { text: files ? `${sentence} (${files})` : sentence, title: raw };
+  }
+  if (/ORIGIN_DETACHED/.test(raw)) {
+    return { text: "Your project isn't on a branch. Switch to a branch, then merge.", title: raw };
+  }
+  if (/ORIGIN_MERGE_IN_PROGRESS/.test(raw)) {
+    return { text: 'Your project is in the middle of a merge. Finish or cancel it first.', title: raw };
   }
   return { text: raw };
 }
@@ -52,7 +68,7 @@ export function Changes({
   plain?: boolean;
   /** Show the files and diffs only (no Merge / Discard): another surface owns those decisions. */
   hideActions?: boolean;
-  /** Shown in place of the raw branch name when another surface owns the separate copy ("Separate copy of feat/billing"). */
+  /** Shown in place of "Separate copy of <base>" when another surface owns the separate copy ("Separate copy of feat/billing"). */
   copyLabel?: string;
   status: string;
   api?: ChangesApi;
@@ -139,6 +155,8 @@ export function Changes({
   const concerns = reviewHasConcerns(reviewDone?.review ?? null);
 
   const setup = item.setup ?? null;
+  // A copy whose setup failed could not run its checks: Merge is not the obvious next step.
+  const setupFailed = setup?.status === 'failed';
   const agentName = item.agent_type ? agentLabel(listing, item.agent_type) : 'the agent';
 
   const run = async (action: 'merge' | 'discard') => {
@@ -148,14 +166,14 @@ export function Changes({
       if (action === 'merge') {
         const out = await api.worktreeMerge(item.repo, item.handle);
         if (out.merged) {
-          setNotice(`Merged ${out.branch} into ${out.into}.`);
+          setNotice(`Merged into ${out.into}.`);
           setItem(null);
         } else {
           setNotice('Nothing to merge: the agent changed no files.');
         }
       } else {
         await api.worktreeDiscard(item.repo, item.handle);
-        setNotice('Discarded. The branch and its changes are deleted.');
+        setNotice('Discarded. The separate copy and its changes are deleted.');
         setItem(null);
       }
       setSheet(null);
@@ -172,16 +190,10 @@ export function Changes({
     <section className="ck-changes" aria-label="Changes">
       <div className="ck-changes-head">
         <h2 className="ck-section">Changes</h2>
-        <span className="ck-changes-state">{working ? 'Working' : 'Unreviewed'}</span>
+        <span className="ck-changes-state">{working ? 'Working' : 'Not merged yet'}</span>
       </div>
       <p className="ck-changes-meta">
-        {copyLabel ? (
-          copyLabel
-        ) : (
-          <>
-            <code>{item.branch}</code> from <code>{item.base}</code>
-          </>
-        )}
+        {copyHeadline(copyLabel, item.base)}
         {total && (
           <>
             {' · '}
@@ -191,6 +203,26 @@ export function Changes({
           </>
         )}
       </p>
+
+      {!copyLabel && (
+        <details className="ck-details ck-changes-details">
+          <summary>Details</summary>
+          <dl className="ck-facts ck-facts--details">
+            <div className="ck-facts-row">
+              <dt>Branch</dt>
+              <dd className="ck-mono">{item.branch}</dd>
+            </div>
+            <div className="ck-facts-row">
+              <dt>Based on</dt>
+              <dd className="ck-mono">{item.base}</dd>
+            </div>
+            <div className="ck-facts-row">
+              <dt>Folder</dt>
+              <dd className="ck-mono">{item.path}</dd>
+            </div>
+          </dl>
+        </details>
+      )}
 
       {setup && (
         <div className={`ck-changes-setup${setup.status === 'failed' ? ' is-failed' : ''}`}>
@@ -284,7 +316,7 @@ export function Changes({
       <div className="ck-changes-actions">
         <button
           type="button"
-          className={`ck-btn ${concerns ? 'ck-btn--secondary' : 'ck-btn--primary'}`}
+          className={`ck-btn ${concerns || setupFailed ? 'ck-btn--secondary' : 'ck-btn--primary'}`}
           disabled={working || busy || item.state === 'missing'}
           title={working ? 'The agent is still working' : undefined}
           onClick={() => setSheet('merge')}
@@ -309,6 +341,7 @@ export function Changes({
         >
           Discard
         </button>
+        {setupFailed && <span className="ck-changes-hint">Setup failed, checks didn't run.</span>}
       </div>
       )}
 
@@ -330,12 +363,12 @@ export function Changes({
       {sheet && (
         <Sheet labelledBy="ck-wt-t" onClose={busy ? undefined : () => setSheet(null)}>
             <h2 className="ck-section" id="ck-wt-t">
-              {sheet === 'merge' ? `Merge into ${item.base}?` : 'Discard these changes?'}
+              {sheet === 'merge' ? `Merge into ${item.base}?` : 'Discard this separate copy?'}
             </h2>
             <p className="ck-sub">
               {sheet === 'merge'
-                ? `Brings ${plural(total?.files_changed ?? 0, 'changed file')} from ${item.branch} into your project and closes this pane. If anything conflicts, nothing is merged.`
-                : `Deletes ${item.branch} and ${plural(total?.files_changed ?? 0, 'changed file')}, and closes this pane. This cannot be undone.`}
+                ? `Brings ${plural(total?.files_changed ?? 0, 'changed file')} from this separate copy into ${item.base} and closes ${agentName}. If anything conflicts, nothing is merged.`
+                : `Deletes this separate copy and its ${plural(total?.files_changed ?? 0, 'changed file')}, and closes ${agentName}. This cannot be undone.`}
             </p>
             <div className="ck-sheet-actions">
               <button type="button" className="ck-btn ck-btn--secondary" autoFocus disabled={busy} onClick={() => setSheet(null)}>

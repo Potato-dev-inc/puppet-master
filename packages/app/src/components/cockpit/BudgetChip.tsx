@@ -74,11 +74,6 @@ export function BudgetChip({
         <div className="ck-budget-pop" role="dialog" aria-label="Budget" data-testid="budget-popover">
           <div className="ck-budget-pop-head">
             <span className="ck-budget-pop-title">Budget</span>
-            {view.state !== 'stopped' && addTurns && (
-              <button type="button" className="ck-btn ck-btn--secondary ck-budget-add" onClick={() => act('add_turns')}>
-                {addTurns}
-              </button>
-            )}
           </div>
           <dl className="ck-budget-rows">
             {view.turns && (
@@ -94,7 +89,7 @@ export function BudgetChip({
               </div>
             )}
             {view.helpers.map((helper, i) => (
-              <div className="ck-budget-row" key={i}>
+              <div className="ck-budget-row ck-budget-row--helper" key={i}>
                 <dt>Helper</dt>
                 <dd>{helperLine(helper)}</dd>
               </div>
@@ -103,6 +98,11 @@ export function BudgetChip({
           <p className="ck-budget-note">Pauses after the current turn. Nothing is stopped mid-way.</p>
           {view.state !== 'stopped' && (
             <div className="ck-budget-actions">
+              {addTurns && (
+                <button type="button" className="ck-btn ck-btn--sm ck-btn--primary ck-budget-add" onClick={() => act('add_turns')}>
+                  {addTurns}
+                </button>
+              )}
               {addMinutes && (
                 <button type="button" className="ck-btn ck-btn--plain" onClick={() => act('add_minutes')}>
                   {addMinutes}

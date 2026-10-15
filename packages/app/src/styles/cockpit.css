@@ -538,11 +538,6 @@
   gap: 8px;
   color: var(--label-2);
 }
-.cockpit .ck-grid-size {
-  font: 11px var(--font-mono);
-  color: var(--label-3);
-  font-variant-numeric: tabular-nums;
-}
 .cockpit .ck-ask {
   display: flex;
   align-items: center;

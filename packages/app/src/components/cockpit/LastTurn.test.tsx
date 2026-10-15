@@ -45,14 +45,18 @@ describe('LastTurn (Receipt tab)', () => {
     act(() => root.render(<LastTurn summary={summary()} now={NOW} />));
     expect(host.querySelector('.ck-caption')?.textContent).toBe('Last turn');
     expect(host.querySelector('.ck-lastturn-line')?.textContent).toContain('edited 4 files (+86 −12), you approved 1 command');
-    expect(host.querySelector('.ck-lastturn-line')?.textContent).toMatch(/now waiting: allow `npm test`\?$/);
-    expect(host.textContent).toContain('Turn 3 · 2m · 4 files · 1m ago');
+    // the command is a code chip, never backticks on screen
+    expect(host.querySelector('.ck-lastturn-line')?.textContent).toMatch(/now waiting: allow npm test\?$/);
+    expect(host.querySelector('.ck-lastturn-line code')?.textContent).toBe('npm test');
+    // this turn's file count is in the sentence only; the meta line must not repeat it
+    expect(host.textContent).toContain('Turn 3 · 2m · 1m ago');
+    expect(host.textContent).not.toContain('4 files ·');
     expect(host.querySelector('.ck-lastturn-line')?.getAttribute('title')).toBe('src/a.ts\nsrc/b.ts');
   });
 
-  it('says when nothing has been summarised yet', () => {
+  it('renders nothing before the first turn (the Receipt shows one empty state)', () => {
     act(() => root.render(<LastTurn summary={undefined} now={NOW} />));
-    expect(host.textContent).toContain('Nothing yet');
+    expect(host.textContent).toBe('');
   });
 
   it('leaves the file count out when it is unknown', () => {

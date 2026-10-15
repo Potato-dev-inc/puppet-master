@@ -2,30 +2,32 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { confirmCloseEnabled, needsCloseConfirm } from '../../lib/close-policy';
 import { cockpitApi, type PaneRunInfo, type PaneTranscript } from '../../lib/cockpit-api';
-import { projectName } from '../../lib/mobile-agent-tabs';
+import { projectLabel, projectWithCopy } from './shell-labels';
+import { useLoopGuard } from '../../lib/loop-guard';
 import { activityText } from '../../lib/pane-activity';
 import '../../styles/pane-activity.css';
 import '../../styles/live-preview.css';
+import '../../styles/pane-chrome.css';
 import { PaneStuckCard } from './StuckCard';
 import { TerminalViewport } from '../TerminalViewport';
 import { DotSpinner } from './DotSpinner';
 import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
-import { IconClose, IconGlobe, IconCopy, IconMore, IconReflow, IconRename, IconStop } from './Icons';
+import { dockItems, headerStateLine, DOCK_LABEL } from './pane-chrome';
+import { IconClose, IconGlobe, IconCopy, IconInfo, IconMore, IconReflow, IconRename, IconStop } from './Icons';
 import { ApprovalPrompt } from './ApprovalPrompt';
 import { formatElapsed, promptSummary, spinnerStatus, stateText } from './model';
-import { readableReceipt } from './receipt-view';
+import { ReceiptTab } from './ReceiptTab';
 import { Changes } from './Changes';
 import { changesTabLabel, usePaneWorktree } from './usePaneWorktree';
 import { SecondOpinion } from './SecondOpinion';
 import { History } from './History';
 import { panesSharingFolder } from './history-model';
 import { RenameTitle } from './RenameTitle';
-import { LastTurn } from './LastTurn';
 import { useLastTurn } from './away-context';
 import { SegTabs } from './SegTabs';
 import { Sheet } from './Sheet';
 import { paneHeading } from './titles';
-import { transcriptStreamLabel } from '../../lib/transcript-labels';
+import { isProseStream, transcriptSpeaker } from '../../lib/transcript-labels';
 import { UntestedChip } from './UntestedChip';
 import { BudgetChip } from './BudgetChip';
 
@@ -59,6 +61,14 @@ export function useRunData(paneId: string, active: boolean, status: string) {
       cancelled = true;
     };
   }, [paneId, active, status, nonce]);
+
+  // The tab has no Refresh button: it looks again when the window gets focus back.
+  useEffect(() => {
+    if (!active) return;
+    const onFocus = () => setNonce((n) => n + 1);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [active]);
 
   // The pane reads idle a moment before its run settles (the turn end is confirmed after the screen
   // goes quiet), and the pane's status does not change again then: a fetch made at "idle" kept
@@ -100,12 +110,17 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const run = useRunData(paneId, tab !== 'terminal', pane?.status ?? '');
   const lastTurn = useLastTurn(paneId);
   const worktree = usePaneWorktree(paneId, pane?.status ?? '');
+  const { signals } = useLoopGuard();
+  const [dockIx, setDockIx] = useState(0);
+  const [details, setDetails] = useState(false);
 
   useEffect(() => {
     setTab('terminal');
     setMenu(false);
     setConfirm(false);
     setRenaming(false);
+    setDetails(false);
+    setDockIx(0);
   }, [paneId]);
 
   useEffect(() => {
@@ -154,14 +169,26 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
   const prompt = c.prompts[paneId];
   const name = c.names.get(paneId) ?? info.agent_type;
   const heading = paneHeading(info, name);
-  const stateLine =
-    pane.status === 'waiting_input' && since ? `Needs you · ${formatElapsed(c.now - since)}` : stateText(pane.status);
-  const doing = activityText(pane.status, c.activities?.[paneId]);
-  const headLine = doing
-    ? pane.status === 'waiting_input' && since
-      ? `${doing} · ${formatElapsed(c.now - since)}`
-      : doing
-    : stateLine;
+  const projectLine = [heading.secondary, projectWithCopy(info.cwd)].filter(Boolean).join(' · ');
+  const waiting = pane.status === 'waiting_input';
+  const elapsed = waiting && since ? formatElapsed(c.now - since) : null;
+  const stateLine = waiting && elapsed ? `Needs you · ${elapsed}` : stateText(pane.status);
+  const headLine = headerStateLine({
+    waiting,
+    headline: prompt?.risk?.headline,
+    elapsed,
+    doing: activityText(pane.status, c.activities?.[paneId]),
+    fallback: stateLine,
+  });
+  const preview = mainPreview(c.previews, paneId);
+
+  // What waits on the person, one card at a time inside the Terminal tab; the tab strip never moves.
+  const asking = waiting && !!prompt && prompt.choices.length > 0;
+  const dock = dockItems(asking, !!signals[paneId]);
+  const dockNow = dock.length > 0 ? dock[dockIx % dock.length] : null;
+  const dockHeadline = asking ? (prompt?.risk?.headline ?? 'Question') : 'Looks stuck';
+
+  const copyTotals = worktree?.summary ?? null;
 
   return (
     <div className="ck-pane">
@@ -174,9 +201,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             onEditingChange={setRenaming}
             onSave={(title) => void c.rename(paneId, title)}
           />
-          <span className="ck-sub-inline">
-            {heading.secondary ? `${heading.secondary} · ${projectName(info.cwd)}` : projectName(info.cwd)}
-          </span>
+          <span className="ck-sub-inline">{projectLine}</span>
           {info.account_label && <span className="ck-sub-inline" data-testid="pane-account">{info.account_label}</span>}
         </div>
         <UntestedChip agent={info.agent_type} />
@@ -187,21 +212,17 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             {headLine}
           </span>
         </div>
-        {mainPreview(c.previews, paneId) && (
+        {preview && (
           <button
             type="button"
             className="ck-preview-chip"
-            title={`Open ${mainPreview(c.previews, paneId)!.url} in your browser`}
-            onClick={() => void openPreview(mainPreview(c.previews, paneId)!.url).catch(() => c.notify('Could not open the preview'))}
+            title={`Has a preview · ${preview.url.replace(/^https?:\/\//, '')}. Opens in your browser.`}
+            onClick={() => void openPreview(preview.url).catch(() => c.notify('Could not open the preview'))}
           >
             <IconGlobe />
             <span>Preview</span>
-            <span className="ck-preview-port">{previewLabel(mainPreview(c.previews, paneId)!)}</span>
           </button>
         )}
-        <span className="ck-grid-size">
-          {info.cols}×{info.rows}
-        </span>
         <div className="ck-menu-wrap" ref={menuRef}>
           <button
             type="button"
@@ -265,6 +286,18 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                 <span>Interrupt</span>
                 <kbd className="ck-kbd">⌃C</kbd>
               </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="ck-menu-item"
+                onClick={() => {
+                  setMenu(false);
+                  setDetails(true);
+                }}
+              >
+                <span className="ck-menu-ic"><IconInfo /></span>
+                <span>Details</span>
+              </button>
               <div className="ck-menu-sep" />
               <button
                 type="button"
@@ -286,27 +319,6 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         </div>
       </header>
 
-      <PaneStuckCard c={c} paneId={paneId} />
-
-      {pane.status === 'waiting_input' && prompt && prompt.choices.length > 0 && (
-        <div className="ck-ask" role="group" aria-label="Agent question">
-          {prompt.risk && <ApprovalPrompt variant="bar" prompt={prompt} onAnswer={(ch) => void c.answer(paneId, prompt.promptId, ch.id, ch.label)} />}
-          {!prompt.risk && <span className="ck-ask-q">{promptSummary(prompt)}</span>}
-          <span className="ck-ask-actions">
-            {!prompt.risk && prompt.choices.map((ch, i) => (
-              <button
-                key={ch.id}
-                type="button"
-                className={`ck-btn ck-btn--sm ${i === 0 ? 'ck-btn--primary' : 'ck-btn--secondary'}`}
-                onClick={() => void c.answer(paneId, prompt.promptId, ch.id, ch.label)}
-              >
-                {ch.label}
-              </button>
-            ))}
-          </span>
-        </div>
-      )}
-
       <div className="ck-tabs-bar">
         <SegTabs
           label="Pane view"
@@ -322,13 +334,51 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
         />
       </div>
 
+      {dockNow && tab !== 'terminal' && (
+        <button type="button" className="ck-dock-bar" onClick={() => setTab('terminal')} aria-label={`Needs you: ${dockHeadline}. Open the terminal to answer.`}>
+          <span className="ck-dock-bar-dot" aria-hidden="true" />
+          <span className="ck-dock-bar-text">Needs you · {dockHeadline}</span>
+          <span className="ck-dock-bar-go">{DOCK_LABEL[dockNow]} ›</span>
+        </button>
+      )}
+
       <div className="ck-pane-body">
         {tab === 'terminal' && (
-          <div className="ck-term-slot" key={paneId}>
-            <TerminalViewport pane={pane} registry={c.registry} chrome={false}
-              reflowKey={reflowKey}
-              getSelectionRef={getSelectionRef}
-            />
+          <div className="ck-term-wrap" key={paneId}>
+            {dockNow && (
+              <div className="ck-dock">
+                {dockNow === 'stuck' && <PaneStuckCard c={c} paneId={paneId} />}
+                {dockNow === 'ask' && prompt && (
+                  <div className="ck-ask" role="group" aria-label="Agent question">
+                    {prompt.risk && <ApprovalPrompt variant="bar" prompt={prompt} onAnswer={(ch) => void c.answer(paneId, prompt.promptId, ch.id, ch.label)} />}
+                    {!prompt.risk && <span className="ck-ask-q">{promptSummary(prompt)}</span>}
+                    <span className="ck-ask-actions">
+                      {!prompt.risk && prompt.choices.map((ch, i) => (
+                        <button
+                          key={ch.id}
+                          type="button"
+                          className={`ck-btn ck-btn--sm ${i === 0 ? 'ck-btn--primary' : 'ck-btn--secondary'}`}
+                          onClick={() => void c.answer(paneId, prompt.promptId, ch.id, ch.label)}
+                        >
+                          {ch.label}
+                        </button>
+                      ))}
+                    </span>
+                  </div>
+                )}
+                {dock.length > 1 && (
+                  <button type="button" className="ck-dock-more" onClick={() => setDockIx((i) => i + 1)}>
+                    {dock.length - 1} more ›
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="ck-term-slot">
+              <TerminalViewport pane={pane} registry={c.registry} chrome={false}
+                reflowKey={reflowKey}
+                getSelectionRef={getSelectionRef}
+              />
+            </div>
           </div>
         )}
         {tab === 'changes' && worktree && (
@@ -358,8 +408,8 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             ) : (
               <div className="ck-transcript">
                 {run.transcript.chunks.map((chunk, i) => (
-                  <div key={i} className="ck-chunk">
-                    <span className="ck-chunk-stream">{transcriptStreamLabel(chunk.stream)}</span>
+                  <div key={i} className={`ck-chunk${isProseStream(chunk.stream) ? ' ck-chunk--prose' : ''}`}>
+                    <span className="ck-chunk-stream">{transcriptSpeaker(chunk.stream, name)}</span>
                     <pre>{chunk.text}</pre>
                   </div>
                 ))}
@@ -373,59 +423,69 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
             status={pane.status}
             now={c.now}
             notify={c.notify}
+            agentName={name}
             sharedWith={panesSharingFolder(c.registry.paneList, c.names, paneId)}
           />
         )}
         {tab === 'receipt' && (
           <div className="ck-scroll ck-fade-in" key="receipt">
-            {/* An isolated pane has its own Changes tab, which holds the second opinion. */}
-            {!worktree && <SecondOpinion paneId={paneId} status={pane?.status ?? ''} />}
-            <LastTurn summary={lastTurn} now={c.now} />
-            {run.error ? (
-              <Empty title="Receipt unavailable" body={run.error} />
-            ) : run.info === undefined ? (
-              <p className="ck-sub ck-pad">Loading…</p>
-            ) : run.info === null ? (
-              <Empty
-                title="No receipt for this pane"
-                body="A receipt is written for tasks that another agent handed to this one, and says what was checked. Work you started here yourself has none."
-              />
-            ) : (
-              <div className="ck-receipt">
-                {run.info.receipt === null || run.info.receipt === undefined ? (
-                  <p className="ck-sub">No receipt yet. It is written when the turn settles.</p>
-                ) : (
-                  <dl className="ck-kv">
-                    {readableReceipt(run.info.receipt).map((r) => (
-                      <div className="ck-kv-row" key={r.key}>
-                        <dt>{r.key}</dt>
-                        <dd>{r.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
-                <details className="ck-details">
-                  <summary>Details</summary>
-                  <dl className="ck-kv">
-                    <dt>Run ID</dt>
-                    <dd className="ck-mono">{run.info.handle}</dd>
-                  </dl>
-                </details>
-              </div>
-            )}
-            <button type="button" className="ck-btn ck-btn--plain ck-refresh" onClick={run.refresh}>
-              Refresh
-            </button>
+            <ReceiptTab
+              info={run.info}
+              error={run.error}
+              lastTurn={lastTurn}
+              now={c.now}
+              copy={copyTotals}
+              agentName={name}
+              // An isolated pane has its own Changes tab, which holds the second opinion.
+              secondOpinion={!worktree ? <SecondOpinion paneId={paneId} status={pane?.status ?? ''} /> : null}
+            />
           </div>
         )}
       </div>
+
+      {details && (
+        <Sheet labelledBy="ck-details-t" onClose={() => setDetails(false)}>
+          <h2 className="ck-section" id="ck-details-t">
+            Details
+          </h2>
+          <dl className="ck-facts ck-facts--details">
+            <div className="ck-facts-row">
+              <dt>Folder</dt>
+              <dd className="ck-mono">{info.cwd}</dd>
+            </div>
+            {worktree && (
+              <div className="ck-facts-row">
+                <dt>Separate copy</dt>
+                <dd>
+                  <span className="ck-mono">{worktree.branch}</span> from <span className="ck-mono">{worktree.base}</span> in {projectLabel(worktree.repo)}
+                </dd>
+              </div>
+            )}
+            <div className="ck-facts-row">
+              <dt>Screen size</dt>
+              <dd className="ck-mono">
+                {info.cols}×{info.rows}
+              </dd>
+            </div>
+            <div className="ck-facts-row">
+              <dt>Process ID</dt>
+              <dd className="ck-mono">{info.pid}</dd>
+            </div>
+          </dl>
+          <div className="ck-sheet-actions">
+            <button type="button" className="ck-btn ck-btn--secondary" autoFocus onClick={() => setDetails(false)}>
+              Done
+            </button>
+          </div>
+        </Sheet>
+      )}
 
       {confirm && (
         <Sheet labelledBy="ck-close-t" onClose={() => setConfirm(false)}>
             <h2 className="ck-section" id="ck-close-t">
               Close {name}?
             </h2>
-            <p className="ck-sub">It is still running. Closing ends the process and its session.</p>
+            <p className="ck-sub">It is still running. {name} stops, and its conversation ends.</p>
             <div className="ck-sheet-actions">
               <button type="button" className="ck-btn ck-btn--secondary" autoFocus onClick={() => setConfirm(false)}>
                 Keep running
@@ -438,7 +498,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                   void c.closePane(paneId);
                 }}
               >
-                Close pane
+                Close agent
               </button>
             </div>
         </Sheet>

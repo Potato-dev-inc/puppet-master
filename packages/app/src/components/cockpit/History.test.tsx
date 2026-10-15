@@ -281,3 +281,50 @@ describe('panes sharing a folder', () => {
     expect(sharedFolderWarning([])).toBeNull();
   });
 });
+
+describe('History polish', () => {
+  it('has one primary "Undo last turn" on top and the row Restore buttons are quiet (shown on hover or focus)', async () => {
+    const api = mockApi({
+      state: 'ok',
+      message: '',
+      items: [cp('9', 'After turn 2', 60_000, { kind: 'after', turn: 2 }), cp('8', 'Before turn 2', 10 * 60_000, { turn: 2 })],
+    });
+    await mount(api);
+    const primary = Array.from(host.querySelectorAll<HTMLButtonElement>('button.ck-btn--primary'));
+    expect(primary.map((b) => b.textContent)).toEqual(['Undo last turn']);
+    const rows = Array.from(host.querySelectorAll('.ck-hist-row .ck-btn'));
+    expect(rows.every((b) => b.classList.contains('ck-hist-restore') && !b.classList.contains('ck-btn--primary'))).toBe(true);
+  });
+
+  it('Undo last turn asks with its own title, then restores the start of the last turn', async () => {
+    const api = mockApi({
+      state: 'ok',
+      message: '',
+      items: [cp('9', 'After turn 2', 60_000, { kind: 'after', turn: 2 }), cp('8', 'Before turn 2', 10 * 60_000, { turn: 2 })],
+    });
+    await mount(api);
+    await click(button('Undo last turn'));
+    expect(host.querySelector('[role="alertdialog"]')!.textContent).toContain('Undo the last turn?');
+    await click(Array.from(host.querySelectorAll('.ck-sheet button')).find((b) => b.textContent === 'Undo last turn'));
+    expect(api.checkpointRestore).toHaveBeenCalledWith('p1', '8');
+  });
+
+  it('a prompt checkpoint names who asked: Before Claude Code\'s question', async () => {
+    const api = mockApi({
+      state: 'ok',
+      message: '',
+      items: [cp('6', 'Before answering a prompt (turn 3)', 90_000, { kind: 'answer', turn: 3 })],
+    });
+    await act(async () => {
+      root.render(<History paneId="p1" status="idle" now={NOW} notify={vi.fn()} api={api} agentName="Claude Code" />);
+    });
+    expect(host.querySelector('.ck-hist-title')!.textContent).toBe("Before Claude Code's question (turn 3)");
+    expect(host.textContent).not.toContain('a prompt');
+  });
+
+  it('timestamps are in the UI font (no mono class) and the row has no filled Restore', async () => {
+    await mount(mockApi());
+    expect(host.querySelector('.ck-hist-time')!.className).toBe('ck-hist-time');
+    expect(host.querySelectorAll('.ck-hist-row .ck-btn--primary').length).toBe(0);
+  });
+});

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   plainError,
+  reviewedText,
   secondOpinionApi,
   type ParsedReview,
   type ReviewStart,
@@ -206,7 +207,7 @@ function Result({
     <div className="ck-so-result">
       <Verdict review={review} />
       <p className="ck-sub">
-        {start.reviewerLabel} reviewed {start.sourceLabel} · {plural(start.files, 'file')} · +{start.additions} −{start.deletions}
+        {start.reviewerLabel} reviewed {reviewedText(start)} · {plural(start.files, 'file')} · +{start.additions} −{start.deletions}
         {start.patchTruncated ? ' · cut for size' : ''}
       </p>
       {working && <p className="ck-sub">The agent is working again, so these notes may be out of date.</p>}
@@ -309,7 +310,7 @@ export function SecondOpinion({
         <div className="ck-so-busy" role="status">
           <DotSpinner status="running" />
           <span>
-            {run?.start ? `${run.start.reviewerLabel} is reviewing ${run.start.sourceLabel}…` : 'Starting the review…'}
+            {run?.start ? `${run.start.reviewerLabel} is reviewing ${reviewedText(run.start)}…` : 'Starting the review…'}
           </span>
           <button type="button" className="ck-btn ck-btn--plain ck-btn--sm" onClick={() => void cancelReview(paneId, api)}>
             Stop

@@ -95,6 +95,17 @@ describe('the budget chip', () => {
     expect(adjust).toHaveBeenCalledWith('p1', 'stop');
   });
 
+  it('keeps every action in one row at the bottom: the primary add first, then the quiet ones', async () => {
+    await mount({ forPane: async () => view({ minutes: { used: 14, limit: 60, add_step: 30 } }), adjust: vi.fn() });
+    await act(async () => chip()!.click());
+    const pop = host.querySelector('[data-testid="budget-popover"]')!;
+    const row = pop.querySelector('.ck-budget-actions')!;
+    expect([...row.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Add 10 turns', 'Add 30 min', 'Stop here']);
+    expect(row.querySelector('button')!.className).toContain('ck-btn--primary');
+    // nothing is scattered at the top any more
+    expect(pop.querySelector('.ck-budget-pop-head button')).toBeNull();
+  });
+
   it('a stopped run offers no more turns', async () => {
     await mount({ forPane: async () => view({ state: 'stopped' }), adjust: vi.fn() });
     await act(async () => chip()!.click());

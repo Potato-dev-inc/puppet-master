@@ -10,6 +10,7 @@ import {
   checkpointTitle,
   formatAgo,
   formatDelta,
+  lastTurnStart,
 } from "./history-model";
 import { RestoreSheet } from "./RestoreSheet";
 import { restoreWithUndo, type Notify } from "./restore-flow";
@@ -28,6 +29,7 @@ export function History({
   notify,
   api = cockpitApi,
   sharedWith = [],
+  agentName = "the agent",
 }: {
   paneId: string;
   status: string;
@@ -36,12 +38,16 @@ export function History({
   api?: CheckpointsApi;
   /** Labels of the other live panes working in this pane's folder. */
   sharedWith?: string[];
+  /** The agent's name, for "Before Claude Code's question". */
+  agentName?: string;
 }) {
   const [listing, setListing] = useState<CheckpointList | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [diffs, setDiffs] = useState<Record<string, FileChange[] | string>>({});
   const [pending, setPending] = useState<Checkpoint | null>(null);
+  // The primary "Undo last turn" asks with its own title; a row's Restore names the row.
+  const [undoing, setUndoing] = useState(false);
   const [busy, setBusy] = useState(false);
   const alive = useRef(true);
   const running = status === "running";
@@ -69,6 +75,7 @@ export function History({
     setOpen(null);
     setDiffs({});
     setPending(null);
+    setUndoing(false);
   }, [paneId]);
 
   // A turn starting or ending is what creates checkpoints, so reload on every status change.
@@ -101,6 +108,7 @@ export function History({
     setBusy(true);
     const report = await restoreWithUndo(api, paneId, target, notify);
     setPending(null);
+    setUndoing(false);
     if (report) {
       setDiffs({});
       await load();
@@ -153,14 +161,32 @@ export function History({
     );
   }
 
+  const lastStart = lastTurnStart(listing.items);
+
   return (
     <>
       <div className="ck-scroll ck-fade-in">
-        <p className="ck-hist-note">
-          Restoring puts your files back. It doesn't change what the agent
-          remembers.
-          {running && " The agent is working: interrupt it before restoring."}
-        </p>
+        <div className="ck-hist-head">
+          <p className="ck-hist-note">
+            Restoring puts your files back. It doesn't change what the agent
+            remembers.
+            {running && " The agent is working: interrupt it before restoring."}
+          </p>
+          {lastStart && (
+            <button
+              type="button"
+              className="ck-btn ck-btn--sm ck-btn--primary"
+              disabled={running || busy}
+              title={running ? "Interrupt the agent first" : undefined}
+              onClick={() => {
+                setUndoing(true);
+                setPending(lastStart);
+              }}
+            >
+              Undo last turn
+            </button>
+          )}
+        </div>
         <ol className="ck-hist" aria-label="Checkpoints">
           {listing.items.map((item) => {
             const expanded = open === item.id;
@@ -182,7 +208,7 @@ export function History({
                     </span>
                     <span className="ck-hist-label">
                       <span className="ck-hist-title">
-                        {checkpointTitle(item)}
+                        {checkpointTitle(item, agentName)}
                       </span>
                       {item.note && (
                         <span className="ck-hist-sub">{item.note}</span>
@@ -192,10 +218,13 @@ export function History({
                   </button>
                   <button
                     type="button"
-                    className="ck-btn ck-btn--sm ck-btn--secondary"
+                    className="ck-btn ck-btn--sm ck-btn--secondary ck-hist-restore"
                     disabled={running || busy}
                     title={running ? "Interrupt the agent first" : undefined}
-                    onClick={() => setPending(item)}
+                    onClick={() => {
+                      setUndoing(false);
+                      setPending(item);
+                    }}
                   >
                     Restore
                   </button>
@@ -233,10 +262,14 @@ export function History({
 
       {pending && (
         <RestoreSheet
-          title={`Restore "${checkpointTitle(pending)}"?`}
+          title={undoing ? "Undo the last turn?" : `Restore "${checkpointTitle(pending, agentName)}"?`}
+          confirmLabel={undoing ? "Undo last turn" : undefined}
           sharedWith={sharedWith}
           busy={busy}
-          onCancel={() => setPending(null)}
+          onCancel={() => {
+            setPending(null);
+            setUndoing(false);
+          }}
           onConfirm={() => void confirmRestore()}
         />
       )}
