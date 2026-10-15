@@ -1,12 +1,13 @@
-// "Project memory": the one memory every agent in a project reads. The text is saved to
+// The Project view: the project's name as a constant title, then Memory and Copies tabs.
+// Memory is the one text every agent in a project reads. It is saved to
 // `<project>/.puppet-master/memory.md` and rendered into each agent's own instruction file.
 import { useCallback, useEffect, useState } from 'react';
 import { memoryApi, type MemoryApi, type MemoryTargetStatus, type MemoryView } from '../../lib/memory-api';
-import { projectName } from '../../lib/mobile-agent-tabs';
 import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { ProjectCopies } from './ProjectCopies';
 import { SegTabs } from './SegTabs';
 import { projectOfCwd } from '../../lib/ship-model';
+import { projectLabel } from './shell-labels';
 
 const STATUS_TEXT: Record<MemoryTargetStatus, string> = {
   in_sync: 'In sync',
@@ -91,8 +92,8 @@ export function ProjectMemory({
     <div className="ck-memory" onKeyDown={onKeyDown}>
       <header className="ck-memory-head">
         <div>
-          <h1 className="ck-title">{tab === 'copies' ? 'Separate copies' : 'Project memory'}</h1>
-          <p className="ck-sub">{tab === 'copies' ? 'How a new copy of this project gets ready.' : 'Every agent in this project reads this.'}</p>
+          <h1 className="ck-title">{view ? projectLabel(view.project) : projectLabel(project) || 'Project'}</h1>
+          <p className="ck-sub">{tab === 'copies' ? 'How a new separate copy of this project gets ready.' : 'Every agent in this project reads this.'}</p>
         </div>
         <button type="button" className="ck-btn ck-btn--plain" onClick={onClose}>
           Close
@@ -108,11 +109,8 @@ export function ProjectMemory({
             { id: 'memory', label: 'Memory' },
             { id: 'copies', label: 'Copies' },
           ]}
-          small
         />
       </div>
-
-      {view && <p className="ck-memory-project">{projectName(view.project)}</p>}
 
       {tab === 'copies' && <ProjectCopies project={view?.project ?? projectOfCwd(project)?.path} />}
 
@@ -163,21 +161,23 @@ export function ProjectMemory({
         <p className="ck-sub ck-memory-fine">Only the block between the Puppet Master markers is ever changed.</p>
       </section>
 
-      <label className="ck-memory-switch">
-        <input
-          type="checkbox"
-          checked={view?.project_enabled ?? true}
+      <div className="ck-memory-switch">
+        <span id="ck-memory-share">Share memory in this project</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={view?.project_enabled ?? true}
+          aria-labelledby="ck-memory-share"
+          className="ck-switch"
           disabled={view === null || busy}
-          onChange={(e) =>
-            void run(
-              () => api.setProjectEnabled(e.target.checked, project),
-              e.target.checked ? 'Shared memory is on for this project.' : 'Removed from agent files.',
-              true,
-            )
-          }
-        />
-        <span>Share memory in this project</span>
-      </label>
+          onClick={() => {
+            const on = !(view?.project_enabled ?? true);
+            void run(() => api.setProjectEnabled(on, project), on ? 'Shared memory is on for this project.' : 'Removed from agent files.', true);
+          }}
+        >
+          <span className="ck-switch-knob" />
+        </button>
+      </div>
         </>
       )}
     </div>

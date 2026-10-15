@@ -126,7 +126,7 @@ export function ProjectCopies({ project, ship = shipApi }: { project: string | u
             <p className="ck-sub">Found conductor.json, but it can&apos;t be imported: {conductor.unsupported}</p>
           ) : (
             <>
-              <p className="ck-sub">Found conductor.json in this project.</p>
+              <p className="ck-sub">This project already has setup steps (conductor.json). Use them?</p>
               <button
                 type="button"
                 className="ck-btn ck-btn--secondary"

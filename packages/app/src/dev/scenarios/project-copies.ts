@@ -9,7 +9,7 @@ const s: HarnessScenario = {
   select: PANE_CLAUDE,
   ship: { preset: { ...PRESET, conductor: { setup: ['npm ci', 'npm run build'], run: 'npm run dev', unsupported: null } } },
   after: async (dom) => {
-    await dom.clickText('button', 'Project memory');
+    await dom.clickText('.ck-side-foot button', 'Project');
     await dom.waitFor('.ck-memory-file');
     await dom.clickText('[role="tab"]', 'Copies');
     await dom.waitFor('.ck-copies');
