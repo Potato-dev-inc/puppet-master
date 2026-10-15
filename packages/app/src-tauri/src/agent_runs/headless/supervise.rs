@@ -95,10 +95,7 @@ impl Supervisor {
         self.capture_baseline(current);
         if current.agent_type == "opencode_native" {
             native::supervise_native_observation(current, &self.registry, &self.app);
-        } else if matches!(
-            current.status,
-            OperationStatus::Running | OperationStatus::WaitingInput
-        ) {
+        } else if observes_turn(current) {
             if let Some(pane_id) = current.pane_id.as_deref() {
                 return self.observe_pane(current, pane_id);
             }
@@ -630,6 +627,17 @@ mod approval_tests;
 mod host_shell_tests;
 #[cfg(test)]
 mod loop_tests;
+
+/// Whether the supervisor reads the pane as this run's turn: the run is running or waiting for
+/// input, and its task is in the pane. A run parked on a startup dialog (`waiting_for_pane_readiness`:
+/// the folder-trust question, before the task was typed) belongs to the dispatch thread, which
+/// delivers the task once the dialog is answered. Judging it here completed the run on the idle
+/// composer that follows Trust, with the input hint as its "result" and the task never typed (live r13,
+/// the first Claude run in a new folder).
+pub(super) fn observes_turn(current: &OperationSnapshot) -> bool {
+    matches!(current.status, OperationStatus::Running | OperationStatus::WaitingInput)
+        && current.stage.as_deref() != Some("waiting_for_pane_readiness")
+}
 
 fn verifies_delivery(agent_type: &str) -> bool {
     crate::tui::profile_for(agent_type).verifies_prompt_delivery()

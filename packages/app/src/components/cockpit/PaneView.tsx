@@ -60,8 +60,24 @@ export function useRunData(paneId: string, active: boolean, status: string) {
     };
   }, [paneId, active, status, nonce]);
 
+  // The pane reads idle a moment before its run settles (the turn end is confirmed after the screen
+  // goes quiet), and the pane's status does not change again then: a fetch made at "idle" kept
+  // showing "Result: Still working" for a finished turn (live r13, tour chapter 05). While the run is
+  // still unsettled, look again.
+  const unsettled = !!info && UNSETTLED_RUN.has(info.status);
+  useEffect(() => {
+    if (!active || !unsettled) return;
+    const timer = setTimeout(() => setNonce((n) => n + 1), RUN_SETTLE_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [active, unsettled, info]);
+
   return { info, transcript, error, refresh: () => setNonce((n) => n + 1) };
 }
+
+/** Run statuses that change without the pane's status changing. */
+const UNSETTLED_RUN = new Set(['queued', 'starting', 'running', 'cancelling']);
+/** How often an open Transcript or Receipt tab looks again while its run is unsettled. */
+export const RUN_SETTLE_POLL_MS = 1500;
 
 function Empty({ title, body }: { title: string; body: string }) {
   return (

@@ -43,6 +43,13 @@ const INPUT_AREA_ROWS: usize = 16;
 /// of the screen settling instead of up to 250ms later.
 const POLL_INTERVAL: Duration = Duration::from_millis(80);
 const VISIBLE_POLLS: u32 = 25;
+/// After the visible window, how many more polls delivery watches for text a lagging TUI has
+/// queued (live, Claude 2.1.300 on a fresh pane: 3.5 s before the first key showed). The text is
+/// never typed a second time onto a drawn screen: the queued keys arrive as one burst that the TUI
+/// reads as a paste, so an erase key in it does nothing and the retyped copy lands next to the first.
+const LATE_ECHO_POLLS: u32 = 100;
+/// The part of a delivery trace line written when the task text goes into the pane.
+pub const TYPING_TRACE: &str = ": typing;";
 const STARTED_POLLS: u32 = 38;
 const RESUBMIT_AT_POLL: u32 = 19;
 /// When the profile can read its input box, text still sitting in it this many polls (about
@@ -517,11 +524,13 @@ pub fn deliver_prompt_traced(
     // (live, Claude 2.1.300 right after a turn: nothing echoed for 4 s, then both copies) ends with
     // one copy, or none.
     let undo = clear.or_else(|| profile.retype_clear_sequence());
-    while attempt < 2 {
+    // The screen right before the task was first typed: what an empty box looks like here.
+    let mut before_typing: Option<String> = None;
+    loop {
         if !wait_for_screen(io, &mut ready_budget) {
             trace.push("screen stayed empty: the TUI drew nothing within the startup budget".to_string());
             if let (true, Some(permit)) = (typed_any, typed_under.as_ref()) {
-                return give_up_not_visible(io, profile, undo, permit, prompt, trace);
+                return give_up_not_visible(io, profile, undo, permit, prompt, before_typing.as_deref(), trace);
             }
             return Delivery::NotReady {
                 why: "the pane stayed blank".into(),
@@ -559,7 +568,10 @@ pub fn deliver_prompt_traced(
             };
         }
         let screen_now = io.screen();
-        trace.push(format!("attempt {attempt}: typing; busy={} rows={}", io.busy(), trace_rows(&screen_now)));
+        if before_typing.is_none() {
+            before_typing = Some(screen_now.clone());
+        }
+        trace.push(format!("attempt {attempt}{TYPING_TRACE} busy={} rows={}", io.busy(), trace_rows(&screen_now)));
         match io.write(WriteOrigin::Task(&permit), prompt, false) {
             Ok(()) => {}
             Err(error) if is_stale(&error) && stale_left > 0 => {
@@ -612,14 +624,32 @@ pub fn deliver_prompt_traced(
             trace.push(format!("attempt {attempt}: screen blank after typing, waiting for the TUI and retyping"));
             continue;
         }
-        attempt += 1;
+        if clear.is_some() {
+            // A profile whose readiness clears the box before every attempt (the clear key goes in
+            // first): a TUI that dropped the keys gets them again into a cleared box.
+            attempt += 1;
+            if attempt < 2 {
+                continue;
+            }
+            break;
+        }
+        // A drawn screen took the keys (or queued them): wait for them to show rather than typing
+        // a second copy (live r13: erase + retype left the task in the box twice, not submitted).
+        match await_late_echo(io, profile, prompt, trace) {
+            Ok(true) => {
+                visible = true;
+                break;
+            }
+            Ok(false) => break,
+            Err(stop) => return stop,
+        }
     }
     let Some(permit) = typed_under else {
         return Delivery::NotVisible { cleared: false };
     };
     if !visible {
         trace.push(format!("not visible; bottom rows at give-up:\n{}", bottom_rows(&io.screen(), 20)));
-        return give_up_not_visible(io, profile, undo, &permit, prompt, trace);
+        return give_up_not_visible(io, profile, undo, &permit, prompt, before_typing.as_deref(), trace);
     }
     // Some TUIs read an Enter that follows the typed text too closely as a line break in a paste.
     let settle = io.enter_settle();
@@ -667,6 +697,53 @@ pub fn deliver_prompt_traced(
         }
     }
     Delivery::SubmittedUnconfirmed
+}
+
+/// Watches a drawn pane for task text it has not shown yet ([`LATE_ECHO_POLLS`]): `Ok(true)` once it
+/// is in the input box, `Ok(false)` when it never showed. The agent gone stops delivery; a startup
+/// screen or dialog drawn meanwhile stops it too (the keys may be in it), with no key pressed.
+fn await_late_echo(
+    io: &mut dyn DeliveryIo,
+    profile: &dyn TuiProfile,
+    prompt: &str,
+    trace: &mut Vec<String>,
+) -> Result<bool, Delivery> {
+    trace.push("the text has not shown yet; waiting for it instead of typing it again".to_string());
+    for poll in 0..LATE_ECHO_POLLS {
+        io.pause(POLL_INTERVAL);
+        let verdict = readiness::assess(profile, io.observe());
+        if let Readiness::HostShell(shell) = verdict.readiness() {
+            trace.push(format!("late poll {poll}: {}; Enter was not pressed", verdict.why()));
+            return Err(Delivery::AgentGone(shell.clone()));
+        }
+        if let Some(gate) = verdict.gate() {
+            trace.push(format!("late poll {poll}: '{}' is on screen; Enter was not pressed", gate.id));
+            return Err(Delivery::Blocked(gate));
+        }
+        if prompt_visible_in_input(verdict.screen(), prompt) {
+            trace.push(format!("late poll {poll}: the text showed; submitting it, not typing it again"));
+            return Ok(true);
+        }
+    }
+    trace.push("the text never showed in the input box".to_string());
+    Ok(false)
+}
+
+/// Whether the input area shows a row that was not there before the task was typed and that holds
+/// the start of the task (a box drawn too narrow to be recognised as the task, `Summ…`). For a
+/// profile that cannot read its box, such a row means the clear did not empty it.
+fn shows_new_text_of(screen: &str, before_typing: Option<&str>, prompt: &str) -> bool {
+    let Some(before) = before_typing else { return false };
+    let start: String = normalize(prompt).chars().take(4).collect();
+    if start.trim().is_empty() {
+        return false;
+    }
+    let old: std::collections::HashSet<&str> = before.lines().map(str::trim).collect();
+    bottom_rows(screen, INPUT_AREA_ROWS)
+        .lines()
+        .map(str::trim)
+        .filter(|row| !old.contains(row))
+        .any(|row| normalize(row).split_whitespace().any(|word| word.starts_with(start.trim())))
 }
 
 /// Polls after the give-up clear in which the box must read empty for "cleared" to be said.
@@ -731,6 +808,7 @@ fn give_up_not_visible(
     undo: Option<&str>,
     permit: &TypingPermit,
     prompt: &str,
+    before_typing: Option<&str>,
     trace: &mut Vec<String>,
 ) -> Delivery {
     let Some(undo) = undo else {
@@ -745,7 +823,11 @@ fn give_up_not_visible(
         let screen = io.screen();
         let empty = match profile.composer_state(&screen) {
             ComposerState::Empty => true,
-            ComposerState::Unknown => !screen.trim().is_empty() && !prompt_visible_in_input(&screen, prompt),
+            ComposerState::Unknown => {
+                !screen.trim().is_empty()
+                    && !prompt_visible_in_input(&screen, prompt)
+                    && !shows_new_text_of(&screen, before_typing, prompt)
+            }
             _ => false,
         };
         if empty {
@@ -1686,6 +1768,76 @@ working
         io.apply_when_due();
         assert_eq!(io.box_text, "", "no copy is left in the box");
         assert!(io.submitted.is_empty(), "nothing was submitted");
+    }
+
+    // ---- live r13 (tour, ask_user run): the late keys came in as ONE burst, read as a paste ----
+
+    /// A Claude pane that takes no keys for `lag`, then reads everything queued in one burst. A burst
+    /// is a paste: control keys in it (Ctrl+U) do nothing and an Enter in it is a line break, so text,
+    /// Ctrl+U and text again end up as two copies in the box. Keys after the burst are live keys.
+    struct BurstClaude(LaggyClaude);
+
+    impl BurstClaude {
+        fn take_burst(&mut self) {
+            let inner = &mut self.0;
+            if inner.clock < inner.lag || inner.queue.is_empty() {
+                return;
+            }
+            let burst: Vec<(String, bool)> = std::mem::take(&mut inner.queue);
+            for (text, enter) in burst {
+                inner.box_text.extend(text.chars().filter(|c| !c.is_control()));
+                if enter {
+                    inner.box_text.push(' ');
+                }
+            }
+            // From now on keys are applied as they come.
+            inner.lag = Duration::ZERO;
+        }
+    }
+
+    impl DeliveryIo for BurstClaude {
+        fn write(&mut self, origin: WriteOrigin<'_>, text: &str, enter: bool) -> Result<(), String> {
+            origin.admit_terminal_write("", text, enter, None, || AgentProcess::Alive)?;
+            if self.0.clock < self.0.lag {
+                self.0.queue.push((text.to_string(), enter));
+                return Ok(());
+            }
+            self.take_burst();
+            self.0.queue.push((text.to_string(), enter));
+            self.0.apply_when_due();
+            Ok(())
+        }
+        fn screen(&mut self) -> String {
+            self.take_burst();
+            self.0.render()
+        }
+        fn observe(&mut self) -> Observation {
+            let screen = self.screen();
+            Observation { pane_id: String::new(), screen, output_pos: None, agent: AgentProcess::Alive }
+        }
+        fn busy(&mut self) -> bool {
+            !self.0.submitted.is_empty()
+        }
+        fn pause(&mut self, d: Duration) {
+            self.0.pause(d)
+        }
+        fn profile(&mut self) -> Arc<dyn TuiProfile> {
+            crate::tui::profile_for("claude")
+        }
+    }
+
+    #[test]
+    fn keys_a_lagging_claude_reads_as_one_paste_are_never_typed_twice() {
+        // Live (r13 tour, ask_user run): nothing echoed for the 2 s window, delivery pressed Ctrl+U and
+        // typed again; Claude then showed the task twice and never submitted. Late text is waited for
+        // and submitted with Enter, never typed a second time.
+        let mut io = BurstClaude(LaggyClaude::new(Duration::from_millis(3_500)));
+        let mut trace = Vec::new();
+        let outcome = deliver_prompt_traced(&mut io, None, PROMPT, &mut trace);
+        let typed = trace.iter().filter(|l| l.contains(": typing;")).count();
+        assert_eq!(typed, 1, "typed once: {trace:#?}");
+        assert_eq!(io.0.submitted, vec![PROMPT.to_string()], "one copy, submitted: {trace:#?}");
+        assert!(matches!(outcome, Delivery::Started | Delivery::SubmittedUnconfirmed), "{outcome:?} {trace:#?}");
     }
 
     #[test]

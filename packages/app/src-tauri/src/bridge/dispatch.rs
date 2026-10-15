@@ -689,7 +689,11 @@ fn send_task_prompt(
     // A pane that never showed a screen that takes a task is parked once (the user can bring the
     // agent to its input box) and then delivered to again; never typed into, never sent headless.
     let mut parked = false;
-    let mut gate_parks = 0_u8;
+    // A dialog that drew after readiness was judged (live r13: Codex drew its input box, then its
+    // folder-trust dialog 1.7 s later, while the task was about to be typed; or the pane read
+    // `running` before the TUI painted its gate) parks the run on that dialog like one seen at
+    // startup; the task, never typed, is delivered once it is answered.
+    let mut dialog_parks = 0;
     loop {
         let outcome = crate::operations::dispatch_input_if_active(
             &operation.project_path,
@@ -697,15 +701,29 @@ fn send_task_prompt(
             |active| deliver_task(active, registry, app, pane_id, agent_type, &prompt),
         );
         match outcome {
-            // The pane's startup question (folder trust, sign-in) drew AFTER readiness was judged
-            // (the pane reads `running` before the TUI paints): park the run on it, with a card,
-            // exactly as if it had been on screen at the readiness look, instead of failing the run.
-            Err(error) if gate_parks < MAX_LATE_GATE_PARKS && late_startup_gate(&error, agent_type, registry, pane_id).is_some() => {
-                gate_parks += 1;
-                let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
+            // Only a user-only startup gate (folder trust, sign-in: any agent's, as its profile
+            // reads it) is parked on, and only when the refusal left no copy of the task in the box,
+            // so the delivery after the answer types it exactly once. A command approval or a
+            // dismissible notice keeps its own handling.
+            Err(error)
+                if dialog_parks < MAX_DIALOG_PARKS
+                    && blocked_before_typing(&error)
+                    && late_startup_gate(&error, agent_type, registry, pane_id).is_some() =>
+            {
+                dialog_parks += 1;
                 // Parking can take minutes: never hold the pane-assignment lock through it.
                 drop(dispatch_guard.take());
+                crate::agent_runs::transcript::append(
+                    &operation.project_path,
+                    &operation.operation_id,
+                    "readiness",
+                    &crate::redact::text(&format!("Parked on a dialog that appeared before the task was typed: {}", error.message)),
+                );
+                let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
                 park_on_startup_dialog(operation, registry, pane_id, agent_type, &screen, &[])?;
+                // The run's time limit counts from the delivery, not from before the park.
+                operation.started_at_ms = Some(crate::event_log::now_ms().max(0) as u64);
+                *operation = crate::operations::save_operation_snapshot(operation)?;
                 dispatch_guard = Some(PANE_ASSIGNMENT_SERIAL.lock());
             }
             Err(error) if error.code == crate::agent_runs::readiness::SCREEN_NOT_READY && !parked => {
@@ -737,13 +755,11 @@ fn send_task_prompt(
     Ok(())
 }
 
-/// How many times one run parks again on a startup gate that showed up after the readiness look.
-const MAX_LATE_GATE_PARKS: u8 = 3;
-
 /// The startup gate (folder trust, sign-in: a screen only the user may pass) a refused delivery ran
-/// into, when the refusal is a `PANE_BLOCKED_BY_PROMPT` and the pane still shows such a gate. The
-/// run then parks (`park_on_startup_dialog`) rather than fails. A command approval or a dismissible
-/// notice is not one: those keep their own handling.
+/// into, when the refusal is a `PANE_BLOCKED_BY_PROMPT` and the pane still shows such a gate. When
+/// the refusal also left no copy of the task in the box (`blocked_before_typing`), the run parks
+/// (`park_on_startup_dialog`) rather than fails. A command approval or a dismissible notice is not
+/// one: those keep their own handling.
 pub(super) fn late_startup_gate(
     error: &OperationError,
     agent_type: &str,
@@ -804,7 +820,7 @@ fn deliver_task(
     let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
     if let Some(blocked) = crate::pane_prompt::dispatch_blocker(agent_type, &screen) {
         if blocked.code != "AGENT_EXITED" {
-            return Err(blocked);
+            return Err(mark_not_typed(blocked));
         }
     }
     let mut io = delivery::PaneIo { registry, app, pane_id };
@@ -834,7 +850,14 @@ fn deliver_task(
             delivery::not_visible_message(cleared),
             true,
         )),
-        Delivery::Blocked(gate) => Err(crate::pane_prompt::gate_blocked_error(gate)),
+        Delivery::Blocked(gate) => {
+            let error = crate::pane_prompt::gate_blocked_error(gate);
+            // Delivered again after the dialog is answered only when that cannot leave two copies:
+            // nothing was typed, or the profile clears its box before it types (the typed text is
+            // then cleared first, and the box must read empty before the task goes in again).
+            let typed = trace.iter().any(|line| line.contains(delivery::TYPING_TRACE));
+            Err(if !typed || profile.clear_input_sequence().is_some() { mark_not_typed(error) } else { error })
+        }
         Delivery::AgentGone(shell) => {
             Err(crate::agent_runs::readiness::host_shell_error(&shell, profile.as_ref(), pane_id))
         }
@@ -843,6 +866,28 @@ fn deliver_task(
         }
         Delivery::WriteFailed(err) => Err(crate::operations::OperationError::new("DISPATCH_FAILED", err, true)),
     }
+}
+
+/// How many times one delivery parks on a dialog that drew before the task was typed.
+const MAX_DIALOG_PARKS: u32 = 3;
+
+/// Marks a `PANE_BLOCKED_BY_PROMPT` refusal as one that leaves no copy of the task in the pane's box
+/// once delivery runs again (nothing typed, or a box delivery clears before typing).
+fn mark_not_typed(mut error: OperationError) -> OperationError {
+    if error.code == "PANE_BLOCKED_BY_PROMPT" {
+        if let Some(context) = error.context.as_object_mut() {
+            context.insert("not_typed".into(), json!(true));
+        } else {
+            error.context = json!({"not_typed": true});
+        }
+    }
+    error
+}
+
+/// A dialog refused the delivery before any of the task was typed: the run can wait for the
+/// person's answer and deliver then, exactly once.
+pub(super) fn blocked_before_typing(error: &OperationError) -> bool {
+    error.code == "PANE_BLOCKED_BY_PROMPT" && error.context.get("not_typed").and_then(|v| v.as_bool()) == Some(true)
 }
 
 /// How long a run parked on a screen that is not ready keeps looking before it ends.
