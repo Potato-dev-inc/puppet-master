@@ -19,6 +19,9 @@ const ABORT_TIMEOUT: Duration = Duration::from_secs(5);
 /// per-request timeout; the overall cap stays the caller's `timeout`.
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const HEALTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
+/// The idle watcher asks once a second at most; a server that does not answer in this long is
+/// treated as unknown, and the screen alone decides.
+const SESSION_STATUS_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn encode_query_component(value: &str) -> String {
     value
@@ -237,6 +240,39 @@ pub fn health_ok(base_url: &str) -> bool {
         .call()
         .map(|r| r.status() == 200)
         .unwrap_or(false)
+}
+
+/// Whether the server reports `session_id` as working (`busy`, or `retry` while it waits to try
+/// again). `GET /session/status` answers a map of session id to `{"type": ...}` and leaves idle
+/// sessions out. Read from the server's own state, so it holds when the TUI screen is static (a
+/// long tool call) and when the last message has no `finish` yet.
+pub fn session_is_busy(
+    base_url: &str,
+    session_id: &str,
+    directory: Option<&str>,
+) -> Result<bool, String> {
+    let base = normalize_base_url(base_url);
+    let url = with_directory_query(&format!("{base}/session/status"), directory);
+    let response = ureq::get(&url)
+        .timeout(SESSION_STATUS_TIMEOUT)
+        .call()
+        .map_err(|err| format!("opencode session status: {err}"))?;
+    let body: serde_json::Value = response
+        .into_json()
+        .map_err(|err| format!("opencode session status parse: {err}"))?;
+    session_busy_in(&body, session_id)
+        .ok_or_else(|| "opencode session status: not a map of sessions".to_string())
+}
+
+/// [`session_is_busy`] on an already-read body. `None` when the body is not a map.
+pub fn session_busy_in(body: &serde_json::Value, session_id: &str) -> Option<bool> {
+    let map = body.as_object()?;
+    Some(map.get(session_id).is_some_and(|entry| {
+        entry
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .is_none_or(|kind| !kind.eq_ignore_ascii_case("idle"))
+    }))
 }
 
 #[cfg(test)]

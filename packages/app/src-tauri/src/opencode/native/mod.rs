@@ -17,9 +17,11 @@ use tauri::{AppHandle, Emitter};
 use tracing::{error, info};
 use uuid::Uuid;
 
+mod idle;
 mod process;
 mod reattach;
 
+use idle::*;
 use process::*;
 pub use reattach::*;
 
@@ -213,6 +215,7 @@ pub fn spawn_native_pane(
         serve_child,
     );
     let serve_handle = opencode.serve_handle();
+    let probe = server_probe(base_url.clone(), session_id.clone(), cwd.clone());
     let reattaching = opencode.reattaching();
     let keep_serve_on_attach_exit = opencode.keep_serve_on_attach_exit();
     let attach_generation = opencode.attach_generation();
@@ -245,6 +248,7 @@ pub fn spawn_native_pane(
         keep_serve_on_attach_exit,
         attach_generation.load(std::sync::atomic::Ordering::SeqCst),
         attach_generation,
+        probe,
     );
 
     registry.lock().panes.insert(pane_id.clone(), pane);
