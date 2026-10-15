@@ -72,7 +72,18 @@ pub(super) fn spawn_reader_thread(
     keep_serve_on_attach_exit: Arc<std::sync::atomic::AtomicBool>,
     reader_generation: u64,
     attach_generation: Arc<std::sync::atomic::AtomicU64>,
+    probe: SessionProbe,
 ) {
+    let tracker = Arc::new(NativeStatus::new(status.clone(), Instant::now()));
+    spawn_idle_watcher(
+        pane_id.clone(),
+        app.clone(),
+        tracker.clone(),
+        probe,
+        exited.clone(),
+        reader_generation,
+        attach_generation.clone(),
+    );
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
         let mut adapter = crate::agent_adapters::adapter_for("opencode_native");
@@ -86,7 +97,16 @@ pub(super) fn spawn_reader_thread(
                     scrollback.lock().push_chunk(chunk);
                     screen.lock().process(chunk);
                     *last_output.lock() = Instant::now();
-                    *status.lock() = PaneStatus::Running;
+                    let visible = screen.lock().screen().contents();
+                    // Output that leaves every visible cell alone is not activity; only a
+                    // changed screen restarts the idle window or wakes an idle pane.
+                    if let Some(woke) = tracker.on_output(
+                        &visible,
+                        Instant::now(),
+                        crate::pty::resize_clock::recently_resized(&pane_id),
+                    ) {
+                        publish_status(&app, &pane_id, woke);
+                    }
                     if first_output {
                         first_output = false;
                         crate::startup_timing::mark(&pane_id, "first_tui_output");
@@ -94,7 +114,7 @@ pub(super) fn spawn_reader_thread(
                     // Wake wait_for_panes until the TUI has painted text: that is what
                     // flips "running with visible output", and nothing else bumps.
                     if !painted {
-                        painted = !screen.lock().screen().contents().trim().is_empty();
+                        painted = !visible.trim().is_empty();
                         crate::pane_wait_notify::bump_waiters();
                     }
                     let text = String::from_utf8_lossy(chunk);

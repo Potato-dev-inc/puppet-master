@@ -134,6 +134,7 @@ pub fn reattach_tui(
         attach_generation: generation,
     });
     crate::pane_wait_notify::bump_waiters();
+    let probe = server_probe(base_url, session_id, directory);
     spawn_reader_thread(
         pane_id.to_string(),
         app.clone(),
@@ -148,6 +149,7 @@ pub fn reattach_tui(
         keep_serve,
         generation,
         attach_generation,
+        probe,
     );
     Ok(())
 }

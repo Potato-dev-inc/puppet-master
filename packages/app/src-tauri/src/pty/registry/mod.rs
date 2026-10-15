@@ -19,7 +19,7 @@ use super::status::PaneStatus;
 use crate::events::{PaneId, SystemEvent};
 
 mod command;
-mod idle;
+pub(crate) mod idle;
 mod probe;
 pub(crate) use probe::{spawn_probe, ProbePty};
 mod pane_io;

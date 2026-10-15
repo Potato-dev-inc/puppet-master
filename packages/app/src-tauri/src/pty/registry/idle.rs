@@ -8,31 +8,31 @@
 use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 
-pub(super) struct IdleClock {
+pub(crate) struct IdleClock {
     last_change: Mutex<Instant>,
 }
 
 impl IdleClock {
-    pub(super) fn new(now: Instant) -> Self {
+    pub(crate) fn new(now: Instant) -> Self {
         Self {
             last_change: Mutex::new(now),
         }
     }
 
     /// The visible screen changed at `at`.
-    pub(super) fn screen_changed(&self, at: Instant) {
+    pub(crate) fn screen_changed(&self, at: Instant) {
         *self.last_change.lock() = at;
     }
 
     /// True when the screen has not changed for at least `idle_after` as of `now`.
-    pub(super) fn idle_due(&self, now: Instant, idle_after: Duration) -> bool {
+    pub(crate) fn idle_due(&self, now: Instant, idle_after: Duration) -> bool {
         now.saturating_duration_since(*self.last_change.lock()) >= idle_after
     }
 }
 
 /// The window to apply: the profile's `quiet` one while it says the screen shows no sign of work,
 /// otherwise the conservative `base` one.
-pub(super) fn idle_window(busy_marker: Option<bool>, base: Duration, quiet: Duration) -> Duration {
+pub(crate) fn idle_window(busy_marker: Option<bool>, base: Duration, quiet: Duration) -> Duration {
     match busy_marker {
         Some(false) => quiet.min(base),
         _ => base,
@@ -40,7 +40,7 @@ pub(super) fn idle_window(busy_marker: Option<bool>, base: Duration, quiet: Dura
 }
 
 /// How often the idle watcher looks. Bounds how late an idle flip can be on top of `idle_after`.
-pub(super) const IDLE_POLL: Duration = Duration::from_millis(100);
+pub(crate) const IDLE_POLL: Duration = Duration::from_millis(100);
 
 #[cfg(test)]
 mod tests {
