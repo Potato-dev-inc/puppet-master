@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5 - security patch
+
+- Fixes a bridge authorization bypass: requests that came through a tunnel, a reverse proxy or a
+  web page were trusted as the desktop app and needed no paired-device token. All earlier
+  releases (0.1.0 to 0.1.4) are affected; update. Details and what to do:
+  `docs/security/2026-10-14-tunnel-auth-bypass.md`.
+
 ## 0.1.2 — PWA fixes and MCP publishing
 
 - Mobile PWA bug fixes and polish
