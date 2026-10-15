@@ -11,6 +11,8 @@ export default defineConfig({
     devInfoPlugin(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Registered from main.tsx, and only outside the desktop app (see lib/service-worker.ts).
+      injectRegister: false,
       includeAssets: ['app-icon.svg', 'icon-192.png', 'icon-512.png'],
       strategies: 'injectManifest',
       srcDir: 'src',

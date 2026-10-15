@@ -18,6 +18,7 @@ import {
   OPEN_PANE_MESSAGE,
   OPEN_VIEW_MESSAGE,
   clickIntent,
+  isDesktopAppOrigin,
   openUrl,
   parsePushPayload,
   planNotification,
@@ -28,15 +29,34 @@ import { writeIntent } from './pwa/push-intent';
 declare const self: ServiceWorkerGlobalScope;
 
 void self.skipWaiting();
-clientsClaim();
-cleanupOutdatedCaches();
-precacheAndRoute(self.__WB_MANIFEST);
-registerRoute(
-  new NavigationRoute(createHandlerBoundToURL('index.html'), {
-    denylist: [/^\/bridge/, /^\/__puppet_master_dev__/],
-  }),
-);
-registerRoute(({ url }) => url.pathname.startsWith('/bridge/'), new NetworkOnly());
+
+if (isDesktopAppOrigin(self.location)) {
+  // Inside the desktop app: precache nothing and serve nothing. On activate, drop the old
+  // precache, unregister, and reload open windows so they load the installed version's UI.
+  self.addEventListener('activate', (event) => {
+    event.waitUntil(
+      (async () => {
+        // Claim first: a window can only be navigated by the worker that controls it.
+        await self.clients.claim();
+        const names = await caches.keys();
+        await Promise.all(names.filter((name) => name.startsWith('workbox-precache')).map((name) => caches.delete(name)));
+        await self.registration.unregister();
+        const windows = await self.clients.matchAll({ type: 'window' });
+        await Promise.all(windows.map((client) => client.navigate(client.url).catch(() => null)));
+      })(),
+    );
+  });
+} else {
+  clientsClaim();
+  cleanupOutdatedCaches();
+  precacheAndRoute(self.__WB_MANIFEST);
+  registerRoute(
+    new NavigationRoute(createHandlerBoundToURL('index.html'), {
+      denylist: [/^\/bridge/, /^\/__puppet_master_dev__/],
+    }),
+  );
+  registerRoute(({ url }) => url.pathname.startsWith('/bridge/'), new NetworkOnly());
+}
 
 // --- push ---------------------------------------------------------------------------------
 

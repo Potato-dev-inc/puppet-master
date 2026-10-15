@@ -180,3 +180,12 @@ export function isOpenItemMessage(value: unknown): value is OpenItemMessage {
   const v = value as Partial<OpenItemMessage> | null;
   return !!v && v.type === OPEN_ITEM_MESSAGE && typeof v.item_id === 'string' && v.item_id.length > 0;
 }
+
+/**
+ * The desktop app's own webview origin (Tauri 2: `http://tauri.localhost` on Windows,
+ * `tauri://localhost` elsewhere). The service worker is for the phone PWA only; one that finds
+ * itself there (registered by 0.2.0 or older) removes itself so the window loads the installed UI.
+ */
+export function isDesktopAppOrigin(url: { protocol: string; hostname: string }): boolean {
+  return url.protocol === 'tauri:' || url.hostname === 'tauri.localhost';
+}

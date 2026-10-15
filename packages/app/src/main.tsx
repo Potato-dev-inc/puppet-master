@@ -1,3 +1,4 @@
+/// <reference types="vite-plugin-pwa/client" />
 import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -7,9 +8,18 @@ import PwaApp from './PwaApp';
 import PwaLegacyApp from './PwaLegacyApp';
 import SettingsApp from './SettingsApp';
 import TerminalApp from './TerminalApp';
+import { isTauriWindow, setupServiceWorker } from './lib/service-worker';
 import { isSettingsEntry } from './lib/settings-entry';
 import WorkerHostBootstrap from './WorkerHostBootstrap';
 import './styles/index.css';
+
+// Phone PWA only; inside the desktop app a service worker left by an older version is removed.
+void setupServiceWorker({
+  inDesktopApp: isTauriWindow(),
+  container: 'serviceWorker' in navigator ? navigator.serviceWorker : undefined,
+  cacheStorage: typeof caches === 'undefined' ? undefined : caches,
+  register: () => import('virtual:pwa-register').then(({ registerSW }) => registerSW({ immediate: true })),
+}).catch(() => undefined);
 
 const params = new URLSearchParams(window.location.search);
 const isTerminalApp = params.has('terminal') || params.has('cmd') || window.location.hash === '#terminal';
