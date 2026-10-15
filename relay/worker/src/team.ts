@@ -643,7 +643,7 @@ export class Team extends DurableObject<Env> {
     switch (route) {
       case "test-dump": {
         let out = "";
-        for (const table of ["team", "state", "envelopes", "joins", "devices"]) {
+        for (const table of ["team", "state", "envelopes", "joins", "devices", "windows"]) {
           for (const row of this.sql.exec(`SELECT * FROM ${table}`).toArray()) out += `${table}|${JSON.stringify(row)}\n`;
         }
         return new Response(out, { headers: { "content-type": "text/plain" } });
@@ -668,6 +668,19 @@ export class Team extends DurableObject<Env> {
         this.sql.exec("UPDATE windows SET start_ms = start_ms - ?", ms);
         this.sql.exec("UPDATE seen SET until_ms = until_ms - ?", ms);
         return json(await this.testState(await this.sweepAndSchedule()));
+      }
+      case "test-legacy": {
+        // Leave the store as the code before join points and the storage quota left it, then wake this
+        // object: forget what is cached and run the wake-up migration again.
+        this.sql.exec("DROP TABLE devices");
+        this.sql.exec("DELETE FROM kv WHERE key = 'join-points'");
+        this.sql.exec("ALTER TABLE team DROP COLUMN stored_rows");
+        this.sql.exec("ALTER TABLE team DROP COLUMN stored_bytes");
+        this.metaCache = undefined;
+        this.membersCache = undefined;
+        this.limitsCache = undefined;
+        this.migrate();
+        return json({ legacy: true });
       }
       case "test-alarm":
         return json(await this.testState());

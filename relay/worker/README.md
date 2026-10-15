@@ -51,20 +51,28 @@ Per team, in its Durable Object's SQLite storage:
 | The `roster` and `keys` slots and the access list (root-signed, opaque) | until replaced by a newer version |
 | Replay guard (signatures seen in the last ~11 minutes) and rate-limit counters | minutes to a day, then swept |
 
-Per client address, a counter for registrations and join requests; the object is named by a hash of the
-address, so no address is stored. An idle team costs nothing: open WebSockets use Cloudflare's
+Per client address, a counter for team registrations; the object is named by a hash of the address, so no
+address is stored. Join requests are counted inside the team's own object under a hash of the address
+(an IPv6 address by its /64), which expires after an hour. An idle team costs nothing: open WebSockets use Cloudflare's
 hibernation API, so the object sleeps between messages.
 
 ## Limits
 
-The same as the server: 60 envelopes a minute and 5,000 a day per device, 600 a minute per team, 24 KiB per
-envelope, 5 tries per invite, 20 join requests a day per team, 30 unauthenticated requests an hour per
-address, long polls up to 25 seconds, and (new here) 20,000 envelopes held per team. To change a number, uncomment the matching `LIMIT_…` line under
-`[vars]` in `wrangler.toml` (they are listed there).
+The same numbers as the server (`Limits` in `../server/src/lib.rs`):
+
+- 60 envelopes a minute and 5,000 a day per device, 600 a minute per team, 24 KiB per envelope;
+- 300 signed requests a minute per device, reads included (429);
+- a team keeps at most 20,000 envelopes or 128 MiB (507 "the team's mailbox is full"; expiry frees it);
+- at most 4 open WebSockets per device (429 "too many open connections for this device");
+- join requests: 10 an hour per address and team, 200 a day per team, 5 per invite (checked in that order);
+- 30 team registrations an hour per address; long polls up to 25 seconds.
+
+To change a number, uncomment the matching `LIMIT_…` line under `[vars]` in `wrangler.toml` (they are listed there).
 
 Cloudflare's own allowances apply on top (the free plan has daily request, duration and storage-row
-limits: see Cloudflare's pricing page for Workers and Durable Objects). A message costs about seven
-storage-row writes here (the envelope, the counter, three rate-limit counters, the replay guard).
+limits: see Cloudflare's pricing page for Workers and Durable Objects). A message costs about nine
+storage-row writes here (the envelope, the counters, three rate-limit counters, the replay guard, the
+per-device request counter); a read costs three.
 That is plenty for a team, and the paid plan removes the ceiling.
 
 ## Hardening (what the server's security review found, done here from the start)
@@ -75,10 +83,22 @@ That is plenty for a team, and the paid plan removes the ceiling.
 - Rate-limit counters live in each team's own object, are pruned as they expire, and a team's daily join
   budget is spent before per-invite counters are created, so junk invite ids cannot grow them.
 - A new envelope is built once and sent to every open socket; no database query per socket per message.
-  Only a socket that is behind catches up with its own query. A device keeps at most 5 sockets.
+  Only a socket that is behind catches up with its own query. A device keeps at most 4 sockets (the fifth is
+  refused with 429) and a client message over 4 KiB closes its socket.
 - Per-address limits read `CF-Connecting-IP`, which Cloudflare sets and a client cannot forge, so the limit is
-  per client and not for the whole relay.
-- A team's mailbox holds at most 20,000 envelopes (`LIMIT_TEAM_MAX_ENVELOPES`); a full mailbox answers 429.
+  per client and not for the whole relay. An IPv6 client counts by its /64, an IPv4-mapped one as its IPv4 address.
+  Join requests are limited per address *and team*, so one address cannot close joining for other teams.
+- A team's mailbox holds at most 20,000 envelopes or 128 MiB (`LIMIT_TEAM_MAX_ENVELOPES`, `LIMIT_TEAM_MAX_BYTES`);
+  a full mailbox answers 507. The counters are kept in the team row and checked before the insert.
+- **Join points.** A device added to the access list reads only what the team posts after it was added
+  (`devices.from_seq`); everyone listed at registration reads from the start. Removing a device deletes its row
+  and closes its socket and any long poll it has waiting (403), and adding it back gives it a new join point.
+  Objects stored before this change are migrated when they wake: every listed device starts at 0 and the
+  storage counters are filled from the rows.
+- **A cursor ahead of the relay.** Every mailbox reply carries `head` (the team's newest position). When `after`
+  is past it (a restored or replaced database), the reply says `"reset": true` and starts again from the device's
+  join point; a WebSocket sends `{"reset":true,"head":N}` first. These shapes are `Batch`/`Resync` from
+  `relay/protocol`, serialised by the wasm module.
 
 Not covered here: a flood of badly signed requests costs the Worker one signature check each; if that worries
 you, add a Cloudflare rate-limiting rule on the Worker's route (dashboard, Security > WAF).
@@ -114,9 +134,10 @@ npm run build:wasm                                          # writes src/wasm/, 
 
 ## Differences from the server
 
-- The mailbox counter only ever grows. (The server numbers a new envelope as the highest one it still
-  holds plus one, so after a week of silence, when every old envelope has expired, it starts again at 1
-  and a client holding a higher cursor would not see the new mail. The Worker keeps a counter.)
+- No trusted-proxy setting: the server reads `X-Forwarded-For` only from proxies you list; the Worker reads
+  `CF-Connecting-IP`, which Cloudflare sets. (That one test of the shared suite is axum-only.)
+- Rate-limit windows and the replay guard live in the team's storage, not in memory (an object's memory can be
+  evicted), so they cost row writes.
 - Long polls hold a Durable Object awake for up to 25 seconds; clients use the WebSocket first, so this
   is the fallback. WebSockets hibernate.
 - The WebSocket has no server ping (the Workers runtime cannot send one while hibernating). A dropped
@@ -139,7 +160,9 @@ that relay instead of the in-process one:
 
 - `relay/server/tests/protocol.rs`: registration, access list, replay, mailbox cursors and long polls,
   WebSocket backlog and live delivery, a removed device's socket closing, signed state slots, join
-  requests, rate limits.
+  requests, rate limits, `head`/`reset`, join points, a removed device's waiting poll, the per-device request
+  cap, the storage quota (507) and the socket cap. Only `per_address_limits_read_forwarded_addresses_only_from_trusted_proxies`
+  is axum-only.
 - the app's `relay_end_to_end_create_invite_join_push_and_card_with_metadata_only_on_the_relay`,
   `on_the_relay_a_removed_member_is_locked_out_and_told_so` and
   `an_envelope_the_relay_drops_shows_up_as_a_gap` (`packages/app/src-tauri/src/team/tests_v1.rs`),

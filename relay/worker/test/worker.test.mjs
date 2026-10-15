@@ -140,9 +140,85 @@ test("deployed as shipped, there are no test hooks and unauthenticated calls are
   assert.equal(last, 429);
   // Another address is not affected.
   assert.equal((await api.call("POST", "/v1/teams", { body: "{}", ...spoof("203.0.113.8") })).status, 400);
-  // Join requests share the same budget.
+  // Join requests have their own budget (per address and team, inside the team's object), so they are not
+  // refused for the registrations above: an unknown team is simply a 404.
   const join = { team: ghost, invite: "I", enc: b64("e"), ct: b64("c"), at_ms: 1 };
-  assert.equal((await api.call("POST", `/v1/teams/${ghost}/joins`, { body: join, ...spoof("203.0.113.7") })).status, 429);
+  assert.equal((await api.call("POST", `/v1/teams/${ghost}/joins`, { body: join, ...spoof("203.0.113.7") })).status, 404);
+});
+
+test("an IPv6 client is counted by its /64, and an IPv4-mapped one as its IPv4 address", async () => {
+  const api = client(STRICT);
+  const from = (ip) => ({ headers: { "cf-connecting-ip": ip } });
+  // Registrations: 30 an hour from one /64, however the low 64 bits change.
+  let last = 0;
+  for (let i = 0; i < 31; i += 1) last = (await api.call("POST", "/v1/teams", { body: "{}", ...from(`2001:db8:aaaa:1:${i.toString(16)}::1`) })).status;
+  assert.equal(last, 429, "one /64 shares one budget");
+  assert.equal((await api.call("POST", "/v1/teams", { body: "{}", ...from("2001:db8:aaaa:2::1") })).status, 400, "the next /64 is another client");
+  let mapped = 0;
+  for (let i = 0; i < 31; i += 1) mapped = (await api.call("POST", "/v1/teams", { body: "{}", ...from(i % 2 ? "::ffff:198.51.100.9" : "198.51.100.9") })).status;
+  assert.equal(mapped, 429, "::ffff:a.b.c.d is a.b.c.d");
+});
+
+test("join requests are limited per address within a team, by /64, and another team is not affected", async () => {
+  const { api, team } = await newTeam(HOOKS);
+  await hook(api, team, "limits", "", "POST", { joinsPerAddressPerHour: 2 });
+  const join = (n) => ({ team, invite: `INV${n}`, enc: b64("e"), ct: b64("c"), at_ms: Date.now() });
+  const send = (n, ip) => api.call("POST", `/v1/teams/${team}/joins`, { body: join(n), headers: { "cf-connecting-ip": ip } });
+  assert.equal((await send(1, "2001:db8:1:2::1")).status, 202);
+  assert.equal((await send(2, "2001:db8:1:2:ffff::9")).status, 202, "same /64");
+  assert.equal((await send(3, "2001:db8:1:2:1234::7")).status, 429, "the third from that /64");
+  assert.equal((await send(4, "2001:db8:1:3::1")).status, 202, "another /64");
+  assert.equal((await send(5, "203.0.113.5")).status, 202);
+  assert.equal((await send(6, "::ffff:203.0.113.5")).status, 202);
+  assert.equal((await send(7, "203.0.113.5")).status, 429, "mapped and plain IPv4 are one client");
+  // The same address on another team has its own count.
+  const other = await newTeam(HOOKS);
+  await hook(other.api, other.team, "limits", "", "POST", { joinsPerAddressPerHour: 2 });
+  const body = { team: other.team, invite: "X", enc: b64("e"), ct: b64("c"), at_ms: Date.now() };
+  const res = await other.api.call("POST", `/v1/teams/${other.team}/joins`, { body, headers: { "cf-connecting-ip": "203.0.113.5" } });
+  assert.equal(res.status, 202);
+  // No address is stored: the counters are keyed by a hash.
+  assert.ok(!(await hook(api, team, "dump", "", "GET")).text.includes("203.0.113"));
+});
+
+test("an object from before join points and the storage counters is migrated when it wakes", async () => {
+  const newcomer = key(7);
+  const { api, team } = await newTeam(HOOKS);
+  assert.equal((await post(api, team, device, 1)).status, 200);
+  assert.equal((await post(api, team, device, 2)).status, 200);
+  const acl = signedAcl(team, 2, [device.id, newcomer.id], root);
+  assert.equal((await api.call("PUT", `/v1/teams/${team}/acl`, { body: acl })).status, 204);
+  const mine = async (who) => (await api.call("GET", `/v1/teams/${team}/envelopes?after=0`, { device: who })).json;
+  assert.deepEqual((await mine(newcomer)).items, [], "added after two envelopes: nothing before");
+  // Put the object back as the old code left it, and make it restart.
+  await hook(api, team, "legacy");
+  const after = await mine(newcomer);
+  assert.deepEqual(after.items.map((i) => i.seq), [1, 2], "every listed device starts at 0 after the migration");
+  assert.equal(after.head, 2);
+  assert.deepEqual((await mine(device)).items.map((i) => i.seq), [1, 2]);
+  const state = (await hook(api, team, "alarm", "", "GET")).json;
+  assert.equal(state.devices, 2);
+  assert.equal(state.storedRows, 2, "the storage counters are filled from the rows");
+  assert.ok(state.storedBytes > 0);
+});
+
+test("the storage counters follow the mailbox through posts, expiry and drops", async () => {
+  const { api, team } = await newTeam(HOOKS);
+  for (let seq = 1; seq <= 3; seq += 1) assert.equal((await post(api, team, device, seq)).status, 200);
+  let state = (await hook(api, team, "alarm", "", "GET")).json;
+  assert.equal(state.storedRows, 3);
+  const bytes = state.storedBytes;
+  await hook(api, team, "drop", "?seq=2");
+  state = (await hook(api, team, "alarm", "", "GET")).json;
+  assert.equal(state.storedRows, 2);
+  assert.ok(state.storedBytes < bytes);
+  state = (await hook(api, team, "age", `?ms=${8 * DAY}`)).json;
+  assert.equal(state.storedRows, 0);
+  assert.equal(state.storedBytes, 0);
+  await hook(api, team, "limits", "", "POST", { teamMaxBytes: 300 });
+  const res = await post(api, team, device, 4);
+  assert.equal(res.status, 507);
+  assert.deepEqual(res.json, { error: "the team's mailbox is full" });
 });
 
 test("the relay can live under a path prefix: the app signs the path it used", async () => {
@@ -157,10 +233,10 @@ test("the relay can live under a path prefix: the app signs the path it used", a
 
 test("a team's mailbox has a cap, and it frees up as mail expires", async () => {
   const { api, team } = await newTeam(HOOKS);
-  await hook(api, team, "limits", "", "POST", { maxEnvelopes: 2 });
+  await hook(api, team, "limits", "", "POST", { teamMaxEnvelopes: 2 });
   assert.equal((await post(api, team, device, 1)).status, 200);
   assert.equal((await post(api, team, device, 2)).status, 200);
-  assert.equal((await post(api, team, device, 3)).status, 429, "full");
+  assert.equal((await post(api, team, device, 3)).status, 507, "full");
   await hook(api, team, "age", `?ms=${8 * DAY}`);
   assert.equal((await post(api, team, device, 4)).status, 200, "room again once the old mail is gone");
 });
@@ -174,7 +250,7 @@ test("junk invite ids cannot grow the counters: the team's daily budget is spent
     assert.equal(res.status, i < 3 ? 202 : 429, `join ${i}`);
   }
   const state = (await hook(api, team, "alarm", "", "GET")).json;
-  assert.ok(state.windows <= 4, `${state.windows} counters (3 invites and the team's day)`);
+  assert.ok(state.windows <= 5, `${state.windows} counters (3 invites, the team's day and the address)`);
 });
 
 test("only devices on the access list leave a trace in the replay guard", async () => {
