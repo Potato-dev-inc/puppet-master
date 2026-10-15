@@ -365,8 +365,7 @@ steps = [{ do = "think", ms = 400 }, { do = "limit", reset = "9:45 PM" }]
     assert!(screen.contains("\u{25a0} You\u{2019}ve hit your usage limit."), "{screen}");
     assert!(screen.contains("try again at 9:45 PM."), "{screen}");
     let read = session.read_screen("codex", &screen);
-    assert_eq!(read["limit"]["kind"], "usage", "{screen}
-{read}");
+    assert_eq!(read["limit"]["kind"], "usage", "{screen}\n{read}");
     assert_eq!(read["limit"]["reset_text"], "9:45 PM", "{read}");
     // Not asserted yet: in this harness the run still ends `completed` with no `usage_limit` on its receipt
     // (the pane goes idle before the limit has held still for `stable_ms`). See INTEGRATION-R13.md.
@@ -548,15 +547,13 @@ fn a_resize_repaint_does_not_make_an_idle_pane_busy() {
     }
 }
 
-// ---- finding: a run whose pane auto-closes loses its turn summary ------------------------------------------------
+// ---- a run whose pane auto-closes still gets its turn summary ------------------------------------------------
 
-/// FINDING (found by this harness, not fixed here): with the default `keep_pane = false` the run's pane is killed as
-/// soon as the run completes (`agent_runs::pane_close::maybe_dispose_after_terminal`), usually before the turn
-/// summary has waited out its "after" checkpoint (`turn_summary::summarize` -> `Tracker::finish` reads the pane,
-/// which is gone), so no summary is recorded for that turn and the away digest never lists it.
-/// The other tests keep the pane open, as a person watching one would.
+/// With the default `keep_pane = false` the run's pane is closed as soon as the run completes
+/// (`agent_runs::pane_close::maybe_dispose_after_terminal`). That used to happen before the turn summary had
+/// waited out its "after" checkpoint and read the pane, so no summary was recorded and the away digest never
+/// listed the turn. Closing now waits (bounded) for the summary, and the summary no longer needs the pane.
 #[test]
-#[ignore = "FINDING: the turn summary of a run whose pane auto-closes is never recorded (see the doc comment)"]
 fn a_run_whose_pane_auto_closes_still_gets_its_turn_summary() {
     let session = World::get().session("autoclose");
     session.script(
@@ -564,7 +561,7 @@ fn a_run_whose_pane_auto_closes_still_gets_its_turn_summary() {
 agent = "claude"
 boot_ms = 200
 [[turn]]
-steps = [{ do = "write_file", path = "hello.txt", content = "hi\n" }, { do = "say", text = "Created hello.txt." }]
+steps = [{ do = "think", ms = 800 }, { do = "write_file", path = "hello.txt", content = "hi\n" }, { do = "say", text = "Created hello.txt." }]
 "#,
     );
     let done = run_until_stopped(&session, "fake_claude", "create hello.txt", json!({ "keep_pane": false }));

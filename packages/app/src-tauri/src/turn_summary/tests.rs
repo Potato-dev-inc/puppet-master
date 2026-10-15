@@ -327,7 +327,9 @@ fn end_states_and_receipt_facts_reach_the_sentence() {
 }
 
 #[test]
-fn a_pane_that_is_gone_has_no_summary() {
+fn a_pane_closed_after_its_turn_came_to_rest_still_gets_its_summary() {
+    // A run's pane is closed as soon as the run completes (keep_pane = false), usually before the
+    // summary worker has waited out the end-of-turn checkpoint and built the summary.
     let tmp = Tmp::new("gone");
     let env = FakeEnv::new(tmp.p());
     let tracker = Tracker::new(env.clone());
@@ -335,7 +337,34 @@ fn a_pane_that_is_gone_has_no_summary() {
     env.at(5_000);
     let ended = tracker.on_status("p1", "idle").unwrap();
     env.pane_exists.store(false, Ordering::SeqCst);
-    assert!(tracker.finish(ended).is_none());
+    let summary = tracker.finish(ended).expect("the summary does not need the pane");
+    assert_eq!((summary.pane_id.as_str(), summary.turn, summary.agent.as_str()), ("p1", 1, "Claude Code"));
+    assert_eq!(summary.end.kind, "idle");
+    assert!(ring_path(tmp.p()).is_file(), "kept in the project's ring file, found by the project folder captured earlier");
+    assert_eq!(tracker.since(0).len(), 1, "the away digest lists it");
+    assert_eq!(tracker.summaries("p1").len(), 1, "and so does the pane's Last turn / History");
+}
+
+#[test]
+fn a_pane_gone_at_the_rest_point_falls_back_to_the_facts_seen_when_the_turn_opened() {
+    let tmp = Tmp::new("gone-at-rest");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    tracker.on_status("p1", "running");
+    env.pane_exists.store(false, Ordering::SeqCst);
+    env.at(5_000);
+    let ended = tracker.on_status("p1", "idle").unwrap();
+    assert!(tracker.finish(ended).is_some());
+}
+
+#[test]
+fn a_pane_that_never_ran_a_turn_has_no_summary() {
+    let tmp = Tmp::new("never");
+    let env = FakeEnv::new(tmp.p());
+    env.pane_exists.store(false, Ordering::SeqCst);
+    let tracker = Tracker::new(env.clone());
+    assert!(tracker.on_status("p1", "running").is_none());
+    assert!(tracker.on_status("p1", "idle").is_none(), "no pane, no turn");
 }
 
 #[test]
@@ -813,6 +842,28 @@ fn a_pane_that_goes_from_boot_into_its_first_task_gets_a_turn_from_the_prompt() 
     let summary = tracker.finish(ended).expect("summary");
     assert_eq!((summary.turn, summary.started_at_ms), (1, 5_000));
     assert_eq!(summary.files.as_ref().map(|f| f.count), Some(1));
+    assert_eq!(tracker.summaries("p1").len(), 1);
+}
+
+/// Found by the fake-TUI harness (`a_run_whose_pane_auto_closes_still_gets_its_turn_summary`): a task the run
+/// dispatched that the agent finished in 0.8 s was judged a status flicker, so the run got no summary at all.
+#[test]
+fn a_dispatched_task_that_finishes_in_under_a_second_is_still_a_turn_but_a_bare_flicker_is_not() {
+    let tmp = Tmp::new("fast-dispatched");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(5_000);
+    tracker.note_dispatched("p1");
+    env.at(5_800);
+    let ended = tracker.on_status("p1", "idle").expect("a dispatched task is a turn however short");
+    let summary = tracker.finish(ended).expect("summary");
+    assert_eq!((summary.turn, summary.started_at_ms, summary.ended_at_ms), (1, 5_000, 5_800));
+
+    // Nobody dispatched anything: the same 0.8 s `running` is a redraw, not a turn.
+    env.at(20_000);
+    tracker.on_status("p1", "running");
+    env.at(20_800);
+    assert!(tracker.on_status("p1", "idle").is_none());
     assert_eq!(tracker.summaries("p1").len(), 1);
 }
 

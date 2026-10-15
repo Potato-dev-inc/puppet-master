@@ -47,6 +47,15 @@ pub fn maybe_dispose_after_terminal(
         );
         return Ok(());
     }
+    // The turn summary of the run's last turn reads this pane (files changed, receipt) after the
+    // end-of-turn checkpoint settles; closing the pane first used to lose the summary altogether.
+    if !crate::turn_summary::wait_for_summary(pane_id, crate::turn_summary::DISPOSE_WAIT) {
+        tracing::warn!(
+            pane_id,
+            operation_id = %snapshot.operation_id,
+            "closing the pane before its turn summary finished (waited the limit)"
+        );
+    }
     crate::pty::registry_kill_pane_with_reason(
         registry,
         pane_id,
@@ -321,6 +330,67 @@ mod tests {
             !registry.lock().panes.contains_key(pane_id),
             "spawned pane should be disposed when keep_pane is false"
         );
+        let _ = std::fs::remove_dir_all(&project);
+    }
+
+    /// Orders what happens live when a run completes: the pane's status event starts the turn summary
+    /// (which still has to read the pane), and the operation's terminal publish disposes the pane.
+    #[test]
+    fn automatic_dispose_waits_for_the_turn_summary_that_still_reads_the_pane() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let project = std::env::temp_dir()
+            .join(format!("pm-summary-dispose-{}", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .into_owned();
+        let pane_id = "summary-pane";
+        let registry = Arc::new(Mutex::new(PaneRegistry::default()));
+        registry
+            .lock()
+            .panes
+            .insert(pane_id.to_string(), PaneRegistry::test_pane_stub(pane_id));
+        let snapshot = snapshot_with_pane(&project, pane_id, true, false);
+
+        // The status event: a summary of this pane is in flight; its worker reads the pane late.
+        let in_flight = crate::turn_summary::summary_in_flight(pane_id);
+        let pane_was_there = Arc::new(AtomicBool::new(false));
+        let worker = {
+            let (registry, pane_was_there) = (registry.clone(), pane_was_there.clone());
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                pane_was_there.store(registry.lock().panes.contains_key("summary-pane"), Ordering::SeqCst);
+                drop(in_flight);
+            })
+        };
+        maybe_dispose_after_terminal(&snapshot, &registry).unwrap();
+        worker.join().unwrap();
+        assert!(
+            pane_was_there.load(Ordering::SeqCst),
+            "the pane was closed before the turn summary had read it"
+        );
+        assert!(
+            !registry.lock().panes.contains_key(pane_id),
+            "the spawned pane is still closed afterwards"
+        );
+        let _ = std::fs::remove_dir_all(&project);
+    }
+
+    #[test]
+    fn automatic_dispose_does_not_wait_when_no_summary_is_in_flight() {
+        let project = std::env::temp_dir()
+            .join(format!("pm-summary-none-{}", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .into_owned();
+        let pane_id = "no-summary-pane";
+        let registry = Arc::new(Mutex::new(PaneRegistry::default()));
+        registry
+            .lock()
+            .panes
+            .insert(pane_id.to_string(), PaneRegistry::test_pane_stub(pane_id));
+        let snapshot = snapshot_with_pane(&project, pane_id, true, false);
+        let started = std::time::Instant::now();
+        maybe_dispose_after_terminal(&snapshot, &registry).unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        assert!(!registry.lock().panes.contains_key(pane_id));
         let _ = std::fs::remove_dir_all(&project);
     }
 
