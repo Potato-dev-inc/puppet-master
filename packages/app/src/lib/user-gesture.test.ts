@@ -33,20 +33,27 @@ function sources(dir = SRC): string[] {
   });
 }
 
+// Read once: the walk over src is the slow part under a full, parallel run.
+let code: Array<[string, string]> | null = null;
+function allCode(): Array<[string, string]> {
+  code ??= sources().map((file) => [
+    relative(SRC, file).replace(/\\/g, '/'),
+    readFileSync(file, 'utf8')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+      .join('\n'),
+  ]);
+  return code;
+}
+
 function callers(needle: string): string[] {
-  return sources()
-    .flatMap((file) => {
-      const code = readFileSync(file, 'utf8')
-        .split('\n')
-        .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
-        .join('\n');
-      return Array.from({ length: code.split(needle).length - 1 }, () => relative(SRC, file).replace(/\\/g, '/'));
-    })
+  return allCode()
+    .flatMap(([rel, text]) => Array.from({ length: text.split(needle).length - 1 }, () => rel))
     .sort();
 }
 
 describe('every answer to a pane prompt', () => {
-  it('goes through two known places with a click, and one known refusal without', () => {
+  it('goes through two known places with a click, and one known refusal without', { timeout: 60_000 }, () => {
     // With the person's click (the gesture is a required argument, so a new caller must have one).
     expect(callers('.answerPanePrompt(')).toEqual(['components/simple/SimpleProject.tsx', 'hooks/useCockpit.ts']);
     // The only answer without a click: Simple mode's own No to a high-risk command.
