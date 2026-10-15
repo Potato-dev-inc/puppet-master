@@ -128,7 +128,7 @@ describe('the dock', () => {
     await flush();
     const tabs = host.querySelector('.ck-tabs-bar')!;
     const body = host.querySelector('.ck-pane-body')!;
-    const ask = host.querySelector('.ck-ask')!;
+    const ask = host.querySelector('.ck-dock [data-ib-card]')!;
     expect(body.contains(ask)).toBe(true);
     // the tab strip comes before the card, so it never moves when a card arrives
     expect(tabs.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -140,12 +140,28 @@ describe('the dock', () => {
     await flush();
     await act(async () => tab('History').click());
     await flush();
-    expect(host.querySelector('.ck-ask')).toBeNull();
+    expect(host.querySelector('.ck-dock [data-ib-card]')).toBeNull();
     const bar = host.querySelector<HTMLElement>('.ck-dock-bar')!;
     expect(bar.textContent).toContain('Needs you · Run tests');
     await act(async () => bar.click());
     expect(tab('Terminal').getAttribute('aria-selected')).toBe('true');
-    expect(host.querySelector('.ck-ask')).not.toBeNull();
+    expect(host.querySelector('.ck-dock [data-ib-card]')).not.toBeNull();
+  });
+
+  it('docks the Inbox card itself: its words, its age, no "Open terminal" (the terminal is right here)', async () => {
+    const c = cockpit('C:\\work\\shop', true);
+    await act(async () => root.render(<PaneView c={c} paneId="p1" />));
+    await flush();
+    const card = host.querySelector<HTMLElement>('.ck-dock .ib-dock [data-ib-card]')!;
+    expect(card.dataset.kind).toBe('approval');
+    const labels = Array.from(card.querySelectorAll('button')).map((b) => b.textContent);
+    expect(labels).toContain('Allow once');
+    expect(labels).toContain('Deny');
+    expect(labels).not.toContain('Open terminal');
+    expect(card.textContent).toContain('10s');
+    const allow = Array.from(card.querySelectorAll('button')).find((b) => b.textContent === 'Allow once')!;
+    await act(async () => allow.click());
+    expect(c.answer).toHaveBeenCalledWith('p1', prompt.promptId, 'yes', 'Yes');
   });
 
   it('has no dock and no bar when nothing waits', async () => {

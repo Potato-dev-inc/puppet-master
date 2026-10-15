@@ -5,21 +5,19 @@ import { hasEverSpawned } from '../../lib/agent-health';
 import { sortInbox, type InboxEntry } from '../../lib/inbox-order';
 import { isBudget, isConsent, isLimit, type QuestionAnswer } from '../../lib/questions';
 import { patchSettings } from '../../lib/settings';
-import { ApprovalPrompt } from './ApprovalPrompt';
+import { PaneApprovalCard } from './PaneApprovalCard';
 import { PaneStuckCard } from './StuckCard';
 import { blockingItems, itemsOfKind } from '../../lib/attention';
 import { useNeedsYou } from '../../hooks/useNeedsYou';
 import { AskNotices } from './AskNotices';
 import { CanaryNotices } from './CanaryNotices';
-import { promptSummary } from './model';
 import { BudgetCard } from './BudgetCard';
 import { ConsentCard } from './ConsentCard';
 import { LimitCard } from './LimitCard';
 import { QuestionCard } from './QuestionCard';
 import { PaneErrorCard } from './InboxError';
-import { CardButton, InboxCard, focusWithRing } from './InboxCard';
+import { focusWithRing } from './InboxCard';
 import { handleInboxKey, isEditable } from './inbox-keys';
-import { paneHeading } from './titles';
 import { TeamSection } from './team/TeamSection';
 
 /** One card in the Inbox's single list: where it sorts, and how to draw it. */
@@ -104,10 +102,8 @@ export function Inbox({
 
     for (const p of waiting) {
       const id = p.info.id;
-      const prompt = c.prompts[id];
       const since = c.statusSince.get(id);
-      const heading = paneHeading(p.info, c.names.get(id) ?? p.info.agent_type);
-      const who = [heading.primary, heading.secondary, projectWithCopy(p.info.cwd)].filter(Boolean).join(' · ');
+      const prompt = c.prompts[id];
       const risk = prompt?.risk?.level;
       const hasChoices = !!prompt && prompt.choices.length > 0;
       out.push({
@@ -116,43 +112,7 @@ export function Inbox({
         risk,
         since,
         quick: hasChoices && risk !== 'high',
-        render: (first) =>
-          prompt?.risk && hasChoices ? (
-            <ApprovalPrompt
-              variant="card"
-              prompt={prompt}
-              who={who}
-              age={age(since)}
-              autoFocus={first}
-              onOpen={() => c.select(id)}
-              onAnswer={(ch) => void c.answer(id, prompt.promptId, ch.id, ch.label)}
-            />
-          ) : (
-            // A menu the agent drew that Puppet Master could not rate: its own words, equal weight, no default.
-            <InboxCard
-              kind="approval"
-              glyph="needs"
-              title={prompt ? promptSummary(prompt) || 'Waiting for your answer' : 'Waiting for your answer'}
-              meta={who}
-              age={age(since)}
-              actions={
-                hasChoices ? (
-                  <>
-                    {prompt.choices.map((ch) => (
-                      <CardButton key={ch.id} tone="secondary" role="answer" onClick={() => void c.answer(id, prompt.promptId, ch.id, ch.label)}>
-                        {ch.label}
-                      </CardButton>
-                    ))}
-                  </>
-                ) : null
-              }
-              more={
-                <CardButton tone="plain" role="open" onClick={() => c.select(id)}>
-                  Open terminal
-                </CardButton>
-              }
-            />
-          ),
+        render: (first) => <PaneApprovalCard c={c} paneId={id} autoFocus={first} onOpen={() => c.select(id)} />,
       });
     }
 

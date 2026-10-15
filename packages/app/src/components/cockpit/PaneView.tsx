@@ -14,8 +14,8 @@ import { DotSpinner } from './DotSpinner';
 import { mainPreview, openPreview, previewLabel } from '../../lib/pane-preview';
 import { dockItems, headerStateLine, DOCK_LABEL } from './pane-chrome';
 import { IconClose, IconGlobe, IconCopy, IconInfo, IconMore, IconReflow, IconRename, IconStop } from './Icons';
-import { ApprovalPrompt } from './ApprovalPrompt';
-import { formatElapsed, promptSummary, spinnerStatus, stateText } from './model';
+import { PaneApprovalCard } from './PaneApprovalCard';
+import { formatElapsed, spinnerStatus, stateText } from './model';
 import { ReceiptTab } from './ReceiptTab';
 import { Changes } from './Changes';
 import { changesTabLabel, usePaneWorktree } from './usePaneWorktree';
@@ -349,21 +349,9 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
               <div className="ck-dock">
                 {dockNow === 'stuck' && <PaneStuckCard c={c} paneId={paneId} />}
                 {dockNow === 'ask' && prompt && (
-                  <div className="ck-ask" role="group" aria-label="Agent question">
-                    {prompt.risk && <ApprovalPrompt variant="bar" prompt={prompt} onAnswer={(ch) => void c.answer(paneId, prompt.promptId, ch.id, ch.label)} />}
-                    {!prompt.risk && <span className="ck-ask-q">{promptSummary(prompt)}</span>}
-                    <span className="ck-ask-actions">
-                      {!prompt.risk && prompt.choices.map((ch, i) => (
-                        <button
-                          key={ch.id}
-                          type="button"
-                          className={`ck-btn ck-btn--sm ${i === 0 ? 'ck-btn--primary' : 'ck-btn--secondary'}`}
-                          onClick={() => void c.answer(paneId, prompt.promptId, ch.id, ch.label)}
-                        >
-                          {ch.label}
-                        </button>
-                      ))}
-                    </span>
+                  // The Inbox's card, docked: same words, same order, same keyboard rules; no "Open terminal" here.
+                  <div className="ib-dock" role="group" aria-label="Agent question">
+                    <PaneApprovalCard c={c} paneId={paneId} />
                   </div>
                 )}
                 {dock.length > 1 && (

@@ -18,8 +18,8 @@
   max-height: 55%;
   overflow-y: auto;
 }
-.cockpit .ck-dock .ck-ask,
-.cockpit .ck-dock .ck-stuck {
+/* The docked cards are the Inbox's cards (PaneApprovalCard, the stuck card), lined up with "1 more". */
+.cockpit .ck-dock .ib-dock {
   margin: 0 20px;
 }
 .cockpit .ck-dock-more {
