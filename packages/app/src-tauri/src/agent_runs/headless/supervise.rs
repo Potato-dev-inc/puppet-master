@@ -170,15 +170,6 @@ impl Supervisor {
 
     /// Reads the pane of a running/waiting turn and acts on what the completion watch decides.
     fn observe_pane(&mut self, current: &OperationSnapshot, pane_id: &str) -> Step {
-        // The pane shows a usage limit (or is about to be judged to): the limit text is not this
-        // turn's answer, and a turn that is waiting out its limit has not failed. The run is parked
-        // by `handoff` (`waiting_input`, `usage_limit`); nothing is pressed here, and the turn is
-        // never completed or failed from this screen while the limit stands.
-        if let Some(screen) = read_tui_screen(&self.registry, pane_id) {
-            if crate::handoff::observe_pane(pane_id, &current.agent_type, &screen) != crate::handoff::watch::Standing::Clear {
-                return Step::Continue;
-            }
-        }
         let pane_status = self
             .registry
             .lock()
@@ -187,6 +178,24 @@ impl Supervisor {
             .find(|pane| pane.id == pane_id)
             .map(|pane| pane.status)
             .unwrap_or_default();
+        // The pane shows a usage limit (or is about to be judged to): the limit text is not this
+        // turn's answer, and a turn that is waiting out its limit has not failed. The run is parked
+        // by `handoff` (`waiting_input`, `usage_limit`); nothing is pressed here, and the turn is
+        // never completed or failed from this screen while the limit stands.
+        //
+        // An idle pane is a turn that has ended: its screen is final and still, so a limit on it
+        // counts now, without the `stable_ms` hold that guards a screen still being drawn. (The
+        // hold alone let a run settle as `completed` on the very notice that stopped it.)
+        if let Some(screen) = read_tui_screen(&self.registry, pane_id) {
+            let standing = if pane_status == "idle" {
+                crate::handoff::observe_pane_at_turn_end(pane_id, &current.agent_type, &screen)
+            } else {
+                crate::handoff::observe_pane(pane_id, &current.agent_type, &screen)
+            };
+            if standing != crate::handoff::watch::Standing::Clear {
+                return Step::Continue;
+            }
+        }
         let action = native::infer_tui_prompt(&self.registry, pane_id, &current.agent_type);
         if action.is_none() {
             self.recorded_prompt = None; // the dialog is gone: the same one asked again is a new approval

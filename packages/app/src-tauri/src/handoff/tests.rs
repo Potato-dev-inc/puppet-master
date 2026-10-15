@@ -1214,3 +1214,96 @@ fn blank_rows_between_the_notice_and_a_bottom_pinned_box_do_not_hide_the_limit()
     let old = f.text.replacen("Try again at 9:45 PM.\n", &format!("Try again at 9:45 PM.\n{history}"), 1);
     assert!(profile_for("codex").detect_limit(&render(&old, cols_of(&f)), &clock_of(&f)).is_none());
 }
+
+// ---- the turn's end --------------------------------------------------------------------------------------
+
+/// A pane that goes idle on its limit has ended its turn: the screen is final and still, so the run is
+/// parked at once. Before, only the 2 s hold could park it, and a run settled from the idle screen
+/// first (it ended `completed`, the notice read as its answer, no `usage_limit` on its receipt).
+#[test]
+fn a_limit_on_the_final_screen_of_a_turn_parks_the_run_without_the_two_second_hold() {
+    let env = TestEnv::new();
+    let mut engine = Engine::default();
+    let run = running_run(&env);
+    let claude = profile_for("claude");
+    let screen = claude_screen("usage_session_window");
+    *env.status.borrow_mut() = "idle".into();
+
+    assert_eq!(engine.observe_final(&env, PANE, claude.as_ref(), &screen), Standing::Parked);
+    // No clock moved, no tick ran: the run is already parked, with the limit on its action.
+    let parked = stored(&run);
+    assert_eq!(parked.status, OperationStatus::WaitingInput);
+    assert_eq!(parked.stage.as_deref(), Some("usage_limit"));
+    assert_eq!(parked.required_action.as_ref().unwrap()["kind"], "usage_limit");
+    assert_eq!(parked.required_action.as_ref().unwrap()["reset_text"], "5pm (Asia/Taipei)");
+    let limit = crate::agent_runs::handoff_seams::receipt_usage_limit(&parked).expect("the receipt carries the limit");
+    assert_eq!(limit.state, "waiting");
+    // The same card and the same single state change as the mid-turn path.
+    let cards = env.pending();
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].question, "Claude Code ran out of usage. It can continue at 17:00.");
+    assert_eq!(env.published.borrow().len(), 1);
+    assert!(env.marks.borrow().iter().any(|m| m.starts_with("limit:detected window session limit")), "{:?}", env.marks.borrow());
+
+    // Looking again (the supervisor looks every tick, and the ticker promotes later) changes nothing.
+    assert_eq!(engine.observe_final(&env, PANE, claude.as_ref(), &screen), Standing::Parked);
+    env.advance(5_000);
+    engine.tick(&env, &alive);
+    assert_eq!(env.pending().len(), 1);
+    assert_eq!(env.published.borrow().len(), 1);
+}
+
+/// The mid-turn path still waits for the hold: a screen that may yet change is not acted on.
+#[test]
+fn mid_turn_the_same_limit_screen_is_still_only_pending_until_it_holds() {
+    let env = TestEnv::new();
+    let mut engine = Engine::default();
+    let run = running_run(&env);
+    let claude = profile_for("claude");
+    assert_eq!(engine.observe(&env, PANE, claude.as_ref(), &claude_screen("usage_session_window")), Standing::Pending);
+    assert_eq!(stored(&run).status, OperationStatus::Running);
+    assert!(env.pending().is_empty());
+}
+
+/// Bypassing the hold bypasses nothing else: an agent quoting the limit sentence in its reply, a pasted
+/// prompt echo, a diff and a notice on a screen that is still working are not limits at a turn's end.
+#[test]
+fn the_other_guards_still_hold_on_the_final_screen_of_a_turn() {
+    let claude = profile_for("claude");
+    for id in ["neg_reply_quotes_limit", "neg_prompt_echo_pasted", "neg_tool_output_diff", "neg_busy_with_notice"] {
+        let env = TestEnv::new();
+        let mut engine = Engine::default();
+        let run = running_run(&env);
+        assert_eq!(engine.observe_final(&env, PANE, claude.as_ref(), &claude_screen(id)), Standing::Clear, "{id}");
+        assert_eq!(stored(&run).status, OperationStatus::Running, "{id}");
+        assert!(env.pending().is_empty(), "{id}");
+    }
+    // Only a usage limit parks: a transient retry on the final screen is a status line, never a card.
+    let env = TestEnv::new();
+    let mut engine = Engine::default();
+    running_run(&env);
+    assert_eq!(engine.observe_final(&env, PANE, claude.as_ref(), &claude_screen("transient_retrying")), Standing::Clear);
+    assert!(env.pending().is_empty());
+    // A limit the turn already moved past (scrolled-back text) is not a new limit at the next turn's end.
+    let mut tracker = Tracker::default();
+    let hit = |screen: &str| profile_for("claude").detect_limit(screen, &FixedClock::taipei_noon());
+    let screen = claude_screen("usage_session_window");
+    assert_eq!(tracker.observe_final(0, "p", hit(&screen), Some(false)).0, Standing::Parked);
+    tracker.observe(1_000, "p", None, Some(true));
+    let (standing, events) = tracker.observe_final(2_000, "p", hit(&screen), Some(false));
+    assert_eq!((standing, events.len()), (Standing::Clear, 0));
+}
+
+/// What `Supervisor::observe_pane` calls on an idle pane: the live entry point, no hold.
+#[test]
+fn the_live_turn_end_entry_point_parks_where_the_mid_turn_one_only_waits() {
+    let limit = claude_screen("usage_session_window");
+    let mid_turn = format!("turn-end-{}", uuid::Uuid::new_v4());
+    assert_eq!(observe_pane(&mid_turn, "claude", &limit), Standing::Pending);
+    let ended = format!("turn-end-{}", uuid::Uuid::new_v4());
+    assert_eq!(observe_pane_at_turn_end(&ended, "claude", &limit), Standing::Parked);
+    let quoting = format!("turn-end-{}", uuid::Uuid::new_v4());
+    assert_eq!(observe_pane_at_turn_end(&quoting, "claude", &claude_screen("neg_reply_quotes_limit")), Standing::Clear);
+    // An agent without limit rules is never held.
+    assert_eq!(observe_pane_at_turn_end(&format!("turn-end-{}", uuid::Uuid::new_v4()), "shell", &limit), Standing::Clear);
+}

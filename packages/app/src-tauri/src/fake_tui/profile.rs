@@ -108,6 +108,12 @@ impl TuiProfile for FakeAgent {
         self.inner.idle_after()
     }
 
+    /// The real profile's usage-limit rules: without them a fake pane that draws a limit is never
+    /// seen to be at one, and the run settles as `completed` on the notice.
+    fn limits(&self) -> Option<&crate::handoff::CompiledLimits> {
+        self.inner.limits()
+    }
+
     fn busy_marker(&self, visible_tail: &str) -> Option<bool> {
         self.inner.busy_marker(visible_tail)
     }

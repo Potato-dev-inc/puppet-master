@@ -367,9 +367,21 @@ steps = [{ do = "think", ms = 400 }, { do = "limit", reset = "9:45 PM" }]
     let read = session.read_screen("codex", &screen);
     assert_eq!(read["limit"]["kind"], "usage", "{screen}\n{read}");
     assert_eq!(read["limit"]["reset_text"], "9:45 PM", "{read}");
-    // Not asserted yet: in this harness the run still ends `completed` with no `usage_limit` on its receipt
-    // (the pane goes idle before the limit has held still for `stable_ms`). See INTEGRATION-R13.md.
-    let _ = view;
+    // The turn ended on the limit (the pane went idle with the notice on screen). The run must not be
+    // settled from that screen as `completed`, whatever the 2 s hold has or has not seen: it is parked at
+    // its usage limit, and its receipt says so.
+    assert_ne!(status(&view), "completed", "a run that stopped at a usage limit is not completed: {view}");
+    assert_eq!(status(&view), "needs_input", "{view}");
+    assert_eq!(view["prompt"]["kind"], "usage_limit", "{view}");
+    let limit = &view["receipt"]["usage_limit"];
+    assert_eq!(limit["state"], "waiting", "the receipt carries the usage limit: {view}");
+    assert_eq!(limit["reset_text"], "9:45 PM", "{view}");
+    assert!(view["error"].is_null(), "waiting out a limit is not a failure: {view}");
+    // It stays parked: the idle pane is not re-read as a finished turn a moment later.
+    std::thread::sleep(std::time::Duration::from_millis(3_000));
+    let later = session.view(&handle_of(&view));
+    assert_eq!(status(&later), "needs_input", "still parked 3 s later: {later}");
+    assert_eq!(later["receipt"]["usage_limit"]["state"], "waiting", "{later}");
 }
 
 // ---- conformance: every screen the fake draws is read by the REAL profile ---------------------------------------

@@ -137,6 +137,23 @@ impl Engine {
         standing
     }
 
+    /// The turn ended (the pane is idle) and `screen` is its final, still screen: the same look as
+    /// [`Engine::observe`], but a usage limit counts at once instead of after `stable_ms`. Without
+    /// this a pane that goes idle on its limit lets the run settle as `completed` before the hold is
+    /// over (the notice would be read as the reply).
+    pub fn observe_final(&mut self, env: &dyn Env, pane_id: &str, profile: &dyn TuiProfile, screen: &str) -> Standing {
+        if profile.limits().is_none() {
+            return Standing::Clear;
+        }
+        let tail = crate::pane_activity::visible_tail(screen);
+        let busy = profile.busy_marker(&tail);
+        let hit = profile.detect_limit(screen, env.clock());
+        let now = env.clock().now_ms().max(0) as u64;
+        let (standing, events) = self.tracker.observe_final(now, pane_id, hit, busy);
+        self.apply(env, events);
+        standing
+    }
+
     /// The once-a-second pass: promote limits that held still long enough, raise due reminders.
     /// Returns the panes whose limit state changed (their status line must be recomputed).
     pub fn tick(&mut self, env: &dyn Env, alive: &dyn Fn(&str) -> bool) -> Vec<String> {
@@ -385,6 +402,17 @@ pub fn observe_pane(pane_id: &str, agent_type: &str, screen: &str) -> Standing {
         return Standing::Clear;
     }
     ENGINE.lock().observe(&LiveEnv, pane_id, profile.as_ref(), screen)
+}
+
+/// A run's turn ended on `screen`: like [`observe_pane`], but a usage limit on the final screen
+/// counts without the `stable_ms` hold. `Parked` means the run was parked at its limit (or already
+/// was) and must not be settled from this screen.
+pub fn observe_pane_at_turn_end(pane_id: &str, agent_type: &str, screen: &str) -> Standing {
+    let profile = crate::tui::profile_for(agent_type);
+    if profile.limits().is_none() {
+        return Standing::Clear;
+    }
+    ENGINE.lock().observe_final(&LiveEnv, pane_id, profile.as_ref(), screen)
 }
 
 /// Once a second, from the pane-activity ticker.

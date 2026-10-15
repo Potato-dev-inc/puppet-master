@@ -16,6 +16,10 @@ What it does, per agent that has a `[limits]` table:
 1. **Detects** a usage limit on the screen (Claude Code 2.1.300, Codex 0.162.x: the exact texts the design cites), with
    a reset time read in this computer's zone (a reset printed in another zone is not guessed).
 2. **Waits for the screen to hold still for 2 s** before acting; fires once; stops counting when the agent carries on.
+   **Except at a turn's end:** when a run's pane goes idle, its screen is final and still, so a usage limit on it is
+   acted on at once (`Engine::observe_final`, called by `Supervisor::observe_pane` for an idle pane). The run is parked
+   and its receipt carries `usage_limit` without waiting out the 2 s. Every other guard still applies (tail rows, not
+   inside the agent's reply or the prompt echo, not while a turn runs).
 3. **Parks the run** bound to the pane: `waiting_input`, stage `usage_limit`, `required_action.kind = "usage_limit"`
    with `window`, `reset_at_ms`, `reset_text`, `self_resume_armed` and no options. An MCP caller waiting on the run
    wakes with `needs_input` and can read why. `answer_prompt` on it is refused (`USAGE_LIMIT_NOT_ANSWERABLE`).

@@ -115,6 +115,20 @@ impl Tracker {
         (Self::standing(watch), events)
     }
 
+    /// The turn has ended (the pane is idle) and `hit` was read off its FINAL screen: nothing is
+    /// going to change it, so the hold that guards a screen still being drawn does not apply. A
+    /// usage limit is acted on now, not `stable_ms` from now: a run that stops at its limit must
+    /// never be settled from this screen first. Every other guard is the detector's (tail rows, not
+    /// inside the agent's reply or the prompt echo) and the tracker's (a limit the turn already
+    /// moved past stays suppressed).
+    pub fn observe_final(&mut self, now_ms: u64, pane_id: &str, hit: Option<LimitHit>, busy: Option<bool>) -> (Standing, Vec<Event>) {
+        let (_, mut events) = self.observe(now_ms, pane_id, hit, busy);
+        if let Some(watch) = self.panes.get_mut(pane_id) {
+            Self::promote_with(watch, pane_id, now_ms, true, &mut events);
+        }
+        (self.standing_of(pane_id), events)
+    }
+
     /// Promote candidates that have held still long enough. Called about once a second.
     pub fn tick(&mut self, now_ms: u64) -> Vec<Event> {
         let mut events = Vec::new();
@@ -125,7 +139,12 @@ impl Tracker {
     }
 
     fn promote(watch: &mut PaneWatch, pane_id: &str, now_ms: u64, events: &mut Vec<Event>) {
-        let due = watch.candidate.as_ref().is_some_and(|c| now_ms.saturating_sub(c.since_ms) >= c.hit.stable_ms);
+        Self::promote_with(watch, pane_id, now_ms, false, events);
+    }
+
+    /// `settled`: the screen is final (a turn's end), so the hold is skipped.
+    fn promote_with(watch: &mut PaneWatch, pane_id: &str, now_ms: u64, settled: bool, events: &mut Vec<Event>) {
+        let due = watch.candidate.as_ref().is_some_and(|c| settled || now_ms.saturating_sub(c.since_ms) >= c.hit.stable_ms);
         if due {
             if let Some(Candidate { mut hit, .. }) = watch.candidate.take() {
                 hit.evidence = LimitEvidence::Stable;
