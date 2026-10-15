@@ -28,12 +28,22 @@ fn notes_ask() -> String {
 
 /// The failing checks' output, fenced.
 fn failing(v: &Verdict) -> String {
+    failing_lines(v, usize::MAX)
+}
+
+/// The same, keeping only the last `max` lines of each output (a brief stays short).
+fn failing_lines(v: &Verdict, max: usize) -> String {
     let parts: Vec<String> = v
         .checks
         .iter()
         .filter(|c| !c.passed)
         .map(|c| {
-            let body = if c.tail.trim().is_empty() { c.detail.clone() } else { c.tail.clone() };
+            let body = if c.tail.trim().is_empty() {
+                c.detail.clone()
+            } else {
+                let lines: Vec<&str> = c.tail.lines().collect();
+                lines[lines.len().saturating_sub(max)..].join("\n")
+            };
             fence(&format!("the output of {}", c.name), &body)
         })
         .collect();
@@ -107,29 +117,33 @@ pub fn after_test_undo(m: &Mission) -> String {
 
 /// The brief for an agent that takes over (or starts again in a new conversation).
 pub fn brief(m: &Mission, copy: &Path, why: &str) -> String {
+    // Compact on purpose: the agent can read MISSION.md and rerun the checks itself.
     let done: Vec<String> = m
         .rounds
         .iter()
-        .filter_map(|r| r.verdict.as_ref().map(|v| format!("- Turn {} ({}): {} pass", r.n, m.agent_label(r.agent), v.short())))
+        .filter_map(|r| r.verdict.as_ref().map(|v| format!("turn {} ({}) {} pass", r.n, m.agent_label(r.agent), v.short())))
         .collect();
+    let recent = &done[done.len().saturating_sub(5)..];
     let notes = ledger::notes(copy);
-    let mut out = format!("Mission: {}\n\nYou're taking over this mission: {why}\n\n", m.objective.trim(), why = why);
-    out.push_str(&format!("How we'll know it's done (Puppet Master runs these after every turn):\n{}\n\n", checks_block(m)));
-    if !done.is_empty() {
-        out.push_str(&format!("Done so far:\n{}\n\n", done.join("\n")));
+    let checks: Vec<String> = m.checks.iter().map(|c| format!("{} `{}`", c.name, c.display())).collect();
+    // The first line says what this is, so an agent that reads only the start still knows.
+    let mut out = format!("You're taking over this mission: {why}.\nMission: {}\n", m.objective.trim());
+    out.push_str(&format!("Checks (Puppet Master runs them after every turn): {}\n", checks.join(", ")));
+    if !recent.is_empty() {
+        out.push_str(&format!("Done so far: {}\n", recent.join("; ")));
     }
     if let Some(v) = m.latest_verdict() {
-        let f = failing(v);
+        let f = failing_lines(v, 4);
         if !f.is_empty() {
             out.push_str(&f);
-            out.push_str("\n\n");
+            out.push('\n');
         }
     }
     if !notes.trim().is_empty() {
-        out.push_str(&format!("Notes from the agents before you:\n{}\n\n", fence(&format!("the notes in {LEDGER}"), &notes)));
+        out.push_str(&format!("Notes from the agents before you:\n{}\n", fence(&format!("the notes in {LEDGER}"), &notes)));
     }
-    out.push_str(&rules(m));
-    out.push_str("\n\n");
+    out.push_str(&rules(m).replace("Rules:\n- ", "Rules: ").replace("\n- ", " "));
+    out.push('\n');
     out.push_str(&notes_ask());
     out
 }

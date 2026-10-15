@@ -20,6 +20,8 @@ pub const SETUP_CODES: &[&str] = &[
 pub const EXIT_CODES: &[&str] = &["AGENT_EXITED", "AGENT_GONE"];
 pub const RESTART_CODES: &[&str] = &["OPERATION_INTERRUPTED"];
 pub const TIMEOUT_CODES: &[&str] = &["TIMEOUT"];
+/// The turn never started in its pane (the prompt was not taken, the pane did not launch).
+pub const PRE_TURN_CODES: &[&str] = &["PROMPT_NOT_SUBMITTED", "PROMPT_NOT_DELIVERED", "DISPATCH_FAILED", "PANE_SPAWN_FAILED", "LAUNCH_FAILED"];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Signals {
@@ -170,10 +172,17 @@ pub fn decide(m: &Mission, sig: &Signals) -> Decision {
     if sig.pause {
         return line(Action::Pause, "Paused by you".into());
     }
-    // A follow-up that could not be created (its pane was closed): a new conversation, once.
-    if end.status == "not_started" {
-        let previous_too = m.rounds.iter().rev().nth(1).and_then(|r| r.end.as_ref()).is_some_and(|e| e.status == "not_started");
-        if previous_too || !round.kind.same_handle() {
+    // A follow-up that could not be created (its pane was closed) or never got its prompt: a new
+    // conversation, once; twice in a row asks the person.
+    if end.status == "not_started" || end.code_is(PRE_TURN_CODES) {
+        let previous_too = m
+            .rounds
+            .iter()
+            .rev()
+            .nth(1)
+            .and_then(|r| r.end.as_ref())
+            .is_some_and(|e| e.status == "not_started" || e.code_is(PRE_TURN_CODES));
+        if previous_too {
             let sentence = end.message.clone().unwrap_or_else(|| "it didn't start".into());
             return line(Action::NeedsYou { why: Needs::Setup }, format!("{agent} couldn't start: {sentence}"));
         }

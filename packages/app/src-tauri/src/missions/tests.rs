@@ -97,6 +97,8 @@ enum End {
     TimedOut,
     TrustDeclined,
     Interrupted,
+    /// The prompt never reached the agent (the pane did not take it).
+    NotSubmitted,
     /// Keeps the turn open until the engine stops waiting (Stop).
     Block,
 }
@@ -214,6 +216,7 @@ impl RoundIo for FakeIo {
             End::TimedOut => ("failed", Some("TIMEOUT")),
             End::TrustDeclined => ("failed", Some("WORKSPACE_TRUST_DECLINED")),
             End::Interrupted => ("failed", Some("OPERATION_INTERRUPTED")),
+            End::NotSubmitted => ("failed", Some("PROMPT_NOT_SUBMITTED")),
             End::Block => {
                 while !interrupt() {
                     std::thread::sleep(Duration::from_millis(10));
@@ -475,6 +478,9 @@ fn an_agent_that_exits_is_started_again_once_then_handed_off() {
     assert_eq!(m.state, MissionState::Green, "{:?}", lines(&m));
     assert_eq!(kinds(&io), vec!["first", "resume", "hand_off:codex"]);
     assert_eq!(lines(&m)[0], "Claude Code closed unexpectedly. Started it again.");
+    // Each new conversation gives the old run's unused budget back (a crashed run kept it reserved).
+    let handles: Vec<String> = io.rounds().iter().map(|r| r.handle.clone()).collect();
+    assert_eq!(io.budget_stops.lock().clone(), vec![handles[0].clone(), handles[1].clone()]);
     assert!(lines(&m)[1].ends_with("Claude Code closed twice"), "{:?}", lines(&m));
 }
 
@@ -557,6 +563,15 @@ fn checks_that_already_pass_end_the_mission_before_any_turn() {
     assert!(m.sentence.as_deref().unwrap().starts_with("These checks already pass"));
     assert!(io.rounds().is_empty());
     assert!(!copy(&m).exists(), "the untouched copy is discarded");
+}
+
+#[test]
+fn a_prompt_that_never_reached_the_agent_is_retried_once_then_asks_the_person() {
+    let project = project(&[]);
+    let io = FakeIo::new(&[("claude", vec![ending(End::NotSubmitted), ending(End::NotSubmitted)])]);
+    let m = settle(&start(&project, &["claude"], &io));
+    assert_eq!((m.state, m.needs), (MissionState::NeedsYou, Some(Needs::Setup)), "{:?}", lines(&m));
+    assert_eq!(kinds(&io), vec!["first", "resume"]);
 }
 
 #[test]

@@ -181,13 +181,36 @@ fn index_path() -> PathBuf {
     }
 }
 
+/// The index as stored. `None` when the file exists but can't be read right now (a replace in
+/// flight, antivirus): the caller must not write an index built from nothing then.
+fn read_index() -> Option<Vec<IndexEntry>> {
+    let path = index_path();
+    for attempt in 0..5 {
+        match std::fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice(&bytes) {
+                Ok(entries) => return Some(entries),
+                Err(_) if attempt < 4 => {}
+                Err(_) => return None,
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+            Err(_) => {}
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    None
+}
+
 pub fn index() -> Vec<IndexEntry> {
-    std::fs::read(index_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    let _held = INDEX_LOCK.lock();
+    read_index().unwrap_or_default()
 }
 
 fn index_put(id: &str, project: &str, state: MissionState) {
     let _held = INDEX_LOCK.lock();
-    let mut entries = index();
+    let Some(mut entries) = read_index() else {
+        tracing::warn!(mission = id, "the missions index can't be read now; not rewriting it");
+        return;
+    };
     match entries.iter_mut().find(|e| e.id == id) {
         Some(entry) if entry.state == state && entry.project == project => return,
         Some(entry) => {
@@ -204,4 +227,10 @@ fn index_put(id: &str, project: &str, state: MissionState) {
 /// The project a mission id belongs to (the MCP handle carries only the id).
 pub fn project_of(id: &str) -> Option<String> {
     index().into_iter().find(|e| e.id == id).map(|e| e.project)
+}
+
+/// `read_log` for the fake-TUI harness (a separate name so the app build sees no unused fn).
+#[cfg(feature = "dev-fake-tui")]
+pub fn read_log_all(project: &str, id: &str) -> Vec<Value> {
+    read_log(project, id)
 }

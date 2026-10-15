@@ -126,7 +126,11 @@ fn max_active() -> usize {
 
 /// Every mission that is not finished, app-wide.
 pub fn active_count() -> usize {
-    store::index().iter().filter(|e| e.state.active()).count()
+    // The index can name a mission whose project folder is gone: only records that still exist count.
+    store::index()
+        .iter()
+        .filter(|e| e.state.active() && store::load(&e.project, &e.id).is_ok_and(|m| m.state.active()))
+        .count()
 }
 
 /// Checks a start request (the sheet's validation lines and the MCP error codes).
@@ -271,7 +275,10 @@ pub fn start(req: StartRequest) -> Result<Mission, OperationError> {
 /// The mission behind an id or a `mission-<id>` handle.
 pub fn find(id_or_handle: &str) -> Option<Mission> {
     let id = id_or_handle.strip_prefix(HANDLE_PREFIX).unwrap_or(id_or_handle);
-    let project = store::project_of(id)?;
+    // The index first; else any project Puppet Master knows that holds this mission's record.
+    let project = store::project_of(id).or_else(|| {
+        crate::operations::indexed_project_paths().into_iter().find(|p| store::dir(p, id).join("mission.json").is_file())
+    })?;
     store::load(&project, id).ok()
 }
 

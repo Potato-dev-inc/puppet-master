@@ -562,6 +562,10 @@ fn act(io: &dyn RoundIo, m: &mut Mission, copy: &Path, action: Action, line: &st
         }
         Action::FollowUp => push_next(m, RoundKind::FollowUp, last.agent, last.handle.clone()),
         Action::Resume { after_restart } => {
+            // A new conversation: the old run can start no more turns, and its unused budget comes back.
+            if let Some(handle) = last.handle.as_deref() {
+                io.budget_stop(&m.project, handle);
+            }
             if after_restart {
                 m.push_event(now(), "restarted", ":", "Resumed after Puppet Master restarted", Some(last.n));
             } else {
@@ -762,7 +766,12 @@ fn apply(io: &dyn RoundIo, m: &mut Mission, action: PersonAction) {
                     m.state = MissionState::Checking;
                     save(m);
                 }
-                Some(r) => push_next(m, RoundKind::Resume { after_restart: false }, r.agent, None),
+                Some(r) => {
+                    if let Some(handle) = r.handle.as_deref() {
+                        io.budget_stop(&m.project, handle);
+                    }
+                    push_next(m, RoundKind::Resume { after_restart: false }, r.agent, None)
+                }
                 None => {
                     m.state = MissionState::Planning;
                     save(m);
