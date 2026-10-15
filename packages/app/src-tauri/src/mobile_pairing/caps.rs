@@ -246,6 +246,7 @@ const ACTION_SCREEN_KEYS: &[&str] = &["screen", "raw_prompt", "last_screen", "co
 ///   without its screen rows ([`OPERATION_NO_WATCH_FIELDS`]);
 /// - `event: loop-signal` loses its `evidence_lines` (screen lines);
 /// - the events in [`NO_WATCH_AS_IS`] pass unchanged;
+/// - `event: attention` passes to a device that holds `answer` (as `GET /attention` does);
 /// - any other event (a new one, or one this list does not know) is left out: fail closed.
 pub fn project(caps: Caps, payload: &str) -> Option<std::borrow::Cow<'_, str>> {
     use std::borrow::Cow;
@@ -257,6 +258,11 @@ pub fn project(caps: Caps, payload: &str) -> Option<std::borrow::Cow<'_, str>> {
 data: ")?;
     if NO_WATCH_AS_IS.contains(&name) {
         return Some(Cow::Borrowed(payload));
+    }
+    // The attention snapshot (attention-core): exactly what `GET /attention` gives the same device,
+    // which needs `watch` or `answer` (its titles and risk lines are what an answer card shows).
+    if name == "attention" {
+        return caps.has(Cap::Answer).then_some(Cow::Borrowed(payload));
     }
     let trim: fn(&mut serde_json::Value) = match name {
         "operation" => trim_operation,
@@ -439,5 +445,17 @@ mod tests {
         assert_eq!(data_of(&trimmed)["signal"]["summary"], "the same error 4 times");
         let cleared = "event: loop-signal\ndata: {\"pane_id\":\"p\",\"signal\":null}\n\n";
         assert_eq!(data_of(&project(none, cleared).unwrap())["signal"], serde_json::Value::Null);
+    }
+
+    /// `event: attention` (the one count and its cards) follows `GET /attention`: `watch` or `answer`.
+    #[test]
+    fn the_attention_snapshot_reaches_a_device_that_may_answer() {
+        let frame = crate::attention::frame(r#"{"v":1,"rev":7,"counts":{"blocking":1,"ready":0},"items":[]}"#);
+        let answer = Caps::none().with(Cap::Answer, true);
+        assert_eq!(project(answer, &frame).as_deref(), Some(frame.as_str()), "answer without watch");
+        assert!(project(Caps::none().with(Cap::Watch, true), &frame).is_some(), "watch");
+        assert!(project(Caps::none(), &frame).is_none(), "neither");
+        assert!(project(Caps::none().with(Cap::Type, true).with(Cap::Control, true), &frame).is_none(), "type and control only");
+        assert_eq!(route_need("GET", &["attention"]), Need::AnyOf(Cap::Watch, Cap::Answer), "the same rule as the route");
     }
 }
