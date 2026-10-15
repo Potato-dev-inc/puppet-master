@@ -355,11 +355,94 @@ pub fn bearer_token(headers: &str) -> Option<String> {
         .map(|t| t.trim().to_string())
 }
 
+/// Request headers that only a proxy, tunnel or CDN adds. The desktop app's own callers (webview,
+/// CLI, MCP shim, Vite dev server) never send any of these to the bridge, so seeing one on a
+/// loopback connection means a remote client reached us through a forwarder on this machine.
+const REMOTE_INDICATOR_HEADERS: &[&str] = &[
+    // our own PWA proxy and the Vite dev proxy
+    "X-PM-Proxied",
+    // Cloudflare (cloudflared tunnels)
+    "Cf-Connecting-Ip",
+    "Cf-Connecting-Ipv6",
+    "Cf-Ray",
+    "Cf-Visitor",
+    "Cf-Ipcountry",
+    "Cdn-Loop",
+    "True-Client-Ip",
+    // generic reverse proxies
+    "X-Forwarded-For",
+    "X-Forwarded-Host",
+    "X-Forwarded-Proto",
+    "X-Forwarded-Port",
+    "X-Real-Ip",
+    "Forwarded",
+];
+
+/// True when the request carries any header a forwarder adds.
+pub fn has_remote_indicators(headers: &str) -> bool {
+    REMOTE_INDICATOR_HEADERS
+        .iter()
+        .any(|name| header_value(headers, name).is_some())
+}
+
+fn is_loopback_host(value: &str) -> bool {
+    let value = value.trim();
+    let host = match value.strip_prefix('[') {
+        // bracketed IPv6, with or without a port
+        Some(rest) => rest.split(']').next().unwrap_or(""),
+        None => match value.matches(':').count() {
+            0 => value,
+            1 => value.split(':').next().unwrap_or(""),
+            _ => value, // bare IPv6
+        },
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// True when a `Host` header names something other than this machine. A browser page reaching the
+/// bridge by DNS rebinding, or a reverse proxy pointed straight at the bridge port, arrives from
+/// loopback but carries its own hostname. No `Host` at all (HTTP/1.0 tooling) is not suspicious.
+fn names_foreign_host(headers: &str) -> bool {
+    headers.lines().any(|line| {
+        line.split_once(':').is_some_and(|(key, value)| {
+            key.trim().eq_ignore_ascii_case("host") && !is_loopback_host(value)
+        })
+    })
+}
+
+/// True when an `Origin` header says the request was made by a web page that is not the desktop
+/// app: any site open in the user's browser can fetch `http://127.0.0.1:<port>` (the bridge sends
+/// `Access-Control-Allow-Origin: *`), so a loopback peer alone does not make it the app. The app's
+/// own webview (`tauri://localhost`, `http(s)://tauri.localhost`) and the dev server on localhost
+/// are loopback origins; CLI and MCP clients send no `Origin`.
+fn names_foreign_origin(headers: &str) -> bool {
+    headers.lines().any(|line| {
+        line.split_once(':').is_some_and(|(key, value)| {
+            if !key.trim().eq_ignore_ascii_case("origin") {
+                return false;
+            }
+            let value = value.trim();
+            let authority = value.split_once("://").map(|(_, rest)| rest);
+            match authority {
+                // `null` (sandboxed frames, file://) and anything unparsable is foreign
+                None => true,
+                Some(rest) => !is_loopback_host(rest.split('/').next().unwrap_or("")),
+            }
+        })
+    })
+}
+
+/// Whether the caller must present a paired-device bearer token. Fails closed: only a loopback
+/// peer with no sign of having been forwarded (see `REMOTE_INDICATOR_HEADERS`), no foreign `Host` and no
+/// foreign `Origin` is treated as the desktop app itself.
 pub fn requires_pairing_token(headers: &str, peer_loopback: bool) -> bool {
-    if header_value(headers, "X-PM-Proxied").is_some() {
-        return true;
-    }
     !peer_loopback
+        || has_remote_indicators(headers)
+        || names_foreign_host(headers)
+        || names_foreign_origin(headers)
 }
 
 pub fn authorize_bridge_request(
@@ -449,5 +532,107 @@ mod tests {
         let err = authorize_bridge_request("X-PM-Proxied: 1\r\n", true, &segments, "GET")
             .expect_err("panes should require auth");
         assert_eq!(err.0, 401);
+    }
+
+    #[test]
+    fn any_forwarding_header_on_a_loopback_peer_requires_a_token() {
+        for header in [
+            "X-PM-Proxied: 1",
+            "x-pm-proxied: 0",
+            "Cf-Connecting-Ip: 203.0.113.9",
+            "CF-RAY: 8a1b2c3d-AMS",
+            "Cf-Visitor: {\"scheme\":\"https\"}",
+            "Cdn-Loop: cloudflare",
+            "True-Client-Ip: 203.0.113.9",
+            "X-Forwarded-For: 203.0.113.9",
+            "X-Forwarded-Host: example.com",
+            "X-Forwarded-Proto: https",
+            "X-Real-Ip: 203.0.113.9",
+            "Forwarded: for=203.0.113.9",
+        ] {
+            let headers = format!("GET /panes HTTP/1.1\r\nHost: 127.0.0.1:17321\r\n{header}\r\n");
+            assert!(requires_pairing_token(&headers, true), "{header}");
+        }
+    }
+
+    #[test]
+    fn local_tooling_without_forwarding_headers_stays_trusted() {
+        for headers in [
+            "GET /panes HTTP/1.1\r\nHost: 127.0.0.1:17321\r\nAccept: */*\r\n",
+            "GET /panes HTTP/1.1\r\nHost: localhost:17321\r\nOrigin: http://tauri.localhost\r\n",
+            "GET /panes HTTP/1.1\r\nHost: [::1]:17321\r\n",
+            "GET /panes HTTP/1.1\r\nHost: ::1\r\n",
+            "GET /panes HTTP/1.1\r\nHost: app.localhost\r\nX-Puppet-Master-Session: s1\r\n",
+            // HTTP/1.0-style client with no Host at all
+            "GET /panes HTTP/1.0\r\nAccept: */*\r\n",
+        ] {
+            assert!(!requires_pairing_token(headers, true), "{headers:?}");
+        }
+        // a non-loopback peer always needs one, whatever it claims
+        assert!(requires_pairing_token("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n", false));
+    }
+
+    #[test]
+    fn a_foreign_host_name_on_a_loopback_peer_requires_a_token() {
+        for host in [
+            "evil.example",
+            "evil.example:17321",
+            "localhost.evil.example",
+            "127.0.0.1.evil.example",
+            "192.168.1.20:17321",
+            "",
+        ] {
+            let headers = format!("GET /panes HTTP/1.1\r\nHost: {host}\r\n");
+            assert!(requires_pairing_token(&headers, true), "Host: {host:?}");
+        }
+        // a second Host header cannot hide behind a loopback first one
+        assert!(requires_pairing_token(
+            "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nHost: evil.example\r\n",
+            true
+        ));
+    }
+
+    #[test]
+    fn forwarded_loopback_request_is_refused_without_a_bearer() {
+        let segments = ["panes"];
+        for headers in [
+            "GET /panes HTTP/1.1\r\nHost: 127.0.0.1\r\nCf-Connecting-Ip: 203.0.113.9\r\n",
+            "GET /panes HTTP/1.1\r\nHost: tunnel.example\r\n",
+        ] {
+            let err = authorize_bridge_request(headers, true, &segments, "GET")
+                .expect_err("a forwarded caller needs a token");
+            assert_eq!(err.0, 401, "{headers:?}");
+        }
+        // public paths stay open for the pairing handshake and health checks
+        assert!(authorize_bridge_request("Cf-Ray: x\r\n", true, &["health"], "GET").is_ok());
+    }
+
+    #[test]
+    fn a_web_page_origin_on_a_loopback_peer_requires_a_token() {
+        for origin in [
+            "https://evil.example",
+            "http://evil.example:8080",
+            "null",
+            "https://localhost.evil.example",
+            "file://",
+        ] {
+            let headers = format!(
+                "POST /panes/p1/input HTTP/1.1\r\nHost: 127.0.0.1:17321\r\nOrigin: {origin}\r\n"
+            );
+            assert!(requires_pairing_token(&headers, true), "Origin: {origin}");
+        }
+        for origin in [
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+            "http://localhost:1420",
+            "http://127.0.0.1:1420",
+            "http://[::1]:4173",
+        ] {
+            let headers = format!(
+                "POST /panes/p1/input HTTP/1.1\r\nHost: 127.0.0.1:17321\r\nOrigin: {origin}\r\n"
+            );
+            assert!(!requires_pairing_token(&headers, true), "Origin: {origin}");
+        }
     }
 }

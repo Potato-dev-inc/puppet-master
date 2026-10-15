@@ -36,6 +36,8 @@ mod settings_store;
 mod shell_env;
 pub mod shell_exec;
 pub mod tool_registry;
+#[cfg(test)]
+mod tunnel_auth_tests;
 mod worker_launch;
 pub mod watch_command;
 
