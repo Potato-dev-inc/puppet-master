@@ -137,3 +137,19 @@ fn a_run_parked_at_a_usage_limit_is_not_ended_by_its_deadline_until_it_runs_agai
     let ended = wait.recv_timeout(Duration::from_secs(8)).expect("the loop ends once the run is running again");
     assert!(ended.is_some(), "the deadline is reported again");
 }
+
+#[test]
+fn a_run_parked_on_a_startup_dialog_is_not_judged_from_its_pane() {
+    // Live r13: the first Claude run in a new folder parked on the trust question; after Trust the
+    // composer went idle and the supervisor completed the run with the input hint as its result,
+    // before the dispatch thread typed the task.
+    let mut parked = run_with_timeout(60_000);
+    parked.status = OperationStatus::WaitingInput;
+    parked.stage = Some("waiting_for_pane_readiness".into());
+    assert!(!super::observes_turn(&parked), "a run whose task was not typed yet is the dispatch thread's");
+    parked.stage = Some("waiting_input".into());
+    assert!(super::observes_turn(&parked), "a turn waiting on an approval mid-run is still watched");
+    parked.status = OperationStatus::Running;
+    parked.stage = Some("running".into());
+    assert!(super::observes_turn(&parked));
+}
