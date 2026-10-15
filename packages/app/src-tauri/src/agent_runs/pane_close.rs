@@ -45,6 +45,24 @@ pub fn release_pristine_worktree(snapshot: &OperationSnapshot) -> bool {
     true
 }
 
+/// A pane closed: when it ran in an isolated run's worktree and that run ended without a result
+/// (declined trust, cancelled, failed), the worktree it never changed goes with it, through
+/// [`release_pristine_worktree`]. The pane is kept while it is open (keep_pane: the person may want
+/// to look at it), and its shell's working folder is the worktree, which Windows will not delete
+/// under it; once the pane is closed nothing holds it. A run that completed keeps its worktree (the
+/// Receipt and Changes tabs read it); a worktree with changes is never touched.
+pub fn release_worktree_of_closed_pane(pane_id: &str, cwd: &str) -> bool {
+    let Some(origin) = crate::worktrees::origin_of_cwd(cwd) else { return false };
+    let Ok(handle) = super::latest_handle_for_pane(&origin, pane_id) else { return false };
+    let Ok(snapshot) = crate::operations::latest_agent_run(&origin, &handle) else { return false };
+    if snapshot.pane_id.as_deref() != Some(pane_id)
+        || !matches!(snapshot.status, crate::operations::OperationStatus::Failed | crate::operations::OperationStatus::Cancelled)
+    {
+        return false;
+    }
+    release_pristine_worktree(&snapshot)
+}
+
 /// Automatic cleanup after a terminal operation (completion, failure, cancel publish).
 pub fn maybe_dispose_after_terminal(
     snapshot: &OperationSnapshot,
@@ -366,6 +384,83 @@ mod tests {
         dispose_explicit_close(&snapshot, &registry).unwrap();
         assert!(std::path::Path::new(&worktree.path).join("new.txt").is_file());
         assert!(branch_exists(&project, &worktree.branch));
+    }
+
+    /// Live v0.2.0 hunt: "Don't trust" (or Cancel) on an isolated run kept its pane, as it should, but
+    /// its empty worktree stayed until the run was closed through close_agent. Closing the pane itself
+    /// now takes it away; a completed run, or a worktree with work, keeps it.
+    #[test]
+    fn closing_the_pane_of_a_declined_run_removes_its_empty_worktree() {
+        let wait_gone = |path: &str| {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while std::path::Path::new(path).exists() && std::time::Instant::now() < until {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            !std::path::Path::new(path).exists()
+        };
+        let run_in = |project: &str, worktree: &crate::worktrees::WorktreeRef, pane: &str, status: OperationStatus| {
+            let request = DelegateWorkRequest {
+                project_path: project.to_string(),
+                task: "t".into(),
+                agent_type: "codex".into(),
+                pane_id: Some(pane.to_string()),
+                idempotency_key: uuid::Uuid::new_v4().to_string(),
+                acceptance_criteria: None,
+                task_id: None,
+                exclusive: false,
+                locks: vec![],
+                timeout_ms: 60_000,
+                read_only: false,
+                keep_pane: true,
+                placement: None,
+                owner_session_id: None,
+                worker_has_mcp_tools: false,
+                agent_run_id: Some(format!("run-{pane}")),
+                turn_index: 0,
+                worker: WorkerPersist { worktree: Some(worktree.clone()), ..WorkerPersist::default() },
+                context_policy: None,
+                checks: Vec::new(),
+            };
+            let (op, _) = crate::operations::create_operation(request).unwrap();
+            if status == OperationStatus::Completed {
+                crate::operations::mark_operation_state(project, &op.operation_id, OperationStatus::Starting, crate::operations::StateSource::Inferred, Some("dispatching".into()), None, None).unwrap();
+                crate::operations::mark_operation_state(project, &op.operation_id, OperationStatus::Running, crate::operations::StateSource::Inferred, Some("running".into()), None, None).unwrap();
+                crate::operations::mark_operation_finished(project, &op.operation_id, Some("done".into()), crate::operations::ResultCapture::Inferred, false).unwrap();
+            } else {
+                crate::operations::mark_operation_state(project, &op.operation_id, status, crate::operations::StateSource::Inferred, Some("done".into()), None, None).unwrap();
+            }
+            let registry = Arc::new(Mutex::new(PaneRegistry::default()));
+            let mut stub = PaneRegistry::test_pane_stub(pane);
+            stub.info.cwd = worktree.path.clone();
+            registry.lock().panes.insert(pane.to_string(), stub);
+            registry
+        };
+
+        let (project, worktree) = git_repo_with_worktree("handle");
+        let registry = run_in(&project, &worktree, "declined-pane", OperationStatus::Failed);
+        assert!(std::path::Path::new(&worktree.path).exists(), "kept while the pane is open");
+        crate::pty::registry_kill_pane(&registry, "declined-pane").unwrap();
+        assert!(wait_gone(&worktree.path), "the empty checkout goes with the pane");
+        // The branch is deleted right after the folder, on the same background thread.
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while branch_exists(&project, &worktree.branch) && std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(!branch_exists(&project, &worktree.branch), "and its branch");
+
+        // A completed run keeps its worktree; so does a declined one the agent wrote in.
+        let (project, worktree) = git_repo_with_worktree("handle");
+        let registry = run_in(&project, &worktree, "done-pane", OperationStatus::Completed);
+        crate::pty::registry_kill_pane(&registry, "done-pane").unwrap();
+        assert!(!release_worktree_of_closed_pane("done-pane", &worktree.path));
+        assert!(std::path::Path::new(&worktree.path).exists());
+
+        let (project, worktree) = git_repo_with_worktree("handle");
+        std::fs::write(std::path::Path::new(&worktree.path).join("new.txt"), "work\n").unwrap();
+        let registry = run_in(&project, &worktree, "work-pane", OperationStatus::Cancelled);
+        crate::pty::registry_kill_pane(&registry, "work-pane").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(std::path::Path::new(&worktree.path).join("new.txt").is_file());
     }
 
     #[test]
