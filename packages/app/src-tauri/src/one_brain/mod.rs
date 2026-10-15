@@ -244,6 +244,10 @@ fn sync_target(project: &Path, t: &Target, memory: &str, report: &mut SyncReport
     };
     match outcome {
         Outcome::NoChange => {}
+        // A file the project's git tracks is the project's, not ours to delete (it may hold only our
+        // block, but someone committed it): deleting it dirtied the project and made the worktree
+        // Merge refuse (VERIFY-R13 #4). It stays as it is.
+        Outcome::Delete if crate::worktrees::is_git_tracked(project, &t.path) => {}
         Outcome::Delete => match std::fs::remove_file(&path) {
             Ok(()) => report.removed.push(t.path.clone()),
             Err(e) => report.errors.push(format!("{}: {e}", t.path)),

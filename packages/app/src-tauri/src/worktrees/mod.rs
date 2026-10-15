@@ -934,6 +934,12 @@ fn clear_readonly(path: &Path) {
     }
 }
 
+/// Whether git tracks `relative` (a file path relative to `dir`) in the repository containing `dir`.
+/// `false` when `dir` is not in a repository or git is not installed.
+pub(crate) fn is_git_tracked(dir: &Path, relative: &str) -> bool {
+    git_raw(dir, &["ls-files", "--error-unmatch", "--", relative], &[]).map(|out| out.ok).unwrap_or(false)
+}
+
 /// Discard `reference` only if the agent changed nothing in it (a run that never started).
 pub fn discard_if_pristine(reference: &WorktreeRef) -> bool {
     match changes(reference) {

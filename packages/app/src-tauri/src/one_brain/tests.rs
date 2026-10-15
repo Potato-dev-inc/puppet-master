@@ -338,3 +338,38 @@ fn spawn_paths_call_the_hook() {
     assert!(pane.contains("crate::one_brain::sync_on_spawn(&cwd)"));
     assert!(headless.contains("crate::one_brain::sync_on_spawn(&project)"));
 }
+
+fn git(dir: &Path, args: &[&str]) {
+    let out = std::process::Command::new("git").args(args).current_dir(dir).output().expect("git runs");
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn a_git_tracked_file_holding_only_the_block_is_never_deleted() {
+    // VERIFY-R13 #4: AGENTS.md / CLAUDE.md were committed with only a Puppet Master block and the
+    // project had no memory.md, so the first spawn deleted both tracked files and the worktree
+    // Merge was refused (ORIGIN_DIRTY_OVERLAP).
+    let dir = project();
+    put_memory(&dir, "We use Postgres.");
+    let report = sync(&dir, &[target("CLAUDE.md"), target("AGENTS.md")], true);
+    assert_eq!(report.written.len(), 2, "{report:?}");
+    git(&dir, &["init", "-q", "-b", "main"]);
+    for (key, value) in [("user.name", "T"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")] {
+        git(&dir, &["config", key, value]);
+    }
+    git(&dir, &["add", "CLAUDE.md", "AGENTS.md"]);
+    git(&dir, &["commit", "-q", "-m", "memory blocks"]);
+    // The project's memory is gone (memory.md removed): the blocks would be removed again.
+    std::fs::remove_file(memory_path(&dir)).ok();
+    let before = read(&dir, "CLAUDE.md");
+    let report = sync(&dir, &[target("CLAUDE.md"), target("AGENTS.md")], true);
+    assert!(report.removed.is_empty() && report.errors.is_empty(), "{report:?}");
+    assert!(dir.join("CLAUDE.md").is_file() && dir.join("AGENTS.md").is_file(), "tracked files stay");
+    assert_eq!(read(&dir, "CLAUDE.md"), before, "left exactly as committed");
+
+    // An untracked file holding only our block is still removed (we created it).
+    std::fs::write(dir.join("NEW.md"), &before).unwrap();
+    let report = sync(&dir, &[target("NEW.md")], true);
+    assert_eq!(report.removed, vec!["NEW.md"]);
+    assert!(!dir.join("NEW.md").exists());
+}
