@@ -67,6 +67,8 @@ pub fn run_agent(
         ));
     }
     let isolate = parse_isolation(&request)?;
+    // A mission round joins the mission's copy instead of creating one; it is always visible.
+    let joined = request.join_worktree.clone().filter(|_| request.turn_index == 0);
     let budget_asked = crate::budgets::Asked {
         turns: request.budget_turns,
         minutes: request.budget_minutes,
@@ -136,6 +138,14 @@ pub fn run_agent(
     );
     if no_visible_mode {
         request.headless = true;
+    }
+    if joined.is_some() && request.headless {
+        // Missions run in visible panes only: a visible-first fallback to headless is refused.
+        return Err(OperationError::new(
+            "MISSION_HEADLESS",
+            format!("{} can't run in a visible pane, and missions run in visible panes", request.agent_type),
+            false,
+        ));
     }
     // A backend that enforces read-only on a pane it spawns itself (opencode_native) may run in a
     // pane; every other backend needs a headless run. An explicitly named pane must itself have
@@ -432,7 +442,9 @@ pub fn run_agent(
         .is_some();
     // Last step that can still be refused: create the worktree for a new isolated worker. A turn
     // after the first inherits the worktree through `previous` (see `persist::build_worker`).
-    if isolate && request.turn_index == 0 {
+    if let Some(copy) = joined {
+        worker.worktree = Some(copy);
+    } else if isolate && request.turn_index == 0 {
         match crate::worktrees::create(&project_path, &handle) {
             Ok(created) => worker.worktree = Some(created),
             Err(mut error) => {

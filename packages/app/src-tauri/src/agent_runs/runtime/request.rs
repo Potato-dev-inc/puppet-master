@@ -153,4 +153,16 @@ pub struct AgentRunRequest {
     /// MCP shim fills it from `PUPPET_MASTER_PARENT_RUN`; an agent may pass it itself.
     #[serde(default)]
     pub budget_parent: Option<String>,
+    /// Keep working in rounds until every check passes: the run becomes a mission
+    /// (`crate::missions`, Preview). Needs checks, a budget and a visible pane; never merges.
+    #[serde(default)]
+    pub until_checks_pass: bool,
+    /// With `until_checks_pass`: agents to hand the mission to, in order, when the current one
+    /// stops making progress (`agent_type` or `agent_type@account`).
+    #[serde(default)]
+    pub backup_agents: Option<Vec<String>>,
+    /// Crate-internal (never in the MCP schema): run in this existing separate copy instead of
+    /// creating one. Every agent of a mission works in the mission's one copy.
+    #[serde(skip)]
+    pub(crate) join_worktree: Option<crate::worktrees::WorktreeRef>,
 }

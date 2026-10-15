@@ -35,6 +35,11 @@ pub fn release_pristine_worktree(snapshot: &OperationSnapshot) -> bool {
     let Some(worktree) = snapshot.worker.worktree.as_ref().filter(|worktree| worktree.closed.is_none()) else {
         return false;
     };
+    // A run that joined a copy someone else made (a mission's agents share one) never discards
+    // it: the copy's owner decides.
+    if !snapshot.agent_run_id.is_empty() && !worktree.handle.is_empty() && worktree.handle != snapshot.agent_run_id {
+        return false;
+    }
     if !crate::worktrees::discard_if_pristine(worktree) {
         return false;
     }
@@ -365,6 +370,19 @@ mod tests {
         snapshot.worker.worktree = Some(worktree.clone());
         dispose_explicit_close(&snapshot, &registry).unwrap();
         assert!(std::path::Path::new(&worktree.path).join("new.txt").is_file());
+        assert!(branch_exists(&project, &worktree.branch));
+    }
+
+    #[test]
+    fn a_run_that_joined_a_mission_copy_never_discards_it() {
+        // Missions: every agent of a mission works in the mission's one copy. A round that failed
+        // before changing anything (a declined trust prompt) must not delete the shared copy.
+        let (project, worktree) = git_repo_with_worktree("mission-m1");
+        let mut snapshot = snapshot_with_pane(&project, "wt-pane", true, false);
+        snapshot.worker.worktree = Some(worktree.clone());
+        let registry = Arc::new(Mutex::new(PaneRegistry::default()));
+        maybe_dispose_on_dispatch_failure(&snapshot, &registry).unwrap();
+        assert!(std::path::Path::new(&worktree.path).exists(), "the mission's copy stays");
         assert!(branch_exists(&project, &worktree.branch));
     }
 

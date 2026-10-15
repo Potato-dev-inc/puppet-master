@@ -11,6 +11,8 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+pub mod counts;
+
 pub const MAX_CHECKS: usize = 20;
 pub const MAX_READ_BYTES: u64 = 1024 * 1024;
 pub const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 120_000;
@@ -138,24 +140,47 @@ fn tail(text: &str) -> String {
     format!("...{}", &text[start..])
 }
 
-fn run_command(
-    project: &Path,
-    command: &[String],
-    expect_exit: i32,
-    timeout_ms: Option<u64>,
-) -> (bool, String) {
+/// What one `command_exits` run produced, before the output is cut to its tail: missions read
+/// the test counts and the last lines of the failing output from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandRun {
+    pub passed: bool,
+    /// The same one-line detail `CheckResult::detail` carries.
+    pub detail: String,
+    /// stdout then stderr, at most `MAX_READ_BYTES` of each.
+    pub output: String,
+    /// The program could not be started at all (not installed, not on PATH).
+    pub not_started: bool,
+    pub timed_out: bool,
+    pub counts: Option<counts::TestCounts>,
+}
+
+/// Run one argv like a `command_exits` check and keep its whole output.
+pub fn run_command_capture(project: &Path, command: &[String], expect_exit: i32, timeout_ms: Option<u64>) -> CommandRun {
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_COMMAND_TIMEOUT_MS));
     let label = command.join(" ");
-    let mut child = match Command::new(&command[0])
-        .args(&command[1..])
-        .current_dir(project)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    let failed = |detail: String, not_started: bool| CommandRun {
+        passed: false,
+        detail,
+        output: String::new(),
+        not_started,
+        timed_out: false,
+        counts: None,
+    };
+    let Some(program) = command.first() else {
+        return failed("the check has no command".into(), true);
+    };
+    let mut builder = Command::new(program);
+    builder.args(&command[1..]).current_dir(project).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+        // No console window flashes up for a check run from the GUI app.
+        builder.creation_flags(0x0800_0000);
+    }
+    let mut child = match builder.spawn() {
         Ok(child) => child,
-        Err(error) => return (false, format!("`{label}` could not start: {error}")),
+        Err(error) => return failed(format!("`{label}` could not start: {error}"), true),
     };
     // Drain pipes on threads so a chatty child cannot block on a full pipe.
     fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<String> {
@@ -179,32 +204,44 @@ fn run_command(
                 break None;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(error) => return (false, format!("`{label}` failed to run: {error}")),
+            Err(error) => return failed(format!("`{label}` failed to run: {error}"), false),
         }
     };
     let out = stdout.join().unwrap_or_default();
     let err = stderr.join().unwrap_or_default();
-    let output = tail(&format!("{out}\n{err}"));
-    match status {
-        None => (
-            false,
-            format!("`{label}` timed out after {} ms. output: {output}", timeout.as_millis()),
-        ),
+    let output = format!("{out}
+{err}");
+    let counts = counts::parse(&output);
+    let shown = tail(&output);
+    let (passed, detail, timed_out) = match status {
+        None => (false, format!("`{label}` timed out after {} ms. output: {shown}", timeout.as_millis()), true),
         Some(status) => {
             let code = status.code();
             if code == Some(expect_exit) {
-                (true, format!("`{label}` exited {expect_exit}"))
+                (true, format!("`{label}` exited {expect_exit}"), false)
             } else {
                 (
                     false,
                     format!(
-                        "`{label}` exited {} (expected {expect_exit}). output: {output}",
+                        "`{label}` exited {} (expected {expect_exit}). output: {shown}",
                         code.map_or("by signal".into(), |c| c.to_string())
                     ),
+                    false,
                 )
             }
         }
-    }
+    };
+    CommandRun { passed, detail, output, not_started: false, timed_out, counts }
+}
+
+fn run_command(
+    project: &Path,
+    command: &[String],
+    expect_exit: i32,
+    timeout_ms: Option<u64>,
+) -> (bool, String) {
+    let run = run_command_capture(project, command, expect_exit, timeout_ms);
+    (run.passed, run.detail)
 }
 
 /// Run every `command_exits` check, keyed by its index. Call this outside any shared lock: it can

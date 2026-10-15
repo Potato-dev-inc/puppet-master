@@ -131,6 +131,9 @@ pub fn send_agent(
         budget_turns: None,
         budget_minutes: None,
         budget_parent: None,
+        until_checks_pass: false,
+        backup_agents: None,
+        join_worktree: None,
     };
     drop(serial);
     run_agent(request, registry, app, session_id)
