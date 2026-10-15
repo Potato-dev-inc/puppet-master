@@ -28,7 +28,12 @@ export type NeedsYouKind =
    * An agent ran out of usage (or a reminder the person asked for is due). Counts toward the number; the
    * Inbox card offers "Remind me" and "Stop here" (detect-only hand-off, `src-tauri/src/handoff`).
    */
-  | 'limit';
+  | 'limit'
+  /**
+   * A mission waits on a decision: the tests were changed, it is not getting anywhere, or it cannot go
+   * on (`src-tauri/src/missions/cards.rs`, key `mission:<id>`). Its budget card is a question already.
+   */
+  | 'mission';
 
 export interface NeedsYouItem {
   /** Stable across renders: `<kind>:<pane or question or notice id>`. */
@@ -53,6 +58,8 @@ export interface AttentionInput {
   notices?: ReadonlyArray<{ id: string; at_ms?: number }>;
   /** When each pane entered its current status. */
   statusSince?: ReadonlyMap<string, number>;
+  /** Missions (Labs): one item per mission whose card waits on the person. */
+  missions?: ReadonlyArray<{ id: string; state: string; needs?: string | null }>;
 }
 
 const RISKS = new Set(['low', 'medium', 'high']);
@@ -92,6 +99,11 @@ export function deriveNeedsYou(input: AttentionInput): NeedsYouItem[] {
   }
   for (const n of input.notices ?? []) {
     items.push({ id: `answer:${n.id}`, kind: 'answer', since: n.at_ms });
+  }
+  // The same rule as Rust's mission cards: a mission that needs you, except for its budget card
+  // (that is a budget question, counted above). One item per mission, keyed like the Rust store.
+  for (const m of input.missions ?? []) {
+    if (m.state === 'needs_you' && m.needs !== 'budget') items.push({ id: `mission:${m.id}`, kind: 'mission' });
   }
   return items;
 }

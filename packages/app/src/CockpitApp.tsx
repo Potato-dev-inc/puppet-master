@@ -11,6 +11,7 @@ import { Inbox } from './components/cockpit/Inbox';
 import { PaneView } from './components/cockpit/PaneView';
 import { Palette } from './components/cockpit/Palette';
 import { NeedsYouContext, useNeedsYouSource } from './hooks/useNeedsYou';
+import { useMissions } from './lib/missions';
 import { UndoSheet } from './components/cockpit/UndoSheet';
 import { panesSharingFolder } from './components/cockpit/history-model';
 import { ProjectMemory } from './components/cockpit/ProjectMemory';
@@ -102,7 +103,9 @@ export default function CockpitApp() {
   }, []);
 
   const { onClickCapture } = useNudgeOnAction();
-  const needsYou = useNeedsYouSource(c, loop.signals);
+  // Mission cards (Labs) count once in the one list, as they do in the Rust snapshot (tray, phone).
+  const missionList = useMissions();
+  const needsYou = useNeedsYouSource(c, loop.signals, undefined, missionList.missions);
   // Simple mode (Settings > General) swaps the whole face; off by default, so this line does nothing then.
   const simple = useSimpleMode();
   // While the welcome is open the normal face stays, so its sign-in and install windows are visible.

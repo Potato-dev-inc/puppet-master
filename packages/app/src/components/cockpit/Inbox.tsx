@@ -20,7 +20,7 @@ import { focusWithRing } from './InboxCard';
 import { handleInboxKey, isEditable } from './inbox-keys';
 import { TeamSection } from './team/TeamSection';
 import { MissionsSection } from './mission/MissionCards';
-import { missionCardCount, useMissions } from '../../lib/missions';
+import { useMissions } from '../../lib/missions';
 
 /** One card in the Inbox's single list: where it sorts, and how to draw it. */
 interface Entry extends InboxEntry {
@@ -45,11 +45,10 @@ export function Inbox({
 }) {
   // One list for every surface: the badge, the Doto counter and the sidebar group use its length.
   const needs = useNeedsYou(c);
+  // The mission cards themselves are drawn by MissionsSection; their count is already in `needs`
+  // (CockpitApp passes the missions to useNeedsYouSource), like the tray and the phone's number.
   const missions = useMissions();
-  // A mission card (test changes, stuck, can't start) needs the person too; its budget card is
-  // already one of the questions.
-  const missionCards = missionCardCount(missions.missions);
-  const count = blockingItems(needs).length + missionCards;
+  const count = blockingItems(needs).length;
   const waiting = c.registry.paneList.filter((p) => itemsOfKind(needs, 'approval').some((i) => i.paneId === p.info.id));
   const errored = c.registry.paneList.filter((p) => itemsOfKind(needs, 'error').some((i) => i.paneId === p.info.id));
   const noPanes = c.registry.paneList.length === 0 && c.registry.initialReady;

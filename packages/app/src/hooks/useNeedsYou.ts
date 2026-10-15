@@ -2,7 +2,7 @@
 // the Ask-bar notices included, and shares it through context; a component rendered without that
 // provider (a test, a storybook) derives the same list from the cockpit state alone.
 import { createContext, useContext, useEffect, useMemo } from 'react';
-import { attentionMismatch, deriveNeedsYou, isBlockingKind, type NeedsYouItem } from '../lib/attention';
+import { attentionMismatch, deriveNeedsYou, isBlockingKind, type AttentionInput, type NeedsYouItem } from '../lib/attention';
 import { useAttention } from './useAttention';
 import { tauriAskbarApi, useAskNotices, type AskbarApi } from '../lib/askbar';
 import { useLoopGuard } from '../lib/loop-guard';
@@ -12,7 +12,9 @@ export const NeedsYouContext = createContext<NeedsYouItem[] | null>(null);
 
 type CockpitState = Pick<CockpitApi, 'registry' | 'prompts' | 'asked' | 'statusSince'>;
 
-function derive(c: CockpitState, stuckPaneIds: string[], notices: { id: string; at_ms?: number }[]): NeedsYouItem[] {
+type MissionFacts = AttentionInput['missions'];
+
+function derive(c: CockpitState, stuckPaneIds: string[], notices: { id: string; at_ms?: number }[], missions?: MissionFacts): NeedsYouItem[] {
   return deriveNeedsYou({
     panes: c.registry.paneList.map((p) => ({ id: p.info.id, status: p.status })),
     prompts: c.prompts,
@@ -20,13 +22,20 @@ function derive(c: CockpitState, stuckPaneIds: string[], notices: { id: string; 
     stuckPaneIds,
     notices,
     statusSince: c.statusSince,
+    missions,
   });
 }
 
 /** For CockpitApp: derive once and provide. Includes the Ask-bar answers nobody saw yet. */
-export function useNeedsYouSource(c: CockpitState, signals: Record<string, unknown>, askbar: AskbarApi = tauriAskbarApi): NeedsYouItem[] {
+export function useNeedsYouSource(
+  c: CockpitState,
+  signals: Record<string, unknown>,
+  askbar: AskbarApi = tauriAskbarApi,
+  /** The missions list (`useMissions`): a mission card counts once, like in the Rust snapshot. */
+  missions?: MissionFacts,
+): NeedsYouItem[] {
   const { notices } = useAskNotices(askbar);
-  const items = useMemo(() => derive(c, Object.keys(signals), notices), [c.registry.paneList, c.prompts, c.asked.questions, c.statusSince, signals, notices]); // eslint-disable-line react-hooks/exhaustive-deps
+  const items = useMemo(() => derive(c, Object.keys(signals), notices, missions), [c.registry.paneList, c.prompts, c.asked.questions, c.statusSince, signals, notices, missions]); // eslint-disable-line react-hooks/exhaustive-deps
   useShadowCheck(items);
   return items;
 }

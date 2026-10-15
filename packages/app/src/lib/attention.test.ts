@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveNeedsYou, itemsOfKind, needsYouPaneIds } from './attention';
+import { attentionMismatch, blockingItems, deriveNeedsYou, isBlockingKind, itemsOfKind, needsYouPaneIds, type AttentionSnapshot } from './attention';
 
 const panes = [
   { id: 'a', status: 'waiting_input' },
@@ -58,5 +58,32 @@ describe('deriveNeedsYou', () => {
   it('lists the panes that have something waiting, for the sidebar group', () => {
     const items = deriveNeedsYou({ panes, stuckPaneIds: ['d'], notices: [{ id: 'n' }] });
     expect([...needsYouPaneIds(items)].sort()).toEqual(['a', 'b', 'c', 'd']);
+  });
+});
+
+describe('missions in the one list', () => {
+  it('a mission that needs you is one blocking item keyed like the Rust card; its budget card is a question already', () => {
+    const items = deriveNeedsYou({
+      panes: [],
+      missions: [
+        { id: 'm1', state: 'needs_you', needs: 'tamper' },
+        { id: 'm2', state: 'needs_you', needs: 'budget' },
+        { id: 'm3', state: 'working', needs: null },
+        { id: 'm4', state: 'needs_you', needs: 'stuck' },
+      ],
+    });
+    expect(items.map((i) => i.id)).toEqual(['mission:m1', 'mission:m4']);
+    expect(blockingItems(items)).toHaveLength(2);
+  });
+
+  it('agrees with the Rust snapshot, so the desktop number, the tray and the phone count a mission card once', () => {
+    const items = deriveNeedsYou({ panes: [], missions: [{ id: 'm1', state: 'needs_you', needs: 'setup' }] });
+    const snapshot = {
+      v: 1,
+      rev: 1,
+      counts: { blocking: 1, ready: 0 },
+      items: [{ id: 'x', key: 'mission:m1', kind: 'setup', lane: 'blocking', state: 'open' }],
+    } as unknown as AttentionSnapshot;
+    expect(attentionMismatch(items, snapshot, isBlockingKind)).toEqual([]);
   });
 });
