@@ -313,11 +313,18 @@
   border-radius: 6px;
   cursor: pointer;
 }
-.cockpit .ck-mission-row-main:disabled {
+.cockpit .ck-mission-row-main--static {
   cursor: default;
 }
-.cockpit .ck-mission-row-main:not(:disabled):hover {
+.cockpit button.ck-mission-row-main:hover {
   background: var(--fill-hover);
+}
+.cockpit .ck-mission-done-actions {
+  display: flex;
+  gap: 8px;
+}
+.cockpit .ck-mission .ck-tabs-bar {
+  padding: 0 16px;
 }
 .cockpit .ck-mission-row--event .ck-mission-row-main {
   grid-template-columns: 16px 1fr;

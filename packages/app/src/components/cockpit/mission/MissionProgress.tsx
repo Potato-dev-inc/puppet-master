@@ -20,15 +20,8 @@ function Row({ row, onOpenPane }: { row: TimelineRow; onOpenPane?: (paneId: stri
         Open pane
       </button>
     ) : null;
-  return (
-    <li className={`ck-mission-row ck-mission-row--${row.kind}`}>
-      <button
-        type="button"
-        className="ck-mission-row-main"
-        aria-expanded={checks.length ? open : undefined}
-        disabled={checks.length === 0}
-        onClick={() => setOpen((v) => !v)}
-      >
+  const body = (
+    <>
         <MissionGlyph glyph={row.glyph} />
         {row.kind === 'turn' ? (
           <>
@@ -43,7 +36,17 @@ function Row({ row, onOpenPane }: { row: TimelineRow; onOpenPane?: (paneId: stri
         ) : (
           <span className="ck-mission-event">{row.text}</span>
         )}
-      </button>
+    </>
+  );
+  return (
+    <li className={`ck-mission-row ck-mission-row--${row.kind}`}>
+      {checks.length > 0 ? (
+        <button type="button" className="ck-mission-row-main" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {body}
+        </button>
+      ) : (
+        <div className="ck-mission-row-main ck-mission-row-main--static">{body}</div>
+      )}
       {action}
       {open && checks.length > 0 && (
         <ul className="ck-mission-row-checks">
@@ -100,7 +103,7 @@ export function MissionDone({ m, onReview }: { m: MissionView; onReview?: () => 
         )}
       </dl>
       {onReview && (
-        <div className="ck-inbox-actions">
+        <div className="ck-mission-done-actions">
           <button type="button" className="ck-btn ck-btn--primary" onClick={onReview}>
             Review changes
           </button>
@@ -202,7 +205,6 @@ export function MissionProgress({
       <div className="ck-tabs-bar">
         <SegTabs
           label="Mission view"
-          small
           value={tab}
           onChange={setTab}
           options={[
