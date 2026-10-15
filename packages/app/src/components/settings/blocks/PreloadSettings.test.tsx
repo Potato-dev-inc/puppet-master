@@ -118,7 +118,7 @@ describe('PreloadSettings', () => {
     await render(mockApi());
     const master = host.querySelector('[role="switch"]');
     expect(master?.getAttribute('aria-checked')).toBe('false');
-    expect(host.textContent).toContain('running CLI process that uses memory');
+    expect(host.textContent).toContain('stays open in the background, which uses memory');
     expect(checkbox('Keep Claude Code warm')?.checked).toBe(false);
     expect(checkbox('Keep Claude Code warm')?.disabled).toBe(false);
     // Codex can open a visible pane but has no warm mode yet.

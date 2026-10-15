@@ -11,7 +11,7 @@ export function SharedMemoryToggle({ onSaved }: { onSaved?: () => void }) {
   return (
     <SettingToggle
       label="Shared project memory"
-      description="Every agent in a project reads one memory, kept in .puppet-master/memory.md. Turn off to remove it from agent files."
+      description="Every agent in a project reads one shared memory file. Turn off to remove it from agent files."
       checked={on}
       onChange={(value) => {
         setOn(value);

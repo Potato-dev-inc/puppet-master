@@ -8,6 +8,8 @@ export interface RowChrome {
   saved?: ReadonlySet<string>;
   /** Row id -> error line. */
   errors?: Readonly<Record<string, string>>;
+  /** The row a deep link just brought you to; it is marked for a moment. */
+  target?: string;
 }
 
 /** One row: the row's own markup, plus the quiet "Saved" tick and its error line. */
@@ -15,7 +17,7 @@ export function RowShell({ row, env, chrome }: { row: RowDef; env: SettingsEnv; 
   const on = chrome?.saved?.has(row.id) ?? false;
   const error = chrome?.errors?.[row.id];
   return (
-    <div className="st-rowwrap" data-row={row.id}>
+    <div className="st-rowwrap" data-row={row.id} data-target={chrome?.target === row.id ? 'true' : undefined}>
       {row.render(env)}
       <span className={`st-saved${on ? ' is-on' : ''}`} role="status" aria-live="polite">
         {on ? 'Saved' : ''}

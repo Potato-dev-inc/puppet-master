@@ -44,6 +44,8 @@ export interface SettingsEnv {
   setError: (message: string | null) => void;
   /** Ask in-app before something destructive. Resolves true when the person confirms. */
   confirm: (options: ConfirmOptions) => Promise<boolean>;
+  /** Jump to another row (even one in another section): a "Now in General › Labs" link. Absent in tests. */
+  openRow?: (rowId: string) => void;
   projectPath: string | null;
   onProjectPathChange?: (path: string) => Promise<void>;
   /** Discovered local bridge URL, or null before discovery. */
@@ -64,6 +66,13 @@ export interface RowDef {
   group?: string;
   /** Destructive: shown in the section's own last group, and always behind a confirm sheet. */
   danger?: boolean;
+  /**
+   * An early (off-by-default) feature: its short name and one plain line about it. `arrangeSections` collects
+   * every row that has one into General > Labs, wherever the row is defined, and lists it there.
+   */
+  labs?: { name: string; about: string };
+  /** A link left where a row used to be. Never searched (the real row is), and has no setting of its own. */
+  pointer?: boolean;
   render: (env: SettingsEnv) => ReactNode;
 }
 
@@ -95,16 +104,49 @@ export function groupRows(rows: RowDef[]): RowGroup[] {
   return groups;
 }
 
-function haystack(row: RowDef): string {
-  return `${row.label} ${row.hint ?? ''} ${row.keywords ?? ''}`.toLowerCase();
+/** Lower-case words of a text: letters and digits only, so "claude.md" is "claude" and "md". */
+function words(text: string): string[] {
+  return text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 }
 
-/** Every word in the query must appear in the row's label, hint or keywords (case-insensitive). */
+/**
+ * How well `row` answers one typed word, or 0 for no match. The label and the curated keywords match from the
+ * start of a word, so "key" finds "API key" and "keychain". The hint only matches a whole word, so "key" no
+ * longer finds "keyboard" in an unrelated hint.
+ */
+function wordScore(row: RowDef, typed: string): number {
+  // "keys" also finds "key": try the word without a plural s.
+  const candidates = typed.length > 3 && typed.endsWith('s') ? [typed, typed.slice(0, -1)] : [typed];
+  return Math.max(...candidates.map((word) => wordScoreExact(row, word)));
+}
+
+function wordScoreExact(row: RowDef, word: string): number {
+  const label = words(row.label);
+  if (label.includes(word)) return 4;
+  if (label.some((w) => w.startsWith(word))) return 3;
+  const keys = words(row.keywords ?? '');
+  if (keys.some((w) => w.startsWith(word))) return 2;
+  if (words(row.hint ?? '').includes(word)) return 1;
+  return 0;
+}
+
+/** Every word in the query must match the row's label, keywords or hint. Pointers never match. */
 export function rowMatches(row: RowDef, query: string): boolean {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return true;
-  const text = haystack(row);
-  return words.every((w) => text.includes(w));
+  return rowScore(row, query) > 0;
+}
+
+/** The sum of the word scores (0 when any word finds nothing). Label matches outrank hint matches. */
+export function rowScore(row: RowDef, query: string): number {
+  const typed = words(query);
+  if (typed.length === 0) return 1;
+  if (row.pointer) return 0;
+  let total = 0;
+  for (const word of typed) {
+    const score = wordScore(row, word);
+    if (score === 0) return 0;
+    total += score;
+  }
+  return total;
 }
 
 export interface SearchHit {
@@ -112,12 +154,39 @@ export interface SearchHit {
   rows: RowDef[];
 }
 
-/** Rows that match `query`, grouped under their section in nav order. Empty sections are left out. */
+/**
+ * Rows that match `query`, grouped under their section in nav order. Empty sections are left out. Inside a
+ * section the best-matching group comes first, and inside a group the best-matching row, so a label match
+ * is never buried under hint matches. Rows of one group stay together (the panel shows the group's title).
+ */
 export function searchSections(sections: SectionDef[], query: string): SearchHit[] {
   if (!query.trim()) return [];
   return sections
-    .map((section) => ({ section, rows: section.rows.filter((row) => rowMatches(row, query)) }))
+    .map((section) => {
+      const scored = section.rows
+        .map((row, index) => ({ row, index, score: rowScore(row, query) }))
+        .filter((r) => r.score > 0);
+      const best = new Map<string | undefined, number>();
+      const first = new Map<string | undefined, number>();
+      for (const r of scored) {
+        best.set(r.row.group, Math.max(best.get(r.row.group) ?? 0, r.score));
+        if (!first.has(r.row.group)) first.set(r.row.group, r.index);
+      }
+      scored.sort(
+        (a, b) =>
+          (best.get(b.row.group) ?? 0) - (best.get(a.row.group) ?? 0) ||
+          (first.get(a.row.group) ?? 0) - (first.get(b.row.group) ?? 0) ||
+          b.score - a.score ||
+          a.index - b.index,
+      );
+      return { section, rows: scored.map((r) => r.row) };
+    })
     .filter((hit) => hit.rows.length > 0);
+}
+
+/** The section a row lives in, by its id (ids are unique across all sections). */
+export function findRowSection(sections: SectionDef[], rowId: string): SectionDef | undefined {
+  return sections.find((s) => s.rows.some((r) => r.id === rowId));
 }
 
 /** One entry of the read-only "Coming later" list. */

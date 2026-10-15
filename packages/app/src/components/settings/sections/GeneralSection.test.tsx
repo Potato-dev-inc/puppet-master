@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 // Settings > General: every control renders, saves the right partial patch, and destructive actions are confirmed.
+import { unsearchableLabels } from '../test-utils';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { blur, buttonByText, byLabel, click, hasText, mountRows, pickOption, settle, type as typeInto, type Mounted } from '../test-utils';
@@ -71,7 +72,7 @@ describe('General: every control renders', () => {
       'Checkpoints',
       'Keep last N checkpoints',
       'Shared project memory',
-      'Coordination storage',
+      'Task and activity data',
       'Tasks',
       'File locks',
       'Event log',
@@ -256,5 +257,12 @@ describe('General: updates, export, uninstall', () => {
     expect(buttonByText(m.host, 'Uninstall…')!.disabled).toBe(true);
     expect(hasText(m.host, 'Only available in an installed build')).toBe(true);
     mocks.install.uninstallAvailable = true;
+  });
+});
+
+describe('General: search covers what the section shows', () => {
+  it('every word of every label a row shows finds that row', async () => {
+    await mount();
+    expect(unsearchableLabels(m.host, generalRows)).toEqual([]);
   });
 });

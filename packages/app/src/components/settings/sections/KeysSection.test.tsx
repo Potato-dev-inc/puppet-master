@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // Settings > Keys: every control renders, secrets save on blur (never on a timer), OpenCode calls carry the right
 // arguments, and removing keys is confirmed and comes last.
+import { unsearchableLabels } from '../test-utils';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { blur, buttonByText, byLabel, click, hasText, mountRows, settle, type as typeInto, type Mounted } from '../test-utils';
@@ -315,5 +316,12 @@ describe('Keys: remove all keys (destructive, last list)', () => {
     await mount();
     expect(buttonByText(m.host, 'Remove…')!.disabled).toBe(false);
     expect(rowFor('remove-all-keys')).toBeTruthy();
+  });
+});
+
+describe('Keys: search covers what the section shows', () => {
+  it('every word of every label a row shows finds that row', async () => {
+    await mount();
+    expect(unsearchableLabels(m.host, keysRows)).toEqual([]);
   });
 });

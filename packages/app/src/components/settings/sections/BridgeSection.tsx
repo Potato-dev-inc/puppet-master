@@ -32,14 +32,14 @@ export const bridgeRows: RowDef[] = [
   },
   {
     id: 'bridge-endpoint',
-    label: 'Bridge endpoint',
-    hint: 'The local HTTP bridge, found automatically (ports 17321 to 17399).',
-    keywords: 'bridge port url local http address endpoint 17321',
+    label: 'Bridge address',
+    hint: 'Where other tools reach Puppet Master on this computer. Found automatically.',
+    keywords: 'bridge endpoint port ports url local http address 17321 17399',
     group: 'Bridge',
     render: (env) => (
       <InfoRow
-        label="Bridge endpoint"
-        description="The local HTTP bridge, found automatically (ports 17321 to 17399)."
+        label="Bridge address"
+        description="Where other tools reach Puppet Master on this computer. Found automatically."
         value={env.bridgeUrl ?? 'Not found yet'}
       />
     ),

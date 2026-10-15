@@ -67,7 +67,7 @@ export function PreloadSettings({ api = DEFAULT_API, onSaved }: { api?: PreloadA
     <>
       <SettingToggle
         label="Preload agents"
-        description="Master switch. Off by default. Each warm agent is a running CLI process that uses memory, and some providers count it as an open session. Turning this off closes every warm agent."
+        description="Off by default. Each ready agent stays open in the background, which uses memory, and some providers count it as an open session. Turning this off closes them all."
         checked={config.preload.enabled}
         onChange={(value) => void save(withPreloadEnabled(config, value))}
       />

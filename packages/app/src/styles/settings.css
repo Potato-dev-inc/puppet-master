@@ -257,6 +257,59 @@
 .settings .st-rowwrap {
   position: relative;
 }
+/* The row a deep link or a "Show" button just brought you to: held lightly for a moment, no motion. */
+.settings .st-rowwrap[data-target='true'] {
+  background: var(--fill);
+}
+/* Search results: each section's groups sit one under the other, group titles quieter than section titles. */
+.settings .st-results {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.settings .st-results .st-group h2 {
+  font-weight: 500;
+  color: var(--label-3);
+}
+/* A list of jump buttons inside a row (the Labs overview, What's new): a name and one plain line each. */
+.settings .st-labs-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.settings .st-labs-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  margin: 0 -8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.settings .st-labs-item::after {
+  content: '›';
+  margin-left: auto;
+  flex: none;
+  color: var(--label-3);
+}
+.settings .st-labs-item:hover {
+  background: var(--fill-hover, var(--fill));
+}
+.settings .st-labs-name {
+  flex: none;
+  min-width: 96px;
+  font-weight: 600;
+}
+.settings .st-labs-about {
+  color: var(--label-2);
+  min-width: 0;
+}
 .settings .st-rowwrap + .st-rowwrap,
 .settings .st-rowwrap > .st-row + .st-row {
   border-top: 1px solid var(--sep);

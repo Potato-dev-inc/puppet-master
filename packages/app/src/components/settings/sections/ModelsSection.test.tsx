@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 // Settings > Orchestrator & Models: every control renders, saves the right partial patch, and search finds the rows.
+import { unsearchableLabels } from '../test-utils';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LlmModel, Settings } from '@puppet-master/shared';
@@ -36,12 +37,12 @@ describe('Orchestrator & Models: every control renders', () => {
 
   it('shows every control by its label and aria-label', async () => {
     await mount({ custom_models: [CUSTOM_CLAUDE, CUSTOM_OR] });
-    for (const label of ['Default orchestrator', 'Librarian indexer', 'OpenCode provider', 'OpenCode model', 'Provider', 'Model', 'Custom models']) {
+    for (const label of ['Default orchestrator', 'Project index builder', 'OpenCode provider', 'OpenCode model', 'Provider', 'Model', 'Custom models']) {
       expect(hasText(m.host, label), `missing label: ${label}`).toBe(true);
     }
     for (const aria of [
       'Default orchestrator',
-      'Librarian indexer',
+      'Project index builder',
       'OpenCode provider ID',
       'OpenCode model ID',
       'Default provider',
@@ -128,7 +129,7 @@ describe('Orchestrator & Models: each control saves a partial patch', () => {
   it('Librarian indexer clears to null after a pause in typing', async () => {
     vi.useFakeTimers();
     await mount({ librarian_indexer_path: 'opencode' });
-    const field = byLabel<HTMLInputElement>(m.host, 'Librarian indexer')!;
+    const field = byLabel<HTMLInputElement>(m.host, 'Project index builder')!;
     expect(field.value).toBe('opencode');
     await typeInto(field, '');
     expect(m.env.patches).toHaveLength(0);
@@ -139,7 +140,7 @@ describe('Orchestrator & Models: each control saves a partial patch', () => {
   it('Librarian indexer saves a typed path after a pause', async () => {
     vi.useFakeTimers();
     await mount({ librarian_indexer_path: 'opencode' });
-    await typeInto(byLabel<HTMLInputElement>(m.host, 'Librarian indexer')!, 'scripts/project-indexer.py');
+    await typeInto(byLabel<HTMLInputElement>(m.host, 'Project index builder')!, 'scripts/project-indexer.py');
     await act(async () => void (await vi.advanceTimersByTimeAsync(700)));
     expect(m.env.patches).toEqual([{ librarian_indexer_path: 'scripts/project-indexer.py' }]);
   });
@@ -173,5 +174,12 @@ describe('Orchestrator & Models: search', () => {
     expect(rowMatches(row('orchestrator-backend'), 'opencode cli')).toBe(true);
     expect(rowMatches(row('custom-models'), 'custom model')).toBe(true);
     expect(rowMatches(row('librarian-indexer'), 'openrouter')).toBe(false);
+  });
+});
+
+describe('Models: search covers what the section shows', () => {
+  it('every word of every label a row shows finds that row', async () => {
+    await mount();
+    expect(unsearchableLabels(m.host, modelsRows)).toEqual([]);
   });
 });

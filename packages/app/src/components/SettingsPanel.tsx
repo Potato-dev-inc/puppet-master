@@ -10,11 +10,12 @@ import { findBridgeUrl } from '../lib/bridge';
 import { loadSettings, patchSettings, type SettingsPatch } from '../lib/settings';
 import { subscribeSettingsRefresh, type SettingsRefreshInfo } from '../lib/settings-sync';
 import type { UpdateCheckResult } from '../lib/app-update';
-import { resolveSettingsTab } from '../lib/settings-entry';
+import { resolveSettingsTarget } from '../lib/settings-target';
 import { LATER_ITEMS, SECTIONS } from './settings/catalog';
 import { ConfirmSheet } from './settings/controls';
 import { SectionRows, type RowChrome } from './settings/SectionView';
 import {
+  findRowSection,
   searchSections,
   type ConfirmOptions,
   type RowDef,
@@ -43,6 +44,8 @@ interface Props {
   onClose?: () => void;
   /** Page shown first (the standalone Settings window opens on Agents). */
   initialTab?: SettingsPageId;
+  /** A row of that page to scroll to and mark when it opens (a deep link such as `?tab=live-updates`). */
+  initialRow?: string;
   /** Called with the page now shown, so a host can carry it to another surface (window <-> inline). */
   onPageChange?: (page: SettingsPageId) => void;
   /** Rendered inside the cockpit's main area (Orchestration) instead of filling a window. */
@@ -59,6 +62,7 @@ interface Props {
 }
 
 const SAVED_TICK_MS = 1600;
+const TARGET_MARK_MS = 2200;
 
 function withoutNulls(patch: SettingsPatch): Partial<Settings> {
   const out: Record<string, unknown> = {};
@@ -92,6 +96,7 @@ export function SettingsPanel({
   open,
   onClose,
   initialTab = 'general',
+  initialRow,
   onPageChange,
   inline = false,
   onSaved,
@@ -105,6 +110,9 @@ export function SettingsPanel({
 }: Props) {
   const [page, setPage] = useState<SettingsPageId>(initialTab);
   const [query, setQuery] = useState('');
+  // A row to scroll to once its page is showing. `n` makes asking for the same row twice work.
+  const [focus, setFocus] = useState<{ id: string; n: number } | null>(initialRow ? { id: initialRow, n: 0 } : null);
+  const [marked, setMarked] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [bridgeUrl, setBridgeUrl] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<ReadonlySet<string>>(new Set());
@@ -139,10 +147,11 @@ export function SettingsPanel({
     return apiRef.current.subscribe((info) => {
       void reload();
       if (info.reason === 'show') {
-        const target = resolveSettingsTab(info.tab);
+        const target = resolveSettingsTarget(info.tab);
         if (target) {
-          setPage(target);
+          setPage(target.page);
           setQuery('');
+          setFocus(target.row ? { id: target.row, n: Date.now() } : null);
         }
       }
     });
@@ -151,6 +160,39 @@ export function SettingsPanel({
   useEffect(() => {
     scrollRef.current?.scrollTo?.({ top: 0 });
   }, [page, query]);
+
+  const ready = open && settings !== null && query.trim() === '';
+  // Blocks above the target (Team, the Ask bar) fill in a moment after the page opens and push it down, so the
+  // scroll is repeated a few times, and stops the moment the person scrolls or types themselves.
+  const holdScroll = useRef<(() => void) | null>(null);
+  useEffect(() => () => holdScroll.current?.(), []);
+  // Scroll to the row a deep link or a "Show" button named, and mark it for a moment.
+  useEffect(() => {
+    if (!focus || !ready) return;
+    const host = scrollRef.current;
+    const rows = host?.querySelectorAll<HTMLElement>('[data-row]') ?? [];
+    const el = [...rows].find((r) => r.getAttribute('data-row') === focus.id);
+    setFocus(null);
+    holdScroll.current?.();
+    holdScroll.current = null;
+    if (!el || !host) return; // the row is not on this page (an old link): stay at the top
+    el.scrollIntoView?.({ block: 'center' });
+    setMarked(focus.id);
+    const timers = [150, 500, 1200].map((ms) => setTimeout(() => el.isConnected && el.scrollIntoView?.({ block: 'center' }), ms));
+    const events = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+    const stop = () => {
+      timers.forEach(clearTimeout);
+      events.forEach((e) => host.removeEventListener(e, stop));
+      holdScroll.current = null;
+    };
+    events.forEach((e) => host.addEventListener(e, stop, { once: true }));
+    holdScroll.current = stop;
+  }, [focus, ready, page]);
+  useEffect(() => {
+    if (!marked) return;
+    const timer = setTimeout(() => setMarked(null), TARGET_MARK_MS);
+    return () => clearTimeout(timer);
+  }, [marked]);
 
   const pageChangeRef = useRef(onPageChange);
   pageChangeRef.current = onPageChange;
@@ -229,8 +271,17 @@ export function SettingsPanel({
     [updateCheck, updateChecking, onCheckForUpdates, onOpenRelease],
   );
 
+  const openRow = (rowId: string) => {
+    const home = findRowSection(SECTIONS, rowId);
+    if (!home) return;
+    setPage(home.id);
+    setQuery('');
+    setFocus({ id: rowId, n: Date.now() });
+  };
+
   const envFor = (row: RowDef): SettingsEnv => ({
     settings: settings as Settings,
+    openRow,
     patch: (patch) => patchFor(row.id, patch),
     markSaved: () => markSaved(row.id),
     setError: (message) => setRowError(row.id, message),
@@ -246,7 +297,7 @@ export function SettingsPanel({
   const trimmed = query.trim();
   const hits = trimmed ? searchSections(SECTIONS, trimmed) : [];
   const section = SECTIONS.find((s) => s.id === page);
-  const chrome: RowChrome = { saved: savedIds, errors };
+  const chrome: RowChrome = { saved: savedIds, errors, target: marked ?? undefined };
 
   const title = trimmed ? 'Search results' : page === 'later' ? 'Coming later' : (section?.title ?? 'Settings');
   const blurb = trimmed
@@ -327,7 +378,7 @@ export function SettingsPanel({
                   {hits.map(({ section: hitSection, rows }) => (
                     <section key={hitSection.id} data-section={hitSection.id}>
                       <h2>{hitSection.title}</h2>
-                      <SectionRows rows={rows.map((r) => ({ ...r, group: undefined }))} envFor={envFor} chrome={chrome} />
+                      <SectionRows rows={rows} envFor={envFor} chrome={chrome} />
                     </section>
                   ))}
                 </div>

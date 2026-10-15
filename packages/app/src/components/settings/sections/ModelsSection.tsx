@@ -104,11 +104,11 @@ export const modelsRows: RowDef[] = [
   {
     id: 'orchestrator-backend',
     label: 'Default orchestrator',
-    hint: 'The brain that routes work and delegates to your agents.',
-    keywords: 'backend brain claude claude code codex codex cli opencode opencode cli api llm',
+    hint: 'The AI that routes work and hands tasks to your agents.',
+    keywords: 'backend brain orchestrator claude claude code codex codex cli opencode opencode cli api llm',
     group: 'Orchestrator',
     render: (env) => (
-      <SettingRow label="Default orchestrator" description="The brain that routes work and delegates to your agents.">
+      <SettingRow label="Default orchestrator" description="The AI that routes work and hands tasks to your agents.">
         <FieldSelect
           aria-label="Default orchestrator"
           value={env.settings.orchestrator_backend ?? 'api'}
@@ -125,17 +125,17 @@ export const modelsRows: RowDef[] = [
   },
   {
     id: 'librarian-indexer',
-    label: 'Librarian indexer',
-    hint: 'Leave blank to use the OpenCode librarian. Or enter the path to scripts/project-indexer.py for a static-only index.',
-    keywords: 'librarian indexer path script static project-indexer opencode',
+    label: 'Project index builder',
+    hint: 'Leave blank to let OpenCode build the project index. Or give the path to a script that builds a simple index without AI.',
+    keywords: 'librarian indexer path script static project-indexer.py opencode',
     group: 'Orchestrator',
     render: (env) => (
       <SettingRow
-        label="Librarian indexer"
-        description="Leave blank to use the OpenCode librarian. Or enter the path to scripts/project-indexer.py for a static-only index."
+        label="Project index builder"
+        description="Leave blank to let OpenCode build the project index. Or give the path to a script that builds a simple index without AI."
       >
         <TextControl
-          aria-label="Librarian indexer"
+          aria-label="Project index builder"
           mono
           placeholder="opencode"
           value={env.settings.librarian_indexer_path ?? ''}
@@ -236,11 +236,11 @@ export const modelsRows: RowDef[] = [
   {
     id: 'custom-models',
     label: 'Custom models',
-    hint: 'Add your own vendor/model ids to the model picker.',
+    hint: 'Add your own models to the model picker.',
     keywords: 'custom model provider display label model id add remove openrouter',
     group: 'Model for the API orchestrator',
     render: (env) => (
-      <SettingBlock label="Custom models" description="Add your own vendor/model ids to the model picker.">
+      <SettingBlock label="Custom models" description="Add your own models to the model picker.">
         <CustomModels env={env} />
       </SettingBlock>
     ),

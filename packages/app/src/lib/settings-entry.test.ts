@@ -22,8 +22,8 @@ describe('settings entry', () => {
     const expected: Record<string, string> = {
       appearance: 'general', storage: 'general', advanced: 'general', preload: 'agents', session: 'models',
       orchestrator: 'models', api: 'keys', mcp: 'bridge', developer: 'bridge', mobile: 'phone',
-      security: 'later', notifications: 'later', backup: 'later', marketplace: 'later', rules: 'later',
-      costs: 'later', team: 'later', automation: 'later', observability: 'later', plugins: 'later',
+      security: 'general', notifications: 'later', backup: 'later', marketplace: 'later', rules: 'later',
+      costs: 'later', team: 'general', automation: 'later', observability: 'later', plugins: 'bridge',
     };
     for (const [old, now] of Object.entries(expected)) expect(resolveSettingsTab(old)).toBe(now);
     expect(resolveSettingsTab('')).toBeNull();

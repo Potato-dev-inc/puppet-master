@@ -1,14 +1,14 @@
 import type { HarnessScenario } from '../types';
 
-// Agents tab, scrolled to the Live updates setting.
+// Live updates is an early feature, listed in General > Labs. The deep link `live-updates` opens it there, scrolled
+// to and held for a moment.
 const s: HarnessScenario = {
   name: 'settings-live-updates',
   route: 'settings',
-  settingsTab: 'agents',
+  settingsTab: 'live-updates',
   after: async (dom) => {
+    await dom.waitFor('[data-row="live-updates"][data-target="true"]');
     await dom.sleep(300);
-    const label = [...document.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent?.trim() === 'Live updates');
-    label?.scrollIntoView({ block: 'center' });
   },
 };
 export default s;

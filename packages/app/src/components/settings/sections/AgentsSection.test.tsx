@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // Settings > Agents: the three rows render with their key controls, each control calls its own command,
 // nothing here is destructive, and search finds each row by the words inside it.
+import { unsearchableLabels } from '../test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriAccountsApi } from '../../../lib/accounts';
 import { tauriAgentDefinitionsApi } from '../../../lib/agentDefinitions';
@@ -351,5 +352,12 @@ describe('Agents: search finds the rows', () => {
     const preload = agentsRows.find((row) => row.id === 'preload')!;
     expect(rowMatches(preload, 'IDLE TIMEOUT')).toBe(true);
     expect(rowMatches(preload, 'idle revoke')).toBe(false);
+  });
+});
+
+describe('Agents: search covers what the section shows', () => {
+  it('every word of every label a row shows finds that row', async () => {
+    await mount();
+    expect(unsearchableLabels(m.host, agentsRows)).toEqual([]);
   });
 });

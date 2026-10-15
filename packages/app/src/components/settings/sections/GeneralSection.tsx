@@ -16,6 +16,7 @@ import { DiagnosticFile } from '../blocks/DiagnosticFile';
 import { LoopGuardSettingsBlock } from '../blocks/LoopGuardSettings';
 import { SharedMemoryToggle } from '../blocks/SharedMemoryToggle';
 import { TeamSettings } from '../blocks/TeamSettings';
+import { WhatsNew, WHATS_NEW_LABEL } from '../blocks/WhatsNew';
 import { NumberControl, TextControl } from '../controls';
 import type { RowDef, SettingsEnv } from '../model';
 import { T as SIMPLE } from '../../simple/copy';
@@ -89,8 +90,8 @@ function StorageInfo({ env }: { env: SettingsEnv }) {
   return (
     <>
       <InfoRow
-        label="Coordination storage"
-        description="Tasks, file locks and pane events are kept per project."
+        label="Task and activity data"
+        description="Tasks, file locks and what happened in each pane are kept per project."
         value={info ? (info.scope === 'project' ? 'Project folder' : 'Shared fallback') : '…'}
       />
       <InfoRow label="Tasks" value={info ? String(info.task_count) : '…'} />
@@ -223,6 +224,7 @@ export const generalRows: RowDef[] = [
     hint: SIMPLE.settingHint,
     keywords: 'simple plain easy beginner fewer buttons words look non-technical',
     group: 'Appearance',
+    labs: { name: 'Simple mode', about: 'Fewer buttons and plain words, for people who do not write code.' },
     render: (env) => (
       <SettingToggle
         label={SIMPLE.settingLabel}
@@ -259,7 +261,7 @@ export const generalRows: RowDef[] = [
     id: 'loop-guard',
     label: 'Warn when an agent seems stuck',
     hint: 'Shows a card when an agent repeats the same error or the same steps, or works for a long time with nothing new.',
-    keywords: 'loop guard stuck sensitivity repeats quiet too long global shortcut stop all agents panic',
+    keywords: 'loop guard stuck warning warnings sensitivity repeats quiet too long global shortcut stop all agents panic',
     group: 'While agents work',
     render: (env) => <LoopGuardSettingsBlock onSaved={env.markSaved} />,
   },
@@ -293,6 +295,7 @@ export const generalRows: RowDef[] = [
     hint: 'Open a small bar from anywhere in Windows to ask an agent a quick question. Off by default.',
     keywords: 'ask bar shortcut quick question default agent clipboard attach global',
     group: 'Ask bar',
+    labs: { name: 'Ask bar', about: 'A small bar you open from anywhere in Windows to ask an agent a quick question.' },
     render: (env) => <AskBarSettingsBlock onSaved={env.markSaved} />,
   },
   {
@@ -334,21 +337,22 @@ export const generalRows: RowDef[] = [
   {
     id: 'shared-memory',
     label: 'Shared project memory',
-    hint: 'Every agent in a project reads one memory, kept in .puppet-master/memory.md. Turn off to remove it from agent files.',
-    keywords: 'memory claude.md agents.md',
+    hint: 'Every agent in a project reads one shared memory file. Turn off to remove it from agent files.',
+    keywords: 'memory claude.md agents.md puppet-master memory.md file',
     group: 'Undo and memory',
     render: (env) => <SharedMemoryToggle onSaved={env.markSaved} />,
   },
   {
     id: 'storage',
-    label: 'Coordination storage',
-    hint: 'Tasks, file locks and pane events are kept per project.',
-    keywords: 'tasks locks events log directory refresh',
+    label: 'Task and activity data',
+    hint: 'Tasks, file locks and what happened in each pane are kept per project.',
+    keywords: 'coordination storage tasks locks events pane events log directory folder refresh',
     group: 'Storage',
     render: (env) => <StorageInfo env={env} />,
   },
-  { id: 'team', label: 'Team (Labs)', hint: 'Tell teammates when your agent pushes; get a card when theirs does.', keywords: 'team heads-up co-work teammates push pull merge labs shared folder', group: 'Labs', render: (env) => <TeamSettings onSaved={env.markSaved} /> },
+  { id: 'team', label: 'Team', hint: 'Tell teammates when your agent pushes; get a card when theirs does.', keywords: 'team heads-up co-work teammates push pull merge labs shared folder', group: 'Labs', labs: { name: 'Team', about: 'Tell teammates when your agent pushes, and see when theirs does.' }, render: (env) => <TeamSettings onSaved={env.markSaved} /> },
   { id: 'version', label: 'Version', hint: 'Check for updates and download the installer.', keywords: 'app version update release download install', group: 'About', render: (env) => <VersionRow env={env} /> },
+  { id: 'whats-new', label: WHATS_NEW_LABEL, hint: 'The short version of what changed, with a link to each place.', keywords: 'release notes changelog new features changes version update 0.2.0', group: 'About', render: (env) => <WhatsNew env={env} /> },
   { id: 'settings-file', label: 'Settings file', hint: 'Where your settings are saved. Export a copy with keys removed.', keywords: 'export json backup path', group: 'About', render: (env) => <SettingsFile env={env} /> },
   {
     id: 'diagnostic-file',

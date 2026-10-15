@@ -1,13 +1,13 @@
 import type { HarnessScenario } from '../types';
 
-// Settings > Bridge & MCP > Security: the two switches (shown at the recommended values A on, B off) and the
+// Settings > General > Safety (deep link `security`): the two switches (shown at the recommended values A on, B off) and the
 // read-only list of recent approvals and control changes.
 const now = Date.now();
 const min = 60_000;
 const s: HarnessScenario = {
   name: 'settings-security',
   route: 'settings',
-  settingsTab: 'bridge',
+  settingsTab: 'security',
   window: { width: 1440, height: 1100 },
   authority: { ask_before_agent_control: true, agents_may_merge: false },
   audit: [

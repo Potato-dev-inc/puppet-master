@@ -1,4 +1,4 @@
-// Settings > Bridge & MCP > Security: what agents may do to panes and work they did not start, and a
+// Settings > General > Safety (the rows are placed by settings/arrange.tsx; Bridge & MCP keeps a link): what agents may do to panes and work they did not start, and a
 // read-only list of recent approvals and control changes (the audit log, src-tauri/src/audit).
 //
 // The two switches are kept by the app itself (`agent_authority.json`), not in settings.json, so a
