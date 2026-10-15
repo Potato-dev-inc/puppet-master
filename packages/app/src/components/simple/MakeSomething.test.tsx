@@ -64,7 +64,7 @@ describe('Make something', () => {
     await tap('Bright and fun');
     const box = host.querySelector('textarea') as HTMLTextAreaElement;
     expect(box.value).toBe('Make a class timer for my students or customers. It should look bright and fun. Make it as ONE file called tool.html.');
-    expect(host.textContent).toContain('Here is what PM will ask Claude Code.');
+    expect(host.textContent).toContain('Here is what Puppet Master will ask Claude Code.');
     expect(host.textContent).toContain(T.copyNote);
     expect(a.start).not.toHaveBeenCalled();
   });

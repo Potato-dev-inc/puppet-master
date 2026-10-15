@@ -37,6 +37,51 @@ export function stateLabel(state: HealthState): string {
   }
 }
 
+type Action = 'install' | 'signin' | 'test' | 'copy';
+
+const ACTION_LABEL: Record<Action, string> = { install: 'Install', signin: 'Sign in', test: 'Test', copy: 'Copy install command' };
+const ACTION_TITLE: Record<Action, string> = {
+  install: 'Shows the command first. Nothing runs until you press Run.',
+  signin: 'A window opens where you sign in.',
+  test: 'Asks the agent one tiny question. Uses a few tokens.',
+  copy: 'Copies the command so you can run it yourself.',
+};
+
+/** The one thing a row asks you to do next; the rest goes under More. `null`: nothing to do. */
+export function primaryAction(r: AgentHealth): Action | null {
+  if (r.state === 'not_installed') return 'install';
+  if (r.state === 'needs_login') return 'signin';
+  if ((r.state === 'unchecked' || r.state === 'error') && r.installed && r.can_test) return 'test';
+  return null;
+}
+
+/** Everything else this row can do. */
+export function moreActions(r: AgentHealth, primary: Action | null): Action[] {
+  const out: Action[] = [];
+  if (r.state === 'not_installed' && r.install_hint) out.push('copy');
+  if (r.installed && primary !== 'signin') out.push('signin');
+  if (r.installed && r.can_test && primary !== 'test') out.push('test');
+  return out;
+}
+
+const GROUPS = [
+  { id: 'needs', title: 'Needs you' },
+  { id: 'ready', title: 'Ready' },
+  { id: 'missing', title: 'Not installed' },
+] as const;
+
+function groupOf(state: HealthState): 'needs' | 'ready' | 'missing' {
+  return state === 'ready' ? 'ready' : state === 'not_installed' ? 'missing' : 'needs';
+}
+
+/** The row's sentence. A raw exit code never shows; it stays in the tooltip. */
+function plainReason(r: AgentHealth): string {
+  if (r.state === 'error' && /exit code|did not start/i.test(r.reason)) {
+    return `${r.label} did not start. Try Test again, or reinstall it.`;
+  }
+  return r.reason;
+}
+
 export interface AgentDoctorProps {
   /** Starts the agent in a visible pane so the user can sign in. */
   onOpenAgent: (agentId: string) => void;
@@ -46,6 +91,10 @@ export interface AgentDoctorProps {
   installApi?: AgentInstallApi;
   /** Brings the install window (a visible pane) to the front. */
   onShowPane?: (paneId: string) => void;
+  /** Inside another screen (the first-run welcome): no page title or Close, only "Check again". */
+  embedded?: boolean;
+  /** Called with the list whenever it loads or a test changes a row. */
+  onRows?: (rows: AgentHealth[]) => void;
 }
 
 /** Where one row's install is. Absent = nothing going on. */
@@ -70,6 +119,8 @@ export function AgentDoctor({
   api = agentHealthApi,
   installApi = agentInstallApi,
   onShowPane,
+  embedded = false,
+  onRows,
 }: AgentDoctorProps) {
   const [rows, setRows] = useState<AgentHealth[] | null>(null);
   const [installs, setInstalls] = useState<Record<string, Install>>(() => keptInstalls);
@@ -91,6 +142,11 @@ export function AgentDoctor({
   }, [api]);
 
   useEffect(load, [load]);
+  const onRowsRef = useRef(onRows);
+  onRowsRef.current = onRows;
+  useEffect(() => {
+    if (rows) onRowsRef.current?.(rows);
+  }, [rows]);
 
   const test = (id: string) => {
     setTesting((s) => new Set(s).add(id));
@@ -216,19 +272,23 @@ export function AgentDoctor({
   const readyCount = rows?.filter((r) => r.state === 'ready').length ?? 0;
 
   return (
-    <div className="ck-doctor">
+    <div className={embedded ? 'ck-doctor ck-doctor--embedded' : 'ck-doctor'}>
       <header className="ck-doctor-head">
-        <h1 className="ck-title">Set up your agents</h1>
-        <p className="ck-sub">
-          Agents are the AI helpers that do the work. Here is which ones are on this computer and what to do about the
-          rest.
-          {readyCount > 0 ? ` ${readyCount} tested and ready.` : ''}
-        </p>
+        {!embedded && (
+          <>
+            <h1 className="ck-title">Set up your agents</h1>
+            <p className="ck-sub">
+              Agents are the AI helpers that do the work. Here is which ones are on this computer and what to do about the
+              rest.
+              {readyCount > 0 ? ` ${readyCount} tested and ready.` : ''}
+            </p>
+          </>
+        )}
         <div className="ck-doctor-bar">
-          <button type="button" className="ck-btn ck-btn--secondary ck-btn--sm" onClick={load}>
+          <button type="button" className="ck-btn ck-btn--plain ck-btn--sm" onClick={load}>
             Check again
           </button>
-          {onClose && (
+          {onClose && !embedded && (
             <button type="button" className="ck-btn ck-btn--plain ck-btn--sm" onClick={onClose}>
               Close
             </button>
@@ -240,114 +300,132 @@ export function AgentDoctor({
       {!rows && !loadError && <p className="ck-sub">Looking for your agents</p>}
 
       {rows && (
-        <ul className="ck-list ck-doctor-list" aria-label="Agents">
-          {rows.map((r) => {
-            const busy = testing.has(r.id);
-            const inst = installs[r.id];
-            const working = inst?.phase === 'loading' || inst?.phase === 'running' || inst?.phase === 'finishing';
+        <div className="ck-doctor-groups">
+          {GROUPS.map((group) => {
+            const inGroup = rows.filter((r) => groupOf(r.state) === group.id);
+            if (inGroup.length === 0) return null;
             return (
-              <li key={r.id} className="ck-doctor-row" data-state={r.state}>
-                <span className="ck-row-glyph">
-                  <DotSpinner status={busy || working ? 'running' : glyphFor(r.state)} />
-                </span>
-                <div className="ck-doctor-main">
-                  <div className="ck-doctor-line">
-                    <span className="ck-row-title">{r.label}</span>
-                    <span className="ck-doctor-state">
-                      {busy ? 'Testing' : working ? (inst?.phase === 'finishing' ? 'Checking' : 'Installing') : stateLabel(r.state)}
-                    </span>
-                    {r.version && <span className="ck-doctor-version">{r.version}</span>}
-                  </div>
-                  <p className="ck-doctor-reason">
-                    {busy
-                      ? 'Asking it a tiny question. This can take a minute.'
-                      : inst?.phase === 'running'
-                        ? `Installing ${inst.label} in the window. Puppet Master checks again when it is done.`
-                        : inst?.phase === 'finishing'
-                          ? 'Checking that it works.'
-                          : r.reason}
-                  </p>
-                  {inst?.phase === 'result' && (
-                    <p className="ck-doctor-hint ck-doctor-result" data-tone={inst.tone} role="status">
-                      {inst.text}
-                    </p>
-                  )}
-                  {r.installed && r.hooks && r.hooks.state !== 'not_supported' && r.hooks.state !== 'off' && (
-                    <>
-                      <p className="ck-doctor-live" data-live={r.hooks.state}>
-                        Live updates: {r.hooks.sentence}
-                      </p>
-                      {r.hooks.how_to && <p className="ck-doctor-hint">{r.hooks.how_to}</p>}
-                    </>
-                  )}
-                  {r.state === 'not_installed' && !working && r.install_hint && <code className="ck-doctor-cmd">{r.install_hint}</code>}
-                  {r.state === 'not_installed' && !working && r.install_fallback && (
-                    <p className="ck-doctor-hint">
-                      <span className="ck-sub">Or with npm: </span>
-                      <code className="ck-doctor-cmd">{r.install_fallback}</code>
-                    </p>
-                  )}
-                  {r.state === 'needs_login' && r.login_hint && <p className="ck-doctor-hint">{r.login_hint}</p>}
-                  {(r.state === 'needs_login' || (r.installed && inst?.phase === 'result' && inst.tone === 'ok')) && (
-                    <p className="ck-doctor-hint">A window opens where you sign in. Puppet Master never sees your password.</p>
-                  )}
-                </div>
-                <div className="ck-doctor-actions">
-                  {inst?.phase === 'running' && onShowPane && (
-                    <button
-                      type="button"
-                      className="ck-btn ck-btn--secondary ck-btn--sm"
-                      onClick={() => onShowPane(inst.paneId)}
-                    >
-                      Show window
-                    </button>
-                  )}
-                  {r.state === 'not_installed' && !working && (
-                    <button
-                      type="button"
-                      className="ck-btn ck-btn--primary ck-btn--sm"
-                      onClick={() => openInstall(r.id)}
-                      title="Shows the command first. Nothing runs until you press Run."
-                    >
-                      Install
-                    </button>
-                  )}
-                  {r.state === 'not_installed' && r.install_hint && !working && (
-                    <button
-                      type="button"
-                      className="ck-btn ck-btn--secondary ck-btn--sm"
-                      onClick={() => copy(r.install_hint!)}
-                    >
-                      Copy install command
-                    </button>
-                  )}
-                  {r.installed && r.state !== 'ready' && !working && (
-                    <button
-                      type="button"
-                      className="ck-btn ck-btn--secondary ck-btn--sm"
-                      onClick={() => onOpenAgent(r.id)}
-                      title={r.login_hint ?? undefined}
-                    >
-                      Sign in
-                    </button>
-                  )}
-                  {r.installed && r.can_test && (
-                    <button
-                      type="button"
-                      className="ck-btn ck-btn--primary ck-btn--sm"
-                      disabled={busy}
-                      onClick={() => test(r.id)}
-                      title="Asks the agent one tiny question. Uses a few tokens."
-                    >
-                      Test
-                    </button>
-                  )}
-                </div>
-              </li>
+              <section key={group.id} aria-label={group.title}>
+                <h2 className="ck-doctor-cap">{group.title}</h2>
+                <ul className="ck-list ck-doctor-list" aria-label={group.title}>
+                  {inGroup.map((r) => {
+                    const busy = testing.has(r.id);
+                    const inst = installs[r.id];
+                    const working = inst?.phase === 'loading' || inst?.phase === 'running' || inst?.phase === 'finishing';
+                    const installedNow = r.installed && inst?.phase === 'result' && inst.tone === 'ok';
+                    const primary = primaryAction(r);
+                    const more = moreActions(r, primary);
+                    const run = (action: Action) => {
+                      if (action === 'install') openInstall(r.id);
+                      else if (action === 'signin') onOpenAgent(r.id);
+                      else if (action === 'test') test(r.id);
+                      else if (r.install_hint) copy(r.install_hint);
+                    };
+                    return (
+                      <li key={r.id} className="ck-doctor-row" data-state={r.state}>
+                        <span className="ck-row-glyph">
+                          <DotSpinner status={busy || working ? 'running' : glyphFor(r.state)} />
+                        </span>
+                        <div className="ck-doctor-main">
+                          <div className="ck-doctor-line">
+                            <span className="ck-row-title">{r.label}</span>
+                            <span className="ck-doctor-state">
+                              {busy ? 'Testing' : working ? (inst?.phase === 'finishing' ? 'Checking' : 'Installing') : stateLabel(r.state)}
+                            </span>
+                            {r.version && <span className="ck-doctor-version">{r.version}</span>}
+                          </div>
+                          {!installedNow && (
+                            <p className="ck-doctor-reason" title={r.state === 'error' ? r.reason : undefined}>
+                              {busy
+                                ? 'Asking it a tiny question. This can take a minute.'
+                                : inst?.phase === 'running'
+                                  ? `Installing ${inst.label} in the window. Puppet Master checks again when it is done.`
+                                  : inst?.phase === 'finishing'
+                                    ? 'Checking that it works.'
+                                    : plainReason(r)}
+                            </p>
+                          )}
+                          {inst?.phase === 'result' && (
+                            <p className="ck-doctor-hint ck-doctor-result" data-tone={inst.tone} role="status">
+                              {inst.text}
+                            </p>
+                          )}
+                          {r.installed && r.hooks && r.hooks.state !== 'not_supported' && r.hooks.state !== 'off' && (
+                            <>
+                              <p className="ck-doctor-live" data-live={r.hooks.state}>
+                                Live updates: {r.hooks.sentence}
+                              </p>
+                              {r.hooks.how_to && <p className="ck-doctor-hint">{r.hooks.how_to}</p>}
+                            </>
+                          )}
+                          {(r.state === 'needs_login' || installedNow) && (
+                            <p className="ck-doctor-hint">A window opens where you sign in. Puppet Master never sees your password.</p>
+                          )}
+                          {!working && (r.install_hint || r.install_fallback || r.login_hint) && (
+                            <details className="ck-doctor-details">
+                              <summary>Details</summary>
+                              {r.state === 'not_installed' && r.install_hint && (
+                                <>
+                                  <p className="ck-doctor-hint">To install it yourself, run this in a terminal.</p>
+                                  <code className="ck-doctor-cmd">{r.install_hint}</code>
+                                </>
+                              )}
+                              {r.state === 'not_installed' && r.install_fallback && (
+                                <p className="ck-doctor-hint">
+                                  <span className="ck-sub">Or with npm: </span>
+                                  <code className="ck-doctor-cmd">{r.install_fallback}</code>
+                                </p>
+                              )}
+                              {r.state !== 'not_installed' && r.login_hint && <p className="ck-doctor-hint">{r.login_hint}</p>}
+                            </details>
+                          )}
+                        </div>
+                        <div className="ck-doctor-actions">
+                          {inst?.phase === 'running' && onShowPane && (
+                            <button type="button" className="ck-btn ck-btn--secondary ck-btn--sm" onClick={() => onShowPane(inst.paneId)}>
+                              Show window
+                            </button>
+                          )}
+                          {primary && !working && (
+                            <button
+                              type="button"
+                              className="ck-btn ck-btn--primary ck-btn--sm"
+                              disabled={busy && primary === 'test'}
+                              onClick={() => run(primary)}
+                              title={ACTION_TITLE[primary]}
+                            >
+                              {ACTION_LABEL[primary]}
+                            </button>
+                          )}
+                          {more.length > 0 && !working && (
+                            <details className="ck-doctor-more">
+                              <summary aria-label={`More for ${r.label}`}>More</summary>
+                              <div className="ck-doctor-more-list">
+                                {more.map((action) => (
+                                  <button
+                                    key={action}
+                                    type="button"
+                                    className="ck-btn ck-btn--plain ck-btn--sm"
+                                    disabled={busy && action === 'test'}
+                                    onClick={() => run(action)}
+                                    title={ACTION_TITLE[action]}
+                                  >
+                                    {ACTION_LABEL[action]}
+                                  </button>
+                                ))}
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
             );
           })}
-          {rows.length === 0 && <li className="ck-sub ck-pad">No agents are registered.</li>}
-        </ul>
+          {rows.length === 0 && <p className="ck-sub ck-pad">No agents are registered.</p>}
+        </div>
       )}
       {sheet && (
         <InstallSheet

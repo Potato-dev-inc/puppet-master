@@ -50,13 +50,6 @@ export function PreviewTab({
   }
   return (
     <div className="sx-preview">
-      {file.html === null ? (
-        <div className="sx-empty">
-          <p className="sx-lead">{T.previewBig}</p>
-        </div>
-      ) : (
-        <iframe className="sx-frame" title={T.tabPreview} sandbox="allow-scripts allow-forms allow-modals" srcDoc={file.html} />
-      )}
       <div className="sx-preview-bar">
         <button
           type="button"
@@ -66,6 +59,13 @@ export function PreviewTab({
           {T.openIt}
         </button>
       </div>
+      {file.html === null ? (
+        <div className="sx-empty">
+          <p className="sx-lead">{T.previewBig}</p>
+        </div>
+      ) : (
+        <iframe className="sx-frame" title={T.tabPreview} sandbox="allow-scripts allow-forms allow-modals" srcDoc={file.html} />
+      )}
     </div>
   );
 }

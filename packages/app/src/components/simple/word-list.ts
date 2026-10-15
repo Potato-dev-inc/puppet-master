@@ -4,7 +4,7 @@
 // no simpler one. `language.test.ts` fails any Simple string that uses a word that is not here.
 //
 // Product words: names of things in PM and of the agents (never translated).
-const PRODUCT = 'pm claude code codex html';
+const PRODUCT = 'pm puppet master claude code codex html';
 
 const FUNCTION_WORDS =
   'a an the this that these those it its i you your yours we our they them their he she his her ' +
@@ -52,7 +52,7 @@ const ADJECTIVES =
 
 const MORE =
   'me my mine off else fewer full harm itself last lost mode moment plant saved save saves smaller switch ' +
-  'time times undo web cancel copied control removed ran reach download expect called agent\'s ai helper ' +
+  'time times undo web cancel copied control removed ran reach download expect called agent\'s ai helper helpers asking earlier separate usually ' +
   'online unsafe showing delete deleted deletes outside inside danger know knows';
 
 const PEOPLE_AND_OTHER =

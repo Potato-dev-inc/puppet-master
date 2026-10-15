@@ -16,8 +16,12 @@ import { normalize } from './folder-guard';
 import { SimpleHome, useCopyMap } from './SimpleHome';
 import { SimpleProject } from './SimpleProject';
 import { useCopy } from './use-copy';
+import { HelpersScreen } from './HelpersScreen';
+import { PaneView } from '../cockpit/PaneView';
+import { patchSettings } from '../../lib/settings';
+import { T } from './copy';
 
-type Screen = 'home' | 'make';
+type Screen = 'home' | 'make' | 'helpers';
 
 
 function Project({ c, paneId, onBack }: { c: CockpitApi; paneId: string; onBack: () => void }) {
@@ -64,6 +68,8 @@ export function SimpleCockpit({
   const status = selected ? (c.registry.panes.get(selected)?.status ?? '') : '';
   const copy = useCopy(selected ?? '', status);
   const showProject = selected !== null && (!copy.loaded || copy.item !== null);
+  // A window that is not a project (a sign-in or an install, from Set up agents) shows as it is.
+  const showWindow = selected !== null && copy.loaded && copy.item === null;
 
   return (
     <LoopGuardContext.Provider value={loop}>
@@ -73,10 +79,19 @@ export function SimpleCockpit({
             <main className="sx-main">
               {showProject && selected ? (
                 <Project c={c} paneId={selected} onBack={() => c.select(null)} />
+              ) : showWindow && selected ? (
+                <div className="sx-window">
+                  <button type="button" className="sx-back" onClick={() => c.select(null)}>
+                    ‹ {T.helpersBack}
+                  </button>
+                  <PaneView c={c} paneId={selected} key={selected} />
+                </div>
+              ) : screen === 'helpers' ? (
+                <HelpersScreen c={c} onClose={() => setScreen('home')} />
               ) : screen === 'make' ? (
                 <MakeSomething
                   onCancel={() => setScreen('home')}
-                  onOpenSettings={() => void c.openSettings()}
+                  onOpenSettings={() => setScreen('helpers')}
                   onStarted={(started) => {
                     setScreen('home');
                     setOpening({ paneId: started.pane_id, folder: started.folder });
@@ -87,6 +102,8 @@ export function SimpleCockpit({
                   c={c}
                   onMake={() => setScreen('make')}
                   onOpen={(id) => c.select(id)}
+                  onHelpers={() => setScreen('helpers')}
+                  onTurnOff={() => void patchSettings({ simple_mode: false })}
                 />
               )}
             </main>

@@ -227,7 +227,7 @@ describe('ask bar', () => {
     expect(api.resize).toHaveBeenLastCalledWith(true);
   });
 
-  it('renders the answer with prose and a code block, and offers Copy, Continue in a pane and Close', async () => {
+  it('renders the answer with prose and a code block, and offers Copy, Open as an agent and Close', async () => {
     const api = fakeApi();
     const answer = 'Run the check first:\n```ts\nconst ok = true;\n```\nThen commit.';
     api.ask.mockImplementation(async (req: AskRequest) => okResult(req, answer));
@@ -238,11 +238,11 @@ describe('ask bar', () => {
     expect(Array.from(host.querySelectorAll('p.askbar-text')).map((p) => p.textContent)).toEqual(['Run the check first:', 'Then commit.']);
     expect(host.querySelector('pre.askbar-code')!.textContent).toBe('const ok = true;');
     expect(buttonByText('Copy')).toBeDefined();
-    expect(buttonByText('Continue in a pane')).toBeDefined();
+    expect(buttonByText('Open as an agent')).toBeDefined();
     expect(buttonByText('Close')).toBeDefined();
   });
 
-  it('Continue in a pane hands the question to the pane and then hides the bar', async () => {
+  it('Open as an agent hands the question to the pane and then hides the bar', async () => {
     const api = fakeApi();
     const clip: AskbarClipboard = { text: 'log line', chars: 8, truncated: false };
     api.clipboard.mockResolvedValue(clip);
@@ -252,7 +252,7 @@ describe('ask bar', () => {
     await act(async () => buttonByText('+ Clipboard')!.click());
     await ask(api, 'Why?');
     await act(async () => {
-      buttonByText('Continue in a pane')!.click();
+      buttonByText('Open as an agent')!.click();
     });
     await flush();
     expect(api.continueInPane).toHaveBeenCalledWith('claude', 'Why?', 'log line');

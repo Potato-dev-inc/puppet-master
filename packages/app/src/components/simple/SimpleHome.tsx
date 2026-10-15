@@ -59,7 +59,21 @@ function sentence(status: string): string {
   return status === 'running' ? T.stateWorking : status === 'waiting_input' ? T.stateNeedsYou : status === 'idle' ? T.stateReady : T.stateStopped;
 }
 
-export function SimpleHome({ c, onMake, onOpen }: { c: CockpitApi; onMake: () => void; onOpen: (paneId: string) => void }) {
+export function SimpleHome({
+  c,
+  onMake,
+  onOpen,
+  onHelpers,
+  onTurnOff,
+}: {
+  c: CockpitApi;
+  onMake: () => void;
+  onOpen: (paneId: string) => void;
+  /** Opens Set up agents inside Simple mode. */
+  onHelpers?: () => void;
+  /** Switches Simple mode off. */
+  onTurnOff?: () => void;
+}) {
   const listing = useAgentRegistry();
   const copies = useCopyMap(c);
   const rows = useMemo(() => projectRows(c, copies, (type) => agentLabel(listing, type)), [c, copies, listing]);
@@ -99,10 +113,22 @@ export function SimpleHome({ c, onMake, onOpen }: { c: CockpitApi; onMake: () =>
           ))}
         </ul>
       )}
-      <p className="sx-foot">
-        {T.look} ·{' '}
+      <p className="sx-foot" data-testid="sx-foot">
+        <button type="button" className="sx-link" onClick={onHelpers}>
+          {T.footHelpers}
+        </button>
+        {' · '}
+        <button type="button" className="sx-link" onClick={() => void c.openSettings('phone')}>
+          {T.footPhone}
+        </button>
+        {' · '}
         <button type="button" className="sx-link" onClick={() => void c.openSettings()}>
-          {T.changeLook}
+          {T.footSettings}
+        </button>
+        {' · '}
+        {T.footSimple}{' '}
+        <button type="button" className="sx-link" onClick={onTurnOff}>
+          {T.footTurnOff}
         </button>
       </p>
     </div>

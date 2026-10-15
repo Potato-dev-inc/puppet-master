@@ -588,3 +588,27 @@
     transform: none;
   }
 }
+
+/* Set up agents inside Simple mode, and a sign-in or install window opened from it. */
+.sx .sx-helpers {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.sx .sx-window {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sx .sx-window > .sx-back {
+  align-self: flex-start;
+  padding: 10px 16px;
+}
+
+/* A disabled primary button must not look like an enabled secondary one. */
+.sx .ck-btn--primary:disabled {
+  background: var(--fill);
+  color: var(--label-4);
+  opacity: 1;
+}
