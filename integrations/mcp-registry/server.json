@@ -9,12 +9,12 @@
     "subfolder": "packages/mcp-server"
   },
   "websiteUrl": "https://github.com/Potato-dev-inc/puppet-master",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@puppet-master/mcp",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "runtimeHint": "npx",
       "transport": { "type": "stdio" },
       "environmentVariables": [
