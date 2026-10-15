@@ -683,3 +683,66 @@ fn a_half_drawn_redraw_of_the_trust_dialog_does_not_release_the_parked_run() {
     handle.join().unwrap().expect("resumed after the real answer");
     assert_eq!(stored(&op).status, OperationStatus::Running);
 }
+
+// ---- a gate that draws after the readiness look (VERIFY-R13 #1) --------------------------------
+
+/// Real Codex 0.162 capture of the first-launch folder-trust screen.
+const CODEX_TRUST_LIVE: &str = include_str!("../tui/codex/fixtures/trust_folder_live.txt");
+
+#[test]
+fn a_trust_screen_that_drew_after_the_readiness_look_parks_the_run_instead_of_failing_it() {
+    // Live (Codex, untrusted folder, isolated run): the pane read `running` before Codex painted, so
+    // the readiness look saw nothing; delivery then met the trust screen and the run ended
+    // PANE_BLOCKED_BY_PROMPT with no card. The dispatch loop now parks on such a refusal.
+    let pane = "gate-late-codex";
+    let registry = pane_for("codex", pane);
+    show(&registry, pane, CODEX_TRUST_LIVE);
+    set_status(&registry, pane, PaneStatus::Running);
+    let screen = crate::pty::registry_read_snapshot(&registry, pane).unwrap();
+    let refusal = crate::pane_prompt::dispatch_blocker("codex", &screen).expect("delivery refuses to type over the screen");
+    assert_eq!(refusal.code, "PANE_BLOCKED_BY_PROMPT");
+    let gate = super::dispatch::late_startup_gate(&refusal, "codex", &registry, pane).expect("a user-only gate is parked on");
+    assert_eq!(gate["kind"], "workspace_trust");
+    // The parked run carries the card's prompt (Inbox: "Trust this folder").
+    let op = operation(&std::env::temp_dir().join(format!("pm-gate-{}", uuid::Uuid::new_v4())));
+    let (project, id) = (op.project_path.clone(), op.operation_id.clone());
+    let handle = {
+        let (registry, project, id) = (registry.clone(), project.clone(), id.clone());
+        std::thread::spawn(move || {
+            crate::operations::run_operation_dispatch(&project, &id, |operation| {
+                operation.pane_id = Some(pane.into());
+                operation.stage = Some("waiting_for_pane_readiness".into());
+                *operation = crate::operations::save_operation_snapshot(operation)?;
+                super::dispatch::park_on_startup_dialog(operation, &registry, pane, "codex", &screen, &[])
+            })
+        })
+    };
+    let parked = wait_for(|| {
+        let snapshot = crate::operations::get_operation(&project, &id).ok()?;
+        (snapshot.status == crate::operations::OperationStatus::WaitingInput).then_some(snapshot)
+    });
+    let action = parked.required_action.expect("the parked run carries the card's prompt");
+    assert_eq!(action["kind"], "workspace_trust", "{action}");
+    assert!(!handle.is_finished(), "parked while the gate shows");
+    // The user trusts the folder in the pane: Codex draws its composer and the run is released.
+    show(&registry, pane, CODEX_READY);
+    set_status(&registry, pane, PaneStatus::Idle);
+    crate::pane_wait_notify::bump_waiters();
+    wait_for(|| handle.is_finished().then_some(()));
+    handle.join().unwrap().expect("released after the user trusted the folder");
+}
+
+#[test]
+fn only_a_user_only_gate_is_parked_on_late() {
+    let registry = pane_for("codex", "gate-late-other");
+    let refusal = |code: &str| crate::operations::OperationError::new(code, "x", true);
+    // A command approval is a prompt, not a startup gate: it keeps its own handling.
+    show(&registry, "gate-late-other", "Allow command?\n  Run this command: ls\n  1. Yes\n  2. No\n");
+    assert!(super::dispatch::late_startup_gate(&refusal("PANE_BLOCKED_BY_PROMPT"), "codex", &registry, "gate-late-other").is_none());
+    // A trust screen but another failure code: not ours.
+    show(&registry, "gate-late-other", CODEX_TRUST_LIVE);
+    assert!(super::dispatch::late_startup_gate(&refusal("PROMPT_NOT_SUBMITTED"), "codex", &registry, "gate-late-other").is_none());
+    // Nothing blocking: no park.
+    show(&registry, "gate-late-other", CODEX_READY);
+    assert!(super::dispatch::late_startup_gate(&refusal("PANE_BLOCKED_BY_PROMPT"), "codex", &registry, "gate-late-other").is_none());
+}

@@ -689,6 +689,7 @@ fn send_task_prompt(
     // A pane that never showed a screen that takes a task is parked once (the user can bring the
     // agent to its input box) and then delivered to again; never typed into, never sent headless.
     let mut parked = false;
+    let mut gate_parks = 0_u8;
     loop {
         let outcome = crate::operations::dispatch_input_if_active(
             &operation.project_path,
@@ -696,6 +697,17 @@ fn send_task_prompt(
             |active| deliver_task(active, registry, app, pane_id, agent_type, &prompt),
         );
         match outcome {
+            // The pane's startup question (folder trust, sign-in) drew AFTER readiness was judged
+            // (the pane reads `running` before the TUI paints): park the run on it, with a card,
+            // exactly as if it had been on screen at the readiness look, instead of failing the run.
+            Err(error) if gate_parks < MAX_LATE_GATE_PARKS && late_startup_gate(&error, agent_type, registry, pane_id).is_some() => {
+                gate_parks += 1;
+                let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
+                // Parking can take minutes: never hold the pane-assignment lock through it.
+                drop(dispatch_guard.take());
+                park_on_startup_dialog(operation, registry, pane_id, agent_type, &screen, &[])?;
+                dispatch_guard = Some(PANE_ASSIGNMENT_SERIAL.lock());
+            }
             Err(error) if error.code == crate::agent_runs::readiness::SCREEN_NOT_READY && !parked => {
                 parked = true;
                 // Parking can take minutes: never hold the pane-assignment lock through it.
@@ -723,6 +735,26 @@ fn send_task_prompt(
         crate::turn_summary::note_dispatched(pane_id);
     }
     Ok(())
+}
+
+/// How many times one run parks again on a startup gate that showed up after the readiness look.
+const MAX_LATE_GATE_PARKS: u8 = 3;
+
+/// The startup gate (folder trust, sign-in: a screen only the user may pass) a refused delivery ran
+/// into, when the refusal is a `PANE_BLOCKED_BY_PROMPT` and the pane still shows such a gate. The
+/// run then parks (`park_on_startup_dialog`) rather than fails. A command approval or a dismissible
+/// notice is not one: those keep their own handling.
+pub(super) fn late_startup_gate(
+    error: &OperationError,
+    agent_type: &str,
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+) -> Option<serde_json::Value> {
+    if error.code != "PANE_BLOCKED_BY_PROMPT" || agent_type == "opencode_native" {
+        return None;
+    }
+    let screen = registry_read_snapshot(registry, pane_id).unwrap_or_default();
+    crate::pane_prompt::startup_gate(agent_type, &screen)
 }
 
 /// Types the task into the pane under the typing permit (`agent_runs::readiness`), as the dispatch

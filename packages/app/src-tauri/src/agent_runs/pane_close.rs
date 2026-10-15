@@ -24,6 +24,27 @@ fn pane_busy(
         .is_some())
 }
 
+/// A run's isolated worktree that nobody can have a use for any more: the run is over (its pane is
+/// closed or failed) and the agent changed nothing in it. Discards the checkout and its `pm/*`
+/// branch and marks it discarded on the run. A worktree with changes is never touched (the Changes
+/// tab is where those are merged or discarded). Returns whether one was removed.
+///
+/// Live (VERIFY-R13 #1): a Codex run that never got past the trust screen failed, and closing its
+/// pane left the empty worktree and branch behind with nothing in the app pointing at them.
+pub fn release_pristine_worktree(snapshot: &OperationSnapshot) -> bool {
+    let Some(worktree) = snapshot.worker.worktree.as_ref().filter(|worktree| worktree.closed.is_none()) else {
+        return false;
+    };
+    if !crate::worktrees::discard_if_pristine(worktree) {
+        return false;
+    }
+    let handle = if snapshot.agent_run_id.is_empty() { worktree.handle.as_str() } else { snapshot.agent_run_id.as_str() };
+    if let Ok(closed) = crate::operations::close_worktree(&snapshot.project_path, handle, "discarded") {
+        crate::bridge::push_operation_sse(&closed);
+    }
+    true
+}
+
 /// Automatic cleanup after a terminal operation (completion, failure, cancel publish).
 pub fn maybe_dispose_after_terminal(
     snapshot: &OperationSnapshot,
@@ -62,6 +83,11 @@ pub fn maybe_dispose_after_terminal(
         Some("operation_terminal_cleanup"),
     )
     .map_err(|error| OperationError::new("PANE_CLEANUP_FAILED", error, true))?;
+    // A run that ended without a result leaves no worktree behind when it changed nothing (a
+    // completed one keeps its, even empty: the Receipt/Changes tabs still read it).
+    if snapshot.status != crate::operations::OperationStatus::Completed {
+        release_pristine_worktree(snapshot);
+    }
     Ok(())
 }
 
@@ -87,12 +113,13 @@ pub fn maybe_dispose_on_dispatch_failure(
         );
         return Ok(());
     }
-    crate::pty::registry_kill_pane_with_reason(
+    let killed = crate::pty::registry_kill_pane_with_reason(
         registry,
         pane_id,
         Some("dispatch_failed_cleanup"),
-    )
-    .map_err(|error| OperationError::new("PANE_CLEANUP_FAILED", error, true))?;
+    );
+    release_pristine_worktree(snapshot);
+    killed.map_err(|error| OperationError::new("PANE_CLEANUP_FAILED", error, true))?;
     Ok(())
 }
 
@@ -113,6 +140,8 @@ pub fn dispose_explicit_close(
         pane_id,
         Some("close_agent"),
     );
+    // Closing the run: an isolated worktree it never changed is garbage, not work to keep.
+    release_pristine_worktree(snapshot);
     Ok(())
 }
 
@@ -289,6 +318,65 @@ mod tests {
         op.pane_created = pane_created;
         op.status = OperationStatus::Completed;
         op
+    }
+
+    fn git_repo_with_worktree(handle: &str) -> (String, crate::worktrees::WorktreeRef) {
+        let project = std::env::temp_dir().join(format!("pm-wt-close-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&project).unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git").args(args).current_dir(&project).output().unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        git(&["init", "-q", "-b", "main"]);
+        for (key, value) in [("user.name", "T"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")] {
+            git(&["config", key, value]);
+        }
+        std::fs::write(project.join("a.txt"), "alpha
+").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "initial"]);
+        let project = project.to_string_lossy().into_owned();
+        let worktree = crate::worktrees::create(&project, handle).unwrap();
+        (project, worktree)
+    }
+
+    fn branch_exists(project: &str, branch: &str) -> bool {
+        let out = std::process::Command::new("git").args(["branch", "--list", branch]).current_dir(project).output().unwrap();
+        !String::from_utf8_lossy(&out.stdout).trim().is_empty()
+    }
+
+    #[test]
+    fn closing_a_run_discards_the_worktree_it_never_changed_and_keeps_one_with_work() {
+        // VERIFY-R13 #1: a Codex run stuck on the trust screen was closed; its worktree and pm/*
+        // branch stayed behind.
+        let (project, worktree) = git_repo_with_worktree("handle");
+        let mut snapshot = snapshot_with_pane(&project, "wt-pane", true, true);
+        snapshot.worker.worktree = Some(worktree.clone());
+        let registry = Arc::new(Mutex::new(PaneRegistry::default()));
+        dispose_explicit_close(&snapshot, &registry).unwrap();
+        assert!(!std::path::Path::new(&worktree.path).exists(), "the empty checkout is gone");
+        assert!(!branch_exists(&project, &worktree.branch), "and its branch");
+
+        // A worktree the agent changed is work: closing the pane never throws it away.
+        let (project, worktree) = git_repo_with_worktree("handle");
+        std::fs::write(std::path::Path::new(&worktree.path).join("new.txt"), "work
+").unwrap();
+        let mut snapshot = snapshot_with_pane(&project, "wt-pane", true, true);
+        snapshot.worker.worktree = Some(worktree.clone());
+        dispose_explicit_close(&snapshot, &registry).unwrap();
+        assert!(std::path::Path::new(&worktree.path).join("new.txt").is_file());
+        assert!(branch_exists(&project, &worktree.branch));
+    }
+
+    #[test]
+    fn a_failed_dispatch_does_not_leave_its_empty_worktree_behind() {
+        let (project, worktree) = git_repo_with_worktree("handle");
+        let mut snapshot = snapshot_with_pane(&project, "wt-pane", true, false);
+        snapshot.worker.worktree = Some(worktree.clone());
+        let registry = Arc::new(Mutex::new(PaneRegistry::default()));
+        maybe_dispose_on_dispatch_failure(&snapshot, &registry).unwrap();
+        assert!(!std::path::Path::new(&worktree.path).exists());
+        assert!(!branch_exists(&project, &worktree.branch));
     }
 
     #[test]
