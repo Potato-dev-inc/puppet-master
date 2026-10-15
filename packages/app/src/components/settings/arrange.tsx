@@ -28,7 +28,7 @@ const LABS_ORDER = ['team', 'ask-bar', 'simple-mode', 'live-updates', 'opencode-
 export const LAYOUT: Partial<Record<SectionId, LayoutGroup[]>> = {
   general: [
     { group: 'Project', rows: ['project-folder'] },
-    { group: 'Appearance', rows: ['theme', 'animated-tray', { pointerTo: 'simple-mode' }] },
+    { group: 'Appearance', rows: ['theme', 'animated-tray', { pointerTo: 'simple-mode' }, 'welcome'] },
     {
       group: 'Safety',
       rows: ['security-ask-before-control', 'security-agents-merge', 'confirm-close', 'loop-guard', 'security-recent-approvals'],

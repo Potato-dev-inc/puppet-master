@@ -60,6 +60,15 @@ describe('groups inside the sections', () => {
     expect(heads).toEqual(['Project', 'Appearance', 'Safety', 'Budgets', 'Undo and memory', 'When you are away', 'Labs', 'Storage', 'About']);
   });
 
+  it('"Show the welcome" (first-run) sits in General > Appearance, after the Simple mode link', () => {
+    const rows = section('general').rows;
+    const welcome = rows.find((r) => r.id === 'welcome');
+    expect(welcome?.group).toBe('Appearance');
+    const appearance = rows.filter((r) => r.group === 'Appearance').map((r) => r.id);
+    expect(appearance[appearance.length - 1]).toBe('welcome');
+    expect(appearance).toContain('general-simple-mode-link');
+  });
+
   it('Phone starts with Pair a phone, then the paired phones, then the settings, then the public address', () => {
     const heads = groupRows(section('phone').rows).map((g) => g.head);
     expect(heads.filter(Boolean)).toEqual(['Pair a phone', 'Your phones', 'On the phone', 'Public address']);
