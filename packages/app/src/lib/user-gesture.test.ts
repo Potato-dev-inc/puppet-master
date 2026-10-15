@@ -5,7 +5,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { gestureOf } from './user-gesture';
+import { gestureOf, pressFor } from './user-gesture';
 
 describe('gestureOf', () => {
   it('carries the event: trusted only when the browser says so, a fresh id each time', () => {
@@ -16,6 +16,21 @@ describe('gestureOf', () => {
     // `element.click()` from code is not trusted; a missing flag is not trusted either.
     expect(gestureOf({ isTrusted: false, type: 'click' }).trusted).toBe(false);
     expect(gestureOf({ type: 'click' }).trusted).toBe(false);
+  });
+
+  it('a key press that presses a button from code hands its own gesture to that click, once', () => {
+    let seen: ReturnType<typeof gestureOf> | null = null;
+    pressFor({ isTrusted: true, type: 'keydown' }, () => {
+      seen = gestureOf({ isTrusted: false, type: 'click' });
+    });
+    expect(seen).toMatchObject({ trusted: true, kind: 'keydown' });
+    // Outside the press nothing is handed: a code click is untrusted again.
+    expect(gestureOf({ isTrusted: false, type: 'click' }).trusted).toBe(false);
+    // An untrusted key press hands an untrusted gesture.
+    pressFor({ isTrusted: false, type: 'keydown' }, () => {
+      seen = gestureOf({ isTrusted: false, type: 'click' });
+    });
+    expect(seen).toMatchObject({ trusted: false });
   });
 
   it('reads the native event behind a React event', () => {

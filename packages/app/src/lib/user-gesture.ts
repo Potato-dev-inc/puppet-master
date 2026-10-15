@@ -28,9 +28,33 @@ function freshId(): string {
   return `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+// A real key press that presses a card's button from code (the Inbox's 1 2 3): `button.click()` is
+// not trusted, so the key's own gesture is handed to the click it causes, once, synchronously.
+let handed: UserGesture | null = null;
+
+/**
+ * Run `press` (which calls `button.click()`) for the person's key press `event`. The click handler's
+ * `gestureOf` then returns the key's gesture (trusted only when the key press was). One use; nothing is
+ * handed outside `press`, so a timer or an effect still has no gesture to use.
+ */
+export function pressFor<T>(event: GestureSource, press: () => T): T {
+  const own = gestureOf(event);
+  handed = own;
+  try {
+    return press();
+  } finally {
+    handed = null;
+  }
+}
+
 /** The gesture for the event a click handler received. */
 export function gestureOf(event: GestureSource): UserGesture {
   const native = event.nativeEvent ?? event;
+  if (native.isTrusted !== true && handed) {
+    const key = handed;
+    handed = null;
+    return key;
+  }
   return {
     id: freshId(),
     trusted: native.isTrusted === true,

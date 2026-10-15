@@ -225,9 +225,10 @@ describe('keyboard', () => {
     const low = cards()[1];
     expect(low.dataset.risk).toBe('low');
     press('1');
-    expect(answer).toHaveBeenCalledWith('lo', 'p-low', 'yes', 'Yes', expect.objectContaining({ id: expect.any(String) }));
+    // The key press's own gesture goes with the answer (a synthetic test key is not trusted).
+    expect(answer).toHaveBeenCalledWith('lo', 'p-low', 'yes', 'Yes', expect.objectContaining({ kind: 'keydown' }));
     press('3');
-    expect(answer).toHaveBeenLastCalledWith('lo', 'p-low', 'no', 'No, tell Claude what to do differently', expect.objectContaining({ id: expect.any(String) }));
+    expect(answer).toHaveBeenLastCalledWith('lo', 'p-low', 'no', 'No, tell Claude what to do differently', expect.objectContaining({ kind: 'keydown' }));
   });
 
   it('O opens the terminal of the focused card and Esc dismisses a question', () => {

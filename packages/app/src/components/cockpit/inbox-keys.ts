@@ -3,6 +3,7 @@
 //   O       open the card's terminal      Esc     dismiss the card
 // The handler reads the DOM the cards render (`data-ib-card`, `data-ib`), so every kind of card works the same.
 import { focusWithRing } from './InboxCard';
+import { pressFor } from '../../lib/user-gesture';
 
 const EDITABLE = /^(INPUT|TEXTAREA|SELECT)$/;
 const OVERLAY = '.ck-sheet, [aria-modal="true"], dialog';
@@ -20,6 +21,9 @@ export interface KeyLike {
   metaKey?: boolean;
   altKey?: boolean;
   preventDefault: () => void;
+  /** The key press is real input (`Event.isTrusted`): its gesture goes to the answer it presses. */
+  isTrusted?: boolean;
+  type?: string;
 }
 
 const cardsIn = (root: HTMLElement): HTMLElement[] => Array.from(root.querySelectorAll<HTMLElement>('[data-ib-card]'));
@@ -37,7 +41,8 @@ export function handleInboxKey(e: KeyLike, root: HTMLElement): boolean {
     const button = buttons[nth];
     if (!button) return false;
     e.preventDefault();
-    button.click();
+    // The backend needs the person's input behind an answer: the key's own gesture goes with the click.
+    pressFor(e, () => button.click());
     return true;
   };
 
