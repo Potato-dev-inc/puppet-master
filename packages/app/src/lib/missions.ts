@@ -171,6 +171,12 @@ export function parseCommand(text: string): string[] {
 
 // ---- lists -------------------------------------------------------------------------------------
 
+/** Mission cards that wait for the person (test changes, stuck, can't start). The budget card is a
+ *  question of its own, already counted with the questions. Live: the Inbox said "Nothing needs
+ *  you" with a mission card under it. */
+export const missionCardCount = (missions: MissionView[]): number =>
+  missions.filter((m) => m.state === 'needs_you' && m.needs !== 'budget').length;
+
 export const isActive = (m: MissionView): boolean => !['green', 'handed_off', 'stopped', 'failed'].includes(m.state);
 
 /** The mission a pane works for: its current agent's pane, or any pane that ran one of its turns. */

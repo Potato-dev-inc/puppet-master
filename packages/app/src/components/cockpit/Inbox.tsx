@@ -18,12 +18,16 @@ import { PaneErrorBody } from './InboxError';
 import { paneHeading } from './titles';
 import { TeamSection } from './team/TeamSection';
 import { MissionsSection } from './mission/MissionCards';
-import { useMissions } from '../../lib/missions';
+import { missionCardCount, useMissions } from '../../lib/missions';
 
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
   // One list for every surface: the badge, the Doto counter and the sidebar group use its length.
   const needs = useNeedsYou(c);
-  const count = blockingItems(needs).length;
+  const missions = useMissions();
+  // A mission card (test changes, stuck, can't start) needs the person too; its budget card is
+  // already one of the questions.
+  const missionCards = missionCardCount(missions.missions);
+  const count = blockingItems(needs).length + missionCards;
   const waiting = c.registry.paneList.filter((p) => itemsOfKind(needs, 'approval').some((i) => i.paneId === p.info.id));
   const errored = c.registry.paneList.filter((p) => itemsOfKind(needs, 'error').some((i) => i.paneId === p.info.id));
   const consents = c.asked.questions.filter(isConsent);
@@ -33,7 +37,6 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
   const noPanes = c.registry.paneList.length === 0 && c.registry.initialReady;
   const firstRun = noPanes && !hasEverSpawned();
   const stuckIds = itemsOfKind(needs, 'stuck').flatMap((i) => (i.paneId ? [i.paneId] : []));
-  const missions = useMissions();
 
   return (
     <div className="ck-inbox">

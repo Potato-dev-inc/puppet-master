@@ -22,6 +22,10 @@ fn rules(m: &Mission) -> String {
     format!("Rules:\n- {tests}\n- You work in a separate copy of the project. Don't merge, push or open pull requests.")
 }
 
+fn one_line_rules(m: &Mission) -> String {
+    rules(m).replace("Rules:\n- ", "Rules: ").replace("\n- ", " ")
+}
+
 fn notes_ask() -> String {
     format!("Read {LEDGER} first. Before you end each turn, add 1-3 lines under 'Notes from agents' in it: what you tried, what failed, what's next.")
 }
@@ -70,12 +74,15 @@ fn start_line(m: &Mission) -> String {
 }
 
 pub fn first(m: &Mission) -> String {
+    // Compact on purpose: a long multi-line prompt is harder for a TUI to take in one paste (live:
+    // a 12-line first prompt was not taken by Claude Code's input box; the 6-line brief was).
+    let checks: Vec<String> = m.checks.iter().map(|c| format!("{} `{}`", c.name, c.display())).collect();
     format!(
-        "Mission: {}\n\nHow we'll know it's done (Puppet Master runs these after every turn):\n{}\n{}\n\n{}\n\n{}",
+        "Mission: {}\nChecks (Puppet Master runs them after every turn): {}. {}\n{}\n{}",
         m.objective.trim(),
-        checks_block(m),
+        checks.join(", "),
         start_line(m),
-        rules(m),
+        one_line_rules(m),
         notes_ask()
     )
 }
@@ -127,7 +134,8 @@ pub fn brief(m: &Mission, copy: &Path, why: &str) -> String {
     let notes = ledger::notes(copy);
     let checks: Vec<String> = m.checks.iter().map(|c| format!("{} `{}`", c.name, c.display())).collect();
     // The first line says what this is, so an agent that reads only the start still knows.
-    let mut out = format!("You're taking over this mission: {why}.\nMission: {}\n", m.objective.trim());
+    // "Mission: ..." first: a pane takes its title from the first line of its task.
+    let mut out = format!("Mission: {}\nYou're taking over this mission: {why}.\n", m.objective.trim());
     out.push_str(&format!("Checks (Puppet Master runs them after every turn): {}\n", checks.join(", ")));
     if !recent.is_empty() {
         out.push_str(&format!("Done so far: {}\n", recent.join("; ")));
@@ -142,7 +150,7 @@ pub fn brief(m: &Mission, copy: &Path, why: &str) -> String {
     if !notes.trim().is_empty() {
         out.push_str(&format!("Notes from the agents before you:\n{}\n", fence(&format!("the notes in {LEDGER}"), &notes)));
     }
-    out.push_str(&rules(m).replace("Rules:\n- ", "Rules: ").replace("\n- ", " "));
+    out.push_str(&one_line_rules(m));
     out.push('\n');
     out.push_str(&notes_ask());
     out

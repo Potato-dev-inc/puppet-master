@@ -186,7 +186,8 @@ pub fn decide(m: &Mission, sig: &Signals) -> Decision {
             let sentence = end.message.clone().unwrap_or_else(|| "it didn't start".into());
             return line(Action::NeedsYou { why: Needs::Setup }, format!("{agent} couldn't start: {sentence}"));
         }
-        return line(Action::Resume { after_restart: false }, format!("{agent}'s pane was gone. Started it again."));
+        let why = if end.status == "not_started" { "'s pane was gone" } else { " didn't get the prompt" };
+        return line(Action::Resume { after_restart: false }, format!("{agent}{why}. Started it again."));
     }
     // 4: the agent's program ended.
     if end.code_is(EXIT_CODES) {

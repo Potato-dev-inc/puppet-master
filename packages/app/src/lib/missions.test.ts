@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MISSION_DONE, MISSION_TAMPER, MISSION_WORKING } from '../dev/mission-fixtures';
 import { PANE_CODEX } from '../dev/fixtures';
-import { barText, commandText, goalNamesTests, isActive, missionOfPane, parseCommand, startBlockedReason, type SheetState } from './missions';
+import { barText, commandText, missionCardCount, goalNamesTests, isActive, missionOfPane, parseCommand, startBlockedReason, type SheetState } from './missions';
 
 const ready: SheetState = {
   objective: 'The cart tests pass.',
@@ -46,6 +46,11 @@ describe('mission lists', () => {
   it('finds the mission a pane works for', () => {
     expect(missionOfPane([MISSION_WORKING], PANE_CODEX)?.id).toBe(MISSION_WORKING.id);
     expect(missionOfPane([MISSION_WORKING], 'other')).toBeNull();
+  });
+
+  it('counts the mission cards that need the person, not the budget card (a question already)', () => {
+    expect(missionCardCount([MISSION_TAMPER, MISSION_WORKING, MISSION_DONE])).toBe(1);
+    expect(missionCardCount([{ ...MISSION_TAMPER, needs: 'budget' }])).toBe(0);
   });
 
   it('knows which missions are still going', () => {

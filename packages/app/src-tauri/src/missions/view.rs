@@ -162,7 +162,8 @@ pub fn state_text(m: &Mission) -> String {
         MissionState::NeedsYou => match m.needs {
             Some(Needs::Tamper) => "Needs you · Tests were changed".into(),
             Some(Needs::Budget) => "Needs you · Budget used up".into(),
-            Some(Needs::Setup) => "Needs you · Checks can't run".into(),
+            Some(Needs::Setup) if m.sentence.as_deref().is_some_and(|s| s.starts_with("The checks")) => "Needs you · Checks can't run".into(),
+            Some(Needs::Setup) => "Needs you · Can't start".into(),
             Some(Needs::Stuck) => format!("Needs you · No progress after turn {turn}"),
             None => "Needs you".into(),
         },
