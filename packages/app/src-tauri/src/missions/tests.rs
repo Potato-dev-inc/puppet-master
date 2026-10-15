@@ -583,6 +583,21 @@ fn a_person_editing_the_copy_between_turns_is_told_to_the_next_turn() {
     assert!(m.outside_paths.contains(&"notes.txt".to_string()), "{:?}", m.outside_paths);
 }
 
+#[test]
+fn two_timeouts_in_a_row_count_as_no_progress() {
+    let project = project(&[]);
+    let io = FakeIo::new(&[
+        ("claude", vec![Turn { files: vec![("cart.js".into(), cart(&["add"]))], end: End::TimedOut }, ending(End::TimedOut)]),
+        ("codex", vec![turn(ALL)]),
+    ]);
+    let m = settle(&start(&project, &["claude", "codex"], &io));
+    assert_eq!(m.state, MissionState::Green, "{:?}", lines(&m));
+    assert_eq!(kinds(&io), vec!["first", "follow_up", "hand_off:codex"]);
+    assert_eq!(io.rounds().iter().map(|r| r.n).collect::<Vec<_>>(), vec![1, 2, 3]);
+    let rows = super::view::timeline(&m);
+    assert!(rows.iter().any(|r| r.text == "stopped after 30 min"), "{rows:?}");
+}
+
 // ---- the test-change guard -----------------------------------------------------------------------
 
 fn skipping_tests() -> String {
