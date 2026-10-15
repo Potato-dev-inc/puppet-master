@@ -192,7 +192,7 @@ pub fn may_receive(caps: Caps, payload: &str) -> bool {
 
 /// Events a device without `watch` gets unchanged: structure and status, no pane text.
 const NO_WATCH_AS_IS: &[&str] = &[
-    "panes",                     // the pane list (also `GET /panes`, open to any device)
+    // ("panes" is not here: the pane list is cut down by `hide_pane_titles`.)
     "settings",                  // public settings (also `GET /settings`)
     "pane-status",               // an enum
     "pane-resize",               // geometry
@@ -244,6 +244,7 @@ const ACTION_SCREEN_KEYS: &[&str] = &["screen", "raw_prompt", "last_screen", "co
 /// - `event: terminal` (raw pane bytes) and `event: chat` (the orchestrator transcript) are left out;
 /// - `event: operation` keeps ids, status, the error's code and message, and `required_action`
 ///   without its screen rows ([`OPERATION_NO_WATCH_FIELDS`]);
+/// - `event: panes` keeps the list but not the task-derived titles ([`hide_pane_titles`]);
 /// - `event: loop-signal` loses its `evidence_lines` (screen lines);
 /// - the events in [`NO_WATCH_AS_IS`] pass unchanged;
 /// - `event: attention` passes to a device that holds `answer` (as `GET /attention` does);
@@ -266,6 +267,7 @@ data: ")?;
     }
     let trim: fn(&mut serde_json::Value) = match name {
         "operation" => trim_operation,
+        "panes" => hide_pane_titles,
         "loop-signal" => |value| {
             if let Some(lines) = value.get_mut("signal").and_then(|s| s.get_mut("evidence_lines")) {
                 *lines = serde_json::json!([]);
@@ -283,6 +285,18 @@ data: ")?;
 data: {json}
 
 ")))
+}
+
+/// The no-`watch` view of the pane list (`event: panes`, `GET /panes`): a pane's `title` is the first
+/// line of its task (`ambient::title`), which is task content, so a device that cannot watch gets a
+/// generic "Agent N" for it. Everything else in the list (ids, agent type, status, folder) stays.
+pub fn hide_pane_titles(value: &mut serde_json::Value) {
+    let Some(panes) = value.as_array_mut() else { return };
+    for (index, pane) in panes.iter_mut().enumerate() {
+        if let Some(title) = pane.get_mut("title").filter(|title| !title.is_null()) {
+            *title = serde_json::Value::String(format!("Agent {}", index + 1));
+        }
+    }
 }
 
 /// The no-`watch` view of an operation snapshot (see [`project`]).
@@ -377,6 +391,35 @@ mod tests {
     /// Review R12 2.1: an `event: operation` used to reach a device without `watch` whole: the task,
     /// the agent's reply, the screen baseline, 12 screen rows of a parked run and 40 lines of a
     /// mid-run exit.
+    #[test]
+    fn the_pane_list_keeps_its_shape_but_not_the_task_titles_for_a_device_without_watch() {
+        // VERIFY-R13 #5: both `event: panes` and `GET /panes` gave every pane the first line of its task.
+        let list = serde_json::json!([
+            {"id": "p1", "agent_type": "claude", "status": "idle", "title": "SECRET-TASK refactor billing"},
+            {"id": "p2", "agent_type": "codex", "status": "running", "title": "SECRET-TWO fix login"},
+            {"id": "p3", "agent_type": "powershell", "status": "idle"}
+        ]);
+        let frame = format!("event: panes
+data: {list}
+
+");
+        let cut = project(answer_only(), &frame).expect("the list still reaches the device").into_owned();
+        assert!(!cut.contains("SECRET"), "task text leaked: {cut}");
+        let value = data_of(&cut);
+        assert_eq!(value[0]["title"], "Agent 1");
+        assert_eq!(value[1]["title"], "Agent 2");
+        assert_eq!(value[0]["id"], "p1");
+        assert_eq!(value[1]["status"], "running");
+        assert!(value[2].get("title").is_none(), "an untitled pane stays untitled");
+        // `GET /panes` runs the same cut.
+        let mut body = list.clone();
+        hide_pane_titles(&mut body);
+        assert_eq!(body[1]["title"], "Agent 2");
+        // With watch the frame goes out byte for byte.
+        let full = Caps::none().with(Cap::Watch, true);
+        assert_eq!(project(full, &frame).unwrap().as_ref(), frame);
+    }
+
     #[test]
     fn an_operation_event_reaches_a_device_without_watch_without_pane_content() {
         let snapshot = serde_json::json!({

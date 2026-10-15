@@ -298,7 +298,12 @@ pub(super) fn handle_connection(
         };
         crate::event_log::append_bridge_event(SystemEvent::McpToolCompleted { tool, ok, status });
     }
-    let (Ok((status, value)) | Err((status, value))) = result;
+    let (Ok((status, mut value)) | Err((status, mut value))) = result;
+    // The pane list is open to every paired device, but a title is the first line of a task: a
+    // device without `watch` gets a generic one (the same cut `event: panes` gets in the stream).
+    if method == "GET" && segments == ["panes"] && !caller.may(mobile_pairing::Cap::Watch) {
+        mobile_pairing::hide_pane_titles(&mut value);
+    }
     write_json_cors(&mut stream, status, &value)
 }
 
