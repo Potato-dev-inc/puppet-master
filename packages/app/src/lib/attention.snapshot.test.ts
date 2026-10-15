@@ -21,6 +21,13 @@ describe('newerSnapshot keeps what this phone may do', () => {
     expect(next.device?.can_answer).toBe(false);
   });
 
+  it('an empty answer (a backend without the command) keeps what was there and never throws', () => {
+    const none = undefined as unknown as AttentionSnapshot;
+    expect(() => newerSnapshot(null, none)).not.toThrow();
+    expect(newerSnapshot(null, none)).toBeFalsy();
+    expect(newerSnapshot(snap(5, can), none).rev).toBe(5);
+  });
+
   it('an older read never goes back', () => {
     expect(newerSnapshot(snap(5, can), snap(4, { can_answer: false, can_type: false, can_control: false })).device).toEqual(can);
   });

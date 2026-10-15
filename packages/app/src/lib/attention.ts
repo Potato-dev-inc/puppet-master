@@ -208,6 +208,9 @@ export interface AttentionSnapshot {
 
 /** Keep the newer of two snapshots: a frame is applied only when its `rev` is greater. */
 export function newerSnapshot(current: AttentionSnapshot | null, next: AttentionSnapshot): AttentionSnapshot {
+  // No snapshot at all (a backend without the command answers nothing, the dev harness among them):
+  // keep what we had. Reading `next.device` on it took the whole desktop window down.
+  if (!next) return (current ?? next) as AttentionSnapshot;
   if (current && current.rev > next.rev) return current;
   // The same revision read again: nothing changed on the list, but what this phone may do might have.
   if (current && current.rev === next.rev) return next.device ? { ...current, device: next.device } : current;
