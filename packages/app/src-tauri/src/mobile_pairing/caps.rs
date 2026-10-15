@@ -157,6 +157,9 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         // The attention list (what needs the person): sentences, not terminal bytes.
         ("GET", ["attention"]) => Need::AnyOf(Watch, Answer),
         ("POST", ["questions", _, "answer" | "dismiss"]) => Need::Cap(Answer),
+        // A person's answer from the phone card (a budget or usage-limit card needs `control` too,
+        // checked by the answer itself).
+        ("POST", ["attention", _, "answer"]) => Need::Cap(Answer),
         ("POST", ["agents", "answer"]) => Need::Cap(Answer),
         ("POST", [_, _, "opencode", "permissions", _, "reply"]) => Need::Cap(Answer),
         ("POST", [_, _, "opencode", "question", "reply"]) => Need::Cap(Answer),

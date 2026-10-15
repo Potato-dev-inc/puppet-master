@@ -11,6 +11,44 @@ use tauri::AppHandle;
 use super::handles::run_for_pane;
 use super::wire::{query_value, AnswerPromptRequest};
 
+/// How a person's decision reaches the answer route: the permit the key is typed under (so a screen
+/// that printed since the prompt was re-read refuses it), and whether the caller already holds the
+/// answer lock (it checked the prompt under it, so the route must not take it again).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Decision<'a> {
+    pub permit: Option<&'a crate::agent_runs::readiness::AnswerPermit>,
+    pub serialized: bool,
+}
+
+/// A person's answer to the prompt on a pane (a phone card, a lock-screen button), after
+/// `attention::answer` re-read the prompt under the answer lock and issued `permit`. The same route as
+/// `answer_for_pane`: the run's replay ledger, the checkpoint, the turn summary. The caller holds
+/// `answer_guard::serialize_answers()`. Never opts into broad approvals.
+pub(crate) fn answer_decided(
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &AppHandle,
+    pane_id: &str,
+    prompt_id: &str,
+    choice: &str,
+    permit: &crate::agent_runs::readiness::AnswerPermit,
+) -> Result<Value, OperationError> {
+    route_answer_with(
+        AnswerPromptRequest {
+            project_path: None,
+            handle: None,
+            pane_id: Some(pane_id.to_string()),
+            prompt_id: prompt_id.to_string(),
+            choice: choice.to_string(),
+            allow_broad: false,
+        },
+        "",
+        None,
+        registry,
+        app,
+        Decision { permit: Some(permit), serialized: true },
+    )
+}
+
 /// The desktop UI answering the prompt on a pane: the same path as `POST /agents/answer` with a
 /// bare `pane_id` (stale and replay guards included). Broad approvals are never opted into.
 pub(crate) fn answer_for_pane(
@@ -45,10 +83,21 @@ pub(super) fn route_answer(
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     app: &AppHandle,
 ) -> Result<Value, OperationError> {
+    route_answer_with(request, query, session_id, registry, app, Decision::default())
+}
+
+fn route_answer_with(
+    request: AnswerPromptRequest,
+    query: &str,
+    session_id: Option<&str>,
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &AppHandle,
+    decision: Decision<'_>,
+) -> Result<Value, OperationError> {
     let pane_id = request.pane_id.clone().filter(|id| !id.is_empty());
     let shown = pane_id.as_deref().and_then(crate::turn_summary::prompt_before_answer);
     let (prompt_id, choice) = (request.prompt_id.clone(), request.choice.clone());
-    let result = route_answer_inner(request, query, session_id, registry, app);
+    let result = route_answer_inner(request, query, session_id, registry, app, decision);
     if let Ok(value) = &result {
         let pane = pane_id.or_else(|| value.get("pane_id").and_then(Value::as_str).map(str::to_string));
         if let Some(pane) = pane {
@@ -65,6 +114,7 @@ fn route_answer_inner(
     session_id: Option<&str>,
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     app: &AppHandle,
+    decision: Decision<'_>,
 ) -> Result<Value, OperationError> {
     if let Some(pane_id) = request.pane_id.as_deref().filter(|id| !id.is_empty()) {
         crate::checkpoints::before_answer(pane_id);
@@ -96,7 +146,7 @@ fn route_answer_inner(
                 choice: request.choice.clone(),
                 allow_broad: request.allow_broad,
             };
-            match answer_prompt(&project, Some(&project), &routed, session_id, registry, app) {
+            match answer_prompt(&project, Some(&project), &routed, session_id, registry, app, decision) {
                 // Pane control was already authorised for this caller; run ownership
                 // is not required to answer a prompt on a pane it has taken over.
                 Err(error) if error.code == "AUTHORIZATION_DENIED" => {}
@@ -116,13 +166,14 @@ fn route_answer_inner(
                 )?;
             }
         }
-        return crate::pane_prompt::answer(
+        return crate::pane_prompt::answer_with(
             registry,
             app,
             pane_id,
             &request.prompt_id,
             &request.choice,
             request.allow_broad,
+            decision.permit,
         );
     }
     let explicit = request
@@ -138,6 +189,7 @@ fn route_answer_inner(
         session_id,
         registry,
         app,
+        decision,
     )
 }
 
@@ -151,6 +203,7 @@ fn answer_prompt(
     session_id: Option<&str>,
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     app: &AppHandle,
+    decision: Decision<'_>,
 ) -> Result<Value, OperationError> {
     let handle = request.handle.as_deref().unwrap_or_default();
     let snapshot = crate::agent_runs::answer_guard::resolve_target(
@@ -159,7 +212,7 @@ fn answer_prompt(
         handle,
         session_id,
     )?;
-    let _serial = crate::agent_runs::answer_guard::serialize_answers();
+    let _serial = (!decision.serialized).then(crate::agent_runs::answer_guard::serialize_answers);
     // The run's own project, not whichever project the request or the bridge defaulted to.
     let project = snapshot.project_path.as_str();
     let choice_key = match request.choice.as_str() {
@@ -401,7 +454,11 @@ fn answer_prompt(
                 false,
             )
         })?;
-        crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None, crate::pty::WriteOrigin::Answer)
+        let origin = match decision.permit {
+            Some(permit) => crate::pty::WriteOrigin::Decided(permit),
+            None => crate::pty::WriteOrigin::Answer,
+        };
+        crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None, origin)
             .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))?;
         // A "deny" on a startup gate (folder trust) is a final decline of the run waiting on it.
         crate::pane_prompt::note_gate_answer(pane_id, &prompt, choice);

@@ -9,7 +9,10 @@
 
 pub mod caps;
 pub mod copy;
+pub mod answer;
 pub mod derive;
+pub mod fingerprint;
+pub mod layout;
 pub mod model;
 pub mod routes;
 pub mod store;
@@ -74,8 +77,20 @@ fn prompt_rec(p: &crate::pane_prompt::PanePrompt) -> PromptRec {
             .iter()
             .map(|c| model::ChoiceFact { id: c.id.clone(), label: clean(&c.label), broad: c.broad })
             .collect(),
+        reasons: p.risk.as_ref().map(|r| r.reasons.iter().take(6).map(|reason| clean(reason)).collect()).unwrap_or_default(),
         occurrence: 0,
     }
+}
+
+/// The prompt as the store records it, for `attention::answer` to re-read the live screen the same
+/// way a card was built.
+pub(crate) fn live_prompt_rec(p: &crate::pane_prompt::PanePrompt) -> PromptRec {
+    prompt_rec(p)
+}
+
+/// How many times this pane has asked, as the store counts it.
+pub(crate) fn occurrence_of(pane_id: &str) -> u32 {
+    STORE.lock().occurrence(pane_id)
 }
 
 /// Agent-originated text reaches clients only without bidi and control characters.
@@ -103,6 +118,26 @@ pub fn clear(key: &str, resolution: Option<Resolution>) {
 pub fn note_resolution(key: &str, resolution: Resolution) {
     STORE.lock().note_resolution(key, resolution);
     on_changed();
+}
+
+/// The person answered the prompt on `pane_id` at the desktop (the Inbox card): the item's tombstone
+/// says so, and a phone that answers late is told "Already answered on your PC: Allowed once".
+pub fn note_desktop_answer(pane_id: &str, choice_id: &str) {
+    let key = format!("approval:{pane_id}");
+    let label = {
+        let store = STORE.lock();
+        store
+            .snapshot()
+            .items
+            .iter()
+            .find(|i| i.key == key && i.state == model::State::Open)
+            .and_then(|i| i.prompt.as_ref())
+            .and_then(|p| p.choices.iter().find(|c| c.id == choice_id))
+            .map(|c| c.label.clone())
+    };
+    let label = answer::answered_label(choice_id, label.as_deref().unwrap_or(choice_id));
+    let resolution = Resolution { state: "answered".into(), by: Some("desktop".into()), choice_label: Some(label), at_ms: now_ms(), ..Resolution::default() };
+    note_resolution(&key, resolution);
 }
 
 // --- collecting the live facts ----------------------------------------------------------------

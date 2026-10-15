@@ -37,7 +37,7 @@ pub async fn answer_pane_prompt(
     choice: String,
 ) -> Result<(), String> {
     crate::agent_runs::answer_for_pane(&state.registry, &app, &pane_id, &prompt_id, &choice)
-        .map(|_| ())
+        .map(|_| crate::attention::note_desktop_answer(&pane_id, &choice))
         .map_err(|e| format!("{}: {}", e.code, e.message))
 }
 

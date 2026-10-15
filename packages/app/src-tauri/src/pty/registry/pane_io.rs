@@ -93,7 +93,7 @@ pub fn write_input(
         // at, so the write is refused as stale (look again) rather than sent into it. Bytes still
         // in the terminal's pipe are not visible here; delivery's quiet window before an Enter
         // covers those (`agent_runs::delivery::press_enter`).
-        if matches!(origin, crate::pty::WriteOrigin::Task(_) | crate::pty::WriteOrigin::Gate(_)) {
+        if matches!(origin, crate::pty::WriteOrigin::Task(_) | crate::pty::WriteOrigin::Gate(_) | crate::pty::WriteOrigin::Decided(_)) {
             if let (Some(seen), Some(now)) = (admitted_at, crate::pty::stream_pos::emitted(pane_id)) {
                 if now != seen {
                     return Err(format!(

@@ -50,16 +50,29 @@ pub fn detect(
     pane_id: &str,
     allow_broad: bool,
 ) -> Option<Value> {
-    let (agent_type, screen, workspace) = {
+    detect_at(registry, pane_id, allow_broad).map(|(prompt, _)| prompt)
+}
+
+/// [`detect`] plus how much of the pane's output the screen it read includes (`pty::stream_pos`,
+/// read under the same emulator lock as the screen text). An answer permit carries that position, so
+/// the write is refused when the pane printed anything after the prompt was read.
+pub fn detect_at(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    pane_id: &str,
+    allow_broad: bool,
+) -> Option<(Value, Option<u64>)> {
+    let (agent_type, screen, pos, workspace) = {
         let reg = registry.lock();
         let pane = reg.panes.get(pane_id)?;
-        let contents = pane.screen.lock().screen().contents();
-        (pane.info.agent_type.clone(), contents, pane.info.cwd.clone())
+        let parser = pane.screen.lock();
+        let pos = crate::pty::stream_pos::get(pane_id).map(|p| p.processed.load(std::sync::atomic::Ordering::SeqCst));
+        let contents = parser.screen().contents();
+        (pane.info.agent_type.clone(), contents, pos, pane.info.cwd.clone())
     };
     let mut prompt = detect_in_screen(&agent_type, &screen, allow_broad)?;
     // The pane's folder is known here, so "outside this project" can be judged properly.
     attach_risk(&mut prompt, Some(&workspace));
-    Some(prompt)
+    Some((prompt, pos))
 }
 
 /// Put the plain-language `risk` (see `prompt_risk`) on a detected prompt. Without a workspace,
@@ -321,6 +334,20 @@ pub fn answer(
     choice: &str,
     allow_broad: bool,
 ) -> Result<Value, OperationError> {
+    answer_with(registry, app, pane_id, prompt_id, choice, allow_broad, None)
+}
+
+/// [`answer`], typed under a person's `AnswerPermit` when one is given (a phone card, a lock-screen
+/// button): the key is refused when the pane printed since the prompt was re-read.
+pub fn answer_with(
+    registry: &Arc<Mutex<PaneRegistry>>,
+    app: &AppHandle,
+    pane_id: &str,
+    prompt_id: &str,
+    choice: &str,
+    allow_broad: bool,
+    permit: Option<&crate::agent_runs::readiness::AnswerPermit>,
+) -> Result<Value, OperationError> {
     let agent_type = registry
         .lock()
         .panes
@@ -348,7 +375,11 @@ pub fn answer(
         ));
     }
     let (key, reply_choice) = reply_key(&agent_type, &prompt, choice, allow_broad)?;
-    crate::pty::registry::write_input(registry, app, pane_id, &key, true, false, None, crate::pty::WriteOrigin::Answer)
+    let origin = match permit {
+        Some(permit) => crate::pty::WriteOrigin::Decided(permit),
+        None => crate::pty::WriteOrigin::Answer,
+    };
+    crate::pty::registry::write_input(registry, app, pane_id, &key, true, false, None, origin)
         .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))?;
     note_gate_answer(pane_id, &prompt, &reply_choice);
     Ok(
