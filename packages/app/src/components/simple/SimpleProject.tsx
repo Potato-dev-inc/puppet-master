@@ -26,7 +26,7 @@ import { GoBackTab } from './GoBackTab';
 import { PreviewTab } from './PreviewTab';
 import { F, T } from './copy';
 import { currentProblem } from './error-text';
-import { endState, needsScreen, shouldResendTask } from './screen-model';
+import { endState, needsScreen, runRefreshMs, shouldResendTask } from './screen-model';
 import { errorCode, simpleApi, type SimpleApi } from './simple-api';
 import { projectLabel, useCopy } from './use-copy';
 
@@ -130,11 +130,13 @@ export function SimpleProject({
   // While the agent works, new words arrive in the transcript: look again every few seconds.
   const refreshRun = useRef(run.refresh);
   refreshRun.current = run.refresh;
+  const refreshMs = runRefreshMs(status, run.info?.status);
   useEffect(() => {
-    // Not only while it works: the run settles a moment after the agent is idle.
-    const timer = window.setInterval(() => refreshRun.current(), status === 'running' ? 3000 : 6000);
+    // Not only while it works: the run settles a moment after the agent is idle (looked at often
+    // until it has, so "still working" does not outlast Ready).
+    const timer = window.setInterval(() => refreshRun.current(), refreshMs);
     return () => window.clearInterval(timer);
-  }, [status]);
+  }, [refreshMs]);
 
   // The folder-trust question parks the run before anything is typed. When she has answered it
   // (the agent is idle again), send the same task once more: she already pressed Start on these words.

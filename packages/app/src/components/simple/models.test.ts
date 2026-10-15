@@ -7,7 +7,7 @@ import { pickAgent } from './agent-pick';
 import { conversationItems, stepText, summarySentence } from './conversation-model';
 import { currentProblem } from './error-text';
 import { agoText, versionsFrom } from './go-back-model';
-import { endState, needsScreen, shouldResendTask } from './screen-model';
+import { endState, needsScreen, runRefreshMs, shouldResendTask } from './screen-model';
 import { fullPrompt, HOUSE_RULES, projectName, TEMPLATES, visiblePrompt } from './templates';
 
 const risky = (choices = 2): PanePrompt => ({
@@ -68,6 +68,15 @@ describe('keep and throw away', () => {
   it('work once the run has settled', () => {
     expect(endState({ status: 'idle', copyState: 'unreviewed', files: 2 })).toBe('ready');
     expect(endState({ status: 'idle', copyState: 'unreviewed', files: 0 })).toBe('empty');
+  });
+  it('looks at the run often between Ready and the run closing, so still working does not linger', () => {
+    // Live v0.2.0 hunt: the bar said still working for ~5 s after the pane read Ready (6 s polling).
+    expect(runRefreshMs('idle', 'running')).toBeLessThanOrEqual(1000);
+    expect(runRefreshMs('idle', 'starting')).toBeLessThanOrEqual(1000);
+    expect(runRefreshMs('idle', 'completed')).toBe(6000);
+    expect(runRefreshMs('idle', null)).toBe(6000);
+    expect(runRefreshMs('running', 'running')).toBe(3000);
+    expect(runRefreshMs('waiting_input', 'waiting_input')).toBe(6000);
   });
 });
 

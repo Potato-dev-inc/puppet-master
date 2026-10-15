@@ -39,6 +39,17 @@ export function shouldResendTask(facts: {
 }
 
 /**
+ * How often the project's run is looked at again. The run closes a moment after the agent's pane
+ * reads Ready; until it has, the bar says "still working" (the copy is `active`), so look every
+ * ~0.8 s then instead of every 6 s (live v0.2.0 hunt: "still working" stayed ~5 s after Ready).
+ */
+export function runRefreshMs(status: string, runStatus: string | null | undefined): number {
+  if (status === 'running') return 3000;
+  const runOpen = !!runStatus && !['completed', 'failed', 'cancelled'].includes(runStatus);
+  return status === 'idle' && runOpen ? 800 : 6000;
+}
+
+/**
  * What the bottom bar says and whether Keep and Throw away work. The copy cannot be kept or thrown
  * away while the agent still has the run open (`item.state === 'active'`: it works, or it waits for
  * an answer). Rust refuses then (`RUN_ACTIVE`), so the buttons wait instead of failing.
