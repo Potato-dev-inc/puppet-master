@@ -420,7 +420,9 @@ mod tests {
                 placement: None,
                 owner_session_id: None,
                 worker_has_mcp_tools: false,
-                agent_run_id: Some(format!("run-{pane}")),
+                // The run's own copy: a real isolated run's worktree carries the run's handle. A different
+                // handle means the run joined someone else's copy (a mission's), which it never discards.
+                agent_run_id: Some(worktree.handle.clone()),
                 turn_index: 0,
                 worker: WorkerPersist { worktree: Some(worktree.clone()), ..WorkerPersist::default() },
                 context_policy: None,

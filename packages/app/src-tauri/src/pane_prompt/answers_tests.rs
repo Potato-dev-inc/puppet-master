@@ -194,7 +194,12 @@ fn callers(needle: &str) -> Vec<String> {
 /// session (gated by `agent_authority`), or a run's own policy (allowed commands, never a trust gate)?
 #[test]
 fn every_answer_path_is_known_and_presses_its_key_through_answer_once() {
-    let presses = callers("WriteOrigin::Answer)");
+    // A key typed as an answer: `WriteOrigin::Answer` passed straight to `write_input`, or chosen in a
+    // `match` next to a phone's `WriteOrigin::Decided(permit)` (integration v0.2.1: phone-approval's
+    // decided answers go through the same two places).
+    let mut presses = callers("WriteOrigin::Answer)");
+    presses.extend(callers("WriteOrigin::Answer,"));
+    presses.sort();
     assert_eq!(
         presses,
         ["agent_runs/headless/pane_turn.rs", "agent_runs/routes/answer.rs", "pane_prompt/mod.rs"],
@@ -202,14 +207,19 @@ fn every_answer_path_is_known_and_presses_its_key_through_answer_once() {
     );
     for file in &presses {
         let code = &sources().into_iter().find(|(rel, _)| rel == file).unwrap().1;
-        assert!(code.matches("answer_once(").count() >= code.matches("WriteOrigin::Answer)").count(), "{file}: a key outside answer_once");
+        let keys = code.matches("WriteOrigin::Answer)").count() + code.matches("WriteOrigin::Answer,").count();
+        assert!(code.matches("answer_once(").count() >= keys, "{file}: a key outside answer_once");
     }
     // The desktop's answer function: only the Tauri command (which carries the click) and the
     // dev-only fake-TUI harness (which builds a click like the UI does).
     assert_eq!(callers("answer_for_pane("), ["agent_runs/routes/answer.rs", "commands/cockpit.rs", "fake_tui/world.rs"]);
     // The bare-pane answer: the bridge route (agents and local programs, gated by agent_authority)
     // and a phone's lock-screen tap (a one-shot token minted for that device).
-    assert_eq!(callers("pane_prompt::answer("), ["agent_runs/routes/answer.rs", "bridge/routes/push.rs"]);
+    // (The route calls `answer_with`, the same function with a phone's decided permit.)
+    let mut bare = callers("pane_prompt::answer(");
+    bare.extend(callers("pane_prompt::answer_with("));
+    bare.sort();
+    assert_eq!(bare, ["agent_runs/routes/answer.rs", "bridge/routes/push.rs"]);
 }
 
 /// The startup gates' keys are never declared as dismiss keys: a trust dialog is never closed by
