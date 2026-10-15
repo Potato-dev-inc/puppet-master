@@ -137,6 +137,9 @@ pub fn sync(m: &Mission) {
                 choice_label: None,
                 reason: None,
                 at_ms: super::store::now_ms(),
+                // A mission card is decided in the app (mission_decide), never by a phone.
+                device_name: None,
+                device_id: None,
             };
             crate::attention::clear(&key(m), Some(resolution));
         }
