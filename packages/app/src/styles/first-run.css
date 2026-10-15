@@ -534,11 +534,7 @@
   }
 }
 
-.cockpit .fr-layer .ck-btn--primary:disabled {
-  background: var(--fill);
-  color: var(--label-4);
-  opacity: 1;
-}
+/* A disabled primary: the one rule in cockpit.css (.cockpit .ck-btn--primary:disabled) covers the welcome. */
 
 /* The answer is words, not a terminal: paragraphs and lists, code in a quiet chip. */
 .cockpit .fr-answer p {
