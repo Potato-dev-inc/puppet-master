@@ -43,6 +43,13 @@ const unquote = (text: string): string => text.replace(HOTKEY_HINT, '').replace(
  * <command>" and "Deny". Only the first plain yes and the first no are renamed. A choice that does
  * not fit (a second yes, a scope this does not name) keeps its own label, so no meaning is lost.
  */
+/**
+ * A startup gate (a folder-trust dialog: Claude's and Codex's `workspace_trust`): a decision about a
+ * folder, not about a command. Its own words ("Trust this folder", "Don't trust") stay; "Allow once"
+ * would be wrong (the answer is saved by the agent for good).
+ */
+export const isStartupGate = (kind: string | null | undefined): boolean => /trust/i.test(kind ?? '');
+
 export function choiceWords(choices: ReadonlyArray<PromptChoice>): Map<string, ChoiceWords> {
   const out = new Map<string, ChoiceWords>();
   let yes = false;

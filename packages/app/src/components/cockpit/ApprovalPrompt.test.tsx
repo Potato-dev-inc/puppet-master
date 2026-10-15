@@ -178,6 +178,24 @@ describe('ApprovalPrompt', () => {
     expect(answers[2].getAttribute('title')).toBe('No, tell Claude what to do differently');
   });
 
+  it('a folder-trust question keeps its own words (Trust this folder, Don’t trust), never Allow once', () => {
+    // Live (integration v0.2.1): the Codex trust card read "Allow once / Deny".
+    const trust: PanePrompt = {
+      promptId: 'p-trust',
+      kind: 'workspace_trust',
+      text: 'raw',
+      summary: 'Trust this folder?',
+      choices: [{ id: 'trust', label: 'Trust this folder' }, { id: 'deny', label: "Don't trust" }],
+      risk: { level: 'medium', headline: 'Trust this folder', reasons: ['The agent will be able to read and change files here.'] },
+    };
+    const onAnswer = render(trust);
+    expect(btn('Allow once')).toBeUndefined();
+    expect(btn('Deny')).toBeUndefined();
+    act(() => btn('Trust this folder')!.click());
+    expect(onAnswer).toHaveBeenCalledWith({ id: 'trust', label: 'Trust this folder' }, expect.anything());
+    expect(btn("Don't trust")).toBeTruthy();
+  });
+
   it('answers with the agent choice, not the renamed word', () => {
     const p: PanePrompt = { ...prompt('low', 'Run tests'), choices: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No, and tell Codex what to do differently (esc)' }] };
     const onAnswer = render(p);

@@ -6,7 +6,7 @@
 // risk Deny comes first, is the primary button and is where the keyboard starts.
 import { useEffect, useRef, useState } from 'react';
 import type { PanePrompt, PromptChoice } from '../../lib/cockpit-api';
-import { CAUTION, LEVEL_WORD, choiceWords, firstReason, layoutChoices } from '../../lib/approval-risk';
+import { CAUTION, LEVEL_WORD, choiceWords, firstReason, isStartupGate, layoutChoices } from '../../lib/approval-risk';
 import { gestureOf, type UserGesture } from '../../lib/user-gesture';
 import '../../styles/approval-card.css';
 import { CardButton, InboxCard, InlineCode, RiskGlyph, focusWithRing } from './InboxCard';
@@ -38,7 +38,7 @@ export function ApprovalPrompt({
   const [more, setMore] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const layout = layoutChoices(prompt);
-  const words = choiceWords(prompt.choices);
+  const words = isStartupGate(prompt.kind) ? new Map<string, { text: string; code?: string }>() : choiceWords(prompt.choices);
   const high = risk?.level === 'high';
 
   // High risk: keyboard focus starts on Deny (or the details button), never on Allow, so a reflex
