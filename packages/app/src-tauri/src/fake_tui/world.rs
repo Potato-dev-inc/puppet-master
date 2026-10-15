@@ -315,6 +315,14 @@ impl Session {
         crate::attention::answer::answer(&env, &caller, item_id, &request)
     }
 
+    /// The summaries of the audit log's approval lines so far, oldest first (the log is shared by the whole
+    /// test process).
+    pub fn approval_audit_lines(&self) -> Vec<String> {
+        let mut lines: Vec<String> = crate::audit::global().recent(500).into_iter().filter(|entry| entry.kind == "approval").map(|entry| entry.summary).collect();
+        lines.reverse();
+        lines
+    }
+
     /// The turn summaries kept for a pane (the card the cockpit shows after a turn).
     pub fn turn_summaries(&self, pane_id: &str) -> Value {
         serde_json::to_value(crate::turn_summary::tracker().summaries(pane_id)).unwrap_or(Value::Null)

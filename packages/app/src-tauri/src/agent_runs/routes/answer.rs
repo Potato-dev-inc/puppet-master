@@ -101,7 +101,11 @@ fn route_answer_with(
     if let Ok(value) = &result {
         let pane = pane_id.or_else(|| value.get("pane_id").and_then(Value::as_str).map(str::to_string));
         if let Some(pane) = pane {
-            crate::agent_authority::gate::note_answer(session_id, &pane, &prompt_id, &choice, Some(registry));
+            // A person's phone card writes its own, accurate audit line ("A phone answered a card"): the
+            // sessionless line below says "You" and "desktop".
+            if decision.permit.is_none() {
+                crate::agent_authority::gate::note_answer(session_id, &pane, &prompt_id, &choice, Some(registry));
+            }
             crate::turn_summary::record_answer(&pane, &prompt_id, &choice, shown);
         }
     }

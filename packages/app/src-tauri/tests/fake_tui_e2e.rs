@@ -216,6 +216,7 @@ steps = [
         "answer_key": "tap-1",
     });
 
+    let audit_before = session.approval_audit_lines().len();
     // What the card did not show: refused as changed, nothing typed.
     let mut wrong = right.clone();
     wrong["fingerprint"] = json!("0000000000000000");
@@ -242,6 +243,9 @@ steps = [
     let answers = events_named(&session, "approval_answer");
     assert_eq!(answers.len(), 1, "the agent saw exactly one answer: {:#?}", session.events());
     assert_eq!((answers[0]["answer"].as_str(), answers[0]["option"].as_u64()), (Some("allow"), Some(1)), "{answers:?}");
+    // One audit line for the answer, and it says a phone gave it (not "You ... desktop").
+    let lines: Vec<String> = session.approval_audit_lines().split_off(audit_before);
+    assert_eq!(lines, vec!["A phone answered a card: Allowed once".to_string()], "{lines:?}");
 }
 
 // ---- 3. the folder-trust dialog ---------------------------------------------------------------------
