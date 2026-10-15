@@ -3,16 +3,13 @@
 .cockpit .ck-team {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   margin-top: 24px;
 }
 .cockpit .ck-team-caption {
   margin: 0;
   padding: 0 2px;
   font-weight: 500;
-}
-.cockpit .ck-team-list + .ck-team-list {
-  margin-top: 4px;
 }
 .cockpit .ck-team-empty {
   padding: 0 2px;
@@ -21,7 +18,7 @@
 .cockpit .ck-team-note,
 .cockpit .ck-team-error {
   margin: 0;
-  padding-left: 24px;
+  padding-left: 0;
   color: var(--label-3);
   overflow-wrap: anywhere;
 }
@@ -33,7 +30,6 @@
   font-weight: 500;
 }
 .cockpit .ck-team-changes {
-  margin-left: 24px;
   border-top: 1px solid var(--sep);
   padding-top: 8px;
 }

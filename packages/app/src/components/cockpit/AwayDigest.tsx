@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import type { Digest } from '../../lib/cockpit-api';
 import { DotSpinner } from './DotSpinner';
+import { formatAge } from './inbox-age';
 import { formatElapsed, spinnerStatus } from './model';
 
 export interface AwayDigestProps {
@@ -29,13 +30,11 @@ export function AwayDigest({ digest, now, onDismiss, onOpenPane, onOpenInbox }: 
     <section className="ck-away" role="region" aria-label="While you were away">
       <div className="ck-away-column">
         <header className="ck-inbox-hero">
-          <div className="ck-doto" aria-label={`${count} agents worked`}>
-            {String(count).padStart(2, '0')}
-          </div>
-          <h1 className="ck-title">
-            {count === 1 ? '1 agent worked while you were away' : `${count} agents worked while you were away`}
-          </h1>
-          <p className="ck-sub">Away for {formatElapsed(now - digest.sinceMs)}. Here is what happened.</p>
+          {/* A plain title. The count lives in the sentence: the big number belongs to the Inbox, where it means "things I must do". */}
+          <h1 className="ck-title">While you were away</h1>
+          <p className="ck-sub">
+            {count === 1 ? '1 agent worked' : `${count} agents worked`}. You were away for {formatElapsed(now - digest.sinceMs)}. Here is what happened.
+          </p>
         </header>
 
         <ul className="ck-list ck-away-lines">
@@ -46,7 +45,7 @@ export function AwayDigest({ digest, now, onDismiss, onOpenPane, onOpenInbox }: 
               </span>
               <span className="ck-away-sentence">{line.sentence}</span>
               {line.turns > 1 && <span className="ck-row-sub">{line.turns} turns</span>}
-              <span className="ck-row-time">{`${formatElapsed(now - line.endedAtMs)} ago`}</span>
+              <span className="ck-row-time" title={`${formatElapsed(now - line.endedAtMs)} ago`}>{formatAge(now - line.endedAtMs)}</span>
             </li>
           ))}
         </ul>

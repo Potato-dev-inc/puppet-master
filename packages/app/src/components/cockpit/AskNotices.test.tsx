@@ -68,18 +68,18 @@ describe('AskNotices', () => {
   it('renders nothing when there are no notices', async () => {
     const { api } = fakeApi([]);
     await mount(api);
-    expect(host.querySelector('.ck-ask-list')).toBeNull();
+    expect(host.querySelector('.ib-list')).toBeNull();
     expect(host.innerHTML).toBe('');
   });
 
   it('shows an answer card with the agent, the question and a preview', async () => {
     const { api } = fakeApi([notice()]);
     await mount(api);
-    const card = host.querySelector('li.ck-ask')!;
+    const card = host.querySelector('[data-ib-card][data-kind="answer"]')!;
     expect(host.querySelector('[aria-label="Answers from your agents"]')).not.toBeNull();
-    expect(card.querySelector('.ck-ask-title')!.textContent).toBe('Answer from Codex');
-    expect(card.querySelector('.ck-ask-q')!.textContent).toBe('How do I share a cache between threads?');
-    expect(card.querySelector('.ck-ask-a')!.textContent).toBe('Wrap the map in an Arc<Mutex<...>>.');
+    expect(card.querySelector('.ib-title')!.textContent).toBe('Answer from Codex');
+    expect(card.querySelector('.ib-reason')!.textContent).toBe('How do I share a cache between threads?');
+    expect(card.querySelector('.ib-clamp')!.textContent).toBe('Wrap the map in an Arc<Mutex<...>>.');
     expect(Array.from(card.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Open', 'Dismiss']);
   });
 
@@ -97,7 +97,7 @@ describe('AskNotices', () => {
     });
     const { api } = fakeApi([failed]);
     await mount(api);
-    expect(host.querySelector('.ck-ask-a')!.textContent).toBe('Codex did not answer in time.');
+    expect(host.querySelector('.ib-clamp')!.textContent).toBe('Codex did not answer in time.');
   });
 
   it('Open calls openNotice with the notice id', async () => {
@@ -112,15 +112,15 @@ describe('AskNotices', () => {
     await mount(api);
     await act(async () => button('Dismiss')!.click());
     expect(api.dismissNotice).toHaveBeenCalledWith('n1');
-    expect(host.querySelector('.ck-ask')).toBeNull();
+    expect(host.querySelector('[data-ib-card]')).toBeNull();
     expect(host.innerHTML).toBe('');
   });
 
   it('shows a notice that is delivered later through onNotice', async () => {
     const { api, deliver } = fakeApi([]);
     await mount(api);
-    expect(host.querySelector('.ck-ask')).toBeNull();
+    expect(host.querySelector('[data-ib-card]')).toBeNull();
     await act(async () => deliver(notice({ id: 'n2', agent_label: 'Cursor Agent' })));
-    expect(host.querySelector('.ck-ask-title')!.textContent).toBe('Answer from Cursor Agent');
+    expect(host.querySelector('.ib-title')!.textContent).toBe('Answer from Cursor Agent');
   });
 });

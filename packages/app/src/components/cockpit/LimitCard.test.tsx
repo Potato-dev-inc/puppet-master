@@ -56,9 +56,11 @@ const button = (text: string) => [...host.querySelectorAll('button')].find((b) =
 describe('LimitCard', () => {
   it('says what happened, when it can continue, and offers exactly two choices', () => {
     render(usage);
-    expect(host.querySelector('.ck-row-title')?.textContent).toBe('Claude Code ran out of usage. It can continue at 14:05.');
-    expect(host.querySelector('.ck-row-time')?.textContent).toBe('ran out 2m ago');
+    expect(host.querySelector('.ib-title')?.textContent).toBe('Claude Code ran out of usage. It can continue at 14:05.');
+    // the one age format, no "ran out" prefix
+    expect(host.querySelector('.ib-age')?.textContent).toBe('2m');
     expect(buttons()).toEqual(['Remind me at 14:05', 'Stop here']);
+    expect(button('Remind me at 14:05')!.className).toContain('ck-btn--primary');
   });
 
   it('says the hand-off is coming later and has no hand-off button', () => {
@@ -84,14 +86,14 @@ describe('LimitCard', () => {
   it('names the pane and can open its terminal', () => {
     const open = vi.fn();
     render(usage, { paneName: 'Claude Code 1', onOpenPane: open });
-    expect(host.querySelector('[data-testid="limit-pane"]')?.textContent).toBe('In Claude Code 1');
+    expect(host.querySelector('.ib-meta')?.textContent).toBe('Claude Code 1');
     act(() => button('Open terminal')!.click());
     expect(open).toHaveBeenCalledOnce();
   });
 
   it('with its own wait on, the backend says so and the card shows it', () => {
     render({ ...usage, context: 'Claude Code is set to continue on its own. Handing the work to another agent is coming in a later update.' });
-    expect(host.querySelector('.ck-q-ctx')?.textContent).toContain('set to continue on its own');
+    expect(host.querySelector('.ib-reason')?.textContent).toContain('set to continue on its own');
   });
 
   it('a limit with no printed reset says so and offers a reminder in an hour', () => {
@@ -120,7 +122,7 @@ describe('LimitCard', () => {
       limit: { kind: 'reset_reminder', agent_label: 'Claude Code' },
     });
     expect(buttons()).toEqual(['Got it']);
-    expect(host.querySelector('.ck-row-time')?.textContent).toBe('reset 2m ago');
+    expect(host.querySelector('.ib-age')?.textContent).toBe('2m');
     act(() => button('Got it')!.click());
     expect(onAnswer).toHaveBeenCalledWith({ choice_id: 'ok' });
   });

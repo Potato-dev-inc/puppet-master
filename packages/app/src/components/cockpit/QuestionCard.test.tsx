@@ -62,10 +62,15 @@ function type(input: HTMLInputElement, value: string) {
 describe('QuestionCard', () => {
   it('shows who asks, the question and its choices', () => {
     render(base);
-    expect(host.textContent).toContain('Question from Planner');
-    expect(host.textContent).toContain('Which database?');
-    expect(host.textContent).toContain('asked 1m ago');
+    // what it wants is the title; who asks is the quiet chip; the age has no prefix
+    expect(host.querySelector('.ib-title')?.textContent).toBe('Which database?');
+    expect(host.querySelector('.ib-meta')?.textContent).toBe('Planner');
+    expect(host.querySelector('.ib-age')?.textContent).toBe('1m');
+    expect(host.textContent).not.toContain('asked');
     expect(buttons().map((b) => b.textContent)).toEqual(['Postgres', 'SQLite', 'Dismiss']);
+    // one action row: the answers left, Dismiss in the same row on the right
+    expect(host.querySelectorAll('.ib-actions')).toHaveLength(1);
+    expect(host.querySelector('.ib-actions-end')?.textContent).toBe('Dismiss');
     // No text field when free text is off.
     expect(host.querySelector('input')).toBeNull();
   });

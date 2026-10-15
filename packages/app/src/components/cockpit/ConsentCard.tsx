@@ -1,12 +1,13 @@
 // A consent card in the Inbox: an agent wants to control a pane it did not start, or answer a risky
 // prompt in one. It is a question Puppet Master raised (see src-tauri/src/agent_authority), so it
-// arrives through the same list as `ask_user` questions and is answered the same way. Deny is the
-// primary button on purpose: the easy tap is the safe one. There is no lock-screen version.
+// arrives through the same list as `ask_user` questions and is answered the same way. Deny comes
+// first and is the primary button on purpose: the easy tap is the safe one. No number key answers it,
+// and there is no lock-screen version.
+import { useEffect, useRef } from 'react';
 import type { Question, QuestionAnswer } from '../../lib/questions';
 import { waitCaption } from '../../lib/questions';
 import '../../styles/cockpit-questions.css';
-import { DotSpinner } from './DotSpinner';
-import { formatElapsed } from './model';
+import { CardButton, InboxCard, focusWithRing } from './InboxCard';
 
 const UNKNOWN = 'Another agent';
 
@@ -30,6 +31,7 @@ export function ConsentCard({
   now,
   onAnswer,
   onOpenPane,
+  autoFocus = false,
 }: {
   q: Question;
   /** The target pane's name in the sidebar, when it is open. */
@@ -37,43 +39,56 @@ export function ConsentCard({
   now: number;
   onAnswer: (answer: QuestionAnswer) => void;
   onOpenPane?: () => void;
+  /** The first card in the Inbox: the keyboard starts on Deny. */
+  autoFocus?: boolean;
 }) {
+  const root = useRef<HTMLDivElement>(null);
   const has = (id: string) => q.choices.some((c) => c.id === id);
+  useEffect(() => {
+    if (!autoFocus) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && /^(INPUT|TEXTAREA)$/.test(active.tagName)) return;
+    focusWithRing(root.current?.querySelector<HTMLElement>('[data-choice="deny"]'));
+  }, [autoFocus, q.id]);
+
   return (
-    <li className="ck-inbox-item is-urgent" data-consent-id={q.id}>
-      <div className="ck-inbox-top">
-        <span className="ck-row-glyph">
-          <DotSpinner status="waiting_input" />
-        </span>
-        <span className="ck-row-title">{consentTitle(q, paneName)}</span>
-        <span className="ck-row-time">{`asked ${formatElapsed(now - q.created_at_ms)} ago`}</span>
-      </div>
-      {q.context && <p className="ck-q-ctx">{q.context}</p>}
-      <div className="ck-inbox-actions">
-        {has('deny') && (
-          <button type="button" className="ck-btn ck-btn--primary" onClick={() => onAnswer({ choice_id: 'deny' })}>
-            Deny
-          </button>
-        )}
-        {has('allow_once') && (
-          <button type="button" className="ck-btn ck-btn--secondary" onClick={() => onAnswer({ choice_id: 'allow_once' })}>
-            Allow once
-          </button>
-        )}
-        {has('always') && (
-          <button type="button" className="ck-btn ck-btn--plain" onClick={() => onAnswer({ choice_id: 'always' })}>
-            Always for this pane
-          </button>
-        )}
-        {onOpenPane && (
-          <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenPane}>
-            Open terminal
-          </button>
-        )}
-      </div>
-      <p className="ck-q-wait" data-testid="consent-wait">
-        {waitCaption(q, now)}
-      </p>
-    </li>
+    <div ref={root} className="ib-approval">
+      <InboxCard
+        kind="consent"
+        glyph="needs"
+        guard
+        title={consentTitle(q, paneName)}
+        age={now - q.created_at_ms}
+        reason={q.context}
+        note={<span data-testid="consent-wait">{waitCaption(q, now)}</span>}
+        data={{ 'data-consent-id': q.id }}
+        actions={
+          <>
+            {has('deny') && (
+              <CardButton tone="primary" role="answer" data-choice="deny" onClick={() => onAnswer({ choice_id: 'deny' })}>
+                Deny
+              </CardButton>
+            )}
+            {has('allow_once') && (
+              <CardButton tone="secondary" role="answer" data-choice="allow_once" onClick={() => onAnswer({ choice_id: 'allow_once' })}>
+                Allow once
+              </CardButton>
+            )}
+            {has('always') && (
+              <CardButton tone="plain" role="answer" data-choice="always" onClick={() => onAnswer({ choice_id: 'always' })}>
+                Always for this pane
+              </CardButton>
+            )}
+          </>
+        }
+        more={
+          onOpenPane ? (
+            <CardButton tone="plain" role="open" onClick={onOpenPane}>
+              Open terminal
+            </CardButton>
+          ) : null
+        }
+      />
+    </div>
   );
 }

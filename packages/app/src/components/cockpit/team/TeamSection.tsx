@@ -8,7 +8,8 @@ import '../../../styles/cockpit-team.css';
 /**
  * Inbox › Team: below "Needs you". My unsent "Tell the team?" drafts, my queued updates and their
  * results, and teammates' cards. Renders nothing while Team is off (Settings › General › Labs).
- * Team cards do not add to the Needs-you count: they wait for me but block no agent.
+ * Team cards do not add to the Needs-you count: they wait for me but block no agent. They are the
+ * same card as everything else in the Inbox, 12px apart.
  */
 export function TeamSection({ api = teamApi, now, paneNames }: { api?: TeamApi; now: number; paneNames?: Map<string, string> }) {
   const { state, refresh } = useTeam(api);
@@ -50,9 +51,9 @@ export function TeamSection({ api = teamApi, now, paneNames }: { api?: TeamApi; 
       {empty && state.active && <p className="ck-sub ck-team-empty">When a teammate pushes, it shows up here.</p>}
 
       {state.drafts.length > 0 && (
-        <ul className="ck-list ck-team-list" aria-label="Unsent">
+        <ul className="ib-list" aria-label="Unsent">
           {state.drafts.map((d) => (
-            <li key={d.id} className="ck-inbox-item">
+            <li key={d.id} className="ib-surface">
               <TellTeamPrompt draft={d} members={state.members} api={api} variant="row" onDone={refresh} />
             </li>
           ))}
@@ -60,17 +61,21 @@ export function TeamSection({ api = teamApi, now, paneNames }: { api?: TeamApi; 
       )}
 
       {jobs.length > 0 && (
-        <ul className="ck-list ck-team-list" aria-label="Updates for your branches">
+        <ul className="ib-list" aria-label="Updates for your branches">
           {jobs.map((j) => (
-            <TeamJobCard key={j.id} job={j} api={api} paneName={j.paneId ? paneNames?.get(j.paneId) : undefined} onDone={refresh} />
+            <li key={j.id}>
+              <TeamJobCard job={j} api={api} paneName={j.paneId ? paneNames?.get(j.paneId) : undefined} onDone={refresh} />
+            </li>
           ))}
         </ul>
       )}
 
       {state.cards.length > 0 && (
-        <ul className="ck-list ck-team-list" aria-label="From your team">
+        <ul className="ib-list" aria-label="From your team">
           {state.cards.map((card) => (
-            <TeamCard key={card.id} card={card} api={api} now={now} onDone={refresh} />
+            <li key={card.id}>
+              <TeamCard card={card} api={api} now={now} onDone={refresh} />
+            </li>
           ))}
         </ul>
       )}

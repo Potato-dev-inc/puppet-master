@@ -1,10 +1,9 @@
 // One `ask_user` question in the Inbox: the agent's question, its choices as buttons, a text field
-// when free text is allowed, and Dismiss. Rendered like a prompt card, marked "Question from <agent>".
+// when free text is allowed, and Dismiss. It is an InboxCard like every other card.
 import { useState } from 'react';
 import { askerName, waitCaption, type Question, type QuestionAnswer } from '../../lib/questions';
 import '../../styles/cockpit-questions.css';
-import { DotSpinner } from './DotSpinner';
-import { formatElapsed } from './model';
+import { CardButton, InboxCard } from './InboxCard';
 
 export function QuestionCard({
   q,
@@ -31,65 +30,61 @@ export function QuestionCard({
   };
 
   return (
-    <li className={`ck-inbox-item${q.urgency === 'high' ? ' is-urgent' : ''}`} data-question-id={q.id}>
-      <div className="ck-inbox-top">
-        <span className="ck-row-glyph">
-          <DotSpinner status="waiting_input" />
-        </span>
-        <span className="ck-row-title">Question from {askerName(q, paneName)}</span>
-        <span className="ck-row-time">{`asked ${formatElapsed(now - q.created_at_ms)} ago`}</span>
-      </div>
-      <p className="ck-q-text">{q.question}</p>
-      {q.context && <p className="ck-q-ctx">{q.context}</p>}
-      {q.choices.length > 0 && (
-        <div className="ck-inbox-actions">
-          {/* Equal weight on purpose: the agent wrote the choices, so none is made the easy default. */}
-          {q.choices.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              className="ck-btn ck-btn--secondary"
-              onClick={() => onAnswer({ choice_id: c.id })}
-            >
-              {c.label}
+    <InboxCard
+      kind="question"
+      glyph="needs"
+      title={q.question}
+      meta={askerName(q, paneName)}
+      age={now - q.created_at_ms}
+      reason={q.context}
+      note={<span data-testid="question-wait">{waitCaption(q, now, paneName)}</span>}
+      data={{ 'data-question-id': q.id, 'data-urgent': q.urgency === 'high' ? '' : undefined }}
+      body={
+        q.allow_free_text ? (
+          <form
+            className="ib-field"
+            onSubmit={(e) => {
+              e.preventDefault();
+              send();
+            }}
+          >
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={q.choices.length > 0 ? 'Or type an answer' : 'Type an answer'}
+              aria-label="Your answer"
+              maxLength={4000}
+            />
+            <button type="submit" className="ck-btn ck-btn--secondary" disabled={!text.trim()}>
+              Send
             </button>
-          ))}
-        </div>
-      )}
-      <p className="ck-q-wait" data-testid="question-wait">
-        {waitCaption(q, now, paneName)}
-      </p>
-      {q.allow_free_text && (
-        <form
-          className="ck-q-field"
-          onSubmit={(e) => {
-            e.preventDefault();
-            send();
-          }}
-        >
-          <input
-            className="ck-q-input"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={q.choices.length > 0 ? 'Or type an answer' : 'Type an answer'}
-            aria-label="Your answer"
-            maxLength={4000}
-          />
-          <button type="submit" className="ck-btn ck-btn--secondary" disabled={!text.trim()}>
-            Send
-          </button>
-        </form>
-      )}
-      <div className="ck-inbox-actions">
-        <button type="button" className="ck-btn ck-btn--plain" onClick={onDismiss}>
-          Dismiss
-        </button>
-        {onOpenPane && (
-          <button type="button" className="ck-btn ck-btn--plain" onClick={onOpenPane}>
-            Open terminal
-          </button>
-        )}
-      </div>
-    </li>
+          </form>
+        ) : null
+      }
+      actions={
+        q.choices.length > 0 ? (
+          // Equal weight on purpose: the agent wrote the choices, so none is made the easy default.
+          <>
+            {q.choices.map((c) => (
+              <CardButton key={c.id} tone="secondary" role="answer" onClick={() => onAnswer({ choice_id: c.id })}>
+                {c.label}
+              </CardButton>
+            ))}
+          </>
+        ) : null
+      }
+      more={
+        <>
+          <CardButton tone="plain" role="dismiss" onClick={onDismiss}>
+            Dismiss
+          </CardButton>
+          {onOpenPane && (
+            <CardButton tone="plain" role="open" onClick={onOpenPane}>
+              Open terminal
+            </CardButton>
+          )}
+        </>
+      }
+    />
   );
 }

@@ -1,9 +1,22 @@
-/* Ask bar answers waiting in the Inbox. Grayscale only; uses the cockpit tokens. */
-.cockpit .ck-ask-list {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 8px;
+/* Ask bar answers waiting in the Inbox: the card itself is an InboxCard (inbox-card.css); this is the
+   question line and the clamped answer. Grayscale only. */
+.cockpit .ib-oneline {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.cockpit .ib-clamp {
+  margin: 0;
+  color: var(--label);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* The docked question bar inside a pane (PaneView) still uses these. */
 .cockpit .ck-ask {
   margin: 10px 16px 0;
   padding: 12px 14px;

@@ -2,23 +2,22 @@ import { useMemo, useState } from 'react';
 import type { WorktreeItem } from '../../../lib/cockpit-api';
 import { jobSub, jobTitle, type TeamApi, type TeamJob } from '../../../lib/team';
 import { Changes, type ChangesApi } from '../Changes';
-import { DotSpinner } from '../DotSpinner';
-import type { SpinnerStatus } from '../model';
+import { CardButton, InboxCard, type CardGlyphKind } from '../InboxCard';
 import { Sheet } from '../Sheet';
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-function glyph(state: TeamJob['state']): SpinnerStatus {
+function glyph(state: TeamJob['state']): CardGlyphKind {
   switch (state) {
     case 'working':
-      return 'running';
+      return 'working';
     case 'failed':
       return 'error';
     case 'ready':
     case 'applied':
-      return 'exited';
+      return 'done';
     default:
-      return 'idle';
+      return 'notice';
   }
 }
 
@@ -79,51 +78,59 @@ export function TeamJobCard({ job, api, paneName, onDone }: { job: TeamJob; api:
   };
 
   return (
-    <li className="ck-inbox-item ck-team-job" data-team-job={job.id} data-state={job.state}>
-      <div className="ck-inbox-top">
-        <span className="ck-row-glyph">
-          <DotSpinner status={glyph(job.state)} />
-        </span>
-        <span className="ck-row-title">{jobTitle(job)}</span>
-      </div>
-      <p className="ck-team-meta">{jobSub(job, paneName)}</p>
-      {ready && job.conflicts.length > 0 && <p className="ck-team-meta">Resolved: {job.conflicts.join(', ')}</p>}
-      {notice && notice !== job.message && <p className="ck-team-meta">{notice}</p>}
-      {error && (
-        <p className="ck-team-error" role="alert">
-          {error}
-        </p>
-      )}
-      {needsStart && job.conflicts.length > 0 && <p className="ck-team-meta">Conflicts: {job.conflicts.join(', ')}</p>}
-      {(ready || canDiscard) && (
-        <div className="ck-inbox-actions">
-          {needsStart && (
-            <button type="button" className="ck-btn ck-btn--primary" disabled={busy} onClick={() => void run(() => api.startJob(job.id))}>
-              Start {job.agentLabel}
-            </button>
-          )}
-          {ready && (
-            <button type="button" className="ck-btn ck-btn--primary" disabled={busy} onClick={() => void run(() => api.apply(job.id))}>
-              Apply to my branch
-            </button>
-          )}
-          {ready && (
-            <button type="button" className="ck-btn ck-btn--secondary" aria-expanded={showChanges} onClick={() => setShowChanges((v) => !v)}>
-              {showChanges ? 'Hide changes' : 'See changes'}
-            </button>
-          )}
-          {canDiscard && (
-            <button type="button" className="ck-btn ck-btn--plain" disabled={busy} onClick={() => setConfirmDiscard(true)}>
+    <>
+      <InboxCard
+        kind="team"
+        glyph={glyph(job.state)}
+        title={jobTitle(job)}
+        reason={jobSub(job, paneName)}
+        data={{ 'data-team-job': job.id, 'data-state': job.state }}
+        body={
+          <>
+            {ready && job.conflicts.length > 0 && <p className="ib-note">Resolved: {job.conflicts.join(', ')}</p>}
+            {notice && notice !== job.message && <p className="ib-note">{notice}</p>}
+            {error && (
+              <p className="ib-error" role="alert">
+                {error}
+              </p>
+            )}
+            {needsStart && job.conflicts.length > 0 && <p className="ib-note">Conflicts: {job.conflicts.join(', ')}</p>}
+            {showChanges && ready && (
+              <div className="ck-team-changes">
+                <Changes paneId={`team:${job.id}`} status={job.state} api={changesApi} hideActions copyLabel={`Separate copy of ${job.into}`} />
+              </div>
+            )}
+          </>
+        }
+        actions={
+          ready || canDiscard ? (
+            <>
+              {needsStart && (
+                <CardButton tone="secondary" role="answer" disabled={busy} onClick={() => void run(() => api.startJob(job.id))}>
+                  Start {job.agentLabel}
+                </CardButton>
+              )}
+              {ready && (
+                <CardButton tone="secondary" role="answer" disabled={busy} onClick={() => void run(() => api.apply(job.id))}>
+                  Apply to my branch
+                </CardButton>
+              )}
+              {ready && (
+                <CardButton tone="secondary" aria-expanded={showChanges} onClick={() => setShowChanges((v) => !v)}>
+                  {showChanges ? 'Hide changes' : 'See changes'}
+                </CardButton>
+              )}
+            </>
+          ) : null
+        }
+        more={
+          canDiscard ? (
+            <CardButton tone="plain" role="dismiss" disabled={busy} onClick={() => setConfirmDiscard(true)}>
               Discard
-            </button>
-          )}
-        </div>
-      )}
-      {showChanges && ready && (
-        <div className="ck-team-changes">
-          <Changes paneId={`team:${job.id}`} status={job.state} api={changesApi} hideActions copyLabel={`Separate copy of ${job.into}`} />
-        </div>
-      )}
+            </CardButton>
+          ) : null
+        }
+      />
       {confirmDiscard && (
         <Sheet labelledBy="ck-team-discard-t" onClose={busy ? undefined : () => setConfirmDiscard(false)}>
           <h2 className="ck-section" id="ck-team-discard-t">
@@ -140,6 +147,6 @@ export function TeamJobCard({ job, api, paneName, onDone }: { job: TeamJob; api:
           </div>
         </Sheet>
       )}
-    </li>
+    </>
   );
 }

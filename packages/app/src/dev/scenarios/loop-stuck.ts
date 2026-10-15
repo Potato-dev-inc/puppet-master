@@ -6,7 +6,7 @@ const s: HarnessScenario = {
   route: 'cockpit',
   select: PANE_CLAUDE,
   after: async (dom) => {
-    await dom.waitFor('.ck-stuck');
+    await dom.waitFor('[data-kind="stuck"]');
     await dom.sleep(400);
   },
 };

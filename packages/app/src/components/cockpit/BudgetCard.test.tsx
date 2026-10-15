@@ -56,11 +56,12 @@ function render(q: Question = card) {
 describe('the budget pause card', () => {
   it('says the agent used its turns, that nothing was lost, and offers Add 10 turns / Stop here', () => {
     render();
-    expect(host.querySelector('.ck-row-title')!.textContent).toBe('Claude Code used its 20 turns.');
+    expect(host.querySelector('.ib-title')!.textContent).toBe('Claude Code used its 20 turns.');
     expect(host.textContent).toContain("It's paused after its last turn. Nothing was lost.");
     expect(host.textContent).toContain('auth refactor');
     expect(button('Add 10 turns')!.className).toContain('ck-btn--primary');
     expect(button('Stop here')!.className).toContain('ck-btn--plain');
+    expect(host.querySelector('.ib-age')?.textContent).toMatch(/^\d+[smhd]$|^now$/);
     expect(host.querySelector('input')).toBeNull();
   });
 

@@ -55,11 +55,15 @@ const button = (text: string) => [...host.querySelectorAll('button')].find((b) =
 describe('ConsentCard', () => {
   it("asks in the pane's own name with Deny as the primary button", () => {
     render(takeOver, 'Codex 1');
-    expect(host.querySelector('.ck-row-title')?.textContent).toBe('Allow Claude Code to control Codex 1?');
+    expect(host.querySelector('.ib-title')?.textContent).toBe('Allow Claude Code to control Codex 1?');
     expect(button('Deny')?.className).toContain('ck-btn--primary');
     expect(button('Allow once')?.className).toContain('ck-btn--secondary');
     expect(button('Always for this pane')?.className).toContain('ck-btn--plain');
     expect(host.textContent).toContain('It did not start this pane.');
+    // Deny first, and no number key may answer a consent
+    expect(Array.from(host.querySelectorAll('[data-ib="answer"]')).map((b) => b.textContent)).toEqual(['Deny', 'Allow once', 'Always for this pane']);
+    expect(host.querySelector('[data-ib-card]')?.hasAttribute('data-guard')).toBe(true);
+    expect(host.textContent).not.toMatch(/asked \d/);
   });
 
   it('sends the choice id for each button', () => {
@@ -78,7 +82,7 @@ describe('ConsentCard', () => {
       consent: { action: 'answer_prompt', requester: 'Another agent', target: 'Claude Code', risk: 'high' },
     };
     render(answer);
-    expect(host.querySelector('.ck-row-title')?.textContent).toBe('Allow another agent to answer a question in Claude Code?');
+    expect(host.querySelector('.ib-title')?.textContent).toBe('Allow another agent to answer a question in Claude Code?');
     expect(button('Always for this pane')).toBeUndefined();
     expect(host.querySelector('input')).toBeNull();
   });
