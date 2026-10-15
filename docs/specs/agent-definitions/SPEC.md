@@ -83,7 +83,7 @@ All paths are under `packages/app/src-tauri/src/` unless stated.
    `tool_registry/catalog/mod.rs::catalog_version()` hashes names, descriptions, method, path and
    `input_schema.to_string()`; `tool_registry/tests.rs::catalog_version_is_pinned` pins it
    (`66-91b6c68e1db9fece` at time of writing). The MCP shim
-   (`bin/puppet_master_mcp/bridge_http.rs`) compares its own `catalog_version()` with `/health` and
+   (`mcp_shim/bridge_http.rs`) compares its own `catalog_version()` with `/health` and
    reports `SCHEMA_DRIFT`. `packages/mcp-server/src/catalog.ts` is a duplicated TypeScript catalog.
 8. Cross-contamination bug: the free functions in `tui/mod.rs` (`is_chrome_line`, `strip_dialogs`,
    `tidy_reply`, `is_tool_activity_line`, `looks_like_menu`) fold or `any()` over EVERY profile in
@@ -928,7 +928,7 @@ argv and flags like `--auto`; it cannot judge the CLI.
   pattern (API-1, API-5). Update the pin in `tool_registry/tests.rs::catalog_version_is_pinned` and
   mirror the schema change in `packages/mcp-server/src/catalog.ts`.
 - **SCHEMA_DRIFT**: an MCP shim built before the bump reports `SCHEMA_DRIFT` against the new bridge
-  (`bin/puppet_master_mcp/bridge_http.rs`). Handling: rebuild the dist exe (memory
+  (`mcp_shim/bridge_http.rs`). Handling: rebuild the dist exe (memory
   `rebuild-mcp-after-changes`: separate `CARGO_TARGET_DIR` + rename swap), then check that
   `/health.catalog_version` equals the shim's. Later agent additions do not change schemas, so drift
   recurs only on genuine schema edits.

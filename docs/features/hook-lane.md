@@ -22,7 +22,7 @@ Agent-agnostic: every per-agent fact is in a `[hooks]` TOML table (`tui/claude/h
 | Part | Where |
 |---|---|
 | `[hooks]` schema + `AGENT_DEF_HOOKS_*` validator codes | `tui/declarative/hooks.rs`, `TuiProfile::hook_scheme` |
-| Emitter (`hook` subcommand) | `bin/puppet_master_mcp/hook.rs` (3 lines in `bin/puppet-master-mcp.rs`) |
+| Emitter (`hook` subcommand) | `mcp_shim/hook.rs` (3 lines in `bin/puppet-master-mcp.rs`) |
 | Token, projection, ledger, shadow recorder, doctor row | `agent_hooks/{token,ingest,ledger,shadow,health}.rs` |
 | `POST /hooks/event`, scope guard | `agent_hooks/route.rs`; one call each in `bridge/router.rs` and `bridge/http.rs::gate` |
 | Claude: `--settings <hooks dir>/claude-settings.v1.json` | `agent_hooks/install/launch.rs` |

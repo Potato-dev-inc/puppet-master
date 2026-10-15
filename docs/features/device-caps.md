@@ -103,7 +103,7 @@ headless-browser CORS proof).
 - `bridge/ws.rs` (typing-permit): one check at the top of the `input` arm; `serve` takes a `Viewer`.
 - `bridge/http.rs`, `bridge/sse.rs`: CORS and stream registration; `handle_sse` takes viewer and CORS.
 - `lib.rs`: three command names and one `#[cfg(test)] mod` line. `push/mod.rs`: one line.
-- `bin/puppet_master_mcp/{endpoint,bridge_http}.rs` (mcp-catalog): one header added; no tool change.
+- `mcp_shim/{endpoint,bridge_http}.rs` (mcp-catalog): one header added; no tool change.
 
 ## Limits / follow-ups
 - Fixed since this branch: the PWA reads `GET /pair/me` and hides its input box for a phone without

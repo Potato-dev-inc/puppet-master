@@ -54,7 +54,7 @@ A user trial on a fresh UI OpenCode pane found two bugs. `delegate_work` on the 
 - WP1 docs: say "after an app restart, call `list_agents` again; pane ids aren't stable, handles are." Optional (YAGNI unless asked): bind the new pane to an old handle when the UI respawns the same slot.
 
 ### Acceptance
-On a fresh connection with no `take_over`, `run_agent({pane_id, task})` succeeds. It also succeeds when the call includes both `context_mode` and `context_policy` with equal values. Add a stdio round-trip test in `bin/puppet_master_mcp/tests.rs` if one is feasible. No MCP-binary-level test for `run_agent` + `pane_id` exists today.
+On a fresh connection with no `take_over`, `run_agent({pane_id, task})` succeeds. It also succeeds when the call includes both `context_mode` and `context_policy` with equal values. Add a stdio round-trip test in `mcp_shim/tests.rs` if one is feasible. No MCP-binary-level test for `run_agent` + `pane_id` exists today.
 
 Untested in the trial: `send_message` and `inspect_agent` on a `delegate_work` run. Retest them after WP0.
 
@@ -94,7 +94,7 @@ Untested in the trial: `send_message` and `inspect_agent` on a `delegate_work` r
 - Run each case for pane_id-only `run_agent` and for handle-based `followup_task`.
 - After a timeout, a follow-up on the same handle keeps the provider session.
 
-Existing test to extend: `bin/puppet_master_mcp/tests.rs` `wait_timeout_keeps_the_followup_handle` (~229–244).
+Existing test to extend: `mcp_shim/tests.rs` `wait_timeout_keeps_the_followup_handle` (~229–244).
 
 ---
 
@@ -125,7 +125,7 @@ Existing test to extend: `bin/puppet_master_mcp/tests.rs` `wait_timeout_keeps_th
 ## WP1: make the happy path obvious (docs and descriptions)
 
 ### Current state
-- Initialize instructions are in `bin/puppet_master_mcp/stdio.rs` ~179–187 (tested in `tests.rs` ~68–74). The Node server (`packages/mcp-server/src/index.ts` ~378–385) sends **no** `instructions`.
+- Initialize instructions are in `mcp_shim/stdio.rs` ~179–187 (tested in `tests.rs` ~68–74). The Node server (`packages/mcp-server/src/index.ts` ~378–385) sends **no** `instructions`.
 - `run_agent` with a pane_id goes through `headless.rs` `bind_existing_worker` (~346–424). It adopts the pane, calls `take_over_pane(.., true)` (always grants control), and infers the backend from the pane. **This is currently unreachable for pane_id calls, because `authorize` denies them first (see WP0-B).** There is no regression test that direct adoption works without a prior `take_over`.
 - `puppet-master-coordinator-guide.md` doesn't exist in the repo. Existing docs are in `docs/orchestrator/`: `README.md`, `quickstart.md`, `workflows.md`, `mcp-cheatsheet.md`, `mcp-gui.md`, `agent-shell-modes.md`, `opencode-native-worker.md`, and `token-efficiency.md`.
 

@@ -38,7 +38,7 @@ Result: `{answered:true, choice_id?|text?, answered_by:"desktop"|"phone"}` or
 aborting the call, is `cancelled`.
 
 ### Blocking pattern (same as `wait_agents`)
-The shim (`bin/puppet_master_mcp/ask_user.rs`) does NOT hold one HTTP request open. The first
+The shim (`mcp_shim/ask_user.rs`) does NOT hold one HTTP request open. The first
 `POST /questions/ask` creates the question and blocks up to 4 s; the shim repeats `{question_id, wait_ms}` until
 resolved, emitting `notifications/progress` between polls (when the client sent a progress token). Consequences:
 - a bridge reconnect between polls loses nothing (`bridge_down` is retried until the deadline);
@@ -99,7 +99,7 @@ orchestrator -> followup_task(handle, "Keep it behind a flag.")
 ### Overlaps with other branches (file level)
 Shared files touched with a few appended lines: `lib.rs`, `commands/mod.rs`, `bridge/router.rs` (one call before
 `Ctx`), `bridge/tool_names.rs`, `tool_registry/catalog/mod.rs`, `tool_registry/mode.rs` (two list entries),
-`tool_registry/tests.rs` (the pin), `bin/puppet_master_mcp/{mod.rs,progress.rs,dispatch/coordination.rs}`,
+`tool_registry/tests.rs` (the pin), `mcp_shim/{mod.rs,progress.rs,dispatch/coordination.rs}`,
 `lib/cockpit-api.ts`, `lib/bridge.ts`, `lib/bridge-types.ts`, `hooks/useCockpit.ts`, cockpit `Inbox.tsx` /
 `Sidebar.tsx` / `model.ts`, `PwaApp.tsx`, `mobile/AgentsOverview.tsx`, `dev/types.ts`, `dev/mock-tauri.ts`.
 Expect textual conflicts with `feat/worktree-isolation` and `feat/account-profiles` (both edit the catalog,

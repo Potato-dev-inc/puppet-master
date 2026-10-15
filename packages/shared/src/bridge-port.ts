@@ -77,7 +77,7 @@ export async function readBridgePort(filePath?: string): Promise<{ port: number;
  * The `X-PM-Local-Secret` header for a request to the local bridge, or `{}` when there is no secret
  * file (an older app). The secret is read from beside the same port file `readBridgePort` uses, on
  * every call, so a restarted app's new secret is picked up. Same lookup as the Rust MCP shim
- * (`bin/puppet_master_mcp/endpoint.rs::local_secret_header`). The bridge only logs a missing secret
+ * (`mcp_shim/endpoint.rs::local_secret_header`). The bridge only logs a missing secret
  * for now; callers never fail because of it.
  */
 export async function readLocalSecretHeaders(filePath?: string): Promise<Record<string, string>> {

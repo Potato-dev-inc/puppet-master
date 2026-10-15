@@ -32,7 +32,7 @@ library crate (`puppet_master_app_lib`) embeds a **loopback HTTP bridge** (`brid
 `127.0.0.1:17321`, scans upward from `PORT_MIN`; the chosen port is written to a port file in
 the app data dir, `app_paths.rs`) that shares the same `PaneRegistry` as the GUI. External
 orchestrators reach it through the **stdio MCP shim** `puppet-master-mcp`
-(`src/bin/puppet-master-mcp.rs` + `src/bin/puppet_master_mcp/`, compiled from the same crate, shipped as
+(`src/bin/puppet-master-mcp.rs` + `src/mcp_shim/`, compiled from the same crate, shipped as
 `packages/mcp-server/dist/puppet-master-mcp.exe` and staged to `resources/bin/`). The shim owns no
 state: it advertises the tool catalog from `tool_registry/`, maps every tool call to an HTTP
 request (method/path come from the `ToolDefinition`), adds an `X-Puppet-Master-Session` header and
@@ -46,7 +46,7 @@ under `<project>/.puppet-master/operations/` that survive restarts. Backends are
 ### How a `run_agent` call flows
 
 1. **MCP tool** `run_agent` (declared in `tool_registry/catalog/agents.rs`, POST `/agents/run`). The shim
-   (`bin/puppet_master_mcp/call.rs::call_tool` -> `dispatch/agents.rs`) mints an `idempotency_key` when
+   (`mcp_shim/call.rs::call_tool` -> `dispatch/agents.rs`) mints an `idempotency_key` when
    missing (`recovery.rs`), injects the session id (`session.rs`), and bounds the HTTP wait
    (`DEFAULT_AGENT_WAIT_MS`).
 2. **Bridge**: `bridge/http.rs::handle_connection` -> `bridge/http.rs::gate` (the first gate:
@@ -182,7 +182,7 @@ agent worktrees (ignore).
 | `bridge/` (`mod.rs` + submodules) | Embedded HTTP server (was one ~4k-line `bridge.rs`). `mod.rs`: `start_embedded_bridge`, doc and re-exports. `http.rs`: `handle_connection`, request parsing, JSON responses. `router.rs`: `route` (authorisation, `/health` via the `Health` struct = `version`, `catalog_version`, `build_id`, `tool_count`; body parsing; dispatch to the route groups). `routes/` = one `handle` per group: `panes.rs` (`/panes`), `operations.rs` (`/operations/...`), `mcp.rs` (`/mcp/{tools,session,mode,...}` + `/agents` lease/handoff routes), `tasks.rs` (`/tasks`), `locks.rs` (`/locks`), `opencode.rs` (`/opencode/...`), `wait.rs` (`/panes/wait*`), `session.rs` (goal, roles, digests), `workspace.rs` (`/workspace/state`, audit, events replay), `shell.rs` (`/shell/exec`), `pairing.rs` (`/pair`). `sse.rs`: `handle_sse`, `push_*_sse` (every payload is also recorded in `event_log.rs`). `event_log.rs`: numbered, capped log of SSE payloads behind `GET /events/poll?cursor=&wait_ms=` (long-poll for phones on tunnels that do not pass SSE; `gap` when events were dropped). `notify_pane_resized` (in `mod.rs`): pane-resize SSE + `pty://panes-changed` for desktop windows. `delegation.rs`: `delegate_operation_http`, `cancel_operation_http`, `publish_operation`. `dispatch.rs`: `dispatch_existing_operation` (background dispatch: pick/spawn pane, wait, hand to the run engine). `pane_util.rs`: `spawn_pane_with_timeout`, `register_spawned_pane`, `pane_ready_for_dispatch`. `locks.rs`: `acquire_operation_locks`, `release_operation_locks`, `parse_operation_lock`, `recover_interrupted_operations_on_startup`. `errors.rs`: `operation_http_error` maps `OperationError` -> HTTP status + body (+ `enrich_handle_error`). `handoff.rs`: take_over/release/transfer helpers. `approvals.rs`: manual-approval detection for fresh workers. `observe.rs`: reacts to pane status changes. `state.rs`: process-wide app handle/registry. `store.rs`: event-log access / read-model rebuilds. `projects.rs`: project-path resolution. `tool_names.rs`: route -> MCP tool name for the event log. Tests: `bridge/tests.rs`. `mcp_status.rs` probes `/health` for the UI. |
 | `bridge/typing_refusals.rs`, `bridge/startup_gate.rs`, `bridge/approvals.rs` | A refused typed write is reported to the caller and logged once per pane and channel; `dismiss_startup_gates` closes dismissible startup screens with gate permits (compares the same rendering before and after); `wait_for_startup_permission_resolution` holds a run parked on a startup dialog until a drawn screen stays without it for `RESOLVED_CONFIRM`. |
 | `tool_registry/` | THE MCP tool catalog. `types.rs`: `ToolDefinition` (name, description, method, path, input/output schema, `ToolSafety`, visibility), `McpMode`-related wire types. `catalog/mod.rs`: `tools()` (assembled from per-family modules `catalog/{agents,context,opencode_reply,opencode_status,operations,orchestrator,panes,tasks,waits}.rs`), `catalog_version()` (hash of names/descriptions/method/path/schemas; `<count>-<hash>`), `mcp_instructions()` (server instruction text), `external_mcp_tool_count()`. `mode.rs`: `tools_for_mode`, `tool_visible_in_mode` (agent/shell/both lists). `schema.rs`: JSON-schema helpers; `extras.rs`: MCP resources and prompts; tests in `tests.rs` (pins `catalog_version`). |
-| `bin/puppet-master-mcp.rs` + `bin/puppet_master_mcp/` | stdio JSON-RPC shim. `stdio.rs`: request loop, `initialize`, tools/resources/prompts listing. `call.rs`: `call_tool` (mode gating, argument shaping, result wrapping), which delegates to `dispatch/{agents,coordination,opencode,operations,panes}.rs` (one bridge request per tool). `progress.rs`: long-poll waits streaming progress; `recovery.rs`: idempotency keys + `WAIT_TIMEOUT` payloads; `session.rs`: session id (`session_id_from`, `PUPPET_MASTER_CLIENT_ID`) and starting mode; `endpoint.rs`: port-file discovery (`BRIDGE_UNAVAILABLE`); `bridge_http.rs`: HTTP client + `SCHEMA_DRIFT` check (shim catalog vs `/health.catalog_version`) + error normalisation; `args.rs`, `shell_hint.rs`; tests in `tests.rs`. |
+| `bin/puppet-master-mcp.rs` + `mcp_shim/` | stdio JSON-RPC shim. `stdio.rs`: request loop, `initialize`, tools/resources/prompts listing. `call.rs`: `call_tool` (mode gating, argument shaping, result wrapping), which delegates to `dispatch/{agents,coordination,opencode,operations,panes}.rs` (one bridge request per tool). `progress.rs`: long-poll waits streaming progress; `recovery.rs`: idempotency keys + `WAIT_TIMEOUT` payloads; `session.rs`: session id (`session_id_from`, `PUPPET_MASTER_CLIENT_ID`) and starting mode; `endpoint.rs`: port-file discovery (`BRIDGE_UNAVAILABLE`); `bridge_http.rs`: HTTP client + `SCHEMA_DRIFT` check (shim catalog vs `/health.catalog_version`) + error normalisation; `args.rs`, `shell_hint.rs`; tests in `tests.rs`. |
 | `mcp_sessions.rs` + `mcp_sessions/` | Per-connection state and ownership. `state.rs`: `Session`, `PaneControl` leases, process-wide store; `identity.rs`: connection identity, catalog mode (`McpMode`), reconnect / `attach_token`; `authorize.rs`: `authorize` (route-level gate); `access.rs`: `check_run_access/read_access/wait_access`; `registration.rs`: `register_owned_pane/agent`; `leases.rs`: `take_over_*`, `release_*`, `transfer_agent`, `attach_coordinator`; `handles.rs`: `resolve_pane_id`, `enrich_handle_error*` (turns a pane id used as handle into a helpful `AGENT_NOT_FOUND`); `persist.rs`: session state across bridge restarts, written by a background `coalesce.rs` writer (the guard publishes a clone; never serialize/write under the global lock). Plan: `docs/plans/wp7-ownership-lifecycle.md`. |
 | `agent_authority/` + `audit/` | Who may control what. `agent_authority/mod.rs` holds the two switches' defaults (A `DEFAULT_ASK_BEFORE_AGENT_CONTROL`, B `DEFAULT_AGENTS_MAY_MERGE`); `config.rs` (own file `agent_authority.json`, Tauri command only, never the phone-patchable settings mirror); `gate.rs` (`check_take_over`, `check_answer`, `note_answer`: called from `bridge/handoff.rs`, `agent_runs/headless/bind.rs`, `agent_runs/routes/answer.rs`); `consent.rs` (the card is a `questions::Question` with `consent` set; allow once / always for this pane (for the agent that asked and its helpers, `mcp_sessions::grant_identity`, not every agent) / deny; error codes `CONSENT_PENDING`, `CONSENT_DENIED`); `merge.rs` (`MERGE_NOT_ALLOWED` for `review_worktree(merge)`, used by `worktrees/routes.rs`). `mcp_sessions/lineage.rs` knows who started each pane (`PaneOrigin`). `audit/` is the hash-chained JSONL log (`<app data>/audit/YYYY-MM.jsonl`, `verify_dir`). UI: `components/cockpit/ConsentCard.tsx`, `components/settings/sections/bridge/Security.tsx`. |
 | `mcp_hints.rs` | Next-step hints appended to mutating tool responses. |
@@ -259,7 +259,7 @@ Declarative agents (`tui/declarative/`, spec in `docs/specs/agent-definitions/`)
 - `tui/declarative/`: `schema.rs`, `validate.rs` (interpreter denylist, prompt keys, `[mcp_host]` check), `template.rs` (argv/stdin/`render_tui`), `resolve.rs`, `select.rs`, `output.rs`, `profile.rs` (`DeclarativeProfile`), `loader.rs` (`build`, `reload`, `export/import_definition`, `write_generic`), `sources.rs` (`SourceSettings`, consent), `fingerprint.rs`, `approvals.rs`, `service.rs`, `screen.rs` (`TuiEngine`), `check.rs` (fixture runner for `*.expect.toml`), `watch.rs` (hot reload), `fixtures/` (kilo captures, `definitions{,-bad}`), `tests/` (per module, plus `conformance.rs`, `parity_claude.rs`, `consent.rs`, `expect.rs`).
 - `agent_definitions_recorder/` (`mod.rs` start/status/stop per pane, `snapshots.rs`, `draft.rs` generator, `redact.rs`, `*_tests.rs`, `fixtures/`): the Rec button; drafts go to `<agents dir>/drafts/`, never loaded or approved. Tauri `recorder_start/status/stop` in `commands/agents.rs`.
 - `bridge/routes/definitions.rs`: `/agents/definitions[/reload|validate|approve|revoke|consent|...]`; mutations local-app-only.
-- `bridge/port_file.rs`: bridge port file (`write_owned`, remove on exit only if it still names our port). The MCP client (`bin/puppet_master_mcp/`) probes 17321-17330 when the file's port is dead.
+- `bridge/port_file.rs`: bridge port file (`write_owned`, remove on exit only if it still names our port). The MCP client (`mcp_shim/`) probes 17321-17330 when the file's port is dead.
 - `agent_runs/headless/fallback.rs`: visible-first fallback. Runs default to `headless=false` + `placement=window`; `plan` decides `no_visible_mode` / `visible_failed` (pre-turn codes only), `convert` re-queues the same operation headless (`operations::convert_to_headless_fallback`, kills the failed pane), `start_headless` launches the child; hooked in `headless/entry.rs` (no visible mode), `bridge/dispatch.rs` (dispatch failure) and `headless/supervise.rs` (`PROMPT_NOT_SUBMITTED`). Recorded as `WorkerPersist.fallback`, `RunReceipt.fallback`, `AgentRunView.fallback`.
 - `tray.rs`: tray icon + menu (`build_model` -> New pane submenu from registered agents, Panes, Settings..., Quit; `parse_command`; left-click opens Settings). The pure model is unit-tested.
 - `app_windows.rs`: Rust-created windows: Settings window (`?settings=1&tab=agents`), pane windows (no main webview needed), anchor resolution (`PM_WINDOW_ANCHOR` > `settings.json` `pane_window_position` > primary monitor), cascade offsets with wrap. `settings_store.rs` keeps `pane_window_position` in the saved-settings load and strips it from the public mirror.
@@ -364,7 +364,7 @@ JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WA
 
 | Task | Start here | Also touch |
 |---|---|---|
-| Add an MCP tool | `tool_registry/catalog/<family>.rs` (new `ToolDefinition`; add its name to the right list in `tool_registry/mode.rs::tool_visible_in_mode`); bridge route in `bridge/routes/<group>.rs` (dispatched from `bridge/router.rs::route`) or `agent_runs/routes.rs::handle_request` | `bin/puppet_master_mcp/call.rs` + `dispatch/<family>.rs` only if the shim must shape args/replies; `mcp_sessions/authorize.rs::authorize` if ownership applies; `packages/app/src/lib/mcp-tools.ts`; bump is automatic (`catalog_version`); rebuild MCP exe (section 6) |
+| Add an MCP tool | `tool_registry/catalog/<family>.rs` (new `ToolDefinition`; add its name to the right list in `tool_registry/mode.rs::tool_visible_in_mode`); bridge route in `bridge/routes/<group>.rs` (dispatched from `bridge/router.rs::route`) or `agent_runs/routes.rs::handle_request` | `mcp_shim/call.rs` + `dispatch/<family>.rs` only if the shim must shape args/replies; `mcp_sessions/authorize.rs::authorize` if ownership applies; `packages/app/src/lib/mcp-tools.ts`; bump is automatic (`catalog_version`); rebuild MCP exe (section 6) |
 | Change a tool description / schema | `tool_registry/catalog/<family>.rs` (description + `input_schema`/`output_schema`); pinned `catalog_version` in `tool_registry/tests.rs` | changes `catalog_version`, so MCP exe AND app must both be rebuilt or `SCHEMA_DRIFT` shows in `bridge_health` |
 | Change the server instruction text | `tool_registry/catalog/mod.rs::mcp_instructions` | `/mcp/instructions` route in `bridge/routes/mcp.rs` |
 | Add an agent / TUI profile | `tui/README.md` checklist: `pty/agents.rs` (`AgentType`), `packages/shared/src/agents.ts`, `agent_contexts/profiles.rs`, new `tui/<name>/mod.rs`, register in `tui/registry.rs::Registry::seeded()` (order is `read_only_backends` order), fixtures + `tui/conformance.rs` runs automatically | profile `classify_screen` / `busy_marker` / `idle_after` (section 3.5a) |
@@ -383,7 +383,7 @@ JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WA
 | Acceptance checks | `agent_runs/checks.rs` (`Check` enum + `evaluate`) | schema in `tool_registry/catalog/agents.rs` (`checks` property) |
 | Watch CLI behaviour | `packages/cli/src/watch.ts`, `watch-args.ts`; `watch_command.rs` for the printed command | tests `watch.test.ts`, `watch-args.test.ts`; redeploy bundle (section 6) |
 | Error codes / messages | grep the code (section 7); `OperationError::new(code, message, recoverable)` in `operations/model.rs`; HTTP mapping in `bridge/errors.rs::operation_http_error` | |
-| `build_id` / `catalog_version` | `build.rs` (build id); `tool_registry/catalog/mod.rs::catalog_version`; surfaced in `bridge/router.rs::Health` and MCP `bridge_health` | `bin/puppet_master_mcp/bridge_http.rs` (`SCHEMA_DRIFT`) |
+| `build_id` / `catalog_version` | `build.rs` (build id); `tool_registry/catalog/mod.rs::catalog_version`; surfaced in `bridge/router.rs::Health` and MCP `bridge_health` | `mcp_shim/bridge_http.rs` (`SCHEMA_DRIFT`) |
 | Warnings on a finished run | `runtime/receipt.rs::run_warnings` + `RunWarning`; profile `run_warnings`/`rejected_call_warning`; `operations/transitions.rs::add_warning` | list of codes in the `tool_registry/catalog/` output schema |
 | Receipt outcome wording | `runtime/receipt.rs::build_receipt`, `receipt_outcome` | |
 | Steering / interrupt / follow-up | `agent_runs/messaging.rs`; `runtime/followup.rs::send_agent`, `runtime/steer.rs::send_message` | `/agents/send`, `/agents/followup` in `routes.rs` |
@@ -398,7 +398,7 @@ JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WA
 | Tray menu / Settings window / second launch / `--new-pane` | `tray.rs`, `app_windows.rs`, `lib.rs` single-instance callback; UI `SettingsApp.tsx`, `lib/settings-entry.ts` | `components/settings/tabs/*Tab.tsx` |
 | Visible-first fallback to headless | `agent_runs/headless/fallback.rs` (`plan`, `convert`, `start_headless`) | hooks in `headless/entry.rs`, `bridge/dispatch.rs`, `headless/supervise.rs` |
 | Dev window position / focus | `packages/app/src-tauri/pm-dev.local.json` (anchor) read by `scripts/with-cargo-path.mjs` -> `PM_WINDOW_ANCHOR`; `app_windows.rs` | verify with `scripts/check-window-monitor.ps1` |
-| Single instance / bridge port discovery | `lib.rs` (single-instance plugin), `bridge/port_file.rs`, MCP client port probing in `bin/puppet_master_mcp/` | |
+| Single instance / bridge port discovery | `lib.rs` (single-instance plugin), `bridge/port_file.rs`, MCP client port probing in `mcp_shim/` | |
 | Settings > Agents UI / Rec button | `components/settings/tabs/AgentsTab.tsx`, `lib/agentDefinitions.ts`, `components/TerminalPane.tsx` | `agent_definitions_recorder/`, `commands/agents.rs` |
 | Agent registry in the UI (tray New pane, Settings; legacy spawn menu/Overview card) | `lib/agentRegistry.ts`, `tray.rs` (legacy: `components/AgentsOverviewCard.tsx`) | `GET /agents/types` |
 | Add a Tauri command | `commands/<area>.rs` + register in `lib.rs` `invoke_handler` | `packages/app/src/lib/tauri.ts` wrapper |
@@ -524,7 +524,7 @@ All commands from the repo root unless noted. Windows is the primary dev platfor
 cd packages/app/src-tauri && cargo test --lib
 cd packages/app/src-tauri && cargo test --lib tui::            # profile + conformance tests only
 cd packages/app/src-tauri && cargo test --lib agent_runs::     # run-engine tests
-cd packages/app/src-tauri && cargo test --bin puppet-master-mcp  # shim tests (bin/puppet_master_mcp/tests.rs)
+cd packages/app/src-tauri && cargo test --bin puppet-master-mcp  # shim tests (mcp_shim/tests.rs)
 # note: `cargo test` needs packages/app/dist to exist (tauri embeds it): run `npx vite build` in packages/app once
 
 # JS
@@ -610,7 +610,7 @@ live helpers: `scripts/spawn-close-agent.py`, `scripts/test-bridge.ps1`, `script
 to know it is back. The dev app may run as a "worker host". Debug builds re-stamp the build id only on
 source/git-ref changes (set `PM_FORCE_NEW_BUILD_ID=1` to force); release builds always re-stamp.
 
-### MCP exe rebuild (do this after ANY change to `tool_registry/`, `bin/puppet-master-mcp.rs`, `bin/puppet_master_mcp/`, or bridge code the shim depends on)
+### MCP exe rebuild (do this after ANY change to `tool_registry/`, `bin/puppet-master-mcp.rs`, `mcp_shim/`, or bridge code the shim depends on)
 
 `node scripts/build-rust-mcp.mjs` (or `npm run build:rust --workspace=@puppet-master/mcp`) builds
 `target/release` and copies to `packages/mcp-server/dist/puppet-master-mcp.exe`, but fails with
@@ -658,7 +658,7 @@ noteworthy. Grep the quoted code for the exact site. Codes shown in `bridge/` ar
 validation unless noted.
 
 **Request validation**
-- `INVALID_ARGUMENT` - malformed/unknown argument - `agent_runs/{headless,runtime,routes}/`, `agent_runs/quick.rs`, `bridge/`, `mcp_sessions/`, `bin/puppet_master_mcp/`.
+- `INVALID_ARGUMENT` - malformed/unknown argument - `agent_runs/{headless,runtime,routes}/`, `agent_runs/quick.rs`, `bridge/`, `mcp_sessions/`, `mcp_shim/`.
 - `INVALID_JSON` - body not JSON - `agent_runs/routes.rs` (`bridge/` returns `INVALID_ARGUMENT` for the same).
 - `INVALID_TASK` - empty task/message - `agent_runs/{headless,runtime,routes}/`, `messaging.rs`, `quick.rs`, `operations/create.rs`.
 - `INVALID_TIMEOUT` - `timeout_ms` (1..86400000) or `wait_ms` (0..300000) out of range - `agent_runs/{headless,routes}/`, `operations/`.
@@ -688,7 +688,7 @@ validation unless noted.
 - `WORKSPACE_MISMATCH` - worker lives in a different workspace than supplied - `agent_runs/headless/bind.rs`, `bridge/`.
 - `AGENT_TYPE_MISMATCH` - reused worker is another agent type - `agent_runs/headless/`.
 - `WORKER_NOT_FOUND`, `WORKER_UNHEALTHY`, `WORKER_STOP_FAILED`, `WORKER_EXIT_FAILED`, `WORKER_WAIT_FAILED`, `WORKER_MCP_TOOLS_UNAVAILABLE` - worker lifecycle - `agent_runs/headless/`, `agent_runs/runtime/`, `bridge/`.
-- `AUTHORIZATION_DENIED` - session doesn't control the handle/pane (try `take_over`) - `mcp_sessions/`, `answer_guard.rs`, `agent_runs/runtime/`, `bridge/`, `bin/puppet_master_mcp/`.
+- `AUTHORIZATION_DENIED` - session doesn't control the handle/pane (try `take_over`) - `mcp_sessions/`, `answer_guard.rs`, `agent_runs/runtime/`, `bridge/`, `mcp_shim/`.
 - `MODE_MISMATCH` - tool not available in the session's agent/shell mode - `mcp_sessions/`, `bridge/`, shim.
 - `SESSION_REPLACED` - native pane replaced under the same id - `recovery.rs`.
 - `RESOURCE_LOCKED`, `LOCK_RELEASE_FAILED` - `bridge/locks.rs`.
@@ -724,7 +724,7 @@ validation unless noted.
 - `OPENCODE_SERVER_UNREACHABLE` - `opencode serve` unreachable past the grace period; cancel/close still finalise runs - `agent_runs/native.rs`, `runtime.rs`.
 - `NATIVE_AGENT_ERROR`, `NATIVE_STATUS_UNAVAILABLE`, `APPROVAL_WAIT_FAILED` - `native.rs`, `bridge/`.
 
-**Shim / transport** (`bin/puppet_master_mcp/`)
+**Shim / transport** (`mcp_shim/`)
 - `WAIT_TIMEOUT` - foreground wait ended with the turn still running; response includes `watch_command`; retry with the same idempotency key.
 - `BRIDGE_UNAVAILABLE` - no bridge/port file; `BRIDGE_ERROR` - bridge returned an unparseable/failed reply; `SCHEMA_DRIFT` - shim vs bridge catalog mismatch; `REQUEST_CANCELLED`, `RATE_LIMITED`, `NOT_FOUND`, `CONFLICT` - HTTP-status-derived fallbacks.
 - `STATE_UNAVAILABLE` - read models unavailable - `bridge/`.
