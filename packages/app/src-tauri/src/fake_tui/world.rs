@@ -257,8 +257,20 @@ impl Session {
         )
     }
 
-    /// The pane's screen as the emulator holds it.
+    /// The pane's screen as the emulator holds it: every cell's text, dimmed ones included.
+    ///
+    /// Not `registry_read_snapshot`: since 4832207 that is the screen completion and approval
+    /// detection read, which leaves out the text an agent dims in its own input box (Claude's
+    /// suggestion, Codex's "Ask Codex to do anything", Claude's `Try "..."` hint). The tests that wait
+    /// for those words to be drawn read the emulator; what readiness reads is `input_screen`.
     pub fn screen(&self, pane_id: &str) -> String {
+        let parser = self.world.registry.lock().panes.get(pane_id).map(|pane| pane.screen.clone());
+        parser.map(|parser| parser.lock().screen().contents()).unwrap_or_default()
+    }
+
+    /// The screen completion and approval detection read (`registry_read_snapshot`): what a reply is
+    /// cut from. Dimmed input-box text is left out.
+    pub fn watch_screen(&self, pane_id: &str) -> String {
         registry_read_snapshot(&self.world.registry, pane_id).unwrap_or_default()
     }
 
