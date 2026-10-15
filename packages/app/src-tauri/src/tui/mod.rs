@@ -235,18 +235,45 @@ pub fn is_tool_activity_line(lower: &str, agent_type: &str) -> bool {
     profile_for(agent_type).is_tool_activity_line(lower)
 }
 
-/// Whether an executable called `name` is on PATH (`name.exe` on Windows).
+/// Whether an executable called `name` is on PATH. On Windows any of the extensions a shell would
+/// run counts (`name.exe`, and the `name.cmd` / `name.ps1` shims npm installs), not only `.exe`.
 pub(crate) fn program_on_path(name: &str) -> bool {
-    #[cfg(windows)]
-    {
-        find_path_file(&format!("{name}.exe")).is_some()
+    std::env::var_os("PATH").is_some_and(|paths| {
+        find_program_in(&paths, &runnable_extensions(), name).is_some()
+    })
+}
+
+/// The extensions a program may carry, in the order a shell tries them: the machine's `PATHEXT`
+/// (`.COM;.EXE;.BAT;.CMD` ...) with `.exe` first, then the npm shim kinds `PATHEXT` may omit
+/// (`.cmd`, `.ps1`). Empty on platforms where a program has no extension.
+pub(crate) fn runnable_extensions() -> Vec<String> {
+    if !cfg!(windows) {
+        return vec![String::new()];
     }
-    #[cfg(not(windows))]
-    {
-        std::env::var_os("PATH").is_some_and(|paths| {
-            std::env::split_paths(&paths).any(|dir| dir.join(name).is_file())
-        })
+    let mut found: Vec<String> = vec![".exe".into()];
+    let pathext = std::env::var("PATHEXT").unwrap_or_default();
+    for ext in pathext.split(';').map(|e| e.trim().to_ascii_lowercase()).filter(|e| e.starts_with('.')) {
+        if !found.contains(&ext) {
+            found.push(ext);
+        }
     }
+    for ext in [".cmd", ".bat", ".ps1"] {
+        if !found.iter().any(|e| e == ext) {
+            found.push(ext.to_string());
+        }
+    }
+    found
+}
+
+/// The first file called `name` (plus one of `extensions`, tried in order, per directory) in the
+/// directories of `paths`. Pure: no environment is read, so the lookup is testable on any platform.
+pub(crate) fn find_program_in(paths: &std::ffi::OsStr, extensions: &[String], name: &str) -> Option<PathBuf> {
+    std::env::split_paths(paths).find_map(|dir| {
+        extensions
+            .iter()
+            .map(|ext| dir.join(format!("{name}{ext}")))
+            .find(|candidate| candidate.is_file())
+    })
 }
 
 #[cfg(windows)]
@@ -256,15 +283,18 @@ pub(crate) fn find_path_file(name: &str) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
-/// Program to spawn for a CLI called `name`. Windows needs the full path to the `.exe` because
-/// ConPTY/CreateProcess does not search for it the way a shell does.
+/// Program to spawn for a CLI called `name`. Windows needs the full path because ConPTY/CreateProcess
+/// does not search for it the way a shell does: the `.exe`, else the `.cmd` / `.bat` shim an npm
+/// install leaves (CreateProcess runs those through the command interpreter; a `.ps1` it cannot).
 pub(crate) fn executable(name: &str) -> Result<String, String> {
     #[cfg(windows)]
     {
-        let file = format!("{name}.exe");
-        find_path_file(&file)
+        let spawnable: Vec<String> =
+            runnable_extensions().into_iter().filter(|ext| ext != ".ps1" && ext != ".com").collect();
+        let paths = std::env::var_os("PATH").unwrap_or_default();
+        find_program_in(&paths, &spawnable, name)
             .map(|path| path.to_string_lossy().into_owned())
-            .ok_or_else(|| format!("{file} was not found on PATH"))
+            .ok_or_else(|| format!("{name}.exe was not found on PATH"))
     }
     #[cfg(not(windows))]
     {
@@ -394,5 +424,60 @@ mod descriptor {
             .map(|d| d.id)
             .collect();
         assert_eq!(headless, vec!["claude", "codex", "cursor_agent"]);
+    }
+}
+
+#[cfg(test)]
+mod program_lookup {
+    use super::*;
+
+    fn dir_with(files: &[&str]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pm-path-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for file in files {
+            std::fs::write(dir.join(file), "x").unwrap();
+        }
+        dir
+    }
+
+    fn exts(list: &[&str]) -> Vec<String> {
+        list.iter().map(|e| e.to_string()).collect()
+    }
+
+    #[test]
+    fn an_npm_cmd_shim_is_found_when_there_is_no_exe() {
+        // VERIFY-R13 #2: `opencode.cmd` (npm i -g) was "Not installed" because only `.exe` was looked for.
+        let dir = dir_with(&["opencode.cmd", "opencode.ps1", "opencode"]);
+        let found = find_program_in(dir.as_os_str(), &exts(&[".exe", ".cmd", ".bat", ".ps1"]), "opencode");
+        assert_eq!(found, Some(dir.join("opencode.cmd")));
+        assert_eq!(find_program_in(dir.as_os_str(), &exts(&[".exe"]), "opencode"), None, "the old lookup");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn extensions_are_tried_in_order_and_earlier_directories_win() {
+        let first = dir_with(&["tool.cmd"]);
+        let second = dir_with(&["tool.exe"]);
+        let both = std::env::join_paths([&first, &second]).unwrap();
+        assert_eq!(find_program_in(&both, &exts(&[".exe", ".cmd"]), "tool"), Some(first.join("tool.cmd")), "PATH order first");
+        let same = dir_with(&["tool.cmd", "tool.exe"]);
+        assert_eq!(find_program_in(same.as_os_str(), &exts(&[".exe", ".cmd"]), "tool"), Some(same.join("tool.exe")), "extension order within a directory");
+        assert_eq!(find_program_in(same.as_os_str(), &exts(&[".exe", ".cmd"]), "missing"), None);
+        for dir in [first, second, same] {
+            std::fs::remove_dir_all(&dir).ok();
+        }
+    }
+
+    #[test]
+    fn the_runnable_extensions_start_with_exe_and_cover_the_npm_shims_on_windows() {
+        let list = runnable_extensions();
+        if cfg!(windows) {
+            assert_eq!(list[0], ".exe");
+            for ext in [".cmd", ".bat", ".ps1"] {
+                assert!(list.iter().any(|e| e == ext), "{ext} in {list:?}");
+            }
+        } else {
+            assert_eq!(list, vec![String::new()]);
+        }
     }
 }
