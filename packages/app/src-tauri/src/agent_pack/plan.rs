@@ -624,7 +624,15 @@ fn undo_mcp(
     let fmt = format_of(format);
     let segs: Vec<&str> = key_path.split('.').collect();
     let (parent, key) = segs.split_at(segs.len() - 1);
-    let members = edit::members(fmt, &current, parent).unwrap_or_default();
+    // A config that cannot be read any more (the user broke it since) cannot be edited safely: say so and
+    // keep the record, instead of reporting nothing and forgetting the entry we added.
+    let members = match edit::members(fmt, &current, parent) {
+        Ok(members) => members,
+        Err(e) => {
+            skip(report, path, format!("This file can't be read any more ({e}), so the entry Puppet Master added was left in it. Fix the file, then press Undo again."));
+            return false;
+        }
+    };
     match members.iter().find(|(k, _)| k == key[0]) {
         None => {} // the entry is already gone
         Some((_, v)) if v == written => {
