@@ -199,6 +199,19 @@ describe('buttons', () => {
     expect(buttonsFor(item, false).map((b) => b.id)).toEqual(['deny', 'allow_once']);
   });
 
+  it("says the same words as the desktop card, whatever the agent's menu says", () => {
+    const prompt = {
+      ...ITEM_LOW.prompt!,
+      choices: [
+        { id: 'allow_once', label: 'Yes', broad: false },
+        { id: 'always', label: 'Yes, and do not ask again for npm test', broad: true },
+        { id: 'deny', label: 'No, tell Claude what to do differently', broad: false },
+      ],
+      layout: undefined,
+    };
+    expect(buttonsFor({ ...ITEM_LOW, prompt }, false).map((b) => b.label)).toEqual(['Allow once', 'Deny']);
+  });
+
   it('keeps every offered choice when the PC sent no layout (an older PC)', () => {
     const { layout: _l, ...prompt } = ITEM_LOW.prompt!;
     const ids = buttonsFor({ ...ITEM_LOW, prompt }, false).map((b) => b.id);

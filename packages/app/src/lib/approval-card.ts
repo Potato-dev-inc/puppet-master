@@ -2,7 +2,7 @@
 // may do and what this phone has sent. No React here, so every state is tested on its own
 // (approval-card.test.ts) and drawn by components/mobile/ApprovalCard.tsx.
 import type { AttentionChoice, AttentionItem } from './attention';
-import { LEVEL_WORD } from './approval-risk';
+import { LEVEL_WORD, choiceWords } from './approval-risk';
 import { COPY, agentName, formatAge, formatClock, sendingPhase, sendingText } from './attention-copy';
 
 /** The dot glyph: `(+)` a person is needed, `(~)` happening, `(v)` done, `(:)` gone, `(x)` failed. */
@@ -95,9 +95,13 @@ export function buttonsFor(item: AttentionItem, disabled: boolean): CardButton[]
   const layout = prompt?.layout;
   const primary = layout?.primary ?? choices[0]?.id ?? null;
   const ordered = [...choices].sort((a, b) => Number(b.id === primary) - Number(a.id === primary));
+  // The desktop card's words ("Allow once", "Deny"), whatever the agent's menu says, counted over the
+  // whole menu so the phone and the PC name the same choice the same way.
+  // A folder-trust question keeps its own words ("Trust this folder", "Don't trust").
+  const words = item.kind === 'trust_gate' ? new Map<string, { text: string }>() : choiceWords(prompt?.choices ?? []);
   return ordered.map((c) => ({
     id: c.id,
-    label: c.label,
+    label: words.get(c.id)?.text ?? c.label,
     role: c.id === primary ? 'primary' : 'secondary',
     focus: layout?.focus === c.id,
     disabled,
