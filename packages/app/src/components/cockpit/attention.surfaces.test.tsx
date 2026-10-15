@@ -140,7 +140,8 @@ describe('one Needs-you count', () => {
     renderWithStuck(<Sidebar c={api} onOpenPalette={() => {}} />);
     const needs = Array.from(host.querySelectorAll('.ck-group')).find((g) => g.querySelector('.ck-caption')?.textContent?.startsWith('Needs you'))!;
     const titles = Array.from(needs.querySelectorAll('.ck-row-title')).map((t) => t.textContent);
-    expect(titles.sort()).toEqual(['Claude Code', 'Claude Code 2', 'Codex', 'PowerShell']);
+    // The agent's question has no pane, so it gets its own row (the caption count then matches the rows).
+    expect(titles.sort()).toEqual(['Claude Code', 'Claude Code 2', 'Codex', 'PowerShell', 'Questions from agents']);
   });
 
   it('the phone counter is the same derivation', () => {

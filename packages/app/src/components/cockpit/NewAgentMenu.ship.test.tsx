@@ -163,6 +163,17 @@ describe('Set up Git here', () => {
     expect(api.gitInit).not.toHaveBeenCalled();
   });
 
+  it('keeps the commands under Details and puts the two choices in one row', async () => {
+    await toGitStep();
+    const details = host.querySelector('details.ck-gitstep-details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.querySelector('summary')!.textContent).toBe('Details');
+    expect(details.textContent).toContain('git init');
+    expect(host.textContent).not.toContain('Use without undo');
+    const row = host.querySelector('.ck-gitstep-actions')!;
+    expect([...row.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Set up Git here', 'Not now']);
+  });
+
   it('runs it on the button and then uses the folder as a Git project', async () => {
     const { api, onProject } = await toGitStep();
     await click('Set up Git here');
@@ -170,9 +181,9 @@ describe('Set up Git here', () => {
     expect(onProject).toHaveBeenCalledWith({ path: SITE.path, name: 'site', state: 'repo' });
   });
 
-  it('can be skipped with "Use without undo"', async () => {
+  it('can be skipped with "Not now"', async () => {
     const { api, onProject } = await toGitStep();
-    await click('Use without undo');
+    await click('Not now');
     expect(api.gitInit).not.toHaveBeenCalled();
     expect(onProject).toHaveBeenCalledWith({ path: SITE.path, name: 'site', state: 'folder' });
   });

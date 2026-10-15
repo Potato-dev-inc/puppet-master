@@ -66,6 +66,7 @@ export interface CockpitApi {
   rename: (paneId: string, title: string) => Promise<void>;
   /** Orchestration: Settings opens inside the cockpit (on `tab` when given). Individual: the Settings window. */
   openSettings: (tab?: string) => Promise<void>;
+  /** Empty while the bridge works (or is still connecting); "Not connected" when it is down. */
   bridgeLine: string;
 }
 
@@ -87,11 +88,9 @@ export function useCockpit(): CockpitApi {
   const [spawn, setSpawn] = useState<SpawnState | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const bridge = useBridge();
-  const bridgeLine = bridge.isReady
-    ? `Bridge ${(bridge.client?.baseUrl ?? '').replace(/^https?:\/\//, '')}`
-    : bridge.error
-      ? 'Bridge unavailable'
-      : 'Bridge connecting';
+  // Said only when something is wrong: a healthy bridge shows nothing, and its address is never shown
+  // here (it is in Settings > Bridge & MCP).
+  const bridgeLine = bridge.isReady ? '' : bridge.error ? 'Not connected' : '';
 
   const spawnRef = useRef(spawn);
   spawnRef.current = spawn;

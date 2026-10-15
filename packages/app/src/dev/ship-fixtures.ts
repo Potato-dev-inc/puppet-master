@@ -1,11 +1,13 @@
 // Mock answers for the "worktrees that ship" commands (dev harness only). A scenario picks what the
 // pretend backend says through `HarnessScenario.ship`.
 import type { WorktreeItem } from '../lib/cockpit-api';
-import type { ChecksReport, GitInitPlan, PresetView, PrPrepared, PrRef, RecentProject, SendBackPreview } from '../lib/ship-api';
+import type { ChecksReport, GitInitPlan, GitState, PresetView, PrPrepared, PrRef, RecentProject, SendBackPreview } from '../lib/ship-api';
 import { EXAMPLE_WORKTREE, PANE_CLAUDE } from './fixtures';
 
 export interface ShipScenario {
   recent?: RecentProject[];
+  /** What `project_git_state` answers for any folder (default: the folder's entry in `recent`, else a repo). */
+  gitState?: GitState;
   plan?: GitInitPlan;
   preset?: PresetView;
   /** Fields merged into the example worktree of the Claude pane. */
@@ -107,6 +109,8 @@ export function shipMock(scenario: ShipScenario | undefined, cmd: string, args: 
   switch (cmd) {
     case 'project_recent':
       return yes(s.recent ?? RECENT);
+    case 'project_git_state':
+      return yes(s.gitState ?? (s.recent ?? RECENT).find((p) => p.path === args.path)?.state ?? 'repo');
     case 'project_pick_folder':
       return yes(null);
     case 'project_forget':

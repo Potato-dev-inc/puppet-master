@@ -81,7 +81,7 @@ describe('sidebar', () => {
     act(() => root.render(<Sidebar c={cockpit(PREVIEWS)} onOpenPalette={() => {}} />));
     const rows = [...host.querySelectorAll('.ck-row:not(.ck-row--flat)')];
     expect(rows.filter((r) => r.querySelector('.ck-row-preview')).length).toBe(1);
-    expect(rows.find((r) => r.textContent?.includes('Agent A'))!.querySelector('.ck-row-preview')!.getAttribute('title')).toBe('Preview :5173');
+    expect(rows.find((r) => r.textContent?.includes('Agent A'))!.querySelector('.ck-row-preview')!.getAttribute('title')).toBe('Has a preview · localhost:5173');
   });
 });
 

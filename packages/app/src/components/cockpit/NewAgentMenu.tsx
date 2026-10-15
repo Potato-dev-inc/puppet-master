@@ -2,10 +2,11 @@
 //   1. pick an agent (an agent with user accounts gets a second step for the login);
 //   2. the folder step: a project chip at the top opens Recent projects and "Choose folder…";
 //   3. "Set up Git here" for a folder without Git, with the exact commands shown first.
-// The Separate copy switch sits at the bottom of step 1 (it needs a Git folder, so it says so).
+// The Separate copy switch sits at the bottom of step 1. It starts on for a Git project with a first commit
+// (the host decides; a remembered choice wins). Without Git it is off, with a one-line hint and "Set up Git here".
 import { useEffect, useState } from 'react';
 import { accountsFor, needsAccountStep, tauriAccountsApi, type Account, type AccountsApi } from '../../lib/accounts';
-import { shipApi, type GitInitPlan, type RecentProject, type ShipApi } from '../../lib/ship-api';
+import { shipApi, type GitInitPlan, type GitState, type RecentProject, type ShipApi } from '../../lib/ship-api';
 import { stateHint, supportsCopies } from '../../lib/ship-model';
 import '../../styles/cockpit-ship.css';
 
@@ -41,6 +42,13 @@ interface Props {
 }
 
 type Step = 'agents' | 'projects' | 'git';
+
+/** The one line under a switch that cannot be turned on: why, in plain words. */
+function noGitHint(state: GitState | undefined): string {
+  if (state === 'no_commits') return 'Needs a first Git snapshot.';
+  if (state === 'missing') return 'This folder was not found.';
+  return 'Needs Git. This folder doesn’t use it yet.';
+}
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -204,20 +212,23 @@ export function NewAgentMenu({
         <p className="ck-gitstep-text">This folder doesn&apos;t use Git yet. Undo and separate copies need it.</p>
         {plan ? (
           <>
-            <ul className="ck-gitstep-cmds" aria-label="What will run">
-              {plan.commands.map((c) => (
-                <li key={c}>
-                  <code>{c}</code>
-                </li>
-              ))}
-            </ul>
             <p className="ck-gitstep-fine">
               {plan.too_big
                 ? 'This folder has too many files to save as one snapshot. Pick the project’s own folder instead.'
                 : `Saves ${plan.files} ${plan.files === 1 ? 'file' : 'files'} as the first snapshot.`}
-              {plan.gitignore.length > 0 && !plan.too_big && ' Also adds a .gitignore that keeps node_modules and .env files out.'}
+              {plan.gitignore.length > 0 && !plan.too_big && ' Also adds a .gitignore that keeps node_modules and .env files out.'}{' '}
+              Keeps a private history of changes in this folder. Nothing is uploaded.
             </p>
-            <p className="ck-gitstep-fine">Keeps a private history of changes in this folder. Nothing is uploaded.</p>
+            <details className="ck-gitstep-details">
+              <summary>Details</summary>
+              <ul className="ck-gitstep-cmds" aria-label="What will run">
+                {plan.commands.map((c) => (
+                  <li key={c}>
+                    <code>{c}</code>
+                  </li>
+                ))}
+              </ul>
+            </details>
           </>
         ) : (
           !error && <p className="ck-gitstep-fine">Checking the folder…</p>
@@ -232,7 +243,7 @@ export function NewAgentMenu({
             Set up Git here
           </button>
           <button type="button" className="ck-btn ck-btn--secondary" disabled={busy} onClick={withoutGit}>
-            Use without undo
+            Not now
           </button>
         </div>
         <button type="button" role="menuitem" className="ck-menu-item" onClick={() => setStep('projects')}>
@@ -262,6 +273,7 @@ export function NewAgentMenu({
   }
 
   const copiesOk = supportsCopies(project?.state);
+  const canSetUpGit = project?.state === 'folder' || project?.state === 'no_commits';
   return (
     <>
       <div className="ck-menu-cap ck-menu-cap--row">
@@ -303,7 +315,7 @@ export function NewAgentMenu({
       })}
       {onIsolated && (
         <>
-          <div className="ck-menu-toggle" title="Work in a separate git copy so agents never edit the same files. Review and merge later.">
+          <div className="ck-menu-toggle" title="Work in a separate copy of the project, so agents never edit the same files. You review and merge it later.">
             <span id="ck-sepcopy-label">Separate copy</span>
             <button
               type="button"
@@ -319,7 +331,14 @@ export function NewAgentMenu({
             </button>
           </div>
           {!copiesOk ? (
-            <div className="ck-menu-note">Needs Git. Choose the folder again to set it up.</div>
+            <div className="ck-menu-note ck-menu-note--row">
+              <span>{noGitHint(project?.state)}</span>
+              {project && canSetUpGit && (
+                <button type="button" className="ck-btn ck-btn--secondary ck-btn--sm" onClick={() => choose({ ...project, state: project.state as GitState, last_used_ms: 0 })}>
+                  Set up Git here
+                </button>
+              )}
+            </div>
           ) : (
             isolated && <div className="ck-menu-note">From the current branch · your uncommitted changes aren&apos;t included.</div>
           )}
