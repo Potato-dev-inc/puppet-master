@@ -84,7 +84,7 @@ pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
 
 /// The agent-run API (`run_agent`, `wait_agents`, ...) owns its own routes.
 fn agent_runs(cx: &Ctx) -> Option<RouteResult> {
-    crate::agent_runs::handle_request(
+    crate::agent_runs::handle_request_as(
         cx.method,
         cx.segments,
         cx.query,
@@ -92,6 +92,7 @@ fn agent_runs(cx: &Ctx) -> Option<RouteResult> {
         cx.registry,
         cx.app,
         cx.session,
+        crate::mobile_pairing::requires_pairing_token(cx.headers, cx.peer_loopback),
     )
     .map(|response| {
         response

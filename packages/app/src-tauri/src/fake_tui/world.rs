@@ -280,9 +280,48 @@ impl Session {
         crate::pane_prompt::detect(&self.world.registry, pane_id, false)
     }
 
-    /// The desktop UI's answer to a card (`answer_pane_prompt`): the same function the Allow button calls.
+    /// The desktop UI's answer to a card (`answer_pane_prompt`): the same function the Allow button
+    /// calls, with the click it sends (a fresh, trusted gesture).
     pub fn answer_card(&self, pane_id: &str, prompt_id: &str, choice: &str) -> Result<Value, Value> {
-        crate::agent_runs::answer_for_pane(&self.world.registry, &self.world.app, pane_id, prompt_id, choice)
+        let click = crate::pane_prompt::answers::UserGesture {
+            id: uuid::Uuid::new_v4().to_string(),
+            trusted: true,
+            at_ms: crate::pane_prompt::answers::now_ms(),
+            kind: "click".into(),
+        };
+        self.answer_card_with(pane_id, prompt_id, choice, Some(&click))
+    }
+
+    /// The person has another project selected in the window than the run's (the bridge's default
+    /// project): pane-to-run lookups must not depend on which one it is.
+    pub fn select_other_project(&self) -> PathBuf {
+        let other = self.root.join("other-project");
+        std::fs::create_dir_all(&other).expect("other project dir");
+        self.world.registry.lock().project_path = other.to_string_lossy().into_owned();
+        other
+    }
+
+    /// The audit log's answer lines (`kind: approval`) for one pane, oldest first.
+    pub fn approvals_for(&self, pane_id: &str) -> Vec<Value> {
+        let mut lines: Vec<Value> = crate::audit::global()
+            .recent(500)
+            .into_iter()
+            .filter(|entry| entry.kind == "approval" && entry.detail.get("pane_id").and_then(Value::as_str) == Some(pane_id))
+            .map(|entry| json!({ "who": entry.who, "summary": entry.summary, "detail": entry.detail, "ts_ms": entry.ts_ms }))
+            .collect();
+        lines.reverse();
+        lines
+    }
+
+    /// `answer_pane_prompt` with whatever gesture (or none) a caller sends.
+    pub fn answer_card_with(
+        &self,
+        pane_id: &str,
+        prompt_id: &str,
+        choice: &str,
+        gesture: Option<&crate::pane_prompt::answers::UserGesture>,
+    ) -> Result<Value, Value> {
+        crate::agent_runs::answer_for_pane(&self.world.registry, &self.world.app, pane_id, prompt_id, choice, gesture)
             .map_err(|error| json!({ "code": error.code, "message": error.message }))
     }
 

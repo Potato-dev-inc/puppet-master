@@ -1,6 +1,7 @@
 // Typed wrappers for exactly the commands and events in docs/design/cockpit-contract.md.
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { UserGesture } from './user-gesture';
 
 export type UiMode = 'orchestration' | 'individual';
 
@@ -225,8 +226,13 @@ export const cockpitApi = {
   setUiMode: (mode: UiMode) => call<void>('set_ui_mode', { mode }),
   openCockpit: (paneId?: string) => call<void>('open_cockpit', { paneId }),
   panePrompt: (paneId: string) => call<PanePrompt | null>('pane_prompt', { paneId }),
-  answerPanePrompt: (paneId: string, promptId: string, choice: string) =>
-    call<void>('answer_pane_prompt', { paneId, promptId, choice }),
+  /** A person's answer: `gesture` is their click (`gestureOf(event)`); without one the backend sends
+   *  nothing but a refusal of an ordinary prompt (never a yes, never folder trust). */
+  answerPanePrompt: (paneId: string, promptId: string, choice: string, gesture: UserGesture) =>
+    call<void>('answer_pane_prompt', { paneId, promptId, choice, gesture }),
+  /** Puppet Master's own No (Simple mode, a high-risk command): a refusal needs no click. */
+  declinePanePrompt: (paneId: string, promptId: string, choice: string) =>
+    call<void>('answer_pane_prompt', { paneId, promptId, choice, gesture: null }),
   interruptPane: (paneId: string) => call<void>('interrupt_pane', { paneId }),
   newPane: (agentId: string, accountId?: string, isolation?: 'none' | 'worktree', projectPath?: string) =>
     call<string>('new_pane', {

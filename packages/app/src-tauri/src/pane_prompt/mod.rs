@@ -9,6 +9,8 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::AppHandle;
 
+pub mod answers;
+
 /// Phrases that open an approval dialog. The prompt text is taken from the last such line, so
 /// output scrolling above the dialog cannot change its id while the same question is showing.
 const PROMPT_ANCHORS: &[&str] = &[
@@ -348,12 +350,33 @@ pub fn answer(
         ));
     }
     let (key, reply_choice) = reply_key(&agent_type, &prompt, choice, allow_broad)?;
-    crate::pty::registry::write_input(registry, app, pane_id, &key, true, false, None, crate::pty::WriteOrigin::Answer)
-        .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))?;
+    // One key per prompt occurrence: a burst of answers to a dialog that is still drawn (a TUI
+    // redraws a moment after the key) presses nothing more (`answers`).
+    let slot = answers::answer_once(pane_id, prompt_id, &reply_choice, answers::now_ms(), || {
+        crate::pty::registry::write_input(registry, app, pane_id, &key, true, false, None, crate::pty::WriteOrigin::Answer)
+            .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))
+    })?;
+    if let answers::Slot::Duplicate(first) = slot {
+        return Ok(json!({
+            "pane_id": pane_id,
+            "prompt_id": prompt_id,
+            "kind": prompt["kind"],
+            "choice": first.choice,
+            "already_applied": true,
+            "answered_at_ms": first.at_ms,
+        }));
+    }
     note_gate_answer(pane_id, &prompt, &reply_choice);
     Ok(
         json!({"pane_id": pane_id, "prompt_id": prompt_id, "kind": prompt["kind"], "choice": reply_choice, "sent_key": key}),
     )
+}
+
+/// Whether an answer route's reply says the answer was a repeat (nothing was sent this time): the
+/// bare-pane reply's `already_applied`, or a run receipt's `answer.already_applied`.
+pub fn reply_was_repeat(reply: &Value) -> bool {
+    reply.get("already_applied").and_then(Value::as_bool) == Some(true)
+        || reply.pointer("/answer/already_applied").and_then(Value::as_bool) == Some(true)
 }
 
 /// Map a caller's choice to the key the agent expects. Broad approvals need `allow_broad`.

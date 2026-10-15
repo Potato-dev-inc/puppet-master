@@ -5,7 +5,9 @@ use parking_lot::Mutex;
 use serde_json::json;
 use std::sync::Arc;
 
-/// The run (project, handle) bound to `pane_id`, searching `projects` in order.
+/// The run (project, handle) bound to `pane_id`, searching `projects` in order. Answers use
+/// `pane_api::run_of_pane` (which also searches a worktree's origin project).
+#[cfg(test)]
 pub(in crate::agent_runs) fn run_for_pane(
     projects: &[String],
     pane_id: &str,

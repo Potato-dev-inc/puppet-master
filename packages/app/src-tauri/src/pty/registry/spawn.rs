@@ -386,6 +386,8 @@ pub fn spawn_pane(
                                     .and_then(|p| crate::pane_prompt::PanePrompt::from_detected(&p))
                             }) {
                                 crate::attention::on_prompt(&pane_id, waiting, prompt.as_ref());
+                                // A new occurrence: an answer to it is not a repeat of the last one.
+                                crate::pane_prompt::answers::note_prompt_event(&pane_id);
                                 let _ = app.emit(
                                     "pty://prompt",
                                     serde_json::json!({ "pane_id": pane_id, "prompt": prompt }),

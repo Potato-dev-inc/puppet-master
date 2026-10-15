@@ -211,9 +211,38 @@ pub fn check_answer(
     Ok(())
 }
 
+/// Who sent an answer, for its audit line. Only the desktop app's own command
+/// (`answer_pane_prompt`, which needs the person's click) is `Desktop`: a bridge caller without an
+/// MCP session is a program on this computer (`Local`) or a paired phone (`Device`), never "desktop"
+/// (live v0.2.0 hunt: five session-less answers read `who: desktop`, which hid who sent them).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnsweredBy {
+    /// The person, in the Puppet Master window (a click came with it).
+    Desktop,
+    /// A paired phone through the bridge.
+    Device,
+    /// A program on this computer that called the bridge without an MCP session.
+    Local,
+    /// An agent, through its MCP connection.
+    Agent(String),
+}
+
+impl AnsweredBy {
+    /// The caller of a bridge route: its MCP session when it has one, else a phone (the request
+    /// needed a pairing token) or a local program.
+    pub fn for_bridge(session: Option<&str>, remote_device: bool) -> Self {
+        match session.filter(|s| !s.trim().is_empty()) {
+            Some(session) => Self::Agent(session.to_string()),
+            None if remote_device => Self::Device,
+            None => Self::Local,
+        }
+    }
+}
+
 /// Write the audit line for an answer that was delivered: who pressed it, in which pane, which
-/// choice. The desktop's own answers (`session` is `None`) are recorded too. The command text is not.
-pub fn note_answer(session: Option<&str>, pane_id: &str, prompt_id: &str, choice: &str, registry: Option<&Registry>) {
+/// choice. The desktop's own answers are recorded too. The command text is not. Called once per
+/// key actually sent; a repeat that sent nothing writes no line.
+pub fn note_answer(by: &AnsweredBy, pane_id: &str, prompt_id: &str, choice: &str, registry: Option<&Registry>) {
     let target = target_label(Some(pane_id), registry);
     let said = match choice {
         "allow_once" | "once" => "Allowed once",
@@ -221,9 +250,11 @@ pub fn note_answer(session: Option<&str>, pane_id: &str, prompt_id: &str, choice
         "allow_all" | "allow_broad" | "always" => "Allowed for good",
         other => other,
     };
-    let (who, by) = match session.filter(|s| !s.trim().is_empty()) {
-        Some(session) => (Who::Agent(session.to_string()), requester_label(session)),
-        None => (Who::Desktop, "You".to_string()),
+    let (who, by) = match by {
+        AnsweredBy::Agent(session) => (Who::Agent(session.clone()), requester_label(session)),
+        AnsweredBy::Desktop => (Who::Desktop, "You".to_string()),
+        AnsweredBy::Device => (Who::Device(None), "Your phone".to_string()),
+        AnsweredBy::Local => (Who::Local, "A program on this computer".to_string()),
     };
     audit::record(
         Kind::Approval,

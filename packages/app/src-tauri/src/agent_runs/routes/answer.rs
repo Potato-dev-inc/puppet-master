@@ -8,18 +8,24 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::AppHandle;
 
-use super::handles::run_for_pane;
 use super::wire::{query_value, AnswerPromptRequest};
 
 /// The desktop UI answering the prompt on a pane: the same path as `POST /agents/answer` with a
-/// bare `pane_id` (stale and replay guards included). Broad approvals are never opted into.
+/// bare `pane_id` (stale, replay and one-answer-per-occurrence guards included). Broad approvals are
+/// never opted into. `gesture` is the click that sent it (`pane_prompt::answers::UserGesture`):
+/// without one only a refusal of a prompt that is not a startup gate goes out (Simple mode's own No
+/// to a high-risk command); folder trust and every yes need the person's click.
 pub(crate) fn answer_for_pane(
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     app: &AppHandle,
     pane_id: &str,
     prompt_id: &str,
     choice: &str,
+    gesture: Option<&crate::pane_prompt::answers::UserGesture>,
 ) -> Result<Value, OperationError> {
+    let on_screen = crate::pane_prompt::detect(registry, pane_id, false);
+    let kind = on_screen.as_ref().and_then(|prompt| prompt.get("kind")).and_then(Value::as_str);
+    crate::pane_prompt::answers::check_desktop_answer(gesture, kind, choice, crate::pane_prompt::answers::now_ms())?;
     route_answer(
         AnswerPromptRequest {
             project_path: None,
@@ -31,17 +37,21 @@ pub(crate) fn answer_for_pane(
         },
         "",
         None,
+        &crate::agent_authority::gate::AnsweredBy::Desktop,
         registry,
         app,
     )
 }
 
 /// Answers by run handle, or by bare pane id (routed through the owning run when one exists). A
-/// delivered answer is also noted on the pane's open turn (turn summaries: "you approved 1 command").
+/// delivered answer is also noted on the pane's open turn (turn summaries: "you approved 1 command")
+/// and in the audit log, as `by`. A repeat (nothing was sent: the replay ledger or the
+/// one-answer-per-occurrence slot caught it) is neither: one press, one line.
 pub(super) fn route_answer(
     request: AnswerPromptRequest,
     query: &str,
     session_id: Option<&str>,
+    by: &crate::agent_authority::gate::AnsweredBy,
     registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
     app: &AppHandle,
 ) -> Result<Value, OperationError> {
@@ -51,8 +61,8 @@ pub(super) fn route_answer(
     let result = route_answer_inner(request, query, session_id, registry, app);
     if let Ok(value) = &result {
         let pane = pane_id.or_else(|| value.get("pane_id").and_then(Value::as_str).map(str::to_string));
-        if let Some(pane) = pane {
-            crate::agent_authority::gate::note_answer(session_id, &pane, &prompt_id, &choice, Some(registry));
+        if let Some(pane) = pane.filter(|_| !crate::pane_prompt::reply_was_repeat(value)) {
+            crate::agent_authority::gate::note_answer(by, &pane, &prompt_id, &choice, Some(registry));
             crate::turn_summary::record_answer(&pane, &prompt_id, &choice, shown);
         }
     }
@@ -79,15 +89,12 @@ fn route_answer_inner(
                 })?;
         // A pane that belongs to a run is answered through that run, so a repeated answer
         // finds the same replay ledger entry instead of pressing the key twice.
-        let (default_project, cwd) = {
-            let guard = registry.lock();
-            (
-                guard.project_path.clone(),
-                guard.panes.get(pane_id).map(|pane| pane.info.cwd.clone()),
-            )
-        };
-        let candidates: Vec<String> = [Some(default_project), cwd].into_iter().flatten().collect();
-        if let Some((project, handle)) = run_for_pane(&candidates, pane_id) {
+        // The same lookup as the cockpit's run info (`pane_api::run_of_pane`): the bridge's project,
+        // the pane's folder, and, for a pane in an isolated run's worktree, the worktree's origin
+        // project, where that run is kept. Without the origin a worktree run's pane was answered
+        // as a bare pane, outside its run's replay ledger (live v0.2.0 hunt, five trust answers in
+        // 400 ms on a worktree run).
+        if let Some((project, handle)) = crate::agent_runs::pane_api::run_of_pane(registry, pane_id) {
             let routed = AnswerPromptRequest {
                 project_path: Some(project.clone()),
                 handle: Some(handle),
@@ -401,8 +408,21 @@ fn answer_prompt(
                 false,
             )
         })?;
-        crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None, crate::pty::WriteOrigin::Answer)
-            .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))?;
+        // One key per prompt occurrence, whichever path answers (this run, the bare pane path, a
+        // phone tap): the run ledger above only knows this run's own answers.
+        let slot = crate::pane_prompt::answers::answer_once(
+            pane_id,
+            &request.prompt_id,
+            &choice_key,
+            crate::pane_prompt::answers::now_ms(),
+            || {
+                crate::pty::registry::write_input(registry, app, pane_id, &text, true, false, None, crate::pty::WriteOrigin::Answer)
+                    .map_err(|error| OperationError::new("PROMPT_REPLY_FAILED", error, true))
+            },
+        )?;
+        if let crate::pane_prompt::answers::Slot::Duplicate(first) = slot {
+            return Ok(crate::agent_runs::answer_guard::repeat_receipt(&snapshot, &request.prompt_id, &first.choice, first.at_ms));
+        }
         // A "deny" on a startup gate (folder trust) is a final decline of the run waiting on it.
         crate::pane_prompt::note_gate_answer(pane_id, &prompt, choice);
     }

@@ -158,6 +158,12 @@ pub(super) fn replay_receipt(
     Some(view_with_answer(snapshot, answer))
 }
 
+/// The receipt for an answer that repeats one already delivered for this prompt occurrence by any
+/// path (`pane_prompt::answers::answer_once`): nothing was sent this time.
+pub(super) fn repeat_receipt(snapshot: &OperationSnapshot, prompt_id: &str, choice: &str, at_ms: u64) -> Value {
+    view_with_answer(snapshot, answer_block(snapshot, prompt_id, choice, true, at_ms))
+}
+
 /// Remember that `choice` was delivered for this prompt. Call right after the key is sent and
 /// before any bookkeeping that could fail.
 pub(super) fn record_applied(snapshot: &OperationSnapshot, prompt_id: &str, choice: &str) {

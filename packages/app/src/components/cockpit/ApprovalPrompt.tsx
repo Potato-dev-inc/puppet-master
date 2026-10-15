@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PanePrompt, PromptChoice, RiskLevel } from '../../lib/cockpit-api';
 import { CAUTION, LEVEL_WORD, firstReason, layoutChoices, riskGlyph } from '../../lib/approval-risk';
+import { gestureOf, type UserGesture } from '../../lib/user-gesture';
 import '../../styles/approval-card.css';
 
 function Glyph({ level }: { level: RiskLevel }) {
@@ -28,7 +29,8 @@ export function ApprovalPrompt({
   autoFocus = true,
 }: {
   prompt: PanePrompt;
-  onAnswer: (choice: PromptChoice) => void;
+  /** `gesture` is the click that chose it (`lib/user-gesture.ts`); the backend needs it. */
+  onAnswer: (choice: PromptChoice, gesture: UserGesture) => void;
   variant: 'card' | 'bar';
   autoFocus?: boolean;
 }) {
@@ -60,7 +62,7 @@ export function ApprovalPrompt({
       type="button"
       data-choice={ch.id}
       className={`ck-btn ck-btn--sm ${layout.primaryId === ch.id ? 'ck-btn--primary' : 'ck-btn--secondary'}`}
-      onClick={() => onAnswer(ch)}
+      onClick={(event) => onAnswer(ch, gestureOf(event))}
     >
       {ch.label}
     </button>

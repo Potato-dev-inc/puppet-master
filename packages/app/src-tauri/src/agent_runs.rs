@@ -42,7 +42,7 @@ mod side_panel_reply_tests;
 pub(crate) use native::stable_prompt_id;
 pub(crate) use persist::resolve_worker_name;
 pub use recovery::on_native_pane_replaced;
-pub use routes::handle_request;
+pub use routes::{handle_request, handle_request_as};
 pub(crate) use routes::answer_for_pane;
 pub(crate) use routes::latest_handle_for_pane;
 #[cfg(test)]

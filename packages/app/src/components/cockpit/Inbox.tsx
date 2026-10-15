@@ -17,6 +17,7 @@ import { QuestionCard } from './QuestionCard';
 import { PaneErrorBody } from './InboxError';
 import { paneHeading } from './titles';
 import { TeamSection } from './team/TeamSection';
+import { gestureOf } from '../../lib/user-gesture';
 
 export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
   // One list for every surface: the badge, the Doto counter and the sidebar group use its length.
@@ -142,7 +143,7 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
                   <span className="ck-row-time">{since ? `waiting ${formatElapsed(c.now - since)}` : ''}</span>
                 </div>
                 {prompt?.risk && prompt.choices.length > 0 ? (
-                  <ApprovalPrompt variant="card" prompt={prompt} onAnswer={(ch) => void c.answer(id, prompt.promptId, ch.id, ch.label)} />
+                  <ApprovalPrompt variant="card" prompt={prompt} onAnswer={(ch, gesture) => void c.answer(id, prompt.promptId, ch.id, ch.label, gesture)} />
                 ) : (
                   prompt && <p className="ck-inbox-q">{promptSummary(prompt)}</p>
                 )}
@@ -153,7 +154,7 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
                         key={ch.id}
                         type="button"
                         className={`ck-btn ${i === 0 ? 'ck-btn--primary' : 'ck-btn--secondary'}`}
-                        onClick={() => void c.answer(id, prompt.promptId, ch.id, ch.label)}
+                        onClick={(event) => void c.answer(id, prompt.promptId, ch.id, ch.label, gestureOf(event))}
                       >
                         {ch.label}
                       </button>

@@ -28,6 +28,7 @@ import { paneHeading } from './titles';
 import { transcriptStreamLabel } from '../../lib/transcript-labels';
 import { UntestedChip } from './UntestedChip';
 import { BudgetChip } from './BudgetChip';
+import { gestureOf } from '../../lib/user-gesture';
 
 type Tab = 'terminal' | 'changes' | 'transcript' | 'receipt' | 'history';
 
@@ -290,7 +291,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
 
       {pane.status === 'waiting_input' && prompt && prompt.choices.length > 0 && (
         <div className="ck-ask" role="group" aria-label="Agent question">
-          {prompt.risk && <ApprovalPrompt variant="bar" prompt={prompt} onAnswer={(ch) => void c.answer(paneId, prompt.promptId, ch.id, ch.label)} />}
+          {prompt.risk && <ApprovalPrompt variant="bar" prompt={prompt} onAnswer={(ch, gesture) => void c.answer(paneId, prompt.promptId, ch.id, ch.label, gesture)} />}
           {!prompt.risk && <span className="ck-ask-q">{promptSummary(prompt)}</span>}
           <span className="ck-ask-actions">
             {!prompt.risk && prompt.choices.map((ch, i) => (
@@ -298,7 +299,7 @@ export function PaneView({ c, paneId }: { c: CockpitApi; paneId: string }) {
                 key={ch.id}
                 type="button"
                 className={`ck-btn ck-btn--sm ${i === 0 ? 'ck-btn--primary' : 'ck-btn--secondary'}`}
-                onClick={() => void c.answer(paneId, prompt.promptId, ch.id, ch.label)}
+                onClick={(event) => void c.answer(paneId, prompt.promptId, ch.id, ch.label, gestureOf(event))}
               >
                 {ch.label}
               </button>

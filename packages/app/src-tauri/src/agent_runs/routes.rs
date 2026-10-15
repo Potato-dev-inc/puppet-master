@@ -41,6 +41,23 @@ pub fn handle_request(
     app: &AppHandle,
     session_id: Option<&str>,
 ) -> Option<Result<Value, OperationError>> {
+    handle_request_as(method, segments, query, body, registry, app, session_id, false)
+}
+
+/// [`handle_request`] for a caller the bridge knows more about: `remote_device` when the request
+/// needed a paired phone's token. It only changes who an answer is written down as
+/// (`AnsweredBy::for_bridge`), never what the caller may do.
+#[allow(clippy::too_many_arguments)]
+pub fn handle_request_as(
+    method: &str,
+    segments: &[&str],
+    query: &str,
+    body: &[u8],
+    registry: &Arc<Mutex<crate::pty::PaneRegistry>>,
+    app: &AppHandle,
+    session_id: Option<&str>,
+    remote_device: bool,
+) -> Option<Result<Value, OperationError>> {
     let result = match (method, segments) {
         ("POST", ["agents", "run"]) => parse::<AgentRunRequest>(body).and_then(|mut request| {
             if request
@@ -136,7 +153,10 @@ pub fn handle_request(
             .map(|view| serde_json::to_value(view).unwrap_or(Value::Null))
         }),
         ("POST", ["agents", "answer"]) => parse::<AnswerPromptRequest>(body)
-            .and_then(|request| answer::route_answer(request, query, session_id, registry, app)),
+            .and_then(|request| {
+                let by = crate::agent_authority::gate::AnsweredBy::for_bridge(session_id, remote_device);
+                answer::route_answer(request, query, session_id, &by, registry, app)
+            }),
         ("POST", ["agents", "cancel"]) => parse::<AgentHandleRequest>(body).and_then(|request| {
             let project = project_path(request.project_path.as_deref(), query, registry);
             runtime::cancel_agent(

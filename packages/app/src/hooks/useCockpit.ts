@@ -14,6 +14,11 @@ import { useQuestions, type QuestionsApi } from './useQuestions';
 import { paneNames } from '../components/cockpit/model';
 import { visibleSelection } from '../components/cockpit/selection';
 import { usePaneActivity, type ActivityMap } from '../lib/pane-activity';
+import type { UserGesture } from '../lib/user-gesture';
+
+/** How long after an answer landed further clicks on the same card are ignored (the TUI redraws
+ *  the dialog away within this; the backend's own window is 5 s). */
+const ANSWER_SETTLE_MS = 2_000;
 
 export interface SpawnState {
   agentId: string;
@@ -59,7 +64,8 @@ export interface CockpitApi {
   setMode: (mode: UiMode) => Promise<void>;
   toggleTheme: () => Promise<void>;
   newAgent: (agentId: string, accountId?: string, isolated?: boolean, projectPath?: string) => Promise<void>;
-  answer: (paneId: string, promptId: string, choiceId: string, label: string) => Promise<void>;
+  /** A person's answer to a pane prompt; `gesture` is their click (`lib/user-gesture.ts`). */
+  answer: (paneId: string, promptId: string, choiceId: string, label: string, gesture: UserGesture) => Promise<void>;
   interrupt: (paneId: string) => Promise<void>;
   closePane: (paneId: string) => Promise<void>;
   /** Give a pane your own name (blank clears it). */
@@ -350,12 +356,21 @@ export function useCockpit(): CockpitApi {
     [],
   );
 
+  // One answer per card: further clicks on the same prompt while the first is on its way (or just
+  // landed, before the TUI redrew) send nothing. The backend refuses repeats too
+  // (`pane_prompt/answers.rs`); this keeps a double click from even reaching it.
+  const answering = useRef(new Set<string>());
   const answer = useCallback(
-    async (paneId: string, promptId: string, choiceId: string, label: string) => {
+    async (paneId: string, promptId: string, choiceId: string, label: string, gesture: UserGesture) => {
+      const key = `${paneId}\n${promptId}`;
+      if (answering.current.has(key)) return;
+      answering.current.add(key);
       try {
-        await cockpitApi.answerPanePrompt(paneId, promptId, choiceId);
+        await cockpitApi.answerPanePrompt(paneId, promptId, choiceId, gesture);
         notify(`Answered ${names.get(paneId) ?? 'agent'}: ${label}`);
+        window.setTimeout(() => answering.current.delete(key), ANSWER_SETTLE_MS);
       } catch (err) {
+        answering.current.delete(key);
         notify(errText(err));
       }
     },

@@ -166,7 +166,7 @@ fn permission_reply(cx: &Ctx, pane_id: &str, request_id: &str) -> RouteResult {
         .map_err(crate::bridge::errors::operation_http_error)?;
     crate::opencode::reply_pane_permission(cx.registry, pane_id, request_id, &req.reply)
         .map_err(|err| (404, json!({ "error": err })))?;
-    crate::agent_authority::gate::note_answer(session, pane_id, request_id, &req.reply, Some(cx.registry));
+    crate::agent_authority::gate::note_answer(&answered_by(cx), pane_id, request_id, &req.reply, Some(cx.registry));
     Ok((200, json!({ "ok": true })))
 }
 
@@ -183,8 +183,14 @@ fn question_reply(cx: &Ctx, pane_id: &str) -> RouteResult {
         req.request_id.as_deref(),
     )
     .map_err(|err| (404, json!({ "error": err })))?;
-    crate::agent_authority::gate::note_answer(session, pane_id, &prompt_key, &req.answer, Some(cx.registry));
+    crate::agent_authority::gate::note_answer(&answered_by(cx), pane_id, &prompt_key, &req.answer, Some(cx.registry));
     Ok((200, result))
+}
+
+/// Who sent a reply through the bridge (`AnsweredBy::for_bridge`): a phone, a local program or an
+/// agent, never "desktop" (the bridge cannot tell the Puppet Master window from any other local caller).
+fn answered_by(cx: &Ctx) -> crate::agent_authority::gate::AnsweredBy {
+    crate::agent_authority::gate::AnsweredBy::for_bridge(cx.session, crate::mobile_pairing::requires_pairing_token(cx.headers, cx.peer_loopback))
 }
 
 /// The checks `answer_prompt` makes before an answer goes out, for an OpenCode permission or

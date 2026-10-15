@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { agentLabel, useAgentRegistry } from '../../lib/agentRegistry';
 import { cockpitApi, type PromptChoice } from '../../lib/cockpit-api';
+import type { UserGesture } from '../../lib/user-gesture';
 import { useLoopGuard } from '../../lib/loop-guard';
 import { Changes } from '../cockpit/Changes';
 import { DotSpinner } from '../cockpit/DotSpinner';
@@ -30,6 +31,10 @@ import { errorCode, simpleApi, type SimpleApi } from './simple-api';
 import { projectLabel, useCopy } from './use-copy';
 
 type Tab = 'preview' | 'conversation' | 'changed' | 'goback';
+
+/** High-risk prompts PM already said No to, by pane and prompt. Module-wide, not per mount: turning
+ *  Simple mode off and on again (or reopening the project) must not send the No a second time. */
+const declinedByPm = new Set<string>();
 
 function stateWords(status: string): string {
   switch (status) {
@@ -92,8 +97,8 @@ export function SimpleProject({
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState('');
   const [queuedNote, setQueuedNote] = useState(false);
-  const answered = useRef(new Set<string>());
   const getSelectionRef = useRef<(() => string) | null>(null);
+  const sending = useRef(new Set<string>());
 
   useEffect(() => {
     setTab('preview');
@@ -106,16 +111,18 @@ export function SimpleProject({
   // High risk is never asked. PM answers the agent's own No, then tells her (a blocked card).
   useEffect(() => {
     if (!pane || status !== 'waiting_input' || !prompt || prompt.risk?.level !== 'high') return;
-    if (answered.current.has(prompt.promptId)) return;
-    answered.current.add(prompt.promptId);
+    const key = `${paneId}\n${prompt.promptId}`;
+    if (declinedByPm.has(key)) return;
+    declinedByPm.add(key);
     const words = simpleApproval(prompt);
     const choice = blockChoice(prompt);
     if (!choice) {
       setBlocked({ what: words?.what ?? '', stoppable: false });
       return;
     }
+    // The only answer sent without a click: a refusal (the backend allows nothing else without one).
     cockpitApi
-      .answerPanePrompt(paneId, prompt.promptId, choice.id)
+      .declinePanePrompt(paneId, prompt.promptId, choice.id)
       .then(() => setBlocked({ what: words?.what ?? '', stoppable: true }))
       .catch(() => setBlocked({ what: words?.what ?? '', stoppable: false }));
   }, [pane, paneId, prompt, status]);
@@ -165,9 +172,19 @@ export function SimpleProject({
   const showScreen = screenOpen || forcedScreen;
   const ask = status === 'waiting_input' && prompt && prompt.risk && prompt.risk.level !== 'high' && prompt.choices.length > 0 ? prompt : null;
 
-  const answer = (choice: PromptChoice) => {
+  const answer = (choice: PromptChoice, gesture: UserGesture) => {
     if (!prompt) return;
-    cockpitApi.answerPanePrompt(paneId, prompt.promptId, choice.id).catch(() => c.notify(T.somethingWrong));
+    const key = `${paneId}\n${prompt.promptId}`;
+    // One answer per card: a second click while the first is on its way sends nothing.
+    if (sending.current.has(key)) return;
+    sending.current.add(key);
+    cockpitApi.answerPanePrompt(paneId, prompt.promptId, choice.id, gesture).then(
+      () => window.setTimeout(() => sending.current.delete(key), 2_000),
+      () => {
+        sending.current.delete(key);
+        c.notify(T.somethingWrong);
+      },
+    );
   };
 
   const send = () => {
