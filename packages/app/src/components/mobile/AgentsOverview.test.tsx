@@ -7,6 +7,7 @@ import type { BridgeClient } from '../../lib/bridge';
 import type { Question } from '../../lib/questions';
 import type { LoopSignalInfo } from '../../lib/bridge-types';
 import type { AttentionSnapshot } from '../../lib/attention';
+import { ITEM_HIGH, ITEM_LOW, ITEM_QUESTION } from '../../dev/attention-fixtures';
 import { AgentsOverview } from './AgentsOverview';
 import { resetDigestCardForTests } from './DigestCard';
 
@@ -129,6 +130,32 @@ describe('phone AgentsOverview', () => {
     await mount({ attention });
     expect(host.querySelector('.ph-doto')?.textContent).toBe('05');
     expect(host.querySelector('.ph-counter')?.getAttribute('aria-label')).toBe('5 waiting');
+  });
+
+  it('draws the PC’s list as cards above the agents, in the PC’s order, with the PC’s number', async () => {
+    const attention = {
+      v: 1,
+      rev: 4,
+      counts: { blocking: 3, ready: 0 },
+      items: [ITEM_HIGH, ITEM_LOW, { ...ITEM_QUESTION, key: 'question:q-1' }],
+      device: { can_answer: true, can_type: true, can_control: true },
+    } as AttentionSnapshot;
+    await mount({ attention, questionsRevision: 1 });
+    expect(host.querySelector('.ph-doto')?.textContent).toBe('03');
+    const queue = host.querySelector('[data-testid="needs-you-queue"]')!;
+    expect(queue).not.toBeNull();
+    const titles = Array.from(queue.querySelectorAll('.ph-appr-title, .ph-card-q')).map((t) => t.textContent);
+    expect(titles).toEqual(['Delete a folder outside this project', 'Run tests', 'Keep the old route?']);
+    // The cards come before the pane rows, and are drawn once.
+    expect(queue.compareDocumentPosition(host.querySelector('.ph-group')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(host.querySelectorAll('[data-testid="needs-you-queue"]')).toHaveLength(1);
+  });
+
+  it('draws the cards once on an empty screen too', async () => {
+    const attention = { v: 1, rev: 4, counts: { blocking: 1, ready: 0 }, items: [ITEM_LOW] } as AttentionSnapshot;
+    await mount({ attention, panes: [] });
+    expect(host.querySelectorAll('[data-testid="needs-you-queue"]')).toHaveLength(1);
+    expect(host.textContent).toContain('No agents running');
   });
 
   it('counts its own panes when the PC is too old to send attention', async () => {

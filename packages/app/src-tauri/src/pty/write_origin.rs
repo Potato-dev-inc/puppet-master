@@ -8,7 +8,7 @@
 //! authorised API caller asked for. The tag is also what the event log and a flight recorder can
 //! name as the writer.
 
-use crate::agent_runs::readiness::{GatePermit, TypingPermit};
+use crate::agent_runs::readiness::{AnswerPermit, GatePermit, TypingPermit};
 
 #[derive(Debug, Clone, Copy)]
 pub enum WriteOrigin<'a> {
@@ -22,6 +22,10 @@ pub enum WriteOrigin<'a> {
     /// The answer to a prompt the caller re-detected on screen right before (approval cards, the
     /// run policy's auto-approve).
     Answer,
+    /// A person's decision about one prompt (a phone card, a lock-screen button): the answer typed
+    /// under an `AnswerPermit` for exactly that prompt, refused when the pane printed since it was
+    /// re-read or when the permit is used twice. Never a `GatePermit`.
+    Decided(&'a AnswerPermit),
     /// Control keys Puppet Master sends on its own: interrupt, cancel, exit, clearing an unsent
     /// prompt, one more Enter for text already verified in the input box.
     Nudge,
@@ -39,7 +43,7 @@ impl WriteOrigin<'_> {
             Self::User => "user",
             Self::Task(_) => "task",
             Self::Gate(_) => "gate",
-            Self::Answer => "answer",
+            Self::Answer | Self::Decided(_) => "answer",
             Self::Nudge => "nudge",
             Self::Api => "api",
             Self::Structured => "structured",
@@ -59,6 +63,7 @@ impl WriteOrigin<'_> {
         match self {
             Self::Task(permit) => permit.admit(pane_id, emitted_now, agent),
             Self::Gate(permit) => permit.admit(pane_id, text, append_newline, emitted_now),
+            Self::Decided(permit) => permit.admit(pane_id, emitted_now, agent),
             Self::Structured => Err(format!(
                 "{}: a structured prompt is never typed into the terminal",
                 crate::agent_runs::readiness::PERMIT_REFUSED

@@ -302,6 +302,51 @@ fn a_gate_permit_presses_only_its_own_keys_once() {
     assert!(look("claude", CLAUDE_TRUST, AgentProcess::Alive).gate_permit().is_none());
 }
 
+fn answer_permit(observed: Option<u64>) -> AnswerPermit {
+    AnswerPermit::for_prompt("pane-1", "pid-1", "f3c1f3c1f3c1f3c1", Decider::Device("dev-a".into()), observed, AgentProcess::Alive).unwrap()
+}
+
+#[test]
+fn an_answer_permit_is_for_one_prompt_on_one_pane_and_is_used_once() {
+    use crate::pty::WriteOrigin;
+    let permit = answer_permit(Some(100));
+    assert_eq!((permit.prompt_id(), permit.fingerprint()), ("pid-1", "f3c1f3c1f3c1f3c1"));
+    assert_eq!(permit.decider(), &Decider::Device("dev-a".into()));
+    assert!(permit.admit("pane-2", Some(100), || AgentProcess::Alive).unwrap_err().starts_with(PERMIT_REFUSED), "another pane");
+    // (The refused look above spent nothing: the pane check comes first.)
+    WriteOrigin::Decided(&permit).admit_terminal_write("pane-1", "1", true, Some(100), || AgentProcess::Alive).unwrap();
+    let again = permit.admit("pane-1", Some(100), || AgentProcess::Alive).unwrap_err();
+    assert!(again.starts_with(PERMIT_REFUSED) && again.contains("once"), "{again}");
+}
+
+#[test]
+fn an_answer_permit_is_refused_when_the_pane_printed_since_the_prompt_was_read() {
+    let permit = answer_permit(Some(100));
+    let stale = permit.admit("pane-1", Some(108), || AgentProcess::Alive).unwrap_err();
+    assert!(stale.starts_with(PERMIT_STALE), "{stale}");
+    // No position known on either side: nothing to compare (a test double), the write goes.
+    answer_permit(None).admit("pane-1", Some(5), || AgentProcess::Alive).unwrap();
+}
+
+#[test]
+fn an_answer_permit_never_reaches_a_host_shell() {
+    let refused = AnswerPermit::for_prompt("pane-1", "pid-1", "f", Decider::Desktop, Some(1), AgentProcess::Exited).unwrap_err();
+    assert!(refused.starts_with(PERMIT_REFUSED) && refused.contains("exited"), "{refused}");
+    let permit = answer_permit(Some(1));
+    assert!(permit.admit("pane-1", Some(1), || AgentProcess::Exited).unwrap_err().contains("exited"), "the agent died between the read and the write");
+}
+
+#[test]
+fn a_decided_answer_is_tagged_as_an_answer_not_a_gate() {
+    use crate::pty::WriteOrigin;
+    let permit = answer_permit(Some(1));
+    assert_eq!(WriteOrigin::Decided(&permit).tag(), "answer");
+    assert_eq!(crate::flight::tag_for(&WriteOrigin::Decided(&permit)), crate::flight::InputTag::Answer);
+    // A gate permit cannot answer a prompt: it covers only the gate's own dismiss keys, once.
+    let gate = look("codex", CODEX_UPDATE_MENU, AgentProcess::Alive).gate_permit().unwrap();
+    assert!(gate.admit("pane-1", "1", true, Some(1)).is_err());
+}
+
 #[test]
 fn the_write_origins_that_are_not_run_input_pass_and_a_structured_prompt_never_types() {
     use crate::pty::WriteOrigin;

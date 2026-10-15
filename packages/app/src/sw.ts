@@ -14,13 +14,16 @@ import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from
 import { NavigationRoute, registerRoute } from 'workbox-routing';
 import { NetworkOnly } from 'workbox-strategies';
 import {
+  OPEN_ITEM_MESSAGE,
   OPEN_PANE_MESSAGE,
   OPEN_VIEW_MESSAGE,
   clickIntent,
   openUrl,
   parsePushPayload,
   planNotification,
+  type OpenTarget,
 } from './pwa/push-core';
+import { writeIntent } from './pwa/push-intent';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -55,33 +58,45 @@ async function answer(url: string, token: string, choice: 'allow' | 'deny'): Pro
   }
 }
 
-async function openPane(paneId: string | null, view?: 'questions'): Promise<void> {
+/**
+ * Open what the tapped notification is about. The intent goes to Cache Storage FIRST: on iOS a PWA that
+ * went to the background can be frozen, and a message posted before it thaws is lost, but the app reads
+ * the cache when it comes back. Then the open window is focused and told, or a new one is opened on the
+ * card (`/?item=`), the pane (`/?pane=`) or the question list.
+ */
+async function openTarget(target: OpenTarget): Promise<void> {
+  try {
+    await writeIntent(self.caches, { itemId: target.itemId, paneId: target.paneId, view: target.view, at: Date.now() });
+  } catch {
+    /* Cache Storage unavailable: the message and the launch URL still work */
+  }
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   const existing = windows.find((client) => 'focus' in client) as WindowClient | undefined;
   if (existing) {
     await existing.focus();
-    if (view) existing.postMessage({ type: OPEN_VIEW_MESSAGE, view });
-    else if (paneId) existing.postMessage({ type: OPEN_PANE_MESSAGE, pane_id: paneId });
+    if (target.itemId) existing.postMessage({ type: OPEN_ITEM_MESSAGE, item_id: target.itemId, pane_id: target.paneId ?? undefined });
+    else if (target.view) existing.postMessage({ type: OPEN_VIEW_MESSAGE, view: target.view });
+    else if (target.paneId) existing.postMessage({ type: OPEN_PANE_MESSAGE, pane_id: target.paneId });
     return;
   }
-  await self.clients.openWindow(new URL(openUrl(paneId, view), self.registration.scope).href);
+  await self.clients.openWindow(new URL(openUrl(target), self.registration.scope).href);
 }
 
 self.addEventListener('notificationclick', (event) => {
   const intent = clickIntent(event.action, event.notification.data);
   event.notification.close();
   if (intent.type === 'open') {
-    event.waitUntil(openPane(intent.paneId, intent.view));
+    event.waitUntil(openTarget({ itemId: intent.itemId, paneId: intent.paneId, view: intent.view }));
     return;
   }
   event.waitUntil(
     (async () => {
       if (await answer(intent.url, intent.token, intent.choice)) return;
-      // Expired, already answered at the PC, or offline: say so and let a tap open the pane.
-      await self.registration.showNotification('Could not send your answer', {
-        body: 'It may already be answered. Tap to open the pane.',
+      // Expired, already answered at the PC, or offline: say so and let a tap open the card.
+      await self.registration.showNotification("Couldn't send your answer", {
+        body: 'It may already be answered. Tap to see.',
         tag: event.notification.tag,
-        data: { pane_id: event.notification.data?.pane_id },
+        data: { pane_id: event.notification.data?.pane_id, item_id: event.notification.data?.item_id },
       });
     })(),
   );

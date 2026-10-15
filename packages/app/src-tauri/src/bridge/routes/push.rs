@@ -30,13 +30,34 @@ pub(super) fn handle(cx: &Ctx) -> Option<RouteResult> {
     )
 }
 
-/// An Allow / Deny tap: the one-shot token names the pane and prompt; `pane_prompt::answer` still
-/// verifies the prompt on screen is that very prompt before pressing a key.
+/// An Allow / Deny tap: the one-shot token names the pane and prompt, and, when the notification
+/// knew its attention card, the occurrence and screen fingerprint it showed. The tap is answered
+/// through the SAME path as the phone card (`attention::answer`): it re-reads the live screen under
+/// the answer lock and types nothing when this is no longer that prompt (`changed` / `gone`).
 fn act(cx: &Ctx, hub: &crate::push::hub::PushHub, now: u64) -> RouteResult {
     let act = crate::push::routes::redeem_act(hub, cx.body, now)?;
     // The tap acts for the device the notification went to: it needs that device's `answer` cap.
     if !device_may_answer(&act.grant.device_id) {
         return Err((403, json!({"error": "not_allowed", "code": "DEVICE_NOT_ALLOWED", "needs": "answer"})));
+    }
+    if let Some(item) = act.grant.item.as_ref().filter(|item| !item.fingerprint.is_empty()) {
+        let caller = crate::attention::answer::Caller {
+            device_name: crate::attention::caps::device_name(&act.grant.device_id).unwrap_or_else(|| "A phone".to_string()),
+            caps: crate::attention::caps::for_device(&act.grant.device_id),
+            device_id: act.grant.device_id.clone(),
+            lock_screen: true,
+        };
+        let request = crate::attention::answer::Request {
+            choice: Some(act.choice.to_string()),
+            text: None,
+            prompt_id: Some(act.grant.prompt_id.clone()),
+            occurrence: Some(item.occurrence),
+            fingerprint: Some(item.fingerprint.clone()),
+            answer_key: Some(format!("lock-{}", item.id)),
+        };
+        let env = crate::attention::answer::RealEnv { registry: cx.registry.clone(), app: cx.app.clone() };
+        let (status, body) = crate::attention::answer::answer(&env, &caller, &item.id, &request);
+        return lock_screen_reply(status, body);
     }
     let answered = crate::pane_prompt::answer(
         cx.registry,
@@ -57,6 +78,20 @@ fn act(cx: &Ctx, hub: &crate::push::hub::PushHub, now: u64) -> RouteResult {
     Ok((200, json!({"ok": true, "answered": answered})))
 }
 
+/// What the notification's button gets back: `ok` only when the key really went out. Anything else
+/// is an error the service worker turns into "Couldn't send your answer".
+fn lock_screen_reply(status: u16, body: serde_json::Value) -> RouteResult {
+    if status >= 400 {
+        return Err((status, body));
+    }
+    match body["outcome"].as_str() {
+        Some("answered") => Ok((200, json!({"ok": true, "answered": body}))),
+        Some("failed") => Err((502, body)),
+        // changed, gone, already answered: nothing was typed
+        _ => Err((409, body)),
+    }
+}
+
 pub(in crate::bridge) fn device_may_answer(device_id: &str) -> bool {
     crate::mobile_pairing::pairing_store()
         .and_then(|store| store.lock().device_caps(device_id))
@@ -66,6 +101,20 @@ pub(in crate::bridge) fn device_may_answer(device_id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::mobile_pairing::{init_pairing_store, pairing_store, Cap, Caps, PairRequestBody};
+    use serde_json::json;
+
+    #[test]
+    fn a_lock_screen_button_is_ok_only_when_the_key_really_went_out() {
+        let ok = super::lock_screen_reply(200, json!({"outcome": "answered", "choice_label": "Allowed once"}));
+        assert_eq!(ok.unwrap().0, 200);
+        // Nothing was typed in any of these: the service worker says "Couldn't send your answer".
+        for outcome in ["changed", "gone", "already_answered"] {
+            let reply = super::lock_screen_reply(200, json!({"outcome": outcome}));
+            assert_eq!(reply.unwrap_err().0, 409, "{outcome}");
+        }
+        assert_eq!(super::lock_screen_reply(200, json!({"outcome": "failed"})).unwrap_err().0, 502);
+        assert_eq!(super::lock_screen_reply(403, json!({"error": "not_allowed"})).unwrap_err().0, 403);
+    }
 
     #[test]
     fn a_notification_tap_needs_the_answer_cap_of_its_device() {

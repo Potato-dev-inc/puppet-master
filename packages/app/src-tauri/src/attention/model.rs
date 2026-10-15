@@ -210,6 +210,9 @@ pub struct PromptFact {
     pub headline: Option<String>,
     #[serde(default)]
     pub choices: Vec<ChoiceFact>,
+    /// Up to six plain sentences behind the risk (`prompt_risk::Risk::reasons`).
+    #[serde(default)]
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -339,6 +342,8 @@ pub struct RiskView {
     pub level: Level,
     pub word: &'static str,
     pub headline: Option<String>,
+    /// Why, in plain sentences (at most six), for the card's "Show details".
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -349,6 +354,25 @@ pub struct PromptView {
     pub kind: String,
     pub summary: Option<String>,
     pub choices: Vec<ChoiceFact>,
+    /// What the card showed, hashed (`attention::fingerprint`). An answer carries it back and is
+    /// refused as `changed` when the live screen no longer matches.
+    pub fingerprint: String,
+    /// Which choice leads, which is focused and which sit behind "More options"
+    /// (`attention::layout`): decided here once, so the phone and the desktop cannot drift.
+    pub layout: Layout,
+    /// Where the prompt was read from: `screen` (parsed from the terminal).
+    pub provenance: &'static str,
+}
+
+/// How the choices of a prompt are laid out. Ids of `PromptView::choices`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Layout {
+    /// The choice that looks like the primary action (Deny on a high-risk prompt).
+    pub primary: Option<String>,
+    /// The choice that has focus when the card opens; `None` = none (never Allow on high risk).
+    pub focus: Option<String>,
+    /// Behind "More options": the "don't ask again" family, on high risk only.
+    pub more: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -360,14 +384,21 @@ pub struct Action {
     pub needs: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub struct Resolution {
     /// `answered | gone | expired | withdrawn`.
     pub state: String,
+    /// Who answered: `desktop | phone | lock_screen`.
     pub by: Option<String>,
     pub choice_label: Option<String>,
     pub reason: Option<String>,
     pub at_ms: u64,
+    /// The name of the phone that answered ("Anna's iPhone"), for `phone` and `lock_screen`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<String>,
+    /// The paired device that answered. Never serialized: another phone must not learn it.
+    #[serde(skip)]
+    pub device_id: Option<String>,
 }
 
 /// What a producer (budget, limit, consent, tamper, setup, review, done) hands to `raise`.

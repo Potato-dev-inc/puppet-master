@@ -149,7 +149,10 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         // This device's own notification subscription and presence (`/push/act` is public and
         // checks the answering device's caps itself). Listed exactly: a push route added later
         // falls through to watch/control instead of being open to any device.
-        ("GET", ["push", "key"]) | ("POST" | "DELETE", ["push", "subscribe"]) | ("POST", ["push", "presence" | "act"]) => {
+        ("GET", ["push", "key"])
+        | ("GET" | "POST", ["push", "preferences"])
+        | ("POST" | "DELETE", ["push", "subscribe"])
+        | ("POST", ["push", "presence" | "act"]) => {
             Need::Device
         }
 
@@ -157,6 +160,9 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         // The attention list (what needs the person): sentences, not terminal bytes.
         ("GET", ["attention"]) => Need::AnyOf(Watch, Answer),
         ("POST", ["questions", _, "answer" | "dismiss"]) => Need::Cap(Answer),
+        // A person's answer from the phone card (a budget or usage-limit card needs `control` too,
+        // checked by the answer itself).
+        ("POST", ["attention", _, "answer"]) => Need::Cap(Answer),
         ("POST", ["agents", "answer"]) => Need::Cap(Answer),
         ("POST", [_, _, "opencode", "permissions", _, "reply"]) => Need::Cap(Answer),
         ("POST", [_, _, "opencode", "question", "reply"]) => Need::Cap(Answer),

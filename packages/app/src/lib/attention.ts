@@ -142,6 +142,41 @@ export const itemsOfKind = (items: ReadonlyArray<NeedsYouItem>, kind: NeedsYouKi
 
 export type AttentionKind = NeedsYouKind | 'trust_gate' | 'tamper' | 'budget' | 'limit' | 'setup' | 'review' | 'done';
 
+/** One thing the prompt on screen offers (`broad` = a "don't ask again" answer). */
+export interface AttentionChoice {
+  id: string;
+  label: string;
+  broad: boolean;
+}
+
+/** What the card showed, as the PC read it from the screen. */
+export interface AttentionPrompt {
+  prompt_id: string;
+  /** How many times this pane has asked; the same command asked again is a new occurrence. */
+  occurrence: number;
+  kind: string;
+  summary: string | null;
+  /** Absent from an older PC: the card then has no buttons and offers the pane instead. */
+  choices?: AttentionChoice[];
+  /** Sent back with an answer; the PC refuses the answer when the live screen no longer matches. */
+  fingerprint?: string;
+  /** Which choice leads, which has focus and which sit behind "More options" (decided in Rust). */
+  layout?: { primary: string | null; focus: string | null; more: string[] };
+  provenance?: 'screen';
+}
+
+export interface AttentionResolution {
+  /** `answered | gone | expired | withdrawn` */
+  state: string;
+  /** `desktop | phone` */
+  by: string | null;
+  choice_label: string | null;
+  reason: string | null;
+  at_ms: number;
+  /** The phone that answered ("Anna's iPhone"). */
+  device_name?: string;
+}
+
 export interface AttentionItem {
   /** Opaque and stable for one occurrence. Never render it. */
   id: string;
@@ -156,10 +191,10 @@ export interface AttentionItem {
   pane: { id: string; heading: string; agent: string | null; project: string | null } | null;
   title: string;
   sentence: string | null;
-  risk: { level: 'low' | 'medium' | 'high'; word: string; headline: string | null } | null;
-  prompt: { prompt_id: string; occurrence: number; kind: string; summary: string | null } | null;
+  risk: { level: 'low' | 'medium' | 'high'; word: string; headline: string | null; reasons?: string[] } | null;
+  prompt: AttentionPrompt | null;
   actions: { id: string; label: string; style: string; needs: string }[];
-  resolution: { state: string; by: string | null; choice_label: string | null; reason: string | null; at_ms: number } | null;
+  resolution: AttentionResolution | null;
 }
 
 export interface AttentionSnapshot {
@@ -173,7 +208,12 @@ export interface AttentionSnapshot {
 
 /** Keep the newer of two snapshots: a frame is applied only when its `rev` is greater. */
 export function newerSnapshot(current: AttentionSnapshot | null, next: AttentionSnapshot): AttentionSnapshot {
-  return current && current.rev >= next.rev ? current : next;
+  if (current && current.rev > next.rev) return current;
+  // The same revision read again: nothing changed on the list, but what this phone may do might have.
+  if (current && current.rev === next.rev) return next.device ? { ...current, device: next.device } : current;
+  // The `device` block is only in `GET /attention` (the broadcast frame is shared by every phone), so a
+  // frame keeps what the last read said this phone may do.
+  return next.device || !current?.device ? next : { ...next, device: current.device };
 }
 
 /** The number every surface shows: open blocking items. */
@@ -195,4 +235,41 @@ export function attentionMismatch(items: ReadonlyArray<NeedsYouItem>, snapshot: 
   for (const id of local) if (!rust.has(id)) out.push(`only the front end has ${id}`);
   for (const id of rust) if (!local.has(id)) out.push(`only Rust has ${id}`);
   return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Answering from the phone card: `POST /attention/{id}/answer`.
+
+/** What the phone sends: the choice and exactly what the card showed. */
+export interface AttentionAnswerBody {
+  choice?: string;
+  /** Free text, for a question that takes it. */
+  text?: string;
+  prompt_id?: string;
+  occurrence?: number;
+  fingerprint?: string;
+  /** Made once per tap and re-sent by "Try again": a retry never presses twice. */
+  answer_key?: string;
+}
+
+/** What the PC says happened. HTTP 200 for all of these; a refusal is an `AttentionAnswerError`. */
+export type AttentionAnswerOutcome =
+  | { outcome: 'answered'; choice_label: string; at_ms: number }
+  | { outcome: 'already_answered'; by: 'pc' | 'you' | 'phone'; device_name?: string | null; choice_label?: string | null }
+  /** A different prompt is up on that pane now. Nothing was typed. */
+  | { outcome: 'changed' }
+  /** No prompt is up any more. Nothing was typed. */
+  | { outcome: 'gone'; reason?: string }
+  /** The key could not be written. Nothing was typed. */
+  | { outcome: 'failed'; code?: string; detail?: string };
+
+/** The PC refused the request (403 not allowed, 400 bad request). */
+export class AttentionAnswerError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: { error?: string; code?: string; cap?: string; hint?: string },
+  ) {
+    super(`answer refused (${status}): ${body.code ?? body.error ?? 'unknown'}`);
+    this.name = 'AttentionAnswerError';
+  }
 }

@@ -127,6 +127,7 @@ const ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/pair/me", "device"),
     ("GET", "/events/poll", "device"),
     ("POST", "/push/subscribe", "device"),
+    ("POST", "/push/preferences", "device"),
     // watch
     ("GET", "/panes/p1/screen", "watch"),
     ("GET", "/panes/p1/buffer?lines=50", "watch"),
@@ -137,10 +138,12 @@ const ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/agents/wait", "watch"),
     // watch or answer
     ("GET", "/questions", "watch|answer"),
+    ("GET", "/attention", "watch|answer"),
     // answer
     ("POST", "/questions/q1/answer", "answer"),
     ("POST", "/questions/q1/dismiss", "answer"),
     ("POST", "/agents/answer", "answer"),
+    ("POST", "/attention/a1/answer", "answer"),
     ("POST", "/panes/p1/opencode/permissions/r1/reply", "answer"),
     // type
     ("POST", "/panes/p1/input", "type"),

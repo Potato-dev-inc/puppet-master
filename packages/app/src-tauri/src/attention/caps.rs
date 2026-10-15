@@ -33,3 +33,8 @@ pub fn for_device(device_id: &str) -> DeviceCaps {
         .map(DeviceCaps::from_caps)
         .unwrap_or_else(DeviceCaps::none)
 }
+
+/// The name the person gave a paired device ("Anna's iPhone"), for the receipt other phones see.
+pub fn device_name(device_id: &str) -> Option<String> {
+    mobile_pairing::pairing_store()?.lock().list_devices().into_iter().find(|d| d.id == device_id).map(|d| d.name)
+}

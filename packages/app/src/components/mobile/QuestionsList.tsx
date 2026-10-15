@@ -54,11 +54,17 @@ export function QuestionsView({
   questions,
   refresh,
   labels,
+  bare = false,
+  readOnly,
 }: {
   bridge: BridgeClient;
   questions: Question[];
   refresh: () => void;
   labels: Map<string, string>;
+  /** Draw the cards without their own section, for a list that lays them out (the Needs you queue). */
+  bare?: boolean;
+  /** Why this phone may not answer (shown in place of the choices and the text box). */
+  readOnly?: string;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -81,8 +87,8 @@ export function QuestionsView({
     refresh();
   };
 
-  return (
-    <section aria-label="Questions from agents" className="ph-cards">
+  const cards = (
+    <>
       {live.map((q) => (
         <div key={q.id} className="ph-card" data-question-id={q.id}>
           <div className="ph-card-cap">
@@ -90,7 +96,7 @@ export function QuestionsView({
           </div>
           <p className="ph-card-q">{q.question}</p>
           {q.context && <p className="ph-card-body">{q.context}</p>}
-          {q.choices.length > 0 && (
+          {!readOnly && q.choices.length > 0 && (
             <div className="ph-answers">
               {/* Equal weight on purpose: the agent (or the limit card) wrote the choices, so none is made the easy default. */}
               {q.choices.map((c) => (
@@ -105,13 +111,14 @@ export function QuestionsView({
               ))}
             </div>
           )}
+          {readOnly && <p className="ph-card-wait">{readOnly}</p>}
           {/* A usage-limit card does not time out on an asking agent: it goes away with the limit. */}
           {!q.limit && (
             <p className="ph-card-wait" data-testid="question-wait">
               {waitCaption(q, now, q.pane_id ? labels.get(q.pane_id) : undefined)}
             </p>
           )}
-          {q.allow_free_text && (
+          {!readOnly && q.allow_free_text && (
             <form
               className="ph-reply"
               onSubmit={(e) => {
@@ -136,7 +143,7 @@ export function QuestionsView({
             </form>
           )}
           {/* A limit card's own choices end it ("Stop here" / "Dismiss"); a second Dismiss would leave the run parked. */}
-          {!q.limit && (
+          {!readOnly && !q.limit && (
             <button
               type="button"
               onClick={() => void run(bridge.dismissQuestion(q.id))}
@@ -149,6 +156,12 @@ export function QuestionsView({
         </div>
       ))}
       {error && <div className="ph-error">{error}</div>}
+    </>
+  );
+  if (bare) return cards;
+  return (
+    <section aria-label="Questions from agents" className="ph-cards">
+      {cards}
     </section>
   );
 }

@@ -52,6 +52,7 @@ function mount(
     onSelect: (tab: string) => void;
     onNew: () => void;
     onMenu: () => void;
+    needsYou: number;
   }> = {},
 ) {
   const onSelect = props.onSelect ?? vi.fn();
@@ -64,6 +65,7 @@ function mount(
         labels={labels}
         active={props.active ?? 'all'}
         bridgeReady={props.bridgeReady ?? true}
+        needsYou={props.needsYou}
         onSelect={onSelect}
         onNew={onNew}
         onMenu={onMenu}
@@ -124,5 +126,20 @@ describe('phone AgentTabBar', () => {
     expect(onNew).not.toHaveBeenCalled();
     const conn = host.querySelector('.ph-conn');
     expect(conn?.classList.contains('ph-conn--off')).toBe(true);
+  });
+
+  it('shows the one number on the All tab, not its own count of waiting panes', () => {
+    // One pane is waiting, but the PC says three things need you (a question, a consent card, the pane).
+    mount({ needsYou: 3 });
+    expect(host.querySelector('.ph-count')?.textContent).toBe('3');
+    act(() => root.unmount());
+    root = createRoot(host);
+    mount({ needsYou: 0 });
+    expect(host.querySelector('.ph-count')).toBeNull();
+  });
+
+  it('falls back to counting waiting panes when the PC sends no number (an older PC)', () => {
+    mount();
+    expect(host.querySelector('.ph-count')?.textContent).toBe('1');
   });
 });

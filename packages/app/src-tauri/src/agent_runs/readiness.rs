@@ -49,12 +49,25 @@
 //! };
 //! ```
 //!
+//! ```compile_fail,E0451
+//! // Nor an answer permit (a person's decision about one prompt on one pane, see `AnswerPermit`).
+//! let permit = puppet_master_app_lib::agent_runs::readiness::AnswerPermit {
+//!     pane_id: String::new(),
+//!     prompt_id: String::new(),
+//!     fingerprint: String::new(),
+//!     decider: puppet_master_app_lib::agent_runs::readiness::Decider::Desktop,
+//!     output_pos: None,
+//!     used: std::cell::Cell::new(false),
+//! };
+//! ```
+//!
 //! The types themselves are public (this compiles), so the examples above fail only because of the
 //! private fields:
 //!
 //! ```
 //! fn takes(_typing: &puppet_master_app_lib::agent_runs::readiness::TypingPermit,
 //!          _gate: &puppet_master_app_lib::agent_runs::readiness::GatePermit,
+//!          _answer: &puppet_master_app_lib::agent_runs::readiness::AnswerPermit,
 //!          _verdict: &puppet_master_app_lib::agent_runs::readiness::Verdict) {}
 //! ```
 
@@ -218,6 +231,44 @@ pub struct GatePermit {
     used: Cell<bool>,
 }
 
+/// Who decided an answer. Only people: an agent's answer goes through `answer_prompt` and the
+/// agent-authority rules (`agent_authority::gate`), never through this permit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Decider {
+    /// The person at the desktop app.
+    Desktop,
+    /// A paired phone's card (the device id).
+    Device(String),
+    /// A paired phone's lock-screen button (the device id).
+    LockScreen(String),
+}
+
+impl Decider {
+    pub fn tag(&self) -> &'static str {
+        match self {
+            Self::Desktop => "desktop",
+            Self::Device(_) => "device",
+            Self::LockScreen(_) => "lock_screen",
+        }
+    }
+}
+
+/// Permission to type ONE answer to ONE prompt a person decided on. It is never a [`GatePermit`]: a
+/// gate permit is Puppet Master pressing a profile-declared dismiss key on a notice; this is a human
+/// choosing on a screen they were shown. It names the pane, the prompt id and the fingerprint of what
+/// the card showed, and the stream position the prompt was re-read at, so the write path refuses it
+/// when the pane printed anything since (the prompt may have changed under the finger) and when it is
+/// used twice. Issued here only, from a live re-detection of the prompt (`for_prompt`).
+#[derive(Debug)]
+pub struct AnswerPermit {
+    pane_id: String,
+    prompt_id: String,
+    fingerprint: String,
+    decider: Decider,
+    output_pos: Option<u64>,
+    used: Cell<bool>,
+}
+
 /// How long one typing permit covers a delivery (type, verify, Enter, one more Enter).
 pub const PERMIT_MAX_AGE: Duration = Duration::from_secs(30);
 /// Prefix of the write error for a permit whose screen is no longer the latest: look again.
@@ -301,6 +352,77 @@ impl GatePermit {
 
     pub fn keys(&self) -> &'static str {
         self.keys
+    }
+}
+
+impl AnswerPermit {
+    /// The permit for the prompt `prompt_id` (card fingerprint `fingerprint`) that a re-detection on
+    /// the live screen of `pane_id` just found, read at stream position `observed_pos`. Refused (the
+    /// message says why) when the agent is known to be gone: its host shell must never get a keystroke.
+    pub fn for_prompt(
+        pane_id: &str,
+        prompt_id: &str,
+        fingerprint: &str,
+        decider: Decider,
+        observed_pos: Option<u64>,
+        agent: AgentProcess,
+    ) -> Result<Self, String> {
+        if agent == AgentProcess::Exited {
+            return Err(format!("{PERMIT_REFUSED}: the agent process has exited"));
+        }
+        Ok(Self {
+            pane_id: pane_id.to_string(),
+            prompt_id: prompt_id.to_string(),
+            fingerprint: fingerprint.to_string(),
+            decider,
+            output_pos: observed_pos,
+            used: Cell::new(false),
+        })
+    }
+
+    /// The write path's check: right pane, once, the agent still there, and no output since the
+    /// prompt was re-read.
+    pub(crate) fn admit(
+        &self,
+        pane_id: &str,
+        emitted_now: Option<u64>,
+        agent: impl FnOnce() -> AgentProcess,
+    ) -> Result<(), String> {
+        if !self.pane_id.is_empty() && self.pane_id != pane_id {
+            return Err(format!("{PERMIT_REFUSED}: the answer permit was issued for another pane"));
+        }
+        if self.used.replace(true) {
+            return Err(format!("{PERMIT_REFUSED}: an answer permit is used once"));
+        }
+        if let (Some(seen), Some(now)) = (self.output_pos, emitted_now) {
+            if now != seen {
+                return Err(format!(
+                    "{PERMIT_STALE}: the pane printed {} more byte(s) after the prompt was read",
+                    now.saturating_sub(seen)
+                ));
+            }
+        }
+        if agent() == AgentProcess::Exited {
+            return Err(format!("{PERMIT_REFUSED}: the agent process has exited"));
+        }
+        Ok(())
+    }
+
+    /// Where the prompt was read, for the second look under the writer lock.
+    pub(crate) fn observed_pos(&self) -> Option<u64> {
+        self.output_pos
+    }
+
+    pub fn prompt_id(&self) -> &str {
+        &self.prompt_id
+    }
+
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+
+    pub fn decider(&self) -> &Decider {
+        &self.decider
     }
 }
 

@@ -31,6 +31,15 @@ pub enum Kind {
     RunFailed,
     /// An agent asked the human a question (`ask_user`). Answered in the app, never from the lock screen.
     Question,
+    /// A pane stopped at a startup gate only the person may pass (folder trust, a sign-in screen).
+    /// Never answered from a lock screen.
+    TrustGate,
+    /// An agent wants to control a pane it did not start, or answer above low risk in one.
+    Consent,
+    /// An agent used its budget and is paused.
+    Budget,
+    /// An agent ran out of usage.
+    Limit,
 }
 
 impl Kind {
@@ -41,7 +50,23 @@ impl Kind {
             Self::RunFinished => "run_finished",
             Self::RunFailed => "run_failed",
             Self::Question => "question",
+            Self::TrustGate => "trust_gate",
+            Self::Consent => "consent",
+            Self::Budget => "budget",
+            Self::Limit => "limit",
         }
+    }
+
+    /// Kinds that belong to what a pane is showing right now: they end when the pane leaves
+    /// `waiting_input`.
+    pub fn is_pane_prompt(self) -> bool {
+        matches!(self, Self::WaitingInput | Self::TrustGate)
+    }
+
+    /// Kinds that wake a phone at once and may be held back by the rate limit (a finished run is
+    /// neither).
+    pub fn is_urgent(self) -> bool {
+        !matches!(self, Self::RunFinished | Self::RunFailed)
     }
 }
 
@@ -86,7 +111,7 @@ impl Gate {
 
     /// Decide whether a candidate goes out now, and remember it if so.
     pub fn admit(&mut self, now_ms: u64, key: &str, kind: Kind, prompt_id: Option<&str>) -> Verdict {
-        if kind == Kind::WaitingInput {
+        if kind.is_pane_prompt() {
             if let Some(id) = prompt_id {
                 if self.last_prompt.get(key).map(String::as_str) == Some(id) {
                     return Verdict::Duplicate;
@@ -102,7 +127,7 @@ impl Gate {
             self.last_sent_ms.retain(|_, last| now_ms.saturating_sub(*last) < RATE_LIMIT_MS);
         }
         self.last_sent_ms.insert(key.to_string(), now_ms);
-        if kind == Kind::WaitingInput {
+        if kind.is_pane_prompt() {
             match prompt_id {
                 Some(id) => {
                     self.last_prompt.insert(key.to_string(), id.to_string());
@@ -208,6 +233,11 @@ impl PromptRisk {
         Some(Self { level, headline })
     }
 
+    /// "High risk" / "Check first" / "Low risk": the desktop card's word alone.
+    fn level_word(&self) -> &'static str {
+        crate::attention::model::Level::from(self.level).word()
+    }
+
     /// "High risk · Delete a folder outside this project". The words are the desktop card's
     /// (`attention::model::Level::word`: Low risk / Check first / High risk).
     fn sentence(&self) -> String {
@@ -241,6 +271,24 @@ pub struct Words {
     pub body: String,
 }
 
+/// How much a notification says. The same event reads differently on each phone:
+/// - `Full`: Android and desktop browsers (Allow / Deny buttons are possible, so a calm command is shown);
+/// - `Ios`: Apple's push service shows no action buttons, so the command is left out and a question
+///   is just "Question from <agent>";
+/// - `Hidden`: the phone's "Hide details on lock screen" switch is on: nothing the agent wrote and
+///   nothing the person named appears; the title is the agent, the body is the kind and the risk word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    Full,
+    Ios,
+    Hidden,
+}
+
+/// Apple's web push service. Its subscriptions never get lock-screen buttons.
+pub fn is_apple_endpoint(endpoint: &str) -> bool {
+    super::store::endpoint_host(endpoint).is_ok_and(|host| host == "web.push.apple.com" || host.ends_with(".push.apple.com"))
+}
+
 /// The words of a notification. `label` is the agent name from its profile or definition;
 /// `heading` is what the sidebar calls the pane: the person's title for it ("auth refactor"), else
 /// the agent label numbered when several panes run the same agent ("Claude Code 2").
@@ -250,13 +298,24 @@ pub struct Words {
 /// (actionable, low-risk) command, then the agent label. A prompt that is not low risk never puts
 /// its command on a lock screen.
 pub fn copy_for(kind: Kind, label: &str, heading: Option<&str>, prompt: Option<&PromptInfo>) -> Words {
+    copy_for_view(kind, label, heading, prompt, None, View::Full)
+}
+
+/// [`copy_for`] for one phone. `detail` is the one fact a kind adds to its first line: the folder of a
+/// trust gate (`None` = a sign-in screen with nothing to choose), the turns of a budget card, the reset
+/// time of a usage limit, the whole sentence of a consent request.
+pub fn copy_for_view(kind: Kind, label: &str, heading: Option<&str>, prompt: Option<&PromptInfo>, detail: Option<&str>, view: View) -> Words {
     let label = sanitize(label);
-    let who = heading
-        .map(|t| truncate_chars(t, MAX_TITLE_CHARS))
-        .filter(|t| !t.is_empty())
-        .unwrap_or_else(|| label.clone());
+    let who = match view {
+        // A pane's title is often the first line of the task the person typed.
+        View::Hidden => label.clone(),
+        _ => heading.map(|t| truncate_chars(t, MAX_TITLE_CHARS)).filter(|t| !t.is_empty()).unwrap_or_else(|| label.clone()),
+    };
     // Redact before cutting: a cut can leave half a secret that no rule recognises.
     let cut = |text: &str, max: usize| truncate_chars(crate::redact::text(text).as_str(), max);
+    let first_line = |text: &str| cut(text, MAX_FIRST_LINE_CHARS);
+    let detail = detail.map(str::trim).filter(|d| !d.is_empty());
+    let needs_you = format!("{who} · Needs you");
     match kind {
         Kind::WaitingInput => {
             let waiting = format!("{label} is waiting for you");
@@ -266,32 +325,64 @@ pub fn copy_for(kind: Kind, label: &str, heading: Option<&str>, prompt: Option<&
                     let text = cut(&p.text, MAX_BODY_CHARS);
                     match &p.risk {
                         Some(risk) => {
-                            let mut lines = vec![risk.sentence()];
-                            // Belt and braces: only a calm command, whatever the flag says.
-                            if p.actionable && risk.level == crate::prompt_risk::RiskLevel::Low && !text.is_empty() {
+                            let first = if view == View::Hidden { risk.level_word().to_string() } else { risk.sentence() };
+                            let mut lines = vec![first];
+                            // Belt and braces: only a calm command, whatever the flag says, and only where a
+                            // button can come with it.
+                            if view == View::Full && p.actionable && risk.level == crate::prompt_risk::RiskLevel::Low && !text.is_empty() {
                                 lines.push(text);
                             }
                             lines.push(label.clone());
                             lines.join("\n")
                         }
-                        None if !text.is_empty() => format!("{text}\n{label}"),
+                        None if view != View::Hidden && !text.is_empty() => format!("{text}\n{label}"),
                         None => waiting,
                     }
                 }
             };
-            Words { title: format!("{who} · Needs you"), body }
+            Words { title: needs_you, body }
         }
-        Kind::Error => Words { title: format!("{who} · Needs you"), body: format!("Hit an error · {label}") },
+        Kind::TrustGate => {
+            let body = match (detail, view) {
+                (Some(folder), View::Full | View::Ios) => format!("{}\n{label}", first_line(&format!("Trust this folder? · {folder}"))),
+                (Some(_), View::Hidden) => format!("Trust this folder?\n{label}"),
+                (None, _) => format!("{label} needs you on your PC"),
+            };
+            Words { title: needs_you, body }
+        }
+        Kind::Consent => {
+            let body = match (detail, view) {
+                (Some(sentence), View::Full | View::Ios) => first_line(sentence),
+                _ => format!("{label} wants to control another agent"),
+            };
+            Words { title: needs_you, body }
+        }
+        Kind::Budget => {
+            let first = match (detail, view) {
+                (Some(used), View::Full | View::Ios) => first_line(&format!("Budget used up · {used}")),
+                _ => "Budget used up".to_string(),
+            };
+            Words { title: needs_you, body: format!("{first}\n{label}") }
+        }
+        Kind::Limit => {
+            let first = match (detail, view) {
+                (Some(reset), View::Full | View::Ios) => first_line(&format!("Usage limit · resets {reset}")),
+                _ => "Usage limit".to_string(),
+            };
+            Words { title: needs_you, body: format!("{first}\n{label}") }
+        }
+        Kind::Error => Words { title: needs_you, body: format!("Hit an error · {label}") },
         Kind::RunFinished => Words { title: format!("{who} · Done"), body: format!("{label} finished") },
-        Kind::RunFailed => Words { title: format!("{who} · Needs you"), body: format!("Run failed · {label}") },
+        Kind::RunFailed => Words { title: needs_you, body: format!("Run failed · {label}") },
         Kind::Question => {
             let prefix = "Question · ";
             let text = prompt.map(|p| cut(&p.text, MAX_FIRST_LINE_CHARS - prefix.chars().count())).filter(|t| !t.is_empty());
-            let body = match text {
-                Some(text) => format!("{prefix}{text}\n{label}"),
-                None => format!("{label} has a question"),
+            let body = match (text, view) {
+                (Some(text), View::Full) => format!("{prefix}{text}\n{label}"),
+                (Some(_), _) => format!("Question from {label}"),
+                (None, _) => format!("{label} has a question"),
             };
-            Words { title: format!("{who} · Needs you"), body }
+            Words { title: needs_you, body }
         }
     }
 }
@@ -299,14 +390,19 @@ pub fn copy_for(kind: Kind, label: &str, heading: Option<&str>, prompt: Option<&
 /// The words of ONE notification that stands for several things waiting on a pane: a prompt that
 /// arrived inside the rate-limit window, and whatever else is open there. It never carries a button.
 pub fn coalesced_copy(label: &str, heading: Option<&str>, open: u32, risk: Option<&PromptRisk>) -> Words {
+    coalesced_copy_view(label, heading, open, risk, View::Full)
+}
+
+pub fn coalesced_copy_view(label: &str, heading: Option<&str>, open: u32, risk: Option<&PromptRisk>, view: View) -> Words {
     let label = sanitize(label);
-    let who = heading
-        .map(|t| truncate_chars(t, MAX_TITLE_CHARS))
-        .filter(|t| !t.is_empty())
-        .unwrap_or_else(|| label.clone());
-    let body = match risk {
-        Some(risk) => format!("{}\n{label}", risk.sentence()),
-        None => label.clone(),
+    let who = match view {
+        View::Hidden => label.clone(),
+        _ => heading.map(|t| truncate_chars(t, MAX_TITLE_CHARS)).filter(|t| !t.is_empty()).unwrap_or_else(|| label.clone()),
+    };
+    let body = match (risk, view) {
+        (Some(risk), View::Hidden) => format!("{}\n{label}", risk.level_word()),
+        (Some(risk), _) => format!("{}\n{label}", risk.sentence()),
+        (None, _) => label.clone(),
     };
     Words { title: format!("{who} · {open} things need you"), body }
 }

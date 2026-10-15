@@ -121,7 +121,7 @@ fn a_closed_pane_says_pane_closed_and_an_answer_note_says_who_answered() {
     store.recompute(&facts(vec![pane("a", "waiting_input"), pane("b", "waiting_input")]), 1_000);
     store.note_resolution(
         "approval:b",
-        Resolution { state: "answered".into(), by: Some("phone".into()), choice_label: Some("Allow once".into()), reason: None, at_ms: 2_000 },
+        Resolution { state: "answered".into(), by: Some("phone".into()), choice_label: Some("Allow once".into()), at_ms: 2_000, ..Resolution::default() },
     );
     store.on_prompt("b", false, None);
     store.recompute(&facts(vec![pane("b", "running")]), 2_000);
@@ -338,4 +338,73 @@ fn a_usage_limit_card_is_a_limit_item_with_the_cards_own_line() {
     assert_eq!(item.expires_at_ms, Some(80_000));
     assert!(item.actions.is_empty(), "no lock-screen action for a usage-limit card");
     assert_eq!(store.counts().blocking, 1);
+}
+
+fn command_rec(prompt_id: &str, level: &str) -> PromptRec {
+    PromptRec {
+        choices: vec![
+            ChoiceFact { id: "allow_once".into(), label: "Allow once".into(), broad: false },
+            ChoiceFact { id: "allow_all".into(), label: "Allow all commands".into(), broad: true },
+            ChoiceFact { id: "deny".into(), label: "Deny".into(), broad: false },
+        ],
+        reasons: vec!["It deletes ../build-cache.".into()],
+        ..rec(prompt_id, level)
+    }
+}
+
+#[test]
+fn the_card_carries_what_an_answer_checks_against_the_live_screen() {
+    let mut store = Store::default();
+    store.on_prompt("a", true, Some(command_rec("p1", "high")));
+    store.recompute(&facts(vec![pane("a", "waiting_input")]), 1_000);
+    let item = &store.snapshot().items[0];
+    let prompt = item.prompt.as_ref().unwrap();
+    // The fingerprint is exactly what the live screen is compared with at answer time.
+    assert_eq!(prompt.fingerprint, command_rec("p1", "high").fingerprint(1));
+    assert_ne!(prompt.fingerprint, command_rec("p1", "low").fingerprint(1), "the risk read is part of it");
+    assert_ne!(prompt.fingerprint, command_rec("p1", "high").fingerprint(2), "so is the occurrence");
+    assert_eq!(prompt.provenance, "screen");
+    // High risk: Deny leads and is focused; the broad answer waits behind More options.
+    assert_eq!(prompt.layout.primary.as_deref(), Some("deny"));
+    assert_eq!(prompt.layout.focus.as_deref(), Some("deny"));
+    assert_eq!(prompt.layout.more, ["allow_all"]);
+    assert_eq!(item.risk.as_ref().unwrap().reasons, ["It deletes ../build-cache."]);
+    let json = serde_json::to_value(store.snapshot()).unwrap();
+    assert_eq!(json["items"][0]["prompt"]["layout"]["primary"], "deny");
+    assert_eq!(json["items"][0]["prompt"]["fingerprint"].as_str().unwrap().len(), 16);
+}
+
+#[test]
+fn a_calm_prompt_leads_with_the_agents_first_choice() {
+    let mut store = Store::default();
+    store.on_prompt("a", true, Some(command_rec("p1", "low")));
+    store.recompute(&facts(vec![pane("a", "waiting_input")]), 1_000);
+    let layout = &store.snapshot().items[0].prompt.as_ref().unwrap().layout;
+    assert_eq!((layout.primary.as_deref(), layout.focus.as_deref(), layout.more.len()), (Some("allow_once"), None, 0));
+}
+
+#[test]
+fn the_same_command_asked_again_has_a_new_fingerprint() {
+    let mut store = Store::default();
+    let f = facts(vec![pane("a", "waiting_input")]);
+    store.on_prompt("a", true, Some(command_rec("same", "low")));
+    store.recompute(&f, 1_000);
+    let first = store.snapshot().items[0].prompt.as_ref().unwrap().fingerprint.clone();
+    store.on_prompt("a", false, None);
+    store.on_prompt("a", true, Some(command_rec("same", "low")));
+    store.recompute(&f, 2_000);
+    let second = store.snapshot().items[0].prompt.as_ref().unwrap().fingerprint.clone();
+    assert_ne!(first, second, "an answer to the first card can never land on the second");
+    assert_eq!(store.occurrence("a"), 2);
+}
+
+#[test]
+fn a_prompt_that_wraps_differently_after_the_phone_resized_the_pane_keeps_its_fingerprint() {
+    // The phone fits the pane to its own width the moment its card opens; the command then reads in
+    // three lines instead of one. That is the same prompt, so an answer to the card must still match.
+    let wide = PromptRec { summary: Some("Run command: rm -rf D:/pm-phone-live/tmp-x/sub1/sub2".into()), ..command_rec("same-id", "low") };
+    let narrow = PromptRec { summary: Some("Run command: rm -rf D:/pm-phone-live/\ntmp-x/sub1/\nsub2".into()), ..command_rec("same-id", "low") };
+    assert_eq!(wide.fingerprint(4), narrow.fingerprint(4));
+    // But another command is another prompt id, and the fingerprint follows it.
+    assert_ne!(wide.fingerprint(4), PromptRec { prompt_id: Some("other-id".into()), ..narrow }.fingerprint(4));
 }

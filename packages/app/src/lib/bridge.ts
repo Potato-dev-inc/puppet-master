@@ -8,7 +8,7 @@ import type { Question } from './questions';
 import { mergeBridgeHeaders } from './mobile-pairing-auth';
 import { localSecretHeaders } from './bridge-local-secret';
 import type { PreviewUrl } from './pane-preview';
-import type { AttentionSnapshot } from './attention';
+import { AttentionAnswerError, type AttentionAnswerOutcome, type AttentionSnapshot } from './attention';
 
 export type * from './bridge-types';
 export { subscribeBridgeEvents } from './bridge-sse';
@@ -52,6 +52,19 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
     },
     stopAllPanes: () => call('POST', '/panes/stop-all', {}),
     attention: () => call<AttentionSnapshot>('GET', '/attention'),
+    answerAttention: async (itemId, body, signal) => {
+      const headers = mergeBridgeHeaders({ ...ngrokRequestHeaders(baseUrl), ...localSecretHeaders(baseUrl) });
+      headers['Content-Type'] = 'application/json';
+      const res = await fetch(`${baseUrl}/attention/${encodeURIComponent(itemId)}/answer`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal,
+      });
+      const reply = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) throw new AttentionAnswerError(res.status, reply as AttentionAnswerError['body']);
+      return reply as unknown as AttentionAnswerOutcome;
+    },
     listQuestions: async () => (await call<{ questions: Question[] }>('GET', '/questions')).questions,
     answerQuestion: (id, answer) => call('POST', `/questions/${encodeURIComponent(id)}/answer`, answer),
     dismissQuestion: (id) => call('POST', `/questions/${encodeURIComponent(id)}/dismiss`, {}),

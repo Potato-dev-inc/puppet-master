@@ -22,11 +22,25 @@ pub struct PromptRec {
     pub risk_level: Option<String>,
     pub headline: Option<String>,
     pub choices: Vec<ChoiceFact>,
+    /// Up to six plain sentences behind the risk.
+    pub reasons: Vec<String>,
     /// Which time this pane asked (1, 2, ...). Set by `Store::on_prompt`.
     pub occurrence: u32,
 }
 
 impl PromptRec {
+    /// The fingerprint of this prompt as occurrence `occurrence`: what a card shows and what an
+    /// answer re-checks against the live screen (`attention::fingerprint`).
+    pub fn fingerprint(&self, occurrence: u32) -> String {
+        super::fingerprint::fingerprint(
+            self.prompt_id.as_deref().unwrap_or(""),
+            occurrence,
+            self.kind.as_deref().unwrap_or("unknown"),
+            self.choices.iter().map(|c| c.id.as_str()),
+            self.risk_level.as_deref().and_then(Level::parse).map(Level::as_str),
+        )
+    }
+
     fn to_fact(&self) -> PromptFact {
         PromptFact {
             risk: self.risk_level.clone().map(|level| RiskFact { level: Some(level) }),
@@ -36,6 +50,7 @@ impl PromptRec {
             occurrence: Some(self.occurrence),
             headline: self.headline.clone(),
             choices: self.choices.clone(),
+            reasons: self.reasons.clone(),
         }
     }
 }
@@ -109,6 +124,11 @@ impl Store {
         if status != "waiting_input" {
             self.prompts.remove(pane_id);
         }
+    }
+
+    /// How many times this pane has asked (0 = never): the occurrence of the prompt it shows now.
+    pub fn occurrence(&self, pane_id: &str) -> u32 {
+        self.occurrences.get(pane_id).copied().unwrap_or(0)
     }
 
     pub fn forget_pane(&mut self, pane_id: &str) {
@@ -190,7 +210,7 @@ impl Store {
             .collect();
         for key in timed_out {
             self.raised.remove(&key);
-            self.hints.insert(key, Resolution { state: "expired".into(), by: None, choice_label: None, reason: None, at_ms: now_ms });
+            self.hints.insert(key, Resolution { state: "expired".into(), at_ms: now_ms, ..Resolution::default() });
         }
 
         let mut items: Vec<Item> = derive(&facts).iter().map(|d| build_item(d, &facts)).collect();
@@ -266,7 +286,7 @@ impl Store {
                 } else {
                     ("gone", Some("moved_on"))
                 };
-                Resolution { state: state.into(), by: None, choice_label: None, reason: reason.map(str::to_string), at_ms: now_ms }
+                Resolution { state: state.into(), reason: reason.map(str::to_string), at_ms: now_ms, ..Resolution::default() }
             });
             let mut tomb = prev.clone();
             tomb.state = State::Resolved;
@@ -394,6 +414,7 @@ fn build_item(d: &Derived, facts: &Facts) -> Item {
                 level,
                 word: level.word(),
                 headline: prompt_fact.and_then(|p| p.headline.clone()),
+                reasons: prompt_fact.map(|p| p.reasons.clone()).unwrap_or_default(),
             });
             if let Some(p) = prompt_fact {
                 if let Some(headline) = p.headline.as_deref().filter(|h| !h.trim().is_empty()) {
@@ -412,10 +433,21 @@ fn build_item(d: &Derived, facts: &Facts) -> Item {
                 }
                 occurrence = p.occurrence.unwrap_or(1);
                 if let Some(prompt_id) = &p.prompt_id {
+                    let kind = p.kind.clone().unwrap_or_else(|| "unknown".into());
                     item.prompt = Some(PromptView {
                         prompt_id: prompt_id.clone(),
                         occurrence,
-                        kind: p.kind.clone().unwrap_or_else(|| "unknown".into()),
+                        fingerprint: super::fingerprint::fingerprint(
+                            prompt_id,
+                            occurrence,
+                            &kind,
+                            p.choices.iter().map(|c| c.id.as_str()),
+                            d.risk.map(Level::as_str),
+                        ),
+                        // A startup gate leads with "Don't trust" like a high-risk prompt leads with Deny.
+                        layout: super::layout::layout(&p.choices, if startup_gate { Some(Level::High) } else { d.risk }),
+                        provenance: "screen",
+                        kind,
                         summary: p.summary.clone(),
                         choices: p.choices.clone(),
                     });

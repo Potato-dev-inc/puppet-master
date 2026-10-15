@@ -33,7 +33,7 @@ fn ledger() -> &'static Mutex<Ledger> {
 /// Answers are checked against the ledger and then sent as a keystroke; two concurrent answers
 /// for one prompt must not both pass the check before either has recorded itself, or the key is
 /// pressed twice (the TUI then receives a stray character). Hold this across check, send, record.
-pub(super) fn serialize_answers() -> parking_lot::MutexGuard<'static, ()> {
+pub(crate) fn serialize_answers() -> parking_lot::MutexGuard<'static, ()> {
     static SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
     SERIAL.get_or_init(|| Mutex::new(())).lock()
 }

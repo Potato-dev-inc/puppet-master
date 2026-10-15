@@ -151,10 +151,23 @@ pub fn notify_pane_status(pane_id: &str, status: &str) {
         if current != status {
             return;
         }
-        let prompt = (kind == Kind::WaitingInput)
-            .then(|| crate::pane_prompt::detect(&ctx.registry, &pane_id, false))
-            .flatten()
-            .and_then(|value| PromptInfo::from_detected(&value));
+        let detected = (kind == Kind::WaitingInput).then(|| crate::pane_prompt::detect(&ctx.registry, &pane_id, false)).flatten();
+        let prompt = detected.as_ref().and_then(PromptInfo::from_detected);
+        // A folder-trust or sign-in screen only the person may pass is its own kind of notification.
+        let gate = detected
+            .as_ref()
+            .filter(|value| {
+                value.get("kind").and_then(serde_json::Value::as_str).is_some_and(|k| crate::pane_prompt::STARTUP_GATE_KINDS.contains(&k))
+            })
+            .map(|value| {
+                let has_choices = value.get("choices").and_then(serde_json::Value::as_array).is_some_and(|c| !c.is_empty());
+                has_choices.then(|| project_of(&ctx.registry, &pane_id).unwrap_or_else(|| "this folder".to_string()))
+            });
+        let (kind, detail) = match gate {
+            Some(folder) => (Kind::TrustGate, folder),
+            None => (kind, None),
+        };
+        let item = item_ref_for_pane(&pane_id, kind);
         dispatch(
             ctx,
             Candidate {
@@ -164,9 +177,55 @@ pub fn notify_pane_status(pane_id: &str, status: &str) {
                 agent_label: agent_label(&agent_type),
                 heading,
                 prompt,
+                item,
+                detail,
             },
         );
     });
+}
+
+/// The last folder of a pane's working directory ("shop"), for "Trust this folder? · shop".
+fn project_of(registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) -> Option<String> {
+    let cwd = registry.lock().panes.get(pane_id).map(|pane| pane.info.cwd.clone())?;
+    cwd.split(['\\', '/']).filter(|part| !part.is_empty()).last().map(str::to_string)
+}
+
+/// The attention card a pane's notification is about: its open approval, trust gate or error, with
+/// the occurrence and fingerprint the card shows. Read from the live list (the notification has
+/// waited out `SETTLE_MS`, so the list has the prompt).
+fn item_ref_for_pane(pane_id: &str, kind: Kind) -> Option<hub::ItemRef> {
+    use crate::attention::model::{Kind as Item, State};
+    let wanted = match kind {
+        Kind::TrustGate => Item::TrustGate,
+        Kind::WaitingInput => Item::Approval,
+        Kind::Error => Item::Error,
+        _ => return None,
+    };
+    let snapshot = crate::attention::snapshot_now();
+    let item = snapshot.items.iter().find(|i| i.state == State::Open && i.kind == wanted && i.pane.as_ref().is_some_and(|p| p.id == pane_id))?;
+    Some(item_ref(item))
+}
+
+fn item_ref(item: &crate::attention::model::Item) -> hub::ItemRef {
+    hub::ItemRef {
+        id: item.id.clone(),
+        occurrence: item.prompt.as_ref().map(|p| p.occurrence).unwrap_or(0),
+        fingerprint: item.prompt.as_ref().map(|p| p.fingerprint.clone()).unwrap_or_default(),
+    }
+}
+
+/// The attention card of a question, consent, budget or usage-limit request.
+fn item_ref_for_question(question: &crate::questions::Question, kind: Kind) -> Option<hub::ItemRef> {
+    use crate::attention::model::State;
+    let prefix = match kind {
+        Kind::Consent => "consent",
+        Kind::Budget => "budget",
+        Kind::Limit => "limit",
+        _ => "question",
+    };
+    let key = format!("{prefix}:{}", question.id);
+    let snapshot = crate::attention::snapshot_now();
+    snapshot.items.iter().find(|i| i.state == State::Open && i.key == key).map(item_ref)
 }
 
 /// Hook for `push_operation_sse`: a run reached a terminal state.
@@ -192,6 +251,8 @@ pub fn notify_operation(snapshot: &crate::operations::OperationSnapshot) {
         agent_label: agent_label(&snapshot.agent_type),
         heading,
         prompt: None,
+        item: None,
+        detail: None,
     };
     let _ = std::thread::Builder::new().name("push-op".into()).spawn(move || {
         if let Some(ctx) = CTX.get() {
@@ -224,19 +285,50 @@ pub fn notify_question(question: &crate::questions::Question) {
         (None, Some(given)) => triggers::truncate_chars(given, 40),
         (None, None) => String::new(),
     };
+    // Puppet Master's own cards (consent, a spent budget, a usage limit) each say what they are.
+    let (kind, label, detail) = classify_question(question, label);
     let candidate = Candidate {
-        kind: Kind::Question,
+        kind,
         key: format!("q-{}", question.id),
         pane_id: None,
         agent_label: if label.is_empty() { "An agent".to_string() } else { label },
         heading: None,
         prompt: Some(PromptInfo { prompt_id: String::new(), text: question.question.clone(), actionable: false, risk: None }),
+        item: None,
+        detail,
     };
+    let question = question.clone();
     let _ = std::thread::Builder::new().name("push-question".into()).spawn(move || {
         if let Some(ctx) = CTX.get() {
+            let mut candidate = candidate;
+            candidate.item = item_ref_for_question(&question, candidate.kind);
             dispatch(ctx, candidate);
         }
     });
+}
+
+/// What kind of notification a question is, who is speaking, and the fact its first line adds.
+fn classify_question(question: &crate::questions::Question, label: String) -> (Kind, String, Option<String>) {
+    use triggers::truncate_chars;
+    if let Some(consent) = &question.consent {
+        let requester = truncate_chars(&consent.requester, 40);
+        let target = truncate_chars(&consent.target, 40);
+        let sentence = match consent.action.as_str() {
+            "answer_prompt" => format!("{requester} wants to answer in {target}"),
+            _ => format!("{requester} wants to control {target}"),
+        };
+        return (Kind::Consent, requester, Some(sentence));
+    }
+    if question.kind.as_deref() == Some(crate::budgets::CARD_KIND) {
+        // "20 of 20 turns. It's paused after its last turn..." -> "20 of 20 turns"
+        let used = question.context.as_deref().and_then(|c| c.split(". ").next()).map(|s| s.trim_end_matches('.').to_string());
+        return (Kind::Budget, label, used);
+    }
+    if let Some(limit) = &question.limit {
+        let reset = limit.reset_text.clone().filter(|t| !t.trim().is_empty());
+        return (Kind::Limit, truncate_chars(&limit.agent_label, 40), reset);
+    }
+    (Kind::Question, label, None)
 }
 
 fn dispatch(ctx: &Ctx, candidate: Candidate) {
@@ -303,7 +395,7 @@ fn open_things(held: &hub::Held) -> u32 {
 /// summary of several), reading the live prompt rather than the one that was held.
 fn release_held(ctx: &Ctx, mut held: hub::Held, now: u64) {
     let open = open_things(&held);
-    if held.candidate.kind == Kind::WaitingInput {
+    if held.candidate.kind.is_pane_prompt() {
         if let Some(pane_id) = held.candidate.pane_id.clone() {
             held.candidate.prompt = crate::pane_prompt::detect(&ctx.registry, &pane_id, false)
                 .and_then(|value| PromptInfo::from_detected(&value));

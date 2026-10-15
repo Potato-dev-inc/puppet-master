@@ -174,6 +174,80 @@ steps = [
     assert!(summary["approvals"][0]["prompt"].as_str().unwrap_or_default().contains("npm test"), "{summary}");
 }
 
+// ---- 2b. an approval answered from the phone card ----------------------------------------------------
+
+/// A paired phone answers the Bash approval through `POST /attention/{id}/answer` (the route's own function):
+/// the card carries the prompt id, the occurrence and the screen fingerprint; a request that carries what the
+/// card did NOT show is `changed` and types nothing; the right one types exactly one key, under an answer
+/// permit, and the agent continues; a retry with the same answer key is told it went through and the agent
+/// still saw exactly one answer.
+#[test]
+fn an_approval_is_answered_from_the_phone_card_once_and_a_wrong_fingerprint_types_nothing() {
+    let session = World::get().session("phone-card");
+    session.script(
+        r#"
+agent = "claude"
+boot_ms = 200
+[[turn]]
+steps = [
+  { do = "think", ms = 500 },
+  { do = "approve", kind = "bash", command = "npm test", on_allow = [{ do = "tool", label = "Bash(npm test)", detail = "all tests passed" }, { do = "say", text = "The tests pass." }], on_deny = [{ do = "say", text = "Stopped: not allowed." }] },
+]
+"#,
+    );
+    let parked = run_until_stopped(&session, "fake_claude", "Run the tests", json!({}));
+    if status(&parked) != "needs_input" {
+        explain(&session, &parked, "the run should have parked on the approval");
+    }
+    let pane = parked["pane_id"].as_str().expect("pane").to_string();
+    let card = session
+        .until(20, || session.attention_card(&pane))
+        .unwrap_or_else(|| explain(&session, &parked, "the attention list never showed the card"));
+    let item_id = card["id"].as_str().expect("an opaque item id").to_string();
+    let prompt = &card["prompt"];
+    assert!(!item_id.contains(&pane) && item_id.len() == 10, "the item id is opaque and never carries the pane id: {item_id}");
+    assert_eq!(prompt["layout"]["primary"], "allow_once", "a calm prompt leads with the agent's first choice: {card}");
+    assert_eq!(prompt["provenance"], "screen");
+    let right = json!({
+        "choice": "allow_once",
+        "prompt_id": prompt["prompt_id"],
+        "occurrence": prompt["occurrence"],
+        "fingerprint": prompt["fingerprint"],
+        "answer_key": "tap-1",
+    });
+
+    let audit_before = session.approval_audit_lines().len();
+    // What the card did not show: refused as changed, nothing typed.
+    let mut wrong = right.clone();
+    wrong["fingerprint"] = json!("0000000000000000");
+    let (status_code, reply) = session.answer_from_phone(&item_id, wrong);
+    assert_eq!((status_code, reply["outcome"].as_str()), (200, Some("changed")), "{reply}");
+    // A broad answer is never offered from a phone, and a choice the prompt does not offer is a bad request.
+    let mut broad = right.clone();
+    broad["choice"] = json!("allow_all");
+    assert_eq!(session.answer_from_phone(&item_id, broad).0, 400);
+    assert!(events_named(&session, "approval_answer").is_empty(), "nothing was typed so far: {:#?}", session.events());
+
+    // The real answer: exactly one key.
+    let (status_code, reply) = session.answer_from_phone(&item_id, right.clone());
+    assert_eq!((status_code, reply["outcome"].as_str()), (200, Some("answered")), "{reply}");
+    assert_eq!(reply["choice_label"], "Allowed once");
+    let done = wait_for(&session, &handle_of(&parked), TERMINAL, 60);
+    if status(&done) != "completed" {
+        explain(&session, &done, "the run should complete after the phone's answer");
+    }
+    assert!(done["result"].as_str().unwrap_or_default().contains("The tests pass."), "{done}");
+    // A retry over a flaky tunnel (same answer key): told it went through, never pressed again.
+    let (status_code, retry) = session.answer_from_phone(&item_id, right);
+    assert_eq!((status_code, retry["outcome"].as_str(), retry["by"].as_str()), (200, Some("already_answered"), Some("you")), "{retry}");
+    let answers = events_named(&session, "approval_answer");
+    assert_eq!(answers.len(), 1, "the agent saw exactly one answer: {:#?}", session.events());
+    assert_eq!((answers[0]["answer"].as_str(), answers[0]["option"].as_u64()), (Some("allow"), Some(1)), "{answers:?}");
+    // One audit line for the answer, and it says a phone gave it (not "You ... desktop").
+    let lines: Vec<String> = session.approval_audit_lines().split_off(audit_before);
+    assert_eq!(lines, vec!["A phone answered a card: Allowed once".to_string()], "{lines:?}");
+}
+
 // ---- 3. the folder-trust dialog ---------------------------------------------------------------------
 
 const TRUST_SCRIPT: &str = r#"

@@ -4,7 +4,7 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -27,6 +27,10 @@ struct StoreFile {
     vapid_public: String,
     #[serde(default)]
     subscriptions: BTreeMap<String, Subscription>,
+    /// Devices whose notifications show no details on a lock screen ("Hide details on lock screen").
+    /// Off for everyone by default, which is how notifications always read.
+    #[serde(default)]
+    hide_details: BTreeSet<String>,
 }
 
 pub struct SubscriptionStore {
@@ -150,10 +154,33 @@ impl SubscriptionStore {
 
     pub fn remove(&mut self, device_id: &str) -> Result<bool, String> {
         let existed = self.file.subscriptions.remove(device_id).is_some();
-        if existed {
+        let had_preference = self.file.hide_details.remove(device_id);
+        if existed || had_preference {
             self.persist()?;
         }
         Ok(existed)
+    }
+
+    /// Whether this device asked for notifications without details on its lock screen.
+    pub fn hide_details(&self, device_id: &str) -> bool {
+        self.file.hide_details.contains(device_id)
+    }
+
+    pub fn set_hide_details(&mut self, device_id: &str, hide: bool) -> Result<(), String> {
+        let changed = if hide { self.file.hide_details.insert(device_id.to_string()) } else { self.file.hide_details.remove(device_id) };
+        if changed {
+            self.persist()?;
+        }
+        Ok(())
+    }
+
+    /// Every subscription with its device's "hide details" switch.
+    pub fn all_with_preferences(&self) -> Vec<(String, Subscription, bool)> {
+        self.file
+            .subscriptions
+            .iter()
+            .map(|(id, sub)| (id.clone(), sub.clone(), self.file.hide_details.contains(id)))
+            .collect()
     }
 
     /// Drop the subscription that uses `endpoint` (the push service said it is gone).
@@ -321,5 +348,27 @@ mod tests {
         ] {
             assert!(endpoint_host(good).is_ok(), "{good} should pass");
         }
+    }
+
+    #[test]
+    fn hide_details_is_off_by_default_per_device_and_forgotten_with_the_device() {
+        let dir = std::env::temp_dir().join(format!("pm-push-hide-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("push.json");
+        let mut store = SubscriptionStore::load(path.clone(), "v1");
+        assert!(!store.hide_details("dev-a"), "off by default: notifications read as they always did");
+        store.set_hide_details("dev-a", true).unwrap();
+        assert!(store.hide_details("dev-a") && !store.hide_details("dev-b"));
+        // It survives a restart.
+        let store2 = SubscriptionStore::load(path.clone(), "v1");
+        assert!(store2.hide_details("dev-a"));
+        let mut store = store2;
+        let (sub, _, _) = test_subscription("https://fcm.googleapis.com/a");
+        store.upsert("dev-a", sub).unwrap();
+        assert_eq!(store.all_with_preferences().iter().map(|(id, _, hide)| (id.as_str(), *hide)).collect::<Vec<_>>(), [("dev-a", true)]);
+        // A revoked device takes its switch with it.
+        store.remove("dev-a").unwrap();
+        assert!(!SubscriptionStore::load(path, "v1").hide_details("dev-a"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

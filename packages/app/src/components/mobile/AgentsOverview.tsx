@@ -11,6 +11,7 @@ import { DigestCard } from './DigestCard';
 import { isLive } from '../../lib/questions';
 import { blockingCount, type AttentionSnapshot } from '../../lib/attention';
 import { QuestionsView, useQuestionPolling } from './QuestionsList';
+import { NeedsYouList } from './NeedsYouList';
 import { TeamGroup } from './TeamGroup';
 
 const PREVIEW_POLL_MS = 4000;
@@ -36,6 +37,8 @@ export function AgentsOverview({
   stuck,
   questionsRevision,
   attention,
+  canAnswer = true,
+  onRefreshAttention,
 }: {
   bridge: BridgeClient;
   bridgeReady: boolean;
@@ -58,6 +61,10 @@ export function AgentsOverview({
    * screen counts what it can see by itself.
    */
   attention?: AttentionSnapshot | null;
+  /** This phone holds the `answer` ability (approval cards without it have no buttons). */
+  canAnswer?: boolean;
+  /** An answer came back stale: read the PC's list again now. */
+  onRefreshAttention?: () => void;
 }) {
   const { questions, refresh } = useQuestionPolling(bridge, bridgeReady && questionsRevision !== undefined, questionsRevision ?? 0);
   const liveQuestions = questionsRevision === undefined ? [] : questions.filter((q) => isLive(q, Date.now()));
@@ -101,8 +108,21 @@ export function AgentsOverview({
   const waiting = attention
     ? String(blockingCount(attention)).padStart(2, '0')
     : waitingCount(panes, { questions: liveQuestions, stuckPaneIds: stuck ? [...stuck.keys()] : [] });
-  const cards =
-    questionsRevision === undefined ? null : <QuestionsView bridge={bridge} questions={questions} refresh={refresh} labels={labels} />;
+  // With the PC's list the cards ARE that list, in its order; an older PC keeps the question cards alone.
+  const cards = attention ? (
+    <NeedsYouList
+      snapshot={attention}
+      bridge={bridge}
+      canAnswer={canAnswer}
+      questions={liveQuestions}
+      refreshQuestions={refresh}
+      labels={labels}
+      onOpenPane={onOpen}
+      onRefresh={onRefreshAttention}
+    />
+  ) : questionsRevision === undefined ? null : (
+    <QuestionsView bridge={bridge} questions={questions} refresh={refresh} labels={labels} />
+  );
   const title = (
     <header className="ph-large">
       <h1>Agents</h1>
