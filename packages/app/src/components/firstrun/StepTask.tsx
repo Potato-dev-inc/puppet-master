@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import type { CockpitApi } from '../../hooks/useCockpit';
 import { ApprovalPrompt } from '../cockpit/ApprovalPrompt';
 import { DotSpinner } from '../cockpit/DotSpinner';
-import { explainError } from '../cockpit/error-sentences';
+import { explainError, type ErrorExplanation } from '../cockpit/error-sentences';
 import { formatElapsed } from '../cockpit/model';
 import { readableReceipt } from '../cockpit/receipt-view';
 import { codeOf, type FirstRunApi, type TaskStarted, type TaskStatus } from './first-run-api';
@@ -111,7 +111,7 @@ export function StepTask({
   const pane = status?.pane_id ?? run?.pane_id ?? null;
   const prompt = pane ? c.prompts[pane] : null;
   const failed = settled && status.status !== 'completed';
-  const explained = failed ? explainError(status.error?.code, agent.label) : null;
+  const explained = failed ? failedDetail(explainError(status.error?.code, agent.label)) : null;
   const lines = settled && !failed ? receiptLines(status.receipt) : [];
   const enforced = run ? run.enforced : true;
 
@@ -182,7 +182,7 @@ export function StepTask({
             <DotSpinner status="error" size={3} />
             <h2 className="ck-section">{T.taskFailed}</h2>
           </div>
-          {explained && <p className="fr-hint">{explained.sentence}</p>}
+          {explained && <p className="fr-hint">{explained}</p>}
           <div className="fr-actions">
             <button type="button" className="ck-btn ck-btn--secondary" onClick={again}>
               {T.taskTryAgain}
@@ -218,4 +218,15 @@ export function StepTask({
       )}
     </section>
   );
+}
+
+/**
+ * The Inbox's error card words, under this step's own title. The first task runs in a separate copy, so
+ * the title already says the person's files were not touched; the card's "Your files are as it left
+ * them" would say it twice (and less exactly), so it is left out here.
+ */
+export function failedDetail(e: ErrorExplanation | null): string | null {
+  if (!e) return null;
+  const rest = e.sentence.split(/(?<=\.)\s+/).filter((s) => !/^Your files\b/.test(s));
+  return [`${e.title}.`, ...rest].join(' ');
 }

@@ -281,7 +281,9 @@ describe('4. A first task', () => {
     await tap(T.taskRun);
     const failed = host.querySelector('[data-testid="task-failed"]')!;
     expect(failed.textContent).toContain(T.taskFailed);
-    expect(failed.textContent).toContain('stopped unexpectedly');
+    expect(failed.textContent).toContain('stopped. It closed unexpectedly.');
+    // The step title says the files were not touched; the Inbox card's "as it left them" is not repeated.
+    expect(failed.textContent).not.toContain('as it left them');
     await tap(T.taskTryAgain);
     expect(host.querySelector('[data-testid="task-prompt"]')).not.toBeNull();
   });
