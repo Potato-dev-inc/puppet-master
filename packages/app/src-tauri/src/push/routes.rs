@@ -5,6 +5,7 @@
 //! - `POST /push/subscribe`   -> store the caller's PushSubscription
 //! - `DELETE /push/subscribe` -> drop the caller's subscription
 //! - `POST /push/presence`    -> `{visible}`: the PWA is on screen (suppresses notifications)
+//! - `GET|POST /push/preferences` -> `{hide_details}`: this phone's "Hide details on lock screen"
 //! - `POST /push/act`         -> NOT bearer-authed: redeems an Allow / Deny token from a notification
 //!
 //! All but the last require a paired device's bearer token; the device is whoever owns that token,
@@ -55,6 +56,8 @@ pub fn handle(hub: &PushHub, method: &str, segments: &[&str], headers: &str, bod
         ("POST", ["push", "subscribe"]) => caller(hub, headers).and_then(|device| subscribe(hub, &device, body, now_ms)),
         ("DELETE", ["push", "subscribe"]) => caller(hub, headers).and_then(|device| unsubscribe(hub, &device)),
         ("POST", ["push", "presence"]) => caller(hub, headers).and_then(|device| presence(hub, &device, body, now_ms)),
+        ("GET", ["push", "preferences"]) => caller(hub, headers).map(|device| (200, json!({"hide_details": hub.store().lock().hide_details(&device)}))),
+        ("POST", ["push", "preferences"]) => caller(hub, headers).and_then(|device| preferences(hub, &device, body)),
         _ => return None,
     };
     Some(result.unwrap_or_else(|reply| reply))
@@ -83,6 +86,22 @@ fn unsubscribe(hub: &PushHub, device: &str) -> Result<Reply, Reply> {
         .remove(device)
         .map_err(|err| (500, json!({"error": "store_failed", "detail": err})))?;
     Ok((200, json!({"ok": true, "removed": removed})))
+}
+
+/// This phone's own switch. Whatever the body says about another device is ignored: the device is
+/// whoever owns the token.
+fn preferences(hub: &PushHub, device: &str, body: &[u8]) -> Result<Reply, Reply> {
+    #[derive(Deserialize)]
+    struct PreferencesBody {
+        hide_details: bool,
+    }
+    let parsed: PreferencesBody = serde_json::from_slice(body)
+        .map_err(|err| (400, json!({"error": "invalid_preferences", "detail": err.to_string()})))?;
+    hub.store()
+        .lock()
+        .set_hide_details(device, parsed.hide_details)
+        .map_err(|err| (500, json!({"error": "store_failed", "detail": err})))?;
+    Ok((200, json!({"ok": true, "hide_details": parsed.hide_details})))
 }
 
 fn presence(hub: &PushHub, device: &str, body: &[u8], now_ms: u64) -> Result<Reply, Reply> {
@@ -206,6 +225,20 @@ mod tests {
         assert_eq!(handle(&hub, "POST", &["push", "presence"], &bearer("tok-a"), br#"{"visible":"yes"}"#, 1).unwrap().0, 400);
     }
 
+    #[test]
+    fn preferences_are_the_callers_own_and_default_to_off() {
+        let hub = setup("routes-preferences");
+        let get = |token: &str| handle(&hub, "GET", &["push", "preferences"], &bearer(token), b"", 1).unwrap();
+        assert_eq!(get("tok-a").1["hide_details"], json!(false));
+        assert_eq!(handle(&hub, "GET", &["push", "preferences"], "Host: x\r\n", b"", 1).unwrap().0, 401);
+        let set = handle(&hub, "POST", &["push", "preferences"], &bearer("tok-a"), br#"{"hide_details":true,"device_id":"dev-b"}"#, 1).unwrap();
+        assert_eq!((set.0, set.1["hide_details"].clone()), (200, json!(true)));
+        assert_eq!(get("tok-a").1["hide_details"], json!(true));
+        assert_eq!(get("tok-b").1["hide_details"], json!(false), "a body naming another device changes nothing for it");
+        assert_eq!(handle(&hub, "POST", &["push", "preferences"], &bearer("tok-a"), b"{}", 1).unwrap().0, 400);
+        assert_eq!(handle(&hub, "POST", &["push", "preferences"], "Host: x\r\n", br#"{"hide_details":true}"#, 1).unwrap().0, 401);
+    }
+
     fn token_for(hub: &PushHub, device: &str) -> String {
         let (sub, _, _) = test_subscription("https://fcm.googleapis.com/z");
         hub.store().lock().upsert(device, sub).unwrap();
@@ -216,6 +249,8 @@ mod tests {
             agent_label: "Kilo".into(),
             heading: None,
             prompt: Some(PromptInfo { prompt_id: "pid".into(), text: "Run command: ls".into(), actionable: true, risk: Some(crate::push::triggers::PromptRisk { level: crate::prompt_risk::RiskLevel::Low, headline: String::new() }) }),
+            item: None,
+            detail: None,
         };
         let (_, deliveries) = hub.plan(&candidate, 1_000);
         let payload: Value = serde_json::from_slice(&deliveries[0].payload).unwrap();

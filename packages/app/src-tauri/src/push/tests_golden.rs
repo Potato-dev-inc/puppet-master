@@ -18,15 +18,22 @@ fn golden_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/push/golden").join(format!("{name}.json"))
 }
 
-/// One FCM phone that may answer ("dev-a") and one that may not ("dev-w", watch only).
+/// One FCM phone that may answer ("dev-a"), one that may not ("dev-w", watch only), an iPhone
+/// ("dev-i", Apple's push service) and an Android phone with "Hide details on lock screen" on ("dev-h").
 fn hub(name: &str) -> PushHub {
-    let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a"), ("tok-w", "dev-w")]));
+    let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a"), ("tok-w", "dev-w"), ("tok-i", "dev-i"), ("tok-h", "dev-h")]));
     dir.cannot_answer.lock().push("dev-w".into());
     let hub = hub_with(name, dir);
-    let (a, _, _) = test_subscription("https://fcm.googleapis.com/fcm/send/a");
-    let (w, _, _) = test_subscription("https://fcm.googleapis.com/fcm/send/w");
-    hub.store().lock().upsert("dev-a", a).unwrap();
-    hub.store().lock().upsert("dev-w", w).unwrap();
+    for (device, endpoint) in [
+        ("dev-a", "https://fcm.googleapis.com/fcm/send/a"),
+        ("dev-w", "https://fcm.googleapis.com/fcm/send/w"),
+        ("dev-i", "https://web.push.apple.com/i"),
+        ("dev-h", "https://fcm.googleapis.com/fcm/send/h"),
+    ] {
+        let (sub, _, _) = test_subscription(endpoint);
+        hub.store().lock().upsert(device, sub).unwrap();
+    }
+    hub.store().lock().set_hide_details("dev-h", true).unwrap();
     hub
 }
 
@@ -68,6 +75,8 @@ fn waiting(heading: Option<&str>, prompt: Option<PromptInfo>) -> Candidate {
         agent_label: "Claude Code".into(),
         heading: heading.map(str::to_string),
         prompt,
+        item: None,
+        detail: None,
     }
 }
 
@@ -134,19 +143,21 @@ fn question() {
         agent_label: "Claude Code".into(),
         heading: None,
         prompt: Some(PromptInfo { prompt_id: String::new(), text: "Keep the old /login route as a redirect, or remove it?".into(), actionable: false, risk: None }),
+        item: None,
+        detail: None,
     };
     check("question", &payload_for(&plan("g-question", &c), "dev-a"));
 }
 
 #[test]
 fn error() {
-    let c = Candidate { kind: Kind::Error, key: "pane-2".into(), pane_id: Some("pane-2".into()), agent_label: "PowerShell".into(), heading: Some("build".into()), prompt: None };
+    let c = Candidate { kind: Kind::Error, key: "pane-2".into(), pane_id: Some("pane-2".into()), agent_label: "PowerShell".into(), heading: Some("build".into()), prompt: None, item: None, detail: None };
     check("error", &payload_for(&plan("g-error", &c), "dev-a"));
 }
 
 #[test]
 fn done() {
-    let c = Candidate { kind: Kind::RunFinished, key: "pane-3".into(), pane_id: Some("pane-3".into()), agent_label: "Codex".into(), heading: Some("Codex 2".into()), prompt: None };
+    let c = Candidate { kind: Kind::RunFinished, key: "pane-3".into(), pane_id: Some("pane-3".into()), agent_label: "Codex".into(), heading: Some("Codex 2".into()), prompt: None, item: None, detail: None };
     check("done", &payload_for(&plan("g-done", &c), "dev-a"));
 }
 
@@ -173,6 +184,161 @@ fn coalesced_two() {
     let payload = payload_for(&deliveries, "dev-a");
     assert!(payload.get("act").is_none());
     check("coalesced_two", &payload);
+}
+
+fn item(id: &str) -> Option<super::hub::ItemRef> {
+    Some(super::hub::ItemRef { id: id.into(), occurrence: 7, fingerprint: "f3c1f3c1f3c1f3c1".into() })
+}
+
+fn info(text: &str) -> Option<PromptInfo> {
+    Some(PromptInfo { prompt_id: String::new(), text: text.into(), actionable: false, risk: None })
+}
+
+#[test]
+fn approval_low_ios() {
+    let c = waiting(Some("auth refactor"), Some(prompt(Some((RiskLevel::Low, "Run tests")), "Run command: npm test (in shop)")));
+    let payload = payload_for(&plan("g-low-ios", &c), "dev-i");
+    assert!(payload.get("act").is_none(), "Apple shows no action buttons: no grant that nothing can use");
+    assert_eq!(payload["body"], "Low risk · Run tests\nClaude Code", "two lines: the risk and who, no command");
+    check("approval_low_ios", &payload);
+}
+
+#[test]
+fn approval_hide_details() {
+    let c = waiting(Some("fix the payroll bug"), Some(prompt(Some((RiskLevel::Low, "Run tests")), "Run command: npm test (in shop)")));
+    let payload = payload_for(&plan("g-hide", &c), "dev-h");
+    assert!(payload.get("act").is_none(), "no buttons, so nothing that answers can be tapped from a lock screen");
+    let text = payload.to_string();
+    assert!(!text.contains("payroll") && !text.contains("npm test") && !text.contains("Run tests"), "the pane's title, the command and the headline stay off the lock screen: {text}");
+    check("approval_hide_details", &payload);
+}
+
+#[test]
+fn question_ios() {
+    let c = Candidate {
+        kind: Kind::Question,
+        key: "q-1".into(),
+        pane_id: None,
+        agent_label: "Claude Code".into(),
+        heading: None,
+        prompt: info("Keep the old /login route as a redirect, or remove it?"),
+        item: item("Qk2x9aLm"),
+        detail: None,
+    };
+    let payload = payload_for(&plan("g-question-ios", &c), "dev-i");
+    assert_eq!(payload["body"], "Question from Claude Code");
+    assert_eq!(payload["item_id"], "Qk2x9aLm", "the tap opens this card");
+    check("question_ios", &payload);
+}
+
+#[test]
+fn trust_gate() {
+    let c = Candidate {
+        kind: Kind::TrustGate,
+        key: "pane-1".into(),
+        pane_id: Some("pane-1".into()),
+        agent_label: "Claude Code".into(),
+        heading: Some("auth refactor".into()),
+        prompt: Some(PromptInfo { prompt_id: "pid-t".into(), text: "Trust this workspace?".into(), actionable: false, risk: None }),
+        item: item("T7rustAb"),
+        detail: Some("shop".into()),
+    };
+    let payload = payload_for(&plan("g-trust", &c), "dev-a");
+    assert!(payload.get("act").is_none(), "a folder is never trusted from a lock screen");
+    assert_eq!(payload["body"], "Trust this folder? · shop\nClaude Code");
+    check("trust_gate", &payload);
+}
+
+#[test]
+fn trust_gate_signin() {
+    let c = Candidate {
+        kind: Kind::TrustGate,
+        key: "pane-1".into(),
+        pane_id: Some("pane-1".into()),
+        agent_label: "Claude Code".into(),
+        heading: Some("auth refactor".into()),
+        prompt: None,
+        item: None,
+        detail: None,
+    };
+    let payload = payload_for(&plan("g-signin", &c), "dev-a");
+    assert_eq!(payload["body"], "Claude Code needs you on your PC");
+    check("trust_gate_signin", &payload);
+}
+
+#[test]
+fn consent() {
+    let c = Candidate {
+        kind: Kind::Consent,
+        key: "q-c1".into(),
+        pane_id: None,
+        agent_label: "Codex".into(),
+        heading: None,
+        prompt: info("Allow Codex to control Claude Code?"),
+        item: item("C0nsentX"),
+        detail: Some("Codex wants to control Claude Code".into()),
+    };
+    let payload = payload_for(&plan("g-consent", &c), "dev-a");
+    assert!(payload.get("act").is_none() && payload.get("target").is_none());
+    check("consent", &payload);
+    let hidden = payload_for(&plan("g-consent-h", &c), "dev-h");
+    assert_eq!(hidden["body"], "Codex wants to control another agent");
+}
+
+#[test]
+fn budget() {
+    let c = Candidate {
+        kind: Kind::Budget,
+        key: "q-b1".into(),
+        pane_id: None,
+        agent_label: "Claude Code".into(),
+        heading: None,
+        prompt: info("Claude Code used its 20 turns."),
+        item: item("B9dgetXy"),
+        detail: Some("20 of 20 turns".into()),
+    };
+    let payload = payload_for(&plan("g-budget", &c), "dev-a");
+    assert_eq!(payload["body"], "Budget used up · 20 of 20 turns\nClaude Code");
+    check("budget", &payload);
+}
+
+#[test]
+fn limit() {
+    let c = Candidate {
+        kind: Kind::Limit,
+        key: "q-l1".into(),
+        pane_id: None,
+        agent_label: "Claude Code".into(),
+        heading: None,
+        prompt: info("Claude Code ran out of usage."),
+        item: item("L1mitZzZ"),
+        detail: Some("14:05".into()),
+    };
+    let payload = payload_for(&plan("g-limit", &c), "dev-a");
+    assert_eq!(payload["body"], "Usage limit · resets 14:05\nClaude Code");
+    check("limit", &payload);
+}
+
+/// Every first line of every needs-you body, on every phone, is at most 56 characters.
+#[test]
+fn no_first_line_is_longer_than_fifty_six_characters() {
+    use super::triggers::{copy_for_view, View, MAX_FIRST_LINE_CHARS};
+    let long = "z".repeat(200);
+    let kinds = [
+        (Kind::TrustGate, Some(long.as_str())),
+        (Kind::Consent, Some(long.as_str())),
+        (Kind::Budget, Some(long.as_str())),
+        (Kind::Limit, Some(long.as_str())),
+        (Kind::Question, None),
+    ];
+    for (kind, detail) in kinds {
+        for view in [View::Full, View::Ios, View::Hidden] {
+            let prompt = PromptInfo { prompt_id: "p".into(), text: long.clone(), actionable: false, risk: None };
+            let words = copy_for_view(kind, "Claude Code", Some("auth refactor"), Some(&prompt), detail, view);
+            let first = words.body.lines().next().unwrap();
+            assert!(first.chars().count() <= MAX_FIRST_LINE_CHARS, "{kind:?} {view:?}: {first}");
+        }
+    }
 }
 
 /// Every golden file is exercised: a stray file means a case was dropped.

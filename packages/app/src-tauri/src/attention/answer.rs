@@ -64,6 +64,8 @@ pub struct Caller {
     pub device_id: String,
     pub device_name: String,
     pub caps: DeviceCaps,
+    /// The tap came from a notification button on the lock screen, not from the card.
+    pub lock_screen: bool,
 }
 
 /// The prompt a pane shows right now, read again for an answer.
@@ -262,7 +264,7 @@ fn answer_prompt(env: &dyn Env, caller: &Caller, item: &Item, request: &Request,
         &pane.id,
         prompt_id,
         fingerprint,
-        Decider::Device(caller.device_id.clone()),
+        if caller.lock_screen { Decider::LockScreen(caller.device_id.clone()) } else { Decider::Device(caller.device_id.clone()) },
         live.observed_pos,
         live.agent,
     ) {
@@ -336,11 +338,12 @@ fn recorded(env: &dyn Env, caller: &Caller, item: &Item, label: &str, key: Optio
         },
     );
     // Who pressed which choice, never the command.
-    env.audit(
-        caller,
-        &format!("A phone answered a card: {label}"),
-        json!({"kind": item.kind.as_str(), "choice": label, "via": "card"}),
-    );
+    let (summary, via) = if caller.lock_screen {
+        (format!("A phone answered from its lock screen: {label}"), "push")
+    } else {
+        (format!("A phone answered a card: {label}"), "card")
+    };
+    env.audit(caller, &summary, json!({"kind": item.kind.as_str(), "choice": label, "via": via}));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -591,7 +594,7 @@ pub(crate) mod testing {
     }
 
     pub fn caller(id: &str, caps: DeviceCaps) -> Caller {
-        Caller { device_id: id.into(), device_name: format!("{id}'s phone"), caps }
+        Caller { device_id: id.into(), device_name: format!("{id}'s phone"), caps, lock_screen: false }
     }
 }
 

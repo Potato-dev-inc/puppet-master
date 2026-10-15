@@ -301,3 +301,20 @@ fn an_error_or_a_stuck_item_has_nothing_to_answer() {
     env.items.lock().push(item);
     assert_eq!(answer(&env, &all(), "err", &Request { choice: Some("x".into()), ..Request::default() }).0, 400);
 }
+
+#[test]
+fn a_lock_screen_button_goes_through_the_same_checks_and_is_audited_as_one() {
+    let env = fresh();
+    let lock = Caller { lock_screen: true, ..all() };
+    // The notification was about the first occurrence; the pane has asked again since.
+    let mut stale = env.request("allow_once", Some("lock-1"));
+    stale.occurrence = Some(2);
+    assert_eq!(outcome(&answer(&env, &lock, &env.item_id(), &stale)), "changed");
+    assert_eq!(env.writes(), 0, "a stale grant types nothing");
+    let reply = answer(&env, &lock, &env.item_id(), &env.request("allow_once", Some("lock-1")));
+    assert_eq!(outcome(&reply), "answered");
+    assert_eq!(env.audits.lock().clone(), vec!["A phone answered from its lock screen: Allowed once".to_string()]);
+    // A button on a phone that lost its answer ability since the notification went out is refused.
+    let revoked = Caller { lock_screen: true, ..watch_only() };
+    assert_eq!(answer(&env, &revoked, &env.item_id(), &env.request("allow_once", None)).0, 403);
+}

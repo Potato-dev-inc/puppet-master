@@ -51,6 +51,7 @@ fn answer(cx: &Ctx, item_id: &str) -> RouteResult {
         device_name: crate::attention::caps::device_name(&device_id).unwrap_or_else(|| "A phone".to_string()),
         caps: crate::attention::caps::for_device(&device_id),
         device_id,
+        lock_screen: false,
     };
     let env = crate::attention::answer::RealEnv { registry: cx.registry.clone(), app: cx.app.clone() };
     let (status, body) = crate::attention::answer::answer(&env, &caller, item_id, &request);

@@ -149,7 +149,10 @@ pub fn route_need(method: &str, segments: &[&str]) -> Need {
         // This device's own notification subscription and presence (`/push/act` is public and
         // checks the answering device's caps itself). Listed exactly: a push route added later
         // falls through to watch/control instead of being open to any device.
-        ("GET", ["push", "key"]) | ("POST" | "DELETE", ["push", "subscribe"]) | ("POST", ["push", "presence" | "act"]) => {
+        ("GET", ["push", "key"])
+        | ("GET" | "POST", ["push", "preferences"])
+        | ("POST" | "DELETE", ["push", "subscribe"])
+        | ("POST", ["push", "presence" | "act"]) => {
             Need::Device
         }
 

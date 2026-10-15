@@ -3,7 +3,7 @@
 //! tested without a clock, and nothing here does network I/O (see `sender.rs`).
 
 use super::store::{Subscription, SubscriptionStore};
-use super::triggers::{coalesced_copy, copy_for, shown_in_full, Gate, Kind, PromptInfo, Verdict};
+use super::triggers::{coalesced_copy_view, copy_for_view, is_apple_endpoint, shown_in_full, Gate, Kind, PromptInfo, Verdict, View, Words};
 use super::vapid::VapidKeys;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -34,7 +34,21 @@ pub struct Grant {
     pub device_id: String,
     pub pane_id: String,
     pub prompt_id: String,
+    /// The attention card the notification announced, with the occurrence and screen fingerprint it
+    /// showed. A tap is answered through the same path as the phone card (`attention::answer`), which
+    /// re-reads the live screen and types nothing when it is no longer this prompt. `None` only when
+    /// the attention list had no card yet; the old prompt-id check then guards the tap.
+    pub item: Option<ItemRef>,
     expires_ms: u64,
+}
+
+/// The attention item a notification is about (the deep link, and what a lock-screen tap answers).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemRef {
+    /// The opaque item id; the phone opens `/?item=<id>`.
+    pub id: String,
+    pub occurrence: u32,
+    pub fingerprint: String,
 }
 
 /// What the dispatcher wants to tell the phones.
@@ -49,6 +63,10 @@ pub struct Candidate {
     /// first words of the notification title: "auth refactor · Needs you".
     pub heading: Option<String>,
     pub prompt: Option<PromptInfo>,
+    /// The attention card this is about, when the list has it.
+    pub item: Option<ItemRef>,
+    /// The one fact a kind adds to its first line (see `triggers::copy_for_view`).
+    pub detail: Option<String>,
 }
 
 /// A notification the rate limit held back instead of dropping: the newest candidate for its key and
@@ -161,7 +179,7 @@ impl PushHub {
         self.held.lock().retain(|key, held| {
             key != pane_id
                 || match held.candidate.kind {
-                    Kind::WaitingInput => status == "waiting_input",
+                    kind if kind.is_pane_prompt() => status == "waiting_input",
                     Kind::Error => status == "error",
                     _ => true,
                 }
@@ -173,7 +191,7 @@ impl PushHub {
         self.grants.lock().retain(|_, g| g.pane_id != pane_id);
         self.suppressed
             .lock()
-            .retain(|_, (d, _)| !(d.kind == Kind::WaitingInput && d.pane_id.as_deref() == Some(pane_id)));
+            .retain(|_, (d, _)| !(d.kind.is_pane_prompt() && d.pane_id.as_deref() == Some(pane_id)));
     }
 
     pub fn is_visible(&self, device_id: &str, now_ms: u64) -> bool {
@@ -182,7 +200,7 @@ impl PushHub {
 
     // --- Allow / Deny grants ------------------------------------------------------------------
 
-    fn issue_grant(&self, device_id: &str, pane_id: &str, prompt_id: &str, now_ms: u64) -> String {
+    fn issue_grant(&self, device_id: &str, pane_id: &str, prompt_id: &str, item: Option<&ItemRef>, now_ms: u64) -> String {
         let mut grants = self.grants.lock();
         grants.retain(|_, g| g.expires_ms > now_ms);
         if grants.len() >= MAX_GRANTS {
@@ -198,6 +216,7 @@ impl PushHub {
                 device_id: device_id.to_string(),
                 pane_id: pane_id.to_string(),
                 prompt_id: prompt_id.to_string(),
+                item: item.cloned(),
                 expires_ms: now_ms + GRANT_TTL_MS,
             },
         );
@@ -236,7 +255,7 @@ impl PushHub {
     /// A second thing on a pane inside the 30 s window: keep the newest, count it, and remember
     /// when the window ends. Finished runs are not urgent and are not held.
     fn hold(&self, candidate: &Candidate, now_ms: u64) {
-        if !matches!(candidate.kind, Kind::WaitingInput | Kind::Error | Kind::Question) {
+        if !candidate.kind.is_urgent() {
             return;
         }
         let due_ms = self.gate.lock().last_sent(&candidate.key).map(|at| at + super::triggers::RATE_LIMIT_MS).unwrap_or(now_ms);
@@ -269,9 +288,8 @@ impl PushHub {
                 let candidate = &held.candidate;
                 self.gate.lock().mark_sent(now_ms, &candidate.key);
                 let risk = candidate.prompt.as_ref().and_then(|p| p.risk.as_ref());
-                let words = coalesced_copy(&candidate.agent_label, candidate.heading.as_deref(), n, risk);
-                let (title, body) = (crate::redact::text(&words.title), crate::redact::text(&words.body));
-                (Verdict::Send, self.deliveries(candidate, &title, &body, false, now_ms))
+                let words = |view| coalesced_copy_view(&candidate.agent_label, candidate.heading.as_deref(), n, risk, view);
+                (Verdict::Send, self.deliveries(candidate, &words, false, now_ms))
             }
         }
     }
@@ -289,12 +307,13 @@ impl PushHub {
         }
         // This one is going out now: whatever was held for the key is covered by it.
         self.held.lock().remove(&candidate.key);
-        let words = copy_for(candidate.kind, &candidate.agent_label, candidate.heading.as_deref(), candidate.prompt.as_ref());
+        // What the fullest version of the notification says (Android, desktop browsers). It decides
+        // whether Allow / Deny can be offered at all: every phone's own version is cut down from it.
+        let full = copy_for_view(candidate.kind, &candidate.agent_label, candidate.heading.as_deref(), candidate.prompt.as_ref(), candidate.detail.as_deref(), View::Full);
         // Nothing secret goes to a push service. If redaction changed the text, the body no longer
         // shows the whole command exactly, so the notification is open-only (no Allow button).
-        let (title, body) = (crate::redact::text(&words.title), crate::redact::text(&words.body));
-        let redaction_changed = title.as_str() != words.title
-            || body.as_str() != words.body
+        let redaction_changed = crate::redact::text(&full.title).as_str() != full.title
+            || crate::redact::text(&full.body).as_str() != full.body
             || candidate.prompt.as_ref().is_some_and(|p| crate::redact::text(&p.text).as_str() != p.text);
         // Allow is only offered when the body shows the WHOLE command and cwd: a long command is cut
         // at 120 characters, and the cut tail could be what actually runs. Then it is open-only.
@@ -306,53 +325,65 @@ impl PushHub {
             })
             && candidate.pane_id.is_some()
             && !redaction_changed;
-        (verdict, self.deliveries(candidate, &title, &body, actionable, now_ms))
+        let words = |view| {
+            copy_for_view(candidate.kind, &candidate.agent_label, candidate.heading.as_deref(), candidate.prompt.as_ref(), candidate.detail.as_deref(), view)
+        };
+        (verdict, self.deliveries(candidate, &words, actionable, now_ms))
     }
 
-    /// One message per subscribed phone that is not looking at the PWA right now. `actionable`
-    /// adds Allow / Deny (a one-time grant) for the phones that may answer.
-    fn deliveries(
-        &self,
-        candidate: &Candidate,
-        title: &crate::redact::Redacted<String>,
-        body: &crate::redact::Redacted<String>,
-        actionable: bool,
-        now_ms: u64,
-    ) -> Vec<Delivery> {
+    /// One message per subscribed phone that is not looking at the PWA right now, each in the words
+    /// that phone gets (`words(view)`): an iPhone's has no command and no buttons (Apple shows no
+    /// action buttons), and a phone with "Hide details on lock screen" on shows no detail at all.
+    /// `actionable` adds Allow / Deny (a one-time grant) for the phones that may answer and read the
+    /// full version.
+    fn deliveries(&self, candidate: &Candidate, words: &dyn Fn(View) -> Words, actionable: bool, now_ms: u64) -> Vec<Delivery> {
         let prompt_id = candidate.prompt.as_ref().map(|p| p.prompt_id.as_str());
         let mut deliveries = Vec::new();
-        for (device_id, subscription) in self.store.lock().all() {
+        for (device_id, subscription, hide_details) in self.store.lock().all_with_preferences() {
+            let view = if hide_details {
+                View::Hidden
+            } else if is_apple_endpoint(&subscription.endpoint) {
+                View::Ios
+            } else {
+                View::Full
+            };
+            let words = words(view);
+            let (title, body) = (crate::redact::text(&words.title), crate::redact::text(&words.body));
             let mut extra = serde_json::Map::new();
-            extra.insert("v".into(), json!(1));
+            extra.insert("v".into(), json!(2));
             extra.insert("kind".into(), json!(candidate.kind.as_str()));
             extra.insert("tag".into(), json!(format!("pm-{}", candidate.key)));
             if let Some(pane_id) = &candidate.pane_id {
                 extra.insert("pane_id".into(), Value::String(pane_id.clone()));
             }
+            if let Some(item) = &candidate.item {
+                // The tap opens this card: `/?item=<id>`.
+                extra.insert("item_id".into(), Value::String(item.id.clone()));
+            }
             if candidate.kind == Kind::Question {
-                // Questions need the app: tapping opens the phone's question list. No buttons.
+                // Version 1 phones open their question list.
                 extra.insert("target".into(), Value::String("questions".into()));
             }
-            if let (Some(prompt), true) = (&candidate.prompt, candidate.kind != Kind::Question) {
+            if let (Some(prompt), true) = (&candidate.prompt, candidate.kind.is_pane_prompt()) {
                 extra.insert("prompt_id".into(), Value::String(prompt.prompt_id.clone()));
             }
-            if actionable && self.directory.device_can_answer(&device_id) {
+            if actionable && view == View::Full && self.directory.device_can_answer(&device_id) {
                 let pane_id = candidate.pane_id.as_deref().unwrap_or_default();
                 let prompt_id = prompt_id.unwrap_or_default();
                 extra.insert(
                     "act".into(),
                     json!({
                         "url": ACT_PATH,
-                        "token": self.issue_grant(&device_id, pane_id, prompt_id, now_ms),
+                        "token": self.issue_grant(&device_id, pane_id, prompt_id, candidate.item.as_ref(), now_ms),
                     }),
                 );
             }
-            let payload = super::sender::PushPayload::new(title, body, extra);
+            let payload = super::sender::PushPayload::new(&title, &body, extra);
             let delivery = Delivery {
                 device_id: device_id.clone(),
                 subscription,
                 payload,
-                urgent: matches!(candidate.kind, Kind::WaitingInput | Kind::Error | Kind::Question),
+                urgent: candidate.kind.is_urgent(),
                 pane_id: candidate.pane_id.clone(),
                 kind: candidate.kind,
             };
@@ -429,14 +460,14 @@ mod tests {
     }
 
     fn waiting(key: &str, prompt: Option<PromptInfo>) -> Candidate {
-        Candidate { kind: Kind::WaitingInput, key: key.into(), pane_id: Some(key.into()), agent_label: "Kilo".into(), heading: None, prompt }
+        Candidate { kind: Kind::WaitingInput, key: key.into(), pane_id: Some(key.into()), agent_label: "Kilo".into(), heading: None, prompt, item: None, detail: None }
     }
 
     fn two_device_hub(name: &str) -> PushHub {
         let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a"), ("tok-b", "dev-b")]));
         let hub = hub_with(name, dir);
         let (a, _, _) = test_subscription("https://fcm.googleapis.com/a");
-        let (b, _, _) = test_subscription("https://web.push.apple.com/b");
+        let (b, _, _) = test_subscription("https://fcm.googleapis.com/b");
         hub.store().lock().upsert("dev-a", a).unwrap();
         hub.store().lock().upsert("dev-b", b).unwrap();
         hub
@@ -495,7 +526,7 @@ mod tests {
         dir.cannot_answer.lock().push("dev-a".into());
         let hub = hub_with("no-answer", dir);
         let (a, _, _) = test_subscription("https://fcm.googleapis.com/a");
-        let (b, _, _) = test_subscription("https://web.push.apple.com/b");
+        let (b, _, _) = test_subscription("https://fcm.googleapis.com/b");
         hub.store().lock().upsert("dev-a", a).unwrap();
         hub.store().lock().upsert("dev-b", b).unwrap();
         let (_, deliveries) = hub.plan(&waiting("pane-1", Some(command_prompt("pid-1"))), 1_000);
@@ -733,7 +764,7 @@ Kilo");
         let trust = PromptInfo { prompt_id: "t".into(), text: "Trust this workspace?".into(), actionable: false, risk: None };
         let (_, d) = hub.plan(&waiting("p1", Some(trust)), 1_000);
         assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_none());
-        let error = Candidate { kind: Kind::Error, key: "p2".into(), pane_id: Some("p2".into()), agent_label: "Kilo".into(), heading: None, prompt: None };
+        let error = Candidate { kind: Kind::Error, key: "p2".into(), pane_id: Some("p2".into()), agent_label: "Kilo".into(), heading: None, prompt: None, item: None, detail: None };
         let (_, d) = hub.plan(&error, 1_000);
         assert!(serde_json::from_slice::<Value>(&d[0].payload).unwrap().get("act").is_none());
     }
@@ -758,6 +789,8 @@ Kilo");
             agent_label: "Kilo".into(),
             heading: None,
             prompt: Some(PromptInfo { prompt_id: String::new(), text: text.into(), actionable: false, risk: None }),
+            item: None,
+            detail: None,
         }
     }
 
@@ -802,6 +835,103 @@ Kilo");
         hub.set_visible("dev-a", true, 1_000);
         let (_, d) = hub.plan(&question("q1", "Deploy?"), 2_000);
         assert_eq!(d.iter().map(|x| x.device_id.as_str()).collect::<Vec<_>>(), ["dev-b"]);
+    }
+
+    fn mixed_hub(name: &str) -> PushHub {
+        let dir = Arc::new(FakeDirectory::new(&[("tok-a", "dev-a"), ("tok-i", "dev-i")]));
+        let hub = hub_with(name, dir);
+        let (a, _, _) = test_subscription("https://fcm.googleapis.com/a");
+        let (i, _, _) = test_subscription("https://web.push.apple.com/i");
+        hub.store().lock().upsert("dev-a", a).unwrap();
+        hub.store().lock().upsert("dev-i", i).unwrap();
+        hub
+    }
+
+    fn payload_of(deliveries: &[Delivery], device: &str) -> Value {
+        let d = deliveries.iter().find(|d| d.device_id == device).expect("that phone is told");
+        serde_json::from_slice(&d.payload).unwrap()
+    }
+
+    #[test]
+    fn apple_endpoint_gets_no_grant_and_short_body() {
+        let hub = mixed_hub("apple");
+        let (_, d) = hub.plan(&waiting("pane-1", Some(command_prompt("pid-1"))), 1_000);
+        let android = payload_of(&d, "dev-a");
+        let iphone = payload_of(&d, "dev-i");
+        assert!(android.get("act").is_some(), "Android keeps Allow / Deny");
+        assert!(iphone.get("act").is_none(), "Apple shows no action buttons: a grant would be dead weight");
+        assert_eq!(iphone["body"], "Low risk · Run a command\nKilo", "two lines, no command");
+        assert_eq!(android["body"], "Low risk · Run a command\nRun command: ls\nKilo");
+        // And no grant was minted for the iPhone at all.
+        assert_eq!(hub.grants.lock().len(), 1);
+    }
+
+    #[test]
+    fn hide_details_strips_command_and_buttons_for_that_phone_only() {
+        let hub = two_device_hub("hide");
+        hub.store().lock().set_hide_details("dev-b", true).unwrap();
+        let mut candidate = waiting("pane-1", Some(command_prompt("pid-1")));
+        candidate.heading = Some("fix the payroll bug".into());
+        let (_, d) = hub.plan(&candidate, 1_000);
+        let shown = payload_of(&d, "dev-a");
+        let hidden = payload_of(&d, "dev-b");
+        assert!(shown.get("act").is_some() && shown["title"] == "fix the payroll bug · Needs you");
+        assert!(hidden.get("act").is_none(), "no buttons when details are hidden");
+        assert_eq!(hidden["title"], "Kilo · Needs you", "the pane's title is often the task");
+        assert_eq!(hidden["body"], "Low risk\nKilo");
+        let text = hidden.to_string();
+        assert!(!text.contains("payroll") && !text.contains("Run command") && !text.contains("Run a command"), "{text}");
+        // Off again: the notification reads as it always did.
+        hub.store().lock().set_hide_details("dev-b", false).unwrap();
+        let (_, again) = hub.plan(&waiting("pane-2", Some(command_prompt("pid-2"))), 2_000);
+        assert!(payload_of(&again, "dev-b").get("act").is_some());
+    }
+
+    #[test]
+    fn a_grant_binds_the_card_the_notification_announced() {
+        let hub = two_device_hub("grant-item");
+        let mut candidate = waiting("pane-1", Some(command_prompt("pid-1")));
+        candidate.item = Some(ItemRef { id: "a7Kp2xQ9".into(), occurrence: 7, fingerprint: "f3c1f3c1f3c1f3c1".into() });
+        let (_, d) = hub.plan(&candidate, 1_000);
+        let payload = payload_of(&d, "dev-a");
+        assert_eq!(payload["item_id"], "a7Kp2xQ9", "the tap opens this card");
+        assert_eq!(payload["v"], 2);
+        let token = payload["act"]["token"].as_str().unwrap().to_string();
+        let grant = hub.redeem_grant(&token, 2_000).unwrap();
+        assert_eq!(grant.item, candidate.item, "occurrence and fingerprint ride on the grant");
+        assert_eq!((grant.pane_id.as_str(), grant.prompt_id.as_str()), ("pane-1", "pid-1"));
+    }
+
+    #[test]
+    fn a_trust_gate_a_consent_a_budget_and_a_limit_are_never_lock_screen_actions() {
+        let hub = two_device_hub("never-act");
+        for (i, kind) in [Kind::TrustGate, Kind::Consent, Kind::Budget, Kind::Limit].into_iter().enumerate() {
+            let mut c = waiting(&format!("pane-{i}"), Some(command_prompt("pid")));
+            c.kind = kind;
+            c.detail = Some("shop".into());
+            let (v, d) = hub.plan(&c, 1_000 + i as u64);
+            assert_eq!(v, Verdict::Send, "{kind:?}");
+            for delivery in &d {
+                let payload: Value = serde_json::from_slice(&delivery.payload).unwrap();
+                assert!(payload.get("act").is_none(), "{kind:?} has no lock-screen action");
+                assert_eq!(payload["kind"], kind.as_str());
+            }
+        }
+    }
+
+    #[test]
+    fn a_trust_gate_is_held_and_dropped_with_its_pane_like_any_prompt() {
+        let hub = two_device_hub("trust-held");
+        hub.note_pane_status("p1", "waiting_input");
+        let mut first = waiting("p1", Some(command_prompt("a")));
+        first.kind = Kind::TrustGate;
+        hub.plan(&first, 1_000);
+        let mut second = waiting("p1", Some(command_prompt("b")));
+        second.kind = Kind::TrustGate;
+        assert_eq!(hub.plan(&second, 2_000).0, Verdict::RateLimited);
+        assert!(hub.next_held_due().is_some());
+        hub.note_pane_status("p1", "running");
+        assert!(hub.take_due(u64::MAX).is_empty(), "answered at the PC: never announced later");
     }
 
     #[test]
