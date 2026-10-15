@@ -149,7 +149,13 @@ pub fn mark_operation_observation(
     // refuse to type the prompt.
     let dispatching =
         op.status == OperationStatus::Starting && op.stage.as_deref() == Some("dispatching");
-    if pane_state.as_deref() == Some("waiting_input") {
+    if pane_state.as_deref() == Some("waiting_input") && dispatching {
+        // A dialog drew while the task is being delivered (live r13: Codex's folder-trust question
+        // 1.7 s after its composer). The dispatch thread owns the run until the task is in: its
+        // delivery refuses to type over the dialog and parks the run on it, then delivers once it is
+        // answered. Flipping the run to waiting_input here made the dispatch abandon its delivery
+        // and the supervisor deliver the task a second time after the answer.
+    } else if pane_state.as_deref() == Some("waiting_input") {
         op.status = OperationStatus::WaitingInput;
         if !awaiting_readiness {
             // A usage limit keeps its own stage (`handoff`): it is not a prompt anyone can answer.

@@ -233,6 +233,50 @@ fn trusting_the_folder_from_the_card_lets_the_run_continue() {
     assert_eq!(events_named(&session, "prompt").len(), 1);
 }
 
+/// Live r13 (tour, Codex 0.162.1): the composer drew first and looked ready, then the folder-trust
+/// question opened 1.7 s later, just as the task was about to be typed. The run failed at once with
+/// `PANE_BLOCKED_BY_PROMPT`; the person clicked Trust on the card and the task was never typed (the
+/// pane had "no known run"). The run must park on the late dialog, and after Trust deliver the task
+/// exactly once and finish.
+#[test]
+fn a_trust_dialog_that_opens_after_the_composer_parks_the_run_and_trust_delivers_once() {
+    let session = World::get().session("trust-late");
+    session.script(
+        r#"
+agent = "codex"
+boot_ms = 100
+[[startup]]
+gate = "trust"
+after_ms = 1000
+composer_first = true
+[[turn]]
+on_prompt = "late trust"
+steps = [{ do = "think", ms = 300 }, { do = "say", text = "Hello after a late trust." }]
+"#,
+    );
+    let parked = run_until_stopped(&session, "fake_codex", "late trust", json!({}));
+    if status(&parked) != "needs_input" {
+        explain(&session, &parked, "the run should park on the trust dialog that opened late");
+    }
+    assert!(events_named(&session, "prompt").is_empty(), "the task must not be typed over the dialog");
+    let pane = parked["pane_id"].as_str().expect("pane").to_string();
+    assert_eq!(parked["prompt"]["kind"], "workspace_trust", "{}", parked["prompt"]);
+    // The person trusts the folder in the pane (Enter on "Yes, continue"); this fake Codex screen's
+    // card has no answer buttons.
+    session.type_as_user(&pane, "", true).unwrap_or_else(|e| panic!("could not answer in the pane: {e}"));
+    let done = wait_for(&session, &handle_of(&parked), TERMINAL, 60);
+    if status(&done) != "completed" {
+        explain(&session, &done, "the run should finish after trust was given");
+    }
+    assert!(done["result"].as_str().unwrap_or_default().contains("Hello after a late trust."), "{done}");
+    assert_eq!(events_named(&session, "prompt").len(), 1, "the task is typed exactly once: {:#?}
+{}", session.events(), transcript_of(&session, &done));
+}
+
+fn transcript_of(session: &Session, view: &Value) -> String {
+    session.agents("GET", &format!("/agents/{}/transcript", handle_of(view)), json!({})).map(|v| v.to_string()).unwrap_or_else(|e| e.to_string())
+}
+
 // ---- 4. the update menu -------------------------------------------------------------------------------
 
 /// Codex's "Update available" menu opens 600 ms after start, OVER a composer that already looked ready (the
