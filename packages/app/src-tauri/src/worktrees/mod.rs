@@ -710,7 +710,8 @@ pub fn merge_keep(reference: &WorktreeRef) -> Result<MergeOutcome, OperationErro
     // Record the agent's work on its branch (it normally leaves it uncommitted).
     commit_all(&wt, &format!("Puppet Master: changes from {}", reference.handle))?;
     let head_before = git_ok(&origin, &["rev-parse", "HEAD"], "GIT_FAILED")?;
-    let message = format!("Merge {} (isolated run {})", reference.branch, reference.handle);
+    // The person's git history uses the app's words: a "separate copy", never an "isolated run".
+    let message = format!("Merge separate copy {} (Puppet Master, {})", reference.branch, reference.handle);
     let merged = git_raw(
         &origin,
         &identity_args(&origin, &["merge", "--no-ff", "--no-edit", "-m", &message, &reference.branch]),

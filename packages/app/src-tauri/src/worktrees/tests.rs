@@ -180,6 +180,9 @@ fn merge_brings_the_changes_in_with_a_merge_commit_and_closes_the_worktree() {
     let parents = repo.git(&["rev-list", "--parents", "-n", "1", "HEAD"]);
     assert_eq!(parents.split_whitespace().count(), 3, "a --no-ff merge commit has two parents: {parents}");
     assert_eq!(outcome.merge_commit.as_deref(), Some(repo.head().as_str()));
+    let subject = repo.git(&["log", "-1", "--format=%s"]);
+    assert_eq!(subject.trim(), "Merge separate copy pm/run-3 (Puppet Master, run-3)");
+    assert!(!subject.contains("isolated"), "the merge commit uses the app's words: {subject}");
     assert!(!work.exists(), "worktree removed after merging");
     assert!(!repo.branches().lines().any(|b| b == "pm/run-3"));
     assert!(list(&repo.path()).is_empty());
