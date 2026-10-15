@@ -85,6 +85,10 @@ export default function CockpitApp() {
   const away = useAway(c.registry.paneList.map((p) => p.info.id));
   // The first-run welcome: once on a fresh profile, again from the palette or Settings.
   const welcome = useFirstRun(c.registry.paneList.length, c.registry.initialReady);
+  // One welcome: the Inbox's "Set up your agents" opens the first-run flow until it was finished or
+  // skipped (Set up agents after), and while the flow is on screen the Inbox offers no second way in.
+  const welcomeShown = welcome.open && c.mode !== 'individual';
+  const welcomeSetUp = welcomeShown ? null : !welcome.done && c.mode !== 'individual' ? welcome.resume : () => setView('doctor');
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -144,7 +148,7 @@ export default function CockpitApp() {
         ) : view === 'pane' && c.selectedId ? (
           <PaneView c={c} paneId={c.selectedId} key={c.selectedId} />
         ) : (
-          <Inbox c={nav} onOpenDoctor={() => setView('doctor')} />
+          <Inbox c={nav} onOpenDoctor={() => setView('doctor')} onSetUp={welcomeSetUp} />
         )}
         {away.digest && c.mode !== 'individual' && (
           <AwayDigest

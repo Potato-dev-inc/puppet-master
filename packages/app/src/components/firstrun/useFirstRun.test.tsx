@@ -100,6 +100,33 @@ describe('useFirstRun', () => {
     expect(last.seed.start).toBe('project');
   });
 
+  it('is not done until finished or skipped; resume opens it where the person left off', async () => {
+    window.localStorage.setItem('pm.cockpit.everSpawned', '1'); // an automatic show is vetoed, so it starts closed
+    const { patch } = await mount({ show: true, auto: true, step: 'project' }, { settings: {} });
+    expect(last.open).toBe(false);
+    expect(last.done).toBe(false);
+    await act(async () => last.resume());
+    await settle();
+    expect(last.open).toBe(true);
+    expect(last.seed.start).toBe('project');
+    expect(patch).not.toHaveBeenCalled();
+    const key = last.openKey;
+    await act(async () => last.resume()); // already open: no restart, progress kept
+    await settle();
+    expect(last.openKey).toBe(key);
+    await act(async () => last.finish());
+    expect(last.done).toBe(true);
+  });
+
+  it('is done when the settings say so, or when there is no desktop shell to ask', async () => {
+    await mount({ show: false, auto: false, step: null });
+    expect(last.done).toBe(true);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await mount(new Error('Desktop shell required'));
+    expect(last.done).toBe(true);
+  });
+
   it('Finish writes onboarding_done and closes; reopen writes false and starts at the top', async () => {
     const { patch } = await mount({ show: true, auto: true, step: null });
     await act(async () => last.finish());
@@ -112,5 +139,6 @@ describe('useFirstRun', () => {
     expect(last.open).toBe(true);
     expect(last.seed.start).toBe('welcome');
     expect(last.openKey).toBeGreaterThan(key);
+    expect(last.done).toBe(false);
   });
 });

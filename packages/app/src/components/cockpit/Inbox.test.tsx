@@ -298,6 +298,28 @@ describe('empty and first-run states', () => {
     expect(settings.patchSettings).toHaveBeenCalledWith({ simple_mode: true });
   });
 
+  it('one welcome: "Set up your agents" opens the first-run flow when the cockpit says so, and errors still open Set up agents', () => {
+    window.localStorage.clear();
+    const { api } = fixture({ panes: [] });
+    const doctor = vi.fn();
+    const firstRun = vi.fn();
+    act(() => root.render(<Inbox c={api} onOpenDoctor={doctor} onSetUp={firstRun} />));
+    const setUp = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Set up your agents')!;
+    act(() => setUp.click());
+    expect(firstRun).toHaveBeenCalledTimes(1);
+    expect(doctor).not.toHaveBeenCalled();
+  });
+
+  it('while the first-run flow is on screen the Inbox welcome offers no second way in', () => {
+    window.localStorage.clear();
+    const { api } = fixture({ panes: [] });
+    act(() => root.render(<Inbox c={api} onOpenDoctor={vi.fn()} onSetUp={null} />));
+    expect(host.querySelector('h1')?.textContent).toBe('Welcome to Puppet Master');
+    const labels = Array.from(host.querySelectorAll('button')).map((b) => b.textContent);
+    expect(labels).not.toContain('Set up your agents');
+    expect(labels).not.toContain('Use Simple mode');
+  });
+
   it('is not a welcome once something was ever opened', () => {
     const { api } = fixture({ panes: [] });
     mount(api, () => {});

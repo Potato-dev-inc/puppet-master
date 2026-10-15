@@ -29,7 +29,20 @@ interface Entry extends InboxEntry {
   render: (first: boolean) => ReactNode;
 }
 
-export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () => void }) {
+export function Inbox({
+  c,
+  onOpenDoctor,
+  onSetUp,
+}: {
+  c: CockpitApi;
+  onOpenDoctor?: () => void;
+  /**
+   * "Set up your agents" on the empty Inbox. The cockpit sends the first-run welcome here while it was
+   * never finished or skipped, and Set up agents after. `null`: the welcome is on screen (or paused as its
+   * bar), so the Inbox offers no second way in. Absent: Set up agents.
+   */
+  onSetUp?: (() => void) | null;
+}) {
   // One list for every surface: the badge, the Doto counter and the sidebar group use its length.
   const needs = useNeedsYou(c);
   const count = blockingItems(needs).length;
@@ -37,6 +50,7 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
   const errored = c.registry.paneList.filter((p) => itemsOfKind(needs, 'error').some((i) => i.paneId === p.info.id));
   const noPanes = c.registry.paneList.length === 0 && c.registry.initialReady;
   const firstRun = noPanes && !hasEverSpawned();
+  const setUp = onSetUp === undefined ? onOpenDoctor : onSetUp;
   const stuckIds = itemsOfKind(needs, 'stuck').flatMap((i) => (i.paneId ? [i.paneId] : []));
 
   const entries = (() => {
@@ -228,12 +242,12 @@ export function Inbox({ c, onOpenDoctor }: { c: CockpitApi; onOpenDoctor?: () =>
             </span>
           </p>
         )}
-        {noPanes && onOpenDoctor && (
-          <button type="button" className={`ck-btn ${firstRun ? 'ck-btn--primary' : 'ck-btn--secondary'}`} onClick={onOpenDoctor}>
+        {noPanes && setUp && (
+          <button type="button" className={`ck-btn ${firstRun ? 'ck-btn--primary' : 'ck-btn--secondary'}`} onClick={setUp}>
             Set up your agents
           </button>
         )}
-        {firstRun && (
+        {firstRun && onSetUp !== null && (
           <p className="ib-welcome-alt">
             <span>I don't write code.</span>
             <button type="button" className="ck-btn ck-btn--plain" onClick={() => void patchSettings({ simple_mode: true }).catch(() => undefined)}>

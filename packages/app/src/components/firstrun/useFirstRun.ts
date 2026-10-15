@@ -20,7 +20,14 @@ export interface FirstRunHost {
   /** Changes on every (re)open, so the welcome starts from a clean state. */
   openKey: number;
   reopen: () => void;
+  /**
+   * Open it where the person left off, without asking again (the Inbox welcome's "Set up your agents"
+   * while the welcome was never finished or skipped). Does nothing while it is open.
+   */
+  resume: () => void;
   finish: () => void;
+  /** Finished or skipped (or no desktop shell to ask): "Set up your agents" goes to Set up agents. */
+  done: boolean;
 }
 
 const inTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -56,6 +63,8 @@ export function useFirstRun(paneCount: number, panesReady: boolean, deps: Deps =
   const [open, setOpen] = useState(false);
   const [seed, setSeed] = useState<Seed>(EMPTY_SEED);
   const [openKey, setOpenKey] = useState(0);
+  // Set by this window's own Finish/Skip or reopen; until then the settings file decides.
+  const [doneHere, setDoneHere] = useState<boolean | null>(null);
   const decided = useRef(false);
   const openRef = useRef(false);
   openRef.current = open;
@@ -104,6 +113,7 @@ export function useFirstRun(paneCount: number, panesReady: boolean, deps: Deps =
         .state()
         .then((s) => {
           setState(s);
+          setDoneHere(null);
           if (s.show) show(s, true);
         })
         .catch(() => undefined);
@@ -118,14 +128,24 @@ export function useFirstRun(paneCount: number, panesReady: boolean, deps: Deps =
 
   const reopen = useCallback(() => {
     decided.current = true;
+    setDoneHere(false);
     void patch(reopenPatch()).catch(() => undefined);
     show({ show: true, auto: false, step: 'welcome' }, true);
   }, [patch, show]);
 
+  const resume = useCallback(() => {
+    if (openRef.current) return;
+    decided.current = true;
+    show(state, false);
+  }, [show, state]);
+
   const finish = useCallback(() => {
     setOpen(false);
+    setDoneHere(true);
     void patch(finishPatch()).catch(() => undefined);
   }, [patch]);
 
-  return { open, seed, openKey, reopen, finish };
+  const done = doneHere ?? (state ? !state.show : true);
+
+  return { open, seed, openKey, reopen, resume, finish, done };
 }
