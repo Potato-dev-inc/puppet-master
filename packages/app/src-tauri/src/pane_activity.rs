@@ -1,4 +1,4 @@
-//! Live activity line per pane ("Running npm test", "Waiting: allow `npm test`?").
+//! Live activity line per pane ("Running npm test", "Needs you · Run tests").
 //!
 //! Cost model: nothing runs per byte. `note_output` (called from the bridge's SSE push helpers,
 //! never from the PTY reader) only marks a pane dirty. One ticker thread wakes about once a

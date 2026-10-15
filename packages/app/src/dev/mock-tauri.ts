@@ -129,7 +129,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
             panes.map((p) => [
               p.id,
               p.status === 'waiting_input'
-                ? { kind: 'waiting', text: 'Waiting: allow `npm test`?' }
+                ? { kind: 'waiting', text: 'Needs you · Run tests' }
                 : p.status === 'running'
                   ? { kind: 'working', text: 'Editing src/app.ts' }
                   : { kind: 'idle', text: 'Idle' },
