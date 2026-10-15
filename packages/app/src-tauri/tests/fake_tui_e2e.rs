@@ -321,6 +321,114 @@ steps = [{ do = "think", ms = 300 }, { do = "say", text = "Hello after trust fro
     assert_eq!(events_named(&session, "prompt").len(), 1, "the task is typed exactly once: {:#?}", session.events());
 }
 
+/// Live v0.2.0 hunt (audit entries 7-11): five "trust" answers for one Codex trust card within
+/// 400 ms, all `who: desktop`, on a worktree run while the window had another project selected. The
+/// card's answer missed the run (its pane's folder is the worktree, the run lives in the origin
+/// project) and went out as a bare-pane answer with no replay guard, so every repeat pressed Enter
+/// again. Now: without a click nothing is sent; a burst of clicks presses one key and writes one
+/// audit line, and the run delivers its task once.
+#[test]
+fn a_burst_of_trust_clicks_on_a_worktree_runs_card_presses_one_key_and_writes_one_line() {
+    let session = World::get().session("trust-burst");
+    session.script(
+        r#"
+agent = "codex"
+boot_ms = 100
+[[startup]]
+gate = "trust"
+after_ms = 200
+# Codex redraws the dialog away a moment after the key (live: the five answers all found it drawn).
+linger_ms = 600
+[[turn]]
+steps = [{ do = "think", ms = 300 }, { do = "say", text = "Hello after one trust." }]
+"#,
+    );
+    let other = session.select_other_project();
+    let parked = run_until_stopped(&session, "fake_codex", "burst", json!({ "isolation": "worktree" }));
+    if status(&parked) != "needs_input" {
+        explain(&session, &parked, "the run should park on the trust dialog");
+    }
+    let pane = parked["pane_id"].as_str().expect("pane").to_string();
+    assert_eq!(parked["prompt"]["kind"], "workspace_trust", "{}", parked["prompt"]);
+    assert!(session.screen(&pane).contains(".puppet-master"), "the pane runs in the run's worktree:\n{}", session.screen(&pane));
+    assert_ne!(other, session.project());
+    let prompt_id = parked["prompt"]["id"].as_str().expect("prompt id").to_string();
+
+    // No click, no answer: a call without the person's gesture sends nothing at all.
+    let refused = session.answer_card_with(&pane, &prompt_id, "trust", None).expect_err("trust without a click must be refused");
+    assert_eq!(refused["code"], "ANSWER_NEEDS_A_PERSON", "{refused}");
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(events_named(&session, "gate_answer").is_empty(), "nothing answered the dialog: {:#?}", session.events());
+
+    // Five clicks as fast as a loop can send them.
+    let answers: Vec<_> = (0..5).map(|_| session.answer_card(&pane, &prompt_id, "trust")).collect();
+    for answer in &answers {
+        assert!(answer.is_ok(), "{answers:?}");
+    }
+    let done = wait_for(&session, &handle_of(&parked), TERMINAL, 60);
+    if status(&done) != "completed" {
+        explain(&session, &done, "the run should finish after trust was given");
+    }
+    assert!(done["result"].as_str().unwrap_or_default().contains("Hello after one trust."), "{done}");
+    let gate = events_named(&session, "gate_answer");
+    assert_eq!(gate.len(), 1, "{:#?}", session.events());
+    // Every Enter the fake read within half a second of the answer: the answer's own, nothing more.
+    let at = gate[0]["t_ms"].as_u64().unwrap_or_default();
+    let enters = session
+        .events()
+        .into_iter()
+        .filter(|e| e["ev"] == "key" && e["key"] == "Enter")
+        .filter(|e| e["t_ms"].as_u64().is_some_and(|t| t + 50 >= at && t <= at + 500))
+        .count();
+    assert_eq!(enters, 1, "one key for one dialog: {:#?}", session.events());
+    assert_eq!(events_named(&session, "prompt").len(), 1, "the task is typed exactly once");
+    let lines = session.approvals_for(&pane);
+    assert_eq!(lines.len(), 1, "one audit line for one answer: {lines:#?}");
+    assert_eq!(lines[0]["who"], "desktop", "{lines:#?}");
+}
+
+/// Live v0.2.0 hunt (cx4, cx5): after Trust, Codex 0.162.1 drew its composer at once but took typed
+/// keys only seconds later. The task typed into it never showed, delivery gave up, and the visible
+/// run fell back to headless (2 runs of 3), killing the pane the person was watching. Now: a pane
+/// that is alive and still loading is waited for and typed into again; the task lands in the visible
+/// pane exactly once.
+#[test]
+fn codex_trust_then_loading_then_composer_delivers_the_task_in_the_visible_pane() {
+    let session = World::get().session("trust-warm");
+    session.script(
+        r#"
+agent = "codex"
+boot_ms = 100
+[[startup]]
+gate = "trust"
+after_ms = 200
+warm_ms = 12000
+[[turn]]
+on_prompt = "warm"
+steps = [{ do = "think", ms = 300 }, { do = "say", text = "Hello from a warmed-up Codex." }]
+"#,
+    );
+    let parked = run_until_stopped(&session, "fake_codex", "warm start", json!({}));
+    if status(&parked) != "needs_input" {
+        explain(&session, &parked, "the run should park on the trust dialog");
+    }
+    let pane = parked["pane_id"].as_str().expect("pane").to_string();
+    let prompt_id = parked["prompt"]["id"].as_str().expect("prompt id").to_string();
+    session.answer_card(&pane, &prompt_id, "trust").unwrap_or_else(|e| panic!("answer refused: {e}"));
+    let done = wait_for(&session, &handle_of(&parked), TERMINAL, 90);
+    if status(&done) != "completed" {
+        explain(&session, &done, "the task should land in the visible pane once Codex has loaded");
+    }
+    assert!(done["result"].as_str().unwrap_or_default().contains("Hello from a warmed-up Codex."), "{done}");
+    assert!(done["receipt"]["fallback"].is_null(), "no headless fallback: {}", done["receipt"]);
+    assert_eq!(done["pane_id"].as_str(), Some(pane.as_str()), "the same visible pane did the work");
+    assert!(session.pane_ids().contains(&pane), "the pane the person watches is still open");
+    let prompts = events_named(&session, "prompt");
+    assert_eq!(prompts.len(), 1, "the task is submitted exactly once: {:#?}", session.events());
+    assert_eq!(prompts[0]["text"].as_str().unwrap_or_default().matches("warm start").count(), 1, "one copy of the task: {prompts:?}");
+    assert!(!events_named(&session, "warm_done").is_empty());
+}
+
 fn transcript_of(session: &Session, view: &Value) -> String {
     session.agents("GET", &format!("/agents/{}/transcript", handle_of(view)), json!({})).map(|v| v.to_string()).unwrap_or_else(|e| e.to_string())
 }
