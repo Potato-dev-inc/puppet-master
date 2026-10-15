@@ -82,6 +82,13 @@ export async function bootHarness(name: string): Promise<() => JSX.Element> {
     q.set('askbar', '1');
   } else {
     q.set('cockpit', '1');
+    // The shooter reuses one browser tab, so whether this looks like a first run must not depend on the scenario before it.
+    try {
+      if (scenario.firstRun) window.localStorage.removeItem('pm.cockpit.everSpawned');
+      else window.localStorage.setItem('pm.cockpit.everSpawned', '1');
+    } catch {
+      /* storage blocked: the first-run hint stays off */
+    }
     if (scenario.select) q.set('select', scenario.select);
   }
   window.history.replaceState(null, '', `${window.location.pathname}?${q.toString()}`);

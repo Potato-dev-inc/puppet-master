@@ -69,8 +69,8 @@ describe('stuck card', () => {
         <StuckCard name="Claude Code" signal={signal} onHint={() => {}} onInterrupt={() => {}} onAsk={() => {}} onDismiss={() => {}} />,
       ),
     );
-    expect(host.querySelector('.ck-stuck-title')!.textContent).toBe('Claude Code seems stuck: the same error 4 times.');
-    expect(Array.from(host.querySelectorAll('.ck-stuck-evidence li')).map((l) => l.textContent)).toEqual(signal.evidence_lines);
+    expect(host.querySelector('.ib-title')!.textContent).toBe('Claude Code seems stuck: the same error 4 times.');
+    expect(Array.from(host.querySelectorAll('.ib-evidence li')).map((l) => l.textContent)).toEqual(signal.evidence_lines);
     expect(Array.from(host.querySelectorAll('button')).map((b) => b.textContent)).toEqual([
       'Give it a hint',
       'Interrupt',
@@ -105,7 +105,7 @@ describe('stuck card', () => {
   it('renders nothing for a pane that is not stuck, and shows up in the Inbox when it is', () => {
     const c = cockpit();
     act(() => root.render(<PaneStuckCard c={c} paneId="p1" />));
-    expect(host.querySelector('.ck-stuck')).toBeNull();
+    expect(host.querySelector('[data-kind="stuck"]')).toBeNull();
     act(() =>
       root.render(
         <LoopGuardContext.Provider value={{ signals: { p1: signal }, dismiss: () => {} }}>
@@ -113,7 +113,9 @@ describe('stuck card', () => {
         </LoopGuardContext.Provider>,
       ),
     );
-    expect(host.querySelector('[aria-label="Agents that seem stuck"] .ck-stuck')).not.toBeNull();
+    // in the Inbox it is a card in the one list, spaced by the list (no dock margin)
+    expect(host.querySelector('[aria-label="Needs you"] [data-kind="stuck"]')).not.toBeNull();
+    expect(host.querySelector('.ib-dock')).toBeNull();
     expect(host.textContent).toContain('Claude Code seems stuck: the same error 4 times.');
   });
 });

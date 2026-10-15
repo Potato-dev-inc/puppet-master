@@ -167,7 +167,8 @@ describe('Inbox error card', () => {
     renderWithStuck(<Inbox c={api} />);
     const card = host.querySelector('[data-error-pane="ps"]') as HTMLElement;
     expect(card).toBeTruthy();
-    expect(card.textContent).toContain('PowerShell hit an error');
+    expect(card.textContent).toContain('PowerShell stopped');
+    expect(card.textContent).toContain('Your files are as it left them.');
     const labels = Array.from(card.querySelectorAll('button')).map((b) => b.textContent);
     expect(labels).toEqual(['Open', 'Ask another agent']);
     act(() => (card.querySelector('button') as HTMLElement).click());

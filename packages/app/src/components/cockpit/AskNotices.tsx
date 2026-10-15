@@ -1,5 +1,6 @@
 import { tauriAskbarApi, useAskNotices, type AskbarApi, type AskNotice } from '../../lib/askbar';
 import '../../styles/ask-notices.css';
+import { CardButton, InboxCard } from './InboxCard';
 
 const PREVIEW_CHARS = 160;
 
@@ -15,20 +16,28 @@ export function AskNotices({ api = tauriAskbarApi }: { api?: AskbarApi }) {
   const { notices, dismiss, open } = useAskNotices(api);
   if (notices.length === 0) return null;
   return (
-    <ul className="ck-ask-list" aria-label="Answers from your agents">
+    <ul className="ib-list" aria-label="Answers from your agents">
       {notices.map((n) => (
-        <li key={n.id} className="ck-ask">
-          <p className="ck-ask-title">Answer from {n.agent_label}</p>
-          <p className="ck-ask-q">{n.question}</p>
-          <p className="ck-ask-a">{noticePreview(n)}</p>
-          <div className="ck-ask-actions">
-            <button type="button" className="ck-btn ck-btn--sm ck-btn--primary" onClick={() => open(n.id)}>
-              Open
-            </button>
-            <button type="button" className="ck-btn ck-btn--sm ck-btn--secondary" onClick={() => dismiss(n.id)}>
-              Dismiss
-            </button>
-          </div>
+        <li key={n.id}>
+          <InboxCard
+            kind="answer"
+            glyph="notice"
+            info
+            title={`Answer from ${n.agent_label}`}
+            reason={<span className="ib-oneline">{n.question}</span>}
+            body={<p className="ib-clamp">{noticePreview(n)}</p>}
+            data={{ 'data-ask-notice': n.id }}
+            actions={
+              <CardButton tone="secondary" role="open" onClick={() => open(n.id)}>
+                Open
+              </CardButton>
+            }
+            more={
+              <CardButton tone="plain" role="dismiss" onClick={() => dismiss(n.id)}>
+                Dismiss
+              </CardButton>
+            }
+          />
         </li>
       ))}
     </ul>

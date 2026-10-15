@@ -1,4 +1,4 @@
-/* Version checks: the pane-header chip, the Inbox card and the Settings rows. Grayscale only; uses
+/* Version checks: the pane-header chip and the Settings rows (the Inbox note is an InboxCard). Grayscale only; uses
    the cockpit tokens (and the settings tokens inside the Settings window). */
 
 /* ---- pane header chip -------------------------------------------------------------------- */
@@ -14,32 +14,6 @@
   font-size: 12px;
   white-space: nowrap;
   cursor: default;
-}
-
-/* ---- Inbox card -------------------------------------------------------------------------- */
-.cockpit .ck-canary-list {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 8px;
-}
-.cockpit .ck-canary-card {
-  margin: 10px 16px 0;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: var(--bg-raised);
-  box-shadow: var(--raise-hi), 0 0 0 1px var(--sep);
-}
-.cockpit .ck-canary-text {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--label);
-}
-.cockpit .ck-canary-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
 }
 
 /* ---- Settings > Agents > Agent versions ---------------------------------------------------- */

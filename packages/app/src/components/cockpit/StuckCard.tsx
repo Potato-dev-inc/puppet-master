@@ -1,6 +1,8 @@
 import type { CockpitApi } from '../../hooks/useCockpit';
+import { projectWithCopy } from './shell-labels';
 import { stuckTitle, useLoopGuard, type LoopSignal } from '../../lib/loop-guard';
 import '../../styles/loop-guard.css';
+import { CardButton, InboxCard } from './InboxCard';
 
 /** Window event that opens the sidebar "+" menu (the Sidebar listens for it). */
 export const OPEN_NEW_MENU = 'pm:open-new-menu';
@@ -13,9 +15,10 @@ export function focusTerminal(): void {
   }, 60);
 }
 
-/** Quiet card: what looks wrong, the lines that show it, and four ways out. */
+/** An InboxCard: what looks wrong, the lines that show it, and four ways out. */
 export function StuckCard({
   name,
+  project,
   signal,
   onHint,
   onInterrupt,
@@ -23,6 +26,7 @@ export function StuckCard({
   onDismiss,
 }: {
   name: string;
+  project?: string;
   signal: LoopSignal;
   onHint: () => void;
   onInterrupt: () => void;
@@ -30,42 +34,57 @@ export function StuckCard({
   onDismiss: () => void;
 }) {
   return (
-    <section className="ck-stuck" role="group" aria-label="Agent seems stuck">
-      <p className="ck-stuck-title">{stuckTitle(name, signal)}</p>
-      {signal.evidence_lines.length > 0 && (
-        <ul className="ck-stuck-evidence">
-          {signal.evidence_lines.map((line, i) => (
-            <li key={i}>{line}</li>
-          ))}
-        </ul>
-      )}
-      <div className="ck-stuck-actions">
-        <button type="button" className="ck-btn ck-btn--sm ck-btn--primary" onClick={onHint}>
-          Give it a hint
-        </button>
-        <button type="button" className="ck-btn ck-btn--sm ck-btn--secondary" onClick={onInterrupt}>
-          Interrupt
-        </button>
-        <button type="button" className="ck-btn ck-btn--sm ck-btn--secondary" onClick={onAsk}>
-          Ask another agent
-        </button>
-        <button type="button" className="ck-btn ck-btn--sm ck-btn--plain" onClick={onDismiss}>
+    <InboxCard
+      kind="stuck"
+      glyph="needs"
+      title={stuckTitle(name, signal)}
+      meta={project}
+      data={{ 'data-stuck': '' }}
+      body={
+        signal.evidence_lines.length > 0 ? (
+          <ul className="ib-evidence">
+            {signal.evidence_lines.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+        ) : null
+      }
+      actions={
+        <>
+          <CardButton tone="primary" role="answer" onClick={onHint}>
+            Give it a hint
+          </CardButton>
+          <CardButton tone="secondary" role="answer" onClick={onInterrupt}>
+            Interrupt
+          </CardButton>
+          <CardButton tone="secondary" role="answer" onClick={onAsk}>
+            Ask another agent
+          </CardButton>
+        </>
+      }
+      more={
+        <CardButton tone="plain" role="dismiss" onClick={onDismiss}>
           Dismiss
-        </button>
-      </div>
-    </section>
+        </CardButton>
+      }
+    />
   );
 }
 
-/** The card for one pane, wired to the cockpit. Renders nothing when the pane is not stuck. */
-export function PaneStuckCard({ c, paneId }: { c: CockpitApi; paneId: string }) {
+/**
+ * The card for one pane, wired to the cockpit. Renders nothing when the pane is not stuck. `dock`
+ * is for the pane view, which docks the card with its own margin; in the Inbox the list spaces it.
+ */
+export function PaneStuckCard({ c, paneId, dock = true }: { c: CockpitApi; paneId: string; dock?: boolean }) {
   const { signals, dismiss } = useLoopGuard();
   const signal = signals[paneId];
   if (!signal) return null;
   const name = c.names.get(paneId) ?? paneId;
-  return (
+  const cwd = c.registry.paneList.find((p) => p.info.id === paneId)?.info.cwd;
+  const card = (
     <StuckCard
       name={name}
+      project={cwd ? projectWithCopy(cwd) : undefined}
       signal={signal}
       onHint={() => {
         if (c.selectedId !== paneId) c.select(paneId);
@@ -76,4 +95,5 @@ export function PaneStuckCard({ c, paneId }: { c: CockpitApi; paneId: string }) 
       onDismiss={() => dismiss(paneId)}
     />
   );
+  return dock ? <div className="ib-dock">{card}</div> : card;
 }

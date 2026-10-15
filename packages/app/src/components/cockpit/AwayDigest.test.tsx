@@ -73,28 +73,30 @@ afterEach(() => {
 });
 
 describe('AwayDigest', () => {
-  it('shows the zero-padded counter and the plural title', () => {
+  it('has a plain title and puts the count in the sentence: no big number, which belongs to the Inbox', () => {
     render({ digest: digest({ agentsWorked: 2 }) });
-    const counter = host.querySelector('.ck-doto');
-    expect(counter?.textContent).toBe('02');
-    expect(counter?.getAttribute('aria-label')).toBe('2 agents worked');
-    expect(host.querySelector('h1')?.textContent).toBe('2 agents worked while you were away');
+    expect(host.querySelector('.ck-doto')).toBeNull();
+    expect(host.querySelector('h1')?.textContent).toBe('While you were away');
+    expect(host.querySelector('.ck-sub')?.textContent).toContain('2 agents worked');
     expect(host.querySelector('section')?.getAttribute('aria-label')).toBe('While you were away');
   });
 
   it('uses the singular title for one agent', () => {
     render({ digest: digest({ agentsWorked: 1, lines: [digest().lines[0]] }) });
-    expect(host.querySelector('h1')?.textContent).toBe('1 agent worked while you were away');
+    expect(host.querySelector('h1')?.textContent).toBe('While you were away');
+    expect(host.querySelector('.ck-sub')?.textContent).toContain('1 agent worked.');
   });
 
   it('shows the elapsed time and each line sentence', () => {
     render();
-    expect(host.querySelector('.ck-sub')?.textContent).toBe('Away for 23m. Here is what happened.');
+    expect(host.querySelector('.ck-sub')?.textContent).toBe('2 agents worked. You were away for 23m. Here is what happened.');
     const lines = host.querySelectorAll('.ck-away-line');
     expect(lines).toHaveLength(2);
     expect(text()).toContain('Refactored the login flow');
     expect(text()).toContain('Fixed the failing build');
-    expect(lines[1].querySelector('.ck-row-time')?.textContent).toBe('1m ago');
+    // the one age format: no "ago" on the card, the full phrase in the tooltip
+    expect(lines[1].querySelector('.ck-row-time')?.textContent).toBe('1m');
+    expect(lines[1].querySelector('.ck-row-time')?.getAttribute('title')).toBe('1m ago');
   });
 
   it('shows "turns" only when a line has more than one turn', () => {
