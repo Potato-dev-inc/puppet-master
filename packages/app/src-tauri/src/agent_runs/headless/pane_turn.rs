@@ -247,10 +247,16 @@ pub(super) fn agent_exited_mid_run_error(screen: &str) -> OperationError {
 /// One look at a run's pane: when its agent has gone back to the host shell after the prompt was
 /// typed, fail the run with `AGENT_EXITED` (last screen as context) and return the failed
 /// snapshot, for the caller to publish. `None` while the run looks alive.
+///
+/// `process_exited` is what the pane's process tree says (`agent_runs::delivery::pane_process_state`
+/// is `Exited`). It fails the run at once, without waiting for the host shell's prompt to be drawn
+/// and read twice: on a slow machine the screen can sit quiet with the agent's last frame for longer
+/// than the idle completion needs, and the run was then reported as completed.
 pub(super) fn fail_if_agent_exited(
     current: &OperationSnapshot,
     watch: &mut HostShellWatch,
     screen: &str,
+    process_exited: bool,
 ) -> Option<OperationSnapshot> {
     // Before the prompt was typed the host prompt is normal (the agent has not started yet), and
     // `redelivery_dead_end` covers a run whose prompt never went in.
@@ -265,7 +271,8 @@ pub(super) fn fail_if_agent_exited(
         *watch = HostShellWatch::default();
         return None;
     }
-    if !watch.gone(&current.agent_type, screen) {
+    let screen_gone = watch.gone(&current.agent_type, screen);
+    if !screen_gone && !crate::tui::agent_process_ended(&current.agent_type, process_exited) {
         return None;
     }
     let error = agent_exited_mid_run_error(screen);

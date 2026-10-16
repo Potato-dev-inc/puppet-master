@@ -146,6 +146,14 @@ pub fn agent_gone_to_host_shell(agent_type: &str, screen: &str) -> bool {
         && shell::host_prompt_visible(screen)
 }
 
+/// The process tree says the agent in a pane has ended (`pty::agent_proc`), whatever the pane shows.
+/// The screen is no proof either way: the host shell's prompt can take seconds to draw on a slow
+/// machine, and a quiet screen with the agent's last frame on it looks like a finished turn. Never
+/// true for a plain shell pane or a native-protocol pane (same scope as [`agent_gone_to_host_shell`]).
+pub fn agent_process_ended(agent_type: &str, process_exited: bool) -> bool {
+    process_exited && matches!(profile_for(agent_type).features().kind, Kind::Cli | Kind::Unknown)
+}
+
 /// A registered agent backend (not a plain shell) that `delegate_work` may be asked for.
 pub fn is_agent_backend(agent_type: &str) -> bool {
     is_registered(agent_type) && profile_for(agent_type).features().kind != Kind::Shell
