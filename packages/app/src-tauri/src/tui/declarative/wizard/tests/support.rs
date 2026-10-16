@@ -146,9 +146,24 @@ pub fn verified(wizard: &Wizard, command: &str, draft: &str) -> String {
     id
 }
 
+/// The fingerprint of the planned commands for the session's verified draft (what the UI sends back).
+pub fn plan_of(wizard: &Wizard, id: &str) -> String {
+    wizard
+        .read(id, |s| {
+            let def = crate::tui::declarative::schema::parse_definition(&s.draft.as_ref().expect("a verified draft").text).unwrap();
+            crate::tui::declarative::wizard::livetest::plan(s, &def).expect("a plan").fingerprint
+        })
+        .unwrap()
+}
+
+/// A live-test request the way the UI sends it: confirmed, with the fingerprint of the commands it saw.
+pub fn live_body(wizard: &Wizard, id: &str) -> Value {
+    json!({"session": id, "confirm": true, "plan": plan_of(wizard, id)})
+}
+
 pub fn tested(wizard: &Wizard, command: &str, draft: &str) -> String {
     let id = verified(wizard, command, draft);
-    let t = ok(wizard, "livetest", json!({"session": id, "confirm": true}));
+    let t = ok(wizard, "livetest", live_body(wizard, &id));
     assert_eq!(t["ok"], true, "livetest: {}", t["text"]);
     id
 }

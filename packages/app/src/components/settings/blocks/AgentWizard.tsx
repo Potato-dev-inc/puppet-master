@@ -22,6 +22,7 @@ import {
   type LocalDrafter,
   type LoopResult,
   type OpenRouterSupport,
+  type PlannedRun,
   type ProbeInfo,
   type ProgressEvent,
   type StartInfo,
@@ -89,7 +90,7 @@ export function AgentWizard({
   const [choice, setChoice] = useState<Choice | null>(null);
   const [optIn, setOptIn] = useState(false);
   const [events, setEvents] = useState<ProgressEvent[]>([]);
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState<PlannedRun | null>(null);
   const [result, setResult] = useState<Extract<LoopResult, { status: 'tested' }> | null>(null);
   const [stopped, setStopped] = useState<{ title: string; text: string } | null>(null);
   const [showToml, setShowToml] = useState(false);
@@ -183,14 +184,14 @@ export function AgentWizard({
         maxChars: promptBudget(drafter),
         signal: abort.signal,
         onEvent: (e) => setEvents((list) => [...list, e]),
-        confirmLive: () =>
+        confirmLive: (planned) =>
           new Promise<boolean>((resolve) => {
             confirmRef.current = (go) => {
               confirmRef.current = null;
-              setConfirming(false);
+              setConfirming(null);
               resolve(go);
             };
-            setConfirming(true);
+            setConfirming(planned);
           }),
       });
       if (abort.signal.aborted) return;
@@ -380,12 +381,15 @@ export function AgentWizard({
           <ProgressList events={events} phase={phase} />
         )}
 
-        {phase === 'running' && confirming && found && (
+        {phase === 'running' && confirming !== null && found && (
           <div role="group" aria-label="Confirm the live test" data-testid="live-confirm" className="mt-3 rounded-lg border border-pm-border p-3">
             <p className="text-xs font-semibold">Ready for the live test</p>
             <p className="mt-1 text-xs text-pm-muted">
-              {found.start.cost_note} If the first try needs fixes, it can run again, up to {MAX_ROUNDS} tries in all.
+              {found.start.cost_note} It runs only these commands, on your computer, in an isolated temporary folder.
+              <span className="font-mono"> &lt;test message&gt;</span> is replaced by a tiny test message. If a fix
+              changes any of them, you are asked again. Up to {MAX_ROUNDS} tries in all.
             </p>
+            <PlannedCommands planned={confirming} />
             <div className="mt-3 flex justify-end gap-2">
               <button type="button" className={BTN} onClick={() => confirmRef.current?.(false)}>
                 Not now
@@ -397,7 +401,7 @@ export function AgentWizard({
           </div>
         )}
 
-        {phase === 'running' && !confirming && (
+        {phase === 'running' && confirming === null && (
           <div className="mt-4 flex justify-end">
             <button type="button" className={BTN} onClick={() => void cancelAll()}>
               Cancel
@@ -433,6 +437,24 @@ export function AgentWizard({
           />
         )}
       </div>
+    </div>
+  );
+}
+
+/** The exact commands the live test will run, as Rust rendered them. Shown as text, in a monospace block. */
+function PlannedCommands({ planned }: { planned: PlannedRun }) {
+  const quote = (a: string) => (/^<[^<>]+>$/.test(a) ? a : /[\s"]/.test(a) || a === '' ? `"${a.replace(/"/g, '\\"')}"` : a);
+  const lines = planned.stages.map((s) => `${s.label}
+  ${[planned.program.path, ...s.args].map(quote).join(' ')}`);
+  const extra: string[] = [];
+  if (planned.stdin !== null) extra.push(`The test message is sent on standard input: ${planned.stdin}`);
+  for (const e of planned.env) extra.push(`Sets ${e.name}=${e.value}`);
+  for (const name of planned.env_unset) extra.push(`Removes ${name}`);
+  return (
+    <div className="mt-2" data-testid="planned-commands">
+      <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-pm-bg p-2 font-mono text-[11px]">
+        {[...lines, ...extra].join('\n')}
+      </pre>
     </div>
   );
 }

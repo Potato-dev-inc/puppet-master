@@ -8,7 +8,7 @@ use crate::tui::declarative::check::check_report;
 use crate::tui::declarative::loader::{build, LoadInputs};
 use crate::tui::declarative::wizard::Wizard;
 
-use super::support::{call, ok, start, Tree, GOOD, NO_PATH, WRONG_PATH};
+use super::support::{call, live_body, ok, start, Tree, GOOD, NO_PATH, WRONG_PATH};
 
 /// Replays recorded replies, one per round, like a drafter that needs fix rounds.
 struct StandInDrafter {
@@ -44,7 +44,7 @@ fn run_loop(wizard: &Wizard, id: &str, drafter: &mut StandInDrafter, max_rounds:
             transcript.push(format!("round {round} verify: {}", v["text"].as_str().unwrap()));
             continue;
         }
-        let t = ok(wizard, "livetest", json!({"session": id, "confirm": true}));
+        let t = ok(wizard, "livetest", live_body(wizard, id));
         if t["ok"] != true {
             transcript.push(format!("round {round} livetest: {}", t["text"].as_str().unwrap()));
             continue;

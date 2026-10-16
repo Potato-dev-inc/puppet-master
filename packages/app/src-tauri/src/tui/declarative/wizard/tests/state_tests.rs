@@ -18,7 +18,7 @@ fn steps_must_come_in_order() {
     assert_eq!((err.status, err.code), (409, "WIZARD_BAD_STATE"));
     assert!(err.message.contains("resolved"), "{}", err.message);
     // livetest needs a verified draft (confirm is checked first)
-    let err = call(&wizard, "livetest", json!({"session": id, "confirm": true})).unwrap_err();
+    let err = call(&wizard, "livetest", json!({"session": id, "confirm": true, "plan": "x"})).unwrap_err();
     assert_eq!(err.code, "WIZARD_BAD_STATE");
     // finish needs a tested draft
     let err = call(&wizard, "finish", json!({"session": id, "provenance": super::support::provenance()})).unwrap_err();
@@ -33,7 +33,7 @@ fn states_move_forward_and_a_new_draft_drops_the_live_test() {
     let id = start(&wizard, "fake-agent");
     assert_eq!(ok(&wizard, "probe", json!({"session": id}))["state"], "probed");
     assert_eq!(ok(&wizard, "verify", json!({"session": id, "toml": GOOD}))["state"], "verified");
-    let t = ok(&wizard, "livetest", json!({"session": id, "confirm": true}));
+    let t = ok(&wizard, "livetest", super::support::live_body(&wizard, &id));
     assert_eq!(t["state"], "tested");
     // probing again does not change the state or the draft
     assert_eq!(ok(&wizard, "probe", json!({"session": id}))["state"], "tested");

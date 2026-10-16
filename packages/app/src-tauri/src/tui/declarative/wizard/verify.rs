@@ -233,7 +233,7 @@ fn check_fixtures(session: &Session, profile: &DeclarativeProfile, out: &mut Out
 }
 
 /// JSON of an outcome for the route (SPEC 4.3).
-pub fn outcome_json(outcome: &Outcome, state: State, sha: Option<&str>, rules_run: usize) -> Value {
+pub fn outcome_json(outcome: &Outcome, state: State, sha: Option<&str>, rules_run: usize, planned: Option<Value>) -> Value {
     let mut body = json!({
         "ok": outcome.ok(),
         "state": state.as_str(),
@@ -248,6 +248,9 @@ pub fn outcome_json(outcome: &Outcome, state: State, sha: Option<&str>, rules_ru
     }
     if let Some(sha) = sha {
         body["sha256"] = json!(sha);
+    }
+    if let Some(planned) = planned {
+        body["planned"] = planned;
     }
     body
 }
@@ -281,7 +284,18 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
         }
         s.state
     })?;
-    Ok(outcome_json(&outcome, state, sha.as_deref(), rules::ALL.len()))
+    // The exact commands the live test would run for this draft; the caller shows them and sends the
+    // fingerprint back with the live-test request.
+    let planned = if ok {
+        outcome
+            .definition
+            .as_ref()
+            .and_then(|def| super::livetest::plan(&snap, def).ok())
+            .map(|p| super::livetest::plan_json(&p))
+    } else {
+        None
+    };
+    Ok(outcome_json(&outcome, state, sha.as_deref(), rules::ALL.len(), planned))
 }
 
 /// Used by tests and the benchmark: the folder `check_draft` would write previews to.

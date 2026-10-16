@@ -14,6 +14,7 @@ import {
   splitError,
   type LiveResult,
   type LoopOptions,
+  type PlannedRun,
   type ProbeInfo,
   type ProgressEvent,
   type StartInfo,
@@ -57,6 +58,21 @@ const probe: ProbeInfo = {
   skipped: [],
 };
 
+const planFor = (toml: string): PlannedRun => ({
+  program: { path: 'C:\\tools\\fake-agent.exe', display: '~\\fake-agent.exe' },
+  stages: [
+    {
+      name: 'pong',
+      label: 'Say pong',
+      args: toml.includes('CHANGED') ? ['run', '--format', 'json', '-m', 'fake/slow', '--', '<test message>'] : ['run', '--format', 'json', '--', '<test message>'],
+    },
+  ],
+  stdin: null,
+  env: [],
+  env_unset: [],
+  fingerprint: toml.includes('CHANGED') ? 'plan-B' : 'plan-A',
+});
+
 const verifyOk = (toml: string): VerifyResult => ({
   ok: true,
   state: 'verified',
@@ -67,6 +83,7 @@ const verifyOk = (toml: string): VerifyResult => ({
   checked: { fixtures: 1, rules: 8 },
   samples_replayed: 0,
   sha256: toml.length.toString(),
+  planned: planFor(toml),
 });
 
 const verifyBad = (): VerifyResult => ({
@@ -116,7 +133,7 @@ function options(over: Partial<LoopOptions> & Pick<LoopOptions, 'ask'>): LoopOpt
   const events: ProgressEvent[] = [];
   return {
     api: {
-      verify: vi.fn(async (_s: string, toml: string) => (toml.includes('GOOD') || toml.includes('WRONG_FIELD') ? verifyOk(toml) : verifyBad())),
+      verify: vi.fn(async (_s: string, toml: string) => (toml.includes('GOOD') || toml.includes('WRONG_FIELD') || toml.includes('CHANGED') ? verifyOk(toml) : verifyBad())),
       livetest: vi.fn(async () => liveOk()),
     },
     session: 'wz_1',
@@ -267,6 +284,53 @@ describe('runDraftLoop with a stand-in drafter', () => {
     expect(drafter.prompts[1]).toContain('<<<SAMPLE pong');
     expect(drafter.prompts[1]).toContain('{"event":"end","text":"pong"}');
     expect(drafter.prompts[1]).toContain('# WRONG_FIELD');
+  });
+
+  it('runs the live test with the fingerprint of the commands the person confirmed', async () => {
+    const drafter = standIn([block(GOOD)]);
+    const o = options({ ask: drafter.ask });
+    await runDraftLoop(o);
+    expect(o.confirmLive).toHaveBeenCalledWith(planFor(GOOD));
+    expect(o.api.livetest).toHaveBeenCalledWith('wz_1', 'plan-A');
+  });
+
+  it('asks again when a fix round changes the commands, and not when it does not', async () => {
+    const CHANGED = 'schema_version = 1\n# CHANGED\n[agent]\nid = "fake_agent"\n';
+    const drafter = standIn([block(WRONG_FIELD), block(CHANGED), block(GOOD), block(GOOD)]);
+    const livetest = vi
+      .fn<(s: string, plan: string) => Promise<LiveResult>>()
+      .mockResolvedValueOnce(liveBad())
+      .mockResolvedValueOnce(liveBad())
+      .mockResolvedValueOnce(liveBad())
+      .mockResolvedValueOnce(liveOk());
+    const o = options({ ask: drafter.ask });
+    o.api = { verify: o.api.verify, livetest };
+    const result = await runDraftLoop(o);
+    expect(result.status).toBe('tested');
+    // round 1 plan A (asked), 2 plan B (asked again), 3 plan A (differs from the one just confirmed: asked), 4 plan A (same: not asked)
+    expect(o.confirmLive).toHaveBeenCalledTimes(3);
+    expect((o.confirmLive as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as PlannedRun).fingerprint)).toEqual(['plan-A', 'plan-B', 'plan-A']);
+    expect(livetest.mock.calls.map((c) => c[1])).toEqual(['plan-A', 'plan-B', 'plan-A', 'plan-A']);
+  });
+
+  it('declines when the person says no to changed commands', async () => {
+    const CHANGED = 'schema_version = 1\n# CHANGED\n[agent]\nid = "fake_agent"\n';
+    const drafter = standIn([block(WRONG_FIELD), block(CHANGED)]);
+    const livetest = vi.fn<(s: string, plan: string) => Promise<LiveResult>>().mockResolvedValue(liveBad());
+    const o = options({ ask: drafter.ask, confirmLive: vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false) });
+    o.api = { verify: o.api.verify, livetest };
+    const result = await runDraftLoop(o);
+    expect(result.status).toBe('declined');
+    expect(livetest).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses to go on when the checker sent no planned commands', async () => {
+    const drafter = standIn([block(GOOD)]);
+    const o = options({ ask: drafter.ask });
+    o.api = { verify: vi.fn(async () => ({ ...verifyOk(GOOD), planned: undefined })), livetest: o.api.livetest };
+    await expect(runDraftLoop(o)).rejects.toThrow('WIZARD_PLAN_REQUIRED');
+    expect(o.confirmLive).not.toHaveBeenCalled();
+    expect(o.api.livetest).not.toHaveBeenCalled();
   });
 
   it('stops without a live test when the person says not now', async () => {

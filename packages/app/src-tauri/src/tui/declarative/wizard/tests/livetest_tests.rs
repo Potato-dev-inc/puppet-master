@@ -11,7 +11,7 @@ use crate::tui::declarative::DeclarativeProfile;
 use super::support::{call, ok, start, tested, verified, Tree, GOOD, MINIMAL, WRONG_PATH};
 
 fn live(wizard: &crate::tui::declarative::wizard::Wizard, id: &str) -> Value {
-    ok(wizard, "livetest", json!({"session": id, "confirm": true}))
+    ok(wizard, "livetest", super::support::live_body(wizard, id))
 }
 
 fn stage<'a>(v: &'a Value, name: &str) -> &'a Value {
@@ -308,4 +308,76 @@ fn tested_helper_leaves_a_tested_session() {
     let id = tested(&wizard, "fake-agent", GOOD);
     assert_eq!(wizard.read(&id, |s| s.state.as_str()).unwrap(), "tested");
     let _ = start;
+}
+
+#[test]
+fn verify_shows_the_exact_commands_the_live_test_will_run() {
+    let tree = Tree::new("l-planned");
+    let wizard = tree.wizard();
+    let id = start(&wizard, "fake-agent");
+    ok(&wizard, "probe", json!({"session": id}));
+    let v = ok(&wizard, "verify", json!({"session": id, "toml": GOOD}));
+    let planned = &v["planned"];
+    assert!(planned["program"]["path"].as_str().unwrap().to_lowercase().contains("fake-agent"));
+    let stages = planned["stages"].as_array().unwrap();
+    assert_eq!(stages.iter().map(|s| s["name"].as_str().unwrap()).collect::<Vec<_>>(), ["pong", "resume", "bad_model"]);
+    assert_eq!(stages[0]["args"], json!(["run", "--format", "json", "--", "<test message>"]));
+    assert_eq!(stages[1]["args"], json!(["run", "--format", "json", "-s", "<session id>", "--", "<test message>"]));
+    assert_eq!(stages[2]["args"], json!(["run", "--format", "json", "-m", BAD_MODEL, "--", "<test message>"]));
+    assert_eq!(planned["fingerprint"].as_str().unwrap(), super::support::plan_of(&wizard, &id));
+    // a draft that fails verify has no plan
+    let bad = ok(&wizard, "verify", json!({"session": id, "toml": "schema_version = 1\nnonsense = 1\n"}));
+    assert!(bad.get("planned").is_none());
+    // stages that do not apply are not planned
+    let minimal = ok(&wizard, "verify", json!({"session": id, "toml": MINIMAL}));
+    assert_eq!(minimal["planned"]["stages"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn the_live_test_refuses_to_run_without_the_fingerprint_of_what_the_person_saw() {
+    let tree = Tree::new("l-plan-refuse");
+    let wizard = tree.wizard();
+    let id = verified(&wizard, "fake-agent", GOOD);
+    let missing = call(&wizard, "livetest", json!({"session": id, "confirm": true})).unwrap_err();
+    assert_eq!((missing.status, missing.code), (400, "WIZARD_PLAN_REQUIRED"));
+    for wrong in ["", "   ", "deadbeef", "0".repeat(64).as_str()] {
+        let err = call(&wizard, "livetest", json!({"session": id, "confirm": true, "plan": wrong})).unwrap_err();
+        assert!(err.code == "WIZARD_PLAN_REQUIRED" || err.code == "WIZARD_PLAN_MISMATCH", "{wrong:?}: {err}");
+    }
+    let err = call(&wizard, "livetest", json!({"session": id, "confirm": true, "plan": "0".repeat(64)})).unwrap_err();
+    assert_eq!((err.status, err.code), (409, "WIZARD_PLAN_MISMATCH"));
+    // nothing ran and the session is free again
+    assert!(wizard.read(&id, |s| s.samples.is_empty() && s.busy.is_none()).unwrap());
+    assert_eq!(wizard.read(&id, |s| s.state.as_str()).unwrap(), "verified");
+    // the right fingerprint works
+    assert_eq!(live(&wizard, &id)["ok"], true);
+}
+
+#[test]
+fn a_fingerprint_from_an_earlier_draft_is_refused_after_the_arguments_change() {
+    let tree = Tree::new("l-plan-stale");
+    let wizard = tree.wizard();
+    let id = verified(&wizard, "fake-agent", GOOD);
+    let old = super::support::plan_of(&wizard, &id);
+    // a fix round changes the argv (an extra model flag)
+    let changed = GOOD.replace("argv = [\"run\", \"--format\", \"json\"]", "argv = [\"run\", \"--format\", \"json\", \"-m\", \"fake/slow\"]");
+    let v = ok(&wizard, "verify", json!({"session": id, "toml": changed}));
+    assert_eq!(v["ok"], true, "{}", v["text"]);
+    let new = v["planned"]["fingerprint"].as_str().unwrap().to_string();
+    assert_ne!(new, old, "the fingerprint follows the arguments");
+    let err = call(&wizard, "livetest", json!({"session": id, "confirm": true, "plan": old})).unwrap_err();
+    assert_eq!(err.code, "WIZARD_PLAN_MISMATCH");
+    assert!(wizard.read(&id, |s| s.samples.is_empty()).unwrap(), "the program was not started");
+    assert_eq!(call(&wizard, "livetest", json!({"session": id, "confirm": true, "plan": new})).unwrap()["ok"], true);
+}
+
+#[test]
+fn a_change_that_does_not_touch_the_commands_keeps_the_same_fingerprint() {
+    let tree = Tree::new("l-plan-same");
+    let wizard = tree.wizard();
+    let id = verified(&wizard, "fake-agent", GOOD);
+    let first = super::support::plan_of(&wizard, &id);
+    // only the label changes: the commands are the same, so no new confirmation is needed
+    let v = ok(&wizard, "verify", json!({"session": id, "toml": GOOD.replace("Fake Agent", "Renamed")}));
+    assert_eq!(v["planned"]["fingerprint"], first);
 }

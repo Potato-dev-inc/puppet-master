@@ -146,6 +146,94 @@ pub fn judge(
     Judged { result, session, classified, problems }
 }
 
+/// What the live test is about to run, written so the person can read it before agreeing. The task is
+/// shown as `<test message>`, the resumed session as `<session id>` and `{project}` as `<work folder>`.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlannedStage {
+    pub name: &'static str,
+    pub label: &'static str,
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Plan {
+    pub program: PathBuf,
+    pub stages: Vec<PlannedStage>,
+    /// The task goes to the program's standard input instead of an argument.
+    pub stdin: Option<String>,
+    pub env: Vec<(String, String)>,
+    pub env_unset: Vec<String>,
+    /// SHA-256 of everything above: the live test refuses to run unless the caller sends this back.
+    pub fingerprint: String,
+}
+
+fn planned_args(def: &Definition, stage: Stage) -> Vec<String> {
+    let (_, model) = stage_inputs(stage);
+    let launch = HeadlessLaunch {
+        project: "<work folder>",
+        task: "<test message>",
+        read_only: false,
+        resume_session: (stage == Stage::Resume).then_some("<session id>"),
+        trust_workspace: false,
+        allow_shell: false,
+        model,
+    };
+    template::render_headless(def, &launch).unwrap_or_default()
+}
+
+/// The commands the live test will run for `def`, exactly as `execute` will build them (same program
+/// resolution, same stages), with the test message and session id left as placeholders.
+pub fn plan(session: &Session, def: &Definition) -> Result<Plan, String> {
+    let mut table = def.binary.clone();
+    table.names = vec![session.command.clone()];
+    let program = resolve_in(&table, &session.dirs, Platform::current()).map_err(|e| e.to_string())?;
+    let mut stages = vec![Stage::Pong];
+    if can_resume(def) {
+        stages.push(Stage::Resume);
+    }
+    if has_model_option(def) {
+        stages.push(Stage::BadModel);
+    }
+    let stages: Vec<PlannedStage> = stages
+        .into_iter()
+        .map(|st| PlannedStage { name: st.as_str(), label: st.label(), args: planned_args(def, st) })
+        .collect();
+    let stdin = def.headless.as_ref().and_then(|h| {
+        let launch = HeadlessLaunch {
+            project: "<work folder>",
+            task: "<test message>",
+            read_only: false,
+            resume_session: None,
+            trust_workspace: false,
+            allow_shell: false,
+            model: None,
+        };
+        template::render_stdin(h, &launch)
+    });
+    let env: Vec<(String, String)> = def.env.set.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let env_unset = def.env.unset.clone();
+    let canonical = json!({
+        "program": program.to_string_lossy(),
+        "stages": stages.iter().map(|st| json!({"name": st.name, "args": st.args})).collect::<Vec<_>>(),
+        "stdin": stdin,
+        "env": env,
+        "env_unset": env_unset,
+    });
+    let fingerprint = super::session::sha256_hex(canonical.to_string().as_bytes());
+    Ok(Plan { program, stages, stdin, env, env_unset, fingerprint })
+}
+
+pub fn plan_json(plan: &Plan) -> Value {
+    json!({
+        "program": {"path": plan.program.display().to_string(), "display": super::locate::display_path(&plan.program)},
+        "stages": plan.stages,
+        "stdin": plan.stdin,
+        "env": plan.env.iter().map(|(k, v)| json!({"name": k, "value": v})).collect::<Vec<_>>(),
+        "env_unset": plan.env_unset,
+        "fingerprint": plan.fingerprint,
+    })
+}
+
 /// What one stage did.
 #[derive(Debug, Clone, Serialize)]
 pub struct StageReport {
@@ -414,12 +502,38 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             "the live test uses your plan (about 3 small messages); send confirm: true after the person agrees",
         ));
     }
+    let given = body.get("plan").and_then(Value::as_str).map(str::trim).filter(|p| !p.is_empty());
+    let Some(given) = given else {
+        return Err(WizardError::new(
+            400,
+            "WIZARD_PLAN_REQUIRED",
+            "send the fingerprint of the planned commands (the `planned.fingerprint` that verify returned) that the person saw",
+        ));
+    };
     let snap = wizard.begin(&id, "livetest", &[State::Verified])?;
     let env = wizard.env();
     let Some(draft) = snap.draft.clone() else {
         wizard.release(&id);
         return Err(WizardError::new(409, "WIZARD_BAD_STATE", "there is no verified draft; call verify first"));
     };
+    let current = parse_definition(&draft.text)
+        .map_err(|e| e.to_string())
+        .and_then(|def| plan(&snap, &def));
+    match current {
+        Ok(p) if p.fingerprint == given => {}
+        Ok(_) => {
+            wizard.release(&id);
+            return Err(WizardError::new(
+                409,
+                "WIZARD_PLAN_MISMATCH",
+                "the commands the live test would run are not the ones the person was shown; show them again and ask for a new confirmation",
+            ));
+        }
+        Err(message) => {
+            wizard.release(&id);
+            return Err(WizardError::new(409, "WIZARD_BINARY_UNRESOLVED", message));
+        }
+    }
     let outcome = execute(&snap, &env, &draft, &snap.cancel);
     let ok = outcome.ok() && !outcome.stages.iter().any(|s| s.note.as_deref() == Some("cancelled"));
     let summaries: Vec<StageSummary> = outcome

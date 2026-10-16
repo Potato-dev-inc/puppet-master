@@ -136,13 +136,23 @@ Response:
   "rendered": {"headless_argv": ["chat", "--output-format", "stream-json", "--", "<task>"], "resume_argv": ["..."]},
   "checked": {"fixtures": 1, "rules": 8},
   "sha256": "9b1c...",
-  "samples_replayed": 0
+  "samples_replayed": 0,
+  "planned": {
+    "program": {"path": "C:\Users\me\...\fake-agent.exe", "display": "~\...\fake-agent.exe"},
+    "stages": [
+      {"name": "pong", "label": "Say pong", "args": ["run", "--format", "json", "--", "<test message>"]},
+      {"name": "resume", "label": "Continue the same conversation", "args": ["run", "--format", "json", "-s", "<session id>", "--", "<test message>"]},
+      {"name": "bad_model", "label": "Wrong model name is an error", "args": ["run", "--format", "json", "-m", "pm-wizard-no-such-model/zzz", "--", "<test message>"]}
+    ],
+    "stdin": null, "env": [], "env_unset": [],
+    "fingerprint": "5d1e..."
+  }
 }
 ```
-`text` is the error list written for an AI (6.2). `rendered` is present when the draft built. `sha256` is the digest of the exact text, present when `ok`. See 6 for what is checked and the error format.
+`text` is the error list written for an AI (6.2). `rendered` is present when the draft built. `sha256` is the digest of the exact text, present when `ok`. `planned` (present when `ok`) is **what the live test would run for this draft**, rendered by Rust: the program path, every argument of each stage (the test message is `<test message>`, the resumed session `<session id>`), whether the task goes to stdin, and the `[env]` changes. Only stages that apply are listed. `planned.fingerprint` is the SHA-256 of all of it. See 6 for what is checked and the error format.
 
 ### 4.4 `POST /agents/wizard/livetest`
-Request: `{"session": "wz_...", "confirm": true}`. Without `confirm: true`: `400 WIZARD_CONFIRM_REQUIRED` (it spends the person's plan).
+Request: `{"session": "wz_...", "confirm": true, "plan": "<planned.fingerprint>"}`. Without `confirm: true`: `400 WIZARD_CONFIRM_REQUIRED` (it spends the person's plan). Without `plan`: `400 WIZARD_PLAN_REQUIRED`. If `plan` is not the fingerprint of the commands Rust is about to run for the stored verified draft: `409 WIZARD_PLAN_MISMATCH`, and nothing starts. So the UI cannot skip showing the commands, and a fix round that changed the arguments cannot reuse an older confirmation.
 
 Response:
 ```json
@@ -186,7 +196,7 @@ Request: `{"session": "wz_..."}`. Response: `{"ok": true, "state": "cancelled"}`
 Phase 2. Always `501 WIZARD_NOT_YET` ("The visible-screen path comes in a later version.").
 
 ### 4.8 Tauri commands (webview only)
-`agent_wizard_start(command)`, `agent_wizard_probe(session)`, `agent_wizard_verify(session, toml)`, `agent_wizard_livetest(session, confirm)`, `agent_wizard_finish(session, provenance)`, `agent_wizard_cancel(session)` return the same JSON as the routes (errors are `"CODE: message"` strings, like the definitions commands). They run on a blocking thread so the UI stays alive, and `agent_wizard_finish` reloads the definitions registry afterwards.
+`agent_wizard_start(command)`, `agent_wizard_probe(session)`, `agent_wizard_verify(session, toml)`, `agent_wizard_livetest(session, confirm, plan)`, `agent_wizard_finish(session, provenance)`, `agent_wizard_cancel(session)` return the same JSON as the routes (errors are `"CODE: message"` strings, like the definitions commands). They run on a blocking thread so the UI stays alive, and `agent_wizard_finish` reloads the definitions registry afterwards.
 
 `agent_wizard_ask(session, agent, prompt)` is the **local drafter**: one read-only `quick_ask` (headless, fresh context, no shell) of the chosen installed agent (`claude` or `codex`, or any other read-only-capable agent), with the **session work folder as its project**, never the person's project. It returns `{"answer": "<text>"}`. Prompts over 30,000 characters are refused (`400 WIZARD_PROMPT_TOO_LONG`) because a Windows command line holds about 32,000 characters and both agents take the task as an argument. The prompt builder keeps local prompts under 28,000 characters by shrinking the probe text first.
 
@@ -217,7 +227,7 @@ Stage outputs are stored as the agent printed them (stdout only; escape codes re
 Every live test, passing or not, keeps its stage outputs in the session as **samples**, with the exact arguments that produced them. The next `verify` of a new draft replays each sample with the same stage rules as the live test (`result` = `pong`, `pong2`, or empty and a recognised error); no process is started. A sample is replayed only when the new draft renders the **same command** for that stage (an output made by a different command says nothing about the new selectors). A new draft that cannot read the real outputs is rejected for free, and each failure carries the real output; the paid live test only runs again when the replay passes. The replay is counted in `samples_replayed`.
 
 ### 5.4 Cost
-`cost_note` (from `start`) is shown before the live test and needs a confirm. The UI says: "about 3 small messages per try, up to 5 tries".
+`cost_note` (from `start`) and the exact commands (`planned` from `verify`) are shown in a monospace block before the live test, and the person must confirm. The arguments come from the AI, so the confirmation is tied to them: the UI asks again whenever a fix round changes `planned.fingerprint`, and Rust refuses to run unless the request carries the fingerprint of what it is about to run (4.4). The UI says: "about 3 small messages per try, up to 5 tries".
 
 ## 6. Verify
 
@@ -314,7 +324,7 @@ The reply is parsed by `extractTomlBlock`: exactly one ```` ```toml ```` block i
 3. **Progress list** - Read the help (`probe`), Draft, Check (`verify`), Fix (up to 5 rounds), Live test (cost note + confirm).
 4. **Review** - the exact command, what was tested ("3 live checks passed on 2.29.1, 4 fixtures pass"), **Approve** (opens the existing approval dialog), **Show TOML**, **Retry**, **Discard** (`cancel`).
 
-The loop (in `agentWizard.ts`): build prompt -> ask drafter -> extract one TOML block -> `verify` -> on errors, feed `text` back verbatim -> on `ok`, confirm once, `livetest` -> on failure feed `text` back (the replay in `verify` is free) -> at most 5 rounds in total.
+The loop (in `agentWizard.ts`): build prompt -> ask drafter -> extract one TOML block -> `verify` -> on errors, feed `text` back verbatim -> on `ok`, show `planned` and confirm (again only when `planned.fingerprint` differs from the one already confirmed), `livetest` with that fingerprint -> on failure feed `text` back (the replay in `verify` is free) -> at most 5 rounds in total.
 
 Plain, short English everywhere; the word "isolated" (never "sandboxed"); monochrome style of the Settings window.
 

@@ -53,6 +53,18 @@ export interface CheckError {
   excerpt?: string;
 }
 
+/** The commands the live test will run, rendered by Rust (the test message is `<test message>`). */
+export interface PlannedRun {
+  program: { path: string; display: string };
+  stages: Array<{ name: string; label: string; args: string[] }>;
+  /** The task goes to the program's standard input. */
+  stdin: string | null;
+  env: Array<{ name: string; value: string }>;
+  env_unset: string[];
+  /** Sent back with the live-test request; Rust refuses to run unless it matches. */
+  fingerprint: string;
+}
+
 export interface VerifyResult {
   ok: boolean;
   state: string;
@@ -64,6 +76,8 @@ export interface VerifyResult {
   checked: { fixtures: number; rules: number };
   samples_replayed: number;
   sha256?: string;
+  /** Present when `ok`: what the live test would run for this draft. */
+  planned?: PlannedRun;
 }
 
 export interface StageReport {
@@ -123,8 +137,8 @@ export interface WizardApi {
   start(command: string): Promise<StartInfo>;
   probe(session: string): Promise<ProbeInfo>;
   verify(session: string, toml: string): Promise<VerifyResult>;
-  /** Runs the live test. The caller has already asked the person to confirm. */
-  livetest(session: string): Promise<LiveResult>;
+  /** Runs the live test. `plan` is the fingerprint of the commands the person confirmed. */
+  livetest(session: string, plan: string): Promise<LiveResult>;
   finish(session: string, provenance: Provenance): Promise<FinishResult>;
   cancel(session: string): Promise<unknown>;
   /** One read-only question to an installed local agent, in the session's work folder. */
@@ -137,7 +151,7 @@ export const tauriWizardApi: WizardApi = {
   start: (command) => invoke<StartInfo>('agent_wizard_start', { command }),
   probe: (session) => invoke<ProbeInfo>('agent_wizard_probe', { session }),
   verify: (session, toml) => invoke<VerifyResult>('agent_wizard_verify', { session, toml }),
-  livetest: (session) => invoke<LiveResult>('agent_wizard_livetest', { session, confirm: true }),
+  livetest: (session, plan) => invoke<LiveResult>('agent_wizard_livetest', { session, confirm: true, plan }),
   finish: (session, provenance) => invoke<FinishResult>('agent_wizard_finish', { session, provenance }),
   cancel: (session) => invoke('agent_wizard_cancel', { session }),
   ask: async (session, agent, prompt) => (await invoke<{ answer: string }>('agent_wizard_ask', { session, agent, prompt })).answer,
@@ -326,8 +340,11 @@ export interface LoopOptions {
   ask: (prompt: string, round: number) => Promise<string>;
   maxChars: number;
   maxRounds?: number;
-  /** Called once, before the first live test. `false` stops the loop with `declined`. */
-  confirmLive: () => Promise<boolean>;
+  /**
+   * Called before a live test whose planned commands differ from the ones already confirmed (so: the
+   * first time, and again when a fix changes the arguments). `false` stops the loop with `declined`.
+   */
+  confirmLive: (planned: PlannedRun) => Promise<boolean>;
   onEvent?: (event: ProgressEvent) => void;
   signal?: AbortSignal;
 }
@@ -339,7 +356,7 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
   let samples: Sample[] = [];
   let lastToml = '';
   let lastText = '';
-  let confirmed = false;
+  let confirmedPlan: string | null = null;
   let round = 0;
   const stopped = () => opts.signal?.aborted === true;
 
@@ -380,13 +397,15 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
     }
     emit({ step: 'check', status: 'done', round });
 
-    if (!confirmed) {
-      if (!(await opts.confirmLive())) return { status: 'declined', toml: extracted.toml, rounds: round, verify };
-      confirmed = true;
+    const planned = verify.planned;
+    if (!planned) throw new Error('WIZARD_PLAN_REQUIRED: the checker did not say which commands the live test would run.');
+    if (confirmedPlan !== planned.fingerprint) {
+      if (!(await opts.confirmLive(planned))) return { status: 'declined', toml: extracted.toml, rounds: round, verify };
+      confirmedPlan = planned.fingerprint;
     }
     if (stopped()) return { status: 'cancelled', rounds: round };
     emit({ step: 'live', status: 'running', round });
-    const live = await opts.api.livetest(opts.session);
+    const live = await opts.api.livetest(opts.session, planned.fingerprint);
     if (stopped()) return { status: 'cancelled', rounds: round };
     if (live.ok) {
       emit({ step: 'live', status: 'done', round });

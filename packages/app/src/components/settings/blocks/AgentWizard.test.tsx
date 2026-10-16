@@ -6,6 +6,7 @@ import type {
   FinishResult,
   LiveResult,
   OpenRouterSupport,
+  PlannedRun,
   ProbeInfo,
   StartInfo,
   VerifyResult,
@@ -39,7 +40,19 @@ const probe: ProbeInfo = {
   skipped: [],
 };
 
-const verifyOk = (): VerifyResult => ({
+const planFor = (toml: string): PlannedRun => ({
+  program: { path: 'C:\\tools\\fake-agent.exe', display: '~\\fake-agent.exe' },
+  stages: [
+    { name: 'pong', label: 'Say pong', args: toml.includes('CHANGED') ? ['run', '-m', 'fake/slow', '--', '<test message>'] : ['run', '--format', 'json', '--', '<test message>'] },
+    { name: 'resume', label: 'Continue the same conversation', args: ['run', '-s', '<session id>', '--', '<test message>'] },
+  ],
+  stdin: null,
+  env: [],
+  env_unset: [],
+  fingerprint: toml.includes('CHANGED') ? 'plan-B' : 'plan-A',
+});
+
+const verifyOk = (toml = GOOD): VerifyResult => ({
   ok: true,
   state: 'verified',
   errors: [],
@@ -49,6 +62,7 @@ const verifyOk = (): VerifyResult => ({
   checked: { fixtures: 1, rules: 8 },
   samples_replayed: 0,
   sha256: 'abc',
+  planned: planFor(toml),
 });
 
 const verifyBad = (): VerifyResult => ({ ...verifyOk(), ok: false, errors: [{ stage: 'validate', code: 'AGENT_DEF_INCONSISTENT', path: 'x', line: 1, column: 1, message: 'm', fix: 'f' }], text: CHECKER });
@@ -84,7 +98,7 @@ function mockApi(replies: string[] = [`${F}toml\n${GOOD}${F}`]): MockApi {
   return {
     start: vi.fn(async () => start),
     probe: vi.fn(async () => probe),
-    verify: vi.fn(async (_s: string, toml: string) => (toml.includes('GOOD') ? verifyOk() : verifyBad())),
+    verify: vi.fn(async (_s: string, toml: string) => (toml.includes('GOOD') || toml.includes('CHANGED') ? verifyOk(toml) : verifyBad())),
     livetest: vi.fn(async () => liveOk()),
     finish: vi.fn(async () => finishOk()),
     cancel: vi.fn(async () => ({ ok: true })),
@@ -207,7 +221,7 @@ describe('AgentWizard', () => {
     expect(String(api.ask.mock.calls[1][2])).toContain(CHECKER.trim());
     const confirm = host.querySelector('[data-testid="live-confirm"]');
     expect(confirm?.textContent).toContain('3 small messages per try');
-    expect(confirm?.textContent).toContain('up to 5 tries');
+    expect(confirm?.textContent).toContain('Up to 5 tries');
     expect(api.livetest).not.toHaveBeenCalled();
     const rows = Array.from(host.querySelectorAll('[data-testid="wizard-progress"] li')).map((li) => `${li.getAttribute('data-step')}:${li.getAttribute('data-status')}`);
     expect(rows).toEqual(['help:done', 'draft:done', 'check:done', 'fix:done', 'live:waiting']);
@@ -238,6 +252,62 @@ describe('AgentWizard', () => {
     expect(approved).toHaveLength(1);
     expect(approved[0].id).toBe('fake_agent');
     expect(api.cancel).not.toHaveBeenCalled();
+  });
+
+  it('shows the exact commands the live test will run, in a monospace block', async () => {
+    const api = mockApi();
+    await render(api, mockOpenRouter());
+    await findIt();
+    await click(button('Start'));
+    await flush();
+    const box = host.querySelector('[data-testid="planned-commands"] pre');
+    expect(box?.className).toContain('font-mono');
+    expect(box?.textContent).toContain('Say pong');
+    expect(box?.textContent).toContain('C:\\tools\\fake-agent.exe run --format json -- <test message>');
+    expect(box?.textContent).toContain('C:\\tools\\fake-agent.exe run -s <session id> -- <test message>');
+    expect(host.querySelector('[data-testid="live-confirm"]')?.textContent).toContain('If a fix changes any of them, you are asked again');
+    await click(button('Run the live test'));
+    await flush();
+    expect(api.livetest).toHaveBeenCalledWith('wz_1', 'plan-A');
+  });
+
+  it('asks again when a fix changes the commands', async () => {
+    const api = mockApi([`${F}toml\n${GOOD}${F}`, `${F}toml\n${GOOD}# CHANGED\n${F}`]);
+    api.livetest
+      .mockResolvedValueOnce({ ...liveOk(), ok: false, state: 'verified', text: 'LIVE FAILED', errors: [], stages: [] })
+      .mockResolvedValueOnce(liveOk());
+    await render(api, mockOpenRouter());
+    await findIt();
+    await click(button('Start'));
+    await flush();
+    expect(host.querySelector('[data-testid="planned-commands"]')?.textContent).toContain('run --format json -- <test message>');
+    await click(button('Run the live test'));
+    await flush();
+    // the fix changed the arguments: the box is back with the new command, and nothing ran yet
+    expect(api.livetest).toHaveBeenCalledTimes(1);
+    const again = host.querySelector('[data-testid="planned-commands"]');
+    expect(again?.textContent).toContain('run -m fake/slow -- <test message>');
+    expect(again?.textContent).not.toContain('--format json');
+    await click(button('Run the live test'));
+    await flush();
+    expect(api.livetest.mock.calls.map((c) => c[1])).toEqual(['plan-A', 'plan-B']);
+    expect(host.querySelector('[data-testid="wizard-review"]')).toBeTruthy();
+  });
+
+  it('does not ask again when the commands stay the same', async () => {
+    const api = mockApi([`${F}toml\n${GOOD}${F}`, `${F}toml\n${GOOD}# only a comment\n${F}`]);
+    api.livetest
+      .mockResolvedValueOnce({ ...liveOk(), ok: false, state: 'verified', text: 'LIVE FAILED', errors: [], stages: [] })
+      .mockResolvedValueOnce(liveOk());
+    await render(api, mockOpenRouter());
+    await findIt();
+    await click(button('Start'));
+    await flush();
+    await click(button('Run the live test'));
+    await flush();
+    expect(api.livetest).toHaveBeenCalledTimes(2);
+    expect(host.querySelector('[data-testid="live-confirm"]')).toBeNull();
+    expect(host.querySelector('[data-testid="wizard-review"]')).toBeTruthy();
   });
 
   it('does not run the live test when the person says not now', async () => {

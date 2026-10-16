@@ -33,9 +33,10 @@ pub async fn agent_wizard_verify(session: String, toml: String) -> Result<Value,
 }
 
 /// The live test: runs the verified draft three times against the real program (uses the plan).
+/// `plan` is the fingerprint of the planned commands the person was shown (`verify` returns it).
 #[tauri::command]
-pub async fn agent_wizard_livetest(session: String, confirm: bool) -> Result<Value, String> {
-    run("livetest", serde_json::json!({"session": session, "confirm": confirm})).await
+pub async fn agent_wizard_livetest(session: String, confirm: bool, plan: String) -> Result<Value, String> {
+    run("livetest", serde_json::json!({"session": session, "confirm": confirm, "plan": plan})).await
 }
 
 /// Write the tested draft as an unapproved definition with its fixtures; reloads the registry.

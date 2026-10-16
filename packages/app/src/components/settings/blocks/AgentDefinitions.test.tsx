@@ -513,6 +513,14 @@ describe('AgentDefinitions: Add with wizard', () => {
           rendered: { headless_argv: ['run', '--', '<task>'], resume_argv: null },
           checked: { fixtures: 1, rules: 8 },
           samples_replayed: 0,
+          planned: {
+            program: { path: 'C:/x/fake-agent.exe', display: '~/fake-agent.exe' },
+            stages: [{ name: 'pong', label: 'Say pong', args: ['run', '--', '<test message>'] }],
+            stdin: null,
+            env: [],
+            env_unset: [],
+            fingerprint: 'plan-A',
+          },
         })),
         livetest: vi.fn(async () => ({ ok: true, state: 'tested', stages: [], errors: [], text: '', tested_version: '1.4.2', fixtures: [] })),
         finish: vi.fn(async () => ({

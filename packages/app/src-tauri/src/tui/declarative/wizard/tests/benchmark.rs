@@ -263,7 +263,7 @@ fn livetest_draft() {
     let verify = super::support::ok(&wizard, "verify", serde_json::json!({"session": id, "toml": draft}));
     println!("verify ok = {}\n{}", verify["ok"], verify["text"].as_str().unwrap_or(""));
     assert_eq!(verify["ok"], true, "the draft does not verify");
-    let live = super::support::ok(&wizard, "livetest", serde_json::json!({"session": id, "confirm": true}));
+    let live = super::support::ok(&wizard, "livetest", super::support::live_body(&wizard, &id));
     for stage in live["stages"].as_array().unwrap() {
         println!("stage {:10} {:8} result={} session={} error={}", stage["name"].as_str().unwrap(), stage["status"].as_str().unwrap(), stage["result"], stage["session"], stage["error_code"]);
     }
