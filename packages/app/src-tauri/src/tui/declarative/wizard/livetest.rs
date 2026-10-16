@@ -51,7 +51,12 @@ pub fn stage_model(stage: Stage) -> Option<&'static str> {
 
 /// Replace the live-test answers in text that goes to the drafter or the UI (`<word-1>` ...).
 pub fn mask_words(text: &str, words: &TestWords) -> String {
-    text.replace(&words.one, "<word-1>").replace(&words.two, "<word-2>").replace(&words.sky, "<word-3>")
+    text.replace(&words.one, "<word-1>")
+        .replace(&words.two, "<word-2>")
+        .replace(&words.sky, "<word-3>")
+        // a streamed answer arrives in pieces: the random part on its own is masked too
+        .replace(&words.one[5..], "<w1>")
+        .replace(&words.two[5..], "<w2>")
 }
 
 /// The argument list the draft renders for a stage (no program name).

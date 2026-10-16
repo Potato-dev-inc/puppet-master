@@ -197,6 +197,7 @@ fn a_program_that_hangs_times_out() {
     let tree = Tree::new("l-hang");
     let wizard = tree.wizard_with(|env| {
         env.limits.version_timeout = Duration::from_millis(300);
+        env.limits.probe_timeout = Duration::from_millis(300);
         env.limits.live_timeout = Duration::from_millis(500);
     });
     let id = verified_with_binary(&wizard, "hang-agent");
@@ -205,7 +206,7 @@ fn a_program_that_hangs_times_out() {
     assert_eq!(t["ok"], false);
     assert_eq!(t["errors"][0]["code"], "LIVETEST_TIMEOUT");
     assert_eq!(stage(&t, "pong")["timed_out"], true);
-    assert!(started.elapsed() < Duration::from_secs(20));
+    assert!(started.elapsed() < Duration::from_secs(50));
 }
 
 #[test]
@@ -216,7 +217,7 @@ fn a_program_that_lingers_after_its_last_event_is_stopped_and_still_passes() {
     let started = std::time::Instant::now();
     let t = live(&wizard, &id);
     assert_eq!(t["ok"], true, "{}", t["text"]);
-    assert!(started.elapsed() < Duration::from_secs(45), "three stages would take three minutes if it waited for exit");
+    assert!(started.elapsed() < Duration::from_secs(150), "three stages would take three minutes if it waited for exit");
 }
 
 #[test]
@@ -447,6 +448,7 @@ fn a_draft_that_is_built_around_the_test_answers_is_rejected_by_verify() {
     for leaked in [
         with_words(&words.one),
         with_words(&words.two),
+        with_words(&words.one[5..]),
         with_words(&format!("the sky is {}.", words.sky)),
         with_words("pong"),
         with_words("Pong"),

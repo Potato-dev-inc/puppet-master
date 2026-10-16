@@ -143,8 +143,10 @@ impl TestWords {
         format!("the sky is {}.", self.sky)
     }
 
-    pub fn all(&self) -> [&str; 3] {
-        [&self.one, &self.two, &self.sky]
+    /// What must never reach the drafter or appear in a draft: the three words, and the random six
+    /// letters of the two `pong-` words on their own (streamed output splits a word into pieces).
+    pub fn all(&self) -> [&str; 5] {
+        [&self.one, &self.two, &self.sky, &self.one[5..], &self.two[5..]]
     }
 }
 
