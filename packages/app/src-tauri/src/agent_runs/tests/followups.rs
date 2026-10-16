@@ -8,6 +8,7 @@ use super::fixtures::*;
 
 #[test]
 fn headless_cursor_resumes_one_conversation_across_followups() {
+    let _cli = crate::tui::cursor::binary::stub::installed();
     let caps = crate::agent_runs::capabilities::for_backend("cursor_agent", false);
     assert!(caps.session_resume);
     assert!(!crate::agent_runs::capabilities::for_backend("cursor_agent", true).session_resume);

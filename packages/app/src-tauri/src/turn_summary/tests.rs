@@ -306,6 +306,63 @@ fn answers_are_counted_once_and_only_inside_a_turn() {
     assert_eq!(s.sentence, "Claude Code worked for 0s, you approved 1 command, you declined 1 command, now idle.");
 }
 
+/// Regression: `an_approval_is_answered_from_the_card_path` failed on a CI runner with
+/// `"approvals": []` in the end-of-turn summary. The answer was noted AFTER its key was typed, and a
+/// fast agent had finished the turn (the pane's `idle` event copied the approvals) before the
+/// answering thread got back to note it.
+#[test]
+fn an_answer_is_in_the_summary_of_a_turn_that_ends_before_the_answering_thread_returns() {
+    let tmp = Tmp::new("answer-race");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(1_000);
+    tracker.on_status("p1", "running");
+    env.at(10_000);
+    let parked = tracker.on_status("p1", "waiting_input").expect("rest point");
+    assert!(parked.approvals.is_empty());
+
+    let mut ended = None;
+    tracker.answering(
+        "p1",
+        approval("a1", "command", "allow"),
+        || {
+            // The key is typed; the agent carries on and finishes before `answering` returns.
+            env.at(11_000);
+            tracker.on_status("p1", "running");
+            env.at(12_000);
+            ended = tracker.on_status("p1", "idle");
+        },
+        |_| true,
+    );
+    let summary = tracker.finish(ended.expect("the turn ended")).unwrap();
+    assert_eq!(summary.approvals.len(), 1, "{summary:?}");
+    assert_eq!(summary.sentence, "Claude Code worked for 11s, you approved 1 command, now idle.");
+    assert_eq!(tracker.summaries("p1").last().map(|s| s.approvals.len()), Some(1));
+}
+
+#[test]
+fn an_answer_that_was_not_delivered_is_taken_back_and_a_replay_counts_once() {
+    let tmp = Tmp::new("answer-undo");
+    let env = FakeEnv::new(tmp.p());
+    let tracker = Tracker::new(env.clone());
+    env.at(1_000);
+    tracker.on_status("p1", "running");
+
+    // Refused (a stale prompt, no permission, a repeat that pressed nothing): not an approval.
+    let refused: Result<(), &str> = tracker.answering("p1", approval("a1", "command", "allow"), || Err("stale"), |r| r.is_ok());
+    assert!(refused.is_err());
+    // Delivered, then the same answer replayed: one approval, and the replay's undo keeps it.
+    tracker.answering("p1", approval("a2", "command", "allow"), || true, |sent| *sent);
+    tracker.answering("p1", approval("a2", "command", "allow"), || false, |sent| *sent);
+    // A deny is kept as a deny.
+    tracker.answering("p1", approval("a3", "command", "deny"), || true, |sent| *sent);
+
+    env.at(5_000);
+    let summary = tracker.finish(tracker.on_status("p1", "idle").unwrap()).unwrap();
+    let kept: Vec<(&str, &str)> = summary.approvals.iter().map(|a| (a.prompt_id.as_str(), a.decision.as_str())).collect();
+    assert_eq!(kept, [("a2", "allow"), ("a3", "deny")]);
+}
+
 #[test]
 fn end_states_and_receipt_facts_reach_the_sentence() {
     let tmp = Tmp::new("endstates");

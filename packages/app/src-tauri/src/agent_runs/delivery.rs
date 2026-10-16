@@ -942,22 +942,30 @@ pub fn type_unverified(
 /// the process tree says about the agent (`pty::agent_proc`). A pane that exited reads `Exited`.
 pub fn observe_pane(registry: &std::sync::Arc<parking_lot::Mutex<crate::pty::PaneRegistry>>, pane_id: &str) -> Observation {
     let (screen, output_pos) = crate::pty::registry_read_snapshot_full_at(registry.as_ref(), pane_id).unwrap_or_default();
+    Observation {
+        pane_id: pane_id.to_string(),
+        screen,
+        output_pos,
+        agent: pane_process_state(registry, pane_id),
+    }
+}
+
+/// What the process tree says about the agent in a live pane (`pty::agent_proc`). A pane whose own
+/// process ended, or that is gone, reads `Exited`.
+pub fn pane_process_state(
+    registry: &std::sync::Arc<parking_lot::Mutex<crate::pty::PaneRegistry>>,
+    pane_id: &str,
+) -> AgentProcess {
     let (pid, exited) = registry
         .lock()
         .panes
         .get(pane_id)
         .map(|pane| (pane.info.pid, *pane.exited.lock()))
         .unwrap_or((0, true));
-    let agent = if exited {
+    if exited {
         AgentProcess::Exited
     } else {
         crate::pty::agent_proc::state(pane_id, pid)
-    };
-    Observation {
-        pane_id: pane_id.to_string(),
-        screen,
-        output_pos,
-        agent,
     }
 }
 

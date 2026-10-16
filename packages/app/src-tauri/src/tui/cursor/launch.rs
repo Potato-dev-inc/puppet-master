@@ -158,6 +158,7 @@ pub(super) fn default_model() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::cursor::binary::stub;
     use crate::tui::{headless_launch, profile_for};
 
     fn launch(read_only: bool) -> LaunchSpec {
@@ -173,6 +174,7 @@ mod tests {
 
     #[test]
     fn trust_flag_is_added_only_on_explicit_opt_in() {
+        let _cli = stub::installed();
         let plain = headless_launch("cursor_agent", &HeadlessLaunch::new(".", "t")).unwrap();
         assert!(!plain.args.iter().any(|arg| arg == "--trust"));
         let trusted = headless_launch(
@@ -189,6 +191,7 @@ mod tests {
 
     #[test]
     fn resume_session_adds_resume_flag_before_the_task() {
+        let _cli = stub::installed();
         let fresh = headless_launch("cursor_agent", &HeadlessLaunch::new(".", "t")).unwrap();
         assert!(!fresh.args.iter().any(|arg| arg == "--resume"));
         let resumed = headless_launch(
@@ -205,6 +208,7 @@ mod tests {
 
     #[test]
     fn requested_model_is_passed_as_model_flag() {
+        let _cli = stub::installed();
         let run = |model| {
             headless_launch(
                 "cursor_agent",
@@ -225,6 +229,7 @@ mod tests {
 
     #[test]
     fn allow_shell_adds_force_only_when_asked_and_never_with_read_only() {
+        let _cli = stub::installed();
         let plain = headless_launch("cursor_agent", &HeadlessLaunch::new(".", "t")).unwrap();
         assert!(!plain.args.iter().any(|arg| arg == "--force"));
         let forced = headless_launch(
@@ -249,6 +254,7 @@ mod tests {
 
     #[test]
     fn launches_without_ide_and_uses_plan_for_read_only() {
+        let _cli = stub::installed();
         let spec = launch(true);
         #[cfg(windows)]
         {
@@ -265,6 +271,7 @@ mod tests {
 
     #[test]
     fn headless_launch_never_passes_trust_bypass_flags() {
+        let _cli = stub::installed();
         for read_only in [true, false] {
             let spec = launch(read_only);
             assert!(!spec
@@ -272,6 +279,14 @@ mod tests {
                 .iter()
                 .any(|arg| matches!(arg.as_str(), "--trust" | "--yolo" | "--force" | "-f")));
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn headless_launch_without_the_cli_says_it_was_not_found() {
+        let _cli = stub::not_installed();
+        let err = headless_launch("cursor_agent", &HeadlessLaunch::new(".", "t")).unwrap_err();
+        assert!(err.contains("not found on PATH"), "{err}");
     }
 
     #[test]

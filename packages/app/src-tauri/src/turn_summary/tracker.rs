@@ -207,7 +207,8 @@ impl Tracker {
 
     /// An answered prompt belongs to the open turn. With no turn open it is ignored, except an answer
     /// to a startup gate, which is kept for the turn the pane opens next (`startup_answers`).
-    pub fn record_approval(&self, pane_id: &str, approval: Approval) {
+    /// Returns whether it was kept (a replayed answer, or one with no turn to belong to, is not).
+    pub fn record_approval(&self, pane_id: &str, approval: Approval) -> bool {
         let mut live = self.live.lock();
         let now = self.env.now_ms();
         let entry = live.entry(pane_id.to_string()).or_default();
@@ -216,8 +217,44 @@ impl Tracker {
             if !duplicate {
                 entry.approvals.push(approval);
             }
+            !duplicate
         } else if is_startup(std::slice::from_ref(&approval)) {
             entry.startup_answers.push((now, approval));
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Sends an answer (`send` types the key) and keeps it on the turn. The ANSWER IS NOTED BEFORE
+    /// `send` RUNS: typing it lets the agent carry on, and a fast agent finishes the turn (the pane goes
+    /// `idle`, `on_status` copies the approvals) before the answering thread gets back from `send`. An
+    /// answer noted after `send` was then missing from that summary ("approvals": []) and, the turn
+    /// being closed, dropped for good. If `send` says the answer was not delivered (`delivered`
+    /// returns false: refused, or a repeat that pressed nothing) the note is taken back.
+    pub fn answering<T>(
+        &self,
+        pane_id: &str,
+        approval: Approval,
+        send: impl FnOnce() -> T,
+        delivered: impl FnOnce(&T) -> bool,
+    ) -> T {
+        let noted = self.record_approval(pane_id, approval.clone());
+        let result = send();
+        if noted && !delivered(&result) {
+            self.discard_approval(pane_id, &approval);
+        }
+        result
+    }
+
+    /// Takes back an approval [`answering`](Self::answering) noted.
+    fn discard_approval(&self, pane_id: &str, approval: &Approval) {
+        let mut live = self.live.lock();
+        let Some(entry) = live.get_mut(pane_id) else { return };
+        if let Some(at) = entry.approvals.iter().rposition(|a| a == approval) {
+            entry.approvals.remove(at);
+        } else if let Some(at) = entry.startup_answers.iter().rposition(|(_, a)| a == approval) {
+            entry.startup_answers.remove(at);
         }
     }
 

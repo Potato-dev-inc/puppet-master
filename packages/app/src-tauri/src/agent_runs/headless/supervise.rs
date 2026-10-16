@@ -256,7 +256,13 @@ impl Supervisor {
         let screen = read_tui_screen(&self.registry, pane_id).unwrap_or_default();
         // The agent left the pane after the prompt went in (crash, quit, declined dialog): nothing
         // will answer the turn, and the idle shell must not be read as a finished reply.
-        if let Some(failed) = fail_if_agent_exited(current, &mut self.host_shell, &screen) {
+        if let Some(failed) = fail_if_agent_exited(
+            current,
+            &mut self.host_shell,
+            &screen,
+            crate::agent_runs::delivery::pane_process_state(&self.registry, pane_id)
+                == crate::pty::agent_proc::AgentProcess::Exited,
+        ) {
             self.publish(&failed);
             return Step::Finished;
         }
