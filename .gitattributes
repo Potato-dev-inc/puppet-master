@@ -8,6 +8,8 @@ packages/**/dist/** linguist-generated=true
 # keep them LF on every checkout (core.autocrlf=true would make them CRLF). Scoped to these dirs only.
 packages/app/src-tauri/src/tui/declarative/fixtures/definitions/*.toml text eol=lf
 packages/app/src-tauri/tests/agent-definitions/*.toml text eol=lf
+# The wizard tests patch these drafts with multi-line string replaces too.
+packages/app/src-tauri/src/tui/declarative/wizard/tests/drafts/*.toml text eol=lf
 
 # The agent skill pack is include_str!-ed by the installer and compared byte for byte with the plugin copies;
 # keep it LF on every checkout.

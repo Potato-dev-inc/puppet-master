@@ -10,6 +10,16 @@ use crate::tui::declarative::DeclarativeProfile;
 
 use super::support::{call, ok, start, tested, verified, Tree, GOOD, MINIMAL, WRONG_PATH};
 
+/// `GOOD` without its `[headless.output.error]` table, whatever line endings the checkout gave the file
+/// (a Windows checkout with `core.autocrlf` writes CRLF; a multi-line `replace` of `\n` text then
+/// silently changes nothing, which is how the CI run once classified the wrong-model error by its event).
+fn without_error_selector(text: &str) -> String {
+    text.replace("\r\n", "\n").replace(
+        "[headless.output.error]\nwhere = { event = \"error\" }\npath = \"message\"\npick = \"last\"\n",
+        "",
+    )
+}
+
 fn live(wizard: &crate::tui::declarative::wizard::Wizard, id: &str) -> Value {
     ok(wizard, "livetest", super::support::live_body(wizard, id))
 }
@@ -82,7 +92,8 @@ fn all_three_stages_pass_for_a_good_draft() {
 fn a_wrong_error_case_is_judged_by_exit_code_when_there_is_no_error_selector() {
     let tree = Tree::new("l-exitcode");
     let wizard = tree.wizard();
-    let draft = GOOD.replace("[headless.output.error]\nwhere = { event = \"error\" }\npath = \"message\"\npick = \"last\"\n", "");
+    let draft = without_error_selector(GOOD);
+    assert!(!draft.contains("headless.output.error"), "the error selector is really gone");
     let id = verified(&wizard, "fake-agent", &draft);
     let t = live(&wizard, &id);
     assert_eq!(t["ok"], true, "{}", t["text"]);
@@ -650,4 +661,50 @@ fn the_agent_error_survives_a_second_live_test_of_the_same_draft() {
     assert_eq!(live(&wizard, &id)["agent_error"]["external"], true);
     assert_eq!(live(&wizard, &id)["agent_error"]["external"], true);
     assert_eq!(wizard.read(&id, |s| s.state.as_str()).unwrap(), "verified");
+}
+
+#[test]
+fn the_test_drafts_are_checked_out_with_unix_line_endings() {
+    // .gitattributes pins them (a CRLF checkout once made a multi-line replace do nothing on CI)
+    for (name, text) in [("good", GOOD), ("wrong_path", WRONG_PATH), ("minimal", MINIMAL)] {
+        assert!(!text.contains('\r'), "{name}.toml has CRLF line endings; see .gitattributes");
+    }
+}
+
+#[test]
+fn the_helper_and_the_whole_wizard_work_the_same_with_windows_line_endings() {
+    let crlf = GOOD.replace("\r\n", "\n").replace('\n', "\r\n");
+    assert!(crlf.contains("\r\n"));
+    // the old multi-line replace on CRLF text changed nothing: this is the bug the helper removes
+    assert!(crlf.replace("[headless.output.error]\nwhere", "").contains("headless.output.error"));
+    assert!(!without_error_selector(&crlf).contains("headless.output.error"));
+    assert_eq!(without_error_selector(&crlf), without_error_selector(GOOD));
+
+    // and a CRLF draft goes through verify, the live test and finish byte for byte
+    let tree = Tree::new("l-crlf");
+    let wizard = tree.wizard();
+    let id = verified(&wizard, "fake-agent", &crlf);
+    let t = live(&wizard, &id);
+    assert_eq!(t["ok"], true, "{}", t["text"]);
+    super::support::ok(&wizard, "finish", json!({"session": id, "provenance": super::support::provenance()}));
+    assert_eq!(std::fs::read_to_string(tree.agents.join("fake_agent.toml")).unwrap(), crlf);
+}
+
+#[test]
+fn a_stage_says_so_when_the_program_was_stopped_after_its_last_event() {
+    let tree = Tree::new("l-stopped-early");
+    let wizard = tree.wizard_with(|env| env.limits.live_grace = Duration::from_millis(200));
+    let id = verified_with_binary(&wizard, "linger-agent");
+    let t = live(&wizard, &id);
+    assert_eq!(t["ok"], true, "{}", t["text"]);
+    assert_eq!(stage(&t, "pong")["stopped_early"], true, "it was stopped after its done event, not left to exit");
+    assert_eq!(stage(&t, "pong")["exit"], 0);
+    // a program that exits on its own keeps its real exit code and is not marked stopped
+    let tree2 = Tree::new("l-exits-itself");
+    let wizard2 = tree2.wizard();
+    let id2 = verified(&wizard2, "fake-agent", GOOD);
+    let t2 = live(&wizard2, &id2);
+    assert_eq!(stage(&t2, "pong")["stopped_early"], false);
+    assert_eq!(stage(&t2, "bad_model")["stopped_early"], false);
+    assert_eq!(stage(&t2, "bad_model")["exit"], 1, "the real exit code of the wrong-model run");
 }

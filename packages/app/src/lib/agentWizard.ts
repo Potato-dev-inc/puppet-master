@@ -95,6 +95,8 @@ export interface StageReport {
   result: string | null;
   session: string | null;
   error_code: string | null;
+  /** The program was still running after its done event and was stopped, so `exit` is not its own. */
+  stopped_early?: boolean;
   problems: string[];
   note: string | null;
   stdout: string;
