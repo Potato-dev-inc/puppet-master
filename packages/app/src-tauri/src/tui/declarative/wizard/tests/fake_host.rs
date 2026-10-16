@@ -176,6 +176,7 @@ impl PaneHost for FakeHost {
             alive: p.alive,
             output_pos: Some(st.counter),
             hello_written: false,
+            grid: Some((p.cols, p.rows)),
         })
     }
 

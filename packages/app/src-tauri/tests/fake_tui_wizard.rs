@@ -229,3 +229,113 @@ fn a_capture_that_is_cancelled_closes_its_pane() {
     assert!(events_named(&session, "gate_answer").is_empty(), "cancel answered nothing");
     assert_eq!(rig.session_count(), 0);
 }
+
+// ---- the benchmark helpers (SPEC 11.13) ---------------------------------------------------------------
+
+use puppet_master_app_lib::fake_tui::{Answers, WizardRig};
+
+fn bench_expects(words_hint: &str) -> std::collections::BTreeMap<String, String> {
+    let _ = words_hint;
+    std::collections::BTreeMap::from([("tui_idle".to_string(), "chrome_lines = [\"NIMBUS 0.4.2\"]\n".to_string())])
+}
+
+#[test]
+fn the_benchmark_helpers_capture_and_run_rounds_on_the_fake_agent() {
+    let session = World::get().session("wizard-bench");
+    let rig = session.wizard_rig("nimbus", SCRIPT);
+    let out = session.aux().join("bench");
+
+    // Without the person's answers the capture stops and says exactly which one is missing.
+    let err = rig.bench_capture(&session, "nimbus", &out, &Answers::parse(""), &[], 60).unwrap_err();
+    assert!(err.contains("the capture needs you") && err.contains("PM_WIZARD_BENCH_ANSWERS=trust=<keys>"), "{err}");
+    session.until(20, || session.pane_ids().is_empty().then_some(())).expect("the stopped capture closed its pane");
+
+    let answers = Answers::parse("trust=1,permission=y");
+    let dump = rig.bench_capture(&session, "nimbus", &out, &answers, &[], 120).expect("the capture");
+    assert!(out.join("captures.json").is_file());
+    let one = dump["words"]["one"].as_str().unwrap().to_string();
+    assert!(dump["raw"].to_string().contains(&one), "the dump keeps the real word");
+    assert!(!dump["masked"].to_string().contains(&one), "the masked set (what the drafter sees) never has it");
+    assert_eq!(dump["masked"]["files"].as_array().unwrap().len(), 5);
+
+    // A round with the recorded draft passes and writes what the next prompt needs.
+    let draft = DRAFT.replace("@@COMMAND@@", "nimbus");
+    let round1 = out.join("round-1");
+    std::fs::create_dir_all(&round1).unwrap();
+    let result = rig.bench_round(&session, "nimbus", &round1, &draft, &bench_expects(""), &dump, &answers, false).expect("the round");
+    assert_eq!(result, "PASS");
+    assert_eq!(std::fs::read_to_string(round1.join("result.txt")).unwrap(), "PASS\n");
+    assert!(std::fs::read_to_string(round1.join("verify.txt")).unwrap().starts_with("OK"));
+    let feedback: Value = serde_json::from_str(&std::fs::read_to_string(round1.join("feedback.json")).unwrap()).unwrap();
+    assert_eq!(feedback["text"], "");
+    assert_eq!(feedback["previous_toml"], draft);
+    assert_eq!(feedback["previous_expects"]["tui_idle"], "chrome_lines = [\"NIMBUS 0.4.2\"]\n");
+    let visible: Value = serde_json::from_str(&std::fs::read_to_string(round1.join("visible.json")).unwrap()).unwrap();
+    assert_eq!((visible["passed"].as_u64(), visible["total"].as_u64()), (Some(7), Some(7)));
+
+    // A draft whose ready pattern never matches fails the round with the checker's text and the screen.
+    let wrong = draft.replace("type a task'\nnot_regex", "type a taskX'\nnot_regex");
+    assert_ne!(wrong, draft);
+    let round2 = out.join("round-2");
+    std::fs::create_dir_all(&round2).unwrap();
+    let result = rig.bench_round(&session, "nimbus", &round2, &wrong, &bench_expects(""), &dump, &answers, false).expect("the round");
+    assert_eq!(result, "FAIL visibletest");
+    let feedback: Value = serde_json::from_str(&std::fs::read_to_string(round2.join("feedback.json")).unwrap()).unwrap();
+    let text = feedback["text"].as_str().unwrap();
+    assert!(text.contains("VISIBLETEST_READY_FAILED") && text.contains("NIMBUS"), "{text}");
+    assert!(!text.contains(&one), "the real word never reaches the next prompt");
+
+    // A draft that is not valid never reaches a pane.
+    let round3 = out.join("round-3");
+    std::fs::create_dir_all(&round3).unwrap();
+    let before = events_named(&session, "prompt").len();
+    let result = rig.bench_round(&session, "nimbus", &round3, "this is [ not toml", &bench_expects(""), &dump, &answers, false).expect("the round");
+    assert_eq!(result, "FAIL verify");
+    assert_eq!(events_named(&session, "prompt").len(), before, "nothing was typed for a draft that does not validate");
+    let _: Option<&WizardRig> = None;
+}
+
+fn env_or_skip(name: &str) -> String {
+    std::env::var(name).unwrap_or_else(|_| panic!("set {name}"))
+}
+
+/// `PM_WIZARD_COMMAND=kilo PM_WIZARD_OUT=<dir> PM_WIZARD_BENCH_ANSWERS=permission=<keys>[,trust=<keys>]`
+/// `[PM_WIZARD_CAPTURE_ARGS="--model x"]`: runs the guided capture on the REAL program (it spends about
+/// two small messages) and writes `<dir>/captures.json`. Plays the person with the answers it was given.
+#[test]
+#[ignore = "runs the real program and spends real agent messages; see SPEC 11.13"]
+fn wizard_bench_capture() {
+    let command = env_or_skip("PM_WIZARD_COMMAND");
+    let out = std::path::PathBuf::from(env_or_skip("PM_WIZARD_OUT"));
+    let session = World::get().session("wizard-bench-capture");
+    let rig = WizardRig::real(&out);
+    let args: Vec<String> = std::env::var("PM_WIZARD_CAPTURE_ARGS").unwrap_or_default().split_whitespace().map(str::to_string).collect();
+    let dump = rig.bench_capture(&session, &command, &out, &Answers::from_env(), &args, 600).unwrap_or_else(|e| panic!("{e}"));
+    println!("{}", serde_json::to_string_pretty(&dump["masked"]).unwrap());
+}
+
+/// `PM_WIZARD_COMMAND=kilo PM_WIZARD_ROUND_DIR=<dir>\round-N PM_WIZARD_BENCH_ANSWERS=...`, with `draft.toml`
+/// (and optionally `expects.json`) in the round folder and `captures.json` one folder up. Verifies the draft
+/// and runs the visible test on the REAL program (about two small messages). `PM_WIZARD_FINISH=1` also
+/// writes the definition to `<round>\agents`. A failing draft is a normal result, not a test failure.
+#[test]
+#[ignore = "runs the real program and spends real agent messages; see SPEC 11.13"]
+fn wizard_bench_round() {
+    let command = env_or_skip("PM_WIZARD_COMMAND");
+    let round = std::path::PathBuf::from(env_or_skip("PM_WIZARD_ROUND_DIR"));
+    let draft = std::fs::read_to_string(round.join("draft.toml")).unwrap_or_else(|e| panic!("draft.toml: {e} (run the extract step first)"));
+    let expects: std::collections::BTreeMap<String, String> = std::fs::read_to_string(round.join("expects.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let dump_path = round.parent().expect("a round folder has a parent").join("captures.json");
+    let dump: Value = serde_json::from_str(&std::fs::read_to_string(&dump_path).unwrap_or_else(|e| panic!("{}: {e} (run wizard_bench_capture first)", dump_path.display())))
+        .expect("captures.json is JSON");
+    let session = World::get().session("wizard-bench-round");
+    let rig = WizardRig::real(&round);
+    let result = rig
+        .bench_round(&session, &command, &round, &draft, &expects, &dump, &Answers::from_env(), std::env::var("PM_WIZARD_FINISH").is_ok())
+        .unwrap_or_else(|e| panic!("{e}"));
+    println!("{result}");
+    println!("{}", std::fs::read_to_string(round.join("feedback.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v["text"].as_str().map(str::to_string)).unwrap_or_default());
+}

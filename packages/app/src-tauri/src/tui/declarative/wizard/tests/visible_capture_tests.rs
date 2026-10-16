@@ -32,16 +32,17 @@ struct Drive {
     now: u64,
     alive: bool,
     hello: bool,
+    grid: Option<(u16, u16)>,
     actions: Vec<Action>,
 }
 
 impl Drive {
     fn new() -> Self {
-        Self { c: Capture::new(words(), (120, 40), Config::default()), now: 0, alive: true, hello: false, actions: Vec::new() }
+        Self { c: Capture::new(words(), (120, 40), Config::default()), now: 0, alive: true, hello: false, grid: Some((120, 40)), actions: Vec::new() }
     }
 
     fn look(&self, screen: &str) -> Look {
-        Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: self.alive, output_pos: None, hello_written: self.hello }
+        Look { screen: screen.into(), watch: screen.into(), status: "idle".into(), alive: self.alive, output_pos: None, hello_written: self.hello, grid: self.grid }
     }
 
     /// Show `screen` for `ms` milliseconds, one look every 250 ms. Deliveries are not answered here.
@@ -405,4 +406,19 @@ fn captured_frames_are_cleaned_but_keep_the_real_word() {
     d.animate(1500);
     d.show(&reply("pong-aaaaaa"), 4000);
     assert!(d.c.frame("tui_reply").unwrap().text.contains("pong-aaaaaa"), "fixtures keep the real word");
+}
+
+#[test]
+fn a_pane_that_changes_size_mid_capture_says_so_and_the_set_records_the_grid_it_was_asked_for() {
+    let mut d = Drive::new();
+    d.show(IDLE, 3000);
+    assert!(d.c.into_set().notes.is_empty(), "the grid never changed");
+    d.grid = Some((100, 30));
+    d.show(IDLE, 1000);
+    let set = d.c.into_set();
+    assert_eq!(set.grid, (120, 40));
+    assert_eq!(set.notes.len(), 1, "{:?}", set.notes);
+    assert!(set.notes[0].contains("120x40 to 100x30"), "{}", set.notes[0]);
+    d.show(IDLE, 1000);
+    assert_eq!(d.c.into_set().notes.len(), 1, "said once");
 }

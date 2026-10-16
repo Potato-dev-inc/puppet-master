@@ -505,6 +505,19 @@ impl Wizard {
     }
 }
 
+#[cfg(feature = "dev-fake-tui")]
+impl Wizard {
+    /// Benchmark only: give a new session the words and the capture of an earlier run, so a later
+    /// process can verify and test drafts against the same screens.
+    pub fn bench_restore(&self, id: &str, words: TestWords, set: CaptureSet) -> Result<(), WizardError> {
+        let slot = self.lookup(id)?;
+        let mut s = slot.lock();
+        s.words = words;
+        *s.visible.captures.lock() = Some(set);
+        Ok(())
+    }
+}
+
 /// After a test passed: the session is `Tested` when every test the draft needs has passed for exactly
 /// this draft text (the headless live test if the draft has `[headless]`, the visible test if the
 /// session captured screens). Otherwise its state is left as it is.

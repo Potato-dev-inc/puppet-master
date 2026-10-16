@@ -280,6 +280,56 @@ impl CaptureSet {
     pub fn has(&self, name: &str) -> bool {
         self.get(name).is_some()
     }
+
+    /// Everything, with the real words (for the benchmark's `captures.json`; never shown to an AI).
+    pub fn to_json(&self) -> Value {
+        json!({
+            "frames": self.frames.iter().map(|f| json!({"name": f.name, "text": f.text, "variants": f.variants})).collect::<Vec<_>>(),
+            "grid": [self.grid.0, self.grid.1],
+            "exit_method": self.exit_method,
+            "partial": self.partial,
+            "skipped": self.skipped,
+            "hello_written": self.hello_written,
+            "startup_dialogs": self.startup_dialogs,
+            "exit_screen": self.exit_screen,
+            "notes": self.notes,
+        })
+    }
+
+    /// The other way: a set read back from `to_json`.
+    pub fn from_json(value: &Value) -> Result<Self, String> {
+        let text = |v: &Value| v.as_str().map(str::to_string).ok_or_else(|| "a capture field is not text".to_string());
+        let list = |key: &str| -> Result<Vec<String>, String> {
+            value[key].as_array().map(|a| a.iter().map(&text).collect()).unwrap_or_else(|| Ok(Vec::new()))
+        };
+        let frames = value["frames"]
+            .as_array()
+            .ok_or("the capture has no frames")?
+            .iter()
+            .map(|f| {
+                Ok(CapFrame {
+                    name: text(&f["name"])?,
+                    text: text(&f["text"])?,
+                    variants: f["variants"].as_array().map(|a| a.iter().map(&text).collect()).unwrap_or_else(|| Ok(Vec::new()))?,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let grid = match (value["grid"][0].as_u64(), value["grid"][1].as_u64()) {
+            (Some(c), Some(r)) => (c as u16, r as u16),
+            _ => (120, 40),
+        };
+        Ok(CaptureSet {
+            frames,
+            grid,
+            exit_method: value["exit_method"].as_str().unwrap_or("none").to_string(),
+            partial: list("partial")?,
+            skipped: list("skipped")?,
+            hello_written: value["hello_written"].as_bool().unwrap_or(false),
+            startup_dialogs: list("startup_dialogs")?,
+            exit_screen: value["exit_screen"].as_str().map(str::to_string),
+            notes: list("notes")?,
+        })
+    }
 }
 
 // ---- the engine --------------------------------------------------------------------------------
@@ -342,6 +392,8 @@ pub struct Capture {
     partial: Vec<&'static str>,
     notes: Vec<String>,
     began_ms: Option<u64>,
+    /// A resize of the pane was already noted.
+    resized: bool,
 }
 
 /// The cleaned text of a frame (`exec::clean`: ANSI gone, secrets masked, user folder scrubbed).
@@ -404,6 +456,7 @@ impl Capture {
             partial: Vec::new(),
             notes: Vec::new(),
             began_ms: None,
+            resized: false,
         }
     }
 
@@ -545,6 +598,16 @@ impl Capture {
         self.began_ms.get_or_insert(now);
         self.alive = look.alive;
         self.hello_written |= look.hello_written;
+        if let Some(grid) = look.grid.filter(|g| *g != self.grid) {
+            // The viewer grid must equal the PTY grid: a pane that changed size mid-capture says so.
+            if !self.resized {
+                self.resized = true;
+                self.notes.push(format!(
+                    "The pane changed size from {}x{} to {}x{} while it was captured; the screens may not all have the same width.",
+                    self.grid.0, self.grid.1, grid.0, grid.1
+                ));
+            }
+        }
         self.screen = look.screen.clone();
         self.stab.observe(&look.screen, now);
         self.kind = classify(&look.screen);

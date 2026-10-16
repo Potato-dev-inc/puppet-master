@@ -181,14 +181,14 @@ impl Test<'_> {
         mask_words(&exec::clean(text), &self.session.words)
     }
 
-    fn publish(&self, current: Option<&str>, needs: Option<&str>, screen: &str) {
+    fn publish(&self, current: Option<&str>, needs: Option<(&str, &str)>, screen: &str) {
         let rows: Vec<&str> = screen.lines().collect();
         let from = rows.len().saturating_sub(40);
         let shown = self.masked(&rows[from..].join("\n"));
         *self.status.lock() = json!({
             "running": true,
             "check": current,
-            "needs_you": needs.map(|m| json!({"message": m})),
+            "needs_you": needs.map(|(kind, message)| json!({"kind": kind, "message": message})),
             "checks": self.checks,
             "screen": shown,
         });
@@ -278,7 +278,7 @@ impl Test<'_> {
                     Flavour::Login => "The agent wants you to sign in. Do that in the pane. The wizard presses nothing.",
                     _ => "The agent is asking a question. Answer it in the pane yourself. The wizard presses nothing.",
                 };
-                self.publish(Some(label), Some(message), &look.screen);
+                self.publish(Some(label), Some((flavour.as_str(), message)), &look.screen);
                 if since.elapsed() > self.limits.person {
                     return Err(fail("The agent kept asking a question and nobody answered it.", &look.screen));
                 }

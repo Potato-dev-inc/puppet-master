@@ -55,7 +55,8 @@ impl PaneHost for RegistryHost {
         let watch = crate::pty::registry_read_snapshot(self.registry.as_ref(), pane).unwrap_or_default();
         let alive = crate::agent_runs::delivery::pane_process_state(&self.registry, pane)
             != crate::pty::agent_proc::AgentProcess::Exited;
-        Some(Look { screen, watch, status, alive, output_pos, hello_written: false })
+        let grid = self.registry.lock().list().into_iter().find(|p| p.id == pane).map(|p| (p.cols, p.rows));
+        Some(Look { screen, watch, status, alive, output_pos, hello_written: false, grid })
     }
 
     fn deliver(&self, pane: &str, text: &str, trace: &mut Vec<String>) -> Delivered {

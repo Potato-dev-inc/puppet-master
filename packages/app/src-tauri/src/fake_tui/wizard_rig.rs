@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 
 use crate::tui::declarative::wizard::session::WizardEnv;
 use crate::tui::declarative::wizard::visible::capture::Config;
-use crate::tui::declarative::wizard::visible::runner::RunnerCfg;
+use crate::tui::declarative::wizard::visible::runner::{RunnerCfg, TestLimits};
 use crate::tui::declarative::wizard::{api, Wizard};
 
 use super::world::Session;
@@ -23,6 +23,8 @@ pub struct WizardRig {
     agents: PathBuf,
     saved_path: Option<std::ffi::OsString>,
     saved_script: Option<std::ffi::OsString>,
+    /// The environment was not changed (the real-program rig): nothing to restore on drop.
+    keep_env: bool,
 }
 
 impl Session {
@@ -51,11 +53,13 @@ impl Session {
         env.app_build = "fake-tui-e2e".into();
         env.visible = RunnerCfg {
             capture: Config { stable_ms: 1200, ..Config::default() },
+            // The fake is quick: a profile that never reads it as ready fails in seconds, not minutes.
+            test: TestLimits { ready: Duration::from_secs(12), done: Duration::from_secs(60), permission: Duration::from_secs(30), ..TestLimits::default() },
             tick: Duration::from_millis(100),
             window: false,
             ..RunnerCfg::default()
         };
-        WizardRig { wizard: Wizard::new(move || env.clone()), agents, saved_path, saved_script }
+        WizardRig { wizard: Wizard::new(move || env.clone()), agents, saved_path, saved_script, keep_env: false }
     }
 }
 
@@ -96,6 +100,9 @@ impl WizardRig {
 
 impl Drop for WizardRig {
     fn drop(&mut self) {
+        if self.keep_env {
+            return;
+        }
         match self.saved_path.take() {
             Some(path) => std::env::set_var("PATH", path),
             None => std::env::remove_var("PATH"),
@@ -104,5 +111,259 @@ impl Drop for WizardRig {
             Some(script) => std::env::set_var("PM_FAKE_TUI_SCRIPT", script),
             None => std::env::remove_var("PM_FAKE_TUI_SCRIPT"),
         }
+    }
+}
+
+// ---- the benchmark (SPEC 11.13): the visible path against a real program, from a script ---------------
+//
+// These helpers PLAY THE PERSON for a hands-off benchmark run: when the wizard says a question is the
+// person's to answer, they type the keys the person gave in `PM_WIZARD_BENCH_ANSWERS` (for example
+// `trust=1,permission=y`). That is a dev tool for the benchmark and for the zero-token tests; the product
+// never does it (the capture has no way to send a key into a question). A question with no answer given
+// stops the run and says which one is needed.
+
+/// The keys the benchmark types for each kind of question: `trust`, `login`, `permission`, `question`.
+/// `<enter>` stands for the Enter key. `ready=yes` presses "It is ready" when the wizard cannot tell.
+#[derive(Debug, Clone, Default)]
+pub struct Answers(std::collections::BTreeMap<String, String>);
+
+impl Answers {
+    pub fn parse(text: &str) -> Self {
+        let mut map = std::collections::BTreeMap::new();
+        for part in text.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            if let Some((kind, keys)) = part.split_once('=') {
+                map.insert(kind.trim().to_string(), keys.to_string());
+            }
+        }
+        Self(map)
+    }
+
+    pub fn from_env() -> Self {
+        Self::parse(&std::env::var("PM_WIZARD_BENCH_ANSWERS").unwrap_or_default())
+    }
+
+    pub fn get(&self, kind: &str) -> Option<&str> {
+        self.0.get(kind).map(String::as_str)
+    }
+}
+
+fn err_text(e: &Value) -> String {
+    e["message"].as_str().map(str::to_string).unwrap_or_else(|| e.to_string())
+}
+
+/// The agent error of the round before `round` (a folder named `round-N`), if it had one.
+fn previous_agent_error(round: &Path) -> Option<String> {
+    let n: usize = round.file_name()?.to_str()?.strip_prefix("round-")?.parse().ok()?;
+    let previous = round.parent()?.join(format!("round-{}", n.checked_sub(1)?)).join("agent_error.txt");
+    std::fs::read_to_string(previous).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+}
+
+impl WizardRig {
+    /// A wizard for the real program on the real `PATH`: nothing is copied and no script is set. Finished
+    /// definitions go to `<out>/agents`.
+    pub fn real(out: &Path) -> WizardRig {
+        let agents = out.join("agents");
+        let temp = out.join("wizard-temp");
+        std::fs::create_dir_all(&temp).expect("wizard temp folder");
+        let mut env = WizardEnv::app();
+        env.agents_dir = agents.clone();
+        env.temp_root = temp;
+        env.path_dirs = None;
+        env.visible = RunnerCfg { window: false, ..RunnerCfg::default() };
+        WizardRig { wizard: Wizard::new(move || env.clone()), agents, saved_path: None, saved_script: None, keep_env: true }
+    }
+
+    fn type_keys(&self, session: &Session, pane: &str, keys: &str) {
+        if keys == "<enter>" {
+            session.type_as_user(pane, "", true).expect("the bench types");
+        } else {
+            session.type_as_user(pane, keys, false).expect("the bench types");
+        }
+    }
+
+    /// Run the guided capture on `command`, answering for the person, and write `<out>/captures.json`
+    /// (`{command, words, raw, masked}`). The error says which answer is missing.
+    pub fn bench_capture(&self, session: &Session, command: &str, out: &Path, answers: &Answers, args: &[String], seconds: u64) -> Result<Value, String> {
+        std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+        let started = self.call("start", json!({"command": command})).map_err(|e| err_text(&e))?;
+        let id = started["session"].as_str().ok_or("no session")?.to_string();
+        let result = self.bench_capture_in(session, &id, command, out, answers, args, seconds);
+        let _ = self.call("cancel", json!({"session": id}));
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn bench_capture_in(&self, session: &Session, id: &str, command: &str, out: &Path, answers: &Answers, args: &[String], seconds: u64) -> Result<Value, String> {
+        self.call("probe", json!({"session": id})).map_err(|e| err_text(&e))?;
+        let plan = self.call("capture", json!({"session": id, "op": "plan", "args": args})).map_err(|e| err_text(&e))?;
+        let fingerprint = plan["plan"]["fingerprint"].as_str().ok_or("no plan")?.to_string();
+        let first = self
+            .call("capture", json!({"session": id, "op": "start", "args": args, "confirm": true, "plan": fingerprint}))
+            .map_err(|e| err_text(&e))?;
+        let pane = first["pane"].as_str().ok_or("no pane")?.to_string();
+        let deadline = std::time::Instant::now() + Duration::from_secs(seconds);
+        let mut done: std::collections::HashSet<String> = std::collections::HashSet::new();
+        loop {
+            let s = self.call("capture", json!({"session": id, "op": "status"})).map_err(|e| err_text(&e))?;
+            if let Some(kind) = s["needs_you"]["kind"].as_str() {
+                let once = format!("{}-{kind}", s["step"].as_str().unwrap_or(""));
+                if !done.contains(&once) {
+                    match (kind, answers.get(kind)) {
+                        ("unsure" | "unsure_reply", Some(_)) => {
+                            self.call("capture", json!({"session": id, "op": "act", "action": "ready"})).map_err(|e| err_text(&e))?;
+                        }
+                        ("slow" | "typing", _) => {
+                            return Err(format!("the capture needs you ({kind}): {}", s["needs_you"]["message"].as_str().unwrap_or("")));
+                        }
+                        (_, Some(keys)) => self.type_keys(session, &pane, keys),
+                        (_, None) => {
+                            return Err(format!(
+                                "the capture needs you: {} Give the keys to type with PM_WIZARD_BENCH_ANSWERS={kind}=<keys>",
+                                s["needs_you"]["message"].as_str().unwrap_or("")
+                            ));
+                        }
+                    }
+                    done.insert(once);
+                }
+            }
+            if s["step"] == "exit" && !done.contains("exit") {
+                done.insert("exit".into());
+                self.call("capture", json!({"session": id, "op": "act", "action": "try_exit"})).map_err(|e| err_text(&e))?;
+            }
+            if s["settled"] == true {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(format!("the capture did not settle in {seconds} s: {}", s["steps"]));
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        let finished = self.call("capture", json!({"session": id, "op": "finish"})).map_err(|e| err_text(&e))?;
+        let (one, two, sky) = self.words(id);
+        let raw = self
+            .wizard
+            .read(id, |s| s.visible.captures.lock().clone().map(|set| set.to_json()))
+            .map_err(|e| e.to_string())?
+            .ok_or("nothing was captured")?;
+        let dump = json!({
+            "command": command,
+            "words": {"one": one, "two": two, "sky": sky},
+            "raw": raw,
+            "masked": finished["captures"],
+        });
+        std::fs::write(out.join("captures.json"), serde_json::to_string_pretty(&dump).unwrap_or_default()).map_err(|e| e.to_string())?;
+        Ok(dump)
+    }
+
+    /// One round of the visible benchmark: verify `draft` against the captured screens in `dump`, run
+    /// the visible test on the real program (answering for the person), and write `verify.txt`,
+    /// `visible.json`, `feedback.json`, `agent_error.txt` and `result.txt` into `round`. Returns the
+    /// result line: `PASS`, `FAIL verify`, `FAIL visibletest` or `STOP agent-error`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn bench_round(
+        &self,
+        session: &Session,
+        command: &str,
+        round: &Path,
+        draft: &str,
+        expects: &std::collections::BTreeMap<String, String>,
+        dump: &Value,
+        answers: &Answers,
+        finish: bool,
+    ) -> Result<String, String> {
+        let write = |name: &str, text: &str| std::fs::write(round.join(name), text).map_err(|e| format!("{name}: {e}"));
+        let started = self.call("start", json!({"command": command})).map_err(|e| err_text(&e))?;
+        let id = started["session"].as_str().ok_or("no session")?.to_string();
+        let result = self.bench_round_in(session, &id, command, round, draft, expects, dump, answers, finish, &write);
+        if result.is_err() {
+            let _ = self.call("cancel", json!({"session": id}));
+        }
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn bench_round_in(
+        &self,
+        session: &Session,
+        id: &str,
+        command: &str,
+        round: &Path,
+        draft: &str,
+        expects: &std::collections::BTreeMap<String, String>,
+        dump: &Value,
+        answers: &Answers,
+        finish: bool,
+        write: &dyn Fn(&str, &str) -> Result<(), String>,
+    ) -> Result<String, String> {
+        self.call("probe", json!({"session": id})).map_err(|e| err_text(&e))?;
+        let words = &dump["words"];
+        let set = crate::tui::declarative::wizard::visible::capture::CaptureSet::from_json(&dump["raw"])?;
+        let session_words = crate::tui::declarative::wizard::session::TestWords {
+            one: words["one"].as_str().ok_or("the dump has no words")?.to_string(),
+            two: words["two"].as_str().ok_or("the dump has no words")?.to_string(),
+            sky: words["sky"].as_str().ok_or("the dump has no words")?.to_string(),
+        };
+        self.wizard.bench_restore(id, session_words, set).map_err(|e| e.to_string())?;
+
+        let verify = self.call("verify", json!({"session": id, "toml": draft, "expect": expects})).map_err(|e| err_text(&e))?;
+        let (result, text, visible) = if verify["ok"] != true && verify.get("planned_visible").is_none_or(Value::is_null) {
+            ("FAIL verify", verify["text"].as_str().unwrap_or("").to_string(), Value::Null)
+        } else {
+            let plan = verify["planned_visible"]["fingerprint"].as_str().ok_or("verify gave no plan")?.to_string();
+            let known: std::collections::HashSet<String> = session.pane_ids().into_iter().collect();
+            let visible = std::thread::scope(|scope| {
+                let handle = scope.spawn(|| self.call("visibletest", json!({"session": id, "confirm": true, "plan": plan})));
+                let mut done: std::collections::HashSet<String> = std::collections::HashSet::new();
+                while !handle.is_finished() {
+                    if let Ok(status) = self.call("capture", json!({"session": id, "op": "test_status"})) {
+                        if let Some(kind) = status["needs_you"]["kind"].as_str() {
+                            let once = format!("{}-{}", status["check"].as_str().unwrap_or(""), kind);
+                            if !done.contains(&once) {
+                                if let (Some(keys), Some(pane)) = (answers.get(kind), session.pane_ids().into_iter().find(|p| !known.contains(p))) {
+                                    self.type_keys(session, &pane, keys);
+                                    done.insert(once);
+                                }
+                            }
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                handle.join().unwrap_or_else(|_| Err(json!({"message": "the visible test crashed"})))
+            })
+            .map_err(|e| err_text(&e))?;
+            let agent_error = visible["agent_error"]["message"].as_str().map(str::to_string);
+            if let Some(message) = &agent_error {
+                write("agent_error.txt", message)?;
+            }
+            let repeated = agent_error.as_deref().is_some_and(|m| previous_agent_error(round).as_deref() == Some(m));
+            if visible["ok"] == true {
+                ("PASS", String::new(), visible)
+            } else if visible["agent_error"]["external"] == true || repeated {
+                let message = agent_error.unwrap_or_default();
+                (
+                    "STOP agent-error",
+                    format!("{command} itself returned an error: {message}. This is a problem with the setup of {command} (sign-in, model or provider), not with the profile. Fix it in {command}, then run this round again."),
+                    visible,
+                )
+            } else {
+                ("FAIL visibletest", visible["text"].as_str().unwrap_or("").to_string(), visible)
+            }
+        };
+        write("verify.txt", &format!("{}\n{}", if verify["ok"] == true { "OK" } else { "NOT OK" }, verify["text"].as_str().unwrap_or("")))?;
+        write("visible.json", &serde_json::to_string_pretty(&visible).unwrap_or_default())?;
+        write(
+            "feedback.json",
+            &serde_json::to_string_pretty(&json!({"previous_toml": draft, "previous_expects": expects, "text": text, "samples": []})).unwrap_or_default(),
+        )?;
+        write("result.txt", &format!("{result}\n"))?;
+        if finish && result == "PASS" {
+            let done = self
+                .call("finish", json!({"session": id, "provenance": {"drafter": "Benchmark", "drafter_kind": "other", "prompt_version": "5", "rounds": 1}}))
+                .map_err(|e| err_text(&e))?;
+            write("finished.json", &serde_json::to_string_pretty(&done).unwrap_or_default())?;
+        } else {
+            let _ = self.call("cancel", json!({"session": id}));
+        }
+        Ok(result.to_string())
     }
 }

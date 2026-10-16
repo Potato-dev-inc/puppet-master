@@ -33,6 +33,8 @@ pub struct Look {
     pub output_pos: Option<u64>,
     /// `hello.txt` exists in the pane's project folder (filled in by the runner, not the host).
     pub hello_written: bool,
+    /// The grid the PTY has right now (columns, rows), when the host knows it.
+    pub grid: Option<(u16, u16)>,
 }
 
 impl Look {
