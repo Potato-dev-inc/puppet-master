@@ -517,6 +517,12 @@ pub fn run() {
             if let Err(e) = tray::init(app.handle()) {
                 tracing::warn!(error = %e, "tray icon failed to start");
             }
+            // macOS has no notification area to hide in: a launch shows the primary window, like
+            // a second launch does on Windows.
+            #[cfg(target_os = "macos")]
+            if worker_launch::worker_launch().is_none() {
+                cockpit::open_primary_window(app.handle());
+            }
             ambient::init(app.handle());
             standby::init(registry_for_panes.clone(), app.handle().clone());
             canary::init(app.handle().clone());
@@ -560,6 +566,11 @@ pub fn run() {
                 if pane_windows::on_close_requested(app_handle, label) {
                     api.prevent_close();
                 }
+            }
+            // macOS: a Dock click on the running app opens the primary window.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = &event {
+                cockpit::open_primary_window(app_handle);
             }
             if matches!(event, tauri::RunEvent::Exit) {
                 standby::shutdown();

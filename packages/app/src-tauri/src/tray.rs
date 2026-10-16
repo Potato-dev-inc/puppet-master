@@ -472,9 +472,16 @@ mod runtime {
         let mut builder = TrayIconBuilder::with_id(TRAY_ID)
             .tooltip("Puppet Master")
             .menu(&menu)
-            .show_menu_on_left_click(false)
+            // Windows: left click opens the cockpit, right click the menu. macOS menu-bar items
+            // open their menu on a left click (the cockpit is in the menu, the Dock and startup).
+            .show_menu_on_left_click(cfg!(target_os = "macos"))
+            // macOS: a template image, so AppKit inks it for a light or dark menu bar.
+            .icon_as_template(cfg!(target_os = "macos"))
             .on_menu_event(|app, event| handle(app, event.id().as_ref()))
             .on_tray_icon_event(|tray, event| {
+                if cfg!(target_os = "macos") {
+                    return;
+                }
                 if let TrayIconEvent::Click {
                     button: MouseButton::Left,
                     button_state: MouseButtonState::Up,
