@@ -239,7 +239,8 @@ impl Runner<'_> {
         };
         let stdin = self.def.headless.as_ref().and_then(|h| template::render_stdin(h, &launch));
         let early = |text: &str| self.profile.headless_result_ready(text);
-        let mut run = RunSpec::new(&self.program, &spec.args, &spec.cwd);
+        // Always the isolated work folder, whatever `cwd` the draft asks for.
+        let mut run = RunSpec::new(&self.program, &spec.args, &self.session.work_dir);
         run.stdin = stdin.as_deref();
         run.env = &spec.env;
         run.env_remove = &spec.env_remove;
@@ -336,7 +337,10 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
             return outcome;
         }
     };
-    let program = match resolve_in(&def.binary, &session.dirs, Platform::current()) {
+    // Only the program the person typed ever runs here, whatever other names the draft lists.
+    let mut table = def.binary.clone();
+    table.names = vec![session.command.clone()];
+    let program = match resolve_in(&table, &session.dirs, Platform::current()) {
         Ok(p) => p,
         Err(e) => {
             outcome.errors.push(CheckError::new("livetest", "LIVETEST_SPAWN_FAILED", "binary", e.to_string()));

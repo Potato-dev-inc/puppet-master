@@ -192,7 +192,7 @@ Phase 2. Always `501 WIZARD_NOT_YET` ("The visible-screen path comes in a later 
 
 ## 5. Live test
 
-Rendered with the verified draft by `template::render_headless`, run with the program the draft's own `[binary]` resolves to (so shim globs are really exercised), working directory = the session work folder, `read_only = false`, `allow_shell = false`, `trust_workspace = false`, stdin closed (or the rendered `[headless.stdin]` text), `[env]` applied. Each stage has a 90-second timeout and a 256 KiB output cap. If the draft has a `done` selector, the child gets 1.5 s of grace after `done` appears and is then killed (same rule as the real runner).
+Rendered with the verified draft by `template::render_headless`, run with the program the draft's own `[binary]` resolves to when its names are cut down to the typed command (so shim globs are really exercised, and no other program can run before approval), working directory = always the session work folder (even if the draft says `cwd = "inherit"`), `read_only = false`, `allow_shell = false`, `trust_workspace = false`, stdin closed (or the rendered `[headless.stdin]` text), `[env]` applied. Each stage has a 90-second timeout and a 256 KiB output cap. If the draft has a `done` selector, the child gets 1.5 s of grace after `done` appears and is then killed (same rule as the real runner).
 
 ### 5.1 Stages (in order, stop at the first failure so no tokens are wasted)
 | # | Name | Task text | Passes when |
@@ -227,7 +227,7 @@ Every live test, passing or not, keeps its stage outputs in the session as **sam
 3. **Wizard rules** on the parsed draft (phase 1 = headless):
    - `WIZARD_NO_HEADLESS`: a `[headless]` table with `[headless.output]` is required.
    - `WIZARD_ID_TAKEN`: `<agents dir>/<id>.toml`, `<id>.wizard.json` or the `<id>/` folder already exists (Finish never overwrites). The message suggests another id.
-   - `WIZARD_BINARY_MISMATCH`: `binary.names` must include the command the person typed (compared without extension, case-insensitive).
+   - `WIZARD_BINARY_MISMATCH`: the first entry of `binary.names` must be the command the person typed (compared without extension, case-insensitive); other names may follow. Names are tried in order, so this is what makes the approved definition run the program that was tested.
    - `WIZARD_BINARY_UNRESOLVED`: the draft's `[binary]` must resolve to a program with the session's PATH (`AGENT_NOT_INSTALLED` / `AGENT_DEF_SHIM_NEEDS_NATIVE`); for a shim the candidate list is repeated in the message.
    - `WIZARD_KIND`: `kind` must be `cli` (a generic agent is the old "Add as generic agent" path).
    - Warnings (not errors): the validator's approval warnings (`--yolo`, `--dangerously...`, `--auto`, `--force`, env keys) and "the draft has no resume support".

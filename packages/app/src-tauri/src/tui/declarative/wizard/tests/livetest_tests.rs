@@ -209,6 +209,30 @@ fn a_program_that_lingers_after_its_last_event_is_stopped_and_still_passes() {
 }
 
 #[test]
+fn the_live_test_always_runs_in_the_work_folder_even_if_the_draft_asks_for_the_apps_folder() {
+    let tree = Tree::new("l-cwd");
+    let wizard = tree.wizard();
+    let draft = GOOD.replace("task_separator = \"--\"", "task_separator = \"--\"
+cwd = \"inherit\"");
+    let id = verified(&wizard, "fake-agent", &draft);
+    let t = live(&wizard, &id);
+    assert_eq!(t["ok"], true, "{}", t["text"]);
+    let work = wizard.read(&id, |s| s.work_dir.file_name().unwrap().to_string_lossy().into_owned()).unwrap();
+    assert!(stage(&t, "pong")["stdout"].as_str().unwrap().contains(&work), "{}", stage(&t, "pong")["stdout"]);
+}
+
+#[test]
+fn only_the_program_the_person_typed_ever_runs_whatever_other_names_the_draft_lists() {
+    let tree = Tree::new("l-names");
+    let wizard = tree.wizard();
+    // `silent-agent` exists on the search path and would print nothing; the typed program must be used.
+    let id = verified(&wizard, "fake-agent", &GOOD.replace("names = [\"fake-agent\"]", "names = [\"fake-agent\", \"silent-agent\"]"));
+    let t = live(&wizard, &id);
+    assert_eq!(t["ok"], true, "{}", t["text"]);
+    assert_eq!(stage(&t, "pong")["result"], "pong");
+}
+
+#[test]
 fn live_output_is_redacted_and_the_reply_is_capped() {
     let tree = Tree::new("l-redact");
     let wizard = tree.wizard();

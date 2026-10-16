@@ -83,13 +83,15 @@ fn wizard_rules(def: &Definition, session: &Session, env: &WizardEnv, errors: &m
             format!("the id `{id}` is already used: `{what}` exists in the agents folder (the wizard never overwrites)"),
         ));
     }
+    // The program that was tested is the one the person typed; the definition must start with it, so
+    // the approved definition runs the same program (names are tried in order).
     let typed = bare(&session.command);
-    if !def.binary.names.iter().any(|n| bare(n) == typed) {
+    if def.binary.names.first().map(|n| bare(n)) != Some(typed.clone()) {
         errors.push(CheckError::new(
             "wizard",
             "WIZARD_BINARY_MISMATCH",
             "binary.names",
-            format!("binary.names is {:?} but the person typed `{}`", def.binary.names, session.command),
+            format!("binary.names is {:?} but the first name must be the command the person typed, `{}`", def.binary.names, session.command),
         ));
     }
     match resolve_in(&def.binary, &session.dirs, Platform::current()) {

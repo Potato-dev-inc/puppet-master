@@ -53,7 +53,7 @@ pub fn fix_for(code: &str, path: &str) -> String {
         }
         "WIZARD_ID_TAKEN" => "Choose a different `agent.id`; this one already has a file. Add a suffix such as `_2`.",
         "WIZARD_BINARY_MISMATCH" => {
-            "Put the command the person typed first in `binary.names`. Do not rename the program."
+            "Put the command the person typed first in `binary.names` (other names may follow). Do not rename the program."
         }
         "WIZARD_BINARY_UNRESOLVED" => {
             "The program could not be found with these names. Use the exact command the person typed. For an npm wrapper, add `shim_native_globs` pointing at the real .exe (see the format guide, section 8)."

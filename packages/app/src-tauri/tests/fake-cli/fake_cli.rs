@@ -5,7 +5,7 @@
 //   fake-agent run [--format json] [-m MODEL] [-s SESSION] [--] <task>
 //
 // `run --format json` prints JSON lines:
-//   {"event":"start","session":"fk-0001","model":"fake/fast"}
+//   {"event":"start","session":"fk-0001","model":"fake/fast","resumed":false,"cwd":"<working folder>"}
 //   {"event":"message","delta":"po"}
 //   {"event":"end","session":"fk-0001","reason":"stop","text":"pong"}
 // A task "Reply with exactly the word: X" is answered with X, anything else with "ok". A model other
@@ -162,7 +162,8 @@ fn run(args: &[String], raw: bool) {
         println!("{text}");
         return;
     }
-    event(&format!("{{\"event\":\"start\",\"session\":\"{id}\",\"model\":\"{model}\",\"resumed\":{}}}", session.is_some()));
+    let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default().replace('\\', "/");
+    event(&format!("{{\"event\":\"start\",\"session\":\"{id}\",\"model\":\"{model}\",\"resumed\":{},\"cwd\":\"{cwd}\"}}", session.is_some()));
     let mid = text.len() / 2;
     event(&format!("{{\"event\":\"message\",\"delta\":\"{}\"}}", &text[..mid]));
     event(&format!("{{\"event\":\"message\",\"delta\":\"{}\"}}", &text[mid..]));

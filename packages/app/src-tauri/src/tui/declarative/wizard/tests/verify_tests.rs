@@ -121,6 +121,12 @@ fn the_program_name_must_be_the_one_the_person_typed() {
     assert!(c.contains(&"WIZARD_BINARY_MISMATCH".to_string()), "{c:?}");
     let mismatch = v["errors"].as_array().unwrap().iter().find(|e| e["code"] == "WIZARD_BINARY_MISMATCH").unwrap();
     assert!(mismatch["message"].as_str().unwrap().contains("fake-agent"));
+    // the typed command must come first: names are tried in order, so another program could run instead
+    let other_first = GOOD.replace("names = [\"fake-agent\"]", "names = [\"other-agent\", \"fake-agent\"]");
+    let v = verify(&wizard, &id, &other_first);
+    assert!(codes(&v).contains(&"WIZARD_BINARY_MISMATCH".to_string()), "{}", v["text"]);
+    let after = verify(&wizard, &id, &GOOD.replace("names = [\"fake-agent\"]", "names = [\"fake-agent\", \"other-agent\"]"));
+    assert_eq!(after["ok"], true, "{}", after["text"]);
     // an extension or different case on the right name is fine
     let fine = verify(&wizard, &id, &GOOD.replace("names = [\"fake-agent\"]", "names = [\"Fake-Agent\"]"));
     assert_eq!(fine["ok"], true, "{}", fine["text"]);
