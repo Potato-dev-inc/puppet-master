@@ -65,6 +65,8 @@ export interface PromptOptions {
   /** Maximum characters; the probe text shrinks first. Default: the local budget. */
   maxChars?: number;
   feedback?: PromptFeedback;
+  /** Benchmark only: leave out the example of the agent being rebuilt, so the test is not circular. */
+  omitExample?: 'kiro' | 'kilo';
 }
 
 export interface BuiltPrompt {
@@ -192,11 +194,17 @@ function sampleBlock(s: Sample): string {
 export function buildPrompt(facts: PromptFacts, options: PromptOptions = {}): BuiltPrompt {
   const budget = options.maxChars ?? LOCAL_PROMPT_BUDGET;
   const guide = formatGuide();
-  const examples = [
-    'Example 1: a complete working definition (Kiro, JSON-lines output, one final event)',
+  const kiro = [
+    'Example: a complete working definition (Kiro, JSON-lines output, one final event)',
     `${FENCE}toml\n${kiroToml.trim()}\n${FENCE}`,
-    'Example 2: the headless half of a second definition (Kilo, event stream, optional segments)',
+  ];
+  const kilo = [
+    'Example: the headless half of another definition (Kilo, event stream, optional segments)',
     `${FENCE}toml\n${kiloHeadlessExample()}\n${FENCE}`,
+  ];
+  const examples = [
+    ...(options.omitExample === 'kiro' ? [] : kiro),
+    ...(options.omitExample === 'kilo' ? [] : kilo),
   ].join('\n\n');
 
   const samples = (facts.samples ?? []).map(sampleBlock);

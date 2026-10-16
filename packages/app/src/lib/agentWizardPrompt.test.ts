@@ -164,3 +164,24 @@ describe('buildPrompt', () => {
     expect(built.text).toContain('node_modules/@acme/cli/bin/acme.exe');
   });
 });
+
+describe('omitExample (benchmark only)', () => {
+  it('leaves out the example of the agent being rebuilt, and only that one', () => {
+    const both = buildPrompt(facts());
+    const noKiro = buildPrompt(facts(), { omitExample: 'kiro' });
+    const noKilo = buildPrompt(facts(), { omitExample: 'kilo' });
+    expect(both.text).toContain('runFinished');
+    expect(both.text).toContain('headless.output.session');
+    expect(noKiro.text).not.toContain('runFinished');
+    expect(noKiro.text).toContain('(Kilo, event stream');
+    expect(noKilo.text).not.toContain('(Kilo, event stream');
+    expect(noKilo.text).toContain('runFinished');
+    expect(noKiro.chars).toBeLessThan(both.chars);
+    expect(noKilo.chars).toBeLessThan(both.chars);
+  });
+
+  it('labels each example the same way', () => {
+    const text = buildPrompt(facts()).text;
+    expect(text.match(/^Example: /gm)).toHaveLength(2);
+  });
+});
