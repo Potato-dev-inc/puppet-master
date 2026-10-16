@@ -114,7 +114,7 @@ impl PaneHost for RegistryHost {
                 AnswerKey::Enter => ("", true),
                 AnswerKey::Text(t) => (t.as_str(), false),
             };
-            crate::pty::registry_write_input(&self.registry, &self.app, pane, text, enter, false, None, crate::pty::WriteOrigin::Answer)?;
+            crate::pty::registry_write_input(&self.registry, &self.app, pane, text, enter, false, None, crate::pty::WriteOrigin::WizardAnswer)?;
         }
         Ok(())
     }
