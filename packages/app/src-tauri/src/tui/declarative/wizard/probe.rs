@@ -24,6 +24,15 @@ const DENIED_SUBCOMMANDS: &[&str] = &[
 
 const BASE: &[&[&str]] = &[&["--help"], &["-h"], &["--version"], &["help"]];
 
+/// Tools whose `--help` or `help <topic>` opens a manual page or a browser window instead of printing
+/// (git, npm, cargo ...). They are not coding agents; for them only `--version` is asked.
+const OPENS_DOCUMENTATION: &[&str] = &["git", "npm", "npx", "pnpm", "yarn", "cargo", "rustup", "gh", "man"];
+
+pub fn opens_documentation(command: &str) -> bool {
+    let lower = command.to_ascii_lowercase();
+    OPENS_DOCUMENTATION.contains(&lower.as_str())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ProbeRunReport {
     pub label: String,
@@ -110,6 +119,7 @@ fn combined(out: &exec::RunOutput) -> String {
 
 /// Run the probe list against `program`.
 pub fn probe_program(
+    command: &str,
     program: &std::path::Path,
     work_dir: &std::path::Path,
     limits: &Limits,
@@ -145,9 +155,17 @@ pub fn probe_program(
         });
     };
 
+    let docs = opens_documentation(command);
     for base in BASE {
         if cancel.load(Ordering::SeqCst) {
             break;
+        }
+        if docs && base[0] != "--version" {
+            skipped.push(Skipped {
+                args: base.iter().map(|s| s.to_string()).collect(),
+                reason: "this program opens documentation windows; its help is not asked for".into(),
+            });
+            continue;
         }
         if runs.len() >= limits.probe_max_runs {
             skipped.push(Skipped { args: base.iter().map(|s| s.to_string()).collect(), reason: "run limit reached".into() });
@@ -210,7 +228,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     let id = super::api::session_id(body)?;
     let snap = wizard.begin(&id, "probe", &[State::Resolved, State::Probed, State::Verified, State::Tested])?;
     let env = wizard.env();
-    let report = probe_program(&snap.program, &snap.work_dir, &env.limits, &snap.cancel);
+    let report = probe_program(&snap.command, &snap.program, &snap.work_dir, &env.limits, &snap.cancel);
     let mut json = report_json(&report, &env.limits);
     let state = wizard.end(&id, |s| {
         s.probe = Some(report);

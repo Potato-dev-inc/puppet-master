@@ -200,3 +200,20 @@ fn probes_do_not_wait_for_input() {
     ok(&wizard, "probe", json!({"session": id}));
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
 }
+
+#[test]
+fn tools_that_open_documentation_windows_are_only_asked_for_their_version() {
+    // `git --help` opens a manual page in a browser; a copy of the fake named `git` stands in for it.
+    let tree = Tree::new("probe-docs");
+    let wizard = tree.wizard();
+    let id = start(&wizard, "git");
+    let out = ok(&wizard, "probe", json!({"session": id}));
+    let labels: Vec<&str> = out["runs"].as_array().unwrap().iter().map(|r| r["label"].as_str().unwrap()).collect();
+    assert_eq!(labels, ["--version"]);
+    let skipped = out["skipped"].as_array().unwrap();
+    assert_eq!(skipped.len(), 3);
+    assert!(skipped[0]["reason"].as_str().unwrap().contains("documentation windows"));
+    assert_eq!(out["subcommands"], json!([]));
+    assert!(crate::tui::declarative::wizard::probe::opens_documentation("NPM"));
+    assert!(!crate::tui::declarative::wizard::probe::opens_documentation("kiro-cli"));
+}
