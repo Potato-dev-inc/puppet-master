@@ -5,10 +5,16 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   approvalWarnings,
   argvDiff,
+  baseName,
   canReview,
   errorMessage,
   fileName,
+  folderOf,
   formatArgv,
+  plainError,
+  removability,
+  restoreMessage,
+  rowName,
   sourceLabel,
   stateLabel,
   tauriAgentDefinitionsApi,
@@ -19,6 +25,7 @@ import {
   type DraftsListing,
   type FixtureCheck,
   type ProjectScan,
+  type RemovedAgent,
 } from '../../../lib/agentDefinitions';
 import {
   agentReadyMessage,
@@ -71,6 +78,9 @@ export function AgentDefinitions({
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [extraPath, setExtraPath] = useState('');
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [removing, setRemoving] = useState<DefinitionRow | null>(null);
+  const [removed, setRemoved] = useState<RemovedAgent[]>([]);
+  const [undo, setUndo] = useState<{ removedId: string; label: string } | null>(null);
 
   const apply = useCallback((next: DefinitionsListing) => {
     setListing(next);
@@ -95,6 +105,15 @@ export function AgentDefinitions({
     }
   }, [api]);
 
+  const loadRemoved = useCallback(async () => {
+    if (!api.removedList) return;
+    try {
+      setRemoved((await api.removedList()).removed);
+    } catch (e) {
+      setError(plainError(e));
+    }
+  }, [api]);
+
   // The consent banner (P5-3): the open project's definition files, listed by name only.
   const loadProjectScan = useCallback(async () => {
     try {
@@ -108,10 +127,18 @@ export function AgentDefinitions({
   useEffect(() => {
     void load();
     void loadDrafts();
+    void loadRemoved();
     void loadProjectScan();
     // The backend pushes a change when a definition file is saved: no polling.
     return onAgentDefinitionsChanged(() => void load());
-  }, [load, loadDrafts, loadProjectScan]);
+  }, [load, loadDrafts, loadRemoved, loadProjectScan]);
+
+  // The undo toast goes away by itself; "Recently removed" keeps the way back.
+  useEffect(() => {
+    if (!undo) return;
+    const timer = setTimeout(() => setUndo(null), 15000);
+    return () => clearTimeout(timer);
+  }, [undo]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -247,6 +274,41 @@ export function AgentDefinitions({
       setNote(`${row.id} was revoked - removed from the New session menu. No restart needed.`);
     });
 
+  // Remove moves the files to .removed/ (never deletes), drops the approval and reloads the registry, so
+  // the agent leaves the New session menu at once. Running panes are not touched.
+  const confirmRemove = () =>
+    run(async () => {
+      const row = removing;
+      if (!row || !api.remove) return;
+      try {
+        const done = await api.remove(row.file);
+        setRemoving(null);
+        setNote(null);
+        setUndo({ removedId: done.removed_id, label: done.label || rowName(row) });
+      } catch (e) {
+        setRemoving(null);
+        throw new Error(plainError(e));
+      }
+      apply(await api.list());
+      await loadRemoved();
+      await handleDefinitionsChanged();
+    });
+
+  const restore = (removedId: string, fallbackLabel: string) =>
+    run(async () => {
+      if (!api.restore) return;
+      try {
+        const done = await api.restore(removedId);
+        setUndo(null);
+        setNote(restoreMessage({ ...done, label: done.label || fallbackLabel }));
+      } catch (e) {
+        throw new Error(plainError(e));
+      }
+      apply(await api.list());
+      await loadRemoved();
+      await handleDefinitionsChanged();
+    });
+
   return (
     <>
       {projectScan && projectScan.files.length > 0 && !projectScan.consented && !bannerDismissed && (
@@ -298,6 +360,21 @@ export function AgentDefinitions({
             Add as generic agent
           </button>
         </div>
+        {undo && (
+          <div
+            role="status"
+            data-testid="undo-toast"
+            className="mb-3 flex items-center gap-2 rounded-lg border border-pm-border bg-pm-border/20 px-3 py-2 text-xs"
+          >
+            <span className="min-w-0 flex-1">Removed {undo.label}.</span>
+            <button type="button" className={BTN} disabled={busy} onClick={() => void restore(undo.removedId, undo.label)}>
+              Undo
+            </button>
+            <button type="button" className={BTN} onClick={() => setUndo(null)}>
+              Dismiss
+            </button>
+          </div>
+        )}
         <p className="mb-3 text-xs text-pm-muted">
           Experimental: runs the command in a visible pane and reads its screen with shared heuristics. It stays
           inactive until you approve it.
@@ -320,6 +397,7 @@ export function AgentDefinitions({
               busy={busy}
               onReview={review}
               onRevoke={revoke}
+              onRemove={api.remove ? (r) => setRemoving(r) : undefined}
               onCheck={check}
               onExport={exportRow}
               check={checks?.file === row.file ? checks.check : null}
@@ -328,6 +406,34 @@ export function AgentDefinitions({
           ))}
         </ul>
       </SettingBlock>
+      {api.removedList && removed.length > 0 && (
+        <SettingBlock
+          label="Recently removed"
+          description="Agents you removed. Their files wait in the .removed folder next to your agents, so you can bring one back."
+        >
+          <ul className="space-y-2">
+            {removed.map((item) => (
+              <li key={item.removed_id} data-testid="removed-row" className="flex items-center gap-3 rounded-lg border border-pm-border p-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{item.label || item.id}</p>
+                  <p className="break-all text-xs text-pm-muted">
+                    {item.file_name} - removed {formatRemoved(item.removed_at)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={BTN}
+                  disabled={busy || !api.restore}
+                  aria-label={`Restore ${item.label || item.id}`}
+                  onClick={() => void restore(item.removed_id, item.label || item.id)}
+                >
+                  Restore
+                </button>
+              </li>
+            ))}
+          </ul>
+        </SettingBlock>
+      )}
       {api.draftsList && (
         <SettingBlock
           label="Drafts"
@@ -466,6 +572,9 @@ export function AgentDefinitions({
       {wizardOpen && (
         <AgentWizard api={wizardApi} onClose={() => setWizardOpen(false)} onApprove={(done) => void wizardDone(done)} />
       )}
+      {removing && (
+        <RemoveDialog row={removing} busy={busy} onRemove={() => void confirmRemove()} onCancel={() => setRemoving(null)} />
+      )}
       {reviewing && (
         <ApproveDialog
           reviewing={reviewing}
@@ -573,6 +682,7 @@ function DefinitionItem({
   busy,
   onReview,
   onRevoke,
+  onRemove,
   onCheck,
   onExport,
   check,
@@ -582,6 +692,8 @@ function DefinitionItem({
   busy: boolean;
   onReview: (row: DefinitionRow) => void;
   onRevoke: (row: DefinitionRow) => void;
+  /** Absent when the backend cannot remove (then no Remove button shows). */
+  onRemove?: (row: DefinitionRow) => void;
   onCheck: (row: DefinitionRow) => void;
   onExport: (row: DefinitionRow) => void;
   check: FixtureCheck | null;
@@ -628,9 +740,19 @@ function DefinitionItem({
               Revoke
             </button>
           )}
+          {onRemove && removability(row) === 'own' && (
+            <button type="button" className={BTN} disabled={busy} aria-label={`Remove ${rowName(row)}`} onClick={() => onRemove(row)}>
+              Remove
+            </button>
+          )}
         </span>
       </div>
       <p className="mt-1 break-all text-xs text-pm-muted">{row.file}</p>
+      {onRemove && removability(row) === 'elsewhere' && (
+        <p data-testid="comes-from" className="mt-1 text-xs text-pm-muted">
+          This agent comes from {folderOf(row.file)}. Remove it there, or turn it off with Revoke.
+        </p>
+      )}
       {check && check.status === 'no_fixtures' && (
         <div data-testid="fixtures-none" className="mt-2 text-xs text-pm-muted">
           <p>{noFixturesMessage(check)}</p>
@@ -680,6 +802,64 @@ function DefinitionItem({
         </ul>
       )}
     </li>
+  );
+}
+
+/** "2026-10-16T12:34:56Z" as a short local date and time; the raw text when it is not a date. */
+function formatRemoved(at: string): string {
+  const date = new Date(at);
+  return Number.isNaN(date.getTime()) ? at : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function RemoveDialog({
+  row,
+  busy,
+  onRemove,
+  onCancel,
+}: {
+  row: DefinitionRow;
+  busy: boolean;
+  onRemove: () => void;
+  onCancel: () => void;
+}) {
+  const name = rowName(row);
+  const stem = baseName(row.file).replace(/\.toml$/i, '');
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Remove ${name}`}
+        className="max-h-full w-full max-w-md overflow-auto rounded-xl border border-pm-border bg-pm-panel p-5"
+      >
+        <h3 className="text-sm font-semibold">Remove {name}?</h3>
+        <p className="mt-3 text-xs text-pm-muted">These are moved to a .removed folder next to your agents. Nothing is deleted.</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+          <li>
+            The definition file, <span className="font-mono">{baseName(row.file)}</span>
+          </li>
+          <li>
+            Its test fixtures folder, <span className="font-mono">{stem}/</span>, if it has one
+          </li>
+          <li>
+            <span className="font-mono">{stem}.wizard.json</span>, if it has one
+          </li>
+          <li>Its approval</li>
+        </ul>
+        <p className="mt-3 text-xs text-pm-muted">
+          Panes already running this agent keep running. It leaves the New session menu now. You can undo this right
+          away, or restore it later from Recently removed.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" className={BTN} onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className={BTN} disabled={busy} onClick={onRemove}>
+            Remove
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
