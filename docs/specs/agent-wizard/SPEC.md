@@ -212,7 +212,7 @@ Rendered with the verified draft by `template::render_headless`, run with the pr
 | 3 | `resume` | `Reply with exactly the word: <two>` with `{session}` = the id from stage 1 | `extract_result` = `<two>`; the session id (if any) equals stage 1's. **Skipped** (with a note) when the draft has no `resume` segment or no `session` selector |
 | 4 | `bad_model` | `Reply with exactly the word: <one>`, model = `pm-wizard-no-such-model/zzz` | `extract_result` is empty AND the failure is recognised: the draft's `error` selector fired (`AGENT_REPORTED_ERROR`), or the exit code is not 0. A clean exit with nothing parseable is not a recognised error (the draft needs an `error` selector). **Skipped** when the draft has no `model` segment |
 
-**The answers are random.** `<one>` and `<two>` are `pong-` and six random lowercase letters, `<sky>` is six random lowercase letters, made when the session starts and never part of the prompt (the prompt describes the test generically). A definition whose regex or literal matches a fixed word would otherwise pass the live test and be useless. Therefore: (1) `verify` rejects (`WIZARD_TEST_WORD`) a draft whose text contains any of the three words or the bare word `pong` (also `pong2`, `pong-...`); (2) everything that goes back to the drafter or the UI (stage args, output, results, problems, excerpts, replay failures) has them replaced by `<word-1>`, `<word-2>`, `<word-3>`; the unmasked output stays in the session for replay and fixtures.
+**The answers are random.** `<one>` and `<two>` are `pong-` and six random lowercase letters, `<sky>` is six random lowercase letters, made when the session starts and never part of the prompt (the prompt describes the test generically). A definition whose regex or literal matches a fixed word would otherwise pass the live test and be useless. Therefore: (1) `verify` rejects (`WIZARD_TEST_WORD`) a draft whose text contains any of the three words, the six random letters of the two `pong-` words on their own, or the bare word `pong` (also `pong2`, `pong-...`); (2) everything that goes back to the drafter or the UI (stage args, output, results, problems, excerpts, replay failures) has them replaced by `<word-1>`, `<word-2>`, `<word-3>` (and the random letters of a `pong-` word, which streamed output splits into pieces, by `<w1>` / `<w2>`); the unmasked output stays in the session for replay and fixtures.
 
 ### 5.2 Fixtures written from the live outputs
 Stage outputs are stored as the agent printed them (stdout only; escape codes removed, secrets masked by `redact::text`, and the user-folder name in any `C:\Users\<name>` or `/home/<name>` path replaced by `user`). Names and expectations (the expectations come from the stage's purpose, not from the draft's own output):
@@ -342,23 +342,59 @@ Plain, short English everywhere; the word "isolated" (never "sandboxed"); monoch
 ### 10.1 Benchmark against the hand-written Kilo and Kiro definitions (live, run by hand)
 The point: the wizard, run from scratch against the real programs, must produce definitions that pass the **existing** recorded fixtures (`tui/declarative/fixtures/{kilo,kiro}`, headless captures only) and render the same commands as `tests/agent-definitions/{kilo,kiro}.toml`.
 
-Two ways to produce the draft: in the app (Settings > Agents > Add with wizard, then take `<app data>/agents/<id>.toml`), or from any file. Then score it. The scorer is a Rust test marked `#[ignore]` (it needs env vars; it never starts an agent):
+**Leave one out.** The prompt contains the Kiro example and the headless half of the Kilo example. When the agent being rebuilt is one of them, leave its example out (`PM_WIZARD_BENCH_OMIT=kilo|kiro`, `PromptOptions.omitExample`), or the benchmark is circular.
+
+All commands below are PowerShell, run from the repo root (`D:\pm-agent-wizard`). `<dir>` is the bench folder of one agent, for example `D:\wizard-bench\kilo`; `<cmd>` is the command (`kilo`, `kiro-cli`).
 
 ```powershell
-cd packages\app\src-tauri
 $env:CARGO_TARGET_DIR = 'D:\pm-cargo-agent-wizard'
-$env:PM_WIZARD_DRAFT = 'C:\path\to\draft.toml'
-$env:PM_WIZARD_REFERENCE = 'kilo'      # or 'kiro'
+$dir = 'D:\wizard-bench\kilo'; $cmd = 'kilo'; $omit = 'kilo'     # or kiro-cli / kiro
+
+# 0. Once per agent: resolve and probe the real program (no AI, no tokens). Writes $dir\probe.json.
+cd packages\app\src-tauri
+$env:PM_WIZARD_COMMAND = $cmd; $env:PM_WIZARD_OUT = $dir
+cargo test --lib tui::declarative::wizard::tests::benchmark::probe_dump -- --ignored --nocapture
+cd ..\..\..
+
+# Per round N = 1 .. 5
+$n = 1; $round = "$dir\round-$n"
+# 1. Build the prompt (round 1: facts and probes; round 2+: also last round's checker text, previous draft and live output)
+cd packages\app
+$env:PM_WIZARD_BENCH = '1'; $env:PM_WIZARD_BENCH_DIR = $dir; $env:PM_WIZARD_BENCH_ROUND = $n; $env:PM_WIZARD_BENCH_OMIT = $omit
+$env:PM_WIZARD_BENCH_STEP = 'prompt'
+npx vitest run src/lib/agentWizardBench.test.ts
+# 2. Ask the drafter (any AI; this is the local Claude Code the app would use). Run it in an empty folder,
+#    and through cmd so the UTF-8 prompt reaches it unchanged.
+Push-Location D:\wizard-bench\empty
+cmd /c "claude -p < $round\prompt.txt > $round\reply.md"
+Pop-Location
+# 3. Take the one toml block of the reply -> $round\draft.toml (a reply without one becomes feedback for the next round)
+$env:PM_WIZARD_BENCH_STEP = 'extract'
+npx vitest run src/lib/agentWizardBench.test.ts
+cd ..\src-tauri
+# 4. Verify the draft and run the live test against the real program (SPENDS about 4 small messages).
+$env:PM_WIZARD_ROUND_DIR = $round; $env:PM_WIZARD_REFERENCE = 'kilo'     # or 'kiro': also writes score.txt
+cargo test --lib tui::declarative::wizard::tests::benchmark::bench_round -- --ignored --nocapture
+Get-Content "$round\result.txt"        # PASS | FAIL verify | FAIL livetest | FAIL no-toml
+cd ..\..
+# Not PASS: repeat from step 1 with $n = $n + 1 (the prompt reads round-$($n-1)\feedback.json). PASS: stop.
+```
+
+Files in `round-N\`: `prompt.txt`, `reply.md`, `draft.toml`, `verify.txt` (OK or the checker text), `live.json` (the live-test reply), `samples.json` (the real output of each stage that ran), `feedback.json` (`{previous_toml, text, samples}`, what the next prompt consumes), `result.txt`, `score.txt`. The live-test answers are random per round and masked as `<word-1>` / `<word-2>` / `<word-3>` in all of these, and verify refuses a draft that contains them or the bare word `pong`. A round is a fresh wizard session, so the free replay of earlier outputs (5.3) is not part of this loop: every round that verifies runs the live test.
+
+When a round passes, score the draft against the recorded fixtures and the hand-written definition (no agent started):
+
+```powershell
+$env:PM_WIZARD_DRAFT = "$round\draft.toml"; $env:PM_WIZARD_REFERENCE = 'kilo'   # or 'kiro'
+cd packages\app\src-tauri
 cargo test --lib tui::declarative::wizard::tests::benchmark::score_draft -- --ignored --nocapture
 ```
-It prints a table: validate/conformance result, the headless fixtures of the reference (pass/fail per file), and whether the rendered argv matches the reference for four launches (plain, with model, with resume, with both). Exit is a test failure when any headless fixture fails.
+It prints a table: definition problems, the headless fixtures of the reference (PASS/FAIL per file) and whether the rendered argv matches the reference for four launches (plain, with model, with resume, with both). It fails when any recorded headless fixture fails.
 
-Other helpers, same file, also `#[ignore]`:
-- `probe_dump` (`PM_WIZARD_COMMAND=kilo`, `PM_WIZARD_OUT=<dir>`): resolves and probes the real program and writes `<dir>\probe.json` (what the drafter would see). Starts only `--version`, `--help`, `-h`, `help`, `<sub> --help` and `help <sub>`. No AI, no tokens.
-- `livetest_draft` (`PM_WIZARD_COMMAND`, `PM_WIZARD_DRAFT`, optional `PM_WIZARD_OUT`): verify + the live test against the real program with a given draft. **Spends about 4 small messages.** Nothing is written to the real agents folder; with `PM_WIZARD_FINISH=1` the files go to `<out>\agents`.
+Other helpers in `tests/benchmark.rs` (all `#[ignore]`, run by hand):
+- `probe_dump` (`PM_WIZARD_COMMAND`, `PM_WIZARD_OUT=<dir>`): writes `<dir>\probe.json` (what the drafter sees). Starts only `--version`, `--help`, `-h`, `help`, `<sub> --help` and `help <sub>`.
+- `livetest_draft` (`PM_WIZARD_COMMAND`, `PM_WIZARD_DRAFT`, optional `PM_WIZARD_OUT`): verify + live test of one given draft, printed. Spends about 4 small messages. Nothing is written to the real agents folder; with `PM_WIZARD_FINISH=1` the files go to `<out>\agents`.
 
-The scorer itself runs in the normal suite against the references (`tui::declarative::wizard::tests::benchmark::the_references_score_perfectly_against_their_own_headless_fixtures`), which proves it works without any agent installed.
+The scorer and the round writer also run in the normal suite against the references and the fake CLI (`benchmark::the_references_score_perfectly_against_their_own_headless_fixtures`, `benchmark::a_passing_round_writes_pass_and_empty_feedback`, `agentWizardBench.test.ts`), which proves the loop works without any agent installed.
 
-To get a draft without the app: build the prompt from `probe_dump`'s output with `buildPrompt` (`lib/agentWizardPrompt.ts`) and give it to any AI, or take the file the wizard wrote.
-
-Live check list for Kilo and Kiro: (1) run the wizard from scratch, (2) `score_draft` on the result, (3) compare the TOML with the reference by eye, (4) Review > Approve > run one `run_agent` through the approved agent.
+Live check list for Kilo and Kiro: (1) run the loop above until PASS, (2) `score_draft` on the result, (3) compare the TOML with the reference by eye, (4) in the app: Review > Approve > run one `run_agent` through the approved agent.

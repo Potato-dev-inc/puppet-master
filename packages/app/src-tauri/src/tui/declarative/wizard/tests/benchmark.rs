@@ -276,3 +276,115 @@ fn livetest_draft() {
     }
     assert_eq!(live["ok"], true, "the live test did not pass");
 }
+
+/// One round of the headless benchmark loop (SPEC "Benchmark"): verify `draft` for `command` and, if it
+/// passes, run the live test. Writes `verify.txt`, `live.json`, `samples.json`, `feedback.json` and
+/// `result.txt` (`PASS`, `FAIL verify` or `FAIL livetest`) into `round`, for the next round's prompt.
+/// Returns the result line.
+pub fn run_round(wizard: &Wizard, command: &str, round: &Path, draft: &str, reference_name: Option<&str>) -> (String, crate::tui::declarative::wizard::session::TestWords) {
+    let write = |name: &str, text: &str| std::fs::write(round.join(name), text).unwrap_or_else(|e| panic!("{name}: {e}"));
+    let id = super::support::start(wizard, command);
+    super::support::ok(wizard, "probe", serde_json::json!({"session": id}));
+    if let Some(name) = reference_name {
+        let dir = scratch("bench-score");
+        write("score.txt", &score(draft, &reference(name), &dir).table(name));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    let verify = super::support::ok(wizard, "verify", serde_json::json!({"session": id, "toml": draft}));
+    let mut samples = serde_json::json!([]);
+    let (result, text, live_json) = if verify["ok"] != true {
+        ("FAIL verify", verify["text"].as_str().unwrap_or("").to_string(), serde_json::Value::Null)
+    } else {
+        let live = super::support::ok(wizard, "livetest", super::support::live_body(wizard, &id));
+        samples = serde_json::Value::Array(
+            live["stages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|s| s["status"] != "skipped")
+                .map(|s| {
+                    serde_json::json!({
+                        "stage": s["name"], "args": s["args"], "exit": s["exit"], "stdout": s["stdout"], "stderr": s["stderr"],
+                        "result": s["result"], "session": s["session"], "error_code": s["error_code"],
+                    })
+                })
+                .collect(),
+        );
+        if live["ok"] == true {
+            ("PASS", String::new(), live)
+        } else {
+            ("FAIL livetest", live["text"].as_str().unwrap_or("").to_string(), live)
+        }
+    };
+    write("verify.txt", &format!("{}\n{}", if verify["ok"] == true { "OK" } else { "NOT OK" }, verify["text"].as_str().unwrap_or("")));
+    write("live.json", &serde_json::to_string_pretty(&live_json).unwrap());
+    write("samples.json", &serde_json::to_string_pretty(&samples).unwrap());
+    write("feedback.json", &serde_json::to_string_pretty(&serde_json::json!({"previous_toml": draft, "text": text, "samples": samples})).unwrap());
+    write("result.txt", &format!("{result}\n"));
+    let words = wizard.read(&id, |s| s.words.clone()).unwrap();
+    super::support::ok(wizard, "cancel", serde_json::json!({"session": id}));
+    (result.to_string(), words)
+}
+
+/// `PM_WIZARD_COMMAND=kilo` and `PM_WIZARD_ROUND_DIR=<dir>\round-N`, with the drafter's `draft.toml` in
+/// that folder. Runs `run_round` against the real program (the live test SPENDS about 4 small messages).
+/// With `PM_WIZARD_REFERENCE=kilo|kiro` it also writes `score.txt`. A failing draft is a normal result,
+/// not a test failure: the loop goes on.
+#[test]
+#[ignore = "spends real agent messages; run by hand (see SPEC Benchmark)"]
+fn bench_round() {
+    let command = env_var("PM_WIZARD_COMMAND");
+    let round = PathBuf::from(env_var("PM_WIZARD_ROUND_DIR"));
+    let draft_path = round.join("draft.toml");
+    let draft = std::fs::read_to_string(&draft_path).unwrap_or_else(|e| panic!("{}: {e} (run the extract step first)", draft_path.display()));
+    let wizard = real_wizard(&round);
+    let reference = std::env::var("PM_WIZARD_REFERENCE").ok();
+    let (result, _) = run_round(&wizard, &command, &round, &draft, reference.as_deref());
+    println!("{result}");
+    println!("{}", std::fs::read_to_string(round.join("feedback.json")).map(|t| serde_json::from_str::<serde_json::Value>(&t).unwrap()["text"].as_str().unwrap_or("").to_string()).unwrap_or_default());
+}
+
+// ---- the round writer, against the fake CLI (zero tokens) -----------------------------------
+
+#[test]
+fn a_passing_round_writes_pass_and_empty_feedback() {
+    let tree = super::support::Tree::new("bench-pass");
+    let wizard = tree.wizard();
+    let round = tree.root.join("round-1");
+    std::fs::create_dir_all(&round).unwrap();
+    assert_eq!(run_round(&wizard, "fake-agent", &round, super::support::GOOD, None).0, "PASS");
+    assert_eq!(std::fs::read_to_string(round.join("result.txt")).unwrap(), "PASS\n");
+    let feedback: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(round.join("feedback.json")).unwrap()).unwrap();
+    assert_eq!(feedback["text"], "");
+    assert_eq!(feedback["previous_toml"], super::support::GOOD);
+    assert!(std::fs::read_to_string(round.join("verify.txt")).unwrap().starts_with("OK"));
+    assert_eq!(wizard.session_count(), 0);
+}
+
+#[test]
+fn a_failing_round_writes_what_the_next_prompt_needs_with_the_answers_masked() {
+    let tree = super::support::Tree::new("bench-fail");
+    let wizard = tree.wizard();
+    let round = tree.root.join("round-1");
+    std::fs::create_dir_all(&round).unwrap();
+    let (result, words) = run_round(&wizard, "fake-agent", &round, super::support::WRONG_PATH, None);
+    assert_eq!(result, "FAIL livetest");
+    let feedback: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(round.join("feedback.json")).unwrap()).unwrap();
+    assert!(feedback["text"].as_str().unwrap().starts_with("The live test ran your file"));
+    let samples = feedback["samples"].as_array().unwrap();
+    assert_eq!(samples.len(), 1);
+    assert_eq!(samples[0]["stage"], "pong");
+    assert!(samples[0]["stdout"].as_str().unwrap().contains("<word-1>"), "{}", samples[0]);
+    let all = feedback.to_string();
+    for w in words.all() {
+        assert!(!all.contains(w), "the real answer {w} must not reach the next prompt: {all}");
+    }
+
+    // a draft that does not verify
+    let round2 = tree.root.join("round-2");
+    std::fs::create_dir_all(&round2).unwrap();
+    assert_eq!(run_round(&wizard, "fake-agent", &round2, super::support::NO_PATH, None).0, "FAIL verify");
+    let feedback: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(round2.join("feedback.json")).unwrap()).unwrap();
+    assert!(feedback["text"].as_str().unwrap().contains("AGENT_DEF_INCONSISTENT"));
+    assert_eq!(feedback["samples"], serde_json::json!([]));
+}
