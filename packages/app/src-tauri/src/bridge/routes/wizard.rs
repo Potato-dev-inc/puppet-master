@@ -1,4 +1,4 @@
-//! `/agents/wizard/{start,probe,capture,verify,livetest,finish,cancel}` (docs/specs/agent-wizard/SPEC.md).
+//! `/agents/wizard/{start,probe,capture,verify,livetest,visibletest,finish,cancel}` (docs/specs/agent-wizard/SPEC.md).
 //!
 //! The Agent Wizard runs programs and writes agent definitions, so, like `/agents/definitions`, it
 //! belongs to the local desktop app only: an MCP session (any request carrying the session header)
@@ -94,7 +94,7 @@ mod tests {
         let reply = respond("POST", &["agents", "wizard", "capture"], &json!({}), Some("  "), true, &|a, b| {
             api::handle(&wizard, a, b).map(|v| (200, v)).map_err(|e| (e.status, e.to_json()))
         });
-        assert_eq!(reply.unwrap().unwrap_err().0, 501);
+        assert_eq!(reply.unwrap().unwrap_err().0, 400, "a blank header is not a session, and capture then needs a session id");
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod tests {
         assert_eq!((body["code"].as_str(), body["recoverable"].as_bool()), (Some("WIZARD_SESSION_NOT_FOUND"), Some(false)));
         assert!(body["error"].is_string() && body["message"].is_string());
         let (status, body) = respond("POST", &["agents", "wizard", "capture"], &json!({}), None, true, &run).unwrap().unwrap_err();
-        assert_eq!((status, body["code"].as_str()), (501, Some("WIZARD_NOT_YET")));
+        assert_eq!((status, body["code"].as_str()), (400, Some("INVALID_ARGUMENT")));
     }
 
     #[test]

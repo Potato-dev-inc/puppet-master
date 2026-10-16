@@ -11,7 +11,7 @@ use super::report::WizardError;
 use super::session::Wizard;
 
 /// The actions behind `/agents/wizard/<action>`.
-pub const ACTIONS: &[&str] = &["start", "probe", "capture", "verify", "livetest", "finish", "cancel"];
+pub const ACTIONS: &[&str] = &["start", "probe", "capture", "verify", "livetest", "visibletest", "finish", "cancel"];
 
 pub fn session_id(body: &Value) -> Result<String, WizardError> {
     body.get("session")
@@ -34,11 +34,8 @@ pub fn handle(wizard: &Wizard, action: &str, body: &Value) -> Result<Value, Wiza
             let state = wizard.cancel(&id);
             Ok(json!({"ok": true, "state": state}))
         }
-        "capture" => Err(WizardError::new(
-            501,
-            "WIZARD_NOT_YET",
-            "The visible-screen path comes in a later version. This version learns agents that have a headless mode.",
-        )),
+        "capture" => super::visible::api::run(wizard, body),
+        "visibletest" => super::visible::livetest::run(wizard, body),
         other => Err(WizardError::new(404, "NOT_FOUND", format!("unknown wizard action {other}"))),
     }
 }

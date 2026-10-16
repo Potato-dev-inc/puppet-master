@@ -3,12 +3,15 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
 use crate::tui::declarative::wizard::session::{Limits, Wizard, WizardEnv};
+
+use super::fake_host::{quick_cfg, FakeHost};
 
 pub const GOOD: &str = include_str!("drafts/good.toml");
 pub const WRONG_PATH: &str = include_str!("drafts/wrong_path.toml");
@@ -103,7 +106,17 @@ impl Tree {
                 live_grace: Duration::from_millis(300),
                 ..Limits::default()
             },
+            host: FakeHost::new(),
+            visible: quick_cfg(),
         }
+    }
+
+    /// A wizard whose panes are a scripted host; the host is returned so the test can drive the screens.
+    pub fn visible_wizard(&self) -> (Wizard, Arc<FakeHost>) {
+        let host = FakeHost::new();
+        let mut env = self.env();
+        env.host = host.clone();
+        (Wizard::new(move || env.clone()), host)
     }
 
     pub fn wizard(&self) -> Wizard {

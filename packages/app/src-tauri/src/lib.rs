@@ -527,6 +527,12 @@ pub fn run() {
             ambient::init(app.handle());
             standby::init(registry_for_panes.clone(), app.handle().clone());
             canary::init(app.handle().clone());
+            // The Agent Wizard's panes (guided capture, visible test) go through the app's pane registry. The
+            // host is installed here, not referenced from the wizard module, so the Tauri window code stays out
+            // of the unit-test executables.
+            tui::declarative::wizard::visible::host::install(std::sync::Arc::new(
+                tui::declarative::wizard::visible::registry_host::RegistryHost::new(registry_for_panes.clone(), app.handle().clone()),
+            ));
             pane_activity::init(registry_for_panes.clone(), app.handle().clone());
             loop_guard::init(app.handle().clone());
             panic::init_shortcut(app.handle());

@@ -1,0 +1,1038 @@
+//! The guided capture as a state machine (SPEC 11.5). Pure: `Capture::tick` is given a `Look` at the
+//! pane and a clock and answers with what the runner should do (`Action::Deliver`). It owns no process
+//! and no real time, so every step, every guard and every timeout is tested with scripted screens.
+//!
+//! Safety, in code (and in the tests of this file):
+//! - The only thing the engine can ask for is `Deliver { text }`, a task typed through the app's own
+//!   delivery path. There is no key, no answer, no "press Enter". A trust, login or permission
+//!   question is only ever recorded and shown to the person.
+//! - `may_type` is the single door to `Deliver`. It refuses unless the agent is alive, the screen has
+//!   held still for the stable time, nothing is running, no dialog is up, and the screen is positively
+//!   an input box (or the person said "it is ready" for this exact picture).
+
+use std::collections::HashSet;
+
+use serde_json::{json, Value};
+
+use super::super::session::TestWords;
+use super::host::Look;
+use super::screen::{classify, frame_key, Flavour, FrameBag, ScreenKind, Stability};
+
+/// How long a picture must hold still before the engine acts on it.
+pub const STABLE_MS: u64 = 2500;
+/// Deliveries (typed messages) one capture may make in all, retries included.
+pub const MAX_DELIVERIES: u32 = 6;
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub stable_ms: u64,
+    /// After this long a step says it is slow (it keeps trying; the person decides).
+    pub start_limit_ms: u64,
+    pub message_limit_ms: u64,
+    /// Typed, but the screen never changed.
+    pub no_reaction_ms: u64,
+    /// A settled screen that is not clearly an input box: ask the person.
+    pub unsure_ms: u64,
+    /// A reply word on one row only, settled: ask the person.
+    pub reply_unsure_ms: u64,
+    pub permission_wait_ms: u64,
+    pub exit_wait_ms: u64,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            stable_ms: STABLE_MS,
+            start_limit_ms: 120_000,
+            message_limit_ms: 180_000,
+            no_reaction_ms: 40_000,
+            unsure_ms: 8_000,
+            reply_unsure_ms: 6_000,
+            permission_wait_ms: 90_000,
+            exit_wait_ms: 15_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepId {
+    Start,
+    Ready,
+    Message,
+    Permission,
+    Exit,
+}
+
+impl StepId {
+    pub const ALL: [StepId; 5] = [StepId::Start, StepId::Ready, StepId::Message, StepId::Permission, StepId::Exit];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StepId::Start => "start",
+            StepId::Ready => "ready",
+            StepId::Message => "message",
+            StepId::Permission => "permission",
+            StepId::Exit => "exit",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            StepId::Start => "Starting",
+            StepId::Ready => "Ready",
+            StepId::Message => "Test message",
+            StepId::Permission => "Permission",
+            StepId::Exit => "Exit",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<StepId> {
+        Self::ALL.into_iter().find(|s| s.as_str() == text)
+    }
+
+    fn index(self) -> usize {
+        Self::ALL.iter().position(|s| *s == self).unwrap_or(0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepStatus {
+    Pending,
+    Running,
+    NeedsYou,
+    Done,
+    Skipped,
+    Stuck,
+    Failed,
+}
+
+impl StepStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StepStatus::Pending => "pending",
+            StepStatus::Running => "running",
+            StepStatus::NeedsYou => "needs_you",
+            StepStatus::Done => "done",
+            StepStatus::Skipped => "skipped",
+            StepStatus::Stuck => "stuck",
+            StepStatus::Failed => "failed",
+        }
+    }
+
+    fn finished(self) -> bool {
+        matches!(self, StepStatus::Done | StepStatus::Skipped | StepStatus::Stuck | StepStatus::Failed)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Step {
+    pub id: StepId,
+    pub status: StepStatus,
+    pub note: String,
+    pub frames: u32,
+    started_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NeedsYou {
+    pub step: StepId,
+    /// `trust`, `login`, `permission`, `question`, `unsure`, `unsure_reply`, `slow`, `typing`.
+    pub kind: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureAction {
+    Skip,
+    Retry,
+    Stuck,
+    Ready,
+    TryExit,
+    Closed,
+}
+
+impl CaptureAction {
+    pub fn parse(text: &str) -> Option<Self> {
+        Some(match text {
+            "skip" => Self::Skip,
+            "retry" => Self::Retry,
+            "stuck" => Self::Stuck,
+            "ready" => Self::Ready,
+            "try_exit" => Self::TryExit,
+            "closed" => Self::Closed,
+            _ => return None,
+        })
+    }
+}
+
+/// What the runner must do. There is nothing else the engine can ask a pane for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    /// Type `text` as a task through the app's delivery path.
+    Deliver { text: String },
+}
+
+// ---- the typing guard --------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Gate<'a> {
+    pub alive: bool,
+    pub stable_ms: u64,
+    pub need_ms: u64,
+    pub kind: ScreenKind,
+    pub in_flight: bool,
+    pub deliveries: u32,
+    pub ready_for: Option<&'a str>,
+    pub fingerprint: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    Dead,
+    InFlight,
+    TooMany,
+    Blank,
+    Shell,
+    Dialog,
+    Working,
+    NotStable,
+    NotInput,
+}
+
+impl Refusal {
+    /// One plain sentence for the step note.
+    pub fn say(self) -> &'static str {
+        match self {
+            Refusal::Dead => "The agent is not running.",
+            Refusal::InFlight => "Typing is in progress.",
+            Refusal::TooMany => "The wizard has typed enough messages for one capture.",
+            Refusal::Blank => "Waiting for the agent to draw something.",
+            Refusal::Shell => "The pane shows a shell prompt, not the agent.",
+            Refusal::Dialog => "The agent is asking a question. Nothing is typed until you have answered it.",
+            Refusal::Working => "The agent is busy. Waiting until it is quiet.",
+            Refusal::NotStable => "Waiting for the screen to hold still.",
+            Refusal::NotInput => "I cannot tell that the agent is waiting for a task. Press \"It is ready\" if it is.",
+        }
+    }
+}
+
+/// The one door to typing. Every `Action::Deliver` the engine makes passed through here.
+pub fn may_type(g: &Gate) -> Result<(), Refusal> {
+    if !g.alive {
+        return Err(Refusal::Dead);
+    }
+    if g.in_flight {
+        return Err(Refusal::InFlight);
+    }
+    if g.deliveries >= MAX_DELIVERIES {
+        return Err(Refusal::TooMany);
+    }
+    match g.kind {
+        ScreenKind::Blank => return Err(Refusal::Blank),
+        ScreenKind::Shell => return Err(Refusal::Shell),
+        ScreenKind::Dialog(_) => return Err(Refusal::Dialog),
+        ScreenKind::Working => return Err(Refusal::Working),
+        ScreenKind::Input | ScreenKind::Unknown => {}
+    }
+    if g.stable_ms < g.need_ms {
+        return Err(Refusal::NotStable);
+    }
+    if g.kind == ScreenKind::Input || g.ready_for == Some(g.fingerprint) {
+        Ok(())
+    } else {
+        Err(Refusal::NotInput)
+    }
+}
+
+// ---- the captured frames -----------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapFrame {
+    /// `tui_idle`, `tui_working`, `tui_reply`, `tui_permission`, `tui_trust`, `tui_firstrun`.
+    pub name: String,
+    /// Cleaned (secrets masked, user folder scrubbed); the real test words are still in it.
+    pub text: String,
+    /// Rows that differed between the frames seen for this picture (cleaned).
+    pub variants: Vec<String>,
+}
+
+/// Everything the guided capture learned.
+#[derive(Debug, Clone, Default)]
+pub struct CaptureSet {
+    pub frames: Vec<CapFrame>,
+    pub grid: (u16, u16),
+    /// `slash_exit`, `person` or `none`.
+    pub exit_method: String,
+    /// Step ids whose capture is partial (the person said "it looks stuck", or a step failed).
+    pub partial: Vec<String>,
+    pub skipped: Vec<String>,
+    pub hello_written: bool,
+    pub startup_dialogs: Vec<String>,
+    pub exit_screen: Option<String>,
+    pub notes: Vec<String>,
+}
+
+impl CaptureSet {
+    pub fn get(&self, name: &str) -> Option<&CapFrame> {
+        self.frames.iter().find(|f| f.name == name)
+    }
+
+    pub fn has(&self, name: &str) -> bool {
+        self.get(name).is_some()
+    }
+}
+
+// ---- the engine --------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TurnPhase {
+    Waiting,
+    InFlight,
+    Submitted,
+}
+
+#[derive(Debug, Clone)]
+struct Turn {
+    phase: TurnPhase,
+    typed_at: u64,
+    baseline: Vec<String>,
+    working: FrameBag,
+    saw_activity: bool,
+    /// A permission dialog was recorded for this turn.
+    dialog_recorded: bool,
+    failed_deliveries: u32,
+}
+
+impl Turn {
+    fn new() -> Self {
+        Self {
+            phase: TurnPhase::Waiting,
+            typed_at: 0,
+            baseline: Vec::new(),
+            working: FrameBag::default(),
+            saw_activity: false,
+            dialog_recorded: false,
+            failed_deliveries: 0,
+        }
+    }
+}
+
+pub struct Capture {
+    cfg: Config,
+    words: TestWords,
+    grid: (u16, u16),
+    steps: Vec<Step>,
+    cur: usize,
+    stab: Stability,
+    kind: ScreenKind,
+    screen: String,
+    alive: bool,
+    ready_for: Option<String>,
+    deliveries: u32,
+    in_flight: bool,
+    frames: Vec<CapFrame>,
+    turn: Turn,
+    needs: Option<NeedsYou>,
+    startup_dialogs: Vec<String>,
+    hello_written: bool,
+    exit_requested: bool,
+    exit_asked_at: Option<u64>,
+    exit_method: &'static str,
+    exit_screen: Option<String>,
+    partial: Vec<&'static str>,
+    notes: Vec<String>,
+    began_ms: Option<u64>,
+}
+
+/// The cleaned text of a frame (`exec::clean`: ANSI gone, secrets masked, user folder scrubbed).
+fn clean(text: &str) -> String {
+    super::super::exec::clean(text)
+}
+
+fn dialog_message(flavour: Flavour) -> &'static str {
+    match flavour {
+        Flavour::Trust => "The agent is asking whether you trust this folder. Answer it in the pane yourself. The wizard presses nothing.",
+        Flavour::Login => "The agent wants you to sign in. Do that in the pane. The wizard presses nothing.",
+        Flavour::Permission => "The agent is asking for permission. Press your answer in the pane. The wizard answers nothing.",
+        Flavour::Question => "The agent is asking a question. Answer it in the pane yourself. The wizard presses nothing.",
+    }
+}
+
+/// The task of the message step: random word, masked everywhere an AI or the preview sees it.
+pub fn message_task(words: &TestWords) -> String {
+    message_task_for(&words.one)
+}
+
+/// The same task for another word (the visible test uses the second session word).
+pub fn message_task_for(word: &str) -> String {
+    format!("Reply with exactly the word: {word}")
+}
+
+/// The task of the permission step.
+pub fn permission_task(words: &TestWords) -> String {
+    format!("Create a file named hello.txt in the current folder. It must contain the word {}.", words.sky)
+}
+
+impl Capture {
+    pub fn new(words: TestWords, grid: (u16, u16), cfg: Config) -> Self {
+        let steps = StepId::ALL
+            .iter()
+            .map(|id| Step { id: *id, status: StepStatus::Pending, note: String::new(), frames: 0, started_ms: 0 })
+            .collect();
+        Self {
+            cfg,
+            words,
+            grid,
+            steps,
+            cur: 0,
+            stab: Stability::new(),
+            kind: ScreenKind::Blank,
+            screen: String::new(),
+            alive: true,
+            ready_for: None,
+            deliveries: 0,
+            in_flight: false,
+            frames: Vec::new(),
+            turn: Turn::new(),
+            needs: None,
+            startup_dialogs: Vec::new(),
+            hello_written: false,
+            exit_requested: false,
+            exit_asked_at: None,
+            exit_method: "none",
+            exit_screen: None,
+            partial: Vec::new(),
+            notes: Vec::new(),
+            began_ms: None,
+        }
+    }
+
+    pub fn current(&self) -> StepId {
+        self.steps[self.cur.min(self.steps.len() - 1)].id
+    }
+
+    pub fn step(&self, id: StepId) -> &Step {
+        &self.steps[id.index()]
+    }
+
+    pub fn needs_you(&self) -> Option<&NeedsYou> {
+        self.needs.as_ref()
+    }
+
+    pub fn kind(&self) -> ScreenKind {
+        self.kind
+    }
+
+    pub fn grid(&self) -> (u16, u16) {
+        self.grid
+    }
+
+    pub fn deliveries(&self) -> u32 {
+        self.deliveries
+    }
+
+    /// Every step is Done, Skipped, Stuck or Failed.
+    pub fn settled(&self) -> bool {
+        self.steps.iter().all(|s| s.status.finished())
+    }
+
+    pub fn stable_for(&self, now: u64) -> u64 {
+        self.stab.stable_for(now)
+    }
+
+    pub fn frame(&self, name: &str) -> Option<&CapFrame> {
+        self.frames.iter().find(|f| f.name == name)
+    }
+
+    fn set_note(&mut self, text: impl Into<String>) {
+        let i = self.cur;
+        self.steps[i].note = text.into();
+    }
+
+    fn set_status(&mut self, status: StepStatus) {
+        let i = self.cur;
+        self.steps[i].status = status;
+    }
+
+    fn store(&mut self, name: &str, text: &str, variants: Vec<String>) {
+        let frame = CapFrame { name: name.to_string(), text: clean(text), variants: variants.iter().map(|v| clean(v)).collect() };
+        if let Some(existing) = self.frames.iter_mut().find(|f| f.name == name) {
+            *existing = frame;
+        } else {
+            self.frames.push(frame);
+        }
+        let i = self.cur;
+        self.steps[i].frames += 1;
+    }
+
+    fn gate(&self, now: u64) -> Gate<'_> {
+        Gate {
+            alive: self.alive,
+            stable_ms: self.stab.stable_for(now),
+            need_ms: self.cfg.stable_ms,
+            kind: self.kind,
+            in_flight: self.in_flight,
+            deliveries: self.deliveries,
+            ready_for: self.ready_for.as_deref(),
+            fingerprint: "",
+        }
+    }
+
+    /// `gate` with the fingerprint filled in (it is an owned string, so it cannot live in `gate`).
+    fn may_type(&self, now: u64) -> Result<(), Refusal> {
+        let fingerprint = self.stab.fingerprint();
+        let mut gate = self.gate(now);
+        gate.fingerprint = &fingerprint;
+        may_type(&gate)
+    }
+
+    fn begin_step(&mut self, now: u64) {
+        let i = self.cur;
+        if self.steps[i].status == StepStatus::Pending {
+            self.steps[i].status = StepStatus::Running;
+            self.steps[i].started_ms = now;
+        }
+    }
+
+    fn advance(&mut self, now: u64) {
+        self.needs = None;
+        self.turn = Turn::new();
+        while self.cur + 1 < self.steps.len() {
+            self.cur += 1;
+            if !self.steps[self.cur].status.finished() {
+                break;
+            }
+        }
+        if !self.steps[self.cur].status.finished() {
+            self.steps[self.cur].status = StepStatus::Running;
+            self.steps[self.cur].started_ms = now;
+        }
+    }
+
+    fn finish_step(&mut self, status: StepStatus, note: impl Into<String>, now: u64) {
+        self.set_status(status);
+        self.set_note(note);
+        if status == StepStatus::Stuck || status == StepStatus::Failed {
+            let id = self.current().as_str();
+            if !self.partial.contains(&id) {
+                self.partial.push(id);
+            }
+        }
+        self.advance(now);
+    }
+
+    fn ask(&mut self, kind: &str, message: impl Into<String>) {
+        let step = self.current();
+        let message = message.into();
+        self.needs = Some(NeedsYou { step, kind: kind.to_string(), message: message.clone() });
+        self.set_status(StepStatus::NeedsYou);
+        self.set_note(message);
+    }
+
+    fn clear_ask(&mut self, kinds: &[&str]) {
+        if self.needs.as_ref().is_some_and(|n| kinds.contains(&n.kind.as_str())) {
+            self.needs = None;
+            if self.steps[self.cur].status == StepStatus::NeedsYou {
+                self.steps[self.cur].status = StepStatus::Running;
+            }
+        }
+    }
+
+    // ---- the clock ------------------------------------------------------------------------------
+
+    /// One look at the pane. Returns what the runner must do (at most one delivery).
+    pub fn tick(&mut self, look: &Look, now: u64) -> Vec<Action> {
+        self.began_ms.get_or_insert(now);
+        self.alive = look.alive;
+        self.hello_written |= look.hello_written;
+        self.screen = look.screen.clone();
+        self.stab.observe(&look.screen, now);
+        self.kind = classify(&look.screen);
+        if self.settled() {
+            return Vec::new();
+        }
+        self.begin_step(now);
+        let step = self.current();
+        if !self.alive && step != StepId::Exit {
+            let note = if step == StepId::Start {
+                "The agent quit by itself before it asked for anything. Check the command and its arguments, then retry."
+            } else {
+                "The agent quit by itself. What was captured so far is kept."
+            };
+            self.agent_quit(note, now);
+            return Vec::new();
+        }
+        match step {
+            StepId::Start => self.tick_start(now),
+            StepId::Ready => self.tick_ready(now),
+            StepId::Message | StepId::Permission => return self.tick_turn(step, look, now),
+            StepId::Exit => return self.tick_exit(now),
+        }
+        Vec::new()
+    }
+
+    /// The agent ended before the exit step: the running step failed, the steps after it did not run, and
+    /// the exit step is next (it is done as soon as it sees the process gone).
+    fn agent_quit(&mut self, note: &str, now: u64) {
+        self.set_status(StepStatus::Failed);
+        self.set_note(note);
+        let id = self.current().as_str();
+        if !self.partial.contains(&id) {
+            self.partial.push(id);
+        }
+        let exit = StepId::Exit.index();
+        for i in self.cur + 1..exit {
+            if !self.steps[i].status.finished() {
+                self.steps[i].status = StepStatus::Skipped;
+                self.steps[i].note = "Not run: the agent quit.".into();
+            }
+        }
+        self.needs = None;
+        self.cur = exit;
+        self.steps[exit].status = StepStatus::Running;
+        self.steps[exit].started_ms = now;
+    }
+
+    /// A stable dialog is recorded and shown to the person; nothing is typed. Returns true when the
+    /// screen is a dialog (the caller then does nothing else this tick).
+    fn dialog(&mut self, now: u64) -> bool {
+        let ScreenKind::Dialog(flavour) = self.kind else {
+            self.clear_ask(&["trust", "login", "permission", "question"]);
+            return false;
+        };
+        if self.stab.stable_for(now) < self.cfg.stable_ms {
+            self.set_note("Something is changing on the screen.");
+            return true;
+        }
+        let step = self.current();
+        let name = match (flavour, step) {
+            (Flavour::Trust, _) => "tui_trust",
+            (Flavour::Permission | Flavour::Question, StepId::Permission | StepId::Message) => "tui_permission",
+            _ => "tui_firstrun",
+        };
+        if self.frame(name).is_none() {
+            if let Some((text, variants)) = self.stab.best() {
+                self.store(name, &text, variants);
+            }
+            if name != "tui_permission" {
+                self.startup_dialogs.push(flavour.as_str().to_string());
+            }
+        }
+        if step == StepId::Permission || name == "tui_permission" {
+            self.turn.dialog_recorded = true;
+        }
+        if self.needs.as_ref().map(|n| n.kind.as_str()) != Some(flavour.as_str()) {
+            self.ask(flavour.as_str(), dialog_message(flavour));
+        }
+        true
+    }
+
+    fn slow(&mut self, now: u64, limit_ms: u64, message: &str) {
+        let i = self.cur;
+        let started = self.steps[i].started_ms;
+        if now.saturating_sub(started) > limit_ms && self.steps[i].status == StepStatus::Running {
+            self.ask("slow", message);
+        }
+    }
+
+    fn tick_start(&mut self, now: u64) {
+        if self.dialog(now) {
+            return;
+        }
+        if self.kind == ScreenKind::Shell {
+            self.finish_step(StepStatus::Failed, "The pane shows a shell prompt: the agent is not running.", now);
+            return;
+        }
+        if self.kind == ScreenKind::Blank {
+            self.set_note("Waiting for the agent to draw something.");
+        } else if self.stab.stable_for(now) < self.cfg.stable_ms {
+            self.set_note("Waiting for the screen to hold still.");
+        } else if self.kind != ScreenKind::Working {
+            let note = if self.startup_dialogs.is_empty() {
+                "The agent started.".to_string()
+            } else {
+                format!("The agent asked a question ({}); you answered it in the pane.", self.startup_dialogs.join(", "))
+            };
+            self.finish_step(StepStatus::Done, note, now);
+            return;
+        }
+        self.slow(now, self.cfg.start_limit_ms, "This is taking long. Wait, or press \"It looks stuck\" to go on.");
+    }
+
+    fn tick_ready(&mut self, now: u64) {
+        if self.dialog(now) {
+            return;
+        }
+        let stable = self.stab.stable_for(now);
+        let fp = self.stab.fingerprint();
+        let said_ready = self.ready_for.as_deref() == Some(fp.as_str());
+        if stable >= self.cfg.stable_ms && self.stab.samples() >= 3 && !matches!(self.kind, ScreenKind::Working | ScreenKind::Blank | ScreenKind::Shell)
+            && (self.kind == ScreenKind::Input || said_ready)
+        {
+            if let Some((text, variants)) = self.stab.best() {
+                self.store("tui_idle", &text, variants);
+            }
+            self.exit_screen = Some(clean(&self.screen));
+            self.finish_step(StepStatus::Done, "The agent is waiting for a task.", now);
+            return;
+        }
+        if stable >= self.cfg.unsure_ms && self.kind != ScreenKind::Working && self.kind != ScreenKind::Input {
+            if self.needs.is_none() {
+                self.ask(
+                    "unsure",
+                    "I cannot tell whether the agent is waiting for a task. If it is, press \"It is ready\". If it is asking something, answer it in the pane.",
+                );
+            }
+        } else {
+            self.clear_ask(&["unsure"]);
+            self.set_note(if self.kind == ScreenKind::Working { "The agent is still starting." } else { "Waiting for the screen to hold still." });
+        }
+        self.slow(now, self.cfg.start_limit_ms, "This is taking long. Wait, or press \"It looks stuck\" to go on.");
+    }
+
+    fn task_for(&self, step: StepId) -> String {
+        if step == StepId::Message { message_task(&self.words) } else { permission_task(&self.words) }
+    }
+
+    fn tick_turn(&mut self, step: StepId, look: &Look, now: u64) -> Vec<Action> {
+        let dialog_up = self.dialog(now);
+        if dialog_up {
+            // A dialog during the turn is recorded; the turn goes on once the person has answered.
+            if self.turn.phase == TurnPhase::Submitted {
+                self.turn.saw_activity = true;
+            }
+            return Vec::new();
+        }
+        match self.turn.phase {
+            TurnPhase::InFlight => Vec::new(),
+            TurnPhase::Waiting if self.turn.failed_deliveries >= 2 => Vec::new(),
+            TurnPhase::Waiting => {
+                match self.may_type(now) {
+                    Ok(()) => {
+                        let fingerprint_rows = frame_key(&self.screen);
+                        self.turn.baseline = fingerprint_rows;
+                        self.in_flight = true;
+                        self.deliveries += 1;
+                        self.turn.phase = TurnPhase::InFlight;
+                        self.clear_ask(&["unsure", "typing", "slow"]);
+                        self.set_note("Typing the test message.");
+                        vec![Action::Deliver { text: self.task_for(step) }]
+                    }
+                    Err(refusal) => {
+                        if self.needs.as_ref().map(|n| n.kind.as_str()) != Some("typing") {
+                            self.set_note(refusal.say());
+                        }
+                        // A settled screen that is not clearly an input box: ask, once.
+                        if refusal == Refusal::NotInput && self.stab.stable_for(now) >= self.cfg.unsure_ms && self.needs.is_none() {
+                            self.ask("unsure", refusal.say());
+                        }
+                        Vec::new()
+                    }
+                }
+            }
+            TurnPhase::Submitted => {
+                self.watch_turn(step, look, now);
+                Vec::new()
+            }
+        }
+    }
+
+    /// The runner reports what the delivery did.
+    pub fn on_delivered(&mut self, submitted: bool, why: &str, now: u64) {
+        self.in_flight = false;
+        if submitted {
+            self.turn.phase = TurnPhase::Submitted;
+            self.turn.typed_at = now;
+            self.turn.saw_activity = false;
+            self.turn.working.clear();
+            self.set_note("Message sent. Watching the agent work.");
+        } else {
+            self.turn.phase = TurnPhase::Waiting;
+            self.turn.failed_deliveries += 1;
+            let note = format!("The message was not typed: {why}");
+            if self.turn.failed_deliveries >= 2 {
+                self.ask("typing", format!("{note} Skip this step, or press \"It looks stuck\" to go on."));
+            } else {
+                self.set_note(note);
+            }
+        }
+    }
+
+    fn watch_turn(&mut self, step: StepId, _look: &Look, now: u64) {
+        let key = frame_key(&self.screen);
+        let changed = self.turn.baseline.is_empty() || key != self.turn.baseline;
+        if self.kind == ScreenKind::Working || changed {
+            self.turn.saw_activity = self.turn.saw_activity || changed || self.kind == ScreenKind::Working;
+        }
+        let stable = self.stab.stable_for(now);
+        if self.kind == ScreenKind::Working || stable < self.cfg.stable_ms {
+            // The picture is moving: this is the working screen.
+            if self.turn.saw_activity {
+                self.turn.working.add(&self.screen);
+            }
+            self.clear_ask(&["unsure_reply", "slow"]);
+            self.set_note("The agent is working.");
+            self.slow(now, self.cfg.message_limit_ms, "This is taking long. Wait, or press \"It looks stuck\" to go on.");
+            return;
+        }
+        let fp = self.stab.fingerprint();
+        let said = self.ready_for.as_deref() == Some(fp.as_str());
+        match step {
+            StepId::Message => self.finish_message(said, now),
+            _ => self.finish_permission(said, now),
+        }
+    }
+
+    fn finish_message(&mut self, said: bool, now: u64) {
+        let word = self.words.one.clone();
+        let screen = self.screen.clone();
+        let reply_rows = reply_rows(&screen, &word);
+        let typed_for = now.saturating_sub(self.turn.typed_at);
+        if !self.turn.saw_activity {
+            if typed_for > self.cfg.no_reaction_ms {
+                self.ask("slow", "The message was typed but nothing changed on the screen. Retry, or press \"It looks stuck\" to go on.");
+            }
+            return;
+        }
+        if reply_rows >= 1 || said {
+            let Some((reply, reply_variants)) = self.stab.best() else { return };
+            let idle_key = self.frame("tui_idle").map(|f| frame_key(&f.text));
+            let mut exclude = vec![frame_key(&reply)];
+            exclude.extend(idle_key);
+            let working = self.turn.working.best_excluding(&exclude);
+            self.store("tui_reply", &reply, reply_variants);
+            match working {
+                Some((text, variants)) => {
+                    self.store("tui_working", &text, variants);
+                    self.finish_step(StepStatus::Done, "The agent answered.", now);
+                }
+                None => {
+                    self.notes.push("No screen of the agent at work was caught; the working state has no capture.".into());
+                    self.partial.push("message");
+                    self.finish_step(StepStatus::Done, "The agent answered, but no screen of it at work was caught.", now);
+                }
+            }
+            return;
+        }
+        if self.stab.stable_for(now) >= self.cfg.reply_unsure_ms && self.needs.is_none() {
+            self.ask("unsure_reply", "I cannot see an answer yet. If the agent has finished, press \"It is ready\" to use this screen. Otherwise wait.");
+        }
+    }
+
+    fn finish_permission(&mut self, said: bool, now: u64) {
+        let typed_for = now.saturating_sub(self.turn.typed_at);
+        let quiet = matches!(self.kind, ScreenKind::Input | ScreenKind::Unknown);
+        if self.turn.dialog_recorded {
+            // The person has answered (the dialog is gone) and the agent is back at its input box.
+            if quiet && (self.kind == ScreenKind::Input || said) {
+                self.finish_step(StepStatus::Done, "You answered the permission question in the pane.", now);
+            }
+            return;
+        }
+        if self.hello_written && quiet && self.turn.saw_activity {
+            self.hello_written = true;
+            self.finish_step(StepStatus::Done, "No permission question appeared (the agent did not ask).", now);
+            return;
+        }
+        if !self.turn.saw_activity {
+            if typed_for > self.cfg.no_reaction_ms {
+                self.ask("slow", "The message was typed but nothing changed on the screen. Retry, or press \"It looks stuck\" to go on.");
+            }
+            return;
+        }
+        if typed_for > self.cfg.permission_wait_ms && self.needs.is_none() {
+            self.ask("slow", "No permission question appeared. Skip this step, or press \"It looks stuck\" to go on.");
+        }
+    }
+
+    fn tick_exit(&mut self, now: u64) -> Vec<Action> {
+        if !self.alive {
+            if self.exit_method == "none" {
+                self.exit_method = "person";
+            }
+            self.finish_step(StepStatus::Done, "The agent has ended.", now);
+            return Vec::new();
+        }
+        if self.dialog(now) {
+            return Vec::new();
+        }
+        if self.exit_requested {
+            if let Some(at) = self.exit_asked_at {
+                if now.saturating_sub(at) > self.cfg.exit_wait_ms && self.needs.as_ref().map(|n| n.kind.as_str()) != Some("slow") {
+                    self.ask("slow", "/exit did not end the agent. Close it yourself, or skip this step.");
+                }
+                return Vec::new();
+            }
+            match self.may_type(now) {
+                Ok(()) => {
+                    self.in_flight = true;
+                    self.deliveries += 1;
+                    self.exit_asked_at = Some(now);
+                    self.exit_method = "slash_exit";
+                    self.set_note("Typing /exit.");
+                    return vec![Action::Deliver { text: "/exit".to_string() }];
+                }
+                Err(refusal) => self.set_note(refusal.say()),
+            }
+        } else if self.steps[self.cur].note.is_empty() {
+            self.set_note("Optional: press \"Try /exit\", or close the agent yourself. You can also skip this.");
+        }
+        Vec::new()
+    }
+
+    // ---- the person's buttons -------------------------------------------------------------------
+
+    pub fn act(&mut self, step: Option<StepId>, action: CaptureAction, now: u64) -> Result<(), String> {
+        if self.in_flight {
+            return Err("The wizard is typing a message right now. Wait a moment.".into());
+        }
+        let target = step.unwrap_or_else(|| self.current());
+        match action {
+            CaptureAction::Skip => {
+                let i = target.index();
+                if self.steps[i].status.finished() && i != self.cur {
+                    return Err("that step is already finished".into());
+                }
+                let is_current = i == self.cur;
+                self.steps[i].status = StepStatus::Skipped;
+                self.steps[i].note = "Skipped.".into();
+                if is_current {
+                    self.advance(now);
+                }
+                Ok(())
+            }
+            CaptureAction::Retry => {
+                let from = target.index();
+                for i in from..self.steps.len() {
+                    self.steps[i].status = StepStatus::Pending;
+                    self.steps[i].note.clear();
+                    self.steps[i].frames = 0;
+                }
+                let names: &[&str] = match target {
+                    StepId::Start => &["tui_trust", "tui_firstrun", "tui_idle", "tui_working", "tui_reply", "tui_permission"],
+                    StepId::Ready => &["tui_idle", "tui_working", "tui_reply", "tui_permission"],
+                    StepId::Message => &["tui_working", "tui_reply", "tui_permission"],
+                    StepId::Permission => &["tui_permission"],
+                    StepId::Exit => &[],
+                };
+                self.frames.retain(|f| !names.contains(&f.name.as_str()));
+                self.partial.retain(|p| StepId::parse(p).map_or(true, |s| s.index() < from));
+                self.cur = from;
+                self.needs = None;
+                self.ready_for = None;
+                self.turn = Turn::new();
+                self.exit_requested = false;
+                self.exit_asked_at = None;
+                self.begin_step(now);
+                Ok(())
+            }
+            CaptureAction::Stuck => {
+                if target != self.current() {
+                    return Err("only the step that is running can be marked stuck".into());
+                }
+                self.finish_step(StepStatus::Stuck, "You said it looks stuck. What was captured so far is kept.", now);
+                Ok(())
+            }
+            CaptureAction::Ready => {
+                if target != self.current() {
+                    return Err("only the step that is running can take this".into());
+                }
+                if self.kind.is_dialog() {
+                    return Err("The agent is asking a question. Answer it in the pane first.".into());
+                }
+                if matches!(self.kind, ScreenKind::Blank | ScreenKind::Shell) {
+                    return Err("There is nothing to use yet.".into());
+                }
+                self.ready_for = Some(self.stab.fingerprint());
+                self.clear_ask(&["unsure", "unsure_reply"]);
+                Ok(())
+            }
+            CaptureAction::TryExit => {
+                if self.current() != StepId::Exit {
+                    return Err("that button belongs to the exit step".into());
+                }
+                self.exit_requested = true;
+                self.clear_ask(&["slow"]);
+                Ok(())
+            }
+            CaptureAction::Closed => {
+                if self.current() != StepId::Exit {
+                    return Err("that button belongs to the exit step".into());
+                }
+                if self.exit_method == "none" {
+                    self.exit_method = "person";
+                }
+                self.finish_step(StepStatus::Done, "You closed the agent yourself.", now);
+                Ok(())
+            }
+        }
+    }
+
+    // ---- reading the result ---------------------------------------------------------------------
+
+    /// What was learned. Steps that never ran are listed as skipped.
+    pub fn into_set(&self) -> CaptureSet {
+        CaptureSet {
+            frames: self.frames.clone(),
+            grid: self.grid,
+            exit_method: self.exit_method.to_string(),
+            partial: self.partial.iter().map(|s| s.to_string()).collect(),
+            skipped: self
+                .steps
+                .iter()
+                .filter(|s| matches!(s.status, StepStatus::Skipped | StepStatus::Pending))
+                .map(|s| s.id.as_str().to_string())
+                .collect(),
+            hello_written: self.hello_written,
+            startup_dialogs: dedupe(&self.startup_dialogs),
+            exit_screen: self.exit_screen.clone(),
+            notes: self.notes.clone(),
+        }
+    }
+
+    pub fn status_json(&self, now: u64) -> Value {
+        let steps: Vec<Value> = self
+            .steps
+            .iter()
+            .map(|s| json!({"id": s.id.as_str(), "label": s.id.label(), "status": s.status.as_str(), "note": s.note, "frames": s.frames}))
+            .collect();
+        let step = self.current();
+        let mut can: Vec<&str> = Vec::new();
+        if !self.settled() {
+            can.extend(["skip", "retry", "stuck"]);
+            if matches!(step, StepId::Start | StepId::Ready | StepId::Message | StepId::Permission) && !self.kind.is_dialog() {
+                can.push("ready");
+            }
+            if step == StepId::Exit {
+                can.extend(["try_exit", "closed"]);
+            }
+        } else {
+            can.push("retry");
+        }
+        json!({
+            "step": step.as_str(),
+            "steps": steps,
+            "screen_kind": self.kind.as_str(),
+            "stable_ms": self.stab.stable_for(now),
+            "alive": self.alive,
+            "settled": self.settled(),
+            "needs_you": self.needs.as_ref().map(|n| json!({"step": n.step.as_str(), "kind": n.kind, "message": n.message})),
+            "can": can,
+        })
+    }
+}
+
+fn dedupe(list: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    list.iter().filter(|s| seen.insert((*s).clone())).cloned().collect()
+}
+
+/// Rows that hold the reply word but are not the echo of the instruction.
+pub fn reply_rows(screen: &str, word: &str) -> usize {
+    let word = word.to_lowercase();
+    screen
+        .lines()
+        .map(str::to_lowercase)
+        .filter(|row| row.contains(&word) && !row.contains("reply with") && !row.contains("exactly the word"))
+        .count()
+}

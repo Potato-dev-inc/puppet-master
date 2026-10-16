@@ -224,6 +224,9 @@ fn planned_args(def: &Definition, stage: Stage) -> Vec<String> {
 /// The commands the live test will run for `def`, exactly as `execute` will build them (same program
 /// resolution, same stages), with the test message and session id left as placeholders.
 pub fn plan(session: &Session, def: &Definition) -> Result<Plan, String> {
+    if !def.headless.as_ref().is_some_and(|h| h.output.is_some()) {
+        return Err("the draft has no [headless] table with an output, so there is no one-task mode to test".into());
+    }
     let mut table = def.binary.clone();
     table.names = vec![session.command.clone()];
     let program = resolve_in(&table, &session.dirs, Platform::current()).map_err(|e| e.to_string())?;
@@ -302,7 +305,7 @@ pub struct StageReport {
 }
 
 /// Words in a program's own error text that point at its setup, not at the profile.
-static EXTERNAL: Lazy<Regex> = Lazy::new(|| {
+pub(crate) static EXTERNAL: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"(?i)log(?:ged)? ?in|sign(?:ed)?[- ]?in|unauthori[sz]ed|authenticat|api[ _-]?key|credential|token (?:expired|invalid)|quota|rate[- ]?limit|too many requests|insufficient|billing|payment|credits?\b|subscription|no endpoints|provider|network|connection (?:refused|reset|error)|econn|enotfound|getaddrinfo|dns|certificate|offline|\b(?:401|402|403|429|50\d)\b|model not found|unknown model",
     )
@@ -638,9 +641,16 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             "there is no draft the live test may run; call verify first (a draft that does not validate cannot be tested)",
         ));
     };
-    let current = parse_definition(&draft.text)
-        .map_err(|e| e.to_string())
-        .and_then(|def| plan(&snap, &def));
+    let parsed = parse_definition(&draft.text).map_err(|e| e.to_string());
+    if parsed.as_ref().is_ok_and(|def| !def.headless.as_ref().is_some_and(|h| h.output.is_some())) {
+        wizard.release(&id);
+        return Err(WizardError::new(
+            409,
+            "WIZARD_NO_HEADLESS_TEST",
+            "the draft has no [headless] table with an output, so there is no one-task mode to test; use the visible test",
+        ));
+    }
+    let current = parsed.and_then(|def| plan(&snap, &def));
     match current {
         Ok(p) if p.fingerprint == given => {}
         Ok(_) => {
@@ -661,7 +671,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     // reply carries every problem. (The live stages already report a replayed sample's failure.)
     let mut with_samples = snap.clone();
     with_samples.samples = outcome.samples.clone();
-    let checks = super::verify::check_draft(&with_samples, &env, &draft.text);
+    let checks = super::verify::check_draft_with(&with_samples, &env, &draft.text, &draft.expects);
     outcome.errors.extend(
         checks
             .errors
@@ -681,7 +691,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
         s.samples = samples;
         if ok {
             s.tested = Some(Tested { version: version.clone(), stages: summaries, draft_sha256: sha });
-            s.state = State::Tested;
+            super::session::settle(s);
         }
         s.state
     })?;

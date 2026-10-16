@@ -117,18 +117,12 @@ pub fn profile_for(agent_type: &str) -> Arc<dyn TuiProfile> {
 }
 
 pub fn is_registered(agent_type: &str) -> bool {
-    registry::snapshot()
-        .iter()
-        .any(|profile| profile.id().eq_ignore_ascii_case(agent_type))
+    registry::registry().find(agent_type).is_some()
 }
 
 /// Resolve a registered profile or return the canonical id list for `UNKNOWN_AGENT_TYPE`.
 pub fn require_registered(agent_type: &str) -> Result<Arc<dyn TuiProfile>, UnknownAgentType> {
-    match registry::snapshot()
-        .iter()
-        .find(|profile| profile.id().eq_ignore_ascii_case(agent_type))
-        .cloned()
-    {
+    match registry::registry().find(agent_type) {
         Some(profile) => Ok(profile),
         None => Err(UnknownAgentType {
             id: agent_type.to_string(),

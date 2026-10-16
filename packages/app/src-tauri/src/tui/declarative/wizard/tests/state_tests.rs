@@ -127,11 +127,16 @@ fn a_second_long_step_is_refused_while_one_runs_and_cancel_ends_it() {
 }
 
 #[test]
-fn capture_is_not_available_yet() {
+fn capture_needs_a_session_and_an_op_and_unknown_actions_are_not_found() {
     let tree = Tree::new("capture");
     let wizard = tree.wizard();
     let err = call(&wizard, "capture", json!({})).unwrap_err();
-    assert_eq!((err.status, err.code), (501, "WIZARD_NOT_YET"));
+    assert_eq!((err.status, err.code), (400, "INVALID_ARGUMENT"));
+    let id = start(&wizard, "fake-agent");
+    let err = call(&wizard, "capture", json!({"session": id})).unwrap_err();
+    assert_eq!((err.status, err.code), (400, "INVALID_ARGUMENT"));
+    let err = call(&wizard, "capture", json!({"session": id, "op": "plan"})).unwrap_err();
+    assert_eq!((err.status, err.code), (409, "WIZARD_BAD_STATE"), "a capture needs the probe first");
     let err = call(&wizard, "bogus", json!({})).unwrap_err();
     assert_eq!(err.status, 404);
 }

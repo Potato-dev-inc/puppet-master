@@ -82,6 +82,16 @@ impl CheckError {
         self
     }
 
+    /// A screen the agent drew (masked by the caller): up to 40 rows of 200 characters, shown as the
+    /// real output of a visible check.
+    pub fn with_screen(mut self, text: &str) -> Self {
+        let cut = screen_excerpt(text);
+        if !cut.is_empty() {
+            self.excerpt = Some(cut);
+        }
+        self
+    }
+
     pub fn with_fix(mut self, fix: impl Into<String>) -> Self {
         self.fix = fix.into();
         self
@@ -107,11 +117,31 @@ pub fn excerpt(text: &str) -> String {
         .join("\n")
 }
 
+pub const SCREEN_EXCERPT_ROWS: usize = 40;
+
+/// The rows of a screen, blank rows left out, long rows cut.
+pub fn screen_excerpt(text: &str) -> String {
+    text.lines()
+        .map(str::trim_end)
+        .filter(|l| !l.trim().is_empty())
+        .take(SCREEN_EXCERPT_ROWS)
+        .map(|l| {
+            if l.chars().count() > 200 {
+                format!("{}...", l.chars().take(200).collect::<String>())
+            } else {
+                l.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Which step produced the list (decides the first sentence).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
     Verify,
     LiveTest,
+    VisibleTest,
 }
 
 /// The text for the next prompt (SPEC 6.2). Empty when there is nothing to fix.
@@ -124,6 +154,7 @@ pub fn render(errors: &[CheckError], source: Source) -> String {
     let lead = match source {
         Source::Verify => format!("The checker found {count} {noun}."),
         Source::LiveTest => format!("The live test ran your file against the real program and found {count} {noun}."),
+        Source::VisibleTest => format!("The visible test started your profile in a real pane and found {count} {noun}."),
     };
     let mut out = format!(
         "{lead} Fix every one and reply with the complete corrected file in one ```toml block.\n"
@@ -144,7 +175,12 @@ pub fn render(errors: &[CheckError], source: Source) -> String {
             out.push_str(&format!("   Fix: {}\n", e.fix));
         }
         if let Some(excerpt) = &e.excerpt {
-            out.push_str("   Real output (first lines):\n");
+            let what = if e.stage == "visibletest" || e.path.starts_with("tui_") {
+                "   The screen:\n"
+            } else {
+                "   Real output (first lines):\n"
+            };
+            out.push_str(what);
             for line in excerpt.lines() {
                 out.push_str(&format!("   {line}\n"));
             }

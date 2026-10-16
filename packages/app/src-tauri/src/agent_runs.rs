@@ -4,7 +4,7 @@ pub(crate) mod approval_policy;
 mod answer_guard;
 mod capabilities;
 pub(crate) mod checks;
-mod completion;
+pub(crate) mod completion;
 pub(crate) mod delivery;
 mod headless;
 mod messaging;

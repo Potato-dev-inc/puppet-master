@@ -13,6 +13,10 @@ pub struct Registry {
     /// The compiled-in profiles, always first in every snapshot `set_declarative` publishes.
     code: Vec<Arc<dyn TuiProfile>>,
     fallback: Arc<dyn TuiProfile>,
+    /// Profiles a wizard pane runs under while the Agent Wizard owns it (`add_transient`). Found by the
+    /// id lookups below, never part of `snapshot()`, so they are not listed, not reloaded and not shown
+    /// in spawn menus.
+    transient: ArcSwap<Vec<Arc<dyn TuiProfile>>>,
 }
 
 impl Registry {
@@ -33,6 +37,7 @@ impl Registry {
             snapshot: ArcSwap::from_pointee(code.clone()),
             code,
             fallback: Arc::new(generic::Unknown),
+            transient: ArcSwap::from_pointee(Vec::new()),
         }
     }
 
@@ -49,12 +54,41 @@ impl Registry {
 
     /// Profile for an `agent_type`, case-insensitively; unregistered types get generic behaviour.
     pub fn profile_for_arc(&self, agent_type: &str) -> Arc<dyn TuiProfile> {
+        self.find(agent_type).unwrap_or_else(|| self.fallback.clone())
+    }
+
+    /// A registered profile, or a transient one (a pane the Agent Wizard owns), by id.
+    pub fn find(&self, agent_type: &str) -> Option<Arc<dyn TuiProfile>> {
         self.snapshot
             .load()
             .iter()
             .find(|profile| profile.id().eq_ignore_ascii_case(agent_type))
             .cloned()
-            .unwrap_or_else(|| self.fallback.clone())
+            .or_else(|| {
+                self.transient.load().iter().find(|profile| profile.id().eq_ignore_ascii_case(agent_type)).cloned()
+            })
+    }
+
+    /// Make `profile` findable by id until `remove_transient`. Not listed and not reloaded. An id that a
+    /// registered profile already uses is refused.
+    pub fn add_transient(&self, profile: Arc<dyn TuiProfile>) -> Result<(), String> {
+        let id = profile.id();
+        if self.snapshot.load().iter().any(|p| p.id().eq_ignore_ascii_case(id)) {
+            return Err(format!("{id} is already a registered agent"));
+        }
+        self.transient.rcu(|current| {
+            let mut next: Vec<Arc<dyn TuiProfile>> =
+                current.iter().filter(|p| !p.id().eq_ignore_ascii_case(id)).cloned().collect();
+            next.push(profile.clone());
+            next
+        });
+        Ok(())
+    }
+
+    pub fn remove_transient(&self, agent_type: &str) {
+        self.transient.rcu(|current| {
+            current.iter().filter(|p| !p.id().eq_ignore_ascii_case(agent_type)).cloned().collect::<Vec<_>>()
+        });
     }
 
     /// Ids of the compiled-in profiles (reserved for definitions, REG-7).

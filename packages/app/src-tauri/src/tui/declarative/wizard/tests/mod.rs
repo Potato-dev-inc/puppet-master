@@ -1,6 +1,7 @@
 //! Wizard tests. No tokens, no network: the "agent" is a tiny fake CLI compiled from
 //! `tests/fake-cli/fake_cli.rs` (see `support`).
 
+pub(crate) mod fake_host;
 pub(crate) mod support;
 
 mod ask_tests;
@@ -13,3 +14,5 @@ mod probe_tests;
 mod report_tests;
 mod state_tests;
 mod verify_tests;
+mod visible_capture_tests;
+mod visible_screen_tests;
