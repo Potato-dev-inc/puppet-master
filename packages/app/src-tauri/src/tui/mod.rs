@@ -312,6 +312,9 @@ pub(crate) fn resolve_binary(
     declarative::resolve::resolve_binary(binary, project_dir)
 }
 
+/// The shared conformance rules (the agent wizard runs them on drafts; the tests run them on every profile).
+pub(crate) mod conformance_rules;
+
 #[cfg(test)]
 mod conformance;
 

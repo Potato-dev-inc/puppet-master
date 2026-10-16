@@ -295,7 +295,6 @@ pub struct HeadlessLaunch<'a> {
     pub model: Option<&'a str>,
 }
 
-#[cfg(test)]
 impl<'a> HeadlessLaunch<'a> {
     pub fn new(project: &'a str, task: &'a str) -> Self {
         Self {
