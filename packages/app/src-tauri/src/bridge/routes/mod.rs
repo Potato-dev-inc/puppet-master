@@ -27,6 +27,7 @@ mod team;
 pub(super) mod toolbelt;
 mod wait;
 mod workspace;
+mod wizard;
 mod worktrees;
 
 use parking_lot::Mutex;
@@ -56,6 +57,7 @@ pub(super) struct Ctx<'a> {
 pub(super) fn dispatch(cx: &Ctx) -> Option<RouteResult> {
     mcp::handle_session(cx)
         .or_else(|| definitions::handle(cx))
+        .or_else(|| wizard::handle(cx))
         .or_else(|| health::handle(cx))
         .or_else(|| previews::handle(cx))
         .or_else(|| toolbelt::handle(cx))

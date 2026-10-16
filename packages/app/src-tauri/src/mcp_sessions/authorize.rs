@@ -46,6 +46,7 @@ pub fn authorize(
         // `GET /agents/types` is the read-only agent list the mobile PWA's "new agent" sheet needs.
         let app_route = clean_path == "/agents/definitions"
             || clean_path.starts_with("/agents/definitions/")
+            || clean_path.starts_with("/agents/wizard/")
             || (method == "GET" && clean_path == "/agents/types");
         if !app_route && (clean_path == "/agents" || clean_path.starts_with("/agents/")) {
             return Err(OperationError::new(
@@ -124,6 +125,10 @@ pub fn authorize(
     // be able to claim `/agents/definitions` for an MCP session either.
     if clean_path == "/agents/definitions" || clean_path.starts_with("/agents/definitions/") {
         return Err(denied("agent definitions are managed by the app session, not MCP sessions"));
+    }
+    // The agent wizard runs programs and writes definitions: app session only, like definitions.
+    if clean_path == "/agents/wizard" || clean_path.starts_with("/agents/wizard/") {
+        return Err(denied("the agent wizard belongs to the app session, not MCP sessions"));
     }
 
     let definitions = tool_registry::tools();
