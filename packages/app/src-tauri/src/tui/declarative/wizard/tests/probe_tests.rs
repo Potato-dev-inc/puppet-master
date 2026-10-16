@@ -3,7 +3,7 @@
 use serde_json::json;
 
 use crate::tui::declarative::wizard::locate::{command_name, id_suggestion, locate, version_number};
-use crate::tui::declarative::wizard::probe::{parse_subcommands, valid_subcommand};
+use crate::tui::declarative::wizard::probe::{normalise_volatile, parse_subcommands, ranked_subcommands, strip_log_lines, subcommand_score, valid_subcommand};
 
 use super::support::{bin_dir, call, ok, start, Tree};
 
@@ -280,4 +280,76 @@ fn subcommand_probes_keep_the_same_limits_as_the_base_probes() {
         assert!(run["text"].as_str().unwrap().len() <= 40, "{run}");
     }
     assert!(out["runs"].as_array().unwrap().len() <= 16);
+}
+
+const KILO_ROWS: &str = "Commands:
+  kilo completion          generate shell completion script
+  kilo acp                 start ACP (Agent Client Protocol) server
+  kilo mcp                 manage MCP (Model Context Protocol) servers
+  kilo [project]           start kilo tui                                                  [default]
+  kilo attach <url>        attach to a running kilo server
+  kilo run [message..]     run kilo with a message
+  kilo debug               debugging and troubleshooting tools
+  kilo agent               manage agents
+  kilo models [provider]   list all available models
+  kilo stats               show token usage and cost statistics
+  kilo export [sessionID]  export session data as JSON
+  kilo session             manage sessions
+
+Options:
+  -h, --help     show help
+";
+
+const KIRO_ROWS: &str = "Commands:
+  agent       Manage agents
+  chat        AI assistant in your terminal
+  whoami      Print info about the current login session
+  profile     Show the profile associated with this idc user
+  settings    Customize appearance & behavior
+  diagnostic  Run diagnostic tests
+  mcp         Model Context Protocol (MCP)
+  help        Print this message or the help of the given subcommand(s)
+
+Options:
+";
+
+#[test]
+fn the_subcommand_that_runs_a_task_is_asked_about_first() {
+    assert_eq!(ranked_subcommands(KILO_ROWS, "kilo")[0], "run");
+    assert_eq!(ranked_subcommands(KIRO_ROWS, "kiro-cli")[0], "chat");
+    // housekeeping goes last, the rest keeps the help's order
+    let kilo = ranked_subcommands(KILO_ROWS, "kilo");
+    let pos = |n: &str| kilo.iter().position(|x| x == n).unwrap();
+    assert!(pos("run") < pos("session") && pos("session") < pos("mcp") && pos("completion") < pos("stats"), "{kilo:?}");
+    assert!(subcommand_score("run", "run kilo with a message") > subcommand_score("debug", "debugging and troubleshooting tools"));
+    assert!(subcommand_score("x", "") == 0);
+}
+
+#[test]
+fn log_lines_and_other_things_that_change_every_run_do_not_make_two_helps_different() {
+    let one = "INFO  2026-10-16T06:35:07 +62ms service=default version=7.8.8 command=--help process_role=main run_id=7716f17f-dcf1-48f3-ad7c-e8b9cae9eb2f opencode\nCommands:\n  kilo run  run\n";
+    let two = "INFO  2026-10-16T06:35:08 +66ms service=default version=7.8.8 command=-h process_role=main run_id=62567e3a-acf2-4334-a348-ad1948bd0add opencode\nCommands:\n  kilo run  run\n";
+    assert_ne!(one, two);
+    assert_eq!(strip_log_lines(one), "Commands:\n  kilo run  run\n");
+    assert_eq!(normalise_volatile(one), normalise_volatile(two));
+    // a log line is the only thing removed: real text with a time or an id in it is only normalised
+    let inline = "Built at 2026-10-16T06:35:07Z, build 7716f17fdcf148f3ad7c, took +62ms";
+    assert_eq!(strip_log_lines(inline), inline);
+    assert_eq!(normalise_volatile(inline), "Built at <time>, build <hex>, took <ms>");
+    assert_ne!(normalise_volatile("a --format json"), normalise_volatile("a --format text"));
+}
+
+#[test]
+fn a_near_duplicate_help_is_marked_a_duplicate_and_the_log_line_is_not_shown() {
+    let tree = Tree::new("probe-noisy");
+    let wizard = tree.wizard();
+    let id = start(&wizard, "noisy-agent");
+    let out = ok(&wizard, "probe", json!({"session": id}));
+    let runs = out["runs"].as_array().unwrap();
+    let by = |label: &str| runs.iter().find(|r| r["label"] == label).unwrap_or_else(|| panic!("{label}"));
+    assert!(by("--help")["text"].as_str().unwrap().contains("Commands:"));
+    assert!(!out.to_string().contains("INFO  2026"), "the log line is noise and is removed");
+    assert_eq!(by("-h")["duplicate_of"], "--help", "-h differs from --help only by a log line");
+    assert_eq!(by("help")["duplicate_of"], "--help");
+    assert_ne!(by("--version")["text"], "", "a different output is not a duplicate");
 }

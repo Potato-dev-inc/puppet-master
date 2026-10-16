@@ -5,6 +5,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -70,11 +72,12 @@ pub fn valid_subcommand(name: &str) -> bool {
     ok && name != "help" && !DENIED_SUBCOMMANDS.contains(&name)
 }
 
-/// The `name   description` (or `program name   description`) rows under a heading that ends in `commands:` (any case), up to the next
-/// blank line or heading. Names that are not allowed are left out; order is kept; no duplicates.
-pub fn parse_subcommands(help: &str, program: &str) -> Vec<String> {
+/// The rows under a heading that ends in `commands:` (any case), up to the next blank line or heading:
+/// `name   description` (clap) or `program name <args>   description` (yargs). Returns `(name,
+/// description)`; names that are not allowed are left out; order is kept; no duplicates.
+pub fn parse_subcommand_rows(help: &str, program: &str) -> Vec<(String, String)> {
     let program = program.trim_end_matches(".exe").to_ascii_lowercase();
-    let mut out: Vec<String> = Vec::new();
+    let mut out: Vec<(String, String)> = Vec::new();
     let mut in_section = false;
     let mut seen_row = false;
     for line in help.lines() {
@@ -100,22 +103,91 @@ pub fn parse_subcommands(help: &str, program: &str) -> Vec<String> {
             continue;
         }
         seen_row = true;
-        // clap prints `name  description`; yargs prints `program name <args>  description`.
         let mut words = trimmed.split_whitespace();
         let mut name = words.next().unwrap_or("").trim_end_matches(',');
         if name.trim_end_matches(".exe").eq_ignore_ascii_case(&program) {
             name = words.next().unwrap_or("").trim_end_matches(',');
         }
-        if valid_subcommand(name) && !out.iter().any(|n| n == name) {
-            out.push(name.to_string());
+        if valid_subcommand(name) && !out.iter().any(|(n, _)| n == name) {
+            // the description: what follows the name, without `[args..]` / `<args>` placeholders
+            let description = words
+                .filter(|w| !(w.starts_with('[') || w.starts_with('<') || w.ends_with("..]") || w.ends_with('>')))
+                .collect::<Vec<_>>()
+                .join(" ");
+            out.push((name.to_string(), description));
         }
     }
     out
 }
 
+/// The subcommand names, in the order the help lists them.
+pub fn parse_subcommands(help: &str, program: &str) -> Vec<String> {
+    parse_subcommand_rows(help, program).into_iter().map(|(n, _)| n).collect()
+}
+
+/// Names that, in any CLI, usually mean "do one task and print the answer".
+const TASK_NAMES: &[&str] = &["run", "exec", "chat", "ask", "prompt", "query", "print", "send", "message", "task"];
+/// Words in a description that point at running a task, and at housekeeping.
+const TASK_WORDS: &[&str] = &["run", "execute", "message", "prompt", "chat", "ask", "assistant", "session", "task", "non-interactive", "headless", "answer", "conversation"];
+const HOUSEKEEPING_WORDS: &[&str] = &[
+    "manage", "list", "show", "install", "config", "debug", "completion", "server", "protocol", "import", "export", "stat", "log",
+    "plugin", "shell", "diagnostic", "settings", "update", "profile", "info", "issue", "github", "pull", "agents", "attach",
+];
+
+/// How likely `help <name>` documents running one task: the name counts most, then the description.
+pub fn subcommand_score(name: &str, description: &str) -> i32 {
+    let text = description.to_ascii_lowercase();
+    let mut score = if TASK_NAMES.contains(&name) { 4 } else { 0 };
+    score += TASK_WORDS.iter().filter(|w| text.contains(*w)).count() as i32;
+    score -= HOUSEKEEPING_WORDS.iter().filter(|w| text.contains(*w)).count() as i32;
+    score
+}
+
+/// The subcommands to ask about: the most task-like first (ties keep the help's order), at most `limit`.
+pub fn ranked_subcommands(help: &str, program: &str) -> Vec<String> {
+    let mut rows: Vec<(usize, i32, String)> = parse_subcommand_rows(help, program)
+        .into_iter()
+        .enumerate()
+        .map(|(i, (name, desc))| (i, subcommand_score(&name, &desc), name))
+        .collect();
+    rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    rows.into_iter().map(|(_, _, name)| name).collect()
+}
+
+static LOG_LINE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^[ \t]*(?:INFO|DEBUG|WARN|WARNING|TRACE|ERROR)[ \t]+\d{4}-\d{2}-\d{2}T\S*.*\n?").expect("log line regex")
+});
+static VOLATILE: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
+    [
+        (r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?", "<time>"),
+        (r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", "<id>"),
+        (r"\+\d+(?:\.\d+)?m?s\b", "<ms>"),
+        (r"(?i)\b[0-9a-f]{16,}\b", "<hex>"),
+    ]
+    .into_iter()
+    .map(|(p, with)| (Regex::new(p).expect("volatile regex"), with))
+    .collect()
+});
+
+/// Log lines (`INFO 2026-10-16T06:35:07 +62ms ...`) some CLIs print before their help: noise, and different
+/// on every run. They are not shown.
+pub fn strip_log_lines(text: &str) -> String {
+    LOG_LINE.replace_all(text, "").into_owned()
+}
+
+/// The text with the parts that change on every run (times, ids, counters) replaced, so two runs of the
+/// same help compare equal.
+pub fn normalise_volatile(text: &str) -> String {
+    let mut out = strip_log_lines(text);
+    for (re, with) in VOLATILE.iter() {
+        out = re.replace_all(&out, *with).into_owned();
+    }
+    out.trim().to_string()
+}
+
 fn combined(out: &exec::RunOutput) -> String {
-    let stdout = exec::clean(&out.stdout);
-    let stderr = exec::clean(&out.stderr);
+    let stdout = strip_log_lines(&exec::clean(&out.stdout));
+    let stderr = strip_log_lines(&exec::clean(&out.stderr));
     match (stdout.trim().is_empty(), stderr.trim().is_empty()) {
         (_, true) => stdout,
         (true, false) => stderr,
@@ -145,8 +217,9 @@ pub fn probe_program(
         let text = combined(&out);
         let bytes = text.len();
         let kept = exec::cut_bytes(&text, limits.probe_max_bytes);
-        let duplicate_of = (!kept.trim().is_empty())
-            .then(|| runs.iter().find(|r| r.duplicate_of.is_none() && r.text == kept).map(|r| r.label.clone()))
+        let same = normalise_volatile(&kept);
+        let duplicate_of = (!same.is_empty())
+            .then(|| runs.iter().find(|r| r.duplicate_of.is_none() && normalise_volatile(&r.text) == same).map(|r| r.label.clone()))
             .flatten();
         runs.push(ProbeRunReport {
             label: args.join(" "),
@@ -193,7 +266,7 @@ pub fn probe_program(
             (!source.text.trim().is_empty()).then(|| source.text.clone())
         })
         .unwrap_or_default();
-    let all = parse_subcommands(&help_text, command);
+    let all = ranked_subcommands(&help_text, command);
     let subcommands: Vec<String> = all.iter().take(MAX_SUBCOMMANDS).cloned().collect();
     for extra in all.iter().skip(MAX_SUBCOMMANDS) {
         skipped.push(Skipped {

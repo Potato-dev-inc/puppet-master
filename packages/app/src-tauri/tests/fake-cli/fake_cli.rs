@@ -14,7 +14,7 @@
 //
 // The program name selects odd behaviour (the tests copy the exe): *hang* sleeps for a minute,
 // *flood* prints about 200 KB, *secret* prints a token-shaped string in its help, *silent* prints
-// nothing, *stdin* reads its standard input to the end first (it hangs if stdin is left open), *oldstyle* has no `run --help` (only `help run`), *raw* answers `run` in plain text without any JSON, *linger* finishes its events and then
+// nothing, *noisy* prints a timestamped log line first (different every run), *stdin* reads its standard input to the end first (it hangs if stdin is left open), *oldstyle* has no `run --help` (only `help run`), *raw* answers `run` in plain text without any JSON, *linger* finishes its events and then
 // keeps running for a minute (like an agent that does not exit after its last event).
 use std::io::Write;
 use std::path::Path;
@@ -72,6 +72,11 @@ fn main() {
         let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut got);
         println!("stdin-bytes: {}", got.len());
         return;
+    }
+    if stem.contains("noisy") {
+        // a log line before the output, different on every run and naming the arguments (some CLIs do)
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        println!("INFO  2026-10-16T06:35:07 +{}ms service=default command={} run_id={:032x}", nanos % 1000, args.join(" "), nanos);
     }
     if stem.contains("silent") {
         return;
