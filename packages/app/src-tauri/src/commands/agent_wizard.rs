@@ -51,37 +51,13 @@ pub async fn agent_wizard_cancel(session: String) -> Result<Value, String> {
     run("cancel", serde_json::json!({"session": session})).await
 }
 
-/// The local drafter: one read-only question to an installed agent, in the session's work folder.
-/// Returns `{"answer": "..."}`.
+/// The local drafter: one read-only turn of an installed agent, in the session's work folder, with the
+/// prompt on standard input. Returns `{"answer": "..."}`.
 #[tauri::command]
-pub async fn agent_wizard_ask(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    session: String,
-    agent: String,
-    prompt: String,
-) -> Result<Value, String> {
-    let request = ask::prepare(Wizard::app(), &session, &agent, &prompt).map_err(|e| format!("{}: {}", e.code, e.message))?;
-    let registry = state.registry.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        crate::agent_runs::quick::quick_ask(request, registry, app, None)
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    match result {
-        Ok(value) => match value.get("status").and_then(Value::as_str) {
-            Some("running") => Err("DRAFTER_TIMEOUT: the agent is taking too long to answer; try again or pick another agent".into()),
-            Some("needs_input") => {
-                Err("DRAFTER_NEEDS_INPUT: the agent stopped to ask for permission; pick another agent".into())
-            }
-            _ => match value.get("answer").and_then(Value::as_str).map(str::trim).filter(|a| !a.is_empty()) {
-                Some(answer) => Ok(serde_json::json!({"answer": answer})),
-                None => Err("DRAFTER_EMPTY: the agent gave an empty answer".into()),
-            },
-        },
-        Err(error) => {
-            let (_, plain) = crate::agent_health::classify_failure(&error.code, &error.message);
-            Err(format!("{}: {}", error.code, plain))
-        }
-    }
+pub async fn agent_wizard_ask(session: String, agent: String, prompt: String) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || ask::run_for_agent(Wizard::app(), &session, &agent, &prompt))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|answer| serde_json::json!({"answer": answer}))
+        .map_err(|e| format!("{}: {}", e.code, e.message))
 }

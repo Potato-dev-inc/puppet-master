@@ -3,6 +3,7 @@
 
 pub(crate) mod support;
 
+mod ask_tests;
 mod benchmark;
 mod e2e;
 mod exec_tests;

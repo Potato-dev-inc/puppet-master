@@ -66,6 +66,8 @@ pub struct Limits {
     pub live_timeout: Duration,
     pub live_max_bytes: usize,
     pub live_grace: Duration,
+    /// How long the local drafter (an installed agent) may take to answer.
+    pub draft_timeout: Duration,
 }
 
 impl Default for Limits {
@@ -78,6 +80,7 @@ impl Default for Limits {
             live_timeout: Duration::from_secs(90),
             live_max_bytes: 256 * 1024,
             live_grace: Duration::from_millis(1500),
+            draft_timeout: Duration::from_secs(300),
         }
     }
 }

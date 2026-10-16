@@ -1,10 +1,8 @@
 //! The error format for an AI (`report`, `hints`) and the request preparation for the local drafter.
 
-use crate::tui::declarative::wizard::ask::{prepare, MAX_PROMPT_CHARS};
 use crate::tui::declarative::wizard::hints::fix_for;
 use crate::tui::declarative::wizard::report::{excerpt, render, CheckError, Source, EXCERPT_LINES, EXCERPT_LINE_CHARS};
 
-use super::support::{start, Tree};
 
 #[test]
 fn nothing_to_fix_renders_as_empty_text() {
@@ -76,31 +74,4 @@ fn every_error_code_the_wizard_produces_has_advice() {
     assert!(fix_for("AGENT_DEF_INCONSISTENT", "headless.output.result.path").contains("path = "));
     assert!(fix_for("AGENT_DEF_INCONSISTENT", "headless.output").contains("[headless.output]"));
     assert_eq!(fix_for("AGENT_DEF_INCONSISTENT", "x"), fix_for("AGENT_DEF_INCONSISTENT", "x"), "same mistake, same advice");
-}
-
-#[test]
-fn the_local_drafter_request_uses_the_work_folder_and_is_read_only() {
-    let tree = Tree::new("ask");
-    let wizard = tree.wizard();
-    let id = start(&wizard, "fake-agent");
-    let request = prepare(&wizard, &id, "claude", "write the file").unwrap();
-    assert_eq!(request.backend.as_deref(), Some("claude"));
-    assert_eq!(request.read_only, Some(true));
-    assert_eq!(request.task, "write the file");
-    let folder = wizard.read(&id, |s| s.work_dir.to_string_lossy().into_owned()).unwrap();
-    assert_eq!(request.project_path.as_deref(), Some(folder.as_str()), "never the person's project");
-    assert!(request.wait_ms.unwrap() <= 120_000);
-}
-
-#[test]
-fn the_local_drafter_refuses_long_prompts_unknown_sessions_and_blank_input() {
-    let tree = Tree::new("ask-refuse");
-    let wizard = tree.wizard();
-    let id = start(&wizard, "fake-agent");
-    let long = "x".repeat(MAX_PROMPT_CHARS + 1);
-    assert_eq!(prepare(&wizard, &id, "claude", &long).unwrap_err().code, "WIZARD_PROMPT_TOO_LONG");
-    assert!(prepare(&wizard, &id, "claude", &"x".repeat(MAX_PROMPT_CHARS)).is_ok());
-    assert_eq!(prepare(&wizard, "wz_nope", "claude", "hi").unwrap_err().code, "WIZARD_SESSION_NOT_FOUND");
-    assert_eq!(prepare(&wizard, &id, "claude", "  ").unwrap_err().code, "INVALID_ARGUMENT");
-    assert_eq!(prepare(&wizard, &id, " ", "hi").unwrap_err().code, "INVALID_ARGUMENT");
 }
