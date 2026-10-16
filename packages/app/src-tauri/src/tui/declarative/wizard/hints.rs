@@ -51,6 +51,21 @@ pub fn fix_for(code: &str, path: &str) -> String {
         "WIZARD_NO_HEADLESS" => {
             "Add a `[headless]` table (argv, task_separator) and a `[headless.output]` table. This wizard only writes headless definitions."
         }
+        "WIZARD_NO_TUI" => {
+            "Add a [tui] table (argv, [tui.ready], [tui.busy], [tui.chrome], [[tui.prompt]] ...). The visible capture was done, so this file must describe the visible pane."
+        }
+        "WIZARD_TUI_NO_READY" => {
+            "Add [tui.ready] with a `regex` that matches the empty input box on the idle capture (for example its placeholder text) and a `not_regex` list for screens that must not count as ready."
+        }
+        "WIZARD_TUI_NO_BUSY" => {
+            "Add [tui.busy] with `working_regex` patterns that match the working capture (a spinner row, a stop hint) and, if the idle screen has a marker of its own, `idle_regex`."
+        }
+        "WIZARD_TUI_NO_PROMPT" => {
+            "Add a [[tui.prompt]] whose `detect_regex` matches the permission capture, with choices allow_once and deny (each a `key` or `text` that answers it), and a `not_when_regex` for what stays on screen after it was answered."
+        }
+        "FIXTURE_EXPECT_INVALID" => {
+            "Fix or remove that expectation block: it may only use chrome_lines, not_chrome_lines, model, menu and prompt_kind, and every row must appear on the capture it belongs to. For a dialog, make a [[tui.prompt]] match it."
+        }
         "WIZARD_ID_TAKEN" => "Choose a different `agent.id`; this one already has a file. Add a suffix such as `_2`.",
         "WIZARD_BINARY_MISMATCH" => {
             "Put the command the person typed first in `binary.names` (other names may follow). Do not rename the program."
@@ -63,8 +78,28 @@ pub fn fix_for(code: &str, path: &str) -> String {
         }
         "WIZARD_KIND" => "Remove `kind = \"generic\"` (or set `kind = \"cli\"`). A generic agent has no headless table.",
         "FIXTURE_FAILED" => {
-            "The real or generated output was not read the way the fixture expects. Compare your `where`, `path` and `pick` with the real output lines shown, and fix the selector that is wrong."
+            if path.starts_with("tui_") {
+                "The screen was not read the way the capture proves it should be. Compare the regex named in the Problem with the screen shown: `ready` is [tui.ready], `busy` is [tui.busy], `prompt_kind` is [[tui.prompt]], chrome rows are [tui.chrome] (lowercase regexes)."
+            } else {
+                "The real or generated output was not read the way the fixture expects. Compare your `where`, `path` and `pick` with the real output lines shown, and fix the selector that is wrong."
+            }
         }
+        "VISIBLETEST_SPAWN_FAILED" => "The test pane could not be started. Check `[tui] argv` and `[binary]`; the program must start in a terminal with these arguments.",
+        "VISIBLETEST_STARTS_FAILED" => "The program ended right after it started. Check `[tui] argv`: an argument may make it exit, or it needs one the capture did not use.",
+        "VISIBLETEST_READY_FAILED" => {
+            "The profile never read the screen as the empty input box. Compare [tui.ready] `regex` and `not_regex` with the idle capture and with the screen shown, and check [tui.busy] and [[tui.prompt]] do not match the idle screen."
+        }
+        "VISIBLETEST_DELIVERY_FAILED" => {
+            "The task could not be typed and sent. Check `[tui.delivery]` (input_echo_regex must match the typed text in the input box, transcript_echo_regex the echoed message) and `clear_input_keys`."
+        }
+        "VISIBLETEST_BUSY_FAILED" => "The profile did not see the agent working. Make [tui.busy] `working_regex` match the working capture.",
+        "VISIBLETEST_DONE_REPLY_FAILED" => {
+            "The reply was not read from the finished screen. Make [tui.chrome] and [tui.tool_activity] (lowercase line regexes) cover the banner, footer and tool rows but not the reply row, and check [tui.busy] does not match the finished screen."
+        }
+        "VISIBLETEST_PERMISSION_FAILED" => {
+            "The permission question did not become an approval card. Make a [[tui.prompt]] `detect_regex` match the permission capture, with choices allow_once and deny that each have a key or text."
+        }
+        "VISIBLETEST_EXIT_FAILED" => "The pane did not close after the test.",
         "LIVETEST_NO_OUTPUT" => {
             "The program printed nothing on stdout. Check the arguments: the flag that runs one task and prints machine-readable output may be missing."
         }
@@ -91,13 +126,15 @@ fn conformance_hint(code: &str) -> &'static str {
         "CONFORMANCE_EXTRACT_RESULT_REJECTS_GARBAGE_AND_FAILED_EXITS" => {
             "Make the result selector stricter: garbage text and failed runs must give no result. Use a JSON format with a `where` that matches only the real answer event, or anchor `result.regex`."
         }
-        "CONFORMANCE_PROMPTS_ROUND_TRIP" => "Do not add `[[tui.prompt]]` entries in a headless definition.",
+        "CONFORMANCE_PROMPTS_ROUND_TRIP" => {
+            "Every [[tui.prompt]] must answer what it detects: give it choices with allow_once and deny, each with a `key` or `text`, and make `detect_regex` specific (it must not match a plain sentence like \"Allow once?\")."
+        }
         "CONFORMANCE_EMPTY_SCREEN_NEVER_BLOCKED" | "CONFORMANCE_BLANK_SCREEN_IS_UNKNOWN" => {
-            "Remove screen patterns (`[tui]` tables); this wizard writes headless definitions only."
+            "A blank screen must never read as a prompt, a dialog or an input box: make [tui.ready], [[tui.prompt]] and [tui.classify] regexes need real text (no pattern that matches nothing at all)."
         }
         "CONFORMANCE_IDLE_WINDOWS_ARE_SANE" => "Remove `idle_after_ms` and `quiet_idle_after_ms`, or set them in range (1500-5000 and 500 up to idle_after_ms).",
-        "CONFORMANCE_SUBMIT_AND_STARTUP_DECLARATIONS_ARE_SANE" => "Remove the `[tui]` submit and startup settings.",
-        "CONFORMANCE_SCREEN_METHODS_SURVIVE_HUGE_INPUT" => "Simplify the screen patterns or remove the `[tui]` tables.",
+        "CONFORMANCE_SUBMIT_AND_STARTUP_DECLARATIONS_ARE_SANE" => "Remove the `[tui]` submit and startup settings that are out of range.",
+        "CONFORMANCE_SCREEN_METHODS_SURVIVE_HUGE_INPUT" => "Simplify the screen patterns: one of them is too slow on a very large screen.",
         _ => "Change the file so this shared rule holds; the Problem line names what is wrong.",
     }
 }

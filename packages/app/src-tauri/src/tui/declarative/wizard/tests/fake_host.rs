@@ -26,6 +26,9 @@ pub struct FakePane {
     pub card: Option<Value>,
     pub profile_id: String,
     pub cwd: PathBuf,
+    /// A status the test forces (otherwise: `running` for a moment after the screen changed, like a pane).
+    pub forced_status: Option<String>,
+    changed_at: std::time::Instant,
 }
 
 #[derive(Default)]
@@ -85,13 +88,14 @@ impl FakeHost {
         if let Some(p) = st.panes.get_mut(pane) {
             p.screen = text.to_string();
             p.watch = None;
+            p.changed_at = std::time::Instant::now();
         }
     }
 
     pub fn set_status(&self, status: &str) {
         let pane = self.last();
         if let Some(p) = self.state.lock().panes.get_mut(&pane) {
-            p.status = status.to_string();
+            p.forced_status = Some(status.to_string());
         }
     }
 
@@ -151,6 +155,8 @@ impl PaneHost for FakeHost {
                 card: None,
                 profile_id: spec.profile.id().to_string(),
                 cwd: spec.cwd.clone(),
+                forced_status: None,
+                changed_at: std::time::Instant::now(),
             },
         );
         st.order.push(id.clone());
@@ -163,7 +169,10 @@ impl PaneHost for FakeHost {
         Some(Look {
             screen: p.screen.clone(),
             watch: p.watch.clone().unwrap_or_else(|| p.screen.clone()),
-            status: p.status.clone(),
+            status: p
+                .forced_status
+                .clone()
+                .unwrap_or_else(|| if p.alive && p.changed_at.elapsed() < Duration::from_millis(250) { "running".into() } else { p.status.clone() }),
             alive: p.alive,
             output_pos: Some(st.counter),
             hello_written: false,
@@ -254,4 +263,64 @@ pub fn wait_for<T>(secs: u64, mut check: impl FnMut() -> Option<T>) -> Option<T>
 #[allow(dead_code)]
 pub fn env_with(host: Arc<FakeHost>, base: WizardEnv) -> WizardEnv {
     WizardEnv { host, visible: quick_cfg(), ..base }
+}
+
+/// The screens of the made-up agent used by the visible-path tests (the same words the fake TUI's
+/// `nimbus` layout draws, so one recorded draft reads both).
+pub mod screens {
+    pub const IDLE: &str = "NIMBUS 0.4 ready\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n";
+    pub const TRUST: &str = "NIMBUS\n\nDo you trust the files in this folder?\n\n  1. Yes, trust this folder\n  2. No, exit\n";
+    pub const PERMISSION: &str = "NIMBUS\n\nAllow nimbus to create hello.txt? [y/n]\n";
+
+    pub fn working(word: &str, n: usize) -> String {
+        let spinner = ["\u{280b}", "\u{2819}", "\u{2839}", "\u{2838}"][n % 4];
+        format!("NIMBUS 0.4\n\n> Reply with exactly the word: {word}\n\n{spinner} Thinking...  ctrl+c to stop\n\n| > Type a task...             |\n")
+    }
+
+    pub fn reply(word: &str) -> String {
+        format!("NIMBUS 0.4\n\n> Reply with exactly the word: {word}\nreply: {word}\n\ndone in 2s\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n  /help for commands | ctrl+c twice to quit\n")
+    }
+}
+
+/// The made-up agent: typing a task makes it work and then answer; the hello.txt task asks permission
+/// (and the pane shows an approval card). `answer` is what it says (empty: the word it was asked for).
+pub fn script_agent(host: &Arc<FakeHost>, answer: &'static str) {
+    let for_thread = host.clone();
+    host.on_deliver(move |h, pane, text| {
+        if text.contains("hello.txt") {
+            h.set_screen_of(pane, screens::PERMISSION);
+            h.set_card(Some(serde_json::json!({"kind": "command_approval", "choices": ["allow_once", "deny"]})));
+            return Delivered::Submitted;
+        }
+        let word = text.rsplit(' ').next().unwrap_or("").to_string();
+        h.set_screen_of(pane, &screens::working(&word, 0));
+        let (host, pane) = (for_thread.clone(), pane.to_string());
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(120));
+            host.set_screen_of(&pane, &screens::working(&word, 1));
+            std::thread::sleep(Duration::from_millis(120));
+            let said = if answer.is_empty() { word.clone() } else { answer.to_string() };
+            host.set_screen_of(&pane, &screens::reply(&said));
+        });
+        Delivered::Submitted
+    });
+}
+
+/// Run the visible test of the session's verified draft on a thread, show the idle screen once the pane
+/// exists, and return the reply. The agent is `script_agent`'s.
+pub fn run_visible_test(
+    wizard: &Arc<crate::tui::declarative::wizard::Wizard>,
+    host: &Arc<FakeHost>,
+    id: &str,
+    plan: &str,
+) -> Result<Value, crate::tui::declarative::wizard::WizardError> {
+    script_agent(host, "");
+    let (w, i, p) = (wizard.clone(), id.to_string(), plan.to_string());
+    let before = host.spawned().len();
+    let run = std::thread::spawn(move || {
+        crate::tui::declarative::wizard::api::handle(&w, "visibletest", &serde_json::json!({"session": i, "confirm": true, "plan": p}))
+    });
+    wait_for(10, || (host.spawned().len() > before).then_some(())).expect("the test pane is started");
+    host.set_screen(screens::IDLE);
+    run.join().unwrap()
 }

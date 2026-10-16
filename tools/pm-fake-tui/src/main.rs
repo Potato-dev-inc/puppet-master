@@ -21,14 +21,15 @@ fn main() {
                 agent = match args.next().as_deref() {
                     Some("claude") => Some(Layout::Claude),
                     Some("codex") => Some(Layout::Codex),
+                    Some("nimbus") => Some(Layout::Nimbus),
                     other => {
-                        eprintln!("--agent takes claude or codex, not {other:?}");
+                        eprintln!("--agent takes claude, codex or nimbus, not {other:?}");
                         std::process::exit(2);
                     }
                 }
             }
             "--help" | "-h" => {
-                println!("pm-fake-tui [--agent claude|codex] [--script FILE.toml|FILE.json] [--check FILE]\nSee tools/pm-fake-tui/README.md for the script format.");
+                println!("pm-fake-tui [--agent claude|codex|nimbus] [--script FILE.toml|FILE.json] [--check FILE]\nSee tools/pm-fake-tui/README.md for the script format.");
                 return;
             }
             other => {

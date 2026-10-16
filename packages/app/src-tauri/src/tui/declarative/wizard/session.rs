@@ -509,15 +509,20 @@ impl Wizard {
 /// this draft text (the headless live test if the draft has `[headless]`, the visible test if the
 /// session captured screens). Otherwise its state is left as it is.
 pub fn settle(s: &mut Session) {
-    let Some(draft) = &s.draft else { return };
+    if tests_complete(s) {
+        s.state = State::Tested;
+    }
+}
+
+/// Has every test the draft needs passed for exactly this draft text?
+pub fn tests_complete(s: &Session) -> bool {
+    let Some(draft) = &s.draft else { return false };
     let def = crate::tui::declarative::schema::parse_definition(&draft.text).ok();
     let needs_headless = def.as_ref().and_then(|d| d.headless.as_ref()).is_some_and(|h| h.output.is_some());
     let needs_visible = s.visible.has_captures();
     let headless_ok = s.tested.as_ref().is_some_and(|t| t.draft_sha256 == draft.sha256);
     let visible_ok = s.visible_tested.as_ref().is_some_and(|t| t.draft_sha256 == draft.sha256);
-    if (needs_headless || needs_visible) && (!needs_headless || headless_ok) && (!needs_visible || visible_ok) {
-        s.state = State::Tested;
-    }
+    (needs_headless || needs_visible) && (!needs_headless || headless_ok) && (!needs_visible || visible_ok)
 }
 
 /// Best effort: a folder in use on Windows is retried once the step ends.

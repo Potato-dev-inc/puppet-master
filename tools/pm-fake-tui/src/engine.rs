@@ -54,6 +54,7 @@ pub struct Engine {
     verb: String,
     turn_started: u64,
     turns_done: usize,
+    last_prompt: String,
     last_typed: Option<u64>,
     notice: Option<(String, Option<u64>)>,
     ctrl_c_armed: bool,
@@ -74,6 +75,11 @@ impl Engine {
             Layout::Codex => Banner {
                 version: script.version.clone().unwrap_or_else(|| "0.162.1".into()),
                 model: script.model.clone().unwrap_or_else(|| "GPT-6-Luna medium".into()),
+                cwd,
+            },
+            Layout::Nimbus => Banner {
+                version: script.version.clone().unwrap_or_else(|| "0.4.2".into()),
+                model: script.model.clone().unwrap_or_else(|| "local".into()),
                 cwd,
             },
         };
@@ -101,6 +107,7 @@ impl Engine {
             verb: "Generating".into(),
             turn_started: 0,
             turns_done: 0,
+            last_prompt: String::new(),
             last_typed: None,
             notice: None,
             ctrl_c_armed: false,
@@ -267,7 +274,7 @@ impl Engine {
             Key::Up => *selected = selected.saturating_sub(1),
             Key::Down => *selected = (*selected + 1).min(options - 1),
             Key::Enter => confirm = Some(*selected),
-            Key::Char(c) if gate.gate == GateKind::UpdateMenu || self.layout == Layout::Codex => {
+            Key::Char(c) if gate.gate == GateKind::UpdateMenu || self.layout != Layout::Claude => {
                 if let Some(n) = c.to_digit(10).filter(|n| (1..=options as u32).contains(n)) {
                     confirm = Some(n as usize - 1);
                 }
@@ -349,6 +356,12 @@ impl Engine {
                 if prompt.trim().is_empty() {
                     return;
                 }
+                // The agent no profile knows quits on `/exit` (the Agent Wizard types it on request).
+                if self.layout == Layout::Nimbus && prompt.trim() == "/exit" {
+                    self.log(now, "prompt", json!({ "text": prompt }));
+                    self.exit_with(0, now);
+                    return;
+                }
                 self.submit(prompt, now);
             }
             Key::CtrlC => {
@@ -384,6 +397,12 @@ impl Engine {
                         'n' => Some(options - 1),
                         _ => None,
                     };
+                } else if self.layout == Layout::Nimbus {
+                    confirm = match c {
+                        'y' | 'Y' => Some(0),
+                        'n' | 'N' => Some(options - 1),
+                        _ => None,
+                    };
                 }
             }
             _ => {}
@@ -411,6 +430,7 @@ impl Engine {
                 (Layout::Claude, ApprovalKind::Bash) => "User rejected tool use".into(),
                 (Layout::Claude, _) => format!("User rejected update to {subject}"),
                 (Layout::Codex, _) => format!("You canceled the request to run {subject}"),
+                (Layout::Nimbus, _) => format!("denied: {subject}"),
             }));
             self.queue = on_deny.into_iter().collect();
         }
@@ -424,6 +444,7 @@ impl Engine {
             (Layout::Claude, ApprovalKind::Create) => format!("Write({subject})"),
             (Layout::Codex, ApprovalKind::Bash) => format!("Ran {subject}"),
             (Layout::Codex, _) => format!("Edited {subject}"),
+            (Layout::Nimbus, _) => format!("allowed: {subject}"),
         };
         Block::Tool { label, detail: None, failed: None }
     }
@@ -432,6 +453,7 @@ impl Engine {
 
     fn submit(&mut self, prompt: String, now: u64) {
         self.log(now, "prompt", json!({ "text": prompt }));
+        self.last_prompt = prompt.clone();
         self.blocks.push(Block::User(prompt.clone()));
         self.composer.clear();
         self.suggestion = None;
@@ -461,7 +483,10 @@ impl Engine {
                     self.sleep = Some(Sleep { verb: self.verb.clone(), until: now + ms });
                 }
                 Step::Wait { ms } => self.sleep = Some(Sleep { verb: self.verb.clone(), until: now + ms }),
-                Step::Say { text } => self.blocks.push(Block::Reply(text)),
+                Step::Say { text } => {
+                    let text = self.fill(&text);
+                    self.blocks.push(Block::Reply(text));
+                }
                 Step::Tool { label, detail, ms, failed } => {
                     self.blocks.push(Block::Tool { label, detail, failed });
                     if ms > 0 {
@@ -481,12 +506,16 @@ impl Engine {
                     self.phase = Phase::Approval { dialog, on_allow, on_deny };
                     return;
                 }
-                Step::WriteFile { path, content, append, quiet } => self.write_file(&path, &content, append, quiet, now),
+                Step::WriteFile { path, content, append, quiet } => {
+                    let content = self.fill(&content);
+                    self.write_file(&path, &content, append, quiet, now)
+                }
                 Step::Suggest { text } => self.pending_suggestion = Some(text),
                 Step::Limit { text, reset, auto_continue } => {
                     let reset = reset.unwrap_or_else(|| "9:45 PM".into());
                     let text = text.unwrap_or_else(|| match self.layout {
                         Layout::Codex => format!("You\u{2019}ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at {reset}."),
+                        Layout::Nimbus => format!("quota used up, resets {reset}"),
                         Layout::Claude => format!("You've hit your session limit \u{b7} resets {reset}"),
                     });
                     self.log(now, "limit", json!({ "text": text }));
@@ -515,6 +544,13 @@ impl Engine {
         }
     }
 
+    /// `{last_word}` in a step's text is the last word of the prompt that started the turn, without a
+    /// final stop: a scripted agent can then answer "reply with exactly the word X" for any X.
+    fn fill(&self, text: &str) -> String {
+        let last = self.last_prompt.split_whitespace().last().unwrap_or("").trim_end_matches(['.', '!', '?']).to_string();
+        text.replace("{last_word}", &last)
+    }
+
     fn write_file(&mut self, path: &str, content: &str, append: bool, quiet: bool, now: u64) {
         let target = self.base_dir.join(path);
         let result = (|| -> std::io::Result<()> {
@@ -536,6 +572,7 @@ impl Engine {
             let (label, detail) = match (&result, self.layout) {
                 (Ok(()), Layout::Claude) => (format!("Write({path})"), format!("Wrote {lines} lines to {path}")),
                 (Ok(()), Layout::Codex) => (format!("Edited {path}"), format!("wrote {lines} lines")),
+                (Ok(()), Layout::Nimbus) => (format!("wrote {path}"), format!("{lines} line(s)")),
                 (Err(e), _) => (format!("Write({path})"), format!("Error: {e}")),
             };
             self.blocks.push(Block::Tool { label, detail: Some(detail), failed: None });
@@ -549,6 +586,7 @@ impl Engine {
         self.blocks.push(Block::Note(match self.layout {
             Layout::Claude => "Interrupted \u{b7} What should Claude do instead?".into(),
             Layout::Codex => "Conversation interrupted - tell the model what to do differently.".into(),
+            Layout::Nimbus => "interrupted".into(),
         }));
         self.finish_turn(now, true);
     }
@@ -566,6 +604,7 @@ impl Engine {
                     let (h12, ampm) = (if h % 12 == 0 { 12 } else { h % 12 }, if h < 12 { "AM" } else { "PM" });
                     format!("Worked for {secs}s \u{2022} {h12}:{m:02} {ampm}")
                 }
+                Layout::Nimbus => format!("done in {secs}s"),
             };
             self.blocks.push(Block::Summary(text));
         }
@@ -834,5 +873,90 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.join("sub/out.txt")).unwrap(), "hello\n");
         assert!(e.plain(100).contains("Write(sub/out.txt)"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod nimbus_tests {
+    use super::*;
+
+    fn engine(toml: &str) -> Engine {
+        let script = Script::parse(&format!("agent = \"nimbus\"\n{toml}"), false).unwrap();
+        Engine::new(script, std::env::temp_dir().join("pm-fake-tui-nimbus-unit"), 120, 40, 0)
+    }
+
+    fn type_text(e: &mut Engine, text: &str, now: u64) {
+        for c in text.chars() {
+            e.on_key(Key::Char(c), now);
+        }
+    }
+
+    #[test]
+    fn nimbus_asks_about_the_folder_then_shows_a_boxed_input_row() {
+        let mut e = engine("[[startup]]\ngate = \"trust\"");
+        e.tick(0);
+        let trust = e.plain(0);
+        assert!(trust.contains("Do you trust the files in this folder?") && trust.contains("1. Yes, trust this folder"), "{trust}");
+        e.on_key(Key::Enter, 10);
+        assert_eq!(e.exit_code(), None);
+        let ready = e.plain(20);
+        assert!(ready.contains("| > Type a task..."), "{ready}");
+        assert!(ready.starts_with("NIMBUS 0.4.2"), "{ready}");
+        // declining ends the process and leaves the question drawn
+        let mut no = engine("[[startup]]\ngate = \"trust\"");
+        no.tick(0);
+        no.on_key(Key::Char('2'), 10);
+        assert_eq!(no.exit_code(), Some(1));
+    }
+
+    #[test]
+    fn nimbus_spins_while_it_works_and_answers_with_the_last_word_of_the_prompt() {
+        let mut e = engine("[[turn]]\nsteps = [{ do = \"think\", ms = 1000 }, { do = \"say\", text = \"{last_word}\" }]");
+        type_text(&mut e, "Reply with exactly the word: pong-abcdef", 0);
+        assert!(e.plain(0).contains("| > Reply with exactly the word: pong-abcdef"));
+        e.on_key(Key::Enter, 100);
+        let working = e.plain(300);
+        assert!(working.contains("Generating...") && working.contains("ctrl+c to stop"), "{working}");
+        assert!(working.contains("> Reply with exactly the word: pong-abcdef"));
+        e.tick(1200);
+        let done = e.plain(1200);
+        assert!(done.contains("reply: pong-abcdef") && done.contains("done in 1s") && !done.contains("ctrl+c to stop"), "{done}");
+    }
+
+    #[test]
+    fn nimbus_asks_before_it_creates_a_file_and_takes_y_or_n() {
+        let toml = "[[turn]]\nsteps = [{ do = \"approve\", kind = \"create\", path = \"hello.txt\", on_allow = [{ do = \"say\", text = \"made it\" }], on_deny = [{ do = \"say\", text = \"not made\" }] }]";
+        let mut yes = engine(toml);
+        type_text(&mut yes, "make hello.txt", 0);
+        yes.on_key(Key::Enter, 10);
+        assert!(yes.plain(20).contains("Allow nimbus to create hello.txt? [y/n]"), "{}", yes.plain(20));
+        assert!(!yes.plain(20).contains("Type a task"), "the question replaces the input box");
+        yes.on_key(Key::Char('y'), 30);
+        assert!(yes.plain(40).contains("reply: made it") && yes.plain(40).contains("note: allowed") || yes.plain(40).contains("allowed: hello.txt"), "{}", yes.plain(40));
+        let mut no = engine(toml);
+        type_text(&mut no, "make hello.txt", 0);
+        no.on_key(Key::Enter, 10);
+        no.on_key(Key::Char('n'), 30);
+        let screen = no.plain(40);
+        assert!(screen.contains("denied: hello.txt") && !screen.contains("made it"), "{screen}");
+    }
+
+    #[test]
+    fn nimbus_quits_on_slash_exit() {
+        let mut e = engine("");
+        type_text(&mut e, "/exit", 0);
+        e.on_key(Key::Enter, 10);
+        assert_eq!(e.exit_code(), Some(0));
+    }
+
+    #[test]
+    fn nimbus_rows_fit_the_terminal() {
+        let mut e = engine("[[turn]]\nsteps = [{ do = \"say\", text = \"a long reply that goes on and on for a while so that it has to wrap around the edge of the terminal at least once\" }]");
+        type_text(&mut e, "go", 0);
+        e.on_key(Key::Enter, 10);
+        e.tick(500);
+        let frame = e.frame(500);
+        assert!(frame.rows.len() <= 40);
+        assert!(frame.rows.iter().all(|row| render::visible_len(row) <= 120));
     }
 }

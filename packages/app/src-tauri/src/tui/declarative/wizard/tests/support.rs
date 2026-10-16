@@ -113,9 +113,15 @@ impl Tree {
 
     /// A wizard whose panes are a scripted host; the host is returned so the test can drive the screens.
     pub fn visible_wizard(&self) -> (Wizard, Arc<FakeHost>) {
+        self.visible_wizard_with(|_| ())
+    }
+
+    /// `visible_wizard` with the environment changed (shorter limits, say).
+    pub fn visible_wizard_with(&self, change: impl FnOnce(&mut WizardEnv)) -> (Wizard, Arc<FakeHost>) {
         let host = FakeHost::new();
         let mut env = self.env();
         env.host = host.clone();
+        change(&mut env);
         (Wizard::new(move || env.clone()), host)
     }
 
@@ -183,4 +189,65 @@ pub fn tested(wizard: &Wizard, command: &str, draft: &str) -> String {
 
 pub fn provenance() -> Value {
     json!({"drafter": "Test drafter", "drafter_kind": "other", "model": null, "prompt_version": "1", "rounds": 1})
+}
+
+// ---- the visible path ----------------------------------------------------------------------------
+
+use crate::tui::declarative::wizard::session::TestWords;
+use crate::tui::declarative::wizard::visible::capture::{CapFrame, CaptureSet};
+
+pub const VISIBLE: &str = include_str!("drafts/visible_nimbus.toml");
+
+/// The recorded visible draft, for a program named `command`.
+pub fn visible_draft(command: &str) -> String {
+    VISIBLE.replace("@@COMMAND@@", command)
+}
+
+fn frame(name: &str, text: &str) -> CapFrame {
+    CapFrame { name: name.into(), text: text.into(), variants: Vec::new() }
+}
+
+/// A capture set of the made-up agent, with the session's real words in it.
+pub fn capture_set(words: &TestWords) -> CaptureSet {
+    use super::fake_host::screens;
+    CaptureSet {
+        frames: vec![
+            frame("tui_trust", screens::TRUST),
+            frame("tui_idle", screens::IDLE),
+            frame("tui_working", &screens::working(&words.one, 0)),
+            frame("tui_reply", &screens::reply(&words.one)),
+            frame("tui_permission", screens::PERMISSION),
+        ],
+        grid: (120, 40),
+        exit_method: "slash_exit".into(),
+        ..CaptureSet::default()
+    }
+}
+
+/// start -> probe, so a capture or a verify can run.
+pub fn probed(wizard: &Wizard, command: &str) -> String {
+    let id = start(wizard, command);
+    ok(wizard, "probe", json!({"session": id}));
+    id
+}
+
+/// Give the session a finished capture (as if the guided capture had run), built with its own words.
+pub fn with_captures(wizard: &Wizard, id: &str) {
+    wizard
+        .read(id, |s| {
+            let set = capture_set(&s.words);
+            *s.visible.captures.lock() = Some(set);
+        })
+        .unwrap();
+}
+
+/// The words of a session (the real ones: a test may look, an AI may not).
+pub fn words_of(wizard: &Wizard, id: &str) -> TestWords {
+    wizard.read(id, |s| s.words.clone()).unwrap()
+}
+
+/// A draft with both halves: the recorded headless draft for the fake agent and the visible tables.
+pub fn hybrid_draft() -> String {
+    let tui = &VISIBLE[VISIBLE.find("[tui]").expect("the visible draft has a [tui] table")..];
+    format!("{}\n{}", GOOD.trim_end(), tui)
 }
