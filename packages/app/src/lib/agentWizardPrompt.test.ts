@@ -28,7 +28,7 @@ const facts = (over: Partial<PromptFacts> = {}): PromptFacts => ({
 
 describe('prompt sources', () => {
   it('has a version string', () => {
-    expect(PROMPT_VERSION).toBe('3');
+    expect(PROMPT_VERSION).toBe('4');
   });
 
   it('finds every section of the format guide it needs (guards a renamed heading)', () => {
@@ -233,6 +233,13 @@ describe('the test description in the prompt', () => {
     expect(text).toContain('resumes the same conversation');
     expect(text).toContain('wrong model name');
     expect(text).toContain('the real output of those runs is shown to you in the next round');
+  });
+
+  it('suggests an optional model selector when the output says which model ran', () => {
+    const text = buildPrompt(facts()).text;
+    expect(text).toContain('If the output says which model ran');
+    expect(text).toContain('optional [headless.output.model] selector');
+    expect(text).toContain('part.model.modelID');
   });
 
   it('tells the drafter to use a documented JSON output flag even without a sample', () => {

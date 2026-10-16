@@ -12,7 +12,7 @@ import kiloToml from '../../src-tauri/tests/agent-definitions/kilo.toml?raw';
 import kiroToml from '../../src-tauri/tests/agent-definitions/kiro.toml?raw';
 
 /** Bump when the asked-for work or the rules change (stored in `<id>.wizard.json`). */
-export const PROMPT_VERSION = '3';
+export const PROMPT_VERSION = '4';
 
 /**
  * The most characters a prompt may have. The local agent gets it on standard input (not on the command line,
@@ -136,6 +136,7 @@ const TASK = `What to decide
 3. [headless] argv: the subcommand and flags that run ONE task and print output a program can read (a JSON or JSON-lines mode is best; if the help shows one, use it). Put the task last after task_separator = "--" if the program accepts it; otherwise use task_flag or stdin as the guide explains.
 4. [[headless.optional]] segments for "model" (the flag that picks a model) and "resume" (the flag that continues a conversation by session id), only if the help shows them.
 5. [headless.output]: the format, and selectors for result (the final answer text), session (the id used to resume), done (the event that ends a turn), error (an error message) and model (which model ran), where the output has them.
+If the output says which model ran (an event or field that holds a model name, for example part.model.modelID), also add an optional [headless.output.model] selector for it: it is how Puppet Master shows which model answered.
 If the program has no machine-readable mode, use format = "plain_text" and anchor result.regex, so garbage or an error message never becomes an answer.
 
 What happens after your answer
