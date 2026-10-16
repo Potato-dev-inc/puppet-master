@@ -75,6 +75,9 @@ jobs:
 
       # tauri-build needs the frontend output (../dist) and the bundled resources. The debug profile
       # keeps the MCP binary build cheap and shares the cargo cache with the tests below.
+      - name: Build shared package
+        run: npm run build --workspace=@puppet-master/shared
+
       - name: Build frontend and bundled resources
         run: npm run build --workspace=@puppet-master/app
         env:
@@ -116,6 +119,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Build shared package
+        run: npm run build --workspace=@puppet-master/shared
 
       - name: Build frontend and bundled resources
         run: npm run build --workspace=@puppet-master/app
