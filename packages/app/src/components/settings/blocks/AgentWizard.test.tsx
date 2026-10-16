@@ -248,7 +248,7 @@ describe('AgentWizard', () => {
     expect(api.finish).toHaveBeenCalledTimes(1);
     const [session, provenance] = api.finish.mock.calls[0];
     expect(session).toBe('wz_1');
-    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', drafter_kind: 'local_agent', rounds: 2, prompt_version: '1' });
+    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', drafter_kind: 'local_agent', rounds: 2, prompt_version: '2' });
     expect(approved).toHaveLength(1);
     expect(approved[0].id).toBe('fake_agent');
     expect(api.cancel).not.toHaveBeenCalled();
