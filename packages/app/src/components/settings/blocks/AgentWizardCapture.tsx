@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   splitError,
   type CaptureAction,
+  type CaptureDebug,
   type CapturePlan,
   type CaptureStatus,
   type CaptureStep,
@@ -31,6 +32,50 @@ const STATUS_WORD: Record<CaptureStep['status'], string> = {
   stuck: 'Stuck, kept what was captured',
   failed: 'Did not work',
 };
+
+/** "What the wizard saw": the last looks of the capture and how each was read. Loaded when the person asks. */
+function SawPanel({ api, session }: { api: WizardApi; session: string }) {
+  const [debug, setDebug] = useState<CaptureDebug | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  const load = async () => {
+    setError(null);
+    try {
+      setDebug((await api.captureDebug?.(session)) ?? null);
+    } catch (e) {
+      setError(splitError(e).message);
+    }
+  };
+  const frames = debug?.frames ?? [];
+  const last = frames[frames.length - 1];
+  return (
+    <div className="mt-3 text-xs" data-testid="capture-saw">
+      <button type="button" className={BTN} onClick={() => void load()}>
+        What the wizard saw
+      </button>
+      {error && <p className="mt-1 text-pm-text">{error}</p>}
+      {debug === null && <p className="mt-1 text-pm-muted">Nothing was kept yet.</p>}
+      {last && (
+        <div className="mt-2">
+          <ul aria-label="The last looks" className="space-y-0.5 text-pm-muted">
+            {frames.slice(-6).map((f) => (
+              <li key={f.ms} data-ms={f.ms}>
+                {Math.round(f.ms / 1000)} s, {f.step}: read as {f.classifier}
+                {f.reading !== f.classifier ? `, then ${f.reading}` : ''}; still for {Math.round(f.stable_ms / 1000)} s, nothing moved for{' '}
+                {Math.round(f.quiet_ms / 1000)} s
+              </li>
+            ))}
+          </ul>
+          <pre
+            data-testid="capture-saw-screen"
+            className="mt-2 max-h-40 overflow-auto whitespace-pre rounded-lg bg-pm-bg p-2 font-mono text-[10px] leading-tight"
+          >
+            {last.screen}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Split what the person typed into arguments (spaces separate them; double quotes keep words together). */
 export function splitArgs(text: string): string[] {
@@ -270,6 +315,16 @@ export function AgentWizardCapture({
             I closed it myself
           </button>
         )}
+        {can.has('done') && (
+          <button type="button" className={BTN} onClick={() => void act('done')}>
+            It is done
+          </button>
+        )}
+        {can.has('question') && (
+          <button type="button" className={BTN} onClick={() => void act('question')}>
+            It is a question
+          </button>
+        )}
         {can.has('retry') && current && (
           <button type="button" className={BTN} onClick={() => void act('retry')}>
             Retry
@@ -286,6 +341,7 @@ export function AgentWizardCapture({
           </button>
         )}
       </div>
+      {(needs || status?.frozen) && api.captureDebug ? <SawPanel api={api} session={session} /> : null}
       {status?.screen ? (
         <pre
           data-testid="capture-screen"

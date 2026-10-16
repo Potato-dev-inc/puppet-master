@@ -336,6 +336,54 @@ describe('the capture panel', () => {
     expect(api.captureShow).toHaveBeenCalledWith('wz_1');
   });
 
+  it('a question the wizard does not recognise offers "It is done" and "It is a question"', async () => {
+    const api = mockApi(PLAIN_HELP);
+    const odd = running({
+      step: 'permission',
+      steps: STEPS({ start: { status: 'done' }, ready: { status: 'done' }, message: { status: 'done' }, permission: { status: 'needs_you' } }),
+      needs_you: { step: 'permission', kind: 'question', message: 'The screen has stopped changing and it is not the agent\'s empty input box. If the agent has finished, press "It is done".' },
+      can: ['skip', 'retry', 'stuck', 'ready', 'done', 'question'],
+    });
+    api.captureStatus.mockResolvedValue(odd);
+    api.captureAct.mockResolvedValue(odd);
+    await render(api);
+    await startCapture(api);
+    await flush(900);
+    expect(host.querySelector('[data-testid="capture-needs-you"]')?.textContent).toContain('It is done');
+    await click(button('It is done'));
+    expect(api.captureAct).toHaveBeenLastCalledWith('wz_1', 'done', undefined);
+    await click(button('It is a question'));
+    expect(api.captureAct).toHaveBeenLastCalledWith('wz_1', 'question', undefined);
+  });
+
+  it('a step that took too long says so and offers Skip and Retry; "What the wizard saw" shows the last looks', async () => {
+    const api = mockApi(PLAIN_HELP);
+    const stuck = running({
+      step: 'permission',
+      steps: STEPS({ permission: { status: 'needs_you' } }),
+      needs_you: { step: 'permission', kind: 'stuck', message: 'This step has taken a long time and is not finished. Press Skip to go on without it, or Retry to try it again.' },
+      can: ['skip', 'retry', 'stuck'],
+    });
+    api.captureStatus.mockResolvedValue(stuck);
+    api.captureDebug = vi.fn(async () => ({
+      at_ms: 130000,
+      frames: [
+        { ms: 120000, step: 'permission', step_status: 'running', classifier: 'working', reading: 'frozen', stable_ms: 30000, quiet_ms: 30000, needs_you: null, screen: 'Working...\n| > Type a task...' },
+      ],
+    })) as never;
+    await render(api);
+    await startCapture(api);
+    await flush(900);
+    expect(host.querySelector('[data-testid="capture-needs-you"]')?.textContent).toContain('Press Skip');
+    expect(host.querySelector('[data-testid="capture-saw-screen"]')).toBeNull();
+    await click(button('What the wizard saw'));
+    await flush();
+    const lines = host.querySelector('[aria-label="The last looks"]')?.textContent ?? '';
+    expect(lines).toContain('read as working, then frozen');
+    expect(lines).toContain('nothing moved for 30 s');
+    expect(host.querySelector('[data-testid="capture-saw-screen"]')?.textContent).toContain('Working...');
+  });
+
   it('the exit step offers /exit and "I closed it myself"', async () => {
     const api = mockApi(PLAIN_HELP);
     const atExit = running({ step: 'exit', steps: STEPS({ permission: { status: 'done' }, exit: { status: 'running' } }), can: ['skip', 'retry', 'stuck', 'try_exit', 'closed'] });
@@ -419,6 +467,18 @@ describe('the visible flow', () => {
     await click(button('Approve'));
     await flush();
     expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', prompt_version: '5', rounds: 1 });
+  });
+
+  it('the Review says when the agent writes files without asking', async () => {
+    const api = mockApi(PLAIN_HELP);
+    api.captureFinish.mockResolvedValue({ ...captured(), facts: { ...captured().facts, hello_written: true, writes_without_asking: true } });
+    await render(api);
+    await throughCapture(api);
+    await click(button('Run the visible test'));
+    await flush(10);
+    expect(host.querySelector('[data-testid="review-writes-without-asking"]')?.textContent).toContain('writes files without asking');
+    // the writer was told too
+    expect(String(api.ask.mock.calls[0][2])).toContain('This agent writes files without asking');
   });
 
   it('"Not now" stops before the pane is started', async () => {

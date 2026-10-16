@@ -76,6 +76,8 @@ export interface CaptureFacts {
     partial: string[];
     skipped: string[];
     hello_written: boolean;
+    /** The agent made the requested file and never asked (a fact for the drafter and the Review screen). */
+    writes_without_asking?: boolean;
     startup_dialogs: string[];
     exit_screen: string | null;
     notes: string[];
@@ -293,8 +295,8 @@ function captureBlocks(c: CaptureFacts): string {
     c.facts.startup_dialogs.length
       ? `- Questions the agent asked at startup (answered by the person in the pane): ${c.facts.startup_dialogs.join(', ')}.`
       : '- The agent asked no question at startup.',
-    c.facts.hello_written && !c.files.some((f) => f.name === 'tui_permission')
-      ? '- The agent created the requested file without asking for permission, so there is no permission screen.'
+    c.facts.writes_without_asking || (c.facts.hello_written && !c.files.some((f) => f.name === 'tui_permission'))
+      ? '- This agent writes files without asking: it created the requested file and showed no permission question, so there is no permission screen. Do not invent a permission question; add [[tui.prompt]] only for a question a screen below shows.'
       : '',
     c.facts.skipped.length ? `- Steps that were skipped: ${c.facts.skipped.join(', ')}.` : '',
     c.facts.partial.length ? `- Steps whose capture is partial: ${c.facts.partial.join(', ')}.` : '',

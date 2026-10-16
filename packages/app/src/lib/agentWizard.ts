@@ -89,7 +89,26 @@ export interface CapturePlan {
 
 export type CaptureStepId = 'start' | 'ready' | 'message' | 'permission' | 'exit';
 export type CaptureStepStatus = 'pending' | 'running' | 'needs_you' | 'done' | 'skipped' | 'stuck' | 'failed';
-export type CaptureAction = 'skip' | 'retry' | 'stuck' | 'ready' | 'try_exit' | 'closed';
+export type CaptureAction = 'skip' | 'retry' | 'stuck' | 'ready' | 'try_exit' | 'closed' | 'done' | 'question';
+
+/** One look the capture kept, masked: what the classifier said and what the wizard made of it. */
+export interface CaptureDebugFrame {
+  ms: number;
+  step: CaptureStepId;
+  step_status: CaptureStepStatus;
+  classifier: string;
+  reading: string;
+  stable_ms: number;
+  quiet_ms: number;
+  needs_you: string | null;
+  screen: string;
+}
+
+/** The last looks of a capture, for "why did it stop" (`capture` op `debug`). */
+export interface CaptureDebug {
+  at_ms: number;
+  frames: CaptureDebugFrame[];
+}
 
 export interface CaptureStep {
   id: CaptureStepId;
@@ -109,6 +128,8 @@ export interface CaptureStatus {
   step?: CaptureStepId;
   steps?: CaptureStep[];
   screen_kind?: string;
+  /** The screen reads as working by its words but has not moved for seconds: it is read as unknown. */
+  frozen?: boolean;
   stable_ms?: number;
   settled?: boolean;
   needs_you?: { step: CaptureStepId; kind: string; message: string } | null;
@@ -251,6 +272,8 @@ export interface WizardApi {
   captureStart(session: string, args: string[], plan: string): Promise<CaptureStatus>;
   captureStatus(session: string): Promise<CaptureStatus>;
   captureAct(session: string, action: CaptureAction, step?: CaptureStepId): Promise<CaptureStatus>;
+  /** The last looks the capture kept (masked), while it runs and after it stopped. */
+  captureDebug?(session: string): Promise<CaptureDebug | null>;
   /** Opens the capture pane as a window (the person answers its questions there). */
   captureShow(session: string): Promise<void>;
   /** Stops the capture and returns the screens as the drafter will see them (test words masked). */
@@ -276,6 +299,7 @@ export const tauriWizardApi: WizardApi = {
     invoke<CaptureStatus>('agent_wizard_capture', { body: { session, op: 'start', args, confirm: true, plan } }),
   captureStatus: (session) => invoke<CaptureStatus>('agent_wizard_capture', { body: { session, op: 'status' } }),
   captureAct: (session, action, step) => invoke<CaptureStatus>('agent_wizard_capture', { body: { session, op: 'act', action, step } }),
+  captureDebug: async (session) => (await invoke<{ debug: CaptureDebug | null }>('agent_wizard_capture', { body: { session, op: 'debug' } })).debug,
   captureShow: async (session) => {
     await invoke('agent_wizard_capture', { body: { session, op: 'show' } });
   },

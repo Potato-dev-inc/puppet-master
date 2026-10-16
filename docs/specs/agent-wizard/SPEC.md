@@ -563,7 +563,8 @@ Same idea as 10.1: rebuild a known agent from scratch and score the result again
 $env:CARGO_TARGET_DIR = 'D:\pm-cargo-wizard-tui'
 $dir = 'D:\wizard-bench\kilo-vis'; $cmd = 'kilo'; $omit = 'kilo'          # or kiro-cli / kiro
 # The keys the bench types when the wizard says "your turn". `trust=` and `permission=` are the usual two;
-# `login=`, `question=` and `ready=yes` exist too. <enter> is the Enter key. Choose them from what the program asks.
+# `login=`, `question=`, `unsure=yes` (press "It is ready") and `stuck=skip` (press Skip when a step runs too long) exist too.
+# <enter> is the Enter key. Choose them from what the program asks. A stop writes capture-debug.json into $dir (11.15).
 $env:PM_WIZARD_BENCH_ANSWERS = 'permission=<enter>'
 
 # 0. once: resolve and probe (no AI, no tokens) -> $dir\probe.json
@@ -609,3 +610,18 @@ Live check list: (1) run the loop until PASS, (2) `score_draft` on a Kilo result
 ### 11.14 Status
 
 Implemented: everything in 11.1-11.13. The capture host over the app's pane registry (`visible/registry_host.rs`, installed at startup in `lib.rs`) is exercised by the end-to-end test on a real ConPTY; a real agent (Kilo, Kiro) has **not** been run through it yet (that is the lead's live run, 11.13). Known limits: the screen classifier is heuristic and says "unknown" (and asks the person) when it cannot tell, so an agent whose input box shows words like "approve" or "trust" always needs the person's "It is ready" press; the visible test's `busy` check can miss a turn that finishes before the first look after delivery; the optional one-task step re-runs the visible test (about two more small messages); the pane preview is a masked text view plus a pop-out window, not an embedded terminal.
+
+### 11.15 A step that must end by itself, and evidence of a stop
+
+Found by the first live run on a real agent (kiro-cli): the permission step sat for ten minutes at "The agent is working." and left nothing to look at. Rules added:
+
+1. **Working needs motion.** The classifier says `working` from words (a spinner glyph, "thinking...", "esc to interrupt"). The capture engine only believes it while the screen MOVES: a screen whose text has not changed by one character for `frozen_ms` (8 s) is read as `unknown` (`Stability::quiet_for`; a spinner or a timer restarts it, the picture key that folds them does not). Reading it as unknown never lets the wizard type: typing still needs the Ready step's shape (below) or the person's "It is ready".
+2. **The Ready step's shape decides "waiting for a task again".** Once the Ready step kept `tui_idle`, a screen counts as the empty input box when its bottom shows the same empty box (placeholder words such as "Type a task...", or the same bare prompt row). A row that merely starts with `>` (the task that was just typed) is not an input box. This is used for typing (`may_type`: an `input` reading without the shape becomes `unknown`, an `unknown` reading with the shape becomes `input`) and for "the turn is over".
+3. **The permission step always ends.** After the permission task is typed: (a) the file `hello.txt` appears while the screen is quiet, or the screen is back at the Ready shape and has held still `idle_done_ms` (8 s) -> the step is done. With the file: the FACT `writes_without_asking` (a note for the drafter, `capture facts`; the Review screen says "This agent writes files without asking first"). Without it: a note and `partial = permission`, no claim about writing. (b) A picture that has held still `question_ms` (15 s), is not the Ready shape and not clearly working -> `needs_you` kind `question`: it is kept as a GUESS for `tui_permission`, the person answers in the pane, or presses "It is done" (the guess is dropped) or "It is a question" (the guess is kept). (c) `permission_wait_ms` (120 s, not counting time a question was on screen) -> `needs_you` kind `stuck` with Skip and Retry. A retry deletes `hello.txt` of the earlier try.
+4. **The exit step** asks (`unsure`) instead of waiting forever when it cannot tell that the agent takes a task.
+5. **The visible test's permission check** uses the same rules: working needs motion, "back at the profile's own empty input box" or "hello.txt written" ends it as skipped, and a still picture nothing recognises is published as `needs_you` kind `question` (the check still ends at its limit).
+6. **Evidence is never lost.** The engine keeps the last 40 looks (new picture, or a heartbeat every 5 s) with the classifier's word, the engine's reading (`frozen` included), stable and quiet time and the pending ask; the newest is always the screen right now. `capture` op `debug` returns them masked (running or after it stopped); "It looks stuck" and `finish` keep them in the session. The benchmark writes `<out>\capture-debug.json` (`{command, reason, debug}`, each frame with `raw` and masked `screen`) and a partial `<out>\captures.json` (`partial: true`, `stopped: <reason>`) on ANY stop or timeout. In the wizard, "What the wizard saw" shows the last looks when a question or a stuck step is up.
+
+Bench answers added: `stuck=skip` / `stuck=retry` (the bench presses that button), `question=<keys>` (typed into the pane as the person), `unsure=yes` (presses "It is ready"). Without an answer a `slow`, `typing` or `stuck` stop names the answer to give and writes the evidence files.
+
+Test scripts: `pm-fake-tui` has a `hold` step (rows, no composer, nothing moving, until a key). `fake_tui_wizard.rs` runs an agent that writes the file behind a stale "Working..." line and an agent that holds a question nothing recognises.

@@ -591,6 +591,7 @@ export function AgentWizard({
             busy={busy}
             showToml={showToml}
             oneTaskOffer={Boolean(captures) && oneTaskOffered && !result.live}
+            writesWithoutAsking={Boolean(captures?.facts.writes_without_asking)}
             onToggleToml={() => setShowToml((v) => !v)}
             onApprove={() => void approve()}
             onRetry={() => setPhase('drafter')}
@@ -688,6 +689,7 @@ function Review({
   busy,
   showToml,
   oneTaskOffer,
+  writesWithoutAsking,
   onToggleToml,
   onApprove,
   onRetry,
@@ -699,6 +701,7 @@ function Review({
   busy: boolean;
   showToml: boolean;
   oneTaskOffer: boolean;
+  writesWithoutAsking: boolean;
   onToggleToml: () => void;
   onApprove: () => void;
   onRetry: () => void;
@@ -727,6 +730,11 @@ function Review({
             <p className="font-medium">
               Visible pane: {visible.passed} of {visible.total} checks passed
             </p>
+            {writesWithoutAsking && (
+              <p data-testid="review-writes-without-asking" className="mt-1 text-pm-muted">
+                This agent writes files without asking first. Puppet Master saw it create a file with no question.
+              </p>
+            )}
             <ul className="mt-1 space-y-1">
               {visible.checks.map((c) => (
                 <li key={c.name} data-check={c.name} data-status={c.status}>

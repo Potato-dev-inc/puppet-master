@@ -331,7 +331,7 @@ describe('the visible prompt', () => {
     const text = buildPrompt(visibleFacts({ captures: { ...base, files: base.files.filter((f) => f.name !== 'tui_permission') } })).text;
     expect(text).toContain('Steps that were skipped: exit.');
     expect(text).toContain('Steps whose capture is partial: message.');
-    expect(text).toContain('created the requested file without asking for permission');
+    expect(text).toContain('This agent writes files without asking');
     expect(text).toContain('The agent asked no question at startup.');
   });
 

@@ -1156,7 +1156,7 @@ impl Capture {
                     self.set_note(refusal.say());
                     // a settled screen that is not clearly the empty input box: the person decides
                     if refusal == Refusal::NotInput && self.stab.stable_for(now) >= self.cfg.unsure_ms && self.needs.is_none() {
-                        self.ask("unsure", format!("{} Or close the agent yourself and press \"I closed it\".", refusal.say()));
+                        self.ask("unsure", format!("{} Or close the agent yourself and press \"I closed it myself\".", refusal.say()));
                     }
                 }
             }
