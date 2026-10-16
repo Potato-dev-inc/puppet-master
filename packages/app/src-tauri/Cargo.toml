@@ -109,9 +109,9 @@ path = "tests/fake_tui_e2e.rs"
 required-features = ["dev-fake-tui"]
 
 # Dev and test builds (`test` inherits `dev`): line tables only for this crate (panics and backtraces
-# keep file:line) and no debug info for dependencies. Full debug info made the test executables and
-# their link step several times bigger; nothing here reads more than line tables. For a debugger
-# session, `CARGO_PROFILE_DEV_DEBUG=true` gives this crate full debug info again.
+# keep file:line) and no debug info for dependencies. Full debug info doubled the target folder
+# (6.4 GB -> 2.9 GB without it) and slowed every link; nothing here reads more than line tables. For
+# a debugger session, `CARGO_PROFILE_DEV_DEBUG=true` gives this crate full debug info again.
 [profile.dev]
 debug = "line-tables-only"
 
