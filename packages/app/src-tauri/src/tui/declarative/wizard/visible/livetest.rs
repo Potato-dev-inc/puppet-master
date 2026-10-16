@@ -421,7 +421,20 @@ impl Test<'_> {
             self.publish(Some("permission"), None, &look.screen);
             quiet.observe(&look.screen, self.ms());
             if let Some(card) = self.host.card(&self.pane) {
-                let prompt = self.profile.detect_prompt(&look.screen, false);
+                // The card was made from the screen as it is NOW; the look above may be a moment older.
+                let mut fresh = self.look().unwrap_or(look);
+                let mut prompt = self.profile.detect_prompt(&fresh.screen, false);
+                for _ in 0..4 {
+                    if prompt.is_some() {
+                        break;
+                    }
+                    std::thread::sleep(self.limits.tick);
+                    if let Some(again) = self.look() {
+                        fresh = again;
+                    }
+                    prompt = self.profile.detect_prompt(&fresh.screen, false);
+                }
+                let look = fresh;
                 let Some(prompt) = prompt else {
                     return Err(fail("A card was made for this screen, but the profile's own `detect_prompt` does not read it.", &look.screen));
                 };

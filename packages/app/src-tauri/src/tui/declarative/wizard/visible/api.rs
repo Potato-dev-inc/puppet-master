@@ -129,7 +129,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     let id = super::super::api::session_id(body)?;
     let op = body.get("op").and_then(Value::as_str).map(str::trim).filter(|o| !o.is_empty());
     let Some(op) = op else {
-        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures or discard"));
+        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures, test_status or discard"));
     };
     match op {
         "plan" => {
@@ -156,6 +156,11 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             };
             run.act(step, action).map_err(|e| WizardError::new(409, "WIZARD_CAPTURE_REFUSED", e))?;
             Ok(status_of(&session))
+        }
+        "test_status" => {
+            let session = wizard.read(&id, |s| s.clone())?;
+            let status = session.visible.test_status.lock().clone();
+            Ok(if status.is_null() { json!({"running": false}) } else { status })
         }
         "show" => {
             let session = wizard.read(&id, |s| s.clone())?;

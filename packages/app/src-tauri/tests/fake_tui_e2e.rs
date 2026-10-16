@@ -900,3 +900,8 @@ steps = [{ do = "think", ms = 800 }, { do = "write_file", path = "hello.txt", co
 
 #[path = "fake_tui_missions.rs"]
 mod missions;
+
+// ---- the Agent Wizard learns an unknown visible agent (zero tokens) ----------------------------------
+
+#[path = "fake_tui_wizard.rs"]
+mod wizard;

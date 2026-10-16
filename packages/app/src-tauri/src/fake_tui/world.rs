@@ -117,6 +117,10 @@ impl World {
         });
         crate::pane_activity::init(registry.clone(), app.clone());
         crate::loop_guard::init(app.clone());
+        // The Agent Wizard's panes (guided capture, visible test) go through this app's pane registry.
+        crate::tui::declarative::wizard::visible::host::install(Arc::new(
+            crate::tui::declarative::wizard::visible::registry_host::RegistryHost::new(registry.clone(), app.clone()),
+        ));
 
         World { registry, app, exe, script: Arc::new(Mutex::new(None)), serial: Mutex::new(()) }
     }
@@ -167,6 +171,21 @@ pub struct Session {
 impl Session {
     pub fn project(&self) -> &Path {
         &self.project
+    }
+
+    /// A scratch folder of this test (outside the project): scripts, logs, whatever the test needs.
+    pub fn aux(&self) -> &Path {
+        &self.aux
+    }
+
+    /// The `pm-fake-tui` executable this world built.
+    pub fn fake_exe(&self) -> &Path {
+        &self.world.exe
+    }
+
+    /// The script file `script()` last wrote (`aux/script.toml`).
+    pub fn script_path(&self) -> PathBuf {
+        self.aux.join("script.toml")
     }
 
     /// Write the script the next pane will play. A `log` line is added so `events()` can read what the
