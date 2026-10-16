@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Listener};
-/// Every line of the audit log. The e2e profile's log lives in the real app-data folder and grows with every run
-/// of the suite (by any worktree); a fixed window of the newest lines slides once the log is longer than it,
-/// and "the lines since I looked" (an index into the approval lines) then points at the wrong place.
+/// Every line of the audit log. A fixed window of the newest lines slides once the log is longer than it, and "the
+/// lines since I looked" (an index into the approval lines) then points at the wrong place. (The log used to live
+/// in the real app-data folder and grow with every run of the suite; each test process now has its own.)
 const WHOLE_LOG: usize = 10_000_000;
 
 
@@ -56,6 +56,13 @@ impl World {
     fn start() -> World {
         // Before anything reads `app_paths::profile()` (a process-wide OnceLock): a separate app-data folder.
         std::env::set_var(crate::app_paths::PROFILE_ENV, "fake-tui-e2e");
+        // ... rooted in this process's own temp folder, not the real `%APPDATA%`: test processes run side
+        // by side (nextest runs each test in its own process), and a shared folder leaks between them and
+        // across runs (an audit log that grew with every run of the suite, settings, agent definitions).
+        // Removed with the process's other folders once stale (below).
+        crate::app_paths::set_data_root_for_e2e(
+            std::env::temp_dir().join(format!("pm-ftui-e2e-{}", std::process::id())).join("appdata"),
+        );
         // Leftovers of earlier runs (a failed test keeps its folder to be looked at).
         if let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) {
             // `pm-ftui-e2e-<pid>`: older builds of this harness wipe every `pm-fake-tui-e2e-*` folder but their
