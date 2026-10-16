@@ -76,9 +76,15 @@ mod scrub_tests {
 /// On Windows, npm installs `opencode` as a `.ps1` shim which `CreateProcess`
 /// cannot execute directly — use the real `opencode.exe` under the npm package.
 pub fn resolve_opencode_executable() -> Result<String, String> {
+    resolve_opencode_in(std::env::var_os("APPDATA").as_deref(), path_for_spawn())
+}
+
+/// [`resolve_opencode_executable`] with the npm roaming dir (`%APPDATA%`) and the `PATH` string
+/// passed in, so a test can point both at a temp dir.
+fn resolve_opencode_in(appdata: Option<&std::ffi::OsStr>, path: &str) -> Result<String, String> {
     #[cfg(windows)]
     {
-        if let Ok(appdata) = std::env::var("APPDATA") {
+        if let Some(appdata) = appdata {
             let candidate = PathBuf::from(appdata)
                 .join("npm")
                 .join("node_modules")
@@ -89,7 +95,7 @@ pub fn resolve_opencode_executable() -> Result<String, String> {
                 return Ok(candidate.to_string_lossy().into_owned());
             }
         }
-        if let Some(path) = which_on_path("opencode.exe") {
+        if let Some(path) = which_on_path("opencode.exe", path) {
             return Ok(path);
         }
         return Err(
@@ -99,20 +105,21 @@ pub fn resolve_opencode_executable() -> Result<String, String> {
     }
     #[cfg(not(windows))]
     {
-        if which_on_path("opencode").is_some() {
+        let _ = appdata;
+        if which_on_path("opencode", path).is_some() {
             return Ok("opencode".into());
         }
         Err("opencode not found on PATH (install: npm i -g opencode-ai)".into())
     }
 }
 
-fn which_on_path(name: &str) -> Option<String> {
+fn which_on_path(name: &str, path: &str) -> Option<String> {
     #[cfg(windows)]
     let sep = ';';
     #[cfg(not(windows))]
     let sep = ':';
 
-    for dir in path_for_spawn().split(sep) {
+    for dir in path.split(sep) {
         let candidate = PathBuf::from(dir.trim()).join(name);
         if candidate.is_file() {
             return Some(candidate.to_string_lossy().into_owned());
@@ -303,15 +310,41 @@ mod tests {
         assert!(path.contains("/usr/local/bin"));
     }
 
+    /// A throw-away directory that stands in for `%APPDATA%` / a `PATH` entry.
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pm-opencode-{tag}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
     #[test]
-    fn resolve_opencode_executable_returns_path() {
-        let path = resolve_opencode_executable();
+    fn opencode_is_found_in_the_npm_package_dir_then_on_path_and_else_is_an_error() {
+        let exe = if cfg!(windows) { "opencode.exe" } else { "opencode" };
+        let on_path = temp_dir("path");
+        let empty = temp_dir("empty");
+        let path = on_path.to_string_lossy().into_owned();
+
+        // Nothing installed anywhere: a clear error that names the fix.
+        let missing = resolve_opencode_in(Some(empty.as_os_str()), &empty.to_string_lossy());
+        assert!(missing.unwrap_err().contains("npm i -g opencode-ai"));
+
+        // On PATH.
+        std::fs::write(on_path.join(exe), "stub").unwrap();
+        let found = resolve_opencode_in(Some(empty.as_os_str()), &path).unwrap();
         #[cfg(windows)]
-        assert!(
-            path.as_deref().unwrap_or("").ends_with("opencode.exe"),
-            "expected opencode.exe, got {path:?}"
-        );
+        assert!(found.ends_with("opencode.exe"), "expected opencode.exe, got {found:?}");
         #[cfg(not(windows))]
-        let _ = path;
+        assert_eq!(found, "opencode");
+
+        // Windows: the npm package dir under %APPDATA% wins over PATH.
+        #[cfg(windows)]
+        {
+            let bin = empty.join("npm").join("node_modules").join("opencode-ai").join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            std::fs::write(bin.join("opencode.exe"), "stub").unwrap();
+            let found = resolve_opencode_in(Some(empty.as_os_str()), "").unwrap();
+            assert!(found.starts_with(&*empty.to_string_lossy()), "{found}");
+        }
+        let _ = (std::fs::remove_dir_all(on_path), std::fs::remove_dir_all(empty));
     }
 }

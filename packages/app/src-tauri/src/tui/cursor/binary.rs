@@ -50,6 +50,10 @@ pub(crate) fn looks_like_cursor_alias(path: &Path) -> bool {
 
 /// The launcher on this machine's PATH.
 pub(crate) fn installed() -> Option<CursorCli> {
+    #[cfg(test)]
+    if let Some(stubbed) = stub::current() {
+        return stubbed;
+    }
     pick(
         cfg!(windows),
         &|name| crate::tui::find_path_file(name),
@@ -90,6 +94,70 @@ pub(crate) fn visible_launch(cli: &CursorCli, extra_args: &[String]) -> (String,
             )
         }
         CursorCli::Named(name) => ((*name).into(), extra_args.to_vec()),
+    }
+}
+
+/// Test seam: lets a test give itself a Cursor CLI (or none) without touching the process-wide
+/// `PATH`, so it passes whether or not Cursor is installed on the machine and cannot race the
+/// parallel tests. The override is per thread; every test below runs its launch on its own thread.
+#[cfg(test)]
+pub(crate) mod stub {
+    use super::*;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static OVERRIDE: RefCell<Option<Option<CursorCli>>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn current() -> Option<Option<CursorCli>> {
+        OVERRIDE.with(|slot| slot.borrow().clone())
+    }
+
+    /// Restores the real lookup (and deletes the stub files) when dropped.
+    pub(crate) struct StubCli {
+        dir: Option<PathBuf>,
+    }
+
+    impl StubCli {
+        /// The directory holding the stub launchers, `None` for [`not_installed`].
+        pub(crate) fn dir(&self) -> Option<&Path> {
+            self.dir.as_deref()
+        }
+    }
+
+    impl Drop for StubCli {
+        fn drop(&mut self) {
+            OVERRIDE.with(|slot| *slot.borrow_mut() = None);
+            if let Some(dir) = &self.dir {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        }
+    }
+
+    /// A temp dir holding stub Cursor launchers, picked by the real [`pick`] exactly as a PATH
+    /// search of that directory would. What the stubs contain is irrelevant: nothing runs them.
+    pub(crate) fn installed() -> StubCli {
+        let dir = std::env::temp_dir().join(format!("pm-stub-cursor-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("stub dir");
+        let names: &[&str] = if cfg!(windows) {
+            &["agent.cmd", "cursor-agent.cmd", "cursor-agent.ps1"]
+        } else {
+            &["cursor-agent"]
+        };
+        for name in names {
+            std::fs::write(dir.join(name), "cursor-agent stub").expect("stub launcher");
+        }
+        let cli = pick(cfg!(windows), &|name| Some(dir.join(name)).filter(|p| p.is_file()), &looks_like_cursor_alias);
+        assert!(cli.is_some(), "the stub launchers must be picked");
+        OVERRIDE.with(|slot| *slot.borrow_mut() = Some(cli));
+        StubCli { dir: Some(dir) }
+    }
+
+    /// No Cursor CLI anywhere, whatever the machine has installed.
+    #[allow(dead_code)]
+    pub(crate) fn not_installed() -> StubCli {
+        OVERRIDE.with(|slot| *slot.borrow_mut() = Some(None));
+        StubCli { dir: None }
     }
 }
 

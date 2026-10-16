@@ -189,19 +189,35 @@ fn publish(summary: &TurnSummary) {
     }
 }
 
-/// Record that the user answered the prompt on `pane_id`. `shown` is what the pane displayed
-/// just before the answer was sent (`before_answer_snapshot`).
-pub fn record_answer(pane_id: &str, prompt_id: &str, choice: &str, shown: Option<(String, String)>) {
+/// The approval entry for an answer. `shown` is what the pane displayed just before the answer was
+/// sent (`prompt_before_answer`).
+fn approval_for(prompt_id: &str, choice: &str, shown: Option<(String, String)>) -> Approval {
     let (kind, prompt) = shown.unwrap_or_else(|| ("request".into(), String::new()));
     let decision = match choice {
         "deny" | "reject" | "no" => "deny",
         _ if kind.contains("question") => "answer",
         _ => "allow",
     };
-    tracker().record_approval(
-        pane_id,
-        Approval { at_ms: now_ms(), prompt_id: prompt_id.to_string(), prompt, kind, decision: decision.into() },
-    );
+    Approval { at_ms: now_ms(), prompt_id: prompt_id.to_string(), prompt, kind, decision: decision.into() }
+}
+
+/// Record that the user answered the prompt on `pane_id`, for an answer that is already sent. Prefer
+/// [`answering`]: noting an answer after its key was typed can lose it to a fast agent.
+pub fn record_answer(pane_id: &str, prompt_id: &str, choice: &str, shown: Option<(String, String)>) {
+    tracker().record_approval(pane_id, approval_for(prompt_id, choice, shown));
+}
+
+/// Sends an answer to the prompt on `pane_id` with `send` and notes it on the pane's open turn
+/// BEFORE the key goes out (taken back if `delivered(&result)` is false). See `Tracker::answering`.
+pub fn answering<T>(
+    pane_id: &str,
+    prompt_id: &str,
+    choice: &str,
+    shown: Option<(String, String)>,
+    send: impl FnOnce() -> T,
+    delivered: impl FnOnce(&T) -> bool,
+) -> T {
+    tracker().answering(pane_id, approval_for(prompt_id, choice, shown), send, delivered)
 }
 
 /// What the pane shows right now, captured before an answer is sent (the answer clears it).
