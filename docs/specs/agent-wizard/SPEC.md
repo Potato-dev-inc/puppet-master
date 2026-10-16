@@ -116,7 +116,8 @@ Response:
 4. Each run: 5 seconds wall-clock timeout (the child is killed; `timed_out: true`), no stdin (it is closed), the session work folder as the working directory, environment inherited plus `NO_COLOR=1` and `TERM=dumb`. No window opens on Windows.
 5. Output (stdout then stderr) is capped at 64 KiB per run (`truncated: true`), invalid UTF-8 is replaced, ANSI escape codes are removed, and the text goes through `redact::text` before it is returned or stored.
 6. A run whose cleaned text equals an earlier run's sets `duplicate_of` and returns `text: ""` (saves prompt space).
-7. Subcommands are read from the `--help` text (else `-h`, else `help`): the indented `name   description` rows under a heading that ends in `commands:` (any case), up to the next blank line or heading.
+7. Tools that open a manual page or browser window for `--help` and `help <topic>` (`git npm npx pnpm yarn cargo rustup gh man`) are not coding agents; for them only `--version` runs and the rest is listed in `skipped`.
+8. Subcommands are read from the `--help` text (else `-h`, else `help`): the indented `name   description` rows under a heading that ends in `commands:` (any case), up to the next blank line or heading.
 
 ### 4.3 `POST /agents/wizard/verify`
 Request: `{"session": "wz_...", "toml": "schema_version = 1\n..."}`. `toml` is at most 64 KiB (`400 AGENT_DEF_TOO_LARGE`).
@@ -198,10 +199,10 @@ Rendered with the verified draft by `template::render_headless`, run with the pr
 |---|---|---|---|
 | 1 | `pong` | `Reply with exactly the word: pong` | `extract_result` = `pong` (trimmed, case-insensitive, trailing punctuation allowed); if the draft has a `session` selector the session is non-empty; no classified failure |
 | 2 | `resume` | `Reply with exactly the word: pong2` with `{session}` = the id from stage 1 | `extract_result` = `pong2`; the session id (if any) equals stage 1's. **Skipped** (with a note) when the draft has no `resume` segment or no `session` selector |
-| 3 | `bad_model` | `Reply with exactly the word: pong`, model = `pm-wizard-no-such-model/zzz` | `extract_result` is empty AND it is classified as an error (`classify_headless_failure` is `Some`, or the exit code is not 0). **Skipped** when the draft has no `model` segment |
+| 3 | `bad_model` | `Reply with exactly the word: pong`, model = `pm-wizard-no-such-model/zzz` | `extract_result` is empty AND the failure is recognised: the draft's `error` selector fired (`AGENT_REPORTED_ERROR`), or the exit code is not 0. A clean exit with nothing parseable is not a recognised error (the draft needs an `error` selector). **Skipped** when the draft has no `model` segment |
 
 ### 5.2 Fixtures written from the live outputs
-Stage outputs are stored as the agent printed them (stdout only, redacted, personal folder names replaced). Names and expectations (the expectations come from the stage's purpose, not from the draft's own output):
+Stage outputs are stored as the agent printed them (stdout only; escape codes removed, secrets masked by `redact::text`, and the user-folder name in any `C:\Users\<name>` or `/home/<name>` path replaced by `user`). Names and expectations (the expectations come from the stage's purpose, not from the draft's own output):
 
 | File | Expect file |
 |---|---|
@@ -213,7 +214,7 @@ Stage outputs are stored as the agent printed them (stdout only, redacted, perso
 `<ext>` is `jsonl` for `json_lines`, `json` for `json_single`, `txt` for `plain_text`. Files are small by construction (a pong turn).
 
 ### 5.3 Samples (free replays)
-Every live test, passing or not, keeps its stage outputs in the session as **samples**. The next `verify` of a new draft replays them (`check_dir` over a generated preview folder, no process started), using only the intent checks (`result` = `pong`, `pong2`, or empty and classified as an error). A new draft that cannot read the real outputs is rejected for free; the paid live test only runs again when the replay passes.
+Every live test, passing or not, keeps its stage outputs in the session as **samples**, with the exact arguments that produced them. The next `verify` of a new draft replays each sample with the same stage rules as the live test (`result` = `pong`, `pong2`, or empty and a recognised error); no process is started. A sample is replayed only when the new draft renders the **same command** for that stage (an output made by a different command says nothing about the new selectors). A new draft that cannot read the real outputs is rejected for free, and each failure carries the real output; the paid live test only runs again when the replay passes. The replay is counted in `samples_replayed`.
 
 ### 5.4 Cost
 `cost_note` (from `start`) is shown before the live test and needs a confirm. The UI says: "about 3 small messages per try, up to 5 tries".
@@ -232,7 +233,7 @@ Every live test, passing or not, keeps its stage outputs in the session as **sam
    - Warnings (not errors): the validator's approval warnings (`--yolo`, `--dangerously...`, `--auto`, `--force`, env keys) and "the draft has no resume support".
 4. Build the profile (`DeclarativeProfile::new`).
 5. **Conformance**: every rule in `tui::conformance::rules::ALL` is run against the profile; each failure is one error with `stage: "conformance"` and `code: "CONFORMANCE_<RULE>"`. (The rules module moves out of the test-only file so the app can run it; the rules themselves are unchanged.)
-6. **Fixtures**: `check_dir` over a generated preview folder holding `headless_garbage.txt` (+ expect) and, when the session has samples, the sample files (+ expect files with the intent checks of 5.3). Each failed fixture is one error with `stage: "fixture"`, `code: "FIXTURE_FAILED"`, `path` = the fixture name.
+6. **Fixtures**: `check_dir` over a generated preview folder holding `headless_garbage.txt` (+ expect), then the free replay of earlier live-test samples (5.3). Each failure is one error with `stage: "fixture"`, `code: "FIXTURE_FAILED"`, `path` = the fixture name (`headless_success.sample` for a replayed sample) and, for samples, the real output as `excerpt`.
 
 All stages that can run, run: the AI gets every problem at once. Stages 4-6 are skipped when step 2 or 3 found errors that stop the build.
 
@@ -329,17 +330,21 @@ The point: the wizard, run from scratch against the real programs, must produce 
 
 Two ways to produce the draft: in the app (Settings > Agents > Add with wizard, then take `<app data>/agents/<id>.toml`), or from any file. Then score it. The scorer is a Rust test marked `#[ignore]` (it needs env vars; it never starts an agent):
 
-```
-cd packages/app/src-tauri
-set CARGO_TARGET_DIR=D:\pm-cargo-agent-wizard
-set PM_WIZARD_DRAFT=C:\path\to\draft.toml
-set PM_WIZARD_REFERENCE=kilo            (or kiro)
+```powershell
+cd packages\app\src-tauri
+$env:CARGO_TARGET_DIR = 'D:\pm-cargo-agent-wizard'
+$env:PM_WIZARD_DRAFT = 'C:\path\to\draft.toml'
+$env:PM_WIZARD_REFERENCE = 'kilo'      # or 'kiro'
 cargo test --lib tui::declarative::wizard::tests::benchmark::score_draft -- --ignored --nocapture
 ```
 It prints a table: validate/conformance result, the headless fixtures of the reference (pass/fail per file), and whether the rendered argv matches the reference for four launches (plain, with model, with resume, with both). Exit is a test failure when any headless fixture fails.
 
 Other helpers, same file, also `#[ignore]`:
-- `probe_dump` (`PM_WIZARD_COMMAND=kilo`, `PM_WIZARD_OUT=<dir>`): resolves and probes the real program and writes `probe.json` (what the drafter would see). No AI, no tokens.
-- `livetest_draft` (`PM_WIZARD_COMMAND`, `PM_WIZARD_DRAFT`): verify + the live test against the real program with a given draft. **Spends about 3 small messages.**
+- `probe_dump` (`PM_WIZARD_COMMAND=kilo`, `PM_WIZARD_OUT=<dir>`): resolves and probes the real program and writes `<dir>\probe.json` (what the drafter would see). Starts only `--version`, `--help`, `-h`, `help` and `help <sub>`. No AI, no tokens.
+- `livetest_draft` (`PM_WIZARD_COMMAND`, `PM_WIZARD_DRAFT`, optional `PM_WIZARD_OUT`): verify + the live test against the real program with a given draft. **Spends about 3 small messages.** Nothing is written to the real agents folder; with `PM_WIZARD_FINISH=1` the files go to `<out>\agents`.
+
+The scorer itself runs in the normal suite against the references (`tui::declarative::wizard::tests::benchmark::the_references_score_perfectly_against_their_own_headless_fixtures`), which proves it works without any agent installed.
+
+To get a draft without the app: build the prompt from `probe_dump`'s output with `buildPrompt` (`lib/agentWizardPrompt.ts`) and give it to any AI, or take the file the wizard wrote.
 
 Live check list for Kilo and Kiro: (1) run the wizard from scratch, (2) `score_draft` on the result, (3) compare the TOML with the reference by eye, (4) Review > Approve > run one `run_agent` through the approved agent.
