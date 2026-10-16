@@ -6,6 +6,14 @@
 
 Tap an agent on the phone app and you see its real terminal, live. Under it there is an input box and a **Keys** panel with the keys that a phone keyboard does not have: Esc, Tab, Ctrl-C, arrows and more. You can read what the agent prints and type to it, from anywhere your phone has internet.
 
+![The phone terminal](../images/38-real-terminal.webp)
+
+*Real run (0.2.1). The live terminal on the phone: Claude Code idle, with a typing box ("Type a command...") and a keyboard button.*
+
+![A trust prompt in the phone terminal](../images/38-real-trust-prompt.webp)
+
+*Real run (0.2.1). A trust prompt as it looks in the phone terminal.*
+
 ## Why it matters
 
 Sometimes a card is not enough. You want to read the full output, press Esc, or type a short reply. The terminal on the phone must also be **correct**. Before the fix, parts of lines went missing when you opened a terminal, and the screen could look garbled. That is fixed.
@@ -25,6 +33,26 @@ Sometimes a card is not enough. You want to read the full output, press Esc, or 
    - **Keyboard resizes the agent**: off by default. Off means the keyboard covers the top of the screen (swipe to see it) and the agent keeps its size. On means the agent redraws above the keyboard. Claude reprints its screen each time.
    - **Typing buffer**: how many milliseconds to wait before sending what you typed.
    The same three options are on the PC in **Settings > Phone** (**Show the typing box on the phone**, **Keyboard resizes the agent**, **Typing delay**).
+
+![The Keys panel in a real run](../images/38-live-keys.webp)
+
+*Real run, from 0.2.0. A real Claude Code on the phone (2x size) with the Keys panel open.*
+
+![The phone terminal in the light theme](../images/38-terminal-light.webp)
+
+*Example data. The terminal in the light theme.*
+
+![A watch-only phone terminal](../images/38-watch-only.webp)
+
+*Example data. A phone that may only watch: "This phone can watch and answer, not type."*
+
+![A trust card over the phone terminal](../images/38-trust.webp)
+
+*Example data. A trust question shows as a card above the terminal.*
+
+![Phone terminal settings](../images/38-menu.webp)
+
+*Example data. Terminal options: "Input box under the terminal", "Keyboard resizes the agent", and the typing buffer.*
 
 ## How it works (simple)
 

@@ -6,6 +6,10 @@
 
 Settings is where you change how Puppet Master behaves. In Orchestration mode it opens **inside the cockpit**, next to the sidebar. In Individual mode it opens in its own window. It has six sections, a search box, and a "Labs" area for early features. Every change saves by itself. There is no Save button.
 
+![Settings opened inside the cockpit](../images/09-real-cockpit-settings.webp)
+
+*Real run (0.2.1). Settings opens inside the cockpit, next to the sidebar (Orchestration mode). The left list has six sections and a search box. General starts with the project folder, appearance and the Safety group.*
+
 ## Why it matters
 
 - Developers get every knob and a search box.
@@ -30,6 +34,58 @@ Settings is where you change how Puppet Master behaves. In Orchestration mode it
 8. Rows that cannot be undone sit last in their section and ask first: Uninstall Puppet Master, Remove all keys, Uninstall MCP, Revoke all devices.
 
 **When a change saves.** A switch or a menu saves at once. Text saves after you stop typing for a moment, or when you leave the field. A number saves when you leave the field and is kept inside its limits. A secret (such as a key) saves when you leave the field and is then cleared from the screen. A small "Saved" tick shows. The Public address has its own **Save and restart** button, because saving restarts a network tunnel.
+
+![Settings search results](../images/09-search.webp)
+
+*Example data. Search finds rows across all sections. Here, "key" finds the provider keys and the key-switching option.*
+
+![Settings, Labs](../images/09-real-labs.webp)
+
+*Real run (0.2.1). The Labs area and the Team box below it.*
+
+![Settings, Agents](../images/09-real-agents.webp)
+
+*Real run (0.2.1). Settings, Agents: the idle timeout and status for warm agents, versions of each agent, and your own agent definitions.*
+
+![Settings, Agents, Accounts](../images/09-real-accounts.webp)
+
+*Real run (0.2.1). Agents, Accounts and "Ready to use": add more than one login for Claude Code or Codex, and choose which agents to keep warm.*
+
+![Settings, Keys](../images/09-real-keys.webp)
+
+*Real run (0.2.1). Keys: API keys kept in Windows Credential Manager. A saved key shows only as dots (the end of the saved key is masked in this picture).*
+
+![Settings, Orchestrator and Models](../images/09-real-models.webp)
+
+*Real run (0.2.1). Orchestrator & Models: which AI coordinates your other agents, and which models it can use.*
+
+![Settings, Bridge and MCP](../images/09-real-bridge.webp)
+
+*Real run (0.2.1). Bridge & MCP: Add Puppet Master to your agents, the Toolbelt, and the status of the bridge on this PC.*
+
+![Settings, Phone](../images/09-real-phone.webp)
+
+*Real run (0.2.1). Phone: the pairing choices, and a paired phone with its own switches (Watch, Answer, Use the terminal). No code or QR is shown here.*
+
+![Settings, Safety and the approvals log](../images/09-real-security.webp)
+
+*Real run (0.2.1). General, Safety: the stuck warning, the global Stop all shortcut, and the read-only list "Recent approvals and control changes" with real entries.*
+
+![Settings, budgets and undo](../images/09-real-budgets.webp)
+
+*Real run (0.2.1). General, further down: Budgets (here 3 turns), Undo and memory, When you are away and the Labs list.*
+
+![Settings, Coming later](../images/09-later.webp)
+
+*Example data. "Coming later" lists ideas that are not built. Each row says "Not available yet".*
+
+![Settings in the light theme](../images/09-light.webp)
+
+*Example data. Settings in the light theme.*
+
+![Settings, About and Storage](../images/09-real-about.webp)
+
+*Real run (0.2.1). General, at the bottom: Storage, About (version and what is new), the settings file, the diagnostic file and Uninstall.*
 
 ## How it works (simple)
 

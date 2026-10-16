@@ -8,6 +8,10 @@ Puppet Master saves a snapshot of your project files at the start and at the end
 
 Undo changes your files only. It does **not** change what the agent remembers. The agent still knows the conversation.
 
+![The History tab with Undo last turn](../images/05-real-history.webp)
+
+*Real run (0.2.1). History with the "Undo last turn" button. Each row shows what changed in that turn.*
+
 ## Why it matters
 
 Agents sometimes break things. Developers get a safety net that never touches their Git history. People who build with AI and people who don't code can go back without knowing any command. The story is simple: "The agent broke my project. I open History, pick Before turn 3, press Restore. My files are back."
@@ -34,6 +38,30 @@ Agents sometimes break things. Developers get a safety net that never touches th
 - Your current files are saved first as "Before undo". That is why you can undo the undo.
 
 **Settings** (Settings › General › Undo and memory): the **Checkpoints** switch (on by default) and **Keep last N checkpoints** (5 to 500, default 50, per agent).
+
+![The Undo the last turn confirm sheet](../images/05-real-restore-sheet.webp)
+
+*Real run (0.2.1). Undo asks first: "Undo the last turn?" It says your current files are saved first, so you can undo the undo.*
+
+![The files-restored toast with Undo](../images/05-real-restore-toast.webp)
+
+*Real run (0.2.1). After a real undo of demo files, a toast says "Files restored to "Before turn 2"" and offers Undo.*
+
+![A History row with a Restore button](../images/05-history-hover.webp)
+
+*Example data. Point at a row and a Restore button appears for that checkpoint.*
+
+![The Undo is off for this folder card](../images/05-too-big.webp)
+
+*Example data. A folder that is too big: one calm card, "Undo is off for this folder. It is too big. Add big folders to .gitignore."*
+
+![Undo and memory settings](../images/05-real-settings.webp)
+
+*Real run (0.2.1). Settings, General, "Undo and memory": the Checkpoints switch, how many to keep (50) and Shared project memory. Budgets sit just above.*
+
+![History after the first turn of a separate copy](../images/05-real-history-first.webp)
+
+*Real run (0.2.1). History of a separate-copy agent after its first turn: "After turn 1" (1 file, +3 -5) and "Before turn 1".*
 
 ## How it works (simple)
 

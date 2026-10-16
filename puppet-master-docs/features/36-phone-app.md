@@ -8,6 +8,10 @@ The phone app is a PWA. A PWA is a web page that you add to your home screen, so
 
 The phone reaches your PC through a **tunnel**. A tunnel is a secure path from the internet to one program on your PC. Puppet Master (PM) ships with Cloudflare's tunnel program (`cloudflared`) and starts it for you. There is no Puppet Master server in the middle. The traffic does pass through Cloudflare's network, because that is how the tunnel works.
 
+![The phone Agents screen](../images/36-real-agents.webp)
+
+*Real run (0.2.1). The phone app on a real run: a "Trust this folder?" card, then Needs you and Idle. The count at the top ("01 waiting") matches the PC.*
+
 ## Why it matters
 
 Agents often stop and wait for you. With the phone app, you can leave your desk, see who needs you, and answer from the couch. You can also stop all agents with one tap.
@@ -37,6 +41,34 @@ Manage phones on your PC:
 Keep the same address (optional):
 
 - **Settings > Phone > Public address** has three choices: **Automatic (changes on restart)**, **My Cloudflare tunnel** (you give a hostname and a tunnel token) and **My own domain or proxy**. Click **Save and restart**, **Restart tunnel** or **Test connection**. A fixed address means you pair the phone only once.
+
+![The pairing step on the PC](../images/36-live-step.webp)
+
+*Real run. On the PC, you choose what the phone may do, then press Pair a phone to make a one-time code.*
+
+![Paired phones in Settings](../images/36-real-devices.webp)
+
+*Real run (0.2.1). Settings, Phone: the paired phone ("iPhone", Active) and its switches. No pairing code or QR is shown.*
+
+![The phone agent list](../images/36-real-list.webp)
+
+*Real run (0.2.1). The agent list: title, pane and the last line of the terminal.*
+
+![The phone menu](../images/36-menu.webp)
+
+*Example data. The phone menu: connection, notifications, terminal options, and "Stop all agents".*
+
+![Open an agent on your PC from the phone](../images/36-real-new-agent.webp)
+
+*Real run (0.2.1). Open an agent on your PC.*
+
+![The phone in the light theme](../images/36-light.webp)
+
+*Example data. The light theme on the phone.*
+
+![The phone terminal of a real Claude Code](../images/36-real-terminal.webp)
+
+*Real run (0.2.1). Tap an agent to see its real terminal on the phone. Here it is the Claude Code trust prompt, with a typing box at the bottom.*
 
 ## How it works (simple)
 

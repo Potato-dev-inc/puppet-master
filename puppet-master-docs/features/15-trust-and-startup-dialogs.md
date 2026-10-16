@@ -5,6 +5,10 @@
 ## What it is
 Before an agent can take a task, it may show a "start-up screen". Examples: "Do you trust this folder?", a sign-in page, an update notice, or a "press Enter to continue" page. PM reads these screens. It never answers a trust question or a sign-in for you. It stops the run, shows a card in the Inbox, and waits for you. After you answer, it sends the task once.
 
+![A real Codex asking to trust a folder](../images/15-live-codex.webp)
+
+*Real run. A real Codex: "Trust this folder". Puppet Master never answers this for you.*
+
 ## Why it matters
 A folder-trust answer gives an agent permission to read and run things in that folder. It must be your decision. If PM typed the task into a trust screen, the text could press the wrong choice, or go into the wrong place. Earlier builds had these bugs, and they are fixed.
 
@@ -15,6 +19,42 @@ A folder-trust answer gives an agent permission to read and run things in that f
 4. Press **Don't trust** to stop. The run ends within a few seconds. The card says: "You chose not to trust this folder, so the task wasn't sent. Start again to be asked once more." Nothing was typed.
 5. For a sign-in or "press Enter" page, the card has no buttons, because PM does not know the right keys. Use **Open terminal** to go to the pane, finish the page yourself, and the run goes on by itself.
 6. Your click must be a real click or key press. The release notes say a burst of clicks used to press Enter several times. Now each question is answered once.
+
+![A real Claude Code asking to trust a folder](../images/15-live-claude.webp)
+
+*Real run. A real Claude Code stopped at the same question.*
+
+![A trust card with Details open](../images/15-real-trust-details.webp)
+
+*Real run (0.2.1). Details shows what the agent asks: "Claude Code asks to trust D:\pm-shots\shop".*
+
+![After the trust answer](../images/15-live-after.webp)
+
+*Real run. After you answer, a toast confirms ("Answered Codex CLI: Trust this folder") and the agent starts working.*
+
+![Claude Code idle after the trust answer](../images/15-real-idle.webp)
+
+*Real run (0.2.1). After a real click on "Trust this folder", Claude Code starts and sits idle in the Terminal tab, ready for the task.*
+
+![The trust question in Simple mode](../images/15-real-simple-trust.webp)
+
+*Real run (0.2.1). In Simple mode the same question is in plain words: "Claude Code wants to work in this folder. It is a copy that Puppet Master made for you." The path is under Show details.*
+
+![Claude Code did not start because the folder was not trusted](../images/15-didnt-start.webp)
+
+*Example data. If you say no: "Claude Code didn't start. You chose not to trust this folder, so the task wasn't sent."*
+
+![A mission that could not start in an untrusted copy](../images/15-live-mission-trust.webp)
+
+*Real run. A real mission: "Claude Code couldn't start: the folder was not trusted, so the agent exited and the task was not typed."*
+
+![A trust card on the phone](../images/15-real-phone-trust.webp)
+
+*Real run (0.2.1). The same question on the phone: "Trust this folder?" with Don't trust and Trust this folder.*
+
+![A sign-in screen card on the phone](../images/15-phone-signin.webp)
+
+*Example data. A sign-in screen: "Puppet Master won't answer it for you." You open the pane.*
 
 ## How it works (simple)
 - **Reading.** Each agent's profile says which screens are start-up screens (called "gates"). See [Supported agents](12-supported-agents.md).

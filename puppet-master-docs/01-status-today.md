@@ -49,6 +49,22 @@ Code:
 - The encrypted team relay (code only, not deployed).
 - Hook Lane for Codex.
 
+![A trust-this-folder card from a real Codex](images/01-live-codex-trust.webp)
+
+*Real run. A real Codex stopped at "Trust this folder". Puppet Master shows a card and waits for your answer.*
+
+![An approval card from a real Claude Code](images/01-live-claude-approval.webp)
+
+*Real run. A real Claude Code asking to run npm test. The card says it is low risk.*
+
+![The first-run welcome after a real first task](images/01-live-first-run-task.webp)
+
+*Real run. The first-run welcome, step 4 of 7. A real Claude Code read a project and answered, and the receipt says "Finished, not verified".*
+
+![The Mission tab of a finished mission](images/01-live-mission-done.webp)
+
+*Real run. A mission (Preview) with real Claude Code finished: "Done, 2 of 2 pass, ready to review". Nothing is merged until you review it.*
+
 ## Tests on 0.2.1
 
 - About 2510 Rust tests (run twice), 47 Rust program tests, 1876 interface tests and 27 fake-agent end-to-end tests: all pass.

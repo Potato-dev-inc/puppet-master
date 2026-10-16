@@ -8,6 +8,10 @@ The **command palette** is a search box that opens in the cockpit with Ctrl+K. Y
 
 The **Ask bar** is a small Spotlight-style bar that opens from anywhere in Windows, even when Puppet Master is in the background. You type one question, an agent answers in the bar, and nothing in your project is changed.
 
+![The command palette](../images/06-real-palette.webp)
+
+*Real run (0.2.1). The Ctrl+K palette: switch to a pane, start a new agent ("New Claude Code"), or run an action.*
+
 ## Why it matters
 
 - Developers: no mouse. Find any agent or action in a second.
@@ -36,6 +40,34 @@ The **Ask bar** is a small Spotlight-style bar that opens from anywhere in Windo
 4. Press **+ Clipboard** if the agent should also see what you copied. The text is cut at 8,000 characters. A chip always shows when text is attached. You can also turn on **Attach clipboard by default**, but clipboard text can hold passwords or keys.
 5. A dot spinner runs, then the answer appears with **Copy**, **Open as an agent** and **Close**. If it fails, you see **Try again**. **Esc** hides the bar.
 6. If you click away before the answer arrives, the answer waits as a card "Answer from <agent>" in the Inbox, with **Open** and **Dismiss**.
+
+![The palette listing actions](../images/06-real-palette-actions.webp)
+
+*Real run (0.2.1). The palette scrolled to Actions: Stop all agents, Set up agents, Welcome tour, Project, Start a mission (Preview), Switch to Simple mode and Live updates.*
+
+![The palette searching for welcome](../images/06-live-palette.webp)
+
+*Real run. Typing "welcome" finds the "Welcome tour" action, so you can open the first-run guide again.*
+
+![The palette filtered by the word mission](../images/06-real-palette-mission.webp)
+
+*Real run (0.2.1). Typing "mission" filters the palette down to "Start a mission..." (Preview).*
+
+![The empty Ask bar](../images/06-askbar-empty.webp)
+
+*Example data. The Ask bar (Labs, off by default): a small bar with the agent picker and "Ask anything".*
+
+![The Ask bar showing an answer](../images/06-askbar-answer.webp)
+
+*Example data. The answer comes back in the bar, with Copy, "Open as an agent" and Close.*
+
+![The Labs list in Settings](../images/06-real-labs.webp)
+
+*Real run (0.2.1). Settings, General, Labs. The early features (Team, Ask bar, Simple mode, Live updates, Key switching, Missions) are off until you turn them on.*
+
+![The Ask bar switches in Settings](../images/06-real-askbar-settings.webp)
+
+*Real run (0.2.1). The Ask bar switch (off), its shortcut (Ctrl+Alt+Space), the agent that answers and "Attach clipboard by default" (off).*
 
 ## How it works (simple)
 

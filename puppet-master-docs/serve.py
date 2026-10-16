@@ -1,4 +1,4 @@
-"""Puppet Master docs site on :5000, plus GET /download (zip of the markdown)."""
+"""Puppet Master docs site on :5000, plus GET /download (zip of the markdown and its images)."""
 from __future__ import annotations
 
 import io
@@ -21,6 +21,9 @@ def zip_docs() -> bytes:
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in md_files():
             zf.write(path, path.relative_to(ROOT).as_posix())
+        for path in sorted((ROOT / "images").glob("*")):
+            if path.is_file():
+                zf.write(path, path.relative_to(ROOT).as_posix())
     return buf.getvalue()
 
 

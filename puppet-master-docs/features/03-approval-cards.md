@@ -8,6 +8,10 @@ When an agent wants to do something that needs permission, it stops and shows a 
 
 There are two kinds of card. A **permission card** is about one command or edit. A **trust card** asks "Trust this folder?" and appears when an agent starts in a folder it has not seen before.
 
+![A low-risk approval card from a real Claude Code](../images/03-live-approval.webp)
+
+*Real run. A low-risk card: "Run tests - It runs your project's tests and does not change anything else." You choose Allow once or Deny.*
+
 ## Why it matters
 
 Most people press "yes" on almost every agent prompt, because they cannot tell `rm -rf ../old-site` from a harmless command. Cards put a risk word and one plain sentence in front of that decision. That helps developers move fast, helps people who build with AI avoid a bad "yes", and helps people who don't code understand what is asked.
@@ -26,6 +30,38 @@ Most people press "yes" on almost every agent prompt, because they cannot tell `
 7. On a **trust card**, the buttons are **Trust this folder** and **Don't trust**. If you choose Don't trust, the task is not typed anywhere. The card says the agent did not start and offers **Start again**, which asks you once more.
 8. Use keys if you like: **J** and **K** move between cards, **1 2 3** press the first, second, third answer, **O** opens the terminal, **Esc** dismisses. The number keys do not work on high-risk or consent cards.
 9. On the phone, the same question appears as an **Allow once / Deny** card in the "Needs you" list. A phone that has only "watch" access sees the card but has no buttons.
+
+![A high-risk approval card](../images/03-high-risk.webp)
+
+*Example data. A high-risk card looks different. Deny is the main button, Allow once is smaller, and "Always allow" is hidden under More options.*
+
+![The Inbox after Allow once was clicked](../images/03-real-answered.webp)
+
+*Real run (0.2.1). After a real click on Allow once, a toast says "Answered Claude Code: Allow once", the card is gone and the agent is Working again.*
+
+![A Check first approval card with its details open](../images/03-real-check-first.webp)
+
+*Real run (0.2.1). A Check first card ("Fetch something from the internet") with Details open. The exact command is shown: curl -sI https://example.com.*
+
+![The Inbox after the Check first card was answered](../images/03-real-check-first-answered.webp)
+
+*Real run (0.2.1). After a real click on Allow once on the Check first card. The agent is Working again and the Inbox is clear.*
+
+![A trust card for a real Claude Code](../images/03-live-trust-claude.webp)
+
+*Real run. A trust card from a real Claude Code: "The agent will be able to read and change files here and run commands in it."*
+
+![A trust card for a real Codex](../images/03-live-trust-codex.webp)
+
+*Real run. A trust card from a real Codex. The buttons are Allow once and Deny.*
+
+![An approval card in the light theme](../images/03-approval-light.webp)
+
+*Example data. The same card in the light theme. "Always allow npm test" is offered only for low-risk commands.*
+
+![A Check first approval card on the phone](../images/03-phone-medium.webp)
+
+*Example data. The same card on the phone: "Install packages", Check first, with Allow once and Deny.*
 
 ## How it works (simple)
 

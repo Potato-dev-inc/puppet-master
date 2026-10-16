@@ -5,6 +5,14 @@
 ## What it is
 Puppet Master has a small local web service called the **bridge**. The app window, the MCP program and your phone all talk to the bridge. (MCP is a standard way for agents to use tools.) The bridge decides who may do what. This page explains three parts: the bridge lock and a past security bug that was fixed, the **local secret** and strict **CORS**, and the **device capabilities** (what each paired phone may do).
 
+![A paired phone and its switches](../images/29-real-phones.webp)
+
+*Real run (0.2.1). Phone, Devices: a paired phone has its own switches (Watch, Answer, Use the terminal). Revoke ends it. A phone unused for 30 days signs out.*
+
+![Phone settings below the pairing](../images/29-real-phone-settings.webp)
+
+*Real run (0.2.1). Below the pairing: notifications, typing delay, the public address and "Revoke all devices".*
+
 ## Why it matters
 The bridge can type into agents, run commands and start agents. If the wrong person or program reaches it, that is a serious problem. A phone you lost, or a web page open in your browser, must not be able to control your PC. The founder asked for a design where a lost or shared phone can do only what you allowed.
 
@@ -16,6 +24,22 @@ The bridge can type into agents, run commands and start agents. If the wrong per
 4. A phone shows "Active · expires if unused for 30 days". After 30 days without use it is signed out. You can click **Remove** or **Revoke** at any time.
 
 **If you ever used an old version (0.1.1 to 0.1.4):** update to 0.1.5 or later (or any 0.2.x), restart the app, revoke all paired phones and pair again. Stop and restart your tunnel. Look at your pane history for commands you did not type.
+
+![The approvals and control log](../images/29-real-safety.webp)
+
+*Real run (0.2.1). "Recent approvals and control changes": who allowed what, with real entries ("You answered a question in Codex CLI: trust").*
+
+![The Safety switches above the log](../images/29-real-audit.webp)
+
+*Real run (0.2.1). The Safety switches at the top of General, above the approvals log.*
+
+![A watch-only phone](../images/29-watch-only.webp)
+
+*Example data. A phone with only Watch: "This phone can watch only. To answer here, allow it on your PC: Settings > Phone."*
+
+![A watch-only phone terminal](../images/29-phone-terminal-watch.webp)
+
+*Example data. A watch-only phone can read the terminal but not type: "This phone can watch and answer, not type."*
 
 ## How it works (simple)
 **What each ability allows**

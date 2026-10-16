@@ -8,6 +8,10 @@ When an agent stops to ask permission, your phone shows the same card as the PC.
 
 Before 0.2.1, the phone could answer these questions only through the Keys panel. Now it has real buttons.
 
+![A low-risk approval card on the phone](../images/37-low.webp)
+
+*Example data. Low risk: "Run tests". Allow once is the main button.*
+
 ## Why it matters
 
 You can leave your desk while agents work. When one needs a decision, you get a notification and can answer in a few seconds. You see the risk in words, not a terminal menu.
@@ -27,6 +31,46 @@ Some cards use other words:
 - A folder-trust question says **Trust this folder** or **Don't trust**.
 - A high-risk card puts **Deny** first and selects it. "Always allow" is never offered on the phone.
 - An agent's own question (`ask_user`) shows its own choices or a text box.
+
+![A Check first approval card](../images/37-medium.webp)
+
+*Example data. Check first: "Install packages". Allow once is still the main button.*
+
+![A high-risk approval card](../images/37-high.webp)
+
+*Example data. High risk: Deny is the main button, and the text says "Read this before you allow it. It may be hard to undo."*
+
+![Approval card with details open](../images/37-details.webp)
+
+*Example data. Details open: the command, why it is risky, and "Deleted files cannot be brought back."*
+
+![Several cards in a queue](../images/37-queue.webp)
+
+*Example data. Several cards in a queue, the risky one first.*
+
+![A low-risk approval card in the light theme](../images/37-low-light.webp)
+
+*Example data. The same card in the light theme.*
+
+![A high-risk approval card in the light theme](../images/37-high-light.webp)
+
+*Example data. The high-risk card in the light theme.*
+
+![Several cards in the light theme](../images/37-queue-light.webp)
+
+*Example data. The queue in the light theme.*
+
+![A notification opens the card](../images/37-deep-link.webp)
+
+*Example data. Opening a notification takes you straight to the card.*
+
+![Sending to your PC](../images/37-sending.webp)
+
+*Example data. After you tap: "Sending to your PC". The buttons are off.*
+
+![Answered from this phone](../images/37-answered.webp)
+
+*Example data. Done: "Allowed once - 02:05 - from this phone".*
 
 ## How it works (simple)
 
@@ -55,6 +99,50 @@ Medium risk, high risk, unknown risk, folder trust, sign-in screens, budget and 
 - Not built yet: "Ready for you" rows for finished runs, the "You are stuck" card with hint buttons on the phone, and "More options" for broad answers.
 - The desktop Inbox still builds its list in the app's front end. The Rust list is used by the phone, the tray and notifications. A shared test set keeps both the same.
 - Missions (Preview) has no phone view yet.
+
+![Answered somewhere else](../images/37-answered-elsewhere.webp)
+
+*Example data. If someone answered elsewhere first: "Already answered from Anna's iPhone: Denied."*
+
+![Already answered on the PC](../images/37-stale.webp)
+
+*Example data. "Already answered on your PC: Allowed once."*
+
+![The question changed](../images/37-changed.webp)
+
+*Example data. "This question changed. Look again." Nothing was sent for the old question.*
+
+![The question has gone](../images/37-gone.webp)
+
+*Example data. "This question has gone. Claude Code moved on."*
+
+![The answer could not be sent](../images/37-failed.webp)
+
+*Example data. "Couldn't send your answer to Codex. Nothing was typed." Try again.*
+
+![No answer from the PC](../images/37-lost.webp)
+
+*Example data. "Didn't hear back from your PC. Your answer may not have arrived."*
+
+![Still sending](../images/37-stuck-send.webp)
+
+*Example data. "Still sending. Your PC hasn't confirmed yet."*
+
+![The PC cannot be reached](../images/37-offline.webp)
+
+*Example data. "Can't reach your PC. Your answer wasn't sent."*
+
+![A watch-only phone](../images/37-watch-only.webp)
+
+*Example data. A watch-only phone has no buttons.*
+
+![A question Puppet Master cannot read](../images/37-no-prompt.webp)
+
+*Example data. "Codex is waiting for you. Puppet Master can't read this question. Open the pane."*
+
+![A notification for an answered question](../images/37-tombstone.webp)
+
+*Example data. If the question was answered meanwhile, you see "Already answered on your PC".*
 
 ## For developers
 

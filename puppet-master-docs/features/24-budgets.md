@@ -5,6 +5,14 @@
 ## What it is
 A budget is a limit on how much an agent may do before it must ask you. You can limit the number of **turns** (one turn is one task you give an agent, and its answer) and the number of **minutes**. When the limit is reached, the agent pauses before its next turn. It never stops in the middle of a turn. A card in the Inbox asks what to do.
 
+![The budget card in the Inbox](../images/24-real-inbox.webp)
+
+*Real run (0.2.1). The budget card: "Codex CLI used its 3 turns. 3 of 3 turns. It's paused after its last turn. Nothing was lost." Add 2 turns, or Stop here.*
+
+![The Inbox after Add 2 turns](../images/24-real-answered.webp)
+
+*Real run (0.2.1). After a real click on Add 2 turns, the toast says "Answer sent" and the Inbox is clear.*
+
 ## Why it matters
 An agent can keep working for hours and use a lot of your plan or money. This is a problem when you go away, or when one agent starts many helpers. A budget is a simple brake. You choose it once, and it protects you.
 
@@ -20,6 +28,22 @@ An agent can keep working for hours and use a lot of your plan or money. This is
 7. The same card can show on your phone. Only a person can answer it. An agent cannot answer for you.
 
 **From an agent.** The MCP tool `run_agent` accepts `budget_turns` and `budget_minutes` for a new run. An agent can set a budget only on the runs it starts.
+
+![Settings, Budgets](../images/24-real-settings.webp)
+
+*Real run (0.2.1). Settings, General, Budgets: turns and minutes an agent may use (here 3 turns, no time limit). 0 means no limit. Undo and memory and Labs follow.*
+
+![The budget chip and popover](../images/24-chip.webp)
+
+*Example data. The chip in the pane header ("12 of 20 turns") opens a popover with Add 10 turns, Add 30 min and Stop here.*
+
+![The budget chip near its limit](../images/24-real-chip.webp)
+
+*Real run (0.2.1). Near the limit the chip in the pane header says "2 of 3 turns".*
+
+![The budget chip at its limit](../images/24-real-used-up.webp)
+
+*Real run (0.2.1). At the limit the chip says "Budget used up" and the Inbox badge shows 1.*
 
 ## How it works (simple)
 - Turns are counted from the saved records of each run. Minutes are real clock time since the run started.

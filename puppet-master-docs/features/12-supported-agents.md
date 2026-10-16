@@ -5,6 +5,10 @@
 ## What it is
 Puppet Master (PM) does not have its own AI. It starts the real program of each agent in a real terminal window and watches its screen. You use your own logins. Five agents work today: Claude Code, Codex, Cursor Agent, OpenCode and Kilo Code. The first four are built in. Kilo Code is added with a small settings file.
 
+![The New agent menu lists the agents](../images/12-real-new-menu.webp)
+
+*Real run (0.2.1). The New agent menu lists Claude Code, Codex CLI, OpenCode, OpenCode (API), Cursor Agent CLI, Cursor (agent) and three shells.*
+
 ## Why it matters
 You keep the tools you already like. PM adds approval cards, receipts, undo and a phone view around them. You do not need to learn a new agent. If you add a new agent later, it fits into the same window.
 
@@ -15,6 +19,26 @@ You keep the tools you already like. PM adds approval cards, receipts, undo and 
 4. The agent opens in its own pane. Work with it as usual, or let another agent start it through MCP (a standard way for agents to use tools).
 
 To add Kilo Code, or your own agent, see "How to add an agent" below.
+
+![Set up your agents](../images/12-real-doctor.webp)
+
+*Real run (0.2.1). Set up your agents shows each agent, its version, and what to do next.*
+
+![A real list of agents](../images/12-live-agents.webp)
+
+*Real run. A real list of agents on a real PC: Codex, OpenCode and Cursor Agent need a step, Claude Code is Ready.*
+
+![A real list of agents including Kilo and Kiro](../images/12-live-agents-old.webp)
+
+*Real run, from 0.2.0. The same screen on another PC with six agents: Claude Code, Codex, OpenCode, Cursor Agent, Kilo Code and Kiro.*
+
+![The New agent menu with Kilo marked only for other agents](../images/12-new-menu-headless.webp)
+
+*Example data. Kilo is listed but marked "only for tasks from other agents".*
+
+![Open an agent on your PC, on the phone](../images/12-real-phone-new.webp)
+
+*Real run (0.2.1). On the phone: "Open an agent on your PC" lists the same agents and shells.*
 
 ## How well each agent is tested
 

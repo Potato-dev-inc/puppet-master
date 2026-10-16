@@ -11,6 +11,14 @@ One button installs two things for every agent on your computer:
 1. The **skills**.
 2. The **connection** to PM (the MCP entry in the agent's config). See [Agents controlling agents (MCP)](32-agents-controlling-agents-mcp.md).
 
+![The Add Puppet Master to your agents preview](../images/34-real-preview.webp)
+
+*Real run (0.2.1). The preview lists the files for each agent. Nothing runs at install time; an existing connection is never changed. Install was not pressed.*
+
+![Show details lists each skill file](../images/34-real-details.webp)
+
+*Real run (0.2.1). Show details lists each file: puppet-master, pm-review, pm-delegate and pm-status, all new.*
+
 ## Why it matters
 
 Without a skill, an agent may not know that PM tools exist, or it may use them badly. With the skill, Claude Code can answer "ask Codex to review this" by itself. You also do not edit config files by hand. You see every change first, and **Undo** puts everything back.
@@ -25,6 +33,18 @@ Without a skill, an agent may not know that PM tools exist, or it may use them b
 6. To remove everything, click **Undo** in the same place. It appears after an install.
 
 If an agent is not installed on your computer, PM skips it and says so.
+
+![Bridge and MCP with Add Puppet Master to your agents](../images/34-real-settings.webp)
+
+*Real run (0.2.1). Settings, Bridge & MCP: "Review and install" and the Toolbelt below it.*
+
+![Step 6 of the welcome](../images/34-live-step.webp)
+
+*Real run. The same step in the first-run welcome: "Found: Claude Code, Codex CLI, OpenCode, ... Review and install".*
+
+![The same sheet opened from the welcome](../images/34-real-welcome-review.webp)
+
+*Real run (0.2.1). The same sheet opened from step 6 of the first-run welcome.*
 
 ## How it works (simple)
 

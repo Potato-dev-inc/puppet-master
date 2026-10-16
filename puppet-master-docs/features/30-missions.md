@@ -5,6 +5,14 @@
 ## What it is
 A mission gives an agent a goal, some checks and a budget. Checks are commands that must pass, for example your tests. Puppet Master makes one [separate copy](22-separate-copies-worktrees.md) of your project. Then it asks one agent at a time to work towards the goal. After every turn it runs the checks in the copy. It keeps going until the checks pass, the budget is used up, or you stop it. **A mission never merges, pushes or opens a pull request.** At the end you have a separate copy that waits for your review.
 
+![The Mission tab of a real mission](../images/30-real-mission-tab.webp)
+
+*Real run (0.2.1). The Mission tab of a real mission on the shop project: "Done, 3 of 3 pass, ready to review". Checks, work, test changes, budget and where, then a timeline.*
+
+![The Notes part of the Mission tab](../images/30-real-notes.webp)
+
+*Real run (0.2.1). The Notes part of the Mission tab: the lines the agent wrote under "Notes from agents" in MISSION.md.*
+
 ## Why it matters
 Developers can hand over a failing test suite and come back to a green copy. People who build with AI get "keep going until it works", with a limit on cost and a guard against fake green. An orchestrating agent can start a mission over MCP and wait for the result.
 
@@ -22,6 +30,50 @@ Developers can hand over a failing test suite and come back to a green copy. Peo
 11. When it is done, open **Changes** and review it yourself. See [Review, merge and pull requests](23-review-merge-and-pull-requests.md).
 
 **From an agent.** Call `run_agent` with `until_checks_pass: true`, `checks` (with at least one `command_exits`), a budget (`budget_turns` or `budget_minutes`) and optional `backup_agents`. The `task` is the goal. You get a handle like `mission-<id>`. `wait_agents` returns "completed" when all checks pass, or "needs_input" when you must decide.
+
+![Start a mission from the New agent menu](../images/30-real-new-menu.webp)
+
+*Real run (0.2.1). Start a mission from the New agent menu ("Start a mission..." - Preview).*
+
+![The Missions switch in Labs](../images/30-real-settings.webp)
+
+*Real run (0.2.1). Turn it on in Settings, General, Labs: "Missions (Preview)". The row shows "Saved".*
+
+![The filled New mission sheet](../images/30-real-sheet.webp)
+
+*Real run (0.2.1). The filled sheet: the goal "Make the tests pass", the check (npm test), who works on it, a budget of 4 turns and 1 hour, and "Agents may change tests" off.*
+
+![Start mission is off until the goal is clear](../images/30-real-disabled.webp)
+
+*Real run (0.2.1). Start mission stays off until you say what should be true when it is done.*
+
+![A mission in progress in the Inbox](../images/30-real-inbox-running.webp)
+
+*Real run (0.2.1). While the mission runs, the Inbox lists it under Missions ("Mission - Turn 1 - 2 of 3 pass at the start") and the agent is Working in the sidebar.*
+
+![The mission agent while it works](../images/30-real-pane-working.webp)
+
+*Real run (0.2.1). The mission agent's pane while it works. The chip says "1 of 4 turns".*
+
+![The Changes tab of the mission copy](../images/30-real-changes.webp)
+
+*Real run (0.2.1). After the mission, the Changes tab of the separate copy: Merge, Create PR and Discard. It says "Not merged yet".*
+
+![The mission is stuck card](../images/30-stuck.webp)
+
+*Example data. "The mission isn't getting anywhere": Try 5 more turns, Hand it to me, or Stop mission.*
+
+![The mission tamper card](../images/30-tamper.webp)
+
+*Example data. "The checks pass, but Codex changed the tests." You choose.*
+
+![A real mission waiting after a setup problem](../images/30-live-setup.webp)
+
+*Real run. A real mission: the first agent could not start in the new copy, so the mission says so and offers Try again or Stop mission.*
+
+![A finished mission in the Inbox](../images/30-real-inbox-done.webp)
+
+*Real run (0.2.1). A finished mission waits in the Inbox under "Ready for you": "Make the tests pass - Mission - Done - 3 of 3 pass - ready to review".*
 
 ## How it works (simple)
 After each turn, a fixed table of rules decides what happens next:

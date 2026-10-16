@@ -5,6 +5,14 @@
 ## What it is
 A standby worker is an agent that PM starts early and keeps waiting at its empty input box, in a hidden window. When you open that agent, PM shows the ready one instead of starting a new one. The setting is called **Keep agents ready**. The switch is called **Preload agents**.
 
+![Settings, Agents, Keep agents ready](../images/14-real-agents.webp)
+
+*Real run (0.2.1). Settings, Agents, "Ready to use": the Preload agents switch (off by default), which agents to keep warm, and how many.*
+
+![The idle timeout and the Status row](../images/14-real-timeout.webp)
+
+*Real run (0.2.1). Below the list: the idle timeout (20 minutes) and the Status row. With Preload agents off it says "Off: no agents are kept warm."*
+
 ## Why it matters
 Starting an agent takes time: the window opens, the program starts, the screen draws. With a standby worker the first task starts sooner. This helps people who open the same agent many times a day, and agents that start work for other agents through MCP.
 
@@ -18,6 +26,18 @@ Starting an agent takes time: the window opens, the program starts, the screen d
 7. Read **Status** in the same place. It lists each warm worker, and says why an agent could not stay warm.
 
 Turning **Preload agents** off closes all warm workers.
+
+![The warm-agent status row](../images/14-status.webp)
+
+*Example data. The Status row: "1 warm (1 ready, 0 starting)" and "closes in 18m 20s if unused".*
+
+![Held back reasons for warm agents](../images/14-held-back.webp)
+
+*Example data. Why an agent is not kept warm is spelled out ("Held back: ...").*
+
+![Palette showing New Claude Code opens instantly](../images/14-palette.webp)
+
+*Example data. In the palette, a ready agent shows "Opens instantly".*
 
 ## How it works (simple)
 - **Where.** Warm agents start in your default project folder (**Settings > General > Project folder**). A pane for another folder starts normally.

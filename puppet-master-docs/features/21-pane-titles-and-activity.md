@@ -10,6 +10,10 @@ Three small signals that tell you what each agent is doing without opening it:
 
 The Windows tray icon and the taskbar badge show the same states for all agents together. PM makes these without any AI call.
 
+![Short titles in the sidebar](../images/21-real-titles.webp)
+
+*Real run (0.2.1). Short titles made from the task ("Run npm test in this proj...", "Mission: Make the tests..."), each with the agent and its status.*
+
 ## Why it matters
 Names like `claude · 3f9a02bc` mean nothing when you run five agents. A short title and one line of activity let you scan the sidebar and find the one that needs you. The tray icon lets you check from another window.
 
@@ -22,6 +26,22 @@ Names like `claude · 3f9a02bc` mean nothing when you run five agents. A short t
 6. To stop the movement, open **Settings > General > Appearance** and turn off **Animated tray icon**. The icon then shows a still ring while agents work.
 7. The taskbar button of the cockpit shows a number badge. It counts panes that need you or have an error.
 8. Titles also show in the Inbox, Ctrl+K, pop-out window titles, the tray's Panes menu and the phone tabs.
+
+![Renaming a pane](../images/21-rename.webp)
+
+*Example data. Rename a pane by editing the title.*
+
+![Sidebar activity lines](../images/21-real-activity.webp)
+
+*Real run (0.2.1). The line under each title: the agent and what it is doing ("Needs you", "Working", "Idle").*
+
+![Titles and activity on the phone](../images/21-real-phone-list.webp)
+
+*Real run (0.2.1). The same titles and activity lines on the phone tabs and list.*
+
+![The tray icon dot frames](../images/21-tray.webp)
+
+*Example data, from 0.2.0. The dot pictures for the tray icon: needs you, error, working (a moving sweep) and idle.*
 
 ## How it works (simple)
 - **Titles.** PM watches the text you type, or the task another agent sends, into an agent pane. At the first submitted line it makes a title: it removes control codes and polite starts like "please" or "can you", keeps the first sentence, and cuts at 40 characters. It ignores empty lines, slash commands, `!commands`, one-word answers like "yes", and a single long word with digits (it looks like a secret). A plain shell never gets an automatic title, because lines typed there can be passwords or commands. You can still rename a shell.

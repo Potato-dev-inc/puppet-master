@@ -5,6 +5,10 @@
 ## What it is
 "Set up agents" is a screen that lists every agent PM knows. It is also called the Doctor. For each agent it shows if the program is installed, which version it is, and if you are signed in. If an agent is missing, the **Install** button shows the exact command first, then runs it in a window you can watch.
 
+![Set up your agents](../images/13-real-doctor.webp)
+
+*Real run (0.2.1). The Doctor on a real PC: four agents are installed and each waits for Test. Claude Code also shows a "Live updates" note.*
+
 ## Why it matters
 A new user often opens an empty cockpit and does not know why an agent will not start. Many people also do not know commands like `npm i -g`. The Doctor tells you what is wrong in one sentence and gives you one next step.
 
@@ -18,6 +22,54 @@ A new user often opens an empty cockpit and does not know why an agent will not 
 7. Press **Sign in**. The agent opens in a visible pane. Sign in there. PM never sees your password.
 8. Press **Test** to prove the agent can answer. It asks one tiny read-only question ("Reply with exactly OK"). It uses a few tokens, so it only runs when you press the button.
 9. **Check again** (top of the screen) reads everything once more.
+
+![A row with Details open](../images/13-real-details.webp)
+
+*Real run (0.2.1). Details on a row shows the next step, for example "Open Claude Code and type /login". Each row has one sentence and one button: Test, Sign in or Install.*
+
+![A real agent being tested](../images/13-live-testing.webp)
+
+*Real run. Press Test: "Asking it a tiny question. This can take a minute."*
+
+![A real agent that passed the test](../images/13-live-ready.webp)
+
+*Real run. The test passed: Claude Code moves to "Ready. It answered the test question."*
+
+![The More menu on a row](../images/13-real-more.webp)
+
+*Real run (0.2.1). The More menu on a row offers "Sign in", which opens a window where you sign in yourself.*
+
+![OpenCode installed, sign in next](../images/13-needs-signin.webp)
+
+*Example data. After an install: "Installed. Sign in next." A window opens where you sign in. Puppet Master never sees your password.*
+
+![The Install OpenCode sheet](../images/13-install-sheet.webp)
+
+*Example data. Install shows the exact command first: "winget install ...". Run starts it in a window you can watch.*
+
+![An install in progress](../images/13-installing.webp)
+
+*Example data. While it installs: "Installing OpenCode in the window. Puppet Master checks again when it is done." Show window brings the install window forward.*
+
+![Install sheet for a script from the internet](../images/13-install-script.webp)
+
+*Example data. When the install is a script from the internet, Run stays off until you tick "I trust opencode.ai".*
+
+![Install sheet that needs Node.js first](../images/13-install-prereq.webp)
+
+*Example data. If a tool is needed first, the sheet says so: "Install Node.js. This is step 1 of 2."*
+
+![Install sheet when winget is missing](../images/13-no-winget.webp)
+
+*Example data. No winget on this PC: the sheet gives the command to copy instead of running it.*
+
+![Installed but a restart is needed](../images/13-restart-needed.webp)
+
+*Example data. "Installed, but Puppet Master cannot find it yet. Close Puppet Master and open it again."*
+
+![The install was cancelled](../images/13-cancelled.webp)
+
+*Example data. "The install was cancelled in the Windows prompt. Your PC is fine. You can try again."*
 
 ## How it works (simple)
 - **Check.** PM asks each program for its version, with a time limit. One slow program cannot delay the others. This costs no tokens.

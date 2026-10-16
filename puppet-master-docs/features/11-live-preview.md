@@ -6,6 +6,10 @@
 
 When an agent starts a web page on your own PC (a "dev server", for example Vite on port 5173), Puppet Master notices the address in the terminal. It shows a **Preview** button on the agent. One click opens the page in your normal browser.
 
+![A pane with a Preview button](../images/11-preview-chip.webp)
+
+*Example data. The Preview button (top right of the pane) appears when the agent starts a local web page. One click opens it in your browser.*
+
 ## Why it matters
 
 People who build with AI mostly care about the page, not the terminal. They want to see what the agent made. This feature puts "Open the page" one click away. Developers save the step of copying the address from the terminal.
@@ -20,6 +24,14 @@ People who build with AI mostly care about the page, not the terminal. They want
 4. If the agent started more than one server, press Ctrl+K and look for **Open preview: Claude Code :5173**. Each server has its own line, up to three. The chip opens the newest one.
 5. On a paired phone, a note under the tab bar shows "Preview" with the address and "Open on your PC". The phone cannot open the page itself.
 6. In Simple mode there is a separate **Preview** tab that shows the page the agent made in its copy (see [Simple mode](07-simple-mode.md)). It has **Open in browser**.
+
+![The phone with a Preview address bar](../images/11-phone-preview.webp)
+
+*Example data. On the phone, a line under the tabs shows "Preview http://localhost:5173 - Open on your PC".*
+
+![The page shown inside Simple mode](../images/11-real-simple-preview.webp)
+
+*Real run (0.2.1). In Simple mode the page is shown inside the app, with an "Open in browser" button. This class timer was made by a real Claude Code.*
 
 ## How it works (simple)
 

@@ -5,6 +5,12 @@
 ## What it is
 Every agent plan has a usage limit. When an agent runs out, it prints a message such as "you can continue at 14:05". Puppet Master now reads this message. It stops the run in a safe "parked" state, and shows you one card in plain words. It types nothing into the agent. "Hand-off" is the plan for the next step: give the unfinished work to a different agent. That step is designed but does not exist yet.
 
+![The usage limit card in the Inbox](../images/25-card.webp)
+
+*Example data. "Claude Code ran out of usage. It can continue at 14:05." Handing the work to another agent is a later update. You can Remind me or Stop here.*
+
+*No screenshot yet: the hand-off step (giving the work to another agent) is not built, so there is nothing to show. The screenshots above show the usage-limit card.*
+
 ## Why it matters
 Without this, a pane that hit its limit just looks stuck. You may not know why, or when it can go on. With the card you see the reason and the reset time without reading the terminal. An agent that is waiting for you through MCP also wakes up and can read why it stopped.
 
@@ -18,6 +24,26 @@ There is nothing to turn on. Detection is automatic for Claude Code and Codex.
 4. The card says that handing the work to another agent is coming in a later update. There is no hand-off button today.
 
 **Related setting.** In **Settings**, then **Keys**, then **Key automation**, there is an OpenCode option to switch to another of your API keys when one hits its rate limit. It is **off by default**. Check your provider's terms before you turn it on.
+
+![The usage limit card for an agent that continues by itself](../images/25-self-resume.webp)
+
+*Example data. For an agent that continues on its own, the card says so.*
+
+![The usage limit card without a reset time](../images/25-no-reset.webp)
+
+*Example data. If the agent did not say when it resets: "It didn't say when it can continue." Remind me in 1 hour.*
+
+![The reminder card](../images/25-reminder.webp)
+
+*Example data. When the reminder time comes: "Claude Code's usage limit should have reset by now."*
+
+![The receipt after a usage limit](../images/25-receipt.webp)
+
+*Example data. The receipt: "Stopped at a usage limit (resets 14:05)".*
+
+![The usage limit card on the phone](../images/25-phone.webp)
+
+*Example data. The same card on the phone.*
 
 ## How it works (simple)
 - Puppet Master reads the last rows of the agent screen and looks for the exact limit message of each agent. The rules are data files, not code.

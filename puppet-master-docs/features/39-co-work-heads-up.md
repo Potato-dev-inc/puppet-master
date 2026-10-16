@@ -6,6 +6,10 @@
 
 Two or more people each have their own Puppet Master (PM) and their own agents. Heads-up keeps them in sync. When Maya pushes a branch, PM asks her "Tell the team?". If she says yes, her teammates get a card in their Inbox. Leo can then let **his own agent** merge Maya's branch into his work in a separate copy, and fix conflicts. Leo reviews the result and applies it. Nothing is pushed, merged or run without a click from a person.
 
+![Team cards in the Inbox](../images/39-cards.webp)
+
+*Example data. Team cards: a queued merge, "Maya's Claude Code pushed feat/auth", and "Sam's Codex opened #142".*
+
 ## Why it matters
 
 Small teams that use agents often work on the same project. Someone pushes, and the others do not notice for hours. Then merge conflicts are harder. Heads-up tells people at the right time and does the boring part with an agent. A person still decides.
@@ -34,6 +38,62 @@ Daily use:
 - Team cards also appear on the phone, in the Agents list.
 - To leave, click **Leave this team**. The admin can remove a member, and the team key then changes.
 
+![Maya sees a Tell the team toast](../images/39-live-toast.webp)
+
+*Real run, from 0.2.0. Maya pushed a branch. Her Puppet Master asks "Tell Leo?" and nothing is sent until she says yes.*
+
+![The Tell the team card with a preview](../images/39-toast.webp)
+
+*Example data. "Tell the team?" with a preview of what would be shared: the branch, the commit and the file count. No code is shared.*
+
+![Leo sees Maya pushed feat/auth](../images/39-live-leo-card.webp)
+
+*Real run, from 0.2.0. On Leo's PC: "Maya pushed feat/auth", with Queue my agent and Dismiss.*
+
+![The Queue my agent sheet](../images/39-live-queue.webp)
+
+*Real run, from 0.2.0. Leo picks the agent and when it runs: after the current turn, or now.*
+
+![Claude Code is merging](../images/39-live-merging.webp)
+
+*Real run, from 0.2.0. "Claude Code is merging feat/auth. Resolving 1 conflict in a separate copy."*
+
+![The merge result](../images/39-live-result.webp)
+
+*Real run, from 0.2.0. "feat/billing is up to date, in a separate copy. Claude Code merged feat/auth and resolved 1 conflict."*
+
+![See changes](../images/39-live-changes.webp)
+
+*Real run, from 0.2.0. See changes opens the Changes view for the merged copy.*
+
+![Applied, nothing was pushed](../images/39-live-applied.webp)
+
+*Real run, from 0.2.0. "Applied to feat/billing. Nothing was pushed."*
+
+![A merge that needs a Codex start](../images/39-needs-start.webp)
+
+*Example data. "2 conflicts to resolve": Codex can run commands without asking, so the card asks you to start it when you can watch.*
+
+![A finished merge card](../images/39-result.webp)
+
+*Example data. The result card: Apply to my branch, See changes, or Discard.*
+
+![GitHub cards](../images/39-github.webp)
+
+*Example data. GitHub cards: a PR opened, a PR merged, checks failed, each with the right button.*
+
+![Settings, Team](../images/39-settings.webp)
+
+*Example data. Settings, Labs, Team: who is in the team, who can answer, and join requests.*
+
+![Team cards on the phone](../images/39-phone.webp)
+
+*Example data. Team cards on the phone, above Needs you.*
+
+![Queue my agent on the phone](../images/39-phone-queue.webp)
+
+*Example data. Queue my agent on the phone asks first: "It works in a separate copy and asks you before anything lands."*
+
 ## How it works (simple)
 
 - Every message is signed by the sender and sealed (end-to-end encrypted). Only team members can read it. See [Team relay](40-team-relay.md).
@@ -52,6 +112,10 @@ Daily use:
 - A new member does not get the last 7 days of messages (relay). On a shared folder, a new member can read what is still in the folder.
 - GitHub cards need the `gh` tool and a login. GitHub names are trusted for attribution only after the admin clicks **Confirm GitHub**.
 - A security review found no Critical or High issues. It found six Medium ones. The fixes are in the release branch and are tested by automated tests only.
+
+![A gap in team updates](../images/39-gap.webp)
+
+*Example data. "Can't reach the team's relay. Updates will arrive when it's back."*
 
 ## For developers
 

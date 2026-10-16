@@ -132,6 +132,17 @@
     article ul, article ol { margin: 0 0 16px; padding-left: 1.2em; }
     article li { margin: 0 0 6px; }
     article strong { color: var(--ink); font-weight: 700; }
+    article img {
+      display: block; max-width: 100%; height: auto;
+      margin: 18px 0 0; border-radius: 12px;
+      border: 1px solid var(--hair-2); background: var(--feed);
+    }
+    article p.figure { margin: 0; }
+    article p.caption {
+      margin: 8px 0 22px; font-size: 13px; line-height: 1.4;
+      color: var(--ink-3);
+    }
+    article p.caption em { font-style: italic; color: inherit; }
     article hr { border: 0; border-top: 1px solid var(--hair); margin: 28px 0; }
     article blockquote {
       margin: 0 0 16px; padding: 10px 16px;
@@ -313,6 +324,22 @@
       }
     }
     function rewrite(fromFile) {
+      // Images: resolve src against the Markdown file, not against index.html.
+      docEl.querySelectorAll("img[src]").forEach((img) => {
+        const src = img.getAttribute("src");
+        if (!src || /^(https?:|data:|\/\/)/i.test(src)) return;
+        img.setAttribute("src", resolveMd(fromFile, src));
+        img.loading = "lazy";
+        const p = img.parentElement;
+        if (p && p.tagName === "P" && p.children.length === 1 && !p.textContent.trim()) {
+          p.classList.add("figure");
+          const cap = p.nextElementSibling;
+          if (cap && cap.tagName === "P" && cap.children.length === 1 && cap.firstElementChild.tagName === "EM"
+              && cap.textContent.trim() === cap.firstElementChild.textContent.trim()) {
+            cap.classList.add("caption");
+          }
+        }
+      });
       docEl.querySelectorAll("a[href]").forEach((a) => {
         const href = a.getAttribute("href");
         if (!href || /^(https?:|mailto:|#)/i.test(href)) return;

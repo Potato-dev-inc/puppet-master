@@ -5,6 +5,14 @@
 ## What it is
 A separate copy lets an agent work on its own copy of your project. Your own files do not change while the agent works. The copy is a "git worktree". A git worktree is a second working folder that shares the history of your project but has its own branch (a named line of work). You look at the result later. Then you keep it or throw it away.
 
+![The New agent menu with Separate copy](../images/22-real-new-menu.webp)
+
+*Real run (0.2.1). The New agent menu with the "Separate copy" switch on: "From the current branch - your uncommitted changes aren't included."*
+
+![A Claude Code started in a separate copy](../images/22-real-copy-started.webp)
+
+*Real run (0.2.1). A new Claude Code in "shop - separate copy". Its folder is a copy under .puppet-master\worktrees, and its tabs include Changes.*
+
 ## Why it matters
 Two agents in one folder can overwrite each other's files. One agent can also break your project while you watch something else. A separate copy removes both problems. Developers use it to run many agents at once. People who build with AI use it to try something risky. If they do not like the result, nothing is lost.
 
@@ -24,6 +32,38 @@ Two agents in one folder can overwrite each other's files. One agent can also br
 The same settings live in the file `.puppet-master/project.toml` inside your project, in a `[worktree]` section.
 
 **From an agent.** An agent can call `run_agent` with `isolation: "worktree"`.
+
+![The New agent menu with the project chip](../images/22-real-project-chip.webp)
+
+*Real run (0.2.1). The project chip at the top ("notes") shows which folder the agent will start in.*
+
+![Recent projects list](../images/22-real-recent.webp)
+
+*Real run (0.2.1). Recent projects: pick a folder, or Choose folder.*
+
+![Separate copy needs Git](../images/22-no-git.webp)
+
+*Example data. In a folder without Git the switch is off: "Needs Git. This folder doesn't use it yet." with "Set up Git here".*
+
+![The Set up Git here sheet](../images/22-git-init.webp)
+
+*Example data. "This folder doesn't use Git yet. Undo and separate copies need it." The sheet explains what it saves first.*
+
+![Starting Claude Code in a copy](../images/22-starting.webp)
+
+*Example data. Starting an agent in a copy: "Setting up the copy - Ran npm ci; copied .env (never committed)".*
+
+![Setup of the copy failed](../images/22-setup-failed.webp)
+
+*Example data. If the setup command fails: "Setting up the copy failed: npm ci stopped with an error". The last lines of the output are shown.*
+
+![The Copies tab of Project](../images/22-real-copies-tab.webp)
+
+*Real run (0.2.1). Project, Copies: setup commands, files to copy (for example .env), and a start command.*
+
+![Changes details with the branch of the copy](../images/22-real-details.webp)
+
+*Real run (0.2.1). Details in the Changes tab: the branch of the copy (pm/pane-0634f9b2), what it is based on (main) and its folder.*
 
 ## How it works (simple)
 - Puppet Master makes a folder under `<project>/.puppet-master/worktrees/` and a branch named `pm/<handle>`. The copy starts from your latest commit.

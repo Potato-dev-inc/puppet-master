@@ -5,6 +5,10 @@
 ## What it is
 The tamper guard finds out when an agent made tests pass by weakening the tests. For example, the agent adds a "skip" to a failing test, deletes it, or changes a check so that it is easier to pass. The guard takes a snapshot of the test files and the check settings at the start. Later it compares the project with the snapshot and describes what changed, in plain words. It reads files only. It uses no AI and no scores. It follows fixed rules, so the same input gives the same answer.
 
+![The tamper card in the Inbox](../images/26-card.webp)
+
+*Example data. "The checks pass, but Codex changed the tests": added .skip to a test, removed 2 assertions. The mission is not done until you decide.*
+
 ## Why it matters
 "All tests pass" is only good news if the tests are still the same tests. An agent that wants to finish can take a shortcut. This is a real risk when you leave an agent alone to "make the tests green". The guard stops a fake green and asks you.
 
@@ -18,6 +22,14 @@ Today you do not use the guard on its own. [Missions](30-missions.md) uses it. T
 6. Choose:
    - **Undo the test changes and keep going**: Puppet Master puts the test files back and the agent works again.
    - **Accept the changes**: a sheet asks "Count these tests as passing?". Click **Accept and finish** to finish with the changed tests.
+
+![Count these tests as passing](../images/26-confirm.webp)
+
+*Example data. Accept the changes asks first: "Count these tests as passing?"*
+
+![The mission sheet with the Agents may change tests switch](../images/26-real-start.webp)
+
+*Real run (0.2.1). The New mission sheet. "Agents may change tests" is off: the mission stops and asks you if tests are skipped, removed or loosened.*
 
 ## How it works (simple)
 - At the start it finds the protected files: test files, and the settings that decide how tests run (for example, a test script or a runner config). It saves a snapshot in `<project>/.puppet-master/tamper/`.

@@ -26,6 +26,7 @@
     <a class="brand" href="#top" aria-label="{{NAME}}, back to top">[[mark]]<span>{{NAME}}</span></a>
     <nav class="nav-links" aria-label="Sections">
       <a href="#pillars">Why</a>
+      <a href="#tour">Tour</a>
       <a href="#features">Features</a>
       <a href="#cowork">Co-work</a>
       <a href="#security">Security</a>
@@ -58,16 +59,16 @@
     <div class="stage">
       <figure class="window" style="margin:0">
         <picture>
-          <source media="(max-width: 759px)" srcset="assets/approval.webp" width="700" height="365">
-          <img src="assets/hero-desktop.webp" width="1280" height="820" alt="The {{NAME}} Inbox on Windows. A Claude Code card reads Change a file in this project, Low risk, with Allow once and Deny buttons.">
+          <source media="(max-width: 759px)" srcset="assets/approval.webp" width="700" height="366">
+          <img src="assets/hero-desktop.webp" width="1280" height="820" alt="The {{NAME}} Inbox on Windows. A Claude Code card reads Run tests, Low risk, It runs your project's tests and does not change anything else, with Allow once and Deny buttons.">
         </picture>
       </figure>
       <div class="phone">
-        <img src="assets/phone-agents.webp" width="390" height="844" alt="The phone view. A question from Claude Code with two answer buttons, and a summary of what three agents did while you were away.">
+        <img src="assets/phone-agents.webp" width="390" height="844" alt="The phone view of a real run. A Trust this folder? card from Claude Code with Don't trust and Trust this folder buttons, then the agents under Needs you and Idle.">
       </div>
       <div class="stage-cap">
-        <span>Desktop: a real run, Claude Code asking to change a file.</span>
-        <span>Phone: the app's own UI on example data.</span>
+        <span>Desktop: a real run, Claude Code asking to run its tests.</span>
+        <span>Phone: a real run, Claude Code asking to trust a folder.</span>
       </div>
     </div>
   </div>
@@ -129,27 +130,73 @@
   </div>
 </section>
 
+<!-- 2b. See it in the app -->
+<section id="tour" class="hair">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">[[dots:3::0,1,2,3,4,5,6,7,8]]See it in the app</div>
+      <h2 class="h2">A look around.</h2>
+      <p class="sub">The app's own screens, dark and light. Real runs say Real run (0.2.1). Where a shot uses made-up content, it says Example data. More shots sit with each feature below.</p>
+    </div>
+
+    <div class="tour">
+      <figure class="t-fig t-half">
+        <div class="frame"><img src="assets/cockpit-inbox.webp" width="1440" height="900" alt="The Inbox in the dark theme. One thing needs you: a Fetch something from the internet card, Check first, with Allow once and Deny. The sidebar lists agents under Needs you, Working and Idle, and a finished mission waits under Ready for you." loading="lazy" decoding="async"></div>
+        <figcaption><b>Inbox and sidebar</b>Agents grouped by Needs you, Working and Idle, and one list of what is waiting for you. <span class="real">Real run (0.2.1)</span></figcaption>
+      </figure>
+      <figure class="t-fig t-half">
+        <div class="frame"><img src="assets/cockpit-light.webp" width="1440" height="900" alt="The same Inbox in the light theme, with nothing waiting and a finished mission under Ready for you." loading="lazy" decoding="async"></div>
+        <figcaption><b>Dark and light</b>The app follows your system or your choice. <span class="real">Real run (0.2.1)</span></figcaption>
+      </figure>
+      <figure class="t-fig t-third">
+        <div class="frame"><img src="assets/digest.webp" width="700" height="520" alt="While you were away. 3 agents worked while you were away for 47 minutes: Claude Code edited 4 files and is waiting to allow npm test, Codex edited 7 files and all checks passed, OpenCode made no file changes. Two things need you. Got it, Open Inbox." loading="lazy" decoding="async"></div>
+        <figcaption><b>While you were away</b>What each agent did since you left, and what is waiting. <span class="example">Example data</span></figcaption>
+      </figure>
+      <figure class="t-fig t-third">
+        <div class="frame"><img src="assets/palette.webp" width="600" height="410" alt="The command palette. Switch pane, start an agent, run an action. Panes: Run npm test in this project (Claude Code) and In index.html, add a short footer line (Codex CLI). New agent: New Claude Code, New Codex CLI, New OpenCode, New OpenCode (API), New Cursor Agent CLI, New Cursor (agent), New Command Prompt." loading="lazy" decoding="async"></div>
+        <figcaption><b>Command palette</b>Switch pane or start an agent from the keyboard, with Ctrl+K. <span class="real">Real run (0.2.1)</span></figcaption>
+      </figure>
+      <figure class="t-fig t-third">
+        <div class="frame"><img src="assets/askbar.webp" width="680" height="470" alt="The Ask bar. A question to Claude Code, How do I share a cache between threads in Rust, and a short answer with a code block. Copy, Open as an agent, Close." loading="lazy" decoding="async"></div>
+        <figcaption><b>Ask bar <span class="chip">[[dots:3::1,3,5,7]]Labs</span></b>A small bar you open from anywhere in Windows to ask an agent a quick question. <span class="example">Example data</span></figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
 <!-- 3. Feature grid -->
 <section id="features" class="hair">
   <div class="wrap">
     <div class="sec-head">
       <div class="eyebrow">[[dots:3::0,1,2,3,4,5,6,7,8]]What you get</div>
       <h2 class="h2">Everything here works today.</h2>
-      <p class="sub">The shots are from real runs. Where a shot uses made-up content, it says Example data.</p>
+      <p class="sub">The shots come from the real app. Real runs say so. Where a shot uses made-up content, it says Example data.</p>
     </div>
 
     <div class="grid">
+      <article class="card span-2" id="f-cockpit">
+        <div class="shot"><img src="assets/cockpit.webp" width="1440" height="900" alt="The cockpit. A sidebar lists Claude Code under Needs you. The Claude Code pane shows its real terminal with tabs for Terminal, Transcript, Receipt and History, and a card above it: Run tests, Low risk, Allow once, Deny." loading="lazy" decoding="async"></div>
+        <div class="copy">
+          <h3>One cockpit for every agent</h3>
+          <p>Each agent runs in its own pane, in its real terminal. The sidebar groups them as Needs you, Working and Idle. Every pane has tabs for Terminal, Changes, Transcript, Receipt and History, and a question from the agent shows up as a card above the terminal.</p>
+          <p class="real">Real run (0.2.1)</p>
+        </div>
+      </article>
+
       <article class="card row-2" id="f-agents">
-        <div class="shot"><img src="assets/setup-agents.webp" width="540" height="570" alt="Set up your agents. A list showing Claude Code, Codex CLI, OpenCode, Cursor Agent CLI, Kilo Code and Kiro with their versions and whether they are installed." loading="eager" decoding="async"></div>
+        <div class="shot stack">
+          <figure><img src="assets/setup-agents.webp" width="620" height="560" alt="Set up your agents. Claude Code, Codex CLI and Cursor Agent CLI are installed and not tested yet, each with a Test button. OpenCode is installed." loading="lazy" decoding="async"><figcaption>Set up your agents. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/install-sheet.webp" width="700" height="360" alt="Install OpenCode. Puppet Master will run this in a window you can watch: winget install --id SST.opencode. Buttons: Copy command, Cancel, Run." loading="lazy" decoding="async"><figcaption>Installing one shows the exact command first. Example data.</figcaption></figure>
+        </div>
         <div class="copy">
           <h3>Your agents, found on your PC</h3>
-          <p>{{NAME}} finds the agent CLIs you have installed, shows their versions and tells you what to do about the rest. They run unmodified, in real terminals, signed in the way their vendor intended.</p>
+          <p>{{NAME}} finds the agent CLIs you have installed, shows their versions and tells you what to do about the rest. They run unmodified, in real terminals, signed in the way their vendor intended. Sign in opens a window, and {{NAME}} never sees your password.</p>
           <p class="note">Add any other CLI agent with a small TOML file.</p>
         </div>
       </article>
 
       <article class="card" id="f-approvals">
-        <div class="shot"><img src="assets/approval.webp" width="700" height="365" alt="An Inbox card: Claude Code wants to change a file in this project. Low risk. It only changes a file inside the project folder. Allow once, Deny." decoding="async"></div>
+        <div class="shot"><figure><img src="assets/approval.webp" width="700" height="366" alt="An Inbox card: Run tests, Claude Code. Low risk. It runs your project's tests and does not change anything else. Allow once, Deny." loading="lazy" decoding="async"><figcaption>A real run: Claude Code asks to run the project's tests.</figcaption></figure></div>
         <div class="copy">
           <h3>Approvals in plain words</h3>
           <p>A card says what the agent wants, how risky it is and what it touches. Allow once, or Deny.</p>
@@ -157,23 +204,43 @@
       </article>
 
       <article class="card" id="f-trust">
-        <div class="shot"><img src="assets/trust.webp" width="700" height="365" alt="An Inbox card: Trust this folder. The agent will be able to read and change files here and run commands in it. Trust this folder, Don't trust." decoding="async"></div>
+        <div class="shot"><figure><img src="assets/trust.webp" width="700" height="366" alt="An Inbox card: Trust this folder. The agent will be able to read and change files here and run commands in it. Trust this folder, Don't trust." loading="lazy" decoding="async"><figcaption>A real run: Codex asks before it works in a new folder.</figcaption></figure></div>
         <div class="copy">
           <h3>Trust a folder once, on purpose</h3>
           <p>A new folder asks for trust. You see a card and you decide. Nothing in {{NAME}} accepts a trust or permission prompt for you.</p>
         </div>
       </article>
 
+      <article class="card span-2 split" id="f-inbox">
+        <div class="shot"><figure><img src="assets/inbox-mixed.webp" width="700" height="880" alt="The Inbox with seven things waiting: Allow Claude Code to control Codex, a High risk card for deleting a folder outside the project, a question with answer buttons Run migration, Back up first and Skip for now, Run tests, and a usage limit card with Remind me and Stop here." loading="lazy" decoding="async"><figcaption>Seven things waiting, each in plain words. Example data.</figcaption></figure></div>
+        <div class="copy">
+          <h3>One Inbox for everything that needs you</h3>
+          <p>Permission asks, questions with answer buttons, a usage limit and an agent that stopped all land in one list. Each card says what the agent wants and how risky it is. J and K move, 1 and 2 answer.</p>
+          <figure class="inline-fig"><img src="assets/approval-high.webp" width="700" height="346" alt="An Inbox card: Delete a folder outside this project. High risk. It deletes ../old-site and everything in it. Read this before you allow it. It may be hard to undo. Deny, Allow once, More options." loading="lazy" decoding="async"><figcaption>A high-risk ask says so, in bold, before you decide. Example data.</figcaption></figure>
+          <figure class="inline-fig"><img src="assets/trust-declined.webp" width="700" height="350" alt="Two Inbox cards. Claude Code didn't start: you chose not to trust this folder, so the task wasn't sent. Codex stopped: it closed unexpectedly, your files are as it left them." loading="lazy" decoding="async"><figcaption>Say Don't trust and the agent doesn't start. The Inbox tells you why. Example data.</figcaption></figure>
+        </div>
+      </article>
+
       <article class="card span-2" id="f-copy">
-        <div class="shot"><img src="assets/merge.webp" width="1040" height="420" alt="The Changes tab for a separate copy of the project: one added file, a Second opinion button, and a dialog asking Merge into master, which says that if anything conflicts, nothing is merged." decoding="async"></div>
+        <div class="shot grid2">
+          <figure class="wide"><img src="assets/changes.webp" width="1190" height="540" alt="The Changes tab for a separate copy of main: one file, plus 3 minus 5, with the branch, the folder and the diff of src/cart.js." loading="lazy" decoding="async"><figcaption>Changes: the diff for a separate copy. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/merge-dialog.webp" width="420" height="190" alt="Merge into main? Brings 1 changed file from this separate copy into main and closes the agent. If anything conflicts, nothing is merged. Cancel, Merge." loading="lazy" decoding="async"><figcaption>Merge asks first. If anything conflicts, nothing is merged. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/second-picker.webp" width="520" height="300" alt="Who should review? The reviewer can read your project but cannot change anything. Codex is selected, Cursor Agent is listed. Cancel, Start review." loading="lazy" decoding="async"><figcaption>Second opinion: pick a reviewer that can only read.</figcaption></figure>
+          <figure class="wide"><img src="assets/second-opinion.webp" width="1030" height="640" alt="A second opinion on a separate copy. Codex reviewed three files and left four notes, pinned to the lines they are about. Each note has a Send to Claude Code link. Ask again, Dismiss, Merge anyway, Create PR, Discard." loading="lazy" decoding="async"><figcaption>The reviewer's notes sit on the lines they are about. Send one back to the agent, or merge anyway. Example data.</figcaption></figure>
+          <figure><img src="assets/newagent-copy.webp" width="300" height="390" alt="The New agent menu with Claude Code, Codex CLI, OpenCode, OpenCode (API), Cursor Agent CLI, Cursor (agent), Command Prompt, PowerShell and Bash, and a Separate copy switch: from the current branch, your uncommitted changes aren't included." loading="lazy" decoding="async"><figcaption>The New agent menu has a Separate copy switch. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/project-copies.webp" width="620" height="520" alt="Project settings, Copies. When Puppet Master makes a separate copy: Set up with npm ci, Copy these files .env and .env.local, Copied, never committed, Start with npm run dev." loading="lazy" decoding="async"><figcaption>Each project says how a copy gets ready. Real run (0.2.1).</figcaption></figure>
+        </div>
         <div class="copy">
           <h3>Review in a separate copy, then merge</h3>
-          <p>Agents can work in their own copy of your project, so your files don't change while they try things. Changes shows the diff. Merge asks first, and if anything conflicts, nothing is merged. Second opinion asks another agent to review the work. It can only read.</p>
+          <p>Agents can work in their own copy of your project, so your files don't change while they try things. Changes shows the diff. Merge asks first, and if anything conflicts, nothing is merged. Second opinion asks another agent to review the work. It can only read. Each project can say how a copy gets ready: a setup command and files to copy, which are never committed.</p>
         </div>
       </article>
 
       <article class="card" id="f-receipts">
-        <div class="shot"><img src="assets/receipt.webp" width="740" height="345" alt="A receipt for a Claude Code turn. Result: Finished, not verified. Checks: none configured. Not verified: no checks configured, result read from terminal screen." decoding="async"></div>
+        <div class="shot stack">
+          <figure><img src="assets/receipt.webp" width="620" height="230" alt="A receipt for a Claude Code turn: Claude Code made no file changes, you approved 1 command, now idle. Turn 5. Below it, a Second opinion button: ask another agent to review, it can only read, never change anything." loading="lazy" decoding="async"><figcaption>The receipt for a turn. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/receipt-details.webp" width="740" height="420" alt="Receipt details: agent Claude Code, read-only no, not verified: no checks configured, result read from terminal screen, model not confirmed, then the folder, branch and run ID of the separate copy." loading="lazy" decoding="async"><figcaption>Details: what was not verified, and which copy and branch it ran in. Example data.</figcaption></figure>
+        </div>
         <div class="copy">
           <h3>Receipts that say what they don't know</h3>
           <p>Every turn ends in a receipt: the result, the agent, whether your checks ran. "Finished, not verified" is a real answer, and the row below it says why. When you declare checks, the receipt says whether they passed.</p>
@@ -181,16 +248,26 @@
       </article>
 
       <article class="card" id="f-phone">
-        <div class="shot phone-bg"><div class="phone"><img src="assets/phone-agents.webp" width="390" height="844" alt="The phone Agents screen with a question from Claude Code and a while-you-were-away summary." decoding="async"></div></div>
+        <div class="shot phone-bg two">
+          <div class="phone"><img src="assets/phone-agents.webp" width="390" height="844" alt="The phone view of a real run. A Trust this folder? card from Claude Code with Don't trust and Trust this folder buttons, then the agents under Needs you and Idle." loading="lazy" decoding="async"></div>
+          <div class="phone"><img src="assets/phone-terminal.webp" width="390" height="844" alt="A live terminal on the phone: Claude Code idle, with a typing box and a keyboard button." loading="lazy" decoding="async"></div>
+        </div>
         <div class="copy">
           <h3>The same agents on your phone</h3>
           <p>Needs you, then Working, then Idle, with live terminals one tap away. It's a web app you pair once and reach over your own tunnel.</p>
-          <p class="example">Example data</p>
+          <p class="real">Real run (0.2.1)</p>
         </div>
       </article>
 
       <article class="card span-2" id="f-undo">
-        <div class="shot"><img src="assets/history.webp" width="1040" height="175" alt="The History tab. Restoring puts your files back. It doesn't change what the agent remembers. Two checkpoints: After turn 1 and Before turn 1, each with a Restore button." decoding="async"></div>
+        <div class="shot grid2">
+          <figure class="wide"><img src="assets/history.webp" width="1190" height="200" alt="The History tab. Restoring puts your files back. It doesn't change what the agent remembers. Checkpoints after turn 2, before turn 2 and before turn 1, with the files each one changed, and an Undo last turn button." loading="lazy" decoding="async"><figcaption>History: a checkpoint before and after each turn. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/history-restore.webp" width="400" height="230" alt="Undo the last turn? This restores your files. It doesn't change what the agent remembers. Your current files are saved first, so you can undo this from History. Cancel, Undo last turn." loading="lazy" decoding="async"><figcaption>Undo asks first, and saves your current files so you can undo the undo. Real run (0.2.1).</figcaption></figure>
+          <div class="cell-stack">
+            <figure><img src="assets/history-toobig.webp" width="700" height="110" alt="Undo is off for this folder. It is too big. Add big folders to .gitignore." loading="lazy" decoding="async"><figcaption>A folder that is too big switches undo off, and says so.</figcaption></figure>
+            <figure><img class="nat" src="assets/history-toast.webp" width="360" height="70" alt="A toast: Files restored to Before turn 2, with an Undo button." loading="lazy" decoding="async"><figcaption>After a restore, one tap undoes it. Real run (0.2.1).</figcaption></figure>
+          </div>
+        </div>
         <div class="copy">
           <h3>Every turn is a checkpoint</h3>
           <p>History keeps a checkpoint before and after each turn. Restore puts your files back. It doesn't change what the agent remembers. A folder that is too big switches undo off for itself, and says so.</p>
@@ -198,30 +275,115 @@
       </article>
 
       <article class="card span-2 split" id="f-mcp">
-        <div class="shot" style="align-content:center; padding:24px;">
-          <pre class="code" style="width:100%; margin:0;"><span class="dim"># In Puppet Master</span>
-Settings › Bridge &amp; MCP ›
-Add Puppet Master to your agents</pre>
-        </div>
+        <div class="shot"><figure><img src="assets/pack-preview.webp" width="680" height="780" alt="Add Puppet Master to your agents. Skills are short guides that teach an agent when and how to hand work to other agents. Nothing runs at install time. Claude Code, Codex CLI, OpenCode and Cursor Agent CLI are listed with the files that will be added, and Cancel and Install buttons." loading="lazy" decoding="async"><figcaption>Review and install: every file is listed first, and Undo puts them back. Real run (0.2.1).</figcaption></figure></div>
         <div class="copy">
           <h3>Agents that start agents</h3>
           <p>Add {{NAME}} to your agent as an MCP server. It can start a worker in any agent, wait for it, steer it, and read back a receipt that separates "the agent finished" from "the checks passed".</p>
-          <p class="note">Works with any MCP-capable agent. The worker is a visible pane, never a hidden helper.</p>
+          <pre class="code route"><span class="dim"># In Puppet Master</span>
+Settings › Bridge &amp; MCP ›
+Add Puppet Master to your agents</pre>
+          <figure class="inline-fig"><img src="assets/toolbelt.webp" width="700" height="500" alt="Settings, Bridge and MCP. Connect your agents: Add Puppet Master to your agents, with a Review and install button. Found: Claude Code, Codex CLI, OpenCode, OpenCode (API), Cursor Agent CLI. Below it, the Toolbelt with no servers yet." loading="lazy" decoding="async"><figcaption>Settings, Bridge &amp; MCP. Real run (0.2.1).</figcaption></figure>
+          <p class="note" style="margin-top:14px">Works with any MCP-capable agent. The worker is a visible pane, never a hidden helper.</p>
+        </div>
+      </article>
+
+      <article class="card" id="f-budgets">
+        <div class="shot stack">
+          <figure><img src="assets/budget-chip.webp" width="1190" height="210" alt="A pane header for Codex CLI with a chip reading 1 of 3 turns, above a Trust this folder card with Trust this folder and Don't trust buttons." loading="lazy" decoding="async"><figcaption>The chip on a pane shows where its budget stands (here 1 of 3 turns). Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/budget-card.webp" width="700" height="150" alt="An Inbox card: Codex CLI used its 3 turns. 3 of 3 turns. It's paused after its last turn. Nothing was lost. Add 2 turns, Stop here, Open terminal." loading="lazy" decoding="async"><figcaption>When it runs out, a card lands in the Inbox. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/budget-settings.webp" width="700" height="180" alt="Settings, Budgets. Turns an agent may use: 3. Time an agent may use: 0 minutes. 0 means no limit." loading="lazy" decoding="async"><figcaption>Settings, General, Budgets. Real run (0.2.1).</figcaption></figure>
+        </div>
+        <div class="copy">
+          <h3>Budgets, so nothing runs away</h3>
+          <p>Set how many turns or minutes an agent may use. When the budget runs out it pauses after its current turn, a card lands in the Inbox, and you add 10 turns, add 30 minutes or stop. Nothing is stopped mid-way.</p>
+        </div>
+      </article>
+
+      <article class="card" id="f-memory">
+        <div class="shot"><figure><img src="assets/memory.webp" width="700" height="620" alt="Project memory for notes. Every agent in this project reads this. An empty shared note, and a list of the files agents read: CLAUDE.md, AGENTS.md and a Cursor rules file, each with Nothing to write. Share memory in this project is on. Only the block between the Puppet Master markers is ever changed." loading="lazy" decoding="async"><figcaption>Project memory. Real run (0.2.1).</figcaption></figure></div>
+        <div class="copy">
+          <h3>One memory every agent reads</h3>
+          <p>Every agent in a project reads one shared memory file. {{NAME}} puts it into the files each agent already reads, and only ever changes the block between its own markers. Turn it off and it is removed.</p>
+        </div>
+      </article>
+
+      <article class="card span-2" id="f-firstrun">
+        <div class="shot grid2">
+          <figure><img src="assets/fr-welcome.webp" width="640" height="520" alt="Welcome to Puppet Master, step 1 of 7. How do you work? I write code, I build with AI and not much code, or I don't code." loading="lazy" decoding="async"><figcaption>Step 1. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/fr-agents.webp" width="640" height="470" alt="Step 2, Your agents. OpenCode is installed, Cursor Agent CLI has a Test button, and Claude Code and Codex CLI are Ready: each answered the test question." loading="lazy" decoding="async"><figcaption>Step 2. Install one, sign in, press Test. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/fr-project.webp" width="640" height="440" alt="Step 3, Your first project. Pick the folder of one project. shop is chosen and is Ready for a separate copy. A Recent list and a Choose folder button." loading="lazy" decoding="async"><figcaption>Step 3. Pick one project. A folder with Git is ready for a separate copy. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/fr-task.webp" width="640" height="710" alt="Step 4, A first task. Your agent reads the project and tells you what it does. It changes nothing. What it said about the shop project, then a receipt: Finished, not verified, read-only yes, files changed 0." loading="lazy" decoding="async"><figcaption>Step 4. A first task that only reads, and its receipt. Real run (0.2.1).</figcaption></figure>
+        </div>
+        <div class="copy">
+          <h3>A short first run</h3>
+          <p>A welcome asks how you work, finds your agents, picks your first project, and runs a first task that only reads. It ends with a receipt, so the first thing you learn is what a receipt says. You can open it again from Ctrl+K or from Settings.</p>
+        </div>
+      </article>
+    </div>
+
+    <div class="subhead">[[dots:3::1,3,5,7]]Early features: Preview and Labs</div>
+    <div class="early-intro">
+      <div>
+        <p>Missions, Simple mode, Team and the Ask bar are built and still being proven. Each one is off until you turn it on in Settings › General › Labs, and may change.</p>
+        <p>Allow and Deny on the phone is built too, and we are still proving it on real iOS and Android phones. The chips say <b>Preview</b> or <b>Labs</b>.</p>
+      </div>
+      <figure class="sec-fig" style="margin:0">
+        <div class="frame"><img src="assets/labs.webp" width="700" height="300" alt="Settings, Labs, early features. Each one is off until you turn it on, and may change. Team, Ask bar, Simple mode, Live updates, Key switching and Missions, each with a one-line description." loading="lazy" decoding="async"></div>
+        <figcaption>Settings, Labs. Real run (0.2.1).</figcaption>
+      </figure>
+    </div>
+
+    <div class="grid early">
+      <article class="card span-2" id="f-missions">
+        <div class="shot grid2">
+          <figure><img src="assets/mission-sheet.webp" width="580" height="594" alt="New mission. What should be true when it's done? Make the tests pass. How we'll know: Tests, npm test. Agents may change tests is off. Who works on it: Claude Code. Budget: 4 turns, 1 hour. Where: shop, in a separate copy. Cancel, Start mission." loading="lazy" decoding="async"><figcaption>Start with what should be true, and how we'll know. Real run (0.2.1).</figcaption></figure>
+          <div class="cell-stack">
+            <figure><img src="assets/mission-live.webp" width="1190" height="480" alt="A finished mission from a real run. Make the tests pass: done, 3 of 3 pass, ready to review. Checks, work, test changes, budget 1 of 4 turns, and where. Nothing has been merged. A Review changes button." loading="lazy" decoding="async"><figcaption>Real run (0.2.1): done, ready to review. Nothing has been merged.</figcaption></figure>
+            <figure><img src="assets/mission-tamper.webp" width="700" height="420" alt="An Inbox card: The checks pass, but Codex changed the tests. Added .skip to a test, removed 2 assertions. The mission isn't done until you decide. Undo the test changes and keep going, or Accept the changes." loading="lazy" decoding="async"><figcaption>If the tests changed, the mission waits for you. Example data.</figcaption></figure>
+          </div>
+        </div>
+        <div class="copy">
+          <h3>Missions <span class="chip inline">[[dots:3::1,3,5,7]]Preview</span></h3>
+          <p>Give a goal, the checks that must pass and a budget. Agents work turn by turn in a separate copy, in a visible pane, and you keep the stop button. Nothing merges on its own: you review the changes at the end. If the checks pass but an agent changed the tests, the mission stops and asks you. A preview first: one copy, no fan-out.</p>
+        </div>
+      </article>
+
+      <article class="card span-2" id="f-phone-approve">
+        <div class="shot phones">
+          <figure><div class="phone"><img src="assets/phone-low.webp" width="390" height="844" alt="A phone card: Run tests, Codex, Low risk. Run command: npm test. Allow once and Deny buttons." loading="lazy" decoding="async"></div><figcaption>Low risk: Allow once or Deny.</figcaption></figure>
+          <figure><div class="phone"><img src="assets/phone-high.webp" width="390" height="844" alt="A phone card: Delete a folder outside this project, High risk. Details open: it deletes ../build-cache and everything in it. Deleted files cannot be brought back. Deny, Allow once." loading="lazy" decoding="async"></div><figcaption>High risk, with the details open.</figcaption></figure>
+          <figure><div class="phone"><img src="assets/phone-watch-only.webp" width="390" height="844" alt="A phone card that says: This phone can watch only. To answer here, allow it on your PC: Settings, Phone." loading="lazy" decoding="async"></div><figcaption>A watch-only phone can't answer, and says why.</figcaption></figure>
+          <figure><div class="phone"><img src="assets/phone-trust.webp" width="390" height="844" alt="A phone card: Trust this folder? Claude Code wants to work in puppet-master. It can read and change files there. Don't trust, Trust this folder." loading="lazy" decoding="async"></div><figcaption>A new folder asks for trust here too.</figcaption></figure>
+        </div>
+        <div class="copy">
+          <h3>Allow or deny from your phone <span class="chip inline">[[dots:3::1,3,5,7]]Preview</span></h3>
+          <p>The same plain-words card, on the phone. Allow once or Deny, and open the details first if you want to. A phone with only Watch on can't answer, and says where to turn that on. Built, and still being proven on real iOS and Android phones.</p>
+          <p class="example">Example data</p>
+        </div>
+      </article>
+
+      <article class="card span-2" id="f-simple">
+        <div class="shot grid2">
+          <figure class="wide"><img src="assets/simple-preview.webp" width="1440" height="900" alt="Simple mode. A project called Class timer, working on a separate copy. A preview of the class timer the agent made, a conversation beside it, and Throw away and Keep buttons at the bottom." loading="lazy" decoding="async"><figcaption>A project in Simple mode: the page it made, the conversation, and Keep or Throw away. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/simple-home.webp" width="760" height="300" alt="Your projects. A Make something button, and one project: shop, Claude Code, Ready." loading="lazy" decoding="async"><figcaption>Your projects, in plain words. Real run (0.2.1).</figcaption></figure>
+          <figure><img src="assets/simple-see.webp" width="760" height="440" alt="Make something. Here is what Puppet Master will ask Claude Code: make a class timer for just me, simple and clean, as one file. You can change the words. Your own files stay as they are until you press Keep." loading="lazy" decoding="async"><figcaption>You see the exact words before anything is sent. Real run (0.2.1).</figcaption></figure>
+          <figure class="wide"><img src="assets/simple-ask.webp" width="1440" height="200" alt="A Simple mode card: Claude Code wants to work in this folder. It is a copy that Puppet Master made for you. Check first. No, Yes." loading="lazy" decoding="async"><figcaption>Questions come as one sentence and a Yes or No. Real run (0.2.1).</figcaption></figure>
+        </div>
+        <div class="copy">
+          <h3>Simple mode <span class="chip inline">[[dots:3::1,3,5,7]]Labs</span></h3>
+          <p>For people who don't write code: fewer buttons and plain words. Make something starts from three short questions, shows you the words it will send, and runs every task in a separate copy. Your own files stay as they are until you press Keep.</p>
+          <p class="real">Real run (0.2.1)</p>
         </div>
       </article>
     </div>
 
     <div class="subhead">[[dots:3::0,2,4,6,8]]On the way</div>
-    <div class="coming-grid">
+    <div class="coming-grid two">
       <article class="coming">
         <span class="chip" style="justify-self:start">[[dots:3::0,2,4,6,8]]Coming</span>
         <h3>Hand-off at the limit</h3>
         <p>When Claude Code runs out mid-task, Codex continues in the same copy from a written brief. One receipt shows who did what.</p>
-      </article>
-      <article class="coming">
-        <span class="chip" style="justify-self:start">[[dots:3::0,2,4,6,8]]Coming</span>
-        <h3>Missions</h3>
-        <p>Give a goal and a budget. Agents work in visible panes and you keep the stop button. A preview first: one copy, no fan-out.</p>
+        <figure><img src="assets/handoff.webp" width="700" height="356" alt="An Inbox card: Claude Code ran out of usage. It can continue at 14:05. Handing the work to another agent is coming in a later update. Remind me at 14:05, Stop here." loading="lazy" decoding="async"><figcaption>Today: the Inbox shows the limit and offers a reminder. The hand-off itself is not in the app yet. Example data.</figcaption></figure>
       </article>
       <article class="coming">
         <span class="chip" style="justify-self:start">[[dots:3::0,2,4,6,8]]Coming</span>
@@ -243,7 +405,7 @@ Add Puppet Master to your agents</pre>
 
     <div class="steps">
       <article class="step">
-        <div class="shot"><img src="assets/team-toast.webp" width="700" height="145" alt="A card: You pushed feat/auth, 1 file. Tell the team? Buttons: Tell Leo, Not now, Preview." decoding="async"></div>
+        <div class="shot"><img src="assets/team-toast.webp" width="700" height="145" alt="A card: You pushed feat/auth, 1 file. Tell the team? Buttons: Tell Leo, Not now, Preview." loading="lazy" decoding="async"></div>
         <div class="copy">
           <div class="n"><span class="doto" aria-hidden="true">1</span>Maya's PC</div>
           <h3>She pushes. It asks.</h3>
@@ -251,7 +413,7 @@ Add Puppet Master to your agents</pre>
         </div>
       </article>
       <article class="step">
-        <div class="shot narrow"><img src="assets/team-queue.webp" width="410" height="340" alt="A sheet: Bring feat/auth into feat/billing. Your agent merges it in a separate copy of your branch. Your files don't change until you apply. Choose the agent and when: after its current turn, or now." decoding="async"></div>
+        <div class="shot narrow"><img src="assets/team-queue.webp" width="410" height="340" alt="A sheet: Bring feat/auth into feat/billing. Your agent merges it in a separate copy of your branch. Your files don't change until you apply. Choose the agent and when: after its current turn, or now." loading="lazy" decoding="async"></div>
         <div class="copy">
           <div class="n"><span class="doto" aria-hidden="true">2</span>Leo's PC</div>
           <h3>He chooses the agent and the moment.</h3>
@@ -259,7 +421,7 @@ Add Puppet Master to your agents</pre>
         </div>
       </article>
       <article class="step">
-        <div class="shot"><img src="assets/team-result.webp" width="700" height="320" alt="A card: feat/billing is up to date, in a separate copy. Claude Code merged feat/auth and resolved 1 conflict. Apply to my branch, See changes, Discard." decoding="async"></div>
+        <div class="shot"><img src="assets/team-result.webp" width="700" height="320" alt="A card: feat/billing is up to date, in a separate copy. Claude Code merged feat/auth and resolved 1 conflict. Apply to my branch, See changes, Discard." loading="lazy" decoding="async"></div>
         <div class="copy">
           <div class="n"><span class="doto" aria-hidden="true">3</span>A result, not a surprise</div>
           <h3>Claude Code merged it and resolved the conflict.</h3>
@@ -267,7 +429,7 @@ Add Puppet Master to your agents</pre>
         </div>
       </article>
       <article class="step">
-        <div class="shot"><img src="assets/team-applied.webp" width="700" height="260" alt="A card: Applied to feat/billing. Nothing was pushed." decoding="async"></div>
+        <div class="shot"><img src="assets/team-applied.webp" width="700" height="260" alt="A card: Applied to feat/billing. Nothing was pushed." loading="lazy" decoding="async"></div>
         <div class="copy">
           <div class="n"><span class="doto" aria-hidden="true">4</span>Applied</div>
           <h3>"Nothing was pushed."</h3>
@@ -275,7 +437,7 @@ Add Puppet Master to your agents</pre>
         </div>
       </article>
     </div>
-    <p class="note" style="margin-top:14px">Steps 1 to 4 are one real run of two {{NAME}} profiles on one Windows PC.</p>
+    <p class="note" style="margin-top:14px">Steps 1 to 4 are one real run of two {{NAME}} profiles on one Windows PC, on an earlier build.</p>
 
     <div class="cowork-more">
       <div class="rows">
@@ -285,9 +447,21 @@ Add Puppet Master to your agents</pre>
         <div><b>Run the relay yourself.</b><span>A small server you host, or a shared folder between two PCs. Self-hosting is free.</span></div>
       </div>
       <div class="phone-wrap">
-        <div class="phone"><img src="assets/phone-team.webp" width="390" height="844" alt="The phone Agents screen with a Team group: an up-to-date branch with Apply to my branch, a teammate's push with Queue my agent, and a teammate's opened pull request with Pull now." decoding="async"></div>
+        <div class="phone"><img src="assets/phone-team.webp" width="390" height="844" alt="The phone Agents screen with a Team group: an up-to-date branch with Apply to my branch, a teammate's push with Queue my agent, and a teammate's opened pull request with Pull now." loading="lazy" decoding="async"></div>
         <span class="example">Example data</span>
       </div>
+    </div>
+
+    <div class="subhead">[[dots:3::1,3,5,7]]The 0.2.1 Team screens</div>
+    <div class="tour" style="margin-top:20px">
+      <figure class="t-fig t-half">
+        <div class="frame"><img src="assets/team-note.webp" width="940" height="406" alt="Inbox, Team. A card: Claude Code pushed feat/billing, 4 files, plus 120 minus 9. Tell the team? Buttons: Tell Maya and Sam, Not now, Preview. A preview shows exactly what they would see, with an optional note: No code is shared. They see the branch, the commit and the file count." loading="lazy" decoding="async"></div>
+        <figcaption><b>See what you would share</b>Preview shows exactly what teammates would see. No code is shared: they see the branch, the commit and the file count. <span class="example">Example data</span></figcaption>
+      </figure>
+      <figure class="t-fig t-half">
+        <div class="frame"><img src="assets/team-github.webp" width="700" height="230" alt="Two Inbox cards under Team. Sam's pull request 141 merged into main. Checks failed on pull request 142, with a Merge when green button and Dismiss." loading="lazy" decoding="async"></div>
+        <figcaption><b>GitHub facts become cards</b>A merged pull request, failed checks, Merge when green. <span class="example">Example data</span></figcaption>
+      </figure>
     </div>
 
     <div class="limits"><b>Where it stands.</b> Co-work is in Labs. A team has one admin today. The hosted relay is not open yet (see the waitlist below), and the relay server's licence is still to be decided.</div>
@@ -315,8 +489,9 @@ Add Puppet Master to your agents</pre>
           </ul>
         </div>
         <figure class="sec-fig">
-          <div class="frame"><img src="assets/security.webp" width="700" height="305" alt="Settings, Bridge and MCP, Security. Switches for asking before an agent controls a pane it didn't start, and for letting agents merge separate copies, and a read-only list of recent approvals and control changes." decoding="async"></div>
-          <figcaption>Settings, Bridge &amp; MCP, Security.</figcaption>
+          <div class="frame"><img src="assets/security.webp" width="700" height="400" alt="Settings, General, Safety. Switches for asking before an agent controls a pane it didn't start, for letting agents merge separate copies, for asking before closing a working agent and for warning when an agent seems stuck, with its sensitivity and a quiet-for-too-long limit." loading="lazy" decoding="async"></div>
+          <div class="frame"><img src="assets/inbox-consent.webp" width="700" height="620" alt="Inbox cards: Allow Claude Code to control Codex? It would type into the pane and answer its questions. It did not start this pane. Deny, Allow once, Always for this pane. And: Allow another agent to answer a question in Claude Code? Deny, Allow once." loading="lazy" decoding="async"></div>
+          <figcaption>Settings, General, Safety (real run, 0.2.1), and the Inbox card an agent triggers when it wants to control a pane it didn't start (example data).</figcaption>
         </figure>
       </div>
 
@@ -331,8 +506,8 @@ Add Puppet Master to your agents</pre>
           </ul>
         </div>
         <figure class="sec-fig">
-          <div class="frame"><img src="assets/phone-devices.webp" width="690" height="435" alt="Settings, Phone, Devices. A paired Android phone with switches for Watch, Answer, Use the terminal and Start tasks, and a Revoke all devices row." decoding="async"></div>
-          <figcaption>Settings, Phone, Devices. The pairing code is cropped out.</figcaption>
+          <div class="frame"><img src="assets/phone-devices.webp" width="700" height="228" alt="Settings, Phone, Paired phones. An iPhone, Active, with switches for Watch, Answer and Use the terminal, and a Revoke button." loading="lazy" decoding="async"></div>
+          <figcaption>Settings, Phone, paired phones. The QR code, pairing code and tunnel address are not shown. Real run (0.2.1).</figcaption>
         </figure>
       </div>
 
@@ -348,7 +523,7 @@ Add Puppet Master to your agents</pre>
           </ul>
         </div>
         <figure class="sec-fig">
-          <div class="frame"><img src="assets/team-settings.webp" width="700" height="580" alt="Settings, Team. Keys are kept in Windows Credential Manager. Messages are end-to-end encrypted; the relay sees only who sends when, never names, branches or code. A member list with roles, and a join request." decoding="async"></div>
+          <div class="frame"><img src="assets/team-settings.webp" width="700" height="330" alt="Settings, Team. Acme, you're the admin, with Use Team on and the relay live. Keys are kept in Windows Credential Manager. Messages are end-to-end encrypted; the relay sees only who sends when, never names, branches or code. Members: Leo, admin; Maya, can answer; Sam, watching." loading="lazy" decoding="async"></div>
           <figcaption>Settings, Team (Labs). Example data.</figcaption>
         </figure>
       </div>

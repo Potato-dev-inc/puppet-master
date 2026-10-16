@@ -6,6 +6,10 @@
 
 The first-run welcome is a 7-step guide that opens the first time you start Puppet Master on a new profile. It asks how you work, finds and installs your agents, helps you pick one project, and walks you through a first safe task. It covers the whole window while it is open.
 
+![The first screen of the first-run welcome](../images/08-welcome-step1.webp)
+
+*Real run. The first start of Puppet Master 0.2.1: "Welcome to Puppet Master", step 1 of 7. You say how you work, and the welcome adapts.*
+
 ## Why it matters
 
 Before 0.2.1, a new person saw an empty Inbox and had to guess what to do. The welcome gives every kind of user a road in:
@@ -32,6 +36,58 @@ It opens by itself once, when the profile is new and no agent was ever started. 
 You can press **Back** on every step after the first. From step 2 to step 6 you can press **Skip for now** (on the phone and agent-setup steps it says **Later**). **Skip setup** leaves the whole welcome and shows on every step except the last. When you press Sign in or open an agent, the welcome pauses to a thin bar ("Setup is paused. Finish in the window, then come back.") with **Back to setup**. Your place is saved, so a restart opens the step you left.
 
 **Open it again:** press Ctrl+K and choose **Welcome tour**, or go to **Settings › General › Appearance › Welcome** and press **Show the welcome**. On the empty Inbox, **Set up your agents** continues the welcome until you finish or skip it, and then opens Set up agents.
+
+![The welcome with I write code chosen](../images/08-live-chosen.webp)
+
+*Real run. You choose how you work. For "I write code" you get the full cockpit, and a note says where Simple mode is.*
+
+![The welcome with I build with AI chosen](../images/08-chosen-simple.webp)
+
+*Example data. "I build with AI, not much code" turns Simple mode on. A note says you can switch it off in Settings.*
+
+![Step 2: Your agents, all not tested yet](../images/08-real-agents.webp)
+
+*Real run (0.2.1). Step 2 of 7: Your agents. Puppet Master found four agents on this PC. All are "Not tested" until you press Test.*
+
+![Step 2: Your agents](../images/08-live-agents.webp)
+
+*Real run. Step 2 of 7: Your agents. Sign in, Test, or install; Claude Code is "Ready".*
+
+![Step 3: Your first project](../images/08-real-project.webp)
+
+*Real run (0.2.1). Step 3 of 7: pick one project folder. "shop" is chosen and says "Ready for a separate copy."*
+
+![Step 4: A first task, before it runs](../images/08-real-task.webp)
+
+*Real run (0.2.1). Step 4 of 7 before you run it: "A first task". The exact words Puppet Master will ask are shown. It runs in a separate copy, so your folder is not touched.*
+
+![Step 4: the first task running](../images/08-live-task-running.webp)
+
+*Real run. Step 4 of 7: a safe first task. "Claude Code is reading your project." It runs in a separate copy and is read-only.*
+
+![Step 4: the first task finished](../images/08-live-task-done.webp)
+
+*Real run. The answer, and a receipt that explains "Finished, not verified" and the Undo idea.*
+
+![Step 5: Use your phone](../images/08-live-phone.webp)
+
+*Real run. Step 5 of 7: choose what the phone may do, then pair it.*
+
+![Step 6: Add Puppet Master to your agents](../images/08-live-pack.webp)
+
+*Real run. Step 6 of 7: Puppet Master found your agents. "Review and install" opens a preview of every file first.*
+
+![The Review and install sheet from step 6](../images/08-real-review.webp)
+
+*Real run (0.2.1). "Review and install" opens a sheet that lists every file per agent before anything is written. Install was not pressed for this picture.*
+
+![Settings with the Show the welcome button](../images/08-real-settings-welcome.webp)
+
+*Real run (0.2.1). You can open the welcome again from Settings, General, Appearance: "Show the welcome".*
+
+![The cockpit when the welcome is done](../images/08-real-cockpit-after.webp)
+
+*Real run (0.2.1). The cockpit when the welcome is done and before any agent is running.*
 
 ## How it works (simple)
 

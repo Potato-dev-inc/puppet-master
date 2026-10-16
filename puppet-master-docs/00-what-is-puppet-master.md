@@ -25,6 +25,18 @@ Puppet Master fixes this. It **does not have its own AI**. It starts the real ag
 | Agents can't work together | Through **MCP**, agents can start other agents, give them tasks and wait for the answers |
 | Agents doing too much | **Budgets** (number of turns or minutes), **Stop all**, a loop guard, and switches for what agents may do |
 
+![The Puppet Master cockpit with one thing waiting in the Inbox](images/00-real-cockpit-inbox.webp)
+
+*Real run (0.2.1). The cockpit with real agents. The sidebar lists every agent in groups (Needs you, Working, Idle). The Inbox shows the one thing that needs you, with its own buttons, and a finished mission waiting below it.*
+
+![An approval card for npm test from a real Claude Code](images/00-live-approval.webp)
+
+*Real run. A real Claude Code asked to run npm test. Puppet Master shows a card: "Run tests", Low risk, with Allow once and Deny.*
+
+![The phone app showing a question from an agent](images/00-real-phone-agents.webp)
+
+*Real run (0.2.1). The phone app (390 px wide) on a real run. A question from Claude Code ("Trust this folder?") with its buttons, then the list of agents.*
+
 ## Who it is for
 
 We designed it for three kinds of people:
@@ -34,6 +46,10 @@ We designed it for three kinds of people:
 3. **People who don't code.** They use **Simple mode**: "Your projects · Make something", plain words, few buttons.
 
 The first-run welcome asks "How do you work?" and sets the app up for one of these three.
+
+![Simple mode home screen with a list of projects](images/00-real-simple-home.webp)
+
+*Real run (0.2.1). Simple mode, for people who do not write code: "Your projects" and one big "Make something" button.*
 
 ## What makes it different
 

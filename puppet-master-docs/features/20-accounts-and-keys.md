@@ -8,6 +8,10 @@ Three related things:
 - **Provider keys.** API keys for Anthropic, OpenAI and OpenRouter. PM keeps them in Windows Credential Manager, not in a plain file.
 - **OpenCode keys.** Two keys (A and B) for OpenCode. PM shows their status and can switch from one to the other.
 
+![Settings, Accounts with no accounts yet](../images/20-real-accounts.webp)
+
+*Real run (0.2.1). Settings, Agents, Accounts. With no account added, an agent "uses its own login". Type a name and press Add account to add another login for Claude Code or Codex.*
+
 ## Why it matters
 People with two subscriptions want to choose which one an agent uses. People who paste an API key want to know it is stored safely. OpenCode users who hit a rate limit (a temporary stop from the provider) can move to a second key.
 
@@ -30,6 +34,26 @@ People with two subscriptions want to choose which one an agent uses. People who
 2. The switch "Switch to another of your keys when one hits its rate limit (check your provider's terms)" is **off** by default. With it off, PM only tells you a key needs swapping. It needs a second key. It is also listed in General > Labs as "Key switching".
 3. **Restart pane after key rotate** is on by default. A restarted pane picks up the new key.
 4. An agent can call `read_opencode_key_status` (no key text is returned) and `rotate_opencode_key` (profile `next`, `a` or `b`).
+
+![The account menu when starting an agent](../images/20-menu.webp)
+
+*Example data. When you start an agent, a menu lets you pick the login: Default login, Work (Max), Personal.*
+
+![A pane showing its account](../images/20-pane.webp)
+
+*Example data. The pane header shows which account it uses ("Work (Max)").*
+
+![Settings, Keys](../images/20-real-keys.webp)
+
+*Real run (0.2.1). Keys: Anthropic, OpenAI and OpenRouter keys, stored in Windows Credential Manager. A saved key shows only as dots (masked in this picture).*
+
+![Settings search for key](../images/20-key-search.webp)
+
+*Example data. Search for "key" also shows the Key switching option in Labs and the OpenCode A / B keys.*
+
+![Confirm removing all keys](../images/20-remove-keys.webp)
+
+*Example data. Remove all keys asks first: "Agents lose access until you add keys again."*
 
 ## How it works (simple)
 - **Accounts.** An account is a folder you control. PM starts the agent with an environment variable that points to it: `CLAUDE_CONFIG_DIR` for Claude Code, `CODEX_HOME` for Codex. PM does not read, copy or share what is inside. Accounts are stored in `accounts.json` in the app data folder, and new account folders go in its `accounts` folder.

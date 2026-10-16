@@ -5,6 +5,10 @@
 ## What it is
 Agents can use Puppet Master (PM) through MCP, a standard way for agents to use tools. An agent can start other agents, take over a pane, answer questions in a pane, and merge another agent's work. "Agent authority" is a set of switches that limits this. It also keeps a list of recent approvals and control changes, so you can see who allowed what.
 
+![Consent cards in the Inbox](../images/17-consent.webp)
+
+*Example data. "Allow Claude Code to control Codex?" Deny is the focused button. A second card asks if another agent may answer a question in Claude Code.*
+
 ## Why it matters
 Without limits, any agent could take over any pane, even one you opened yourself, and answer its questions. An agent could also merge the work of its helper without you looking. These switches let you choose how much agents may do on their own.
 
@@ -14,6 +18,22 @@ Without limits, any agent could take over any pane, even one you opened yourself
 3. Switch B: **Let agents merge separate copies.** Today it is **on**. When off, an agent can show you what changed in a separate copy (a git worktree), but only you can merge it, from the **Changes** tab.
 4. Read **Recent approvals and control changes**. It shows the last 20 entries: time, what happened, and who did it. Below it you may see "Log checked: N entries, none changed."
 5. When switch A is on and an agent asks, a card appears in the Inbox: "Allow Claude Code to control Codex 1?" The buttons are **Deny** (the main button, on purpose), **Allow once**, and **Always for this pane**. **Open terminal** shows the pane.
+
+![Settings, General, Safety](../images/17-real-safety.webp)
+
+*Real run (0.2.1). The Safety group: "Ask me before an agent controls a pane it didn't start" (off here), "Let agents merge separate copies", the closing question and the stuck warning.*
+
+![The approvals list after real runs](../images/17-real-audit.webp)
+
+*Real run (0.2.1). The read-only list "Recent approvals and control changes" after real runs ("You answered a question in Claude Code: Allowed once").*
+
+![A consent question on the phone](../images/17-phone-consent.webp)
+
+*Example data. The same consent question on the phone, with Deny and Allow once.*
+
+![Bridge and MCP showing the Agent safety link](../images/17-bridge-link.webp)
+
+*Example data. Bridge & MCP now only links to "Agent safety" in General, Safety.*
 
 ## What the two switches change
 

@@ -5,6 +5,12 @@
 ## What it is
 The flight recorder is like the black box of an airplane. Each agent pane keeps a short recording of the last part of what the terminal showed and what was typed into it. When a run fails, the recording is saved to a file. The **diagnostic file** is one .zip that you can save and send to someone who helps you. It holds your settings (with secrets removed), recent app messages and the recordings of failed runs. Nothing is sent anywhere by Puppet Master.
 
+![The diagnostic file preview](../images/28-preview.webp)
+
+*Example data. Review shows what the file will contain, with a Show button for each part, before you save it.*
+
+*No screenshot yet: the recording of a failed run is a file inside the .zip, not a screen in the app. The screenshots above show the diagnostic file preview.*
+
 ## Why it matters
 When an agent fails, you often cannot say what happened. You may have closed the pane, or the screen scrolled away. A recording shows the last minutes. It also shows who typed each input: you, a phone, another agent, or Puppet Master itself. This helps you find problems and helps others to help you, without you copying text by hand.
 
@@ -19,6 +25,10 @@ Recording is automatic. You do not turn it on. To save a diagnostic file:
 7. The message says "Saved to … Nothing was sent anywhere." Send the file yourself if you want to.
 
 To watch a recording, open the `.cast` file with any asciinema player. (asciicast is a plain text format for terminal recordings.)
+
+![The Save a diagnostic file row](../images/28-real-row.webp)
+
+*Real run (0.2.1). Settings, General, About: "Save a diagnostic file", with Review. Nothing is sent anywhere.*
 
 ## How it works (simple)
 - Each pane keeps the last 2 MB of output and typed input, with times. Old data is dropped when the buffer is full.

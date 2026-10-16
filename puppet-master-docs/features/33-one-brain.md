@@ -8,6 +8,10 @@ Every agent program reads its own instruction file: Claude Code reads `CLAUDE.md
 
 With **One brain**, you write the facts about your project once, in PM. PM copies them into each agent's file. Every agent then starts with the same knowledge. The memory itself is stored in your project at `.puppet-master/memory.md`.
 
+![The Project memory screen](../images/33-real-memory.webp)
+
+*Real run (0.2.1). Project, Memory: one text for the project, the files agents read (CLAUDE.md, AGENTS.md, a Cursor rule) and the "Share memory in this project" switch. The note is empty here, so every file says "Nothing to write".*
+
 ## Why it matters
 
 - If you use more than one agent, you write your notes only once.
@@ -29,6 +33,10 @@ To turn it off:
 - For all projects: **Settings > General > Shared project memory**.
 
 The **Copies** tab on the same page is a different thing. It controls how a new separate copy of the project gets ready. See the feature docs about separate copies.
+
+![The Shared project memory switch](../images/33-real-settings.webp)
+
+*Real run (0.2.1). Settings, General: "Shared project memory", next to Checkpoints. Turn off to remove it from agent files.*
 
 ## How it works (simple)
 

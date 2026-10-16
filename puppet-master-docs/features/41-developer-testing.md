@@ -11,6 +11,12 @@ Real agents cost money and are slow and not predictable. Puppet Master (PM) has 
 3. **The replay corpus.** Recordings of real agent screens from old bugs, replayed in tests.
 4. **The UI harness.** The real screens of the app in a plain browser, with made-up data, for tests and screenshots.
 
+![A screen from the UI harness](../images/41-harness.webp)
+
+*Example data. This kind of screen is made by the UI harness: the real app screens with made-up data. Every "Example data" picture in this handbook comes from it.*
+
+*No screenshot yet: the fake agent and the end-to-end tests run in a terminal. The picture above is the UI harness, which draws the real screens with made-up data.*
+
 ## Why it matters
 
 Each live bug becomes a failing test first, and then it is fixed. The fix must make the test pass, and removing the fix must make it fail again. This keeps old bugs from returning. A vendor quirk (a menu that opens 600 ms late, an Enter key lost in a paste) is written down once and kept.

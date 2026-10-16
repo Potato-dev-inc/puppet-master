@@ -8,6 +8,10 @@ The Inbox is one list of everything that waits for you. It is the first screen o
 
 The number of things that need you is shown in the same way on every screen: the Inbox title and badge, the big dot number, the sidebar group, the Windows tray, the phone and the "While you were away" screen.
 
+![The Inbox with seven things that need you](../images/02-inbox-mixed.webp)
+
+*Example data. The Inbox with seven things at once: a consent question, a high-risk approval, an agent question, a low-risk approval, and a usage-limit card. The big dot number and the sidebar count agree.*
+
 ## Why it matters
 
 - Developers: you do not scan ten terminals. You press one key and answer.
@@ -29,6 +33,54 @@ Before 0.2.0, five screens counted "needs you" in four different ways. Now one l
 **Order of the list.** High-risk approvals and consent requests are first. Then medium and unrated approvals, then low-risk approvals and questions, then budget and usage-limit cards, then errors and stuck agents. In the same group, the card that waited longest is first.
 
 **What is a card?** Approval (with risk), folder trust, a question from an agent, agent-control consent, budget used, usage limit, error, "looks stuck". Answers from the Ask bar and "Untested version" notices appear below the list. With Labs on, Missions and Team cards appear in their own sections.
+
+![One thing needs you: a trust card from a real Codex](../images/02-live-trust.webp)
+
+*Real run. One thing needs you. The big dot number, the sidebar group "Needs you" and the badge all say 1.*
+
+![A Check first card with its details open](../images/02-real-check-first.webp)
+
+*Real run (0.2.1). A Check first card with Details open: "Fetch something from the internet" and the exact command it wants to run.*
+
+![The Inbox after answering: Nothing needs you](../images/02-live-after.webp)
+
+*Real run. After you answer, the card is gone, the agent is back in "Working", and the Inbox says "Nothing needs you".*
+
+![A trust card for a separate copy with a finished mission listed below](../images/02-real-trust-copy.webp)
+
+*Real run (0.2.1). A trust card for a separate copy of a project, with a finished mission listed under "Ready for you".*
+
+![The Inbox with nothing waiting](../images/02-real-clear.webp)
+
+*Real run (0.2.1). All clear: every agent is Idle and the Inbox says "Nothing needs you". A finished mission waits under "Ready for you".*
+
+![Error cards in the Inbox](../images/02-inbox-error.webp)
+
+*Example data. Error cards: "Claude Code didn't start" and "Codex stopped". Each says in plain words what happened and offers Start again.*
+
+![Consent cards in the Inbox](../images/02-inbox-consent.webp)
+
+*Example data. Cards that ask if one agent may control another, next to a normal approval card and an error card.*
+
+![A budget card in the Inbox](../images/02-real-budget.webp)
+
+*Real run (0.2.1). A budget card: "Codex CLI used its 3 turns", with Add 2 turns and Stop here.*
+
+![Agent questions in the Inbox](../images/02-questions.webp)
+
+*Example data. Questions from agents: choice buttons, or a text box to type your own answer.*
+
+![An agent changed its screens card](../images/02-inbox-canary.webp)
+
+*Example data. A notice card in the Inbox: "Codex 0.162.1 changed its screens. Puppet Master will ask you before acting."*
+
+![The While you were away screen](../images/02-digest.webp)
+
+*Example data. "While you were away": one plain sentence per agent, then what needs you.*
+
+![The phone Agents screen with the same count](../images/02-real-phone-count.webp)
+
+*Real run (0.2.1). The same count on the phone: one thing is waiting. It shows as the big dot number and a card, above the Needs you and Idle groups.*
 
 ## How it works (simple)
 

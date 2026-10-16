@@ -5,6 +5,14 @@
 ## What it is
 When an agent works in a [separate copy](22-separate-copies-worktrees.md), its pane shows a **Changes** view. It lists the files the agent changed and shows the lines that were added and removed. From there you can **Merge** the work into your branch, make a draft **pull request** on GitHub (**Create PR**), or **Discard** the copy. A pull request (PR) is a request on GitHub to add a branch to another branch. A separate button, **Merge when green**, lives on the Team cards. It is a Labs feature.
 
+![The Changes tab of a separate copy](../images/23-real-changes.webp)
+
+*Real run (0.2.1). The Changes tab of a separate copy: "Separate copy of main - 1 file - +3 -5", the changed file, and Merge, Create PR and Discard. It says "Not merged yet".*
+
+![The terminal of the copy after the fix](../images/23-real-terminal.webp)
+
+*Real run (0.2.1). Before the review: the agent in the copy fixed the bug and ran the tests. Claude Code's own diff panel is open next to its answer.*
+
 ## Why it matters
 You should not have to trust an agent blindly. Changes lets you read the work before it touches your project. If you work with a team, a pull request lets other people check it too. Nothing in this feature changes your main branch without a clear click from you.
 
@@ -18,6 +26,46 @@ You should not have to trust an agent blindly. Changes lets you read the work be
    - **Discard**: a sheet says "Discard this separate copy?". Click **Discard** to delete the copy. This cannot be undone.
 5. After a PR exists, the Changes view shows the GitHub checks. If a check fails, click **Send back to <agent>**. You first see the exact text, and it is sent only after you click **Send**.
 6. **Merge when green** (Labs): turn on **Team** in Settings › General › Labs. A GitHub pull request then shows as a card in the Inbox. Click **Merge when green**, read the sheet, and confirm. GitHub merges the pull request when its own checks pass.
+
+![A file diff in the Changes tab](../images/23-real-diff.webp)
+
+*Real run (0.2.1). Open a file to read the lines that were added and removed (src/cart.js).*
+
+![The Merge into main confirm sheet](../images/23-real-merge-sheet.webp)
+
+*Real run (0.2.1). Merge asks first: "Merge into main?" and "If anything conflicts, nothing is merged."*
+
+![Changes details](../images/23-real-details.webp)
+
+*Real run (0.2.1). Details in the Changes tab: the branch, what it is based on and the folder of the copy.*
+
+![Right after a real merge](../images/23-real-merged.webp)
+
+*Real run (0.2.1). Right after a real merge into main, the agent is closed and the Inbox is clear. In the demo repo, the log showed the merge commit and npm test passed (3 of 3). That was checked in a terminal, not in the app.*
+
+![The Create a draft pull request sheet](../images/23-pr-sheet.webp)
+
+*Example data. Create PR: title, text made from the receipt, and the base branch. It never overwrites a branch.*
+
+![Create PR when GitHub CLI is missing](../images/23-pr-no-gh.webp)
+
+*Example data. If the GitHub command line is missing, the sheet gives the commands to run by hand.*
+
+![Create PR when the project has no remote](../images/23-pr-no-remote.webp)
+
+*Example data. If the project has no GitHub remote, it says so and offers the commands.*
+
+![A pull request with failed checks](../images/23-pr-checks.webp)
+
+*Example data. After a PR is open: "2 GitHub checks failed" with "Send back to Claude Code" and Check again.*
+
+![The Send back sheet](../images/23-send-back.webp)
+
+*Example data. "See exactly what is sent": the failing job's last lines, marked as output, not instructions.*
+
+![Merge when green cards](../images/23-merge-when-green.webp)
+
+*Example data. Team cards (Labs) with "Merge when green" for an open pull request.*
 
 ## How it works (simple)
 - **Merge** first saves the agent's work as a commit on its branch. Then it makes a merge commit in your current branch. If any file conflicts, Puppet Master cancels the merge and tells you which files. Your project stays as it was, and the work stays safe on the copy's branch.

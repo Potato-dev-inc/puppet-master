@@ -8,6 +8,14 @@ The cockpit is the main window of Puppet Master. On the left is a sidebar that l
 
 Puppet Master has two modes. **Orchestration** (the default) puts every agent in the cockpit window. **Individual** gives every agent its own window.
 
+![An agent pane in the cockpit with an approval card above the terminal](../images/01-real-pane-card.webp)
+
+*Real run (0.2.1). The cockpit with one real Claude Code open. Tabs on top: Terminal, Transcript, Receipt, History. The approval card ("Run tests", Low risk) sits above the real terminal.*
+
+![The sidebar showing Needs you, Working and Idle at once](../images/01-real-three-states.webp)
+
+*Real run (0.2.1). The sidebar with all three groups at once: Needs you (a Check first card), Working (Codex) and Idle (a finished mission agent).*
+
 ## Why it matters
 
 - Developers: all agents in one place, with the real terminal always one click away.
@@ -30,6 +38,34 @@ It solves the "ten terminal windows" problem. You do not have to look at each wi
 7. To start an agent, press **+**. Pick the agent. Check the project chip at the top (change it with "Recent projects" or "Choose folder…"). The **Separate copy** switch makes the agent work on its own copy of the project. It starts **on** for a Git project that has a first commit, and Puppet Master remembers your choice for each project.
 8. At the bottom of the sidebar you find the mode switch (**Orchestration | Individual**), **Set up agents**, **Project**, **Settings** and a light/dark button. A small "Fix" link appears there only when the local bridge is not working.
 9. To change mode, use the switch, or press Ctrl+K and type "Individual". In Individual mode the cockpit only shows a note and a button, "Switch to Orchestration", and Settings opens in its own window.
+
+![A real Claude Code in the Terminal tab](../images/01-real-terminal.webp)
+
+*Real run (0.2.1). The Terminal tab is the real Claude Code program, not a copy of its text. Here it answered a question about a failing test.*
+
+![The cockpit right after the first start, with no agents](../images/01-real-cockpit-empty.webp)
+
+*Real run (0.2.1). The cockpit right after the first start, with no agents: "Welcome to Puppet Master" and a "Set up your agents" button. The bottom of the sidebar holds the Orchestration / Individual switch, Set up agents, Project and Settings.*
+
+![A working Codex pane with a Preview button](../images/01-cockpit-working.webp)
+
+*Example data. A pane that is working: the header shows the activity ("Editing src/app.ts") and a Preview button for the web page the agent started.*
+
+![The New agent menu](../images/01-real-new-menu.webp)
+
+*Real run (0.2.1). The + button opens the New agent menu: the agents and shells you can start, the project chip (here "shop") and the Separate copy switch.*
+
+![The pane menu in the header](../images/01-real-pane-menu.webp)
+
+*Real run (0.2.1). The ... menu in the pane header: Rename, Reflow, Copy selection, Interrupt, Details and Close.*
+
+![The Close Claude Code confirm sheet](../images/01-cockpit-close-running.webp)
+
+*Example data. Closing an agent that is still working asks first: "It is still running. Claude Code stops, and its conversation ends."*
+
+![The cockpit in the light theme](../images/01-real-light.webp)
+
+*Real run (0.2.1). The light theme. The same cockpit, set in Settings, General, Appearance.*
 
 ## How it works (simple)
 

@@ -5,6 +5,10 @@
 ## What it is
 Two safety nets. The **loop guard** watches your agents and warns you when one seems stuck. It shows a card such as "Claude Code seems stuck: the same error 4 times." **Stop all** (the panic stop) is one action that interrupts every agent that is working. A sheet then says what was stopped, for example "Stopped 2 agents".
 
+![The stuck card](../images/27-stuck.webp)
+
+*Example data. The stuck warning, shown above the terminal of the agent that repeats itself.*
+
 ## Why it matters
 An agent can repeat the same failing step for an hour and use up your plan while you are away. The guard tells you early. And when something goes wrong, you do not want to find and stop each agent one by one. One action is a big comfort.
 
@@ -28,6 +32,22 @@ An agent can repeat the same failing step for an hour and use up your plan while
 4. Or use the global shortcut **Ctrl+Alt+Shift+P**. It is off by default. Turn it on in Settings › General, with **Global shortcut: stop all agents**.
 
 After you use it, a sheet lists each stopped agent. If one could not be stopped, it is listed with the reason.
+
+![Looks stuck on the phone](../images/27-phone-stuck.webp)
+
+*Example data. On the phone: "Looks stuck - the same error 4 times", above the live terminal.*
+
+![The Stopped 1 agent sheet](../images/27-panic.webp)
+
+*Example data. After Stop all: "Stopped 1 agent. Each one was stopped. Their conversations are still open."*
+
+![Stop all agents on the phone](../images/27-phone-stop.webp)
+
+*Example data. Stop all agents on the phone asks first: "Every agent that is working gets an interrupt (Ctrl+C)."*
+
+![Settings for the stuck warning and the global shortcut](../images/27-real-settings.webp)
+
+*Real run (0.2.1). General, Safety: the stuck warning's sensitivity, "Quiet for too long", the global Stop all shortcut (off by default) and the approvals log.*
 
 ## How it works (simple)
 - The guard looks at the text on each agent's screen and at its status. It does not read the agent's mind and uses no AI.

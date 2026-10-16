@@ -8,6 +8,10 @@ Simple mode replaces the cockpit with a calmer screen: fewer buttons and plain w
 
 It is for people who do not write code. In the settings file and in the code it is called `simple_mode`.
 
+![Simple mode home with one project](../images/07-real-home.webp)
+
+*Real run (0.2.1). Simple mode home: "Your projects" with a status for each project (here "shop", Ready) and one big "Make something" button.*
+
 ## Why it matters
 
 People who don't code are afraid of losing real files and of words they do not know. Simple mode never touches your own folder until you press Keep. It never shows words like repository, branch, merge, commit or checkpoint. Many readers know English only as a second language, so each sentence is short.
@@ -27,6 +31,58 @@ People who don't code are afraid of losing real files and of words they do not k
 7. If Puppet Master cannot read the agent's screen, it says so and **Show the screen** opens the real terminal under Details.
 8. At the bottom of Home you find **AI helpers · Phone · Settings · Simple mode · Switch off**. Use **Switch off** any time to get the full cockpit back.
 9. If no agent is ready: "No AI is ready on this computer." The button **Set up an AI helper** opens Set up agents inside Simple mode.
+
+![Make something, what do you want to make](../images/07-real-make-kind.webp)
+
+*Real run (0.2.1). "Make something": you pick what you want, a small tool or a page for your idea.*
+
+![Make something, question 1 of 3](../images/07-real-make-question.webp)
+
+*Real run (0.2.1). Question 1 of 3: "What should it do?" with ready-made choices or your own words.*
+
+![The words Puppet Master will send to the agent](../images/07-real-make-see.webp)
+
+*Real run (0.2.1). You see the exact words Puppet Master will ask the agent, and you can change them. Your own files stay safe until you press Keep.*
+
+![A project while the agent works](../images/07-real-working.webp)
+
+*Real run (0.2.1). While the agent works: "Claude Code is making your page." You can press Stop. Throw away and Keep wait until it is ready.*
+
+![The finished class timer in the Preview tab](../images/07-real-preview.webp)
+
+*Real run (0.2.1). A real Claude Code made a class timer. The Preview tab shows the page next to the conversation, with an Open in browser button. Throw away and Keep are at the bottom.*
+
+![The What changed tab](../images/07-real-changed.webp)
+
+*Real run (0.2.1). "What changed": the files in your copy (here tool.html, new). "Your own folder has not changed."*
+
+![The Keep these changes sheet](../images/07-real-keep.webp)
+
+*Real run (0.2.1). Keep asks first: "Keep these changes? These 1 file goes to your own folder."*
+
+![The toast after Keep](../images/07-real-kept.webp)
+
+*Real run (0.2.1). After a real Keep: "Kept. Your folder has the new files."*
+
+![A permission question in plain words](../images/07-real-trust.webp)
+
+*Real run (0.2.1). A question in plain words: "Claude Code wants to work in this folder. It is a copy that Puppet Master made for you." The answers are No and Yes.*
+
+![A blocked risky action](../images/07-blocked.webp)
+
+*Example data. When an agent tries something risky, Puppet Master stops it: "Your files are safe. Nothing was changed."*
+
+![A question Puppet Master cannot read](../images/07-cant-read.webp)
+
+*Example data. When Puppet Master cannot read a question, it says so and offers "Show the screen" instead of guessing.*
+
+![Simple mode in the light theme](../images/07-home-light.webp)
+
+*Example data. Simple mode in the light theme.*
+
+![Simple mode right after choosing it in the welcome](../images/07-live-home.webp)
+
+*Real run. Simple mode right after you choose it in the first-run welcome.*
 
 ## How it works (simple)
 

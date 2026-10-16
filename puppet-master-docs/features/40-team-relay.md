@@ -8,6 +8,12 @@ Teammates are not always online at the same time. The relay is a "post office" f
 
 The messages are **end-to-end encrypted**. This means they are locked on the sender's computer and unlocked only on a teammate's computer. The relay cannot read them. It sees only the team ID, the public keys of devices, the size and the time of each message.
 
+![Settings, Team with the relay row](../images/40-settings.webp)
+
+*Example data. Team settings: "Relay - live", and the note that messages are end-to-end encrypted.*
+
+*No screenshot yet: the relay is a server, not an app screen. The screenshots above show the Team settings in the app that talks to it.*
+
 ## Why it matters
 
 Without a relay, a team would have to share a folder. A shared folder has no access control. A relay lets people in different places work together, and it can cut off a removed member at once. Because you can run the relay yourself, you decide who holds the mailbox.
@@ -30,6 +36,22 @@ Then:
 4. Invite teammates. The invite link carries the relay address, so they do not type it.
 
 The app accepts plain `http://` only for a relay on the same computer. Anything else must use `https://`.
+
+![Create a team](../images/40-real-create.webp)
+
+*Real run (0.2.1). Settings, General, Labs, Team: Create a team (name, your name, relay address) and Join with an invite. The grey text is a placeholder; relay.example.com is a made-up address.*
+
+![Join requests in Team settings](../images/40-join-requests.webp)
+
+*Example data. Join requests: someone else used an invite, so the admin sees a warning. Only let in the person you invited.*
+
+![Team settings file could not be read](../images/40-unreadable.webp)
+
+*Example data. If the team settings file cannot be read, Team is off and the app says how to set it up again.*
+
+![Relay unreachable](../images/40-gap.webp)
+
+*Example data. When the relay cannot be reached: "Some team updates may be missing."*
 
 ## How it works (simple)
 

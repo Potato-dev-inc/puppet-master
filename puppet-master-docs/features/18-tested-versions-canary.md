@@ -5,6 +5,10 @@
 ## What it is
 Agents update often. An update can change the screens PM reads, and then PM can guess wrong. PM keeps a "tested range" of versions for Claude Code and Codex. If an agent is outside the range, PM shows an **Untested version** chip and becomes more careful ("strict mode"). The "canary check" is a free test: it starts the agent in an empty folder, looks at the screen, and closes it. A canary is a small early warning, like the bird in a mine.
 
+![The Untested version chip](../images/18-untested-chip.webp)
+
+*Example data. The "Untested version" chip in the pane header.*
+
 ## Why it matters
 Codex 0.159.3 added an update menu that broke runs: a task was typed over the menu, and Enter chose "Update now". Without a version check, you lose a run and do not know why. With it, PM notices a change early and stops guessing.
 
@@ -16,6 +20,18 @@ Codex 0.159.3 added an update menu that broke runs: a task was typed over the me
 5. Press **Check this agent** to run the check now. It can take up to a minute.
 6. The switch **Check agents after they update** (on by default) makes PM run the check by itself when a version changes. Off: only when you press the button.
 7. **Screens I didn't recognise** counts screens that PM could not read. Press **Open folder** to see them. Secrets are removed. Nothing is sent anywhere.
+
+![Codex changed its screens card](../images/18-inbox-card.webp)
+
+*Example data. The card: "Codex 0.162.1 changed its screens. Puppet Master will ask you before acting."*
+
+![Settings, Agent versions](../images/18-real-versions.webp)
+
+*Real run (0.2.1). Settings, Agents, Versions: each agent's version, whether Puppet Master has been tested with it, and a Check this agent button.*
+
+![The Doctor showing Not tested labels](../images/18-real-doctor.webp)
+
+*Real run (0.2.1). The Doctor shows "Not tested" next to a version until you press Test.*
 
 ## Tested ranges
 

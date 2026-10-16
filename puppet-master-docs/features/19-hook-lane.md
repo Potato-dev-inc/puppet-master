@@ -5,6 +5,10 @@
 ## What it is
 Claude Code and Codex can run a small command at fixed moments: a session starts, you send a prompt, a tool asks for permission, a file is edited, a turn ends. These small commands are called hooks. Hook Lane makes each agent tell PM about these moments directly. PM writes them down next to what its screen reader decided, so the two can be compared. In the app this is called **Live updates**.
 
+![Settings, Labs, Live updates](../images/19-real-settings.webp)
+
+*Real run (0.2.1). Labs, Live updates: Watch only, plus a separate switch for Codex CLI. The line says that for now it is only recorded.*
+
 ## Why it matters
 PM normally learns what an agent does by reading its screen. That is a guess and can be wrong after an agent update. Hooks are exact signals from the agent. The comparison shows where the screen reader and the agent disagree. That data will help decide if PM may use hooks as real evidence in the future. That is a later decision.
 
@@ -16,6 +20,18 @@ PM normally learns what an agent does by reading its screen. That is a guess and
 5. Open **Set up agents** to check. Each agent row can show a line such as: "Live updates: Connected. Claude Code tells Puppet Master when it starts, asks and finishes. Watch only: Puppet Master still decides from the screen."
 
 Other lines you may see: "Turns on the next time you open Claude Code." / "Waiting for you to trust this folder in Claude Code." / "Needs your OK in Codex." / "Untested Codex version. Live updates stay watch only." / "This project shares its Codex settings in git, so Puppet Master doesn't change them."
+
+![The Doctor showing Live updates connected](../images/19-doctor.webp)
+
+*Example data. In the Doctor: "Live updates: Connected. Claude Code tells Puppet Master when it starts, asks and finishes. Watch only: Puppet Master still decides from the screen."*
+
+![The Labs list](../images/19-real-labs.webp)
+
+*Real run (0.2.1). Live updates is one row in the Labs list. Tap it to jump to its switch.*
+
+![The palette action Live updates](../images/19-real-palette.webp)
+
+*Real run (0.2.1). Ctrl+K also lists "Live updates..." under Actions.*
 
 ## How it works (simple)
 - **One fixed command.** PM registers `puppet-master-mcp hook <agent>`. The agent runs it at each moment. The command sends the event to PM over the local connection with a secret token for that pane. It prints nothing and always exits with success, even if PM is not running. It stops after 300 ms.

@@ -11,6 +11,10 @@ Two tools that help agents work together with you.
 
 Both are MCP tools. MCP is a standard way for AI programs to use tools. Puppet Master gives the tools to any agent that supports MCP.
 
+![Agent questions in the Inbox](../images/10-questions.webp)
+
+*Example data. An agent asked you a question with ask_user. It appears in the Inbox with choice buttons, or a box for your own answer. The countdown says how long the agent waits.*
+
 ## Why it matters
 
 - Developers: an orchestrating agent can run a long chain of turns and stop at the one decision that needs a human.
@@ -36,6 +40,22 @@ Both are MCP tools. MCP is a standard way for AI programs to use tools. Puppet M
 5. In the sidebar, the agent is under **Needs you**. A question that belongs to no pane shows as **Questions from agents** with a count.
 6. On the phone, the question is at the top of the **All** view with the same buttons. A push message says "Question from Claude Code". It has no action buttons. Tap it to open the list. The phone needs the "Answer" permission.
 7. To teach your agents these tools, use **Settings › Bridge & MCP › Add Puppet Master to your agents › Review and install**. It writes short skills for your agents. They name `ask_user` and `followup_task`.
+
+![An agent question on the phone](../images/10-phone-question.webp)
+
+*Example data. The same question on the phone, with the same buttons and the same text box.*
+
+![The phone with a question and the agent list](../images/10-phone-agents.webp)
+
+*Example data. On the phone, questions come first, then what needs you, Working and Idle.*
+
+![The Transcript tab of a delegated task](../images/10-transcript.webp)
+
+*Example data. The Transcript tab shows a task that another agent handed over: who sent what, the approval, and the failure line.*
+
+![The Transcript tab with no handed-over tasks](../images/10-real-transcript-empty.webp)
+
+*Real run (0.2.1). Transcript is empty for panes you used yourself: "A transcript is kept for tasks that another agent handed to this one."*
 
 ## How it works (simple)
 

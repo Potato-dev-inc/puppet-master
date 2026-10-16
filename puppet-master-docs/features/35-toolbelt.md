@@ -8,6 +8,10 @@ MCP servers are add-on tools for agents: a browser tool, a database tool, a docu
 
 The **Toolbelt** is one list inside Puppet Master (PM). You add a server once. PM then writes it into the config of every agent that supports it. Before PM changes anything, it shows you the exact change for each agent.
 
+![The Toolbelt in Settings](../images/35-real-settings.webp)
+
+*Real run (0.2.1). Settings, Bridge & MCP, Toolbelt on a fresh profile: no servers yet. Import from agents, Add server and Apply to all agents are the buttons.*
+
 ## Why it matters
 
 If you use Claude Code, Codex, Cursor Agent and OpenCode, you do not repeat the same setup four times. You also do not break your config files: PM only touches its own entries, and it keeps a backup.
@@ -25,6 +29,14 @@ If you use Claude Code, Codex, Cursor Agent and OpenCode, you do not repeat the 
 6. Optional: tick **Also register Puppet Master itself in these agents**.
 7. Click **Apply**. Restart agents that are already open.
 8. To remove a server, click **Remove** or switch it off, then click **Apply to all agents** again. PM removes it from every agent.
+
+![The Apply to all agents preview](../images/35-apply.webp)
+
+*Example data. Apply to all agents shows each file that will change. Secrets show as dots.*
+
+![Toolbelt in the palette](../images/35-palette.webp)
+
+*Example data. Ctrl+K, type "toolbelt".*
 
 ## How it works (simple)
 

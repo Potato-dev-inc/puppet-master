@@ -16,6 +16,34 @@
 - **Prices** are shown as **"Planned"**: Team $8 and Business $16 per member per month.
 - A **waitlist form**.
 
+![Top of the landing page](images/05-site-top.webp)
+
+*Real run (0.2.1). The top of the landing page (desktop, dark), re-shot after the real 0.2.1 pictures went in. Both the desktop picture and the phone picture are real runs.*
+
+![The three pillars section of the landing page](images/05-site-pillars.webp)
+
+*Example data. "One team. Anywhere. Safe by default." Each item is marked Built, Preview or Coming.*
+
+![The features section of the landing page](images/05-site-features.webp)
+
+*Real run (0.2.1). "Everything here works today" (the top part of the section): the cards now use real 0.2.1 screenshots. A few cards still use example data and say so under their picture.*
+
+![The security section of the landing page](images/05-site-security.webp)
+
+*Mixed. "Your code stays on your PC. Here is what moves." with the Settings screens that back each claim. The Safety screen is a real run (0.2.1); the consent card and the team settings are example data.*
+
+![The co-work section of the landing page](images/05-site-cowork.webp)
+
+*Example data. The co-work story in four steps, from "She pushes. It asks." to "Nothing was pushed."*
+
+![The pricing and waitlist section of the landing page](images/05-site-pricing.webp)
+
+*Example data. Planned prices (Free, Team, Business) and the waitlist form. The form is not connected yet.*
+
+![Top of the landing page at phone width](images/05-site-phone-top.webp)
+
+*Real run (0.2.1). The same page at 390 px wide, as it looks on a phone.*
+
 ## What is not done
 
 - **The waitlist form is not connected.** It does not send anywhere yet.

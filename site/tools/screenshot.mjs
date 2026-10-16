@@ -114,7 +114,7 @@ await send('Page.enable');
 await send('Network.enable');
 await send('Runtime.enable');
 
-const SECTIONS = ['top', 'pillars', 'features', 'cowork', 'security', 'pricing', 'faq'];
+const SECTIONS = ['top', 'pillars', 'tour', 'features', 'cowork', 'security', 'pricing', 'faq'];
 const report = [];
 
 async function shootPage({ width, height, scheme, tag, sections }) {
@@ -125,6 +125,8 @@ async function shootPage({ width, height, scheme, tag, sections }) {
     await sleep(300);
     if ((await evalJs('document.readyState')) === 'complete') break;
   }
+  // Lazy images that are below the fold would not load for a full-page shot, so load them all first.
+  await evalJs("document.querySelectorAll('img[loading=lazy]').forEach((i) => { i.loading = 'eager'; })");
   // Fonts and every image decoded before the shot.
   await evalJs('document.fonts.ready.then(() => true)');
   await evalJs('Promise.all([...document.images].map((i) => i.decode().catch(() => null))).then(() => true)');
@@ -134,10 +136,13 @@ async function shootPage({ width, height, scheme, tag, sections }) {
     scrollW: document.documentElement.scrollWidth,
     innerW: window.innerWidth,
     docH: Math.ceil(document.documentElement.scrollHeight),
+    images: document.images.length,
+    brokenImages: [...document.images].filter((i) => !i.complete || i.naturalWidth === 0).map((i) => i.getAttribute('src')),
+    wideImages: [...document.images].filter((i) => i.getBoundingClientRect().right > window.innerWidth + 1).map((i) => i.getAttribute('src')),
     theme: getComputedStyle(document.body).backgroundColor,
     fontsLoaded: [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family.replace(/"/g, '')).filter((v, i, a) => a.indexOf(v) === i)
   })`);
-  report.push({ tag, width, scheme, ...m, overflowX: m.scrollW > m.innerW });
+  report.push({ tag, width, scheme, ...m, overflowX: m.scrollW > m.innerW || m.wideImages.length > 0 });
 
   const full = await send('Page.captureScreenshot', {
     format: 'png',
@@ -176,7 +181,7 @@ const lines = [
   foreign.length ? `FAIL: foreign hosts: ${foreign.join(', ')}` : 'PASS: only local files and Google Fonts (fonts.googleapis.com, fonts.gstatic.com).',
   '',
   '## Layout',
-  ...report.map((r) => `- ${r.tag}: viewport ${r.innerW}, scrollWidth ${r.scrollW}, height ${r.docH}, horizontal overflow: ${r.overflowX ? 'YES (FAIL)' : 'no'}, body ${r.theme}, fonts loaded: ${r.fontsLoaded.join(', ') || 'none'}`),
+  ...report.map((r) => `- ${r.tag}: viewport ${r.innerW}, scrollWidth ${r.scrollW}, height ${r.docH}, horizontal overflow: ${r.overflowX ? 'YES (FAIL)' : 'no'}, images ${r.images}, broken: ${r.brokenImages.length ? r.brokenImages.join(', ') + ' (FAIL)' : 'none'}, past the edge: ${r.wideImages.length ? r.wideImages.join(', ') : 'none'}, body ${r.theme}, fonts loaded: ${r.fontsLoaded.join(', ') || 'none'}`),
   '',
   '## Console errors',
   ...(consoleErrors.length ? consoleErrors.map((e) => `- ${e}`) : ['none']),
@@ -185,4 +190,4 @@ const lines = [
 writeFileSync(path.join(out, 'checks.md'), lines.join('\n'));
 console.log(lines.join('\n'));
 ws.close();
-process.exit(foreign.length || report.some((r) => r.overflowX) ? 1 : 0);
+process.exit(foreign.length || report.some((r) => r.overflowX || r.brokenImages.length) ? 1 : 0);

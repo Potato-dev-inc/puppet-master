@@ -8,6 +8,10 @@ MCP (Model Context Protocol) is a standard way for an AI agent to use tools. Pup
 
 The tools are served by a small program, `puppet-master-mcp.exe`. It talks to the PM app on your computer. So the PM app must be running.
 
+![Consent cards when an agent wants to control another](../images/32-consent.webp)
+
+*Example data. When an agent tries to control a pane it did not start, you get a card first.*
+
 ## Why it matters
 
 - You can let one "lead" agent split a job and send parts to helper agents. You do not copy and paste between terminals.
@@ -27,6 +31,26 @@ Other ways to connect:
 
 - **Settings > Bridge & MCP > Install MCP runtime** writes the connection for Claude Code, Codex and OpenCode.
 - The same page has text you can copy for Claude Desktop and Codex, if you want to edit the config by hand.
+
+![Bridge and MCP in Settings](../images/32-real-bridge.webp)
+
+*Real run (0.2.1). Bridge & MCP: Add Puppet Master to your agents, the Toolbelt, and the status of the bridge.*
+
+![MCP install result per agent](../images/32-install-result.webp)
+
+*Example data. Install MCP runtime: "Claude Code - all projects: Updated", "Codex: Updated", "OpenCode: Already set".*
+
+![A transcript of a delegated task](../images/32-transcript.webp)
+
+*Example data. The Transcript tab shows what another agent sent, what the agent answered, and approvals.*
+
+![An ask_user question](../images/32-question.webp)
+
+*Example data. An agent asking you a question (ask_user) shows up in the Inbox.*
+
+![Agents started by MCP in a real run](../images/32-live-mission.webp)
+
+*Real run. A real mission run. Its agents work in visible panes (Claude Code 1, 2 and 3 in the sidebar), so you can open any of them.*
 
 ## How it works (simple)
 

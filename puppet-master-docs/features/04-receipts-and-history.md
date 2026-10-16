@@ -8,6 +8,10 @@ Every agent turn leaves a short receipt in plain words. A "turn" is one task the
 
 **History** is the list of file snapshots (called "checkpoints") that Puppet Master takes around each turn. It is the log of your project's past states. **While you were away** is a short summary that appears when you come back after a break.
 
+![The Receipt tab](../images/04-real-receipt.webp)
+
+*Real run (0.2.1). The Receipt tab after a real turn. It says what the agent did ("made no file changes, you approved 1 command, now idle"), and offers a Second opinion.*
+
 ## Why it matters
 
 You can not watch an agent all day. Receipts answer "what did it just do?" without reading a terminal. They help developers check quickly, help people who build with AI trust but verify, and help people who don't code come back to one calm answer.
@@ -26,6 +30,34 @@ Receipts are honest on purpose. A turn that no check verified says "Finished, no
 4. **While you were away**: leave the PC without touching the keyboard or mouse for 5 minutes. When you come back and the cockpit is in front, a full screen appears. It says how many agents worked and how long you were away, gives one line per agent (up to 12), and lists what needs you. Press **Got it** (or Esc), or **Open Inbox**. A row under "Needs you" opens that agent.
 5. On a paired phone, a compact version sits at the top of the **All** view until you press **Got it**.
 6. Change the wait time in **Settings › General › When you are away › Away digest after**. Use 0 to turn it off.
+
+![The Receipt tab with Details open](../images/04-receipt-details.webp)
+
+*Example data. Details open: agent, read-only or not, what was not verified, the folder, branch and run ID.*
+
+![The History tab](../images/04-real-history.webp)
+
+*Real run (0.2.1). The History tab: a checkpoint before and after each turn, with the files changed per turn and "Undo last turn".*
+
+![The While you were away screen](../images/04-digest.webp)
+
+*Example data. "While you were away" is made from the same receipts, one sentence per agent.*
+
+![The Receipt tab before any turn](../images/04-receipt-empty.webp)
+
+*Example data. Before the first turn: "No turns yet. The receipt appears when Codex finishes its first turn."*
+
+![A receipt for a turn stopped by a usage limit](../images/04-receipt-stopped.webp)
+
+*Example data. A receipt for a turn that stopped at a usage limit: "Stopped at a usage limit (resets 14:05)".*
+
+![A receipt after a real edit](../images/04-real-receipt-edit.webp)
+
+*Real run (0.2.1). A receipt after a real edit: "Claude Code edited 1 file (+3 -5), now idle."*
+
+![A receipt from a real Codex turn](../images/04-real-receipt-codex.webp)
+
+*Real run (0.2.1). A receipt from a real Codex turn. Checks: "No checks are set up for this project, so nothing was verified." Result: Finished, not verified. The answer was read from the screen. The model is shown.*
 
 ## How it works (simple)
 

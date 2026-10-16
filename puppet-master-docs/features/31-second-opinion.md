@@ -5,6 +5,10 @@
 ## What it is
 **Second opinion** asks a different agent to read what the first agent just changed. The reviewer can only read. It cannot edit files or run commands. Its answer comes back as short notes pinned to the changed lines, and one verdict line. You can send any note back to the agent that wrote the code with one click.
 
+![Review notes pinned to changed lines](../images/31-notes.webp)
+
+*Example data. The result: notes pinned to the changed lines, one verdict ("Some concerns. 4 notes below."), and "Send to Claude Code" on each note. Merge becomes "Merge anyway".*
+
 ## Why it matters
 Reading a diff (the list of changed lines) takes time, and you may not be able to judge the code. A second agent is a cheap extra pair of eyes before you merge. It works across companies: for example, Codex can review work done by Claude Code. An app that has only one agent cannot do that. Developers get a quick review loop. People who build with AI get a plain answer to "does this look right?".
 
@@ -21,6 +25,18 @@ Reading a diff (the list of changed lines) takes time, and you may not be able t
    - Notes that do not match a line are listed under "Elsewhere".
 6. Click **Send to <agent>** on a note to send it to the author. You can also write your own comment under any line, then send it.
 7. If there are concerns, the **Merge** button becomes **Merge anyway**. See [Review, merge and pull requests](23-review-merge-and-pull-requests.md).
+
+![The Second opinion button on a receipt](../images/31-real-receipt.webp)
+
+*Real run (0.2.1). The Receipt tab has a "Second opinion" section: "It can only read, never change anything." No review was run for this picture.*
+
+![The Second opinion section in Changes](../images/31-real-changes.webp)
+
+*Real run (0.2.1). In Changes, Second opinion sits above Merge.*
+
+![Who should review](../images/31-picker.webp)
+
+*Example data. "Who should review?" Pick Codex or Cursor Agent. The agent that wrote the code is off the list unless you allow it.*
 
 ## How it works (simple)
 - **Which changes are reviewed.** In this order: the separate copy's changes, then the changes of the last turn (from checkpoints), then `git diff HEAD`. The sheet says which one was used. The diff is cut at 48 KiB, at a file edge, and the reviewer is told.
