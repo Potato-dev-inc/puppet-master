@@ -503,7 +503,12 @@ describe('AgentDefinitions: Add with wizard', () => {
           cost_note: 'The live test runs fake-agent 3 times.',
           limits: {},
         })),
-        probe: vi.fn(async () => ({ state: 'probed', runs: [], subcommands: [], skipped: [] })),
+        probe: vi.fn(async () => ({
+          state: 'probed',
+          runs: [{ label: '--help', args: ['--help'], text: 'Usage: fake-agent <COMMAND>\n  run  Run one task non-interactively', exit: 0, timed_out: false, truncated: false, bytes: 27, duplicate_of: null }],
+          subcommands: [],
+          skipped: [],
+        })),
         verify: vi.fn(async () => ({
           ok: true,
           state: 'verified',
@@ -572,6 +577,10 @@ ${F}`),
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await click(button('Find it'));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await click(button('Skip the visible part'));
     await act(async () => {
       await new Promise((r) => setTimeout(r, 0));
     });
