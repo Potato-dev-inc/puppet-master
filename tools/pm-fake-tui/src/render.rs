@@ -100,6 +100,7 @@ impl Dialog {
 pub struct GateView {
     pub kind: GateKind,
     pub selected: usize,
+    pub style: crate::script::TrustStyle,
 }
 
 /// What the screen shows right now.
@@ -599,6 +600,27 @@ fn finish_nimbus(mut rows: Vec<String>, rule: String, view: &View, cursor: Optio
 fn gate_rows(view: &View, gate: &GateView) -> Vec<String> {
     let cwd = &view.banner.cwd;
     match (view.layout, gate.kind) {
+        (Layout::Nimbus, GateKind::Trust) if gate.style != crate::script::TrustStyle::Numbered => {
+            use crate::script::TrustStyle;
+            let pointer = |i: usize| if gate.selected == i { ">" } else { " " };
+            let (first, second) = match gate.style {
+                TrustStyle::ArrowNoFirst => ("No, exit", "Yes, I trust this folder"),
+                TrustStyle::Always => ("Yes, always trust this folder", "No, exit"),
+                _ => ("Yes, I trust this folder", "No, exit"),
+            };
+            vec![
+                "Accessing workspace:".into(),
+                cwd.to_string(),
+                String::new(),
+                "Do you trust the files in this folder?".into(),
+                "Nimbus requires permission to read, edit, and run files here.".into(),
+                String::new(),
+                format!("{} {first}", pointer(0)),
+                format!("{} {second}", pointer(1)),
+                String::new(),
+                "↑/↓ Navigate · enter Confirm".into(),
+            ]
+        }
         (Layout::Nimbus, GateKind::Trust) => {
             let pointer = |i: usize| if gate.selected == i { ">" } else { " " };
             vec![

@@ -96,6 +96,22 @@ pub enum GateKind {
     UpdateMenu,
 }
 
+/// How the nimbus layout draws its folder-trust question (the Agent Wizard e2e tests answer each of them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TrustStyle {
+    /// `> 1. Yes, trust this folder` / `  2. No, exit`; the digits answer at once.
+    #[default]
+    Numbered,
+    /// An arrow menu with the cursor on the safe row, like Antigravity CLI:
+    /// `> Yes, I trust this folder` / `  No, exit` and `up/down Navigate - enter Confirm`. Digits do nothing.
+    Arrow,
+    /// The same menu with the cursor on `No, exit` and the safe row second.
+    ArrowNoFirst,
+    /// An arrow menu whose only yes is `Yes, always trust this folder`.
+    Always,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Gate {
@@ -121,6 +137,9 @@ pub struct Gate {
     /// answers in 400 ms all found the dialog still drawn).
     #[serde(default)]
     pub linger_ms: u64,
+    /// Nimbus only: how the trust question looks.
+    #[serde(default)]
+    pub style: TrustStyle,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

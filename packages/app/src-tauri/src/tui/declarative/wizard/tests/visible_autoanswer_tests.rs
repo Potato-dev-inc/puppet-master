@@ -268,3 +268,21 @@ fn a_pane_the_wizard_did_not_start_is_never_pressed() {
     assert!(err.contains("not a pane the wizard started"), "{err}");
     assert!(host.pressed().is_empty());
 }
+
+#[test]
+fn what_the_wizard_answered_is_recorded_in_the_provenance_file() {
+    let f = fixture("aa-prov", None, true, quick);
+    script_agent(&f.host, "");
+    closes_on(&f, AnswerKey::Enter);
+    let run = f.run();
+    f.pane();
+    f.host.set_screen(ARROW);
+    let v = f.finish(run);
+    assert!(all_checks_passed(&v), "{}\n{}", v["text"], v["checks"]);
+    let done = ok(&f.wizard, "finish", json!({"session": f.id, "provenance": super::support::provenance()}));
+    let prov: Value = serde_json::from_str(&std::fs::read_to_string(done["provenance_file"].as_str().unwrap()).unwrap()).unwrap();
+    assert_eq!(prov["auto_answer"]["enabled"], true);
+    let answered = prov["auto_answer"]["answered"].as_array().unwrap();
+    assert_eq!(answered.len(), 1);
+    assert_eq!((answered[0]["place"].as_str(), answered[0]["label"].as_str(), answered[0]["keys"].as_str()), (Some("visibletest"), Some("Yes, I trust this folder"), Some("Enter")));
+}

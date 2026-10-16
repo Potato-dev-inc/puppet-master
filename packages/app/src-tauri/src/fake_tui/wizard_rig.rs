@@ -402,3 +402,13 @@ impl WizardRig {
         Ok(result.to_string())
     }
 }
+
+impl WizardRig {
+    /// Ask the app's wizard host to press Enter in `pane`, as the wizard's answerer would. It must refuse any
+    /// pane the wizard did not start (the person's own panes, an agent run's).
+    pub fn wizard_host_presses_enter(&self, pane: &str) -> Result<(), String> {
+        use crate::tui::declarative::wizard::visible::answer::AnswerKey;
+        use crate::tui::declarative::wizard::visible::host::{LiveHost, PaneHost};
+        LiveHost.answer(pane, &[AnswerKey::Enter])
+    }
+}

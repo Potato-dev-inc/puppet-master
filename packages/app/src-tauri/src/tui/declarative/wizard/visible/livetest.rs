@@ -357,6 +357,9 @@ impl Test<'_> {
         let began = Instant::now();
         let mut stab = Stability::new();
         let mut asked_since: Option<Instant> = None;
+        // The last screen that was a question: if the question is answered before it held still for the card
+        // check, the check still looks at it.
+        let mut question_screen: Option<String> = None;
         let mut last: Option<Look> = None;
         loop {
             if self.cancel.load(Ordering::SeqCst) {
@@ -382,6 +385,7 @@ impl Test<'_> {
                 let stable = stab.stable_for(self.ms());
                 // 1. the draft must see the question as a card (checked before anything answers it)
                 let startup_phase = label == "ready";
+                question_screen = Some(look.screen.clone());
                 if startup_phase && stable >= 500 {
                     self.check_startup_card(&look.screen);
                 }
@@ -424,7 +428,13 @@ impl Test<'_> {
                 std::thread::sleep(self.limits.tick);
                 continue;
             }
-            // not a question (any more): if the wizard pressed keys for the last one, it was answered
+            // not a question (any more): the card check of the one that was there, if it was not made yet
+            if let Some(screen) = question_screen.take() {
+                if label == "ready" {
+                    self.check_startup_card(&screen);
+                }
+            }
+            // and if the wizard pressed keys for it, it was answered
             if let Some(cell) = &self.auto {
                 if let AnswerStep::Answered(done) = cell.lock().step(&AnswerInput { screen: &look.screen, flavour: None, stable_ms: 0, now: self.ms(), hint: None }) {
                     self.answered.lock().push(done);
