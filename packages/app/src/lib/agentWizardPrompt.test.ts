@@ -6,6 +6,7 @@ import {
   LOCAL_PROMPT_BUDGET,
   MIN_PROBE_CHARS,
   PROMPT_VERSION,
+  relevance,
   REMOTE_PROMPT_BUDGET,
   sliceDoc,
   type PromptFacts,
@@ -27,7 +28,7 @@ const facts = (over: Partial<PromptFacts> = {}): PromptFacts => ({
 
 describe('prompt sources', () => {
   it('has a version string', () => {
-    expect(PROMPT_VERSION).toBe('2');
+    expect(PROMPT_VERSION).toBe('3');
   });
 
   it('finds every section of the format guide it needs (guards a renamed heading)', () => {
@@ -91,21 +92,54 @@ describe('buildPrompt', () => {
           { label: '--version', text: 'fake-agent 1.4.2', exit: 0, timed_out: false },
         ],
       }),
+      { maxChars: 28_000 },
     );
-    expect(built.chars).toBeLessThanOrEqual(LOCAL_PROMPT_BUDGET);
+    expect(built.chars).toBeLessThanOrEqual(28_000);
     expect(built.cut).toEqual(['--help']);
     expect(built.text).toContain('fake-agent 1.4.2');
     expect(built.text).toMatch(/more characters cut/);
   });
 
-  it('allows far more probe text for a remote model', () => {
+  it('gives the local drafter the same room as a remote model: its prompt goes on stdin', () => {
+    expect(LOCAL_PROMPT_BUDGET).toBe(REMOTE_PROMPT_BUDGET);
     const big = 'y'.repeat(60_000);
-    const built = buildPrompt(facts({ probes: [{ label: '--help', text: big, exit: 0, timed_out: false }] }), {
-      maxChars: REMOTE_PROMPT_BUDGET,
-    });
+    const built = buildPrompt(facts({ probes: [{ label: '--help', text: big, exit: 0, timed_out: false }] }));
     expect(built.cut).toEqual([]);
-    expect(built.chars).toBeGreaterThan(LOCAL_PROMPT_BUDGET);
-    expect(built.chars).toBeLessThanOrEqual(REMOTE_PROMPT_BUDGET);
+    expect(built.chars).toBeGreaterThan(28_000);
+    expect(built.chars).toBeLessThanOrEqual(LOCAL_PROMPT_BUDGET);
+  });
+
+  it('when it must cut, keeps the runs about output format, sessions and models whole and cuts the rest first', () => {
+    const filler = (n: number) => 'completion script for your shell, nothing else here. '.repeat(Math.ceil(n / 52)).slice(0, n);
+    const useful =
+      `Usage: tool run [options]\n  --format <fmt>   output format: default or json\n  -s, --session    continue a session\n  -m, --model      model to use\n` +
+      'Options for run that print events as JSON lines. '.repeat(300);
+    const probes = [
+      { label: '--help', text: filler(20_000), exit: 0, timed_out: false },
+      { label: 'completion --help', text: filler(20_000), exit: 0, timed_out: false },
+      { label: 'run --help', text: useful, exit: 0, timed_out: false },
+      { label: 'mcp --help', text: filler(20_000), exit: 0, timed_out: false },
+    ];
+    const built = buildPrompt(facts({ probes }), { maxChars: 40_000 });
+    expect(built.chars).toBeLessThanOrEqual(40_000);
+    expect(built.cut).not.toContain('run --help');
+    expect(built.text).toContain(useful.slice(-200)); // the end of the useful run is there: it was kept whole
+    expect(built.cut).toEqual(expect.arrayContaining(['--help', 'completion --help', 'mcp --help']));
+    // every cut run still shows its beginning
+    expect(built.text).toContain('<<<PROBE completion --help');
+    expect(built.text).toContain('<<<PROBE mcp --help');
+    expect(relevance(probes[2])).toBeGreaterThan(relevance(probes[1]));
+  });
+
+  it('does not make the prompt longer than the old budget needed for a normal CLI', () => {
+    const built = buildPrompt(facts());
+    expect(built.chars).toBeLessThan(28_000);
+  });
+
+  it('tells the drafter not to run tools or commands', () => {
+    const text = buildPrompt(facts()).text;
+    expect(text).toContain('Do not run any tools or commands and do not read any files.');
+    expect(text).toContain('Everything you need is in this message');
   });
 
   it('never cuts the probe text below the minimum, and says it is over budget', () => {

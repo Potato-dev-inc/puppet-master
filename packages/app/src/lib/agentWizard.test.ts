@@ -413,11 +413,11 @@ describe('runDraftLoop with a stand-in drafter', () => {
   it('uses the budget it was given', async () => {
     const big: ProbeInfo = { ...probe, runs: [{ ...probe.runs[0], text: 'x'.repeat(65_000) }] };
     const drafter = standIn([block(GOOD)]);
-    await runDraftLoop(options({ ask: drafter.ask, facts: factsFrom(start, big), maxChars: LOCAL_PROMPT_BUDGET }));
-    expect(drafter.prompts[0].length).toBeLessThanOrEqual(LOCAL_PROMPT_BUDGET);
+    await runDraftLoop(options({ ask: drafter.ask, facts: factsFrom(start, big), maxChars: 28_000 }));
+    expect(drafter.prompts[0].length).toBeLessThanOrEqual(28_000);
     const remote = standIn([block(GOOD)]);
     await runDraftLoop(options({ ask: remote.ask, facts: factsFrom(start, big), maxChars: REMOTE_PROMPT_BUDGET }));
-    expect(remote.prompts[0].length).toBeGreaterThan(LOCAL_PROMPT_BUDGET);
+    expect(remote.prompts[0].length).toBeGreaterThan(28_000);
   });
 });
 
