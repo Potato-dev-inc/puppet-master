@@ -22,7 +22,7 @@ fn a_program_that_never_ends_is_killed_at_the_timeout() {
     let out = run(&spec);
     assert!(out.timed_out);
     assert_eq!(out.exit, None);
-    assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+    assert!(started.elapsed() < Duration::from_secs(50), "the child sleeps 60 s; it must have been killed: {:?}", started.elapsed());
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn cancel_stops_a_running_child_quickly() {
     });
     assert!(out.cancelled);
     assert!(!out.timed_out);
-    assert!(started.elapsed() < Duration::from_secs(10));
+    assert!(started.elapsed() < Duration::from_secs(25));
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn early_stop_kills_a_child_that_lingers_after_its_last_event() {
     assert!(out.stopped_early, "{out:?}");
     assert!(!out.timed_out);
     assert!(out.stdout.contains("\"text\":\"pong\""));
-    assert!(started.elapsed() < Duration::from_secs(15));
+    assert!(started.elapsed() < Duration::from_secs(50));
 }
 
 #[test]

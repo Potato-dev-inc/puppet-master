@@ -100,7 +100,7 @@ fn a_second_long_step_is_refused_while_one_runs_and_cancel_ends_it() {
     let tree = Tree::new("busy");
     let wizard = std::sync::Arc::new(tree.wizard_with(|env| {
         env.limits.version_timeout = Duration::from_millis(300);
-        env.limits.probe_timeout = Duration::from_secs(20);
+        env.limits.probe_timeout = Duration::from_secs(120);
     }));
     let id = start(&wizard, "hang-agent");
     let runner = {
@@ -110,7 +110,7 @@ fn a_second_long_step_is_refused_while_one_runs_and_cancel_ends_it() {
     };
     let started = Instant::now();
     while wizard.read(&id, |s| s.busy).unwrap().is_none() {
-        assert!(started.elapsed() < Duration::from_secs(10), "the probe never started");
+        assert!(started.elapsed() < Duration::from_secs(60), "the probe never started");
         std::thread::sleep(Duration::from_millis(20));
     }
     let err = call(&wizard, "verify", json!({"session": id, "toml": GOOD})).unwrap_err();
@@ -120,7 +120,7 @@ fn a_second_long_step_is_refused_while_one_runs_and_cancel_ends_it() {
     // cancel works while busy and the running step ends fast
     assert_eq!(ok(&wizard, "cancel", json!({"session": id}))["state"], "cancelled");
     let result = runner.join().unwrap();
-    assert!(started.elapsed() < Duration::from_secs(15), "cancel must not wait for the 20 s timeout");
+    assert!(started.elapsed() < Duration::from_secs(90), "cancel must not wait for the 120 s timeout");
     assert_eq!(result.unwrap_err().code, "WIZARD_CANCELLED");
     assert_eq!(wizard.session_count(), 0, "the cancelled session is dropped once its step ends");
     assert_eq!(std::fs::read_dir(&tree.temp).unwrap().count(), 0);

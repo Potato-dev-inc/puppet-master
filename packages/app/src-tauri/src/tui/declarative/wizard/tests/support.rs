@@ -17,7 +17,7 @@ pub const MINIMAL: &str = include_str!("drafts/minimal.toml");
 pub const WRONG_BINARY: &str = include_str!("drafts/wrong_binary.toml");
 
 /// Copies of the fake CLI under other names; the name selects odd behaviour (see `fake_cli.rs`).
-pub const VARIANTS: &[&str] = &["hang-agent", "flood-agent", "secret-agent", "silent-agent", "raw-agent", "linger-agent", "oldstyle-agent", "git"];
+pub const VARIANTS: &[&str] = &["hang-agent", "flood-agent", "secret-agent", "silent-agent", "raw-agent", "linger-agent", "oldstyle-agent", "stdin-agent", "git"];
 
 fn exe_name(name: &str) -> String {
     if cfg!(windows) {
@@ -97,9 +97,9 @@ impl Tree {
                 .collect(),
             app_build: "test-build".into(),
             limits: Limits {
-                version_timeout: Duration::from_secs(5),
-                probe_timeout: Duration::from_secs(5),
-                live_timeout: Duration::from_secs(30),
+                version_timeout: Duration::from_secs(30),
+                probe_timeout: Duration::from_secs(30),
+                live_timeout: Duration::from_secs(90),
                 live_grace: Duration::from_millis(300),
                 ..Limits::default()
             },

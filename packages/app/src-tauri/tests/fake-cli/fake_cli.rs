@@ -14,7 +14,7 @@
 //
 // The program name selects odd behaviour (the tests copy the exe): *hang* sleeps for a minute,
 // *flood* prints about 200 KB, *secret* prints a token-shaped string in its help, *silent* prints
-// nothing, *oldstyle* has no `run --help` (only `help run`), *raw* answers `run` in plain text without any JSON, *linger* finishes its events and then
+// nothing, *stdin* reads its standard input to the end first (it hangs if stdin is left open), *oldstyle* has no `run --help` (only `help run`), *raw* answers `run` in plain text without any JSON, *linger* finishes its events and then
 // keeps running for a minute (like an agent that does not exit after its last event).
 use std::io::Write;
 use std::path::Path;
@@ -64,6 +64,13 @@ fn main() {
         for i in 0..6000 {
             let _ = writeln!(out, "flood line {i:05} ................................");
         }
+        return;
+    }
+    if stem.contains("stdin") {
+        // waits for the end of its standard input, then says how much it got
+        let mut got = String::new();
+        let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut got);
+        println!("stdin-bytes: {}", got.len());
         return;
     }
     if stem.contains("silent") {

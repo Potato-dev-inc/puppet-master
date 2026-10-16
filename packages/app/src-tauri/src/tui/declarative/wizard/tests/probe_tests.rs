@@ -99,7 +99,7 @@ fn start_finds_the_program_and_reads_its_version() {
     assert_eq!(out["version"]["number"], "1.4.2");
     assert!(out["session"].as_str().unwrap().starts_with("wz_"));
     assert!(out["cost_note"].as_str().unwrap().contains("4 small messages"));
-    assert_eq!(out["limits"]["probe_timeout_ms"], 5000);
+    assert_eq!(out["limits"]["probe_timeout_ms"], 30000);
     assert_eq!(out["limits"]["probe_max_runs"], 16);
     // the work folder exists, in the temp root
     let folders: Vec<_> = std::fs::read_dir(&tree.temp).unwrap().flatten().collect();
@@ -215,13 +215,20 @@ fn the_run_limit_is_enforced_and_the_rest_is_listed_as_skipped() {
 
 #[test]
 fn probes_do_not_wait_for_input() {
-    // The fake prints its version and exits; a program that waited for stdin would hit the timeout.
+    // `stdin-agent` reads its standard input to the end before it answers. If the probe left stdin open
+    // it would hang until the timeout; with stdin closed it answers at once. No wall-clock assertion:
+    // the condition is that no run timed out and every run saw an empty stdin.
     let tree = Tree::new("probe-stdin");
     let wizard = tree.wizard();
-    let id = start(&wizard, "fake-agent");
-    let started = std::time::Instant::now();
-    ok(&wizard, "probe", json!({"session": id}));
-    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    let id = start(&wizard, "stdin-agent");
+    let out = ok(&wizard, "probe", json!({"session": id}));
+    let runs = out["runs"].as_array().unwrap();
+    assert!(!runs.is_empty());
+    for run in runs {
+        assert_eq!(run["timed_out"], false, "{run}");
+        assert_eq!(run["exit"], 0, "{run}");
+    }
+    assert!(runs[0]["text"].as_str().unwrap().contains("stdin-bytes: 0"), "{}", runs[0]);
 }
 
 #[test]
