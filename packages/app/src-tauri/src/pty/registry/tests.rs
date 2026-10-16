@@ -55,6 +55,9 @@ fn argv_of(cmd: &CommandBuilder) -> Vec<String> {
 /// The nine code ids build exactly the command they built before `spawn_command` existed.
 #[test]
 fn code_profiles_command_unchanged() {
+    // Cursor's launcher depends on what is installed, so the test installs a stub one (the real
+    // PATH is not read) and the run is the same on a machine with and without Cursor.
+    let cursor_cli = crate::tui::cursor::binary::stub::installed();
     let cwd = std::env::temp_dir().to_string_lossy().into_owned();
     let extra = vec!["--extra".to_string()];
     #[cfg(windows)]
@@ -124,6 +127,8 @@ fn code_profiles_command_unchanged() {
             // choice itself is tested in tui/cursor/binary.rs; here only that --extra reaches it.
             let got = argv_of(&cmd);
             assert!(got.iter().any(|arg| arg.contains("--extra")), "{id}: {got:?}");
+            let stub_dir = cursor_cli.dir().unwrap().to_string_lossy().into_owned();
+            assert!(got.iter().any(|arg| arg.contains(&stub_dir)), "{id} runs the installed CLI: {got:?}");
             assert!(!got.iter().any(|arg| arg.contains("cursor.cmd")), "{id} must not launch the IDE: {got:?}");
             continue;
         }
