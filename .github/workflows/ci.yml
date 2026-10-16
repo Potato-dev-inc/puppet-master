@@ -51,6 +51,9 @@ jobs:
     name: Rust (nextest --lib --bins)
     runs-on: windows-latest
     timeout-minutes: 60
+    env:
+      # The LLVM linker that ships with rustc: links the big test executables faster than link.exe.
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,6 +106,8 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld
     steps:
       - uses: actions/checkout@v4
         with:
