@@ -160,6 +160,7 @@ fn run_agent_deserializes_name_handle_and_defaults_to_packet() {
 
 #[test]
 fn allow_shell_adds_force_only_when_asked_and_never_with_read_only() {
+    let _cli = crate::tui::cursor::binary::stub::installed();
     let launch = |read_only, allow_shell| {
         crate::tui::headless_launch(
             "cursor_agent",
