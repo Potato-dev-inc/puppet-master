@@ -375,7 +375,7 @@ cd ..\src-tauri
 # 4. Verify the draft and run the live test against the real program (SPENDS about 4 small messages).
 $env:PM_WIZARD_ROUND_DIR = $round; $env:PM_WIZARD_REFERENCE = 'kilo'     # or 'kiro': also writes score.txt
 cargo test --lib tui::declarative::wizard::tests::benchmark::bench_round -- --ignored --nocapture
-Get-Content "$roundesult.txt"        # PASS | FAIL verify (the draft is not valid: no live test) | FAIL livetest (it ran; feedback has the real output and every rule problem) | FAIL no-toml
+Get-Content "$round\result.txt"        # PASS | FAIL verify (the draft is not valid: no live test) | FAIL livetest (it ran; feedback has the real output and every rule problem) | FAIL no-toml
 cd ..\..
 # Not PASS: repeat from step 1 with $n = $n + 1 (the prompt reads round-$($n-1)\feedback.json). PASS: stop.
 ```
