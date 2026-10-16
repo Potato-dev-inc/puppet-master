@@ -113,6 +113,15 @@ fn wizard_rules(def: &Definition, session: &Session, env: &WizardEnv, errors: &m
     }
 }
 
+/// Does the draft text contain one of the session's live-test words, or the bare word `pong`? (A result
+/// regex built around the test answer would pass the live test and be useless.)
+pub fn leaks_test_words(text: &str, words: &super::session::TestWords) -> bool {
+    use once_cell::sync::Lazy;
+    static PONG: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"(?i)\bpong(?:\d*\b|-)").expect("pong regex"));
+    let lower = text.to_ascii_lowercase();
+    words.all().iter().any(|w| lower.contains(w)) || PONG.is_match(text)
+}
+
 fn rendered(def: &Definition) -> Option<Value> {
     def.headless.as_ref()?;
     let launch = |resume: Option<&'static str>, model: Option<&'static str>| HeadlessLaunch {
@@ -162,6 +171,14 @@ pub fn check_draft(session: &Session, env: &WizardEnv, text: &str) -> Outcome {
     let validation = validate(&def, &ctx);
     out.errors.extend(validation.iter().map(|e| def_error("validate", e)));
     wizard_rules(&def, session, env, &mut out.errors);
+    if leaks_test_words(text, &session.words) {
+        out.errors.push(CheckError::new(
+            "wizard",
+            "WIZARD_TEST_WORD",
+            "",
+            "the file contains a word the live test uses as its expected answer, or the bare word `pong`. A definition must read any answer, not one the test asks for",
+        ));
+    }
     out.warnings = approval_warnings(&def);
     if !def.headless.as_ref().is_some_and(|h| h.optional.iter().any(|s| s.when == "resume")) {
         out.warnings.push("The draft has no resume segment, so follow-up turns will start a new conversation.".into());
@@ -217,16 +234,17 @@ fn check_fixtures(session: &Session, profile: &DeclarativeProfile, out: &mut Out
     let project = session.work_dir.to_string_lossy().into_owned();
     for sample in &session.samples {
         // An output made by a different command says nothing about this draft's selectors.
-        let args = super::livetest::stage_args(profile.definition(), sample.stage, &project, sample.resume_session.as_deref());
+        let args = super::livetest::stage_args(profile.definition(), sample.stage, &project, sample.resume_session.as_deref(), &session.words);
         if args != sample.args {
             continue;
         }
-        let judged = super::livetest::judge(profile, sample.stage, &sample.stdout, sample.exit, None, has_session);
+        let judged = super::livetest::judge(profile, sample.stage, &sample.want, &sample.stdout, sample.exit, None, has_session);
+        let mask = |t: &str| super::livetest::mask_words(t, &session.words);
         out.samples_replayed += 1;
         for problem in judged.problems {
             out.errors.push(
-                CheckError::new("fixture", "FIXTURE_FAILED", format!("{}.{}", sample.stage.fixture_stem(), "sample"), problem)
-                    .with_excerpt(&sample.stdout),
+                CheckError::new("fixture", "FIXTURE_FAILED", format!("{}.{}", sample.stage.fixture_stem(), "sample"), mask(&problem))
+                    .with_excerpt(&mask(&sample.stdout)),
             );
         }
     }

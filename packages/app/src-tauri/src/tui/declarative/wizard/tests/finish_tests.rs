@@ -22,11 +22,12 @@ fn it_writes_the_definition_its_fixtures_and_the_provenance() {
     let tree = Tree::new("f-files");
     let wizard = tree.wizard();
     let id = tested(&wizard, "fake-agent", GOOD);
+    let words = wizard.read(&id, |s| s.words.clone()).unwrap();
     let out = finish(&wizard, &id).unwrap();
     assert_eq!(out["ok"], true);
     assert_eq!(out["id"], "fake_agent");
     assert_eq!(out["state"], "needs_approval");
-    assert_eq!(out["fixtures"], json!({"passed": 4, "total": 4}));
+    assert_eq!(out["fixtures"], json!({"passed": 5, "total": 5}));
 
     let toml_path = tree.agents.join("fake_agent.toml");
     assert_eq!(std::fs::read_to_string(&toml_path).unwrap(), GOOD, "the verified text, byte for byte");
@@ -45,13 +46,17 @@ fn it_writes_the_definition_its_fixtures_and_the_provenance() {
             "headless_garbage.txt",
             "headless_resume.expect.toml",
             "headless_resume.jsonl",
+            "headless_sentence.expect.toml",
+            "headless_sentence.jsonl",
             "headless_success.expect.toml",
             "headless_success.jsonl",
         ]
     );
     // the fixtures are the real output, with expectations from the stages
     let success = std::fs::read_to_string(tree.agents.join("fake_agent/headless_success.expect.toml")).unwrap();
-    assert!(success.contains("result = \"pong\"") && success.contains("session = \"fk-0001\""), "{success}");
+    assert!(success.contains(&format!("result = \"{}\"", words.one)) && success.contains("session = \"fk-0001\""), "{success}");
+    let sentence = std::fs::read_to_string(tree.agents.join("fake_agent/headless_sentence.expect.toml")).unwrap();
+    assert!(sentence.contains(&format!("result = \"the sky is {}.\"", words.sky)), "{sentence}");
     assert!(success.contains("model = \"fake/fast\"") && success.contains("done = true"), "{success}");
     let error = std::fs::read_to_string(tree.agents.join("fake_agent/headless_error.expect.toml")).unwrap();
     assert!(error.contains("result = \"\"") && error.contains("exit = 1") && error.contains("Model not found"), "{error}");
@@ -66,7 +71,7 @@ fn the_written_definition_validates_and_its_fixtures_pass_the_normal_check() {
     finish(&wizard, &id).unwrap();
     let report = check_report(&tree.agents.join("fake_agent.toml"), None, &code_ids()).unwrap();
     assert_eq!(report.status, "ran");
-    assert_eq!(report.results.len(), 4);
+    assert_eq!(report.results.len(), 5);
     for r in &report.results {
         assert!(r.passed, "{}: {:?}", r.fixture, r.failures);
     }
@@ -107,7 +112,7 @@ fn provenance_records_who_wrote_it_and_what_was_tested_without_paths() {
     assert_eq!(prov["tested_version"], "1.4.2");
     assert_eq!(prov["app_build"], "test-build");
     assert_eq!(prov["definition_sha256"].as_str().unwrap().len(), 64);
-    assert_eq!(prov["results"]["fixtures"], json!({"passed": 4, "total": 4}));
+    assert_eq!(prov["results"]["fixtures"], json!({"passed": 5, "total": 5}));
     assert_eq!(prov["results"]["stages"][0], json!({"name": "pong", "status": "passed"}));
     assert!(prov["created_at"].as_str().unwrap().contains('T'));
     let root = tree.root.to_string_lossy().replace('\\', "/").to_lowercase();

@@ -80,7 +80,7 @@ Response:
   "program": {"path": "C:\\Users\\me\\AppData\\Local\\kiro-cli\\kiro-cli.exe", "display": "~\\AppData\\Local\\kiro-cli\\kiro-cli.exe", "kind": "native"},
   "version": {"ok": true, "args": ["--version"], "text": "kiro-cli 2.29.1", "number": "2.29.1"},
   "native_candidates": [],
-  "cost_note": "The live test runs kiro-cli 3 times with tiny messages (about 3 small messages per try). It uses your own kiro-cli account or plan.",
+  "cost_note": "The live test runs kiro-cli 4 times with tiny messages (about 4 small messages per try). It uses your own kiro-cli account or plan.",
   "limits": {"probe_timeout_ms": 5000, "probe_max_bytes": 65536, "probe_max_runs": 16, "draft_max_bytes": 65536}
 }
 ```
@@ -140,7 +140,7 @@ Response:
   "planned": {
     "program": {"path": "C:\Users\me\...\fake-agent.exe", "display": "~\...\fake-agent.exe"},
     "stages": [
-      {"name": "pong", "label": "Say pong", "args": ["run", "--format", "json", "--", "<test message>"]},
+      {"name": "pong", "label": "Answer one word", "args": ["run", "--format", "json", "--", "<test message>"]},
       {"name": "resume", "label": "Continue the same conversation", "args": ["run", "--format", "json", "-s", "<session id>", "--", "<test message>"]},
       {"name": "bad_model", "label": "Wrong model name is an error", "args": ["run", "--format", "json", "-m", "pm-wizard-no-such-model/zzz", "--", "<test message>"]}
     ],
@@ -160,8 +160,8 @@ Response:
   "ok": true,
   "state": "tested",
   "stages": [
-    {"name": "pong", "label": "Say pong", "status": "passed", "args": ["run", "--format", "json", "--", "Reply with exactly the word: pong"],
-     "exit": 0, "duration_ms": 2300, "timed_out": false, "result": "pong", "session": "ses_abc", "error_code": null, "problems": [],
+    {"name": "pong", "label": "Answer one word", "status": "passed", "args": ["run", "--format", "json", "--", "Reply with exactly the word: <word-1>"],
+     "exit": 0, "duration_ms": 2300, "timed_out": false, "result": "<word-1>", "session": "ses_abc", "error_code": null, "problems": [],
      "stdout": "{...}", "stderr": ""},
     {"name": "resume", "label": "Continue the same conversation", "status": "passed", "...": "..."},
     {"name": "bad_model", "label": "Wrong model name is an error", "status": "passed", "...": "..."}
@@ -169,7 +169,7 @@ Response:
   "errors": [],
   "text": "",
   "tested_version": "2.29.1",
-  "fixtures": ["headless_success.jsonl", "headless_resume.jsonl", "headless_error.jsonl", "headless_garbage.txt"]
+  "fixtures": ["headless_success.jsonl", "headless_sentence.jsonl", "headless_resume.jsonl", "headless_error.jsonl", "headless_garbage.txt"]
 }
 ```
 `stage.status` is `passed`, `failed` or `skipped` (with `note`). `stdout`/`stderr` are redacted and cut to 8 KiB each in the reply (the full capped output, up to 256 KiB, is kept in the session for the fixtures). On failure `errors`/`text` use the AI format (6.2) and include the real output, so the next draft can fix its selectors.
@@ -207,18 +207,22 @@ Rendered with the verified draft by `template::render_headless`, run with the pr
 ### 5.1 Stages (in order, stop at the first failure so no tokens are wasted)
 | # | Name | Task text | Passes when |
 |---|---|---|---|
-| 1 | `pong` | `Reply with exactly the word: pong` | `extract_result` = `pong` (trimmed, case-insensitive, trailing punctuation allowed); if the draft has a `session` selector the session is non-empty; no classified failure |
-| 2 | `resume` | `Reply with exactly the word: pong2` with `{session}` = the id from stage 1 | `extract_result` = `pong2`; the session id (if any) equals stage 1's. **Skipped** (with a note) when the draft has no `resume` segment or no `session` selector |
-| 3 | `bad_model` | `Reply with exactly the word: pong`, model = `pm-wizard-no-such-model/zzz` | `extract_result` is empty AND the failure is recognised: the draft's `error` selector fired (`AGENT_REPORTED_ERROR`), or the exit code is not 0. A clean exit with nothing parseable is not a recognised error (the draft needs an `error` selector). **Skipped** when the draft has no `model` segment |
+| 1 | `pong` | `Reply with exactly the word: <one>` | `extract_result` = `<one>` (trimmed, case-insensitive, quotes and a final stop allowed); if the draft has a `session` selector the session is non-empty; no classified failure |
+| 2 | `sentence` | `Reply with exactly: the sky is <sky>.` (a fresh conversation) | `extract_result` = `the sky is <sky>.` word for word (case, quotes and the final stop do not matter). A one-word regex fails here: the answer has spaces and punctuation |
+| 3 | `resume` | `Reply with exactly the word: <two>` with `{session}` = the id from stage 1 | `extract_result` = `<two>`; the session id (if any) equals stage 1's. **Skipped** (with a note) when the draft has no `resume` segment or no `session` selector |
+| 4 | `bad_model` | `Reply with exactly the word: <one>`, model = `pm-wizard-no-such-model/zzz` | `extract_result` is empty AND the failure is recognised: the draft's `error` selector fired (`AGENT_REPORTED_ERROR`), or the exit code is not 0. A clean exit with nothing parseable is not a recognised error (the draft needs an `error` selector). **Skipped** when the draft has no `model` segment |
+
+**The answers are random.** `<one>` and `<two>` are `pong-` and six random lowercase letters, `<sky>` is six random lowercase letters, made when the session starts and never part of the prompt (the prompt describes the test generically). A definition whose regex or literal matches a fixed word would otherwise pass the live test and be useless. Therefore: (1) `verify` rejects (`WIZARD_TEST_WORD`) a draft whose text contains any of the three words or the bare word `pong` (also `pong2`, `pong-...`); (2) everything that goes back to the drafter or the UI (stage args, output, results, problems, excerpts, replay failures) has them replaced by `<word-1>`, `<word-2>`, `<word-3>`; the unmasked output stays in the session for replay and fixtures.
 
 ### 5.2 Fixtures written from the live outputs
 Stage outputs are stored as the agent printed them (stdout only; escape codes removed, secrets masked by `redact::text`, and the user-folder name in any `C:\Users\<name>` or `/home/<name>` path replaced by `user`). Names and expectations (the expectations come from the stage's purpose, not from the draft's own output):
 
 | File | Expect file |
 |---|---|
-| `headless_success.<ext>` (stage 1) | `result = "pong"`, `session = "<id>"` (only if the draft has a session selector), `model = "<m>"` (only if the draft has a model selector and it returned one), `done = <headless_result_ready>` |
-| `headless_resume.<ext>` (stage 2) | `result = "pong2"`, `session = "<id>"`, `done = ...` |
-| `headless_error.<ext>` (stage 3) | `result = ""`, `exit = <code>`, plus `error_code` and `error` when the draft classified it |
+| `headless_success.<ext>` (stage 1) | `result = "<one>"`, `session = "<id>"` (only if the draft has a session selector), `model = "<m>"` (only if the draft has a model selector and it returned one), `done = <headless_result_ready>` |
+| `headless_sentence.<ext>` (stage 2) | `result = "the sky is <sky>."`, `session`, `model`, `done` as for stage 1 |
+| `headless_resume.<ext>` (stage 3) | `result = "<two>"`, `session = "<id>"`, `done = ...` |
+| `headless_error.<ext>` (stage 4) | `result = ""`, `exit = <code>`, plus `error_code` and `error` when the draft classified it |
 | `headless_garbage.txt` (generated, not live) | `kind = "headless"`, `result = ""`, `session = ""`, `done = false`, `error_code = "AGENT_OUTPUT_UNPARSEABLE"` |
 
 `<ext>` is `jsonl` for `json_lines`, `json` for `json_single`, `txt` for `plain_text`. Files are small by construction (a pong turn).
@@ -227,7 +231,7 @@ Stage outputs are stored as the agent printed them (stdout only; escape codes re
 Every live test, passing or not, keeps its stage outputs in the session as **samples**, with the exact arguments that produced them. The next `verify` of a new draft replays each sample with the same stage rules as the live test (`result` = `pong`, `pong2`, or empty and a recognised error); no process is started. A sample is replayed only when the new draft renders the **same command** for that stage (an output made by a different command says nothing about the new selectors). A new draft that cannot read the real outputs is rejected for free, and each failure carries the real output; the paid live test only runs again when the replay passes. The replay is counted in `samples_replayed`.
 
 ### 5.4 Cost
-`cost_note` (from `start`) and the exact commands (`planned` from `verify`) are shown in a monospace block before the live test, and the person must confirm. The arguments come from the AI, so the confirmation is tied to them: the UI asks again whenever a fix round changes `planned.fingerprint`, and Rust refuses to run unless the request carries the fingerprint of what it is about to run (4.4). The UI says: "about 3 small messages per try, up to 5 tries".
+`cost_note` (from `start`) and the exact commands (`planned` from `verify`) are shown in a monospace block before the live test, and the person must confirm. The arguments come from the AI, so the confirmation is tied to them: the UI asks again whenever a fix round changes `planned.fingerprint`, and Rust refuses to run unless the request carries the fingerprint of what it is about to run (4.4). The UI says: "about 4 small messages per try, up to 5 tries".
 
 ## 6. Verify
 
@@ -266,10 +270,10 @@ The checker found 2 problems. Fix every one and reply with the complete correcte
    Fix: add `path = "..."`: the dotted path of the answer text inside one output line, for example path = "part.text".
 
 2. [fixture] FIXTURE_FAILED at `headless_resume.jsonl`
-   Problem: result: expected "pong2", got "".
+   Problem: result: expected "<word-2>", got "".
    Fix: the answer was not found in the real output. Compare your `where` and `path` with the real output lines shown below.
    Real output (first lines):
-   {"type":"text","part":{"text":"pong2"}}
+   {"type":"text","part":{"text":"<word-2>"}}
 ```
 Real output excerpts appear only for fixture and live-test failures, at most 20 lines of 400 characters each.
 
@@ -351,7 +355,7 @@ It prints a table: validate/conformance result, the headless fixtures of the ref
 
 Other helpers, same file, also `#[ignore]`:
 - `probe_dump` (`PM_WIZARD_COMMAND=kilo`, `PM_WIZARD_OUT=<dir>`): resolves and probes the real program and writes `<dir>\probe.json` (what the drafter would see). Starts only `--version`, `--help`, `-h`, `help`, `<sub> --help` and `help <sub>`. No AI, no tokens.
-- `livetest_draft` (`PM_WIZARD_COMMAND`, `PM_WIZARD_DRAFT`, optional `PM_WIZARD_OUT`): verify + the live test against the real program with a given draft. **Spends about 3 small messages.** Nothing is written to the real agents folder; with `PM_WIZARD_FINISH=1` the files go to `<out>\agents`.
+- `livetest_draft` (`PM_WIZARD_COMMAND`, `PM_WIZARD_DRAFT`, optional `PM_WIZARD_OUT`): verify + the live test against the real program with a given draft. **Spends about 4 small messages.** Nothing is written to the real agents folder; with `PM_WIZARD_FINISH=1` the files go to `<out>\agents`.
 
 The scorer itself runs in the normal suite against the references (`tui::declarative::wizard::tests::benchmark::the_references_score_perfectly_against_their_own_headless_fixtures`), which proves it works without any agent installed.
 

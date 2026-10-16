@@ -114,9 +114,44 @@ impl WizardEnv {
     }
 }
 
+/// The answers the live test asks for. Random per session and never part of the prompt, so a draft
+/// cannot be written to produce them (a result regex that matches a fixed word would pass the test and
+/// be useless). Anything shown to the drafter has them masked (`livetest::mask_words`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestWords {
+    /// The one-word answer of the first stage (and the bad-model stage): `pong-` and six letters.
+    pub one: String,
+    /// The one-word answer of the resume stage.
+    pub two: String,
+    /// The last word of the sentence stage: "the sky is <sky>."
+    pub sky: String,
+}
+
+fn six_letters() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    (0..6).map(|_| rng.gen_range(b'a'..=b'z') as char).collect()
+}
+
+impl TestWords {
+    pub fn random() -> Self {
+        Self { one: format!("pong-{}", six_letters()), two: format!("pong-{}", six_letters()), sky: six_letters() }
+    }
+
+    /// The sentence the sentence stage asks for.
+    pub fn sentence(&self) -> String {
+        format!("the sky is {}.", self.sky)
+    }
+
+    pub fn all(&self) -> [&str; 3] {
+        [&self.one, &self.two, &self.sky]
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
     Pong,
+    Sentence,
     Resume,
     BadModel,
 }
@@ -125,6 +160,7 @@ impl Stage {
     pub fn as_str(self) -> &'static str {
         match self {
             Stage::Pong => "pong",
+            Stage::Sentence => "sentence",
             Stage::Resume => "resume",
             Stage::BadModel => "bad_model",
         }
@@ -132,7 +168,8 @@ impl Stage {
 
     pub fn label(self) -> &'static str {
         match self {
-            Stage::Pong => "Say pong",
+            Stage::Pong => "Answer one word",
+            Stage::Sentence => "Answer a short sentence",
             Stage::Resume => "Continue the same conversation",
             Stage::BadModel => "Wrong model name is an error",
         }
@@ -142,6 +179,7 @@ impl Stage {
     pub fn fixture_stem(self) -> &'static str {
         match self {
             Stage::Pong => "headless_success",
+            Stage::Sentence => "headless_sentence",
             Stage::Resume => "headless_resume",
             Stage::BadModel => "headless_error",
         }
@@ -157,6 +195,8 @@ pub struct Sample {
     pub stdout: String,
     pub stderr: String,
     pub exit: Option<i32>,
+    /// The answer the stage asked for (empty for the bad-model stage).
+    pub want: String,
     /// The session id the resume stage asked for (so a replay renders the same command).
     pub resume_session: Option<String>,
 }
@@ -197,6 +237,7 @@ pub struct Session {
     pub kind: ProgramKind,
     pub version: VersionInfo,
     pub native_candidates: Vec<String>,
+    pub words: TestWords,
     pub dirs: Vec<PathBuf>,
     pub work_dir: PathBuf,
     pub state: State,

@@ -8,7 +8,7 @@
 //   {"event":"start","session":"fk-0001","model":"fake/fast","resumed":false,"cwd":"<working folder>"}
 //   {"event":"message","delta":"po"}
 //   {"event":"end","session":"fk-0001","reason":"stop","text":"pong"}
-// A task "Reply with exactly the word: X" is answered with X, anything else with "ok". A model other
+// A task "Reply with exactly the word: X" is answered with X, "Reply with exactly: S" with S, anything else with "ok". A model other
 // than fake/fast or fake/slow prints {"event":"error","message":"Model not found: ..."} and exits 1.
 // A session id that does not start with "fk-" is an error too.
 //
@@ -105,10 +105,13 @@ fn main() {
 }
 
 fn answer(task: &str) -> String {
-    match task.split_once("Reply with exactly the word:") {
-        Some((_, word)) => word.trim().to_string(),
-        None => "ok".to_string(),
+    if let Some((_, word)) = task.split_once("Reply with exactly the word:") {
+        return word.trim().to_string();
     }
+    if let Some((_, sentence)) = task.split_once("Reply with exactly:") {
+        return sentence.trim().to_string();
+    }
+    "ok".to_string()
 }
 
 fn event(line: &str) {

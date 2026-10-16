@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::tui::declarative::wizard::livetest::{judge, stage_args, BAD_MODEL};
-use crate::tui::declarative::wizard::session::Stage;
+use crate::tui::declarative::wizard::livetest::{judge, mask_words, stage_args, BAD_MODEL};
+use crate::tui::declarative::wizard::session::{Stage, TestWords};
 use crate::tui::declarative::DeclarativeProfile;
 
 use super::support::{call, ok, start, tested, verified, Tree, GOOD, MINIMAL, WRONG_PATH};
@@ -40,18 +40,23 @@ fn all_three_stages_pass_for_a_good_draft() {
     assert_eq!(t["ok"], true, "{}", t["text"]);
     assert_eq!(t["state"], "tested");
     assert_eq!(t["tested_version"], "1.4.2");
+    // the real answers are random per session and masked in everything that goes back to the UI
     let pong = stage(&t, "pong");
     assert_eq!(pong["status"], "passed");
-    assert_eq!(pong["result"], "pong");
+    assert_eq!(pong["result"], "<word-1>");
     assert_eq!(pong["session"], "fk-0001");
     assert_eq!(pong["exit"], 0);
-    assert_eq!(pong["args"], json!(["run", "--format", "json", "--", "Reply with exactly the word: pong"]));
+    assert_eq!(pong["args"], json!(["run", "--format", "json", "--", "Reply with exactly the word: <word-1>"]));
+    let sentence = stage(&t, "sentence");
+    assert_eq!(sentence["status"], "passed");
+    assert_eq!(sentence["result"], "the sky is <word-3>.");
+    assert_eq!(sentence["args"][4], "Reply with exactly: the sky is <word-3>.");
     let resume = stage(&t, "resume");
     assert_eq!(resume["status"], "passed");
-    assert_eq!(resume["result"], "pong2");
+    assert_eq!(resume["result"], "<word-2>");
     assert_eq!(
         resume["args"],
-        json!(["run", "--format", "json", "-s", "fk-0001", "--", "Reply with exactly the word: pong2"]),
+        json!(["run", "--format", "json", "-s", "fk-0001", "--", "Reply with exactly the word: <word-2>"]),
         "the resume stage continues the session stage 1 produced"
     );
     let bad = stage(&t, "bad_model");
@@ -63,10 +68,14 @@ fn all_three_stages_pass_for_a_good_draft() {
     assert!(bad["stdout"].as_str().unwrap().contains("Model not found"));
     assert_eq!(
         t["fixtures"],
-        json!(["headless_success.jsonl", "headless_resume.jsonl", "headless_error.jsonl", "headless_garbage.txt"])
+        json!(["headless_success.jsonl", "headless_sentence.jsonl", "headless_resume.jsonl", "headless_error.jsonl", "headless_garbage.txt"])
     );
     assert_eq!(t["errors"], json!([]));
-    assert_eq!(wizard.read(&id, |s| s.samples.len()).unwrap(), 3);
+    assert_eq!(wizard.read(&id, |s| s.samples.len()).unwrap(), 4);
+    let words = wizard.read(&id, |s| s.words.clone()).unwrap();
+    for w in words.all() {
+        assert!(!t.to_string().contains(w), "the answer word {w} must not appear in the reply");
+    }
 }
 
 #[test]
@@ -97,7 +106,7 @@ fn stages_that_do_not_apply_are_skipped_with_a_reason() {
     let bad = stage(&t, "bad_model");
     assert_eq!(bad["status"], "skipped");
     assert!(bad["note"].as_str().unwrap().contains("no model option"), "{bad}");
-    assert_eq!(t["fixtures"], json!(["headless_success.jsonl", "headless_garbage.txt"]));
+    assert_eq!(t["fixtures"], json!(["headless_success.jsonl", "headless_sentence.jsonl", "headless_garbage.txt"]));
 }
 
 #[test]
@@ -136,7 +145,9 @@ fn the_failed_output_is_replayed_for_free_against_the_next_draft() {
     let e = again["errors"].as_array().unwrap().iter().find(|e| e["stage"] == "fixture").expect("a fixture error");
     assert_eq!(e["code"], "FIXTURE_FAILED");
     assert!(e["path"].as_str().unwrap().starts_with("headless_success"), "{e}");
-    assert!(e["excerpt"].as_str().unwrap().contains("\"text\":\"pong\""), "{e}");
+    assert!(e["excerpt"].as_str().unwrap().contains("\"text\":\"<word-1>\""), "{e}");
+    let words = wizard.read(&id, |s| s.words.clone()).unwrap();
+    assert!(!again.to_string().contains(&words.one), "the real answer must not leak through the replay");
     // the fixed draft passes the replay and then the live test
     let fixed = ok(&wizard, "verify", json!({"session": id, "toml": GOOD}));
     assert_eq!(fixed["ok"], true, "{}", fixed["text"]);
@@ -229,7 +240,7 @@ fn only_the_program_the_person_typed_ever_runs_whatever_other_names_the_draft_li
     let id = verified(&wizard, "fake-agent", &GOOD.replace("names = [\"fake-agent\"]", "names = [\"fake-agent\", \"silent-agent\"]"));
     let t = live(&wizard, &id);
     assert_eq!(t["ok"], true, "{}", t["text"]);
-    assert_eq!(stage(&t, "pong")["result"], "pong");
+    assert_eq!(stage(&t, "pong")["result"], "<word-1>");
 }
 
 #[test]
@@ -243,7 +254,8 @@ fn live_output_is_redacted_and_the_reply_is_capped() {
     }
     // stored samples are the redacted text
     let sample = wizard.read(&id, |s| s.samples[0].stdout.clone()).unwrap();
-    assert!(sample.contains("\"text\":\"pong\""));
+    let words = wizard.read(&id, |s| s.words.clone()).unwrap();
+    assert!(sample.contains(&format!("\"text\":\"{}\"", words.one)), "stored samples keep the real output for replay");
 }
 
 fn profile(text: &str) -> DeclarativeProfile {
@@ -254,12 +266,12 @@ fn profile(text: &str) -> DeclarativeProfile {
 fn judge_accepts_the_word_with_trailing_punctuation_and_quotes() {
     let p = profile(GOOD);
     let out = |text: &str| format!("{{\"event\":\"start\",\"session\":\"fk-1\"}}\n{{\"event\":\"end\",\"session\":\"fk-1\",\"text\":{}}}\n", serde_json::to_string(text).unwrap());
-    for answer in ["pong", "Pong.", "  PONG!\n", "\"pong\"", "`pong`"] {
-        let j = judge(&p, Stage::Pong, &out(answer), Some(0), None, true);
+    for answer in ["pong-qwerty", "Pong-Qwerty.", "  PONG-QWERTY!\n", "\"pong-qwerty\"", "`pong-qwerty`"] {
+        let j = judge(&p, Stage::Pong, "pong-qwerty", &out(answer), Some(0), None, true);
         assert!(j.passed(), "{answer:?}: {:?}", j.problems);
     }
-    for answer in ["pong2", "ping", "the word is pong", ""] {
-        let j = judge(&p, Stage::Pong, &out(answer), Some(0), None, true);
+    for answer in ["pong-other", "ping", "the word is pong-qwerty", ""] {
+        let j = judge(&p, Stage::Pong, "pong-qwerty", &out(answer), Some(0), None, true);
         assert!(!j.passed(), "{answer:?} must not pass");
     }
 }
@@ -267,38 +279,44 @@ fn judge_accepts_the_word_with_trailing_punctuation_and_quotes() {
 #[test]
 fn judge_checks_the_session_and_the_resume_id() {
     let p = profile(GOOD);
-    let body = "{\"event\":\"end\",\"session\":\"fk-1\",\"text\":\"pong2\"}\n";
-    assert!(judge(&p, Stage::Resume, body, Some(0), Some("fk-1"), true).passed());
-    let moved = judge(&p, Stage::Resume, body, Some(0), Some("fk-9"), true);
+    let body = "{\"event\":\"end\",\"session\":\"fk-1\",\"text\":\"pong-second\"}\n";
+    assert!(judge(&p, Stage::Resume, "pong-second", body, Some(0), Some("fk-1"), true).passed());
+    let moved = judge(&p, Stage::Resume, "pong-second", body, Some(0), Some("fk-9"), true);
     assert!(moved.problems[0].contains("does not continue"), "{:?}", moved.problems);
-    let no_session = "{\"event\":\"end\",\"text\":\"pong\"}\n";
-    let j = judge(&p, Stage::Pong, no_session, Some(0), None, true);
+    let no_session = "{\"event\":\"end\",\"text\":\"pong-one\"}\n";
+    let j = judge(&p, Stage::Pong, "pong-one", no_session, Some(0), None, true);
     assert!(j.problems.iter().any(|m| m.contains("no session id")), "{:?}", j.problems);
-    assert!(judge(&p, Stage::Pong, no_session, Some(0), None, false).passed(), "no session selector: nothing to find");
+    assert!(judge(&p, Stage::Pong, "pong-one", no_session, Some(0), None, false).passed(), "no session selector: nothing to find");
 }
 
 #[test]
 fn judge_wants_an_error_and_no_answer_for_a_wrong_model() {
     let p = profile(GOOD);
     let error = "{\"event\":\"error\",\"message\":\"Model not found: x.\"}\n";
-    let j = judge(&p, Stage::BadModel, error, Some(1), None, true);
+    let j = judge(&p, Stage::BadModel, "", error, Some(1), None, true);
     assert!(j.passed(), "{:?}", j.problems);
     assert_eq!(j.classified.as_ref().unwrap().0, "AGENT_REPORTED_ERROR");
     // an answer despite the wrong model is wrong
-    let answered = "{\"event\":\"end\",\"session\":\"s\",\"text\":\"pong\"}\n";
-    assert!(!judge(&p, Stage::BadModel, answered, Some(0), None, true).passed());
+    let answered = "{\"event\":\"end\",\"session\":\"s\",\"text\":\"pong-one\"}\n";
+    assert!(!judge(&p, Stage::BadModel, "", answered, Some(0), None, true).passed());
     // nothing recognisable and a clean exit is wrong too (not recognised as an error)
-    assert!(!judge(&p, Stage::BadModel, "", Some(0), None, true).passed());
+    assert!(!judge(&p, Stage::BadModel, "", "", Some(0), None, true).passed());
 }
 
 #[test]
 fn stage_args_render_the_same_command_the_run_used() {
     let def = crate::tui::declarative::schema::parse_definition(GOOD).unwrap();
+    let words = TestWords { one: "pong-aaaaaa".into(), two: "pong-bbbbbb".into(), sky: "cccccc".into() };
     assert_eq!(
-        stage_args(&def, Stage::Resume, "W", Some("fk-7")),
-        ["run", "--format", "json", "-s", "fk-7", "--", "Reply with exactly the word: pong2"]
+        stage_args(&def, Stage::Resume, "W", Some("fk-7"), &words),
+        ["run", "--format", "json", "-s", "fk-7", "--", "Reply with exactly the word: pong-bbbbbb"]
     );
-    assert_eq!(stage_args(&def, Stage::BadModel, "W", None)[3], "-m");
+    assert_eq!(stage_args(&def, Stage::BadModel, "W", None, &words)[3], "-m");
+    assert_eq!(
+        stage_args(&def, Stage::Sentence, "W", None, &words),
+        ["run", "--format", "json", "--", "Reply with exactly: the sky is cccccc."]
+    );
+    assert_eq!(mask_words("pong-aaaaaa / the sky is cccccc. / pong-bbbbbb", &words), "<word-1> / the sky is <word-3>. / <word-2>");
 }
 
 #[test]
@@ -320,17 +338,18 @@ fn verify_shows_the_exact_commands_the_live_test_will_run() {
     let planned = &v["planned"];
     assert!(planned["program"]["path"].as_str().unwrap().to_lowercase().contains("fake-agent"));
     let stages = planned["stages"].as_array().unwrap();
-    assert_eq!(stages.iter().map(|s| s["name"].as_str().unwrap()).collect::<Vec<_>>(), ["pong", "resume", "bad_model"]);
+    assert_eq!(stages.iter().map(|s| s["name"].as_str().unwrap()).collect::<Vec<_>>(), ["pong", "sentence", "resume", "bad_model"]);
     assert_eq!(stages[0]["args"], json!(["run", "--format", "json", "--", "<test message>"]));
-    assert_eq!(stages[1]["args"], json!(["run", "--format", "json", "-s", "<session id>", "--", "<test message>"]));
-    assert_eq!(stages[2]["args"], json!(["run", "--format", "json", "-m", BAD_MODEL, "--", "<test message>"]));
+    assert_eq!(stages[1]["args"], json!(["run", "--format", "json", "--", "<test message>"]));
+    assert_eq!(stages[2]["args"], json!(["run", "--format", "json", "-s", "<session id>", "--", "<test message>"]));
+    assert_eq!(stages[3]["args"], json!(["run", "--format", "json", "-m", BAD_MODEL, "--", "<test message>"]));
     assert_eq!(planned["fingerprint"].as_str().unwrap(), super::support::plan_of(&wizard, &id));
     // a draft that fails verify has no plan
     let bad = ok(&wizard, "verify", json!({"session": id, "toml": "schema_version = 1\nnonsense = 1\n"}));
     assert!(bad.get("planned").is_none());
     // stages that do not apply are not planned
     let minimal = ok(&wizard, "verify", json!({"session": id, "toml": MINIMAL}));
-    assert_eq!(minimal["planned"]["stages"].as_array().unwrap().len(), 1);
+    assert_eq!(minimal["planned"]["stages"].as_array().unwrap().len(), 2);
 }
 
 #[test]
@@ -380,4 +399,101 @@ fn a_change_that_does_not_touch_the_commands_keeps_the_same_fingerprint() {
     // only the label changes: the commands are the same, so no new confirmation is needed
     let v = ok(&wizard, "verify", json!({"session": id, "toml": GOOD.replace("Fake Agent", "Renamed")}));
     assert_eq!(v["planned"]["fingerprint"], first);
+}
+
+const ONE_WORD_REGEX: &str = r#"schema_version = 1
+[agent]
+id = "raw_agent"
+label = "Raw"
+experimental = true
+[binary]
+names = ["raw-agent"]
+windows_extensions = ["exe"]
+[headless]
+argv = ["run"]
+task_separator = "--"
+[headless.output]
+format = "plain_text"
+[headless.output.result]
+path = "line"
+regex = '(?m)^\s*(\S+)\s*$'
+pick = "last"
+"#;
+
+#[test]
+fn a_one_word_regex_passes_the_first_stage_but_the_sentence_stage_catches_it() {
+    let tree = Tree::new("l-sentence");
+    let wizard = tree.wizard();
+    let id = verified(&wizard, "raw-agent", ONE_WORD_REGEX);
+    let t = live(&wizard, &id);
+    assert_eq!(t["ok"], false);
+    assert_eq!(stage(&t, "pong")["status"], "passed", "a one-word answer is read by any one-word regex");
+    assert_eq!(stage(&t, "sentence")["status"], "failed");
+    assert_eq!(stage(&t, "resume")["status"], "skipped");
+    assert_eq!(t["errors"][0]["code"], "LIVETEST_SENTENCE_FAILED");
+    let words = wizard.read(&id, |s| s.words.clone()).unwrap();
+    assert!(!t.to_string().contains(&words.sky), "the answer is masked even in the failure text");
+    assert!(t["text"].as_str().unwrap().contains("<word-3>"), "{}", t["text"]);
+}
+
+#[test]
+fn a_draft_that_is_built_around_the_test_answers_is_rejected_by_verify() {
+    let tree = Tree::new("l-gamed");
+    let wizard = tree.wizard();
+    let id = start(&wizard, "fake-agent");
+    ok(&wizard, "probe", json!({"session": id}));
+    let words = wizard.read(&id, |s| s.words.clone()).unwrap();
+    let with_words = |extra: &str| format!("{GOOD}\n# {extra}\n");
+    for leaked in [
+        with_words(&words.one),
+        with_words(&words.two),
+        with_words(&format!("the sky is {}.", words.sky)),
+        with_words("pong"),
+        with_words("Pong"),
+        with_words("pong-[a-z]+"),
+        GOOD.replace("path = \"text\"", "path = \"text\"\nregex = '^(pong2?)$'"),
+    ] {
+        let v = ok(&wizard, "verify", json!({"session": id, "toml": leaked}));
+        assert_eq!(v["ok"], false, "{leaked}");
+        let codes: Vec<&str> = v["errors"].as_array().unwrap().iter().map(|e| e["code"].as_str().unwrap()).collect();
+        assert!(codes.contains(&"WIZARD_TEST_WORD"), "{codes:?} for {leaked}");
+        for w in words.all() {
+            assert!(!v.to_string().contains(w), "the error must not give the word away");
+        }
+    }
+    // words that merely start with the same letters are fine
+    assert_eq!(ok(&wizard, "verify", json!({"session": id, "toml": with_words("pongo is a game")}))["ok"], true);
+    assert_eq!(ok(&wizard, "verify", json!({"session": id, "toml": GOOD}))["ok"], true);
+}
+
+#[test]
+fn the_answers_are_random_per_session_and_look_like_pong_and_six_letters() {
+    let tree = Tree::new("l-words");
+    let wizard = tree.wizard();
+    let a = start(&wizard, "fake-agent");
+    let b = start(&wizard, "fake-agent");
+    let wa = wizard.read(&a, |s| s.words.clone()).unwrap();
+    let wb = wizard.read(&b, |s| s.words.clone()).unwrap();
+    assert_ne!(wa, wb);
+    for w in [&wa, &wb] {
+        for one in [&w.one, &w.two] {
+            assert!(regex::Regex::new(r"^pong-[a-z]{6}$").unwrap().is_match(one), "{one}");
+        }
+        assert!(regex::Regex::new(r"^[a-z]{6}$").unwrap().is_match(&w.sky), "{}", w.sky);
+        assert_ne!(w.one, w.two);
+        assert_eq!(w.sentence(), format!("the sky is {}.", w.sky));
+    }
+}
+
+#[test]
+fn the_sentence_must_match_word_for_word_but_not_in_case_quotes_or_the_final_stop() {
+    let p = profile(GOOD);
+    let out = |text: &str| format!("{{\"event\":\"end\",\"session\":\"s\",\"text\":{}}}\n", serde_json::to_string(text).unwrap());
+    let want = "the sky is abcdef.";
+    for answer in ["the sky is abcdef.", "The sky is abcdef", "\"the sky is abcdef.\"", " the  sky is abcdef!\n"] {
+        assert!(judge(&p, Stage::Sentence, want, &out(answer), Some(0), None, true).passed(), "{answer:?}");
+    }
+    for answer in ["abcdef", "the sky is blue", "the sky is abcdef and green", ""] {
+        assert!(!judge(&p, Stage::Sentence, want, &out(answer), Some(0), None, true).passed(), "{answer:?}");
+    }
 }

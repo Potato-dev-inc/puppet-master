@@ -37,7 +37,7 @@ pub fn fix_for(code: &str, path: &str) -> String {
         "AGENT_DEF_FIELD_RESERVED" => "Remove that field; it is reserved for a later version.",
         "AGENT_DEF_INCONSISTENT" => {
             if by_path("path") {
-                "Add `path = \"...\"`: the dotted path of the value inside one output line, for example path = \"part.text\"."
+                "Add `path = \"...\"`: the dotted path of the value inside one output line, for example path = \"part.text\". (For plain_text output the path is not used, but the field must be there: path = \"line\".)"
             } else if by_path("result") {
                 "Add a `[headless.output.result]` table that says where the final answer is, with `where`, `path` and `pick`."
             } else if by_path("output") {
@@ -58,6 +58,9 @@ pub fn fix_for(code: &str, path: &str) -> String {
         "WIZARD_BINARY_UNRESOLVED" => {
             "The program could not be found with these names. Use the exact command the person typed. For an npm wrapper, add `shim_native_globs` pointing at the real .exe (see the format guide, section 8)."
         }
+        "WIZARD_TEST_WORD" => {
+            "Remove that word. Write the result selector so it reads any answer from the output (by event type and field path), not the text of one particular answer."
+        }
         "WIZARD_KIND" => "Remove `kind = \"generic\"` (or set `kind = \"cli\"`). A generic agent has no headless table.",
         "FIXTURE_FAILED" => {
             "The real or generated output was not read the way the fixture expects. Compare your `where`, `path` and `pick` with the real output lines shown, and fix the selector that is wrong."
@@ -71,7 +74,7 @@ pub fn fix_for(code: &str, path: &str) -> String {
         "LIVETEST_SPAWN_FAILED" => {
             "The program could not be started with these arguments. Check `binary.names` and `shim_native_globs`."
         }
-        "LIVETEST_PONG_FAILED" | "LIVETEST_RESUME_FAILED" | "LIVETEST_BAD_MODEL_FAILED" => {
+        "LIVETEST_PONG_FAILED" | "LIVETEST_SENTENCE_FAILED" | "LIVETEST_RESUME_FAILED" | "LIVETEST_BAD_MODEL_FAILED" => {
             "Read the real output below and change the selectors (or the arguments) so the result, session id and errors are found in it."
         }
         c if c.starts_with("CONFORMANCE_") => conformance_hint(c),

@@ -60,7 +60,7 @@ pub fn sample_files(profile: &DeclarativeProfile, format: OutputFormat, samples:
         let exit = sample.exit.unwrap_or(0);
         let mut expect = String::new();
         match sample.stage {
-            Stage::Pong | Stage::Resume => {
+            Stage::Pong | Stage::Sentence | Stage::Resume => {
                 let result = profile.extract_result(&sample.stdout, exit).unwrap_or_default();
                 expect.push_str(&format!("result = {}\n", quote(&result)));
                 if has_session {

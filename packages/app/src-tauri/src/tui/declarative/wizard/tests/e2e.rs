@@ -76,7 +76,7 @@ fn a_good_first_draft_goes_from_command_to_unapproved_definition() {
     let file = tree.agents.join("fake_agent.toml");
     let report = check_report(&file, None, &["claude", "codex"]).unwrap();
     assert_eq!(report.status, "ran");
-    assert_eq!(report.results.len(), 4);
+    assert_eq!(report.results.len(), 5);
     assert!(report.results.iter().all(|r| r.passed), "{:?}", report.results);
 
     let ids = ["claude", "codex", "opencode", "opencode_native", "cursor", "cursor_agent", "cmd", "powershell", "bash"];
@@ -104,7 +104,7 @@ fn two_bad_drafts_are_fixed_from_the_checker_text_and_the_real_output() {
     let prov: Value = serde_json::from_str(&std::fs::read_to_string(tree.agents.join("fake_agent.wizard.json")).unwrap()).unwrap();
     assert_eq!(prov["rounds"], 3);
     assert_eq!(prov["drafter"]["name"], "Stand-in drafter");
-    assert_eq!(check_report(&tree.agents.join("fake_agent.toml"), None, &["claude"]).unwrap().results.len(), 4);
+    assert_eq!(check_report(&tree.agents.join("fake_agent.toml"), None, &["claude"]).unwrap().results.len(), 5);
 }
 
 #[test]

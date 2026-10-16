@@ -98,7 +98,7 @@ fn start_finds_the_program_and_reads_its_version() {
     assert_eq!(out["version"]["ok"], true);
     assert_eq!(out["version"]["number"], "1.4.2");
     assert!(out["session"].as_str().unwrap().starts_with("wz_"));
-    assert!(out["cost_note"].as_str().unwrap().contains("3 small messages"));
+    assert!(out["cost_note"].as_str().unwrap().contains("4 small messages"));
     assert_eq!(out["limits"]["probe_timeout_ms"], 5000);
     assert_eq!(out["limits"]["probe_max_runs"], 16);
     // the work folder exists, in the temp root

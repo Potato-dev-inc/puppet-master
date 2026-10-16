@@ -1,6 +1,7 @@
-//! Live test (SPEC 5): run the verified draft three times against the real program. "pong" must
-//! produce `pong`, resuming with the session id must produce `pong2`, and a wrong model name must be
-//! classified as an error. Stops at the first failed stage so no plan is wasted. The outputs are kept
+//! Live test (SPEC 5): run the verified draft against the real program. A one-word answer, a short
+//! sentence (spaces and punctuation, so a one-word regex fails), a resumed turn with the session id, and
+//! a wrong model name that must be classified as an error. The expected answers are random per session
+//! (`session::TestWords`) and are masked in everything shown to the drafter. Stops at the first failed stage so no plan is wasted. The outputs are kept
 //! as samples (replayed for free by the next `verify`) and, when all stages pass, become fixtures.
 
 use std::path::PathBuf;
@@ -18,29 +19,48 @@ use crate::tui::TuiProfile;
 
 use super::exec::{self, RunSpec};
 use super::report::{render, CheckError, Source as ReportSource, WizardError};
-use super::session::{Draft, Sample, Session, Stage, StageSummary, State, Tested, Wizard, WizardEnv};
+use super::session::{Draft, Sample, Session, Stage, StageSummary, State, TestWords, Tested, Wizard, WizardEnv};
 
-pub const PONG_TASK: &str = "Reply with exactly the word: pong";
-pub const PONG2_TASK: &str = "Reply with exactly the word: pong2";
 pub const BAD_MODEL: &str = "pm-wizard-no-such-model/zzz";
 /// How much of each stream goes back to the UI (the full capped output is kept in the session).
 pub const REPLY_STREAM_CHARS: usize = 8 * 1024;
 
-/// The task and model of a stage.
-pub fn stage_inputs(stage: Stage) -> (&'static str, Option<&'static str>) {
+/// The task text of a stage, with this session's random words in it.
+pub fn stage_task(stage: Stage, words: &TestWords) -> String {
     match stage {
-        Stage::Pong => (PONG_TASK, None),
-        Stage::Resume => (PONG2_TASK, None),
-        Stage::BadModel => (PONG_TASK, Some(BAD_MODEL)),
+        Stage::Pong | Stage::BadModel => format!("Reply with exactly the word: {}", words.one),
+        Stage::Sentence => format!("Reply with exactly: {}", words.sentence()),
+        Stage::Resume => format!("Reply with exactly the word: {}", words.two),
     }
 }
 
+/// The answer a stage expects (empty for the wrong-model stage, which must give no answer).
+pub fn stage_want(stage: Stage, words: &TestWords) -> String {
+    match stage {
+        Stage::Pong => words.one.clone(),
+        Stage::Sentence => words.sentence(),
+        Stage::Resume => words.two.clone(),
+        Stage::BadModel => String::new(),
+    }
+}
+
+/// The model of a stage.
+pub fn stage_model(stage: Stage) -> Option<&'static str> {
+    (stage == Stage::BadModel).then_some(BAD_MODEL)
+}
+
+/// Replace the live-test answers in text that goes to the drafter or the UI (`<word-1>` ...).
+pub fn mask_words(text: &str, words: &TestWords) -> String {
+    text.replace(&words.one, "<word-1>").replace(&words.two, "<word-2>").replace(&words.sky, "<word-3>")
+}
+
 /// The argument list the draft renders for a stage (no program name).
-pub fn stage_args(def: &Definition, stage: Stage, project: &str, resume: Option<&str>) -> Vec<String> {
-    let (task, model) = stage_inputs(stage);
+pub fn stage_args(def: &Definition, stage: Stage, project: &str, resume: Option<&str>, words: &TestWords) -> Vec<String> {
+    let task = stage_task(stage, words);
+    let model = stage_model(stage);
     let launch = HeadlessLaunch {
         project,
-        task,
+        task: &task,
         read_only: false,
         resume_session: resume,
         trust_workspace: false,
@@ -59,6 +79,18 @@ pub fn can_resume(def: &Definition) -> bool {
 
 pub fn has_model_option(def: &Definition) -> bool {
     def.headless.as_ref().is_some_and(|h| h.optional.iter().any(|s| s.when == "model"))
+}
+
+/// The answer with quotes, markdown marks and a final full stop or "!" taken off, lowercase, spaces folded.
+fn plain_answer(got: &str) -> String {
+    let quotes = |c: char| matches!(c, '"' | '\'' | '`' | '*' | '_');
+    let trimmed = got.trim().trim_matches(quotes).trim_end_matches(['.', '!', ' ']).trim_matches(quotes);
+    trimmed.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// The sentence stage: the same words in the same order (case, quotes and the final stop do not matter).
+fn same_sentence(got: &str, want: &str) -> bool {
+    plain_answer(got) == plain_answer(want)
 }
 
 fn same_word(got: &str, want: &str) -> bool {
@@ -91,6 +123,7 @@ impl Judged {
 pub fn judge(
     profile: &DeclarativeProfile,
     stage: Stage,
+    want: &str,
     stdout: &str,
     exit: Option<i32>,
     prior_session: Option<&str>,
@@ -108,10 +141,10 @@ pub fn judge(
         None => String::new(),
     };
     match stage {
-        Stage::Pong | Stage::Resume => {
-            let want = if stage == Stage::Pong { "pong" } else { "pong2" };
+        Stage::Pong | Stage::Sentence | Stage::Resume => {
+            let matches = |r: &str| if stage == Stage::Sentence { same_sentence(r, want) } else { same_word(r, want) };
             match &result {
-                Some(r) if same_word(r, want) => {
+                Some(r) if matches(r) => {
                     if classified.as_ref().is_some_and(|(c, _)| c == "AGENT_REPORTED_ERROR") {
                         problems.push(format!(
                             "a result was found but the output also reports an error.{}",
@@ -122,7 +155,7 @@ pub fn judge(
                 Some(r) => problems.push(format!("the result read from the output was {r:?}, expected {want:?}.")),
                 None => problems.push(format!("no result was found in the output; expected {want:?}.{}", said(&classified))),
             }
-            if has_session && session.is_none() {
+            if has_session && session.is_none() && stage != Stage::Sentence {
                 problems.push("no session id was found (the `session` selector matched nothing), so a follow-up turn cannot resume.".into());
             }
             if stage == Stage::Resume {
@@ -168,7 +201,7 @@ pub struct Plan {
 }
 
 fn planned_args(def: &Definition, stage: Stage) -> Vec<String> {
-    let (_, model) = stage_inputs(stage);
+    let model = stage_model(stage);
     let launch = HeadlessLaunch {
         project: "<work folder>",
         task: "<test message>",
@@ -187,7 +220,7 @@ pub fn plan(session: &Session, def: &Definition) -> Result<Plan, String> {
     let mut table = def.binary.clone();
     table.names = vec![session.command.clone()];
     let program = resolve_in(&table, &session.dirs, Platform::current()).map_err(|e| e.to_string())?;
-    let mut stages = vec![Stage::Pong];
+    let mut stages = vec![Stage::Pong, Stage::Sentence];
     if can_resume(def) {
         stages.push(Stage::Resume);
     }
@@ -304,16 +337,19 @@ impl Runner<'_> {
     /// Run one stage; returns the report and, when the program ran, the sample.
     fn stage(&self, stage: Stage, resume: Option<&str>, prior: Option<&str>) -> (StageReport, Option<Sample>, Option<CheckError>) {
         let project = self.session.work_dir.to_string_lossy().into_owned();
-        let (task, model) = stage_inputs(stage);
+        let words = &self.session.words;
+        let task = stage_task(stage, words);
+        let want = stage_want(stage, words);
         let launch = HeadlessLaunch {
             project: &project,
-            task,
+            task: &task,
             read_only: false,
             resume_session: resume,
             trust_workspace: false,
             allow_shell: false,
-            model,
+            model: stage_model(stage),
         };
+        let mask = |text: &str| mask_words(text, words);
         let spec = match self.profile.headless_spec(&launch, self.program.clone()) {
             Ok(spec) => spec,
             Err(message) => {
@@ -349,13 +385,14 @@ impl Runner<'_> {
             stdout: stdout.clone(),
             stderr: stderr.clone(),
             exit,
+            want: want.clone(),
             resume_session: resume.map(str::to_string),
         };
         let mut report = StageReport {
             name: stage.as_str(),
             label: stage.label(),
             status: "passed",
-            args: spec.args.clone(),
+            args: spec.args.iter().map(|a| mask(a)).collect(),
             exit,
             duration_ms: out.duration.as_millis() as u64,
             timed_out: out.timed_out,
@@ -364,16 +401,17 @@ impl Runner<'_> {
             error_code: None,
             problems: Vec::new(),
             note: None,
-            stdout: exec::cut_chars(&stdout, REPLY_STREAM_CHARS),
-            stderr: exec::cut_chars(&stderr, REPLY_STREAM_CHARS),
+            stdout: exec::cut_chars(&mask(&stdout), REPLY_STREAM_CHARS),
+            stderr: exec::cut_chars(&mask(&stderr), REPLY_STREAM_CHARS),
         };
         let code_name = format!("LIVETEST_{}_FAILED", stage.as_str().to_ascii_uppercase());
-        let shown = format!("`{}`", spec.args.join(" "));
+        let shown = mask(&format!("`{}`", spec.args.join(" ")));
         let fail = |report: &mut StageReport, code: String, message: String| {
+            let message = mask(&message);
             report.status = "failed";
             report.problems.push(message.clone());
             CheckError::new("livetest", code, stage.as_str(), format!("{message} The command was {shown}."))
-                .with_excerpt(if stdout.trim().is_empty() { &stderr } else { &stdout })
+                .with_excerpt(&mask(if stdout.trim().is_empty() { &stderr } else { &stdout }))
         };
         if let Some(e) = &out.spawn_error {
             let err = fail(&mut report, "LIVETEST_SPAWN_FAILED".into(), format!("the program could not be started: {e}."));
@@ -396,8 +434,8 @@ impl Runner<'_> {
             let err = fail(&mut report, "LIVETEST_NO_OUTPUT".into(), "the program printed nothing on stdout.".into());
             return (report, Some(sample), Some(err));
         }
-        let judged = judge(self.profile, stage, &stdout_plain, exit, prior, self.has_session());
-        report.result = judged.result.clone();
+        let judged = judge(self.profile, stage, &want, &stdout_plain, exit, prior, self.has_session());
+        report.result = judged.result.as_deref().map(mask);
         report.session = judged.session.clone();
         report.error_code = judged.classified.as_ref().map(|(c, _)| c.clone());
         if !judged.passed() {
@@ -444,8 +482,20 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
     outcome.samples.extend(sample);
     outcome.errors.extend(error);
     if !pong_passed {
+        outcome.stages.push(StageReport::skipped(Stage::Sentence, "not run: the first stage failed"));
         outcome.stages.push(StageReport::skipped(Stage::Resume, "not run: the first stage failed"));
         outcome.stages.push(StageReport::skipped(Stage::BadModel, "not run: the first stage failed"));
+        return outcome;
+    }
+
+    let (sentence, sample, error) = runner.stage(Stage::Sentence, None, None);
+    let sentence_passed = sentence.status == "passed";
+    outcome.stages.push(sentence);
+    outcome.samples.extend(sample);
+    outcome.errors.extend(error);
+    if !sentence_passed {
+        outcome.stages.push(StageReport::skipped(Stage::Resume, "not run: the sentence stage failed"));
+        outcome.stages.push(StageReport::skipped(Stage::BadModel, "not run: the sentence stage failed"));
         return outcome;
     }
 

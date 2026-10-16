@@ -156,7 +156,7 @@ pub fn display_path(path: &Path) -> String {
 
 fn cost_note(command: &str) -> String {
     format!(
-        "The live test runs {command} 3 times with tiny messages (about 3 small messages per try). It uses your own {command} account or plan."
+        "The live test runs {command} 4 times with tiny messages (about 4 small messages per try). It uses your own {command} account or plan."
     )
 }
 
@@ -182,6 +182,7 @@ pub fn start(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
         kind: located.kind,
         version: version.clone(),
         native_candidates: located.native_candidates.clone(),
+        words: super::session::TestWords::random(),
         dirs,
         work_dir: work_dir.clone(),
         state: State::Resolved,
