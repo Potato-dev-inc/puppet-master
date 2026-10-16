@@ -13,6 +13,9 @@ use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
 use super::report::WizardError;
+use super::visible::capture::CaptureSet;
+use super::visible::host::{LiveHost, PaneHost};
+use super::visible::runner::{CaptureRun, RunnerCfg};
 
 pub const MAX_SESSIONS: usize = 3;
 pub const IDLE_LIMIT: Duration = Duration::from_secs(2 * 60 * 60);
@@ -98,6 +101,10 @@ pub struct WizardEnv {
     pub code_ids: Vec<String>,
     pub app_build: String,
     pub limits: Limits,
+    /// The panes the visible path starts (SPEC 11.3): the real pane registry in the app, a script in tests.
+    pub host: Arc<dyn PaneHost>,
+    /// How the guided capture ticks and which limits it uses.
+    pub visible: RunnerCfg,
 }
 
 impl WizardEnv {
@@ -109,6 +116,8 @@ impl WizardEnv {
             code_ids: crate::tui::registry::registry().code_ids().into_iter().map(String::from).collect(),
             app_build: env!("PM_BUILD_ID").to_string(),
             limits: Limits::default(),
+            host: Arc::new(LiveHost),
+            visible: RunnerCfg::default(),
         }
     }
 
@@ -206,10 +215,67 @@ pub struct Sample {
     pub resume_session: Option<String>,
 }
 
+/// The result of a visible test that passed for one exact draft.
+#[derive(Debug, Clone)]
+pub struct VisibleTested {
+    pub draft_sha256: String,
+    pub passed: usize,
+    pub total: usize,
+    pub version: Option<String>,
+}
+
+/// What the visible path keeps in a session. Shared (an `Arc`) because the capture runs on its own
+/// thread across many requests while the session itself is copied out for each long step.
+#[derive(Default)]
+pub struct VisibleData {
+    /// The running or finished capture, with its pane.
+    pub run: Mutex<Option<Arc<CaptureRun>>>,
+    /// The final capture set (after `capture finish`).
+    pub captures: Mutex<Option<CaptureSet>>,
+    /// The pane of a visible test while it runs, with its transient profile id (so cancel can close it).
+    pub test_pane: Mutex<Option<(String, String)>>,
+    /// The screens of the last failed visible test: (check name, masked screen), shown to the next round.
+    pub test_samples: Mutex<Vec<(String, String)>>,
+    /// What the visible test is doing right now (`capture` op `test_status`).
+    pub test_status: Mutex<serde_json::Value>,
+    /// The last looks of the capture (masked), kept when it stopped, was marked stuck or finished, so
+    /// "why did it stop" can still be answered (`capture` op `debug`).
+    pub debug: Mutex<Option<serde_json::Value>>,
+}
+
+impl std::fmt::Debug for VisibleData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("VisibleData")
+    }
+}
+
+impl VisibleData {
+    /// True once a capture produced at least one screen: the session then takes the visible path.
+    pub fn has_captures(&self) -> bool {
+        self.captures.lock().as_ref().is_some_and(|set| !set.frames.is_empty())
+    }
+
+    /// Stop the capture and close every pane this session opened.
+    pub fn shut_down(&self, host: &dyn PaneHost) {
+        let run = self.run.lock().take();
+        if let Some(run) = run {
+            run.stop_and_join();
+        }
+        let test = self.test_pane.lock().take();
+        if let Some((pane, profile)) = test {
+            host.kill(&pane);
+            crate::tui::registry::registry().remove_transient(&profile);
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Draft {
     pub text: String,
     pub sha256: String,
+    /// The expectation extras the drafter added for the screen captures (`# expect: tui_idle` blocks),
+    /// by capture name. Not part of the definition file, so not part of its digest.
+    pub expects: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -251,6 +317,9 @@ pub struct Session {
     pub draft: Option<Draft>,
     pub samples: Vec<Sample>,
     pub tested: Option<Tested>,
+    /// The visible test passed for this draft (SPEC 11.9).
+    pub visible_tested: Option<VisibleTested>,
+    pub visible: Arc<VisibleData>,
     pub busy: Option<&'static str>,
     pub cancel: Arc<AtomicBool>,
 }
@@ -310,7 +379,9 @@ impl Wizard {
             .collect();
         for id in stale {
             if let Some(s) = map.remove(&id) {
-                remove_work_dir(&s.lock().work_dir);
+                let s = s.lock();
+                s.visible.shut_down(&*self.env().host);
+                remove_work_dir(&s.work_dir);
             }
         }
         let live = map.values().filter(|s| s.lock().state != State::Cancelled).count();
@@ -360,7 +431,9 @@ impl Wizard {
         s.busy = None;
         if s.state == State::Cancelled {
             let dir = s.work_dir.clone();
+            let visible = s.visible.clone();
             drop(s);
+            visible.shut_down(&*self.env().host);
             remove_work_dir(&dir);
             self.sessions.lock().remove(id);
             return Err(WizardError::new(409, "WIZARD_CANCELLED", "the wizard session was cancelled"));
@@ -376,7 +449,9 @@ impl Wizard {
             s.busy = None;
             if s.state == State::Cancelled {
                 let dir = s.work_dir.clone();
+                let visible = s.visible.clone();
                 drop(s);
+                visible.shut_down(&*self.env().host);
                 remove_work_dir(&dir);
                 self.sessions.lock().remove(id);
             }
@@ -404,7 +479,9 @@ impl Wizard {
         s.state = State::Cancelled;
         let dir = s.work_dir.clone();
         let busy = s.busy.is_some();
+        let visible = s.visible.clone();
         drop(s);
+        visible.shut_down(&*self.env().host);
         remove_work_dir(&dir);
         if !busy {
             self.sessions.lock().remove(id);
@@ -422,10 +499,46 @@ impl Wizard {
 
     /// A finished session is dropped; its work folder goes with it.
     pub fn drop_finished(&self, id: &str) {
-        if let Some(slot) = self.sessions.lock().remove(id) {
-            remove_work_dir(&slot.lock().work_dir);
+        let removed = self.sessions.lock().remove(id);
+        if let Some(slot) = removed {
+            let s = slot.lock();
+            s.visible.shut_down(&*self.env().host);
+            remove_work_dir(&s.work_dir);
         }
     }
+}
+
+#[cfg(feature = "dev-fake-tui")]
+impl Wizard {
+    /// Benchmark only: give a new session the words and the capture of an earlier run, so a later
+    /// process can verify and test drafts against the same screens.
+    pub fn bench_restore(&self, id: &str, words: TestWords, set: CaptureSet) -> Result<(), WizardError> {
+        let slot = self.lookup(id)?;
+        let mut s = slot.lock();
+        s.words = words;
+        *s.visible.captures.lock() = Some(set);
+        Ok(())
+    }
+}
+
+/// After a test passed: the session is `Tested` when every test the draft needs has passed for exactly
+/// this draft text (the headless live test if the draft has `[headless]`, the visible test if the
+/// session captured screens). Otherwise its state is left as it is.
+pub fn settle(s: &mut Session) {
+    if tests_complete(s) {
+        s.state = State::Tested;
+    }
+}
+
+/// Has every test the draft needs passed for exactly this draft text?
+pub fn tests_complete(s: &Session) -> bool {
+    let Some(draft) = &s.draft else { return false };
+    let def = crate::tui::declarative::schema::parse_definition(&draft.text).ok();
+    let needs_headless = def.as_ref().and_then(|d| d.headless.as_ref()).is_some_and(|h| h.output.is_some());
+    let needs_visible = s.visible.has_captures();
+    let headless_ok = s.tested.as_ref().is_some_and(|t| t.draft_sha256 == draft.sha256);
+    let visible_ok = s.visible_tested.as_ref().is_some_and(|t| t.draft_sha256 == draft.sha256);
+    (needs_headless || needs_visible) && (!needs_headless || headless_ok) && (!needs_visible || visible_ok)
 }
 
 /// Best effort: a folder in use on Windows is retried once the step ends.

@@ -14,6 +14,7 @@ use crate::tui::declarative::schema::{parse_definition, OutputFormat};
 use crate::tui::declarative::DeclarativeProfile;
 
 use super::fixtures::{self, FixtureFile};
+use super::visible::fixtures as visible_fixtures;
 use super::report::WizardError;
 use super::session::{Session, State, Wizard};
 
@@ -71,7 +72,9 @@ pub fn draft_extension(text: &str) -> &'static str {
 
 fn provenance_json(session: &Session, id: &str, p: &Provenance, sha: &str, passed: usize, total: usize, build: &str) -> Value {
     let tested = session.tested.as_ref();
-    json!({
+    let visible = session.visible_tested.as_ref();
+    let capture = session.visible.captures.lock().clone();
+    let mut body = json!({
         "wizard_schema": 1,
         "id": id,
         "command": session.command,
@@ -79,14 +82,21 @@ fn provenance_json(session: &Session, id: &str, p: &Provenance, sha: &str, passe
         "drafter": {"name": p.drafter, "kind": p.drafter_kind, "model": p.model},
         "prompt_version": p.prompt_version,
         "rounds": p.rounds,
-        "tested_version": tested.and_then(|t| t.version.clone()),
+        "tested_version": tested.and_then(|t| t.version.clone()).or_else(|| visible.and_then(|v| v.version.clone())),
         "definition_sha256": sha,
         "results": {
             "stages": tested.map(|t| t.stages.iter().map(|s| json!({"name": s.name, "status": s.status})).collect::<Vec<_>>()).unwrap_or_default(),
             "fixtures": {"passed": passed, "total": total},
         },
         "app_build": build,
-    })
+    });
+    if let Some(v) = visible {
+        body["results"]["visible"] = json!({"passed": v.passed, "total": v.total});
+    }
+    if let Some(set) = capture.filter(|set| !set.frames.is_empty()) {
+        body["capture"] = json!({"grid": {"cols": set.grid.0, "rows": set.grid.1}, "partial": set.partial, "exit_method": set.exit_method});
+    }
+    body
 }
 
 /// Removes what `finish` created if it does not reach `commit`.
@@ -118,17 +128,33 @@ fn create_new(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
 /// Write everything for a tested session. Returns the response body (without a registry listing).
 pub fn write_session(session: &Session, agents_dir: &Path, provenance: &Provenance, build: &str) -> Result<Value, WizardError> {
     let draft = session.draft.as_ref().ok_or_else(|| WizardError::new(409, "WIZARD_BAD_STATE", "there is no verified draft"))?;
-    let tested = session
-        .tested
-        .as_ref()
-        .filter(|t| t.draft_sha256 == draft.sha256)
-        .ok_or_else(|| WizardError::new(409, "WIZARD_BAD_STATE", "the draft was not live tested; run the live test first"))?;
-    let _ = tested;
+    if !super::session::tests_complete(session) {
+        return Err(WizardError::new(
+            409,
+            "WIZARD_BAD_STATE",
+            "the draft was not tested; run the live test (one-task mode) and the visible test (visible pane) that apply to it first",
+        ));
+    }
     let def = parse_definition(&draft.text).map_err(|e| WizardError::new(409, "AGENT_DEF_INVALID", e.to_string()))?;
     let id = def.agent.id.clone();
+    let has_headless = def.headless.as_ref().is_some_and(|h| h.output.is_some());
     let format = def.headless.as_ref().and_then(|h| h.output.as_ref()).map_or(OutputFormat::JsonLines, |o| o.format);
     let profile = DeclarativeProfile::new(def).map_err(|e| WizardError::new(409, "AGENT_DEF_INVALID", e.to_string()))?;
-    let files: Vec<FixtureFile> = fixtures::final_files(&profile, format, &session.samples);
+    let mut files: Vec<FixtureFile> = if has_headless { fixtures::final_files(&profile, format, &session.samples) } else { Vec::new() };
+    let captured = session.visible.captures.lock().clone().filter(|set| !set.frames.is_empty());
+    if let Some(set) = &captured {
+        let head = visible_fixtures::header(&session.command, session.version.number.as_deref(), set.grid);
+        let (screens, problems) = visible_fixtures::files(set, &profile, &session.words, &draft.expects, &head);
+        if !problems.is_empty() {
+            let list: Vec<String> = problems.iter().map(|p| format!("{}: {}", p.name, p.message)).collect();
+            return Err(WizardError::new(
+                409,
+                "WIZARD_FIXTURES_FAILED",
+                format!("the screen fixtures are not valid, so nothing was written: {}", list.join(" | ")),
+            ));
+        }
+        files.extend(screens);
+    }
 
     // Stage and check first: nothing reaches the agents folder unless every fixture passes.
     let staging = session.work_dir.join("finish").join(&id);

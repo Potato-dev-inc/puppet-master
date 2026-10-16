@@ -26,10 +26,25 @@ pub async fn agent_wizard_probe(session: String) -> Result<Value, String> {
     run("probe", serde_json::json!({"session": session})).await
 }
 
-/// Check a draft; the answer lists every problem in words an AI can act on.
+/// Check a draft; the answer lists every problem in words an AI can act on. `expect` holds the drafter's
+/// optional expectation blocks for the screen captures, by capture name.
 #[tauri::command]
-pub async fn agent_wizard_verify(session: String, toml: String) -> Result<Value, String> {
-    run("verify", serde_json::json!({"session": session, "toml": toml})).await
+pub async fn agent_wizard_verify(session: String, toml: String, expect: Option<Value>) -> Result<Value, String> {
+    run("verify", serde_json::json!({"session": session, "toml": toml, "expect": expect})).await
+}
+
+/// The visible test: starts the draft in a new pane and checks it (uses the plan: two small messages).
+/// `plan` is the fingerprint of the planned start (`planned_visible`) the person was shown.
+#[tauri::command]
+pub async fn agent_wizard_visibletest(session: String, confirm: bool, plan: String) -> Result<Value, String> {
+    run("visibletest", serde_json::json!({"session": session, "confirm": confirm, "plan": plan})).await
+}
+
+/// The guided capture (plan, start, status, act, show, finish, captures, test_status, discard). `body` is
+/// the request without the action: `{session, op, ...}`.
+#[tauri::command]
+pub async fn agent_wizard_capture(body: Value) -> Result<Value, String> {
+    run("capture", body).await
 }
 
 /// The live test: runs the verified draft three times against the real program (uses the plan).

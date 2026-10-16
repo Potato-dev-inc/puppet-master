@@ -31,6 +31,9 @@ pub enum Layout {
     #[default]
     Claude,
     Codex,
+    /// An agent no profile knows (the Agent Wizard's end-to-end tests): a boxed `> ` input row, a braille
+    /// spinner with `ctrl+c to stop`, `reply:` rows and `Allow ...? [y/n]` questions.
+    Nimbus,
 }
 
 /// What a too-quick Enter does (the paste-burst quirk).
@@ -87,6 +90,7 @@ fn yes() -> bool {
 #[serde(rename_all = "snake_case")]
 pub enum GateKind {
     /// The folder-trust question. Claude: `No, exit` / `Yes, I trust this folder`. Codex: `1. Yes, continue` / `2. No, quit`.
+    /// Nimbus: `Do you trust the files in this folder?` with `1. Yes, trust this folder` / `2. No, exit`.
     Trust,
     /// Codex's "Update available" menu: Update now / Skip / Skip until next version.
     UpdateMenu,
@@ -218,6 +222,9 @@ pub enum Step {
     },
     /// Add literal rows to the transcript (a captured screen, a banner). No styling.
     Screen { text: String },
+    /// Show these rows and stop: no composer, no spinner, nothing moving, until a key arrives (then the
+    /// turn ends). A menu or question no profile has ever seen; only the nimbus layout draws it.
+    Hold { text: String },
 }
 
 fn crash_code() -> i32 {
@@ -287,14 +294,14 @@ impl Script {
     pub fn burst_ms(&self) -> u64 {
         self.paste_burst_ms.unwrap_or(match self.agent {
             Layout::Codex => 120,
-            Layout::Claude => 0,
+            Layout::Claude | Layout::Nimbus => 0,
         })
     }
 
     pub fn burst_effect(&self) -> BurstEffect {
         self.paste_burst_effect.unwrap_or(match self.agent {
             Layout::Codex => BurstEffect::Newline,
-            Layout::Claude => BurstEffect::Drop,
+            Layout::Claude | Layout::Nimbus => BurstEffect::Drop,
         })
     }
 }

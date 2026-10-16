@@ -5,7 +5,7 @@ A scriptable **fake agent TUI** for Puppet Master's end-to-end tests. It runs on
 It is a development tool. Nothing in the shipped app refers to it; the app side lives behind the `dev-fake-tui` cargo feature (`src-tauri/src/fake_tui/`) and is exercised by `src-tauri/tests/fake_tui_e2e.rs`.
 
 ```text
-pm-fake-tui [--agent claude|codex] [--script FILE.toml|FILE.json] [--check FILE]
+pm-fake-tui [--agent claude|codex|nimbus] [--script FILE.toml|FILE.json] [--check FILE]
 ```
 
 `--script` falls back to the `PM_FAKE_TUI_SCRIPT` environment variable. With no script it is a bare agent that answers every prompt with "OK". `--check FILE` validates a script and exits. `PM_FAKE_TUI_LOG=<file>` (or `log = "<file>"` in the script) appends one JSON line per event: `start`, `ready`, `key`, `prompt`, `approval_shown`, `approval_answer`, `gate_shown`, `gate_answer`, `write_file`, `limit`, `interrupted`, `turn_done`, `exit`.
@@ -16,6 +16,7 @@ pm-fake-tui [--agent claude|codex] [--script FILE.toml|FILE.json] [--check FILE]
 |---|---|
 | `claude` (2.1.299 classic) | banner, `❯` composer between two rules (no-break space after the glyph), the rotating `Try "..."` hint, a dimmed suggestion, the activity row `✢ Generating…` with `esc to interrupt` in the footer, `✻ Churned for 3s · done 15:27`, the folder-trust dialog, the `Bash command` approval, the `Edit file` / `Create file` approval, the `Press Ctrl-C again to exit` hint, the usage-limit line and the "continuing automatically ... esc to cancel" wait |
 | `codex` (0.162.1) | `>_ OpenAI Codex` banner (with `loading`), `›` composer with the dimmed "Ask Codex to do anything", the update menu (Update now / Skip / Skip until next version), the trust question, `• Working (0s • esc to interrupt)`, `• Failed (exit -1) <command>` with its reason, `Worked for 9s • 8:26 PM`, the `■` usage-limit line |
+| `nimbus` (made up) | An agent no profile knows, for the Agent Wizard's end-to-end tests (`src-tauri/tests/fake_tui_wizard.rs`): a banner row starting `NIMBUS 0.4.2`, the folder question `Do you trust the files in this folder?` (`1. Yes, trust this folder` / `2. No, exit`; keys `1`, `2`, Enter), a boxed input row (a `+---+` rule above and below, `> Type a task...` inside it with a dimmed placeholder), a braille spinner row `<spinner> Generating...  3s  ctrl+c to stop`, `> <your message>` and `reply: <text>` rows, `tool:` rows, `done in 3s`, the question `Allow nimbus to create hello.txt? [y/n]` (keys `y`, `n`), and `/exit` quits. In a script, `{last_word}` inside `say` or `write_file` text is the last word of the prompt that started the turn. A `hold {text}` step shows rows and stops: no composer, no spinner, nothing moving, until any key ends the turn. |
 
 Wording and glyphs are copied from the captures in `src-tauri/src/tui/{claude,codex}/fixtures/` and from `D:\pm-night\DESIGN-RELAY.md` §1.2 (limit texts). The app's tests read every screen back through the REAL `TuiProfile`, so a screen the profile stops recognising fails there.
 
@@ -26,7 +27,7 @@ Typing goes into the composer (Backspace, Ctrl+U, bracketed paste work). Enter s
 ## Script format
 
 ```toml
-agent = "claude"              # "claude" or "codex": which layout to draw
+agent = "claude"              # "claude", "codex" or "nimbus": which layout to draw
 version = "2.1.299"           # banner (optional)
 model = "Haiku 5.5 · Claude Pro"
 boot_ms = 300                 # loading screen before anything else

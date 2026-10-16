@@ -24,6 +24,7 @@ pub mod probe;
 pub mod report;
 pub mod session;
 pub mod verify;
+pub mod visible;
 
 #[cfg(test)]
 pub(crate) mod tests;

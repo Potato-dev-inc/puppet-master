@@ -1,0 +1,5 @@
+busy = false
+prompt_kind = ""
+menu = false
+ready = true
+not_chrome_lines = ["reply: <word-1>"]

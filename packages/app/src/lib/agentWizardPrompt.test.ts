@@ -3,12 +3,15 @@ import {
   buildPrompt,
   formatGuide,
   kiloHeadlessExample,
+  kiloVisibleExample,
   LOCAL_PROMPT_BUDGET,
   MIN_PROBE_CHARS,
   PROMPT_VERSION,
   relevance,
   REMOTE_PROMPT_BUDGET,
   sliceDoc,
+  visibleGuide,
+  type CaptureFacts,
   type PromptFacts,
 } from './agentWizardPrompt';
 
@@ -28,7 +31,7 @@ const facts = (over: Partial<PromptFacts> = {}): PromptFacts => ({
 
 describe('prompt sources', () => {
   it('has a version string', () => {
-    expect(PROMPT_VERSION).toBe('4');
+    expect(PROMPT_VERSION).toBe('5');
   });
 
   it('finds every section of the format guide it needs (guards a renamed heading)', () => {
@@ -248,5 +251,143 @@ describe('the test description in the prompt', () => {
     expect(text).toContain('even though you have not seen a sample');
     expect(text).toContain('Prefer it to plain text');
     expect(text).toContain('Never put an expected answer word inside a regex');
+  });
+});
+
+// ---- the visible prompt (v5, SPEC 11.7) ------------------------------------------------------
+
+const idle = [
+  'NIMBUS 0.4 ready',
+  '',
+  '+------------------------------+',
+  '| > Type a task...             |',
+  '+------------------------------+',
+].join('\n');
+
+const captures = (over: Partial<CaptureFacts['facts']> = {}): CaptureFacts => ({
+  grid: { cols: 120, rows: 40 },
+  files: [
+    { name: 'tui_idle', text: idle, variants: ['| > Type a task... _'] },
+    { name: 'tui_working', text: 'NIMBUS\n\n> Reply with exactly the word: <word-1>\n\n⠋ Thinking...  ctrl+c to stop\n', variants: [] },
+    { name: 'tui_reply', text: 'NIMBUS\n\n> Reply with exactly the word: <word-1>\nreply: <word-1>\n', variants: [] },
+    { name: 'tui_permission', text: 'Allow nimbus to create hello.txt? [y/n]', variants: [] },
+  ],
+  facts: { exit_method: 'slash_exit', partial: [], skipped: [], hello_written: false, startup_dialogs: ['trust'], exit_screen: null, notes: [], ...over },
+});
+
+const visibleFacts = (over: Partial<PromptFacts> = {}) => facts({ captures: captures(), ...over });
+
+describe('the visible prompt', () => {
+  it('asks for the [tui] tables, shows the captures as data blocks and tells what the person answered', () => {
+    const text = buildPrompt(visibleFacts()).text;
+    expect(text).toContain('("visible mode")');
+    expect(text).toContain('<<<CAPTURE tui_idle');
+    expect(text).toContain('| > Type a task...');
+    expect(text).toContain('<<<VARIANTS tui_idle');
+    expect(text).toContain('Pane grid: 120 columns by 40 rows');
+    expect(text).toContain('Questions the agent asked at startup (answered by the person in the pane): trust.');
+    expect(text).toContain('How the agent ended: it quit on /exit.');
+    expect(text).toContain('[tui.ready]');
+    expect(text).toContain('# expect: <capture name>');
+    expect(text).toContain('Do not add a [headless] table');
+    expect(text).not.toContain('Prefer it to plain text'); // the headless rules are not in the visible prompt
+  });
+
+  it('carries the visible half of the guide and the worked example, not the headless examples', () => {
+    const text = buildPrompt(visibleFacts()).text;
+    expect(text).toContain('## 6. Visible (TUI) tables');
+    expect(text).toContain('## 7. Regex tips');
+    expect(text).toContain('Example: a complete visible definition and the screens it was written from (Nimbus');
+    expect(text).toContain('<<<CAPTURE tui_trust');
+    expect(text).toContain('# expect: tui_idle');
+    expect(text).toContain('Example: the visible half of another definition (Kilo');
+    expect(text).not.toContain('runFinished'); // Kiro's headless example
+    expect(text).not.toContain('## 5. Output parsers');
+  });
+
+  it('never contains the live-test words, and the captures show them masked', () => {
+    const text = buildPrompt(visibleFacts(), { maxChars: REMOTE_PROMPT_BUDGET }).text;
+    expect(text).not.toMatch(/pong/i);
+    expect(text).not.toMatch(/the sky is/i);
+    expect(text).toContain('<word-1>');
+  });
+
+  it('fits the budget with five full-size captures', () => {
+    const big = Array.from({ length: 40 }, (_, i) => `row ${i} `.padEnd(118, 'x')).join('\n');
+    const built = buildPrompt(
+      visibleFacts({
+        captures: {
+          ...captures(),
+          files: ['tui_trust', 'tui_idle', 'tui_working', 'tui_reply', 'tui_permission'].map((name) => ({ name, text: big, variants: [] })),
+        },
+      }),
+    );
+    expect(built.chars).toBeLessThanOrEqual(LOCAL_PROMPT_BUDGET);
+    expect(built.overBudget).toBe(false);
+  });
+
+  it('says plainly what is missing: skipped and partial steps, and an agent that wrote the file without asking', () => {
+    const base = captures({ skipped: ['exit'], partial: ['message'], hello_written: true, startup_dialogs: [] });
+    const text = buildPrompt(visibleFacts({ captures: { ...base, files: base.files.filter((f) => f.name !== 'tui_permission') } })).text;
+    expect(text).toContain('Steps that were skipped: exit.');
+    expect(text).toContain('Steps whose capture is partial: message.');
+    expect(text).toContain('This agent writes files without asking');
+    expect(text).toContain('The agent asked no question at startup.');
+  });
+
+  it('leave-one-out: omitExample kilo drops its [tui] half but the worked example stays', () => {
+    const both = buildPrompt(visibleFacts());
+    const noKilo = buildPrompt(visibleFacts(), { omitExample: 'kilo' });
+    expect(both.text).toContain('ask anything'); // Kilo's [tui.ready]
+    expect(noKilo.text).not.toContain('ask anything');
+    expect(noKilo.text).not.toContain('Example: the visible half of another definition (Kilo');
+    expect(noKilo.text).toContain('Example: a complete visible definition and the screens it was written from (Nimbus');
+    expect(noKilo.chars).toBeLessThan(both.chars);
+    // kiro is a headless example: leaving it out changes nothing here
+    expect(buildPrompt(visibleFacts(), { omitExample: 'kiro' }).text).toBe(both.text);
+  });
+
+  it('puts the previous file, its expectation blocks and the checker text in a fix round', () => {
+    const built = buildPrompt(visibleFacts(), {
+      feedback: {
+        previousToml: 'schema_version = 1\n',
+        previousExpects: { tui_idle: 'chrome_lines = ["NIMBUS 0.4 ready"]' },
+        text: 'The visible test started your profile in a real pane and found 1 problem.',
+      },
+    });
+    expect(built.text).toContain('Your previous file');
+    expect(built.text).toContain('# expect: tui_idle');
+    expect(built.text).toContain('chrome_lines = ["NIMBUS 0.4 ready"]');
+    expect(built.text).toContain('found 1 problem');
+    expect(built.text).toContain('then any expectation blocks');
+  });
+
+  it('the one-task step keeps the visible file and asks only for the [headless] tables', () => {
+    const built = buildPrompt(visibleFacts(), { addOneTaskMode: { toml: 'schema_version = 1\n[tui]\nargv = []\n' } });
+    expect(built.text).toContain('The visible part of its definition is already written and tested');
+    expect(built.text).toContain('The file to keep');
+    expect(built.text).toContain('[tui]\nargv = []');
+    expect(built.text).toContain('Now add the [headless] tables');
+    expect(built.text).not.toContain('<<<CAPTURE tui_idle'); // the screens are not needed again
+  });
+
+  it('guards the sections of the guide the visible half needs', () => {
+    const guide = visibleGuide();
+    expect(guide).toContain('## 4. Field reference');
+    expect(guide).toContain('## 6. Visible (TUI) tables');
+    expect(guide).toContain('[[tui.prompt]]');
+    expect(guide).toContain('## 7. Regex tips');
+    expect(guide).toContain('## 8. Finding the program');
+    expect(guide).toContain('## 9. Things that are refused');
+    expect(guide).not.toContain('## 10. Testing');
+    expect(kiloVisibleExample()).toContain('[tui.ready]');
+    expect(kiloVisibleExample()).not.toContain('[headless');
+  });
+
+  it('the headless prompt is unchanged when no capture was made', () => {
+    const text = buildPrompt(facts()).text;
+    expect(text).toContain('runFinished');
+    expect(text).not.toContain('<<<CAPTURE');
+    expect(text).toContain('Do not add a [tui] table.');
   });
 });

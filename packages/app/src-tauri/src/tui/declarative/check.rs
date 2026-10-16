@@ -6,7 +6,8 @@
 //! (strings; "" means none), `done` (bool), `exit` (process exit code fed to the parser, default 0),
 //! `error_code` and `error` (the classified failure; "" means no failure).
 //! Screen captures (`tui*`, or `kind = "screen"`) accept `busy` (true, false or "unknown"),
-//! `menu` (bool), `prompt_kind` ("" means no prompt), `model`, `chrome_lines` and `not_chrome_lines`
+//! `menu` (bool), `ready` (bool: `[tui.ready]` says the empty input box is showing), `prompt_kind` ("" means
+//! no prompt), `model`, `chrome_lines` and `not_chrome_lines`
 //! (lines checked with `is_chrome_line`, lowercased).
 //! The runner only reads regular files directly inside the given folder.
 
@@ -106,6 +107,12 @@ fn check_screen(p: &DeclarativeProfile, text: &str, expect: &Value, failures: &m
         let got = p.looks_like_menu(text);
         if got != w {
             failures.push(format!("menu: expected {w}, got {got}"));
+        }
+    }
+    if let Some(w) = expect.get("ready").and_then(Value::as_bool) {
+        let got = p.standby_screen(text) == crate::tui::types::StandbyScreen::Ready;
+        if got != w {
+            failures.push(format!("ready: expected {w}, got {got}"));
         }
     }
     if let Some(w) = expect.get("prompt_kind") {

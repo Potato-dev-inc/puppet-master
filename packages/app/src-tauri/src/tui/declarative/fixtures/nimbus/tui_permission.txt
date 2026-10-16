@@ -1,0 +1,13 @@
+# capture: nimbus 0.4.2, pane 120x40, puppet-master wizard capture, 2026-10-16; user name scrubbed
+NIMBUS 0.4.2 | local | C:\Users\user\project
+
+
+> Reply with exactly the word: <word-1>                                                                              
+
+reply: <word-1>
+
+done in 2s
+
+> Create a file named hello.txt in the current folder. It must contain the word <word-3>.
+
+Allow nimbus to create hello.txt? [y/n]

@@ -1,5 +1,6 @@
-//! Benchmark harness (SPEC 10.1): score a draft definition against the recorded headless fixtures and
-//! the hand-written definition of a known agent (`kilo`, `kiro`). The scorer runs in the normal test
+//! Benchmark harness (SPEC 10.1 and 11.13): score a draft definition against the recorded fixtures (the
+//! headless captures, and Kilo's screen captures for a draft with `[tui]`) and the hand-written
+//! definition of a known agent (`kilo`, `kiro`). The scorer runs in the normal test
 //! suite against the references themselves (zero tokens); the `#[ignore]` tests are for the lead to
 //! run by hand against the real programs. See the SPEC for the commands.
 
@@ -37,14 +38,23 @@ pub fn reference(name: &str) -> Reference {
     }
 }
 
-/// Copy the `headless*` captures and their expectation files (the draft is headless only, so the
-/// screen captures of Kilo do not apply) into `to`.
+/// Copy the `headless*` captures and their expectation files (a headless draft is not held against the
+/// screen captures of Kilo) into `to`.
 pub fn headless_fixtures(from: &Path, to: &Path) -> usize {
+    copy_fixtures(from, to, "headless")
+}
+
+/// Copy the `tui*` screen captures and their expectation files into `to` (for a draft with `[tui]`).
+pub fn screen_fixtures(from: &Path, to: &Path) -> usize {
+    copy_fixtures(from, to, "tui")
+}
+
+fn copy_fixtures(from: &Path, to: &Path, prefix: &str) -> usize {
     std::fs::create_dir_all(to).unwrap();
     let mut captures = 0;
     for entry in std::fs::read_dir(from).unwrap().flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with("headless") {
+        if name.starts_with(prefix) {
             std::fs::copy(entry.path(), to.join(&name)).unwrap();
             if !name.ends_with(".expect.toml") {
                 captures += 1;
@@ -126,8 +136,15 @@ pub fn score(draft_text: &str, reference: &Reference, scratch: &Path) -> Score {
     };
     let ctx = ValidationContext { source: Source::User, code_ids: CODE_IDS, raw_len: draft_text.len() };
     score.problems.extend(validate(&def, &ctx).iter().map(|e| e.to_string()));
-    for (name, model, resume) in launches() {
-        score.argv.push(ArgvRow { launch: name, draft: argv(&def, model, resume), reference: argv(&reference.definition, model, resume) });
+    let has_headless = def.headless.as_ref().is_some_and(|h| h.output.is_some());
+    let has_tui = def.tui.is_some();
+    if !has_headless && !has_tui {
+        score.problems.push("the draft has neither a [headless] table nor a [tui] table".into());
+    }
+    if has_headless {
+        for (name, model, resume) in launches() {
+            score.argv.push(ArgvRow { launch: name, draft: argv(&def, model, resume), reference: argv(&reference.definition, model, resume) });
+        }
     }
     let Ok(profile) = DeclarativeProfile::new(def) else {
         score.problems.push("the draft does not build".into());
@@ -138,11 +155,22 @@ pub fn score(draft_text: &str, reference: &Reference, scratch: &Path) -> Score {
             score.problems.push(format!("rule {name}: {e}"));
         }
     }
-    let dir = scratch.join("headless-fixtures");
-    let _ = std::fs::remove_dir_all(&dir);
-    headless_fixtures(&reference.fixtures, &dir);
-    for r in check_dir(&profile, &dir) {
-        score.fixtures.push((r.fixture, r.passed, r.failures));
+    if has_headless {
+        let dir = scratch.join("headless-fixtures");
+        let _ = std::fs::remove_dir_all(&dir);
+        headless_fixtures(&reference.fixtures, &dir);
+        for r in check_dir(&profile, &dir) {
+            score.fixtures.push((r.fixture, r.passed, r.failures));
+        }
+    }
+    if has_tui {
+        let dir = scratch.join("screen-fixtures");
+        let _ = std::fs::remove_dir_all(&dir);
+        if screen_fixtures(&reference.fixtures, &dir) > 0 {
+            for r in check_dir(&profile, &dir) {
+                score.fixtures.push((r.fixture, r.passed, r.failures));
+            }
+        }
     }
     score
 }
@@ -216,7 +244,7 @@ fn score_draft() {
     println!("{}", score.table(&name));
     let _ = std::fs::remove_dir_all(&dir);
     assert!(score.problems.is_empty(), "the draft has problems: {:?}", score.problems);
-    assert!(score.fixtures_pass(), "a recorded headless fixture does not pass");
+    assert!(score.fixtures_pass(), "a recorded fixture does not pass");
 }
 
 /// A wizard on the real PATH that writes only into a temp agents folder.
@@ -464,4 +492,65 @@ fn a_normal_failure_does_not_stop_the_loop() {
     std::fs::create_dir_all(&round).unwrap();
     assert_eq!(run_round(&wizard, "fake-agent", &round, super::support::WRONG_PATH, None).0, "FAIL livetest");
     assert!(!round.join("agent_error.txt").exists());
+}
+
+// ---- the visible half of the scorer (SPEC 11.13) -------------------------------------------------
+
+/// Kilo's file without its headless half: the agent and binary tables, then everything from "Visible mode".
+fn kilo_visible_only() -> String {
+    let text = reference_text("kilo").replace("\r\n", "\n");
+    let head = text.split("[features]").next().unwrap();
+    let from = text.find("# Visible mode.").unwrap();
+    // up to the [model] table, which reads the model from a headless selector
+    let tail = &text[from..from + text[from..].find("[model]").unwrap()];
+    format!("{head}\n{tail}")
+}
+
+#[test]
+fn a_visible_only_draft_is_scored_against_kilos_screen_captures_and_not_its_headless_ones() {
+    let dir = scratch("visible-score");
+    let draft = kilo_visible_only();
+    assert!(!draft.contains("[headless"), "the test draft has no headless table");
+    let score = score(&draft, &reference("kilo"), &dir);
+    assert!(score.problems.is_empty(), "{:?}", score.problems);
+    let names: Vec<&str> = score.fixtures.iter().map(|(n, _, _)| n.as_str()).collect();
+    assert_eq!(names, ["tui_idle.txt", "tui_permission.txt", "tui_reply.txt", "tui_working.txt"], "{}", score.table("kilo"));
+    assert!(score.fixtures_pass(), "{}", score.table("kilo"));
+    assert!(score.argv.is_empty(), "no [headless]: nothing to compare");
+    assert!(score.argv_same());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_visible_draft_that_cannot_tell_busy_from_idle_fails_the_working_capture() {
+    let dir = scratch("visible-wrong");
+    let draft = kilo_visible_only().replace("working_regex = [\"esc\\\\s+interrupt\"]", "working_regex = [\"never on screen\"]");
+    assert!(draft.contains("never on screen"), "the edit applied");
+    let score = score(&draft, &reference("kilo"), &dir);
+    assert!(!score.fixtures_pass(), "{}", score.table("kilo"));
+    let (name, _, failures) = score.fixtures.iter().find(|(_, passed, _)| !passed).unwrap();
+    assert_eq!(name, "tui_working.txt");
+    assert!(failures.iter().any(|f| f.starts_with("busy:")), "{failures:?}");
+    assert!(score.table("kilo").contains("FAIL"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_draft_with_both_halves_is_scored_on_both() {
+    let dir = scratch("both-score");
+    let score = score(&reference_text("kilo"), &reference("kilo"), &dir);
+    assert_eq!(score.fixtures.len(), 9, "five headless captures and four screens");
+    assert_eq!(score.argv.len(), 4);
+    assert!(score.fixtures_pass() && score.argv_same(), "{}", score.table("kilo"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_draft_with_neither_table_is_a_problem() {
+    let dir = scratch("neither");
+    let draft = "schema_version = 1\n[agent]\nid = \"zz\"\nlabel = \"Z\"\n[binary]\nnames = [\"zz\"]\n";
+    let score = score(draft, &reference("kilo"), &dir);
+    assert!(score.problems.iter().any(|p| p.contains("neither a [headless] table nor a [tui] table")), "{:?}", score.problems);
+    assert!(!score.fixtures_pass());
+    let _ = std::fs::remove_dir_all(&dir);
 }

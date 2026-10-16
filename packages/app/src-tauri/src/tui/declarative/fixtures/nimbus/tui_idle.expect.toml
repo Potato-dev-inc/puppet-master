@@ -1,0 +1,5 @@
+busy = false
+prompt_kind = ""
+menu = false
+ready = true
+chrome_lines = ["NIMBUS 0.4.2"]

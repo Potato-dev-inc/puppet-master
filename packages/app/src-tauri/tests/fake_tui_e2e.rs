@@ -186,6 +186,27 @@ steps = [
 
 // ---- 2b. an approval answered from the phone card ----------------------------------------------------
 
+/// Regression guard: the e2e profile's audit log lives in the app-data folder and grows with every run of the
+/// suite. The helpers that read "the approval lines so far" must see the whole log: with a fixed window of the
+/// newest 500 lines, a new answer pushed an older one out of the window and "the lines since I looked" came
+/// back empty (the phone-card test failed on any machine that had run the suite often enough).
+#[test]
+fn the_approval_audit_helper_sees_the_whole_log_however_long_it_has_grown() {
+    let session = World::get().session("audit-window");
+    // the log outlives the run: a tag no earlier run used
+    let tag = format!("window guard {}-{:?}", std::process::id(), std::time::SystemTime::now());
+    session.audit_approval(&format!("{tag}: oldest"));
+    session.audit_noise(600);
+    session.audit_approval(&format!("{tag}: before"));
+    session.audit_noise(499);
+    let before = session.approval_audit_lines();
+    session.audit_approval(&format!("{tag}: new answer"));
+    let after = session.approval_audit_lines();
+    assert_eq!(after.len(), before.len() + 1, "the log is longer than any window; one new answer is one new line");
+    assert_eq!(after.last().map(String::as_str), Some(format!("{tag}: new answer").as_str()));
+    assert_eq!(after.iter().filter(|l| l.starts_with(&format!("{tag}: oldest"))).count(), 1, "the oldest line is still there");
+}
+
 /// A paired phone answers the Bash approval through `POST /attention/{id}/answer` (the route's own function):
 /// the card carries the prompt id, the occurrence and the screen fingerprint; a request that carries what the
 /// card did NOT show is `changed` and types nothing; the right one types exactly one key, under an answer
@@ -900,3 +921,8 @@ steps = [{ do = "think", ms = 800 }, { do = "write_file", path = "hello.txt", co
 
 #[path = "fake_tui_missions.rs"]
 mod missions;
+
+// ---- the Agent Wizard learns an unknown visible agent (zero tokens) ----------------------------------
+
+#[path = "fake_tui_wizard.rs"]
+mod wizard;

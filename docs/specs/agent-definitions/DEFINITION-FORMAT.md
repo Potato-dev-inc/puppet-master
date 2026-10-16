@@ -321,6 +321,7 @@ deliver the task through `[headless.stdin]`; this is refused for project and ext
    Screen captures (`tui*`, or `kind = "screen"`; a leading `# capture:` comment line is ignored):
    ```toml
    busy = true                      # true, false, or "unknown" (no footer: not busy, not idle)
+   ready = true                     # [tui.ready] says the empty input box is showing (false: it does not)
    menu = false
    prompt_kind = "command_approval" # "" means no prompt
    model = "Nemotron 3 Ultra (free)"

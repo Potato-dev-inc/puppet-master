@@ -9,8 +9,10 @@ import {
   LOCAL_PROMPT_BUDGET,
   PROMPT_VERSION,
   REMOTE_PROMPT_BUDGET,
+  type CaptureFacts,
   type ProbeRun,
   type PromptFacts,
+  type PromptOptions,
   type Sample,
 } from './agentWizardPrompt';
 import { streamLlm } from './llm';
@@ -65,6 +67,107 @@ export interface PlannedRun {
   fingerprint: string;
 }
 
+/** The pane the visible test would start: what the person confirms (`fingerprint` is sent back). */
+export interface PlannedVisible {
+  program: { path: string; display: string };
+  args: string[];
+  env: Array<{ name: string; value: string }>;
+  env_unset: string[];
+  cwd: string;
+  grid: { cols: number; rows: number };
+  fingerprint: string;
+}
+
+/** What the guided capture would start, shown before the person confirms. */
+export interface CapturePlan {
+  program: { path: string; display: string };
+  args: string[];
+  cwd: string;
+  grid: { cols: number; rows: number };
+  fingerprint: string;
+}
+
+export type CaptureStepId = 'start' | 'ready' | 'message' | 'permission' | 'exit';
+export type CaptureStepStatus = 'pending' | 'running' | 'needs_you' | 'done' | 'skipped' | 'stuck' | 'failed';
+export type CaptureAction = 'skip' | 'retry' | 'stuck' | 'ready' | 'try_exit' | 'closed' | 'done' | 'question';
+
+/** One look the capture kept, masked: what the classifier said and what the wizard made of it. */
+export interface CaptureDebugFrame {
+  ms: number;
+  step: CaptureStepId;
+  step_status: CaptureStepStatus;
+  classifier: string;
+  reading: string;
+  stable_ms: number;
+  quiet_ms: number;
+  needs_you: string | null;
+  screen: string;
+}
+
+/** The last looks of a capture, for "why did it stop" (`capture` op `debug`). */
+export interface CaptureDebug {
+  at_ms: number;
+  frames: CaptureDebugFrame[];
+}
+
+export interface CaptureStep {
+  id: CaptureStepId;
+  label: string;
+  status: CaptureStepStatus;
+  note: string;
+  frames: number;
+}
+
+export interface CaptureStatus {
+  state: 'none' | 'running' | 'finished';
+  /** True once a finished capture is stored in the session. */
+  captured: boolean;
+  pane?: string;
+  grid?: { cols: number; rows: number };
+  alive?: boolean;
+  step?: CaptureStepId;
+  steps?: CaptureStep[];
+  screen_kind?: string;
+  /** The screen reads as working by its words but has not moved for seconds: it is read as unknown. */
+  frozen?: boolean;
+  stable_ms?: number;
+  settled?: boolean;
+  needs_you?: { step: CaptureStepId; kind: string; message: string } | null;
+  /** The pane's screen, masked, for the preview in the wizard window. */
+  screen?: string;
+  can?: CaptureAction[];
+}
+
+export interface VisibleCheck {
+  name: string;
+  label: string;
+  status: 'passed' | 'failed' | 'skipped';
+  note: string;
+  ms: number;
+}
+
+export interface VisibleTestResult {
+  ok: boolean;
+  state: string;
+  checks: VisibleCheck[];
+  errors: CheckError[];
+  /** The errors written for an AI (the screen at the failing check included). Goes back into the next prompt. */
+  text: string;
+  version: string | null;
+  passed: number;
+  total: number;
+  agent_error?: { check: string; message: string; external: boolean } | null;
+}
+
+/** What the visible test is doing right now (read while the test call is still running). */
+export interface VisibleTestStatus {
+  running: boolean;
+  check?: string | null;
+  needs_you?: { message: string } | null;
+  checks?: VisibleCheck[];
+  screen?: string;
+}
+
 export interface VerifyResult {
   ok: boolean;
   state: string;
@@ -72,7 +175,7 @@ export interface VerifyResult {
   /** The errors written for an AI. Goes back into the next prompt verbatim. */
   text: string;
   warnings: string[];
-  rendered?: { headless_argv: string[] | null; resume_argv: string[] | null };
+  rendered?: { headless_argv: string[] | null; resume_argv: string[] | null; tui_argv?: string[] };
   checked: { fixtures: number; rules: number };
   samples_replayed: number;
   sha256?: string;
@@ -82,6 +185,9 @@ export interface VerifyResult {
    */
   planned?: PlannedRun;
   can_livetest?: boolean;
+  /** What the visible test would start (a draft with `[tui]` after a capture); absent for a draft that is not valid. */
+  planned_visible?: PlannedVisible;
+  can_visibletest?: boolean;
 }
 
 export interface StageReport {
@@ -153,9 +259,26 @@ export interface LocalDrafter {
 export interface WizardApi {
   start(command: string): Promise<StartInfo>;
   probe(session: string): Promise<ProbeInfo>;
-  verify(session: string, toml: string): Promise<VerifyResult>;
+  /** `expect` holds the drafter's expectation blocks for the screen captures, by capture name. */
+  verify(session: string, toml: string, expect?: Record<string, string>): Promise<VerifyResult>;
   /** Runs the live test. `plan` is the fingerprint of the commands the person confirmed. */
   livetest(session: string, plan: string): Promise<LiveResult>;
+  /** Runs the visible test. `plan` is the fingerprint of `planned_visible` the person confirmed. */
+  visibletest(session: string, plan: string): Promise<VisibleTestResult>;
+  /** What the visible test is doing now (poll while `visibletest` runs). */
+  testStatus(session: string): Promise<VisibleTestStatus>;
+  capturePlan(session: string, args: string[]): Promise<CapturePlan>;
+  /** Starts the guided capture; `plan` is the fingerprint the person confirmed. */
+  captureStart(session: string, args: string[], plan: string): Promise<CaptureStatus>;
+  captureStatus(session: string): Promise<CaptureStatus>;
+  captureAct(session: string, action: CaptureAction, step?: CaptureStepId): Promise<CaptureStatus>;
+  /** The last looks the capture kept (masked), while it runs and after it stopped. */
+  captureDebug?(session: string): Promise<CaptureDebug | null>;
+  /** Opens the capture pane as a window (the person answers its questions there). */
+  captureShow(session: string): Promise<void>;
+  /** Stops the capture and returns the screens as the drafter will see them (test words masked). */
+  captureFinish(session: string): Promise<CaptureFacts | null>;
+  captureDiscard(session: string): Promise<void>;
   finish(session: string, provenance: Provenance): Promise<FinishResult>;
   cancel(session: string): Promise<unknown>;
   /** One read-only question to an installed local agent, in the session's work folder. */
@@ -167,8 +290,24 @@ export interface WizardApi {
 export const tauriWizardApi: WizardApi = {
   start: (command) => invoke<StartInfo>('agent_wizard_start', { command }),
   probe: (session) => invoke<ProbeInfo>('agent_wizard_probe', { session }),
-  verify: (session, toml) => invoke<VerifyResult>('agent_wizard_verify', { session, toml }),
+  verify: (session, toml, expect) => invoke<VerifyResult>('agent_wizard_verify', { session, toml, expect: expect ?? null }),
   livetest: (session, plan) => invoke<LiveResult>('agent_wizard_livetest', { session, confirm: true, plan }),
+  visibletest: (session, plan) => invoke<VisibleTestResult>('agent_wizard_visibletest', { session, confirm: true, plan }),
+  testStatus: (session) => invoke<VisibleTestStatus>('agent_wizard_capture', { body: { session, op: 'test_status' } }),
+  capturePlan: async (session, args) => (await invoke<{ plan: CapturePlan }>('agent_wizard_capture', { body: { session, op: 'plan', args } })).plan,
+  captureStart: (session, args, plan) =>
+    invoke<CaptureStatus>('agent_wizard_capture', { body: { session, op: 'start', args, confirm: true, plan } }),
+  captureStatus: (session) => invoke<CaptureStatus>('agent_wizard_capture', { body: { session, op: 'status' } }),
+  captureAct: (session, action, step) => invoke<CaptureStatus>('agent_wizard_capture', { body: { session, op: 'act', action, step } }),
+  captureDebug: async (session) => (await invoke<{ debug: CaptureDebug | null }>('agent_wizard_capture', { body: { session, op: 'debug' } })).debug,
+  captureShow: async (session) => {
+    await invoke('agent_wizard_capture', { body: { session, op: 'show' } });
+  },
+  captureFinish: async (session) =>
+    (await invoke<{ captures: CaptureFacts | null }>('agent_wizard_capture', { body: { session, op: 'finish' } })).captures,
+  captureDiscard: async (session) => {
+    await invoke('agent_wizard_capture', { body: { session, op: 'discard' } });
+  },
   finish: (session, provenance) => invoke<FinishResult>('agent_wizard_finish', { session, provenance }),
   cancel: (session) => invoke('agent_wizard_cancel', { session }),
   ask: async (session, agent, prompt) => (await invoke<{ answer: string }>('agent_wizard_ask', { session, agent, prompt })).answer,
@@ -297,9 +436,58 @@ function nonEmpty(toml: string): Extracted {
   return toml ? { ok: true, toml } : { ok: false, problem: 'The toml block was empty. Reply with the whole file.' };
 }
 
+export type ExtractedDraft = { ok: true; toml: string; expects: Record<string, string> } | { ok: false; problem: string };
+
+const EXPECT_HEAD = /^\s*#\s*expect:\s*([A-Za-z0-9_]+)\s*\r?\n/;
+
+/**
+ * The visible path's reply: exactly one definition block, plus any number of blocks whose first line is
+ * `# expect: <capture name>` (the extra expectations for that capture). An expectation block with no
+ * definition, or two blocks for the same capture, is a problem the drafter is told about.
+ */
+export function extractDraft(reply: string): ExtractedDraft {
+  const fence = '`'.repeat(3);
+  const blocks = [...reply.matchAll(/```[ \t]*toml[ \t]*\r?\n([\s\S]*?)```/gi)].map((m) => m[1]);
+  const expects: Record<string, string> = {};
+  const definitions: string[] = [];
+  for (const block of blocks) {
+    const head = EXPECT_HEAD.exec(block);
+    if (!head) {
+      definitions.push(block.trim());
+      continue;
+    }
+    const name = head[1];
+    if (name in expects) {
+      return { ok: false, problem: `Your reply had two expectation blocks for ${name}. Give each capture at most one block.` };
+    }
+    expects[name] = block.slice(head[0].length).trim();
+  }
+  if (definitions.length === 0 && blocks.length === 0) {
+    const single = extractTomlBlock(reply);
+    return single.ok ? { ok: true, toml: single.toml, expects } : single;
+  }
+  if (definitions.length === 0) {
+    return { ok: false, problem: `Your reply had only expectation blocks. The first ${fence}toml block must hold the whole file.` };
+  }
+  if (definitions.length > 1) {
+    return {
+      ok: false,
+      problem: `Your reply had ${definitions.length} ${fence}toml blocks that are not expectation blocks. Reply with exactly one ${fence}toml block that holds the whole file; expectation blocks start with a "# expect: <capture>" line.`,
+    };
+  }
+  const only = nonEmpty(definitions[0]);
+  return only.ok ? { ok: true, toml: only.toml, expects } : only;
+}
+
+/** Does the help text mention a one-task mode (non-interactive, print, exec, JSON output)? Then it is offered as an extra. */
+export function offersOneTaskMode(probe: ProbeInfo): boolean {
+  const text = probe.runs.map((r) => r.text).join('\n');
+  return /non-?interactive|headless|--print\b|\bexec\b|--prompt\b|--message\b|one[- ]?shot|--output-format|--format\b.{0,24}json|--json\b|stream-json|json[- ]?lines/i.test(text);
+}
+
 // ---- facts for the prompt --------------------------------------------------------------------
 
-export function factsFrom(start: StartInfo, probe: ProbeInfo): PromptFacts {
+export function factsFrom(start: StartInfo, probe: ProbeInfo, captures?: CaptureFacts | null): PromptFacts {
   return {
     command: start.command,
     idSuggestion: start.id_suggestion,
@@ -313,6 +501,7 @@ export function factsFrom(start: StartInfo, probe: ProbeInfo): PromptFacts {
       timed_out: r.timed_out,
       duplicate_of: r.duplicate_of ?? null,
     })),
+    captures: captures ?? null,
   };
 }
 
@@ -334,7 +523,7 @@ export function samplesFrom(live: LiveResult): Sample[] {
 
 // ---- the draft loop --------------------------------------------------------------------------
 
-export type StepId = 'help' | 'draft' | 'check' | 'fix' | 'live';
+export type StepId = 'help' | 'capture' | 'draft' | 'check' | 'fix' | 'visible' | 'live';
 
 export interface ProgressEvent {
   step: StepId;
@@ -344,47 +533,78 @@ export interface ProgressEvent {
 }
 
 export type LoopResult =
-  | { status: 'tested'; toml: string; rounds: number; verify: VerifyResult; live: LiveResult }
-  | { status: 'declined'; toml: string; rounds: number; verify: VerifyResult }
-  | { status: 'agent_error'; toml: string; rounds: number; verify: VerifyResult; live: LiveResult; error: AgentError }
+  | {
+      status: 'tested';
+      toml: string;
+      expects: Record<string, string>;
+      rounds: number;
+      verify: VerifyResult;
+      /** The one-task mode's live test, when the draft has a `[headless]` part. */
+      live: LiveResult | null;
+      /** The visible test, when the session captured the screens. */
+      visible: VisibleTestResult | null;
+    }
+  | { status: 'declined'; toml: string; expects: Record<string, string>; rounds: number; verify: VerifyResult }
+  | {
+      status: 'agent_error';
+      toml: string;
+      expects: Record<string, string>;
+      rounds: number;
+      verify: VerifyResult;
+      live: LiveResult | null;
+      visible: VisibleTestResult | null;
+      error: AgentError;
+    }
   | { status: 'gave_up'; rounds: number; lastToml: string; lastText: string }
   | { status: 'cancelled'; rounds: number };
 
 export interface LoopOptions {
-  api: Pick<WizardApi, 'verify' | 'livetest'>;
+  /** `visibletest` is only needed for a session that captured screens. */
+  api: Pick<WizardApi, 'verify' | 'livetest'> & Partial<Pick<WizardApi, 'visibletest'>>;
   session: string;
   facts: PromptFacts;
   /** Sends one prompt to the drafter and returns its reply. */
   ask: (prompt: string, round: number) => Promise<string>;
   maxChars: number;
   maxRounds?: number;
+  /** More prompt options: the benchmark's leave-one-out, or "add the one-task mode to this file". */
+  promptOptions?: Partial<Omit<PromptOptions, 'maxChars' | 'feedback'>>;
   /**
    * Called before a live test whose planned commands differ from the ones already confirmed (so: the
    * first time, and again when a fix changes the arguments). `false` stops the loop with `declined`.
    */
   confirmLive: (planned: PlannedRun) => Promise<boolean>;
+  /** The same for the visible test (the pane it would start). Without it the visible test is not run. */
+  confirmVisible?: (planned: PlannedVisible) => Promise<boolean>;
+  /** The pane plan the person already confirmed in an earlier loop (so the same pane is not asked about again). */
+  confirmedVisible?: string | null;
   onEvent?: (event: ProgressEvent) => void;
   signal?: AbortSignal;
 }
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
   const max = opts.maxRounds ?? MAX_ROUNDS;
   const emit = (e: ProgressEvent) => opts.onEvent?.(e);
-  let feedback: { previousToml: string; text: string } | undefined;
+  let feedback: PromptOptions['feedback'];
   let samples: Sample[] = [];
-  let lastToml = '';
+  let lastToml = opts.promptOptions?.addOneTaskMode?.toml ?? '';
+  let lastExpects: Record<string, string> = opts.promptOptions?.addOneTaskMode?.expects ?? {};
   let lastText = '';
   let confirmedPlan: string | null = null;
+  let confirmedVisible: string | null = opts.confirmedVisible ?? null;
   let lastAgentError: string | null = null;
   let round = 0;
   const stopped = () => opts.signal?.aborted === true;
+  const visibleMode = Boolean(opts.facts.captures);
 
   while (round < max) {
     round += 1;
     if (stopped()) return { status: 'cancelled', rounds: round - 1 };
     const writing: StepId = round === 1 ? 'draft' : 'fix';
     emit({ step: writing, status: 'running', round });
-    const prompt = buildPrompt({ ...opts.facts, samples }, { maxChars: opts.maxChars, feedback });
+    const prompt = buildPrompt({ ...opts.facts, samples }, { ...opts.promptOptions, maxChars: opts.maxChars, feedback });
     let reply: string;
     try {
       reply = await opts.ask(prompt.text, round);
@@ -396,26 +616,28 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
     if (stopped()) return { status: 'cancelled', rounds: round };
     emit({ step: writing, status: 'done', round });
 
-    const extracted = extractTomlBlock(reply);
+    const extracted = extractDraft(reply);
     if (!extracted.ok) {
       emit({ step: 'check', status: 'failed', round, detail: extracted.problem });
       lastText = extracted.problem;
-      feedback = { previousToml: lastToml, text: extracted.problem };
+      feedback = { previousToml: lastToml, previousExpects: lastExpects, text: extracted.problem };
       continue;
     }
     lastToml = extracted.toml;
+    lastExpects = extracted.expects;
 
     emit({ step: 'check', status: 'running', round });
-    const verify = await opts.api.verify(opts.session, extracted.toml);
+    const verify = await opts.api.verify(opts.session, extracted.toml, extracted.expects);
     if (stopped()) return { status: 'cancelled', rounds: round };
     // A draft that is not valid at all goes straight back. One that only fails the shared rules or the
-    // fixture checks (`planned` is present) is still tested on the real program, so the next round gets
+    // fixture checks (a plan is present) is still tested on the real program, so the next round gets
     // the program's real output together with those problems.
     const planned = verify.planned;
-    if (!verify.ok && !planned) {
-      emit({ step: 'check', status: 'failed', round, detail: `${verify.errors.length} problem${verify.errors.length === 1 ? '' : 's'}` });
+    const plannedVisible = verifyVisiblePlan(verify, visibleMode);
+    if (!verify.ok && !planned && !plannedVisible) {
+      emit({ step: 'check', status: 'failed', round, detail: plural(verify.errors.length, 'problem') });
       lastText = verify.text;
-      feedback = { previousToml: extracted.toml, text: verify.text };
+      feedback = { previousToml: extracted.toml, previousExpects: extracted.expects, text: verify.text };
       continue;
     }
     if (verify.ok) {
@@ -425,35 +647,70 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
         step: 'check',
         status: 'failed',
         round,
-        detail: `${verify.errors.length} problem${verify.errors.length === 1 ? '' : 's'}, testing it on the real program anyway`,
+        detail: `${plural(verify.errors.length, 'problem')}, testing it on the real program anyway`,
       });
       lastText = verify.text;
     }
-    if (!planned) throw new Error('WIZARD_PLAN_REQUIRED: the checker did not say which commands the live test would run.');
-    if (confirmedPlan !== planned.fingerprint) {
-      if (!(await opts.confirmLive(planned))) return { status: 'declined', toml: extracted.toml, rounds: round, verify };
-      confirmedPlan = planned.fingerprint;
+    if (!planned && !plannedVisible) throw new Error('WIZARD_PLAN_REQUIRED: the checker did not say which commands the tests would run.');
+
+    let visible: VisibleTestResult | null = null;
+    let live: LiveResult | null = null;
+    const fail = (text: string, agentError: AgentError | null): { stop: AgentError } | null => {
+      // The program itself is broken (or says the same error twice): another draft cannot help.
+      if (agentError && (agentError.external || agentError.message === lastAgentError)) return { stop: agentError };
+      lastAgentError = agentError?.message ?? null;
+      lastText = text;
+      feedback = { previousToml: extracted.toml, previousExpects: extracted.expects, text };
+      return null;
+    };
+
+    if (plannedVisible) {
+      if (confirmedVisible !== plannedVisible.fingerprint) {
+        const go = (await opts.confirmVisible?.(plannedVisible)) ?? false;
+        if (!go) return { status: 'declined', toml: extracted.toml, expects: extracted.expects, rounds: round, verify };
+        confirmedVisible = plannedVisible.fingerprint;
+      }
+      if (stopped()) return { status: 'cancelled', rounds: round };
+      emit({ step: 'visible', status: 'running', round });
+      if (!opts.api.visibletest) throw new Error('WIZARD_NOT_AVAILABLE: this wizard cannot run the visible test.');
+      visible = await opts.api.visibletest(opts.session, plannedVisible.fingerprint);
+      if (stopped()) return { status: 'cancelled', rounds: round };
+      if (!visible.ok) {
+        emit({ step: 'visible', status: 'failed', round, detail: visible.errors[0]?.message });
+        const ae = visible.agent_error ? { stage: visible.agent_error.check, message: visible.agent_error.message, external: visible.agent_error.external } : null;
+        const stop = fail(visible.text, ae);
+        if (stop) return { status: 'agent_error', toml: extracted.toml, expects: extracted.expects, rounds: round, verify, live, visible, error: stop.stop };
+        continue;
+      }
+      emit({ step: 'visible', status: 'done', round });
     }
-    if (stopped()) return { status: 'cancelled', rounds: round };
-    emit({ step: 'live', status: 'running', round });
-    const live = await opts.api.livetest(opts.session, planned.fingerprint);
-    if (stopped()) return { status: 'cancelled', rounds: round };
-    if (live.ok) {
+
+    if (planned) {
+      if (confirmedPlan !== planned.fingerprint) {
+        if (!(await opts.confirmLive(planned))) return { status: 'declined', toml: extracted.toml, expects: extracted.expects, rounds: round, verify };
+        confirmedPlan = planned.fingerprint;
+      }
+      if (stopped()) return { status: 'cancelled', rounds: round };
+      emit({ step: 'live', status: 'running', round });
+      live = await opts.api.livetest(opts.session, planned.fingerprint);
+      if (stopped()) return { status: 'cancelled', rounds: round };
+      if (!live.ok) {
+        emit({ step: 'live', status: 'failed', round, detail: live.errors[0]?.message });
+        samples = samplesFrom(live);
+        const stop = fail(live.text, live.agent_error ?? null);
+        if (stop) return { status: 'agent_error', toml: extracted.toml, expects: extracted.expects, rounds: round, verify, live, visible, error: stop.stop };
+        continue;
+      }
       emit({ step: 'live', status: 'done', round });
-      return { status: 'tested', toml: extracted.toml, rounds: round, verify, live };
     }
-    emit({ step: 'live', status: 'failed', round, detail: live.errors[0]?.message });
-    // The program itself is broken (or says the same error twice): another draft cannot help.
-    const agentError = live.agent_error ?? null;
-    if (agentError && (agentError.external || agentError.message === lastAgentError)) {
-      return { status: 'agent_error', toml: extracted.toml, rounds: round, verify, live, error: agentError };
-    }
-    lastAgentError = agentError?.message ?? null;
-    lastText = live.text;
-    samples = samplesFrom(live);
-    feedback = { previousToml: extracted.toml, text: live.text };
+    return { status: 'tested', toml: extracted.toml, expects: extracted.expects, rounds: round, verify, live, visible };
   }
   return { status: 'gave_up', rounds: round, lastToml, lastText };
+}
+
+/** The visible plan only counts in a session that captured screens (a headless-only session never has one). */
+function verifyVisiblePlan(verify: VerifyResult, visibleMode: boolean): PlannedVisible | undefined {
+  return visibleMode ? verify.planned_visible : undefined;
 }
 
 /** What to tell the person when the program itself returned an error (plain words, no profile jargon). */
@@ -466,34 +723,62 @@ export function agentErrorMessage(agent: string, message: string): { title: stri
 }
 
 export type RetryResult =
-  | { status: 'tested'; toml: string; rounds: number; verify: VerifyResult; live: LiveResult }
-  | { status: 'agent_error'; toml: string; rounds: number; verify: VerifyResult; live: LiveResult; error: AgentError }
-  | { status: 'failed'; toml: string; rounds: number; verify: VerifyResult; live: LiveResult };
+  | { status: 'tested'; toml: string; expects: Record<string, string>; rounds: number; verify: VerifyResult; live: LiveResult | null; visible: VisibleTestResult | null }
+  | {
+      status: 'agent_error';
+      toml: string;
+      expects: Record<string, string>;
+      rounds: number;
+      verify: VerifyResult;
+      live: LiveResult | null;
+      visible: VisibleTestResult | null;
+      error: AgentError;
+    }
+  | { status: 'failed'; toml: string; expects: Record<string, string>; rounds: number; verify: VerifyResult; live: LiveResult | null; visible: VisibleTestResult | null; text: string };
 
 /**
- * Retry after the program's own error: run only the live test again for the draft that is kept (same
+ * Retry after the program's own error: run only the tests again for the draft that is kept (same
  * commands, so the confirmation still holds). No new drafting.
  */
 export async function retryLiveTest(opts: {
-  api: Pick<WizardApi, 'livetest'>;
+  api: Pick<WizardApi, 'livetest'> & Partial<Pick<WizardApi, 'visibletest'>>;
   session: string;
   toml: string;
+  expects?: Record<string, string>;
   rounds: number;
   verify: VerifyResult;
   onEvent?: (event: ProgressEvent) => void;
 }): Promise<RetryResult> {
   const planned = opts.verify.planned;
-  if (!planned) throw new Error('WIZARD_PLAN_REQUIRED: there is no planned command to run again.');
-  opts.onEvent?.({ step: 'live', status: 'running', round: opts.rounds });
-  const live = await opts.api.livetest(opts.session, planned.fingerprint);
-  const base = { toml: opts.toml, rounds: opts.rounds, verify: opts.verify, live };
-  if (live.ok) {
-    opts.onEvent?.({ step: 'live', status: 'done', round: opts.rounds });
-    return { status: 'tested', ...base };
+  const plannedVisible = opts.verify.planned_visible;
+  if (!planned && !plannedVisible) throw new Error('WIZARD_PLAN_REQUIRED: there is no planned command to run again.');
+  const expects = opts.expects ?? {};
+  const base = { toml: opts.toml, expects, rounds: opts.rounds, verify: opts.verify };
+  let visible: VisibleTestResult | null = null;
+  let live: LiveResult | null = null;
+  if (plannedVisible) {
+    opts.onEvent?.({ step: 'visible', status: 'running', round: opts.rounds });
+    if (!opts.api.visibletest) throw new Error('WIZARD_NOT_AVAILABLE: this wizard cannot run the visible test.');
+    visible = await opts.api.visibletest(opts.session, plannedVisible.fingerprint);
+    if (!visible.ok) {
+      opts.onEvent?.({ step: 'visible', status: 'failed', round: opts.rounds, detail: visible.errors[0]?.message });
+      const ae = visible.agent_error;
+      if (ae?.external) return { status: 'agent_error', ...base, live, visible, error: { stage: ae.check, message: ae.message, external: true } };
+      return { status: 'failed', ...base, live, visible, text: visible.text };
+    }
+    opts.onEvent?.({ step: 'visible', status: 'done', round: opts.rounds });
   }
-  opts.onEvent?.({ step: 'live', status: 'failed', round: opts.rounds, detail: live.errors[0]?.message });
-  if (live.agent_error?.external) return { status: 'agent_error', ...base, error: live.agent_error };
-  return { status: 'failed', ...base };
+  if (planned) {
+    opts.onEvent?.({ step: 'live', status: 'running', round: opts.rounds });
+    live = await opts.api.livetest(opts.session, planned.fingerprint);
+    if (!live.ok) {
+      opts.onEvent?.({ step: 'live', status: 'failed', round: opts.rounds, detail: live.errors[0]?.message });
+      if (live.agent_error?.external) return { status: 'agent_error', ...base, live, visible, error: live.agent_error };
+      return { status: 'failed', ...base, live, visible, text: live.text };
+    }
+    opts.onEvent?.({ step: 'live', status: 'done', round: opts.rounds });
+  }
+  return { status: 'tested', ...base, live, visible };
 }
 
 /** The command line the person will approve: the program name and the argv with `<task>`. */

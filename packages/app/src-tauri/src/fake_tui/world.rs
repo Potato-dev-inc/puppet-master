@@ -9,6 +9,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Listener};
+/// Every line of the audit log. The e2e profile's log lives in the real app-data folder and grows with every run
+/// of the suite (by any worktree); a fixed window of the newest lines slides once the log is longer than it,
+/// and "the lines since I looked" (an index into the approval lines) then points at the wrong place.
+const WHOLE_LOG: usize = 10_000_000;
+
 
 /// Everything shared by the tests of one process: one app handle, one pane registry, one fake build.
 pub struct World {
@@ -117,6 +122,10 @@ impl World {
         });
         crate::pane_activity::init(registry.clone(), app.clone());
         crate::loop_guard::init(app.clone());
+        // The Agent Wizard's panes (guided capture, visible test) go through this app's pane registry.
+        crate::tui::declarative::wizard::visible::host::install(Arc::new(
+            crate::tui::declarative::wizard::visible::registry_host::RegistryHost::new(registry.clone(), app.clone()),
+        ));
 
         World { registry, app, exe, script: Arc::new(Mutex::new(None)), serial: Mutex::new(()) }
     }
@@ -167,6 +176,21 @@ pub struct Session {
 impl Session {
     pub fn project(&self) -> &Path {
         &self.project
+    }
+
+    /// A scratch folder of this test (outside the project): scripts, logs, whatever the test needs.
+    pub fn aux(&self) -> &Path {
+        &self.aux
+    }
+
+    /// The `pm-fake-tui` executable this world built.
+    pub fn fake_exe(&self) -> &Path {
+        &self.world.exe
+    }
+
+    /// The script file `script()` last wrote (`aux/script.toml`).
+    pub fn script_path(&self) -> PathBuf {
+        self.aux.join("script.toml")
     }
 
     /// Write the script the next pane will play. A `log` line is added so `events()` can read what the
@@ -326,7 +350,7 @@ impl Session {
     /// The audit log's answer lines (`kind: approval`) for one pane, oldest first.
     pub fn approvals_for(&self, pane_id: &str) -> Vec<Value> {
         let mut lines: Vec<Value> = crate::audit::global()
-            .recent(500)
+            .recent(WHOLE_LOG)
             .into_iter()
             .filter(|entry| entry.kind == "approval" && entry.detail.get("pane_id").and_then(Value::as_str) == Some(pane_id))
             .map(|entry| json!({ "who": entry.who, "summary": entry.summary, "detail": entry.detail, "ts_ms": entry.ts_ms }))
@@ -379,9 +403,21 @@ impl Session {
     /// The summaries of the audit log's approval lines so far, oldest first (the log is shared by the whole
     /// test process).
     pub fn approval_audit_lines(&self) -> Vec<String> {
-        let mut lines: Vec<String> = crate::audit::global().recent(500).into_iter().filter(|entry| entry.kind == "approval").map(|entry| entry.summary).collect();
+        let mut lines: Vec<String> = crate::audit::global().recent(WHOLE_LOG).into_iter().filter(|entry| entry.kind == "approval").map(|entry| entry.summary).collect();
         lines.reverse();
         lines
+    }
+
+    /// Test support for the guard on `approval_audit_lines`: `n` unrelated lines in the audit log.
+    pub fn audit_noise(&self, n: usize) {
+        for i in 0..n {
+            crate::audit::record(crate::audit::Kind::Setting, crate::audit::Who::Local, &format!("fake-tui noise {i}"), json!({}));
+        }
+    }
+
+    /// Test support: one approval line, as an answered card leaves.
+    pub fn audit_approval(&self, summary: &str) {
+        crate::audit::record(crate::audit::Kind::Approval, crate::audit::Who::Local, summary, json!({}));
     }
 
     /// The turn summaries kept for a pane (the card the cockpit shows after a turn).

@@ -191,6 +191,8 @@ pub fn start(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
         draft: None,
         samples: Vec::new(),
         tested: None,
+        visible_tested: None,
+        visible: Arc::new(super::session::VisibleData::default()),
         busy: None,
         cancel: Arc::new(AtomicBool::new(false)),
     };

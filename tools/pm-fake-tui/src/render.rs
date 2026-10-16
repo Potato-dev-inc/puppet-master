@@ -90,6 +90,7 @@ impl Dialog {
                 "Yes, and don't ask again for these files (a)".into(),
                 "No, and tell Codex what to do differently (esc)".into(),
             ],
+            (Layout::Nimbus, _) => vec!["Yes".into(), "No".into()],
         }
     }
 }
@@ -111,6 +112,8 @@ pub enum Mode {
     /// A startup screen (trust, update menu) is up and the composer is not.
     Gate(GateView),
     Approval(Dialog),
+    /// Rows only: no composer, nothing moving (nimbus).
+    Hold,
 }
 
 pub struct View<'a> {
@@ -142,8 +145,10 @@ pub fn frame(view: &View) -> Frame {
     let mut rows = match (&view.mode, view.layout) {
         (Mode::Gate(gate), Layout::Claude) => (gate_rows(view, gate), None),
         (Mode::Gate(gate), Layout::Codex) => (gate_rows(view, gate), None),
+        (Mode::Gate(gate), Layout::Nimbus) => (gate_rows(view, gate), None),
         (_, Layout::Claude) => claude_rows(view),
         (_, Layout::Codex) => codex_rows(view),
+        (_, Layout::Nimbus) => nimbus_rows(view),
     };
     // Fit the viewport: keep the bottom rows (the composer), clip long rows.
     let height = view.rows.max(1);
@@ -488,11 +493,126 @@ fn codex_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
     (rows, cursor.map(|(r, c)| (base + r, c)))
 }
 
+// ---- Nimbus: an agent no profile knows -------------------------------------------------------------
+//
+// Made up for the Agent Wizard's end-to-end tests: plain ASCII frames, a boxed `> ` input row with a
+// dimmed placeholder, a braille spinner next to `ctrl+c to stop`, `reply:` rows, `Allow ...? [y/n]`
+// questions. None of the real agents' profiles recognise any of it, so a wizard that learns this agent
+// has to learn it from the screens alone.
+
+const NIMBUS_SPINNER: [char; 10] =
+    ['\u{280b}', '\u{2819}', '\u{2839}', '\u{2838}', '\u{283c}', '\u{2834}', '\u{2826}', '\u{2827}', '\u{2807}', '\u{280f}'];
+
+fn nimbus_block(block: &Block, cols: usize) -> Vec<String> {
+    let inner = cols.saturating_sub(10);
+    let prefixed = |first: &str, text: &str| -> Vec<String> {
+        wrap(text, inner).into_iter().enumerate().map(|(i, row)| if i == 0 { format!("{first}{row}") } else { format!("  {row}") }).collect()
+    };
+    match block {
+        Block::User(text) => prefixed("> ", text),
+        Block::Reply(text) => prefixed("reply: ", text),
+        Block::Tool { label, detail, failed } => {
+            let mut rows = vec![format!("tool: {label}")];
+            if let Some(code) = failed {
+                rows.push(format!("  -> failed with exit code {code}"));
+            }
+            if let Some(detail) = detail {
+                rows.push(format!("  -> {detail}"));
+            }
+            rows
+        }
+        Block::Note(text) => vec![format!("note: {text}")],
+        Block::Summary(text) => vec![text.clone()],
+        Block::Error(text) => prefixed("error: ", text),
+        Block::Raw(rows) => rows.clone(),
+    }
+}
+
+fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
+    let b = view.banner;
+    let mut rows = vec![format!("NIMBUS {} | {} | {}", b.version, b.model, b.cwd), String::new()];
+    if matches!(view.mode, Mode::Loading) {
+        rows.push("starting up...".into());
+        return (rows, None);
+    }
+    for block in view.blocks {
+        rows.push(String::new());
+        rows.extend(nimbus_block(block, view.cols));
+    }
+    if let Some((verb, elapsed)) = view.busy {
+        rows.push(String::new());
+        let glyph = NIMBUS_SPINNER[(view.tick as usize) % NIMBUS_SPINNER.len()];
+        rows.push(format!("{glyph} {verb}...  {}s  ctrl+c to stop", elapsed / 1000));
+    }
+    rows.push(String::new());
+    if matches!(view.mode, Mode::Hold) {
+        return (rows, None);
+    }
+    if let Mode::Approval(dialog) = &view.mode {
+        let what = match dialog.kind {
+            ApprovalKind::Bash => format!("run `{}`", dialog.command.lines().next().unwrap_or_default()),
+            ApprovalKind::Edit => format!("edit {}", dialog.path),
+            ApprovalKind::Create => format!("create {}", dialog.path),
+        };
+        rows.push(format!("Allow nimbus to {what}? [y/n]"));
+        return (rows, None);
+    }
+    let width = view.cols.saturating_sub(2).clamp(30, 110);
+    let rule = format!("+{}+", "-".repeat(width - 2));
+    rows.push(rule.clone());
+    let inner = width - 6;
+    let box_row = |text: &str, tail: &str, dim: bool| -> String {
+        let used = text.chars().count() + tail.chars().count();
+        let pad = " ".repeat(inner.saturating_sub(used));
+        if dim {
+            format!("| > {text}{DIM}{tail}{NO_DIM}{pad} |")
+        } else {
+            format!("| > {text}{tail}{pad} |")
+        }
+    };
+    let cursor_row = rows.len();
+    let mut cursor_col = 4;
+    if view.composer.is_empty() {
+        let ghost = view.suggestion.unwrap_or("Type a task...");
+        rows.push(box_row("", ghost, true));
+    } else {
+        let wrapped = wrap(view.composer, inner);
+        let last = wrapped.len() - 1;
+        cursor_col = 4 + wrapped[last].chars().count();
+        for (i, row) in wrapped.iter().enumerate() {
+            rows.push(if i == 0 { box_row(row, "", false) } else { format!("|   {row}{} |", " ".repeat(inner.saturating_sub(row.chars().count()))) });
+        }
+        return finish_nimbus(rows, rule, view, Some((cursor_row + last, cursor_col)));
+    }
+    finish_nimbus(rows, rule, view, Some((cursor_row, cursor_col)))
+}
+
+fn finish_nimbus(mut rows: Vec<String>, rule: String, view: &View, cursor: Option<(usize, usize)>) -> (Vec<String>, Option<(usize, usize)>) {
+    rows.push(rule);
+    let hint = view.notice.map_or("/help for commands | ctrl+c twice to quit".to_string(), str::to_string);
+    rows.push(format!("  {GRAY}{hint}{RESET}"));
+    (rows, cursor)
+}
+
 // ---- startup screens ----------------------------------------------------------------------------
 
 fn gate_rows(view: &View, gate: &GateView) -> Vec<String> {
     let cwd = &view.banner.cwd;
     match (view.layout, gate.kind) {
+        (Layout::Nimbus, GateKind::Trust) => {
+            let pointer = |i: usize| if gate.selected == i { ">" } else { " " };
+            vec![
+                format!("NIMBUS {} | {}", view.banner.version, view.banner.model),
+                String::new(),
+                "Do you trust the files in this folder?".into(),
+                format!("  {cwd}"),
+                String::new(),
+                format!("{} 1. Yes, trust this folder", pointer(0)),
+                format!("{} 2. No, exit", pointer(1)),
+                String::new(),
+                "Press Enter to confirm".into(),
+            ]
+        }
         (Layout::Claude, GateKind::Trust) => {
             let pointer = |i: usize| if gate.selected == i { "\u{276f} " } else { "  " };
             let mut rows = vec![
