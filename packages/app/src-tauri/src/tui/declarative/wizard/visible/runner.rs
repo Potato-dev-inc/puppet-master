@@ -28,6 +28,8 @@ pub struct TestLimits {
     pub ready: Duration,
     /// How long the test waits for the person to answer a question on the way.
     pub person: Duration,
+    /// After this long on one question the person is told they can stop the test (kind `stuck`).
+    pub step: Duration,
     pub busy: Duration,
     pub done: Duration,
     pub permission: Duration,
@@ -40,6 +42,7 @@ impl Default for TestLimits {
             start: Duration::from_secs(3),
             ready: Duration::from_secs(90),
             person: Duration::from_secs(300),
+            step: Duration::from_secs(120),
             busy: Duration::from_secs(30),
             done: Duration::from_secs(180),
             permission: Duration::from_secs(120),

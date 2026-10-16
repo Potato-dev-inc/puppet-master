@@ -514,15 +514,13 @@ fn decide(screen: &str, hint: Option<&Hint>) -> Result<(Plan, String), String> {
         return Err(format!("the question mentions \"{word}\", and sign-in, payment, model and telemetry questions are only yours to answer"));
     }
     let menu = parse_menu(screen);
-    // A menu is checked even when the draft knows the answer: an "always" row is never the one to press.
+    // The draft's own `allow_once` keys are used when the screen has no menu to read (a one-line question).
+    // A menu that can be read is walked row by row instead: the highlight is verified, so a default cursor
+    // on "No" is never confirmed, and an "always" row is never the one pressed.
     if let Some(hint) = hint {
-        return match &menu {
-            Some(m) if m.kind != MenuKind::YesNo => {
-                let i = safe_pick(m)?;
-                Ok((Plan::Hint(hint.keys.clone()), m.options[i].text.clone()))
-            }
-            _ => Ok((Plan::Hint(hint.keys.clone()), hint.label.clone())),
-        };
+        if menu.as_ref().is_none_or(|m| m.kind == MenuKind::YesNo) {
+            return Ok((Plan::Hint(hint.keys.clone()), hint.label.clone()));
+        }
     }
     let Some(menu) = menu else {
         return Err("no menu or yes/no question could be read from the screen".into());

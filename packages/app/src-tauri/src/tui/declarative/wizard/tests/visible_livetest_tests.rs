@@ -24,9 +24,16 @@ struct Fixture {
 }
 
 fn fixture(name: &str, draft: Option<String>, change: impl FnOnce(&mut crate::tui::declarative::wizard::WizardEnv)) -> Fixture {
+    fixture_with(name, draft, false, change)
+}
+
+/// `auto`: the person left "answer setup questions for me" on.
+fn fixture_with(name: &str, draft: Option<String>, auto: bool, change: impl FnOnce(&mut crate::tui::declarative::wizard::WizardEnv)) -> Fixture {
     let tree = Tree::new(name);
     let (wizard, host) = tree.visible_wizard_with(change);
-    let id = probed(&wizard, "fake-agent");
+    let started = ok(&wizard, "start", json!({"command": "fake-agent", "auto_answer": auto}));
+    let id = started["session"].as_str().expect("session").to_string();
+    ok(&wizard, "probe", json!({"session": id}));
     with_captures(&wizard, &id);
     let v = ok(&wizard, "verify", json!({"session": id, "toml": draft.unwrap_or_else(|| visible_draft("fake-agent"))}));
     let plan = v["planned_visible"]["fingerprint"].as_str().expect("a planned visible test").to_string();
@@ -78,7 +85,7 @@ fn a_good_draft_passes_every_check_and_the_session_is_tested() {
     assert_eq!(v["state"], "tested");
     assert_eq!(
         checks(&v).iter().map(|(n, s)| format!("{n}:{s}")).collect::<Vec<_>>(),
-        ["starts:passed", "ready:passed", "delivery:passed", "busy:passed", "done_reply:passed", "permission:passed", "exit:passed"]
+        ["starts:passed", "startup:skipped", "ready:passed", "delivery:passed", "busy:passed", "done_reply:passed", "permission:passed", "exit:passed"]
     );
     assert_eq!((v["passed"].as_u64(), v["total"].as_u64()), (Some(7), Some(7)));
     // two tasks were typed: a plain message with the SECOND random word, and the hello.txt request
@@ -136,7 +143,7 @@ fn a_question_on_the_way_waits_for_the_person_and_nothing_is_pressed() {
         s["needs_you"]["message"].as_str().map(str::to_string)
     })
     .expect("the test says it is waiting for the person");
-    assert!(seen.contains("trust") && seen.contains("presses nothing"), "{seen}");
+    assert!(seen.contains("asking a question in the test pane") && seen.contains("isolated temp folder, not your project"), "{seen}");
     std::thread::sleep(Duration::from_millis(300));
     assert!(f.host.delivered().is_empty(), "nothing is typed while the question is up");
     // the person answers it in the pane

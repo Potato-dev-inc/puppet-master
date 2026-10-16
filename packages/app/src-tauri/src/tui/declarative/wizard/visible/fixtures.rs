@@ -176,16 +176,22 @@ fn expect_for(
             }
         }
         Role::Prompt => {
-            let kind = extras.prompt_kind.clone().filter(|k| !k.is_empty()).or_else(|| {
-                profile
-                    .detect_prompt(screen, false)
-                    .and_then(|p| p.get("kind").and_then(|k| k.as_str()).map(str::to_string))
-            });
-            match kind {
-                Some(kind) if !kind.is_empty() => out.push(format!("prompt_kind = {}", q(&kind))),
-                _ => problems.push(problem(
+            // The draft's OWN `[[tui.prompt]]` must detect the question: one that only the shared heuristics
+            // recognise gives the agent no card of its own (the pane would read "idle" behind it). A kind the
+            // drafter writes in its expect block never stands in for that.
+            let detected = profile
+                .declared_prompt(screen, false)
+                .and_then(|p| p.get("kind").and_then(|k| k.as_str()).map(str::to_string))
+                .filter(|k| !k.is_empty());
+            match (detected, extras.prompt_kind.clone().filter(|k| !k.is_empty())) {
+                (Some(found), Some(said)) if found != said => problems.push(problem(
                     name,
-                    format!("no `[[tui.prompt]]` matches the {name} capture, so a question like this would not become a card the person can answer"),
+                    format!("the {name} capture is read as `{found}` by the profile's `[[tui.prompt]]` tables, but the expectation says `{said}`"),
+                )),
+                (Some(found), _) => out.push(format!("prompt_kind = {}", q(&found))),
+                (None, _) => problems.push(problem(
+                    name,
+                    format!("no `[[tui.prompt]]` in the file matches the {name} capture, so a question like this would not become a card the person can answer. Add a `[[tui.prompt]]` whose `detect_regex` matches it (a trust-this-folder question: `kind = \"workspace_trust\"`, with `allow_once` and `deny` choices)"),
                 )),
             }
             out.push("ready = false".into());

@@ -129,7 +129,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     let id = super::super::api::session_id(body)?;
     let op = body.get("op").and_then(Value::as_str).map(str::trim).filter(|o| !o.is_empty());
     let Some(op) = op else {
-        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures, debug, test_status or discard"));
+        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures, debug, test_status, test_act or discard"));
     };
     match op {
         "plan" => {
@@ -176,7 +176,19 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             let session = wizard.read(&id, |s| s.clone())?;
             if let Some(run) = run_of(&session) {
                 run.show();
+            } else if let Some((pane, _)) = session.visible.test_pane.lock().clone() {
+                // the visible test's pane (the question on it is the person's to answer)
+                wizard.env().host.show(&pane);
             }
+            Ok(json!({"ok": true}))
+        }
+        "test_act" => {
+            let session = wizard.read(&id, |s| s.clone())?;
+            let action = body.get("action").and_then(Value::as_str).unwrap_or("");
+            if !matches!(action, "skip" | "stop") {
+                return Err(WizardError::bad_request("action must be skip or stop"));
+            }
+            *session.visible.test_ctl.lock() = Some(action.to_string());
             Ok(json!({"ok": true}))
         }
         "finish" => {

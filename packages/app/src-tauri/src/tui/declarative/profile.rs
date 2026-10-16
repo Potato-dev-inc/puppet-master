@@ -71,6 +71,12 @@ pub struct DeclarativeProfile {
 }
 
 impl DeclarativeProfile {
+    /// The prompt the definition's OWN `[[tui.prompt]]` tables detect on `screen` (no generic fallback). The
+    /// wizard needs this: a question that only the shared heuristics recognise gives the agent no card of its own.
+    pub fn declared_prompt(&self, screen: &str, allow_broad: bool) -> Option<Value> {
+        self.engine.as_ref()?.detect_prompt(screen, allow_broad)
+    }
+
     /// Build from a definition that passed `validate`. Fails only when a selector regex does not
     /// compile (which `validate` already rules out).
     pub fn new(mut def: Definition) -> Result<Self, DefError> {

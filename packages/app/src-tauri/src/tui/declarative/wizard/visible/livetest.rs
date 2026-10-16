@@ -27,6 +27,7 @@ use super::super::exec;
 use super::super::livetest::{first_line, mask_words, EXTERNAL};
 use super::super::report::{render, CheckError, Source as ReportSource, WizardError};
 use super::super::session::{sha256_hex, Draft, Session, State, VisibleTested, Wizard, WizardEnv};
+use super::answer::{scope_ok, AnswerCfg, AnswerKey, Answerer, AnsweredQ, Hint, Input as AnswerInput, Step as AnswerStep};
 use super::api::make_project;
 use super::capture::{message_task_for, permission_task, reply_rows};
 use super::host::{Look, PaneHost, PaneSpec};
@@ -106,6 +107,10 @@ pub struct Outcome {
     pub agent_error: Option<Value>,
     /// (check, masked screen) of every failed check, kept for the next round.
     pub screens: Vec<(String, String)>,
+    /// The questions the wizard answered for the person in the test pane (SPEC 11.16).
+    pub answered: Vec<AnsweredQ>,
+    /// The same, masked, for the reply.
+    pub answered_json: Vec<Value>,
 }
 
 impl Outcome {
@@ -122,8 +127,9 @@ impl Outcome {
     }
 }
 
-const CHECKS: [(&str, &str); 7] = [
+const CHECKS: [(&str, &str); 8] = [
     ("starts", "The agent starts in a pane"),
+    ("startup", "A startup question becomes a card"),
     ("ready", "It reaches its empty input box"),
     ("delivery", "A task is typed and sent"),
     ("busy", "It is seen working"),
@@ -174,6 +180,16 @@ struct Test<'a> {
     began: Instant,
     status: &'a parking_lot::Mutex<Value>,
     checks: Vec<CheckResult>,
+    /// "Agy", for the words shown to the person.
+    agent_name: String,
+    /// The capture saw a startup question (trust, first run): the draft must make a card of it.
+    expects_startup: bool,
+    /// The card check of the startup question, once the question has held still: Ok(note) / Err(why).
+    startup: parking_lot::Mutex<Option<Result<String, Fail>>>,
+    /// Answers setup questions in this pane (off unless the person left the switch on) and where it may.
+    auto: Option<parking_lot::Mutex<Answerer>>,
+    scope: (PathBuf, PathBuf),
+    answered: parking_lot::Mutex<Vec<AnsweredQ>>,
 }
 
 impl Test<'_> {
@@ -195,7 +211,90 @@ impl Test<'_> {
             "needs_you": needs.map(|(kind, message)| json!({"kind": kind, "message": message})),
             "checks": self.checks,
             "screen": shown,
+            "answered": self.answered_json(),
         });
+    }
+
+    fn answered_json(&self) -> Vec<Value> {
+        self.answered.lock().iter().map(|a| a.to_json(&|t: &str| self.masked(t))).collect()
+    }
+
+    /// The draft's own `allow_once` keys for the question on screen, when its `[[tui.prompt]]` detects it.
+    fn hint_for(&self, screen: &str) -> Option<Hint> {
+        let prompt = self.profile.detect_prompt(screen, false)?;
+        let reply = self.profile.prompt_reply(&prompt, "allow_once", false).ok()?;
+        let keys = match (reply.text, reply.key) {
+            (Some(t), _) if t.chars().count() <= 3 && t.chars().all(|c| c.is_ascii_alphanumeric()) => vec![AnswerKey::Text(t)],
+            (None, Some(k)) => vec![AnswerKey::from_name(&k)?],
+            _ => return None,
+        };
+        Some(Hint { keys, label: "Allow once".into() })
+    }
+
+    /// The card check of a startup question (once it holds still): the draft's `[[tui.prompt]]` must detect
+    /// it and offer Allow and Deny, or it would never become a card. Recorded before anything answers it.
+    fn check_startup_card(&self, screen: &str) {
+        let mut slot = self.startup.lock();
+        if slot.is_some() {
+            return;
+        }
+        let result = match self.profile.declared_prompt(screen, false) {
+            None => Err(fail(
+                "A startup question is on the screen but no `[[tui.prompt]]` matches it, so it would not become a card and the agent would sit \"idle\" behind it. Add a `[[tui.prompt]]` (kind `workspace_trust` for a trust-this-folder question) whose `detect_regex` matches the `tui_trust` capture, with an `allow_once` and a `deny` choice.",
+                screen,
+            )),
+            Some(prompt) => {
+                let kind = prompt.get("kind").and_then(|k| k.as_str()).unwrap_or("").to_string();
+                let missing = ["allow_once", "deny"].into_iter().find(|c| self.profile.prompt_reply(&prompt, c, false).is_err());
+                match missing {
+                    Some(choice) => Err(fail(
+                        format!("The startup question was read as `{kind}` but it has no `{choice}` choice that can be answered. Add `{{ id = \"{choice}\", key = \"...\" }}` to its `choices`."),
+                        screen,
+                    )),
+                    None => Ok(format!("The startup question is read as `{kind}` with Allow and Deny, so it becomes a card.")),
+                }
+            }
+        };
+        *slot = Some(result);
+    }
+
+    /// Press the answer's keys: only in this wizard's own pane and folder (checked here, and again by the host).
+    fn press(&self, keys: &[AnswerKey]) -> Result<(), String> {
+        scope_ok(self.host.cwd(&self.pane).as_deref(), &self.scope.0, &self.scope.1)?;
+        self.host.answer(&self.pane, keys)
+    }
+
+    /// One look of the answerer at a question on the test pane. `None` = not its business.
+    fn auto_step(&self, look: &Look, kind: ScreenKind, stable_ms: u64) -> Option<Result<(), String>> {
+        let cell = self.auto.as_ref()?;
+        let flavour = match kind {
+            ScreenKind::Dialog(f) => Some(f),
+            _ => None,
+        };
+        let hint = self.hint_for(&look.screen);
+        let step = cell.lock().step(&AnswerInput { screen: &look.screen, flavour, stable_ms, now: self.ms(), hint: hint.as_ref() });
+        match step {
+            AnswerStep::Nothing => None,
+            AnswerStep::Waiting(_) => Some(Ok(())),
+            AnswerStep::Press { keys, .. } => match self.press(&keys) {
+                Ok(()) => Some(Ok(())),
+                Err(why) => {
+                    // never again in this pane: the question is the person's
+                    cell.lock().reset();
+                    Some(Err(format!("pressing was refused: {why}")))
+                }
+            },
+            AnswerStep::Answered(done) => {
+                self.answered.lock().push(done);
+                Some(Ok(()))
+            }
+            AnswerStep::Declined(reason) => Some(Err(reason)),
+        }
+    }
+
+    /// The person pressed "Stop the test" (or Skip) in the wizard window.
+    fn stop_requested(&self) -> bool {
+        self.session.visible.test_ctl.lock().take().is_some()
     }
 
     fn look(&self) -> Option<Look> {
@@ -273,22 +372,63 @@ impl Test<'_> {
             let question = kind.is_dialog() || matches!(verdict.readiness(), Readiness::Gate(_));
             if question {
                 let since = *asked_since.get_or_insert_with(Instant::now);
+                if self.stop_requested() {
+                    return Err(fail("You stopped the test while the agent was asking a question.", &look.screen));
+                }
                 let flavour = match kind {
                     ScreenKind::Dialog(f) => f,
                     _ => Flavour::Question,
                 };
-                let message = match flavour {
-                    Flavour::Trust => "The agent asks whether you trust this folder. Answer it in the pane yourself. The wizard presses nothing.",
-                    Flavour::Login => "The agent wants you to sign in. Do that in the pane. The wizard presses nothing.",
-                    _ => "The agent is asking a question. Answer it in the pane yourself. The wizard presses nothing.",
+                let stable = stab.stable_for(self.ms());
+                // 1. the draft must see the question as a card (checked before anything answers it)
+                let startup_phase = label == "ready";
+                if startup_phase && stable >= 500 {
+                    self.check_startup_card(&look.screen);
+                }
+                // 2. the wizard may answer a trust or one-time approval question in its own pane
+                let mut declined: Option<String> = None;
+                let mut busy_answering = false;
+                if startup_phase && self.auto.is_some() && self.startup.lock().is_none() {
+                    busy_answering = true; // waiting for the card check, which comes first
+                } else if let Some(outcome) = self.auto_step(&look, kind, stable) {
+                    match outcome {
+                        Ok(()) => busy_answering = true,
+                        Err(reason) => declined = Some(reason),
+                    }
+                }
+                if busy_answering {
+                    self.publish(Some(label), None, &look.screen);
+                    last = Some(look);
+                    std::thread::sleep(self.limits.tick);
+                    continue;
+                }
+                // 3. the person's: say so plainly
+                let mut message = format!(
+                    "{} is asking a question in the test pane. Answer it there (it is the wizard's isolated temp folder, not your project).",
+                    self.agent_name
+                );
+                if let Some(reason) = &declined {
+                    message.push_str(&format!(" The wizard did not answer it for you: {reason}."));
+                }
+                let kind_word = if since.elapsed() > self.limits.step {
+                    message.push_str(" This is taking long. You can stop the test.");
+                    "stuck"
+                } else {
+                    flavour.as_str()
                 };
-                self.publish(Some(label), Some((flavour.as_str(), message)), &look.screen);
+                self.publish(Some(label), Some((kind_word, &message)), &look.screen);
                 if since.elapsed() > self.limits.person {
                     return Err(fail("The agent kept asking a question and nobody answered it.", &look.screen));
                 }
                 last = Some(look);
                 std::thread::sleep(self.limits.tick);
                 continue;
+            }
+            // not a question (any more): if the wizard pressed keys for the last one, it was answered
+            if let Some(cell) = &self.auto {
+                if let AnswerStep::Answered(done) = cell.lock().step(&AnswerInput { screen: &look.screen, flavour: None, stable_ms: 0, now: self.ms(), hint: None }) {
+                    self.answered.lock().push(done);
+                }
             }
             asked_since = None;
             self.publish(Some(label), None, &look.screen);
@@ -439,11 +579,16 @@ impl Test<'_> {
             let stable = quiet.stable_for(self.ms());
             let ready = kind != ScreenKind::Working && !kind.is_dialog() && self.is_ready(&look);
             let unrecognised = stable >= self.question_ms && !ready && kind != ScreenKind::Working && !kind.is_dialog();
-            let needs = unrecognised.then_some((
-                "question",
-                "The screen stopped changing and it is not the agent's empty input box. If the agent is asking something, answer it in the pane yourself: the wizard presses nothing and ends this check when you are done.",
-            ));
+            let message = format!(
+                "{} shows a screen the wizard does not recognise in the test pane. If it is a question, answer it there (it is the wizard's isolated temp folder, not your project).",
+                self.agent_name
+            );
+            let needs = unrecognised.then_some(("question", message.as_str()));
             self.publish(Some("permission"), needs, &look.screen);
+            if self.stop_requested() {
+                // "Skip this check": nothing more is waited for here
+                return Ok(None);
+            }
             if let Some(card) = self.host.card(&self.pane) {
                 // The card was made from the screen as it is NOW; the look above may be a moment older.
                 let mut fresh = self.look().unwrap_or(look);
@@ -533,7 +678,8 @@ impl Drop for Guard<'_> {
 
 /// Run the checks against `host`. Pure over the session snapshot and the environment.
 pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &AtomicBool) -> Outcome {
-    let mut outcome = Outcome { checks: Vec::new(), errors: Vec::new(), agent_error: None, screens: Vec::new() };
+    session.visible.test_ctl.lock().take();
+    let mut outcome = Outcome { checks: Vec::new(), errors: Vec::new(), agent_error: None, screens: Vec::new(), answered: Vec::new(), answered_json: Vec::new() };
     let setup_failed = |outcome: &mut Outcome, code: &str, message: String| {
         outcome.errors.push(CheckError::new("visibletest", code, "", message));
     };
@@ -598,6 +744,15 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         began: Instant::now(),
         status: &session.visible.test_status,
         checks: Vec::new(),
+        agent_name: {
+            let mut c = session.command.chars();
+            c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+        },
+        expects_startup: session.visible.captures.lock().as_ref().is_some_and(|set| set.has("tui_trust") || set.has("tui_firstrun")),
+        startup: parking_lot::Mutex::new(None),
+        auto: session.auto_answer.then(|| parking_lot::Mutex::new(Answerer::new("visibletest", AnswerCfg::default()))),
+        scope: (session.work_dir.clone(), env.temp_root.clone()),
+        answered: parking_lot::Mutex::new(Vec::new()),
     };
     let words = &session.words;
     let task = message_task_for(&words.two);
@@ -644,7 +799,20 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
     if dead_end.is_none() {
         let t = Instant::now();
         let limit = test.limits.ready;
-        match test.await_ready("ready", limit) {
+        let waited = test.await_ready("ready", limit);
+        // the startup question's card check, if a question came up on the way
+        let seen = test.startup.lock().take();
+        match (seen, test.expects_startup) {
+            (Some(Ok(note)), _) => {
+                record(&mut test, &mut outcome, "startup", t, Ok(Some(note)));
+            }
+            (Some(Err(f)), _) => {
+                record(&mut test, &mut outcome, "startup", t, Err(f));
+            }
+            (None, true) => skipped(&mut outcome, &mut test, "startup", "The startup question the capture saw did not appear in the test pane (the agent did not ask again)."),
+            (None, false) => skipped(&mut outcome, &mut test, "startup", "No startup question was captured."),
+        }
+        match waited {
             Ok(look) => {
                 ready_look = Some(look);
                 record(&mut test, &mut outcome, "ready", t, Ok(Some("The profile reads the screen as the empty input box.".into())));
@@ -654,6 +822,8 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
                 dead_end = Some("the agent never reached its input box");
             }
         }
+    } else {
+        skipped(&mut outcome, &mut test, "startup", "not run: the agent did not start");
     }
     // 3. delivery, 4. busy, 5. done + reply
     let mut turn_ok = false;
@@ -703,7 +873,10 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
     record(&mut test, &mut outcome, "exit", t, r);
     guard.pane = None;
     drop(guard);
-    *session.visible.test_status.lock() = json!({"running": false, "checks": outcome.checks});
+    outcome.answered = test.answered.lock().clone();
+    outcome.answered_json = test.answered_json();
+    *session.visible.test_answered.lock() = outcome.answered.clone();
+    *session.visible.test_status.lock() = json!({"running": false, "checks": outcome.checks, "answered": test.answered_json()});
     outcome
 }
 
@@ -718,6 +891,7 @@ pub fn outcome_json(outcome: &Outcome, state: State, version: Option<&str>) -> V
         "passed": outcome.passed(),
         "total": outcome.total(),
         "agent_error": outcome.agent_error,
+        "answered": outcome.answered_json,
     })
 }
 

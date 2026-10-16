@@ -263,6 +263,7 @@ pub fn quick_cfg() -> RunnerCfg {
             start: Duration::from_millis(80),
             ready: Duration::from_secs(5),
             person: Duration::from_secs(5),
+            step: Duration::from_secs(2),
             busy: Duration::from_secs(3),
             done: Duration::from_secs(5),
             permission: Duration::from_secs(3),

@@ -15,6 +15,7 @@ mod report_tests;
 mod state_tests;
 mod verify_tests;
 mod visible_answer_tests;
+mod visible_autoanswer_tests;
 mod visible_api_tests;
 mod visible_capture_tests;
 mod visible_finish_tests;
