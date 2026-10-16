@@ -33,6 +33,47 @@ const STATUS_WORD: Record<CaptureStep['status'], string> = {
   failed: 'Did not work',
 };
 
+/** The word for the program in sentences: "agy" becomes "Agy". */
+export function agentName(command: string): string {
+  return command ? command.charAt(0).toUpperCase() + command.slice(1) : 'The agent';
+}
+
+/**
+ * The setup questions the wizard answered for the person (SPEC 11.16), one line each, with the question as the
+ * pane showed it (masked) one click away. Shown while the wizard works and again on the Review screen.
+ */
+export function AnsweredList({
+  items,
+  command,
+  heading,
+}: {
+  items: Array<{ flavour: string; label: string; keys?: string; screen?: string }>;
+  command: string;
+  heading?: string;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-2 text-xs" data-testid="answered-list">
+      {heading && <p className="font-medium">{heading}</p>}
+      <ul className="mt-1 space-y-1">
+        {items.map((a, i) => (
+          <li key={`${a.flavour}-${i}`} data-flavour={a.flavour}>
+            <span>
+              Answered {agentName(command)}'s {a.flavour} question: {a.label}
+            </span>
+            {a.screen ? (
+              <details className="mt-0.5 text-pm-muted">
+                <summary className="cursor-pointer">The question</summary>
+                <pre className="mt-1 max-h-32 overflow-auto whitespace-pre rounded-lg bg-pm-bg p-2 font-mono text-[10px] leading-tight">{a.screen}</pre>
+              </details>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** "What the wizard saw": the last looks of the capture and how each was read. Loaded when the person asks. */
 function SawPanel({ api, session }: { api: WizardApi; session: string }) {
   const [debug, setDebug] = useState<CaptureDebug | null | undefined>(undefined);
@@ -341,6 +382,7 @@ export function AgentWizardCapture({
           </button>
         )}
       </div>
+      <AnsweredList items={status?.answered ?? []} command={start.command} />
       {(needs || status?.frozen) && api.captureDebug ? <SawPanel api={api} session={session} /> : null}
       {status?.screen ? (
         <pre

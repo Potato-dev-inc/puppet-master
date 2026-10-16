@@ -31,6 +31,10 @@ pub enum WriteOrigin<'a> {
     Nudge,
     /// Raw input an authorised API caller asked for (`write_terminal_input`, `press_key`).
     Api,
+    /// The Agent Wizard answering a trust or one-time approval question in a pane IT started, in its own
+    /// isolated folder (SPEC 11.16). Only `wizard/visible/registry_host.rs` writes with it, and only after the
+    /// answerer's rules and the scope check; the host refuses any pane it did not start.
+    WizardAnswer,
     /// A prompt sent over the agent's own protocol (OpenCode's HTTP API), never typed into the
     /// screen. Refused on the terminal path.
     Structured,
@@ -44,6 +48,7 @@ impl WriteOrigin<'_> {
             Self::Task(_) => "task",
             Self::Gate(_) => "gate",
             Self::Answer | Self::Decided(_) => "answer",
+            Self::WizardAnswer => "wizard_answer",
             Self::Nudge => "nudge",
             Self::Api => "api",
             Self::Structured => "structured",
@@ -68,7 +73,7 @@ impl WriteOrigin<'_> {
                 "{}: a structured prompt is never typed into the terminal",
                 crate::agent_runs::readiness::PERMIT_REFUSED
             )),
-            Self::User | Self::Answer | Self::Nudge | Self::Api => Ok(()),
+            Self::User | Self::Answer | Self::WizardAnswer | Self::Nudge | Self::Api => Ok(()),
         }
     }
 }

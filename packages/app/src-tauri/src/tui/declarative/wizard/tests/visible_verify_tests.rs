@@ -210,3 +210,28 @@ fn the_worked_example_in_the_prompt_is_the_recorded_draft_and_passes_its_screens
     let body = body.split_once("schema_version = 1").map(|(_, rest)| format!("schema_version = 1{rest}")).unwrap();
     assert_eq!(body.trim_end(), visible_draft("nimbus").replace("\r\n", "\n").trim_end());
 }
+
+#[test]
+fn a_startup_trust_question_needs_a_prompt_table_of_the_files_own_not_the_generic_heuristics() {
+    let tree = Tree::new("vv-trustcard");
+    let (wizard, _host) = tree.visible_wizard();
+    let id = probed(&wizard, "fake-agent");
+    with_captures(&wizard, &id);
+    let draft = visible_draft("fake-agent");
+    let weak = draft.replace("detect_regex = 'do you trust the files in this folder'", "detect_regex = 'nothing like it'");
+    assert_ne!(weak, draft);
+    let v = verify(&wizard, &id, &weak, json!({}));
+    assert_eq!(v["ok"], false);
+    assert!(codes(&v).contains(&"FIXTURE_EXPECT_INVALID".to_string()), "{:?}", codes(&v));
+    let text = v["text"].as_str().unwrap();
+    assert!(text.contains("tui_trust") && text.contains("workspace_trust"), "{text}");
+    // writing the kind in the expectation block does not stand in for a prompt that detects the question
+    let v = verify(&wizard, &id, &weak, json!({"tui_trust": "prompt_kind = \"trust\"\n"}));
+    assert_eq!(v["ok"], false, "{}", v["text"]);
+    // a kind that disagrees with what the file's prompt says is caught too
+    let v = verify(&wizard, &id, &draft, json!({"tui_trust": "prompt_kind = \"something_else\"\n"}));
+    assert_eq!(v["ok"], false);
+    assert!(v["text"].as_str().unwrap().contains("trust_folder"), "{}", v["text"]);
+    // the real thing passes
+    assert_eq!(verify(&wizard, &id, &draft, json!({"tui_trust": "prompt_kind = \"trust_folder\"\n"}))["ok"], true);
+}

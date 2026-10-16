@@ -193,6 +193,7 @@ pub fn start(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
         tested: None,
         visible_tested: None,
         visible: Arc::new(super::session::VisibleData::default()),
+        auto_answer: body.get("auto_answer").and_then(Value::as_bool).unwrap_or(false),
         busy: None,
         cancel: Arc::new(AtomicBool::new(false)),
     };

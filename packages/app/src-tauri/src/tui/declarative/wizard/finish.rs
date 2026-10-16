@@ -93,8 +93,13 @@ fn provenance_json(session: &Session, id: &str, p: &Provenance, sha: &str, passe
     if let Some(v) = visible {
         body["results"]["visible"] = json!({"passed": v.passed, "total": v.total});
     }
+    // The questions the wizard answered for the person in its own panes (SPEC 11.16), masked like every screen.
+    let mask = |t: &str| super::livetest::mask_words(t, &session.words);
+    let mut answered: Vec<Value> = capture.as_ref().map(|set| set.answered.iter().map(|a| a.to_json(&mask)).collect()).unwrap_or_default();
+    answered.extend(session.visible.test_answered.lock().iter().map(|a| a.to_json(&mask)));
+    body["auto_answer"] = json!({"enabled": session.auto_answer, "answered": answered});
     if let Some(set) = capture.filter(|set| !set.frames.is_empty()) {
-        body["capture"] = json!({"grid": {"cols": set.grid.0, "rows": set.grid.1}, "partial": set.partial, "exit_method": set.exit_method});
+        body["capture"] = json!({"grid": {"cols": set.grid.0, "rows": set.grid.1}, "partial": set.partial, "exit_method": set.exit_method, "writes_without_asking": set.writes_without_asking});
     }
     body
 }

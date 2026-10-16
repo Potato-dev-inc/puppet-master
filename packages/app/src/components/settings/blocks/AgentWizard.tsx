@@ -34,10 +34,30 @@ import {
   type StartInfo,
   type StepId,
   type VerifyResult,
+  type VisibleTestStatus,
   type WizardApi,
 } from '../../../lib/agentWizard';
 import { buildPrompt, REMOTE_PROMPT_BUDGET, type CaptureFacts } from '../../../lib/agentWizardPrompt';
-import { AgentWizardCapture, BTN, INPUT } from './AgentWizardCapture';
+import { AgentWizardCapture, AnsweredList, agentName, BTN, INPUT } from './AgentWizardCapture';
+
+const AUTO_ANSWER_KEY = 'pm.agentWizard.answerSetupQuestions';
+
+/** The person's choice, kept between runs. On unless they turned it off. */
+function loadAutoAnswer(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(AUTO_ANSWER_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+function saveAutoAnswer(on: boolean) {
+  try {
+    globalThis.localStorage?.setItem(AUTO_ANSWER_KEY, on ? 'on' : 'off');
+  } catch {
+    // a browser without storage keeps the choice for this window only
+  }
+}
 
 type Phase = 'command' | 'finding' | 'capture' | 'drafter' | 'running' | 'review' | 'stopped';
 
@@ -89,6 +109,9 @@ export function AgentWizard({
 }) {
   const [phase, setPhase] = useState<Phase>('command');
   const [command, setCommand] = useState('');
+  // "Answer setup questions for me": the wizard may answer a trust or one-time approval question in the panes it
+  // starts itself, in its own isolated folder. On by default; the choice is kept.
+  const [autoAnswer, setAutoAnswer] = useState<boolean>(() => loadAutoAnswer());
   const [error, setError] = useState<string | null>(null);
   const [found, setFound] = useState<Found | null>(null);
   const [captures, setCaptures] = useState<CaptureFacts | null>(null);
@@ -159,7 +182,7 @@ export function AgentWizard({
     setPhase('finding');
     try {
       await discardSession();
-      const start = await api.start(name);
+      const start = await api.start(name, autoAnswer);
       sessionRef.current = start.session;
       const probe = await api.probe(start.session);
       const list = orderDrafters(await api.drafters().catch(() => []));
@@ -180,7 +203,7 @@ export function AgentWizard({
       setError(splitError(e).message);
       setPhase('command');
     }
-  }, [api, command, discardSession, openRouter]);
+  }, [api, autoAnswer, command, discardSession, openRouter]);
 
   /** Draft, check, fix and test. With \`oneTask\`, the visible file in \`result\` is kept and only the one-task mode is added. */
   const startDrafting = useCallback(
@@ -370,6 +393,27 @@ export function AgentWizard({
                 {phase === 'finding' ? 'Looking...' : 'Find it'}
               </button>
             </div>
+            <label className="mt-3 flex items-start gap-2 text-xs" htmlFor="wizard-auto-answer">
+              <input
+                id="wizard-auto-answer"
+                type="checkbox"
+                className="mt-0.5"
+                checked={autoAnswer}
+                disabled={phase === 'finding'}
+                onChange={(e) => {
+                  setAutoAnswer(e.target.checked);
+                  saveAutoAnswer(e.target.checked);
+                }}
+              />
+              <span>
+                Answer setup questions for me (only in the wizard's temp folder)
+                <span className="block text-pm-muted">
+                  The agent may ask "do you trust this folder?" or "allow this once?" in the panes the wizard opens. With this on, the
+                  wizard presses the plain yes. It never picks "always", "don't ask again" or "all", and never answers a sign-in, payment
+                  or model question. Your own projects are never touched.
+                </span>
+              </span>
+            </label>
             {phase === 'finding' && (
               <p role="status" className="mt-2 text-xs text-pm-muted">
                 Finding the program and reading its help...
@@ -501,6 +545,10 @@ export function AgentWizard({
 
         {(phase === 'running' || phase === 'stopped') && <ProgressList events={events} phase={phase} withCapture={captures !== null} />}
 
+        {phase === 'running' && found && confirmingVisible === null && latest(events, 'visible')?.status === 'running' && (
+          <VisibleTestLive api={api} session={found.start.session} command={found.start.command} />
+        )}
+
         {phase === 'running' && confirmingVisible !== null && found && (
           <div role="group" aria-label="Confirm the visible test" data-testid="visible-confirm" className="mt-3 rounded-lg border border-pm-border p-3">
             <p className="text-xs font-semibold">Ready for the visible test</p>
@@ -592,6 +640,7 @@ export function AgentWizard({
             showToml={showToml}
             oneTaskOffer={Boolean(captures) && oneTaskOffered && !result.live}
             writesWithoutAsking={Boolean(captures?.facts.writes_without_asking)}
+            answeredForYou={[...(captures?.facts.answered ?? []), ...(result.visible?.answered ?? [])]}
             onToggleToml={() => setShowToml((v) => !v)}
             onApprove={() => void approve()}
             onRetry={() => setPhase('drafter')}
@@ -633,6 +682,64 @@ function PlannedPane({ planned }: { planned: PlannedVisible }) {
       <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-pm-bg p-2 font-mono text-[11px]">
         {[[planned.program.path, ...planned.args].map(quote).join(' '), `In an isolated folder, in a pane ${planned.grid.cols} wide and ${planned.grid.rows} tall.`, ...extra].join('\n')}
       </pre>
+    </div>
+  );
+}
+
+/**
+ * What the visible test is doing right now: the checks so far, the question in the test pane when there is one
+ * (and whose it is to answer), the questions the wizard already answered, "Show the pane" and "Stop the test".
+ */
+function VisibleTestLive({ api, session, command }: { api: WizardApi; session: string; command: string }) {
+  const [status, setStatus] = useState<VisibleTestStatus | null>(null);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    const poll = () => {
+      void Promise.resolve(api.testStatus(session))
+        .then((s) => {
+          if (alive.current) setStatus(s);
+        })
+        .catch(() => undefined);
+    };
+    poll();
+    const timer = setInterval(poll, 700);
+    return () => {
+      alive.current = false;
+      clearInterval(timer);
+    };
+  }, [api, session]);
+  const needs = status?.needs_you ?? null;
+  return (
+    <div className="mt-3 text-xs" data-testid="visible-live">
+      {needs && (
+        <div role="status" data-testid="visible-needs-you" className="rounded-lg border border-pm-border p-3">
+          <p className="font-semibold">Your turn</p>
+          <p className="mt-1">{needs.message}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {api.testShow && (
+              <button type="button" className={BTN} onClick={() => void Promise.resolve(api.testShow?.(session)).catch(() => undefined)}>
+                Show the pane
+              </button>
+            )}
+            {api.testAct && (
+              <button type="button" className={BTN} onClick={() => void Promise.resolve(api.testAct?.(session, 'stop')).catch(() => undefined)}>
+                Stop the test
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      <AnsweredList items={status?.answered ?? []} command={command} />
+      {needs && status?.screen ? (
+        <pre
+          data-testid="visible-screen"
+          aria-label={`What the ${agentName(command)} test pane shows now`}
+          className="mt-2 max-h-48 overflow-auto whitespace-pre rounded-lg bg-pm-bg p-2 font-mono text-[10px] leading-tight"
+        >
+          {status.screen}
+        </pre>
+      ) : null}
     </div>
   );
 }
@@ -690,6 +797,7 @@ function Review({
   showToml,
   oneTaskOffer,
   writesWithoutAsking,
+  answeredForYou,
   onToggleToml,
   onApprove,
   onRetry,
@@ -702,6 +810,7 @@ function Review({
   showToml: boolean;
   oneTaskOffer: boolean;
   writesWithoutAsking: boolean;
+  answeredForYou: Array<{ flavour: string; label: string; keys?: string; screen?: string }>;
   onToggleToml: () => void;
   onApprove: () => void;
   onRetry: () => void;
@@ -730,6 +839,7 @@ function Review({
             <p className="font-medium">
               Visible pane: {visible.passed} of {visible.total} checks passed
             </p>
+            <AnsweredList items={answeredForYou} command={found.start.command} heading="Answered for you" />
             {writesWithoutAsking && (
               <p data-testid="review-writes-without-asking" className="mt-1 text-pm-muted">
                 This agent writes files without asking first. Puppet Master saw it create a file with no question.

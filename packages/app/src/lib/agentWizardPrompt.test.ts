@@ -31,7 +31,7 @@ const facts = (over: Partial<PromptFacts> = {}): PromptFacts => ({
 
 describe('prompt sources', () => {
   it('has a version string', () => {
-    expect(PROMPT_VERSION).toBe('5');
+    expect(PROMPT_VERSION).toBe('6');
   });
 
   it('finds every section of the format guide it needs (guards a renamed heading)', () => {
@@ -286,6 +286,9 @@ describe('the visible prompt', () => {
     expect(text).toContain('<<<VARIANTS tui_idle');
     expect(text).toContain('Pane grid: 120 columns by 40 rows');
     expect(text).toContain('Questions the agent asked at startup (answered by the person in the pane): trust.');
+    expect(text).toContain('Each needs its own [[tui.prompt]]');
+    expect(text).toContain('kind = "workspace_trust"');
+    expect(text).toContain('startup question (trust) and a permission question each become an approval card');
     expect(text).toContain('How the agent ended: it quit on /exit.');
     expect(text).toContain('[tui.ready]');
     expect(text).toContain('# expect: <capture name>');

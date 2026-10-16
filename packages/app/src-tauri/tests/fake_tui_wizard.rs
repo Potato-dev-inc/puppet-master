@@ -160,7 +160,7 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
                 let status = rig
                     .call("capture", json!({"session": id, "op": "test_status"}))
                     .unwrap_or_else(|e| panic!("test_status: {}", err(&e)));
-                if status["needs_you"]["message"].as_str().is_some_and(|m| m.contains("trust")) {
+                if status["needs_you"]["kind"] == "trust" {
                     let pane = session.pane_ids().into_iter().find(|p| !grid.contains(p)).expect("the test pane");
                     session.type_as_user(&pane, "1", false).expect("the person types");
                     trusted = true;
@@ -173,7 +173,7 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     .unwrap_or_else(|e| panic!("visibletest: {}", err(&e)));
     assert_eq!(test["ok"], true, "the visible test said:\n{}\n{}", test["text"].as_str().unwrap_or_default(), test["checks"]);
     assert_eq!(test["state"], "tested");
-    assert_eq!((test["passed"].as_u64(), test["total"].as_u64()), (Some(7), Some(7)), "{}", test["checks"]);
+    assert_eq!((test["passed"].as_u64(), test["total"].as_u64()), (Some(8), Some(8)), "{}", test["checks"]);
     let prompts_after: Vec<String> = events_named(&session, "prompt").iter().skip(prompts_before).filter_map(|e| e["text"].as_str().map(str::to_string)).collect();
     assert_eq!(prompts_after.len(), 2, "{prompts_after:?}");
     assert_eq!(prompts_after[0], format!("Reply with exactly the word: {two}"));
@@ -271,7 +271,7 @@ fn the_benchmark_helpers_capture_and_run_rounds_on_the_fake_agent() {
     assert_eq!(feedback["previous_toml"], draft);
     assert_eq!(feedback["previous_expects"]["tui_idle"], "chrome_lines = [\"NIMBUS 0.4.2\"]\n");
     let visible: Value = serde_json::from_str(&std::fs::read_to_string(round1.join("visible.json")).unwrap()).unwrap();
-    assert_eq!((visible["passed"].as_u64(), visible["total"].as_u64()), (Some(7), Some(7)));
+    assert_eq!((visible["passed"].as_u64(), visible["total"].as_u64()), (Some(8), Some(8)));
 
     // A draft whose ready pattern never matches fails the round with the checker's text and the screen.
     let wrong = draft.replace("type a task'\nnot_regex", "type a taskX'\nnot_regex");
@@ -389,6 +389,185 @@ fn a_picture_nothing_recognises_stops_with_evidence_and_the_person_can_answer_it
     let permission = dump["raw"]["frames"].as_array().unwrap().iter().find(|f| f["name"] == "tui_permission").expect("tui_permission");
     assert!(permission["text"].as_str().unwrap().contains("Where should hello.txt go?"));
     assert_eq!(dump["raw"]["writes_without_asking"], false);
+}
+
+// ---- the wizard answers the setup questions of its own panes (SPEC 11.16) ---------------------------------------
+
+fn with_trust_style(style: &str) -> String {
+    SCRIPT.replace("after_ms = 150", &format!("after_ms = 150\nstyle = \"{style}\""))
+}
+
+/// Watches a capture settle without answering anything: the only button it presses is the optional `/exit`.
+fn settle_without_the_person(rig: &puppet_master_app_lib::fake_tui::WizardRig, id: &str, seconds: u64) -> Value {
+    let mut tried_exit = false;
+    let deadline = Instant::now() + Duration::from_secs(seconds);
+    loop {
+        let s = status(rig, id);
+        assert!(s["needs_you"].is_null(), "the wizard should have answered it, but it asked the person: {}", s["needs_you"]);
+        if s["step"] == "exit" && !tried_exit {
+            tried_exit = true;
+            rig.call("capture", json!({"session": id, "op": "act", "action": "try_exit"})).unwrap_or_else(|e| panic!("try_exit: {}", err(&e)));
+        }
+        if s["settled"] == true {
+            return s;
+        }
+        assert!(Instant::now() < deadline, "the capture did not settle in {seconds} s: {s}");
+        std::thread::sleep(Duration::from_millis(150));
+    }
+}
+
+fn start_capture(rig: &puppet_master_app_lib::fake_tui::WizardRig, auto: bool) -> String {
+    let started = rig.call("start", json!({"command": "nimbus", "auto_answer": auto})).unwrap_or_else(|e| panic!("start: {}", err(&e)));
+    let id = started["session"].as_str().expect("session id").to_string();
+    rig.call("probe", json!({"session": id})).unwrap_or_else(|e| panic!("probe: {}", err(&e)));
+    let plan = rig.call("capture", json!({"session": id, "op": "plan"})).unwrap_or_else(|e| panic!("plan: {}", err(&e)));
+    let fingerprint = plan["plan"]["fingerprint"].as_str().unwrap().to_string();
+    rig.call("capture", json!({"session": id, "op": "start", "confirm": true, "plan": fingerprint})).unwrap_or_else(|e| panic!("capture start: {}", err(&e)));
+    id
+}
+
+#[test]
+fn the_whole_flow_on_an_arrow_menu_agent_needs_no_person_with_the_switch_on() {
+    let session = World::get().session("wizard-auto-arrow");
+    let rig = session.wizard_rig("nimbus", &with_trust_style("arrow"));
+    let id = start_capture(&rig, true);
+    let (one, two, _sky) = rig.words(&id);
+
+    // capture: the trust menu (cursor on the safe row) and the permission question are answered by the wizard
+    let settled = settle_without_the_person(&rig, &id, 120);
+    let answered: Vec<(String, String, String)> = settled["answered"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| (a["flavour"].as_str().unwrap().into(), a["label"].as_str().unwrap().into(), a["keys"].as_str().unwrap().into()))
+        .collect();
+    assert_eq!(
+        answered,
+        [("trust".to_string(), "Yes, I trust this folder".to_string(), "Enter".to_string()), ("permission".to_string(), "Yes".to_string(), "y".to_string())],
+        "{settled}"
+    );
+    assert_eq!(events_named(&session, "gate_answer").len(), 1);
+    assert_eq!(events_named(&session, "gate_answer")[0]["answer"], "trust");
+    assert_eq!(events_named(&session, "approval_answer").len(), 1);
+    assert_eq!(events_named(&session, "approval_answer")[0]["answer"], "allow");
+    let finished = rig.call("capture", json!({"session": id, "op": "finish"})).unwrap_or_else(|e| panic!("finish: {}", err(&e)));
+    let names: Vec<&str> = finished["captures"]["files"].as_array().unwrap().iter().filter_map(|f| f["name"].as_str()).collect();
+    assert_eq!(names, ["tui_trust", "tui_idle", "tui_working", "tui_reply", "tui_permission"], "the questions were kept before they were answered");
+    assert!(finished["captures"]["files"][0]["text"].as_str().unwrap().contains("Navigate"), "the arrow menu was captured");
+    assert_eq!(finished["captures"]["facts"]["answered"].as_array().unwrap().len(), 2);
+    assert!(!finished.to_string().contains(&one));
+
+    // draft -> verify (the draft's own prompt must detect the startup question) -> visible test, no person
+    let draft = DRAFT.replace("@@COMMAND@@", "nimbus");
+    let verified = rig
+        .call("verify", json!({"session": id, "toml": draft, "expect": {"tui_idle": "chrome_lines = [\"NIMBUS 0.4.2\"]\n"}}))
+        .unwrap_or_else(|e| panic!("verify: {}", err(&e)));
+    assert_eq!(verified["ok"], true, "verify said:\n{}", verified["text"].as_str().unwrap_or_default());
+    let plan = verified["planned_visible"]["fingerprint"].as_str().unwrap().to_string();
+    let prompts_before = events_named(&session, "prompt").len();
+    let test = rig.call("visibletest", json!({"session": id, "confirm": true, "plan": plan})).unwrap_or_else(|e| panic!("visibletest: {}", err(&e)));
+    assert_eq!(test["ok"], true, "{}\n{}", test["text"].as_str().unwrap_or_default(), test["checks"]);
+    assert_eq!((test["passed"].as_u64(), test["total"].as_u64()), (Some(8), Some(8)), "{}", test["checks"]);
+    let startup = test["checks"].as_array().unwrap().iter().find(|c| c["name"] == "startup").unwrap();
+    assert_eq!(startup["status"], "passed", "the draft's prompt saw the question before the wizard answered: {startup}");
+    assert_eq!(test["answered"].as_array().unwrap().len(), 1);
+    assert_eq!(test["answered"][0]["label"], "Yes, I trust this folder");
+    assert_eq!(events_named(&session, "gate_answer").len(), 2, "one trust answer per pane");
+    assert_eq!(events_named(&session, "approval_answer").len(), 1, "the permission check answered nothing");
+    let prompts_after: Vec<String> = events_named(&session, "prompt").iter().skip(prompts_before).filter_map(|e| e["text"].as_str().map(str::to_string)).collect();
+    assert_eq!(prompts_after.len(), 2, "{prompts_after:?}");
+    assert_eq!(prompts_after[0], format!("Reply with exactly the word: {two}"));
+
+    // finish records what was answered for the person
+    let done = rig
+        .call("finish", json!({"session": id, "provenance": {"drafter": "Stand-in drafter", "drafter_kind": "other", "prompt_version": "6", "rounds": 1}}))
+        .unwrap_or_else(|e| panic!("finish: {}", err(&e)));
+    assert_eq!(done["id"], "nimbus");
+    let prov: Value = serde_json::from_str(&std::fs::read_to_string(done["provenance_file"].as_str().unwrap()).unwrap()).unwrap();
+    assert_eq!(prov["auto_answer"]["enabled"], true);
+    assert_eq!(prov["auto_answer"]["answered"].as_array().unwrap().len(), 3, "{prov}");
+    session.until(10, || session.pane_ids().is_empty().then_some(())).unwrap_or_else(|| panic!("panes left: {:?}", session.pane_ids()));
+}
+
+#[test]
+fn a_menu_with_the_safe_option_on_the_second_row_is_walked_to_on_a_real_pane() {
+    let session = World::get().session("wizard-auto-second");
+    let rig = session.wizard_rig("nimbus", &with_trust_style("arrow_no_first"));
+    let id = start_capture(&rig, true);
+    let settled = settle_without_the_person(&rig, &id, 120);
+    let first = &settled["answered"][0];
+    assert_eq!((first["label"].as_str(), first["keys"].as_str()), (Some("Yes, I trust this folder"), Some("Down, Enter")), "{settled}");
+    assert_eq!(events_named(&session, "gate_answer")[0]["answer"], "trust", "the fake saw a yes, not the default No");
+    rig.call("cancel", json!({"session": id})).unwrap();
+}
+
+#[test]
+fn a_numbered_menu_is_answered_with_its_number_on_a_real_pane() {
+    let session = World::get().session("wizard-auto-numbered");
+    let rig = session.wizard_rig("nimbus", SCRIPT);
+    let id = start_capture(&rig, true);
+    let settled = settle_without_the_person(&rig, &id, 120);
+    let first = &settled["answered"][0];
+    assert_eq!((first["label"].as_str(), first["keys"].as_str()), (Some("Yes, trust this folder"), Some("1")), "{settled}");
+    rig.call("cancel", json!({"session": id})).unwrap();
+}
+
+#[test]
+fn a_menu_whose_only_yes_is_always_trust_is_left_to_the_person_on_a_real_pane() {
+    let session = World::get().session("wizard-auto-always");
+    let rig = session.wizard_rig("nimbus", &with_trust_style("always"));
+    let id = start_capture(&rig, true);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let needs = loop {
+        let s = status(&rig, &id);
+        if s["needs_you"].is_object() {
+            break s["needs_you"].clone();
+        }
+        assert!(Instant::now() < deadline, "the person was never asked: {s}");
+        std::thread::sleep(Duration::from_millis(150));
+    };
+    assert_eq!(needs["kind"], "trust");
+    assert!(needs["message"].as_str().unwrap().contains("did not answer it for you"), "{needs}");
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(events_named(&session, "gate_answer").len(), 0, "the fake was never answered");
+    rig.call("cancel", json!({"session": id})).unwrap();
+}
+
+#[test]
+fn with_the_switch_off_the_same_menu_is_left_to_the_person() {
+    let session = World::get().session("wizard-auto-off");
+    let rig = session.wizard_rig("nimbus", &with_trust_style("arrow"));
+    let id = start_capture(&rig, false);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let s = status(&rig, &id);
+        if s["needs_you"]["kind"] == "trust" {
+            assert!(!s["needs_you"]["message"].as_str().unwrap().contains("did not answer it for you"));
+            break;
+        }
+        assert!(Instant::now() < deadline, "{s}");
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(events_named(&session, "gate_answer").len(), 0);
+    rig.call("cancel", json!({"session": id})).unwrap();
+}
+
+#[test]
+fn a_normal_pane_showing_the_same_menu_is_never_answered() {
+    let session = World::get().session("wizard-auto-normal");
+    // a normal pane: the app's own, not the wizard's, showing a trust question (the fake claude layout)
+    session.script("agent = \"claude\"\nboot_ms = 100\n[[startup]]\ngate = \"trust\"\nafter_ms = 100\n");
+    let rig = session.wizard_rig("nimbus", &with_trust_style("arrow"));
+    session.script("agent = \"claude\"\nboot_ms = 100\n[[startup]]\ngate = \"trust\"\nafter_ms = 100\n");
+    let pane = session.spawn_pane("fake_claude").expect("a normal pane");
+    session.until(20, || session.screen(&pane).to_lowercase().contains("trust").then_some(())).expect("the question is on the pane");
+    // even asked directly, the wizard host presses nothing in a pane it did not start
+    let refused = rig.wizard_host_presses_enter(&pane).unwrap_err();
+    assert!(refused.contains("not a pane the wizard started"), "{refused}");
+    std::thread::sleep(Duration::from_secs(2));
+    assert_eq!(events_named(&session, "gate_answer").len(), 0, "nothing answered the person's pane");
+    session.close_pane(&pane);
 }
 
 fn env_or_skip(name: &str) -> String {

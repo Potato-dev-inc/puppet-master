@@ -109,7 +109,7 @@ impl From<&crate::pty::WriteOrigin<'_>> for InputTag {
             WriteOrigin::User => Self::User,
             WriteOrigin::Task(_) | WriteOrigin::Structured => Self::RunTask,
             WriteOrigin::Gate(_) => Self::GateDismiss,
-            WriteOrigin::Answer | WriteOrigin::Decided(_) => Self::Answer,
+            WriteOrigin::Answer | WriteOrigin::WizardAnswer | WriteOrigin::Decided(_) => Self::Answer,
             WriteOrigin::Nudge => Self::Nudge,
             WriteOrigin::Api => Self::Agent,
         }

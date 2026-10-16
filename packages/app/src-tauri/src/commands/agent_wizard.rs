@@ -14,10 +14,12 @@ async fn run(action: &'static str, body: Value) -> Result<Value, String> {
     .map_err(|e| e.to_string())?
 }
 
-/// Find the program for `command`, try `--version`, open a session.
+/// Find the program for `command`, try `--version`, open a session. `auto_answer` is the first screen's switch
+/// "Answer setup questions for me (only in the wizard's temp folder)": the wizard may answer a trust or
+/// one-time approval question in the panes it starts itself, by fixed rules (SPEC 11.16). Off when absent.
 #[tauri::command]
-pub async fn agent_wizard_start(command: String) -> Result<Value, String> {
-    run("start", serde_json::json!({"command": command})).await
+pub async fn agent_wizard_start(command: String, auto_answer: Option<bool>) -> Result<Value, String> {
+    run("start", serde_json::json!({"command": command, "auto_answer": auto_answer.unwrap_or(false)})).await
 }
 
 /// Run the fixed help and version probes.
