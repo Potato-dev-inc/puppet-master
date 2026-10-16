@@ -405,3 +405,21 @@ pub fn agents_health_test(
     serde_json::to_value(crate::agent_health::test_agent(&agent_id, state.registry.clone(), app))
         .unwrap_or(Value::Null)
 }
+
+/// Settings > Agents "Remove": moves one of the user's own definitions to `.removed/` (never deletes).
+#[tauri::command]
+pub fn agents_definition_remove(file: String) -> Result<Value, String> {
+    crate::tui::declarative::service::remove_global(&file).map_err(command_error)
+}
+
+/// "Undo" / "Restore": puts a removed definition back (refuses when the file name is taken again).
+#[tauri::command]
+pub fn agents_definition_restore(removed_id: String) -> Result<Value, String> {
+    crate::tui::declarative::service::restore_global(&removed_id).map_err(command_error)
+}
+
+/// The "Recently removed" list: `{removed: [...]}`, newest first.
+#[tauri::command]
+pub fn agents_definitions_removed() -> Value {
+    crate::tui::declarative::service::removed_global()
+}

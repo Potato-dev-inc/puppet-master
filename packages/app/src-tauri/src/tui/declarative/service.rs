@@ -28,7 +28,7 @@ pub struct ServiceError {
 }
 
 impl ServiceError {
-    fn new(status: u16, code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(status: u16, code: &'static str, message: impl Into<String>) -> Self {
         Self { status, code, message: message.into() }
     }
 
@@ -58,6 +58,7 @@ fn entry_json(entry: &Entry) -> Value {
         "shadowed_by": entry.shadowed_by.as_ref().map(|p| p.to_string_lossy().into_owned()),
         "binary_changed": entry.binary_changed,
         "experimental": entry.meta.as_ref().is_some_and(|m| m.experimental),
+        "label": entry.meta.as_ref().map(|m| m.label.clone()),
     })
 }
 
@@ -453,4 +454,39 @@ pub fn project_scan(project: &str) -> Value {
 /// What was approved before for `file` (the argv diff in the Approve dialog).
 pub fn approved_snapshot_global(file: &str) -> Value {
     approved_snapshot(&super::approvals::default_path(), file)
+}
+
+// ---- remove / restore (Settings > Agents) ---------------------------------------------------
+
+/// Move one of the user's own definitions (and its fixtures, wizard record and approval) to
+/// `.removed/`, then reload the registry so the agent leaves every menu at once.
+pub fn remove_global(file: &str) -> Result<Value, ServiceError> {
+    let ids = crate::tui::registry::registry().code_ids();
+    let result = super::removal::remove_at(
+        &crate::app_paths::agents_dir(),
+        &super::approvals::default_path(),
+        file,
+        &ids,
+        &now_rfc3339(),
+    )?;
+    reload_and_announce();
+    Ok(result)
+}
+
+/// Undo a removal (see `removal::restore_at`), then reload the registry.
+pub fn restore_global(removed_id: &str) -> Result<Value, ServiceError> {
+    let ids = crate::tui::registry::registry().code_ids();
+    let result = super::removal::restore_at(
+        &crate::app_paths::agents_dir(),
+        &super::approvals::default_path(),
+        removed_id,
+        &ids,
+    )?;
+    reload_and_announce();
+    Ok(result)
+}
+
+/// `{removed: [...]}`: what `.removed/` holds.
+pub fn removed_global() -> Value {
+    super::removal::list_removed_at(&crate::app_paths::agents_dir())
 }
