@@ -205,7 +205,45 @@ impl CaptureRun {
 
     pub fn act(&self, step: Option<StepId>, action: CaptureAction) -> Result<(), String> {
         let now = self.now();
-        self.shared.lock().engine.act(step, action, now)
+        let mut g = self.shared.lock();
+        let project = g.project.clone();
+        let result = g.engine.act(step, action, now);
+        if result.is_ok() && action == CaptureAction::Retry {
+            // the file of the earlier try would look like this try's evidence
+            let _ = std::fs::remove_file(project.join("hello.txt"));
+        }
+        result
+    }
+
+    /// The last looks of the capture and the engine's verdict for each, newest last. `masked` frames
+    /// are what an AI or the wizard window may see; `raw` frames keep the real words and are for the
+    /// benchmark's own files only.
+    pub fn debug_json(&self, with_raw: bool) -> Value {
+        let now = self.now();
+        let g = self.shared.lock();
+        let frames: Vec<Value> = g
+            .engine
+            .debug_frames()
+            .iter()
+            .map(|f| {
+                let mut v = json!({
+                    "ms": f.ms,
+                    "step": f.step,
+                    "step_status": f.step_status,
+                    "classifier": f.kind,
+                    "reading": f.reading,
+                    "stable_ms": f.stable_ms,
+                    "quiet_ms": f.quiet_ms,
+                    "needs_you": f.needs,
+                    "screen": mask_words(&f.text, &self.words),
+                });
+                if with_raw {
+                    v["raw"] = json!(f.text);
+                }
+                v
+            })
+            .collect();
+        json!({"at_ms": now, "frames": frames, "status": g.engine.status_json(now), "deliveries": g.engine.deliveries()})
     }
 
     pub fn is_finished(&self) -> bool {

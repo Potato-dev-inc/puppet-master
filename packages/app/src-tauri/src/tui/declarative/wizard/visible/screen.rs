@@ -282,6 +282,10 @@ pub struct Stability {
     /// Exact frames seen under this anchor: (text, times seen, first seen order).
     bag: Vec<(String, u32)>,
     seen: bool,
+    /// The last exact frame, and when it last differed from the one before. `frame_key` folds spinner
+    /// glyphs and digit runs, so a spinner or a clock keeps the anchor; these two see them move.
+    raw_last: String,
+    raw_changed_ms: u64,
 }
 
 impl Stability {
@@ -301,6 +305,10 @@ impl Stability {
         }
         self.last_seen_ms = now_ms;
         let text = screen.trim_end().to_string();
+        if changed || text != self.raw_last {
+            self.raw_last = text.clone();
+            self.raw_changed_ms = now_ms;
+        }
         if let Some(entry) = self.bag.iter_mut().find(|(t, _)| *t == text) {
             entry.1 += 1;
         } else if self.bag.len() < MAX_DISTINCT {
@@ -312,6 +320,17 @@ impl Stability {
     pub fn stable_for(&self, now_ms: u64) -> u64 {
         if self.seen {
             now_ms.saturating_sub(self.since_ms)
+        } else {
+            0
+        }
+    }
+
+    /// How long not one character of the screen has moved (a spinner, a timer and a blinking row all
+    /// count as moving). A screen that is "working" by its words but has been dead still this long is
+    /// not working.
+    pub fn quiet_for(&self, now_ms: u64) -> u64 {
+        if self.seen {
+            now_ms.saturating_sub(self.raw_changed_ms)
         } else {
             0
         }
@@ -411,6 +430,19 @@ fn variant_rows<'a>(best: &str, frames: impl Iterator<Item = &'a str>) -> Vec<St
         }
     }
     variants
+}
+
+/// Do the last `n` rows of `screen` look like the last `n` rows of `idle` (the picture seen when the
+/// agent waited for its first task)? One row may differ (a clock, a context counter). Used to tell
+/// that a turn is over when the screen is back at the shape of the Ready step.
+pub fn bottom_matches(idle: &str, screen: &str, n: usize) -> bool {
+    let a = frame_key(idle);
+    let b = frame_key(screen);
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    let n = n.min(a.len()).min(b.len());
+    differing_rows(&a[a.len() - n..], &b[b.len() - n..]) <= TOLERANCE
 }
 
 /// How many rows of `screen` contain `word` (case-insensitive).

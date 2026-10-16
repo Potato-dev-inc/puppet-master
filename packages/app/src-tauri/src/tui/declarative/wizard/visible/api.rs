@@ -129,7 +129,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     let id = super::super::api::session_id(body)?;
     let op = body.get("op").and_then(Value::as_str).map(str::trim).filter(|o| !o.is_empty());
     let Some(op) = op else {
-        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures, test_status or discard"));
+        return Err(WizardError::bad_request("op is required: plan, start, status, act, show, finish, captures, debug, test_status or discard"));
     };
     match op {
         "plan" => {
@@ -149,13 +149,23 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
                 .get("action")
                 .and_then(Value::as_str)
                 .and_then(CaptureAction::parse)
-                .ok_or_else(|| WizardError::bad_request("action must be skip, retry, stuck, ready, try_exit or closed"))?;
+                .ok_or_else(|| WizardError::bad_request("action must be skip, retry, stuck, ready, try_exit, closed, done or question"))?;
             let step = match body.get("step").and_then(Value::as_str) {
                 Some(text) => Some(StepId::parse(text).ok_or_else(|| WizardError::bad_request("step must be start, ready, message, permission or exit"))?),
                 None => None,
             };
+            if action == CaptureAction::Stuck {
+                // "It looks stuck": keep what the engine saw before it moves on
+                *session.visible.debug.lock() = Some(run.debug_json(false));
+            }
             run.act(step, action).map_err(|e| WizardError::new(409, "WIZARD_CAPTURE_REFUSED", e))?;
             Ok(status_of(&session))
+        }
+        "debug" => {
+            let session = wizard.read(&id, |s| s.clone())?;
+            let live = run_of(&session).map(|run| run.debug_json(false));
+            let kept = session.visible.debug.lock().clone();
+            Ok(json!({"debug": live.or(kept)}))
         }
         "test_status" => {
             let session = wizard.read(&id, |s| s.clone())?;
@@ -175,6 +185,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             let Some(run) = run else {
                 return Ok(captures_json(&session));
             };
+            *session.visible.debug.lock() = Some(run.debug_json(false));
             let set = run.finish();
             *session.visible.captures.lock() = Some(set);
             *session.visible.run.lock() = None;

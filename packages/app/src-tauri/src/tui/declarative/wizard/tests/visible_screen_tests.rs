@@ -2,7 +2,7 @@
 //! repository (Claude Code, Codex, Cursor, Kilo) and on small made-up screens.
 
 use crate::tui::declarative::wizard::visible::screen::{
-    classify, frame_key, last_row_with, row_with, rows_with, Flavour, FrameBag, ScreenKind, Stability,
+    bottom_matches, classify, frame_key, last_row_with, row_with, rows_with, Flavour, FrameBag, ScreenKind, Stability,
 };
 
 fn fixture(rel: &str) -> String {
@@ -139,4 +139,30 @@ fn row_helpers_find_the_word() {
     assert_eq!(row_with(screen, "pong-abc"), Some("> Reply with exactly the word: pong-abc"));
     assert_eq!(last_row_with(screen, "pong-abc"), Some("pong-abc"));
     assert_eq!(row_with(screen, "zzz"), None);
+}
+
+#[test]
+fn quiet_time_sees_a_spinner_move_that_the_picture_key_folds_away() {
+    let mut s = Stability::new();
+    // a braille spinner folds to the same picture key, so the anchor (and the stable timer) holds ...
+    s.observe("top\n\u{280b} Thinking...\nbox", 0);
+    s.observe("top\n\u{2819} Thinking...\nbox", 1000);
+    s.observe("top\n\u{2839} Thinking...\nbox", 2000);
+    assert_eq!(s.stable_for(2000), 2000);
+    // ... but the quiet timer restarts on every character that moves
+    assert_eq!(s.quiet_for(2000), 0);
+    assert_eq!(s.quiet_for(5000), 3000);
+    // a picture that really does not move accumulates quiet time
+    s.observe("top\n\u{2839} Thinking...\nbox", 6000);
+    s.observe("top\n\u{2839} Thinking...\nbox", 9000);
+    assert_eq!(s.quiet_for(9000), 7000);
+}
+
+#[test]
+fn the_bottom_of_a_screen_can_be_compared_with_the_ready_picture() {
+    let idle = "banner 1\n\n+----------+\n| > Type a task |\n+----------+\n  /help  12% context";
+    let after = "banner 1\nlots of transcript\nmore transcript\n\n+----------+\n| > Type a task |\n+----------+\n  /help  15% context";
+    assert!(bottom_matches(idle, after, 4), "the box and the footer are what count; a counter may differ");
+    assert!(!bottom_matches(idle, "banner\nI will create the file now. Working...\n| > Type a task |\n", 4));
+    assert!(!bottom_matches("", after, 4));
 }

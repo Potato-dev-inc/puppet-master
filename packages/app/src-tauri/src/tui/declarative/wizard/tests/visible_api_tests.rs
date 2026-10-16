@@ -271,3 +271,30 @@ fn a_capture_pane_that_dies_fails_the_step_and_the_rest_is_skipped() {
     assert_eq!(step_status(&s, "permission"), "skipped");
     ok(&wizard, "cancel", json!({"session": id}));
 }
+
+#[test]
+fn the_last_looks_stay_readable_while_running_after_it_looks_stuck_and_after_finish() {
+    let tree = Tree::new("cap-debug");
+    let (wizard, host) = tree.visible_wizard();
+    let id = probed(&wizard, "fake-agent");
+    let word = words_of(&wizard, &id).one;
+    start_capture(&wizard, &id, json!([]));
+    host.set_screen(&format!("NIMBUS\n\nreply: {word}\n\n{}", screens::TRUST));
+    wait_status(&wizard, &id, "the question", |s| s["needs_you"]["kind"] == "trust");
+    let live = ok(&wizard, "capture", json!({"session": id, "op": "debug"}));
+    let frames = live["debug"]["frames"].as_array().expect("frames");
+    let last = frames.last().unwrap();
+    assert_eq!((last["classifier"].as_str(), last["step"].as_str()), (Some("dialog"), Some("start")));
+    let shown = last["screen"].as_str().unwrap();
+    assert!(shown.contains("Do you trust") && !shown.contains(&word) && shown.contains("<word-1>"), "{shown}");
+    assert!(last.get("raw").is_none(), "the route never carries the real words");
+    // "It looks stuck" keeps the looks in the session
+    ok(&wizard, "capture", json!({"session": id, "op": "act", "action": "stuck"}));
+    let kept = wizard.read(&id, |s| s.visible.debug.lock().clone()).unwrap();
+    assert!(kept.is_some_and(|d| !d["frames"].as_array().unwrap().is_empty()));
+    // and after finish the run is gone but the looks are not
+    ok(&wizard, "capture", json!({"session": id, "op": "finish"}));
+    let after = ok(&wizard, "capture", json!({"session": id, "op": "debug"}));
+    assert!(!after["debug"]["frames"].as_array().unwrap().is_empty());
+    ok(&wizard, "cancel", json!({"session": id}));
+}

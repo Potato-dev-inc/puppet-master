@@ -283,6 +283,94 @@ fn a_pane_that_cannot_start_is_reported_as_a_spawn_failure() {
     assert!(v["text"].as_str().unwrap().contains("no console"));
 }
 
+// ---- the permission check must end on its own (SPEC 11.15) ----------------------------------------------------
+
+fn permission_limits(env: &mut crate::tui::declarative::wizard::WizardEnv) {
+    quick_limits(env);
+    env.visible.capture.frozen_ms = 150;
+    env.visible.capture.idle_done_ms = 250;
+    env.visible.capture.question_ms = 300;
+    env.visible.test.permission = Duration::from_secs(6);
+}
+
+/// An agent whose plain turns work as in `script_agent` and whose hello.txt task does `on_task`.
+fn agent_that(f: &Fixture, on_task: impl Fn(&FakeHost, &str) + Send + Sync + 'static) {
+    let for_thread = f.host.clone();
+    f.host.on_deliver(move |h, pane, text| {
+        if text.contains("hello.txt") {
+            on_task(h, pane);
+            return Delivered::Submitted;
+        }
+        let word = text.rsplit(' ').next().unwrap_or("").to_string();
+        h.set_screen_of(pane, &screens::working(&word, 0));
+        let (host, pane) = (for_thread.clone(), pane.to_string());
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(120));
+            host.set_screen_of(&pane, &screens::working(&word, 1));
+            std::thread::sleep(Duration::from_millis(120));
+            host.set_screen_of(&pane, &screens::reply(&word));
+        });
+        Delivered::Submitted
+    });
+}
+
+#[test]
+fn an_agent_back_at_its_input_box_ends_the_permission_check_without_waiting_for_the_limit() {
+    let f = fixture("vl-backready", None, permission_limits);
+    agent_that(&f, |h, pane| h.set_screen_of(pane, &screens::reply("alldone")));
+    let began = std::time::Instant::now();
+    let run = f.run();
+    f.pane();
+    f.host.set_screen(screens::IDLE);
+    let v = f.finish(run);
+    assert_eq!(status_of(&v, "permission"), "skipped", "{}\n{}", v["text"], v["checks"]);
+    assert_eq!(v["ok"], true, "{}", v["text"]);
+    assert!(began.elapsed() < Duration::from_secs(5), "ended by the idle shape, not by the six second limit: {:?}", began.elapsed());
+}
+
+#[test]
+fn a_file_written_behind_a_working_looking_screen_that_never_moves_ends_the_check() {
+    let f = fixture("vl-frozenfile", None, permission_limits);
+    agent_that(&f, |h, pane| {
+        let cwd = h.pane(pane).expect("the pane").cwd;
+        std::fs::write(cwd.join("hello.txt"), "x").expect("the agent writes the file");
+        h.set_screen_of(pane, &screens::working("later", 0));
+    });
+    let began = std::time::Instant::now();
+    let run = f.run();
+    f.pane();
+    f.host.set_screen(screens::IDLE);
+    let v = f.finish(run);
+    assert_eq!(status_of(&v, "permission"), "skipped", "{}\n{}", v["text"], v["checks"]);
+    assert!(began.elapsed() < Duration::from_secs(5), "{:?}", began.elapsed());
+}
+
+#[test]
+fn a_picture_nothing_recognises_is_shown_to_the_person_and_nothing_is_pressed() {
+    let f = fixture("vl-oddquestion", None, |env| {
+        permission_limits(env);
+        env.visible.test.permission = Duration::from_millis(2500);
+    });
+    agent_that(&f, |h, pane| h.set_screen_of(pane, "NIMBUS 0.4\n\nWhere should hello.txt go?\n\n   project folder      scratch folder\n\nuse the arrow keys\n"));
+    let run = f.run();
+    f.pane();
+    f.host.set_screen(screens::IDLE);
+    let mut asked = false;
+    for _ in 0..80 {
+        let status = ok(&f.wizard, "capture", json!({"session": f.id, "op": "test_status"}));
+        if status["needs_you"]["kind"] == "question" {
+            asked = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let delivered_before_end = f.host.delivered();
+    let v = f.finish(run);
+    assert!(asked, "the person was never asked: {}", v["checks"]);
+    assert_eq!(status_of(&v, "permission"), "skipped");
+    assert_eq!(delivered_before_end.len(), 2, "only the two tasks were typed: {delivered_before_end:?}");
+}
+
 #[test]
 fn cancelling_the_session_closes_the_test_pane() {
     let f = fixture("vl-cancel", None, |_| ());

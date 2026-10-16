@@ -422,3 +422,185 @@ fn a_pane_that_changes_size_mid_capture_says_so_and_the_set_records_the_grid_it_
     d.show(IDLE, 1000);
     assert_eq!(d.c.into_set().notes.len(), 1, "said once");
 }
+
+// ---- a permission step that must end on its own (SPEC 11.15) ------------------------------------------------
+
+/// The words of a busy screen on a picture that never changes: a hung or finished agent, not a working one.
+const FROZEN: &str = "NIMBUS 0.4\n\n> Create a file named hello.txt in the current folder.\n\nI will create hello.txt now. Working...\n\n| > Type a task...             |\n";
+/// A question nothing in the classifier knows: no [y/n], no numbered yes/no, no Allow/Deny.
+const ODD_QUESTION: &str = "NIMBUS 0.4\n\nWhere should hello.txt go?\n\n   project folder      scratch folder      cancel\n\nuse the arrow keys\n";
+
+/// Drive the made-up agent to the point where the permission task has been typed and is being worked on.
+fn to_permission(d: &mut Drive) {
+    d.show(IDLE, 6000);
+    d.delivered(true, "");
+    d.animate(1500);
+    let got = d.show(&reply("pong-aaaaaa"), 4000);
+    assert_eq!(only_deliver(&got), permission_task(&words()));
+    d.delivered(true, "");
+    d.animate(1500);
+}
+
+#[test]
+fn a_screen_that_says_working_but_never_moves_is_not_working() {
+    let mut d = Drive::new();
+    d.show(IDLE, 6000);
+    d.delivered(true, "");
+    d.show(FROZEN, 4000);
+    assert_eq!(d.c.kind(), ScreenKind::Working, "within the first seconds the words count");
+    d.show(FROZEN, 8000);
+    assert_eq!(d.c.kind(), ScreenKind::Unknown, "after eight dead-still seconds it is no longer work");
+    assert_eq!(d.c.status_json(d.now)["frozen"], true);
+    // a spinner that moves is working for as long as it moves
+    let mut d = Drive::new();
+    assert!(d.animate(60_000).is_empty());
+    assert_eq!(d.c.kind(), ScreenKind::Working);
+    assert_eq!(d.c.status_json(d.now)["frozen"], false);
+}
+
+#[test]
+fn a_frozen_working_screen_never_lets_the_wizard_type() {
+    // the person must still say "It is ready" for a picture the classifier cannot call an input box
+    let mut d = Drive::new();
+    let got = d.show(FROZEN, 60_000);
+    assert!(got.is_empty(), "{got:?}");
+    assert_eq!(d.c.deliveries(), 0);
+}
+
+#[test]
+fn an_agent_that_writes_the_file_behind_a_working_looking_screen_ends_the_step_with_the_fact() {
+    let mut d = Drive::new();
+    to_permission(&mut d);
+    d.hello = true;
+    d.show(FROZEN, 14_000);
+    assert_eq!(d.status(StepId::Permission), StepStatus::Done, "{}", d.c.step(StepId::Permission).note);
+    assert!(d.c.step(StepId::Permission).note.contains("did not ask"));
+    let set = d.c.into_set();
+    assert!(set.writes_without_asking && set.hello_written);
+    assert!(!set.has("tui_permission"), "nothing was asked, so there is no permission picture");
+    assert!(set.notes.iter().any(|n| n.contains("did not ask before writing a file")), "{:?}", set.notes);
+}
+
+#[test]
+fn an_agent_back_at_its_input_box_without_a_question_or_a_file_ends_the_step_without_a_guess() {
+    let mut d = Drive::new();
+    to_permission(&mut d);
+    d.show(IDLE, 12_000);
+    assert_eq!(d.status(StepId::Permission), StepStatus::Done);
+    let set = d.c.into_set();
+    assert!(!set.writes_without_asking, "no file, so it is not a fact that it writes files");
+    assert!(set.partial.contains(&"permission".to_string()));
+    assert!(!set.has("tui_permission"));
+    assert!(set.notes.iter().any(|n| n.contains("without writing hello.txt")), "{:?}", set.notes);
+}
+
+#[test]
+fn a_still_picture_that_is_not_the_input_box_is_shown_to_the_person_as_a_question() {
+    let mut d = Drive::new();
+    to_permission(&mut d);
+    // not yet: a picture must hold still for a while
+    assert!(d.show(ODD_QUESTION, 10_000).is_empty());
+    assert!(d.c.needs_you().is_none());
+    assert!(d.show(ODD_QUESTION, 8000).is_empty(), "nothing is typed or pressed for the person");
+    let needs = d.c.needs_you().expect("the person is asked");
+    assert_eq!((needs.step, needs.kind.as_str()), (StepId::Permission, "question"));
+    assert!(needs.message.contains("It is done"), "{}", needs.message);
+    assert!(d.c.frame("tui_permission").unwrap().text.contains("Where should hello.txt go"));
+    // the person answers in the pane and the box is back
+    assert!(d.show(IDLE, 4000).is_empty());
+    assert_eq!(d.status(StepId::Permission), StepStatus::Done);
+    assert!(d.c.frame("tui_permission").is_some(), "the picture of the question is kept");
+    assert_eq!(d.c.deliveries(), 2, "only the two tasks were ever typed");
+}
+
+#[test]
+fn it_is_done_drops_the_guess_and_it_is_a_question_keeps_it() {
+    let mut d = Drive::new();
+    to_permission(&mut d);
+    d.show(ODD_QUESTION, 18_000);
+    assert_eq!(d.c.needs_you().unwrap().kind, "question");
+    let can = d.c.status_json(d.now)["can"].to_string();
+    assert!(can.contains("done") && can.contains("question"), "{can}");
+    d.c.act(None, CaptureAction::Done, d.now).unwrap();
+    assert_eq!(d.status(StepId::Permission), StepStatus::Done);
+    assert!(d.c.frame("tui_permission").is_none(), "a screen the person called finished is not a question");
+    assert!(!d.c.into_set().writes_without_asking);
+
+    let mut d = Drive::new();
+    to_permission(&mut d);
+    d.show(ODD_QUESTION, 18_000);
+    d.c.act(None, CaptureAction::Question, d.now).unwrap();
+    assert!(d.c.needs_you().is_none());
+    assert_eq!(d.status(StepId::Permission), StepStatus::Running);
+    assert!(d.c.frame("tui_permission").is_some());
+    d.show(IDLE, 4000);
+    assert_eq!(d.status(StepId::Permission), StepStatus::Done);
+}
+
+#[test]
+fn the_permission_buttons_belong_to_the_permission_step() {
+    let mut d = Drive::new();
+    assert!(d.c.act(None, CaptureAction::Done, 0).is_err());
+    d.show(IDLE, 6000);
+    assert!(d.c.act(None, CaptureAction::Question, d.now).is_err(), "not while the message step runs");
+}
+
+#[test]
+fn the_permission_step_has_a_deadline_and_asks_the_person_to_skip_or_retry() {
+    let mut d = Drive::new();
+    to_permission(&mut d);
+    // an agent that never stops animating and never asks: not frozen, not finished
+    assert!(d.animate(100_000).is_empty());
+    assert!(d.c.needs_you().is_none(), "not yet");
+    d.animate(30_000);
+    let needs = d.c.needs_you().expect("after two minutes the person is asked");
+    assert_eq!((needs.step, needs.kind.as_str()), (StepId::Permission, "stuck"));
+    assert!(needs.message.contains("Skip"), "{}", needs.message);
+    let can = d.c.status_json(d.now)["can"].to_string();
+    assert!(can.contains("skip") && can.contains("retry"), "{can}");
+    d.c.act(None, CaptureAction::Skip, d.now).unwrap();
+    assert_eq!(d.status(StepId::Permission), StepStatus::Skipped);
+    assert_eq!(d.c.current(), StepId::Exit);
+    assert!(d.c.into_set().skipped.contains(&"permission".to_string()));
+}
+
+#[test]
+fn time_spent_on_a_question_does_not_count_against_the_permission_deadline() {
+    let mut d = Drive::new();
+    to_permission(&mut d);
+    d.show(PERMISSION, 300_000); // the person is away for five minutes
+    assert_eq!(d.c.needs_you().unwrap().kind, "permission");
+    d.show(IDLE, 4000);
+    assert_eq!(d.status(StepId::Permission), StepStatus::Done);
+}
+
+#[test]
+fn a_retry_forgets_the_file_of_the_earlier_try() {
+    let mut d = Drive::new();
+    to_permission(&mut d);
+    d.hello = true;
+    d.show(IDLE, 4000);
+    assert!(d.c.status_json(d.now)["steps"].to_string().contains("did not ask"));
+    d.c.act(Some(StepId::Permission), CaptureAction::Retry, d.now).unwrap();
+    d.hello = false; // the runner deleted hello.txt
+    let set = d.c.into_set();
+    assert!(!set.writes_without_asking && !set.hello_written);
+    assert!(set.notes.iter().all(|n| !n.contains("did not ask")));
+}
+
+#[test]
+fn the_last_looks_are_kept_with_the_verdict_for_each() {
+    let mut d = Drive::new();
+    to_permission(&mut d);
+    d.show(FROZEN, 20_000);
+    let frames = d.c.debug_frames();
+    assert!(!frames.is_empty() && frames.len() <= 40, "{}", frames.len());
+    let last = frames.last().unwrap();
+    assert_eq!(last.step, "permission");
+    assert_eq!(last.kind, "working", "the classifier word for it");
+    assert_eq!(last.reading, "frozen", "what the engine made of it");
+    assert!(last.quiet_ms >= 8_000 && last.text.contains("Working..."));
+    // a long run never grows the ring
+    d.show(IDLE, 600_000);
+    assert!(d.c.debug_frames().len() <= 40);
+}

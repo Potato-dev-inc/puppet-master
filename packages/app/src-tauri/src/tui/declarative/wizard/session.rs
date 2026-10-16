@@ -238,6 +238,9 @@ pub struct VisibleData {
     pub test_samples: Mutex<Vec<(String, String)>>,
     /// What the visible test is doing right now (`capture` op `test_status`).
     pub test_status: Mutex<serde_json::Value>,
+    /// The last looks of the capture (masked), kept when it stopped, was marked stuck or finished, so
+    /// "why did it stop" can still be answered (`capture` op `debug`).
+    pub debug: Mutex<Option<serde_json::Value>>,
 }
 
 impl std::fmt::Debug for VisibleData {

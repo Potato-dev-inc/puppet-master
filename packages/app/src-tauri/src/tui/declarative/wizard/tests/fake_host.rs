@@ -222,6 +222,9 @@ pub fn quick_cfg() -> RunnerCfg {
             reply_unsure_ms: 300,
             permission_wait_ms: 60_000,
             exit_wait_ms: 60_000,
+            frozen_ms: 60_000,
+            idle_done_ms: 60_000,
+            question_ms: 60_000,
         },
         test: TestLimits {
             start: Duration::from_millis(80),

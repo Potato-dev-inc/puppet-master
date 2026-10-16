@@ -165,6 +165,10 @@ struct Test<'a> {
     session: &'a Session,
     limits: TestLimits,
     stable_ms: u64,
+    /// See `capture::Config`: the same rules as the capture's.
+    frozen_ms: u64,
+    idle_done_ms: u64,
+    question_ms: u64,
     cancel: &'a AtomicBool,
     project: PathBuf,
     began: Instant,
@@ -406,10 +410,16 @@ impl Test<'_> {
 
     /// Returns `Ok(None)` when no question appeared (the check is skipped).
     fn check_permission(&self, task: &str) -> Result<Option<String>, Fail> {
-        let delivered = self.check_delivery(task)?;
-        let _ = delivered;
-        let until = Instant::now() + self.limits.permission;
         let mut quiet = Stability::new();
+        // how many different pictures the pane showed since before the task went in (the first is the start)
+        let mut pictures = 0u32;
+        if let Some(before) = self.look() {
+            if quiet.observe(&before.screen, self.ms()) {
+                pictures += 1;
+            }
+        }
+        self.check_delivery(task)?;
+        let until = Instant::now() + self.limits.permission;
         loop {
             if self.cancel.load(Ordering::SeqCst) {
                 return Err(fail("The test was cancelled.", ""));
@@ -418,8 +428,22 @@ impl Test<'_> {
             if !look.alive {
                 return Err(self.gone("waiting for the permission question", Some(look)));
             }
-            self.publish(Some("permission"), None, &look.screen);
-            quiet.observe(&look.screen, self.ms());
+            if quiet.observe(&look.screen, self.ms()) {
+                pictures += 1;
+            }
+            let mut kind = classify(&look.screen);
+            // "working" needs the screen to move: the same words on a picture that never changes are not work
+            if kind == ScreenKind::Working && quiet.quiet_for(self.ms()) >= self.frozen_ms {
+                kind = ScreenKind::Unknown;
+            }
+            let stable = quiet.stable_for(self.ms());
+            let ready = kind != ScreenKind::Working && !kind.is_dialog() && self.is_ready(&look);
+            let unrecognised = stable >= self.question_ms && !ready && kind != ScreenKind::Working && !kind.is_dialog();
+            let needs = unrecognised.then_some((
+                "question",
+                "The screen stopped changing and it is not the agent's empty input box. If the agent is asking something, answer it in the pane yourself: the wizard presses nothing and ends this check when you are done.",
+            ));
+            self.publish(Some("permission"), needs, &look.screen);
             if let Some(card) = self.host.card(&self.pane) {
                 // The card was made from the screen as it is NOW; the look above may be a moment older.
                 let mut fresh = self.look().unwrap_or(look);
@@ -452,15 +476,17 @@ impl Test<'_> {
                     "A card with Allow and Deny is made for the question (`{kind}`, choices {offered}). Nothing was answered; the pane is closed, which refuses the request."
                 )));
             }
-            let kind = classify(&look.screen);
-            if kind.is_dialog() && quiet.stable_for(self.ms()) >= self.stable_ms {
+            if kind.is_dialog() && stable >= self.stable_ms {
                 return Err(fail(
                     "A question is on the screen but no `[[tui.prompt]]` matches it, so it would not become a card. Make `detect_regex` match the permission capture.",
                     &look.screen,
                 ));
             }
-            let done_without_question = look.hello_written && quiet.stable_for(self.ms()) >= self.stable_ms && !kind.is_dialog() && kind != ScreenKind::Working;
-            if done_without_question {
+            // the agent finished without asking: the file is there, or the pane is back at the profile's own
+            // empty input box and has held still
+            let wrote = look.hello_written && stable >= self.stable_ms && !kind.is_dialog() && kind != ScreenKind::Working;
+            let back_at_ready = pictures >= 2 && ready && stable >= self.idle_done_ms;
+            if wrote || back_at_ready {
                 return Ok(None);
             }
             if Instant::now() >= until {
@@ -564,6 +590,9 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
         session,
         limits: env.visible.test.clone(),
         stable_ms: env.visible.capture.stable_ms,
+        frozen_ms: env.visible.capture.frozen_ms,
+        idle_done_ms: env.visible.capture.idle_done_ms,
+        question_ms: env.visible.capture.question_ms,
         cancel,
         project,
         began: Instant::now(),

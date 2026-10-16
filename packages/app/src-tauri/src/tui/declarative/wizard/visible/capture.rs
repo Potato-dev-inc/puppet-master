@@ -10,13 +10,13 @@
 //!   held still for the stable time, nothing is running, no dialog is up, and the screen is positively
 //!   an input box (or the person said "it is ready" for this exact picture).
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use serde_json::{json, Value};
 
 use super::super::session::TestWords;
 use super::host::Look;
-use super::screen::{classify, frame_key, Flavour, FrameBag, ScreenKind, Stability};
+use super::screen::{bottom_matches, classify, frame_key, Flavour, FrameBag, ScreenKind, Stability};
 
 /// How long a picture must hold still before the engine acts on it.
 pub const STABLE_MS: u64 = 2500;
@@ -35,8 +35,18 @@ pub struct Config {
     pub unsure_ms: u64,
     /// A reply word on one row only, settled: ask the person.
     pub reply_unsure_ms: u64,
+    /// The permission step may take this long (not counting the time a question was on screen); then
+    /// the person is asked to skip or retry (`stuck`).
     pub permission_wait_ms: u64,
     pub exit_wait_ms: u64,
+    /// A screen that reads as "working" by its words but has not moved at all for this long is not
+    /// working (a spinner or a timer always moves).
+    pub frozen_ms: u64,
+    /// After a turn: a screen back at the Ready step's shape, held still this long, means it is over.
+    pub idle_done_ms: u64,
+    /// After a turn: a screen that holds still this long, is not the Ready step's shape and is not
+    /// clearly working, is shown to the person as a question the wizard does not recognise.
+    pub question_ms: u64,
 }
 
 impl Default for Config {
@@ -48,8 +58,11 @@ impl Default for Config {
             no_reaction_ms: 40_000,
             unsure_ms: 8_000,
             reply_unsure_ms: 6_000,
-            permission_wait_ms: 90_000,
+            permission_wait_ms: 120_000,
             exit_wait_ms: 15_000,
+            frozen_ms: 8_000,
+            idle_done_ms: 8_000,
+            question_ms: 15_000,
         }
     }
 }
@@ -136,7 +149,7 @@ pub struct Step {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NeedsYou {
     pub step: StepId,
-    /// `trust`, `login`, `permission`, `question`, `unsure`, `unsure_reply`, `slow`, `typing`.
+    /// `trust`, `login`, `permission`, `question`, `unsure`, `unsure_reply`, `slow`, `typing`, `stuck`.
     pub kind: String,
     pub message: String,
 }
@@ -149,6 +162,10 @@ pub enum CaptureAction {
     Ready,
     TryExit,
     Closed,
+    /// "It is done": the permission step's screen is the finished agent, not a question.
+    Done,
+    /// "It is a question": the permission step's screen is a question the wizard did not recognise.
+    Question,
 }
 
 impl CaptureAction {
@@ -160,6 +177,8 @@ impl CaptureAction {
             "ready" => Self::Ready,
             "try_exit" => Self::TryExit,
             "closed" => Self::Closed,
+            "done" => Self::Done,
+            "question" => Self::Question,
             _ => return None,
         })
     }
@@ -267,6 +286,8 @@ pub struct CaptureSet {
     pub partial: Vec<String>,
     pub skipped: Vec<String>,
     pub hello_written: bool,
+    /// The agent made hello.txt and never asked (a fact for the drafter and the Review screen).
+    pub writes_without_asking: bool,
     pub startup_dialogs: Vec<String>,
     pub exit_screen: Option<String>,
     pub notes: Vec<String>,
@@ -290,6 +311,7 @@ impl CaptureSet {
             "partial": self.partial,
             "skipped": self.skipped,
             "hello_written": self.hello_written,
+            "writes_without_asking": self.writes_without_asking,
             "startup_dialogs": self.startup_dialogs,
             "exit_screen": self.exit_screen,
             "notes": self.notes,
@@ -325,6 +347,7 @@ impl CaptureSet {
             partial: list("partial")?,
             skipped: list("skipped")?,
             hello_written: value["hello_written"].as_bool().unwrap_or(false),
+            writes_without_asking: value["writes_without_asking"].as_bool().unwrap_or(false),
             startup_dialogs: list("startup_dialogs")?,
             exit_screen: value["exit_screen"].as_str().map(str::to_string),
             notes: list("notes")?,
@@ -350,6 +373,9 @@ struct Turn {
     saw_activity: bool,
     /// A permission dialog was recorded for this turn.
     dialog_recorded: bool,
+    /// The last time a question was on screen (the permission deadline counts from the later of this
+    /// and the typing: waiting for the person is not the agent being slow).
+    last_dialog_ms: u64,
     failed_deliveries: u32,
 }
 
@@ -362,9 +388,31 @@ impl Turn {
             working: FrameBag::default(),
             saw_activity: false,
             dialog_recorded: false,
+            last_dialog_ms: 0,
             failed_deliveries: 0,
         }
     }
+}
+
+/// How many looks the evidence ring keeps (SPEC 11.15).
+pub const DEBUG_FRAMES: usize = 40;
+
+/// What the engine saw at one look, kept so a stop can be explained afterwards.
+#[derive(Debug, Clone)]
+pub struct DebugFrame {
+    pub ms: u64,
+    pub step: &'static str,
+    pub step_status: &'static str,
+    /// The classifier's verdict on this screen, before the engine's own reading.
+    pub kind: &'static str,
+    /// What the engine made of it (`working` that never moved reads as `frozen`).
+    pub reading: &'static str,
+    pub stable_ms: u64,
+    /// How long no character moved.
+    pub quiet_ms: u64,
+    pub needs: Option<String>,
+    /// Cleaned (real words still in it).
+    pub text: String,
 }
 
 pub struct Capture {
@@ -394,6 +442,17 @@ pub struct Capture {
     began_ms: Option<u64>,
     /// A resize of the pane was already noted.
     resized: bool,
+    /// The screen reads as "working" but has not moved for `frozen_ms`: the engine reads it as unknown.
+    frozen: bool,
+    writes_without_asking: bool,
+    /// The fingerprint of the screen the permission step showed as a question the classifier did not
+    /// recognise (`question` ask); the ask ends when the picture changes.
+    unrecognised: Option<String>,
+    /// The `tui_permission` frame is a guess (the person has not said it is a question).
+    speculative_permission: bool,
+    debug: VecDeque<DebugFrame>,
+    last_debug_text: String,
+    last_debug_ms: u64,
 }
 
 /// The cleaned text of a frame (`exec::clean`: ANSI gone, secrets masked, user folder scrubbed).
@@ -457,7 +516,45 @@ impl Capture {
             notes: Vec::new(),
             began_ms: None,
             resized: false,
+            frozen: false,
+            writes_without_asking: false,
+            unrecognised: None,
+            speculative_permission: false,
+            debug: VecDeque::new(),
+            last_debug_text: String::new(),
+            last_debug_ms: 0,
         }
+    }
+
+    /// The last looks, oldest first, for "why did it stop" (cleaned, real words in them).
+    pub fn debug_frames(&self) -> Vec<DebugFrame> {
+        self.debug.iter().cloned().collect()
+    }
+
+    fn record_debug(&mut self, raw_kind: ScreenKind, now: u64) {
+        let text = clean(&self.screen);
+        // a new picture, or a heartbeat every 5 s so a frozen screen still shows how long it was frozen
+        if text == self.last_debug_text && now.saturating_sub(self.last_debug_ms) < 5_000 && !self.debug.is_empty() {
+            return;
+        }
+        self.last_debug_text.clone_from(&text);
+        self.last_debug_ms = now;
+        let step = self.current();
+        let frame = DebugFrame {
+            ms: now,
+            step: step.as_str(),
+            step_status: self.steps[step.index()].status.as_str(),
+            kind: raw_kind.as_str(),
+            reading: if self.frozen { "frozen" } else { self.kind.as_str() },
+            stable_ms: self.stab.stable_for(now),
+            quiet_ms: self.stab.quiet_for(now),
+            needs: self.needs.as_ref().map(|n| n.kind.clone()),
+            text,
+        };
+        if self.debug.len() >= DEBUG_FRAMES {
+            self.debug.pop_front();
+        }
+        self.debug.push_back(frame);
     }
 
     pub fn current(&self) -> StepId {
@@ -610,7 +707,23 @@ impl Capture {
         }
         self.screen = look.screen.clone();
         self.stab.observe(&look.screen, now);
-        self.kind = classify(&look.screen);
+        let seen_kind = classify(&look.screen);
+        self.kind = seen_kind;
+        // "Working" needs the screen to MOVE: a spinner, a timer, streaming text. Words like "thinking..."
+        // on a picture that has not changed by one character for `frozen_ms` are not work. The engine then
+        // reads the screen as unknown: it types nothing (that needs the person's "It is ready") and the
+        // step's own rules for a settled screen apply.
+        self.frozen = self.kind == ScreenKind::Working && self.stab.quiet_for(now) >= self.cfg.frozen_ms;
+        if self.frozen {
+            self.kind = ScreenKind::Unknown;
+        }
+        self.record_debug(seen_kind, now);
+        // the unrecognised question belongs to one picture
+        if self.unrecognised.as_deref().is_some_and(|fp| fp != self.stab.fingerprint()) {
+            self.unrecognised = None;
+            self.speculative_permission = false;
+            self.clear_ask(&["question"]);
+        }
         if self.settled() {
             return Vec::new();
         }
@@ -660,7 +773,11 @@ impl Capture {
     /// screen is a dialog (the caller then does nothing else this tick).
     fn dialog(&mut self, now: u64) -> bool {
         let ScreenKind::Dialog(flavour) = self.kind else {
-            self.clear_ask(&["trust", "login", "permission", "question"]);
+            if self.unrecognised.is_some() {
+                self.clear_ask(&["trust", "login", "permission"]);
+            } else {
+                self.clear_ask(&["trust", "login", "permission", "question"]);
+            }
             return false;
         };
         if self.stab.stable_for(now) < self.cfg.stable_ms {
@@ -673,6 +790,11 @@ impl Capture {
             (Flavour::Permission | Flavour::Question, StepId::Permission | StepId::Message) => "tui_permission",
             _ => "tui_firstrun",
         };
+        if name == "tui_permission" && self.speculative_permission {
+            // a real, recognised question replaces the guess
+            self.speculative_permission = false;
+            self.frames.retain(|f| f.name != name);
+        }
         if self.frame(name).is_none() {
             if let Some((text, variants)) = self.stab.best() {
                 self.store(name, &text, variants);
@@ -761,6 +883,7 @@ impl Capture {
         let dialog_up = self.dialog(now);
         if dialog_up {
             // A dialog during the turn is recorded; the turn goes on once the person has answered.
+            self.turn.last_dialog_ms = now;
             if self.turn.phase == TurnPhase::Submitted {
                 self.turn.saw_activity = true;
             }
@@ -833,9 +956,13 @@ impl Capture {
             if self.turn.saw_activity {
                 self.turn.working.add(&self.screen);
             }
-            self.clear_ask(&["unsure_reply", "slow"]);
             self.set_note("The agent is working.");
-            self.slow(now, self.cfg.message_limit_ms, "This is taking long. Wait, or press \"It looks stuck\" to go on.");
+            if step == StepId::Permission {
+                self.permission_deadline(now);
+            } else {
+                self.clear_ask(&["unsure_reply", "slow"]);
+                self.slow(now, self.cfg.message_limit_ms, "This is taking long. Wait, or press \"It looks stuck\" to go on.");
+            }
             return;
         }
         let fp = self.stab.fingerprint();
@@ -882,19 +1009,58 @@ impl Capture {
         }
     }
 
+    /// Is the screen back at the shape of the Ready step (its bottom rows)?
+    fn idle_shape(&self) -> bool {
+        let screen = clean(&self.screen);
+        self.frame("tui_idle").is_some_and(|f| bottom_matches(&f.text, &screen, 5))
+    }
+
+    /// The permission step has its own deadline: after `permission_wait_ms` without a question on screen
+    /// the person is asked to skip or retry. Never typed, never answered.
+    fn permission_deadline(&mut self, now: u64) {
+        let since = self.turn.typed_at.max(self.turn.last_dialog_ms);
+        if now.saturating_sub(since) > self.cfg.permission_wait_ms && self.needs.as_ref().map(|n| n.kind.as_str()) != Some("stuck") {
+            self.ask("stuck", "This step has taken a long time and is not finished. Press Skip to go on without it, or Retry to try it again.");
+        }
+    }
+
+    /// A settled screen that is not the agent's input box and not clearly working: keep it as the
+    /// permission picture (a guess) and ask the person what it is.
+    fn raise_question(&mut self) {
+        if let Some((text, variants)) = self.stab.best() {
+            self.store("tui_permission", &text, variants);
+        }
+        self.speculative_permission = true;
+        self.turn.dialog_recorded = true;
+        self.unrecognised = Some(self.stab.fingerprint());
+        self.ask(
+            "question",
+            "The screen has stopped changing and it is not the agent's empty input box. If the agent is asking something, answer it in the pane yourself: the wizard presses nothing. If the agent has finished, press \"It is done\".",
+        );
+    }
+
+    fn note_writes_without_asking(&mut self) {
+        self.writes_without_asking = true;
+        self.hello_written = true;
+        let note = "This agent did not ask before writing a file: hello.txt appeared and no question was shown.";
+        if !self.notes.iter().any(|n| n == note) {
+            self.notes.push(note.to_string());
+        }
+    }
+
     fn finish_permission(&mut self, said: bool, now: u64) {
         let typed_for = now.saturating_sub(self.turn.typed_at);
         let quiet = matches!(self.kind, ScreenKind::Input | ScreenKind::Unknown);
+        let idle = self.kind == ScreenKind::Input || said || self.idle_shape();
         if self.turn.dialog_recorded {
-            // The person has answered (the dialog is gone) and the agent is back at its input box.
-            if quiet && (self.kind == ScreenKind::Input || said) {
+            // The person has answered (the question is gone) and the agent is back at its input box, or the
+            // file the question was about has been written.
+            if quiet && (idle || self.hello_written) {
+                self.speculative_permission = false;
                 self.finish_step(StepStatus::Done, "You answered the permission question in the pane.", now);
+            } else {
+                self.permission_deadline(now);
             }
-            return;
-        }
-        if self.hello_written && quiet && self.turn.saw_activity {
-            self.hello_written = true;
-            self.finish_step(StepStatus::Done, "No permission question appeared (the agent did not ask).", now);
             return;
         }
         if !self.turn.saw_activity {
@@ -903,9 +1069,29 @@ impl Capture {
             }
             return;
         }
-        if typed_for > self.cfg.permission_wait_ms && self.needs.is_none() {
-            self.ask("slow", "No permission question appeared. Skip this step, or press \"It looks stuck\" to go on.");
+        // (a) the agent finished without a question: hello.txt is there, or the screen is back at the
+        // shape of the Ready step and has held still
+        if self.hello_written && quiet {
+            self.note_writes_without_asking();
+            self.finish_step(StepStatus::Done, "No permission question appeared (the agent did not ask before writing the file).", now);
+            return;
         }
+        let stable = self.stab.stable_for(now);
+        if quiet && idle && stable >= self.cfg.idle_done_ms {
+            self.notes.push("The agent finished the permission task without asking and without writing hello.txt; no permission screen was caught.".into());
+            if !self.partial.contains(&"permission") {
+                self.partial.push("permission");
+            }
+            self.finish_step(StepStatus::Done, "The agent finished without asking and without writing the file.", now);
+            return;
+        }
+        // (b) a picture that holds still and is neither the input box nor clearly working: ask the person
+        if quiet && !idle && stable >= self.cfg.question_ms && self.unrecognised.is_none() {
+            self.raise_question();
+            return;
+        }
+        // (c) the deadline
+        self.permission_deadline(now);
     }
 
     fn tick_exit(&mut self, now: u64) -> Vec<Action> {
@@ -980,6 +1166,14 @@ impl Capture {
                 };
                 self.frames.retain(|f| !names.contains(&f.name.as_str()));
                 self.partial.retain(|p| StepId::parse(p).map_or(true, |s| s.index() < from));
+                if from <= StepId::Permission.index() {
+                    // the file of an earlier try is gone (the runner deletes it), so it is not evidence now
+                    self.hello_written = false;
+                    self.writes_without_asking = false;
+                    self.notes.retain(|n| !n.starts_with("This agent did not ask") && !n.starts_with("The agent finished the permission task"));
+                }
+                self.unrecognised = None;
+                self.speculative_permission = false;
                 self.cur = from;
                 self.needs = None;
                 self.ready_for = None;
@@ -1028,6 +1222,48 @@ impl Capture {
                 self.finish_step(StepStatus::Done, "You closed the agent yourself.", now);
                 Ok(())
             }
+            CaptureAction::Done | CaptureAction::Question => {
+                if target != self.current() || self.current() != StepId::Permission {
+                    return Err("that button belongs to the permission step while it is running".into());
+                }
+                if self.kind.is_dialog() {
+                    return Err("The agent is asking a question. Answer it in the pane first.".into());
+                }
+                if self.turn.phase != TurnPhase::Submitted {
+                    return Err("The permission task has not been sent yet.".into());
+                }
+                if action == CaptureAction::Done {
+                    // the screen is the finished agent: whatever was kept as a question was a guess
+                    if self.speculative_permission {
+                        self.frames.retain(|f| f.name != "tui_permission");
+                        self.speculative_permission = false;
+                        self.turn.dialog_recorded = false;
+                    }
+                    self.unrecognised = None;
+                    let asked = self.turn.dialog_recorded;
+                    if self.hello_written && !asked {
+                        self.note_writes_without_asking();
+                    }
+                    self.finish_step(StepStatus::Done, "You said the agent had finished.", now);
+                } else {
+                    // the screen is a question the classifier did not know: keep it as the permission picture
+                    if self.speculative_permission || self.frame("tui_permission").is_none() {
+                        if let Some((text, variants)) = self.stab.best() {
+                            self.store("tui_permission", &text, variants);
+                        }
+                    }
+                    self.speculative_permission = false;
+                    self.turn.dialog_recorded = true;
+                    self.turn.last_dialog_ms = now;
+                    self.unrecognised = None;
+                    self.needs = None;
+                    if self.steps[self.cur].status == StepStatus::NeedsYou {
+                        self.steps[self.cur].status = StepStatus::Running;
+                    }
+                    self.set_note("Kept as the permission question. Answer it in the pane yourself.");
+                }
+                Ok(())
+            }
         }
     }
 
@@ -1047,6 +1283,7 @@ impl Capture {
                 .map(|s| s.id.as_str().to_string())
                 .collect(),
             hello_written: self.hello_written,
+            writes_without_asking: self.writes_without_asking,
             startup_dialogs: dedupe(&self.startup_dialogs),
             exit_screen: self.exit_screen.clone(),
             notes: self.notes.clone(),
@@ -1069,6 +1306,9 @@ impl Capture {
             if step == StepId::Exit {
                 can.extend(["try_exit", "closed"]);
             }
+            if step == StepId::Permission && self.turn.phase == TurnPhase::Submitted && !self.kind.is_dialog() {
+                can.extend(["done", "question"]);
+            }
         } else {
             can.push("retry");
         }
@@ -1076,6 +1316,7 @@ impl Capture {
             "step": step.as_str(),
             "steps": steps,
             "screen_kind": self.kind.as_str(),
+            "frozen": self.frozen,
             "stable_ms": self.stab.stable_for(now),
             "alive": self.alive,
             "settled": self.settled(),

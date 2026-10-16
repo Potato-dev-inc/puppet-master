@@ -188,8 +188,47 @@ impl WizardRig {
         let started = self.call("start", json!({"command": command})).map_err(|e| err_text(&e))?;
         let id = started["session"].as_str().ok_or("no session")?.to_string();
         let result = self.bench_capture_in(session, &id, command, out, answers, args, seconds);
+        if let Err(reason) = &result {
+            // Never lose the evidence of a stop: the last looks with the engine's verdict for each, and
+            // whatever steps did finish.
+            self.save_evidence(&id, command, out, reason);
+        }
         let _ = self.call("cancel", json!({"session": id}));
         result
+    }
+
+    /// `captures.json` as the benchmark reads it: `{command, words, raw, masked}`.
+    fn captures_dump(&self, id: &str, command: &str, finished: &Value) -> Result<Value, String> {
+        let (one, two, sky) = self.words(id);
+        let raw = self
+            .wizard
+            .read(id, |s| s.visible.captures.lock().clone().map(|set| set.to_json()))
+            .map_err(|e| e.to_string())?
+            .ok_or("nothing was captured")?;
+        Ok(json!({
+            "command": command,
+            "words": {"one": one, "two": two, "sky": sky},
+            "raw": raw,
+            "masked": finished["captures"],
+        }))
+    }
+
+    /// Write `<out>/capture-debug.json` (the last looks, real and masked, with the classifier's verdict
+    /// and the engine's reading of each) and the partial `<out>/captures.json`.
+    fn save_evidence(&self, id: &str, command: &str, out: &Path, reason: &str) {
+        let run = self.wizard.read(id, |s| (s.visible.run.lock().clone(), s.visible.debug.lock().clone())).ok();
+        if let Some((run, kept)) = run {
+            let debug = run.map(|r| r.debug_json(true)).or(kept).unwrap_or(Value::Null);
+            let doc = json!({"command": command, "reason": reason, "debug": debug});
+            let _ = std::fs::write(out.join("capture-debug.json"), serde_json::to_string_pretty(&doc).unwrap_or_default());
+        }
+        if let Ok(finished) = self.call("capture", json!({"session": id, "op": "finish"})) {
+            if let Ok(mut dump) = self.captures_dump(id, command, &finished) {
+                dump["partial"] = json!(true);
+                dump["stopped"] = json!(reason);
+                let _ = std::fs::write(out.join("captures.json"), serde_json::to_string_pretty(&dump).unwrap_or_default());
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -212,8 +251,15 @@ impl WizardRig {
                         ("unsure" | "unsure_reply", Some(_)) => {
                             self.call("capture", json!({"session": id, "op": "act", "action": "ready"})).map_err(|e| err_text(&e))?;
                         }
-                        ("slow" | "typing", _) => {
-                            return Err(format!("the capture needs you ({kind}): {}", s["needs_you"]["message"].as_str().unwrap_or("")));
+                        // `stuck=skip` / `stuck=retry`: the bench presses Skip or Retry for the person
+                        ("stuck", Some(button @ ("skip" | "retry"))) => {
+                            self.call("capture", json!({"session": id, "op": "act", "action": button})).map_err(|e| err_text(&e))?;
+                        }
+                        ("slow" | "typing" | "stuck", _) => {
+                            return Err(format!(
+                                "the capture needs you ({kind}): {} Give stuck=skip or stuck=retry in PM_WIZARD_BENCH_ANSWERS to go on.",
+                                s["needs_you"]["message"].as_str().unwrap_or("")
+                            ));
                         }
                         (_, Some(keys)) => self.type_keys(session, &pane, keys),
                         (_, None) => {
@@ -239,18 +285,7 @@ impl WizardRig {
             std::thread::sleep(Duration::from_millis(200));
         }
         let finished = self.call("capture", json!({"session": id, "op": "finish"})).map_err(|e| err_text(&e))?;
-        let (one, two, sky) = self.words(id);
-        let raw = self
-            .wizard
-            .read(id, |s| s.visible.captures.lock().clone().map(|set| set.to_json()))
-            .map_err(|e| e.to_string())?
-            .ok_or("nothing was captured")?;
-        let dump = json!({
-            "command": command,
-            "words": {"one": one, "two": two, "sky": sky},
-            "raw": raw,
-            "masked": finished["captures"],
-        });
+        let dump = self.captures_dump(id, command, &finished)?;
         std::fs::write(out.join("captures.json"), serde_json::to_string_pretty(&dump).unwrap_or_default()).map_err(|e| e.to_string())?;
         Ok(dump)
     }

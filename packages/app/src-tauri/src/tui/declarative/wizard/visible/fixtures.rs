@@ -285,6 +285,7 @@ pub fn masked_json(set: &CaptureSet, words: &TestWords) -> Value {
             "partial": set.partial,
             "skipped": set.skipped,
             "hello_written": set.hello_written,
+            "writes_without_asking": set.writes_without_asking,
             "startup_dialogs": set.startup_dialogs,
             "exit_screen": set.exit_screen.as_deref().map(|s| mask(s)),
             "notes": set.notes,
