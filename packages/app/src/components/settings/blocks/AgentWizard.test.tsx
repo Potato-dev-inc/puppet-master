@@ -2,7 +2,11 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CaptureFacts } from '../../../lib/agentWizardPrompt';
 import type {
+  CapturePlan,
+  CaptureStatus,
+  CaptureStepId,
   FinishResult,
   LiveResult,
   OpenRouterSupport,
@@ -35,7 +39,7 @@ const start: StartInfo = {
 
 const probe: ProbeInfo = {
   state: 'probed',
-  runs: [{ label: '--help', args: ['--help'], text: 'Usage: fake-agent <COMMAND>', exit: 0, timed_out: false, truncated: false, bytes: 27, duplicate_of: null }],
+  runs: [{ label: '--help', args: ['--help'], text: 'Usage: fake-agent <COMMAND>\n  run  Run one task non-interactively', exit: 0, timed_out: false, truncated: false, bytes: 27, duplicate_of: null }],
   subcommands: [],
   skipped: [],
 };
@@ -91,6 +95,48 @@ const finishOk = (): FinishResult => ({
   fixtures: { passed: 3, total: 3 },
 });
 
+const capturePlan = (args: string[]): CapturePlan => ({
+  program: { path: 'C:\Users\me\fake-agent.exe', display: '~\fake-agent.exe' },
+  args,
+  cwd: '<isolated folder>',
+  grid: { cols: 120, rows: 40 },
+  fingerprint: `cap-${args.join('-')}`,
+});
+
+const STEPS: CaptureStatus['steps'] = [
+  { id: 'start', label: 'Starting', status: 'running', note: '', frames: 0 },
+  { id: 'ready', label: 'Ready', status: 'pending', note: '', frames: 0 },
+  { id: 'message', label: 'Test message', status: 'pending', note: '', frames: 0 },
+  { id: 'permission', label: 'Permission', status: 'pending', note: '', frames: 0 },
+  { id: 'exit', label: 'Exit', status: 'pending', note: '', frames: 0 },
+];
+
+const runningStatus = (step: CaptureStepId, over: Partial<CaptureStatus> = {}): CaptureStatus => ({
+  state: 'running',
+  captured: false,
+  pane: 'pane-1',
+  grid: { cols: 120, rows: 40 },
+  alive: true,
+  step,
+  steps: STEPS,
+  screen_kind: 'unknown',
+  stable_ms: 0,
+  settled: false,
+  needs_you: null,
+  screen: 'NIMBUS 0.4 ready',
+  can: ['skip', 'retry', 'stuck'],
+  ...over,
+});
+
+const captured = (): CaptureFacts => ({
+  grid: { cols: 120, rows: 40 },
+  files: [
+    { name: 'tui_idle', text: '| > Type a task...', variants: [] },
+    { name: 'tui_reply', text: 'reply: <word-1>', variants: [] },
+  ],
+  facts: { exit_method: 'slash_exit', partial: [], skipped: [], hello_written: false, startup_dialogs: [], exit_screen: null, notes: [] },
+});
+
 type MockApi = WizardApi & { [K in keyof WizardApi]: ReturnType<typeof vi.fn> };
 
 function mockApi(replies: string[] = [`${F}toml\n${GOOD}${F}`]): MockApi {
@@ -107,6 +153,17 @@ function mockApi(replies: string[] = [`${F}toml\n${GOOD}${F}`]): MockApi {
       { id: 'codex', label: 'Codex' },
       { id: 'claude', label: 'Claude Code' },
     ]),
+    visibletest: vi.fn(async () => {
+      throw new Error('the visible test is not part of the headless-only tests');
+    }),
+    testStatus: vi.fn(async () => ({ running: false })),
+    capturePlan: vi.fn(async (_s: string, args: string[]) => capturePlan(args)),
+    captureStart: vi.fn(async () => runningStatus('start')),
+    captureStatus: vi.fn(async () => runningStatus('start')),
+    captureAct: vi.fn(async () => runningStatus('start')),
+    captureShow: vi.fn(async () => undefined),
+    captureFinish: vi.fn(async () => captured()),
+    captureDiscard: vi.fn(async () => undefined),
   } as unknown as MockApi;
 }
 
@@ -152,10 +209,15 @@ async function flush() {
   });
 }
 
-async function findIt(command = 'fake-agent') {
+/** Type the command and press Find it; by default also skip the visible capture (the headless-only flow). */
+async function findIt(command = 'fake-agent', options: { skipCapture?: boolean } = {}) {
   await type(host.querySelector('#wizard-command') as HTMLInputElement, command);
   await click(button('Find it'));
   await flush();
+  if (options.skipCapture !== false) {
+    await click(button('Skip the visible part'));
+    await flush();
+  }
 }
 
 beforeEach(() => {
@@ -201,7 +263,7 @@ describe('AgentWizard', () => {
     const api = mockApi();
     api.start.mockRejectedValueOnce('AGENT_NOT_INSTALLED: `nope` was not found on PATH.');
     await render(api, mockOpenRouter());
-    await findIt('nope');
+    await findIt('nope', { skipCapture: false });
     expect(host.querySelector('[role="alert"]')?.textContent).toBe('`nope` was not found on PATH.');
     expect(host.querySelector('#wizard-command')).toBeTruthy();
     expect(api.probe).not.toHaveBeenCalled();
@@ -248,7 +310,7 @@ describe('AgentWizard', () => {
     expect(api.finish).toHaveBeenCalledTimes(1);
     const [session, provenance] = api.finish.mock.calls[0];
     expect(session).toBe('wz_1');
-    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', drafter_kind: 'local_agent', rounds: 2, prompt_version: '4' });
+    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', drafter_kind: 'local_agent', rounds: 2, prompt_version: '5' });
     expect(approved).toHaveLength(1);
     expect(approved[0].id).toBe('fake_agent');
     expect(api.cancel).not.toHaveBeenCalled();

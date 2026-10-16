@@ -1,8 +1,10 @@
-// Settings > Agents > Your own agents > Add with wizard (docs/specs/agent-wizard/SPEC.md section 9).
-// A dialog with four steps: which command, who writes the profile, the automatic phase (read the help,
-// draft, check, fix, live test) and the review. The wizard only writes an UNAPPROVED definition; the
-// person approves it in the normal approval dialog, which the parent opens from `onApprove`.
-// Everything the program printed is shown as React text, never as HTML.
+// Settings > Agents > Your own agents > Add with wizard (docs/specs/agent-wizard/SPEC.md sections 9 and 11.11).
+// A dialog: which command, then the guided capture (the program runs in a pane and the person answers its
+// questions), who writes the profile, the automatic phase (draft, check, fix, visible test) and the review.
+// When the help shows a one-task mode it is offered as an optional extra after the visible part is done.
+// The wizard only writes an UNAPPROVED definition; the person approves it in the normal approval dialog,
+// which the parent opens from `onApprove`. Everything the program printed or drew is shown as React text,
+// never as HTML.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   agentErrorMessage,
@@ -10,6 +12,7 @@ import {
   commandLine,
   factsFrom,
   MAX_ROUNDS,
+  offersOneTaskMode,
   openRouterSupport,
   orderDrafters,
   promptBudget,
@@ -20,11 +23,11 @@ import {
   tauriWizardApi,
   type Drafter,
   type FinishResult,
-  type LiveResult,
   type LocalDrafter,
   type LoopResult,
   type OpenRouterSupport,
   type PlannedRun,
+  type PlannedVisible,
   type ProbeInfo,
   type ProgressEvent,
   type RetryResult,
@@ -33,13 +36,12 @@ import {
   type VerifyResult,
   type WizardApi,
 } from '../../../lib/agentWizard';
-import { buildPrompt, REMOTE_PROMPT_BUDGET } from '../../../lib/agentWizardPrompt';
+import { buildPrompt, REMOTE_PROMPT_BUDGET, type CaptureFacts } from '../../../lib/agentWizardPrompt';
+import { AgentWizardCapture, BTN, INPUT } from './AgentWizardCapture';
 
-const BTN =
-  'rounded-lg border border-pm-border px-3 py-1.5 text-xs font-medium hover:bg-pm-border/40 disabled:opacity-50';
-const INPUT = 'min-w-0 flex-1 rounded-lg border border-pm-border bg-transparent px-2 py-1 text-xs';
+type Phase = 'command' | 'finding' | 'capture' | 'drafter' | 'running' | 'review' | 'stopped';
 
-type Phase = 'command' | 'finding' | 'drafter' | 'running' | 'review' | 'stopped';
+type Tested = Extract<LoopResult, { status: 'tested' }>;
 
 interface Found {
   start: StartInfo;
@@ -54,10 +56,12 @@ interface Choice {
 
 const STEP_LABEL: Record<StepId, string> = {
   help: 'Read the help',
+  capture: 'Watch it work',
   draft: 'Draft',
   check: 'Check',
   fix: 'Fix',
-  live: 'Live test',
+  visible: 'Visible test',
+  live: 'One-task test',
 };
 
 /** The latest event of a step, for the progress list. */
@@ -87,6 +91,7 @@ export function AgentWizard({
   const [command, setCommand] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [found, setFound] = useState<Found | null>(null);
+  const [captures, setCaptures] = useState<CaptureFacts | null>(null);
   const [locals, setLocals] = useState<LocalDrafter[]>([]);
   const [models, setModels] = useState<Array<{ id: string; label: string }>>([]);
   const [hasKey, setHasKey] = useState(false);
@@ -94,10 +99,13 @@ export function AgentWizard({
   const [optIn, setOptIn] = useState(false);
   const [events, setEvents] = useState<ProgressEvent[]>([]);
   const [confirming, setConfirming] = useState<PlannedRun | null>(null);
-  const [result, setResult] = useState<Extract<LoopResult, { status: 'tested' }> | null>(null);
-  const [stopped, setStopped] = useState<{ title: string; text: string; agentError?: boolean } | null>(null);
-  // The draft that passed the checks, kept when the program's own error stops the test: Retry runs only the live test.
-  const [held, setHeld] = useState<{ toml: string; verify: VerifyResult; rounds: number } | null>(null);
+  const [confirmingVisible, setConfirmingVisible] = useState<PlannedVisible | null>(null);
+  const [result, setResult] = useState<Tested | null>(null);
+  const [stopped, setStopped] = useState<{ title: string; text: string; agentError?: boolean; keepable?: boolean } | null>(null);
+  // The draft that passed the checks, kept when the program's own error stops the test: Retry runs only the tests.
+  const [held, setHeld] = useState<{ toml: string; expects: Record<string, string>; verify: VerifyResult; rounds: number } | null>(null);
+  // The finished visible profile while the optional one-task step runs (so a failure there loses nothing).
+  const [visibleOnly, setVisibleOnly] = useState<Tested | null>(null);
   const [showToml, setShowToml] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -105,12 +113,16 @@ export function AgentWizard({
   const finishedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const confirmRef = useRef<((go: boolean) => void) | null>(null);
+  const confirmVisibleRef = useRef<((go: boolean) => void) | null>(null);
+  // The pane the person confirmed for the visible test: the optional one-task step does not ask about it again.
+  const confirmedPaneRef = useRef<string | null>(null);
 
   // A wizard that is closed any other way than finishing leaves nothing behind.
   useEffect(
     () => () => {
       abortRef.current?.abort();
       confirmRef.current?.(false);
+      confirmVisibleRef.current?.(false);
       const id = sessionRef.current;
       if (id && !finishedRef.current) void Promise.resolve(api.cancel(id)).catch(() => undefined);
     },
@@ -128,9 +140,11 @@ export function AgentWizard({
   }, [choice, locals, models]);
 
   const previewPrompt = useMemo(
-    () => (found ? buildPrompt(factsFrom(found.start, found.probe), { maxChars: REMOTE_PROMPT_BUDGET }) : null),
-    [found],
+    () => (found ? buildPrompt(factsFrom(found.start, found.probe, captures), { maxChars: REMOTE_PROMPT_BUDGET }) : null),
+    [found, captures],
   );
+
+  const oneTaskOffered = useMemo(() => (found ? offersOneTaskMode(found.probe) : false), [found]);
 
   const discardSession = useCallback(async () => {
     const id = sessionRef.current;
@@ -157,9 +171,10 @@ export function AgentWizard({
       const first = chooseDefaultDrafter(list);
       setChoice(first ? { kind: 'local_agent', id: first.id } : orModels[0] ? { kind: 'openrouter', id: orModels[0].id } : null);
       setOptIn(false);
+      setCaptures(null);
       setFound({ start, probe });
       setEvents([{ step: 'help', status: 'done', round: 0 }]);
-      setPhase('drafter');
+      setPhase('capture');
     } catch (e) {
       await discardSession();
       setError(splitError(e).message);
@@ -167,90 +182,120 @@ export function AgentWizard({
     }
   }, [api, command, discardSession, openRouter]);
 
-  const startDrafting = useCallback(async () => {
-    if (!found || !drafter) return;
-    const session = found.start.session;
-    const abort = new AbortController();
-    abortRef.current = abort;
-    setError(null);
-    setStopped(null);
-    setHeld(null);
-    setResult(null);
-    setShowToml(false);
-    setEvents([{ step: 'help', status: 'done', round: 0 }]);
-    setPhase('running');
-    const ask = (prompt: string) =>
-      drafter.kind === 'openrouter' ? openRouter.ask(drafter.model, prompt, abort.signal) : api.ask(session, drafter.id, prompt);
-    try {
-      const outcome = await runDraftLoop({
-        api,
-        session,
-        facts: factsFrom(found.start, found.probe),
-        ask,
-        maxChars: promptBudget(drafter),
-        signal: abort.signal,
-        onEvent: (e) => setEvents((list) => [...list, e]),
-        confirmLive: (planned) =>
-          new Promise<boolean>((resolve) => {
-            confirmRef.current = (go) => {
-              confirmRef.current = null;
-              setConfirming(null);
-              resolve(go);
-            };
-            setConfirming(planned);
-          }),
-      });
-      if (abort.signal.aborted) return;
-      if (outcome.status === 'tested') {
-        setResult(outcome);
-        setPhase('review');
-      } else if (outcome.status === 'declined') {
-        setStopped({ title: 'Stopped before the live test.', text: 'The draft passed the checks, but it was not tested on the real program, so it cannot be saved.' });
-        setPhase('stopped');
-      } else if (outcome.status === 'agent_error') {
-        setHeld({ toml: outcome.toml, verify: outcome.verify, rounds: outcome.rounds });
-        setStopped({ ...agentErrorMessage(found.start.command, outcome.error.message), agentError: true });
-        setPhase('stopped');
-      } else if (outcome.status === 'gave_up') {
-        setStopped({ title: `No working profile after ${MAX_ROUNDS} tries.`, text: outcome.lastText });
+  /** Draft, check, fix and test. With \`oneTask\`, the visible file in \`result\` is kept and only the one-task mode is added. */
+  const startDrafting = useCallback(
+    async (oneTask?: Tested) => {
+      if (!found || !drafter) return;
+      const session = found.start.session;
+      const abort = new AbortController();
+      abortRef.current = abort;
+      setError(null);
+      setStopped(null);
+      setHeld(null);
+      setShowToml(false);
+      if (oneTask) setVisibleOnly(oneTask);
+      else setVisibleOnly(null);
+      setResult(null);
+      setEvents([
+        { step: 'help', status: 'done', round: 0 },
+        ...(captures ? [{ step: 'capture', status: 'done', round: 0 } as ProgressEvent] : []),
+      ]);
+      setPhase('running');
+      const ask = (prompt: string) =>
+        drafter.kind === 'openrouter' ? openRouter.ask(drafter.model, prompt, abort.signal) : api.ask(session, drafter.id, prompt);
+      try {
+        const outcome = await runDraftLoop({
+          api,
+          session,
+          facts: factsFrom(found.start, found.probe, captures),
+          ask,
+          maxChars: promptBudget(drafter),
+          signal: abort.signal,
+          promptOptions: oneTask ? { addOneTaskMode: { toml: oneTask.toml, expects: oneTask.expects } } : undefined,
+          confirmedVisible: oneTask ? confirmedPaneRef.current : null,
+          onEvent: (e) => setEvents((list) => [...list, e]),
+          confirmLive: (planned) =>
+            new Promise<boolean>((resolve) => {
+              confirmRef.current = (go) => {
+                confirmRef.current = null;
+                setConfirming(null);
+                resolve(go);
+              };
+              setConfirming(planned);
+            }),
+          confirmVisible: (planned) =>
+            new Promise<boolean>((resolve) => {
+              confirmVisibleRef.current = (go) => {
+                confirmVisibleRef.current = null;
+                setConfirmingVisible(null);
+                if (go) confirmedPaneRef.current = planned.fingerprint;
+                resolve(go);
+              };
+              setConfirmingVisible(planned);
+            }),
+        });
+        if (abort.signal.aborted) return;
+        const keepable = Boolean(oneTask);
+        if (outcome.status === 'tested') {
+          setResult(outcome);
+          setPhase('review');
+        } else if (outcome.status === 'declined') {
+          setStopped({
+            title: captures ? 'Stopped before the test.' : 'Stopped before the live test.',
+            text: 'The draft passed the checks, but it was not tested on the real program, so it cannot be saved.',
+            keepable,
+          });
+          setPhase('stopped');
+        } else if (outcome.status === 'agent_error') {
+          setHeld({ toml: outcome.toml, expects: outcome.expects, verify: outcome.verify, rounds: outcome.rounds });
+          setStopped({ ...agentErrorMessage(found.start.command, outcome.error.message), agentError: true, keepable });
+          setPhase('stopped');
+        } else if (outcome.status === 'gave_up') {
+          setStopped({ title: `No working profile after ${MAX_ROUNDS} tries.`, text: outcome.lastText, keepable });
+          setPhase('stopped');
+        }
+      } catch (e) {
+        if (abort.signal.aborted) return;
+        setStopped({ title: 'The writer could not answer.', text: splitError(e).message, keepable: Boolean(oneTask) });
         setPhase('stopped');
       }
-    } catch (e) {
-      if (abort.signal.aborted) return;
-      setStopped({ title: 'The writer could not answer.', text: splitError(e).message });
-      setPhase('stopped');
-    }
-  }, [api, drafter, found, openRouter]);
+    },
+    [api, captures, drafter, found, openRouter],
+  );
 
-  // Retry after the program's own error: only the live test runs again, for the draft that is kept.
+  // Retry after the program's own error: only the tests run again, for the draft that is kept.
   const retryLive = useCallback(async () => {
     if (!found || !held) return;
     setError(null);
     setStopped(null);
     setPhase('running');
-    setEvents((list) => [...list.filter((e) => e.step !== 'live'), { step: 'live', status: 'running', round: held.rounds }]);
+    setEvents((list) => [
+      ...list.filter((e) => e.step !== 'live' && e.step !== 'visible'),
+      { step: held.verify.planned_visible ? 'visible' : 'live', status: 'running', round: held.rounds },
+    ]);
     try {
       const out: RetryResult = await retryLiveTest({
         api,
         session: found.start.session,
         toml: held.toml,
+        expects: held.expects,
         rounds: held.rounds,
         verify: held.verify,
-        onEvent: (e) => setEvents((list) => [...list.filter((x) => x.step !== 'live'), e]),
+        onEvent: (e) => setEvents((list) => [...list.filter((x) => x.step !== e.step), e]),
       });
       if (out.status === 'tested') {
-        setResult({ status: 'tested', toml: out.toml, rounds: out.rounds, verify: out.verify, live: out.live });
+        setResult({ status: 'tested', toml: out.toml, expects: out.expects, rounds: out.rounds, verify: out.verify, live: out.live, visible: out.visible });
         setPhase('review');
       } else if (out.status === 'agent_error') {
         setStopped({ ...agentErrorMessage(found.start.command, out.error.message), agentError: true });
         setPhase('stopped');
       } else {
         setHeld(null);
-        setStopped({ title: 'The live test failed again.', text: out.live.text });
+        setStopped({ title: 'The test failed again.', text: out.text });
         setPhase('stopped');
       }
     } catch (e) {
-      setStopped({ title: 'The live test could not run.', text: splitError(e).message });
+      setStopped({ title: 'The test could not run.', text: splitError(e).message });
       setPhase('stopped');
     }
   }, [api, found, held]);
@@ -258,6 +303,7 @@ export function AgentWizard({
   const cancelAll = useCallback(async () => {
     abortRef.current?.abort();
     confirmRef.current?.(false);
+    confirmVisibleRef.current?.(false);
     await discardSession();
     onClose();
   }, [discardSession, onClose]);
@@ -291,8 +337,9 @@ export function AgentWizard({
       >
         <h3 className="text-sm font-semibold">Add an agent with the wizard</h3>
         <p className="mt-1 text-xs text-pm-muted">
-          Type the command you use to start the agent. Puppet Master reads its help, writes a profile, tests it on the
-          real program and hands it to you to approve. Tests run in an isolated temporary folder, never in your project.
+          Type the command you use to start the agent. Puppet Master runs it in a pane and watches how it looks, writes a
+          profile, tests it on the real program and hands it to you to approve. Everything runs in an isolated temporary
+          folder, never in your project.
         </p>
 
         {error && (
@@ -333,9 +380,41 @@ export function AgentWizard({
 
         {found && phase !== 'command' && phase !== 'finding' && <FoundSummary found={found} />}
 
+        {phase === 'capture' && found && (
+          <AgentWizardCapture
+            api={api}
+            start={found.start}
+            canSkip={oneTaskOffered}
+            onDone={(c) => {
+              setCaptures(c);
+              setEvents([
+                { step: 'help', status: 'done', round: 0 },
+                { step: 'capture', status: 'done', round: 0 },
+              ]);
+              setPhase('drafter');
+            }}
+            onSkip={() => {
+              setCaptures(null);
+              setPhase('drafter');
+            }}
+            onCancel={() => void cancelAll()}
+          />
+        )}
+
         {phase === 'drafter' && found && (
           <div className="mt-4">
-            <fieldset>
+            {captures ? (
+              <p data-testid="captured-note" className="text-xs text-pm-muted">
+                Captured {captures.files.length} screen{captures.files.length === 1 ? '' : 's'} of {found.start.command}. Next, a writer
+                turns them into a profile.
+              </p>
+            ) : (
+              <p data-testid="headless-only-note" className="text-xs text-pm-muted">
+                Without the visible part, only the one-task mode is written. {found.start.command} will not run in a pane until
+                you add that.
+              </p>
+            )}
+            <fieldset className="mt-3">
               <legend className="text-xs font-medium">Who writes the profile?</legend>
               <div className="mt-2 space-y-2">
                 {locals.map((d) => (
@@ -393,8 +472,8 @@ export function AgentWizard({
                 {!hasKey && <p className="text-xs text-pm-text">Add your OpenRouter key in Settings &gt; Keys first.</p>}
                 <p className="text-xs text-pm-muted">
                   This is exactly what will be sent to OpenRouter ({previewPrompt?.chars.toLocaleString()} characters).
-                  Secrets were removed from the program&apos;s output. Later tries send the same text plus the checker&apos;s
-                  notes and what the program really printed in the live test.
+                  Secrets were removed from the program&apos;s output and screens, and your test words are hidden. Later
+                  tries send the same text plus the checker&apos;s notes and what the program really did in the test.
                 </p>
                 <pre
                   data-testid="openrouter-preview"
@@ -420,8 +499,27 @@ export function AgentWizard({
           </div>
         )}
 
-        {(phase === 'running' || phase === 'stopped') && (
-          <ProgressList events={events} phase={phase} />
+        {(phase === 'running' || phase === 'stopped') && <ProgressList events={events} phase={phase} withCapture={captures !== null} />}
+
+        {phase === 'running' && confirmingVisible !== null && found && (
+          <div role="group" aria-label="Confirm the visible test" data-testid="visible-confirm" className="mt-3 rounded-lg border border-pm-border p-3">
+            <p className="text-xs font-semibold">Ready for the visible test</p>
+            <p className="mt-1 text-xs text-pm-muted">
+              The wizard starts {found.start.command} in a new pane, in a new isolated folder, and checks that the profile reads it:
+              the empty input box, the work, the reply and a permission question. It types two small test messages, about two
+              small messages per try, up to {MAX_ROUNDS} tries, and it uses your own {found.start.command} plan. If a question comes
+              up in the pane, you answer it; the wizard answers nothing. If a fix changes the command, you are asked again.
+            </p>
+            <PlannedPane planned={confirmingVisible} />
+            <div className="mt-3 flex justify-end gap-2">
+              <button type="button" className={BTN} onClick={() => confirmVisibleRef.current?.(false)}>
+                Not now
+              </button>
+              <button type="button" className={BTN} onClick={() => confirmVisibleRef.current?.(true)}>
+                Run the visible test
+              </button>
+            </div>
+          </div>
         )}
 
         {phase === 'running' && confirming !== null && found && (
@@ -444,7 +542,7 @@ export function AgentWizard({
           </div>
         )}
 
-        {phase === 'running' && confirming === null && (
+        {phase === 'running' && confirming === null && confirmingVisible === null && (
           <div className="mt-4 flex justify-end">
             <button type="button" className={BTN} onClick={() => void cancelAll()}>
               Cancel
@@ -460,6 +558,19 @@ export function AgentWizard({
               <button type="button" className={BTN} onClick={() => void cancelAll()}>
                 Close
               </button>
+              {stopped.keepable && visibleOnly && (
+                <button
+                  type="button"
+                  className={BTN}
+                  onClick={() => {
+                    setResult(visibleOnly);
+                    setStopped(null);
+                    setPhase('review');
+                  }}
+                >
+                  Keep it without a one-task mode
+                </button>
+              )}
               {stopped.agentError && held ? (
                 <button type="button" className={BTN} onClick={() => void retryLive()}>
                   Retry
@@ -479,10 +590,12 @@ export function AgentWizard({
             result={result}
             busy={busy}
             showToml={showToml}
+            oneTaskOffer={Boolean(captures) && oneTaskOffered && !result.live}
             onToggleToml={() => setShowToml((v) => !v)}
             onApprove={() => void approve()}
             onRetry={() => setPhase('drafter')}
             onDiscard={() => void cancelAll()}
+            onAddOneTask={() => void startDrafting(result)}
           />
         )}
       </div>
@@ -508,6 +621,21 @@ function PlannedCommands({ planned }: { planned: PlannedRun }) {
   );
 }
 
+/** The exact start of the visible test's pane. */
+function PlannedPane({ planned }: { planned: PlannedVisible }) {
+  const quote = (a: string) => (/[\s"]/.test(a) || a === '' ? `"${a.replace(/"/g, '\\"')}"` : a);
+  const extra: string[] = [];
+  for (const e of planned.env) extra.push(`Sets ${e.name}=${e.value}`);
+  for (const name of planned.env_unset) extra.push(`Removes ${name}`);
+  return (
+    <div className="mt-2" data-testid="planned-pane">
+      <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-pm-bg p-2 font-mono text-[11px]">
+        {[[planned.program.path, ...planned.args].map(quote).join(' '), `In an isolated folder, in a pane ${planned.grid.cols} wide and ${planned.grid.rows} tall.`, ...extra].join('\n')}
+      </pre>
+    </div>
+  );
+}
+
 function FoundSummary({ found }: { found: Found }) {
   const { start } = found;
   return (
@@ -526,14 +654,16 @@ function FoundSummary({ found }: { found: Found }) {
   );
 }
 
-function ProgressList({ events, phase }: { events: ProgressEvent[]; phase: Phase }) {
+function ProgressList({ events, phase, withCapture }: { events: ProgressEvent[]; phase: Phase; withCapture: boolean }) {
   const fix = latest(events, 'fix');
   const rows: Array<{ id: StepId; label: string; event: ProgressEvent | undefined; hide?: boolean }> = [
     { id: 'help', label: STEP_LABEL.help, event: latest(events, 'help') },
+    { id: 'capture', label: STEP_LABEL.capture, event: latest(events, 'capture'), hide: !withCapture },
     { id: 'draft', label: STEP_LABEL.draft, event: latest(events, 'draft') },
     { id: 'check', label: STEP_LABEL.check, event: latest(events, 'check') },
     { id: 'fix', label: fix ? `Fix (try ${fix.round} of ${MAX_ROUNDS})` : STEP_LABEL.fix, event: fix, hide: !fix },
-    { id: 'live', label: STEP_LABEL.live, event: latest(events, 'live') },
+    { id: 'visible', label: STEP_LABEL.visible, event: latest(events, 'visible'), hide: !withCapture },
+    { id: 'live', label: STEP_LABEL.live, event: latest(events, 'live'), hide: withCapture && !latest(events, 'live') },
   ];
   return (
     <ul aria-label="Progress" data-testid="wizard-progress" className="mt-4 space-y-1">
@@ -557,25 +687,32 @@ function Review({
   result,
   busy,
   showToml,
+  oneTaskOffer,
   onToggleToml,
   onApprove,
   onRetry,
   onDiscard,
+  onAddOneTask,
 }: {
   found: Found;
-  result: Extract<LoopResult, { status: 'tested' }>;
+  result: Tested;
   busy: boolean;
   showToml: boolean;
+  oneTaskOffer: boolean;
   onToggleToml: () => void;
   onApprove: () => void;
   onRetry: () => void;
   onDiscard: () => void;
+  onAddOneTask: () => void;
 }) {
   const verify: VerifyResult = result.verify;
-  const live: LiveResult = result.live;
-  const line = commandLine(found.start.command, verify.rendered?.headless_argv);
-  const passed = live.stages.filter((s) => s.status === 'passed').length;
-  const ran = live.stages.filter((s) => s.status !== 'skipped').length;
+  const { live, visible } = result;
+  const line = visible
+    ? commandLine(found.start.command, verify.planned_visible?.args ?? verify.rendered?.tui_argv ?? [])
+    : commandLine(found.start.command, verify.rendered?.headless_argv);
+  const livePassed = live ? live.stages.filter((s) => s.status === 'passed').length : 0;
+  const liveRan = live ? live.stages.filter((s) => s.status !== 'skipped').length : 0;
+  const version = visible?.version ?? live?.tested_version ?? null;
   return (
     <div className="mt-4" data-testid="wizard-review">
       <p className="text-sm font-semibold">Ready for your approval</p>
@@ -585,22 +722,67 @@ function Review({
       </div>
       <div className="mt-3">
         <div className="text-xs font-medium text-pm-muted">What was tested</div>
-        <ul className="mt-1 space-y-1 text-xs">
-          {live.stages.map((s) => (
-            <li key={s.name} data-stage={s.name} data-status={s.status}>
-              <span className="font-medium">{s.label}</span>{' '}
-              <span className="text-pm-muted">
-                {s.status === 'passed' ? 'passed' : s.status === 'skipped' ? `skipped - ${s.note ?? ''}` : 'failed'}
-              </span>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-2 text-xs text-pm-muted">
-          Tested live on {found.start.command}
-          {live.tested_version ? ` ${live.tested_version}` : ''}: {passed} of {ran} checks passed. {live.fixtures.length} saved sample
-          {live.fixtures.length === 1 ? '' : 's'} will be kept next to the definition. Written after {result.rounds}{' '}
-          {result.rounds === 1 ? 'try' : 'tries'}.
-        </p>
+        {visible && (
+          <div data-testid="review-visible" className="mt-1 text-xs">
+            <p className="font-medium">
+              Visible pane: {visible.passed} of {visible.total} checks passed
+            </p>
+            <ul className="mt-1 space-y-1">
+              {visible.checks.map((c) => (
+                <li key={c.name} data-check={c.name} data-status={c.status}>
+                  <span className="font-medium">{c.label}</span>{' '}
+                  <span className="text-pm-muted">{c.status === 'passed' ? 'passed' : c.status === 'skipped' ? `skipped - ${c.note}` : 'failed'}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {live && !visible ? (
+          <ul className="mt-1 space-y-1 text-xs">
+            {live.stages.map((s) => (
+              <li key={s.name} data-stage={s.name} data-status={s.status}>
+                <span className="font-medium">{s.label}</span>{' '}
+                <span className="text-pm-muted">
+                  {s.status === 'passed' ? 'passed' : s.status === 'skipped' ? `skipped - ${s.note ?? ''}` : 'failed'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : live ? (
+          <div data-testid="review-live" className="mt-2 text-xs">
+            <p className="font-medium">
+              One-task mode: {livePassed} of {liveRan} checks passed
+            </p>
+            <ul className="mt-1 space-y-1">
+              {live.stages.map((s) => (
+                <li key={s.name} data-stage={s.name} data-status={s.status}>
+                  <span className="font-medium">{s.label}</span>{' '}
+                  <span className="text-pm-muted">
+                    {s.status === 'passed' ? 'passed' : s.status === 'skipped' ? `skipped - ${s.note ?? ''}` : 'failed'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : visible ? (
+          <p data-testid="review-live" className="mt-2 text-xs font-medium">
+            One-task mode: not added
+          </p>
+        ) : null}
+        {live && !visible ? (
+          <p className="mt-2 text-xs text-pm-muted">
+            Tested live on {found.start.command}
+            {version ? ` ${version}` : ''}: {livePassed} of {liveRan} checks passed. {live.fixtures.length} saved sample
+            {live.fixtures.length === 1 ? '' : 's'} will be kept next to the definition. Written after {result.rounds}{' '}
+            {result.rounds === 1 ? 'try' : 'tries'}.
+          </p>
+        ) : (
+          <p className="mt-2 text-xs text-pm-muted">
+            Tested live on {found.start.command}
+            {version ? ` ${version}` : ''}. The captured screens{live ? ' and the saved samples' : ''} will be kept next to the
+            definition. Written after {result.rounds} {result.rounds === 1 ? 'try' : 'tries'}.
+          </p>
+        )}
       </div>
       {verify.warnings.length > 0 && (
         <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-pm-muted">
@@ -608,6 +790,21 @@ function Review({
             <li key={w}>{w}</li>
           ))}
         </ul>
+      )}
+      {oneTaskOffer && (
+        <div data-testid="one-task-offer" className="mt-3 rounded-lg border border-pm-border p-3 text-xs">
+          <p className="font-semibold">Also add a one-task mode (optional)</p>
+          <p className="mt-1 text-pm-muted">
+            {found.start.command} can also run one task and print the answer. With it, Puppet Master can run it without a pane.
+            This writes the extra part and tests it, and runs the visible test again on the new file (about two more small
+            messages). The visible part you have now is kept if it does not work out.
+          </p>
+          <div className="mt-2 flex justify-end">
+            <button type="button" className={BTN} disabled={busy} onClick={onAddOneTask}>
+              Add the one-task mode
+            </button>
+          </div>
+        </div>
       )}
       <p className="mt-3 text-xs text-pm-muted">
         Nothing runs until you approve it. The next screen shows the exact command again.

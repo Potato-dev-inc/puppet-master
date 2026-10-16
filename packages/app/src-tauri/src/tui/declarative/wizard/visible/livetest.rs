@@ -732,7 +732,11 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             return Err(WizardError::new(409, "WIZARD_BINARY_UNRESOLVED", message));
         }
     }
-    let outcome = execute(&snap, &env, &draft, &snap.cancel);
+    let mut outcome = execute(&snap, &env, &draft, &snap.cancel);
+    // The shared rules and the screen fixtures too, so one reply carries every problem and a draft that
+    // fails them can never be called tested (the headless live test does the same).
+    let checks = super::super::verify::check_draft_with(&snap, &env, &draft.text, &draft.expects);
+    outcome.errors.extend(checks.errors.into_iter().filter(|e| e.stage == "conformance" || e.stage == "fixture"));
     let ok = outcome.ok() && !snap.cancel.load(Ordering::SeqCst);
     let (passed, total) = (outcome.passed(), outcome.total());
     let sha = draft.sha256.clone();
