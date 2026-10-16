@@ -382,14 +382,18 @@ fn the_persons_answer_to_a_card_is_audited_with_who_pressed_it() {
 // ---- the settings ----
 
 #[test]
-fn the_shipped_defaults_are_todays_behaviour() {
-    // The founder has not decided. To switch to the recommended defaults change the two constants in
-    // `agent_authority/mod.rs` (A to true, B to false) and update this test with them.
+fn the_safe_defaults_ask_before_control_and_block_agent_merges() {
+    // The shipped defaults are the safe side: ask before an agent controls a pane it did not start,
+    // and agents may not merge. A missing key (or a file with neither key) takes these defaults.
+    // To change them, change the two constants in `agent_authority/mod.rs` and this test with them.
+    use super::config::parse;
     let defaults = Config::default();
-    assert!(!defaults.ask_before_agent_control, "A defaults off");
-    assert!(defaults.agents_may_merge, "B defaults on");
+    assert!(defaults.ask_before_agent_control, "A defaults on");
+    assert!(!defaults.agents_may_merge, "B defaults off");
     assert_eq!(defaults.ask_before_agent_control, super::DEFAULT_ASK_BEFORE_AGENT_CONTROL);
     assert_eq!(defaults.agents_may_merge, super::DEFAULT_AGENTS_MAY_MERGE);
+    assert_eq!(parse("{}"), Config { ask_before_agent_control: true, agents_may_merge: false }, "a file missing both keys takes the safe defaults");
+    assert_eq!(parse(""), Config { ask_before_agent_control: true, agents_may_merge: false }, "a missing file takes the safe defaults");
 }
 
 #[test]

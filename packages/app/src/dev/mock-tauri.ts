@@ -44,7 +44,7 @@ export function installTauriMock(scenario: HarnessScenario): void {
   const panes = scenario.panes ?? EXAMPLE_PANES;
   // In-memory plugin-store (one store, rid 1), keyed as the app writes it.
   // The two agent-authority switches, at the shipped defaults unless the scenario says otherwise.
-  let authority = scenario.authority ?? { ask_before_agent_control: false, agents_may_merge: true };
+  let authority = scenario.authority ?? { ask_before_agent_control: true, agents_may_merge: false };
   const store = new Map<string, unknown>([['settings', { theme: scenario.theme ?? 'dark', ...(scenario.simple ? { simple_mode: true } : {}), ...firstRunStore(scenario.firstRun), ...(scenario.missions?.enabled ? { missions_enabled: true } : {}) }]]);
   // Settings > Phone > Devices: one phone with full control in daily use, one watch-and-answer.
   const now = Math.floor(Date.now() / 1000);
