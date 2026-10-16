@@ -78,6 +78,7 @@ Written 2026-10-16 for version **0.2.1**, in simple English. Each feature file s
 | 39 | [Co-work Heads-up (team)](features/39-co-work-heads-up.md) | Preview (Labs, off by default) |
 | 40 | [Team relay (end-to-end encrypted)](features/40-team-relay.md) | Partly built |
 | 41 | [Developer testing (fake agent, replay corpus, UI harness)](features/41-developer-testing.md) | Works today |
+| 42 | [Agent wizard (teach Puppet Master a new agent)](features/42-agent-wizard.md) | Preview (in main, not released yet) |
 
 ## Status words
 

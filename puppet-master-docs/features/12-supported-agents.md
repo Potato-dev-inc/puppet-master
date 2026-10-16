@@ -61,6 +61,8 @@ The 0.2.1 release notes say the same: Cursor, Kilo and OpenCode are less tested 
 - **Approval.** A new or changed TOML file stays off until you review it and press Approve. The dialog shows the exact command. If you edit the file later, PM asks again before the next run. Runs that already started are not changed. A definition can never replace a built-in agent.
 
 ## How to add an agent
+**Easiest (the wizard):** type the agent's command and PM writes and tests the file for you. See [Agent wizard](42-agent-wizard.md). It is in `main`, not in a release yet.
+
 **Without code (a TOML file):**
 1. Write the file, for example `foo.toml`. The format is in `docs/specs/agent-definitions/DEFINITION-FORMAT.md`. A worked example is `kilo.toml`.
 2. Put it in `%APPDATA%\com.puppetmaster.app\agents\`, or use **Settings > Agents > Your own agents > Import**. Import takes a `.toml` file, checks it, and never overwrites an existing file.
