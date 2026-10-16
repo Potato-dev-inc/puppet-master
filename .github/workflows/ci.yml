@@ -47,11 +47,56 @@ jobs:
       - name: Typecheck (tsc --noEmit, app and service worker)
         run: npm run typecheck --workspace=@puppet-master/app
 
+  # The frontend build the Rust jobs compile against, built once. tauri::generate_context! embeds
+  # packages/app/dist (frontendDist); nothing else of the npm build is needed to compile or run the tests.
+  web-dist:
+    name: Frontend build for the Rust jobs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared package
+        run: npm run build --workspace=@puppet-master/shared
+
+      # Only the vite output. The full app build also bundles cloudflared, the phone app and the MCP
+      # server (with a Rust build of the MCP exe) into src-tauri/resources: release-only, no test reads them.
+      - name: Build the frontend (vite)
+        working-directory: packages/app
+        run: npx vite build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: packages/app/dist
+          retention-days: 1
+          if-no-files-found: error
+
   rust:
-    name: Rust (nextest --lib --bins)
+    # ~2,800 tests, each in its own process: split over two runners.
+    name: Rust unit tests (${{ matrix.shard }}/2)
+    needs: web-dist
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     env:
+      # Tests do not use the bundle's resources (cloudflared, the phone app, the MCP exe), which the
+      # web-dist job does not build; tauri-build would otherwise insist that their globs match files.
+      TAURI_CONFIG: '{"bundle":{"resources":[]}}'
       # The LLVM linker that ships with rustc: links the big test executables faster than link.exe.
       CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld
     steps:
@@ -62,44 +107,34 @@ jobs:
       # No rust-toolchain.toml in the repo, so this is the stable channel.
       - uses: dtolnay/rust-toolchain@stable
 
+      # One cache for every Rust job (same dependencies, same profile, same paths).
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: packages/app/src-tauri
+          shared-key: rust-tests
+          workspaces: |
+            packages/app/src-tauri
+            tools/pm-fake-tui
           cache-on-failure: true
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      # tauri-build needs the frontend output (../dist) and the bundled resources. The debug profile
-      # keeps the MCP binary build cheap and shares the cargo cache with the tests below.
-      - name: Build shared package
-        run: npm run build --workspace=@puppet-master/shared
-
-      - name: Build frontend and bundled resources
-        run: npm run build --workspace=@puppet-master/app
-        env:
-          PUPPET_MASTER_RUST_MCP_PROFILE: debug
 
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
 
-      # cargo-nextest: every test in its own process, no retries (packages/app/src-tauri/.config/nextest.toml).
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: packages/app/dist
+
       - name: Unit tests in the library and the binaries
         working-directory: packages/app/src-tauri
-        run: cargo nextest run --profile ci --lib --bins
+        run: cargo nextest run --profile ci --lib --bins --partition count:${{ matrix.shard }}/2
 
   fake-tui:
     # Dev-only fake agent (tools/pm-fake-tui) on a real ConPTY and a PowerShell host, which the
     # windows-latest runner has. Every test runs in its own process with its own app-data folder
     # (src/fake_tui/world.rs), so the suite is split across four runners and runs in parallel on each.
     name: Fake agent e2e (${{ matrix.shard }}/4)
+    needs: web-dist
     runs-on: windows-latest
     timeout-minutes: 40
     strategy:
@@ -107,6 +142,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     env:
+      TAURI_CONFIG: '{"bundle":{"resources":[]}}'
       CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld
     steps:
       - uses: actions/checkout@v4
@@ -117,31 +153,20 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          shared-key: rust-tests
           workspaces: |
             packages/app/src-tauri
             tools/pm-fake-tui
           cache-on-failure: true
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build shared package
-        run: npm run build --workspace=@puppet-master/shared
-
-      - name: Build frontend and bundled resources
-        run: npm run build --workspace=@puppet-master/app
-        env:
-          PUPPET_MASTER_RUST_MCP_PROFILE: debug
-
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: packages/app/dist
 
       # Unit tests of the fake agent itself (engine, script format, renderer), once.
       - name: pm-fake-tui unit tests
