@@ -123,3 +123,36 @@ fn cuts_respect_character_boundaries() {
     assert_eq!(cut_chars("aéb", 2), "aé");
     assert_eq!(cut_chars("ab", 5), "ab");
 }
+
+#[test]
+fn a_program_that_exits_on_its_own_after_the_done_line_keeps_its_exit_code() {
+    // The wrong-model run prints an error event and exits 1. A "done" rule that matches the event must
+    // not turn that exit into a kill: the child gets the grace period to exit on its own first.
+    let tree = Tree::new("exec-done-exit");
+    let program = exe("fake-agent");
+    let args: Vec<String> = ["run", "--format", "json", "-m", "no/such-model", "--", "x"].iter().map(|s| s.to_string()).collect();
+    let rule = |text: &str| text.contains("\"event\":\"error\"");
+    let mut spec = RunSpec::new(&program, &args, &tree.temp);
+    spec.timeout = Duration::from_secs(60);
+    spec.early_stop = Some(&rule);
+    spec.grace = Duration::from_secs(30);
+    let out = run(&spec);
+    assert_eq!(out.exit, Some(1), "{out:?}");
+    assert!(!out.stopped_early && !out.timed_out && !out.cancelled);
+    assert!(out.stdout.contains("Model not found"));
+}
+
+#[test]
+fn a_program_that_is_killed_after_done_says_so_and_has_no_exit_code_of_its_own() {
+    let tree = Tree::new("exec-done-kill");
+    let program = exe("linger-agent");
+    let args: Vec<String> = ["run", "--format", "json", "--", "x"].iter().map(|s| s.to_string()).collect();
+    let rule = |text: &str| text.contains("\"event\":\"end\"");
+    let mut spec = RunSpec::new(&program, &args, &tree.temp);
+    spec.timeout = Duration::from_secs(60);
+    spec.early_stop = Some(&rule);
+    spec.grace = Duration::from_millis(100);
+    let out = run(&spec);
+    assert!(out.stopped_early);
+    assert_eq!(out.exit, None, "a killed child has no exit code of its own");
+}

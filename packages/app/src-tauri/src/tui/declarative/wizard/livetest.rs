@@ -288,6 +288,8 @@ pub struct StageReport {
     pub result: Option<String>,
     pub session: Option<String>,
     pub error_code: Option<String>,
+    /// The program was still running after its `done` event and was stopped (so `exit` is not its own).
+    pub stopped_early: bool,
     /// First line of what the program itself said went wrong (its own error event, or the first line
     /// it printed when it exited with an error). Masked like the output.
     pub error_message: Option<String>,
@@ -325,6 +327,7 @@ impl StageReport {
             result: None,
             session: None,
             error_code: None,
+            stopped_early: false,
             error_message: None,
             agent_side: false,
             problems: Vec::new(),
@@ -426,6 +429,7 @@ impl Runner<'_> {
             result: None,
             session: None,
             error_code: None,
+            stopped_early: out.stopped_early,
             error_message: None,
             agent_side: false,
             problems: Vec::new(),
