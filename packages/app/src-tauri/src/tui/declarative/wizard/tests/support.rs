@@ -17,7 +17,7 @@ pub const MINIMAL: &str = include_str!("drafts/minimal.toml");
 pub const WRONG_BINARY: &str = include_str!("drafts/wrong_binary.toml");
 
 /// Copies of the fake CLI under other names; the name selects odd behaviour (see `fake_cli.rs`).
-pub const VARIANTS: &[&str] = &["hang-agent", "flood-agent", "secret-agent", "silent-agent", "raw-agent", "linger-agent", "git"];
+pub const VARIANTS: &[&str] = &["hang-agent", "flood-agent", "secret-agent", "silent-agent", "raw-agent", "linger-agent", "oldstyle-agent", "git"];
 
 fn exe_name(name: &str) -> String {
     if cfg!(windows) {

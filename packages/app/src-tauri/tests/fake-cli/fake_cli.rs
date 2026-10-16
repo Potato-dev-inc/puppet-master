@@ -14,7 +14,7 @@
 //
 // The program name selects odd behaviour (the tests copy the exe): *hang* sleeps for a minute,
 // *flood* prints about 200 KB, *secret* prints a token-shaped string in its help, *silent* prints
-// nothing, *raw* answers `run` in plain text without any JSON, *linger* finishes its events and then
+// nothing, *oldstyle* has no `run --help` (only `help run`), *raw* answers `run` in plain text without any JSON, *linger* finishes its events and then
 // keeps running for a minute (like an agent that does not exit after its last event).
 use std::io::Write;
 use std::path::Path;
@@ -84,6 +84,13 @@ fn main() {
                 std::process::exit(2);
             }
         },
+        Some("run") if args.get(1).map(String::as_str) == Some("--help") => {
+            if stem.contains("oldstyle") {
+                eprintln!("error: unknown flag --help");
+                std::process::exit(2);
+            }
+            print!("{RUN_HELP}");
+        }
         Some("run") => {
             run(&args[1..], stem.contains("raw"));
             if stem.contains("linger") {

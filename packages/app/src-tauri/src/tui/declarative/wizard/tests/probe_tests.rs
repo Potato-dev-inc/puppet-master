@@ -24,12 +24,35 @@ Options:
 
 #[test]
 fn subcommands_are_read_from_the_commands_section_only() {
-    assert_eq!(parse_subcommands(CLAP_HELP), vec!["run"], "login is on the deny list, help is skipped");
+    assert_eq!(parse_subcommands(CLAP_HELP, "fake-agent"), vec!["run"], "login is on the deny list, help is skipped");
     let other = "USAGE:\n  tool <cmd>\n\nSUBCOMMANDS:\n    chat, c    Start chatting\n    mcp        Manage servers\n    Update     Not lowercase\n\nOPTIONS:\n    run   not a command\n";
-    assert_eq!(parse_subcommands(other), vec!["chat", "mcp"]);
+    assert_eq!(parse_subcommands(other, "tool"), vec!["chat", "mcp"]);
     let blank_after_heading = "Commands:\n\n  build  Build it\n  test   Test it\n\nOptions:\n  deploy  not a command\n";
-    assert_eq!(parse_subcommands(blank_after_heading), vec!["build", "test"]);
-    assert!(parse_subcommands("no commands here\n  run  something").is_empty());
+    assert_eq!(parse_subcommands(blank_after_heading, "tool"), vec!["build", "test"]);
+    assert!(parse_subcommands("no commands here\n  run  something", "tool").is_empty());
+}
+
+const YARGS_HELP: &str = "Commands:
+  kilo completion          generate shell completion script
+  kilo [project]           start kilo tui                                                  [default]
+  kilo attach <url>        attach to a running kilo server
+  kilo run [message..]     run kilo with a message
+  kilo auth                manage AI providers and credentials                  [aliases: providers]
+  kilo models [provider]   list all available models
+
+Options:
+  -h, --help     show help
+";
+
+#[test]
+fn rows_that_start_with_the_program_name_are_read_too() {
+    // yargs prints `program name <args>  description`
+    assert_eq!(parse_subcommands(YARGS_HELP, "kilo"), vec!["completion", "attach", "run", "models"]);
+    assert_eq!(parse_subcommands(YARGS_HELP, "kilo.exe"), vec!["completion", "attach", "run", "models"]);
+    // for another program the first word is the name (and `kilo` is a valid name)
+    assert_eq!(parse_subcommands(YARGS_HELP, "other")[0], "kilo");
+    let clap = "Commands:\n  agent       Manage agents\n  chat        AI assistant\n  login       Log in\n  help        Print this message\n\nOptions:\n";
+    assert_eq!(parse_subcommands(clap, "kiro-cli"), vec!["agent", "chat"]);
 }
 
 #[test]
@@ -77,7 +100,7 @@ fn start_finds_the_program_and_reads_its_version() {
     assert!(out["session"].as_str().unwrap().starts_with("wz_"));
     assert!(out["cost_note"].as_str().unwrap().contains("3 small messages"));
     assert_eq!(out["limits"]["probe_timeout_ms"], 5000);
-    assert_eq!(out["limits"]["probe_max_runs"], 8);
+    assert_eq!(out["limits"]["probe_max_runs"], 16);
     // the work folder exists, in the temp root
     let folders: Vec<_> = std::fs::read_dir(&tree.temp).unwrap().flatten().collect();
     assert_eq!(folders.len(), 1);
@@ -115,7 +138,7 @@ fn probe_runs_exactly_the_fixed_list_and_marks_duplicates() {
     let out = ok(&wizard, "probe", json!({"session": id}));
     assert_eq!(out["state"], "probed");
     let labels: Vec<String> = out["runs"].as_array().unwrap().iter().map(|r| r["label"].as_str().unwrap().to_string()).collect();
-    assert_eq!(labels, ["--help", "-h", "--version", "help", "help run"]);
+    assert_eq!(labels, ["--help", "-h", "--version", "help", "run --help"]);
     let runs = out["runs"].as_array().unwrap();
     assert!(runs[0]["text"].as_str().unwrap().contains("Commands:"));
     assert_eq!(runs[0]["duplicate_of"], json!(null));
@@ -123,11 +146,11 @@ fn probe_runs_exactly_the_fixed_list_and_marks_duplicates() {
     assert_eq!(runs[1]["text"], "");
     assert_eq!(runs[3]["duplicate_of"], "--help");
     assert_eq!(runs[2]["text"].as_str().unwrap().trim(), "fake-agent 1.4.2");
-    assert_eq!(runs[4]["args"], json!(["help", "run"]));
+    assert_eq!(runs[4]["args"], json!(["run", "--help"]));
     assert!(runs[4]["text"].as_str().unwrap().contains("--format"));
     assert_eq!(out["subcommands"], json!(["run"]));
     assert_eq!(out["skipped"], json!([]));
-    assert_eq!(out["limits"]["max_runs"], 8);
+    assert_eq!(out["limits"]["max_runs"], 16);
     for run in runs {
         assert_eq!(run["exit"], 0);
         assert_eq!(run["timed_out"], false);
@@ -187,7 +210,7 @@ fn the_run_limit_is_enforced_and_the_rest_is_listed_as_skipped() {
     assert_eq!(out["runs"].as_array().unwrap().len(), 3);
     let skipped = out["skipped"].as_array().unwrap();
     assert!(skipped.iter().any(|s| s["args"] == json!(["help"]) && s["reason"] == "run limit reached"), "{skipped:?}");
-    assert!(skipped.iter().any(|s| s["args"] == json!(["help", "run"])), "{skipped:?}");
+    assert!(skipped.iter().any(|s| s["args"] == json!(["run", "--help"])), "{skipped:?}");
 }
 
 #[test]
@@ -216,4 +239,38 @@ fn tools_that_open_documentation_windows_are_only_asked_for_their_version() {
     assert_eq!(out["subcommands"], json!([]));
     assert!(crate::tui::declarative::wizard::probe::opens_documentation("NPM"));
     assert!(!crate::tui::declarative::wizard::probe::opens_documentation("kiro-cli"));
+}
+
+#[test]
+fn flags_are_asked_for_under_the_subcommand_and_help_sub_is_only_the_fallback() {
+    let tree = Tree::new("probe-sub");
+    let wizard = tree.wizard();
+    let id = start(&wizard, "fake-agent");
+    let out = ok(&wizard, "probe", json!({"session": id}));
+    let sub = out["runs"].as_array().unwrap().iter().find(|r| r["label"] == "run --help").expect("run --help ran");
+    assert!(sub["text"].as_str().unwrap().contains("--session"), "the flags are in the text: {sub}");
+    let labels: Vec<&str> = out["runs"].as_array().unwrap().iter().map(|r| r["label"].as_str().unwrap()).collect();
+    assert!(!labels.contains(&"help run"), "run --help worked, so there is no need for help run: {labels:?}");
+
+    // a program with no `run --help` falls back to `help run`
+    let id = start(&wizard, "oldstyle-agent");
+    let out = ok(&wizard, "probe", json!({"session": id}));
+    let labels: Vec<&str> = out["runs"].as_array().unwrap().iter().map(|r| r["label"].as_str().unwrap()).collect();
+    assert_eq!(&labels[4..], ["run --help", "help run"], "{labels:?}");
+    let fallback = out["runs"].as_array().unwrap().iter().find(|r| r["label"] == "help run").unwrap();
+    assert!(fallback["text"].as_str().unwrap().contains("--session"));
+    let failed = out["runs"].as_array().unwrap().iter().find(|r| r["label"] == "run --help").unwrap();
+    assert_eq!(failed["exit"], 2);
+}
+
+#[test]
+fn subcommand_probes_keep_the_same_limits_as_the_base_probes() {
+    let tree = Tree::new("probe-sub-limits");
+    let wizard = tree.wizard_with(|env| env.limits.probe_max_bytes = 40);
+    let id = start(&wizard, "fake-agent");
+    let out = ok(&wizard, "probe", json!({"session": id}));
+    for run in out["runs"].as_array().unwrap() {
+        assert!(run["text"].as_str().unwrap().len() <= 40, "{run}");
+    }
+    assert!(out["runs"].as_array().unwrap().len() <= 16);
 }

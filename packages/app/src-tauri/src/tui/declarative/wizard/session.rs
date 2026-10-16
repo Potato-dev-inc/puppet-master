@@ -74,7 +74,7 @@ impl Default for Limits {
             version_timeout: Duration::from_secs(5),
             probe_timeout: Duration::from_secs(5),
             probe_max_bytes: 64 * 1024,
-            probe_max_runs: 8,
+            probe_max_runs: 16,
             live_timeout: Duration::from_secs(90),
             live_max_bytes: 256 * 1024,
             live_grace: Duration::from_millis(1500),

@@ -14,12 +14,12 @@ use super::report::WizardError;
 use super::session::{Limits, State, Wizard};
 
 /// Subcommands read from the help text, at most.
-pub const MAX_SUBCOMMANDS: usize = 4;
+pub const MAX_SUBCOMMANDS: usize = 8;
 
 /// Never asked for help: names that could do something if a program treats `help <name>` as `<name>`.
 const DENIED_SUBCOMMANDS: &[&str] = &[
     "update", "upgrade", "install", "uninstall", "login", "logout", "delete", "remove", "rm", "reset", "clean",
-    "purge", "self-update", "init", "setup", "auth",
+    "purge", "self-update", "init", "setup", "auth", "serve", "daemon",
 ];
 
 const BASE: &[&[&str]] = &[&["--help"], &["-h"], &["--version"], &["help"]];
@@ -70,9 +70,10 @@ pub fn valid_subcommand(name: &str) -> bool {
     ok && name != "help" && !DENIED_SUBCOMMANDS.contains(&name)
 }
 
-/// The `name   description` rows under a heading that ends in `commands:` (any case), up to the next
+/// The `name   description` (or `program name   description`) rows under a heading that ends in `commands:` (any case), up to the next
 /// blank line or heading. Names that are not allowed are left out; order is kept; no duplicates.
-pub fn parse_subcommands(help: &str) -> Vec<String> {
+pub fn parse_subcommands(help: &str, program: &str) -> Vec<String> {
+    let program = program.trim_end_matches(".exe").to_ascii_lowercase();
     let mut out: Vec<String> = Vec::new();
     let mut in_section = false;
     let mut seen_row = false;
@@ -99,7 +100,12 @@ pub fn parse_subcommands(help: &str) -> Vec<String> {
             continue;
         }
         seen_row = true;
-        let name = trimmed.split_whitespace().next().unwrap_or("").trim_end_matches(',');
+        // clap prints `name  description`; yargs prints `program name <args>  description`.
+        let mut words = trimmed.split_whitespace();
+        let mut name = words.next().unwrap_or("").trim_end_matches(',');
+        if name.trim_end_matches(".exe").eq_ignore_ascii_case(&program) {
+            name = words.next().unwrap_or("").trim_end_matches(',');
+        }
         if valid_subcommand(name) && !out.iter().any(|n| n == name) {
             out.push(name.to_string());
         }
@@ -187,24 +193,36 @@ pub fn probe_program(
             (!source.text.trim().is_empty()).then(|| source.text.clone())
         })
         .unwrap_or_default();
-    let all = parse_subcommands(&help_text);
+    let all = parse_subcommands(&help_text, command);
     let subcommands: Vec<String> = all.iter().take(MAX_SUBCOMMANDS).cloned().collect();
     for extra in all.iter().skip(MAX_SUBCOMMANDS) {
         skipped.push(Skipped {
-            args: vec!["help".into(), extra.clone()],
+            args: vec![extra.clone(), "--help".into()],
             reason: format!("only {MAX_SUBCOMMANDS} subcommands are read"),
         });
     }
+    // Flags live under `<sub> --help` for most CLIs (clap, yargs); `help <sub>` is the fallback for the
+    // ones that print nothing useful there.
     for sub in &subcommands {
         if cancel.load(Ordering::SeqCst) {
             break;
         }
-        let args = vec!["help".to_string(), sub.clone()];
+        let first = vec![sub.clone(), "--help".to_string()];
         if runs.len() >= limits.probe_max_runs {
-            skipped.push(Skipped { args, reason: "run limit reached".into() });
+            skipped.push(Skipped { args: first, reason: "run limit reached".into() });
             continue;
         }
-        go(args, &mut runs);
+        go(first, &mut runs);
+        let useful = runs.last().is_some_and(|r| r.exit == Some(0) && (!r.text.trim().is_empty() || r.duplicate_of.is_some()));
+        if useful {
+            continue;
+        }
+        let second = vec!["help".to_string(), sub.clone()];
+        if runs.len() >= limits.probe_max_runs {
+            skipped.push(Skipped { args: second, reason: "run limit reached".into() });
+            continue;
+        }
+        go(second, &mut runs);
     }
     ProbeReport { runs, subcommands, skipped }
 }

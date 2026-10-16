@@ -81,7 +81,7 @@ Response:
   "version": {"ok": true, "args": ["--version"], "text": "kiro-cli 2.29.1", "number": "2.29.1"},
   "native_candidates": [],
   "cost_note": "The live test runs kiro-cli 3 times with tiny messages (about 3 small messages per try). It uses your own kiro-cli account or plan.",
-  "limits": {"probe_timeout_ms": 5000, "probe_max_bytes": 65536, "probe_max_runs": 8, "draft_max_bytes": 65536}
+  "limits": {"probe_timeout_ms": 5000, "probe_max_bytes": 65536, "probe_max_runs": 16, "draft_max_bytes": 65536}
 }
 ```
 - `kind` is `native` (an `.exe`, or a Unix executable) or `shim` (an npm `.cmd`/`.bat`/`.ps1` wrapper with no native program next to it). A shim is still probed with fixed arguments. For a shim, `native_candidates` lists up to 20 `*.exe` files found under `<shim folder>/node_modules` (depth at most 6), as paths relative to the shim folder, so the drafter can write `shim_native_globs`.
@@ -106,18 +106,18 @@ Response:
   ],
   "subcommands": ["chat", "login"],
   "skipped": [{"args": ["help", "mcp"], "reason": "run limit reached"}],
-  "limits": {"timeout_ms": 5000, "max_bytes": 65536, "max_runs": 8}
+  "limits": {"timeout_ms": 5000, "max_bytes": 65536, "max_runs": 16}
 }
 ```
 **Probe rules (fixed, nothing the program or the drafter says can add an argument):**
-1. Only these argument lists run, in this order: `--help`, `-h`, `--version`, `help`, then `help <sub>` for subcommands found in the help text.
-2. `<sub>` must match `^[a-z][a-z0-9_-]{0,31}$`, must not be `help`, and must not be on the deny list (`update upgrade install uninstall login logout delete remove rm reset clean purge self-update init setup auth`). At most 4 subcommands.
-3. At most 8 runs in total. A run past the limit is listed in `skipped`.
+1. Only these argument lists run, in this order: `--help`, `-h`, `--version`, `help`, then for each subcommand found in the help text `<sub> --help` (where clap and yargs programs document their flags) and, only when that printed nothing or failed, `help <sub>`.
+2. `<sub>` must match `^[a-z][a-z0-9_-]{0,31}$`, must not be `help`, and must not be on the deny list (`update upgrade install uninstall login logout delete remove rm reset clean purge self-update init setup auth serve daemon`). At most 8 subcommands.
+3. At most 16 runs in total. A run past the limit is listed in `skipped`.
 4. Each run: 5 seconds wall-clock timeout (the child is killed; `timed_out: true`), no stdin (it is closed), the session work folder as the working directory, environment inherited plus `NO_COLOR=1` and `TERM=dumb`. No window opens on Windows.
 5. Output (stdout then stderr) is capped at 64 KiB per run (`truncated: true`), invalid UTF-8 is replaced, ANSI escape codes are removed, and the text goes through `redact::text` before it is returned or stored.
 6. A run whose cleaned text equals an earlier run's sets `duplicate_of` and returns `text: ""` (saves prompt space).
 7. Tools that open a manual page or browser window for `--help` and `help <topic>` (`git npm npx pnpm yarn cargo rustup gh man`) are not coding agents; for them only `--version` runs and the rest is listed in `skipped`.
-8. Subcommands are read from the `--help` text (else `-h`, else `help`): the indented `name   description` rows under a heading that ends in `commands:` (any case), up to the next blank line or heading.
+8. Subcommands are read from the `--help` text (else `-h`, else `help`): the indented `name   description` rows (or yargs-style `program name <args>   description` rows) under a heading that ends in `commands:` (any case), up to the next blank line or heading.
 
 ### 4.3 `POST /agents/wizard/verify`
 Request: `{"session": "wz_...", "toml": "schema_version = 1\n..."}`. `toml` is at most 64 KiB (`400 AGENT_DEF_TOO_LARGE`).
@@ -350,7 +350,7 @@ cargo test --lib tui::declarative::wizard::tests::benchmark::score_draft -- --ig
 It prints a table: validate/conformance result, the headless fixtures of the reference (pass/fail per file), and whether the rendered argv matches the reference for four launches (plain, with model, with resume, with both). Exit is a test failure when any headless fixture fails.
 
 Other helpers, same file, also `#[ignore]`:
-- `probe_dump` (`PM_WIZARD_COMMAND=kilo`, `PM_WIZARD_OUT=<dir>`): resolves and probes the real program and writes `<dir>\probe.json` (what the drafter would see). Starts only `--version`, `--help`, `-h`, `help` and `help <sub>`. No AI, no tokens.
+- `probe_dump` (`PM_WIZARD_COMMAND=kilo`, `PM_WIZARD_OUT=<dir>`): resolves and probes the real program and writes `<dir>\probe.json` (what the drafter would see). Starts only `--version`, `--help`, `-h`, `help`, `<sub> --help` and `help <sub>`. No AI, no tokens.
 - `livetest_draft` (`PM_WIZARD_COMMAND`, `PM_WIZARD_DRAFT`, optional `PM_WIZARD_OUT`): verify + the live test against the real program with a given draft. **Spends about 3 small messages.** Nothing is written to the real agents folder; with `PM_WIZARD_FINISH=1` the files go to `<out>\agents`.
 
 The scorer itself runs in the normal suite against the references (`tui::declarative::wizard::tests::benchmark::the_references_score_perfectly_against_their_own_headless_fixtures`), which proves it works without any agent installed.
