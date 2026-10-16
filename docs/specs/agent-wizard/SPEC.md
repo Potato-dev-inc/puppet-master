@@ -19,7 +19,7 @@ writes files. Nothing the AI writes can run until the person approves it in the 
 | Draft loop + client | `src/lib/agentWizard.ts` | API client, reply parsing, the draft loop (5 rounds) |
 | UI | `src/components/settings/blocks/AgentWizard.tsx` | the steps; opened by "Add with wizard" in Settings > Agents > Your own agents |
 
-Not in Phase 1: the visible (TUI) path. `POST /agents/wizard/capture` exists and answers `501 WIZARD_NOT_YET`.
+Phase 1 had no visible (TUI) path; Phase 2 adds it (section 11): `POST /agents/wizard/capture` (the guided capture) and `POST /agents/wizard/visibletest`.
 
 ## 2. Session states and transitions
 
@@ -194,7 +194,7 @@ Errors: `409 AGENT_DEF_DUPLICATE_ID` (a file with that id already exists; **neve
 Request: `{"session": "wz_..."}`. Response: `{"ok": true, "state": "cancelled"}` (`"gone"` for an unknown id). Stops a running child, removes the work folder.
 
 ### 4.7 `POST /agents/wizard/capture`
-Phase 2. Always `501 WIZARD_NOT_YET` ("The visible-screen path comes in a later version.").
+Phase 2 (11.4): the guided capture of the visible screens. (In Phase 1 this route answered `501 WIZARD_NOT_YET`.)
 
 ### 4.8 Tauri commands (webview only)
 `agent_wizard_start(command)`, `agent_wizard_probe(session)`, `agent_wizard_verify(session, toml)`, `agent_wizard_livetest(session, confirm, plan)`, `agent_wizard_finish(session, provenance)`, `agent_wizard_cancel(session)` return the same JSON as the routes (errors are `"CODE: message"` strings, like the definitions commands). They run on a blocking thread so the UI stays alive, and `agent_wizard_finish` reloads the definitions registry afterwards.
@@ -337,7 +337,7 @@ Plain, short English everywhere; the word "isolated" (never "sandboxed"); monoch
 
 ## 10. Tests (all run with zero tokens)
 
-- **Rust unit tests** (`wizard/tests/`): resolve, probe limits/timeouts/redaction/dedupe/subcommand parsing, verify error format and each rule, live-test classification, finish (never overwrites, writes unapproved, cleans up on failure), the route table (local app only, MCP session refused, `capture` is 501), state machine.
+- **Rust unit tests** (`wizard/tests/`): resolve, probe limits/timeouts/redaction/dedupe/subcommand parsing, verify error format and each rule, live-test classification, finish (never overwrites, writes unapproved, cleans up on failure), the route table (local app only, MCP session refused, `capture` and `visibletest` routed), state machine.
 - **Fake headless CLI** (`tests/fake-cli/fake_cli.rs`, std only): a tiny program that prints help/version, answers `run --format json` with JSON-lines events, resumes a session, and reports a bad model. The test compiles it with `rustc` and copies it to other names to act as a hanging, flooding or secret-printing program.
 - **End-to-end Rust test**: start -> probe -> stand-in drafter (a recorded draft TOML) -> verify -> livetest -> finish; the written definition validates and its fixtures pass `check_report`.
 - **vitest**: prompt builder (budget, drift guards on the imported docs), reply parsing, a stand-in drafter that replays recorded drafts through the loop (one good, one needing a fix round with checker errors fed back verbatim), and the wizard component.
@@ -408,7 +408,7 @@ Phase 2 makes the wizard produce a working **visible-pane profile** (`[tui]` tab
 
 Product rules, all enforced in Rust (the UI cannot relax them):
 - **The wizard never answers a trust, first-run, login or permission dialog.** In guided capture the person answers it in the pane; the wizard says what to press and sends no key. The only text it ever types is the test message (and `/exit` on request), and only through the app's own delivery path (`agent_runs::delivery::deliver_prompt_traced`, which looks at the screen first and refuses a dialog, a busy pane, a shell prompt or a dead agent).
-- **Never type into a busy pane.** Typing needs: the screen unchanged for the stable time (default 2.5 s, tolerant of one animated row), nothing running (no spinner or progress, the pane status is not `running`), the process alive, no dialog on screen, and a screen that looks like an input box, or the person saying "it is ready" for exactly that screen.
+- **Never type into a busy pane.** Typing needs: the screen unchanged for the stable time (default 2.5 s, tolerant of one animated row), nothing running (no spinner, progress word or stop hint on the last rows), the process alive, no dialog on screen, and a screen that looks like an input box, or the person saying "it is ready" for exactly that screen.
 - **Grid = PTY grid.** Panes are spawned at a fixed grid (120x40) that is recorded in every capture header and in the status. The UI never resizes a wizard pane; the pop-out follows the PTY grid.
 - **Isolated.** The program runs in `<work folder>/capture-project/`, a fresh folder with `git init` and one commit, so trust questions appear as in a real project. Never the person's project. Say "isolated", never "sandboxed".
 - **Nothing is approved.** The pane starts only after the person saw the exact program and arguments and confirmed (the fingerprint rule of 4.4 applies: `WIZARD_CONFIRM_REQUIRED`, `WIZARD_PLAN_REQUIRED`, `WIZARD_PLAN_MISMATCH`). The written definition is unapproved as before.
@@ -458,6 +458,7 @@ One action with an `op`. States: allowed from `probed`, `verified`, `tested` (a 
 | `show` | `{session}` | `{ok: true}`; opens the pane pop-out (a no-op without a window system) |
 | `finish` | `{session}` | stops the runner, kills the pane, stores the capture set in the session and returns `{captures}` (masked, for the prompt) |
 | `captures` | `{session}` | the same masked set, read-only |
+| `test_status` | `{session}` | what the visible test (11.9) is doing now, readable while `visibletest` runs: `{running, check, needs_you: {kind, message} or null, checks, screen}` (the screen masked). The UI polls it so it can say "your turn" while the test waits for a question to be answered. |
 | `discard` | `{session}` | drops the capture set (and any pane) |
 
 Status:
@@ -487,13 +488,13 @@ Pure: `Capture::tick(&mut self, look, now_ms)` is given a `Look {screen, alive, 
 **Steps.**
 1. `start` ("Starting"): wait for a non-blank stable screen. A `dialog` makes the step `needs_you` (flavour `trust`, `login`, `permission` or `question`); the stable dialog frame is kept as `tui_trust` (trust) or `tui_firstrun` (anything else); nothing is typed. Done when the screen is stable and no longer a dialog. Time limit 120 s, then `stuck`. A process that exits is `failed` ("the agent quit by itself").
 2. `ready` ("Ready"): a stable screen that is `input` (or the person pressed `ready` for it): the most frequent frame of the stable window is `tui_idle` (at least 3 frames sampled; variants noted).
-3. `message` ("Test message"): typing is allowed only by the guard below. Task text: `Reply with exactly the word: <word-1>` (the session word, masked like Phase 1). Frames are sampled while the screen changes: `tui_working` is the most frequent frame among those where the pane was `running` or the screen was still changing (variants noted). It is done when the screen is stable again, not `working`, and the word appears on at least two rows (the echo and the reply): that frame is `tui_reply`. If the screen settled and the word is on one row only, the step is `needs_you` ("I cannot see an answer. Is it finished?") and the person may capture it anyway (`ready`) or `retry`. 180 s limit, then `stuck`.
+3. `message` ("Test message"): typing is allowed only by the guard below. Task text: `Reply with exactly the word: <word-1>` (the session word, masked like Phase 1). Frames are sampled while the screen changes: `tui_working` is the most frequent frame among those where the pane was `running` or the screen was still changing (variants noted). It is done when the screen is stable again, not `working`, and the word is on a row that is not the echo of the instruction (a row without "reply with" / "exactly the word"): that frame is `tui_reply`. If the screen settled and no such row exists, the step is `needs_you` ("I cannot see an answer. Is it finished?") and the person may capture it anyway (`ready`) or `retry`. 180 s limit, then `stuck`.
 4. `permission` ("Permission"): when `ready` again, the task is `Create a file named hello.txt in the current folder. It must contain the word <word-3>.` A stable `dialog` (permission flavour) is `tui_permission` and the step is `needs_you` ("The agent asks for permission. Press your answer in the pane. The wizard answers nothing."). It is done when the person has answered and the screen is stable `input` again (the answered dialog frame is not kept). If hello.txt appears on disk and no dialog was seen, the step is done with the note "No permission question appeared (the agent did not ask)" and there is no `tui_permission`; the drafter is told so. Skippable.
 5. `exit` ("Exit"): optional. `try_exit` types `/exit` (through delivery, when ready); `closed` = "I closed it myself". The method that ended the process and the last frame are facts for the drafter (`exit_method`: `slash_exit`, `person`, `none`); there is no fixture for it.
 
 Each step takes `skip` (mark skipped, go on), `retry` (clear that step's frames and run it again; `message` and `permission` need the pane ready again) and `stuck` ("It looks stuck": keep what has been captured and go on; the step is recorded as `stuck`, so the drafter is told the capture is partial). `ready` as above.
 
-**The typing guard** (`capture::may_type(&Gate) -> Result<(), Refusal>`, the only code that can produce a `Deliver`) refuses unless all hold: the process is alive; the screen has been stable for the stable time; the kind is `input`, or the person's `ready` is bound to this exact screen fingerprint and the kind is neither `dialog` nor `working`; the pane status is not `running`; no delivery is in flight; fewer than 4 deliveries so far. The refusal reason is shown in the step note. There is no code path that sends a key into a `dialog`: `Press` exists only for `/exit`'s Ctrl+C fallback (`\x03`), only after the person asked (`try_exit`), and is refused for a dialog. Tests: every guard condition, and "a trust screen and a permission screen get zero writes over a long run".
+**The typing guard** (`capture::may_type(&Gate) -> Result<(), Refusal>`, the only code that can produce a `Deliver`) refuses unless all hold: the process is alive; the screen has been stable for the stable time; the kind is `input`, or the person's `ready` is bound to this exact screen fingerprint and the kind is neither `dialog` nor `working`; no delivery is in flight; fewer than 6 deliveries so far. An input box that sits next to question words (trust, permission, sign in, "press enter", `[y/n]` ...) is read as `unknown`, so the wizard asks the person instead of trusting it. The refusal reason is shown in the step note. **There is no code path that sends a key**: the host trait has no "type these keys" method; the only thing the wizard can put into a pane is a task through `deliver_prompt_traced` (the app's delivery path, which has its own readiness look and refuses a dialog, a shell prompt and a dead agent). `/exit` is such a task, typed only after the person pressed "Try /exit". Tests: every guard condition, and "a trust screen and a permission screen get zero writes over a long run" (unit), and the fake agent's own event log in the end-to-end test (it saw exactly one gate answer and one approval answer, both the test person's).
 
 ### 11.6 Captured fixtures
 
@@ -554,6 +555,57 @@ Plain, short English; monochrome style; "isolated".
 - Benchmark: `score_draft` also scores a draft's `[tui]` against `fixtures/kilo/tui_*` (leave-one-out); `bench_round` gains the visible round. Commands in 11.13.
 - vitest: prompt v5 (budget, leave-one-out drops Kilo's `[tui]`), `extractDraft`, the loop's visible branch, the capture component.
 
-### 11.13 Benchmark commands
+### 11.13 Benchmark commands (the visible path, live, from a script)
 
-(Filled in with the implementation.)
+Same idea as 10.1: rebuild a known agent from scratch and score the result against what is recorded. The capture and the visible test need a real pane, so they run inside the windowless test app of the fake-TUI harness (`--features dev-fake-tui`, `tests/fake_tui_wizard.rs`): no window opens. **That harness plays the person** (the product never does): it types the keys you give it for each question the wizard says is the person's. A question with no answer given stops the run and names the answer that is missing.
+
+```powershell
+$env:CARGO_TARGET_DIR = 'D:\pm-cargo-wizard-tui'
+$dir = 'D:\wizard-bench\kilo-vis'; $cmd = 'kilo'; $omit = 'kilo'          # or kiro-cli / kiro
+# The keys the bench types when the wizard says "your turn". `trust=` and `permission=` are the usual two;
+# `login=`, `question=` and `ready=yes` exist too. <enter> is the Enter key. Choose them from what the program asks.
+$env:PM_WIZARD_BENCH_ANSWERS = 'permission=<enter>'
+
+# 0. once: resolve and probe (no AI, no tokens) -> $dir\probe.json
+cd packages\app\src-tauri
+$env:PM_WIZARD_COMMAND = $cmd; $env:PM_WIZARD_OUT = $dir
+cargo test --lib tui::declarative::wizard::tests::benchmark::probe_dump -- --ignored --nocapture
+
+# 1. once: the guided capture on the REAL program (about 2 small messages) -> $dir\captures.json
+#    (`raw` holds the real test words, `masked` is what the drafter sees). PM_WIZARD_CAPTURE_ARGS="--model x" adds arguments.
+cargo test --features dev-fake-tui --test fake_tui_e2e -- --test-threads=1 --ignored --nocapture wizard_bench_capture
+
+# per round N = 1 .. 5
+$n = 1; $round = "$dir\round-$n"
+# 2. the prompt (visible, because captures.json is there): leave-one-out drops Kilo's [tui] half
+cd ..\..                      # packages\app
+$env:PM_WIZARD_BENCH = '1'; $env:PM_WIZARD_BENCH_DIR = $dir; $env:PM_WIZARD_BENCH_ROUND = $n; $env:PM_WIZARD_BENCH_OMIT = $omit
+$env:PM_WIZARD_BENCH_STEP = 'prompt'; npx vitest run src/lib/agentWizardBench.test.ts
+# 3. ask any drafter (empty folder; through cmd so the UTF-8 prompt arrives unchanged)
+Push-Location D:\wizard-bench\empty; cmd /c "claude -p < $round\prompt.txt > $round\reply.md"; Pop-Location
+# 4. take the definition block and the "# expect:" blocks -> $round\draft.toml, $round\expects.json
+$env:PM_WIZARD_BENCH_STEP = 'extract'; npx vitest run src/lib/agentWizardBench.test.ts
+# 5. verify the draft against the captured screens and run the visible test on the REAL program (about 2 small messages)
+cd src-tauri
+$env:PM_WIZARD_ROUND_DIR = $round
+cargo test --features dev-fake-tui --test fake_tui_e2e -- --test-threads=1 --ignored --nocapture wizard_bench_round
+Get-Content "$round\result.txt"     # PASS | FAIL verify | FAIL visibletest | STOP agent-error | FAIL no-toml
+# not PASS: repeat from step 2 with $n = $n + 1 (the prompt reads round-$($n-1)\feedback.json). PASS: score it.
+
+# 6. score the [tui] tables against Kilo's recorded screens (no agent started): the four tui_* captures must pass
+cd ..
+$env:PM_WIZARD_DRAFT = "$round\draft.toml"; $env:PM_WIZARD_REFERENCE = 'kilo'
+cd src-tauri
+cargo test --lib tui::declarative::wizard::tests::benchmark::score_draft -- --ignored --nocapture
+```
+Files in `round-N\`: `prompt.txt`, `reply.md`, `draft.toml`, `expects.json`, `verify.txt` (OK or the checker text), `visible.json` (the visible-test reply, masked), `feedback.json` (`{previous_toml, previous_expects, text, samples}`, what the next prompt consumes), `agent_error.txt`, `result.txt`. With `PM_WIZARD_FINISH=1` a PASSING round also finishes the session into `round-N\agents\` (the real agents folder is never touched). The same two ignored tests run against the made-up agent with no tokens in the normal fake-TUI suite (`the_benchmark_helpers_capture_and_run_rounds_on_the_fake_agent`).
+
+`score_draft` with a `[tui]` draft checks the four screen captures of Kilo (`tui_idle`, `tui_working`, `tui_reply`, `tui_permission`) with the draft's profile; with a `[headless]` draft it checks the five headless ones and the argv, as in 10.1; with both it checks both. Leave-one-out is `PM_WIZARD_BENCH_OMIT=kilo`: the prompt then holds the `nimbus` worked example and no Kilo example at all.
+
+For Kiro (`kiro-cli`), which has no recorded screens, there is nothing to score the `[tui]` against: step 6 does not apply. The bench result is the visible test passing on the real program (`PASS` in step 5) and the person reading the written TOML.
+
+Live check list: (1) run the loop until PASS, (2) `score_draft` on a Kilo result, (3) compare the TOML with the hand-written `[tui]` half by eye, (4) in the app: the wizard (not the bench), Add with wizard, answer the pane's questions yourself, Approve, run one `run_agent` through the approved agent.
+
+### 11.14 Status
+
+Implemented: everything in 11.1-11.13. The capture host over the app's pane registry (`visible/registry_host.rs`, installed at startup in `lib.rs`) is exercised by the end-to-end test on a real ConPTY; a real agent (Kilo, Kiro) has **not** been run through it yet (that is the lead's live run, 11.13). Known limits: the screen classifier is heuristic and says "unknown" (and asks the person) when it cannot tell, so an agent whose input box shows words like "approve" or "trust" always needs the person's "It is ready" press; the visible test's `busy` check can miss a turn that finishes before the first look after delivery; the optional one-task step re-runs the visible test (about two more small messages); the pane preview is a masked text view plus a pop-out window, not an embedded terminal.
