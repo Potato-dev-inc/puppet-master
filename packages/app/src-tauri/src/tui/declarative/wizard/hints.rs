@@ -37,7 +37,7 @@ pub fn fix_for(code: &str, path: &str) -> String {
         "AGENT_DEF_FIELD_RESERVED" => "Remove that field; it is reserved for a later version.",
         "AGENT_DEF_INCONSISTENT" => {
             if by_path("path") {
-                "Add `path = \"...\"`: the dotted path of the value inside one output line, for example path = \"part.text\". (For plain_text output the path is not used, but the field must be there: path = \"line\".)"
+                "Add `path = \"...\"`: the dotted path of the value inside one output line, for example path = \"part.text\"."
             } else if by_path("result") {
                 "Add a `[headless.output.result]` table that says where the final answer is, with `where`, `path` and `pick`."
             } else if by_path("output") {

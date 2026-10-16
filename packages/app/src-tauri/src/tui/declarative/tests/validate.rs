@@ -315,3 +315,44 @@ fn install_windows_values_are_checked_so_they_cannot_carry_shell_text() {
     );
     has_at(&with(InstallSpec { source: "http://plain.example".into(), ..ok }), "AGENT_DEF_BAD_BINARY", "install.windows");
 }
+
+/// DEFINITION-FORMAT.md section 5 shows a plain_text result with a `regex` and no `path`.
+const PLAIN_TEXT_DOC_EXAMPLE: &str = r#"schema_version = 1
+[agent]
+id = "plain_doc"
+label = "Plain doc"
+[binary]
+names = ["plain-doc"]
+[headless]
+argv = ["run"]
+task_separator = "--"
+[headless.output]
+format = "plain_text"
+[headless.output.result]
+regex = "(?s)ANSWER:\\s*(.*)\\z"
+"#;
+
+#[test]
+fn plain_text_selectors_need_no_json_path() {
+    let def = parse_definition(PLAIN_TEXT_DOC_EXAMPLE).unwrap();
+    assert_eq!(codes(&def), vec![], "the example in DEFINITION-FORMAT.md must validate");
+    let profile = crate::tui::declarative::DeclarativeProfile::new(def).unwrap();
+    use crate::tui::TuiProfile;
+    assert_eq!(profile.extract_result("thinking\nANSWER: hello there\n", 0).as_deref(), Some("hello there"));
+    // session and model selectors of a plain_text format work on lines too
+    let mut def = parse_definition(PLAIN_TEXT_DOC_EXAMPLE).unwrap();
+    let mut sel = def.headless.as_ref().unwrap().output.as_ref().unwrap().result.clone().unwrap();
+    sel.regex = Some("^session: (\\S+)$".into());
+    def.headless.as_mut().unwrap().output.as_mut().unwrap().session = Some(sel);
+    assert_eq!(codes(&def), vec![]);
+}
+
+#[test]
+fn json_formats_still_need_a_path() {
+    let mut def = kilo();
+    def.headless.as_mut().unwrap().output.as_mut().unwrap().result.as_mut().unwrap().path = None;
+    has_at(&def, "AGENT_DEF_INCONSISTENT", "headless.output.result.path");
+    let mut def = kilo();
+    def.headless.as_mut().unwrap().output.as_mut().unwrap().session.as_mut().unwrap().path = None;
+    has_at(&def, "AGENT_DEF_INCONSISTENT", "headless.output.session.path");
+}

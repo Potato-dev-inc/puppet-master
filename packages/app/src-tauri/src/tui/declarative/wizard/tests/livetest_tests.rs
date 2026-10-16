@@ -416,7 +416,6 @@ task_separator = "--"
 [headless.output]
 format = "plain_text"
 [headless.output.result]
-path = "line"
 regex = '(?m)^\s*(\S+)\s*$'
 pick = "last"
 "#;
