@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Puppet Master docs</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2306070a'/%3E%3Ccircle cx='8' cy='8' r='2' fill='%23ffd60a'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700;900&family=JetBrains+Mono:wght@400;500&display=swap" />
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ground: #06070a;
+      --ground-2: #0a0c11;
+      --feed: #0e1117;
+      --ink: #f4f5f7;
+      --ink-2: rgba(232, 236, 244, .68);
+      --ink-3: rgba(232, 236, 244, .46);
+      --hair: rgba(255, 255, 255, .08);
+      --hair-2: rgba(255, 255, 255, .14);
+      --glass: rgba(26, 29, 38, .4);
+      --glass-solid: #1a1d26;
+      --fill: rgba(255, 255, 255, .09);
+      --fill-2: rgba(255, 255, 255, .16);
+      --well: rgba(0, 0, 0, .28);
+      --flag-yellow: #ffd60a;
+      --flag-red: #ff453a;
+      --think: #b57bff;
+      --tool: #30d158;
+      --write: #64d2ff;
+      --display: "Titillium Web", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+      --mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, Consolas, monospace;
+      --sidebar: 300px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--ground);
+      color: var(--ink);
+      font-family: var(--display);
+      font-size: 15px;
+      line-height: 1.45;
+      letter-spacing: .005em;
+      -webkit-font-smoothing: antialiased;
+    }
+    ::selection { background: rgba(255, 214, 10, .32); color: #fff; }
+    a { color: var(--write); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent; }
+
+    .shell { display: grid; grid-template-columns: var(--sidebar) 1fr; min-height: 100%; }
+    .side {
+      position: sticky; top: 0; height: 100vh;
+      display: flex; flex-direction: column; gap: 12px;
+      padding: 18px 14px 20px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.025) 38%, rgba(255,255,255,.05)),
+        var(--glass);
+      backdrop-filter: blur(9px) saturate(200%) brightness(1.04);
+      -webkit-backdrop-filter: blur(9px) saturate(200%) brightness(1.04);
+      box-shadow: inset -1px 0 0 var(--hair), inset 0 1px 0 rgba(255,255,255,.18);
+      overflow: hidden;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 8px 10px;
+      color: inherit; text-decoration: none;
+    }
+    .brand:hover { text-decoration: none; }
+    .dots { display: grid; grid-template-columns: repeat(3, 5px); gap: 3px; }
+    .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-3); }
+    .dots i:nth-child(5) { background: var(--flag-yellow); }
+    .brand strong {
+      font-weight: 900; letter-spacing: -.025em; font-size: 16px;
+    }
+    .brand span { display: block; color: var(--ink-3); font-size: 12px; font-weight: 600; }
+    .find {
+      width: 100%; height: 36px; border: 0; border-radius: 999px;
+      background: var(--fill); color: var(--ink);
+      padding: 0 14px; font: inherit;
+      box-shadow: inset 0 0 0 1px var(--hair);
+    }
+    .find::placeholder { color: var(--ink-3); }
+    .dl {
+      display: flex; align-items: center; justify-content: center;
+      height: 36px; border-radius: 999px; font-weight: 700; font-size: 14px;
+      background: var(--ink); color: #07080b; text-decoration: none;
+    }
+    .dl:hover { opacity: .9; text-decoration: none; }
+    .nav { overflow: auto; flex: 1; padding-right: 4px; }
+    .group { margin: 16px 0 6px; padding: 0 10px;
+      color: var(--ink-3); font-size: 11px; font-weight: 700;
+      letter-spacing: .14em; text-transform: uppercase;
+    }
+    .item {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; text-align: left; cursor: pointer;
+      border: 0; background: transparent; color: var(--ink-2);
+      font: inherit; font-weight: 600; font-size: 13.5px;
+      padding: 8px 10px; border-radius: 14px;
+    }
+    .item:hover { background: var(--fill); color: var(--ink); text-decoration: none; }
+    .item.on { background: rgba(255,255,255,.11); color: var(--ink); }
+    .item .n { color: var(--ink-3); font-variant-numeric: tabular-nums; font-weight: 900; width: 1.6em; flex: none; }
+    .chip {
+      margin-left: auto; flex: none;
+      font-size: 10px; font-weight: 700; letter-spacing: .04em;
+      padding: 3px 7px; border-radius: 6px; text-transform: uppercase;
+    }
+    .chip.today { color: #0b1a0d; background: var(--tool); }
+    .chip.preview { color: #081018; background: var(--write); }
+    .chip.part { color: var(--ink-on-flag, #111); background: var(--flag-yellow); }
+    .chip.draft { color: var(--ink-2); background: var(--fill); }
+
+    .main { min-width: 0; background: var(--ground-2); }
+    .page { max-width: 760px; margin: 0 auto; padding: 48px 32px 96px; }
+    .crumb { color: var(--ink-3); font-size: 12.5px; font-weight: 600; margin: 0 0 18px; }
+    article h1 {
+      font-size: clamp(30px, 3.6vw, 46px); font-weight: 900;
+      line-height: .98; letter-spacing: -.03em; margin: 0 0 18px;
+    }
+    article h2 {
+      font-size: 22px; font-weight: 900; letter-spacing: -.015em;
+      margin: 34px 0 10px; line-height: 1.1;
+    }
+    article h3 { font-size: 17px; font-weight: 700; margin: 24px 0 8px; }
+    article p, article li { color: var(--ink-2); }
+    article p { margin: 0 0 12px; }
+    article ul, article ol { margin: 0 0 16px; padding-left: 1.2em; }
+    article li { margin: 0 0 6px; }
+    article strong { color: var(--ink); font-weight: 700; }
+    article hr { border: 0; border-top: 1px solid var(--hair); margin: 28px 0; }
+    article blockquote {
+      margin: 0 0 16px; padding: 10px 16px;
+      border-left: 3px solid var(--flag-yellow);
+      background: var(--fill); border-radius: 0 12px 12px 0;
+      color: var(--ink-2);
+    }
+    article code {
+      font-family: var(--mono); font-size: 13px;
+      background: var(--fill); padding: 1px 6px; border-radius: 6px;
+      color: var(--ink);
+    }
+    article pre {
+      background: var(--feed); border-radius: 16px; padding: 16px 18px;
+      overflow: auto; box-shadow: inset 0 0 0 1px var(--hair);
+    }
+    article pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.65; }
+    article table { width: 100%; border-collapse: collapse; margin: 0 0 20px; font-size: 14px; }
+    article th, article td {
+      text-align: left; padding: 9px 10px; vertical-align: top;
+      border-bottom: 1px solid var(--hair);
+    }
+    article th { color: var(--ink-3); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    article td { color: var(--ink-2); }
+    article td a { word-break: break-word; }
+    .err { color: var(--flag-red); }
+    .menu {
+      display: none; position: fixed; top: 14px; left: 14px; z-index: 20;
+      width: 44px; height: 44px; border: 0; border-radius: 999px;
+      background: var(--fill-2); color: var(--ink); font: inherit; font-weight: 800;
+    }
+    .scrim { display: none; }
+    @media (max-width: 860px) {
+      .shell { grid-template-columns: 1fr; }
+      .side {
+        position: fixed; inset: 0 auto 0 0; width: min(88vw, 320px); z-index: 30;
+        transform: translateX(-105%); transition: transform .22s cubic-bezier(.22,1,.36,1);
+      }
+      .side.open { transform: none; }
+      .menu { display: grid; place-items: center; }
+      .scrim.open {
+        display: block; position: fixed; inset: 0; z-index: 25;
+        background: rgba(0,0,0,.5);
+      }
+      .page { padding: 72px 20px 72px; }
+    }
+  </style>
+</head>
+<body>
+  <button class="menu" type="button" aria-label="Open contents">☰</button>
+  <div class="scrim"></div>
+  <div class="shell">
+    <aside class="side">
+      <a class="brand" href="#/00-what-is-puppet-master.md">
+        <div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div>
+          <strong>Puppet Master</strong>
+          <span>Docs · 0.2.1</span>
+        </div>
+      </a>
+      <input class="find" type="search" placeholder="Find a page" aria-label="Find a page" />
+      <a class="dl" href="/download">Download docs</a>
+      <nav class="nav" id="nav"></nav>
+    </aside>
+    <main class="main">
+      <div class="page">
+        <p class="crumb" id="crumb"></p>
+        <article id="doc">Loading…</article>
+      </div>
+    </main>
+  </div>
+  <script>
+    const NAV = [
+      { group: "Start here", items: [
+        ["00-what-is-puppet-master.md", "What is Puppet Master"],
+        ["01-status-today.md", "Status today"],
+        ["02-install-and-update.md", "Install and update"],
+        ["03-plans-and-roadmap.md", "Plans and roadmap"],
+        ["04-decisions-waiting.md", "Decisions waiting"],
+        ["05-website.md", "The website"],
+        ["06-glossary.md", "Glossary"],
+        ["README.md", "All pages"],
+      ]},
+      { group: "Everyday use", items: [
+        ["features/01-cockpit.md", "The cockpit", "today"],
+        ["features/02-inbox-needs-you.md", "Inbox and Needs you", "today"],
+        ["features/03-approval-cards.md", "Approval cards", "today"],
+        ["features/04-receipts-and-history.md", "Receipts and History", "today"],
+        ["features/05-undo-checkpoints.md", "Undo and checkpoints", "today"],
+        ["features/06-command-palette-and-ask-bar.md", "Command palette / Ask bar", "today"],
+        ["features/07-simple-mode.md", "Simple mode", "preview"],
+        ["features/08-first-run-welcome.md", "First-run welcome", "today"],
+        ["features/09-settings.md", "Settings", "today"],
+        ["features/10-follow-ups-and-agent-questions.md", "Follow-ups and questions", "today"],
+        ["features/11-live-preview.md", "Live preview", "today"],
+      ]},
+      { group: "Agents", items: [
+        ["features/12-supported-agents.md", "Supported agents", "today"],
+        ["features/13-set-up-agents-and-doctor.md", "Set up agents and Doctor", "today"],
+        ["features/14-standby-workers.md", "Standby workers", "today"],
+        ["features/15-trust-and-startup-dialogs.md", "Trust and start-up", "today"],
+        ["features/16-typing-permit.md", "Typing permit", "today"],
+        ["features/17-agent-authority.md", "Agent authority", "today"],
+        ["features/18-tested-versions-canary.md", "Tested versions / canary", "today"],
+        ["features/19-hook-lane.md", "Hook Lane", "part"],
+        ["features/20-accounts-and-keys.md", "Accounts and keys", "today"],
+        ["features/21-pane-titles-and-activity.md", "Pane titles and activity", "today"],
+      ]},
+      { group: "Safety and changes", items: [
+        ["features/22-separate-copies-worktrees.md", "Separate copies", "today"],
+        ["features/23-review-merge-and-pull-requests.md", "Review, merge and PRs", "today"],
+        ["features/24-budgets.md", "Budgets", "today"],
+        ["features/25-usage-limit-and-hand-off.md", "Usage limit and hand-off", "part"],
+        ["features/26-tamper-guard.md", "Tamper guard", "preview"],
+        ["features/27-loop-guard-and-panic-stop.md", "Loop guard and Stop all", "today"],
+        ["features/28-flight-recorder-and-diagnostics.md", "Flight recorder", "today"],
+        ["features/29-security-bridge-and-devices.md", "Security: bridge and phone", "today"],
+        ["features/30-missions.md", "Missions", "preview"],
+        ["features/31-second-opinion.md", "Second opinion", "today"],
+      ]},
+      { group: "Agents, phone, team", items: [
+        ["features/32-agents-controlling-agents-mcp.md", "Agents controlling agents", "today"],
+        ["features/33-one-brain.md", "One brain", "today"],
+        ["features/34-agent-skill-pack.md", "Agent skill pack", "today"],
+        ["features/35-toolbelt.md", "Toolbelt", "today"],
+        ["features/36-phone-app.md", "Phone app", "today"],
+        ["features/37-phone-approval-card.md", "Phone approval card", "today"],
+        ["features/38-phone-terminal.md", "Phone terminal", "today"],
+        ["features/39-co-work-heads-up.md", "Co-work Heads-up", "preview"],
+        ["features/40-team-relay.md", "Team relay", "part"],
+        ["features/41-developer-testing.md", "Developer testing", "today"],
+      ]},
+    ];
+    const CHIP = { today: "Today", preview: "Preview", part: "Partly", draft: "Draft" };
+    const navEl = document.getElementById("nav");
+    const docEl = document.getElementById("doc");
+    const crumbEl = document.getElementById("crumb");
+    const findEl = document.querySelector(".find");
+    const side = document.querySelector(".side");
+    const scrim = document.querySelector(".scrim");
+    const menu = document.querySelector(".menu");
+
+    function titleOf(file) {
+      for (const g of NAV) for (const it of g.items) if (it[0] === file) return it[1];
+      return file.replace(/\.md$/, "").split("/").pop();
+    }
+    function renderNav(q = "") {
+      const needle = q.trim().toLowerCase();
+      navEl.innerHTML = "";
+      for (const g of NAV) {
+        const items = g.items.filter((it) => !needle || it[1].toLowerCase().includes(needle) || it[0].toLowerCase().includes(needle));
+        if (!items.length) continue;
+        const h = document.createElement("div");
+        h.className = "group";
+        h.textContent = g.group;
+        navEl.appendChild(h);
+        for (const [file, label, status] of items) {
+          const b = document.createElement("a");
+          b.className = "item";
+          b.href = "#/" + file;
+          b.dataset.file = file;
+          b.innerHTML = `<span class="n"></span><span>${label}</span>` + (status ? `<span class="chip ${status}">${CHIP[status]}</span>` : "");
+          navEl.appendChild(b);
+        }
+      }
+    }
+    function currentFile() {
+      const raw = decodeURIComponent(location.hash.replace(/^#\/?/, "")).replace(/^\/+/, "");
+      if (!raw || raw === "index.html") return "00-what-is-puppet-master.md";
+      if (raw.includes("..")) return null;
+      return raw;
+    }
+    function resolveMd(fromFile, href) {
+      try {
+        const url = new URL(href, "https://docs.local/" + fromFile);
+        return url.pathname.replace(/^\//, "");
+      } catch {
+        return href;
+      }
+    }
+    function rewrite(fromFile) {
+      docEl.querySelectorAll("a[href]").forEach((a) => {
+        const href = a.getAttribute("href");
+        if (!href || /^(https?:|mailto:|#)/i.test(href)) return;
+        const path = resolveMd(fromFile, href);
+        if (path.endsWith(".md")) {
+          a.setAttribute("href", "#/" + path);
+        }
+      });
+    }
+    async function load() {
+      const file = currentFile();
+      document.querySelectorAll(".item").forEach((el) => el.classList.toggle("on", el.dataset.file === file));
+      if (!file) {
+        docEl.innerHTML = `<p class="err">That path is not allowed.</p>`;
+        return;
+      }
+      crumbEl.textContent = file === "README.md" ? "Handbook" : titleOf(file);
+      document.title = titleOf(file) + " · Puppet Master docs";
+      try {
+        const res = await fetch(file);
+        if (!res.ok) throw new Error(res.status + " " + file);
+        const md = await res.text();
+        docEl.innerHTML = marked.parse(md);
+        rewrite(file);
+        window.scrollTo(0, 0);
+      } catch (err) {
+        docEl.innerHTML = `<p class="err">Could not load ${file}. ${err.message}</p>`;
+      }
+      side.classList.remove("open");
+      scrim.classList.remove("open");
+    }
+    renderNav();
+    findEl.addEventListener("input", () => renderNav(findEl.value));
+    window.addEventListener("hashchange", load);
+    menu.addEventListener("click", () => { side.classList.add("open"); scrim.classList.add("open"); });
+    scrim.addEventListener("click", () => { side.classList.remove("open"); scrim.classList.remove("open"); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "/" && document.activeElement !== findEl) {
+        e.preventDefault();
+        findEl.focus();
+      }
+    });
+    if (!location.hash) location.hash = "#/00-what-is-puppet-master.md";
+    else load();
+  </script>
+</body>
+</html>
