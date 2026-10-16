@@ -241,6 +241,10 @@ pub struct VisibleData {
     /// The last looks of the capture (masked), kept when it stopped, was marked stuck or finished, so
     /// "why did it stop" can still be answered (`capture` op `debug`).
     pub debug: Mutex<Option<serde_json::Value>>,
+    /// The questions the wizard answered for the person in the visible test pane.
+    pub test_answered: Mutex<Vec<super::visible::answer::AnsweredQ>>,
+    /// The person's button during the visible test (`skip` or `stop`), taken by the test.
+    pub test_ctl: Mutex<Option<String>>,
 }
 
 impl std::fmt::Debug for VisibleData {
@@ -320,6 +324,9 @@ pub struct Session {
     /// The visible test passed for this draft (SPEC 11.9).
     pub visible_tested: Option<VisibleTested>,
     pub visible: Arc<VisibleData>,
+    /// The person left "answer setup questions for me" on (SPEC 11.16): the wizard may answer a trust or
+    /// one-time approval question in the panes it started itself, in its own isolated folder.
+    pub auto_answer: bool,
     pub busy: Option<&'static str>,
     pub cancel: Arc<AtomicBool>,
 }

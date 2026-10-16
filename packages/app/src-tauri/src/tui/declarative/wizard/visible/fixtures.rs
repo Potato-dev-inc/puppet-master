@@ -289,6 +289,7 @@ pub fn masked_json(set: &CaptureSet, words: &TestWords) -> Value {
             "startup_dialogs": set.startup_dialogs,
             "exit_screen": set.exit_screen.as_deref().map(|s| mask(s)),
             "notes": set.notes,
+            "answered": set.answered.iter().map(|a| a.to_json(&mask)).collect::<Vec<_>>(),
         },
     })
 }

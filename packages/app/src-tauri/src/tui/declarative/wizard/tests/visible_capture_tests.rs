@@ -83,8 +83,10 @@ impl Drive {
 
 fn only_deliver(actions: &[Action]) -> String {
     assert_eq!(actions.len(), 1, "{actions:?}");
-    let Action::Deliver { text } = &actions[0];
-    text.clone()
+    match &actions[0] {
+        Action::Deliver { text } => text.clone(),
+        other => panic!("expected a delivery, got {other:?}"),
+    }
 }
 
 #[test]
@@ -634,4 +636,120 @@ fn a_row_that_only_starts_with_the_prompt_glyph_is_not_the_empty_input_box() {
     // nor is it typed into afterwards
     d.c.act(None, CaptureAction::Skip, d.now).unwrap();
     assert!(d.show(held, 60_000).is_empty(), "the exit step does not type /exit into it");
+}
+
+// ---- the wizard answers setup questions in its own pane (SPEC 11.16) ---------------------------------------
+
+use crate::tui::declarative::wizard::visible::answer::AnswerKey;
+
+const AGY_TRUST: &str = "Accessing workspace:\nC:/Users/me/AppData/Local/Temp/pm-wizard-wz_ab12\n\nDo you trust the contents of this project?\nAntigravity CLI requires permission to read, edit, and run files here.\n\n> Yes, I trust this folder\n  No, exit\n\n\u{2191}/\u{2193} Navigate \u{b7} enter Confirm\n";
+const NO_FIRST: &str = "Do you trust the contents of this project?\n\n> No, exit\n  Yes, I trust this folder\n\n\u{2191}/\u{2193} Navigate \u{b7} enter Confirm\n";
+const NO_FIRST_MOVED: &str = "Do you trust the contents of this project?\n\n  No, exit\n> Yes, I trust this folder\n\n\u{2191}/\u{2193} Navigate \u{b7} enter Confirm\n";
+const ALWAYS_ONLY_Q: &str = "Do you trust this folder?\n\n> Yes, always trust\n  No\n\n\u{2191}/\u{2193} Navigate \u{b7} enter Confirm\n";
+
+impl Drive {
+    fn auto() -> Self {
+        let mut d = Self::new();
+        d.c = Capture::new(words(), (120, 40), Config::default()).with_auto_answer(true);
+        d
+    }
+}
+
+fn pressed(actions: &[Action]) -> Vec<AnswerKey> {
+    actions.iter().flat_map(|a| if let Action::Answer { keys, .. } = a { keys.clone() } else { Vec::new() }).collect()
+}
+
+#[test]
+fn a_startup_trust_question_is_kept_then_answered_with_enter_and_the_capture_goes_on() {
+    let mut d = Drive::auto();
+    d.show("", 500);
+    // the picture is kept at 2.5 s; the answer comes after it, not before
+    let early = d.show(AGY_TRUST, 2250);
+    assert!(pressed(&early).is_empty() && d.c.frame("tui_trust").is_none(), "{early:?}");
+    let got = d.show(AGY_TRUST, 750);
+    assert_eq!(pressed(&got), vec![AnswerKey::Enter], "{got:?}");
+    assert!(d.c.frame("tui_trust").unwrap().text.contains("Do you trust the contents of this project?"));
+    assert!(d.c.needs_you().is_none(), "the person is not asked");
+    // one answer per question: while it is still drawn nothing more is pressed
+    assert!(pressed(&d.show(AGY_TRUST, 1500)).is_empty());
+    // the agent shows its input box; the capture goes on to the test message
+    let got = d.show(IDLE, 4000);
+    assert_eq!(d.status(StepId::Start), StepStatus::Done);
+    assert!(d.c.step(StepId::Start).note.contains("the wizard answered it for you"), "{}", d.c.step(StepId::Start).note);
+    assert_eq!(only_deliver(&got), message_task(&words()));
+    let set = d.c.into_set();
+    assert_eq!(set.answered.len(), 1);
+    assert_eq!((set.answered[0].label.as_str(), set.answered[0].keys.as_str(), set.answered[0].flavour.as_str()), ("Yes, I trust this folder", "Enter", "trust"));
+    assert_eq!(set.startup_dialogs, vec!["trust".to_string()], "the question is still part of what the drafter is told");
+}
+
+#[test]
+fn a_safe_option_on_the_second_row_is_reached_by_moving_and_checking_the_highlight() {
+    let mut d = Drive::auto();
+    d.show("", 500);
+    let got = d.show(NO_FIRST, 3000);
+    assert_eq!(pressed(&got), vec![AnswerKey::Down]);
+    // the highlight moved: the picture changed, and the walk goes on without waiting for it to hold still
+    let got = d.show(NO_FIRST_MOVED, 1000);
+    assert_eq!(pressed(&got), vec![AnswerKey::Enter]);
+    d.show(IDLE, 4000);
+    assert_eq!(d.c.into_set().answered[0].keys, "Down, Enter");
+}
+
+#[test]
+fn a_menu_with_only_an_always_option_stays_the_persons_and_says_why() {
+    let mut d = Drive::auto();
+    d.show("", 500);
+    let got = d.show(ALWAYS_ONLY_Q, 6000);
+    assert!(pressed(&got).is_empty(), "{got:?}");
+    let needs = d.c.needs_you().expect("the person is asked");
+    assert_eq!(needs.kind, "trust");
+    assert!(needs.message.contains("did not answer it for you") && needs.message.contains("none of the options plainly means yes"), "{}", needs.message);
+    assert!(d.c.into_set().answered.is_empty());
+}
+
+#[test]
+fn with_the_switch_off_nothing_is_ever_pressed() {
+    let mut d = Drive::new();
+    d.show("", 500);
+    let got = d.show(AGY_TRUST, 60_000);
+    assert!(got.is_empty(), "{got:?}");
+    assert_eq!(d.c.needs_you().unwrap().kind, "trust");
+    assert!(!d.c.status_json(d.now)["auto_answer"].as_bool().unwrap());
+}
+
+#[test]
+fn a_sign_in_question_is_never_answered_even_with_the_switch_on() {
+    let mut d = Drive::auto();
+    d.show("", 500);
+    let got = d.show(LOGIN, 20_000);
+    assert!(got.is_empty(), "{got:?}");
+    assert_eq!(d.c.needs_you().unwrap().kind, "login");
+}
+
+#[test]
+fn a_one_time_permission_question_in_the_permission_step_is_answered_and_the_step_ends() {
+    let mut d = Drive::auto();
+    to_permission(&mut d);
+    let got = d.show(PERMISSION, 2750);
+    assert_eq!(pressed(&got), vec![AnswerKey::Text("y".into())], "{got:?}");
+    assert!(d.c.frame("tui_permission").unwrap().text.contains("Allow nimbus"), "the question was kept before it was answered");
+    d.hello = true;
+    d.show(IDLE, 4000);
+    assert_eq!(d.status(StepId::Permission), StepStatus::Done);
+    assert!(d.c.step(StepId::Permission).note.contains("The wizard answered"), "{}", d.c.step(StepId::Permission).note);
+    assert_eq!(d.c.into_set().answered[0].flavour, "permission");
+}
+
+#[test]
+fn a_refused_answer_hands_the_question_back_to_the_person() {
+    let mut d = Drive::auto();
+    d.show("", 500);
+    let got = d.show(AGY_TRUST, 3000);
+    assert_eq!(pressed(&got), vec![AnswerKey::Enter]);
+    // the runner found the pane is not the wizard's own: it reports it, and the wizard stops answering
+    d.c.on_answer_refused("the pane is not in the wizard's own isolated folder");
+    d.show(AGY_TRUST, 3000);
+    assert_eq!(d.c.needs_you().unwrap().kind, "trust");
+    assert!(!d.c.auto_answer_on());
 }

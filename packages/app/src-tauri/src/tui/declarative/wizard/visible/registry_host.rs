@@ -2,6 +2,8 @@
 //! harness installs it for its windowless app (`host::install`); it is not referenced from anywhere a
 //! unit test reaches, so the Tauri window code stays out of those executables.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -10,11 +12,15 @@ use tauri::AppHandle;
 
 use crate::pty::PaneRegistry;
 
+use super::answer::AnswerKey;
 use super::host::{Delivered, Look, PaneHost, PaneSpec};
 
 pub struct RegistryHost {
     registry: Arc<Mutex<PaneRegistry>>,
     app: AppHandle,
+    /// The panes THIS host started, with the folder each was started in. `answer` presses keys only in
+    /// these: a pane anyone else started (the person's own, an agent run's) is never touched.
+    owned: Mutex<HashMap<String, PathBuf>>,
 }
 
 impl std::fmt::Debug for RegistryHost {
@@ -25,7 +31,7 @@ impl std::fmt::Debug for RegistryHost {
 
 impl RegistryHost {
     pub fn new(registry: Arc<Mutex<PaneRegistry>>, app: AppHandle) -> Self {
-        Self { registry, app }
+        Self { registry, app, owned: Mutex::new(HashMap::new()) }
     }
 }
 
@@ -43,6 +49,7 @@ impl PaneHost for RegistryHost {
             account: None,
         };
         let pane = crate::pty::registry_spawn_pane(&self.registry, &self.app, args)?;
+        self.owned.lock().insert(pane.clone(), spec.cwd.clone());
         if spec.window {
             crate::app_windows::open_pane_window(&self.app, &pane, id, spec.cols, spec.rows, true);
         }
@@ -89,5 +96,26 @@ impl PaneHost for RegistryHost {
 
     fn kill(&self, pane: &str) {
         let _ = crate::pty::registry_kill_pane(&self.registry, pane);
+        self.owned.lock().remove(pane);
+    }
+
+    fn cwd(&self, pane: &str) -> Option<PathBuf> {
+        self.owned.lock().get(pane).cloned()
+    }
+
+    fn answer(&self, pane: &str, keys: &[AnswerKey]) -> Result<(), String> {
+        if !self.owned.lock().contains_key(pane) {
+            return Err("this is not a pane the wizard started, so the wizard presses nothing in it".into());
+        }
+        for key in keys {
+            let (text, enter) = match key {
+                AnswerKey::Up => ("[A", false),
+                AnswerKey::Down => ("[B", false),
+                AnswerKey::Enter => ("", true),
+                AnswerKey::Text(t) => (t.as_str(), false),
+            };
+            crate::pty::registry_write_input(&self.registry, &self.app, pane, text, enter, false, None, crate::pty::WriteOrigin::Answer)?;
+        }
+        Ok(())
     }
 }

@@ -268,6 +268,7 @@ fn start(wizard: &Wizard, id: &str, body: &Value) -> Result<Value, WizardError> 
         (GRID_COLS, GRID_ROWS),
         env.visible.clone(),
         session.cancel.clone(),
+        session.auto_answer.then(|| super::runner::AutoScope { work_dir: session.work_dir.clone(), temp_root: env.temp_root.clone() }),
     );
     *session.visible.run.lock() = Some(run);
     Ok(status_of(&session))

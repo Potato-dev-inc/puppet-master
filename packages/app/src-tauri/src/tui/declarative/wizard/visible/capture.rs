@@ -15,6 +15,7 @@ use std::collections::{HashSet, VecDeque};
 use serde_json::{json, Value};
 
 use super::super::session::TestWords;
+use super::answer::{AnswerCfg, AnswerKey, Answerer, AnsweredQ, Input as AnswerInput, Step as AnswerStep};
 use super::host::Look;
 use super::screen::{classify, frame_key, ready_shape, Flavour, FrameBag, ScreenKind, Stability};
 
@@ -184,11 +185,25 @@ impl CaptureAction {
     }
 }
 
+/// What the answerer made of a question.
+enum Auto {
+    /// Pressing, waiting, or just answered: the person is not asked.
+    Handled,
+    /// The wizard will not answer this one; the text says why.
+    Declined(String),
+    /// Not the answerer's business (it is off, or not a question it knows).
+    NotMine,
+}
+
 /// What the runner must do. There is nothing else the engine can ask a pane for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     /// Type `text` as a task through the app's delivery path.
     Deliver { text: String },
+    /// Press these keys to answer a trust or one-time approval question in the wizard's OWN pane (SPEC
+    /// 11.16). Only produced when the person left "answer setup questions for me" on, only by the
+    /// answerer's rules, and the runner re-checks that the pane is the wizard's before pressing.
+    Answer { keys: Vec<AnswerKey>, note: String },
 }
 
 // ---- the typing guard --------------------------------------------------------------------------
@@ -291,6 +306,8 @@ pub struct CaptureSet {
     pub startup_dialogs: Vec<String>,
     pub exit_screen: Option<String>,
     pub notes: Vec<String>,
+    /// The questions the wizard answered for the person in its own pane (empty when the switch was off).
+    pub answered: Vec<AnsweredQ>,
 }
 
 impl CaptureSet {
@@ -315,6 +332,7 @@ impl CaptureSet {
             "startup_dialogs": self.startup_dialogs,
             "exit_screen": self.exit_screen,
             "notes": self.notes,
+            "answered": self.answered.iter().map(|a| a.to_json(&|t: &str| t.to_string())).collect::<Vec<_>>(),
         })
     }
 
@@ -351,6 +369,20 @@ impl CaptureSet {
             startup_dialogs: list("startup_dialogs")?,
             exit_screen: value["exit_screen"].as_str().map(str::to_string),
             notes: list("notes")?,
+            answered: value["answered"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .map(|q| AnsweredQ {
+                            place: q["place"].as_str().unwrap_or("capture").to_string(),
+                            flavour: q["flavour"].as_str().unwrap_or("").to_string(),
+                            label: q["label"].as_str().unwrap_or("").to_string(),
+                            keys: q["keys"].as_str().unwrap_or("").to_string(),
+                            screen: q["screen"].as_str().unwrap_or("").to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
     }
 }
@@ -456,6 +488,10 @@ pub struct Capture {
     /// What the classifier said about the latest screen, and when it was looked at.
     seen_kind: ScreenKind,
     last_now: u64,
+    /// Answers setup questions in the wizard's own pane (off unless the person left the switch on).
+    answerer: Option<Answerer>,
+    out: Vec<Action>,
+    answered: Vec<AnsweredQ>,
 }
 
 /// The cleaned text of a frame (`exec::clean`: ANSI gone, secrets masked, user folder scrubbed).
@@ -528,7 +564,32 @@ impl Capture {
             last_debug_ms: 0,
             seen_kind: ScreenKind::Blank,
             last_now: 0,
+            answerer: None,
+            out: Vec::new(),
+            answered: Vec::new(),
         }
+    }
+
+    /// Let the engine answer the trust and one-time approval questions of this pane (SPEC 11.16).
+    pub fn with_auto_answer(mut self, on: bool) -> Self {
+        self.answerer = on.then(|| Answerer::new("capture", AnswerCfg::default()));
+        self
+    }
+
+    /// The questions the wizard answered for the person so far.
+    pub fn answered(&self) -> &[AnsweredQ] {
+        &self.answered
+    }
+
+    pub fn auto_answer_on(&self) -> bool {
+        self.answerer.is_some()
+    }
+
+    /// The runner could not press the keys (the pane is not the wizard's own, or the write failed): stop
+    /// answering and leave the question to the person.
+    pub fn on_answer_refused(&mut self, why: &str) {
+        self.answerer = None;
+        self.set_note(format!("The wizard did not answer the question: {why}"));
     }
 
     /// The last looks, oldest first, for "why did it stop" (cleaned, real words in them).
@@ -716,6 +777,12 @@ impl Capture {
 
     /// One look at the pane. Returns what the runner must do (at most one delivery).
     pub fn tick(&mut self, look: &Look, now: u64) -> Vec<Action> {
+        let mut actions = self.tick_inner(look, now);
+        actions.append(&mut self.out);
+        actions
+    }
+
+    fn tick_inner(&mut self, look: &Look, now: u64) -> Vec<Action> {
         self.began_ms.get_or_insert(now);
         self.alive = look.alive;
         self.hello_written |= look.hello_written;
@@ -804,12 +871,10 @@ impl Capture {
             } else {
                 self.clear_ask(&["trust", "login", "permission", "question"]);
             }
+            self.auto_gone();
             return false;
         };
-        if self.stab.stable_for(now) < self.cfg.stable_ms {
-            self.set_note("Something is changing on the screen.");
-            return true;
-        }
+        let stable = self.stab.stable_for(now);
         let step = self.current();
         let name = match (flavour, step) {
             (Flavour::Trust, _) => "tui_trust",
@@ -821,21 +886,81 @@ impl Capture {
             self.speculative_permission = false;
             self.frames.retain(|f| f.name != name);
         }
-        if self.frame(name).is_none() {
-            if let Some((text, variants)) = self.stab.best() {
-                self.store(name, &text, variants);
+        let settled = stable >= self.cfg.stable_ms;
+        if settled {
+            if self.frame(name).is_none() {
+                if let Some((text, variants)) = self.stab.best() {
+                    self.store(name, &text, variants);
+                }
+                if name != "tui_permission" {
+                    self.startup_dialogs.push(flavour.as_str().to_string());
+                }
             }
-            if name != "tui_permission" {
-                self.startup_dialogs.push(flavour.as_str().to_string());
+            if step == StepId::Permission || name == "tui_permission" {
+                self.turn.dialog_recorded = true;
             }
         }
-        if step == StepId::Permission || name == "tui_permission" {
-            self.turn.dialog_recorded = true;
+        // The wizard answers a trust or one-time approval question in its own pane, but only after the
+        // picture of the question was kept (above) and has held still.
+        let kept = self.frame(name).is_some();
+        match self.auto_step(flavour, if kept { stable } else { 0 }, now) {
+            Auto::Handled => return true,
+            Auto::Declined(reason) => {
+                if settled && self.needs.as_ref().map(|n| n.kind.as_str()) != Some(flavour.as_str()) {
+                    self.ask(flavour.as_str(), format!("{} The wizard did not answer it for you: {reason}.", dialog_message(flavour)));
+                }
+                return true;
+            }
+            Auto::NotMine => {}
+        }
+        if !settled {
+            self.set_note("Something is changing on the screen.");
+            return true;
         }
         if self.needs.as_ref().map(|n| n.kind.as_str()) != Some(flavour.as_str()) {
             self.ask(flavour.as_str(), dialog_message(flavour));
         }
         true
+    }
+
+    /// One look of the answerer at the question on screen.
+    fn auto_step(&mut self, flavour: Flavour, stable_ms: u64, now: u64) -> Auto {
+        let Some(answerer) = self.answerer.as_mut() else { return Auto::NotMine };
+        let input = AnswerInput { screen: &self.screen, flavour: Some(flavour), stable_ms, now, hint: None };
+        match answerer.step(&input) {
+            AnswerStep::Nothing => Auto::NotMine,
+            AnswerStep::Waiting(note) => {
+                self.set_note(note);
+                Auto::Handled
+            }
+            AnswerStep::Press { keys, note } => {
+                self.set_note(note.clone());
+                self.out.push(Action::Answer { keys, note });
+                Auto::Handled
+            }
+            AnswerStep::Answered(done) => {
+                self.answered.push(done);
+                Auto::Handled
+            }
+            AnswerStep::Declined(reason) => Auto::Declined(reason),
+        }
+    }
+
+    /// The question is gone: if the wizard pressed keys for it, it was answered.
+    fn auto_gone(&mut self) {
+        let Some(answerer) = self.answerer.as_mut() else { return };
+        let input = AnswerInput { screen: &self.screen, flavour: None, stable_ms: 0, now: 0, hint: None };
+        if let AnswerStep::Answered(done) = answerer.step(&input) {
+            self.answered.push(done);
+        }
+    }
+
+    fn who_answered(&self) -> &'static str {
+        if self.answered.is_empty() {
+            "you answered it in the pane"
+        } else {
+            "the wizard answered it for you (its own isolated folder)"
+        }
     }
 
     fn slow(&mut self, now: u64, limit_ms: u64, message: &str) {
@@ -862,7 +987,7 @@ impl Capture {
             let note = if self.startup_dialogs.is_empty() {
                 "The agent started.".to_string()
             } else {
-                format!("The agent asked a question ({}); you answered it in the pane.", self.startup_dialogs.join(", "))
+                format!("The agent asked a question ({}); {}.", self.startup_dialogs.join(", "), self.who_answered())
             };
             self.finish_step(StepStatus::Done, note, now);
             return;
@@ -1088,7 +1213,8 @@ impl Capture {
             // file the question was about has been written.
             if quiet && (idle || self.hello_written) {
                 self.speculative_permission = false;
-                self.finish_step(StepStatus::Done, "You answered the permission question in the pane.", now);
+                let note = if self.answered.iter().any(|a| a.flavour == "permission") { "The wizard answered the permission question for you." } else { "You answered the permission question in the pane." };
+                self.finish_step(StepStatus::Done, note, now);
             } else {
                 self.permission_deadline(now);
             }
@@ -1211,6 +1337,9 @@ impl Capture {
                 }
                 self.unrecognised = None;
                 self.speculative_permission = false;
+                if let Some(a) = self.answerer.as_mut() {
+                    a.reset();
+                }
                 self.cur = from;
                 self.needs = None;
                 self.ready_for = None;
@@ -1324,6 +1453,7 @@ impl Capture {
             startup_dialogs: dedupe(&self.startup_dialogs),
             exit_screen: self.exit_screen.clone(),
             notes: self.notes.clone(),
+            answered: self.answered.clone(),
         }
     }
 
@@ -1353,6 +1483,8 @@ impl Capture {
             "step": step.as_str(),
             "steps": steps,
             "screen_kind": self.kind.as_str(),
+            "auto_answer": self.answerer.is_some(),
+            "answered": self.answered.iter().map(|a| json!({"place": a.place, "flavour": a.flavour, "label": a.label, "keys": a.keys})).collect::<Vec<_>>(),
             "frozen": self.frozen,
             "stable_ms": self.stab.stable_for(now),
             "alive": self.alive,

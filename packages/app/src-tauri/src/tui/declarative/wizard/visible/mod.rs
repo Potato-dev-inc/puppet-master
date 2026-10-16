@@ -6,6 +6,7 @@
 //! `api` holds the `capture` operations, `fixtures` writes the screens and their expectations, and
 //! `livetest` runs the checks against a pane started from the draft.
 
+pub mod answer;
 pub mod api;
 pub mod capture;
 pub mod fixtures;
