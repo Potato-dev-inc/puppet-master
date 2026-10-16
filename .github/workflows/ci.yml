@@ -18,10 +18,50 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
+  # Which jobs this change needs. A docs-only change runs none; a frontend-only change skips the Rust jobs.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - .github/workflows/ci.yml
+              - packages/app/src-tauri/**
+              - tools/pm-fake-tui/**
+              - relay/**
+              # Read by Rust tests (include_str! or at run time).
+              - integrations/**
+              - packages/shared/fixtures/**
+              - packages/app/src/components/simple/folder-cases.json
+            frontend:
+              - .github/workflows/ci.yml
+              - package.json
+              - package-lock.json
+              - tsconfig.base.json
+              - packages/app/*
+              - packages/app/src/**
+              - packages/app/public/**
+              - packages/shared/**
+
   frontend:
     name: Frontend (vitest + tsc)
-    # Not moved to ubuntu-latest: it has not been run there, and the app ships for Windows first.
-    runs-on: windows-latest
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +91,8 @@ jobs:
   # packages/app/dist (frontendDist); nothing else of the npm build is needed to compile or run the tests.
   web-dist:
     name: Frontend build for the Rust jobs
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -86,7 +128,8 @@ jobs:
   rust:
     # ~2,800 tests, each in its own process: split over two runners.
     name: Rust unit tests (${{ matrix.shard }}/2)
-    needs: web-dist
+    needs: [changes, web-dist]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
     timeout-minutes: 40
     strategy:
@@ -134,7 +177,8 @@ jobs:
     # windows-latest runner has. Every test runs in its own process with its own app-data folder
     # (src/fake_tui/world.rs), so the suite is split across four runners and runs in parallel on each.
     name: Fake agent e2e (${{ matrix.shard }}/4)
-    needs: web-dist
+    needs: [changes, web-dist]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
     timeout-minutes: 40
     strategy:
