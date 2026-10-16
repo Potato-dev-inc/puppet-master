@@ -20,6 +20,7 @@ pub mod sources;
 pub mod template;
 pub mod validate;
 pub mod watch;
+pub mod wizard;
 
 mod profile;
 

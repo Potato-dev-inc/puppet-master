@@ -1,0 +1,51 @@
+# A recorded draft for the fake CLI (tests/fake-cli/fake_cli.rs): what a good drafter would write.
+schema_version = 1
+
+[agent]
+id = "fake_agent"
+label = "Fake Agent"
+experimental = true
+
+[binary]
+names = ["fake-agent"]
+windows_extensions = ["exe"]
+version_args = ["--version"]
+install_hint = "The fake agent is only used in tests."
+
+[headless]
+argv = ["run", "--format", "json"]
+task_separator = "--"
+
+[[headless.optional]]
+when = "model"
+args = ["-m", "{model}"]
+
+[[headless.optional]]
+when = "resume"
+args = ["-s", "{session}"]
+
+[headless.output]
+format = "json_lines"
+
+[headless.output.result]
+where = { event = "end" }
+path = "text"
+pick = "last"
+
+[headless.output.session]
+where = { event = "end" }
+path = "session"
+pick = "first"
+
+[headless.output.done]
+where = { event = "end" }
+
+[headless.output.model]
+where = { event = "start" }
+path = "model"
+pick = "first"
+
+[headless.output.error]
+where = { event = "error" }
+path = "message"
+pick = "last"

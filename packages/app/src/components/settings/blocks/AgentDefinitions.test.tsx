@@ -473,3 +473,129 @@ describe('AgentDefinitions approval hardening', () => {
     expect(api.approve).toHaveBeenCalledWith(KILO, 'sha256:abc');
   });
 });
+
+describe('AgentDefinitions: Add with wizard', () => {
+  const F = '`'.repeat(3);
+  const WIZ = 'C:/data/agents/fake_agent.toml';
+
+  function wizardMock() {
+    const written = {
+      id: 'fake_agent',
+      file: WIZ,
+      source: 'user',
+      state: 'needs_approval',
+      errors: [],
+      fingerprint: 'sha256:wiz',
+      shadowed_by: null,
+    };
+    const listing = { ...fixture(), definitions: [...fixture().definitions, written] };
+    return {
+      listing,
+      api: {
+        start: vi.fn(async () => ({
+          session: 'wz_1',
+          state: 'resolved',
+          command: 'fake-agent',
+          id_suggestion: 'fake_agent',
+          program: { path: 'C:/x/fake-agent.exe', display: '~/fake-agent.exe', kind: 'native' },
+          version: { ok: true, args: ['--version'], text: 'fake-agent 1.4.2', number: '1.4.2' },
+          native_candidates: [],
+          cost_note: 'The live test runs fake-agent 3 times.',
+          limits: {},
+        })),
+        probe: vi.fn(async () => ({ state: 'probed', runs: [], subcommands: [], skipped: [] })),
+        verify: vi.fn(async () => ({
+          ok: true,
+          state: 'verified',
+          errors: [],
+          text: '',
+          warnings: [],
+          rendered: { headless_argv: ['run', '--', '<task>'], resume_argv: null },
+          checked: { fixtures: 1, rules: 8 },
+          samples_replayed: 0,
+          planned: {
+            program: { path: 'C:/x/fake-agent.exe', display: '~/fake-agent.exe' },
+            stages: [{ name: 'pong', label: 'Say pong', args: ['run', '--', '<test message>'] }],
+            stdin: null,
+            env: [],
+            env_unset: [],
+            fingerprint: 'plan-A',
+          },
+        })),
+        livetest: vi.fn(async () => ({ ok: true, state: 'tested', stages: [], errors: [], text: '', tested_version: '1.4.2', fixtures: [] })),
+        finish: vi.fn(async () => ({
+          ok: true,
+          id: 'fake_agent',
+          file: WIZ,
+          fixtures_dir: 'C:/data/agents/fake_agent',
+          provenance_file: 'C:/data/agents/fake_agent.wizard.json',
+          state: 'needs_approval',
+          fixtures: { passed: 1, total: 1 },
+          listing,
+        })),
+        cancel: vi.fn(async () => ({ ok: true })),
+        ask: vi.fn(async () => `${F}toml
+schema_version = 1
+${F}`),
+        drafters: vi.fn(async () => [{ id: 'claude', label: 'Claude Code' }]),
+      },
+    };
+  }
+
+  it('has an Add with wizard button that opens the wizard and Cancel closes it', async () => {
+    const api = mockApi();
+    const { api: wizardApi } = wizardMock();
+    await act(async () => {
+      root.render(<AgentDefinitions api={api} wizardApi={wizardApi as never} />);
+    });
+    expect(host.querySelector('[aria-label="Add an agent with the wizard"]')).toBeNull();
+    await click(button('Add with wizard'));
+    expect(host.querySelector('[aria-label="Add an agent with the wizard"]')).toBeTruthy();
+    expect(host.textContent).toContain('Which command starts it?');
+  });
+
+  it('hands the written definition to the normal approval dialog', async () => {
+    const api = mockApi();
+    (api.preview as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      errors: [],
+      rendered: { headless_argv: ['run', '--', '<task>'], tui_argv: null },
+    });
+    const { api: wizardApi } = wizardMock();
+    await act(async () => {
+      root.render(<AgentDefinitions api={api} wizardApi={wizardApi as never} />);
+    });
+    await click(button('Add with wizard'));
+    const input = host.querySelector('#wizard-command') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'fake-agent');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(button('Find it'));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await click(button('Start'));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await click(button('Run the live test'));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await click(button('Approve'));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    // the wizard is gone; the approval dialog for the new definition is open, with the exact command
+    expect(host.querySelector('[aria-label="Add an agent with the wizard"]')).toBeNull();
+    expect(api.preview).toHaveBeenCalledWith(WIZ);
+    const dialog = host.querySelector('[role="dialog"]');
+    expect(dialog?.getAttribute('aria-label')).toBe('Approve fake_agent');
+    expect(dialog?.textContent).toContain('run -- "<task>"');
+    expect(api.approve).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="agent-toast"]')?.textContent).toContain('The wizard wrote fake_agent.');
+    await click(button('Approve'));
+    expect(api.approve).toHaveBeenCalledWith(WIZ, 'sha256:wiz');
+  });
+});

@@ -358,13 +358,14 @@ fn check_headless(def: &Definition, e: &mut Errors, regexes: &mut Regexes) {
     };
     let plain = output.format == super::schema::OutputFormat::PlainText;
     match &output.result {
-        Some(sel) => check_selector("headless.output.result", sel, true, e, regexes),
+        // plain_text selectors work on lines (`regex`, `pick`); there is no JSON path to give.
+        Some(sel) => check_selector("headless.output.result", sel, !plain, e, regexes),
         None if !plain => e.add("AGENT_DEF_INCONSISTENT", "headless.output.result", "a result selector is required for json formats"),
         None => {}
     }
     for (name, sel, needs_path) in [
-        ("session", &output.session, true),
-        ("model", &output.model, true),
+        ("session", &output.session, !plain),
+        ("model", &output.model, !plain),
         ("done", &output.done, false),
         ("error", &output.error, false),
         ("rejected", &output.rejected, false),
