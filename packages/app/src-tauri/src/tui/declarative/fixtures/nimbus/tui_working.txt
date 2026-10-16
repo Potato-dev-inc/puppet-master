@@ -1,0 +1,12 @@
+# capture: nimbus 0.4.2, pane 120x40, puppet-master wizard capture, 2026-10-16; user name scrubbed
+NIMBUS 0.4.2 | local | C:\Users\user\project
+
+
+> Reply with exactly the word: <word-1>                                                                              
+
+⠋ Generating...  0s  ctrl+c to stop
+
++------------------------------------------------------------------------------------------------------------+
+| > Type a task...                                                                                           |
++------------------------------------------------------------------------------------------------------------+
+  /help for commands | ctrl+c twice to quit

@@ -1,0 +1,10 @@
+# capture: nimbus 0.4.2, pane 120x40, puppet-master wizard capture, 2026-10-16; user name scrubbed
+NIMBUS 0.4.2 | local                                                                                                    
+
+Do you trust the files in this folder?
+  C:\Users\user\project
+
+> 1. Yes, trust this folder
+  2. No, exit
+
+Press Enter to confirm

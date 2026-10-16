@@ -229,6 +229,8 @@ pub fn run() {
             commands::agent_wizard_probe,
             commands::agent_wizard_verify,
             commands::agent_wizard_livetest,
+            commands::agent_wizard_visibletest,
+            commands::agent_wizard_capture,
             commands::agent_wizard_finish,
             commands::agent_wizard_cancel,
             commands::agent_wizard_ask,

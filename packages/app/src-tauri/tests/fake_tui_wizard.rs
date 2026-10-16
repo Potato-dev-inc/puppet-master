@@ -197,6 +197,15 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     let reply = std::fs::read_to_string(rig.agents_dir().join("nimbus").join("tui_reply.txt")).unwrap();
     assert!(reply.contains(&one) && reply.starts_with("# capture: nimbus"), "{reply}");
     assert_eq!(rig.session_count(), 0);
+    // For refreshing the worked example in the prompt: PM_WIZARD_E2E_KEEP=<folder> keeps what the wizard wrote.
+    if let Some(keep) = std::env::var_os("PM_WIZARD_E2E_KEEP") {
+        let keep = std::path::PathBuf::from(keep);
+        std::fs::create_dir_all(keep.join("nimbus")).unwrap();
+        std::fs::copy(&file, keep.join("nimbus.toml")).unwrap();
+        for entry in std::fs::read_dir(rig.agents_dir().join("nimbus")).unwrap().flatten() {
+            std::fs::copy(entry.path(), keep.join("nimbus").join(entry.file_name())).unwrap();
+        }
+    }
     // nothing is left running or registered by the wizard
     session.until(10, || session.pane_ids().is_empty().then_some(())).unwrap_or_else(|| panic!("panes left: {:?}", session.pane_ids()));
 }

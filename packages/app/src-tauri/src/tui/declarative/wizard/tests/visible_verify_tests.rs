@@ -200,3 +200,13 @@ fn the_wizard_rules_still_hold_for_a_visible_draft() {
     let v = verify(&wizard, &id, &draft, json!({}));
     assert!(codes(&v).contains(&"WIZARD_TEST_WORD".to_string()), "{:?}", codes(&v));
 }
+
+#[test]
+fn the_worked_example_in_the_prompt_is_the_recorded_draft_and_passes_its_screens() {
+    // tests/agent-definitions/nimbus.toml is what the end-to-end run wrote (plus a comment header), and the
+    // recorded draft the unit tests replay is the same file: one example, no drift.
+    let example = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/agent-definitions/nimbus.toml")).unwrap();
+    let body = example.replace("\r\n", "\n");
+    let body = body.split_once("schema_version = 1").map(|(_, rest)| format!("schema_version = 1{rest}")).unwrap();
+    assert_eq!(body.trim_end(), visible_draft("nimbus").replace("\r\n", "\n").trim_end());
+}
