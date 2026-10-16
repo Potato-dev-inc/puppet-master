@@ -67,7 +67,14 @@ pub fn taskbar_is_light() -> bool {
     rc == 0 && data == 1
 }
 
-#[cfg(not(windows))]
+/// macOS: the glyph is a template image (alpha only; AppKit picks the ink for the menu bar), so
+/// draw it in black like every other template image.
+#[cfg(target_os = "macos")]
+pub fn taskbar_is_light() -> bool {
+    true
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn taskbar_is_light() -> bool {
     false
 }
@@ -108,6 +115,8 @@ fn apply(app: &AppHandle, look: &Look) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let rgba = raster::render_rgba(&glyph::levels(look.pattern), ICON_PX, look.ink);
         let _ = tray.set_icon(Some(Image::new_owned(rgba, ICON_PX, ICON_PX)));
+        // A new image is not a template until marked again (macOS only; a no-op elsewhere).
+        let _ = tray.set_icon_as_template(cfg!(target_os = "macos"));
         let _ = tray.set_tooltip(Some(look.tooltip.as_str()));
     }
     set_badge(app, look.badge);
