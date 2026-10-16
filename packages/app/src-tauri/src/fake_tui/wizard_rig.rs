@@ -185,7 +185,7 @@ impl WizardRig {
     /// (`{command, words, raw, masked}`). The error says which answer is missing.
     pub fn bench_capture(&self, session: &Session, command: &str, out: &Path, answers: &Answers, args: &[String], seconds: u64) -> Result<Value, String> {
         std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
-        let started = self.call("start", json!({"command": command})).map_err(|e| err_text(&e))?;
+        let started = self.call("start", json!({"command": command, "auto_answer": bench_auto_answer()})).map_err(|e| err_text(&e))?;
         let id = started["session"].as_str().ok_or("no session")?.to_string();
         let result = self.bench_capture_in(session, &id, command, out, answers, args, seconds);
         if let Err(reason) = &result {
@@ -307,7 +307,7 @@ impl WizardRig {
         finish: bool,
     ) -> Result<String, String> {
         let write = |name: &str, text: &str| std::fs::write(round.join(name), text).map_err(|e| format!("{name}: {e}"));
-        let started = self.call("start", json!({"command": command})).map_err(|e| err_text(&e))?;
+        let started = self.call("start", json!({"command": command, "auto_answer": bench_auto_answer()})).map_err(|e| err_text(&e))?;
         let id = started["session"].as_str().ok_or("no session")?.to_string();
         let result = self.bench_round_in(session, &id, command, round, draft, expects, dump, answers, finish, &write);
         if result.is_err() {
@@ -411,4 +411,10 @@ impl WizardRig {
         use crate::tui::declarative::wizard::visible::host::{LiveHost, PaneHost};
         LiveHost.answer(pane, &[AnswerKey::Enter])
     }
+}
+
+/// `PM_WIZARD_AUTO_ANSWER=1` turns on "answer setup questions for me" for a benchmark run (SPEC 11.16); the
+/// answers given in `PM_WIZARD_BENCH_ANSWERS` are then only used for what the wizard declines.
+fn bench_auto_answer() -> bool {
+    std::env::var("PM_WIZARD_AUTO_ANSWER").is_ok_and(|v| v == "1")
 }

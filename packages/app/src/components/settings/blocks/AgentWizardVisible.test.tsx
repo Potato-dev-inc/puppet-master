@@ -384,6 +384,16 @@ describe('the capture panel', () => {
     expect(host.querySelector('[data-testid="capture-saw-screen"]')?.textContent).toContain('Working...');
   });
 
+  it('shows the setup questions the wizard answered during the capture', async () => {
+    const api = mockApi(PLAIN_HELP);
+    api.captureStatus.mockResolvedValue(running({ answered: [{ place: 'capture', flavour: 'trust', label: 'Yes, I trust this folder', keys: 'Enter' }], auto_answer: true }));
+    await render(api);
+    await startCapture(api);
+    await flush(900);
+    const list = host.querySelector('[data-testid="answered-list"]');
+    expect(list?.textContent).toContain("Answered Nimbus's trust question: Yes, I trust this folder");
+  });
+
   it('the exit step offers /exit and "I closed it myself"', async () => {
     const api = mockApi(PLAIN_HELP);
     const atExit = running({ step: 'exit', steps: STEPS({ permission: { status: 'done' }, exit: { status: 'running' } }), can: ['skip', 'retry', 'stuck', 'try_exit', 'closed'] });
@@ -466,7 +476,7 @@ describe('the visible flow', () => {
     });
     await click(button('Approve'));
     await flush();
-    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', prompt_version: '5', rounds: 1 });
+    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', prompt_version: '6', rounds: 1 });
   });
 
   it('the Review says when the agent writes files without asking', async () => {
@@ -479,6 +489,88 @@ describe('the visible flow', () => {
     expect(host.querySelector('[data-testid="review-writes-without-asking"]')?.textContent).toContain('writes files without asking');
     // the writer was told too
     expect(String(api.ask.mock.calls[0][2])).toContain('This agent writes files without asking');
+  });
+
+  it('a question in the visible test pane is shown in plain words, with Show the pane and Stop the test', async () => {
+    const api = mockApi(PLAIN_HELP);
+    api.testShow = vi.fn(async () => undefined) as never;
+    api.testAct = vi.fn(async () => undefined) as never;
+    let finish: (v: VisibleTestResult) => void = () => undefined;
+    api.visibletest.mockImplementation(() => new Promise<VisibleTestResult>((resolve) => (finish = resolve)));
+    api.testStatus.mockResolvedValue({
+      running: true,
+      check: 'ready',
+      needs_you: {
+        kind: 'trust',
+        message: "Nimbus is asking a question in the test pane. Answer it there (it is the wizard's isolated temp folder, not your project).",
+      },
+      screen: 'Do you trust the contents of this project?\n> Yes, I trust this folder\n  No, exit',
+      answered: [],
+    });
+    await render(api);
+    await throughCapture(api);
+    await click(button('Run the visible test'));
+    await flush(900);
+    const needs = host.querySelector('[data-testid="visible-needs-you"]');
+    expect(needs?.textContent).toContain('Nimbus is asking a question in the test pane');
+    expect(needs?.textContent).toContain('isolated temp folder, not your project');
+    expect(host.querySelector('[data-testid="visible-screen"]')?.textContent).toContain('Do you trust the contents of this project?');
+    await click(button('Show the pane'));
+    expect(api.testShow).toHaveBeenCalledWith('wz_1');
+    await click(button('Stop the test'));
+    expect(api.testAct).toHaveBeenCalledWith('wz_1', 'stop');
+    await act(async () => finish(visibleOk()));
+    await flush(10);
+    expect(host.querySelector('[data-testid="visible-needs-you"]')).toBeNull();
+  });
+
+  it('shows what the wizard answered for the person while the test runs, and again on the Review screen', async () => {
+    const api = mockApi(PLAIN_HELP);
+    const answered = { place: 'visibletest' as const, flavour: 'trust' as const, label: 'Yes, I trust this folder', keys: 'Enter', screen: 'Do you trust this folder?\n> Yes, I trust this folder' };
+    let finish: (v: VisibleTestResult) => void = () => undefined;
+    api.visibletest.mockImplementation(() => new Promise<VisibleTestResult>((resolve) => (finish = resolve)));
+    api.testStatus.mockResolvedValue({ running: true, check: 'ready', needs_you: null, answered: [answered] });
+    api.captureFinish.mockResolvedValue({
+      ...captured(),
+      facts: { ...captured().facts, answered: [{ ...answered, place: 'capture', flavour: 'permission', label: 'Yes', keys: 'y' }] },
+    });
+    await render(api);
+    await throughCapture(api);
+    await click(button('Run the visible test'));
+    await flush(900);
+    const live = host.querySelector('[data-testid="visible-live"]');
+    expect(live?.textContent).toContain("Answered Nimbus's trust question: Yes, I trust this folder");
+    expect(host.querySelector('[data-testid="visible-needs-you"]')).toBeNull();
+    await act(async () => finish({ ...visibleOk(), answered: [answered] }));
+    await flush(10);
+    const review = host.querySelector('[data-testid="wizard-review"]');
+    expect(review?.textContent).toContain('Answered for you');
+    expect(review?.textContent).toContain("Answered Nimbus's permission question: Yes");
+    expect(review?.textContent).toContain("Answered Nimbus's trust question: Yes, I trust this folder");
+  });
+
+  it('"Answer setup questions for me" is on by default, is remembered, and goes to the backend with the start', async () => {
+    const key = 'pm.agentWizard.answerSetupQuestions';
+    try {
+      globalThis.localStorage.removeItem(key);
+      const api = mockApi(PLAIN_HELP);
+      await render(api);
+      const box = host.querySelector('#wizard-auto-answer') as HTMLInputElement;
+      expect(box.checked).toBe(true);
+      expect(text()).toContain("Answer setup questions for me (only in the wizard's temp folder)");
+      expect(text()).toContain('never picks "always"');
+      await click(box);
+      expect(globalThis.localStorage.getItem(key)).toBe('off');
+      await findIt();
+      expect(api.start).toHaveBeenCalledWith('nimbus', false);
+      // a fresh dialog remembers it
+      await act(async () => root.unmount());
+      root = createRoot(host);
+      await render(mockApi(PLAIN_HELP));
+      expect((host.querySelector('#wizard-auto-answer') as HTMLInputElement).checked).toBe(false);
+    } finally {
+      globalThis.localStorage.removeItem(key);
+    }
   });
 
   it('"Not now" stops before the pane is started', async () => {

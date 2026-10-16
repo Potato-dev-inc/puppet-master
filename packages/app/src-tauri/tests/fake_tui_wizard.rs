@@ -271,7 +271,7 @@ fn the_benchmark_helpers_capture_and_run_rounds_on_the_fake_agent() {
     assert_eq!(feedback["previous_toml"], draft);
     assert_eq!(feedback["previous_expects"]["tui_idle"], "chrome_lines = [\"NIMBUS 0.4.2\"]\n");
     let visible: Value = serde_json::from_str(&std::fs::read_to_string(round1.join("visible.json")).unwrap()).unwrap();
-    assert_eq!((visible["passed"].as_u64(), visible["total"].as_u64()), (Some(7), Some(7)));
+    assert_eq!((visible["passed"].as_u64(), visible["total"].as_u64()), (Some(8), Some(8)));
 
     // A draft whose ready pattern never matches fails the round with the checker's text and the screen.
     let wrong = draft.replace("type a task'\nnot_regex", "type a taskX'\nnot_regex");

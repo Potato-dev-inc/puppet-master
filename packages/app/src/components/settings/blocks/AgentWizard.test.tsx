@@ -244,7 +244,7 @@ describe('AgentWizard', () => {
     const api = mockApi();
     await render(api, mockOpenRouter());
     await findIt();
-    expect(api.start).toHaveBeenCalledWith('fake-agent');
+    expect(api.start).toHaveBeenCalledWith('fake-agent', true);
     expect(api.probe).toHaveBeenCalledWith('wz_1');
     const found = host.querySelector('[data-testid="wizard-found"]');
     expect(found?.textContent).toContain('Found fake-agent');
@@ -310,7 +310,7 @@ describe('AgentWizard', () => {
     expect(api.finish).toHaveBeenCalledTimes(1);
     const [session, provenance] = api.finish.mock.calls[0];
     expect(session).toBe('wz_1');
-    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', drafter_kind: 'local_agent', rounds: 2, prompt_version: '5' });
+    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', drafter_kind: 'local_agent', rounds: 2, prompt_version: '6' });
     expect(approved).toHaveLength(1);
     expect(approved[0].id).toBe('fake_agent');
     expect(api.cancel).not.toHaveBeenCalled();
