@@ -6,7 +6,7 @@ import { click, mountRows, settle } from '../test-utils';
 import { securityRows, whenText } from './bridge/Security';
 
 const mocks = vi.hoisted(() => ({
-  state: { ask_before_agent_control: false, agents_may_merge: true },
+  state: { ask_before_agent_control: true, agents_may_merge: false },
   entries: [
     { seq: 2, ts_ms: Date.now() - 120_000, kind: 'consent', who: 'desktop', summary: 'You allowed Claude Code to control Codex, once' },
     { seq: 1, ts_ms: Date.now() - 3_600_000, kind: 'approval', who: 'device', summary: 'A phone answered from its lock screen: Allowed once' },
@@ -37,17 +37,17 @@ const MERGE = 'Let agents merge separate copies';
 const switchFor = (host: HTMLElement, label: string) => host.querySelector<HTMLElement>(`[aria-label="${label}"]`);
 
 beforeEach(() => {
-  mocks.state = { ask_before_agent_control: false, agents_may_merge: true };
+  mocks.state = { ask_before_agent_control: true, agents_may_merge: false };
   mocks.verify = { ok: true, entries: 2, broken: null };
   vi.clearAllMocks();
 });
 
 describe('Security rows', () => {
-  it("shows today's behaviour by default: A off, B on", async () => {
+  it('shows the safe defaults: A on, B off', async () => {
     const m = await mountRows(securityRows);
     await settle(5);
-    expect(switchFor(m.host, ASK)?.getAttribute('aria-checked')).toBe('false');
-    expect(switchFor(m.host, MERGE)?.getAttribute('aria-checked')).toBe('true');
+    expect(switchFor(m.host, ASK)?.getAttribute('aria-checked')).toBe('true');
+    expect(switchFor(m.host, MERGE)?.getAttribute('aria-checked')).toBe('false');
     await m.unmount();
   });
 
@@ -56,12 +56,12 @@ describe('Security rows', () => {
     await settle(5);
     await click(switchFor(m.host, ASK));
     await settle(5);
-    expect(agentAuthorityApi.set).toHaveBeenCalledWith({ ask_before_agent_control: true });
-    expect(mocks.state).toEqual({ ask_before_agent_control: true, agents_may_merge: true });
+    expect(agentAuthorityApi.set).toHaveBeenCalledWith({ ask_before_agent_control: false });
+    expect(mocks.state).toEqual({ ask_before_agent_control: false, agents_may_merge: false });
     await click(switchFor(m.host, MERGE));
     await settle(5);
-    expect(mocks.state).toEqual({ ask_before_agent_control: true, agents_may_merge: false });
-    expect(switchFor(m.host, MERGE)?.getAttribute('aria-checked')).toBe('false');
+    expect(mocks.state).toEqual({ ask_before_agent_control: false, agents_may_merge: true });
+    expect(switchFor(m.host, MERGE)?.getAttribute('aria-checked')).toBe('true');
     await m.unmount();
   });
 
@@ -71,7 +71,7 @@ describe('Security rows', () => {
     await settle(5);
     await click(switchFor(m.host, MERGE));
     await settle(5);
-    expect(switchFor(m.host, MERGE)?.getAttribute('aria-checked')).toBe('true');
+    expect(switchFor(m.host, MERGE)?.getAttribute('aria-checked')).toBe('false');
     expect(m.env.setError).toHaveBeenCalledWith('Not saved: disk full');
     await m.unmount();
   });

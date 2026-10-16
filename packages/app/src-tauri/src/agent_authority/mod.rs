@@ -1,18 +1,18 @@
 //! Who may control what: the two agent-authority settings, the consent flow for an agent that wants
 //! to control a pane it did not start, and the gate on an agent merging a separate copy.
 //!
-//! # The two switches (the founder has not decided yet)
+//! # The two switches
 //!
-//! Both default to TODAY's behaviour. The recommended future defaults are the opposite, and flipping
-//! them is the two constants below, nothing else:
+//! The shipped defaults are the safe side. Flipping them is the two constants below, nothing else:
 //!
-//! | setting | today (default) | recommended later |
-//! |---|---|---|
-//! | A  "Ask me before an agent controls a pane it didn't start" | off | **on**  |
-//! | B  "Let agents merge separate copies"                       | on  | **off** |
+//! | setting | default |
+//! |---|---|
+//! | A  "Ask me before an agent controls a pane it didn't start" | **on**  |
+//! | B  "Let agents merge separate copies"                       | **off** |
 //!
 //! A saved choice in `<app data>/agent_authority.json` always wins over these defaults, so flipping
-//! a constant changes only people who never touched the setting.
+//! a constant changes only people who never touched the setting (a file missing a key takes the
+//! default for that key).
 //!
 //! # How it fits together
 //!
@@ -37,7 +37,7 @@ pub mod merge;
 #[cfg(test)]
 mod tests;
 
-/// Setting A. Today: off. Recommended: `true`.
-pub const DEFAULT_ASK_BEFORE_AGENT_CONTROL: bool = false;
-/// Setting B. Today: on. Recommended: `false`.
-pub const DEFAULT_AGENTS_MAY_MERGE: bool = true;
+/// Setting A. Default: on.
+pub const DEFAULT_ASK_BEFORE_AGENT_CONTROL: bool = true;
+/// Setting B. Default: off.
+pub const DEFAULT_AGENTS_MAY_MERGE: bool = false;

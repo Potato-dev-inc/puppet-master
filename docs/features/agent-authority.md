@@ -4,12 +4,12 @@ Branch `sec/agent-authority` (roadmap P0-7 and P0-9). Full report: `D:\pm-night\
 
 **Why.** `take_over(grant=true)` was self-asserted: any agent could take any pane, including the user's own, and answer its prompts. `review_worktree(merge)` let an orchestrator merge its helper's work.
 
-**Two switches, both off-the-record defaults = today.** Flip the defaults in `src-tauri/src/agent_authority/mod.rs` (one constant each):
+**Two switches, safe shipped defaults.** Change the defaults in `src-tauri/src/agent_authority/mod.rs` (one constant each). A saved choice in `agent_authority.json` always wins; a file missing a key takes that key's default.
 
-| | today | recommended |
-|---|---|---|
-| A "Ask me before an agent controls a pane it didn't start" | off | on |
-| B "Let agents merge separate copies" | on | off |
+| | default |
+|---|---|
+| A "Ask me before an agent controls a pane it didn't start" | on |
+| B "Let agents merge separate copies" | off |
 
 **Where.** `agent_authority/` (gate, consent, merge, config), `mcp_sessions/lineage.rs`, `audit/`, `questions/` (`ConsentInfo`), Settings > Bridge & MCP > Security, Inbox `ConsentCard`.
 
