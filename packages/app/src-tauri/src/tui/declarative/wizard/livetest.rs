@@ -7,6 +7,8 @@
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -286,10 +288,28 @@ pub struct StageReport {
     pub result: Option<String>,
     pub session: Option<String>,
     pub error_code: Option<String>,
+    /// First line of what the program itself said went wrong (its own error event, or the first line
+    /// it printed when it exited with an error). Masked like the output.
+    pub error_message: Option<String>,
+    /// The failure is the program's own (sign-in, quota, provider, network ...), not the profile's.
+    pub agent_side: bool,
     pub problems: Vec<String>,
     pub note: Option<String>,
     pub stdout: String,
     pub stderr: String,
+}
+
+/// Words in a program's own error text that point at its setup, not at the profile.
+static EXTERNAL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)log(?:ged)? ?in|sign(?:ed)?[- ]?in|unauthori[sz]ed|authenticat|api[ _-]?key|credential|token (?:expired|invalid)|quota|rate[- ]?limit|too many requests|insufficient|billing|payment|credits?\b|subscription|no endpoints|provider|network|connection (?:refused|reset|error)|econn|enotfound|getaddrinfo|dns|certificate|offline|\b(?:401|402|403|429|50\d)\b|model not found|unknown model",
+    )
+    .expect("external error regex")
+});
+
+/// The first line that says something, at most 300 characters.
+pub fn first_line(text: &str) -> String {
+    exec::cut_chars(text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(""), 300)
 }
 
 impl StageReport {
@@ -305,6 +325,8 @@ impl StageReport {
             result: None,
             session: None,
             error_code: None,
+            error_message: None,
+            agent_side: false,
             problems: Vec::new(),
             note: Some(note.to_string()),
             stdout: String::new(),
@@ -404,6 +426,8 @@ impl Runner<'_> {
             result: None,
             session: None,
             error_code: None,
+            error_message: None,
+            agent_side: false,
             problems: Vec::new(),
             note: None,
             stdout: exec::cut_chars(&mask(&stdout), REPLY_STREAM_CHARS),
@@ -427,6 +451,16 @@ impl Runner<'_> {
             report.note = Some("cancelled".into());
             return (report, Some(sample), None);
         }
+        // A program that exits with an error says why on its first line: that is its own problem when the
+        // text points at sign-in, quota, provider or network, and worth remembering either way.
+        if !out.timed_out && stage != Stage::BadModel && exit.is_some_and(|c| c != 0) {
+            let said = if stderr.trim().is_empty() { &stdout } else { &stderr };
+            let line = first_line(said);
+            if !line.is_empty() {
+                report.agent_side = EXTERNAL.is_match(&format!("{stderr}\n{stdout}"));
+                report.error_message = Some(mask(&line));
+            }
+        }
         if out.timed_out {
             let err = fail(
                 &mut report,
@@ -443,6 +477,19 @@ impl Runner<'_> {
         report.result = judged.result.as_deref().map(mask);
         report.session = judged.session.clone();
         report.error_code = judged.classified.as_ref().map(|(c, _)| c.clone());
+        if !judged.passed() && stage != Stage::BadModel {
+            // Is it the program that is broken (its own error, no answer) rather than the profile?
+            let reported = judged
+                .classified
+                .as_ref()
+                .filter(|(c, _)| c == "AGENT_REPORTED_ERROR")
+                .map(|(_, m)| first_line(m))
+                .filter(|m| !m.is_empty());
+            if judged.result.is_none() && reported.is_some() {
+                report.error_message = reported.map(|m| mask(&m));
+                report.agent_side = true;
+            }
+        }
         if !judged.passed() {
             let err = fail(&mut report, code_name, judged.problems.join(" "));
             return (report, Some(sample), Some(err));
@@ -535,8 +582,20 @@ pub fn execute(session: &Session, env: &WizardEnv, draft: &Draft, cancel: &Atomi
     outcome
 }
 
+/// The program's own error behind a failed live test: `{stage, message, external}`. `external` means
+/// "its sign-in, model or provider is broken", so another draft cannot help; a message that is not
+/// external is still reported so the caller can see the same error twice in a row.
+pub fn agent_error(outcome: &LiveOutcome) -> Option<Value> {
+    outcome
+        .stages
+        .iter()
+        .find(|s| s.status == "failed" && s.error_message.is_some())
+        .map(|s| json!({"stage": s.name, "message": s.error_message, "external": s.agent_side}))
+}
+
 pub fn outcome_json(outcome: &LiveOutcome, state: State, version: Option<&str>, fixtures: &[String]) -> Value {
     json!({
+        "agent_error": agent_error(outcome),
         "ok": outcome.ok(),
         "state": state.as_str(),
         "stages": outcome.stages,

@@ -5,6 +5,7 @@
 // Everything the program printed is shown as React text, never as HTML.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  agentErrorMessage,
   chooseDefaultDrafter,
   commandLine,
   factsFrom,
@@ -13,6 +14,7 @@ import {
   orderDrafters,
   promptBudget,
   provenanceOf,
+  retryLiveTest,
   runDraftLoop,
   splitError,
   tauriWizardApi,
@@ -25,6 +27,7 @@ import {
   type PlannedRun,
   type ProbeInfo,
   type ProgressEvent,
+  type RetryResult,
   type StartInfo,
   type StepId,
   type VerifyResult,
@@ -92,7 +95,9 @@ export function AgentWizard({
   const [events, setEvents] = useState<ProgressEvent[]>([]);
   const [confirming, setConfirming] = useState<PlannedRun | null>(null);
   const [result, setResult] = useState<Extract<LoopResult, { status: 'tested' }> | null>(null);
-  const [stopped, setStopped] = useState<{ title: string; text: string } | null>(null);
+  const [stopped, setStopped] = useState<{ title: string; text: string; agentError?: boolean } | null>(null);
+  // The draft that passed the checks, kept when the program's own error stops the test: Retry runs only the live test.
+  const [held, setHeld] = useState<{ toml: string; verify: VerifyResult; rounds: number } | null>(null);
   const [showToml, setShowToml] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -169,6 +174,7 @@ export function AgentWizard({
     abortRef.current = abort;
     setError(null);
     setStopped(null);
+    setHeld(null);
     setResult(null);
     setShowToml(false);
     setEvents([{ step: 'help', status: 'done', round: 0 }]);
@@ -201,6 +207,10 @@ export function AgentWizard({
       } else if (outcome.status === 'declined') {
         setStopped({ title: 'Stopped before the live test.', text: 'The draft passed the checks, but it was not tested on the real program, so it cannot be saved.' });
         setPhase('stopped');
+      } else if (outcome.status === 'agent_error') {
+        setHeld({ toml: outcome.toml, verify: outcome.verify, rounds: outcome.rounds });
+        setStopped({ ...agentErrorMessage(found.start.command, outcome.error.message), agentError: true });
+        setPhase('stopped');
       } else if (outcome.status === 'gave_up') {
         setStopped({ title: `No working profile after ${MAX_ROUNDS} tries.`, text: outcome.lastText });
         setPhase('stopped');
@@ -211,6 +221,39 @@ export function AgentWizard({
       setPhase('stopped');
     }
   }, [api, drafter, found, openRouter]);
+
+  // Retry after the program's own error: only the live test runs again, for the draft that is kept.
+  const retryLive = useCallback(async () => {
+    if (!found || !held) return;
+    setError(null);
+    setStopped(null);
+    setPhase('running');
+    setEvents((list) => [...list.filter((e) => e.step !== 'live'), { step: 'live', status: 'running', round: held.rounds }]);
+    try {
+      const out: RetryResult = await retryLiveTest({
+        api,
+        session: found.start.session,
+        toml: held.toml,
+        rounds: held.rounds,
+        verify: held.verify,
+        onEvent: (e) => setEvents((list) => [...list.filter((x) => x.step !== 'live'), e]),
+      });
+      if (out.status === 'tested') {
+        setResult({ status: 'tested', toml: out.toml, rounds: out.rounds, verify: out.verify, live: out.live });
+        setPhase('review');
+      } else if (out.status === 'agent_error') {
+        setStopped({ ...agentErrorMessage(found.start.command, out.error.message), agentError: true });
+        setPhase('stopped');
+      } else {
+        setHeld(null);
+        setStopped({ title: 'The live test failed again.', text: out.live.text });
+        setPhase('stopped');
+      }
+    } catch (e) {
+      setStopped({ title: 'The live test could not run.', text: splitError(e).message });
+      setPhase('stopped');
+    }
+  }, [api, found, held]);
 
   const cancelAll = useCallback(async () => {
     abortRef.current?.abort();
@@ -417,9 +460,15 @@ export function AgentWizard({
               <button type="button" className={BTN} onClick={() => void cancelAll()}>
                 Close
               </button>
-              <button type="button" className={BTN} onClick={() => setPhase('drafter')}>
-                Try again
-              </button>
+              {stopped.agentError && held ? (
+                <button type="button" className={BTN} onClick={() => void retryLive()}>
+                  Retry
+                </button>
+              ) : (
+                <button type="button" className={BTN} onClick={() => setPhase('drafter')}>
+                  Try again
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -526,6 +575,7 @@ function Review({
   const live: LiveResult = result.live;
   const line = commandLine(found.start.command, verify.rendered?.headless_argv);
   const passed = live.stages.filter((s) => s.status === 'passed').length;
+  const ran = live.stages.filter((s) => s.status !== 'skipped').length;
   return (
     <div className="mt-4" data-testid="wizard-review">
       <p className="text-sm font-semibold">Ready for your approval</p>
@@ -546,8 +596,8 @@ function Review({
           ))}
         </ul>
         <p className="mt-2 text-xs text-pm-muted">
-          {passed} live check{passed === 1 ? '' : 's'} passed
-          {live.tested_version ? ` on version ${live.tested_version}` : ''}. {live.fixtures.length} saved sample
+          Tested live on {found.start.command}
+          {live.tested_version ? ` ${live.tested_version}` : ''}: {passed} of {ran} checks passed. {live.fixtures.length} saved sample
           {live.fixtures.length === 1 ? '' : 's'} will be kept next to the definition. Written after {result.rounds}{' '}
           {result.rounds === 1 ? 'try' : 'tries'}.
         </p>

@@ -588,3 +588,66 @@ fn a_clean_draft_still_goes_to_tested_and_finish_through_the_same_path() {
     assert_eq!(t["state"], "tested");
     assert_eq!(t["errors"], json!([]), "no rule or fixture problem is added for a clean draft");
 }
+
+#[test]
+fn an_error_the_agent_reports_itself_is_marked_as_the_agents_own_problem() {
+    let tree = Tree::new("l-agent-error");
+    let wizard = tree.wizard();
+    let id = verified_with_binary(&wizard, "broken-agent");
+    let t = live(&wizard, &id);
+    assert_eq!(t["ok"], false);
+    let ae = &t["agent_error"];
+    assert_eq!(ae["stage"], "pong");
+    assert_eq!(ae["external"], true, "{t}");
+    assert!(ae["message"].as_str().unwrap().starts_with("No endpoints found that support tool use"), "{ae}");
+    // the stage carries it too, and the later stages did not run
+    assert_eq!(stage(&t, "pong")["agent_side"], true);
+    assert_eq!(stage(&t, "sentence")["status"], "skipped");
+}
+
+#[test]
+fn a_program_that_exits_with_a_sign_in_or_quota_looking_error_is_the_agents_problem() {
+    let tree = Tree::new("l-unauth");
+    let wizard = tree.wizard();
+    let id = verified_with_binary(&wizard, "unauth-agent");
+    let t = live(&wizard, &id);
+    let ae = &t["agent_error"];
+    assert_eq!(ae["external"], true, "{t}");
+    assert_eq!(ae["message"], "Error: not logged in. Run the login command first.", "only the first line");
+}
+
+#[test]
+fn an_unexplained_crash_has_a_message_but_is_not_called_the_agents_setup() {
+    let tree = Tree::new("l-crash");
+    let wizard = tree.wizard();
+    let id = verified_with_binary(&wizard, "crash-agent");
+    let t = live(&wizard, &id);
+    let ae = &t["agent_error"];
+    assert_eq!(ae["external"], false, "nothing says sign-in, quota or provider: {t}");
+    assert_eq!(ae["message"], "thread 'main' panicked at src/main.rs:12:5", "so a repeat can still be noticed");
+}
+
+#[test]
+fn a_wrong_selector_or_a_good_draft_is_not_an_agent_error() {
+    let tree = Tree::new("l-no-agent-error");
+    let wizard = tree.wizard();
+    let id = verified(&wizard, "fake-agent", WRONG_PATH);
+    assert_eq!(live(&wizard, &id)["agent_error"], json!(null), "the program answered fine; the selector is wrong");
+    let tree2 = Tree::new("l-no-agent-error-2");
+    let wizard2 = tree2.wizard();
+    let id2 = verified(&wizard2, "fake-agent", GOOD);
+    let t = live(&wizard2, &id2);
+    assert_eq!(t["ok"], true);
+    assert_eq!(t["agent_error"], json!(null), "the expected wrong-model error is not one");
+}
+
+#[test]
+fn the_agent_error_survives_a_second_live_test_of_the_same_draft() {
+    // Retry: the same draft and the same fingerprint run again, with no new verify.
+    let tree = Tree::new("l-retry");
+    let wizard = tree.wizard();
+    let id = verified_with_binary(&wizard, "broken-agent");
+    assert_eq!(live(&wizard, &id)["agent_error"]["external"], true);
+    assert_eq!(live(&wizard, &id)["agent_error"]["external"], true);
+    assert_eq!(wizard.read(&id, |s| s.state.as_str()).unwrap(), "verified");
+}

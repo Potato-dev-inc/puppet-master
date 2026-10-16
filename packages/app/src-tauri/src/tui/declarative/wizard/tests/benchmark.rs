@@ -277,6 +277,13 @@ fn livetest_draft() {
     assert_eq!(live["ok"], true, "the live test did not pass");
 }
 
+/// The agent error of the round before `round` (a folder named `round-N`), if it had one.
+fn previous_agent_error(round: &Path) -> Option<String> {
+    let n: usize = round.file_name()?.to_str()?.strip_prefix("round-")?.parse().ok()?;
+    let previous = round.parent()?.join(format!("round-{}", n.checked_sub(1)?)).join("agent_error.txt");
+    std::fs::read_to_string(previous).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+}
+
 /// One round of the headless benchmark loop (SPEC "Benchmark"): verify `draft` for `command` and, if it
 /// passes, run the live test. Writes `verify.txt`, `live.json`, `samples.json`, `feedback.json` and
 /// `result.txt` (`PASS`, `FAIL verify` or `FAIL livetest`) into `round`, for the next round's prompt.
@@ -312,8 +319,17 @@ pub fn run_round(wizard: &Wizard, command: &str, round: &Path, draft: &str, refe
                 })
                 .collect(),
         );
+        let agent_error = live["agent_error"]["message"].as_str().map(str::to_string);
+        // The program's own error ends the loop: a new draft cannot fix its sign-in, model or provider.
+        let repeated = agent_error.as_deref().is_some_and(|m| Some(m) == previous_agent_error(round).as_deref());
+        if let Some(message) = &agent_error {
+            write("agent_error.txt", message);
+        }
         if live["ok"] == true {
             ("PASS", String::new(), live)
+        } else if live["agent_error"]["external"] == true || repeated {
+            let message = agent_error.unwrap_or_default();
+            ("STOP agent-error", format!("{command} itself returned an error: {message}. This is a problem with {command}'s own setup (sign-in, model or provider), not with the profile. Fix it in {command}, then run this round again."), live)
         } else {
             // the live reply's text already holds the shared-rule and fixture problems too
             ("FAIL livetest", live["text"].as_str().unwrap_or("").to_string(), live)
@@ -405,4 +421,47 @@ fn a_round_whose_draft_fails_only_the_shared_rules_still_runs_the_live_test() {
     assert!(!feedback["samples"].as_array().unwrap().is_empty(), "the real output is in the feedback");
     assert!(std::fs::read_to_string(round.join("verify.txt")).unwrap().starts_with("NOT OK"));
     assert_ne!(std::fs::read_to_string(round.join("live.json")).unwrap().trim(), "null");
+}
+
+fn draft_for(program: &str) -> String {
+    super::support::GOOD.replace("fake-agent", program).replace("fake_agent", &program.replace('-', "_"))
+}
+
+#[test]
+fn a_round_stops_when_the_agent_itself_reports_an_error() {
+    let tree = super::support::Tree::new("bench-stop");
+    let wizard = tree.wizard();
+    let round = tree.root.join("round-1");
+    std::fs::create_dir_all(&round).unwrap();
+    let (result, _) = run_round(&wizard, "broken-agent", &round, &draft_for("broken-agent"), None);
+    assert_eq!(result, "STOP agent-error");
+    assert_eq!(std::fs::read_to_string(round.join("result.txt")).unwrap(), "STOP agent-error\n");
+    assert!(std::fs::read_to_string(round.join("agent_error.txt")).unwrap().starts_with("No endpoints found"));
+    let feedback: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(round.join("feedback.json")).unwrap()).unwrap();
+    let text = feedback["text"].as_str().unwrap();
+    assert!(text.contains("broken-agent itself returned an error: No endpoints found"), "{text}");
+    assert!(text.contains("not with the profile"), "{text}");
+}
+
+#[test]
+fn the_same_unexplained_error_in_two_rounds_stops_the_loop() {
+    let tree = super::support::Tree::new("bench-repeat");
+    let wizard = tree.wizard();
+    let draft = draft_for("crash-agent");
+    let one = tree.root.join("round-1");
+    let two = tree.root.join("round-2");
+    std::fs::create_dir_all(&one).unwrap();
+    std::fs::create_dir_all(&two).unwrap();
+    assert_eq!(run_round(&wizard, "crash-agent", &one, &draft, None).0, "FAIL livetest", "nothing says it is the agent's setup yet");
+    assert_eq!(run_round(&wizard, "crash-agent", &two, &draft, None).0, "STOP agent-error", "the same error again");
+}
+
+#[test]
+fn a_normal_failure_does_not_stop_the_loop() {
+    let tree = super::support::Tree::new("bench-nostop");
+    let wizard = tree.wizard();
+    let round = tree.root.join("round-2");
+    std::fs::create_dir_all(&round).unwrap();
+    assert_eq!(run_round(&wizard, "fake-agent", &round, super::support::WRONG_PATH, None).0, "FAIL livetest");
+    assert!(!round.join("agent_error.txt").exists());
 }

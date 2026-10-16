@@ -109,6 +109,17 @@ export interface LiveResult {
   text: string;
   tested_version: string | null;
   fixtures: string[];
+  /**
+   * The program's own error behind the failure (`external`: sign-in, quota, provider or network, which
+   * no new draft can fix). Null when the failure is the profile's.
+   */
+  agent_error?: AgentError | null;
+}
+
+export interface AgentError {
+  stage: string;
+  message: string;
+  external: boolean;
 }
 
 export interface Provenance {
@@ -333,6 +344,7 @@ export interface ProgressEvent {
 export type LoopResult =
   | { status: 'tested'; toml: string; rounds: number; verify: VerifyResult; live: LiveResult }
   | { status: 'declined'; toml: string; rounds: number; verify: VerifyResult }
+  | { status: 'agent_error'; toml: string; rounds: number; verify: VerifyResult; live: LiveResult; error: AgentError }
   | { status: 'gave_up'; rounds: number; lastToml: string; lastText: string }
   | { status: 'cancelled'; rounds: number };
 
@@ -361,6 +373,7 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
   let lastToml = '';
   let lastText = '';
   let confirmedPlan: string | null = null;
+  let lastAgentError: string | null = null;
   let round = 0;
   const stopped = () => opts.signal?.aborted === true;
 
@@ -428,11 +441,57 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
       return { status: 'tested', toml: extracted.toml, rounds: round, verify, live };
     }
     emit({ step: 'live', status: 'failed', round, detail: live.errors[0]?.message });
+    // The program itself is broken (or says the same error twice): another draft cannot help.
+    const agentError = live.agent_error ?? null;
+    if (agentError && (agentError.external || agentError.message === lastAgentError)) {
+      return { status: 'agent_error', toml: extracted.toml, rounds: round, verify, live, error: agentError };
+    }
+    lastAgentError = agentError?.message ?? null;
     lastText = live.text;
     samples = samplesFrom(live);
     feedback = { previousToml: extracted.toml, text: live.text };
   }
   return { status: 'gave_up', rounds: round, lastToml, lastText };
+}
+
+/** What to tell the person when the program itself returned an error (plain words, no profile jargon). */
+export function agentErrorMessage(agent: string, message: string): { title: string; text: string } {
+  const first = message.trim().split('\n')[0].replace(/[.\s]+$/, '');
+  return {
+    title: `${agent} itself returned an error: ${first}.`,
+    text: `This is a problem with ${agent}'s own setup (sign-in, model or provider), not with the profile. Fix it in ${agent}, then press Retry.`,
+  };
+}
+
+export type RetryResult =
+  | { status: 'tested'; toml: string; rounds: number; verify: VerifyResult; live: LiveResult }
+  | { status: 'agent_error'; toml: string; rounds: number; verify: VerifyResult; live: LiveResult; error: AgentError }
+  | { status: 'failed'; toml: string; rounds: number; verify: VerifyResult; live: LiveResult };
+
+/**
+ * Retry after the program's own error: run only the live test again for the draft that is kept (same
+ * commands, so the confirmation still holds). No new drafting.
+ */
+export async function retryLiveTest(opts: {
+  api: Pick<WizardApi, 'livetest'>;
+  session: string;
+  toml: string;
+  rounds: number;
+  verify: VerifyResult;
+  onEvent?: (event: ProgressEvent) => void;
+}): Promise<RetryResult> {
+  const planned = opts.verify.planned;
+  if (!planned) throw new Error('WIZARD_PLAN_REQUIRED: there is no planned command to run again.');
+  opts.onEvent?.({ step: 'live', status: 'running', round: opts.rounds });
+  const live = await opts.api.livetest(opts.session, planned.fingerprint);
+  const base = { toml: opts.toml, rounds: opts.rounds, verify: opts.verify, live };
+  if (live.ok) {
+    opts.onEvent?.({ step: 'live', status: 'done', round: opts.rounds });
+    return { status: 'tested', ...base };
+  }
+  opts.onEvent?.({ step: 'live', status: 'failed', round: opts.rounds, detail: live.errors[0]?.message });
+  if (live.agent_error?.external) return { status: 'agent_error', ...base, error: live.agent_error };
+  return { status: 'failed', ...base };
 }
 
 /** The command line the person will approve: the program name and the argv with `<task>`. */

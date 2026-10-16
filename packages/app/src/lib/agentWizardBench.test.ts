@@ -42,9 +42,9 @@ export function promptStep(dir: string, round: number, omit?: 'kilo' | 'kiro'): 
   if (round > 1) {
     const previous = roundDir(dir, round - 1);
     const result = join(previous, 'result.txt');
-    if (existsSync(result) && readFileSync(result, 'utf8').startsWith('PASS')) {
-      return `round ${round - 1} already passed: nothing to do`;
-    }
+    const last = existsSync(result) ? readFileSync(result, 'utf8') : '';
+    if (last.startsWith('PASS')) return `round ${round - 1} already passed: nothing to do`;
+    if (last.startsWith('STOP')) return `round ${round - 1} stopped (${last.trim()}): the agent itself is broken, a new draft will not help`;
     const path = join(previous, 'feedback.json');
     if (!existsSync(path)) throw new Error(`${path} is missing: finish round ${round - 1} first`);
     feedback = readJson<Feedback>(path);
@@ -171,6 +171,20 @@ describe('benchmark helpers', () => {
       expect(prompt).toContain('found 1 problem');
       expect(prompt).toContain('<<<SAMPLE pong');
       expect(prompt).toContain('"text":"<word-1>"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('stops when the previous round hit an error of the agent itself', () => {
+    const dir = folder();
+    try {
+      mkdirSync(join(dir, 'round-1'));
+      writeFileSync(join(dir, 'round-1', 'result.txt'), 'STOP agent-error\n');
+      const message = promptStep(dir, 2);
+      expect(message).toContain('stopped');
+      expect(message).toContain('the agent itself is broken');
+      expect(existsSync(join(dir, 'round-2', 'prompt.txt'))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

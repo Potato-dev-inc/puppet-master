@@ -132,6 +132,20 @@ fn event(line: &str) {
 }
 
 fn run(args: &[String], raw: bool) {
+    let exe = std::env::args().next().unwrap_or_default().to_ascii_lowercase();
+    if exe.contains("broken") {
+        // like an agent whose own provider setup is wrong: an error event, no answer, exit 0
+        event("{\"event\":\"error\",\"message\":\"No endpoints found that support tool use. Check your provider settings.\"}");
+        return;
+    }
+    if exe.contains("unauth") {
+        eprintln!("Error: not logged in. Run the login command first.\nmore detail on a second line");
+        std::process::exit(1);
+    }
+    if exe.contains("crash") {
+        eprintln!("thread 'main' panicked at src/main.rs:12:5");
+        std::process::exit(101);
+    }
     let mut format = "text".to_string();
     let mut model = "fake/fast".to_string();
     let mut session: Option<String> = None;

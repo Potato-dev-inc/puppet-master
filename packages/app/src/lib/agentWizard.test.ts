@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  agentErrorMessage,
   askOpenRouter,
   chooseDefaultDrafter,
   commandLine,
@@ -9,9 +10,11 @@ import {
   orderDrafters,
   promptBudget,
   provenanceOf,
+  retryLiveTest,
   runDraftLoop,
   samplesFrom,
   splitError,
+  type AgentError,
   type LiveResult,
   type LoopOptions,
   type PlannedRun,
@@ -370,6 +373,47 @@ describe('runDraftLoop with a stand-in drafter', () => {
     expect(drafter.prompts[1]).toContain(CHECKER_TEXT.trim());
   });
 
+  it('stops at once when the agent itself reports an error, without asking the drafter again', async () => {
+    const error: AgentError = { stage: 'pong', message: 'No endpoints found that support tool use.', external: true };
+    const drafter = standIn([block(GOOD), block(GOOD)]);
+    const livetest = vi.fn<(s: string, plan: string) => Promise<LiveResult>>().mockResolvedValue({ ...liveBad(), agent_error: error });
+    const o = options({ ask: drafter.ask });
+    o.api = { verify: o.api.verify, livetest };
+    const result = await runDraftLoop(o);
+    expect(result).toMatchObject({ status: 'agent_error', rounds: 1, toml: GOOD.trim(), error });
+    expect(drafter.ask).toHaveBeenCalledTimes(1);
+    expect(livetest).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops when the same agent error comes back in two rounds, even if it did not look external', async () => {
+    const error: AgentError = { stage: 'pong', message: 'thread panicked at main.rs:12', external: false };
+    const drafter = standIn([block(WRONG_FIELD), block(WRONG_FIELD), block(GOOD)]);
+    const livetest = vi.fn<(s: string, plan: string) => Promise<LiveResult>>().mockResolvedValue({ ...liveBad(), agent_error: error });
+    const o = options({ ask: drafter.ask });
+    o.api = { verify: o.api.verify, livetest };
+    const result = await runDraftLoop(o);
+    expect(result.status).toBe('agent_error');
+    expect(result.status === 'agent_error' && result.rounds).toBe(2);
+    expect(drafter.ask).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps going when the errors differ or the failure is the profile\'s own', async () => {
+    const one: AgentError = { stage: 'pong', message: 'first problem', external: false };
+    const two: AgentError = { stage: 'pong', message: 'second problem', external: false };
+    const drafter = standIn([block(WRONG_FIELD), block(GOOD), block(GOOD)]);
+    const livetest = vi
+      .fn<(s: string, plan: string) => Promise<LiveResult>>()
+      .mockResolvedValueOnce({ ...liveBad(), agent_error: one })
+      .mockResolvedValueOnce({ ...liveBad(), agent_error: two })
+      .mockResolvedValueOnce({ ...liveBad(), agent_error: null })
+      .mockResolvedValueOnce(liveOk());
+    const o = options({ ask: drafter.ask });
+    o.api = { verify: o.api.verify, livetest };
+    const result = await runDraftLoop({ ...o, maxRounds: 4 });
+    expect(result.status).toBe('tested');
+    expect(drafter.ask).toHaveBeenCalledTimes(4);
+  });
+
   it('stops without a live test when the person says not now', async () => {
     const drafter = standIn([block(GOOD)]);
     const o = options({ ask: drafter.ask, confirmLive: vi.fn(async () => false) });
@@ -418,6 +462,38 @@ describe('runDraftLoop with a stand-in drafter', () => {
     const remote = standIn([block(GOOD)]);
     await runDraftLoop(options({ ask: remote.ask, facts: factsFrom(start, big), maxChars: REMOTE_PROMPT_BUDGET }));
     expect(remote.prompts[0].length).toBeGreaterThan(28_000);
+  });
+});
+
+describe("the program's own error", () => {
+  const planned = planFor(GOOD);
+  const verify = verifyOk(GOOD);
+
+  it('says it in plain words and names the program', () => {
+    const m = agentErrorMessage('kilo', 'No endpoints found that support tool use.\nsecond line');
+    expect(m.title).toBe('kilo itself returned an error: No endpoints found that support tool use.');
+    expect(m.text).toBe("This is a problem with kilo's own setup (sign-in, model or provider), not with the profile. Fix it in kilo, then press Retry.");
+    expect(agentErrorMessage('kilo', 'quota exceeded...  ').title).toBe('kilo itself returned an error: quota exceeded.');
+  });
+
+  it('Retry runs only the live test of the kept draft with the confirmed fingerprint', async () => {
+    const livetest = vi.fn<(s: string, plan: string) => Promise<LiveResult>>().mockResolvedValueOnce(liveOk());
+    const events: ProgressEvent[] = [];
+    const out = await retryLiveTest({ api: { livetest }, session: 'wz_1', toml: GOOD, rounds: 2, verify, onEvent: (e) => events.push(e) });
+    expect(out.status).toBe('tested');
+    expect(livetest).toHaveBeenCalledWith('wz_1', planned.fingerprint);
+    expect(events.map((e) => `${e.step}:${e.status}`)).toEqual(['live:running', 'live:done']);
+  });
+
+  it('Retry reports the same agent error again, or a normal failure', async () => {
+    const error: AgentError = { stage: 'pong', message: 'not logged in', external: true };
+    const livetest = vi
+      .fn<(s: string, plan: string) => Promise<LiveResult>>()
+      .mockResolvedValueOnce({ ...liveBad(), agent_error: error })
+      .mockResolvedValueOnce(liveBad());
+    expect(await retryLiveTest({ api: { livetest }, session: 's', toml: GOOD, rounds: 1, verify })).toMatchObject({ status: 'agent_error', error });
+    expect((await retryLiveTest({ api: { livetest }, session: 's', toml: GOOD, rounds: 1, verify })).status).toBe('failed');
+    await expect(retryLiveTest({ api: { livetest }, session: 's', toml: GOOD, rounds: 1, verify: { ...verify, planned: undefined } })).rejects.toThrow('WIZARD_PLAN_REQUIRED');
   });
 });
 

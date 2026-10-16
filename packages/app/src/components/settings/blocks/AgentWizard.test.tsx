@@ -236,7 +236,7 @@ describe('AgentWizard', () => {
     expect(review?.textContent).toContain('fake-agent run --format json -- <task>');
     expect(review?.textContent).toContain('Say pong');
     expect(review?.textContent).toContain('skipped - the draft has no model option');
-    expect(review?.textContent).toContain('2 live checks passed on version 1.4.2');
+    expect(review?.textContent).toContain('Tested live on fake-agent 1.4.2: 2 of 2 checks passed');
     expect(review?.textContent).toContain('3 saved samples');
     expect(review?.textContent).toContain('--yolo');
     expect(review?.textContent).toContain('Written after 2 tries');
@@ -248,7 +248,7 @@ describe('AgentWizard', () => {
     expect(api.finish).toHaveBeenCalledTimes(1);
     const [session, provenance] = api.finish.mock.calls[0];
     expect(session).toBe('wz_1');
-    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', drafter_kind: 'local_agent', rounds: 2, prompt_version: '3' });
+    expect(provenance).toMatchObject({ drafter: 'Claude Code (local)', drafter_kind: 'local_agent', rounds: 2, prompt_version: '4' });
     expect(approved).toHaveLength(1);
     expect(approved[0].id).toBe('fake_agent');
     expect(api.cancel).not.toHaveBeenCalled();
@@ -308,6 +308,58 @@ describe('AgentWizard', () => {
     expect(api.livetest).toHaveBeenCalledTimes(2);
     expect(host.querySelector('[data-testid="live-confirm"]')).toBeNull();
     expect(host.querySelector('[data-testid="wizard-review"]')).toBeTruthy();
+  });
+
+  it('stops with a plain message when the agent itself returns an error, and Retry runs only the live test', async () => {
+    const api = mockApi();
+    const broken = {
+      ...liveOk(),
+      ok: false,
+      state: 'verified',
+      stages: [],
+      errors: [],
+      text: 'LIVE FAILED',
+      agent_error: { stage: 'pong', message: 'No endpoints found that support tool use. Try disabling "search".', external: true },
+    };
+    api.livetest.mockResolvedValueOnce(broken).mockResolvedValueOnce(liveOk());
+    await render(api, mockOpenRouter());
+    await findIt();
+    await click(button('Start'));
+    await flush();
+    await click(button('Run the live test'));
+    await flush();
+    // no second round of drafting: one reply only, then the stop screen
+    expect(api.ask).toHaveBeenCalledTimes(1);
+    const stopped = host.querySelector('[data-testid="wizard-stopped"]');
+    expect(stopped?.textContent).toContain('fake-agent itself returned an error: No endpoints found that support tool use. Try disabling "search".');
+    expect(stopped?.textContent).toContain("This is a problem with fake-agent's own setup (sign-in, model or provider), not with the profile.");
+    expect(stopped?.textContent).toContain('Fix it in fake-agent, then press Retry.');
+    expect(button('Try again')).toBeUndefined();
+    // Retry: the kept draft, the same commands, one more live test, no new drafting and no new confirm
+    await click(button('Retry'));
+    await flush();
+    expect(api.livetest).toHaveBeenCalledTimes(2);
+    expect(api.livetest.mock.calls[1]).toEqual(['wz_1', 'plan-A']);
+    expect(api.ask).toHaveBeenCalledTimes(1);
+    expect(api.verify).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-testid="live-confirm"]')).toBeNull();
+    expect(host.querySelector('[data-testid="wizard-review"]')?.textContent).toContain('Tested live on fake-agent 1.4.2');
+  });
+
+  it('keeps stopping, with the same message, when Retry meets the same agent error', async () => {
+    const api = mockApi();
+    const broken = { ...liveOk(), ok: false, state: 'verified', stages: [], errors: [], text: 'x', agent_error: { stage: 'pong', message: 'not logged in', external: true } };
+    api.livetest.mockResolvedValue(broken);
+    await render(api, mockOpenRouter());
+    await findIt();
+    await click(button('Start'));
+    await flush();
+    await click(button('Run the live test'));
+    await flush();
+    await click(button('Retry'));
+    await flush();
+    expect(host.querySelector('[data-testid="wizard-stopped"]')?.textContent).toContain('fake-agent itself returned an error: not logged in.');
+    expect(button('Retry')).toBeTruthy();
   });
 
   it('does not run the live test when the person says not now', async () => {
