@@ -109,7 +109,31 @@ fn route_answer_with(
     let pane_id = request.pane_id.clone().filter(|id| !id.is_empty());
     let shown = pane_id.as_deref().and_then(crate::turn_summary::prompt_before_answer);
     let (prompt_id, choice) = (request.prompt_id.clone(), request.choice.clone());
-    let result = route_answer_inner(request, query, session_id, registry, app, decision);
+    // The pane the answer lands on, known before it is sent: the turn summary must hold the answer
+    // before the key is typed (a fast agent can finish the turn before this thread returns from the
+    // send). A run's handle names its pane through the run.
+    let early_pane = pane_id.clone().or_else(|| {
+        let handle = request.handle.as_deref()?;
+        let explicit = request
+            .project_path
+            .clone()
+            .filter(|path| !path.trim().is_empty())
+            .or_else(|| query_value(query, "project_path"));
+        let default_project = registry.lock().project_path.clone();
+        crate::agent_runs::answer_guard::resolve_target(&default_project, explicit.as_deref(), handle, session_id)
+            .ok()?
+            .pane_id
+    });
+    let send = || route_answer_inner(request, query, session_id, registry, app, decision);
+    // A delivered answer (not a repeat that pressed nothing) is what the summary counts.
+    let delivered = |result: &Result<Value, OperationError>| {
+        result.as_ref().is_ok_and(|value| !crate::pane_prompt::reply_was_repeat(value))
+    };
+    let noted_early = early_pane.is_some();
+    let result = match early_pane {
+        Some(pane) => crate::turn_summary::answering(&pane, &prompt_id, &choice, shown.clone(), send, delivered),
+        None => send(),
+    };
     if let Ok(value) = &result {
         let pane = pane_id.or_else(|| value.get("pane_id").and_then(Value::as_str).map(str::to_string));
         if let Some(pane) = pane.filter(|_| !crate::pane_prompt::reply_was_repeat(value)) {
@@ -117,7 +141,10 @@ fn route_answer_with(
             if decision.permit.is_none() {
                 crate::agent_authority::gate::note_answer(by, &pane, &prompt_id, &choice, Some(registry));
             }
-            crate::turn_summary::record_answer(&pane, &prompt_id, &choice, shown);
+            // Already noted before the key went out when the pane was known up front.
+            if !noted_early {
+                crate::turn_summary::record_answer(&pane, &prompt_id, &choice, shown);
+            }
         }
     }
     result
