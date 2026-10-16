@@ -3,6 +3,7 @@ mod consent;
 mod loader;
 mod output;
 mod profile;
+mod removal;
 mod resolve;
 mod schema;
 mod screen;

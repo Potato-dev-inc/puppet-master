@@ -87,6 +87,8 @@ pub fn scan_dir(dir: &Path) -> Scan {
     let mut paths: Vec<PathBuf> = entries
         .filter_map(Result::ok)
         .map(|e| e.path())
+        // `.removed/` holds agents the user removed (removal.rs): never a source.
+        .filter(|p| p.file_name().is_none_or(|n| n != super::removal::REMOVED_DIR))
         .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("toml")))
         .collect();
     paths.sort();

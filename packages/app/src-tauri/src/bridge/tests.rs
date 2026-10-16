@@ -660,6 +660,48 @@ mod definitions {
         assert!(respond("POST", &["agents", "definitions", "nope"], &body, None, true).is_none());
     }
 
+
+    #[test]
+    fn remove_and_restore_are_local_app_only() {
+        use crate::bridge::routes::definitions::is_local_app;
+        let tunnel = "POST /x HTTP/1.1\r\nX-PM-Proxied: 1\r\nAuthorization: Bearer tok\r\n";
+        let phone_direct = "POST /x HTTP/1.1\r\nAuthorization: Bearer tok\r\n";
+        let local = "POST /x HTTP/1.1\r\nHost: 127.0.0.1:17321\r\n";
+        let body = json!({"file": "zz-none.toml", "removed_id": "zz-none"});
+        // a phone (tunnel or bearer token) and a non-loopback peer are refused before any file is touched
+        for headers in [tunnel, phone_direct] {
+            for (method, action) in [("POST", "remove"), ("POST", "restore"), ("GET", "removed")] {
+                let remote = is_local_app(headers, true);
+                let (status, reply) =
+                    respond(method, &["agents", "definitions", action], &body, None, remote).unwrap().unwrap_err();
+                assert_eq!(status, 403, "{action}");
+                assert_eq!(reply["code"], "AUTHORIZATION_DENIED");
+            }
+        }
+        assert!(!is_local_app(local, false));
+        // an MCP session is refused by the route and by the session gate
+        for (method, action) in [("POST", "remove"), ("POST", "restore"), ("GET", "removed")] {
+            let (status, _) =
+                respond(method, &["agents", "definitions", action], &body, Some("mcp-session-1"), true).unwrap().unwrap_err();
+            assert_eq!(status, 403, "{action}");
+            let path = format!("/agents/definitions/{action}");
+            let denied = mcp_sessions::authorize(Some("mcp-session-1"), method, &path, &body).unwrap_err();
+            assert_eq!(denied.code, "AUTHORIZATION_DENIED", "{method} {path}");
+            assert!(mcp_sessions::authorize(None, method, &path, &body).is_ok(), "{method} {path}");
+        }
+        // a paired device may hold `control`, but the route still says no (is_local_app above)
+        // the local app is not refused by the gate: a missing file is a plain error, never 403
+        let (status, reply) =
+            respond("POST", &["agents", "definitions", "remove"], &body, None, true).unwrap().unwrap_err();
+        assert_ne!(status, 403, "{reply}");
+        let (status, _) =
+            respond("POST", &["agents", "definitions", "restore"], &body, None, true).unwrap().unwrap_err();
+        assert_ne!(status, 403);
+        assert!(respond("GET", &["agents", "definitions", "removed"], &json!({}), None, true).unwrap().is_ok());
+        // missing arguments are 400 for the local app
+        let (status, _) = respond("POST", &["agents", "definitions", "remove"], &json!({}), None, true).unwrap().unwrap_err();
+        assert_eq!(status, 400);
+    }
     #[test]
     fn agents_types_includes_declarative_after_approval() {
         let _serial = crate::tui::registry::test_serial();

@@ -32,6 +32,8 @@ export interface DefinitionRow {
   binary_changed?: boolean;
   /** Experimental or generic agent (warn before relying on it). */
   experimental?: boolean;
+  /** The agent's display name from its file (absent when the file does not parse). */
+  label?: string | null;
 }
 
 export interface ProjectConsentRow {
@@ -126,7 +128,45 @@ export interface RecorderStopResult {
   snapshots: number;
 }
 
+/** One agent in `.removed/`, as "Recently removed" lists it. */
+export interface RemovedAgent {
+  removed_id: string;
+  id: string;
+  label: string;
+  file_name: string;
+  removed_at: string;
+  fixtures: boolean;
+  wizard: boolean;
+  was_approved: boolean;
+}
+
+export interface RemoveResult {
+  ok: boolean;
+  id: string;
+  label: string;
+  removed_id: string;
+  fixtures: boolean;
+  wizard: boolean;
+  was_approved: boolean;
+}
+
+export interface RestoreResult {
+  ok: boolean;
+  id: string;
+  label: string;
+  /** The approval came back (the file is byte-identical to what was approved). */
+  approval_restored: boolean;
+  /** Valid, but it has to be approved again before it can run. */
+  needs_approval: boolean;
+}
+
 export interface AgentDefinitionsApi {
+  /** Moves one of the user's own definitions (with its fixtures and wizard record) to `.removed/`. Never deletes. */
+  remove?(file: string): Promise<RemoveResult>;
+  /** Undo: moves a removed agent back; refuses when its file name is taken again. */
+  restore?(removedId: string): Promise<RestoreResult>;
+  /** What `.removed/` holds, newest first. */
+  removedList?(): Promise<{ removed: RemovedAgent[] }>;
   /** Draft definitions written by the session recorder (never loaded, never approved). */
   draftsList?(): Promise<DraftsListing>;
   /** Validates a draft through the same checks as /agents/definitions/validate. */
@@ -179,6 +219,9 @@ export const tauriAgentDefinitionsApi: AgentDefinitionsApi = {
   preview: (file) => invoke<DefinitionPreview>('agents_definition_preview', { file }),
   approve: (file, fingerprint) => invoke('agents_definition_approve', { file, fingerprint }),
   revoke: (id) => invoke('agents_definition_revoke', { id }),
+  remove: (file) => invoke<RemoveResult>('agents_definition_remove', { file }),
+  restore: (removedId) => invoke<RestoreResult>('agents_definition_restore', { removedId }),
+  removedList: () => invoke<{ removed: RemovedAgent[] }>('agents_definitions_removed', undefined),
   consent: (kind, path, enabled) => invoke('agents_definitions_consent', { kind, path, enabled }),
   sourceSet: (name, enabled) => invoke('agents_source_set', { name, enabled }),
   extraDir: (action, path) => invoke('agents_extra_dir', { action, path }),
@@ -290,4 +333,42 @@ export function approvalWarnings(row: DefinitionRow, preview: DefinitionPreview 
 
 export function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** The folder a definition file sits in (works for `/` and `\` paths). */
+export function folderOf(path: string): string {
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return cut > 0 ? path.slice(0, cut) : path;
+}
+
+/** The last part of a path, for either kind of slash. */
+export function baseName(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
+}
+
+/** What the row is called to the person: the label from the file, else the id, else the file name. */
+export function rowName(row: DefinitionRow): string {
+  return row.label?.trim() || row.id || baseName(row.file);
+}
+
+/**
+ * Who can take a definition away. Only the user's own agents folder can be cleared here; a project or
+ * extra-folder definition lives in the person's own repo or folder, and built-in agents are code.
+ */
+export function removability(row: DefinitionRow): 'own' | 'elsewhere' | 'none' {
+  if (row.source === 'user') return 'own';
+  if (row.source === 'project' || row.source === 'extra') return 'elsewhere';
+  return 'none';
+}
+
+/** The backend's "CODE: message" errors as a plain sentence. */
+export function plainError(e: unknown): string {
+  return errorMessage(e).replace(/^[A-Z][A-Z0-9_]+:\s*/, '');
+}
+
+/** One line for a finished restore. */
+export function restoreMessage(result: { label: string; approval_restored: boolean; needs_approval: boolean }): string {
+  if (result.approval_restored) return `Restored ${result.label}. It is active again.`;
+  if (result.needs_approval) return `Restored ${result.label}. Review and approve it again before it can run.`;
+  return `Restored ${result.label}.`;
 }

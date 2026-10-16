@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentDefinitionsApi, DefinitionsListing } from '../../../lib/agentDefinitions';
+import type { AgentDefinitionsApi, DefinitionsListing, RemovedAgent } from '../../../lib/agentDefinitions';
 import { AgentDefinitions } from './AgentDefinitions';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -606,5 +606,148 @@ ${F}`),
     expect(host.querySelector('[data-testid="agent-toast"]')?.textContent).toContain('The wizard wrote fake_agent.');
     await click(button('Approve'));
     expect(api.approve).toHaveBeenCalledWith(WIZ, 'sha256:wiz');
+  });
+});
+
+describe('AgentDefinitions: Remove, Undo and Recently removed', () => {
+  const PROJECT_FILE = 'D:/repo/.puppet-master/agents/teamy.toml';
+  const EXTRA_FILE = 'E:/team-agents/shared.toml';
+
+  function listingWithOthers(): DefinitionsListing {
+    const listing = fixture();
+    listing.definitions[0] = { ...listing.definitions[0], label: 'Kilo Code' };
+    listing.definitions.push(
+      { id: 'teamy', file: PROJECT_FILE, source: 'project', state: 'active', errors: [], fingerprint: 'sha256:p', shadowed_by: null },
+      { id: 'shared', file: EXTRA_FILE, source: 'extra', state: 'needs_approval', errors: [], fingerprint: 'sha256:e', shadowed_by: null },
+    );
+    return listing;
+  }
+
+  function removeApi(removed: RemovedAgent[] = []) {
+    const base = mockApi(listingWithOthers());
+    const extra = {
+      remove: vi.fn(async () => ({
+        ok: true, id: 'kilo', label: 'Kilo Code', removed_id: 'kilo-20261016-123456', fixtures: true, wizard: false, was_approved: false,
+      })),
+      restore: vi.fn(async () => ({ ok: true, id: 'kilo', label: 'Kilo Code', approval_restored: false, needs_approval: true })),
+      removedList: vi.fn(async () => ({ removed })),
+    };
+    return Object.assign(base, extra);
+  }
+
+  const removeButton = (row: Element) => Array.from(row.querySelectorAll('button')).find((b) => b.textContent === 'Remove');
+  const dialogButton = (label: string) =>
+    Array.from(host.querySelectorAll('[role="dialog"] button')).find((b) => b.textContent === label);
+
+  it('shows Remove on the rows of your own agents folder, also an invalid one, and nowhere else', async () => {
+    await render(removeApi());
+    const rows = host.querySelectorAll('[data-testid="definition-row"]');
+    expect(removeButton(rows[0])).toBeTruthy();
+    expect(removeButton(rows[1])).toBeTruthy();
+    expect(removeButton(rows[2])).toBeUndefined();
+    expect(removeButton(rows[3])).toBeUndefined();
+  });
+
+  it('a project or extra folder row says where it comes from instead of offering Remove', async () => {
+    await render(removeApi());
+    const rows = host.querySelectorAll('[data-testid="definition-row"]');
+    expect(rows[2].querySelector('[data-testid="comes-from"]')?.textContent).toBe(
+      'This agent comes from D:/repo/.puppet-master/agents. Remove it there, or turn it off with Revoke.',
+    );
+    expect(rows[3].querySelector('[data-testid="comes-from"]')?.textContent).toContain('This agent comes from E:/team-agents.');
+    expect(rows[0].querySelector('[data-testid="comes-from"]')).toBeNull();
+  });
+
+  it('has no Remove at all when the backend cannot remove', async () => {
+    await render(mockApi(listingWithOthers()));
+    expect(Array.from(host.querySelectorAll('[data-testid="definition-row"]')).some((r) => removeButton(r))).toBe(false);
+    expect(host.querySelector('[data-testid="comes-from"]')).toBeNull();
+  });
+
+  it('the confirm sheet says what moves, that running panes keep running, and that it can be undone', async () => {
+    const api = removeApi();
+    await render(api);
+    await click(removeButton(host.querySelectorAll('[data-testid="definition-row"]')[0]));
+    const dialog = host.querySelector('[role="dialog"]');
+    expect(dialog?.getAttribute('aria-label')).toBe('Remove Kilo Code');
+    const text = dialog?.textContent ?? '';
+    expect(text).toContain('Remove Kilo Code?');
+    expect(text).toContain('Nothing is deleted');
+    expect(text).toContain('kilo.toml');
+    expect(text).toContain('kilo/');
+    expect(text).toContain('kilo.wizard.json');
+    expect(text).toContain('Its approval');
+    expect(text).toContain('Panes already running this agent keep running');
+    expect(text).toContain('undo');
+    expect(api.remove).not.toHaveBeenCalled();
+    await click(dialogButton('Cancel'));
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(api.remove).not.toHaveBeenCalled();
+  });
+
+  it('Remove moves the agent, refreshes the list and offers Undo; Undo brings it back', async () => {
+    const api = removeApi();
+    await render(api);
+    await click(removeButton(host.querySelectorAll('[data-testid="definition-row"]')[0]));
+    const listCalls = (api.list as ReturnType<typeof vi.fn>).mock.calls.length;
+    await click(dialogButton('Remove'));
+    expect(api.remove).toHaveBeenCalledExactlyOnceWith(KILO);
+    expect((api.list as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(listCalls);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    const toast = host.querySelector('[data-testid="undo-toast"]');
+    expect(toast?.textContent).toContain('Removed Kilo Code.');
+    await click(Array.from(toast?.querySelectorAll('button') ?? []).find((b) => b.textContent === 'Undo'));
+    expect(api.restore).toHaveBeenCalledExactlyOnceWith('kilo-20261016-123456');
+    expect(host.querySelector('[data-testid="undo-toast"]')).toBeNull();
+    expect(host.querySelector('[data-testid="agent-toast"]')?.textContent).toBe(
+      'Restored Kilo Code. Review and approve it again before it can run.',
+    );
+  });
+
+  it('a refused Undo says so plainly, without the error code', async () => {
+    const api = removeApi();
+    api.restore.mockRejectedValueOnce(
+      'AGENT_DEF_RESTORE_CLASH: A file named kilo.toml is already in your agents folder. Rename or move it, then restore again.',
+    );
+    await render(api);
+    await click(removeButton(host.querySelectorAll('[data-testid="definition-row"]')[0]));
+    await click(dialogButton('Remove'));
+    await click(Array.from(host.querySelectorAll('[data-testid="undo-toast"] button')).find((b) => b.textContent === 'Undo'));
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe(
+      'A file named kilo.toml is already in your agents folder. Rename or move it, then restore again.',
+    );
+  });
+
+  it('a failed Remove shows the plain message and no Undo', async () => {
+    const api = removeApi();
+    api.remove.mockRejectedValueOnce('AGENT_DEF_REMOVE_FAILED: could not move kilo: access denied');
+    await render(api);
+    await click(removeButton(host.querySelectorAll('[data-testid="definition-row"]')[0]));
+    await click(dialogButton('Remove'));
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe('could not move kilo: access denied');
+    expect(host.querySelector('[data-testid="undo-toast"]')).toBeNull();
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('lists Recently removed and restores one with Restore', async () => {
+    const api = removeApi([
+      { removed_id: 'old-20261015-101010', id: 'old', label: 'Old Agent', file_name: 'old.toml', removed_at: '2026-10-15T10:10:10Z', fixtures: false, wizard: false, was_approved: true },
+    ]);
+    api.restore.mockResolvedValueOnce({ ok: true, id: 'old', label: 'Old Agent', approval_restored: true, needs_approval: false } as never);
+    await render(api);
+    const rows = host.querySelectorAll('[data-testid="removed-row"]');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain('Old Agent');
+    expect(rows[0].textContent).toContain('old.toml');
+    expect(host.textContent).toContain('Recently removed');
+    await click(rows[0].querySelector('button'));
+    expect(api.restore).toHaveBeenCalledExactlyOnceWith('old-20261015-101010');
+    expect(host.querySelector('[data-testid="agent-toast"]')?.textContent).toBe('Restored Old Agent. It is active again.');
+    expect(api.removedList.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('hides Recently removed while nothing was removed', async () => {
+    await render(removeApi([]));
+    expect(host.textContent).not.toContain('Recently removed');
   });
 });

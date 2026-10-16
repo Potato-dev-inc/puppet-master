@@ -127,6 +127,14 @@ impl Approvals {
         self.approvals.push(approval);
     }
 
+    /// Remove the record of the file at `path`; true when something was removed.
+    pub fn remove_path(&mut self, path: &Path) -> bool {
+        let wanted = key(&path.to_string_lossy());
+        let before = self.approvals.len();
+        self.approvals.retain(|a| key(&a.path) != wanted);
+        self.approvals.len() != before
+    }
+
     /// Remove every record of agent `id`; true when something was removed.
     pub fn revoke(&mut self, id: &str) -> bool {
         let before = self.approvals.len();
