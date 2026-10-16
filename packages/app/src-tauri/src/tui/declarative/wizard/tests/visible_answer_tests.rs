@@ -247,3 +247,14 @@ fn the_wizard_answers_only_inside_its_own_isolated_folder() {
     assert!(scope_ok(Some(project), Path::new(r"C:\Users\me\work"), temp).is_err());
     assert!(under(project, session) && !under(session, project));
 }
+
+#[test]
+fn a_folder_that_climbs_out_with_dot_dot_is_never_inside() {
+    let temp = Path::new(r"C:\Users\me\AppData\Local\Temp");
+    let session = Path::new(r"C:\Users\me\AppData\Local\Temp\pm-wizard-wz_ab12");
+    let escape = Path::new(r"C:\Users\me\AppData\Local\Temp\pm-wizard-wz_ab12\..\..\..\..\work\project");
+    assert!(!under(escape, session), "`..` must not be dropped: this is the person's project");
+    assert!(scope_ok(Some(escape), session, temp).is_err());
+    let climbing_session = Path::new(r"C:\Users\me\AppData\Local\Temp\..\..\work");
+    assert!(scope_ok(Some(Path::new(r"C:\Users\me\work\p")), climbing_session, temp).is_err());
+}

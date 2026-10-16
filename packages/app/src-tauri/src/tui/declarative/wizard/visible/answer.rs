@@ -554,8 +554,17 @@ fn normal(path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// `child` is `parent` or below it (case-insensitive, `\\?\` prefix ignored).
+/// A path with `..` or `.` in it could climb out of a folder while still starting with its name.
+fn has_dots(path: &Path) -> bool {
+    path.components().any(|c| matches!(c, Component::ParentDir | Component::CurDir))
+}
+
+/// `child` is `parent` or below it (case-insensitive, `\\?\` prefix ignored). A path with `..` or `.`
+/// in it is never "below": `normal` drops those parts, so they must be refused before comparing.
 pub fn under(child: &Path, parent: &Path) -> bool {
+    if has_dots(child) || has_dots(parent) {
+        return false;
+    }
     let (c, p) = (normal(child), normal(parent));
     !p.is_empty() && c.len() >= p.len() && c[..p.len()] == p[..]
 }
