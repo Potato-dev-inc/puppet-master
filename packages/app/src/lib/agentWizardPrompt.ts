@@ -203,8 +203,7 @@ export function buildPrompt(facts: PromptFacts, options: PromptOptions = {}): Bu
   const feedback = options.feedback;
   const feedbackText = feedback
     ? [
-        'Your previous file',
-        `${FENCE}toml\n${feedback.previousToml.trim()}\n${FENCE}`,
+        feedback.previousToml.trim() ? `Your previous file\n${FENCE}toml\n${feedback.previousToml.trim()}\n${FENCE}` : '',
         'What the checker said (verbatim)',
         feedback.text.trim(),
         samples.length ? `Real output of the live test with your previous file\n${samples.join('\n')}` : '',

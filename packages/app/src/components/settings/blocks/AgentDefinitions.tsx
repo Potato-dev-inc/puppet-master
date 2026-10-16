@@ -27,7 +27,9 @@ import {
   resetAgentRegistryCache,
   listAgentRegistry,
 } from '../../../lib/agentRegistry';
+import type { FinishResult, WizardApi } from '../../../lib/agentWizard';
 import { SettingBlock } from '../settings-ui';
+import { AgentWizard } from './AgentWizard';
 
 const STATE_TONE: Record<string, string> = {
   active: 'border-pm-border bg-pm-border/40 text-pm-text',
@@ -47,7 +49,14 @@ interface Reviewing {
   error: string | null;
 }
 
-export function AgentDefinitions({ api = tauriAgentDefinitionsApi }: { api?: AgentDefinitionsApi }) {
+export function AgentDefinitions({
+  api = tauriAgentDefinitionsApi,
+  wizardApi,
+}: {
+  api?: AgentDefinitionsApi;
+  /** The wizard's backend; tests pass a mock. */
+  wizardApi?: WizardApi;
+}) {
   const [listing, setListing] = useState<DefinitionsListing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -61,6 +70,7 @@ export function AgentDefinitions({ api = tauriAgentDefinitionsApi }: { api?: Age
   const [projectScan, setProjectScan] = useState<ProjectScan | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [extraPath, setExtraPath] = useState('');
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const apply = useCallback((next: DefinitionsListing) => {
     setListing(next);
@@ -172,13 +182,27 @@ export function AgentDefinitions({ api = tauriAgentDefinitionsApi }: { api?: Age
       setDraftCheck({ path, preview: await api.draftValidate(path) });
     });
 
-  const review = (row: DefinitionRow) =>
+  const openReview = async (row: DefinitionRow) => {
+    try {
+      setReviewing({ row, preview: await api.preview(row.file), error: null });
+    } catch (e) {
+      setReviewing({ row, preview: null, error: errorMessage(e) });
+    }
+  };
+
+  const review = (row: DefinitionRow) => run(() => openReview(row));
+
+  // The wizard wrote an UNAPPROVED definition: show the normal approval dialog for it.
+  const wizardDone = (done: FinishResult) =>
     run(async () => {
-      try {
-        setReviewing({ row, preview: await api.preview(row.file), error: null });
-      } catch (e) {
-        setReviewing({ row, preview: null, error: errorMessage(e) });
-      }
+      setWizardOpen(false);
+      const listed = done.listing as DefinitionsListing | undefined;
+      const next = listed?.definitions ? listed : await api.list();
+      apply(next);
+      await handleDefinitionsChanged();
+      setNote(`The wizard wrote ${done.id}. Check the command below, then approve it.`);
+      const row = next.definitions.find((r) => r.id === done.id && r.source === 'user');
+      if (row) await openReview(row);
     });
 
   // The registry is live (backend watcher + `agent_definitions_changed`): no restart is needed after
@@ -243,6 +267,9 @@ export function AgentDefinitions({ api = tauriAgentDefinitionsApi }: { api?: Age
           </button>
           <button type="button" className={BTN} disabled={busy} onClick={() => void importFile()}>
             Import
+          </button>
+          <button type="button" className={BTN} disabled={busy} onClick={() => setWizardOpen(true)}>
+            Add with wizard
           </button>
           {note && (
             <span role="status" data-testid="agent-toast" className="text-xs text-pm-muted">
@@ -436,6 +463,9 @@ export function AgentDefinitions({ api = tauriAgentDefinitionsApi }: { api?: Age
           A new directory loads nothing until you consent to it, and every file in it still needs your approval.
         </p>
       </SettingBlock>
+      {wizardOpen && (
+        <AgentWizard api={wizardApi} onClose={() => setWizardOpen(false)} onApprove={(done) => void wizardDone(done)} />
+      )}
       {reviewing && (
         <ApproveDialog
           reviewing={reviewing}

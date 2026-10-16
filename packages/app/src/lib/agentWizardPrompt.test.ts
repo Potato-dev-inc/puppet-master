@@ -127,6 +127,12 @@ describe('buildPrompt', () => {
     expect(built.text).not.toContain('Now write the file.');
   });
 
+  it('leaves out the previous-file block when the drafter sent no usable file yet', () => {
+    const built = buildPrompt(facts(), { feedback: { previousToml: '', text: 'Your reply had no toml block.' } });
+    expect(built.text).toContain('Your reply had no toml block.');
+    expect(built.text).not.toContain('Your previous file');
+  });
+
   it('shows real live-test output as data blocks in a fix round', () => {
     const built = buildPrompt(
       facts({
