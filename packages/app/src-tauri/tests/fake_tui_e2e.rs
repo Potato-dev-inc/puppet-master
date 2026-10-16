@@ -926,3 +926,11 @@ mod missions;
 
 #[path = "fake_tui_wizard.rs"]
 mod wizard;
+
+// PLANTED FAILURE (reverted in the next commit): proves a failing e2e test turns its CI shard red.
+#[test]
+fn planted_failure_proves_the_e2e_shard_goes_red() {
+    let session = World::get().session("planted");
+    assert!(session.project().join("README.md").is_file(), "the session project exists");
+    assert_eq!(session.pane_ids().len(), 1, "planted: there are no panes, so this must fail");
+}
