@@ -65,7 +65,7 @@ const verifyOk = (toml = GOOD): VerifyResult => ({
   planned: planFor(toml),
 });
 
-const verifyBad = (): VerifyResult => ({ ...verifyOk(), ok: false, errors: [{ stage: 'validate', code: 'AGENT_DEF_INCONSISTENT', path: 'x', line: 1, column: 1, message: 'm', fix: 'f' }], text: CHECKER });
+const verifyBad = (): VerifyResult => ({ ...verifyOk(), ok: false, errors: [{ stage: 'validate', code: 'AGENT_DEF_INCONSISTENT', path: 'x', line: 1, column: 1, message: 'm', fix: 'f' }], text: CHECKER, planned: undefined });
 
 const liveOk = (): LiveResult => ({
   ok: true,

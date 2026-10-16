@@ -34,6 +34,15 @@ impl Outcome {
     pub fn ok(&self) -> bool {
         self.errors.is_empty()
     }
+
+    /// May the live test run for this draft? Only a draft that is not valid at all (the file does not
+    /// parse or validate, or breaks a wizard rule such as the program name) is kept from it; a draft
+    /// that fails only the shared conformance rules or the fixture checks is tested anyway, so the
+    /// drafter gets the program's real output together with those problems.
+    pub fn can_livetest(&self) -> bool {
+        self.definition.is_some()
+            && !self.errors.iter().any(|e| matches!(e.stage, "size" | "validate" | "wizard"))
+    }
 }
 
 fn def_error(stage: &'static str, e: &DefError) -> CheckError {
@@ -268,7 +277,9 @@ pub fn outcome_json(outcome: &Outcome, state: State, sha: Option<&str>, rules_ru
         body["sha256"] = json!(sha);
     }
     if let Some(planned) = planned {
+        // present for a draft the live test may run, also when other checks failed
         body["planned"] = planned;
+        body["can_livetest"] = json!(true);
     }
     body
 }
@@ -294,25 +305,24 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     let outcome = check_draft(&snap, &env, &text);
     let ok = outcome.ok();
     let sha = ok.then(|| sha256_hex(text.as_bytes()));
-    let state = wizard.end(&id, |s| {
-        if ok {
-            s.draft = Some(Draft { text: text.clone(), sha256: sha256_hex(text.as_bytes()) });
-            s.tested = None;
-            s.state = State::Verified;
-        }
-        s.state
-    })?;
-    // The exact commands the live test would run for this draft; the caller shows them and sends the
+    // The commands the live test would run for this draft; the caller shows them and sends the
     // fingerprint back with the live-test request.
-    let planned = if ok {
-        outcome
-            .definition
-            .as_ref()
-            .and_then(|def| super::livetest::plan(&snap, def).ok())
-            .map(|p| super::livetest::plan_json(&p))
+    let planned_run = if outcome.can_livetest() {
+        outcome.definition.as_ref().and_then(|def| super::livetest::plan(&snap, def).ok())
     } else {
         None
     };
+    let testable = ok || planned_run.is_some();
+    let state = wizard.end(&id, |s| {
+        if testable {
+            s.draft = Some(Draft { text: text.clone(), sha256: sha256_hex(text.as_bytes()) });
+            s.tested = None;
+            // a draft that failed some checks is not a verified one
+            s.state = if ok { State::Verified } else { State::Probed };
+        }
+        s.state
+    })?;
+    let planned = planned_run.as_ref().map(super::livetest::plan_json);
     Ok(outcome_json(&outcome, state, sha.as_deref(), rules::ALL.len(), planned))
 }
 

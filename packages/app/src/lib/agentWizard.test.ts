@@ -93,6 +93,7 @@ const verifyBad = (): VerifyResult => ({
   errors: [{ stage: 'validate', code: 'AGENT_DEF_INCONSISTENT', path: 'headless.output.result.path', line: 5, column: 1, message: 'needs a path', fix: 'add path' }],
   text: CHECKER_TEXT,
   sha256: undefined,
+  planned: undefined, // not valid at all: the live test may not run
 });
 
 const liveOk = (): LiveResult => ({
@@ -331,6 +332,42 @@ describe('runDraftLoop with a stand-in drafter', () => {
     await expect(runDraftLoop(o)).rejects.toThrow('WIZARD_PLAN_REQUIRED');
     expect(o.confirmLive).not.toHaveBeenCalled();
     expect(o.api.livetest).not.toHaveBeenCalled();
+  });
+
+  it('tests a draft that only fails the shared rules on the real program anyway, and feeds back both', async () => {
+    const RULES_ONLY = 'schema_version = 1\n# RULES_ONLY\n[agent]\nid = "fake_agent"\n';
+    const rulesText = 'The checker found 1 problem.\n\n1. [conformance] CONFORMANCE_EXTRACT_RESULT_REJECTS_GARBAGE_AND_FAILED_EXITS';
+    const combined = 'The live test ran your file against the real program and found 2 problems.\n\n1. [livetest] LIVETEST_PONG_FAILED\n2. [conformance] CONFORMANCE_EXTRACT_RESULT_REJECTS_GARBAGE_AND_FAILED_EXITS';
+    const drafter = standIn([block(RULES_ONLY), block(GOOD)]);
+    const verify = vi.fn(async (_s: string, toml: string) =>
+      toml.includes('RULES_ONLY')
+        ? { ...verifyBad(), planned: planFor(toml), can_livetest: true, text: rulesText }
+        : verifyOk(toml),
+    );
+    const livetest = vi
+      .fn<(s: string, plan: string) => Promise<LiveResult>>()
+      .mockResolvedValueOnce({ ...liveBad(), text: combined })
+      .mockResolvedValueOnce(liveOk());
+    const o = options({ ask: drafter.ask });
+    o.api = { verify, livetest };
+    const result = await runDraftLoop(o);
+    expect(result.status).toBe('tested');
+    // round 1 went to the live test although the check failed ...
+    expect(livetest.mock.calls[0][1]).toBe('plan-A');
+    expect(o.confirmLive).toHaveBeenCalledTimes(1);
+    expect(o.events.find((e) => e.step === 'check' && e.status === 'failed')?.detail).toContain('testing it on the real program anyway');
+    // ... and round 2 got the real output and the rule problem in one text
+    expect(drafter.prompts[1]).toContain(combined);
+    expect(drafter.prompts[1]).toContain('<<<SAMPLE pong');
+    expect(drafter.prompts[1]).toContain('# RULES_ONLY');
+  });
+
+  it('never tests a draft that is not valid at all', async () => {
+    const drafter = standIn([block(BROKEN), block(GOOD)]);
+    const o = options({ ask: drafter.ask });
+    await runDraftLoop(o);
+    expect(o.api.livetest).toHaveBeenCalledTimes(1);
+    expect(drafter.prompts[1]).toContain(CHECKER_TEXT.trim());
   });
 
   it('stops without a live test when the person says not now', async () => {

@@ -76,8 +76,12 @@ export interface VerifyResult {
   checked: { fixtures: number; rules: number };
   samples_replayed: number;
   sha256?: string;
-  /** Present when `ok`: what the live test would run for this draft. */
+  /**
+   * What the live test would run for this draft. Present when `ok`, and also when the draft only fails
+   * the shared rules or the fixture checks (`can_livetest`); absent for a draft that is not valid.
+   */
   planned?: PlannedRun;
+  can_livetest?: boolean;
 }
 
 export interface StageReport {
@@ -389,15 +393,27 @@ export async function runDraftLoop(opts: LoopOptions): Promise<LoopResult> {
     emit({ step: 'check', status: 'running', round });
     const verify = await opts.api.verify(opts.session, extracted.toml);
     if (stopped()) return { status: 'cancelled', rounds: round };
-    if (!verify.ok) {
+    // A draft that is not valid at all goes straight back. One that only fails the shared rules or the
+    // fixture checks (`planned` is present) is still tested on the real program, so the next round gets
+    // the program's real output together with those problems.
+    const planned = verify.planned;
+    if (!verify.ok && !planned) {
       emit({ step: 'check', status: 'failed', round, detail: `${verify.errors.length} problem${verify.errors.length === 1 ? '' : 's'}` });
       lastText = verify.text;
       feedback = { previousToml: extracted.toml, text: verify.text };
       continue;
     }
-    emit({ step: 'check', status: 'done', round });
-
-    const planned = verify.planned;
+    if (verify.ok) {
+      emit({ step: 'check', status: 'done', round });
+    } else {
+      emit({
+        step: 'check',
+        status: 'failed',
+        round,
+        detail: `${verify.errors.length} problem${verify.errors.length === 1 ? '' : 's'}, testing it on the real program anyway`,
+      });
+      lastText = verify.text;
+    }
     if (!planned) throw new Error('WIZARD_PLAN_REQUIRED: the checker did not say which commands the live test would run.');
     if (confirmedPlan !== planned.fingerprint) {
       if (!(await opts.confirmLive(planned))) return { status: 'declined', toml: extracted.toml, rounds: round, verify };

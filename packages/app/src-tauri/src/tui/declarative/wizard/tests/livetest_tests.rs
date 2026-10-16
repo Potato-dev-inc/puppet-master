@@ -498,3 +498,93 @@ fn the_sentence_must_match_word_for_word_but_not_in_case_quotes_or_the_final_sto
         assert!(!judge(&p, Stage::Sentence, want, &out(answer), Some(0), None, true).passed(), "{answer:?}");
     }
 }
+
+/// A draft for the fake CLI that the validator accepts but the shared rules reject: plain text with no
+/// anchored result selector reads garbage as an answer.
+pub(super) const UNANCHORED: &str = "schema_version = 1\n[agent]\nid = \"fake_agent\"\nlabel = \"F\"\nexperimental = true\n[binary]\nnames = [\"fake-agent\"]\nwindows_extensions = [\"exe\"]\n[headless]\nargv = [\"run\"]\ntask_separator = \"--\"\n[headless.output]\nformat = \"plain_text\"\n";
+
+#[test]
+fn a_draft_that_only_fails_the_shared_rules_is_still_live_tested() {
+    let tree = Tree::new("l-conformance-first");
+    let wizard = tree.wizard();
+    let id = start(&wizard, "fake-agent");
+    ok(&wizard, "probe", json!({"session": id}));
+    let v = ok(&wizard, "verify", json!({"session": id, "toml": UNANCHORED}));
+    assert_eq!(v["ok"], false);
+    assert!(v["errors"].as_array().unwrap().iter().any(|e| e["stage"] == "conformance"), "{}", v["text"]);
+    assert_eq!(v["can_livetest"], true, "the live test may run");
+    assert!(v["planned"]["fingerprint"].is_string());
+    assert_eq!(v["state"], "probed", "not verified");
+
+    // the live test runs (with the usual fingerprint) and reports the real output AND the rule problems
+    let t = live(&wizard, &id);
+    assert_eq!(t["ok"], false);
+    assert_eq!(t["state"], "probed");
+    assert_eq!(stage(&t, "pong")["status"], "passed", "the plain answer is read");
+    assert!(t["errors"].as_array().unwrap().iter().any(|e| e["stage"] == "conformance"), "{}", t["text"]);
+    assert!(t["text"].as_str().unwrap().contains("[conformance]"), "{}", t["text"]);
+    assert!(wizard.read(&id, |s| !s.samples.is_empty()).unwrap(), "the real output is kept");
+    // it cannot be finished
+    let err = call(&wizard, "finish", json!({"session": id, "provenance": super::support::provenance()})).unwrap_err();
+    assert_eq!(err.code, "WIZARD_BAD_STATE");
+}
+
+#[test]
+fn a_draft_that_fails_a_live_stage_and_the_shared_rules_reports_both_in_one_reply() {
+    let tree = Tree::new("l-both");
+    let wizard = tree.wizard();
+    let id = start(&wizard, "raw-agent");
+    ok(&wizard, "probe", json!({"session": id}));
+    // raw-agent prints "Thinking..." before the answer: the unanchored selector reads both lines
+    let draft = UNANCHORED.replace("fake-agent", "raw-agent").replace("fake_agent", "raw_agent");
+    let v = ok(&wizard, "verify", json!({"session": id, "toml": draft}));
+    assert_eq!(v["can_livetest"], true, "{}", v["text"]);
+    let t = live(&wizard, &id);
+    let text = t["text"].as_str().unwrap();
+    assert!(text.contains("[livetest] LIVETEST_PONG_FAILED"), "{text}");
+    assert!(text.contains("[conformance]"), "{text}");
+    assert!(text.contains("Thinking..."), "the real output is shown: {text}");
+}
+
+#[test]
+fn a_draft_that_does_not_validate_is_never_live_tested() {
+    let tree = Tree::new("l-invalid-blocks");
+    let wizard = tree.wizard();
+    let id = start(&wizard, "fake-agent");
+    ok(&wizard, "probe", json!({"session": id}));
+    for bad in [super::support::NO_PATH, super::support::WRONG_BINARY, "schema_version = 1\nnonsense = 1\n", "not toml ["] {
+        let v = ok(&wizard, "verify", json!({"session": id, "toml": bad}));
+        assert_eq!(v["ok"], false);
+        assert!(v.get("planned").is_none() && v.get("can_livetest").is_none(), "{bad}");
+    }
+    // nothing was stored, so the live test has nothing to run
+    let err = call(&wizard, "livetest", json!({"session": id, "confirm": true, "plan": "0".repeat(64)})).unwrap_err();
+    assert_eq!((err.status, err.code), (409, "WIZARD_BAD_STATE"));
+    assert!(wizard.read(&id, |s| s.draft.is_none() && s.samples.is_empty()).unwrap());
+}
+
+#[test]
+fn a_testable_but_unclean_draft_replaces_the_verified_one_and_drops_its_test() {
+    let tree = Tree::new("l-replace");
+    let wizard = tree.wizard();
+    let id = tested(&wizard, "fake-agent", GOOD);
+    assert_eq!(wizard.read(&id, |s| s.state.as_str()).unwrap(), "tested");
+    let v = ok(&wizard, "verify", json!({"session": id, "toml": UNANCHORED}));
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["state"], "probed");
+    assert!(wizard.read(&id, |s| s.tested.is_none() && s.draft.as_ref().unwrap().text == UNANCHORED).unwrap());
+    // the old draft's fingerprint no longer opens the live test
+    let old = call(&wizard, "livetest", json!({"session": id, "confirm": true, "plan": "0".repeat(64)})).unwrap_err();
+    assert_eq!(old.code, "WIZARD_PLAN_MISMATCH");
+}
+
+#[test]
+fn a_clean_draft_still_goes_to_tested_and_finish_through_the_same_path() {
+    let tree = Tree::new("l-clean");
+    let wizard = tree.wizard();
+    let id = verified(&wizard, "fake-agent", GOOD);
+    let t = live(&wizard, &id);
+    assert_eq!(t["ok"], true, "{}", t["text"]);
+    assert_eq!(t["state"], "tested");
+    assert_eq!(t["errors"], json!([]), "no rule or fixture problem is added for a clean draft");
+}

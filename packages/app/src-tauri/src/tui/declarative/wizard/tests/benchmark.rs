@@ -292,7 +292,9 @@ pub fn run_round(wizard: &Wizard, command: &str, round: &Path, draft: &str, refe
     }
     let verify = super::support::ok(wizard, "verify", serde_json::json!({"session": id, "toml": draft}));
     let mut samples = serde_json::json!([]);
-    let (result, text, live_json) = if verify["ok"] != true {
+    // A draft that fails only the shared rules is still tested live: the real output goes into the
+    // feedback together with those problems. Only a draft that does not validate skips the live test.
+    let (result, text, live_json) = if verify["ok"] != true && verify.get("planned").is_none() {
         ("FAIL verify", verify["text"].as_str().unwrap_or("").to_string(), serde_json::Value::Null)
     } else {
         let live = super::support::ok(wizard, "livetest", super::support::live_body(wizard, &id));
@@ -313,6 +315,7 @@ pub fn run_round(wizard: &Wizard, command: &str, round: &Path, draft: &str, refe
         if live["ok"] == true {
             ("PASS", String::new(), live)
         } else {
+            // the live reply's text already holds the shared-rule and fixture problems too
             ("FAIL livetest", live["text"].as_str().unwrap_or("").to_string(), live)
         }
     };
@@ -387,4 +390,19 @@ fn a_failing_round_writes_what_the_next_prompt_needs_with_the_answers_masked() {
     let feedback: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(round2.join("feedback.json")).unwrap()).unwrap();
     assert!(feedback["text"].as_str().unwrap().contains("AGENT_DEF_INCONSISTENT"));
     assert_eq!(feedback["samples"], serde_json::json!([]));
+}
+
+#[test]
+fn a_round_whose_draft_fails_only_the_shared_rules_still_runs_the_live_test() {
+    let tree = super::support::Tree::new("bench-rules-only");
+    let wizard = tree.wizard();
+    let round = tree.root.join("round-1");
+    std::fs::create_dir_all(&round).unwrap();
+    let (result, _) = run_round(&wizard, "fake-agent", &round, super::livetest_tests::UNANCHORED, None);
+    assert_eq!(result, "FAIL livetest");
+    let feedback: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(round.join("feedback.json")).unwrap()).unwrap();
+    assert!(feedback["text"].as_str().unwrap().contains("[conformance]"), "{}", feedback["text"]);
+    assert!(!feedback["samples"].as_array().unwrap().is_empty(), "the real output is in the feedback");
+    assert!(std::fs::read_to_string(round.join("verify.txt")).unwrap().starts_with("NOT OK"));
+    assert_ne!(std::fs::read_to_string(round.join("live.json")).unwrap().trim(), "null");
 }

@@ -565,11 +565,15 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             "send the fingerprint of the planned commands (the `planned.fingerprint` that verify returned) that the person saw",
         ));
     };
-    let snap = wizard.begin(&id, "livetest", &[State::Verified])?;
+    let snap = wizard.begin(&id, "livetest", &[State::Probed, State::Verified, State::Tested])?;
     let env = wizard.env();
     let Some(draft) = snap.draft.clone() else {
         wizard.release(&id);
-        return Err(WizardError::new(409, "WIZARD_BAD_STATE", "there is no verified draft; call verify first"));
+        return Err(WizardError::new(
+            409,
+            "WIZARD_BAD_STATE",
+            "there is no draft the live test may run; call verify first (a draft that does not validate cannot be tested)",
+        ));
     };
     let current = parse_definition(&draft.text)
         .map_err(|e| e.to_string())
@@ -589,7 +593,18 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
             return Err(WizardError::new(409, "WIZARD_BINARY_UNRESOLVED", message));
         }
     }
-    let outcome = execute(&snap, &env, &draft, &snap.cancel);
+    let mut outcome = execute(&snap, &env, &draft, &snap.cancel);
+    // Then the shared rules and the fixture checks, now that the real output is in the session, so one
+    // reply carries every problem. (The live stages already report a replayed sample's failure.)
+    let mut with_samples = snap.clone();
+    with_samples.samples = outcome.samples.clone();
+    let checks = super::verify::check_draft(&with_samples, &env, &draft.text);
+    outcome.errors.extend(
+        checks
+            .errors
+            .into_iter()
+            .filter(|e| e.stage == "conformance" || (e.stage == "fixture" && !e.path.ends_with(".sample"))),
+    );
     let ok = outcome.ok() && !outcome.stages.iter().any(|s| s.note.as_deref() == Some("cancelled"));
     let summaries: Vec<StageSummary> = outcome
         .stages
