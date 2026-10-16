@@ -295,6 +295,102 @@ fn the_benchmark_helpers_capture_and_run_rounds_on_the_fake_agent() {
     let _: Option<&WizardRig> = None;
 }
 
+/// An agent that writes hello.txt without asking and leaves a "Working..." line on its screen for good:
+/// the permission step must end by itself (the file is the evidence), not wait for a question.
+const SILENT_SCRIPT: &str = r#"
+agent = "nimbus"
+boot_ms = 200
+
+[[startup]]
+gate = "trust"
+after_ms = 150
+
+[[turn]]
+on_prompt = "hello.txt"
+steps = [
+  { do = "think", ms = 800 },
+  { do = "write_file", path = "hello.txt", content = "{last_word}\n" },
+  { do = "screen", text = "status: Working..." },
+]
+
+[[turn]]
+on_prompt = "exactly the word"
+steps = [
+  { do = "think", ms = 2200 },
+  { do = "say", text = "{last_word}" },
+]
+"#;
+
+/// An agent that shows a picture nothing in the wizard knows (no [y/n], no numbered yes/no) and holds it
+/// still until a key arrives.
+const ODD_SCRIPT: &str = r#"
+agent = "nimbus"
+boot_ms = 200
+
+[[startup]]
+gate = "trust"
+after_ms = 150
+
+[[turn]]
+on_prompt = "hello.txt"
+steps = [
+  { do = "think", ms = 800 },
+  { do = "hold", text = "Where should hello.txt go?\n\n   project folder      scratch folder      cancel\n\nuse the arrow keys" },
+]
+
+[[turn]]
+on_prompt = "exactly the word"
+steps = [
+  { do = "think", ms = 2200 },
+  { do = "say", text = "{last_word}" },
+]
+"#;
+
+#[test]
+fn an_agent_that_writes_the_file_without_asking_ends_the_permission_step_by_itself() {
+    let session = World::get().session("wizard-silent");
+    let rig = session.wizard_rig("nimbus", SILENT_SCRIPT);
+    let out = session.aux().join("silent");
+    // no permission answer is given: if the wizard waited for a question, this would stop with an error
+    let dump = rig.bench_capture(&session, "nimbus", &out, &Answers::parse("trust=1"), &[], 120).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(dump["raw"]["writes_without_asking"], true, "{}", dump["raw"]);
+    assert_eq!(dump["masked"]["facts"]["writes_without_asking"], true);
+    assert!(dump["raw"]["notes"].to_string().contains("did not ask before writing a file"), "{}", dump["raw"]["notes"]);
+    let names: Vec<String> = dump["masked"]["files"].as_array().unwrap().iter().map(|f| f["name"].as_str().unwrap().to_string()).collect();
+    assert!(!names.contains(&"tui_permission".to_string()), "{names:?}");
+    assert_eq!(events_named(&session, "approval_shown").len(), 0, "the agent never asked");
+    assert!(!out.join("capture-debug.json").exists(), "a capture that finished leaves no evidence file");
+}
+
+#[test]
+fn a_picture_nothing_recognises_stops_with_evidence_and_the_person_can_answer_it() {
+    let session = World::get().session("wizard-odd");
+    let rig = session.wizard_rig("nimbus", ODD_SCRIPT);
+    let out = session.aux().join("odd");
+    // 1. nobody answers: the bench stops, says which answer it needs, and keeps what it saw
+    let err = rig.bench_capture(&session, "nimbus", &out, &Answers::parse("trust=1"), &[], 120).unwrap_err();
+    assert!(err.contains("PM_WIZARD_BENCH_ANSWERS=question=<keys>"), "{err}");
+    let debug: Value = serde_json::from_str(&std::fs::read_to_string(out.join("capture-debug.json")).expect("capture-debug.json")).unwrap();
+    let frames = debug["debug"]["frames"].as_array().expect("frames");
+    assert!(frames.len() > 3 && frames.len() <= 40, "{}", frames.len());
+    let last = frames.last().unwrap();
+    assert_eq!(last["step"], "permission");
+    assert!(last["raw"].as_str().unwrap().contains("Where should hello.txt go?"));
+    assert!(last["quiet_ms"].as_u64().unwrap() >= 3000, "{last}");
+    assert!(frames.iter().all(|f| f.get("classifier").is_some() && f.get("reading").is_some()));
+    let partial: Value = serde_json::from_str(&std::fs::read_to_string(out.join("captures.json")).expect("a partial captures.json")).unwrap();
+    assert_eq!(partial["partial"], true);
+    let names: Vec<&str> = partial["raw"]["frames"].as_array().unwrap().iter().filter_map(|f| f["name"].as_str()).collect();
+    assert!(names.contains(&"tui_idle") && names.contains(&"tui_reply"), "{names:?}");
+    session.until(20, || session.pane_ids().is_empty().then_some(())).expect("the stopped capture closed its pane");
+
+    // 2. the person answers (the bench types Enter for them): the question is kept as the permission picture
+    let dump = rig.bench_capture(&session, "nimbus", &out, &Answers::parse("trust=1,question=<enter>"), &[], 120).unwrap_or_else(|e| panic!("{e}"));
+    let permission = dump["raw"]["frames"].as_array().unwrap().iter().find(|f| f["name"] == "tui_permission").expect("tui_permission");
+    assert!(permission["text"].as_str().unwrap().contains("Where should hello.txt go?"));
+    assert_eq!(dump["raw"]["writes_without_asking"], false);
+}
+
 fn env_or_skip(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("set {name}"))
 }

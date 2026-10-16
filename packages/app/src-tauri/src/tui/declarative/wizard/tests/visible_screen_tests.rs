@@ -2,7 +2,7 @@
 //! repository (Claude Code, Codex, Cursor, Kilo) and on small made-up screens.
 
 use crate::tui::declarative::wizard::visible::screen::{
-    bottom_matches, classify, frame_key, last_row_with, row_with, rows_with, Flavour, FrameBag, ScreenKind, Stability,
+    bottom_matches, classify, frame_key, ready_shape, last_row_with, row_with, rows_with, Flavour, FrameBag, ScreenKind, Stability,
 };
 
 fn fixture(rel: &str) -> String {
@@ -165,4 +165,16 @@ fn the_bottom_of_a_screen_can_be_compared_with_the_ready_picture() {
     assert!(bottom_matches(idle, after, 4), "the box and the footer are what count; a counter may differ");
     assert!(!bottom_matches(idle, "banner\nI will create the file now. Working...\n| > Type a task |\n", 4));
     assert!(!bottom_matches("", after, 4));
+}
+
+#[test]
+fn the_ready_shape_is_the_empty_input_box_not_a_row_that_starts_with_a_glyph() {
+    let idle = "NIMBUS 0.4 ready\n\n+----------+\n| > Type a task... |\n+----------+\n";
+    let after = "NIMBUS 0.4\n> Reply with exactly the word: pong\nreply: pong\n\ndone in 2s\n+----------+\n| > Type a task... |\n+----------+\n  /help";
+    assert!(ready_shape(idle, after), "the box is back, whatever is above it");
+    assert!(!ready_shape(idle, "NIMBUS 0.4\n> Create a file named hello.txt.\nWhere should it go?\n  here   there\n"));
+    // a box without placeholder words: the same bare prompt row must be there
+    let bare = "banner\n\n> \n";
+    assert!(ready_shape(bare, "banner\nstuff\nmore\n\n> \n"));
+    assert!(!ready_shape(bare, "banner\n> do the thing please\n"));
 }

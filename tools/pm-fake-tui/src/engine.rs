@@ -26,6 +26,8 @@ enum Phase {
     Approval { dialog: Dialog, on_allow: Vec<Step>, on_deny: Vec<Step> },
     /// Waiting for the usage limit to reset ("continuing automatically ... esc to cancel").
     LimitWait,
+    /// The screen is held still (a question nothing knows) until any key.
+    Hold,
     /// The process is going away; the screen stays as it was.
     Exited { frozen: Option<GateView> },
 }
@@ -246,6 +248,7 @@ impl Engine {
             Phase::Busy => 4,
             Phase::Approval { .. } => 5,
             Phase::LimitWait => 6,
+            Phase::Hold => 7,
         };
         match kind {
             // A composer that is already on screen takes typing; Enter does not submit yet.
@@ -254,6 +257,7 @@ impl Engine {
             3 => self.ready_key(key, now),
             4 if matches!(key, Key::Esc | Key::CtrlC) && self.script.interrupt => self.interrupt(now),
             5 => self.approval_key(key, now),
+            7 => self.finish_turn(now, true),
             6 if key == Key::Esc => {
                 self.notice = None;
                 self.blocks.push(Block::Note(
@@ -540,6 +544,12 @@ impl Engine {
                     return;
                 }
                 Step::Screen { text } => self.blocks.push(Block::Raw(text.lines().map(str::to_string).collect())),
+                Step::Hold { text } => {
+                    self.blocks.push(Block::Raw(text.lines().map(str::to_string).collect()));
+                    self.sleep = None;
+                    self.phase = Phase::Hold;
+                    return;
+                }
             }
         }
     }
@@ -639,6 +649,7 @@ impl Engine {
             Phase::BeforeGate { .. } | Phase::Warming { .. } | Phase::Ready | Phase::Busy | Phase::LimitWait => Mode::Ready,
             Phase::Gate { gate, selected } => Mode::Gate(GateView { kind: gate.gate, selected: *selected }),
             Phase::Approval { dialog, .. } => Mode::Approval(dialog.clone()),
+            Phase::Hold => Mode::Hold,
             Phase::Exited { frozen: Some(gate) } => Mode::Gate(gate.clone()),
             Phase::Exited { frozen: None } => Mode::Ready,
         };
@@ -939,6 +950,20 @@ mod nimbus_tests {
         no.on_key(Key::Char('n'), 30);
         let screen = no.plain(40);
         assert!(screen.contains("denied: hello.txt") && !screen.contains("made it"), "{screen}");
+    }
+
+    #[test]
+    fn a_held_screen_has_no_composer_and_no_spinner_and_never_changes_until_a_key() {
+        let toml = "[[turn]]\nsteps = [{ do = \"hold\", text = \"Where should hello.txt go?\\n  project folder   scratch folder\" }]";
+        let mut e = engine(toml);
+        type_text(&mut e, "make hello.txt", 0);
+        e.on_key(Key::Enter, 10);
+        let first = e.plain(500);
+        assert!(first.contains("Where should hello.txt go?") && !first.contains("Type a task") && !first.contains("ctrl+c to stop"), "{first}");
+        assert_eq!(e.plain(60_000), first, "nothing moves");
+        e.on_key(Key::Enter, 61_000);
+        let after = e.plain(61_000);
+        assert!(after.contains("| > Type a task...") && after.contains("done in"), "{after}");
     }
 
     #[test]

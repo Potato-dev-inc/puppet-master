@@ -112,6 +112,8 @@ pub enum Mode {
     /// A startup screen (trust, update menu) is up and the composer is not.
     Gate(GateView),
     Approval(Dialog),
+    /// Rows only: no composer, nothing moving (nimbus).
+    Hold,
 }
 
 pub struct View<'a> {
@@ -543,6 +545,9 @@ fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
         rows.push(format!("{glyph} {verb}...  {}s  ctrl+c to stop", elapsed / 1000));
     }
     rows.push(String::new());
+    if matches!(view.mode, Mode::Hold) {
+        return (rows, None);
+    }
     if let Mode::Approval(dialog) = &view.mode {
         let what = match dialog.kind {
             ApprovalKind::Bash => format!("run `{}`", dialog.command.lines().next().unwrap_or_default()),

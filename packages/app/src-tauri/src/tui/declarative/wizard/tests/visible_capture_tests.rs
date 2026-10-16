@@ -427,6 +427,11 @@ fn a_pane_that_changes_size_mid_capture_says_so_and_the_set_records_the_grid_it_
 
 /// The words of a busy screen on a picture that never changes: a hung or finished agent, not a working one.
 const FROZEN: &str = "NIMBUS 0.4\n\n> Create a file named hello.txt in the current folder.\n\nI will create hello.txt now. Working...\n\n| > Type a task...             |\n";
+/// Busy words and nothing else: no input box under them.
+const NO_BOX: &str = "NIMBUS 0.4
+
+I will create hello.txt now. Working...
+";
 /// A question nothing in the classifier knows: no [y/n], no numbered yes/no, no Allow/Deny.
 const ODD_QUESTION: &str = "NIMBUS 0.4\n\nWhere should hello.txt go?\n\n   project folder      scratch folder      cancel\n\nuse the arrow keys\n";
 
@@ -592,7 +597,7 @@ fn a_retry_forgets_the_file_of_the_earlier_try() {
 fn the_last_looks_are_kept_with_the_verdict_for_each() {
     let mut d = Drive::new();
     to_permission(&mut d);
-    d.show(FROZEN, 20_000);
+    d.show(NO_BOX, 20_000);
     let frames = d.c.debug_frames();
     assert!(!frames.is_empty() && frames.len() <= 40, "{}", frames.len());
     let last = frames.last().unwrap();
@@ -603,4 +608,30 @@ fn the_last_looks_are_kept_with_the_verdict_for_each() {
     // a long run never grows the ring
     d.show(IDLE, 600_000);
     assert!(d.c.debug_frames().len() <= 40);
+}
+
+#[test]
+fn a_working_looking_screen_with_the_empty_input_box_back_is_a_finished_agent() {
+    let mut d = Drive::new();
+    to_permission(&mut d);
+    d.show(FROZEN, 14_000);
+    assert_eq!(d.status(StepId::Permission), StepStatus::Done);
+    assert!(!d.c.into_set().writes_without_asking, "no file, so no claim about writing");
+}
+
+#[test]
+fn a_row_that_only_starts_with_the_prompt_glyph_is_not_the_empty_input_box() {
+    // the echo of the task the wizard just typed looks like an input row to the classifier; the shape kept at
+    // the Ready step is what decides that the agent is waiting again
+    let mut d = Drive::new();
+    to_permission(&mut d);
+    let held = "NIMBUS 0.4\n\n> Create a file named hello.txt in the current folder.\n\nWhere should hello.txt go?\n  project folder   scratch folder\n";
+    assert_eq!(crate::tui::declarative::wizard::visible::screen::classify(held), ScreenKind::Input, "the weak reading this guards against");
+    let got = d.show(held, 30_000);
+    assert!(got.is_empty());
+    assert_eq!(d.c.needs_you().map(|n| n.kind.as_str()), Some("question"), "asked, not finished");
+    assert_eq!(d.status(StepId::Permission), StepStatus::NeedsYou);
+    // nor is it typed into afterwards
+    d.c.act(None, CaptureAction::Skip, d.now).unwrap();
+    assert!(d.show(held, 60_000).is_empty(), "the exit step does not type /exit into it");
 }

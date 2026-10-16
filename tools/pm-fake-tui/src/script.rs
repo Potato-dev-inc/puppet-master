@@ -222,6 +222,9 @@ pub enum Step {
     },
     /// Add literal rows to the transcript (a captured screen, a banner). No styling.
     Screen { text: String },
+    /// Show these rows and stop: no composer, no spinner, nothing moving, until a key arrives (then the
+    /// turn ends). A menu or question no profile has ever seen; only the nimbus layout draws it.
+    Hold { text: String },
 }
 
 fn crash_code() -> i32 {

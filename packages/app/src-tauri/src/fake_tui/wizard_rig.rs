@@ -52,7 +52,7 @@ impl Session {
         env.path_dirs = None;
         env.app_build = "fake-tui-e2e".into();
         env.visible = RunnerCfg {
-            capture: Config { stable_ms: 1200, ..Config::default() },
+            capture: Config { stable_ms: 1200, frozen_ms: 3000, idle_done_ms: 3000, question_ms: 4000, ..Config::default() },
             // The fake is quick: a profile that never reads it as ready fails in seconds, not minutes.
             test: TestLimits { ready: Duration::from_secs(12), done: Duration::from_secs(60), permission: Duration::from_secs(30), ..TestLimits::default() },
             tick: Duration::from_millis(100),

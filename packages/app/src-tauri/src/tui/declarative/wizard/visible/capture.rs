@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 
 use super::super::session::TestWords;
 use super::host::Look;
-use super::screen::{bottom_matches, classify, frame_key, Flavour, FrameBag, ScreenKind, Stability};
+use super::screen::{classify, frame_key, ready_shape, Flavour, FrameBag, ScreenKind, Stability};
 
 /// How long a picture must hold still before the engine acts on it.
 pub const STABLE_MS: u64 = 2500;
@@ -453,6 +453,9 @@ pub struct Capture {
     debug: VecDeque<DebugFrame>,
     last_debug_text: String,
     last_debug_ms: u64,
+    /// What the classifier said about the latest screen, and when it was looked at.
+    seen_kind: ScreenKind,
+    last_now: u64,
 }
 
 /// The cleaned text of a frame (`exec::clean`: ANSI gone, secrets masked, user folder scrubbed).
@@ -523,34 +526,47 @@ impl Capture {
             debug: VecDeque::new(),
             last_debug_text: String::new(),
             last_debug_ms: 0,
+            seen_kind: ScreenKind::Blank,
+            last_now: 0,
         }
     }
 
     /// The last looks, oldest first, for "why did it stop" (cleaned, real words in them).
+    /// The newest is always the screen as it is right now, with the engine's current reading of it.
     pub fn debug_frames(&self) -> Vec<DebugFrame> {
-        self.debug.iter().cloned().collect()
+        let mut frames: Vec<DebugFrame> = self.debug.iter().cloned().collect();
+        if self.began_ms.is_some() && frames.last().map_or(true, |f| f.ms != self.last_now) {
+            frames.push(self.snapshot_frame(self.last_now));
+            if frames.len() > DEBUG_FRAMES {
+                frames.remove(0);
+            }
+        }
+        frames
     }
 
-    fn record_debug(&mut self, raw_kind: ScreenKind, now: u64) {
-        let text = clean(&self.screen);
-        // a new picture, or a heartbeat every 5 s so a frozen screen still shows how long it was frozen
-        if text == self.last_debug_text && now.saturating_sub(self.last_debug_ms) < 5_000 && !self.debug.is_empty() {
-            return;
-        }
-        self.last_debug_text.clone_from(&text);
-        self.last_debug_ms = now;
+    fn snapshot_frame(&self, now: u64) -> DebugFrame {
         let step = self.current();
-        let frame = DebugFrame {
+        DebugFrame {
             ms: now,
             step: step.as_str(),
             step_status: self.steps[step.index()].status.as_str(),
-            kind: raw_kind.as_str(),
+            kind: self.seen_kind.as_str(),
             reading: if self.frozen { "frozen" } else { self.kind.as_str() },
             stable_ms: self.stab.stable_for(now),
             quiet_ms: self.stab.quiet_for(now),
             needs: self.needs.as_ref().map(|n| n.kind.clone()),
-            text,
-        };
+            text: clean(&self.screen),
+        }
+    }
+
+    fn record_debug(&mut self, now: u64) {
+        let frame = self.snapshot_frame(now);
+        // a new picture, or a heartbeat every 5 s so a frozen screen still shows how long it was frozen
+        if frame.text == self.last_debug_text && now.saturating_sub(self.last_debug_ms) < 5_000 && !self.debug.is_empty() {
+            return;
+        }
+        self.last_debug_text.clone_from(&frame.text);
+        self.last_debug_ms = now;
         if self.debug.len() >= DEBUG_FRAMES {
             self.debug.pop_front();
         }
@@ -633,6 +649,14 @@ impl Capture {
         let fingerprint = self.stab.fingerprint();
         let mut gate = self.gate(now);
         gate.fingerprint = &fingerprint;
+        // Once the Ready step has kept the picture of the empty input box, THAT shape is what counts: a row
+        // that starts with `>` (an echoed task) does not make a screen an input box, and a screen with the
+        // old shape and a stale "Working..." line above it still is one.
+        match (gate.kind, self.ready_shape()) {
+            (ScreenKind::Input, Some(false)) => gate.kind = ScreenKind::Unknown,
+            (ScreenKind::Unknown, Some(true)) => gate.kind = ScreenKind::Input,
+            _ => {}
+        }
         may_type(&gate)
     }
 
@@ -717,7 +741,9 @@ impl Capture {
         if self.frozen {
             self.kind = ScreenKind::Unknown;
         }
-        self.record_debug(seen_kind, now);
+        self.seen_kind = seen_kind;
+        self.last_now = now;
+        self.record_debug(now);
         // the unrecognised question belongs to one picture
         if self.unrecognised.as_deref().is_some_and(|fp| fp != self.stab.fingerprint()) {
             self.unrecognised = None;
@@ -1009,10 +1035,15 @@ impl Capture {
         }
     }
 
-    /// Is the screen back at the shape of the Ready step (its bottom rows)?
-    fn idle_shape(&self) -> bool {
+    /// Does the screen have the shape of the Ready step (its bottom rows)? `None` before that step kept one.
+    fn ready_shape(&self) -> Option<bool> {
         let screen = clean(&self.screen);
-        self.frame("tui_idle").is_some_and(|f| bottom_matches(&f.text, &screen, 5))
+        self.frame("tui_idle").map(|f| ready_shape(&f.text, &screen))
+    }
+
+    /// The agent is waiting for a task again: the Ready step's shape, or (with none kept) an input box.
+    fn at_ready(&self) -> bool {
+        self.ready_shape().unwrap_or(self.kind == ScreenKind::Input)
     }
 
     /// The permission step has its own deadline: after `permission_wait_ms` without a question on screen
@@ -1051,7 +1082,7 @@ impl Capture {
     fn finish_permission(&mut self, said: bool, now: u64) {
         let typed_for = now.saturating_sub(self.turn.typed_at);
         let quiet = matches!(self.kind, ScreenKind::Input | ScreenKind::Unknown);
-        let idle = self.kind == ScreenKind::Input || said || self.idle_shape();
+        let idle = said || self.at_ready();
         if self.turn.dialog_recorded {
             // The person has answered (the question is gone) and the agent is back at its input box, or the
             // file the question was about has been written.
@@ -1121,7 +1152,13 @@ impl Capture {
                     self.set_note("Typing /exit.");
                     return vec![Action::Deliver { text: "/exit".to_string() }];
                 }
-                Err(refusal) => self.set_note(refusal.say()),
+                Err(refusal) => {
+                    self.set_note(refusal.say());
+                    // a settled screen that is not clearly the empty input box: the person decides
+                    if refusal == Refusal::NotInput && self.stab.stable_for(now) >= self.cfg.unsure_ms && self.needs.is_none() {
+                        self.ask("unsure", format!("{} Or close the agent yourself and press \"I closed it\".", refusal.say()));
+                    }
+                }
             }
         } else if self.steps[self.cur].note.is_empty() {
             self.set_note("Optional: press \"Try /exit\", or close the agent yourself. You can also skip this.");
@@ -1300,7 +1337,7 @@ impl Capture {
         let mut can: Vec<&str> = Vec::new();
         if !self.settled() {
             can.extend(["skip", "retry", "stuck"]);
-            if matches!(step, StepId::Start | StepId::Ready | StepId::Message | StepId::Permission) && !self.kind.is_dialog() {
+            if matches!(step, StepId::Start | StepId::Ready | StepId::Message | StepId::Permission | StepId::Exit) && !self.kind.is_dialog() {
                 can.push("ready");
             }
             if step == StepId::Exit {

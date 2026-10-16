@@ -432,6 +432,25 @@ fn variant_rows<'a>(best: &str, frames: impl Iterator<Item = &'a str>) -> Vec<St
     variants
 }
 
+/// Does `screen` have the shape of `idle`, the picture kept when the agent first waited for a task?
+/// What counts is the EMPTY input box near the bottom: its placeholder words ("Type a task...", "Ask
+/// anything") or, for a box that has none, the same bare prompt row. A row that merely starts with `>`
+/// (the task that was just typed, a question's answer line) is not an empty input box.
+pub fn ready_shape(idle: &str, screen: &str) -> bool {
+    let tail = last_rows(screen, 8);
+    let idle_tail = last_rows(idle, 12);
+    let placeholder = |row: &&str| INPUT_WORDS.is_match(row) && row.chars().count() < 160;
+    if idle_tail.iter().any(|r| placeholder(&r)) {
+        return tail.iter().any(placeholder);
+    }
+    let wanted: Vec<Vec<String>> = idle_tail.iter().filter(|r| INPUT_GLYPH.is_match(r)).map(|r| frame_key(r)).collect();
+    if !wanted.is_empty() {
+        let have: Vec<Vec<String>> = tail.iter().map(|r| frame_key(r)).collect();
+        return wanted.iter().all(|w| have.contains(w));
+    }
+    bottom_matches(idle, screen, 4)
+}
+
 /// Do the last `n` rows of `screen` look like the last `n` rows of `idle` (the picture seen when the
 /// agent waited for its first task)? One row may differ (a clock, a context counter). Used to tell
 /// that a turn is over when the screen is back at the shape of the Ready step.
