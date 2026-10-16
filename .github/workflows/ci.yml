@@ -48,7 +48,7 @@ jobs:
         run: npm run typecheck --workspace=@puppet-master/app
 
   rust:
-    name: Rust (cargo test --lib, --bins)
+    name: Rust (nextest --lib --bins)
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -83,20 +83,26 @@ jobs:
         env:
           PUPPET_MASTER_RUST_MCP_PROFILE: debug
 
-      - name: Unit tests in the library
-        working-directory: packages/app/src-tauri
-        run: cargo test --lib
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
 
-      - name: Unit tests in the binaries
+      # cargo-nextest: every test in its own process, no retries (packages/app/src-tauri/.config/nextest.toml).
+      - name: Unit tests in the library and the binaries
         working-directory: packages/app/src-tauri
-        run: cargo test --bins
+        run: cargo nextest run --profile ci --lib --bins
 
   fake-tui:
-    # Dev-only fake agent (tools/pm-fake-tui). Needs a real ConPTY and a PowerShell host, which the
-    # windows-latest runner has. Not verified on a GitHub runner yet: check the first run.
-    name: Fake agent e2e (pm-fake-tui)
+    # Dev-only fake agent (tools/pm-fake-tui) on a real ConPTY and a PowerShell host, which the
+    # windows-latest runner has. Every test runs in its own process with its own app-data folder
+    # (src/fake_tui/world.rs), so the suite is split across four runners and runs in parallel on each.
+    name: Fake agent e2e (${{ matrix.shard }}/4)
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -128,15 +134,26 @@ jobs:
         env:
           PUPPET_MASTER_RUST_MCP_PROFILE: debug
 
-      # Unit tests of the fake agent itself: engine, script format and renderer, no console needed.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      # Unit tests of the fake agent itself (engine, script format, renderer), once.
       - name: pm-fake-tui unit tests
+        if: matrix.shard == 1
         working-directory: tools/pm-fake-tui
         run: cargo test
 
-      # Runs fake_tui_e2e.rs. It also includes the Missions tests (tests/fake_tui_missions.rs) through
-      # #[path], so there is no separate `--test fake_tui_missions` run: that file is auto-discovered as
-      # its own target too, and it needs the dev-fake-tui feature, which only this script passes.
-      # The harness builds pm-fake-tui itself on first use (src/fake_tui/world.rs). Single-threaded:
-      # every test shares one ConPTY world.
+      # Built once here so the test processes do not each run `cargo build` for it (src/fake_tui/world.rs).
+      - name: Build pm-fake-tui
+        working-directory: tools/pm-fake-tui
+        run: |
+          cargo build
+          "PM_FAKE_TUI_EXE=$PWD\target\debug\pm-fake-tui.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # fake_tui_e2e.rs, which also includes the Missions and Wizard tests (tests/fake_tui_missions.rs,
+      # tests/fake_tui_wizard.rs) through #[path], so there is no separate --test run for them (cargo
+      # discovers those files as targets too, without the dev-fake-tui feature they need).
       - name: Fake agent end-to-end tests
-        run: npm run test:fake-tui
+        working-directory: packages/app/src-tauri
+        run: cargo nextest run --profile ci --features dev-fake-tui --test fake_tui_e2e --partition count:${{ matrix.shard }}/4
