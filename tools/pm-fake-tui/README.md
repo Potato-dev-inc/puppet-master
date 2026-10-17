@@ -22,7 +22,7 @@ Wording and glyphs are copied from the captures in `src-tauri/src/tui/{claude,co
 
 ## Keys
 
-Typing goes into the composer (Backspace, Ctrl+U, bracketed paste work). Enter submits, except inside the **paste burst**: Codex reads an Enter within 120 ms of typed text as a line break (`paste_burst_ms`, `paste_burst_effect = "newline" | "drop"`). Esc or Ctrl+C interrupts a running turn (`interrupt = false`: the agent ignores it). In a Claude dialog Up/Down move the pointer, Enter confirms it, `1`-`9` select and confirm, Esc refuses. In Codex dialogs `y` / `a` / `n` answer too. Ctrl+C on an empty composer twice exits.
+Typing goes into the composer (Backspace, Ctrl+U, bracketed paste work). In the `claude` layout a paste (a bracketed paste, or text arriving with no more than 50 ms between keys, as a program's write does) of more than 800 characters or more than `min(rows - 10, 2)` line breaks shows as `[Pasted text #N +M lines]`, as Claude Code 2.1.302 draws it; Enter sends the whole text, and Backspace removes the placeholder whole. Enter submits, except inside the **paste burst**: Codex reads an Enter within 120 ms of typed text as a line break (`paste_burst_ms`, `paste_burst_effect = "newline" | "drop"`). Esc or Ctrl+C interrupts a running turn (`interrupt = false`: the agent ignores it). In a Claude dialog Up/Down move the pointer, Enter confirms it, `1`-`9` select and confirm, Esc refuses. In Codex dialogs `y` / `a` / `n` answer too. Ctrl+C on an empty composer twice exits.
 
 ## Script format
 
