@@ -167,12 +167,6 @@ pub fn path_for_host_config(path: impl AsRef<std::path::Path>) -> String {
 mod tests {
     use super::*;
 
-    // PLANTED FAILURE (reverted in the next commit): proves a failing lib test turns its CI shard red.
-    #[test]
-    fn planted_failure_proves_the_lib_shard_goes_red() {
-        assert_eq!(app_id_for(None), "com.puppetmaster.app.planted", "planted: must fail");
-    }
-
     #[test]
     fn app_data_dir_is_absolute_and_named() {
         let dir = app_data_dir();
