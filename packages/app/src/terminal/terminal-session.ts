@@ -114,13 +114,6 @@ export class TerminalSession {
   }
 
   /**
-   * Force a refit/repaint at the current host size. Used as a safety net when
-   * the host layout changes in a way the ResizeObserver might miss — e.g. a pane
-   * returning from a detached window. The grid also plays a visible
-   * shrink-and-restore animation on the cell (see `pm-pane-settle`), which drives
-   * the ResizeObserver every frame; this call just guarantees a final clean fit.
-   */
-  /**
    * Nudge for a viewer of someone else's PTY (phone): redraw from the PC's current screen, in
    * place. Leaving the stream puts it back to buffering, so subscribing again replays the pane's
    * screen at its current size (what reopening the tab did) without rebuilding the terminal or
@@ -160,11 +153,19 @@ export class TerminalSession {
     return this.term?.getSelection() ?? '';
   }
 
-  nudgeReflow(): boolean {
+  /**
+   * Re-fit at the container's current size and repaint. A fit that lands on the grid the PTY
+   * already has sends nothing (`OwnerGrid.fitted`), so this never makes an agent reprint by
+   * itself. `redrawAltBuffer` additionally resizes the PTY one row down and back, which forces an
+   * alternate-screen TUI to redraw but costs two real PTY resizes: only for a pane that moved
+   * (it came back from its own window) or when the person asks for a reflow.
+   */
+  nudgeReflow(options: { redrawAltBuffer?: boolean } = {}): boolean {
     if (!this.term) return false;
     if (this.syncPTYResize) {
       this.fitAndNotify();
-      this.refreshAndNudgeAltBuffer();
+      this.scheduleRefresh();
+      if (options.redrawAltBuffer) this.redrawAltBufferViaResize();
     } else {
       this.applyMirrorDimensions();
     }
@@ -625,8 +626,10 @@ export class TerminalSession {
         if (entries.some((entry) => entry.isIntersecting)) {
           window.setTimeout(() => {
             if (this.syncPTYResize) {
+              // Becoming visible: re-fit and repaint locally. Never a PTY resize pair here, this
+              // fires on every scroll that brings a pane back into view.
               this.fitAndNotify();
-              this.refreshAndNudgeAltBuffer();
+              this.scheduleRefresh();
             } else {
               this.applyMirrorDimensions();
             }
@@ -965,11 +968,10 @@ export class TerminalSession {
     });
   }
 
-  private refreshAndNudgeAltBuffer(): void {
+  private redrawAltBufferViaResize(): void {
     const terminal = this.term;
     // While following a phone-held PTY, the fake resize below would fight the lease.
     if (!terminal || this.ownerGrid.following) return;
-    this.scheduleRefresh();
 
     if (terminal.buffer.active.type !== 'alternate') return;
     const { cols, rows } = terminal;
