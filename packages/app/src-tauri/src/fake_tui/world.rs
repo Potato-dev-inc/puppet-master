@@ -139,6 +139,12 @@ impl World {
 
     /// Start a test: the fake agent types are registered, a git project exists, and every pane the
     /// test opens is closed again when the session drops.
+    /// The windowless app handle and the pane registry of this process (the Team facade starts the
+    /// Team service on them).
+    pub(super) fn handles(&self) -> (AppHandle, Arc<Mutex<PaneRegistry>>) {
+        (self.app.clone(), self.registry.clone())
+    }
+
     pub fn session(&'static self, name: &str) -> Session {
         let guard = self.serial.lock();
         let root = std::env::temp_dir().join(format!("pm-ftui-e2e-{}", std::process::id())).join(name);
@@ -317,12 +323,17 @@ impl Session {
 
     /// A bare pane of `agent_type` in the project, 120x30, with nothing typed: for tests that read screens.
     pub fn spawn_pane(&self, agent_type: &str) -> Result<String, String> {
+        self.spawn_pane_in(agent_type, &self.project)
+    }
+
+    /// `spawn_pane` in another folder (a second project of the same test).
+    pub fn spawn_pane_in(&self, agent_type: &str, cwd: &Path) -> Result<String, String> {
         crate::pty::registry_spawn_pane(
             &self.world.registry,
             &self.world.app,
             crate::pty::SpawnPaneArgs {
                 agent_type: agent_type.to_string(),
-                cwd: Some(self.project.to_string_lossy().into_owned()),
+                cwd: Some(cwd.to_string_lossy().into_owned()),
                 cols: Some(120),
                 rows: Some(30),
                 extra_args: None,

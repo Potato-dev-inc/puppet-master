@@ -588,6 +588,8 @@ cargo test --features dev-fake-tui --test fake_tui_e2e -- --test-threads=1      
 cargo test --features dev-fake-tui --test fake_tui_e2e -- --test-threads=1 --ignored  # the TODO(feat/handoff-detect) test
 ```
 
+**Two-person Team test** (`tests/fake_tui_team.rs`, included from `fake_tui_e2e.rs`, so it runs in the fake-agent CI shards): Maya and Leo are two Puppet Master *processes* (the Team service, audit log and pane registry are process-wide): the test process and a second run of the same test binary (`fake_tui/team.rs`: `Person` = one person's app with an in-memory key store and the cockpit's calls as `call(op, args)`; `Remote` = the child process over a loopback socket). They share a real `pm-relay` on a loopback port and a bare git origin with a push-logging hook. Flow: create team, invite, join, approve, Maya's fake agent writes, commits and pushes (`run` step), Tell the team, Leo's card, Queue my agent, conflict resolved by a fake agent in the separate copy, Apply; then forged, replayed and post-removal envelopes and the relay leak check (`team/leakcheck.rs`, shared with `tests_v1.rs`). Test hooks, all `dev-fake-tui` only, in `team/service.rs`: `init_for_e2e`, `e2e_watched`, `e2e_session`, `e2e_inject`.
+
 Every live bug fixed from now on can ship its quirk as a script here (`tools/pm-fake-tui/README.md`, "Script format").
 
 ### Live regression (`scripts/pm-regression.mjs`)
