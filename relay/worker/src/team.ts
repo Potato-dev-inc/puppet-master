@@ -67,8 +67,43 @@ interface Page {
   reset: boolean;
 }
 
+/** Storage rows read and written (the numbers Cloudflare bills), counted only when TEST_HOOKS is on. */
+interface Cost {
+  read: number;
+  written: number;
+}
+
+/** The team's SQL storage, with every statement's `rowsRead` / `rowsWritten` added up in `cost`. Tests only. */
+function metered(sql: SqlStorage, cost: Cost): SqlStorage {
+  return new Proxy(sql, {
+    get(target, prop) {
+      if (prop !== "exec") {
+        const value = Reflect.get(target, prop) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+      return (query: string, ...bindings: unknown[]) => {
+        const cursor = target.exec(query, ...bindings);
+        const rows = cursor.toArray();
+        cost.read += cursor.rowsRead;
+        cost.written += cursor.rowsWritten;
+        return {
+          rowsRead: cursor.rowsRead,
+          rowsWritten: cursor.rowsWritten,
+          toArray: () => rows,
+          one: () => {
+            if (rows.length !== 1) throw new Error(`expected one row, got ${rows.length}`);
+            return rows[0];
+          },
+          [Symbol.iterator]: () => rows[Symbol.iterator](),
+        };
+      };
+    },
+  });
+}
+
 export class Team extends DurableObject<Env> {
   private readonly sql: SqlStorage;
+  private readonly cost: Cost = { read: 0, written: 0 };
   private metaCache: Meta | undefined;
   /** The access list as `device -> join point`, read from the `devices` table. */
   private membersCache: Map<string, number> | undefined;
@@ -82,7 +117,10 @@ export class Team extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.sql = ctx.storage.sql;
+    // A client may send the text "ping" now and then to keep an idle connection alive through NATs and proxies;
+    // the runtime answers "pong" without waking a hibernating object (so it costs no duration).
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+    this.sql = env.TEST_HOOKS === "1" ? metered(ctx.storage.sql, this.cost) : ctx.storage.sql;
     ctx.blockConcurrencyWhile(async () => {
       this.migrate();
       if (env.TEST_HOOKS === "1") {
@@ -102,9 +140,11 @@ export class Team extends DurableObject<Env> {
         body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS joins (id INTEGER PRIMARY KEY AUTOINCREMENT, invite TEXT NOT NULL,
         at_ms INTEGER NOT NULL, body TEXT NOT NULL);
+      -- WITHOUT ROWID: the text key is the table itself, so a new row is one stored row, not a row plus an index
+      -- entry (Cloudflare bills storage rows written; the replay guard adds one for every request).
       CREATE TABLE IF NOT EXISTS windows (key TEXT PRIMARY KEY, start_ms INTEGER NOT NULL, span_ms INTEGER NOT NULL,
-        count INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS seen (sig TEXT PRIMARY KEY, until_ms INTEGER NOT NULL);
+        count INTEGER NOT NULL) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS seen (sig TEXT PRIMARY KEY, until_ms INTEGER NOT NULL) WITHOUT ROWID;
       CREATE INDEX IF NOT EXISTS seen_until ON seen (until_ms);
       CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS devices (device TEXT PRIMARY KEY, from_seq INTEGER NOT NULL);
@@ -603,20 +643,44 @@ export class Team extends DurableObject<Env> {
     this.armed = true;
   }
 
+  /**
+   * Delete the envelopes older than `cutoff`. They are the first rows (envelopes are stored in arrival order), so
+   * this finds the first live one and deletes everything before it by position: it reads and writes only what
+   * expires, not the whole mailbox (Cloudflare bills every row a statement reads). Returns the rows removed.
+   */
+  private sweepMail(cutoff: number): number {
+    const live = this.sql.exec("SELECT seq FROM envelopes WHERE at_ms >= ? ORDER BY seq LIMIT 1", cutoff).toArray()[0];
+    const bound = live ? Number(live.seq) : this.head() + 1;
+    const old = this.sql
+      .exec("SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(CAST(body AS BLOB))), 0) AS bytes FROM envelopes WHERE seq < ?", bound)
+      .one();
+    const rows = Number(old.n);
+    if (rows === 0) return 0;
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM envelopes WHERE seq < ?", bound);
+      this.sql.exec(
+        "UPDATE team SET stored_rows = MAX(stored_rows - ?, 0), stored_bytes = MAX(stored_bytes - ?, 0) WHERE id = 1",
+        rows,
+        Number(old.bytes),
+      );
+    });
+    return rows;
+  }
+
   /** Delete what is past its time. Returns how many rows went and whether anything is left that can expire. */
   private sweep(): { removed: number; pending: boolean } {
     const now = Date.now();
     let removed = 0;
-    const mail = this.sql.exec("DELETE FROM envelopes WHERE at_ms < ?", now - C.mailboxTtlMs).rowsWritten;
-    if (mail > 0) this.recount();
+    const mail = this.sweepMail(now - C.mailboxTtlMs);
     removed += mail;
     removed += this.sql.exec("DELETE FROM joins WHERE at_ms < ?", now - C.joinTtlMs).rowsWritten;
     removed += this.sql.exec("DELETE FROM windows WHERE start_ms + span_ms <= ?", now).rowsWritten;
     removed += this.sql.exec("DELETE FROM seen WHERE until_ms <= ?", now).rowsWritten;
+    // Is anything left that can expire? An existence check, not a count: a count reads every row of a full mailbox.
     const left = this.sql
       .exec(
-        `SELECT (SELECT COUNT(*) FROM envelopes) + (SELECT COUNT(*) FROM joins) + (SELECT COUNT(*) FROM windows) +
-                (SELECT COUNT(*) FROM seen) AS n`,
+        `SELECT EXISTS (SELECT 1 FROM envelopes) OR EXISTS (SELECT 1 FROM joins) OR EXISTS (SELECT 1 FROM windows) OR
+                EXISTS (SELECT 1 FROM seen) AS n`,
       )
       .one();
     return { removed, pending: Number(left.n) > 0 };
@@ -667,7 +731,10 @@ export class Team extends DurableObject<Env> {
         this.sql.exec("UPDATE joins SET at_ms = at_ms - ?", ms);
         this.sql.exec("UPDATE windows SET start_ms = start_ms - ?", ms);
         this.sql.exec("UPDATE seen SET until_ms = until_ms - ?", ms);
-        return json(await this.testState(await this.sweepAndSchedule()));
+        const before = { read: this.cost.read, written: this.cost.written };
+        const removed = await this.sweepAndSchedule();
+        const sweepCost = { read: this.cost.read - before.read, written: this.cost.written - before.written };
+        return json({ ...(await this.testState(removed)), sweepCost });
       }
       case "test-legacy": {
         // Leave the store as the code before join points and the storage quota left it, then wake this
@@ -684,6 +751,12 @@ export class Team extends DurableObject<Env> {
       }
       case "test-alarm":
         return json(await this.testState());
+      case "test-cost": {
+        // Storage rows read and written by this object since it woke (or since `?reset=1`).
+        const now = { read: this.cost.read, written: this.cost.written };
+        if (url.searchParams.get("reset") === "1") this.cost.read = this.cost.written = 0;
+        return json(now);
+      }
       default:
         return refuse(404, "not found");
     }

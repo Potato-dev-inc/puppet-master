@@ -4,6 +4,11 @@ name = "pm-relay"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
 
+# By default the Worker answers on https://pm-relay.<your-account>.workers.dev. To use a name on a domain of
+# your own (the domain must already be on Cloudflare), uncomment this and put your own name in. It must stay
+# here, above the first [[...]] table.
+# routes = [{ pattern = "relay.example.com", custom_domain = true }]
+
 # One Durable Object per team (mailbox, access list, replay guard, rate limits) and one per client
 # address (counts unauthenticated registrations and join requests). SQLite-backed, which is also
 # what Cloudflare's free plan allows.
