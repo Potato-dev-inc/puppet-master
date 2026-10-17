@@ -480,3 +480,194 @@ fn a_broad_option_is_chosen_only_with_the_opt_in() {
     assert_eq!(answers.len(), 1, "{answers:#?}");
     assert_eq!(answers[0]["option"], 2, "the second row was chosen: {answers:#?}");
 }
+
+// ---- 1b. the model: remembered for the pane's whole life, and a clipped footer never replaces the full name --------------
+
+/// A definition whose `[tui.footer_model]` reads the startup BANNER only (what a drafter writes when the model is on
+/// the banner and nowhere else it has seen): the banner scrolls away in a longer session.
+fn zeta_banner_model() -> String {
+    zeta().replace(
+        r"regex = 'model:\s*(?P<model>[\w.-]+)'",
+        r"regex = '^nimbus\s+[\d.]+\s*\|\s*(?P<model>[^|]+?)\s*\|'",
+    )
+}
+
+/// The banner AND a status row that clips its right end both match.
+fn zeta_banner_and_status_model() -> String {
+    zeta().replace(
+        r"regex = 'model:\s*(?P<model>[\w.-]+)'",
+        r"regex = '(?:^nimbus\s+[\d.]+\s*\|\s*|model:\s*)(?P<model>[\w.-]+)'",
+    )
+}
+
+const CHAT_THEN_DONE: &str = r#"
+agent = "nimbus"
+model = "zeta-banner-pro"
+boot_ms = 100
+[[turn]]
+on_prompt = "chat"
+steps = [{ do = "think", ms = 300 }, { do = "lines", count = 60, template = "row {n} of the chat" }]
+[[turn]]
+steps = [{ do = "think", ms = 400 }, { do = "say", text = "done" }]
+"#;
+
+/// A pane that has been in use for a while (a long reply pushed the banner off the top and nothing keeps the scrollback
+/// of this agent), then a run adopts it.
+fn pane_whose_banner_is_gone(session: &puppet_master_app_lib::fake_tui::Session) -> String {
+    let pane = session.spawn_pane("fake_zeta").expect("a pane");
+    let on = |pane: &str, f: &dyn Fn(&str) -> bool| session.until(40, || f(&session.screen(pane)).then_some(()));
+    assert!(on(&pane, &|s| s.contains("NIMBUS") && s.contains("Type a task")).is_some(), "ready with its banner:\n{}", session.screen(&pane));
+    session.type_as_user(&pane, "chat for a while", true).expect("typed");
+    assert!(
+        on(&pane, &|s| s.contains("row 60 of the chat") && !s.contains("NIMBUS") && s.contains("Type a task")).is_some(),
+        "the long reply pushed the banner off:\n{}",
+        session.screen(&pane)
+    );
+    assert!(session.until(40, || (session.pane_status(&pane).as_deref() == Some("idle")).then_some(())).is_some(), "idle again");
+    pane
+}
+
+/// The model was on the banner when the pane started, long before this run. The run did not see the banner, but the pane
+/// did: the model the pane showed at any look of its life is the model, so the run does not report it as unresolved.
+#[test]
+fn the_model_the_pane_showed_in_its_banner_is_known_after_the_banner_scrolled_away() {
+    let session = World::get().session("screen-model-pane-life");
+    session.screen_agent("fake_zeta", &zeta_banner_model());
+    session.script(CHAT_THEN_DONE);
+    let pane = pane_whose_banner_is_gone(&session);
+    let started = session.run("fake_zeta", "Reply with exactly the word: done", json!({ "pane_id": pane })).unwrap_or_else(|e| panic!("run refused: {e}"));
+    let done = wait(&session, &handle_of(&started), STOPPED, 90);
+    assert_eq!(status(&done), "completed", "{done}");
+    assert_eq!(done["resolved_model"], "zeta-banner-pro", "{done}");
+    let codes: Vec<&str> = done["warnings"].as_array().into_iter().flatten().filter_map(|w| w["code"].as_str()).collect();
+    assert!(!codes.contains(&"MODEL_UNRESOLVED"), "{codes:?}");
+}
+
+/// The status row (flush at the end of the footer, clipped by a narrow window) names the model cut short, the banner that
+/// named it whole is gone: the clipped name is the beginning of the name the pane showed before, so the name is the whole one.
+#[test]
+fn a_footer_clipped_short_never_replaces_the_whole_name_the_pane_showed_before() {
+    let session = World::get().session("screen-model-clipped");
+    session.screen_agent("fake_zeta", &zeta_banner_and_status_model());
+    session.script(&format!("status_model = \"zeta-banner-pro\"\nstatus_model_clip = 8\n{CHAT_THEN_DONE}"));
+    let pane = pane_whose_banner_is_gone(&session);
+    assert!(
+        session.screen(&pane).lines().any(|row| row.trim_end().ends_with("| model: zeta-ban")),
+        "the footer names it clipped:\n{}",
+        session.screen(&pane)
+    );
+    let started = session.run("fake_zeta", "Reply with exactly the word: done", json!({ "pane_id": pane })).unwrap_or_else(|e| panic!("run refused: {e}"));
+    let done = wait(&session, &handle_of(&started), STOPPED, 90);
+    assert_eq!(status(&done), "completed", "{done}");
+    assert_eq!(done["resolved_model"], "zeta-banner-pro", "the clipped footer name is not the model: {done}");
+}
+
+// ---- 2. rows the agent prints after a turn ------------------------------------------------------------------------------
+
+const SUMMARY_TURN: &str = "
+agent = \"nimbus\"
+version = \"1.0\"
+boot_ms = 100
+summary_row = \"\u{25b8} Thought for {secs}s, 298 tokens\"
+[[turn]]
+steps = [
+  { do = \"screen\", text = \"~ Thinking... (1s)\" },
+  { do = \"think\", ms = 800 },
+  { do = \"tool\", label = \"ls\", detail = \"README.md\" },
+  { do = \"say\", text = \"All good, nothing to fix.\" },
+]
+";
+
+/// A profile written from simple screens knows the rows an agent prints while it works, not the one it prints after a turn.
+/// The table that marks those rows (`[tui.summary]`) takes the bulleted `Thought for 3s, 298 tokens` row out of the reply.
+#[test]
+fn a_post_turn_summary_row_the_profile_marks_is_not_part_of_the_reply() {
+    let session = World::get().session("screen-summary-row");
+    let definition = format!("{}\n[tui.summary]\nline_regex = ['^thought for \\d+s, \\d+ tokens']\n", zeta());
+    session.screen_agent("fake_zeta", &definition);
+    session.script(SUMMARY_TURN);
+    let started = run(&session, "Look around, then say it is fine");
+    let done = wait(&session, &handle_of(&started), STOPPED, 90);
+    assert_eq!(status(&done), "completed", "{done}");
+    assert_eq!(reply_of(&done), "reply: All good, nothing to fix.", "{done}");
+}
+
+// ---- 3. a reply taller than the pane ----------------------------------------------------------------------------------
+
+const LONG_REPLY: &str = "
+agent = \"nimbus\"
+boot_ms = 100
+inline = true
+[[turn]]
+steps = [{ do = \"think\", ms = 600 }, { do = \"lines\", count = 90, template = \"row {n} is here\" }]
+";
+
+/// An inline agent printed 90 rows into a pane 40 rows tall: the start of the reply is in the scrollback, not on the
+/// screen. The result is what follows this turn's task, whole.
+#[test]
+fn a_reply_taller_than_the_pane_is_read_whole_from_the_scrollback() {
+    let session = World::get().session("screen-long-reply");
+    session.screen_agent("fake_zeta", &zeta());
+    session.script(LONG_REPLY);
+    let started = run(&session, "Write the long answer please");
+    let done = wait(&session, &handle_of(&started), STOPPED, 90);
+    assert_eq!(status(&done), "completed", "{done}");
+    let result = reply_of(&done);
+    let rows: Vec<&str> = result.lines().map(str::trim).collect();
+    let expected: Vec<String> = (1..=90).map(|n| if n == 1 { "reply: row 1 is here".to_string() } else { format!("row {n} is here") }).collect();
+    assert_eq!(rows.first().copied(), Some("reply: row 1 is here"), "the start of the reply is missing: {} rows, first {:?}", rows.len(), rows.first());
+    assert_eq!(rows, expected.iter().map(String::as_str).collect::<Vec<_>>(), "{done}");
+    let codes: Vec<&str> = done["warnings"].as_array().into_iter().flatten().filter_map(|w| w["code"].as_str()).collect();
+    assert!(!codes.contains(&"RESULT_TRUNCATED"), "{codes:?}");
+}
+
+// ---- 4. a shortened path that is a link --------------------------------------------------------------------------------
+
+fn link_script(text: &str, target: &str) -> String {
+    format!(
+        "agent = \"nimbus\"\nboot_ms = 100\n[[turn]]\nsteps = [{{ do = \"think\", ms = 500 }}, {{ do = \"link\", before = \"Edited \", text = \"{text}\", target = \"{target}\", after = \" (2 lines)\" }}]\n"
+    )
+}
+
+/// The agent shows `.../x.py` and the full path only in the link behind it (OSC 8). The result carries the path.
+#[test]
+fn a_shortened_path_that_is_a_hyperlink_comes_back_as_the_full_path() {
+    let session = World::get().session("screen-link-path");
+    session.screen_agent("fake_zeta", &zeta());
+    session.script(&link_script(".../x.py", "file:///C:/Users/you/proj/src/deep/x.py"));
+    let started = run(&session, "Edit the file");
+    let done = wait(&session, &handle_of(&started), STOPPED, 90);
+    assert_eq!(status(&done), "completed", "{done}");
+    assert_eq!(reply_of(&done), r"reply: Edited C:\Users\you\proj\src\deep\x.py (2 lines)", "{done}");
+}
+
+/// Never invent a path: a link whose target does not end the way the shortened text does is left as it is.
+#[test]
+fn a_link_that_does_not_match_its_shortened_text_changes_nothing() {
+    let session = World::get().session("screen-link-mismatch");
+    session.screen_agent("fake_zeta", &zeta());
+    session.script(&link_script(".../y.py", "file:///C:/Users/you/proj/src/deep/x.py"));
+    let started = run(&session, "Edit the file");
+    let done = wait(&session, &handle_of(&started), STOPPED, 90);
+    assert_eq!(status(&done), "completed", "{done}");
+    assert_eq!(reply_of(&done), "reply: Edited .../y.py (2 lines)", "{done}");
+}
+
+/// An agent that does not echo the task has no row to cut the reply after. A reply taller than the pane is still the whole
+/// reply: its start is found from the pane's own text before the task was typed.
+#[test]
+fn a_tall_reply_of_an_agent_that_does_not_echo_the_task_is_read_whole() {
+    let session = World::get().session("screen-long-reply-no-echo");
+    session.screen_agent("fake_zeta", &zeta());
+    session.script(&format!("echo_task = false\n{LONG_REPLY}"));
+    let started = run(&session, "Write the long answer please");
+    let done = wait(&session, &handle_of(&started), STOPPED, 90);
+    assert_eq!(status(&done), "completed", "{done}");
+    let result = reply_of(&done);
+    let rows: Vec<&str> = result.lines().map(str::trim).collect();
+    assert_eq!(rows.first().copied(), Some("reply: row 1 is here"), "the start of the reply is missing: {} rows, first {:?}", rows.len(), rows.first());
+    assert_eq!(rows.len(), 90, "{done}");
+    assert_eq!(rows.last().copied(), Some("row 90 is here"));
+    let codes: Vec<&str> = done["warnings"].as_array().into_iter().flatten().filter_map(|w| w["code"].as_str()).collect();
+    assert!(!codes.contains(&"RESULT_TRUNCATED"), "{codes:?}");
+}

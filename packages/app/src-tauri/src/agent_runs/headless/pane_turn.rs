@@ -380,8 +380,8 @@ pub(super) fn previous_turn_task(snapshot: &OperationSnapshot) -> String {
 /// else the CLI's configured default flagged unconfirmed, so `resolved_model` is not left null.
 ///
 /// The model name is looked for where the profile's `footer_model` can find it, in this order: the rows on screen now,
-/// the name read on any earlier look of this run (a footer that shows it only while the agent works, a banner
-/// that scrolled away), and the whole scrollback (`history`). Nothing here depends on which row of the
+/// the name read on any earlier look of this run or of the pane's life (a footer that shows it only while the agent
+/// works, a banner that scrolled away), and the whole scrollback (`history`). Nothing here depends on which row of the
 /// screen it sits on.
 pub(super) fn record_completion_model(
     current: &OperationSnapshot,
@@ -390,9 +390,14 @@ pub(super) fn record_completion_model(
     history: Option<&str>,
 ) {
     let profile = crate::tui::profile_for(&current.agent_type);
-    let confirmed = profile
-        .detect_footer_model(screen)
-        .or_else(|| seen.map(str::to_string))
+    // What the pane showed at any look of its life (not only this run's): a banner that scrolled away before this run began.
+    let known = seen
+        .map(str::to_string)
+        .or_else(|| current.pane_id.as_deref().and_then(crate::pty::pane_facts::model_of));
+    // The screen now wins, except a reading cut short at the window's edge, which is only the start of a longer name
+    // the pane showed before.
+    let confirmed = crate::tui::resolve_model(known.as_deref(), &profile.footer_model_readings(screen))
+        .or(known)
         .or_else(|| history.and_then(|text| profile.detect_footer_model(text)));
     let found = match confirmed {
         Some(model) => Some(completion::CompletionModel { model, confirmed: true }),

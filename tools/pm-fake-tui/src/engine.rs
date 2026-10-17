@@ -119,6 +119,7 @@ impl Engine {
                 status_model: script.status_model.clone(),
                 status_model_busy_only: script.status_model_when == crate::script::StatusWhen::Busy,
                 footer_right: script.footer_right.clone(),
+                status_model_clip: script.status_model_clip,
             },
             script,
             layout,
@@ -562,7 +563,9 @@ impl Engine {
     fn submit(&mut self, prompt: String, now: u64) {
         self.log(now, "prompt", json!({ "text": prompt }));
         self.last_prompt = prompt.clone();
-        self.blocks.push(Block::User(prompt.clone()));
+        if self.script.echo_task || self.layout != Layout::Nimbus {
+            self.blocks.push(Block::User(prompt.clone()));
+        }
         self.clear_composer();
         self.suggestion = None;
         self.pending_suggestion = None;
@@ -594,6 +597,18 @@ impl Engine {
                 Step::Say { text } => {
                     let text = self.fill(&text);
                     self.blocks.push(Block::Reply(text));
+                }
+                Step::Lines { count, template } => {
+                    let template = template.unwrap_or_else(|| "line {n} of the long answer".into());
+                    let text: Vec<String> = (1..=count).map(|n| template.replace("{n}", &n.to_string())).collect();
+                    self.blocks.push(Block::Reply(text.join("\n")));
+                }
+                Step::Link { text, target, before, after } => {
+                    // OSC 8: `ESC ] 8 ; ; URI ESC \` opens the link, the same with an empty URI closes it.
+                    let open = format!("{ESC}]8;;{target}{ESC}{BACKSLASH}");
+                    let close = format!("{ESC}]8;;{ESC}{BACKSLASH}");
+                    let row = format!("{}{before}{open}{text}{close}{after}", if self.layout == Layout::Nimbus { "reply: " } else { "" });
+                    self.blocks.push(Block::Raw(vec![row]));
                 }
                 Step::Tool { label, detail, ms, failed } => {
                     self.blocks.push(Block::Tool { label, detail, failed });
@@ -763,7 +778,10 @@ impl Engine {
                     let (h12, ampm) = (if h % 12 == 0 { 12 } else { h % 12 }, if h < 12 { "AM" } else { "PM" });
                     format!("Worked for {secs}s \u{2022} {h12}:{m:02} {ampm}")
                 }
-                Layout::Nimbus => format!("done in {secs}s"),
+                Layout::Nimbus => match &self.script.summary_row {
+                    Some(row) => row.replace("{secs}", &secs.to_string()),
+                    None => format!("done in {secs}s"),
+                },
             };
             self.blocks.push(Block::Summary(text));
         }
@@ -852,20 +870,16 @@ impl Engine {
     }
 }
 
+const ESC: char = '\x1b';
+const BACKSLASH: char = '\\';
+
 /// Escape sequences removed.
 pub fn strip(row: &str) -> String {
     let mut out = String::new();
     let mut chars = row.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '\x1b' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                for c in chars.by_ref() {
-                    if ('\x40'..='\x7e').contains(&c) {
-                        break;
-                    }
-                }
-            }
+            render::take_escape(&mut chars);
         } else {
             out.push(ch);
         }
@@ -1324,6 +1338,78 @@ mod nimbus_tests {
         e.on_key(Key::Enter, 120);
         let done = e.plain(130);
         assert!(done.contains("denied: hello.txt") && !done.contains("wrote"), "{done}");
+    }
+
+    #[test]
+    fn a_clipped_status_model_is_cut_in_the_footer_and_on_the_working_row_but_not_in_the_banner() {
+        let mut e = engine("model = \"zeta-banner-pro\"\nstatus_model = \"zeta-banner-pro\"\nstatus_model_clip = 8\n[[turn]]\nsteps = [{ do = \"think\", ms = 1000 }, { do = \"say\", text = \"ok\" }]");
+        let idle = e.plain(0);
+        assert!(idle.contains("NIMBUS 0.4.2 | zeta-banner-pro |"), "{idle}");
+        assert!(idle.lines().any(|row| row.trim_end().ends_with("| model: zeta-ban")), "{idle}");
+        assert!(!idle.contains("model: zeta-banner"), "{idle}");
+        let mut busy = engine("status_model = \"zeta-banner-pro\"\nstatus_model_when = \"busy\"\nstatus_model_clip = 8\n[[turn]]\nsteps = [{ do = \"think\", ms = 1000 }]");
+        type_text(&mut busy, "go", 0);
+        busy.on_key(Key::Enter, 10);
+        assert!(busy.plain(300).contains("ctrl+c to stop  model: zeta-ban"), "{}", busy.plain(300));
+        assert!(!busy.plain(300).contains("zeta-banner"), "{}", busy.plain(300));
+        let _ = &mut e;
+    }
+
+    #[test]
+    fn the_row_after_a_turn_can_be_a_thought_for_summary() {
+        let mut e = engine("summary_row = \"\u{25b8} Thought for {secs}s, 298 tokens\"\n[[turn]]\nsteps = [{ do = \"think\", ms = 3000 }, { do = \"say\", text = \"ok\" }]");
+        type_text(&mut e, "go", 0);
+        e.on_key(Key::Enter, 10);
+        e.tick(3100);
+        let done = e.plain(3200);
+        assert!(done.contains("reply: ok"), "{done}");
+        assert!(done.contains("\u{25b8} Thought for 3s, 298 tokens"), "{done}");
+        assert!(!done.contains("done in"), "{done}");
+    }
+
+    #[test]
+    fn a_lines_reply_is_taller_than_the_pane_and_the_pane_keeps_the_tail() {
+        let mut e = engine("[[turn]]\nsteps = [{ do = \"lines\", count = 70, template = \"row {n} of the long answer\" }]");
+        type_text(&mut e, "go", 0);
+        e.on_key(Key::Enter, 10);
+        e.tick(500);
+        let all = e.frame_all(500);
+        let text: Vec<String> = all.rows.iter().map(|r| strip(r)).collect();
+        assert!(text.iter().any(|r| r == "reply: row 1 of the long answer"), "{text:?}");
+        assert!(text.iter().any(|r| r == "  row 70 of the long answer"), "{text:?}");
+        let fit = e.frame(500);
+        assert_eq!(fit.rows.len(), 40);
+        let fit_text: Vec<String> = fit.rows.iter().map(|r| strip(r)).collect();
+        assert!(!fit_text.iter().any(|r| r.contains("row 1 of")), "the start of the reply scrolled off");
+        assert!(fit_text.iter().any(|r| r.contains("row 70 of")));
+    }
+
+    #[test]
+    fn a_link_step_draws_an_osc8_hyperlink_whose_text_is_the_shortened_path() {
+        let mut e = engine("[[turn]]\nsteps = [{ do = \"link\", before = \"Edited \", text = \".../x.py\", target = \"file:///C:/Users/you/proj/src/deep/x.py\", after = \" (2 lines)\" }]");
+        type_text(&mut e, "go", 0);
+        e.on_key(Key::Enter, 10);
+        e.tick(500);
+        let frame = e.frame(500);
+        let raw = frame.rows.iter().find(|r| r.contains("x.py")).expect("the link row");
+        let esc = '\u{1b}';
+        assert!(raw.contains(&format!("{esc}]8;;file:///C:/Users/you/proj/src/deep/x.py{esc}\\")), "{raw:?}");
+        assert!(raw.contains(&format!("{esc}]8;;{esc}\\")), "{raw:?}");
+        assert_eq!(strip(raw), "reply: Edited .../x.py (2 lines)");
+        assert_eq!(render::visible_len(raw), "reply: Edited .../x.py (2 lines)".chars().count());
+    }
+
+    #[test]
+    fn echo_task_false_draws_no_row_for_the_submitted_task() {
+        let mut e = engine("echo_task = false
+[[turn]]
+steps = [{ do = \"say\", text = \"the answer\" }]");
+        type_text(&mut e, "a very particular question", 0);
+        e.on_key(Key::Enter, 10);
+        e.tick(500);
+        let screen = e.plain(500);
+        assert!(screen.contains("reply: the answer"), "{screen}");
+        assert!(!screen.contains("a very particular question"), "{screen}");
     }
 
     #[test]

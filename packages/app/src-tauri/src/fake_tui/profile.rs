@@ -219,6 +219,14 @@ impl TuiProfile for FakeAgent {
         self.inner.detect_footer_model(buffer)
     }
 
+    fn footer_model_readings(&self, buffer: &str) -> Vec<crate::tui::ModelReading> {
+        self.inner.footer_model_readings(buffer)
+    }
+
+    fn is_summary_line(&self, lower: &str) -> bool {
+        self.inner.is_summary_line(lower)
+    }
+
     fn run_warnings(&self, facts: &RunFacts) -> Vec<Warning> {
         self.inner.run_warnings(facts)
     }

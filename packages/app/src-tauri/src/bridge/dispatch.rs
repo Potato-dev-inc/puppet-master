@@ -901,6 +901,11 @@ fn deliver_task(
 /// read blank; a blank baseline makes startup furniture look like new output, so retry briefly
 /// before settling for none (completion also guards that case).
 fn take_output_baseline(operation: &mut OperationSnapshot, registry: &Arc<Mutex<PaneRegistry>>, pane_id: &str) {
+    // The pane's whole text and its hyperlinks as they stand before the task is typed: a reply taller than the pane,
+    // and the links in it, are measured from here.
+    if let Ok(full) = crate::pty::registry_read_full_text(registry, pane_id) {
+        crate::pty::pane_facts::mark_turn(pane_id, &full);
+    }
     for attempt in 0..4 {
         if attempt > 0 {
             thread::sleep(Duration::from_millis(150));

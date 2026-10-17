@@ -151,7 +151,7 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
                 .and_then(CaptureAction::parse)
                 .ok_or_else(|| WizardError::bad_request("action must be skip, retry, stuck, ready, try_exit, closed, done or question"))?;
             let step = match body.get("step").and_then(Value::as_str) {
-                Some(text) => Some(StepId::parse(text).ok_or_else(|| WizardError::bad_request("step must be start, ready, message, permission or exit"))?),
+                Some(text) => Some(StepId::parse(text).ok_or_else(|| WizardError::bad_request("step must be start, ready, message, work, permission or exit"))?),
                 None => None,
             };
             if action == CaptureAction::Stuck {

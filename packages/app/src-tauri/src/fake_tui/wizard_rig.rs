@@ -46,13 +46,16 @@ impl Session {
         let agents = self.aux().join("agents");
         let temp = self.aux().join("wizard-temp");
         std::fs::create_dir_all(&temp).expect("wizard temp folder");
+        // The capture asks the thinking-and-tool task (SPEC 11.18) only when the script has a turn for it: an agent that
+        // answers every unknown task with "OK" could never finish that step.
+        let asks_the_listing_task = script.to_lowercase().contains("list the files");
         let mut env = WizardEnv::app();
         env.agents_dir = agents.clone();
         env.temp_root = temp;
         env.path_dirs = None;
         env.app_build = "fake-tui-e2e".into();
         env.visible = RunnerCfg {
-            capture: Config { stable_ms: 1200, frozen_ms: 3000, idle_done_ms: 3000, question_ms: 4000, ..Config::default() },
+            capture: Config { stable_ms: 1200, frozen_ms: 3000, idle_done_ms: 3000, question_ms: 4000, work_step: asks_the_listing_task, ..Config::default() },
             // The fake is quick: a profile that never reads it as ready fails in seconds, not minutes.
             test: TestLimits { ready: Duration::from_secs(12), done: Duration::from_secs(60), permission: Duration::from_secs(30), ..TestLimits::default() },
             tick: Duration::from_millis(100),

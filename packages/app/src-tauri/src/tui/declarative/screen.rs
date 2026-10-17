@@ -125,6 +125,7 @@ pub struct TuiEngine {
     chrome: Vec<Regex>,
     tool_activity: Vec<Regex>,
     thinking: Vec<Regex>,
+    summary: Vec<Regex>,
     activity: Vec<Regex>,
     error: Vec<Regex>,
     menu: Vec<Regex>,
@@ -209,6 +210,7 @@ impl TuiEngine {
             chrome: line_table(&tui.chrome, "tui.chrome.line_regex")?,
             tool_activity: line_table(&tui.tool_activity, "tui.tool_activity.line_regex")?,
             thinking: line_table(&tui.thinking, "tui.thinking.line_regex")?,
+            summary: line_table(&tui.summary, "tui.summary.line_regex")?,
             activity: build_all(&tui.activity_regex, "tui.activity_regex")?,
             error: build_all(&tui.error_regex, "tui.error_regex")?,
             menu: match &tui.menu {
@@ -303,6 +305,17 @@ impl TuiEngine {
         Self::line_matches(&self.thinking, lower)
     }
 
+    /// `[tui.summary] line_regex` on one trimmed, lowercased line. A row that starts with a bullet or arrow glyph
+    /// (`▸ Thought for 3s`, `• Worked for 9s`) is also tried without it: the glyph is decoration, not part of the
+    /// words a drafter writes the pattern for.
+    pub fn is_summary_line(&self, lower: &str) -> bool {
+        if Self::line_matches(&self.summary, lower) {
+            return true;
+        }
+        let bare = lower.trim_start_matches(|c: char| !c.is_alphanumeric()).trim_start();
+        bare.len() < lower.trim().len() && Self::line_matches(&self.summary, bare)
+    }
+
     /// The phrase of the newest visible line an `activity_regex` matches (`text` group, else group
     /// 1, else the whole match), or `None` when the definition declares none or nothing matches.
     pub fn activity_phrase(&self, tail: &str) -> Option<String> {
@@ -382,14 +395,29 @@ impl TuiEngine {
         joined
     }
 
-    /// The `model` group of the last `footer_model` match in the buffer.
+    /// The `model` group of the last `footer_model` match in the buffer. A name that ends its row may be clipped
+    /// by the window's edge: when a longer name that starts with it was read elsewhere in the buffer (a banner
+    /// above, the scrollback), that one is the model.
     pub fn detect_footer_model(&self, buffer: &str) -> Option<String> {
-        let re = self.footer_model.as_ref()?;
+        crate::tui::resolve_model(None, &self.footer_model_readings(buffer))
+    }
+
+    /// Every `footer_model` match in the buffer, oldest first, each with whether it ends its row.
+    pub fn footer_model_readings(&self, buffer: &str) -> Vec<crate::tui::ModelReading> {
+        let Some(re) = self.footer_model.as_ref() else { return Vec::new() };
         let clean = strip_ansi(cap(buffer));
         re.captures_iter(&clean)
-            .filter_map(|c| c.name("model").map(|m| m.as_str().trim().to_string()))
-            .filter(|m| !m.is_empty())
-            .last()
+            .filter_map(|c| {
+                let found = c.name("model")?;
+                let name = found.as_str().trim().to_string();
+                if name.is_empty() {
+                    return None;
+                }
+                let rest = clean[found.end()..].split('\n').next().unwrap_or("").trim();
+                let cut = rest.is_empty() || rest.starts_with('\u{2026}') || rest.starts_with("...");
+                Some(crate::tui::ModelReading { name, cut })
+            })
+            .collect()
     }
 
     fn matching_prompt(&self, clean: &str) -> Option<&Prompt> {

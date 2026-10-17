@@ -20,6 +20,8 @@ const DRAFT: &str = include_str!("../src/tui/declarative/wizard/tests/drafts/vis
 const SCRIPT: &str = r#"
 agent = "nimbus"
 boot_ms = 200
+inline = true
+summary_row = "▸ Thought for {secs}s, 298 tokens"
 
 [[startup]]
 gate = "trust"
@@ -40,6 +42,23 @@ on_prompt = "shell command"
 steps = [
   { do = "think", ms = 1000 },
   { do = "approve", kind = "bash", command = "echo ok", on_allow = [{ do = "say", text = "ok" }], on_deny = [{ do = "say", text = "Not run." }] },
+]
+
+[[turn]]
+on_prompt = "list the files"
+steps = [
+  { do = "screen", text = "~ Thinking... (1s)" },
+  { do = "tool", label = "ls", detail = "README.md" },
+  { do = "think", ms = 3200 },
+  { do = "say", text = "folder listed, code {last_word}." },
+]
+
+[[turn]]
+on_prompt = "whole numbers"
+steps = [
+  { do = "think", ms = 800 },
+  { do = "lines", count = 70, template = "{n}" },
+  { do = "say", text = "{last_word}" },
 ]
 
 [[turn]]
@@ -127,13 +146,14 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     // 3. The guided capture, with the test as the person.
     let did = play_the_person(&session, &rig, &id, 120);
     assert_eq!(did, ["trusted the folder", "allowed the file", "allowed the command", "asked the wizard to try /exit"], "{did:?}");
-    // The fake's own log is the proof of what the WIZARD typed: exactly the three tasks and `/exit`, as prompts.
+    // The fake's own log is the proof of what the WIZARD typed: exactly the four tasks and `/exit`, as prompts.
     let prompts: Vec<String> = events_named(&session, "prompt").iter().filter_map(|e| e["text"].as_str().map(str::to_string)).collect();
-    assert_eq!(prompts.len(), 4, "{prompts:?}");
+    assert_eq!(prompts.len(), 5, "{prompts:?}");
     assert_eq!(prompts[0], format!("Reply with exactly the word: {one}"));
-    assert!(prompts[1].starts_with("Create a file named hello.txt") && prompts[1].contains(&sky), "{}", prompts[1]);
-    assert!(prompts[2].starts_with("Run this shell command") && prompts[2].ends_with(&format!("echo {sky}")), "{}", prompts[2]);
-    assert_eq!(prompts[3], "/exit");
+    assert_eq!(prompts[1], format!("List the files in this folder, then reply with exactly: folder listed, code {sky}."));
+    assert!(prompts[2].starts_with("Create a file named hello.txt") && prompts[2].contains(&sky), "{}", prompts[2]);
+    assert!(prompts[3].starts_with("Run this shell command") && prompts[3].ends_with(&format!("echo {sky}")), "{}", prompts[3]);
+    assert_eq!(prompts[4], "/exit");
     // It answered no question: the only answers the fake saw were the person's (one gate answer, two approvals).
     assert_eq!(events_named(&session, "gate_answer").len(), 1);
     assert_eq!(events_named(&session, "approval_answer").len(), 2);
@@ -143,7 +163,12 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     let finished = rig.call("capture", json!({"session": id, "op": "finish"})).unwrap_or_else(|e| panic!("capture finish: {}", err(&e)));
     let files = finished["captures"]["files"].as_array().unwrap();
     let names: Vec<&str> = files.iter().filter_map(|f| f["name"].as_str()).collect();
-    assert_eq!(names, ["tui_trust", "tui_idle", "tui_working", "tui_reply", "tui_permission", "tui_permission_command"], "{finished}");
+    assert_eq!(names, ["tui_trust", "tui_idle", "tui_working", "tui_reply", "tui_work_working", "tui_work_reply", "tui_permission", "tui_permission_command"], "{finished}");
+    // the listing task made the agent think and use a tool: the drafter sees those rows, and the row after the turn
+    let screen_of = |name: &str| files.iter().find(|f| f["name"] == name).and_then(|f| f["text"].as_str()).unwrap_or_default().to_string();
+    let (work_working, work_reply) = (screen_of("tui_work_working"), screen_of("tui_work_reply"));
+    assert!(work_working.contains("Thinking...") && work_working.contains("tool: ls"), "{work_working}");
+    assert!(work_reply.contains("reply: folder listed, code <word-3>.") && work_reply.contains("Thought for") && work_reply.contains("298 tokens"), "{work_reply}");
     let shown = finished["captures"].to_string();
     assert!(!shown.contains(&one) && !shown.contains(&two) && !shown.contains(&sky), "the AI would see a test word: {shown}");
     assert_eq!(finished["captures"]["facts"]["exit_method"], "slash_exit");
@@ -159,7 +184,7 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     let expect = json!({"tui_idle": "chrome_lines = [\"NIMBUS 0.4.2\"]\n"});
     let verified = rig.call("verify", json!({"session": id, "toml": draft, "expect": expect})).unwrap_or_else(|e| panic!("verify: {}", err(&e)));
     assert_eq!(verified["ok"], true, "verify said:\n{}", verified["text"].as_str().unwrap_or_default());
-    assert_eq!(verified["checked"]["fixtures"], 6);
+    assert_eq!(verified["checked"]["fixtures"], 8);
     // the wizard wrote the measured flag into the draft it checked and will write
     let stored_flag = rig.draft_text(&id).contains("reprints_on_resize = false");
     assert!(stored_flag, "the measured flag is in the draft");
@@ -191,18 +216,25 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     .unwrap_or_else(|e| panic!("visibletest: {}", err(&e)));
     assert_eq!(test["ok"], true, "the visible test said:\n{}\n{}", test["text"].as_str().unwrap_or_default(), test["checks"]);
     assert_eq!(test["state"], "tested");
-    // starts, startup, ready, delivery, busy, done_reply, resize, permission, permission_command, exit (the model check
-    // is skipped: the capture names no model)
-    assert_eq!((test["passed"].as_u64(), test["total"].as_u64()), (Some(10), Some(10)), "{}", test["checks"]);
+    // starts, startup, ready, delivery, busy, done_reply, resize, work, long_reply, permission, permission_command, exit
+    // (the model check is skipped: the capture names no model)
+    assert_eq!((test["passed"].as_u64(), test["total"].as_u64()), (Some(12), Some(12)), "{}", test["checks"]);
     let status_of = |name: &str| test["checks"].as_array().unwrap().iter().find(|c| c["name"] == name).map(|c| c["status"].clone());
     assert_eq!(status_of("resize"), Some(json!("passed")), "{}", test["checks"]);
     assert_eq!(status_of("permission_command"), Some(json!("passed")), "{}", test["checks"]);
     assert_eq!(status_of("model"), Some(json!("skipped")));
+    // the thinking-and-tool task is clean, and a reply of 70 rows in a pane of 40 was read whole from the scrollback
+    assert_eq!(status_of("work"), Some(json!("passed")), "{}", test["checks"]);
+    assert_eq!(status_of("long_reply"), Some(json!("passed")), "{}", test["checks"]);
+    let long_note = test["checks"].as_array().unwrap().iter().find(|c| c["name"] == "long_reply").unwrap()["note"].as_str().unwrap().to_string();
+    assert!(long_note.contains("read whole"), "{long_note}");
     let prompts_after: Vec<String> = events_named(&session, "prompt").iter().skip(prompts_before).filter_map(|e| e["text"].as_str().map(str::to_string)).collect();
-    assert_eq!(prompts_after.len(), 3, "{prompts_after:?}");
+    assert_eq!(prompts_after.len(), 5, "{prompts_after:?}");
     assert_eq!(prompts_after[0], format!("Reply with exactly the word: {two}"));
-    assert!(prompts_after[1].contains("hello.txt"));
-    assert!(prompts_after[2].starts_with("Run this shell command"));
+    assert!(prompts_after[1].starts_with("List the files in this folder"));
+    assert!(prompts_after[2].starts_with("Write the whole numbers from 1 to 70"));
+    assert!(prompts_after[3].contains("hello.txt"));
+    assert!(prompts_after[4].starts_with("Run this shell command"));
     assert_eq!(events_named(&session, "approval_answer").len(), 2, "the permission checks answered nothing: only the person's earlier answers exist");
     assert!(session.pane_ids().iter().all(|p| !p.is_empty()));
 
@@ -212,12 +244,12 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
         .unwrap_or_else(|e| panic!("finish: {}", err(&e)));
     assert_eq!(done["id"], "nimbus");
     assert_eq!(done["state"], "needs_approval");
-    assert_eq!(done["fixtures"], json!({"passed": 6, "total": 6}));
+    assert_eq!(done["fixtures"], json!({"passed": 8, "total": 8}));
     let file = rig.agents_dir().join("nimbus.toml");
     let report = rig.check_definition(&file);
     assert_eq!(report["status"], "ran", "{report}");
     let results = report["results"].as_array().unwrap();
-    assert_eq!(results.len(), 6, "{report}");
+    assert_eq!(results.len(), 8, "{report}");
     assert!(results.iter().all(|r| r["passed"] == true), "{report}");
     let reply = std::fs::read_to_string(rig.agents_dir().join("nimbus").join("tui_reply.txt")).unwrap();
     assert!(reply.contains(&one) && reply.starts_with("# capture: nimbus"), "{reply}");
@@ -281,7 +313,7 @@ fn the_benchmark_helpers_capture_and_run_rounds_on_the_fake_agent() {
     let one = dump["words"]["one"].as_str().unwrap().to_string();
     assert!(dump["raw"].to_string().contains(&one), "the dump keeps the real word");
     assert!(!dump["masked"].to_string().contains(&one), "the masked set (what the drafter sees) never has it");
-    assert_eq!(dump["masked"]["files"].as_array().unwrap().len(), 6);
+    assert_eq!(dump["masked"]["files"].as_array().unwrap().len(), 8);
 
     // A round with the recorded draft passes and writes what the next prompt needs.
     let draft = DRAFT.replace("@@COMMAND@@", "nimbus");
@@ -296,7 +328,7 @@ fn the_benchmark_helpers_capture_and_run_rounds_on_the_fake_agent() {
     assert_eq!(feedback["previous_toml"], draft);
     assert_eq!(feedback["previous_expects"]["tui_idle"], "chrome_lines = [\"NIMBUS 0.4.2\"]\n");
     let visible: Value = serde_json::from_str(&std::fs::read_to_string(round1.join("visible.json")).unwrap()).unwrap();
-    assert_eq!((visible["passed"].as_u64(), visible["total"].as_u64()), (Some(10), Some(10)));
+    assert_eq!((visible["passed"].as_u64(), visible["total"].as_u64()), (Some(12), Some(12)));
 
     // A draft whose ready pattern never matches fails the round with the checker's text and the screen.
     let wrong = draft.replace("type a task'\nnot_regex", "type a taskX'\nnot_regex");
@@ -483,7 +515,7 @@ fn the_whole_flow_on_an_arrow_menu_agent_needs_no_person_with_the_switch_on() {
     let names: Vec<&str> = finished["captures"]["files"].as_array().unwrap().iter().filter_map(|f| f["name"].as_str()).collect();
     assert_eq!(
         names,
-        ["tui_trust", "tui_idle", "tui_working", "tui_reply", "tui_permission", "tui_permission_command"],
+        ["tui_trust", "tui_idle", "tui_working", "tui_reply", "tui_work_working", "tui_work_reply", "tui_permission", "tui_permission_command"],
         "the questions were kept before they were answered"
     );
     assert!(finished["captures"]["files"][0]["text"].as_str().unwrap().contains("Navigate"), "the arrow menu was captured");
@@ -500,7 +532,7 @@ fn the_whole_flow_on_an_arrow_menu_agent_needs_no_person_with_the_switch_on() {
     let prompts_before = events_named(&session, "prompt").len();
     let test = rig.call("visibletest", json!({"session": id, "confirm": true, "plan": plan})).unwrap_or_else(|e| panic!("visibletest: {}", err(&e)));
     assert_eq!(test["ok"], true, "{}\n{}", test["text"].as_str().unwrap_or_default(), test["checks"]);
-    assert_eq!((test["passed"].as_u64(), test["total"].as_u64()), (Some(10), Some(10)), "{}", test["checks"]);
+    assert_eq!((test["passed"].as_u64(), test["total"].as_u64()), (Some(12), Some(12)), "{}", test["checks"]);
     let startup = test["checks"].as_array().unwrap().iter().find(|c| c["name"] == "startup").unwrap();
     assert_eq!(startup["status"], "passed", "the draft's prompt saw the question before the wizard answered: {startup}");
     assert_eq!(test["answered"].as_array().unwrap().len(), 2, "the trust question of each of the two test panes");
@@ -508,7 +540,7 @@ fn the_whole_flow_on_an_arrow_menu_agent_needs_no_person_with_the_switch_on() {
     assert_eq!(events_named(&session, "gate_answer").len(), 3, "one trust answer per pane");
     assert_eq!(events_named(&session, "approval_answer").len(), 2, "the permission checks answered nothing");
     let prompts_after: Vec<String> = events_named(&session, "prompt").iter().skip(prompts_before).filter_map(|e| e["text"].as_str().map(str::to_string)).collect();
-    assert_eq!(prompts_after.len(), 3, "{prompts_after:?}");
+    assert_eq!(prompts_after.len(), 5, "{prompts_after:?}");
     assert_eq!(prompts_after[0], format!("Reply with exactly the word: {two}"));
 
     // finish records what was answered for the person
@@ -723,7 +755,7 @@ fn the_wizard_on_an_inline_agent(reprint: bool, name: &str) {
     let script = {
         // top-level keys must come before the first table: put them at the head of the script
         let tail = SCRIPT.trim_start();
-        format!("inline = true\nreprint_on_resize = {reprint}\nbacklog_rows = 32\n{tail}")
+        format!("reprint_on_resize = {reprint}\nbacklog_rows = 32\n{tail}")
     };
     let rig = session.wizard_rig("nimbus", &script);
     let (id, captures, did) = capture_as_the_person(&session, &rig, ["y", "y"]);
@@ -757,7 +789,7 @@ fn the_wizard_on_an_inline_agent(reprint: bool, name: &str) {
         .unwrap_or_else(|e| panic!("finish: {}", err(&e)));
     let written = std::fs::read_to_string(rig.agents_dir().join("nimbus.toml")).unwrap();
     assert!(written.contains(&format!("reprints_on_resize = {reprint}")), "{written}");
-    assert_eq!(done["fixtures"], json!({"passed": 6, "total": 6}));
+    assert_eq!(done["fixtures"], json!({"passed": 8, "total": 8}));
     session.until(10, || session.pane_ids().is_empty().then_some(())).unwrap_or_else(|| panic!("panes left: {:?}", session.pane_ids()));
 }
 
@@ -868,5 +900,49 @@ fn a_command_menu_and_a_file_menu_each_need_their_own_table_and_each_becomes_a_c
     assert!(kind_of("tui_permission_command.expect.toml").contains("prompt_kind = \"command_approval\""), "{}", kind_of("tui_permission_command.expect.toml"));
     let report = rig.check_definition(&rig.agents_dir().join("nimbus.toml"));
     assert!(report["results"].as_array().unwrap().iter().all(|r| r["passed"] == true), "{report}");
+    session.until(10, || session.pane_ids().is_empty().then_some(())).unwrap_or_else(|| panic!("panes left: {:?}", session.pane_ids()));
+}
+
+// ---- the model must still be read once a tall reply has pushed the banner away -------------------------------------------
+
+/// A profile whose `[tui.footer_model]` only matches the startup banner reads the model while the banner is on screen
+/// and loses it in a longer session. The visible test runs a reply taller than the pane and says so; a regex that also
+/// matches the status row passes.
+#[test]
+fn a_model_regex_that_only_matches_the_banner_fails_the_visible_test_after_a_tall_reply_and_a_status_row_regex_passes() {
+    let session = World::get().session("wizard-visible-model");
+    let script = format!("model = \"zeta-pro\"\nstatus_model = \"zeta-pro\"\n{}", SCRIPT.trim_start());
+    let rig = session.wizard_rig("nimbus", &script);
+    let (id, captures, did) = capture_as_the_person(&session, &rig, ["y", "y"]);
+    assert_eq!(did, ["trust:1", "permission:y", "permission:y"], "{did:?}");
+    assert!(captures["files"].to_string().contains("model: zeta-pro"), "the capture shows the model on the status row");
+
+    let base = DRAFT.replace("@@COMMAND@@", "nimbus").replace("'^/help for commands',", "'^/help for commands', '^model: ',");
+    let banner_only = format!("{base}\n[tui.footer_model]\nregex = '^nimbus\\s+[\\d.]+\\s*\\|\\s*(?P<model>[a-z-]+)'\n");
+    let status_row = format!("{base}\n[tui.footer_model]\nregex = '(?:^nimbus\\s+[\\d.]+\\s*\\|\\s*|model:\\s*)(?P<model>[a-z-]+)'\n");
+    let expect = json!({"tui_idle": "chrome_lines = [\"NIMBUS 0.4.2\"]\n"});
+    let grid = session.pane_ids();
+
+    let run = |draft: &str| {
+        let verified = rig.call("verify", json!({"session": id, "toml": draft, "expect": expect})).unwrap_or_else(|e| panic!("verify: {}", err(&e)));
+        assert_eq!(verified["ok"], true, "verify said:\n{}", verified["text"].as_str().unwrap_or_default());
+        let plan = verified["planned_visible"]["fingerprint"].as_str().unwrap().to_string();
+        visible_test_as_the_person(&session, &rig, &id, &plan, &grid)
+    };
+    let check = |test: &Value, name: &str| test["checks"].as_array().unwrap().iter().find(|c| c["name"] == name).cloned().unwrap_or(Value::Null);
+
+    let failed = run(&banner_only);
+    assert_eq!(failed["ok"], false, "{}", failed["checks"]);
+    assert_eq!(check(&failed, "model")["status"], "passed", "while the banner is on screen the model is read: {}", failed["checks"]);
+    let long = check(&failed, "long_reply");
+    assert_eq!(long["status"], "failed", "{}", failed["checks"]);
+    let text = failed["text"].as_str().unwrap();
+    assert!(text.contains("VISIBLETEST_LONG_REPLY_FAILED") && text.contains("zeta-pro") && text.contains("banner scrolls away"), "{text}");
+
+    let passed = run(&status_row);
+    assert_eq!(passed["ok"], true, "the visible test said:\n{}\n{}", passed["text"].as_str().unwrap_or_default(), passed["checks"]);
+    let long = check(&passed, "long_reply");
+    assert_eq!(long["status"], "passed", "{long}");
+    assert!(long["note"].as_str().unwrap().contains("zeta-pro"), "{long}");
     session.until(10, || session.pane_ids().is_empty().then_some(())).unwrap_or_else(|| panic!("panes left: {:?}", session.pane_ids()));
 }

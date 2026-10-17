@@ -203,6 +203,15 @@ pub fn visible_draft(command: &str) -> String {
     VISIBLE.replace("@@COMMAND@@", command)
 }
 
+/// The recorded draft as a drafter would have written it from the plain screens only: without `[tui.thinking]` and
+/// `[tui.summary]`, the tables for the rows an agent prints while it works and after a turn.
+pub fn visible_draft_without_work_tables(command: &str) -> String {
+    let full = visible_draft(command);
+    let start = full.find("# Rows the agent prints while it thinks or works").expect("the thinking tables are in the recorded draft");
+    let end = full.find("[[tui.prompt]]").expect("the prompts follow");
+    format!("{}{}", &full[..start], &full[end..])
+}
+
 fn frame(name: &str, text: &str) -> CapFrame {
     CapFrame { name: name.into(), text: text.into(), variants: Vec::new() }
 }

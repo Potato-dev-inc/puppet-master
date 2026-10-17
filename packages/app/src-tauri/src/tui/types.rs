@@ -465,3 +465,36 @@ fn supports_headless(profile: &dyn TuiProfile) -> bool {
         }
     }
 }
+
+/// One model name the `[tui.footer_model]` table read on a screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelReading {
+    pub name: String,
+    /// The name is the last thing on its row (or an ellipsis follows it): a status bar clipped at the window's
+    /// edge cuts a name there, so it may be only the start of the real one.
+    pub cut: bool,
+}
+
+/// `longer` starts with `short` and goes on (compared without regard to case).
+pub fn is_clipped_form(short: &str, longer: &str) -> bool {
+    let (short, longer) = (short.trim(), longer.trim());
+    short.chars().count() >= 2
+        && longer.chars().count() > short.chars().count()
+        && longer.to_lowercase().starts_with(&short.to_lowercase())
+}
+
+/// The model a run of readings names. The last reading is the newest word, with one exception: a reading that sits
+/// at the end of its row may be a clipped one, so a longer name that starts with it (read earlier on the same
+/// screen or buffer, or already `known` for this pane) is the model.
+pub fn resolve_model(known: Option<&str>, readings: &[ModelReading]) -> Option<String> {
+    let last = readings.last()?;
+    if last.cut {
+        if let Some(longer) = readings.iter().rev().find(|r| is_clipped_form(&last.name, &r.name)) {
+            return Some(longer.name.clone());
+        }
+        if let Some(known) = known.filter(|k| is_clipped_form(&last.name, k)) {
+            return Some(known.to_string());
+        }
+    }
+    Some(last.name.clone())
+}
