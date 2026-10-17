@@ -333,6 +333,19 @@ pub fn find_by_handle(project: &str, handle: &str) -> Option<WorktreeRef> {
         .map(|entry| entry.worktree)
 }
 
+/// The agent will start in the copy's folder (the project's offset inside the repo included).
+/// Refuse a copy Windows could not start a program in (`PATH_TOO_LONG`) before anything is made
+/// for it.
+fn check_copy_fits(root: &Path, dir_name: &str, prefix: &str) -> Result<(), OperationError> {
+    let planned = root.join(dir_name);
+    let planned = if prefix.is_empty() {
+        planned
+    } else {
+        planned.join(prefix.trim_end_matches('/'))
+    };
+    crate::path_limit::check_error(&planned)
+}
+
 /// Create `<project>/.puppet-master/worktrees/<short>` on a new branch `pm/<handle>` from the
 /// origin's current HEAD. Idempotent per handle: a retry gets the same worktree back.
 ///
@@ -345,16 +358,17 @@ pub fn create(project: &str, handle: &str) -> Result<WorktreeRef, OperationError
             return Ok(existing);
         }
     }
+    let root = worktrees_root(&project_path);
+    let base_name = format!("{}-{:04x}", slug(handle, 10), fnv16(handle));
+    check_copy_fits(&root, &base_name, &info.prefix)?;
     ensure_excluded(&info);
     crate::git_exclude::ensure_project_storage_excluded(&project_path);
-    let root = worktrees_root(&project_path);
     std::fs::create_dir_all(&root).map_err(|error| {
         err(
             "WORKTREE_CREATE_FAILED",
             format!("could not create {}: {error}", root.display()),
         )
     })?;
-    let base_name = format!("{}-{:04x}", slug(handle, 10), fnv16(handle));
     let mut dir_name = base_name.clone();
     let mut dir = root.join(&dir_name);
     let mut suffix = 1;

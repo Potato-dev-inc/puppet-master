@@ -110,10 +110,10 @@ pub fn create_operation(
             false,
         ));
     }
-    let project_path = crate::project_path::prepare_project_path(std::path::Path::new(
+    let project_path = crate::project_path::prepare_project_path_coded(std::path::Path::new(
         &req.project_path,
     ))
-    .map_err(|err| OperationError::new("INVALID_PROJECT_PATH", err, false))?
+    .map_err(crate::project_path::PrepareError::into_operation_error)?
     .to_string_lossy()
     .into_owned();
     req.project_path = project_path;

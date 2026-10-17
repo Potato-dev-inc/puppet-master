@@ -77,6 +77,13 @@ pub(in crate::agent_runs) fn execute_headless(
     let isolated = snapshot
         .as_ref()
         .is_some_and(|current| current.worker.worktree.is_some());
+    // Windows cannot start a program in a folder this long: say so now, in plain words, instead of
+    // letting the spawn fail with a bare "os error 267".
+    if let Err(found) = crate::path_limit::check(std::path::Path::new(&launch_dir)) {
+        fail_start(&project, &operation_id, crate::path_limit::CODE, &found.message());
+        publish(&project, &operation_id, &registry, &app);
+        return;
+    }
     let spec = match crate::tui::headless_launch_with(
         &*profile,
         &agent_type,
@@ -162,6 +169,9 @@ pub(in crate::agent_runs) fn execute_headless(
             let child = match from_standby {
                 Some(child) => child,
                 None => command.spawn().map_err(|error| {
+                if let Some(found) = crate::path_limit::from_io_error(&error, &spec.cwd) {
+                    return found.into_error(&spec.cwd);
+                }
                 let mut op_error = OperationError::new(
                     "LAUNCH_FAILED",
                     format!(

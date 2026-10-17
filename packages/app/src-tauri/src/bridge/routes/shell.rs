@@ -59,10 +59,9 @@ fn exec(cx: &Ctx) -> RouteResult {
             },
         )
         .map_err(|error| {
-            operation_http_error(crate::operations::OperationError::new(
-                "PANE_SPAWN_FAILED",
+            operation_http_error(crate::path_limit::pane_spawn_failure(
                 error,
-                true,
+                Some(std::path::Path::new(&cwd)),
             ))
         })?;
         if let Err(error) = register_spawned_pane(session, agent_type, &pane_id) {

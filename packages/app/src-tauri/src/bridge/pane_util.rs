@@ -17,6 +17,11 @@ pub(super) fn spawn_pane_with_timeout(
     args: SpawnPaneArgs,
     timeout: Duration,
 ) -> Result<String, crate::operations::OperationError> {
+    // A folder Windows cannot start a program in is refused before a pane is opened for it.
+    let folder = args.cwd.as_ref().map(std::path::PathBuf::from);
+    if let Some(folder) = &folder {
+        crate::path_limit::check_error(folder)?;
+    }
     let (tx, rx) = std::sync::mpsc::channel();
     let registry = Arc::clone(registry);
     let app = app.clone();
@@ -30,11 +35,7 @@ pub(super) fn spawn_pane_with_timeout(
         })?;
     match rx.recv_timeout(timeout) {
         Ok(Ok(pane_id)) => Ok(pane_id),
-        Ok(Err(err)) => Err(crate::operations::OperationError::new(
-            "PANE_SPAWN_FAILED",
-            err,
-            true,
-        )),
+        Ok(Err(err)) => Err(crate::path_limit::pane_spawn_failure(err, folder.as_deref())),
         Err(_) => Err(crate::operations::OperationError::new(
             "PANE_SPAWN_FAILED",
             format!(

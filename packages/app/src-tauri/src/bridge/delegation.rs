@@ -100,15 +100,8 @@ pub(super) fn delegate_operation_http(
             ))
         })?
     } else {
-        crate::project_path::prepare_project_path(std::path::Path::new(&req.project_path)).map_err(
-            |err| {
-                operation_http_error(crate::operations::OperationError::new(
-                    "INVALID_PROJECT_PATH",
-                    err,
-                    false,
-                ))
-            },
-        )?
+        crate::project_path::prepare_project_path_coded(std::path::Path::new(&req.project_path))
+            .map_err(|err| operation_http_error(err.into_operation_error()))?
     };
     req.project_path = project.to_string_lossy().into_owned();
     if req.context_policy.is_none() {
