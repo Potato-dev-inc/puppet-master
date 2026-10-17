@@ -30,8 +30,9 @@ pub fn write_input(
         let pid = pane.info.pid;
         let emitted = crate::pty::stream_pos::emitted(pane_id);
         admitted_at = emitted;
+        // Only a typing permit's write looks at the process: the child it types into is the agent.
         if let Err(refused) = origin.admit_terminal_write(pane_id, text, append_newline, emitted, || {
-            crate::pty::agent_proc::state(pane_id, pid)
+            crate::pty::agent_proc::state_at_input(pane_id, pid)
         }) {
             debug!(pane_id, origin = origin.tag(), %refused, "pane write refused");
             return Err(refused);

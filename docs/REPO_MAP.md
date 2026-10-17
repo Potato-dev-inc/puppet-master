@@ -630,6 +630,13 @@ live helpers: `scripts/spawn-close-agent.py`, `scripts/test-bridge.ps1`, `script
 to know it is back. The dev app may run as a "worker host". Debug builds re-stamp the build id only on
 source/git-ref changes (set `PM_FORCE_NEW_BUILD_ID=1` to force); release builds always re-stamp.
 
+Phone in dev: Vite (1420) serves the PWA and proxies `/bridge/*` via `packages/app/vite-bridge-proxy.ts`
+(test: `vite-bridge-proxy.test.ts`). The target is the port in the app's port file, found like
+`app_paths::bridge_port_file()` (env `PUPPET_MASTER_BRIDGE_PORT_FILE`, else `<app data>/com.puppetmaster.app[.profile-<name>]/`),
+and is re-read on every request and WebSocket upgrade (node `http-proxy` has no `router` option, so
+`configure` wraps `proxy.web`/`proxy.ws`). A dead bridge answers 502 `{code:"BRIDGE_UNREACHABLE"}`;
+`lib/bridge.ts` shows its message. The built app's `pwa_server.rs` does the same per request.
+
 ### MCP exe rebuild (do this after ANY change to `tool_registry/`, `bin/puppet-master-mcp.rs`, `mcp_shim/`, or bridge code the shim depends on)
 
 `node scripts/build-rust-mcp.mjs` (or `npm run build:rust --workspace=@puppet-master/mcp`) builds
@@ -730,7 +737,7 @@ validation unless noted.
 - `PROMPT_NOT_SUBMITTED` - typed prompt never started a turn - `agent_runs/headless/`, `native.rs`, `bridge/`.
 - `PROMPT_NOT_DELIVERED` - OpenCode API ack failed after one resend - `opencode/delivery.rs` (recoverable).
 - `SCREEN_NOT_READY` - the pane never showed a screen that takes a task (blank, splash, unknown, a draft in a box that cannot be cleared); the run was parked, then ended; nothing typed, never a headless fallback - `agent_runs/readiness.rs`, `bridge/dispatch.rs::park_on_unknown_screen` (recoverable).
-- `AGENT_EXITED` - the agent is not running in its pane; nothing typed into the shell. Before typing: the process tree (`pty/agent_proc.rs`; a host-shell child counts as the agent only after 1 s alive, profile helpers never) or a bare host-shell prompt (`agent_runs/readiness.rs::host_shell_error`, `pane_prompt::dispatch_blocker`). Mid-run (`headless/pane_turn.rs::fail_if_agent_exited`): the screen only (a host-shell prompt on two ticks), not the process tree.
+- `AGENT_EXITED` - the agent is not running in its pane; nothing typed into the shell. Before typing: the process tree (`pty/agent_proc.rs`; a host-shell child counts as the agent after 1 s alive or once a typing permit writes to it, profile helpers never) or a bare host-shell prompt (`agent_runs/readiness.rs::host_shell_error`, `pane_prompt::dispatch_blocker`). Mid-run (`headless/pane_turn.rs::fail_if_agent_exited`): a host-shell prompt on two ticks, or the process tree. An agent that ended under its host shell is `ExitCheck::Settling` (no completion reads the screen) until the shell's prompt shows its last frame came through ConPTY, at most 5 s; a pane whose own process ended fails at once.
 - `AGENT_NOT_INSTALLED` (pane runs) - the host shell said the agent's command is not recognized (`tui::shell::command_not_found`) - `agent_runs/readiness.rs`.
 - `STALE_PROMPT`, `PROMPT_NOT_PENDING`, `PROMPT_UNAVAILABLE`, `INVALID_PROMPT_CHOICE`, `PROMPT_REPLY_FAILED`, `BROAD_APPROVAL_REQUIRES_OPT_IN` - `answer_prompt` path - `pane_prompt/`, `agent_runs/routes/`.
 - `STEER_RECEIPT_NOT_FOUND` - `agent_runs/routes/`.
