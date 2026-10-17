@@ -18,3 +18,25 @@ mod world;
 
 pub use wizard_rig::{Answers, WizardRig};
 pub use world::{Session, World};
+
+use parking_lot::Mutex;
+use std::time::Duration;
+
+/// Output the pane readers hold back: a chunk containing the marker waits this long before the pane
+/// sees it ([`Session::hold_output`]).
+static HOLD_OUTPUT: Mutex<Option<(String, Duration)>> = Mutex::new(None);
+
+pub(crate) fn set_hold_output(hold: Option<(String, Duration)>) {
+    *HOLD_OUTPUT.lock() = hold;
+}
+
+/// Called by every pane reader (`pty::registry::spawn`) with each chunk it read, before the pane
+/// sees it.
+pub(crate) fn hold_output_chunk(chunk: &[u8]) {
+    let hold = HOLD_OUTPUT.lock().clone();
+    if let Some((marker, wait)) = hold {
+        if String::from_utf8_lossy(chunk).contains(&marker) {
+            std::thread::sleep(wait);
+        }
+    }
+}

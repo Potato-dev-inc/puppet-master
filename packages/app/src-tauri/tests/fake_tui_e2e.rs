@@ -627,6 +627,29 @@ steps = [{ do = "think", ms = 600 }, { do = "say", text = "Working on it..." }, 
     assert_eq!(events_named(&session, "exit")[0]["code"], 101);
 }
 
+/// The same crash on a loaded machine: the agent's process is gone while ConPTY still carries its
+/// last frame (the panic), here held back 1.5 s. The run failed AGENT_EXITED with the frame before
+/// it as `last_screen`, so the error never said why. It must wait for that frame (the host shell's
+/// prompt comes after it), and no idle completion may read the screen meanwhile.
+#[test]
+fn an_agent_crash_whose_last_frame_lags_its_exit_keeps_the_crash_in_the_error() {
+    let session = World::get().session("crash-lag");
+    session.script(
+        r#"
+agent = "claude"
+boot_ms = 200
+[[turn]]
+steps = [{ do = "think", ms = 600 }, { do = "say", text = "Working on it..." }, { do = "think", ms = 600 }, { do = "crash", message = "thread 'main' panicked at agent.rs:42: fake crash", code = 101 }]
+"#,
+    );
+    session.hold_output("fake crash", std::time::Duration::from_millis(1500));
+    let done = run_until_stopped(&session, "fake_claude", "Do something long", json!({}));
+    assert_eq!(status(&done), "failed", "{done}");
+    assert_eq!(error_code(&done), "AGENT_EXITED", "{}", done["error"]);
+    assert!(done["error"]["context"]["last_screen"].as_str().unwrap_or_default().contains("fake crash"), "the last screen is in the error: {}", done["error"]);
+    assert_eq!(events_named(&session, "exit")[0]["code"], 101);
+}
+
 // ---- 6. a follow-up over a dimmed suggestion ---------------------------------------------------------------
 
 /// After a turn Claude draws a dimmed suggestion in its composer (`commit this`). It is the agent's text, not
