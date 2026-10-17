@@ -72,6 +72,11 @@ const ADVANCED: &[&str] = &[
     "read_pane_digest",
     "update_pane_digest",
     "list_agent_contexts",
+    // Co-work Heads-up (Team is a Labs switch, off by default): callable by name, not listed.
+    "team_roster",
+    "team_events",
+    "team_wait",
+    "team_notify",
     // Prompt rendering only; run_agent / delegate_work start the work.
     "delegate_task",
 ];

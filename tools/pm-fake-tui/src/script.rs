@@ -261,6 +261,11 @@ pub enum Step {
         #[serde(default)]
         quiet: bool,
     },
+    /// Run a shell command in the working directory (as the agent's shell tool would, after it was
+    /// allowed to): `cmd /C` on Windows, `sh -c` elsewhere. Draws a tool row with the command and
+    /// whether it exited 0; the exit code and the last output lines go to the log. The turn goes on
+    /// whatever the exit code (a script that must stop on a failure follows with a `crash`).
+    Run { command: String },
     /// After the turn, show this as the dimmed suggestion in the composer.
     Suggest { text: String },
     /// Hit the usage limit: print the vendor's message and end the turn. With `auto_continue` the

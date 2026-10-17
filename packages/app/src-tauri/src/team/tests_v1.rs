@@ -9,6 +9,7 @@ use super::crypto::key_id;
 use super::event::*;
 use super::invite::{self, InviteLink};
 use super::keystore::KeyStore;
+use super::leakcheck::{decoded_layers, readable_in};
 use super::membership;
 use super::merge_green;
 use super::roster::{certify_device, OpBody, Roster, SignedOp};
@@ -25,37 +26,37 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-const NOW: u64 = 1_790_000_000_000;
+pub(super) const NOW: u64 = 1_790_000_000_000;
 
-fn now() -> u64 {
+pub(super) fn now() -> u64 {
     super::transport::now_ms()
 }
 
-fn temp_dir(tag: &str) -> PathBuf {
+pub(super) fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("pmteam1-{tag}-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
-fn person(name: &str) -> KeyStore {
+pub(super) fn person(name: &str) -> KeyStore {
     KeyStore::with_backend(Arc::new(MemoryBackend::new()), name)
 }
 
-fn folder(dir: &std::path::Path) -> Arc<dyn TeamTransport> {
+pub(super) fn folder(dir: &std::path::Path) -> Arc<dyn TeamTransport> {
     Arc::new(FolderTransport::new(dir.to_path_buf()))
 }
 
 /// Maya creates a team; each name in `others` is invited, asks to join with the right code, and
 /// is let in. Returns the admin's roster and everyone's key stores.
-struct World {
-    roster: Roster,
-    maya: KeyStore,
-    others: Vec<(String, KeyStore, Roster)>,
+pub(super) struct World {
+    pub(super) roster: Roster,
+    pub(super) maya: KeyStore,
+    pub(super) others: Vec<(String, KeyStore, Roster)>,
     #[allow(dead_code)]
     link: Option<InviteLink>,
 }
 
-fn world(transport: &Arc<dyn TeamTransport>, others: &[&str], at: u64) -> World {
+pub(super) fn world(transport: &Arc<dyn TeamTransport>, others: &[&str], at: u64) -> World {
     let maya = person("maya");
     let t = transport.clone();
     let mut roster = membership::create_team("Acme", "Maya", &maya, move |_| Ok(t), at).unwrap();
@@ -90,7 +91,7 @@ fn world(transport: &Arc<dyn TeamTransport>, others: &[&str], at: u64) -> World 
     World { roster, maya, others: joined, link: last_link }
 }
 
-fn event_from(keys: &KeyStore, team: &str, at: u64) -> TeamEvent {
+pub(super) fn event_from(keys: &KeyStore, team: &str, at: u64) -> TeamEvent {
     let subject = Subject {
         branch: Some("feat/auth".into()),
         commit: Some("0123456789abcdef0123456789abcdef01234567".into()),
@@ -120,7 +121,7 @@ fn event_from(keys: &KeyStore, team: &str, at: u64) -> TeamEvent {
     }
 }
 
-fn config_for(keys: &KeyStore, roster: &Roster, name: &str) -> TeamConfig {
+pub(super) fn config_for(keys: &KeyStore, roster: &Roster, name: &str) -> TeamConfig {
     TeamConfig {
         enabled: true,
         team: roster.team.clone(),
@@ -142,53 +143,6 @@ fn opened_event(opened: Result<Opened, Reject>) -> Verified {
 }
 
 // ------------------------------------------------------------------------ nothing left readable
-
-/// The values of `values` that someone holding `stored` could read: in `stored` itself, or in
-/// anything a base64 or base64url run in it decodes to (a state slot's `body` is base64 of JSON
-/// that holds more base64, so this goes as deep as the text goes).
-fn readable_in<'a>(stored: &str, values: &[&'a str]) -> Vec<&'a str> {
-    let layers = decoded_layers(stored);
-    values.iter().copied().filter(|value| layers.iter().any(|layer| holds(layer, value))).collect()
-}
-
-/// `stored`, then every printable text that a base64 or base64url run in an earlier layer decodes
-/// to. Ciphertext decodes to random bytes, which are not printable UTF-8 (each byte has to be), so
-/// it adds nothing a value could turn up in by chance.
-fn decoded_layers(stored: &str) -> Vec<String> {
-    use base64::engine::{general_purpose::GeneralPurpose, DecodePaddingMode, GeneralPurposeConfig};
-    use base64::{alphabet, Engine};
-    let lenient = GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true);
-    let engines = [GeneralPurpose::new(&alphabet::URL_SAFE, lenient), GeneralPurpose::new(&alphabet::STANDARD, lenient)];
-    let mut layers = vec![stored.to_string()];
-    let mut next = 0;
-    while next < layers.len() {
-        let layer = layers[next].clone();
-        next += 1;
-        for run in layer.split(|c: char| !(c.is_ascii_alphanumeric() || "-_+/=".contains(c))).filter(|run| run.len() >= 4) {
-            for engine in &engines {
-                let Some(text) = engine.decode(run).ok().and_then(|bytes| String::from_utf8(bytes).ok()) else { continue };
-                if !text.chars().any(|c| c.is_control() && !"\n\r\t".contains(c)) && !layers.contains(&text) {
-                    layers.push(text);
-                }
-            }
-        }
-    }
-    layers
-}
-
-/// Whether `text` holds `value` for a person to read. ~5,500 characters of random base64 hold a
-/// given three letters by chance about 2% of the time, so a short value made only of base64url
-/// characters counts only standing on its own, with no base64url character either side. A value
-/// with any other character, or 16 or more characters long, cannot turn up by chance at all.
-fn holds(text: &str, value: &str) -> bool {
-    let base64url = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
-    if value.len() >= 16 || !value.chars().all(base64url) {
-        return text.contains(value);
-    }
-    text.match_indices(value).any(|(at, _)| {
-        !text[..at].chars().next_back().is_some_and(base64url) && !text[at + value.len()..].chars().next().is_some_and(base64url)
-    })
-}
 
 #[test]
 fn the_readable_check_finds_a_name_inside_base64_bodies_and_not_in_random_letters() {
@@ -680,6 +634,40 @@ fn on_the_relay_a_removed_member_is_locked_out_and_told_so() {
         .seal(&Payload::Event { event: event_from(&leo, &roster.team, now()) }, 1, now())
         .unwrap();
     assert!(leo_wire.send(&posted).unwrap_err().is_denied(), "the relay refuses his envelopes");
+}
+
+#[test]
+fn a_removed_devices_relay_reader_reports_lost_access_so_the_app_looks_at_the_team_list_at_once() {
+    let relay = TestRelay::start();
+    let maya = person("maya");
+    let mut roster = membership::create_team("Acme", "Maya", &maya, |team| Ok(relay_transport(&relay, team, &maya)), NOW).unwrap();
+    let maya_wire = relay_transport(&relay, &roster.team, &maya);
+    let (inv, code) = invite::new_invite(now());
+    let link = membership::invite_link(&roster, &maya, Some(&relay.base), None, &inv.id).unwrap();
+    let leo = person("leo");
+    let leo_wire = relay_transport(&relay, &link.team, &leo);
+    membership::send_join(&link, &code, "Leo", None, &leo, leo_wire.as_ref(), now()).unwrap();
+    let request = maya_wire.joins().unwrap().iter().find_map(|j| invite::open_join(&maya.device_kem().unwrap(), j)).unwrap();
+    membership::approve(&mut roster, &request, &maya, maya_wire.as_ref(), now()).unwrap();
+    membership::try_finish_join(&link, &leo, leo_wire.as_ref()).unwrap().unwrap();
+
+    let rx = leo_wire.subscribe(0).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while leo_wire.status() != "live" {
+        assert!(std::time::Instant::now() < deadline, "Leo's reader never went live");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!leo_wire.lost_access(), "a member in good standing has not lost access");
+
+    let leo_id = key_id(&leo.member().unwrap());
+    membership::remove(&mut roster, &leo_id, &maya, maya_wire.as_ref(), now()).unwrap();
+    while !leo_wire.lost_access() {
+        assert!(std::time::Instant::now() < deadline, "the relay refused Leo's reader, and it never said so");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(leo_wire.status(), "offline");
+    leo_wire.stop();
+    drop(rx);
 }
 
 #[test]

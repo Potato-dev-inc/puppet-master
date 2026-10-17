@@ -16,6 +16,7 @@ use super::config::{self, TeamConfig};
 use super::event::{self, EventSource, ProjectRef, Subject, TeamEvent, TeamEventKind, Tier};
 use super::invite::{self, InviteLink};
 use super::keystore::KeyStore;
+use super::mcp::{self, McpError};
 use super::membership;
 use super::merge_green;
 use super::project_key;
@@ -31,7 +32,7 @@ use crate::pty::PaneRegistry;
 use notify::{RecursiveMode, Watcher};
 use parking_lot::Mutex;
 use serde::Serialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -44,6 +45,8 @@ const TICK: Duration = Duration::from_millis(1000);
 const REF_RESCAN_MS: u64 = 15_000;
 /// How often the roster and keys are re-read without a nudge.
 const ROSTER_REFRESH_MS: u64 = 60_000;
+/// How often the roster is read again while the relay refuses this device.
+const REFUSED_REFRESH_MS: u64 = 3_000;
 /// Before sending, the roster and keys are read again if the last look is older than this, so a
 /// member who missed the admin's nudge doesn't keep sealing with a removed member's key for a
 /// whole refresh period (security review L6).
@@ -74,10 +77,14 @@ struct Inner {
     needs_refresh: bool,
     last_refresh_ms: u64,
     last_join_poll_ms: u64,
+    /// The roster or the relay says this device is no longer on the team (`team_*` tools: `NOT_A_MEMBER`).
+    removed: bool,
 }
 
 pub struct Service {
-    app: Option<tauri::AppHandle>,
+    /// Never dropped: the service lives as long as the process, and dropping an `AppHandle` in a unit
+    /// test would link the whole window layer into the test binary.
+    app: std::mem::ManuallyDrop<Option<tauri::AppHandle>>,
     registry: Registry,
     dir: PathBuf,
     keystore: KeyStore,
@@ -96,12 +103,75 @@ fn service() -> Result<&'static Arc<Service>, String> {
 /// on in Settings.
 pub fn init(app: tauri::AppHandle, registry: Registry) {
     let dir = crate::app_paths::app_data_dir().join("team");
-    let svc = Arc::new(Service::new(Some(app), registry, dir, KeyStore::app(), Arc::new(GhCli)));
-    if SERVICE.set(svc.clone()).is_ok() {
-        svc.restart();
-        let runtime = svc.clone();
-        let _ = std::thread::Builder::new().name("team-runtime".into()).spawn(move || runtime.runtime_loop());
+    start(app, registry, dir, KeyStore::app(), Arc::new(GhCli));
+}
+
+/// Make the one Team service of this process and start its threads. False when one already runs.
+fn start(app: tauri::AppHandle, registry: Registry, dir: PathBuf, keystore: KeyStore, gh: Arc<dyn Gh>) -> bool {
+    let svc = Arc::new(Service::new(Some(app), registry, dir, keystore, gh));
+    if SERVICE.set(svc.clone()).is_err() {
+        return false;
     }
+    svc.restart();
+    let runtime = svc.clone();
+    let _ = std::thread::Builder::new().name("team-runtime".into()).spawn(move || runtime.runtime_loop());
+    true
+}
+
+// ---------------------------------------------------------------------- end-to-end test hooks
+//
+// Dev only (`dev-fake-tui`, `src/fake_tui/team.rs`): the two-person end-to-end test runs two
+// Puppet Master processes, each with its own service. These are the only differences from the app:
+// the keys go to an in-memory store (never the OS credential store), there is no `gh`, and a test
+// can look at, and hand the inbound path, what a person's app would not show.
+
+/// Start this process's Team service with `keystore` (an in-memory one: the OS credential store is
+/// never touched) and no `gh`. Team data lives in this process's own app-data folder.
+#[cfg(feature = "dev-fake-tui")]
+pub fn init_for_e2e(app: tauri::AppHandle, registry: Registry, keystore: KeyStore) -> bool {
+    struct NoGh;
+    impl Gh for NoGh {
+        fn api(&self, _path: &str, _etag: Option<&str>) -> Result<github::GhResponse, String> {
+            Err("gh isn't available in this test".into())
+        }
+        fn run(&self, _args: &[&str]) -> Result<String, String> {
+            Err("gh isn't available in this test".into())
+        }
+    }
+    let dir = crate::app_paths::app_data_dir().join("team");
+    start(app, registry, dir, keystore, Arc::new(NoGh))
+}
+
+/// The repositories this app already watches for pushes (a push is announced only once its
+/// repository has a baseline, so a test waits for this before its agent pushes).
+#[cfg(feature = "dev-fake-tui")]
+pub fn e2e_watched() -> Result<Vec<PathBuf>, String> {
+    Ok(service()?.inner.lock().watches.keys().cloned().collect())
+}
+
+/// This app's session (its roster and keys), for a test that builds envelopes the way a teammate's
+/// app would.
+#[cfg(feature = "dev-fake-tui")]
+pub fn e2e_session() -> Result<Session, String> {
+    service()?.inner.lock().session.clone().ok_or_else(|| "This computer isn't on a team.".to_string())
+}
+
+/// Hand `envelope` to the inbound path as if the relay had delivered it (a relay is untrusted: it
+/// can deliver anything), exactly as `team-inbound` does. Returns which check refuses it, asked
+/// with a copy of the replay guard so the real one is only touched by the delivery itself; `"accepted"` when none does.
+#[cfg(feature = "dev-fake-tui")]
+pub fn e2e_inject(envelope: pm_relay_protocol::Envelope) -> Result<String, String> {
+    let svc = service()?;
+    let (session, mut tracker) = {
+        let inner = svc.inner.lock();
+        (inner.session.clone().ok_or("This computer isn't on a team.")?, inner.store.seq.clone())
+    };
+    let verdict = match session.open(&envelope, &mut tracker, now_ms()) {
+        Ok(_) => "accepted".to_string(),
+        Err(reject) => reject.as_str().to_string(),
+    };
+    svc.receive(Inbound { envelope, received_at_ms: now_ms(), cursor: 0, reset: false });
+    Ok(verdict)
 }
 
 fn roster_path(dir: &Path) -> PathBuf {
@@ -213,6 +283,12 @@ pub(crate) fn audit_received(card: &(String, String, TeamEventKind)) {
 
 impl Service {
     fn new(app: Option<tauri::AppHandle>, registry: Registry, dir: PathBuf, keystore: KeyStore, gh: Arc<dyn Gh>) -> Self {
+        Self::make(std::mem::ManuallyDrop::new(app), registry, dir, keystore, gh)
+    }
+
+    /// `new` without an `AppHandle` parameter: a unit test builds its service here, so no drop glue
+    /// for the Tauri runtime is linked into the test binary (see `changed`).
+    fn make(app: std::mem::ManuallyDrop<Option<tauri::AppHandle>>, registry: Registry, dir: PathBuf, keystore: KeyStore, gh: Arc<dyn Gh>) -> Self {
         let (config, read_error) = load_config(&dir);
         let store = TeamStore::load(&dir.join("state.json"));
         let session = load_roster(&dir, &config).map(|r| Session::new(r, keystore.clone()));
@@ -236,6 +312,7 @@ impl Service {
                 needs_refresh: true,
                 last_refresh_ms: 0,
                 last_join_poll_ms: 0,
+                removed: false,
             }),
             wake: Mutex::new(None),
         }
@@ -252,10 +329,24 @@ impl Service {
     }
 
     fn changed(&self) {
-        if let Some(app) = &self.app {
+        // Not in unit tests: a test that reaches the Tauri runtime's `emit` links the whole window
+        // layer and the test binary no longer loads (docs/REPO_MAP.md, "Tests that touch Tauri window APIs").
+        #[cfg(not(test))]
+        if let Some(app) = &*self.app {
             use tauri::Emitter;
             let _ = app.emit("team://changed", ());
         }
+    }
+
+    /// The cockpit shows a new "Tell the team?" card (toast and Inbox).
+    fn announce_draft(&self, draft: &Draft) {
+        #[cfg(not(test))]
+        if let Some(app) = &*self.app {
+            use tauri::Emitter;
+            let _ = app.emit("team://draft", draft);
+        }
+        #[cfg(test)]
+        let _ = draft;
     }
 
     fn poke(&self) {
@@ -464,7 +555,10 @@ impl Service {
 
     /// Member and admin: re-read the roster and keys when nudged, and now and then.
     fn keep_roster_current(self: &Arc<Self>, now: u64) {
-        self.keep_roster_fresh(now, ROSTER_REFRESH_MS);
+        // The relay says this device is not on the team (the admin removed it): look now, and
+        // again every few seconds while that stays so, not once a minute.
+        let refused = self.inner.lock().transport.as_ref().is_some_and(|t| t.lost_access());
+        self.keep_roster_fresh(now, if refused { REFUSED_REFRESH_MS } else { ROSTER_REFRESH_MS });
     }
 
     /// Re-read the roster and keys when nudged or when the last look is older than `max_age_ms`.
@@ -504,6 +598,7 @@ impl Service {
                     let _ = save_roster(&self.dir, &session.roster);
                 }
                 let mut inner = self.inner.lock();
+                inner.removed = found.removed;
                 if found.removed {
                     inner.error = Some("You're no longer on this team. The admin removed this computer.".into());
                     if let Some(t) = inner.transport.take() {
@@ -611,6 +706,7 @@ impl Service {
         let config = {
             let mut inner = self.inner.lock();
             inner.config.join = None;
+            inner.removed = false;
             inner.session = Some(Session::new(roster.clone(), self.keystore.clone()));
             inner.config.clone()
         };
@@ -670,6 +766,7 @@ impl Service {
                 event,
                 repo: repo.to_string_lossy().into_owned(),
                 created_at_ms: now,
+                drafted_by: None,
             };
             tracing::info!(branch = %fact.branch, "team: push seen, asking to tell the team");
             let id = draft.id.clone();
@@ -678,10 +775,7 @@ impl Service {
                 inner.store.add_draft(draft.clone());
                 self.save(&inner);
             }
-            if let Some(app) = &self.app {
-                use tauri::Emitter;
-                let _ = app.emit("team://draft", &draft);
-            }
+            self.announce_draft(&draft);
             self.changed();
             if key.starts_with("github.com/") {
                 self.look_for_pr(id, repo, fact.branch.clone());
@@ -857,7 +951,7 @@ impl Service {
             j.state = JobState::Working;
             j.agent_ran = true;
         });
-        let Some(app) = self.app.clone() else {
+        let Some(app) = (*self.app).clone() else {
             return self.fail_job(&job.id, "No agent can start here.".into());
         };
         let request: crate::agent_runs::AgentRunRequest = match serde_json::from_value(actions::run_request(&job.project, job, headless)) {
@@ -870,7 +964,7 @@ impl Service {
             }
             Ok(view) => {
                 // Never expected: the run must reuse the prepared copy. Stop rather than guess.
-                if let Some(app) = self.app.clone() {
+                if let Some(app) = (*self.app).clone() {
                     let _ = crate::agent_runs::cancel_agent(&job.project, &view.handle, None, self.registry.clone(), app);
                 }
                 self.fail_job(&job.id, "The agent started in the wrong copy, so it was stopped.".into());
@@ -959,6 +1053,139 @@ pub fn build_push_event(
         expires_at_ms: now + event::DEFAULT_TTL_MS,
         source: EventSource::Git,
     }
+}
+
+// ------------------------------------------------------------------ team tools for agents (MCP)
+//
+// `team::mcp` decides what an agent may see and draft; these wrappers read the live state for it.
+// The bridge routes (`bridge/routes/team_mcp.rs`) have already refused phones, remote callers and
+// anything without an MCP session. Nothing here has a path to `send`.
+
+impl Service {
+    /// Run `f` on what the tools may look at.
+    fn mcp_snapshot<R>(&self, f: impl FnOnce(&mcp::Snapshot<'_>) -> R) -> R {
+        let inner = self.inner.lock();
+        // The relay refusing this device counts at once; the roster catches up within seconds.
+        let removed = inner.removed || inner.transport.as_ref().is_some_and(|t| t.lost_access());
+        f(&mcp::Snapshot {
+            config: &inner.config,
+            session: inner.session.as_ref(),
+            removed,
+            read_error: inner.read_error.as_deref(),
+            store: &inner.store,
+        })
+    }
+
+    fn mcp_entitled(&self) -> Result<(), McpError> {
+        self.mcp_snapshot(|snap| mcp::entitled(snap).map(|_| ()))
+    }
+
+    /// The repository and project key a `project` argument names: a folder inside a repository this
+    /// app knows (an open pane, or a Team project), or such a project's key or short name.
+    fn resolve_project(&self, arg: &str) -> Option<(String, PathBuf)> {
+        let config = self.inner.lock().config.clone();
+        let named = Path::new(arg).is_absolute().then(|| super::git::toplevel(Path::new(arg))).flatten();
+        let wanted = named.as_deref().map(crate::project_path::comparable_project_path);
+        self.known_repos(&config).into_iter().find_map(|repo| {
+            let key = self.key_of(&repo)?;
+            let by_path = wanted.as_deref() == Some(crate::project_path::comparable_project_path(&repo).as_str());
+            (by_path || key.eq_ignore_ascii_case(arg) || project_key::display_name(&key).eq_ignore_ascii_case(arg)).then_some((key, repo))
+        })
+    }
+
+    fn filter_key(&self, args: &Value) -> Result<Option<String>, McpError> {
+        Ok(mcp::project_arg(args)?.and_then(|p| self.resolve_project(&p)).map(|(key, _)| key))
+    }
+
+    pub(crate) fn mcp_roster(&self) -> Result<Value, McpError> {
+        self.mcp_snapshot(mcp::roster)
+    }
+
+    pub(crate) fn mcp_events(&self, args: &Value) -> Result<Value, McpError> {
+        self.mcp_entitled()?;
+        let key = self.filter_key(args)?;
+        self.mcp_snapshot(|snap| mcp::events(snap, args, key.as_deref()))
+    }
+
+    /// Block up to `wait` for an event after `since` that fits `filter`; `{matched:false, since}` when none came.
+    pub(crate) fn mcp_wait(&self, filter: &Value, since: u64, wait: Duration) -> Result<Value, McpError> {
+        self.mcp_entitled()?;
+        let key = self.filter_key(filter)?;
+        let parsed = mcp::parse_filter(filter, key.as_deref())?;
+        let deadline = std::time::Instant::now() + wait;
+        loop {
+            if let Some(found) = self.mcp_snapshot(|snap| mcp::wait_poll(snap, &parsed, since))? {
+                return Ok(found);
+            }
+            if std::time::Instant::now() >= deadline {
+                return Ok(json!({ "matched": false, "since": since }));
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        }
+    }
+
+    /// **Draft** "Tell the team?" for an agent. Adds an unsent draft and tells the cockpit; sends nothing.
+    pub(crate) fn mcp_notify(&self, args: &Value, session_id: &str) -> Result<Value, McpError> {
+        self.mcp_entitled()?;
+        let plan = mcp::NotifyPlan::parse(args)?;
+        let (key, repo) = self.resolve_project(&plan.project).ok_or_else(|| McpError::project_unknown(&plan.project))?;
+        let commit = if plan.kind == TeamEventKind::Pushed {
+            let branch = plan.branch.as_deref().unwrap_or_default();
+            Some(mcp::verify_push(&repo, branch, plan.commit.as_deref())?)
+        } else {
+            None
+        };
+        let added = {
+            let mut inner = self.inner.lock();
+            let removed = inner.removed || inner.transport.as_ref().is_some_and(|t| t.lost_access());
+            mcp::entitled(&mcp::Snapshot {
+                config: &inner.config,
+                session: inner.session.as_ref(),
+                removed,
+                read_error: inner.read_error.as_deref(),
+                store: &inner.store,
+            })?;
+            let draft = mcp::build_draft(&inner.config, &key, &repo.to_string_lossy(), &plan, commit, now_ms());
+            let added = mcp::add_agent_draft(&mut inner.store, draft)?;
+            self.save(&inner);
+            added
+        };
+        audit::record(
+            Kind::TeamAction,
+            Who::Agent(session_id.to_string()),
+            "An agent drafted a Tell the team? card (nothing was sent)",
+            json!({ "draft": added.draft.id, "kind": added.draft.event.kind.as_str() }),
+        );
+        if added.created {
+            self.announce_draft(&added.draft);
+        }
+        self.changed();
+        Ok(mcp::notify_reply(&added))
+    }
+}
+
+fn mcp_service() -> Result<&'static Arc<Service>, McpError> {
+    service().map_err(McpError::unavailable)
+}
+
+/// `team_roster`.
+pub fn mcp_roster() -> Result<Value, McpError> {
+    mcp_service()?.mcp_roster()
+}
+
+/// `team_events`.
+pub fn mcp_events(args: &Value) -> Result<Value, McpError> {
+    mcp_service()?.mcp_events(args)
+}
+
+/// `team_wait`, one bounded block (the MCP shim repeats it up to the caller's timeout).
+pub fn mcp_wait(filter: &Value, since: u64, wait: Duration) -> Result<Value, McpError> {
+    mcp_service()?.mcp_wait(filter, since, wait)
+}
+
+/// `team_notify`: a draft only.
+pub fn mcp_notify(args: &Value, session_id: &str) -> Result<Value, McpError> {
+    mcp_service()?.mcp_notify(args, session_id)
 }
 
 // ---------------------------------------------------------------------- what the cockpit reads
@@ -1248,6 +1475,7 @@ pub fn create(input: CreateInput) -> Result<ConfigView, String> {
     {
         let mut inner = svc.inner.lock();
         inner.store = TeamStore::default();
+        inner.removed = false;
         inner.session = Some(Session::new(roster.clone(), svc.keystore.clone()));
         svc.save(&inner);
     }
@@ -1498,7 +1726,11 @@ pub fn clear_gaps() -> Result<(), String> {
 /// **Tell the team**: seal and send the draft, with my note. The one place a push leaves this
 /// computer.
 pub fn send(draft_id: &str, note: Option<String>) -> Result<(), String> {
-    let svc = service()?;
+    send_via(service()?, draft_id, note)
+}
+
+/// [`send`] on a given service (the tests run their own).
+fn send_via(svc: &Arc<Service>, draft_id: &str, note: Option<String>) -> Result<(), String> {
     svc.keep_roster_fresh(now_ms(), SEND_FRESH_MS);
     let (mut draft, transport, session) = {
         let mut inner = svc.inner.lock();
@@ -1507,7 +1739,17 @@ pub fn send(draft_id: &str, note: Option<String>) -> Result<(), String> {
         let draft = inner.store.take_draft(draft_id).ok_or("That update was already sent or dismissed.")?;
         (draft, transport, session)
     };
-    draft.event.note = note.map(|n| event::clean_text(&n, event::MAX_NOTE_CHARS)).filter(|n| !n.is_empty());
+    // The note the person's card shows is the one that goes: `Some` replaces the draft's own note
+    // (an empty one removes it); `None` leaves it as drafted.
+    if let Some(n) = note {
+        draft.event.note = Some(event::clean_text(&n, event::MAX_NOTE_CHARS)).filter(|n| !n.is_empty());
+    }
+    if draft.event.kind == TeamEventKind::Note && draft.event.note.is_none() {
+        // Teammates' apps drop a note without text: don't send an envelope nobody can show.
+        let mut inner = svc.inner.lock();
+        inner.store.add_draft(draft);
+        return Err("A note needs some text.".into());
+    }
     draft.event.at_ms = now_ms();
     draft.event.team = session.team().to_string();
     let seq = next_seq(svc);
@@ -1802,3 +2044,7 @@ pub fn merge_when_green(card_id: &str, head_sha: &str) -> Result<String, String>
     );
     Ok(message)
 }
+
+#[cfg(test)]
+#[path = "tests_mcp_service.rs"]
+mod tests_mcp_service;

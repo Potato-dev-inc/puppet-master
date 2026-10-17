@@ -1023,3 +1023,7 @@ mod wizard;
 
 #[path = "fake_tui_screen_agents.rs"]
 mod screen_agents;
+
+/// Co-work Heads-up with two people: two processes, a relay, a git remote (tests/fake_tui_team.rs).
+#[path = "fake_tui_team.rs"]
+mod team;

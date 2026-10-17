@@ -26,8 +26,9 @@ export function TellTeamPrompt({
   /** The person started interacting (the toast must not vanish under them). */
   onTouched?: () => void;
 }) {
-  const [preview, setPreview] = useState(false);
-  const [note, setNote] = useState('');
+  // A draft an agent made opens with its exact text on show: the person reads it before anything goes.
+  const [preview, setPreview] = useState(!!draft.draftedBy);
+  const [note, setNote] = useState(draft.event.note ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const shown = { ...draft.event, note: note.trim() || undefined };
@@ -50,6 +51,7 @@ export function TellTeamPrompt({
         <span className="ck-row-title">{draftTitle(draft)}</span>
         <span className="ck-team-meta">Tell the team?</span>
       </div>
+      {draft.draftedBy && <p className="ck-team-meta">Drafted by {draft.draftedBy}. Nothing is sent until you click.</p>}
       {preview && (
         <div className="ck-tell-preview" aria-label="What your teammates will see">
           <p className="ck-row-title">{cardTitle(shown)}</p>
@@ -73,7 +75,7 @@ export function TellTeamPrompt({
         </p>
       )}
       <div className="ck-tell-actions">
-        <button type="button" className="ck-btn ck-btn--primary" disabled={busy} onClick={() => void run(() => api.send(draft.id, note.trim() || undefined))}>
+        <button type="button" className="ck-btn ck-btn--primary" disabled={busy} onClick={() => void run(() => api.send(draft.id, note.trim()))}>
           {tellLabel(members)}
         </button>
         <button type="button" className="ck-btn ck-btn--secondary" disabled={busy} onClick={() => void run(() => api.dismissDraft(draft.id))}>

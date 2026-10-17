@@ -17,6 +17,8 @@ mod handoff;
 mod http;
 #[cfg(test)]
 pub(crate) use http::{spawn_device_gate_listener, spawn_gate_listener};
+#[cfg(feature = "dev-fake-tui")]
+pub(crate) use routes::team_mcp::{handle_request as team_agent_request, LiveTeam};
 mod locks;
 mod observe;
 mod pane_util;

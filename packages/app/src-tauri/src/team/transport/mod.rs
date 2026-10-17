@@ -87,6 +87,12 @@ pub trait TeamTransport: Send + Sync {
     fn status(&self) -> &'static str {
         "live"
     }
+    /// The transport was refused as not (or no longer) allowed in: the app should look at the team
+    /// list at once instead of waiting for its next scheduled look (a removed member finds out
+    /// within seconds, not a minute).
+    fn lost_access(&self) -> bool {
+        false
+    }
     /// Stop every subscription and watcher. Idempotent.
     fn stop(&self);
 }

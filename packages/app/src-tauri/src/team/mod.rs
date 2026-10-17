@@ -13,6 +13,7 @@
 //! - [`sources`]: pushes from remote-tracking refs, PRs and CI through `gh`;
 //! - [`store`]: drafts, cards, queued updates, the replay guard and gap counters;
 //! - [`actions`], [`merge_green`]: what a click does in git and on GitHub, with the safety rules;
+//! - [`mcp`]: the agent tools (`team_roster`, `team_events`, `team_wait`, `team_notify`): read-only, and drafts only;
 //! - [`service`] / [`commands`] / [`phone`]: the live wiring, the cockpit commands, the phone route.
 //!
 //! Boundaries: team traffic never uses the bridge or device pairing (plan §0); a teammate's event
@@ -28,6 +29,9 @@ pub mod event;
 pub mod git;
 pub mod invite;
 pub mod keystore;
+#[cfg(any(test, feature = "dev-fake-tui"))]
+pub mod leakcheck;
+pub mod mcp;
 pub mod membership;
 pub mod merge_green;
 pub mod phone;
@@ -44,5 +48,7 @@ mod tests;
 mod tests_v1;
 #[cfg(test)]
 mod tests_hardening;
+#[cfg(test)]
+mod tests_mcp;
 
 pub use service::init;

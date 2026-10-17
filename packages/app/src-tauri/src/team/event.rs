@@ -153,6 +153,8 @@ impl TeamEventKind {
                 | Self::PrClosed
                 | Self::CiFailed
                 | Self::CiPassed
+                | Self::PleaseReview
+                | Self::Note
         )
     }
 }
@@ -426,6 +428,12 @@ pub fn validate_inbound(mut event: TeamEvent, now_ms: u64) -> Result<TeamEvent, 
             return Err(Rejected("bad pull request"));
         }
     }
+    if event.kind == TeamEventKind::PleaseReview && subject.pr.is_none() && subject.branch.is_none() {
+        return Err(Rejected("a review request names a pull request or a branch"));
+    }
+    if event.kind == TeamEventKind::Note && event.note.as_deref().map_or(true, |n| clean_text(n, MAX_NOTE_CHARS).is_empty()) {
+        return Err(Rejected("a note has text"));
+    }
     // Display strings: cleaned, never rejected for being odd.
     event.project.name = clean_text(&event.project.name, 80);
     event.actor.display = clean_text(&event.actor.display, 40);
@@ -444,6 +452,15 @@ pub fn validate_inbound(mut event: TeamEvent, now_ms: u64) -> Result<TeamEvent, 
     event.subject.sentence = event.subject.sentence.as_deref().map(|s| clean_text(s, 280));
     event.dedupe_key = clean_text(&event.dedupe_key, 300);
     Ok(event)
+}
+
+/// The dedupe key of a whole event: [`dedupe_key`], except that every note is its own card (a note
+/// has no state to update; two notes must never replace each other).
+pub fn event_dedupe_key(event: &TeamEvent) -> String {
+    if event.kind == TeamEventKind::Note {
+        return format!("{}:note:{}", event.project.key, event.id);
+    }
+    dedupe_key(&event.project.key, event.kind, &event.subject)
 }
 
 /// Cards with the same key are one card that updates in place:

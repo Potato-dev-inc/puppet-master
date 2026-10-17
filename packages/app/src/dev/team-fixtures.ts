@@ -253,3 +253,21 @@ export const TEAM_DIFF = {
   ].join('\n'),
   patch_truncated: false,
 };
+
+/** A draft my agent made through the MCP tool `team_notify`: not sent until I click Tell. */
+export const AGENT_DRAFT: TeamDraft = {
+  id: '01JA0LEOREVIEW0000000000004',
+  repo: local.projectPath,
+  createdAtMs: now - 2_000,
+  draftedBy: 'Claude Code',
+  event: {
+    ...MAYA_PUSH,
+    id: '01JA0LEOREVIEW0000000000004',
+    actor: { member: 'leo', device: 'leo-desktop', display: 'Leo', agent: { label: 'Claude Code' } },
+    kind: 'please_review',
+    atMs: now - 2_000,
+    subject: { branch: 'feat/billing', pr: { number: 143, title: 'Billing page', url: 'https://github.com/acme/billing-service/pull/143', state: 'open', draft: false } },
+    note: 'Please look at the rounding first',
+    dedupeKey: KEY + '#143:please_review',
+  },
+};

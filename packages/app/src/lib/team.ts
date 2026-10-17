@@ -17,6 +17,8 @@ export type TeamEventKind =
   | 'ci_failed'
   | 'ci_passed'
   | 'review_requested'
+  | 'please_review'
+  | 'note'
   | string;
 
 export interface TeamEvent {
@@ -46,12 +48,14 @@ export interface TeamEvent {
   source: string;
 }
 
-/** "Tell the team?" for one of my pushes. Never sent without a click. */
+/** "Tell the team?" for one of my pushes, or one my agent drafted. Never sent without a click. */
 export interface TeamDraft {
   id: string;
   event: TeamEvent;
   repo: string;
   createdAtMs: number;
+  /** Set when an agent drafted it (the MCP tool `team_notify`): the label it gave, or "An agent". */
+  draftedBy?: string | null;
 }
 
 export interface LocalFacts {
@@ -315,6 +319,11 @@ export function cardTitle(event: TeamEvent): string {
     return base ? `${who}'s #${pr.number} merged into ${base}` : `#${pr.number} merged`;
   }
   if (pr && event.kind === 'pr_closed') return `#${pr.number} closed without merging`;
+  if (event.kind === 'please_review') {
+    const what = pr ? `#${pr.number}` : (event.subject.branch ?? 'a branch');
+    return `${who} asks for a review of ${what}`;
+  }
+  if (event.kind === 'note') return `${who} left a note`;
   if (event.kind === 'ci_failed' || event.kind === 'ci_passed') {
     const verb = event.kind === 'ci_failed' ? 'failed' : 'passed';
     const on = pr ? `#${pr.number}` : (event.subject.branch ?? 'a branch');
@@ -349,7 +358,7 @@ export function isGithubPr(event: TeamEvent): boolean {
 }
 
 /** A GitHub fact (merged, closed, checks) has no commit to pull, so the pull/queue note does not apply. */
-const hasNothingToPull = (event: TeamEvent): boolean => event.source === 'github' && !event.subject.commit;
+const hasNothingToPull = (event: TeamEvent): boolean => !event.subject.commit;
 
 /** "Tell Leo", "Tell Leo and Sam", "Tell Leo, Sam and Priya", "Tell the team". */
 export function tellLabel(members: string[]): string {
@@ -363,7 +372,9 @@ export function tellLabel(members: string[]): string {
 export function draftTitle(draft: TeamDraft): string {
   const e = draft.event;
   const pr = e.subject.pr;
-  if (pr && e.kind === 'pr_opened') return `PR #${pr.number} is open${pr.title ? ` · ${pr.title}` : ''}`;
+  if (pr && (e.kind === 'pr_opened' || e.kind === 'pr_ready')) return `PR #${pr.number} is open${pr.title ? ` · ${pr.title}` : ''}`;
+  if (e.kind === 'please_review') return `Ask for a review of ${pr ? `#${pr.number}` : (e.subject.branch ?? 'a branch')}`;
+  if (e.kind === 'note') return 'A note for the team';
   const who = e.actor.agent?.label ?? 'You';
   const stats = statsText(e.subject.stats);
   return `${who} pushed ${e.subject.branch ?? 'a branch'}${stats ? ` · ${stats}` : ''}`;

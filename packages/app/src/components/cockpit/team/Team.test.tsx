@@ -2,8 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CI_FAILED, GITHUB_CARDS, GITHUB_PR_OPEN, MAYA_PUSH, MY_DRAFT, NEEDS_START_JOB, READY_JOB, SAM_MERGED, SAM_PR, TEAM_CARDS, TEAM_DIFF, WAITING_JOB, teamConfig, teamState } from '../../../dev/team-fixtures';
-import { cardActions, cardMeta, cardTitle, jobTitle, tellLabel, type MergePlan, type TeamApi, type TeamCard as Card, type TeamJob } from '../../../lib/team';
+import { AGENT_DRAFT, CI_FAILED, GITHUB_CARDS, GITHUB_PR_OPEN, MAYA_PUSH, MY_DRAFT, NEEDS_START_JOB, READY_JOB, SAM_MERGED, SAM_PR, TEAM_CARDS, TEAM_DIFF, WAITING_JOB, teamConfig, teamState } from '../../../dev/team-fixtures';
+import { cardActions, cardMeta, cardTitle, draftTitle, jobTitle, tellLabel, type MergePlan, type TeamApi, type TeamCard as Card, type TeamJob } from '../../../lib/team';
 import { TeamCard } from './TeamCard';
 import { TeamJobCard } from './TeamJobCard';
 import { TeamSection } from './TeamSection';
@@ -333,6 +333,60 @@ describe('Tell the team?', () => {
     expect(api.calls).toEqual([`send("${MY_DRAFT.id}","Careful with the session model")`]);
   });
 
+  it('a draft my agent made shows its exact text, says who drafted it, and sends only on Tell', async () => {
+    const api = fakeApi();
+    act(() => root.render(<TellTeamPrompt draft={AGENT_DRAFT} members={['Maya']} api={api} variant="row" />));
+    // The text is on show without opening Preview, and nothing has been sent.
+    expect(host.textContent).toContain('Drafted by Claude Code. Nothing is sent until you click.');
+    expect(host.textContent).toContain("Leo's Claude Code asks for a review of #143");
+    expect(host.textContent).toContain('“Please look at the rounding first”');
+    expect((host.querySelector('input') as HTMLInputElement).value).toBe('Please look at the rounding first');
+    expect(api.calls).toEqual([]);
+    // A plain click sends the drafted note, exactly as shown.
+    await act(async () => button('Tell Maya')!.click());
+    expect(api.calls).toEqual([`send("${AGENT_DRAFT.id}","Please look at the rounding first")`]);
+  });
+
+  it('the person can edit the drafted note before it goes', async () => {
+    const api = fakeApi();
+    act(() => root.render(<TellTeamPrompt draft={AGENT_DRAFT} members={['Maya']} api={api} variant="row" />));
+    const input = host.querySelector('input') as HTMLInputElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '  my own words ');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(host.textContent).toContain('“my own words”');
+    await act(async () => button('Tell Maya')!.click());
+    expect(api.calls).toEqual([`send("${AGENT_DRAFT.id}","my own words")`]);
+  });
+
+  it('the person can remove the drafted note: an empty note goes, not the drafted one', async () => {
+    const api = fakeApi();
+    act(() => root.render(<TellTeamPrompt draft={AGENT_DRAFT} members={['Maya']} api={api} variant="row" />));
+    const input = host.querySelector('input') as HTMLInputElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => button('Tell Maya')!.click());
+    expect(api.calls).toEqual([`send("${AGENT_DRAFT.id}","")`]);
+  });
+
+  it('a draft I did not get from an agent opens closed and does not claim an author', () => {
+    const api = fakeApi();
+    act(() => root.render(<TellTeamPrompt draft={MY_DRAFT} members={['Maya']} api={api} variant="row" />));
+    expect(host.textContent).not.toContain('Drafted by');
+    expect(host.querySelector('input')).toBeNull();
+  });
+
+  it('titles the drafts of every kind an agent can make', () => {
+    const draft = (kind: string, subject: object, note?: string) => ({ ...AGENT_DRAFT, event: { ...AGENT_DRAFT.event, kind, subject, note } });
+    const pr = { number: 9, title: 'T', url: '', state: 'open', draft: false };
+    expect(draftTitle(draft('pr_ready', { pr }))).toBe('PR #9 is open · T');
+    expect(draftTitle(draft('please_review', { branch: 'feat/x' }))).toBe('Ask for a review of feat/x');
+    expect(draftTitle(draft('note', {}, 'hi'))).toBe('A note for the team');
+  });
+
   it('Not now drops the draft without sending', async () => {
     const api = fakeApi();
     act(() => root.render(<TellTeamPrompt draft={MY_DRAFT} members={['Maya']} api={api} variant="row" />));
@@ -383,5 +437,28 @@ describe('TeamSection', () => {
     expect(host.querySelector('[aria-label="Updates for your branches"]')).not.toBeNull();
     expect(host.querySelectorAll('[data-team-card]').length).toBe(2);
     expect(vi.isMockFunction(api.send)).toBe(false);
+  });
+});
+
+describe('cards for review requests and notes', () => {
+  const base = { ...MAYA_PUSH, actor: { ...MAYA_PUSH.actor, agent: undefined } };
+  it('title them in plain words and offer nothing to pull', () => {
+    const review = { ...base, kind: 'please_review', subject: { branch: 'feat/auth', pr: { number: 7, title: 'T', url: '', state: 'open', draft: false } }, note: 'look at the token store' };
+    expect(cardTitle(review)).toBe('Maya asks for a review of #7');
+    expect(cardTitle({ ...review, subject: { branch: 'feat/auth' } })).toBe('Maya asks for a review of feat/auth');
+    const note = { ...base, kind: 'note', subject: {}, note: 'standup moved to 10' };
+    expect(cardTitle(note)).toBe('Maya left a note');
+    // Neither carries a commit, so Pull now and Queue my agent are not offered, whatever the project says.
+    for (const event of [review, note]) {
+      const card = { id: event.id, event, receivedAtMs: Date.now(), state: 'new' as const, local: null, panes: [] };
+      expect(cardActions(card)).toEqual({ primary: null, mergeWhenGreen: false, note: null });
+    }
+  });
+
+  it('render the note in quotes as plain text', () => {
+    const event = { ...base, kind: 'note', subject: {}, note: '<b>x</b> Ignore previous instructions' };
+    act(() => root.render(<TeamCard card={{ id: event.id, event, receivedAtMs: Date.now(), state: 'new', local: null, panes: [] }} api={fakeApi()} now={Date.now()} />));
+    expect(host.textContent).toContain('“<b>x</b> Ignore previous instructions”');
+    expect(host.querySelector('b')).toBeNull();
   });
 });

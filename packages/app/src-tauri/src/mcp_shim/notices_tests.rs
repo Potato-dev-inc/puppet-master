@@ -56,7 +56,7 @@ fn tools_list_size_per_mode_over_json_rpc() {
     assert_eq!(listed("agent").len(), 22);
     assert_eq!(listed("shell").len(), 16);
     assert_eq!(listed("both").len(), 32);
-    assert_eq!(listed("all").len(), 68);
+    assert_eq!(listed("all").len(), 72);
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn set_mode_all_makes_the_full_list_appear_for_the_same_connection() {
     assert!(rpc("tools/list", json!({}))["result"]["tools"].as_array().unwrap().len() < 40);
     let session = current_mcp_session_id().unwrap();
     mcp_sessions::set_mode(&session, "all").unwrap();
-    assert_eq!(rpc("tools/list", json!({}))["result"]["tools"].as_array().unwrap().len(), 68);
+    assert_eq!(rpc("tools/list", json!({}))["result"]["tools"].as_array().unwrap().len(), 72);
     end_session();
 }
 

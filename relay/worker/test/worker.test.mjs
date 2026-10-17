@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { test } from "node:test";
-import { b64, client, envelope, key, registration, signedAcl } from "./proto.mjs";
+import { authHeader, b64, client, envelope, key, registration, signedAcl } from "./proto.mjs";
 
 const HOOKS = process.env.PM_RELAY_TEST_URL;
 const STRICT = process.env.PM_RELAY_STRICT_URL;
@@ -259,4 +259,93 @@ test("only devices on the access list leave a trace in the replay guard", async 
   assert.equal((await hook(api, team, "alarm", "", "GET")).json.seen, 0, "five strangers, nothing stored");
   await poll(api, team);
   assert.equal((await hook(api, team, "alarm", "", "GET")).json.seen, 1);
+});
+
+// ----------------------------------------------------------------------------- what Cloudflare bills
+
+const cost = async (api, team, reset = true) => (await hook(api, team, "cost", reset ? "?reset=1" : "")).json;
+
+test("a message costs a bounded number of storage rows (the free plan allows 100,000 written a day)", async () => {
+  const { api, team } = await newTeam(HOOKS);
+  await post(api, team, device, 1); // the first one also creates the rate-limit rows
+  await cost(api, team);
+  for (let i = 2; i <= 6; i += 1) assert.equal((await post(api, team, device, i)).status, 200);
+  const five = await cost(api, team);
+  // Per post: the replay guard (a row and its expiry index), four counters, the envelope, the team's counters.
+  assert.ok(five.written <= 5 * 8, `a post wrote ${five.written / 5} rows, budget 8`);
+  assert.ok(five.read <= 5 * 14, `a post read ${five.read / 5} rows, budget 14`);
+  // A read (the poll, the socket's first call) costs the replay guard and the request counter.
+  await poll(api, team, 3);
+  const read = await cost(api, team);
+  assert.ok(read.written <= 6, `a read wrote ${read.written} rows, budget 6`);
+});
+
+test("the expiry sweep reads and writes what expires, not the whole mailbox", async () => {
+  const { api, team } = await newTeam(HOOKS);
+  await hook(api, team, "limits", "", "POST", { devicePerMinute: 1000, teamPerMinute: 1000, deviceRequestsPerMinute: 1000 });
+  for (let i = 1; i <= 120; i += 1) assert.equal((await post(api, team, device, i)).status, 200);
+  // Let the replay guard and the counters of those 120 posts expire first (they are swept too), then ...
+  await hook(api, team, "age", `?ms=${30 * 60_000}`);
+  // ... six days on: nothing expires. The sweep must not read the 120 envelopes to find that out.
+  let state = (await hook(api, team, "age", `?ms=${6 * DAY}`)).json;
+  assert.equal(state.envelopes, 120);
+  assert.ok(state.sweepCost.read < 40, `a sweep with nothing to expire read ${state.sweepCost.read} rows`);
+  assert.equal(typeof state.alarm, "number", "still scheduled: there is mail that can expire");
+  // Two days more: all 120 expire, and the storage counters follow.
+  state = (await hook(api, team, "age", `?ms=${2 * DAY}`)).json;
+  assert.equal(state.envelopes, 0);
+  assert.equal(state.storedRows, 0);
+  assert.equal(state.storedBytes, 0);
+  assert.ok(state.sweepCost.written < 120 * 2 + 40, `expiring 120 envelopes wrote ${state.sweepCost.written} rows`);
+});
+
+test("a partial expiry keeps the newer mail and the counters agree with the rows", async () => {
+  const { api, team } = await newTeam(HOOKS);
+  await post(api, team, device, 1);
+  await hook(api, team, "age", `?ms=${5 * DAY}`);
+  await post(api, team, device, 2);
+  await post(api, team, device, 3);
+  const state = (await hook(api, team, "age", `?ms=${3 * DAY}`)).json; // the first is 8 days old, the others 3
+  assert.equal(state.envelopes, 2);
+  assert.equal(state.storedRows, 2);
+  const dump = (await hook(api, team, "dump", "", "GET")).text;
+  const bytes = dump.split(String.fromCharCode(10)).filter((l) => l.startsWith("envelopes|")).map((l) => Buffer.byteLength(JSON.parse(l.slice(10)).body)).reduce((a, b) => a + b, 0);
+  assert.equal(state.storedBytes, bytes);
+  assert.equal((await poll(api, team)).items.length, 2);
+});
+
+// ---------------------------------------------------------------------------------------- hibernation
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test("an idle socket hibernates the team's object, answers a ping, and still gets the next envelope", async (t) => {
+  const { api, team } = await newTeam(HOOKS);
+  const path = `/v1/teams/${team}/ws?after=0`;
+  const ws = new WebSocket(HOOKS.replace("http", "ws") + path, { headers: { "x-pm-auth": authHeader(device, "GET", path) } });
+  const frames = [];
+  ws.onmessage = (m) => frames.push(String(m.data));
+  await new Promise((resolve, reject) => {
+    ws.onopen = resolve;
+    ws.onerror = () => reject(new Error("the socket did not open"));
+  });
+  try {
+    const waitFor = async (what, ok) => {
+      for (let i = 0; i < 100 && !ok(); i += 1) await sleep(50);
+      assert.ok(ok(), what);
+    };
+    ws.send("ping");
+    await waitFor("a ping is answered", () => frames.includes("pong"));
+    const before = await cost(api, team, false);
+    // Idle: the runtime evicts the object from memory (its in-memory counters start again from zero).
+    await sleep(14_000);
+    ws.send("ping");
+    await waitFor("a ping is answered after the idle time", () => frames.filter((f) => f === "pong").length === 2);
+    const woke = (await cost(api, team, false)).read < before.read;
+    t.diagnostic(woke ? "the object was evicted and woke again" : "the object was NOT evicted in 14 s (hibernation not observed)");
+    assert.equal((await post(api, team, device, 1)).status, 200);
+    await waitFor("the envelope arrives on the socket that slept through it", () => frames.some((f) => f.startsWith('{"seq":1,')));
+    assert.ok(woke, "hibernation: the object should have been evicted while only an idle socket was open");
+  } finally {
+    ws.close();
+  }
 });
