@@ -209,6 +209,11 @@ impl TuiProfile for Codex {
         Some(screen::CLEAR_COMPOSER)
     }
 
+    /// The banner row and the folder row under it are not part of a reply (`screen::strip_banner_block`).
+    fn strip_dialogs(&self, text: &str) -> String {
+        screen::strip_banner_block(text)
+    }
+
     /// The footer, the shortcuts hint and the `Worked for` separator are not part of a reply.
     fn is_chrome_line(&self, lower: &str) -> bool {
         screen::is_chrome_line(lower)
