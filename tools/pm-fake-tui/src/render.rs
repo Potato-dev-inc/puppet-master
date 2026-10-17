@@ -50,6 +50,8 @@ pub struct Opts {
     pub status_model: Option<String>,
     pub status_model_busy_only: bool,
     pub footer_right: Option<String>,
+    /// The model name in the status line is cut to this many characters (a narrow status bar clips it).
+    pub status_model_clip: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -200,20 +202,47 @@ fn frame_with(view: &View, fit_height: bool) -> Frame {
 
 // ---- helpers ------------------------------------------------------------------------------------
 
+/// After an ESC that `chars` just yielded: consumes the rest of that escape sequence and returns it (CSI `[...final`,
+/// OSC `]...BEL` or `]...ESC \`, a two-character escape).
+pub fn take_escape(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    let mut seq = String::from('\x1b');
+    match chars.peek() {
+        Some('[') => {
+            seq.push(chars.next().unwrap_or('['));
+            for c in chars.by_ref() {
+                seq.push(c);
+                if ('@'..='~').contains(&c) {
+                    break;
+                }
+            }
+        }
+        Some(']') => {
+            seq.push(chars.next().unwrap_or(']'));
+            while let Some(c) = chars.next() {
+                seq.push(c);
+                if c == '\x07' {
+                    break;
+                }
+                if c == '\x1b' {
+                    if let Some(end) = chars.next() {
+                        seq.push(end);
+                    }
+                    break;
+                }
+            }
+        }
+        _ => {}
+    }
+    seq
+}
+
 /// Visible length of a row (escape sequences do not count).
 pub fn visible_len(row: &str) -> usize {
     let mut count = 0;
     let mut chars = row.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '\x1b' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                for c in chars.by_ref() {
-                    if ('\x40'..='\x7e').contains(&c) {
-                        break;
-                    }
-                }
-            }
+            take_escape(&mut chars);
         } else {
             count += 1;
         }
@@ -228,16 +257,7 @@ pub fn clip(row: &str, width: usize) -> String {
     let mut chars = row.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '\x1b' {
-            out.push(ch);
-            if chars.peek() == Some(&'[') {
-                out.push(chars.next().unwrap_or('['));
-                for c in chars.by_ref() {
-                    out.push(c);
-                    if ('\x40'..='\x7e').contains(&c) {
-                        break;
-                    }
-                }
-            }
+            out.push_str(&take_escape(&mut chars));
             continue;
         }
         if count >= width {
@@ -585,7 +605,7 @@ fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
         rows.push(String::new());
         let glyph = NIMBUS_SPINNER[(view.tick as usize) % NIMBUS_SPINNER.len()];
         let model = match (&view.opts.status_model, view.opts.status_model_busy_only) {
-            (Some(model), true) => format!("  model: {model}"),
+            (Some(model), true) => format!("  model: {}", status_model_text(model, view.opts.status_model_clip)),
             _ => String::new(),
         };
         rows.push(format!("{glyph} {verb}...  {}s  ctrl+c to stop{model}", elapsed / 1000));
@@ -652,11 +672,23 @@ fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
     finish_nimbus(rows, rule, view, Some((cursor_row, cursor_col)))
 }
 
+/// The model name as the status line shows it: cut to `clip` characters when the bar is narrow.
+fn status_model_text(model: &str, clip: Option<usize>) -> String {
+    match clip {
+        Some(width) => model.chars().take(width).collect(),
+        None => model.to_string(),
+    }
+}
+
 fn finish_nimbus(mut rows: Vec<String>, rule: String, view: &View, cursor: Option<(usize, usize)>) -> (Vec<String>, Option<(usize, usize)>) {
     rows.push(rule);
     let mut hint = view.notice.map_or("/help for commands | ctrl+c twice to quit".to_string(), str::to_string);
     if let (Some(model), false) = (&view.opts.status_model, view.opts.status_model_busy_only) {
-        hint = format!("model: {model} | {hint}");
+        hint = match view.opts.status_model_clip {
+            // A status bar that clips its right end: the model is the last thing on the row.
+            Some(_) => format!("{hint} | model: {}", status_model_text(model, view.opts.status_model_clip)),
+            None => format!("model: {model} | {hint}"),
+        };
     }
     let mut row = format!("  {GRAY}{hint}{RESET}");
     if let Some(right) = &view.opts.footer_right {
@@ -780,7 +812,7 @@ mod tests {
     use super::*;
 
     fn view<'a>(layout: Layout, banner: &'a Banner, blocks: &'a [Block], mode: Mode) -> View<'a> {
-        static OPTS: Opts = Opts { backlog_rows: 0, status_model: None, status_model_busy_only: false, footer_right: None };
+        static OPTS: Opts = Opts { backlog_rows: 0, status_model: None, status_model_busy_only: false, footer_right: None, status_model_clip: None };
         View { layout, cols: 80, rows: 24, banner, blocks, mode, composer: "", suggestion: None, fresh: true, busy: None, notice: None, tick: 0, opts: &OPTS }
     }
 

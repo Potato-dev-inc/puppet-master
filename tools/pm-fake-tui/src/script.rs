@@ -91,6 +91,14 @@ pub struct Script {
     /// When the status line shows it: in the footer all the time (`always`, default) or on the working row only (`busy`).
     #[serde(default)]
     pub status_model_when: StatusWhen,
+    /// Nimbus only: the model name the status line (footer, working row) shows is cut to this many characters, like a
+    /// narrow status bar that clips its right end. The banner keeps the whole name.
+    #[serde(default)]
+    pub status_model_clip: Option<usize>,
+    /// Nimbus only: the row printed after every turn, instead of `done in {secs}s`. `{secs}` is the turn's length.
+    /// A post-turn summary such as `▸ Thought for {secs}s, 298 tokens`.
+    #[serde(default)]
+    pub summary_row: Option<String>,
     /// Nimbus only: text drawn flush against the right edge of the footer row (a clipped column shows at once).
     #[serde(default)]
     pub footer_right: Option<String>,
@@ -222,6 +230,23 @@ pub enum Step {
     Wait { ms: u64 },
     /// Add a reply paragraph.
     Say { text: String },
+    /// Add a reply of `count` rows, one per line, built from `template` (`{n}` is the row number, 1-based): a reply
+    /// taller than the pane.
+    Lines {
+        count: usize,
+        #[serde(default)]
+        template: Option<String>,
+    },
+    /// Add a reply row that holds an OSC 8 hyperlink: `before`, then `text` as the link's visible text pointing at
+    /// `target` (a `file://` URL, say), then `after`. Nimbus draws it as a `reply:` row.
+    Link {
+        text: String,
+        target: String,
+        #[serde(default)]
+        before: String,
+        #[serde(default)]
+        after: String,
+    },
     /// Add a tool call row, optionally failed (`failed = -1` draws `Failed (exit -1)` on Codex).
     Tool {
         label: String,
