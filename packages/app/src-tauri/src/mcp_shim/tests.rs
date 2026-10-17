@@ -547,7 +547,10 @@ fn ensure_questions_bridge() {
                         serde_json::from_slice(&raw[header_end..]).unwrap_or_else(|_| json!({}));
                     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
                     // The notices tests also need a bridge that answers the worker listing.
-                    let reply = if method == "GET" && path.starts_with("/agents") {
+                    let reply = if path.starts_with("/team/agent/") {
+                        // The Team tools' routes: scripted by `team_tests.rs`.
+                        Ok(team_tests::mock(path, &head, &body))
+                    } else if method == "GET" && path.starts_with("/agents") {
                         Ok((200, json!({"agents": [], "workers": []})))
                     } else {
                         puppet_master_app_lib::questions::routes::handle(
@@ -682,6 +685,9 @@ fn the_local_secret_beside_the_port_file_is_sent_with_every_request() {
 
 #[path = "notices_tests.rs"]
 mod notices_tests;
+
+#[path = "team_tests.rs"]
+mod team_tests;
 
 #[test]
 fn a_run_under_a_budget_names_itself_as_the_parent_of_the_helpers_it_starts() {

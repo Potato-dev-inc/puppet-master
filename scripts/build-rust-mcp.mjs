@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { chmodSync, copyFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -49,7 +49,9 @@ if (result.status !== 0) {
 }
 
 mkdirSync(outDir, { recursive: true });
-const source = join(crateDir, 'target', profile, binaryName);
+// `cargo build` writes under CARGO_TARGET_DIR when it is set (a worktree with its own target folder).
+const targetRoot = process.env.CARGO_TARGET_DIR ? resolve(crateDir, process.env.CARGO_TARGET_DIR) : join(crateDir, 'target');
+const source = join(targetRoot, profile, binaryName);
 const target = join(outDir, binaryName);
 
 function sleep(ms) {

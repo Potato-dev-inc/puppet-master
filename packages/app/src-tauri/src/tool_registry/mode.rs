@@ -64,6 +64,10 @@ pub fn tool_visible_in_mode(name: &str, mode: McpMode) -> bool {
         "wait_for_operation",
         "cancel_operation",
         "ask_user",
+        "team_roster",
+        "team_events",
+        "team_wait",
+        "team_notify",
     ];
     const SHELL_TOOLS: &[&str] = &[
         "list_panes",
