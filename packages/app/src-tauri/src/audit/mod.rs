@@ -278,6 +278,13 @@ impl AuditLog {
     }
 
     pub fn verify(&self) -> VerifyReport {
+        // Not between a writer's line and its head file: hold the same locks a writer holds, or a
+        // check that runs beside an append (many tests record lines at once) reads a half-written log.
+        let _tip = self.tip.lock();
+        let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(self.dir.join(LOCK_FILE)).ok();
+        if let Some(lock) = &lock {
+            let _ = lock.lock();
+        }
         verify_dir(&self.dir)
     }
 }
