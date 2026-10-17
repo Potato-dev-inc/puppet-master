@@ -1027,3 +1027,8 @@ mod screen_agents;
 /// Co-work Heads-up with two people: two processes, a relay, a git remote (tests/fake_tui_team.rs).
 #[path = "fake_tui_team.rs"]
 mod team;
+
+// ---- "How agent runs work": the agent's setting decides the mode when the caller does not ----------------
+
+#[path = "fake_tui_run_mode.rs"]
+mod run_mode;

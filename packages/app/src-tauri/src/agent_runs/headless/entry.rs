@@ -128,6 +128,10 @@ pub fn run_agent(
     // An unregistered id is UNKNOWN_AGENT_TYPE (with the valid ids), not the fallback profile's
     // "cannot run delegated work".
     registered_profile(&request.agent_type)?;
+    // The agent's "How agent runs work" setting decides the mode only when the caller did not
+    // pass `headless` itself (an explicit true/false always wins). Decided before the read-only
+    // and option checks below, which depend on the mode the run will really use.
+    let run_mode = crate::agent_run_mode::apply(&mut request);
     // Visible-first: an agent with no visible mode (but a headless one) runs headless, recorded
     // as `fallback.reason = no_visible_mode`. Decided before the read-only / option checks, which
     // depend on the mode the run will really use.
@@ -368,9 +372,24 @@ pub fn run_agent(
         );
     }
     if no_visible_mode {
+        // The existing fallback already says why this ran headless; the setting adds nothing.
         worker.fallback = Some(crate::operations::RunFallback::to_headless(
             super::fallback::NO_VISIBLE_MODE,
         ));
+    } else {
+        // One-task mode was chosen: say which mode ran and why. When it is not verified (any
+        // more) the run is visible and the receipt carries fallback {from: one_task, ...}.
+        worker.run_mode = run_mode.note;
+        worker.fallback = run_mode.fallback;
+    }
+    if request.turn_index > 0 {
+        // A follow-up continues in the mode of its run and keeps what that run reported.
+        if let Some(earlier) = previous.as_ref() {
+            worker.run_mode = earlier.worker.run_mode.clone();
+            if earlier.worker.fallback.as_ref().is_some_and(|f| f.is_one_task_to_visible()) {
+                worker.fallback = earlier.worker.fallback.clone();
+            }
+        }
     }
     let supported = profile.run_options();
     if request.trust_workspace {

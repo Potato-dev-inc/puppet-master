@@ -344,3 +344,13 @@ mod list_without_a_project {
         let _ = std::fs::remove_dir_all(dir);
     }
 }
+
+#[test]
+fn headless_left_out_is_true_only_when_the_caller_did_not_name_it() {
+    use super::wire::headless_left_out;
+    assert!(headless_left_out(br#"{"task":"x"}"#));
+    assert!(headless_left_out(br#"{"task":"x","headless":null}"#));
+    // An explicit false is a choice (a pane), not an absence: the agent's setting must not override it.
+    assert!(!headless_left_out(br#"{"task":"x","headless":false}"#));
+    assert!(!headless_left_out(br#"{"task":"x","headless":true}"#));
+}

@@ -286,6 +286,14 @@ impl Session {
         self.agents_as(Some(session), "POST", "/agents/run", body)
     }
 
+    /// "How agent runs work" for a fake agent: `one_task` or `visible`, and whether its headless mode
+    /// counts as verified (the real verdict reads a wizard test that fake agents do not have).
+    pub fn run_mode(&self, agent: &str, one_task: bool, verified: bool) {
+        use crate::agent_run_mode::{e2e, set_for_agent, RunMode};
+        e2e::force(agent, Some(verified));
+        set_for_agent(agent, if one_task { RunMode::OneTask } else { RunMode::Visible }).expect("save the run mode");
+    }
+
     /// Switch the MCP connection `session` to catalog mode `mode` (`agent`, `shell` or `both`).
     pub fn set_mode_as(&self, session: &str, mode: &str) {
         crate::mcp_sessions::set_mode(session, mode).expect("a valid catalog mode");
@@ -613,6 +621,11 @@ impl Drop for Session {
         let panes = self.pane_ids();
         for pane in panes {
             self.close_pane(&pane);
+        }
+        // The run-mode choices and forced verdicts of the fake agents end with the test.
+        for agent in ["fake_claude", "fake_codex"] {
+            let _ = crate::agent_run_mode::set_for_agent(agent, crate::agent_run_mode::RunMode::Visible);
+            crate::agent_run_mode::e2e::force(agent, None);
         }
         crate::tui::registry::registry().swap(self.saved.iter().cloned().collect());
         *self.world.script.lock() = None;

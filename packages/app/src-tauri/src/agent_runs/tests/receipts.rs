@@ -347,3 +347,46 @@ fn the_receipt_shows_how_the_copy_was_set_up_and_flags_a_failed_setup() {
     let receipt = receipt_of(snapshot);
     assert!(receipt.not_verified.iter().any(|n| n == "setting up the copy failed"), "{:?}", receipt.not_verified);
 }
+
+#[test]
+fn receipt_says_which_mode_the_agent_setting_chose_and_the_not_verified_fallback() {
+    // Nothing set: no run_mode in the JSON (today's output is unchanged).
+    let plain = serde_json::to_value(crate::agent_runs::runtime::AgentRunView::from(parked_snapshot(
+        OperationStatus::Completed,
+        "none",
+    )))
+    .unwrap();
+    assert!(plain.get("run_mode").is_none());
+    assert!(plain["receipt"].get("run_mode").is_none());
+
+    // One-task mode chosen and verified: the run says so.
+    let mut one_task = parked_snapshot(OperationStatus::Completed, "none");
+    one_task.worker.run_mode = Some(operations::RunModeNote::new("one_task", "agent_setting"));
+    let json = serde_json::to_value(crate::agent_runs::runtime::AgentRunView::from(one_task)).unwrap();
+    assert_eq!(json["run_mode"], serde_json::json!({"mode": "one_task", "source": "agent_setting"}));
+    assert_eq!(json["receipt"]["run_mode"], json["run_mode"]);
+    assert_eq!(json["receipt"]["fallback"], serde_json::Value::Null);
+
+    // Chosen but no longer verified: a visible pane ran, with the fallback spelled out.
+    let mut fell_back = parked_snapshot(OperationStatus::Completed, "none");
+    fell_back.worker.run_mode = Some(operations::RunModeNote::new("visible", "agent_setting"));
+    fell_back.worker.fallback = Some(operations::RunFallback::one_task_to_visible("not_verified"));
+    let view = crate::agent_runs::runtime::AgentRunView::from(fell_back);
+    let json = serde_json::to_value(&view).unwrap();
+    assert_eq!(
+        json["receipt"]["fallback"],
+        serde_json::json!({"from": "one_task", "to": "visible", "reason": "not_verified"})
+    );
+    assert_eq!(json["receipt"]["run_mode"]["mode"], "visible");
+    let receipt = view.receipt.expect("receipt");
+    assert!(
+        receipt.not_verified.iter().any(|item| item.contains("one-task mode") && item.contains("not_verified")),
+        "{:?}",
+        receipt.not_verified
+    );
+    assert!(
+        !receipt.not_verified.iter().any(|item| item.contains("ran headless")),
+        "a visible run must not claim it ran headless: {:?}",
+        receipt.not_verified
+    );
+}
