@@ -112,7 +112,8 @@ function configureProxy(proxy: ProxyServer): void {
       unreachable
         ? {
             code: 'BRIDGE_UNREACHABLE',
-            message: `The Puppet Master app's bridge is not running on port ${port} (read from ${resolveBridgePortFile()}).`,
+            // No file path here: dev runs can sit behind a public tunnel, and the path holds the Windows user name.
+            message: `The Puppet Master app's bridge is not running on port ${port}. Start or restart the app.`,
           }
         : { code: 'BRIDGE_PROXY_ERROR', message: `The Puppet Master bridge proxy failed: ${err.message}` },
     );

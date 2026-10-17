@@ -190,7 +190,8 @@ describe('/bridge proxy through a real Vite dev server', () => {
     const body = JSON.parse(res.body);
     expect(body.code).toBe('BRIDGE_UNREACHABLE');
     expect(body.message).toContain(`port ${dead}`);
-    expect(body.message).toContain(portFile);
+    expect(body.message).not.toContain(portFile);
+    expect(body.message).not.toMatch(/[A-Za-z]:\\|\/Users\//);
   });
 
   it('recovers once the app starts listening on the port named in the file', async () => {
