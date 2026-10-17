@@ -126,8 +126,9 @@ jobs:
           if-no-files-found: error
 
   rust:
-    # ~2,800 tests, each in its own process: split over two runners.
-    name: Rust unit tests (${{ matrix.shard }}/2)
+    # ~2,800 tests, each in its own process: split over three runners. Many spawn git and node (missions,
+    # worktrees, checkpoints) and slow each other down when several share a 4-vCPU runner.
+    name: Rust unit tests (${{ matrix.shard }}/3)
     needs: [changes, web-dist]
     if: needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
@@ -135,7 +136,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     env:
       # Tests do not use the bundle's resources (cloudflared, the phone app, the MCP exe), which the
       # web-dist job does not build; tauri-build would otherwise insist that their globs match files.
@@ -170,7 +171,7 @@ jobs:
 
       - name: Unit tests in the library and the binaries
         working-directory: packages/app/src-tauri
-        run: cargo nextest run --profile ci --lib --bins --partition count:${{ matrix.shard }}/2
+        run: cargo nextest run --profile ci --lib --bins --partition count:${{ matrix.shard }}/3
 
   fake-tui:
     # Dev-only fake agent (tools/pm-fake-tui) on a real ConPTY and a PowerShell host, which the
