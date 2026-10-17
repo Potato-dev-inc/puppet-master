@@ -563,7 +563,9 @@ impl Engine {
     fn submit(&mut self, prompt: String, now: u64) {
         self.log(now, "prompt", json!({ "text": prompt }));
         self.last_prompt = prompt.clone();
-        self.blocks.push(Block::User(prompt.clone()));
+        if self.script.echo_task || self.layout != Layout::Nimbus {
+            self.blocks.push(Block::User(prompt.clone()));
+        }
         self.clear_composer();
         self.suggestion = None;
         self.pending_suggestion = None;
@@ -1395,6 +1397,19 @@ mod nimbus_tests {
         assert!(raw.contains(&format!("{esc}]8;;{esc}\\")), "{raw:?}");
         assert_eq!(strip(raw), "reply: Edited .../x.py (2 lines)");
         assert_eq!(render::visible_len(raw), "reply: Edited .../x.py (2 lines)".chars().count());
+    }
+
+    #[test]
+    fn echo_task_false_draws_no_row_for_the_submitted_task() {
+        let mut e = engine("echo_task = false
+[[turn]]
+steps = [{ do = \"say\", text = \"the answer\" }]");
+        type_text(&mut e, "a very particular question", 0);
+        e.on_key(Key::Enter, 10);
+        e.tick(500);
+        let screen = e.plain(500);
+        assert!(screen.contains("reply: the answer"), "{screen}");
+        assert!(!screen.contains("a very particular question"), "{screen}");
     }
 
     #[test]

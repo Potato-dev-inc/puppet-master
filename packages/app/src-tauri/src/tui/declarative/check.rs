@@ -124,6 +124,17 @@ fn check_screen(p: &DeclarativeProfile, text: &str, expect: &Value, failures: &m
     if let Some(w) = expect.get("model") {
         eq_opt(failures, "model", w, p.detect_footer_model(text));
     }
+    for (key, want) in [("summary_lines", true), ("not_summary_lines", false)] {
+        for line in expect.get(key).and_then(Value::as_array).into_iter().flatten() {
+            let Some(line) = line.as_str() else {
+                failures.push(format!("{key}: entries must be strings"));
+                continue;
+            };
+            if p.is_summary_line(&line.trim().to_lowercase()) != want {
+                failures.push(format!("{key}: {line:?} should{} be a post-turn summary row", if want { "" } else { " not" }));
+            }
+        }
+    }
     for (key, want) in [("thinking_lines", true), ("not_thinking_lines", false)] {
         for line in expect.get(key).and_then(Value::as_array).into_iter().flatten() {
             let Some(line) = line.as_str() else {

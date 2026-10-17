@@ -1,6 +1,7 @@
 mod conformance;
 mod consent;
 mod loader;
+mod model_and_summary;
 mod output;
 mod profile;
 mod removal;

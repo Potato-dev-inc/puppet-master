@@ -62,6 +62,7 @@ Steps (`do = ...`): `think {ms, verb}` and `wait {ms}` stay busy; `say {text}`; 
 | `status_model = "name"`, `status_model_when = "always"` or `"busy"` | a model name in the footer (`model: name` before the hints) or only on the working row |
 | `status_model_clip = N` | the model name in the status line (footer, working row) is cut to N characters, like a status bar that clips its right end; with it the footer ends in `| model: <clipped>`. The banner keeps the whole name |
 | `summary_row = "text"` | the row printed after every turn instead of `done in {secs}s`; `{secs}` is the turn's length (`▸ Thought for {secs}s, 298 tokens`) |
+| `echo_task = false` | no `> <task>` row for the submitted task: an agent that does not echo what it was asked |
 | `footer_right = "text"` | text flush against the last column of the footer row (a clipped column shows at once) |
 | `inline = true`, `reprint_on_resize = true` or `false` | paint like an inline TUI: the conversation is printed top-down into the scrollback and only the visible part is redrawn; on a resize `reprint_on_resize` clears the screen and prints the WHOLE conversation again (rows that overflow reach the history a second time), otherwise only the visible part is redrawn |
 | `approvals = "menus"` | a command asks with a numbered menu (`Run this command?` / `> 1. Allow once` / `2. Always allow in this project` / `3. Deny`; digits answer) and a file write with an arrow menu (`Write <path>?` / `Yes, write it` ...; arrows and Enter); default `yn` is the one-line `[y/n]` |

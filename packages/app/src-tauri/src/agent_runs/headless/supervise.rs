@@ -188,9 +188,9 @@ impl Supervisor {
     /// Remember the model name when the profile can read one off the pane right now (the whole screen, not the
     /// cropped copy completion reads): it is shown only at some moments (while working, in a banner that scrolls).
     fn note_model(&mut self, pane_id: &str, agent_type: &str) {
-        let profile = crate::tui::profile_for(agent_type);
         let whole = crate::pty::registry_read_snapshot_full(self.registry.as_ref(), pane_id).unwrap_or_default();
-        if let Some(model) = profile.detect_footer_model(&whole) {
+        // Kept for the pane (not only this run): a run that starts after the banner scrolled away still knows it.
+        if let Some(model) = crate::pty::pane_facts::observe_model(pane_id, agent_type, &whole) {
             self.seen_model = Some(model);
         }
     }
@@ -396,20 +396,22 @@ impl Supervisor {
         // The reply was read from the visible rows; one longer than the screen is re-read from
         // the scrollback, or flagged as truncated.
         let widened = match crate::pty::registry_read_full_text(self.registry.as_ref(), pane_id) {
-            Ok(full) => completion::widen_reply(
+            Ok(full) => completion::widen_reply_anchored(
                 screen,
                 &full,
                 &current.task,
                 &previous_turn_task(current),
                 &result,
                 &current.agent_type,
+                crate::pty::pane_facts::rows_since_turn_mark(pane_id, &full).as_deref(),
             ),
             Err(_) => completion::WidenedReply {
                 text: result.clone(),
                 truncated: false,
             },
         };
-        let result = widened.text;
+        // A shortened path the agent drew as a hyperlink comes back as the path the link points at.
+        let result = completion::restore_link_paths(&widened.text, &crate::pty::pane_facts::turn_links(pane_id));
         if widened.truncated {
             let _ = operations::add_warning(
                 &current.project_path,
@@ -441,6 +443,7 @@ impl Supervisor {
             thread::sleep(Duration::from_millis(REREAD_DELAY_MS));
         }
         if let Some(result) = recovered {
+            let result = completion::restore_link_paths(&result, &crate::pty::pane_facts::turn_links(pane_id));
             transcript::append(
                 &current.project_path,
                 &current.operation_id,
@@ -551,7 +554,12 @@ impl Supervisor {
         let visible = read_tui_screen(&self.registry, pane_id).unwrap_or_default();
         let full = crate::pty::registry_read_full_text(self.registry.as_ref(), pane_id)
             .unwrap_or_default();
-        completion::recapture_reply(&self.watch, &visible, &full, agent_type)
+        completion::recapture_reply(&self.watch, &visible, &full, agent_type).or_else(|| {
+            // The task's echo is not in the text: the pane's own text since just before it was typed is the turn.
+            crate::pty::pane_facts::rows_since_turn_mark(pane_id, &full)
+                .and_then(|rows| completion::tui_turn_evidence(&rows, "", agent_type))
+                .and_then(|raw| completion::clean_extracted_result_after(&raw, &self.watch.task, &self.watch.previous_task, agent_type))
+        })
     }
 
     /// The wall-clock deadline passed: stop the worker and fail the run with TIMEOUT (or

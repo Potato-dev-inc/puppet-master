@@ -99,6 +99,10 @@ pub struct Script {
     /// A post-turn summary such as `▸ Thought for {secs}s, 298 tokens`.
     #[serde(default)]
     pub summary_row: Option<String>,
+    /// Nimbus only: `false` draws no `> <task>` row for the submitted task (an agent that does not echo what it was
+    /// asked). The default is to echo it.
+    #[serde(default = "yes")]
+    pub echo_task: bool,
     /// Nimbus only: text drawn flush against the right edge of the footer row (a clipped column shows at once).
     #[serde(default)]
     pub footer_right: Option<String>,
