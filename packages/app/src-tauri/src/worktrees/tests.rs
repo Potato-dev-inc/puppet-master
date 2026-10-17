@@ -103,6 +103,28 @@ fn create_makes_a_worktree_on_its_own_branch_and_hides_it_from_git() {
     assert_eq!(list(&repo.path()).len(), 1);
 }
 
+#[cfg(windows)]
+#[test]
+fn a_copy_whose_folder_would_be_too_long_for_windows_is_refused_up_front() {
+    // A project that itself fits (240 characters) but whose copy folder does not.
+    let mut project = String::from(r"C:\deep");
+    while project.len() < 240 {
+        project.push_str(r"\folder");
+    }
+    project.truncate(240);
+    let root = worktrees_root(Path::new(&project));
+    let name = format!("{}-{:04x}", slug("a-handle", 10), fnv16("a-handle"));
+    let error = check_copy_fits(&root, &name, "").unwrap_err();
+    assert_eq!(error.code, "PATH_TOO_LONG");
+    assert!(error.message.contains("characters. Windows can't start programs"), "{}", error.message);
+    assert!(error.context["length"].as_u64().unwrap() > 259);
+    // The project's offset inside the repo counts too.
+    let short_root = worktrees_root(Path::new(r"C:\p"));
+    assert!(check_copy_fits(&short_root, &name, "").is_ok());
+    let deep_prefix = format!("{}/", vec!["nested-folder"; 25].join("/"));
+    assert_eq!(check_copy_fits(&short_root, &name, &deep_prefix).unwrap_err().code, "PATH_TOO_LONG");
+}
+
 #[test]
 fn changes_in_the_worktree_do_not_touch_the_origin_and_the_diff_shows_them() {
     let repo = repo();

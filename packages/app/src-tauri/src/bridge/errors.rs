@@ -53,6 +53,7 @@ pub(super) fn operation_http_error(
         | "INVALID_IDEMPOTENCY_KEY"
         | "INVALID_ACCEPTANCE_CRITERIA"
         | "INVALID_PROJECT_PATH"
+        | "PATH_TOO_LONG"
         | "INVALID_OPERATION_ID"
         | "INVALID_AGENT_TYPE"
         | "UNKNOWN_AGENT_TYPE"
@@ -129,5 +130,24 @@ mod budget_tests {
         assert_eq!(status, 409);
         assert_eq!(body["code"], "BUDGET_EXHAUSTED");
         assert_eq!(body["context"]["reason"], "turns");
+    }
+}
+
+#[cfg(test)]
+mod path_limit_tests {
+    use super::operation_http_error;
+
+    #[test]
+    fn path_too_long_is_a_400_the_caller_can_act_on_and_carries_its_numbers() {
+        let long = std::path::Path::new(r"C:\a\very\long\folder");
+        let error = crate::path_limit::PathTooLong { length: 283 }.into_error(long);
+        let (status, body) = operation_http_error(error);
+        assert_eq!(status, 400);
+        assert_eq!(body["code"], "PATH_TOO_LONG");
+        assert_eq!(body["recoverable"], false);
+        assert!(body["message"].as_str().unwrap().starts_with("This folder's path is 283 characters."), "{body}");
+        assert_eq!(body["error"], body["message"]);
+        assert_eq!(body["context"]["length"], 283);
+        assert_eq!(body["context"]["limit"], 259);
     }
 }

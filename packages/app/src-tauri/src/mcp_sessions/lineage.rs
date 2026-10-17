@@ -61,6 +61,13 @@ fn relation(state: &State, session: &str, control: Option<&PaneControl>, judge_c
     }
 }
 
+/// True when the caller started `pane` itself (or its coordinator or one of its helpers did): the
+/// pane's origin, not who holds its lease now. A pane the person opened, or one another agent
+/// started, is never "started here".
+pub(super) fn pane_started_by(state: &State, session: &str, pane: &PaneControl) -> bool {
+    relation(state, session, Some(pane), false) == Relation::Own
+}
+
 /// The caller's relation to a pane. A pane this table never saw was opened by the person.
 pub fn relation_to_pane(session_id: &str, pane_id: &str) -> Relation {
     let state = lock_state();
