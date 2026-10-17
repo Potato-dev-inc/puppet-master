@@ -502,6 +502,65 @@ impl Session {
         crate::pty::registry_resize(&self.world.registry, pane_id, cols, rows)
     }
 
+    /// How many times the pane's PTY grid has changed since it started (the flight recorder's resize
+    /// events). Every one makes an inline TUI reprint its screen, so a pane nobody resized must read 0.
+    pub fn pty_resizes(&self, pane_id: &str) -> usize {
+        crate::flight::get(pane_id)
+            .map(|ring| ring.snapshot().events.iter().filter(|event| event.kind == crate::flight::ring::Kind::Resize).count())
+            .unwrap_or(0)
+    }
+
+    /// A warm-standby-style pane: hidden BEFORE it is spawned (as `standby::host` does), so no pane list offers it.
+    pub fn spawn_hidden_pane(&self, agent_type: &str) -> Result<String, String> {
+        let pane_id = format!("standby-e2e-{}", uuid::Uuid::new_v4());
+        crate::pty::hidden::hide(&pane_id);
+        let spawned = crate::pty::registry_spawn_pane(
+            &self.world.registry,
+            &self.world.app,
+            crate::pty::SpawnPaneArgs {
+                agent_type: agent_type.to_string(),
+                cwd: Some(self.project.to_string_lossy().into_owned()),
+                cols: Some(120),
+                rows: Some(30),
+                extra_args: None,
+                pane_id: Some(pane_id.clone()),
+                read_only: false,
+                account: None,
+            },
+        );
+        if spawned.is_err() {
+            crate::pty::hidden::forget(&pane_id);
+        }
+        spawned
+    }
+
+    /// The ids a window's pane list (`list_panes`) shows: hidden standbys are not in it.
+    pub fn listed_pane_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.world.registry.lock().list().into_iter().map(|p| p.id).collect();
+        ids.sort();
+        ids
+    }
+
+    /// The pane's PTY grid as the registry lists it.
+    pub fn world_pane_size(&self, pane_id: &str) -> Option<(u16, u16)> {
+        self.world.registry.lock().list().into_iter().find(|p| p.id == pane_id).map(|p| (p.cols, p.rows))
+    }
+
+    /// What a lead's `read_terminal_buffer` does: the screen (`view=screen`) or the scrollback.
+    pub fn read_terminal(&self, pane_id: &str, scrollback: bool) -> String {
+        if scrollback {
+            crate::pty::registry_read_buffer(&self.world.registry, pane_id, 200).unwrap_or_default()
+        } else {
+            registry_read_snapshot(&self.world.registry, pane_id).unwrap_or_default()
+        }
+    }
+
+    /// What a lead's `press_key` does (the `/panes/{id}/key` route): the named key's bytes, written as the API.
+    pub fn press_key(&self, pane_id: &str, key: &str) -> Result<(), String> {
+        let seq = crate::pty::keys::sequence(key)?;
+        crate::pty::registry_write_input(&self.world.registry, &self.world.app, pane_id, &seq, false, false, None, crate::pty::WriteOrigin::Api)
+    }
+
     pub fn close_pane(&self, pane_id: &str) {
         let _ = registry_kill_pane(&self.world.registry, pane_id);
     }
