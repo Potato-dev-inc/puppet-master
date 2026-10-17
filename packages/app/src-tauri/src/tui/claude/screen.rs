@@ -85,6 +85,37 @@ pub(super) fn standby_screen(screen: &str) -> StandbyScreen {
 /// a few continuation rows of a typed draft, and the footer under it.
 const INPUT_BOX_TAIL_ROWS: usize = 10;
 
+/// A run of at least this many `\u{2500}` is a rule as wide as the pane (the box's rules span it).
+const GLUED_RULE_CHARS: usize = 16;
+
+/// `line` with every pane-wide rule in it as a row of its own. vt100 joins a soft-wrapped row to the
+/// next one, and the pseudoconsole marks a row wrapped when a full-width row was drawn on it, even
+/// an earlier one: the rule above the box arrives glued in front of the prompt row (`────❯ Try ...`),
+/// and the blank row above, the prompt row, the rule under it and the footer can all arrive as one
+/// line (`<spaces>────❯ <spaces>────  ⏵⏵ auto mode on ...`).
+fn unglue_rules(line: &str) -> Vec<&str> {
+    let mut rows = Vec::new();
+    let mut start = 0;
+    let mut run: Option<(usize, usize)> = None;
+    for (at, ch) in line.char_indices().chain(std::iter::once((line.len(), '\n'))) {
+        match (ch == '\u{2500}', run) {
+            (true, None) => run = Some((at, 1)),
+            (true, Some((from, n))) => run = Some((from, n + 1)),
+            (false, Some((from, n))) => {
+                if n >= GLUED_RULE_CHARS {
+                    rows.push(&line[start..from]);
+                    rows.push(&line[from..at]);
+                    start = at;
+                }
+                run = None;
+            }
+            (false, None) => {}
+        }
+    }
+    rows.push(&line[start..]);
+    rows
+}
+
 /// Claude's input box read POSITIVELY (`TuiProfile::ready_recogniser`). The box is the `\u{276f}` row
 /// that starts a row (dialog options are indented), with a rule above it (its own row, or glued in
 /// front of it when the rule filled the row and vt100 joined the two) and a rule below it within a
@@ -94,7 +125,12 @@ const INPUT_BOX_TAIL_ROWS: usize = 10;
 /// needs no banner (the startup logo scrolls away after the first turn).
 /// Live captures: `fixtures/ready_*_live.txt`, the delivery traces, the side-panel screen.
 pub(super) fn input_box(screen: &str) -> ComposerState {
-    let rows: Vec<&str> = screen.lines().map(str::trim_end).filter(|row| !row.trim().is_empty()).collect();
+    let rows: Vec<&str> = screen
+        .lines()
+        .flat_map(unglue_rules)
+        .map(str::trim_end)
+        .filter(|row| !row.trim().is_empty())
+        .collect();
     let is_rule = |row: &str| row.trim_start().starts_with('\u{2500}');
     let first = rows.len().saturating_sub(INPUT_BOX_TAIL_ROWS);
     let Some((at, rest)) = (first..rows.len()).rev().find_map(|at| {
@@ -308,6 +344,30 @@ mod tests {
         assert!(screen.contains("Wrote 1 line") && screen.contains("footer hint"), "{screen}");
         assert_eq!(input_box(&screen), ComposerState::Empty);
     }
+    /// What the pseudoconsole sent for a Claude pane after a turn (fake-agent e2e run, 120x30, the
+    /// reply rows shortened): rows that once held a full-width rule keep the console's wrapped mark,
+    /// so the blank row above the box, the rule, the prompt row and the rule under it each run to the
+    /// last column and wrap into the next. The emulator's text has all of them, and the footer, on
+    /// ONE line that starts with the blank row's spaces.
+    fn glued_box(prompt: &str) -> String {
+        let rule = format!("\u{1b}[38;2;136;136;136m{}\u{1b}[m", "\u{2500}".repeat(120));
+        let blank = " ".repeat(120);
+        let prompt_row = format!("{prompt}{}", " ".repeat(120 - prompt.chars().count()));
+        format!(
+            "\u{25cf} Looked around.\u{1b}[K\r\n\u{1b}[K\r\n\u{273b} Churned for 0s \u{b7} done 3:46\u{1b}[K\r\n{blank}{rule}{prompt_row}{rule}  \u{1b}[38;2;255;193;7m\u{23f5}\u{23f5} auto mode on \u{1b}[38;2;153;153;153m(shift+tab to cycle)\u{1b}[62X\u{1b}[m\u{1b}[62C\u{25d0} medium \u{b7} /effort  "
+        )
+    }
+
+    #[test]
+    fn a_box_glued_into_one_line_with_the_blank_row_above_it_is_still_the_box() {
+        let empty = read_as_the_app_does(&glued_box("\u{276f} "), 30, 120);
+        let glued = empty.lines().find(|line| line.contains('\u{276f}')).unwrap_or_default();
+        assert!(glued.starts_with(' ') && glued.contains("auto mode on"), "the screen this is about: {empty}");
+        assert_eq!(input_box(&empty), ComposerState::Empty, "{empty}");
+        let typed = read_as_the_app_does(&glued_box("\u{276f} fix the parser"), 30, 120);
+        assert_eq!(input_box(&typed), ComposerState::HasText, "{typed}");
+    }
+
     /// A real Claude Code 2.1.300 pane (120x30, `/panes/{id}/screen`) right after a turn, with the
     /// suggestion `commit this` drawn faint in the input box. Captured live 2026-10-14 23:04.
     const GHOST_LIVE: &str = include_str!("fixtures/ghost_suggestion_2_1_300_live.ansi");
