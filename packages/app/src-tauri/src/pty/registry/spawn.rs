@@ -276,6 +276,9 @@ pub fn spawn_pane(
                             break;
                         }
                         Ok(n) => {
+                            // Dev-only (fake-agent e2e): a slow ConPTY on demand.
+                            #[cfg(feature = "dev-fake-tui")]
+                            crate::fake_tui::hold_output_chunk(&buf[..n]);
                             // Flight recorder: one memcpy into the pane's ring (the live stream below is untouched).
                             flight.output(&buf[..n]);
                             crate::event_log::append_system_event(

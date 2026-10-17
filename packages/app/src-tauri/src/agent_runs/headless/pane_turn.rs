@@ -5,6 +5,7 @@ use crate::agent_runs::{approval_policy, completion, delivery, runtime, transcri
 use crate::operations::{self, OperationError, OperationSnapshot, OperationStatus, StateSource};
 use parking_lot::Mutex;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// Answer a Cursor `Not in allowlist: <program>` prompt with allow-once when the run opted in to
 /// that program. Returns true when the prompt was answered; false leaves it for the caller.
@@ -208,14 +209,43 @@ pub(super) fn record_approval(
 /// Observations in a row that must show a bare host-shell prompt before a run is declared dead.
 /// One redrawn frame is not proof the agent left; two ticks (500 ms) apart are.
 const HOST_SHELL_CONFIRM_TICKS: u32 = 2;
+/// How long a run whose agent process ended waits for the host shell's prompt, the sign that the
+/// agent's last output has come through ConPTY, before it fails with the screen it has.
+pub(super) const EXIT_SETTLE_MAX: Duration = Duration::from_secs(5);
 /// Rows of the last screen kept in `AGENT_EXITED`'s context.
 const LAST_SCREEN_ROWS: usize = 40;
+
+/// What the pane's processes say about its agent, for [`fail_if_agent_exited`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ProcessExit {
+    /// Not known to have ended (running, starting, or no process information).
+    No,
+    /// The agent ended under its host shell, which still runs (`pty::agent_proc` says `Exited`).
+    /// Its last frame can still be on its way through ConPTY; the shell prints its prompt after it.
+    Agent,
+    /// The pane's own process ended and its reader was given time to drain it (`PaneInfo::exited`).
+    Pane,
+}
+
+/// What one look at a run's pane decided.
+#[derive(Debug)]
+pub(super) enum ExitCheck {
+    /// The agent is not known to have left: watch the turn as usual.
+    Alive,
+    /// The agent's process ended and its last output is not on screen yet: nothing else may judge
+    /// this screen (an idle completion would read the agent's half-drawn last frame as a reply).
+    Settling,
+    /// The run failed with `AGENT_EXITED`: the failed snapshot, for the caller to publish.
+    Failed(OperationSnapshot),
+}
 
 /// Watches a run whose prompt was typed for its agent leaving the pane (profile-agnostic: the
 /// detector is `tui::agent_gone_to_host_shell`, which looks for the host shell's bare prompt).
 #[derive(Default)]
 pub(super) struct HostShellWatch {
     seen: u32,
+    /// When the process tree first said the agent ended (while its last output settles).
+    pub(super) exit_seen: Option<Instant>,
 }
 
 impl HostShellWatch {
@@ -244,20 +274,40 @@ pub(super) fn agent_exited_mid_run_error(screen: &str) -> OperationError {
     error
 }
 
+/// [`ProcessExit`] for a pane: its own process (drained), or the agent under its host shell.
+pub(super) fn pane_process_exit(registry: &Arc<Mutex<crate::pty::PaneRegistry>>, pane_id: &str) -> ProcessExit {
+    let (pid, pane_ended) = registry
+        .lock()
+        .panes
+        .get(pane_id)
+        .map(|pane| (pane.info.pid, *pane.exited.lock()))
+        .unwrap_or((0, true));
+    if pane_ended {
+        ProcessExit::Pane
+    } else if crate::pty::agent_proc::state(pane_id, pid) == crate::pty::agent_proc::AgentProcess::Exited {
+        ProcessExit::Agent
+    } else {
+        ProcessExit::No
+    }
+}
+
 /// One look at a run's pane: when its agent has gone back to the host shell after the prompt was
-/// typed, fail the run with `AGENT_EXITED` (last screen as context) and return the failed
-/// snapshot, for the caller to publish. `None` while the run looks alive.
+/// typed, fail the run with `AGENT_EXITED` (last screen as context).
 ///
-/// `process_exited` is what the pane's process tree says (`agent_runs::delivery::pane_process_state`
-/// is `Exited`). It fails the run at once, without waiting for the host shell's prompt to be drawn
-/// and read twice: on a slow machine the screen can sit quiet with the agent's last frame for longer
-/// than the idle completion needs, and the run was then reported as completed.
+/// `process` is what the pane's process tree says. An ended process fails the run without waiting
+/// for the host shell's prompt to be drawn and read twice: on a slow machine the screen can sit
+/// quiet with the agent's last frame for longer than the idle completion needs, and the run was
+/// then reported as completed. But the process tree knows before the screen does: ConPTY can still
+/// be carrying the agent's last frame (its panic text) when the process is gone, and failing then
+/// kept a last screen without the reason. So an agent that ended under its host shell is
+/// [`ExitCheck::Settling`] until the shell's prompt is drawn (the shell prints it after the agent's
+/// output), or [`EXIT_SETTLE_MAX`] has passed; a pane whose own process ended was already drained.
 pub(super) fn fail_if_agent_exited(
     current: &OperationSnapshot,
     watch: &mut HostShellWatch,
     screen: &str,
-    process_exited: bool,
-) -> Option<OperationSnapshot> {
+    process: ProcessExit,
+) -> ExitCheck {
     // Before the prompt was typed the host prompt is normal (the agent has not started yet), and
     // `redelivery_dead_end` covers a run whose prompt never went in.
     let live = matches!(
@@ -269,11 +319,21 @@ pub(super) fn fail_if_agent_exited(
         || operations::dispatch_in_flight(&current.operation_id)
     {
         *watch = HostShellWatch::default();
-        return None;
+        return ExitCheck::Alive;
     }
     let screen_gone = watch.gone(&current.agent_type, screen);
-    if !screen_gone && !crate::tui::agent_process_ended(&current.agent_type, process_exited) {
-        return None;
+    if !screen_gone {
+        if !crate::tui::agent_process_ended(&current.agent_type, process != ProcessExit::No) {
+            watch.exit_seen = None;
+            return ExitCheck::Alive;
+        }
+        let since = *watch.exit_seen.get_or_insert_with(Instant::now);
+        let settled = process == ProcessExit::Pane
+            || crate::tui::agent_gone_to_host_shell(&current.agent_type, screen)
+            || since.elapsed() >= EXIT_SETTLE_MAX;
+        if !settled {
+            return ExitCheck::Settling;
+        }
     }
     let error = agent_exited_mid_run_error(screen);
     transcript::append(
@@ -282,7 +342,7 @@ pub(super) fn fail_if_agent_exited(
         "diagnostic",
         &crate::redact::text(&format!("{}: {}", error.code, error.context["last_screen"].as_str().unwrap_or_default())),
     );
-    operations::mark_operation_state(
+    match operations::mark_operation_state(
         &current.project_path,
         &current.operation_id,
         OperationStatus::Failed,
@@ -290,8 +350,11 @@ pub(super) fn fail_if_agent_exited(
         Some("failed".into()),
         None,
         Some(error),
-    )
-    .ok()
+    ) {
+        Ok(failed) => ExitCheck::Failed(failed),
+        // The state write failed: the agent is still gone, so nothing may judge the screen.
+        Err(_) => ExitCheck::Settling,
+    }
 }
 
 /// The prompt of the turn before this one on the same handle (empty for a first turn). Its echo

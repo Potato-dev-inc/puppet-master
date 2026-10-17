@@ -12,7 +12,10 @@
 //!   see `tui::shell::command_not_found`). The host runs the user's PowerShell profile first, and
 //!   profiles start helpers (`oh-my-posh init`, `conda ... hook`, `starship`, `git`) that come and go
 //!   before the agent starts: a child is remembered as the agent only once it has lived that long
-//!   (review R12 1.3), and known prompt/profile tool images are never the agent.
+//!   (review R12 1.3), and known prompt/profile tool images are never the agent. A child that a run
+//!   types into ([`state_at_input`]) is the agent at once: the profile is long done by the time the
+//!   agent's input box takes a prompt, so an agent that crashes within a second of its first look
+//!   (a standby pane claimed and typed into right away) is still seen to exit.
 //! - any other root process is the agent itself: alive while that process runs.
 //!
 //! Read on demand (a Toolhelp32 process snapshot, a few milliseconds), no watcher thread. What was
@@ -91,6 +94,16 @@ static SEEN: Lazy<Mutex<HashMap<String, Seen>>> = Lazy::new(|| Mutex::new(HashMa
 
 /// The agent's state in `pane_id`, whose root process is `root_pid` (`PaneInfo::pid`).
 pub fn state(pane_id: &str, root_pid: u32) -> AgentProcess {
+    look(pane_id, root_pid, false)
+}
+
+/// [`state`] for a look made as input is written to the agent (`pty::registry` write path, typing
+/// permits only): the child that is alive now is the agent, confirmed without waiting [`CONFIRM_MS`].
+pub fn state_at_input(pane_id: &str, root_pid: u32) -> AgentProcess {
+    look(pane_id, root_pid, true)
+}
+
+fn look(pane_id: &str, root_pid: u32, input: bool) -> AgentProcess {
     if root_pid == 0 {
         return AgentProcess::Unknown;
     }
@@ -103,7 +116,18 @@ pub fn state(pane_id: &str, root_pid: u32) -> AgentProcess {
     if entry.root != root_pid {
         *entry = Seen { root: root_pid, track: Track::default() };
     }
-    classify(&procs, root_pid, &mut entry.track, now)
+    let out = classify(&procs, root_pid, &mut entry.track, now);
+    if input && out == AgentProcess::Alive {
+        took_input(&mut entry.track);
+    }
+    out
+}
+
+/// The child that took input is the agent: an unconfirmed candidate is confirmed now.
+pub(crate) fn took_input(track: &mut Track) {
+    if let Some((pid, _)) = track.candidate.take() {
+        track.agent = Some(pid);
+    }
 }
 
 /// Pure decision over one snapshot taken at `now_ms`, updating what is remembered in `track`.
@@ -252,6 +276,34 @@ mod tests {
         assert_eq!(classify(&[host.clone(), agent], 10, &mut track, 1_700), AgentProcess::Alive);
         assert_eq!(track.agent, Some(31));
         assert_eq!(classify(&[host], 10, &mut track, 1_800), AgentProcess::Exited);
+    }
+
+    /// An agent that crashes within a second of its first look, after a run typed into it (a standby
+    /// pane claimed and typed into at once): it was read as a profile helper that came and went, the
+    /// pane went back to `Starting`, and only the host shell's prompt on screen could fail the run.
+    #[test]
+    fn a_child_that_took_input_and_is_gone_within_a_second_has_exited() {
+        let host = p(10, 1, "powershell.exe");
+        let agent = p(11, 10, "node.exe");
+        let mut track = Track::default();
+        assert_eq!(classify(&[host.clone(), agent.clone()], 10, &mut track, 0), AgentProcess::Alive);
+        assert_eq!(classify(&[host.clone(), agent], 10, &mut track, 100), AgentProcess::Alive);
+        took_input(&mut track);
+        assert_eq!(track.agent, Some(11), "the child the prompt was typed into is the agent");
+        assert_eq!(classify(&[host.clone()], 10, &mut track, 400), AgentProcess::Exited, "seen, typed into, gone");
+        assert_eq!(classify(&[host], 10, &mut track, 500), AgentProcess::Exited, "and stays exited");
+    }
+
+    #[test]
+    fn input_before_any_child_confirms_nothing() {
+        let host = p(10, 1, "powershell.exe");
+        let mut track = Track::default();
+        assert_eq!(classify(&[host.clone()], 10, &mut track, 0), AgentProcess::Starting);
+        took_input(&mut track);
+        assert_eq!(track, Track::default());
+        // A helper that starts later is still judged by how long it lives.
+        assert_eq!(classify(&[host.clone(), p(30, 10, "profile-helper.exe")], 10, &mut track, 100), AgentProcess::Alive);
+        assert_eq!(classify(&[host], 10, &mut track, 300), AgentProcess::Starting);
     }
 
     #[test]

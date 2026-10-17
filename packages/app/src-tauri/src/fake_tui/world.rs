@@ -217,6 +217,13 @@ impl Session {
         *self.world.script.lock() = Some(path);
     }
 
+    /// A slow ConPTY: the pane readers hold any chunk of output containing `marker` for `wait` before
+    /// the pane sees it, until the session ends. What a loaded Windows machine does to an agent's
+    /// last frame: its process is gone before that frame is on screen.
+    pub fn hold_output(&self, marker: &str, wait: Duration) {
+        super::set_hold_output(Some((marker.to_string(), wait)));
+    }
+
     /// The fake's own event log: one JSON object per line (`prompt`, `approval_answer`, `exit`, ...).
     pub fn events(&self) -> Vec<Value> {
         std::fs::read_to_string(self.aux.join("events.jsonl"))
@@ -609,6 +616,7 @@ impl Drop for Session {
         }
         crate::tui::registry::registry().swap(self.saved.iter().cloned().collect());
         *self.world.script.lock() = None;
+        super::set_hold_output(None);
         if !std::thread::panicking() {
             // The killed agent's shell may still hold the folder for a moment.
             for _ in 0..30 {
