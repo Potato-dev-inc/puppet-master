@@ -515,7 +515,7 @@ fn the_whole_flow_on_an_arrow_menu_agent_needs_no_person_with_the_switch_on() {
     let names: Vec<&str> = finished["captures"]["files"].as_array().unwrap().iter().filter_map(|f| f["name"].as_str()).collect();
     assert_eq!(
         names,
-        ["tui_trust", "tui_idle", "tui_working", "tui_reply", "tui_permission", "tui_permission_command"],
+        ["tui_trust", "tui_idle", "tui_working", "tui_reply", "tui_work_working", "tui_work_reply", "tui_permission", "tui_permission_command"],
         "the questions were kept before they were answered"
     );
     assert!(finished["captures"]["files"][0]["text"].as_str().unwrap().contains("Navigate"), "the arrow menu was captured");
@@ -532,7 +532,7 @@ fn the_whole_flow_on_an_arrow_menu_agent_needs_no_person_with_the_switch_on() {
     let prompts_before = events_named(&session, "prompt").len();
     let test = rig.call("visibletest", json!({"session": id, "confirm": true, "plan": plan})).unwrap_or_else(|e| panic!("visibletest: {}", err(&e)));
     assert_eq!(test["ok"], true, "{}\n{}", test["text"].as_str().unwrap_or_default(), test["checks"]);
-    assert_eq!((test["passed"].as_u64(), test["total"].as_u64()), (Some(10), Some(10)), "{}", test["checks"]);
+    assert_eq!((test["passed"].as_u64(), test["total"].as_u64()), (Some(12), Some(12)), "{}", test["checks"]);
     let startup = test["checks"].as_array().unwrap().iter().find(|c| c["name"] == "startup").unwrap();
     assert_eq!(startup["status"], "passed", "the draft's prompt saw the question before the wizard answered: {startup}");
     assert_eq!(test["answered"].as_array().unwrap().len(), 2, "the trust question of each of the two test panes");
@@ -540,7 +540,7 @@ fn the_whole_flow_on_an_arrow_menu_agent_needs_no_person_with_the_switch_on() {
     assert_eq!(events_named(&session, "gate_answer").len(), 3, "one trust answer per pane");
     assert_eq!(events_named(&session, "approval_answer").len(), 2, "the permission checks answered nothing");
     let prompts_after: Vec<String> = events_named(&session, "prompt").iter().skip(prompts_before).filter_map(|e| e["text"].as_str().map(str::to_string)).collect();
-    assert_eq!(prompts_after.len(), 3, "{prompts_after:?}");
+    assert_eq!(prompts_after.len(), 5, "{prompts_after:?}");
     assert_eq!(prompts_after[0], format!("Reply with exactly the word: {two}"));
 
     // finish records what was answered for the person
