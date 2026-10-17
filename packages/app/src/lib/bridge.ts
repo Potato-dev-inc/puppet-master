@@ -16,6 +16,22 @@ export { subscribeBridgeEvents } from './bridge-sse';
 const DEFAULT_POLL_HOST = '127.0.0.1';
 const DEFAULT_POLL_INTERVAL_MS = 200;
 
+/**
+ * The proxy in front of the app (dev Vite proxy, built-app phone server) answers 502 BRIDGE_UNREACHABLE
+ * with a plain-language message when the app's bridge is down; show that, not the raw JSON.
+ */
+function bridgeErrorText(status: number, body: string): string {
+  if (status === 502) {
+    try {
+      const parsed = JSON.parse(body) as { code?: unknown; message?: unknown };
+      if (parsed.code === 'BRIDGE_UNREACHABLE' && typeof parsed.message === 'string') return parsed.message;
+    } catch {
+      /* not JSON: keep the body as is */
+    }
+  }
+  return body;
+}
+
 export function makeBridgeClient(baseUrl: string): BridgeClient {
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers = mergeBridgeHeaders({ ...ngrokRequestHeaders(baseUrl), ...localSecretHeaders(baseUrl) });
@@ -26,7 +42,7 @@ export function makeBridgeClient(baseUrl: string): BridgeClient {
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) {
-      throw new Error(`bridge ${method} ${path} -> ${res.status}: ${await res.text()}`);
+      throw new Error(`bridge ${method} ${path} -> ${res.status}: ${bridgeErrorText(res.status, await res.text())}`);
     }
     return (await res.json()) as T;
   }
