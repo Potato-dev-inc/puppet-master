@@ -37,6 +37,22 @@ struct Sleep {
     until: u64,
 }
 
+/// Claude Code collapses a paste longer than this many characters into `[Pasted text #N +M lines]`
+/// (2.1.302: `C.length>800`), however few lines it has.
+const PASTE_COLLAPSE_CHARS: usize = 800;
+
+/// Text that arrives no more than this long after the previous text is part of the same paste: a
+/// program's write reaches the console as one burst, a person types slower.
+const PASTE_GAP_MS: u64 = 50;
+
+/// A paste the Claude layout shows as `[Pasted text #id +lines lines]`: the composer bytes
+/// `start..end`. The submitted prompt is the full text, as with the real Claude Code.
+struct PastedText {
+    id: u32,
+    start: usize,
+    end: usize,
+}
+
 pub struct Engine {
     script: Script,
     layout: Layout,
@@ -59,6 +75,11 @@ pub struct Engine {
     turns_done: usize,
     last_prompt: String,
     last_typed: Option<u64>,
+    /// The burst of text being typed or pasted now: where it starts in the composer, when its last
+    /// text arrived.
+    burst: Option<(usize, u64)>,
+    pastes: Vec<PastedText>,
+    pastes_made: u32,
     notice: Option<(String, Option<u64>)>,
     ctrl_c_armed: bool,
     exit: Option<i32>,
@@ -118,6 +139,9 @@ impl Engine {
             turns_done: 0,
             last_prompt: String::new(),
             last_typed: None,
+            burst: None,
+            pastes: Vec::new(),
+            pastes_made: 0,
             notice: None,
             ctrl_c_armed: false,
             exit: None,
@@ -333,21 +357,86 @@ impl Engine {
     fn compose(&mut self, key: Key, now: u64) {
         match key {
             Key::Char(c) => {
-                self.composer.push(c);
+                self.take_text(c.encode_utf8(&mut [0; 4]), now);
                 self.suggestion = None;
                 self.last_typed = Some(now);
             }
             Key::Paste(text) => {
-                self.composer.push_str(&text.replace("\r\n", "\n").replace('\r', "\n"));
+                self.take_text(&text.replace("\r\n", "\n").replace('\r', "\n"), now);
                 self.suggestion = None;
                 self.last_typed = Some(now);
             }
             Key::Backspace => {
-                self.composer.pop();
+                // A paste placeholder goes as a whole.
+                match self.pastes.last() {
+                    Some(paste) if paste.end == self.composer.len() => {
+                        self.composer.truncate(paste.start);
+                        self.pastes.pop();
+                    }
+                    _ => {
+                        self.composer.pop();
+                    }
+                }
+                self.burst = None;
             }
-            Key::CtrlU => self.composer.clear(),
+            Key::CtrlU => self.clear_composer(),
             _ => {}
         }
+    }
+
+    fn clear_composer(&mut self) {
+        self.composer.clear();
+        self.pastes.clear();
+        self.burst = None;
+    }
+
+    /// Text into the composer. Claude Code takes a burst of text as one paste, and shows a paste of
+    /// more than [`PASTE_COLLAPSE_CHARS`] characters, or with more line breaks than
+    /// `min(rows - 10, 2)`, as `[Pasted text #N +M lines]` instead of its text (2.1.302's prompt
+    /// input). The other layouts show all of it.
+    fn take_text(&mut self, text: &str, now: u64) {
+        let start = match self.burst {
+            Some((start, at)) if now.saturating_sub(at) <= PASTE_GAP_MS => start,
+            _ => self.composer.len(),
+        };
+        self.composer.push_str(text);
+        self.burst = Some((start, now));
+        if self.layout != Layout::Claude {
+            return;
+        }
+        let pasted = &self.composer[start..];
+        let breaks = pasted.matches('\n').count();
+        if pasted.chars().count() <= PASTE_COLLAPSE_CHARS && breaks <= self.rows.saturating_sub(10).min(2) {
+            return;
+        }
+        let end = self.composer.len();
+        match self.pastes.last_mut() {
+            Some(paste) if paste.start == start => paste.end = end,
+            _ => {
+                self.pastes_made += 1;
+                self.pastes.push(PastedText { id: self.pastes_made, start, end });
+                self.log(now, "paste_collapsed", json!({ "id": self.pastes_made }));
+            }
+        }
+    }
+
+    /// The composer as drawn: Claude's collapsed pastes as their placeholders.
+    fn shown_composer(&self) -> std::borrow::Cow<'_, str> {
+        if self.pastes.is_empty() {
+            return std::borrow::Cow::Borrowed(&self.composer);
+        }
+        let mut out = String::new();
+        let mut at = 0;
+        for paste in &self.pastes {
+            out.push_str(&self.composer[at..paste.start]);
+            match self.composer[paste.start..paste.end].matches('\n').count() {
+                0 => out.push_str(&format!("[Pasted text #{}]", paste.id)),
+                lines => out.push_str(&format!("[Pasted text #{} +{lines} lines]", paste.id)),
+            }
+            at = paste.end;
+        }
+        out.push_str(&self.composer[at..]);
+        std::borrow::Cow::Owned(out)
     }
 
     fn ready_key(&mut self, key: Key, now: u64) {
@@ -357,7 +446,7 @@ impl Engine {
                 let quick = burst > 0 && self.last_typed.is_some_and(|at| now.saturating_sub(at) < burst);
                 if quick {
                     match self.script.burst_effect() {
-                        BurstEffect::Newline => self.composer.push('\n'),
+                        BurstEffect::Newline => self.take_text("\n", now),
                         BurstEffect::Drop => {}
                     }
                     self.log(now, "enter_in_paste_burst", json!({ "effect": format!("{:?}", self.script.burst_effect()) }));
@@ -377,7 +466,7 @@ impl Engine {
             }
             Key::CtrlC => {
                 if !self.composer.is_empty() {
-                    self.composer.clear();
+                    self.clear_composer();
                 } else if self.ctrl_c_armed {
                     self.exit_with(0, now);
                 } else {
@@ -474,7 +563,7 @@ impl Engine {
         self.log(now, "prompt", json!({ "text": prompt }));
         self.last_prompt = prompt.clone();
         self.blocks.push(Block::User(prompt.clone()));
-        self.composer.clear();
+        self.clear_composer();
         self.suggestion = None;
         self.pending_suggestion = None;
         self.fresh = false;
@@ -695,6 +784,7 @@ impl Engine {
             Phase::Busy => Some((self.sleep.as_ref().map_or(self.verb.as_str(), |s| s.verb.as_str()), now.saturating_sub(self.turn_started))),
             _ => None,
         };
+        let composer = self.shown_composer();
         let view = View {
             layout: self.layout,
             cols: self.cols,
@@ -702,7 +792,7 @@ impl Engine {
             banner: &self.banner,
             blocks: &self.blocks,
             mode,
-            composer: &self.composer,
+            composer: &composer,
             suggestion: self.suggestion.as_deref(),
             fresh: self.fresh,
             busy,
@@ -880,6 +970,61 @@ mod tests {
         e.on_key(Key::Backspace, 1100);
         e.on_key(Key::Enter, 1300);
         assert!(e.plain(1300).contains("\u{203a} do it"), "{}", e.plain(1300));
+    }
+
+    /// Claude Code 2.1.302 shows a paste with more than two line breaks as a placeholder; Enter
+    /// sends the whole text.
+    #[test]
+    fn claude_shows_a_long_paste_as_a_placeholder_and_sends_all_of_it() {
+        let mut e = engine("agent = \"claude\"\npaste_burst_ms = 40\npaste_burst_effect = \"newline\"");
+        // A program's write: text and Enters in one burst (the Enters are line breaks in it).
+        for (i, line) in ["Mission: one", "two", "three", "four"].iter().enumerate() {
+            if i > 0 {
+                e.on_key(Key::Enter, 1000);
+            }
+            type_text(&mut e, line, 1000);
+        }
+        let screen = e.plain(1000);
+        assert!(screen.contains("\u{276f}\u{a0}[Pasted text #1 +3 lines]"), "{screen}");
+        assert!(!screen.contains("Mission: one"), "{screen}");
+        assert_eq!(e.composer(), "Mission: one\ntwo\nthree\nfour");
+        e.on_key(Key::Enter, 1200);
+        assert_eq!(e.last_prompt, "Mission: one\ntwo\nthree\nfour");
+    }
+
+    #[test]
+    fn claude_keeps_short_or_typed_text_in_the_box() {
+        // Two line breaks stay as text.
+        let mut e = engine("agent = \"claude\"\npaste_burst_ms = 40\npaste_burst_effect = \"newline\"");
+        type_text(&mut e, "a", 0);
+        e.on_key(Key::Enter, 0);
+        type_text(&mut e, "b", 0);
+        e.on_key(Key::Enter, 0);
+        type_text(&mut e, "c", 0);
+        assert!(e.plain(0).contains("\u{276f}\u{a0}a"), "{}", e.plain(0));
+        // A person typing (keys further apart than a burst) never makes a paste, however long.
+        let mut e = engine("agent = \"claude\"");
+        for i in 0..900u64 {
+            e.on_key(Key::Char('x'), 1000 + i * 100);
+        }
+        assert!(!e.plain(100_000).contains("Pasted text"));
+        // One write of more than 800 characters is a paste, even on one line.
+        let mut e = engine("agent = \"claude\"");
+        type_text(&mut e, &"y".repeat(801), 0);
+        assert!(e.plain(0).contains("\u{276f}\u{a0}[Pasted text #1]"), "{}", e.plain(0));
+    }
+
+    #[test]
+    fn backspace_takes_a_paste_placeholder_away_whole_and_codex_never_collapses() {
+        let mut e = engine("agent = \"claude\"");
+        type_text(&mut e, "hi ", 0);
+        e.on_key(Key::Paste("one\ntwo\nthree\nfour".into()), 500);
+        assert!(e.plain(500).contains("\u{276f}\u{a0}hi [Pasted text #1 +3 lines]"), "{}", e.plain(500));
+        e.on_key(Key::Backspace, 600);
+        assert_eq!(e.composer(), "hi ");
+        let mut e = engine("agent = \"codex\"");
+        e.on_key(Key::Paste("one\ntwo\nthree\nfour".into()), 0);
+        assert!(!e.plain(0).contains("Pasted text"), "{}", e.plain(0));
     }
 
     #[test]
