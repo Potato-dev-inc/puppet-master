@@ -42,26 +42,128 @@ fn wrong_mode_calls_are_rejected_even_if_client_guesses_route() {
 }
 
 #[test]
-fn managed_agent_pane_needs_explicit_shell_takeover_and_other_sessions_need_grant() {
+fn a_run_pane_the_connection_started_is_its_own_and_other_sessions_need_grant() {
     let owner = id();
     let other = id();
     register_owned_pane(&owner, "agent-pane-1").unwrap();
     set_mode(&owner, "shell").unwrap();
-    let write = || {
+    let write = |session: &str| {
         authorize(
-            Some(&owner),
+            Some(session),
             "POST",
             "/panes/agent-pane-1/input",
             &serde_json::json!({"text":"x"}),
         )
     };
-    assert!(write().is_err());
-    take_over_pane(&owner, "agent-pane-1", true).unwrap();
-    assert!(write().is_ok());
+    // Its own run's pane: no take_over needed.
+    assert!(write(&owner).is_ok());
     assert!(take_over_pane(&other, "agent-pane-1", false).is_err());
+    set_mode(&other, "shell").unwrap();
+    assert!(write(&other).is_err(), "someone else's pane is still refused");
     take_over_pane(&other, "agent-pane-1", true).unwrap();
     assert!(session_controls_pane(&other, "agent-pane-1"));
     assert!(!session_controls_pane(&owner, "agent-pane-1"));
+    assert!(write(&owner).is_err(), "the lease moved: the first connection is refused now");
+}
+
+// ---- a pane the connection's own run_agent / followup_task opened ------------------------------
+//
+// A lead called run_agent (visible pane), the agent waited on an approval nobody recognised as a
+// card, and press_key on that pane was refused until the lead called take_over. The pane is the
+// lead's own; only panes it did not start keep the take_over rule.
+
+fn terminal_calls(pane: &str) -> Vec<(&'static str, String, Value)> {
+    vec![
+        ("press_key", format!("/panes/{pane}/key"), serde_json::json!({"key":"enter"})),
+        ("write_terminal_input", format!("/panes/{pane}/input"), serde_json::json!({"text":"y"})),
+    ]
+}
+
+#[test]
+fn press_key_write_input_and_answer_prompt_work_on_the_pane_my_own_run_opened() {
+    let lead = id();
+    let pane = format!("own-run-pane-{}", Uuid::new_v4());
+    set_mode(&lead, "both").unwrap();
+    // What dispatch does when run_agent spawns the pane (twice: reserve and bind).
+    register_owned_pane(&lead, &pane).unwrap();
+    register_owned_pane(&lead, &pane).unwrap();
+    for (tool, path, body) in terminal_calls(&pane) {
+        assert!(authorize(Some(&lead), "POST", &path, &body).is_ok(), "{tool} on my own run's pane");
+    }
+    let answer = serde_json::json!({"pane_id": pane, "prompt_id":"p", "choice":"allow_once"});
+    assert!(authorize(Some(&lead), "POST", "/agents/answer", &answer).is_ok());
+}
+
+#[test]
+fn the_own_pane_rule_is_only_for_keys_text_and_answers() {
+    let lead = id();
+    let pane = format!("own-run-pane-{}", Uuid::new_v4());
+    set_mode(&lead, "both").unwrap();
+    register_owned_pane(&lead, &pane).unwrap();
+    let args = serde_json::json!({"command":"pytest","pane_id": pane});
+    assert!(
+        authorize(Some(&lead), "POST", "/shell/exec", &args).is_err(),
+        "a shell command into an agent's pane still needs take_over"
+    );
+}
+
+#[test]
+fn another_agents_run_pane_is_still_refused_for_keys_text_and_answers() {
+    let lead = id();
+    let rival = id();
+    let pane = format!("rival-run-pane-{}", Uuid::new_v4());
+    set_mode(&lead, "both").unwrap();
+    set_mode(&rival, "both").unwrap();
+    register_owned_pane(&rival, &pane).unwrap();
+    for (tool, path, body) in terminal_calls(&pane) {
+        let error = authorize(Some(&lead), "POST", &path, &body).unwrap_err();
+        assert_eq!(error.code, "AUTHORIZATION_DENIED", "{tool}");
+    }
+    let answer = serde_json::json!({"pane_id": pane, "prompt_id":"p", "choice":"allow_once"});
+    assert_eq!(authorize(Some(&lead), "POST", "/agents/answer", &answer).unwrap_err().code, "AUTHORIZATION_DENIED");
+    // Only an explicit take_over (which the consent gate judges) opens it.
+    take_over_pane(&lead, &pane, true).unwrap();
+    for (tool, path, body) in terminal_calls(&pane) {
+        assert!(authorize(Some(&lead), "POST", &path, &body).is_ok(), "{tool} after take_over");
+    }
+}
+
+#[test]
+fn a_pane_the_person_opened_is_still_refused_until_take_over() {
+    let lead = id();
+    set_mode(&lead, "both").unwrap();
+    // Not in the table at all: opened by the person.
+    let ui_pane = format!("ui-pane-{}", Uuid::new_v4());
+    for (tool, path, body) in terminal_calls(&ui_pane) {
+        let error = authorize(Some(&lead), "POST", &path, &body).unwrap_err();
+        assert_eq!(error.code, "AUTHORIZATION_DENIED", "{tool}");
+        assert!(error.message.contains("not adopted"), "{tool}: {}", error.message);
+    }
+    // Adopted for a run of the lead's (bind_agent_pane): the lead still did not start it.
+    let handle = Uuid::new_v4().to_string();
+    register_owned_agent(&lead, &handle).unwrap();
+    take_over_pane(&lead, &ui_pane, true).unwrap();
+    bind_agent_pane(&lead, &handle, &ui_pane, true).unwrap();
+    for (tool, path, body) in terminal_calls(&ui_pane) {
+        let error = authorize(Some(&lead), "POST", &path, &body).unwrap_err();
+        assert!(error.message.contains("read-only to terminal controls"), "{tool}: {}", error.message);
+    }
+    take_over_pane(&lead, &ui_pane, true).unwrap();
+    for (tool, path, body) in terminal_calls(&ui_pane) {
+        assert!(authorize(Some(&lead), "POST", &path, &body).is_ok(), "{tool} after take_over");
+    }
+}
+
+#[test]
+fn an_own_pane_handed_back_after_a_take_over_is_still_its_own() {
+    let lead = id();
+    let pane = format!("own-released-{}", Uuid::new_v4());
+    set_mode(&lead, "both").unwrap();
+    register_owned_pane(&lead, &pane).unwrap();
+    take_over_pane(&lead, &pane, true).unwrap();
+    release_owned_pane(&lead, &pane).unwrap();
+    // Control is back with the owner, and it started the pane: still its own.
+    assert!(authorize(Some(&lead), "POST", &format!("/panes/{pane}/key"), &serde_json::json!({"key":"enter"})).is_ok());
 }
 
 #[test]

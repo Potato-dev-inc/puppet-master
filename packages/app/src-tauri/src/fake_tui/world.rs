@@ -215,9 +215,15 @@ impl Session {
 
     /// Call one of the `/agents/*` routes the way the bridge does. `Err` carries the error JSON.
     pub fn agents(&self, method: &str, path: &str, body: Value) -> Result<Value, Value> {
+        self.agents_as(None, method, path, body)
+    }
+
+    /// The same as an MCP connection: `session` is the id its `X-Puppet-Master-Session` header carries,
+    /// so the run's pane belongs to that connection.
+    pub fn agents_as(&self, session: Option<&str>, method: &str, path: &str, body: Value) -> Result<Value, Value> {
         let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
         let bytes = serde_json::to_vec(&body).expect("json body");
-        match crate::agent_runs::handle_request(method, &segments, "", &bytes, &self.world.registry, &self.world.app, None) {
+        match crate::agent_runs::handle_request(method, &segments, "", &bytes, &self.world.registry, &self.world.app, session) {
             Some(Ok(value)) => Ok(value),
             Some(Err(error)) => Err(json!({ "code": error.code, "message": error.message, "recoverable": error.recoverable, "context": error.context })),
             None => Err(json!({ "code": "NO_SUCH_ROUTE", "message": path })),
@@ -241,6 +247,35 @@ impl Session {
             map.extend(extra.clone());
         }
         self.agents("POST", "/agents/run", body)
+    }
+
+    /// `run`, as the MCP connection `session`.
+    pub fn run_as(&self, session: &str, agent_type: &str, task: &str, extra: Value) -> Result<Value, Value> {
+        let mut body = json!({
+            "agent_type": agent_type,
+            "task": task,
+            "project_path": self.project.to_string_lossy(),
+            "wait_ms": 1,
+            "background": true,
+            "timeout_ms": 90_000,
+            "keep_pane": true,
+        });
+        if let (Some(map), Some(extra)) = (body.as_object_mut(), extra.as_object()) {
+            map.extend(extra.clone());
+        }
+        self.agents_as(Some(session), "POST", "/agents/run", body)
+    }
+
+    /// Switch the MCP connection `session` to catalog mode `mode` (`agent`, `shell` or `both`).
+    pub fn set_mode_as(&self, session: &str, mode: &str) {
+        crate::mcp_sessions::set_mode(session, mode).expect("a valid catalog mode");
+    }
+
+    /// The bridge's session gate (`mcp_sessions::authorize`) for one call of the connection `session`:
+    /// `Ok` when the route would run, `Err` with the refusal's code and message.
+    pub fn authorize_as(&self, session: &str, method: &str, path: &str, body: Value) -> Result<(), Value> {
+        crate::mcp_sessions::authorize(Some(session), method, path, &body)
+            .map_err(|error| json!({ "code": error.code, "message": error.message }))
     }
 
     /// Wait (blocking) until the run behind `handle` is in one of `until`, or `wait_ms` passes; returns the
