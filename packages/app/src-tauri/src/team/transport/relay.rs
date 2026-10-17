@@ -23,6 +23,10 @@ use std::time::Duration;
 const POLL_WAIT_S: u64 = 20;
 /// After the WebSocket fails, poll for this long before trying it again.
 const POLL_BEFORE_WS_RETRY: Duration = Duration::from_secs(60);
+/// How often an open WebSocket says "ping". Cloudflare closes a connection that has been silent for a while,
+/// and a relay on Cloudflare answers the text "ping" with "pong" without waking its Durable Object, so this
+/// keeps an idle connection open for almost nothing. The reader ignores the "pong".
+const WS_PING_EVERY: Duration = Duration::from_secs(45);
 /// Pause after a failed request.
 const BACKOFF: Duration = Duration::from_secs(3);
 
@@ -311,10 +315,17 @@ impl ReaderCtx {
         };
         set_read_timeout(socket.get_ref(), Duration::from_millis(800));
         self.mode.store(MODE_LIVE, Ordering::SeqCst);
+        let mut last_ping = std::time::Instant::now();
         loop {
             if stop.load(Ordering::SeqCst) {
                 let _ = socket.close(None);
                 return WsEnd::Stopped;
+            }
+            if last_ping.elapsed() >= WS_PING_EVERY {
+                last_ping = std::time::Instant::now();
+                if let Err(e) = socket.send(tungstenite::Message::Text("ping".into())) {
+                    return WsEnd::Failed(e.to_string());
+                }
             }
             match socket.read() {
                 Ok(tungstenite::Message::Text(text)) => {

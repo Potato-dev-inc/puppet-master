@@ -14,9 +14,9 @@ ids, device public keys, sizes and times.
 | | Good for | How |
 |---|---|---|
 | **Cloudflare** | No machine to run, free to start, TLS included | The "Deploy to Cloudflare" button in [`worker/README.md`](worker/README.md), or `npm run deploy` there |
-| **Docker** | A machine you already have | `docker build -t pm-relay relay` then `docker run -d -p 8787:8787 -v pm-relay-data:/data pm-relay`, with TLS in front |
+| **Docker** | A machine you already have | `docker build -t pm-relay relay` then `docker run -d --restart unless-stopped -p 127.0.0.1:8787:8787 -v pm-relay-data:/data pm-relay`, with TLS in front |
 | **The binary** | The same, without Docker | `cargo run --release -p pm-relay` (below) |
-| Puppet Master's own | Nothing to host | A hosted relay is planned; it speaks the same protocol |
+| Puppet Master's own | Nothing to host | A hosted relay is planned; it speaks the same protocol (see [`HOSTED-RELAY.md`](HOSTED-RELAY.md)) |
 
 All of them keep only sealed envelopes, so which one you pick changes who runs the mailbox, not who can
 read it. Settings › Team › Relay address takes the `https://…` address of whichever you run.
