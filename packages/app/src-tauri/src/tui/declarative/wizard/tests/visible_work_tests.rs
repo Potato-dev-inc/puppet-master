@@ -13,7 +13,7 @@ use crate::tui::declarative::wizard::visible::host::Delivered;
 use crate::tui::declarative::wizard::Wizard;
 
 use super::fake_host::{screens, wait_for, FakeHost};
-use super::support::{capture_set, ok, visible_draft, words_of, Tree};
+use super::support::{capture_set, ok, visible_draft_without_work_tables, words_of, Tree};
 
 const BOX: &str = "+------------------------------+\n| > Type a task...             |\n+------------------------------+\n";
 
@@ -83,7 +83,7 @@ fn with_work_captures(wizard: &Wizard, id: &str, a: &Agent) {
 /// The recorded draft, with the tables of rows an agent prints while it works and after a turn.
 fn draft_with(extra_tables: &str) -> String {
     // a footer row that names the model is chrome
-    let base = visible_draft("fake-agent").replace("'^/help for commands',", "'^/help for commands', '^model: ',");
+    let base = visible_draft_without_work_tables("fake-agent").replace("'^/help for commands',", "'^/help for commands', '^model: ',");
     format!("{base}\n{extra_tables}")
 }
 
