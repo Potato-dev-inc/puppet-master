@@ -70,10 +70,13 @@ The same numbers as the server (`Limits` in `../server/src/lib.rs`):
 To change a number, uncomment the matching `LIMIT_…` line under `[vars]` in `wrangler.toml` (they are listed there).
 
 Cloudflare's own allowances apply on top (the free plan has daily request, duration and storage-row
-limits: see Cloudflare's pricing page for Workers and Durable Objects). A message costs about nine
-storage-row writes here (the envelope, the counters, three rate-limit counters, the replay guard, the
-per-device request counter); a read costs three.
-That is plenty for a team, and the paid plan removes the ceiling.
+limits: see Cloudflare's pricing page for Workers and Durable Objects). A message costs 8 storage-row writes here
+(the envelope, the team's counters, four rate-limit counters, the replay guard) and about 2 more when its
+replay-guard row expires and 1 when the envelope does; a read costs 3. Opening a socket and sending a message
+cost one request each; the messages that arrive over an open socket cost nothing. For a team of five sending
+200 messages each a day that is about 11,000 rows written a day, so the free plan (100,000 a day) holds
+roughly eight such teams; more than that, or a team whose apps cannot use WebSockets, needs the paid plan.
+`../HOSTED-RELAY.md` has the full estimate. A test (`npm run test:worker`) fails if a message starts costing more.
 
 ## Hardening (what the server's security review found, done here from the start)
 
@@ -140,8 +143,10 @@ npm run build:wasm                                          # writes src/wasm/, 
   evicted), so they cost row writes.
 - Long polls hold a Durable Object awake for up to 25 seconds; clients use the WebSocket first, so this
   is the fallback. WebSockets hibernate.
-- The WebSocket has no server ping (the Workers runtime cannot send one while hibernating). A dropped
-  connection is noticed by the app, which falls back to polling and tries the socket again.
+- The WebSocket has no server ping (the Workers runtime cannot send one while hibernating). A client may send the
+  text `ping` now and then: the runtime answers `pong` without waking the object, and Cloudflare closes a
+  connection that stays silent for too long, so the app does this every 45 seconds. A dropped connection is
+  noticed by the app, which falls back to polling and tries the socket again.
 - Cloudflare terminates TLS, so there is nothing to put in front of it.
 
 ## Tests
