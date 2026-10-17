@@ -159,9 +159,10 @@ pub fn parse_menu(screen: &str) -> Option<Menu> {
             return Some(Menu { kind: MenuKind::Numbered, options });
         }
     }
-    // arrow: a marker row and the rows around it that start at the same column
-    let anchor = (0..tail.len()).find(|i| parsed[*i].as_ref().is_some_and(|p| p.mark.is_some_and(is_selected_marker) && short(p) && p.num.is_none()));
-    if let Some(anchor) = anchor {
+    // arrow: a marker row and the rows around it that start at the same column. The LAST such group is the menu: an
+    // earlier row that merely starts with a marker (the echo of the task, a quoted line) is not.
+    let anchors = (0..tail.len()).rev().filter(|i| parsed[*i].as_ref().is_some_and(|p| p.mark.is_some_and(is_selected_marker) && short(p) && p.num.is_none()));
+    for anchor in anchors {
         let col = parsed[anchor].as_ref().expect("parsed").text_col;
         let same = |i: usize| parsed[i].as_ref().is_some_and(|p| p.text_col == col && short(p) && p.num.is_none());
         let mut lo = anchor;

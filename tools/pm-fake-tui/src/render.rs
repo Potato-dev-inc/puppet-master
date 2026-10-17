@@ -43,6 +43,15 @@ pub enum Block {
     Raw(Vec<String>),
 }
 
+/// Nimbus display options taken from the script.
+#[derive(Debug, Clone, Default)]
+pub struct Opts {
+    pub backlog_rows: usize,
+    pub status_model: Option<String>,
+    pub status_model_busy_only: bool,
+    pub footer_right: Option<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Banner {
     pub version: String,
@@ -50,9 +59,23 @@ pub struct Banner {
     pub cwd: String,
 }
 
+/// How a nimbus permission question is drawn (script `approvals`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NimbusMenu {
+    /// `Allow nimbus to ...? [y/n]`
+    #[default]
+    YesNo,
+    /// A command: numbered rows with a cursor.
+    Command,
+    /// A file write: arrow rows, no numbers.
+    File,
+}
+
 /// The permission dialog being shown.
 #[derive(Debug, Clone)]
 pub struct Dialog {
+    /// Nimbus only: which question this is.
+    pub menu: NimbusMenu,
     pub kind: ApprovalKind,
     pub command: String,
     pub path: String,
@@ -90,7 +113,11 @@ impl Dialog {
                 "Yes, and don't ask again for these files (a)".into(),
                 "No, and tell Codex what to do differently (esc)".into(),
             ],
-            (Layout::Nimbus, _) => vec!["Yes".into(), "No".into()],
+            (Layout::Nimbus, _) => match self.menu {
+                NimbusMenu::YesNo => vec!["Yes".into(), "No".into()],
+                NimbusMenu::Command => vec!["Allow once".into(), "Always allow in this project".into(), "Deny".into()],
+                NimbusMenu::File => vec!["Yes, write it".into(), "Yes, and allow all edits this session".into(), "No, keep it as it is".into()],
+            },
         }
     }
 }
@@ -101,6 +128,7 @@ pub struct GateView {
     pub kind: GateKind,
     pub selected: usize,
     pub style: crate::script::TrustStyle,
+    pub animate: bool,
 }
 
 /// What the screen shows right now.
@@ -134,6 +162,7 @@ pub struct View<'a> {
     pub notice: Option<&'a str>,
     /// Animation phase: changes every ~200 ms while busy.
     pub tick: u64,
+    pub opts: &'a Opts,
 }
 
 pub struct Frame {
@@ -143,6 +172,15 @@ pub struct Frame {
 }
 
 pub fn frame(view: &View) -> Frame {
+    frame_with(view, true)
+}
+
+/// Every row of the conversation, clipped to the width only: what an inline TUI prints into the scrollback.
+pub fn frame_all(view: &View) -> Frame {
+    frame_with(view, false)
+}
+
+fn frame_with(view: &View, fit_height: bool) -> Frame {
     let mut rows = match (&view.mode, view.layout) {
         (Mode::Gate(gate), Layout::Claude) => (gate_rows(view, gate), None),
         (Mode::Gate(gate), Layout::Codex) => (gate_rows(view, gate), None),
@@ -152,7 +190,7 @@ pub fn frame(view: &View) -> Frame {
         (_, Layout::Nimbus) => nimbus_rows(view),
     };
     // Fit the viewport: keep the bottom rows (the composer), clip long rows.
-    let height = view.rows.max(1);
+    let height = if fit_height { view.rows.max(1) } else { usize::MAX };
     let overflow = rows.0.len().saturating_sub(height);
     let mut out: Vec<String> = rows.0.drain(overflow..).map(|row| clip(&row, view.cols)).collect();
     let cursor = rows.1.and_then(|(r, c)| r.checked_sub(overflow).map(|r| (r, c.min(view.cols.saturating_sub(1)))));
@@ -536,6 +574,9 @@ fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
         rows.push("starting up...".into());
         return (rows, None);
     }
+    for n in 1..=view.opts.backlog_rows {
+        rows.push(format!("earlier session note {n}"));
+    }
     for block in view.blocks {
         rows.push(String::new());
         rows.extend(nimbus_block(block, view.cols));
@@ -543,7 +584,11 @@ fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
     if let Some((verb, elapsed)) = view.busy {
         rows.push(String::new());
         let glyph = NIMBUS_SPINNER[(view.tick as usize) % NIMBUS_SPINNER.len()];
-        rows.push(format!("{glyph} {verb}...  {}s  ctrl+c to stop", elapsed / 1000));
+        let model = match (&view.opts.status_model, view.opts.status_model_busy_only) {
+            (Some(model), true) => format!("  model: {model}"),
+            _ => String::new(),
+        };
+        rows.push(format!("{glyph} {verb}...  {}s  ctrl+c to stop{model}", elapsed / 1000));
     }
     rows.push(String::new());
     if matches!(view.mode, Mode::Hold) {
@@ -555,7 +600,26 @@ fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
             ApprovalKind::Edit => format!("edit {}", dialog.path),
             ApprovalKind::Create => format!("create {}", dialog.path),
         };
-        rows.push(format!("Allow nimbus to {what}? [y/n]"));
+        match dialog.menu {
+            NimbusMenu::YesNo => rows.push(format!("Allow nimbus to {what}? [y/n]")),
+            NimbusMenu::Command => {
+                rows.push("Run this command?".into());
+                rows.push(format!("  {}", dialog.command.lines().next().unwrap_or_default()));
+                rows.push(String::new());
+                for (i, label) in dialog.options(Layout::Nimbus).iter().enumerate() {
+                    rows.push(format!("{} {}. {label}", if i == dialog.selected { ">" } else { " " }, i + 1));
+                }
+            }
+            NimbusMenu::File => {
+                rows.push(format!("Write {}?", dialog.path));
+                rows.push(String::new());
+                for (i, label) in dialog.options(Layout::Nimbus).iter().enumerate() {
+                    rows.push(format!(" {} {label}", if i == dialog.selected { "\u{276f}" } else { " " }));
+                }
+                rows.push(String::new());
+                rows.push(" up/down to move, enter to confirm".into());
+            }
+        }
         return (rows, None);
     }
     let width = view.cols.saturating_sub(2).clamp(30, 110);
@@ -590,8 +654,18 @@ fn nimbus_rows(view: &View) -> (Vec<String>, Option<(usize, usize)>) {
 
 fn finish_nimbus(mut rows: Vec<String>, rule: String, view: &View, cursor: Option<(usize, usize)>) -> (Vec<String>, Option<(usize, usize)>) {
     rows.push(rule);
-    let hint = view.notice.map_or("/help for commands | ctrl+c twice to quit".to_string(), str::to_string);
-    rows.push(format!("  {GRAY}{hint}{RESET}"));
+    let mut hint = view.notice.map_or("/help for commands | ctrl+c twice to quit".to_string(), str::to_string);
+    if let (Some(model), false) = (&view.opts.status_model, view.opts.status_model_busy_only) {
+        hint = format!("model: {model} | {hint}");
+    }
+    let mut row = format!("  {GRAY}{hint}{RESET}");
+    if let Some(right) = &view.opts.footer_right {
+        // Flush against the last column of the grid the agent was told it has.
+        let used = 2 + hint.chars().count();
+        let gap = view.cols.saturating_sub(used + right.chars().count());
+        row = format!("  {GRAY}{hint}{}{right}{RESET}", " ".repeat(gap));
+    }
+    rows.push(row);
     (rows, cursor)
 }
 
@@ -623,17 +697,25 @@ fn gate_rows(view: &View, gate: &GateView) -> Vec<String> {
         }
         (Layout::Nimbus, GateKind::Trust) => {
             let pointer = |i: usize| if gate.selected == i { ">" } else { " " };
-            vec![
+            let blink = if gate.animate && view.tick % 2 == 0 { " \u{258c}" } else { "" };
+            let mut rows = vec![
                 format!("NIMBUS {} | {}", view.banner.version, view.banner.model),
                 String::new(),
-                "Do you trust the files in this folder?".into(),
+                format!("Do you trust the files in this folder?{blink}"),
                 format!("  {cwd}"),
                 String::new(),
                 format!("{} 1. Yes, trust this folder", pointer(0)),
                 format!("{} 2. No, exit", pointer(1)),
                 String::new(),
                 "Press Enter to confirm".into(),
-            ]
+            ];
+            if gate.animate {
+                // Alive and waiting: a spinner and a counter that change on every redraw.
+                let glyph = NIMBUS_SPINNER[(view.tick as usize) % NIMBUS_SPINNER.len()];
+                rows.push(String::new());
+                rows.push(format!("{glyph} Waiting for your answer...  {}s", view.tick / 5));
+            }
+            rows
         }
         (Layout::Claude, GateKind::Trust) => {
             let pointer = |i: usize| if gate.selected == i { "\u{276f} " } else { "  " };
@@ -698,7 +780,8 @@ mod tests {
     use super::*;
 
     fn view<'a>(layout: Layout, banner: &'a Banner, blocks: &'a [Block], mode: Mode) -> View<'a> {
-        View { layout, cols: 80, rows: 24, banner, blocks, mode, composer: "", suggestion: None, fresh: true, busy: None, notice: None, tick: 0 }
+        static OPTS: Opts = Opts { backlog_rows: 0, status_model: None, status_model_busy_only: false, footer_right: None };
+        View { layout, cols: 80, rows: 24, banner, blocks, mode, composer: "", suggestion: None, fresh: true, busy: None, notice: None, tick: 0, opts: &OPTS }
     }
 
     #[test]

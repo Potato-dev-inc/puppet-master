@@ -37,6 +37,9 @@ pub struct Look {
     pub hello_written: bool,
     /// The grid the PTY has right now (columns, rows), when the host knows it.
     pub grid: Option<(u16, u16)>,
+    /// Scrollback plus screen, as a viewer that mounts now would show it. Only filled when the engine asked
+    /// for it (`Capture::wants_history`): it is the expensive read.
+    pub history: String,
 }
 
 impl Look {
@@ -82,6 +85,19 @@ pub trait PaneHost: Send + Sync + std::fmt::Debug {
     fn kill(&self, pane: &str);
     /// The folder the pane was started in, for a pane this host started.
     fn cwd(&self, _pane: &str) -> Option<PathBuf> {
+        None
+    }
+    /// Resize the PTY and the viewer TOGETHER (the grid invariant: a viewer grid that differs from the PTY grid
+    /// garbles the screen). Only a pane this host started.
+    fn resize(&self, _pane: &str, _cols: u16, _rows: u16) -> Result<(), String> {
+        Err("this host cannot resize a pane".into())
+    }
+    /// Everything a viewer would show: the scrollback followed by the screen.
+    fn history(&self, _pane: &str) -> Option<String> {
+        None
+    }
+    /// The grid the viewer (the pane's emulator) has. It must equal `grid`, the PTY's.
+    fn viewer_grid(&self, _pane: &str) -> Option<(u16, u16)> {
         None
     }
     /// Press the named keys in a pane THIS HOST started. Refuses every other pane.
@@ -215,5 +231,17 @@ impl PaneHost for LiveHost {
 
     fn answer(&self, pane: &str, keys: &[AnswerKey]) -> Result<(), String> {
         Self::inner()?.answer(pane, keys)
+    }
+
+    fn resize(&self, pane: &str, cols: u16, rows: u16) -> Result<(), String> {
+        Self::inner()?.resize(pane, cols, rows)
+    }
+
+    fn history(&self, pane: &str) -> Option<String> {
+        Self::inner().ok()?.history(pane)
+    }
+
+    fn viewer_grid(&self, pane: &str) -> Option<(u16, u16)> {
+        Self::inner().ok()?.viewer_grid(pane)
     }
 }

@@ -917,6 +917,75 @@ steps = [{ do = "think", ms = 800 }, { do = "write_file", path = "hello.txt", co
     assert_eq!(recorded, Some(1), "no turn summary was recorded for the auto-closed pane");
 }
 
+// ---- a folder Windows cannot start a program in ------------------------------------------------------------
+
+/// A project folder past Windows' 259-character working-directory limit used to fail inside the spawn with a bare
+/// "os error 267". `run_agent` now refuses it up front with `PATH_TOO_LONG` and a plain message, for a visible
+/// pane and for a headless run, and makes nothing on disk for it.
+#[test]
+fn a_project_folder_longer_than_windows_allows_is_refused_with_path_too_long() {
+    let session = World::get().session("long-path");
+    session.script("agent = \"claude\"\nboot_ms = 200\n");
+    let mut long = session.aux().to_string_lossy().into_owned();
+    while long.len() < 283 {
+        long.push_str("\\a-folder-name-that-keeps-going");
+    }
+    long.truncate(283);
+    if long.ends_with('\\') {
+        long.pop();
+        long.push('x');
+    }
+    for (label, extra) in [("a visible pane", json!({ "project_path": long })), ("a headless run", json!({ "project_path": long, "headless": true }))] {
+        let error = session.run("fake_claude", "say hi", extra).expect_err(label);
+        assert_eq!(error["code"], "PATH_TOO_LONG", "{label}: {error}");
+        assert_eq!(error["recoverable"], false, "{label}: {error}");
+        assert_eq!(
+            error["message"],
+            "This folder's path is 283 characters. Windows can't start programs in a folder longer than 259 characters. Use a shorter folder (for example closer to the drive root).",
+            "{label}"
+        );
+        assert_eq!(error["context"]["length"], 283, "{label}: {error}");
+    }
+    assert!(!std::path::Path::new(&long).exists(), "nothing is created for a folder that can never be used");
+    assert!(session.pane_ids().is_empty(), "no pane was opened");
+}
+
+// ---- the pane my own run_agent opened is mine to type into -------------------------------------------------------
+
+/// A lead called `run_agent` (a visible pane), the agent parked on an approval, and `press_key` on that pane was
+/// refused until the lead called `take_over`. The pane a connection's own run opened is its own: keys, typed text and
+/// answers need no `take_over`. Another connection's session is still refused, as before.
+#[test]
+fn the_pane_my_own_run_opened_takes_press_key_without_a_take_over() {
+    let session = World::get().session("own-pane-keys");
+    session.script(
+        r#"
+agent = "claude"
+boot_ms = 200
+[[turn]]
+steps = [
+  { do = "think", ms = 400 },
+  { do = "approve", kind = "bash", command = "npm test", on_allow = [{ do = "say", text = "The tests pass." }], on_deny = [{ do = "say", text = "Stopped." }] },
+]
+"#,
+    );
+    let lead = uuid::Uuid::new_v4().to_string();
+    let other = uuid::Uuid::new_v4().to_string();
+    // press_key / write_terminal_input are shell-catalog tools: the lead works in `both` mode.
+    session.set_mode_as(&lead, "both");
+    session.set_mode_as(&other, "both");
+    let started = session.run_as(&lead, "fake_claude", "Run the tests", json!({})).unwrap_or_else(|e| panic!("run_agent refused: {e}"));
+    let parked = wait_for(&session, &handle_of(&started), STOPPED, 90);
+    let pane = parked["pane_id"].as_str().unwrap_or_else(|| panic!("no pane in {parked}")).to_string();
+    let key = |who: &str| session.authorize_as(who, "POST", &format!("/panes/{pane}/key"), json!({ "key": "enter" }));
+    let text = |who: &str| session.authorize_as(who, "POST", &format!("/panes/{pane}/input"), json!({ "text": "y" }));
+    assert_eq!(key(&lead), Ok(()), "press_key on my own run's pane");
+    assert_eq!(text(&lead), Ok(()), "write_terminal_input on my own run's pane");
+    let refused = key(&other).expect_err("another connection's press_key");
+    assert_eq!(refused["code"], "AUTHORIZATION_DENIED", "{refused}");
+    assert_eq!(text(&other).expect_err("another connection's text")["code"], "AUTHORIZATION_DENIED");
+}
+
 // ---- missions (Preview) ----------------------------------------------------------------------------
 
 #[path = "fake_tui_missions.rs"]
@@ -926,3 +995,8 @@ mod missions;
 
 #[path = "fake_tui_wizard.rs"]
 mod wizard;
+
+// ---- screen-read agents: card ids, clean replies, the model (zero tokens) -------------------------------------
+
+#[path = "fake_tui_screen_agents.rs"]
+mod screen_agents;

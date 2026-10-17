@@ -63,6 +63,7 @@ mod pane_wait;
 mod pane_wait_notify;
 mod platform;
 mod project_ir;
+mod path_limit;
 mod project_path;
 mod projections;
 mod pty;

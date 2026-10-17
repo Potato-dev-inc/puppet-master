@@ -162,8 +162,12 @@ impl CaptureRun {
                 }
                 (g.pane.clone(), g.project.clone())
             };
+            let wants_history = self.shared.lock().engine.wants_history();
             let mut look = self.host.look(&pane).unwrap_or(Look { alive: false, ..Look::default() });
             look.hello_written = project.join("hello.txt").is_file();
+            if wants_history {
+                look.history = self.host.history(&pane).unwrap_or_default();
+            }
             let now = self.now();
             let actions = {
                 let mut g = self.shared.lock();
@@ -182,6 +186,14 @@ impl CaptureRun {
                         };
                         if let Err(why) = outcome {
                             self.shared.lock().engine.on_answer_refused(&why);
+                        }
+                    }
+                    Action::Resize { cols, rows } => {
+                        // The PTY and the viewer move together; only a pane this host started.
+                        let outcome = self.host.resize(&pane, cols, rows);
+                        if let Err(why) = outcome {
+                            let now = self.now();
+                            self.shared.lock().engine.on_resize_refused(&why, now);
                         }
                     }
                     Action::Deliver { text } => {

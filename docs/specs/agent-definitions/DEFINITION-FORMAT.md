@@ -86,7 +86,7 @@ Puppet Master looks for the program on `PATH` only. It never runs something foun
 the current directory.
 
 ### `[features]`
-`dispatchable` (default true), `read_only_headless`, `read_only_spawned_pane`, `reprints_on_resize` (default false: the TUI reprints its whole conversation on every resize, so viewers wipe scrollback at the resize point), `resumable_headless` (derived;
+`dispatchable` (default true), `read_only_headless`, `read_only_spawned_pane`, `reprints_on_resize` (default false: the TUI reprints its whole conversation on every resize, so viewers wipe scrollback at the resize point; the Agent Wizard MEASURES this in its capture and writes the key itself, a drafter does not guess it), `resumable_headless` (derived;
 do not set it unless you want the check), `read_only_note`.
 Only claim read-only if the CLI has a documented read-only mode AND you map it in argv with
 `when = "read_only"`. You must also fill `read_only_note` with one sentence saying how.
@@ -204,13 +204,16 @@ All patterns are Rust regular expressions (see 7). Tables you can add under `[tu
 | `[tui.busy]` `working_regex`, `idle_regex` | the agent is working / provably not working | last 12 visible lines |
 | `[tui.chrome]` `line_regex` | banners, footers, hints that are not reply text | one trimmed, LOWERCASED line |
 | `[tui.tool_activity]` `line_regex` | rows like "ran command" printed above the reply | one trimmed, LOWERCASED line |
+| `[tui.thinking]` `line_regex` | rows the agent prints while it thinks or works (`Thinking...`, a status spinner row, `Thought for 4s`), on screen during the turn or left in the transcript after it | one trimmed, LOWERCASED line |
 | `[tui.menu]` `regex` | an open selector, so "wait for settled" does not call it idle | whole screen |
 | `[tui.dialogs]` `strip_blocks` | removes boxed dialogs (trust/approval) from reply text | screen text |
-| `[tui.footer_model]` `regex` | live model name, with a group named `model` | whole screen |
+| `[tui.footer_model]` `regex` | live model name, with a group named `model`. It may sit in a footer, a status line or the banner: Puppet Master tries the screen it sees, every earlier look of the run, and the scrollback | whole screen (and the scrollback) |
 | `[tui.classify]` `waiting_regex` | force a "waiting for input" status | last visible lines |
 | `[[tui.prompt]]` | approval or trust prompts and how to answer them | whole screen |
 
-Because chrome and tool-activity lines are lowercased before matching, write those regexes in lowercase.
+Because chrome, thinking and tool-activity lines are lowercased before matching, write those regexes in lowercase.
+
+**The reply of a turn** is what follows the echo of THIS turn's task on the screen, with every chrome, thinking and tool-activity row removed (rows up to the last tool-activity row are the tool's, not the answer). The banner above the echo, the previous turn and stale status rows can never be part of it. A reply that still holds anything but the answer is a table that is missing a row: the Agent Wizard's visible test fails it ("the reply is not clean") and names the extra rows.
 Timing: `idle_after_ms` (default 2500, allowed 1500-5000) is how long the screen must hold still to count
 as idle; `quiet_idle_after_ms` (500 up to `idle_after_ms`) applies when `busy` says nothing is working.
 
@@ -247,6 +250,23 @@ choices = [
 
 The Agent Wizard's `verify` requires such a table for every `tui_trust` capture, and its visible test checks that the
 startup question becomes a card.
+
+**Permission questions: one table per kind.** A command run and a file write are usually different screens (a numbered
+menu for one, an arrow menu for the other). Write a `[[tui.prompt]]` for each, with the kind that says what it asks:
+`command_approval` for running a command, `file_edit` for writing or editing a file. The wizard captures both
+(`tui_permission_command` for the command, `tui_permission` for the file) and `verify` requires a matching table for each capture.
+
+**A card's id is the QUESTION's, not the screen's.** The id handed to a caller is made from the prompt kind, the
+line(s) `detect_regex` matched and (without a named identity) the choices. A spinner, a timer or a blinking cursor
+redrawing under the question never changes it; another question does. An id that is not the question's types nothing.
+
+**A menu no table describes still gets a card.** When a pane is waiting and shows an arrow-key or numbered yes / no /
+allow menu (or a `[y/n]` line) that no `[[tui.prompt]]` matches, Puppet Master publishes a generic card of kind
+`unknown_question`, marked "recognised by shape, not by profile": one choice per option, in the order shown
+(`option_1`, `option_2`, ... with the label as the screen words it). `answer_prompt` picks one by id, number or label
+(`allow_once` / `deny` work when exactly one option plainly means that); an option that says always / don't ask again /
+for this session needs `allow_broad`. Sign-in, payment, model and telemetry questions get no card. Writing the table
+is still better: the card then has your kinds, keys and wording.
 
 ## 7. Regex tips
 
@@ -345,6 +365,8 @@ deliver the task through `[headless.stdin]`; this is refused for project and ext
    model = "Nemotron 3 Ultra (free)"
    chrome_lines = ["9% used"]       # must be chrome rows
    not_chrome_lines = ["the answer"]
+   thinking_lines = ["Thinking... (3s)"]     # must be thinking rows (checked lowercased, like chrome)
+   not_thinking_lines = ["the answer"]
    ```
 4. **Run the check**: Settings > Agents > Check with fixtures (set the folder, or leave it empty to use a
    folder named after the file next to it), or put the files under
@@ -368,6 +390,11 @@ deliver the task through `[headless.stdin]`; this is refused for project and ext
 | `AGENT_OUTPUT_UNPARSEABLE` | the selector no longer matches the output (CLI changed) | recapture output, fix `where`/`path` |
 | `AGENT_REPORTED_ERROR` with a model/provider message | the CLI printed an error event (bad model, no credit) | fix the CLI configuration; try `model` explicitly |
 | Result is empty or has banner text (visible) | chrome/tool-activity patterns missing | add lowercase `line_regex` entries from a real capture |
+| Result has `Thinking...` / spinner / `Thought for 4s` rows (visible) | no `[tui.thinking]` | add lowercase `line_regex` entries for those rows |
+| `resolved_model` is null although the screen names the model (visible) | no `[tui.footer_model]`, or its regex misses the row | add it with a `(?P<model>...)` group; it may match the banner or a status line |
+| Trust or approval answered with the id just read is refused as stale (visible) | the id was made from a screen that redraws | fixed in Puppet Master: ids are the question's; a `detect_regex` that matches the question line (not a spinner row) keeps it stable |
+| Each command / file approval needs the pane taken over (visible) | the definition only describes one permission screen | add a `[[tui.prompt]]` per kind (`command_approval`, `file_edit`) |
+| The conversation shows twice after a window resize (visible) | `reprints_on_resize` is false although the agent reprints | let the wizard measure it, or set `[features] reprints_on_resize = true` |
 | Turn never finishes (visible) | `busy` pattern too eager, or screen keeps animating | tighten `working_regex`, raise `idle_after_ms` |
 | Turn finishes too early (visible) | spinner frames look idle | add `working_regex` for the spinner; keep `idle_after_ms` >= 2000 |
 | Dialog answered twice / re-detected | answered dialog text stays on screen | add `not_when_regex` |

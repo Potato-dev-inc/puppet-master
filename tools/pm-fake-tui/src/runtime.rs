@@ -82,6 +82,78 @@ impl Painter {
     }
 }
 
+/// Paints like an inline TUI (no alternate screen, no cell addressing from the top of the conversation): the
+/// conversation is printed top-down, the rows that overflow the screen scroll into the history, and only the part
+/// still on screen is ever redrawn. On a resize, `reprint` agents clear the screen and print the WHOLE
+/// conversation again (so the rows that overflowed are in the history twice); the others redraw what is visible.
+struct InlinePainter {
+    last: Vec<String>,
+    last_cursor: Option<(usize, usize)>,
+    /// Index of the conversation row on screen row 0; the rows before it are in the history for good.
+    win_start: usize,
+    size: (usize, usize),
+    started: bool,
+}
+
+impl InlinePainter {
+    fn new() -> InlinePainter {
+        InlinePainter { last: Vec::new(), last_cursor: None, win_start: 0, size: (0, 0), started: false }
+    }
+
+    fn print(&mut self, rows: &[String], height: usize) -> String {
+        let mut buf = String::new();
+        let shown = &rows[self.win_start.min(rows.len())..];
+        for (i, row) in shown.iter().enumerate() {
+            if i > 0 {
+                buf.push_str("\r\n");
+            }
+            buf.push_str(row);
+            buf.push_str("\x1b[0m");
+        }
+        self.win_start += shown.len().saturating_sub(height);
+        buf
+    }
+
+    fn draw(&mut self, frame: &Frame, size: (usize, usize), reprint: bool) {
+        let resized = self.started && size != self.size;
+        if self.started && !resized && self.last == frame.rows && self.last_cursor == frame.cursor {
+            return;
+        }
+        let mut buf = String::from("\x1b[?25l\x1b[0m\x1b[H");
+        if !self.started {
+            buf.push_str("\x1b[2J\x1b[?2004h");
+        } else if resized && reprint {
+            buf.push_str("\x1b[2J");
+            self.win_start = 0;
+        } else {
+            buf.push_str("\x1b[J");
+        }
+        self.started = true;
+        self.size = size;
+        let printed = self.print(&frame.rows, size.1.max(1));
+        buf.push_str(&printed);
+        self.last = frame.rows.clone();
+        self.last_cursor = frame.cursor;
+        match frame.cursor.and_then(|(r, c)| r.checked_sub(self.win_start).map(|r| (r, c))) {
+            Some((r, c)) => buf.push_str(&format!("\x1b[{};{}H\x1b[?25h", r + 1, c + 1)),
+            None => buf.push_str("\x1b[?25l"),
+        }
+        Painter::write(&buf);
+    }
+
+    fn finish(&mut self) {
+        let shown = self.last.len().saturating_sub(self.win_start);
+        let mut buf = String::from("\x1b[?2004l\x1b[0m");
+        if shown >= self.size.1 {
+            buf.push_str(&format!("\x1b[{};1H\r\n", self.size.1.max(1)));
+        } else {
+            buf.push_str(&format!("\x1b[{};1H", shown + 1));
+        }
+        buf.push_str("\x1b[?25h");
+        Painter::write(&buf);
+    }
+}
+
 /// Plays `script` on the console until it exits; returns the process exit code.
 pub fn run(script: Script, base_dir: PathBuf) -> i32 {
     let console = Console::raw();
@@ -92,6 +164,7 @@ pub fn run(script: Script, base_dir: PathBuf) -> i32 {
     let input = term::spawn_stdin_reader();
     let mut parser = KeyParser::default();
     let mut painter = Painter::new();
+    let mut inline = InlinePainter::new();
     let mut stdin_open = true;
     let mut next_size_check = 0u64;
     let code = loop {
@@ -124,12 +197,20 @@ pub fn run(script: Script, base_dir: PathBuf) -> i32 {
             engine.resize(size.0, size.1, t);
         }
         engine.tick(t);
-        painter.draw(&engine.frame(t), size);
+        if engine.inline() {
+            inline.draw(&engine.frame_all(t), size, engine.reprints_on_resize());
+        } else {
+            painter.draw(&engine.frame(t), size);
+        }
         if let Some(code) = engine.exit_code() {
             break code;
         }
     };
-    painter.finish();
+    if engine.inline() {
+        inline.finish();
+    } else {
+        painter.finish();
+    }
     drop(console);
     code
 }

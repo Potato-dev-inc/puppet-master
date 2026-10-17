@@ -195,6 +195,10 @@ impl TuiProfile for FakeAgent {
         self.inner.is_tool_activity_line(lower)
     }
 
+    fn is_thinking_line(&self, lower: &str) -> bool {
+        self.inner.is_thinking_line(lower)
+    }
+
     fn sidebar_crop(&self) -> Option<SidebarCrop> {
         self.inner.sidebar_crop()
     }

@@ -62,41 +62,74 @@ pub fn normalize_project_path(path: &Path) -> Result<PathBuf, String> {
     Ok(expanded)
 }
 
+/// Why `prepare_project_path_coded` refused a folder.
+#[derive(Debug)]
+pub enum PrepareError {
+    /// The folder's path is longer than Windows can start a program in (`path_limit`).
+    TooLong(crate::path_limit::PathTooLong, PathBuf),
+    /// Anything else: not a folder, cannot be created, no storage.
+    Invalid(String),
+}
+
+impl PrepareError {
+    pub fn message(&self) -> String {
+        match self {
+            Self::TooLong(found, _) => found.message(),
+            Self::Invalid(text) => text.clone(),
+        }
+    }
+
+    /// The MCP/bridge error: `PATH_TOO_LONG` or `INVALID_PROJECT_PATH`.
+    pub fn into_operation_error(self) -> crate::operations::OperationError {
+        match self {
+            Self::TooLong(found, folder) => found.into_error(&folder),
+            Self::Invalid(text) => crate::operations::OperationError::new("INVALID_PROJECT_PATH", text, false),
+        }
+    }
+}
+
 /// Absolute, existing project directory with `.puppet-master` storage ready.
 pub fn prepare_project_path(path: &Path) -> Result<PathBuf, String> {
-    let expanded = normalize_project_path(path)?;
+    prepare_project_path_coded(path).map_err(|error| error.message())
+}
+
+/// `prepare_project_path` that keeps the reason apart, so a caller can answer with the right code.
+/// A folder longer than Windows can start a program in is refused before anything is created.
+pub fn prepare_project_path_coded(path: &Path) -> Result<PathBuf, PrepareError> {
+    let expanded = normalize_project_path(path).map_err(PrepareError::Invalid)?;
     let absolute = if expanded.is_absolute() {
         expanded
     } else {
         std::env::current_dir()
             .map_err(|err| {
-                format!(
+                PrepareError::Invalid(format!(
                     "could not resolve relative project path {}: current directory unavailable: {err}",
                     expanded.display()
-                )
+                ))
             })?
             .join(expanded)
     };
+    crate::path_limit::check(&absolute).map_err(|found| PrepareError::TooLong(found, absolute.clone()))?;
     if absolute.exists() && !absolute.is_dir() {
-        return Err(format!(
+        return Err(PrepareError::Invalid(format!(
             "project path is not a directory: {}",
             absolute.display()
-        ));
+        )));
     }
     if !absolute.exists() {
         std::fs::create_dir_all(&absolute).map_err(|err| {
-            format!(
+            PrepareError::Invalid(format!(
                 "could not create project directory {}: {err}",
                 absolute.display()
-            )
+            ))
         })?;
     }
     let storage = crate::event_log::project_storage_dir(&absolute);
     std::fs::create_dir_all(&storage).map_err(|err| {
-        format!(
+        PrepareError::Invalid(format!(
             "could not create project storage at {}: {err}",
             storage.display()
-        )
+        ))
     })?;
     Ok(absolute)
 }
@@ -142,7 +175,9 @@ pub fn resolve_spawn_cwd(
     let candidate = cwd
         .filter(|value| is_valid_project_path(Path::new(value)))
         .unwrap_or(registry_fallback);
-    normalize_project_path(Path::new(&candidate))
+    let normalized = normalize_project_path(Path::new(&candidate))?;
+    crate::path_limit::check(&normalized).map_err(|found| found.message())?;
+    Ok(normalized)
 }
 
 
@@ -216,6 +251,53 @@ mod tests {
             assert!(message.contains("full path"), "{raw}: {message}");
             assert!(!saved, "{raw} must not be saved");
         }
+    }
+
+    fn long_folder(under: &Path, len: usize) -> PathBuf {
+        let mut text = under.to_string_lossy().into_owned();
+        while text.len() < len {
+            text.push_str("\\segment-of-the-long-path");
+        }
+        text.truncate(len);
+        if text.ends_with('\\') {
+            text.pop();
+            text.push('x');
+        }
+        PathBuf::from(text)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_folder_too_long_for_windows_is_refused_before_anything_is_created() {
+        let base = std::env::temp_dir().join(format!("pm-long-{}", uuid::Uuid::new_v4().simple()));
+        let long = long_folder(&base, 283);
+        assert_eq!(long.to_string_lossy().len(), 283);
+        let error = prepare_project_path_coded(&long).unwrap_err();
+        assert!(matches!(error, PrepareError::TooLong(..)), "{error:?}");
+        let coded = error.into_operation_error();
+        assert_eq!(coded.code, "PATH_TOO_LONG");
+        assert!(coded.message.starts_with("This folder's path is 283 characters."), "{}", coded.message);
+        // The String flavour says the same thing, and nothing was made on disk.
+        let text = prepare_project_path(&long).unwrap_err();
+        assert!(text.contains("283 characters") && text.contains("259"), "{text}");
+        assert!(!base.exists(), "a refused folder must not be created");
+        // A spawn cwd is judged by the same rule.
+        let spawn = resolve_spawn_cwd(Some(long.to_string_lossy().into_owned()), "C:/".into()).unwrap_err();
+        assert!(spawn.contains("283 characters"), "{spawn}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_folder_at_the_limit_still_prepares() {
+        let base = std::env::temp_dir().join(format!("pm-edge-{}", uuid::Uuid::new_v4().simple()));
+        let edge = long_folder(&base, 259);
+        match prepare_project_path_coded(&edge) {
+            Ok(path) => assert!(path.is_dir()),
+            // The temp folder itself may already be deep on a build machine.
+            Err(PrepareError::TooLong(found, _)) => panic!("259 characters is allowed, got {found:?}"),
+            Err(other) => panic!("{other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

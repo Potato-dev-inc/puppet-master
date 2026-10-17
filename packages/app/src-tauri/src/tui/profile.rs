@@ -389,6 +389,12 @@ pub trait TuiProfile: Send + Sync {
         false
     }
 
+    /// True for a row the agent prints while it thinks or works (`Thinking...`, a status spinner row,
+    /// `Thought for 4s`): never reply text. `lower` is trimmed and lowercased.
+    fn is_thinking_line(&self, _lower: &str) -> bool {
+        false
+    }
+
     /// Labelled "experimental" in every surface (GEN-3): generic zero-config agents.
     fn experimental(&self) -> bool {
         false

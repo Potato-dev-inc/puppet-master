@@ -232,6 +232,11 @@ pub fn tidy_reply(text: &str, agent_type: &str) -> String {
     profile_for(agent_type).tidy_reply(text)
 }
 
+/// Whether this agent's profile treats this (trimmed, lowercased) line as a thinking / status row.
+pub fn is_thinking_line(lower: &str, agent_type: &str) -> bool {
+    profile_for(agent_type).is_thinking_line(lower)
+}
+
 /// Whether this agent's profile treats this (trimmed, lowercased) line as a tool-activity row.
 pub fn is_tool_activity_line(lower: &str, agent_type: &str) -> bool {
     profile_for(agent_type).is_tool_activity_line(lower)

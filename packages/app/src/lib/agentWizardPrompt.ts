@@ -23,7 +23,7 @@ import nimbusTextTrust from '../../src-tauri/src/tui/declarative/fixtures/nimbus
 import nimbusTextWorking from '../../src-tauri/src/tui/declarative/fixtures/nimbus/tui_working.txt?raw';
 
 /** Bump when the asked-for work or the rules change (stored in `<id>.wizard.json`). */
-export const PROMPT_VERSION = '6';
+export const PROMPT_VERSION = '7';
 
 /**
  * The most characters a prompt may have. The local agent gets it on standard input (not on the command line,
@@ -94,6 +94,8 @@ export interface CaptureFacts {
     startup_dialogs: string[];
     exit_screen: string | null;
     notes: string[];
+    /** Measured by the wizard: the agent printed its conversation again after the pane was resized. `null`: not measured. */
+    reprints_on_resize?: boolean | null;
   };
 }
 
@@ -261,7 +263,9 @@ How to answer
 - The screens show the random words of the test as <word-1> and <word-3>. Never put them, or any answer text, inside a regex: match the shape of the screen (a glyph, a hint, a label), not the words.
 - Base every pattern on the captures. A regex that is not supported by a capture is a guess; leave the table out instead. Do not add flags that skip permission checks (--yolo, --dangerously-..., --trust-all-tools).
 - Make every pattern hold on ALL the captures it applies to: [tui.ready] must match the idle and the reply screens and not the working, trust or permission screens; [tui.busy] working_regex must match the working screen and neither the idle nor the reply screen; a [[tui.prompt]] must match its capture; [tui.chrome] lines must be the banner, boxes and footers but never the reply row.
-- Regexes are Rust regexes (no look-around, no backreferences). Put them in single-quoted TOML strings. Rows that [tui.chrome] and [tui.tool_activity] see are trimmed and LOWERCASE.
+- Regexes are Rust regexes (no look-around, no backreferences). Put them in single-quoted TOML strings. Rows that [tui.chrome], [tui.thinking] and [tui.tool_activity] see are trimmed and LOWERCASE.
+- The reply Puppet Master reads from the finished screen must be EXACTLY the answer row and nothing else. Everything else on the screen after the task's echo must be named in a table: banner, box and footer rows in [tui.chrome]; rows the agent prints while it thinks or works (a "Thinking..." row, a status spinner, "Thought for 4s") in [tui.thinking]; tool-call rows in [tui.tool_activity]. Take them from the working and reply captures. A reply with an extra row fails the visible test, and the row is named to you.
+- Do not write [features] reprints_on_resize: the wizard resizes the pane after the reply, measures whether the agent reprints its conversation, and writes that key itself.
 - The screen text can join a full-width row to the next one; match with patterns that work anywhere in a line, not only on whole rows.
 - Do not run any tools or commands and do not read any files. Everything you need is in this message; just write the answer.
 - Do not add a [headless] table: the one-task mode is a separate step.`;
@@ -272,8 +276,8 @@ const VISIBLE_TASK = `What to decide
 3. [tui] argv: the arguments the capture used (none unless the facts say otherwise), idle_after_ms and quiet_idle_after_ms only if the agent needs longer than the defaults to settle, clear_input_keys only if the input box can be emptied with a key you can read from the help.
 4. [tui.ready]: a regex for what the EMPTY input box shows (its placeholder or prompt), and not_regex entries for the screens that must not count (a running turn, a question, the trust screen). Also [standby] visible = true when this is reliable.
 5. [tui.busy]: working_regex (what the working screen shows: a spinner row, a stop hint) and idle_regex (what only the idle screen shows) if there is such a marker.
-6. [tui.chrome]: line_regex for the banner, input box rows, footer hints and any "done in" row; [tui.tool_activity] for rows that report a tool call; [tui.menu] regex for an open selector; [tui.footer_model] if the screen names the model; [tui.layout] if a sidebar shows.
-7. [[tui.prompt]]: one for the permission question (tui_permission) and one for EACH startup question that was captured (tui_trust, tui_firstrun): kind, detect_regex, choices (allow_once and deny, each with the key or text that answers it), and not_when_regex for text that stays on screen after the question was answered. For a "do you trust this folder" question use kind = "workspace_trust"; its detect_regex must match the question line of the tui_trust capture (not the folder path, which changes); allow_once is the key that picks the option meaning "yes, I trust this folder" (an arrow menu whose cursor already sits on it: key = "enter"; a numbered menu: the number as text) and deny is the one that says no or exits. Without this table the agent sits behind its question looking idle and no approval card ever appears, so the visible test fails its "startup question becomes a card" check.
+6. [tui.chrome]: line_regex for the banner, input box rows, footer hints and any "done in" row; [tui.thinking] for the rows the agent prints while it thinks or works (visible in the working capture, or left in the reply capture); [tui.tool_activity] for rows that report a tool call; [tui.menu] regex for an open selector; [tui.layout] if a sidebar shows. [tui.footer_model] is REQUIRED whenever any capture names the model (a footer, a status line or the banner): a regex with a group named model; the visible test fails a draft that does not read it.
+7. [[tui.prompt]]: one for EACH permission capture and one for EACH startup question that was captured. tui_permission is the question for a FILE WRITE (kind = "file_edit"); tui_permission_command, when present, is the question for RUNNING A COMMAND (kind = "command_approval"). They are usually different screens, so they need different tables (each detect_regex must match its own capture and not the other). The startup questions: (tui_trust, tui_firstrun): kind, detect_regex, choices (allow_once and deny, each with the key or text that answers it), and not_when_regex for text that stays on screen after the question was answered. For a "do you trust this folder" question use kind = "workspace_trust"; its detect_regex must match the question line of the tui_trust capture (not the folder path, which changes); allow_once is the key that picks the option meaning "yes, I trust this folder" (an arrow menu whose cursor already sits on it: key = "enter"; a numbered menu: the number as text) and deny is the one that says no or exits. Without this table the agent sits behind its question looking idle and no approval card ever appears, so the visible test fails its "startup question becomes a card" check.
 8. [tui.delivery]: input_echo_regex (where typed text shows in the input box) and transcript_echo_regex (how the sent message shows in the transcript), when the captures show both.
 If a capture is missing or partial (the facts say so), do not write tables for what you cannot see.
 
@@ -315,6 +319,11 @@ function captureBlocks(c: CaptureFacts): string {
       : '',
     c.facts.skipped.length ? `- Steps that were skipped: ${c.facts.skipped.join(', ')}.` : '',
     c.facts.partial.length ? `- Steps whose capture is partial: ${c.facts.partial.join(', ')}.` : '',
+    c.facts.reprints_on_resize === true || c.facts.reprints_on_resize === false
+      ? `- Resize measurement: the pane was made narrower after the reply and the agent ${
+          c.facts.reprints_on_resize ? 'printed its whole conversation again' : 'did not print its conversation again'
+        }. The wizard writes [features] reprints_on_resize = ${c.facts.reprints_on_resize} itself; do not write it.`
+      : '',
     `- How the agent ended: ${ended}.`,
     ...c.facts.notes.map((n) => `- Note: ${n}`),
   ].filter(Boolean);

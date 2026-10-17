@@ -148,7 +148,7 @@ fn visible_rules(def: &Definition, session: &Session, errors: &mut Vec<CheckErro
         errors.push(CheckError::new("wizard", "WIZARD_TUI_NO_BUSY", "tui.busy", "[tui.busy] needs a `working_regex` that matches the working screen"));
     }
     let captured = session.visible.captures.lock().clone();
-    let permission = captured.as_ref().is_some_and(|set| set.has("tui_permission"));
+    let permission = captured.as_ref().is_some_and(|set| set.has("tui_permission") || set.has("tui_permission_command"));
     if permission && tui.prompt.is_empty() {
         errors.push(CheckError::new(
             "wizard",
@@ -405,6 +405,9 @@ pub fn run(wizard: &Wizard, body: &Value) -> Result<Value, WizardError> {
     let expects = parse_expects(body)?;
     let snap = wizard.begin(&id, "verify", &[State::Probed, State::Verified, State::Tested])?;
     let env = wizard.env();
+    // What the guided capture measured is written by the wizard, whatever the drafter guessed.
+    let measured = snap.visible.captures.lock().as_ref().and_then(|set| set.resize.as_ref().map(|r| r.reprints));
+    let text = super::features::with_reprints_on_resize(&text, measured);
     let outcome = check_draft_with(&snap, &env, &text, &expects);
     let ok = outcome.ok();
     let sha = ok.then(|| sha256_hex(text.as_bytes()));

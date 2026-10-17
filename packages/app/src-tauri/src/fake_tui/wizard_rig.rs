@@ -245,7 +245,7 @@ impl WizardRig {
         loop {
             let s = self.call("capture", json!({"session": id, "op": "status"})).map_err(|e| err_text(&e))?;
             if let Some(kind) = s["needs_you"]["kind"].as_str() {
-                let once = format!("{}-{kind}", s["step"].as_str().unwrap_or(""));
+                let once = format!("{}-{kind}-{}", s["step"].as_str().unwrap_or(""), s["permission_phase"]);
                 if !done.contains(&once) {
                     match (kind, answers.get(kind)) {
                         ("unsure" | "unsure_reply", Some(_)) => {
@@ -417,4 +417,11 @@ impl WizardRig {
 /// answers given in `PM_WIZARD_BENCH_ANSWERS` are then only used for what the wizard declines.
 fn bench_auto_answer() -> bool {
     std::env::var("PM_WIZARD_AUTO_ANSWER").is_ok_and(|v| v == "1")
+}
+
+impl WizardRig {
+    /// The draft the wizard stored for `session` (after `verify` normalised it), for tests.
+    pub fn draft_text(&self, session: &str) -> String {
+        self.wizard.read(session, |s| s.draft.as_ref().map(|d| d.text.clone()).unwrap_or_default()).unwrap_or_default()
+    }
 }

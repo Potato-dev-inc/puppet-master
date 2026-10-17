@@ -315,13 +315,32 @@ pub(super) fn previous_turn_task(snapshot: &OperationSnapshot) -> String {
 
 /// Record the model a completed pane run used: the TUI footer when visible (a confirmation),
 /// else the CLI's configured default flagged unconfirmed, so `resolved_model` is not left null.
-pub(super) fn record_completion_model(current: &OperationSnapshot, screen: &str) {
-    let Some(found) = completion::completion_model(
-        &current.agent_type,
-        screen,
-        current.worker.resolved_model.as_deref(),
-        || crate::tui::profile_for(&current.agent_type).default_model(),
-    ) else {
+///
+/// The model name is looked for where the profile's `footer_model` can find it, in this order: the rows on screen now,
+/// the name read on any earlier look of this run (a footer that shows it only while the agent works, a banner
+/// that scrolled away), and the whole scrollback (`history`). Nothing here depends on which row of the
+/// screen it sits on.
+pub(super) fn record_completion_model(
+    current: &OperationSnapshot,
+    screen: &str,
+    seen: Option<&str>,
+    history: Option<&str>,
+) {
+    let profile = crate::tui::profile_for(&current.agent_type);
+    let confirmed = profile
+        .detect_footer_model(screen)
+        .or_else(|| seen.map(str::to_string))
+        .or_else(|| history.and_then(|text| profile.detect_footer_model(text)));
+    let found = match confirmed {
+        Some(model) => Some(completion::CompletionModel { model, confirmed: true }),
+        None => completion::completion_model(
+            &current.agent_type,
+            screen,
+            current.worker.resolved_model.as_deref(),
+            || profile.default_model(),
+        ),
+    };
+    let Some(found) = found else {
         return;
     };
     if found.confirmed {

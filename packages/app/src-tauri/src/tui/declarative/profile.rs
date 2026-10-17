@@ -629,6 +629,10 @@ impl TuiProfile for DeclarativeProfile {
         self.engine.as_ref().is_some_and(|engine| engine.is_tool_activity_line(lower))
     }
 
+    fn is_thinking_line(&self, lower: &str) -> bool {
+        self.engine.as_ref().is_some_and(|engine| engine.is_thinking_line(lower))
+    }
+
     fn sidebar_crop(&self) -> Option<crate::tui::types::SidebarCrop> {
         self.engine.as_ref().and_then(|engine| engine.sidebar_crop())
     }

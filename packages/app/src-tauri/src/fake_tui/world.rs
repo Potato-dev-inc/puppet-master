@@ -222,9 +222,15 @@ impl Session {
 
     /// Call one of the `/agents/*` routes the way the bridge does. `Err` carries the error JSON.
     pub fn agents(&self, method: &str, path: &str, body: Value) -> Result<Value, Value> {
+        self.agents_as(None, method, path, body)
+    }
+
+    /// The same as an MCP connection: `session` is the id its `X-Puppet-Master-Session` header carries,
+    /// so the run's pane belongs to that connection.
+    pub fn agents_as(&self, session: Option<&str>, method: &str, path: &str, body: Value) -> Result<Value, Value> {
         let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
         let bytes = serde_json::to_vec(&body).expect("json body");
-        match crate::agent_runs::handle_request(method, &segments, "", &bytes, &self.world.registry, &self.world.app, None) {
+        match crate::agent_runs::handle_request(method, &segments, "", &bytes, &self.world.registry, &self.world.app, session) {
             Some(Ok(value)) => Ok(value),
             Some(Err(error)) => Err(json!({ "code": error.code, "message": error.message, "recoverable": error.recoverable, "context": error.context })),
             None => Err(json!({ "code": "NO_SUCH_ROUTE", "message": path })),
@@ -250,6 +256,35 @@ impl Session {
         self.agents("POST", "/agents/run", body)
     }
 
+    /// `run`, as the MCP connection `session`.
+    pub fn run_as(&self, session: &str, agent_type: &str, task: &str, extra: Value) -> Result<Value, Value> {
+        let mut body = json!({
+            "agent_type": agent_type,
+            "task": task,
+            "project_path": self.project.to_string_lossy(),
+            "wait_ms": 1,
+            "background": true,
+            "timeout_ms": 90_000,
+            "keep_pane": true,
+        });
+        if let (Some(map), Some(extra)) = (body.as_object_mut(), extra.as_object()) {
+            map.extend(extra.clone());
+        }
+        self.agents_as(Some(session), "POST", "/agents/run", body)
+    }
+
+    /// Switch the MCP connection `session` to catalog mode `mode` (`agent`, `shell` or `both`).
+    pub fn set_mode_as(&self, session: &str, mode: &str) {
+        crate::mcp_sessions::set_mode(session, mode).expect("a valid catalog mode");
+    }
+
+    /// The bridge's session gate (`mcp_sessions::authorize`) for one call of the connection `session`:
+    /// `Ok` when the route would run, `Err` with the refusal's code and message.
+    pub fn authorize_as(&self, session: &str, method: &str, path: &str, body: Value) -> Result<(), Value> {
+        crate::mcp_sessions::authorize(Some(session), method, path, &body)
+            .map_err(|error| json!({ "code": error.code, "message": error.message }))
+    }
+
     /// Wait (blocking) until the run behind `handle` is in one of `until`, or `wait_ms` passes; returns the
     /// run's view as `wait_agents` reports it.
     pub fn wait(&self, handle: &str, until: &[&str], wait_ms: u64) -> Result<Value, Value> {
@@ -264,6 +299,20 @@ impl Session {
     /// The run's current view without waiting (`wait_ms = 0`).
     pub fn view(&self, handle: &str) -> Value {
         self.wait(handle, &[], 0).unwrap_or(Value::Null)
+    }
+
+    /// Registers a SCREEN-READ agent for this test: `definition` is a declarative agent definition (TOML) and the
+    /// registered agent `id` is that real `DeclarativeProfile` launching `pm-fake-tui` with the script of the
+    /// moment. Every screen-reading method is the definition's own, so the test exercises exactly what a
+    /// wizard-written definition would. Removed again when the session drops.
+    pub fn screen_agent(&self, id: &'static str, definition: &str) {
+        let def = crate::tui::declarative::parse_definition(definition).unwrap_or_else(|e| panic!("the definition does not parse: {e}"));
+        let inner: Arc<dyn TuiProfile> =
+            Arc::new(crate::tui::declarative::DeclarativeProfile::new(def).unwrap_or_else(|e| panic!("the definition does not build: {e}")));
+        let registry = crate::tui::registry::registry();
+        let mut all: Vec<Arc<dyn TuiProfile>> = registry.snapshot().iter().cloned().collect();
+        all.push(Arc::new(FakeAgent::new(id, inner, self.world.exe.clone(), self.world.script.clone())));
+        registry.swap(all);
     }
 
     /// A bare pane of `agent_type` in the project, 120x30, with nothing typed: for tests that read screens.
@@ -318,6 +367,11 @@ impl Session {
     /// The pane's screen as readiness reads it (the profile's `input_screen`).
     pub fn input_screen(&self, pane_id: &str) -> String {
         registry_read_snapshot_full(&self.world.registry, pane_id).unwrap_or_default()
+    }
+
+    /// Everything a viewer that mounts now would show: the scrollback followed by the screen.
+    pub fn history(&self, pane_id: &str) -> String {
+        crate::pty::registry_read_full_text(&self.world.registry, pane_id).unwrap_or_default()
     }
 
     pub fn pane_status(&self, pane_id: &str) -> Option<String> {
