@@ -23,3 +23,5 @@ mod visible_livetest_tests;
 mod visible_screen_agent_tests;
 mod visible_screen_tests;
 mod visible_verify_tests;
+mod visible_work_capture_tests;
+mod visible_work_tests;

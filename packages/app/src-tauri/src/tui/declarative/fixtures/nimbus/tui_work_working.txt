@@ -1,0 +1,15 @@
+# capture: nimbus 0.4.2, pane 120x40, puppet-master wizard capture, 2026-10-17; user name scrubbed
+NIMBUS 0.4.2 | local | C:\Users\user\project
+
+
+> List the files in this folder, then reply with exactly: the sky is <word-3>.
+
+~ Thinking... (1s)
+tool: ls
+  -> README.md
+⠋ Generating...  1s  ctrl+c to stop
+
++------------------------------------------------------------------------------------------------------------+
+| > Type a task...                                                                                           |
++------------------------------------------------------------------------------------------------------------+
+  /help for commands | ctrl+c twice to quit

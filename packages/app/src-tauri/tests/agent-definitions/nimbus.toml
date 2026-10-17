@@ -42,6 +42,14 @@ line_regex = [
 [tui.tool_activity]
 line_regex = ['^tool:\s', '^->\s']
 
+# Rows the agent prints while it thinks or works are thinking rows. The row it prints once after a turn (a bullet, then
+# "Thought for 3s, 298 tokens") is a summary row: the bullet does not matter. None of them is ever part of a reply.
+[tui.thinking]
+line_regex = ['^~\s*thinking']
+
+[tui.summary]
+line_regex = ['^thought for \d+s']
+
 [[tui.prompt]]
 kind = "trust_folder"
 detect_regex = 'do you trust the files in this folder'

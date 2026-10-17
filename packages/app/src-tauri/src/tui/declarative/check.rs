@@ -8,7 +8,9 @@
 //! Screen captures (`tui*`, or `kind = "screen"`) accept `busy` (true, false or "unknown"),
 //! `menu` (bool), `ready` (bool: `[tui.ready]` says the empty input box is showing), `prompt_kind` ("" means
 //! no prompt), `model`, `chrome_lines` and `not_chrome_lines`
-//! (lines checked with `is_chrome_line`, lowercased).
+//! (lines checked with `is_chrome_line`, lowercased), `thinking_lines`, `summary_lines`, `tool_lines` (each with a
+//! `not_` twin) and `reply_after` + `reply_rows` (the rows left under the task's echo once every table has dropped its
+//! rows).
 //! The runner only reads regular files directly inside the given folder.
 
 use std::path::{Path, PathBuf};
@@ -88,6 +90,39 @@ fn check_headless(p: &DeclarativeProfile, text: &str, expect: &Value, failures: 
     }
 }
 
+/// `reply_after` / `reply_rows`: the rows below the last row that holds `after` (the echo of the task), less the rows
+/// the profile calls chrome, thinking, summary or tool activity, and everything up to its last tool row, are exactly
+/// `reply_rows`. The same cut the run's reply reader makes, for a profile that is not registered yet.
+fn check_reply_rows(p: &DeclarativeProfile, text: &str, after: &str, want: Option<&Value>, failures: &mut Vec<String>) {
+    let want: Vec<String> = want.and_then(Value::as_array).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    let after_l = after.to_lowercase();
+    let Some(at) = lines.iter().rposition(|l| l.to_lowercase().contains(&after_l)) else {
+        failures.push(format!("reply_after: {after:?} is not on the capture"));
+        return;
+    };
+    let rest = &lines[at + 1..];
+    let cut = rest.iter().rposition(|l| p.is_tool_activity_line(&l.trim().to_lowercase())).map_or(0, |i| i + 1);
+    let got: Vec<String> = rest[cut..]
+        .iter()
+        .map(|l| l.trim())
+        .filter(|l| {
+            let lower = l.to_lowercase();
+            l.chars().any(char::is_alphanumeric)
+                && !p.is_chrome_line(&lower)
+                && !p.is_thinking_line(&lower)
+                && !p.is_summary_line(&lower)
+                && !p.is_tool_activity_line(&lower)
+        })
+        .map(str::to_string)
+        .collect();
+    if got != want {
+        failures.push(format!(
+            "reply_rows: after the task's echo the rows left once the profile drops its chrome, thinking, summary and tool rows are {got:?}; the answer is {want:?}. Put every other row in [tui.chrome], [tui.thinking], [tui.summary] or [tui.tool_activity] (lowercase line regexes), and none of them may match the answer row"
+        ));
+    }
+}
+
 fn check_screen(p: &DeclarativeProfile, text: &str, expect: &Value, failures: &mut Vec<String>) {
     if let Some(w) = expect.get("busy") {
         let want = match (w.as_bool(), w.as_str()) {
@@ -123,6 +158,20 @@ fn check_screen(p: &DeclarativeProfile, text: &str, expect: &Value, failures: &m
     }
     if let Some(w) = expect.get("model") {
         eq_opt(failures, "model", w, p.detect_footer_model(text));
+    }
+    for (key, want) in [("tool_lines", true), ("not_tool_lines", false)] {
+        for line in expect.get(key).and_then(Value::as_array).into_iter().flatten() {
+            let Some(line) = line.as_str() else {
+                failures.push(format!("{key}: entries must be strings"));
+                continue;
+            };
+            if p.is_tool_activity_line(&line.trim().to_lowercase()) != want {
+                failures.push(format!("{key}: {line:?} should{} be a tool-activity row", if want { "" } else { " not" }));
+            }
+        }
+    }
+    if let Some(after) = expect.get("reply_after").and_then(Value::as_str) {
+        check_reply_rows(p, text, after, expect.get("reply_rows"), failures);
     }
     for (key, want) in [("summary_lines", true), ("not_summary_lines", false)] {
         for line in expect.get(key).and_then(Value::as_array).into_iter().flatten() {

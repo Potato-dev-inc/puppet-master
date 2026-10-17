@@ -48,6 +48,9 @@ pub struct Config {
     /// After a turn: a screen that holds still this long, is not the Ready step's shape and is not
     /// clearly working, is shown to the person as a question the wizard does not recognise.
     pub question_ms: u64,
+    /// Ask the agent a task that makes it think and use one harmless tool (`Work` step, SPEC 11.18), and keep the screens.
+    /// The product turns this on (`VisibleEnv::default`); tests of the older flow leave it off and the step reads as skipped.
+    pub work_step: bool,
 }
 
 impl Default for Config {
@@ -64,6 +67,7 @@ impl Default for Config {
             frozen_ms: 8_000,
             idle_done_ms: 8_000,
             question_ms: 15_000,
+            work_step: false,
         }
     }
 }
@@ -73,18 +77,21 @@ pub enum StepId {
     Start,
     Ready,
     Message,
+    /// A task that makes the agent think and use a tool (SPEC 11.18).
+    Work,
     Permission,
     Exit,
 }
 
 impl StepId {
-    pub const ALL: [StepId; 5] = [StepId::Start, StepId::Ready, StepId::Message, StepId::Permission, StepId::Exit];
+    pub const ALL: [StepId; 6] = [StepId::Start, StepId::Ready, StepId::Message, StepId::Work, StepId::Permission, StepId::Exit];
 
     pub fn as_str(self) -> &'static str {
         match self {
             StepId::Start => "start",
             StepId::Ready => "ready",
             StepId::Message => "message",
+            StepId::Work => "work",
             StepId::Permission => "permission",
             StepId::Exit => "exit",
         }
@@ -95,6 +102,7 @@ impl StepId {
             StepId::Start => "Starting",
             StepId::Ready => "Ready",
             StepId::Message => "Test message",
+            StepId::Work => "Thinking and a tool",
             StepId::Permission => "Permission",
             StepId::Exit => "Exit",
         }
@@ -639,6 +647,13 @@ pub fn message_task_for(word: &str) -> String {
     format!("Reply with exactly the word: {word}")
 }
 
+/// The task of the work step: the agent must think and use one harmless tool (listing the folder), then answer with a
+/// sentence that holds the third random word. The reply is that sentence and nothing else; the screens before it show the
+/// rows an agent prints while it works (thinking, tool calls, a summary line).
+pub fn work_task(words: &TestWords) -> String {
+    format!("List the files in this folder, then reply with exactly: {}", words.sentence())
+}
+
 /// The task of the permission step: a file write (`tui_permission`).
 pub fn permission_task(words: &TestWords) -> String {
     format!("Create a file named hello.txt in the current folder. It must contain the word {}.", words.sky)
@@ -653,7 +668,16 @@ impl Capture {
     pub fn new(words: TestWords, grid: (u16, u16), cfg: Config) -> Self {
         let steps = StepId::ALL
             .iter()
-            .map(|id| Step { id: *id, status: StepStatus::Pending, note: String::new(), frames: 0, started_ms: 0 })
+            .map(|id| {
+                let off = *id == StepId::Work && !cfg.work_step;
+                Step {
+                    id: *id,
+                    status: if off { StepStatus::Skipped } else { StepStatus::Pending },
+                    note: if off { "Not asked.".into() } else { String::new() },
+                    frames: 0,
+                    started_ms: 0,
+                }
+            })
             .collect();
         Self {
             cfg,
@@ -971,7 +995,7 @@ impl Capture {
         match step {
             StepId::Start => self.tick_start(now),
             StepId::Ready => self.tick_ready(now),
-            StepId::Message | StepId::Permission => return self.tick_turn(step, look, now),
+            StepId::Message | StepId::Work | StepId::Permission => return self.tick_turn(step, look, now),
             StepId::Exit => return self.tick_exit(now),
         }
         Vec::new()
@@ -1016,6 +1040,8 @@ impl Capture {
         let name = match (flavour, step) {
             (Flavour::Trust, _) => "tui_trust",
             (Flavour::Permission | Flavour::Question, StepId::Permission | StepId::Message) => self.permission_name(),
+            // a question the listing task raised: answered, not kept as a permission capture (that is the next step's)
+            (Flavour::Permission | Flavour::Question, StepId::Work) => "tui_work_question",
             _ => "tui_firstrun",
         };
         if name.starts_with("tui_permission") && self.speculative_permission {
@@ -1166,6 +1192,7 @@ impl Capture {
     fn task_for(&self, step: StepId) -> String {
         match (step, self.perm_phase) {
             (StepId::Message, _) => message_task(&self.words),
+            (StepId::Work, _) => work_task(&self.words),
             (_, 0) => permission_task(&self.words),
             _ => command_task(&self.words),
         }
@@ -1288,6 +1315,7 @@ impl Capture {
         let said = self.ready_for.as_deref() == Some(fp.as_str());
         match step {
             StepId::Message => self.finish_message(said, now),
+            StepId::Work => self.finish_work(said, now),
             _ => self.finish_permission(said, now),
         }
     }
@@ -1398,6 +1426,44 @@ impl Capture {
                     self.notes.push("No screen of the agent at work was caught; the working state has no capture.".into());
                     self.partial.push("message");
                     self.after_reply("The agent answered, but no screen of it at work was caught.", now);
+                }
+            }
+            return;
+        }
+        if self.stab.stable_for(now) >= self.cfg.reply_unsure_ms && self.needs.is_none() {
+            self.ask("unsure_reply", "I cannot see an answer yet. If the agent has finished, press \"It is ready\" to use this screen. Otherwise wait.");
+        }
+    }
+
+    /// The work step's reply: the sentence row is on a settled screen. The screens are kept as `tui_work_working` (the
+    /// agent thinking and using the tool) and `tui_work_reply`. There is no resize measurement here (the message step did it).
+    fn finish_work(&mut self, said: bool, now: u64) {
+        let word = self.words.sky.clone();
+        let screen = self.screen.clone();
+        let reply_rows = reply_rows(&screen, &word);
+        let typed_for = now.saturating_sub(self.turn.typed_at);
+        if !self.turn.saw_activity {
+            if typed_for > self.cfg.no_reaction_ms {
+                self.ask("slow", "The message was typed but nothing changed on the screen. Retry, or press \"It looks stuck\" to go on.");
+            }
+            return;
+        }
+        if reply_rows >= 1 || said {
+            let Some((reply, reply_variants)) = self.stab.best() else { return };
+            let mut exclude = vec![frame_key(&reply)];
+            exclude.extend(self.frame("tui_idle").map(|f| frame_key(&f.text)));
+            exclude.extend(self.frame("tui_reply").map(|f| frame_key(&f.text)));
+            let working = self.turn.working.best_excluding(&exclude);
+            self.store("tui_work_reply", &reply, reply_variants);
+            match working {
+                Some((text, variants)) => {
+                    self.store("tui_work_working", &text, variants);
+                    self.finish_step(StepStatus::Done, "The agent listed the folder and answered.", now);
+                }
+                None => {
+                    self.notes.push("No screen of the agent at work on the listing task was caught.".into());
+                    self.partial.push("work");
+                    self.finish_step(StepStatus::Done, "The agent answered, but no screen of it at work was caught.", now);
                 }
             }
             return;
@@ -1574,14 +1640,18 @@ impl Capture {
             CaptureAction::Retry => {
                 let from = target.index();
                 for i in from..self.steps.len() {
+                    if self.steps[i].id == StepId::Work && !self.cfg.work_step {
+                        continue;
+                    }
                     self.steps[i].status = StepStatus::Pending;
                     self.steps[i].note.clear();
                     self.steps[i].frames = 0;
                 }
                 let names: &[&str] = match target {
-                    StepId::Start => &["tui_trust", "tui_firstrun", "tui_idle", "tui_working", "tui_reply", "tui_permission", "tui_permission_command"],
-                    StepId::Ready => &["tui_idle", "tui_working", "tui_reply", "tui_permission", "tui_permission_command"],
-                    StepId::Message => &["tui_working", "tui_reply", "tui_permission", "tui_permission_command"],
+                    StepId::Start => &["tui_trust", "tui_firstrun", "tui_idle", "tui_working", "tui_reply", "tui_work_working", "tui_work_reply", "tui_work_question", "tui_permission", "tui_permission_command"],
+                    StepId::Ready => &["tui_idle", "tui_working", "tui_reply", "tui_work_working", "tui_work_reply", "tui_work_question", "tui_permission", "tui_permission_command"],
+                    StepId::Message => &["tui_working", "tui_reply", "tui_work_working", "tui_work_reply", "tui_work_question", "tui_permission", "tui_permission_command"],
+                    StepId::Work => &["tui_work_working", "tui_work_reply", "tui_work_question", "tui_permission", "tui_permission_command"],
                     StepId::Permission => &["tui_permission", "tui_permission_command"],
                     StepId::Exit => &[],
                 };
@@ -1708,6 +1778,7 @@ impl Capture {
                 .steps
                 .iter()
                 .filter(|s| matches!(s.status, StepStatus::Skipped | StepStatus::Pending))
+                .filter(|s| s.id != StepId::Work || self.cfg.work_step)
                 .map(|s| s.id.as_str().to_string())
                 .collect(),
             hello_written: self.hello_written,
@@ -1725,13 +1796,14 @@ impl Capture {
         let steps: Vec<Value> = self
             .steps
             .iter()
+            .filter(|s| s.id != StepId::Work || self.cfg.work_step)
             .map(|s| json!({"id": s.id.as_str(), "label": s.id.label(), "status": s.status.as_str(), "note": s.note, "frames": s.frames}))
             .collect();
         let step = self.current();
         let mut can: Vec<&str> = Vec::new();
         if !self.settled() {
             can.extend(["skip", "retry", "stuck"]);
-            if matches!(step, StepId::Start | StepId::Ready | StepId::Message | StepId::Permission | StepId::Exit) && !self.kind.is_dialog() {
+            if matches!(step, StepId::Start | StepId::Ready | StepId::Message | StepId::Work | StepId::Permission | StepId::Exit) && !self.kind.is_dialog() {
                 can.push("ready");
             }
             if step == StepId::Exit {

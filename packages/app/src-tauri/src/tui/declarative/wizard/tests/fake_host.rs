@@ -58,6 +58,8 @@ pub struct FakeHost {
     on_resize: Mutex<Option<ResizeHook>>,
     /// Hosts that can show a scrollback and resize (the default fake cannot, like a host without a viewer).
     can_resize: std::sync::atomic::AtomicBool,
+    /// The host shows the scrollback (but cannot resize).
+    history_on: std::sync::atomic::AtomicBool,
     /// Every resize the wizard asked for: (pane, cols, rows).
     resized: Mutex<Vec<(String, u16, u16)>>,
 }
@@ -76,6 +78,7 @@ impl FakeHost {
             on_answer: Mutex::new(None),
             on_resize: Mutex::new(None),
             can_resize: std::sync::atomic::AtomicBool::new(false),
+            history_on: std::sync::atomic::AtomicBool::new(false),
             resized: Mutex::new(Vec::new()),
         })
     }
@@ -85,6 +88,11 @@ impl FakeHost {
     pub fn on_resize(&self, hook: impl Fn(&FakeHost, &str, u16, u16) + Send + Sync + 'static) {
         *self.on_resize.lock() = Some(Box::new(hook));
         self.can_resize.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// This host shows the pane's scrollback (it still cannot resize a pane).
+    pub fn enable_history(&self) {
+        self.history_on.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Every resize the wizard asked for.
@@ -294,7 +302,7 @@ impl PaneHost for FakeHost {
     }
 
     fn history(&self, pane: &str) -> Option<String> {
-        if !self.can_resize.load(std::sync::atomic::Ordering::SeqCst) {
+        if !self.can_resize.load(std::sync::atomic::Ordering::SeqCst) && !self.history_on.load(std::sync::atomic::Ordering::SeqCst) {
             return None;
         }
         let st = self.state.lock();
@@ -338,6 +346,7 @@ pub fn quick_cfg() -> RunnerCfg {
             frozen_ms: 60_000,
             idle_done_ms: 60_000,
             question_ms: 60_000,
+            work_step: false,
         },
         test: TestLimits {
             start: Duration::from_millis(80),

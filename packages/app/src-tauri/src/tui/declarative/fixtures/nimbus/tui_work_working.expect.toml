@@ -1,0 +1,5 @@
+busy = true
+prompt_kind = ""
+ready = false
+thinking_lines = ["~ Thinking... (1s)"]
+tool_lines = ["tool: ls"]

@@ -41,6 +41,14 @@ struct TurnMark {
 /// Rows of history kept in a turn mark.
 const MARK_ROWS: usize = 600;
 
+impl TurnMark {
+    fn of(full: &str) -> TurnMark {
+        let rows: Vec<&str> = full.lines().collect();
+        let tail = rows[rows.len().saturating_sub(MARK_ROWS)..].iter().map(|r| r.trim_end().to_string()).collect();
+        TurnMark { links: 0, rows: rows.len(), tail }
+    }
+}
+
 #[derive(Default)]
 struct Facts {
     turn: TurnMark,
@@ -133,11 +141,16 @@ pub fn feed(pane_id: &str, bytes: &[u8]) {
 /// A turn is about to begin: remember how many links the pane has drawn and what its text (`full`, scrollback plus
 /// screen) holds, so the turn's own links and rows can be told from everything before them.
 pub fn mark_turn(pane_id: &str, full: &str) {
-    let rows: Vec<&str> = full.lines().collect();
-    let tail: Vec<String> = rows[rows.len().saturating_sub(MARK_ROWS)..].iter().map(|r| r.trim_end().to_string()).collect();
+    let mark = TurnMark::of(full);
     with_facts(pane_id, |facts| {
-        facts.turn = TurnMark { links: facts.link_total, rows: rows.len(), tail };
+        facts.turn = TurnMark { links: facts.link_total, ..mark };
     });
+}
+
+/// [`rows_since_turn_mark`] for a caller that holds both texts itself (the wizard's visible test): the rows of `after`
+/// that were not in `before`.
+pub fn rows_after_text(before: &str, after: &str) -> Option<String> {
+    rows_after(&TurnMark::of(before), after)
 }
 
 /// The links the pane drew since `mark_turn`, oldest first.
