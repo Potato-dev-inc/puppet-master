@@ -49,6 +49,14 @@ fn slashes(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/").to_lowercase()
 }
 
+/// The path as the app compares paths: resolved (an 8.3 short name such as `RUNNER~1`, or a junction,
+/// becomes the real folder, which is how git and the app spell it), without `\?\`, lowercase.
+/// A folder can be spelled several ways on Windows; a test must not depend on which one it was given.
+fn canonical(path: &Path) -> String {
+    let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    slashes(&real).trim_start_matches("//?/").to_string()
+}
+
 /// Polls `check` until it gives something, or panics with `what` after `secs`. The only waiting in
 /// this test: always on a condition, never for a fixed time.
 fn until<T>(secs: u64, what: &str, mut check: impl FnMut() -> Option<T>) -> T {
@@ -204,10 +212,18 @@ fn two_people_tell_each_other_through_a_relay_and_nothing_lands_without_a_click(
 
     // ---- 3. Maya's agent commits and pushes; Maya gets "Tell the team?"; she says yes -----------------
     for (who, clone) in [(&mut maya, &maya_clone), (&mut leo, &leo_clone)] {
-        let want = slashes(clone);
-        until(30, "the app watches the clone for pushes", || {
-            who.call("watched", json!({})).as_array().unwrap().iter().any(|d| slashes(Path::new(d.as_str().unwrap())) == want).then_some(())
-        });
+        let want = canonical(clone);
+        // A repository is watched once the app has taken its first look (the baseline); a runner
+        // with two slow cores gets a generous deadline for that first look.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let seen: Vec<String> = who.call("watched", json!({})).as_array().unwrap().iter().map(|d| canonical(Path::new(d.as_str().unwrap()))).collect();
+            if seen.contains(&want) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "gave up waiting 60 s for the app to watch {want} for pushes; it watches {seen:?}");
+            std::thread::sleep(Duration::from_millis(40));
+        }
     }
     // Leo has Claude Code open in his clone, idle.
     let leo_pane = leo.call("agent_pane", json!({ "agent_type": "fake_claude", "cwd": leo_clone.to_string_lossy() })).as_str().unwrap().to_string();
@@ -255,7 +271,7 @@ fn two_people_tell_each_other_through_a_relay_and_nothing_lands_without_a_click(
     // Metadata only: no diff, no file contents, no commit message, no path of Maya's computer, no
     // email, no prompt.
     let shown = card.to_string();
-    for private in ["refreshable", "remember", "OAuth token refresh", "PM-1234", "example.invalid", &slashes(&maya_clone), "Add OAuth token refresh to login"] {
+    for private in ["refreshable", "remember", "OAuth token refresh", "PM-1234", "example.invalid", &slashes(&maya_clone), &canonical(&maya_clone), "Add OAuth token refresh to login"] {
         assert!(!shown.to_lowercase().contains(&private.to_lowercase()), "the card must not carry {private:?}: {shown}");
     }
     assert_eq!(card["local"]["currentBranch"], "leo/billing-page");
