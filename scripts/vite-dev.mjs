@@ -4,6 +4,7 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureWorkspaceBuilt } from './ensure-workspace-built.mjs';
@@ -17,7 +18,26 @@ import {
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const appDir = join(repoRoot, 'packages', 'app');
-const portFile = join(repoRoot, 'puppet-master.bridge.port');
+/**
+ * The bridge port file the app writes (same lookup as packages/app/vite-bridge-proxy.ts and
+ * src-tauri/src/app_paths.rs): env override, else <app data>/com.puppetmaster.app[.profile-<name>].
+ */
+function resolvePortFile() {
+  const override = process.env.PUPPET_MASTER_BRIDGE_PORT_FILE?.trim();
+  if (override) return override;
+  const home = homedir();
+  const root =
+    process.platform === 'win32'
+      ? process.env.APPDATA || home
+      : process.platform === 'darwin'
+        ? join(home, 'Library', 'Application Support')
+        : join(home, '.local', 'share');
+  const raw = (process.env.PUPPET_MASTER_PROFILE ?? '').trim().toLowerCase();
+  const profile =
+    raw && raw.length <= 32 && raw !== 'default' && /^[a-z0-9-]+$/.test(raw) && !raw.startsWith('-') ? raw : null;
+  return join(root, profile ? `com.puppetmaster.app.profile-${profile}` : 'com.puppetmaster.app', 'puppet-master.bridge.port');
+}
+const portFile = resolvePortFile();
 const VITE_PORT = 1420;
 const VITE_URL = `http://127.0.0.1:${VITE_PORT}`;
 

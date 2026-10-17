@@ -286,9 +286,9 @@ fn proxy_upgrade(
     headers_raw: &str,
     leftover: &[u8],
 ) -> Result<(), String> {
-    let bridge_addr = read_bridge_addr(bridge_port_file);
-    let mut upstream = TcpStream::connect(&bridge_addr)
-        .map_err(|err| format!("connect bridge {bridge_addr}: {err}"))?;
+    let Some((mut upstream, _bridge_addr)) = connect_bridge(stream, bridge_port_file)? else {
+        return Ok(());
+    };
 
     let mut request = format!("{method} {path} HTTP/1.1\r\n");
     for line in headers_raw.lines().skip(1) {
@@ -339,9 +339,9 @@ fn proxy_bridge(
     headers_raw: &str,
     body: &[u8],
 ) -> Result<(), String> {
-    let bridge_addr = read_bridge_addr(bridge_port_file);
-    let mut upstream = TcpStream::connect(&bridge_addr)
-        .map_err(|err| format!("connect bridge {bridge_addr}: {err}"))?;
+    let Some((mut upstream, bridge_addr)) = connect_bridge(stream, bridge_port_file)? else {
+        return Ok(());
+    };
 
     let mut request = format!("{method} {path} HTTP/1.1\r\n");
     for line in headers_raw.lines().skip(1) {
@@ -378,6 +378,30 @@ fn proxy_bridge(
         .write_all(&response)
         .map_err(|err| format!("write proxy response: {err}"))?;
     Ok(())
+}
+
+/// Connect to the bridge named by the port file, re-read on every call (the app picks a new port
+/// each launch, so nothing is cached). When nothing listens, the phone gets a clear 502 JSON
+/// `{code:"BRIDGE_UNREACHABLE", message}` instead of a dropped connection, and `Ok(None)` comes back.
+/// The reply never names the port file's path (this server is reachable through the public tunnel).
+fn connect_bridge(
+    stream: &mut TcpStream,
+    bridge_port_file: &Path,
+) -> Result<Option<(TcpStream, String)>, String> {
+    let bridge_addr = read_bridge_addr(bridge_port_file);
+    match TcpStream::connect(&bridge_addr) {
+        Ok(upstream) => Ok(Some((upstream, bridge_addr))),
+        Err(err) => {
+            tracing::debug!(%err, %bridge_addr, "bridge unreachable");
+            let port = bridge_addr.rsplit(':').next().unwrap_or("?");
+            let body = serde_json::json!({
+                "code": "BRIDGE_UNREACHABLE",
+                "message": format!("The Puppet Master app's bridge is not running on port {port}."),
+            });
+            write_json(stream, 502, &body)?;
+            Ok(None)
+        }
+    }
 }
 
 /// `host:port` of the embedded bridge from its port file (`127.0.0.1:17321`, or just the port).
@@ -469,6 +493,7 @@ fn write_bytes(
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        502 => "Bad Gateway",
         _ => "Error",
     };
     let response = format!(
@@ -516,6 +541,74 @@ mod tests {
         let file = dir.join("port");
         fs::write(&file, "127.0.0.1:17355\n").unwrap();
         assert_eq!(read_bridge_addr(&file), "127.0.0.1:17355");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// A one-shot HTTP upstream on a free loopback port: answers every request with `label`.
+    fn tiny_upstream(label: &'static str) -> u16 {
+        let listener = TcpListener::bind((HOST, 0)).expect("bind upstream");
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut buf = [0_u8; 4096];
+                let _ = stream.read(&mut buf);
+                let body = format!("{{\"from\":\"{label}\"}}");
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        port
+    }
+
+    fn free_port() -> u16 {
+        let listener = TcpListener::bind((HOST, 0)).expect("bind probe");
+        listener.local_addr().unwrap().port()
+    }
+
+    fn raw_get(addr: std::net::SocketAddr, path: &str) -> String {
+        let mut client = TcpStream::connect(addr).expect("connect pwa server");
+        write!(client, "GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap();
+        let mut out = String::new();
+        client.read_to_string(&mut out).unwrap();
+        out
+    }
+
+    /// The built app's phone server must follow the port file on every request: the bridge takes a
+    /// new port each launch, and a phone page that stays open across an app restart must reach it.
+    #[test]
+    fn bridge_proxy_rereads_the_port_file_on_every_request() {
+        let dir = std::env::temp_dir().join(format!("pm-pwa-rr-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let port_file = dir.join("bridge.port");
+        let (a, b) = (tiny_upstream("a"), tiny_upstream("b"));
+        let pwa = spawn_test_server(dir.clone(), port_file.clone());
+
+        fs::write(&port_file, format!("127.0.0.1:{a}\n")).unwrap();
+        assert!(raw_get(pwa, "/bridge/health").contains("\"from\":\"a\""));
+        fs::write(&port_file, format!("127.0.0.1:{b}\n")).unwrap();
+        let second = raw_get(pwa, "/bridge/health");
+        assert!(second.contains("\"from\":\"b\""), "second request must go to the new port: {second}");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn bridge_proxy_answers_502_json_when_nothing_listens() {
+        let dir = std::env::temp_dir().join(format!("pm-pwa-502-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let port_file = dir.join("bridge.port");
+        let dead = free_port();
+        fs::write(&port_file, format!("127.0.0.1:{dead}\n")).unwrap();
+        let pwa = spawn_test_server(dir.clone(), port_file.clone());
+
+        let reply = raw_get(pwa, "/bridge/health");
+        assert!(reply.starts_with("HTTP/1.1 502 Bad Gateway"), "{reply}");
+        assert!(reply.contains("application/json"), "{reply}");
+        assert!(reply.contains("\"code\":\"BRIDGE_UNREACHABLE\""), "{reply}");
+        assert!(reply.contains(&format!("port {dead}")), "{reply}");
+        assert!(!reply.contains(port_file.to_string_lossy().as_ref()), "the reply must not leak the port file path");
         let _ = fs::remove_dir_all(dir);
     }
 
