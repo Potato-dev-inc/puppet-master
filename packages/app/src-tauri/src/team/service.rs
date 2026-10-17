@@ -44,6 +44,8 @@ const TICK: Duration = Duration::from_millis(1000);
 const REF_RESCAN_MS: u64 = 15_000;
 /// How often the roster and keys are re-read without a nudge.
 const ROSTER_REFRESH_MS: u64 = 60_000;
+/// How often the roster is read again while the relay refuses this device.
+const REFUSED_REFRESH_MS: u64 = 3_000;
 /// Before sending, the roster and keys are read again if the last look is older than this, so a
 /// member who missed the admin's nudge doesn't keep sealing with a removed member's key for a
 /// whole refresh period (security review L6).
@@ -96,12 +98,75 @@ fn service() -> Result<&'static Arc<Service>, String> {
 /// on in Settings.
 pub fn init(app: tauri::AppHandle, registry: Registry) {
     let dir = crate::app_paths::app_data_dir().join("team");
-    let svc = Arc::new(Service::new(Some(app), registry, dir, KeyStore::app(), Arc::new(GhCli)));
-    if SERVICE.set(svc.clone()).is_ok() {
-        svc.restart();
-        let runtime = svc.clone();
-        let _ = std::thread::Builder::new().name("team-runtime".into()).spawn(move || runtime.runtime_loop());
+    start(app, registry, dir, KeyStore::app(), Arc::new(GhCli));
+}
+
+/// Make the one Team service of this process and start its threads. False when one already runs.
+fn start(app: tauri::AppHandle, registry: Registry, dir: PathBuf, keystore: KeyStore, gh: Arc<dyn Gh>) -> bool {
+    let svc = Arc::new(Service::new(Some(app), registry, dir, keystore, gh));
+    if SERVICE.set(svc.clone()).is_err() {
+        return false;
     }
+    svc.restart();
+    let runtime = svc.clone();
+    let _ = std::thread::Builder::new().name("team-runtime".into()).spawn(move || runtime.runtime_loop());
+    true
+}
+
+// ---------------------------------------------------------------------- end-to-end test hooks
+//
+// Dev only (`dev-fake-tui`, `src/fake_tui/team.rs`): the two-person end-to-end test runs two
+// Puppet Master processes, each with its own service. These are the only differences from the app:
+// the keys go to an in-memory store (never the OS credential store), there is no `gh`, and a test
+// can look at, and hand the inbound path, what a person's app would not show.
+
+/// Start this process's Team service with `keystore` (an in-memory one: the OS credential store is
+/// never touched) and no `gh`. Team data lives in this process's own app-data folder.
+#[cfg(feature = "dev-fake-tui")]
+pub fn init_for_e2e(app: tauri::AppHandle, registry: Registry, keystore: KeyStore) -> bool {
+    struct NoGh;
+    impl Gh for NoGh {
+        fn api(&self, _path: &str, _etag: Option<&str>) -> Result<github::GhResponse, String> {
+            Err("gh isn't available in this test".into())
+        }
+        fn run(&self, _args: &[&str]) -> Result<String, String> {
+            Err("gh isn't available in this test".into())
+        }
+    }
+    let dir = crate::app_paths::app_data_dir().join("team");
+    start(app, registry, dir, keystore, Arc::new(NoGh))
+}
+
+/// The repositories this app already watches for pushes (a push is announced only once its
+/// repository has a baseline, so a test waits for this before its agent pushes).
+#[cfg(feature = "dev-fake-tui")]
+pub fn e2e_watched() -> Result<Vec<PathBuf>, String> {
+    Ok(service()?.inner.lock().watches.keys().cloned().collect())
+}
+
+/// This app's session (its roster and keys), for a test that builds envelopes the way a teammate's
+/// app would.
+#[cfg(feature = "dev-fake-tui")]
+pub fn e2e_session() -> Result<Session, String> {
+    service()?.inner.lock().session.clone().ok_or_else(|| "This computer isn't on a team.".to_string())
+}
+
+/// Hand `envelope` to the inbound path as if the relay had delivered it (a relay is untrusted: it
+/// can deliver anything), exactly as `team-inbound` does. Returns which check refuses it, asked
+/// with a copy of the replay guard so the real one is only touched by the delivery itself; `"accepted"` when none does.
+#[cfg(feature = "dev-fake-tui")]
+pub fn e2e_inject(envelope: pm_relay_protocol::Envelope) -> Result<String, String> {
+    let svc = service()?;
+    let (session, mut tracker) = {
+        let inner = svc.inner.lock();
+        (inner.session.clone().ok_or("This computer isn't on a team.")?, inner.store.seq.clone())
+    };
+    let verdict = match session.open(&envelope, &mut tracker, now_ms()) {
+        Ok(_) => "accepted".to_string(),
+        Err(reject) => reject.as_str().to_string(),
+    };
+    svc.receive(Inbound { envelope, received_at_ms: now_ms(), cursor: 0, reset: false });
+    Ok(verdict)
 }
 
 fn roster_path(dir: &Path) -> PathBuf {
@@ -464,7 +529,10 @@ impl Service {
 
     /// Member and admin: re-read the roster and keys when nudged, and now and then.
     fn keep_roster_current(self: &Arc<Self>, now: u64) {
-        self.keep_roster_fresh(now, ROSTER_REFRESH_MS);
+        // The relay says this device is not on the team (the admin removed it): look now, and
+        // again every few seconds while that stays so, not once a minute.
+        let refused = self.inner.lock().transport.as_ref().is_some_and(|t| t.lost_access());
+        self.keep_roster_fresh(now, if refused { REFUSED_REFRESH_MS } else { ROSTER_REFRESH_MS });
     }
 
     /// Re-read the roster and keys when nudged or when the last look is older than `max_age_ms`.
