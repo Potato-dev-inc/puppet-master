@@ -89,11 +89,14 @@ jobs:
           cache: npm
           cache-dependency-path: relay/worker/package-lock.json
 
+      # The Worker's own tests under wrangler dev. `npm test` would also build the desktop app to run its relay
+      # tests against the Worker, which needs Windows (or GTK on Linux); the Windows Rust jobs already run the
+      # app's relay tests against the Rust relay.
       - name: Worker tests
         working-directory: relay/worker
         run: |
           npm ci
-          npm test
+          npm run test:worker
 
   frontend:
     name: Frontend (vitest + tsc)
