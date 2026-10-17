@@ -651,7 +651,12 @@ pub fn message_task_for(word: &str) -> String {
 /// sentence that holds the third random word. The reply is that sentence and nothing else; the screens before it show the
 /// rows an agent prints while it works (thinking, tool calls, a summary line).
 pub fn work_task(words: &TestWords) -> String {
-    format!("List the files in this folder, then reply with exactly: {}", words.sentence())
+    format!("List the files in this folder, then reply with exactly: {}", work_sentence(words))
+}
+
+/// The answer the work task asks for: a sentence that holds the third random word.
+pub fn work_sentence(words: &TestWords) -> String {
+    format!("folder listed, code {}.", words.sky)
 }
 
 /// The task of the permission step: a file write (`tui_permission`).

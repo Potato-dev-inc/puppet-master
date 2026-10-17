@@ -31,7 +31,7 @@ const facts = (over: Partial<PromptFacts> = {}): PromptFacts => ({
 
 describe('prompt sources', () => {
   it('has a version string', () => {
-    expect(PROMPT_VERSION).toBe('7');
+    expect(PROMPT_VERSION).toBe('8');
   });
 
   it('finds every section of the format guide it needs (guards a renamed heading)', () => {
@@ -270,6 +270,16 @@ const captures = (over: Partial<CaptureFacts['facts']> = {}): CaptureFacts => ({
     { name: 'tui_idle', text: idle, variants: ['| > Type a task... _'] },
     { name: 'tui_working', text: 'NIMBUS\n\n> Reply with exactly the word: <word-1>\n\n⠋ Thinking...  ctrl+c to stop\n', variants: [] },
     { name: 'tui_reply', text: 'NIMBUS\n\n> Reply with exactly the word: <word-1>\nreply: <word-1>\n', variants: [] },
+    {
+      name: 'tui_work_working',
+      text: 'NIMBUS\n\n> List the files in this folder, then reply with exactly: folder listed, code <word-3>.\n\n~ Thinking... (1s)\ntool: ls\n⠋ Generating...  ctrl+c to stop\n',
+      variants: [],
+    },
+    {
+      name: 'tui_work_reply',
+      text: 'NIMBUS\n\n> List the files in this folder, then reply with exactly: folder listed, code <word-3>.\n~ Thinking... (3s)\ntool: ls\nreply: folder listed, code <word-3>.\n▸ Thought for 3s, 298 tokens\n',
+      variants: [],
+    },
     { name: 'tui_permission', text: 'Allow nimbus to create hello.txt? [y/n]', variants: [] },
   ],
   facts: { exit_method: 'slash_exit', partial: [], skipped: [], hello_written: false, startup_dialogs: ['trust'], exit_screen: null, notes: [], ...over },
@@ -312,6 +322,33 @@ describe('the visible prompt', () => {
     expect(buildPrompt(visibleFacts()).text).not.toContain('Resize measurement');
   });
 
+  it('v8 teaches the rows of a thinking-and-tool task, the summary row and a model that stays on screen', () => {
+    const text = buildPrompt(visibleFacts()).text;
+    // the new captures and the table for the row printed once after a turn
+    expect(text).toContain('<<<CAPTURE tui_work_working');
+    expect(text).toContain('<<<CAPTURE tui_work_reply');
+    expect(text).toContain('[tui.summary]');
+    expect(text).toContain('ONCE AFTER the turn ends');
+    expect(text).toContain('a bullet or arrow glyph at the start of the row does not matter');
+    expect(text).toContain('the plain one-word reply is too simple to show them');
+    expect(text).toContain('tui_work_reply must come out as exactly its answer row');
+    // the new expectation keys the drafter may add
+    expect(text).toContain('thinking_lines = ["..."]');
+    expect(text).toContain('summary_lines = ["..."]');
+    expect(text).toContain('tool_lines = ["..."]');
+    // the model: a row that stays, tolerating a clipped name
+    expect(text).toContain('a row that STAYS on screen in a long session');
+    expect(text).toContain('not from the startup banner alone');
+    expect(text).toContain("clipped at the window's edge");
+    expect(text).toContain('asks for a reply taller than the pane');
+    // the worked example shows the new tables and screens, and still never contains a test word
+    expect(text).toContain('[tui.thinking]');
+    expect(text).toContain("line_regex = ['^thought for \\d+s']");
+    expect(text).toContain('# expect: tui_work_reply');
+    expect(text).toContain('reply_rows');
+    expect(text).not.toMatch(/pong/i);
+  });
+
   it('carries the visible half of the guide and the worked example, not the headless examples', () => {
     const text = buildPrompt(visibleFacts()).text;
     expect(text).toContain('## 6. Visible (TUI) tables');
@@ -331,13 +368,13 @@ describe('the visible prompt', () => {
     expect(text).toContain('<word-1>');
   });
 
-  it('fits the budget with five full-size captures', () => {
+  it('fits the budget with seven full-size captures', () => {
     const big = Array.from({ length: 40 }, (_, i) => `row ${i} `.padEnd(118, 'x')).join('\n');
     const built = buildPrompt(
       visibleFacts({
         captures: {
           ...captures(),
-          files: ['tui_trust', 'tui_idle', 'tui_working', 'tui_reply', 'tui_permission'].map((name) => ({ name, text: big, variants: [] })),
+          files: ['tui_trust', 'tui_idle', 'tui_working', 'tui_reply', 'tui_work_working', 'tui_work_reply', 'tui_permission'].map((name) => ({ name, text: big, variants: [] })),
         },
       }),
     );

@@ -30,7 +30,7 @@ fn work_working(n: usize) -> String {
 
 fn work_reply() -> String {
     format!(
-        "NIMBUS 0.4\n\n> {}\n\n~ Reflected for 3s\ntool: ls\n  -> README.md\nreply: the sky is cccccc.\n\u{25b8} Thought for 3s, 298 tokens\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n",
+        "NIMBUS 0.4\n\n> {}\n\n~ Reflected for 3s\ntool: ls\n  -> README.md\nreply: folder listed, code cccccc.\n\u{25b8} Thought for 3s, 298 tokens\n\n+------------------------------+\n| > Type a task...             |\n+------------------------------+\n",
         work_task(&words())
     )
 }
@@ -85,7 +85,7 @@ impl Drive {
 #[test]
 fn the_work_task_asks_the_agent_to_list_the_folder_and_answer_with_a_sentence() {
     let task = work_task(&words());
-    assert_eq!(task, "List the files in this folder, then reply with exactly: the sky is cccccc.");
+    assert_eq!(task, "List the files in this folder, then reply with exactly: folder listed, code cccccc.");
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn with_the_step_on_the_message_is_followed_by_the_listing_task_and_both_screens
     let working = d.c.frame("tui_work_working").expect("the working screen of the listing task");
     assert!(working.text.contains("Thinking...") && working.text.contains("tool: ls"), "{}", working.text);
     let reply = d.c.frame("tui_work_reply").expect("the reply screen of the listing task");
-    assert!(reply.text.contains("reply: the sky is cccccc.") && reply.text.contains("Thought for 3s, 298 tokens"), "{}", reply.text);
+    assert!(reply.text.contains("reply: folder listed, code cccccc.") && reply.text.contains("Thought for 3s, 298 tokens"), "{}", reply.text);
     // and the permission step is next, with its own task
     assert_eq!(got, vec![Action::Deliver { text: permission_task(&words()) }]);
     assert_eq!(d.c.current(), StepId::Permission);

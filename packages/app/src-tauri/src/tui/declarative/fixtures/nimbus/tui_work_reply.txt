@@ -2,12 +2,12 @@
 NIMBUS 0.4.2 | local | C:\Users\user\project
 
 
-> List the files in this folder, then reply with exactly: the sky is <word-3>.
+> List the files in this folder, then reply with exactly: folder listed, code <word-3>.
 
 ~ Thinking... (3s)
 tool: ls
   -> README.md
-reply: the sky is <word-3>.
+reply: folder listed, code <word-3>.
 ▸ Thought for 3s, 298 tokens
 
 +------------------------------------------------------------------------------------------------------------+

@@ -50,7 +50,7 @@ steps = [
   { do = "screen", text = "~ Thinking... (1s)" },
   { do = "tool", label = "ls", detail = "README.md" },
   { do = "think", ms = 3200 },
-  { do = "say", text = "the sky is {last_word}." },
+  { do = "say", text = "folder listed, code {last_word}." },
 ]
 
 [[turn]]
@@ -150,7 +150,7 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     let prompts: Vec<String> = events_named(&session, "prompt").iter().filter_map(|e| e["text"].as_str().map(str::to_string)).collect();
     assert_eq!(prompts.len(), 5, "{prompts:?}");
     assert_eq!(prompts[0], format!("Reply with exactly the word: {one}"));
-    assert_eq!(prompts[1], format!("List the files in this folder, then reply with exactly: the sky is {sky}."));
+    assert_eq!(prompts[1], format!("List the files in this folder, then reply with exactly: folder listed, code {sky}."));
     assert!(prompts[2].starts_with("Create a file named hello.txt") && prompts[2].contains(&sky), "{}", prompts[2]);
     assert!(prompts[3].starts_with("Run this shell command") && prompts[3].ends_with(&format!("echo {sky}")), "{}", prompts[3]);
     assert_eq!(prompts[4], "/exit");
@@ -168,7 +168,7 @@ fn the_wizard_learns_an_unknown_visible_agent_from_its_screens_and_writes_a_defi
     let screen_of = |name: &str| files.iter().find(|f| f["name"] == name).and_then(|f| f["text"].as_str()).unwrap_or_default().to_string();
     let (work_working, work_reply) = (screen_of("tui_work_working"), screen_of("tui_work_reply"));
     assert!(work_working.contains("Thinking...") && work_working.contains("tool: ls"), "{work_working}");
-    assert!(work_reply.contains("reply: the sky is <word-3>.") && work_reply.contains("Thought for") && work_reply.contains("298 tokens"), "{work_reply}");
+    assert!(work_reply.contains("reply: folder listed, code <word-3>.") && work_reply.contains("Thought for") && work_reply.contains("298 tokens"), "{work_reply}");
     let shown = finished["captures"].to_string();
     assert!(!shown.contains(&one) && !shown.contains(&two) && !shown.contains(&sky), "the AI would see a test word: {shown}");
     assert_eq!(finished["captures"]["facts"]["exit_method"], "slash_exit");

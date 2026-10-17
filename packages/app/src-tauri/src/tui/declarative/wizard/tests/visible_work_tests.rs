@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::tui::declarative::wizard::session::TestWords;
-use crate::tui::declarative::wizard::visible::capture::CapFrame;
+use crate::tui::declarative::wizard::visible::capture::{work_sentence, CapFrame};
 use crate::tui::declarative::wizard::visible::host::Delivered;
 use crate::tui::declarative::wizard::Wizard;
 
@@ -44,7 +44,7 @@ impl Agent {
 }
 
 fn sentence_of(words: &TestWords) -> String {
-    words.sentence()
+    work_sentence(words)
 }
 
 /// What the agent draws while it thinks and uses its tool, and after it answered with a summary row.
@@ -193,7 +193,7 @@ fn a_clean_profile_passes_the_work_task_and_reads_a_tall_reply_whole() {
     // the tasks that were typed: the plain message, the listing task (with the third word) and the tall reply
     let typed = f.host.delivered();
     assert_eq!(typed[0], format!("Reply with exactly the word: {}", f.words.two));
-    assert_eq!(typed[1], format!("List the files in this folder, then reply with exactly: {}", f.words.sentence()));
+    assert_eq!(typed[1], format!("List the files in this folder, then reply with exactly: {}", work_sentence(&f.words)));
     assert!(typed[2].starts_with("Write the whole numbers from 1 to 70") && typed[2].ends_with(&f.words.two), "{}", typed[2]);
     // the sentence's word never reaches the drafter's text
     assert!(!v.to_string().contains(&f.words.sky), "{v}");

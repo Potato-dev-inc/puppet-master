@@ -2,7 +2,7 @@
 NIMBUS 0.4.2 | local | C:\Users\user\project
 
 
-> List the files in this folder, then reply with exactly: the sky is <word-3>.
+> List the files in this folder, then reply with exactly: folder listed, code <word-3>.
 
 ~ Thinking... (1s)
 tool: ls
