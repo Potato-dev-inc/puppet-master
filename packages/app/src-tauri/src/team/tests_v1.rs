@@ -141,6 +141,72 @@ fn opened_event(opened: Result<Opened, Reject>) -> Verified {
     }
 }
 
+// ------------------------------------------------------------------------ nothing left readable
+
+/// The values of `values` that someone holding `stored` could read: in `stored` itself, or in
+/// anything a base64 or base64url run in it decodes to (a state slot's `body` is base64 of JSON
+/// that holds more base64, so this goes as deep as the text goes).
+fn readable_in<'a>(stored: &str, values: &[&'a str]) -> Vec<&'a str> {
+    let layers = decoded_layers(stored);
+    values.iter().copied().filter(|value| layers.iter().any(|layer| holds(layer, value))).collect()
+}
+
+/// `stored`, then every printable text that a base64 or base64url run in an earlier layer decodes
+/// to. Ciphertext decodes to random bytes, which are not printable UTF-8 (each byte has to be), so
+/// it adds nothing a value could turn up in by chance.
+fn decoded_layers(stored: &str) -> Vec<String> {
+    use base64::engine::{general_purpose::GeneralPurpose, DecodePaddingMode, GeneralPurposeConfig};
+    use base64::{alphabet, Engine};
+    let lenient = GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true);
+    let engines = [GeneralPurpose::new(&alphabet::URL_SAFE, lenient), GeneralPurpose::new(&alphabet::STANDARD, lenient)];
+    let mut layers = vec![stored.to_string()];
+    let mut next = 0;
+    while next < layers.len() {
+        let layer = layers[next].clone();
+        next += 1;
+        for run in layer.split(|c: char| !(c.is_ascii_alphanumeric() || "-_+/=".contains(c))).filter(|run| run.len() >= 4) {
+            for engine in &engines {
+                let Some(text) = engine.decode(run).ok().and_then(|bytes| String::from_utf8(bytes).ok()) else { continue };
+                if !text.chars().any(|c| c.is_control() && !"\n\r\t".contains(c)) && !layers.contains(&text) {
+                    layers.push(text);
+                }
+            }
+        }
+    }
+    layers
+}
+
+/// Whether `text` holds `value` for a person to read. ~5,500 characters of random base64 hold a
+/// given three letters by chance about 2% of the time, so a short value made only of base64url
+/// characters counts only standing on its own, with no base64url character either side. A value
+/// with any other character, or 16 or more characters long, cannot turn up by chance at all.
+fn holds(text: &str, value: &str) -> bool {
+    let base64url = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    if value.len() >= 16 || !value.chars().all(base64url) {
+        return text.contains(value);
+    }
+    text.match_indices(value).any(|(at, _)| {
+        !text[..at].chars().next_back().is_some_and(base64url) && !text[at + value.len()..].chars().next().is_some_and(base64url)
+    })
+}
+
+#[test]
+fn the_readable_check_finds_a_name_inside_base64_bodies_and_not_in_random_letters() {
+    // A name hidden in a body, as the relay's dump writes a state slot: invisible to a plain search.
+    let slot = |body: &str| format!(r#"Text("{{\"team\":\"Y12NBSZF5F1TSTDKWM8NA3KD0G\",\"body\":\"{body}\"}}")|Integer(2)|"#);
+    let one_deep = slot(&b64(br#"{"members":[{"name":"Leo","note":"the session model"}]}"#));
+    assert!(!one_deep.contains("Leo"));
+    assert_eq!(readable_in(&one_deep, &["Leo", "session model", "Maya"]), ["Leo", "session model"]);
+    let two_deep = slot(&b64(format!(r#"{{"epoch":1,"inner":"{}"}}"#, b64(b"Leo")).as_bytes()));
+    assert_eq!(readable_in(&two_deep, &["Leo"]), ["Leo"]);
+    // Standard base64 (with `/` and padding) decodes too.
+    use base64::Engine;
+    assert_eq!(readable_in(&format!("|{}|", base64::engine::general_purpose::STANDARD.encode("leo-dev ??> ~?")), &["leo-dev"]), ["leo-dev"]);
+    // The same letters inside a run of base64 are chance, not a name.
+    assert!(readable_in(r#"Text("q9Leo_x-MayaZ0Acme")|Text("Codex7")|"#, &["Leo", "Maya", "Acme", "Codex"]).is_empty());
+    assert_eq!(readable_in(r#"{"by":"Leo"}|Leo's|(Maya)|team Acme."#, &["Leo", "Maya", "Acme"]), ["Leo", "Maya", "Acme"]);
+}
+
 // ---------------------------------------------------------------------------- crypto round trip
 
 #[test]
@@ -156,9 +222,8 @@ fn a_sealed_event_opens_for_a_teammate_and_becomes_a_card() {
     let env = maya.seal(&Payload::Event { event: event.clone() }, 1, now()).unwrap();
     // On the wire: nothing readable.
     let wire_json = serde_json::to_string(&env).unwrap();
-    for secret in ["feat/auth", "Maya", "session model", "billing", "Codex", "0123456789abcdef"] {
-        assert!(!wire_json.contains(secret), "{secret:?} must not be readable on the wire");
-    }
+    let secrets = ["feat/auth", "Maya", "session model", "billing", "Codex", "0123456789abcdef"];
+    assert_eq!(readable_in(&wire_json, &secrets), [] as [&str; 0], "nothing is readable on the wire");
 
     let mut tracker = SeqTracker::default();
     let verified = opened_event(leo.open(&env, &mut tracker, now()));
@@ -579,11 +644,12 @@ fn relay_end_to_end_create_invite_join_push_and_card_with_metadata_only_on_the_r
     // What the relay stored: ciphertext and routing metadata, no names, branches, notes or keys.
     let dump = relay.dump(&roster.team);
     assert!(dump.contains(&roster.team));
-    for readable in ["feat/auth", "Maya", "Leo", "leo-dev", "Acme", "session model", "github.com/acme", "Codex", &code] {
-        assert!(!dump.contains(readable), "the relay must not hold {readable:?}");
-    }
+    assert!(decoded_layers(&dump)[1..].iter().any(|layer| layer.contains(&roster.team)), "the check reads inside the base64 bodies");
+    let shown_code = invite::show_code(&code);
+    let readable = ["feat/auth", "Maya", "Leo", "leo-dev", "Acme", "session model", "github.com/acme", "Codex", &code, &shown_code];
+    assert_eq!(readable_in(&dump, &readable), [] as [&str; 0], "the relay must not hold these");
     let epoch_key = b64(&maya.epoch_key(&roster.team, 1).unwrap().unwrap());
-    assert!(!dump.contains(&epoch_key), "the team key never reaches the relay");
+    assert!(readable_in(&dump, &[&epoch_key]).is_empty(), "the team key never reaches the relay");
 
     leo_wire.stop();
     poll_wire.stop();
