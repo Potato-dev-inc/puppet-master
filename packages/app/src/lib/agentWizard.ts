@@ -9,6 +9,7 @@ import {
   LOCAL_PROMPT_BUDGET,
   PROMPT_VERSION,
   REMOTE_PROMPT_BUDGET,
+  type AnsweredQuestion,
   type CaptureFacts,
   type ProbeRun,
   type PromptFacts,
@@ -133,6 +134,9 @@ export interface CaptureStatus {
   stable_ms?: number;
   settled?: boolean;
   needs_you?: { step: CaptureStepId; kind: string; message: string } | null;
+  /** Setup questions the wizard answered for the person so far (labels only). */
+  answered?: Array<{ place: string; flavour: string; label: string; keys: string }>;
+  auto_answer?: boolean;
   /** The pane's screen, masked, for the preview in the wizard window. */
   screen?: string;
   can?: CaptureAction[];
@@ -157,15 +161,19 @@ export interface VisibleTestResult {
   passed: number;
   total: number;
   agent_error?: { check: string; message: string; external: boolean } | null;
+  /** Setup questions the wizard answered for the person in the test pane. */
+  answered?: AnsweredQuestion[];
 }
 
 /** What the visible test is doing right now (read while the test call is still running). */
 export interface VisibleTestStatus {
   running: boolean;
   check?: string | null;
-  needs_you?: { message: string } | null;
+  /** `kind` is the question's flavour (trust, login, question...) or `stuck` after a long wait. */
+  needs_you?: { message: string; kind?: string } | null;
   checks?: VisibleCheck[];
   screen?: string;
+  answered?: AnsweredQuestion[];
 }
 
 export interface VerifyResult {
@@ -257,7 +265,8 @@ export interface LocalDrafter {
 
 /** What the wizard UI and the loop talk to; tests pass a mock. */
 export interface WizardApi {
-  start(command: string): Promise<StartInfo>;
+  /** `autoAnswer`: the person left "Answer setup questions for me" on (SPEC 11.16). */
+  start(command: string, autoAnswer?: boolean): Promise<StartInfo>;
   probe(session: string): Promise<ProbeInfo>;
   /** `expect` holds the drafter's expectation blocks for the screen captures, by capture name. */
   verify(session: string, toml: string, expect?: Record<string, string>): Promise<VerifyResult>;
@@ -267,6 +276,10 @@ export interface WizardApi {
   visibletest(session: string, plan: string): Promise<VisibleTestResult>;
   /** What the visible test is doing now (poll while `visibletest` runs). */
   testStatus(session: string): Promise<VisibleTestStatus>;
+  /** Stop the visible test while a question is up (`stop`), or skip the permission check (`skip`). */
+  testAct?(session: string, action: 'skip' | 'stop'): Promise<void>;
+  /** Open the visible test's pane (the question on it is the person's). */
+  testShow?(session: string): Promise<void>;
   capturePlan(session: string, args: string[]): Promise<CapturePlan>;
   /** Starts the guided capture; `plan` is the fingerprint the person confirmed. */
   captureStart(session: string, args: string[], plan: string): Promise<CaptureStatus>;
@@ -288,12 +301,18 @@ export interface WizardApi {
 }
 
 export const tauriWizardApi: WizardApi = {
-  start: (command) => invoke<StartInfo>('agent_wizard_start', { command }),
+  start: (command, autoAnswer) => invoke<StartInfo>('agent_wizard_start', { command, autoAnswer: autoAnswer ?? false }),
   probe: (session) => invoke<ProbeInfo>('agent_wizard_probe', { session }),
   verify: (session, toml, expect) => invoke<VerifyResult>('agent_wizard_verify', { session, toml, expect: expect ?? null }),
   livetest: (session, plan) => invoke<LiveResult>('agent_wizard_livetest', { session, confirm: true, plan }),
   visibletest: (session, plan) => invoke<VisibleTestResult>('agent_wizard_visibletest', { session, confirm: true, plan }),
   testStatus: (session) => invoke<VisibleTestStatus>('agent_wizard_capture', { body: { session, op: 'test_status' } }),
+  testAct: async (session, action) => {
+    await invoke('agent_wizard_capture', { body: { session, op: 'test_act', action } });
+  },
+  testShow: async (session) => {
+    await invoke('agent_wizard_capture', { body: { session, op: 'show' } });
+  },
   capturePlan: async (session, args) => (await invoke<{ plan: CapturePlan }>('agent_wizard_capture', { body: { session, op: 'plan', args } })).plan,
   captureStart: (session, args, plan) =>
     invoke<CaptureStatus>('agent_wizard_capture', { body: { session, op: 'start', args, confirm: true, plan } }),

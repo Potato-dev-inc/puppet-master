@@ -205,6 +205,10 @@ fn every_answer_path_is_known_and_presses_its_key_through_answer_once() {
         ["agent_runs/headless/pane_turn.rs", "agent_runs/routes/answer.rs", "pane_prompt/mod.rs"],
         "a new place presses an answer key: route it through pane_prompt::answers::answer_once and add it here"
     );
+    // The Agent Wizard's own answerer (SPEC 11.16) has a write origin of its own, so it can never be mistaken for
+    // a card answer: the pane host writes with it (and refuses every pane the wizard did not start); the flight
+    // recorder only names it.
+    assert_eq!(callers("WriteOrigin::WizardAnswer"), ["flight/mod.rs", "tui/declarative/wizard/visible/registry_host.rs"]);
     for file in &presses {
         let code = &sources().into_iter().find(|(rel, _)| rel == file).unwrap().1;
         let keys = code.matches("WriteOrigin::Answer)").count() + code.matches("WriteOrigin::Answer,").count();

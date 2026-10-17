@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use super::super::exec;
 use super::super::livetest::mask_words;
 use super::super::session::TestWords;
+use super::answer::scope_ok;
 use super::capture::{Action, Capture, CaptureAction, CaptureSet, Config, StepId};
 use super::host::{Delivered, Look, PaneHost};
 
@@ -27,6 +28,8 @@ pub struct TestLimits {
     pub ready: Duration,
     /// How long the test waits for the person to answer a question on the way.
     pub person: Duration,
+    /// After this long on one question the person is told they can stop the test (kind `stuck`).
+    pub step: Duration,
     pub busy: Duration,
     pub done: Duration,
     pub permission: Duration,
@@ -39,6 +42,7 @@ impl Default for TestLimits {
             start: Duration::from_secs(3),
             ready: Duration::from_secs(90),
             person: Duration::from_secs(300),
+            step: Duration::from_secs(120),
             busy: Duration::from_secs(30),
             done: Duration::from_secs(180),
             permission: Duration::from_secs(120),
@@ -63,6 +67,14 @@ impl Default for RunnerCfg {
     }
 }
 
+/// Where the wizard may answer a setup question for the person (SPEC 11.16): the session's own folder,
+/// inside the wizard's temporary root. `None` = the person turned the switch off.
+#[derive(Debug, Clone)]
+pub struct AutoScope {
+    pub work_dir: PathBuf,
+    pub temp_root: PathBuf,
+}
+
 struct Shared {
     engine: Capture,
     pane: String,
@@ -73,6 +85,7 @@ struct Shared {
     stop: bool,
     /// `finish` ran: the capture set is final.
     finished: bool,
+    scope: Option<AutoScope>,
 }
 
 /// One running (or finished) capture. The status and the buttons are methods of this.
@@ -102,9 +115,11 @@ impl CaptureRun {
         grid: (u16, u16),
         cfg: RunnerCfg,
         cancel: Arc<AtomicBool>,
+        auto: Option<AutoScope>,
     ) -> Arc<CaptureRun> {
         let shared = Arc::new(Mutex::new(Shared {
-            engine: Capture::new(words.clone(), grid, cfg.capture.clone()),
+            engine: Capture::new(words.clone(), grid, cfg.capture.clone()).with_auto_answer(auto.is_some()),
+            scope: auto,
             pane,
             profile_id,
             project,
@@ -157,6 +172,18 @@ impl CaptureRun {
             };
             for action in actions {
                 match action {
+                    Action::Answer { keys, note: _ } => {
+                        // Re-checked here, where the keys leave: the pane is one this host started and sits in the
+                        // session's own folder under the wizard's temporary root. Anything else: nothing is pressed.
+                        let scope = self.shared.lock().scope.clone();
+                        let outcome = match scope {
+                            None => Err("the setup-question switch is off".to_string()),
+                            Some(scope) => scope_ok(self.host.cwd(&pane).as_deref(), &scope.work_dir, &scope.temp_root).and_then(|()| self.host.answer(&pane, &keys)),
+                        };
+                        if let Err(why) = outcome {
+                            self.shared.lock().engine.on_answer_refused(&why);
+                        }
+                    }
                     Action::Deliver { text } => {
                         let mut trace = Vec::new();
                         let outcome = self.host.deliver(&pane, &text, &mut trace);
@@ -278,6 +305,7 @@ impl CaptureRun {
             let mut g = self.shared.lock();
             g.finished = true;
             let mut set = g.engine.into_set();
+            set.answered = g.engine.answered().to_vec();
             if let Some(grid) = self.host.grid(&g.pane) {
                 set.grid = grid;
             }

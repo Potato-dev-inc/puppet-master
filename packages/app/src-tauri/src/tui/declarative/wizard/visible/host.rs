@@ -2,10 +2,11 @@
 //! (`LiveHost`), a scripted pane in unit tests. The capture engine and the visible test only talk to
 //! `PaneHost`, so their state machines run without a process.
 //!
-//! There is deliberately no "type these keys" method. The wizard's only way to put text into a pane is
-//! `deliver`, which is the app's own delivery path (`agent_runs::delivery::deliver_prompt_traced`): it
-//! looks at the screen first and refuses a dialog, a shell prompt or a dead agent. Nothing here can
-//! answer a trust or permission question.
+//! The wizard's way to put a TASK into a pane is `deliver`, which is the app's own delivery path
+//! (`agent_runs::delivery::deliver_prompt_traced`): it looks at the screen first and refuses a dialog, a
+//! shell prompt or a dead agent. The one narrow exception (SPEC 11.16) is `answer`: a few named keys for a
+//! setup question in a pane THIS HOST started, in the wizard's own isolated folder (the host refuses any
+//! other pane, and the caller checks the folder with `answer::scope_ok`).
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -15,6 +16,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde_json::Value;
 
+use super::answer::AnswerKey;
 use crate::tui::types::{Features, LaunchSpec, SpawnRequest};
 use crate::tui::TuiProfile;
 
@@ -78,6 +80,14 @@ pub trait PaneHost: Send + Sync + std::fmt::Debug {
     /// Open the pane's window (a no-op without one).
     fn show(&self, pane: &str);
     fn kill(&self, pane: &str);
+    /// The folder the pane was started in, for a pane this host started.
+    fn cwd(&self, _pane: &str) -> Option<PathBuf> {
+        None
+    }
+    /// Press the named keys in a pane THIS HOST started. Refuses every other pane.
+    fn answer(&self, _pane: &str, _keys: &[AnswerKey]) -> Result<(), String> {
+        Err("this host cannot press keys".into())
+    }
 }
 
 // ---- the capture profile -----------------------------------------------------------------------
@@ -197,5 +207,13 @@ impl PaneHost for LiveHost {
         if let Ok(host) = Self::inner() {
             host.kill(pane);
         }
+    }
+
+    fn cwd(&self, pane: &str) -> Option<PathBuf> {
+        Self::inner().ok()?.cwd(pane)
+    }
+
+    fn answer(&self, pane: &str, keys: &[AnswerKey]) -> Result<(), String> {
+        Self::inner()?.answer(pane, keys)
     }
 }

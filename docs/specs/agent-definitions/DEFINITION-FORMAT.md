@@ -230,6 +230,24 @@ automatically. `key` is a named key (`enter`, `escape`, `y`, `n`, ...); use `tex
 Add `not_when_regex` for the text that remains in the scrollback after the dialog was answered, otherwise the
 same dialog is detected again.
 
+A startup question (an agent asking "do you trust this folder?" before it takes a task) needs its own prompt table,
+or the pane reads as idle behind it and no approval card appears. Use `kind = "workspace_trust"`, a `detect_regex`
+that matches the question line (not the folder path), `allow_once` for the row that means yes (an arrow menu whose
+cursor already sits on it: `key = "enter"`; a numbered menu: `text = "1"`) and `deny` for the no row:
+
+```toml
+[[tui.prompt]]
+kind = "workspace_trust"
+detect_regex = 'do you trust the contents of this project'
+choices = [
+  { id = "allow_once", key = "enter" },
+  { id = "deny",       key = "escape" },
+]
+```
+
+The Agent Wizard's `verify` requires such a table for every `tui_trust` capture, and its visible test checks that the
+startup question becomes a card.
+
 ## 7. Regex tips
 
 - Engine: Rust `regex`. Linear-time and safe, but NO look-ahead/look-behind and NO backreferences.

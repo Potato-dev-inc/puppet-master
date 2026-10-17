@@ -12,6 +12,7 @@ use serde_json::Value;
 
 use crate::tui::declarative::wizard::session::{Limits, WizardEnv};
 use crate::tui::declarative::wizard::visible::capture::Config;
+use crate::tui::declarative::wizard::visible::answer::AnswerKey;
 use crate::tui::declarative::wizard::visible::host::{Delivered, Look, PaneHost, PaneSpec};
 use crate::tui::declarative::wizard::visible::runner::{RunnerCfg, TestLimits};
 
@@ -40,13 +41,17 @@ struct State {
     spawn_error: Option<String>,
     shown: Vec<String>,
     counter: u64,
+    /// Every key press the wizard made: (pane, keys).
+    pressed: Vec<(String, Vec<AnswerKey>)>,
 }
 
 type Hook = Box<dyn Fn(&FakeHost, &str, &str) -> Delivered + Send + Sync>;
+type AnswerHook = Box<dyn Fn(&FakeHost, &str, &[AnswerKey]) + Send + Sync>;
 
 pub struct FakeHost {
     state: Mutex<State>,
     on_deliver: Mutex<Option<Hook>>,
+    on_answer: Mutex<Option<AnswerHook>>,
 }
 
 impl std::fmt::Debug for FakeHost {
@@ -57,12 +62,22 @@ impl std::fmt::Debug for FakeHost {
 
 impl FakeHost {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { state: Mutex::new(State::default()), on_deliver: Mutex::new(None) })
+        Arc::new(Self { state: Mutex::new(State::default()), on_deliver: Mutex::new(None), on_answer: Mutex::new(None) })
     }
 
     /// The next delivery calls `hook(host, pane_id, text)`.
     pub fn on_deliver(&self, hook: impl Fn(&FakeHost, &str, &str) -> Delivered + Send + Sync + 'static) {
         *self.on_deliver.lock() = Some(Box::new(hook));
+    }
+
+    /// The next key press calls `hook(host, pane_id, keys)` (a scripted menu moves its highlight, a dialog closes).
+    pub fn on_answer(&self, hook: impl Fn(&FakeHost, &str, &[AnswerKey]) + Send + Sync + 'static) {
+        *self.on_answer.lock() = Some(Box::new(hook));
+    }
+
+    /// Every key the wizard pressed, in order, flattened.
+    pub fn pressed(&self) -> Vec<AnswerKey> {
+        self.state.lock().pressed.iter().flat_map(|(_, k)| k.clone()).collect()
     }
 
     pub fn fail_spawn(&self, message: &str) {
@@ -208,6 +223,24 @@ impl PaneHost for FakeHost {
             p.alive = false;
         }
     }
+
+    fn cwd(&self, pane: &str) -> Option<PathBuf> {
+        self.state.lock().panes.get(pane).map(|p| p.cwd.clone())
+    }
+
+    fn answer(&self, pane: &str, keys: &[AnswerKey]) -> Result<(), String> {
+        {
+            let mut st = self.state.lock();
+            if !st.panes.contains_key(pane) {
+                return Err("this is not a pane the wizard started, so the wizard presses nothing in it".into());
+            }
+            st.pressed.push((pane.to_string(), keys.to_vec()));
+        }
+        if let Some(hook) = self.on_answer.lock().as_ref() {
+            hook(self, pane, keys);
+        }
+        Ok(())
+    }
 }
 
 /// Short limits for tests that run the real threads.
@@ -230,6 +263,7 @@ pub fn quick_cfg() -> RunnerCfg {
             start: Duration::from_millis(80),
             ready: Duration::from_secs(5),
             person: Duration::from_secs(5),
+            step: Duration::from_secs(2),
             busy: Duration::from_secs(3),
             done: Duration::from_secs(5),
             permission: Duration::from_secs(3),

@@ -278,7 +278,7 @@ impl Engine {
             Key::Up => *selected = selected.saturating_sub(1),
             Key::Down => *selected = (*selected + 1).min(options - 1),
             Key::Enter => confirm = Some(*selected),
-            Key::Char(c) if gate.gate == GateKind::UpdateMenu || self.layout != Layout::Claude => {
+            Key::Char(c) if gate.gate == GateKind::UpdateMenu || (self.layout != Layout::Claude && gate.style == crate::script::TrustStyle::Numbered) => {
                 if let Some(n) = c.to_digit(10).filter(|n| (1..=options as u32).contains(n)) {
                     confirm = Some(n as usize - 1);
                 }
@@ -294,8 +294,8 @@ impl Engine {
             _ => {}
         }
         let Some(choice) = confirm else { return };
-        let (kind, layout, warm_ms, linger_ms) = (gate.gate, self.layout, gate.warm_ms, gate.linger_ms);
-        let view = GateView { kind: gate.gate, selected: *selected };
+        let (kind, layout, warm_ms, linger_ms, style) = (gate.gate, self.layout, gate.warm_ms, gate.linger_ms, gate.style);
+        let view = GateView { kind: gate.gate, selected: *selected, style: gate.style };
         match kind {
             GateKind::UpdateMenu => match choice {
                 0 => {
@@ -311,7 +311,7 @@ impl Engine {
             },
             GateKind::Trust => {
                 // Claude: option 0 is "No, exit". Codex: option 1 is "No, quit".
-                let declined = if layout == Layout::Claude { choice == 0 } else { choice == 1 };
+                let declined = if layout == Layout::Claude || (layout == Layout::Nimbus && style == crate::script::TrustStyle::ArrowNoFirst) { choice == 0 } else { choice == 1 };
                 if declined {
                     self.log(now, "gate_answer", json!({ "gate": "trust", "answer": "decline" }));
                     self.exit_with(1, now);
@@ -627,7 +627,7 @@ impl Engine {
 
     fn exit_with(&mut self, code: i32, now: u64) {
         let frozen = match &self.phase {
-            Phase::Gate { gate, selected } => Some(GateView { kind: gate.gate, selected: *selected }),
+            Phase::Gate { gate, selected } => Some(GateView { kind: gate.gate, selected: *selected, style: gate.style }),
             _ => None,
         };
         self.log(now, "exit", json!({ "code": code }));
@@ -647,7 +647,7 @@ impl Engine {
             Phase::Warming { frozen: Some(view), .. } => Mode::Gate(view.clone()),
             // Still loading after a startup screen, but drawn like a ready composer (that is the trap).
             Phase::BeforeGate { .. } | Phase::Warming { .. } | Phase::Ready | Phase::Busy | Phase::LimitWait => Mode::Ready,
-            Phase::Gate { gate, selected } => Mode::Gate(GateView { kind: gate.gate, selected: *selected }),
+            Phase::Gate { gate, selected } => Mode::Gate(GateView { kind: gate.gate, selected: *selected, style: gate.style }),
             Phase::Approval { dialog, .. } => Mode::Approval(dialog.clone()),
             Phase::Hold => Mode::Hold,
             Phase::Exited { frozen: Some(gate) } => Mode::Gate(gate.clone()),
@@ -950,6 +950,45 @@ mod nimbus_tests {
         no.on_key(Key::Char('n'), 30);
         let screen = no.plain(40);
         assert!(screen.contains("denied: hello.txt") && !screen.contains("made it"), "{screen}");
+    }
+
+    #[test]
+    fn nimbus_draws_the_arrow_menu_trust_question_and_only_the_arrows_and_enter_answer_it() {
+        let mut e = engine("[[startup]]\ngate = \"trust\"\nstyle = \"arrow\"");
+        e.tick(0);
+        let s = e.plain(0);
+        assert!(s.contains("> Yes, I trust this folder") && s.contains("  No, exit") && s.contains("Navigate") && s.contains("enter Confirm"), "{s}");
+        // digits do nothing in this menu
+        e.on_key(Key::Char('1'), 10);
+        assert!(e.plain(10).contains("Do you trust"), "digits do not answer an arrow menu");
+        e.on_key(Key::Enter, 20);
+        assert_eq!(e.exit_code(), None);
+        assert!(e.plain(30).contains("| > Type a task..."), "{}", e.plain(30));
+    }
+
+    #[test]
+    fn nimbus_arrow_menu_with_the_cursor_on_no_needs_down_then_enter() {
+        let mut e = engine("[[startup]]\ngate = \"trust\"\nstyle = \"arrow_no_first\"");
+        e.tick(0);
+        let s = e.plain(0);
+        assert!(s.contains("> No, exit") && s.contains("  Yes, I trust this folder"), "{s}");
+        e.on_key(Key::Down, 10);
+        assert!(e.plain(10).contains("> Yes, I trust this folder"), "{}", e.plain(10));
+        e.on_key(Key::Enter, 20);
+        assert!(e.plain(30).contains("| > Type a task..."));
+        // Enter on the first row declines
+        let mut no = engine("[[startup]]\ngate = \"trust\"\nstyle = \"arrow_no_first\"");
+        no.tick(0);
+        no.on_key(Key::Enter, 10);
+        assert_eq!(no.exit_code(), Some(1));
+    }
+
+    #[test]
+    fn nimbus_always_menu_has_no_plain_yes() {
+        let mut e = engine("[[startup]]\ngate = \"trust\"\nstyle = \"always\"");
+        e.tick(0);
+        let s = e.plain(0);
+        assert!(s.contains("> Yes, always trust this folder") && !s.contains("I trust this folder"), "{s}");
     }
 
     #[test]

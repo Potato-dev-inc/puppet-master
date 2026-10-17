@@ -23,7 +23,7 @@ import nimbusTextTrust from '../../src-tauri/src/tui/declarative/fixtures/nimbus
 import nimbusTextWorking from '../../src-tauri/src/tui/declarative/fixtures/nimbus/tui_working.txt?raw';
 
 /** Bump when the asked-for work or the rules change (stored in `<id>.wizard.json`). */
-export const PROMPT_VERSION = '5';
+export const PROMPT_VERSION = '6';
 
 /**
  * The most characters a prompt may have. The local agent gets it on standard input (not on the command line,
@@ -67,6 +67,17 @@ export interface CaptureFile {
   variants: string[];
 }
 
+/** A setup question the wizard answered for the person, in a pane it started in its own isolated folder. */
+export interface AnsweredQuestion {
+  place: 'capture' | 'visibletest';
+  flavour: 'trust' | 'permission';
+  /** The option chosen, as the screen words it. */
+  label: string;
+  keys: string;
+  /** The question as it was on screen (masked). */
+  screen: string;
+}
+
 /** What the guided capture learned (the masked set `capture finish` returns). */
 export interface CaptureFacts {
   grid: { cols: number; rows: number };
@@ -78,6 +89,8 @@ export interface CaptureFacts {
     hello_written: boolean;
     /** The agent made the requested file and never asked (a fact for the drafter and the Review screen). */
     writes_without_asking?: boolean;
+    /** Setup questions the wizard answered for the person in its own pane (SPEC 11.16). */
+    answered?: AnsweredQuestion[];
     startup_dialogs: string[];
     exit_screen: string | null;
     notes: string[];
@@ -260,12 +273,12 @@ const VISIBLE_TASK = `What to decide
 4. [tui.ready]: a regex for what the EMPTY input box shows (its placeholder or prompt), and not_regex entries for the screens that must not count (a running turn, a question, the trust screen). Also [standby] visible = true when this is reliable.
 5. [tui.busy]: working_regex (what the working screen shows: a spinner row, a stop hint) and idle_regex (what only the idle screen shows) if there is such a marker.
 6. [tui.chrome]: line_regex for the banner, input box rows, footer hints and any "done in" row; [tui.tool_activity] for rows that report a tool call; [tui.menu] regex for an open selector; [tui.footer_model] if the screen names the model; [tui.layout] if a sidebar shows.
-7. [[tui.prompt]]: one for the permission question and one for the trust or first-run question when they were captured: kind, detect_regex, choices (allow_once and deny, each with the key or text that answers it), and not_when_regex for text that stays on screen after the question was answered.
+7. [[tui.prompt]]: one for the permission question (tui_permission) and one for EACH startup question that was captured (tui_trust, tui_firstrun): kind, detect_regex, choices (allow_once and deny, each with the key or text that answers it), and not_when_regex for text that stays on screen after the question was answered. For a "do you trust this folder" question use kind = "workspace_trust"; its detect_regex must match the question line of the tui_trust capture (not the folder path, which changes); allow_once is the key that picks the option meaning "yes, I trust this folder" (an arrow menu whose cursor already sits on it: key = "enter"; a numbered menu: the number as text) and deny is the one that says no or exits. Without this table the agent sits behind its question looking idle and no approval card ever appears, so the visible test fails its "startup question becomes a card" check.
 8. [tui.delivery]: input_echo_regex (where typed text shows in the input box) and transcript_echo_regex (how the sent message shows in the transcript), when the captures show both.
 If a capture is missing or partial (the facts say so), do not write tables for what you cannot see.
 
 What happens after your answer
-The checker validates the file and holds each capture against it: the idle and reply screens must read as ready and not busy, the working screen as busy, the questions as prompts, and the reply row must not read as chrome. Then a visible test starts your profile in a new pane and does the same live: it waits for the input box, types a new test message, watches for the work, reads the reply, and checks that a permission question becomes an approval card. The test answers nothing itself. If a check fails, the screen at that moment is shown to you in the next round.`;
+The checker validates the file and holds each capture against it: the idle and reply screens must read as ready and not busy, the working screen as busy, the questions as prompts, and the reply row must not read as chrome. Then a visible test starts your profile in a new pane and does the same live: it waits for the input box, types a new test message, watches for the work, reads the reply, and checks that a startup question (trust) and a permission question each become an approval card. The test never answers a permission question itself; a startup question in its pane is answered by the person, or by the wizard when it is a plain "yes, I trust this folder" and the person allowed that. If a check fails, the screen at that moment is shown to you in the next round.`;
 
 const ADD_HEADLESS_RULES = `You are helping Puppet Master (a desktop app that runs AI coding agents) learn a new command-line agent.
 The visible part of its definition is already written and tested. Your job now: add the one-task mode ("headless"): one command per turn, with output a program can read, so Puppet Master gets the answer and a session id for follow-up turns.
@@ -293,7 +306,9 @@ function captureBlocks(c: CaptureFacts): string {
     'Capture facts',
     `- Pane grid: ${c.grid.cols} columns by ${c.grid.rows} rows (the screens below are that size).`,
     c.facts.startup_dialogs.length
-      ? `- Questions the agent asked at startup (answered by the person in the pane): ${c.facts.startup_dialogs.join(', ')}.`
+      ? `- Questions the agent asked at startup (answered ${
+          (c.facts.answered ?? []).length ? 'by the wizard, which pressed the plain yes in its own isolated folder' : 'by the person in the pane'
+        }): ${c.facts.startup_dialogs.join(', ')}. Each needs its own [[tui.prompt]] (see the captures tui_trust / tui_firstrun below).`
       : '- The agent asked no question at startup.',
     c.facts.writes_without_asking || (c.facts.hello_written && !c.files.some((f) => f.name === 'tui_permission'))
       ? '- This agent writes files without asking: it created the requested file and showed no permission question, so there is no permission screen. Do not invent a permission question; add [[tui.prompt]] only for a question a screen below shows.'
