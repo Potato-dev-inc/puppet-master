@@ -121,8 +121,8 @@ pub fn mcp_start(
         return Err(missions_off());
     }
     let project = request.project_path.clone().filter(|p| !p.trim().is_empty()).unwrap_or_else(|| default_project.to_string());
-    let project = crate::project_path::prepare_project_path(std::path::Path::new(&project))
-        .map_err(|e| err("INVALID_PROJECT_PATH", e))?
+    let project = crate::project_path::prepare_project_path_coded(std::path::Path::new(&project))
+        .map_err(crate::project_path::PrepareError::into_operation_error)?
         .to_string_lossy()
         .into_owned();
     if request.pane_id.is_some() || request.worker_id.is_some() || request.handle.is_some() || request.agent_run_id.is_some() {

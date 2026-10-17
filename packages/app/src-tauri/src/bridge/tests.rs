@@ -68,16 +68,30 @@ fn spawned_shells_register_as_shell_panes_for_the_request_session() {
 #[test]
 fn spawned_agents_register_as_agent_panes_for_the_request_session() {
     let session = uuid::Uuid::new_v4().to_string();
+    let other = uuid::Uuid::new_v4().to_string();
     let pane_id = uuid::Uuid::new_v4().to_string();
     register_spawned_pane(Some(&session), "codex", &pane_id).unwrap();
     crate::mcp_sessions::set_mode(&session, "shell").unwrap();
+    crate::mcp_sessions::set_mode(&other, "shell").unwrap();
+    let write = |who: &str| {
+        crate::mcp_sessions::authorize(
+            Some(who),
+            "POST",
+            &format!("/panes/{pane_id}/input"),
+            &json!({"text":"y"}),
+        )
+    };
+    // The pane the connection's own run opened is its own: typing needs no take_over...
+    assert!(write(&session).is_ok());
+    // ...a shell command into it still does, and another connection is refused.
     assert!(crate::mcp_sessions::authorize(
         Some(&session),
         "POST",
-        &format!("/panes/{pane_id}/input"),
-        &json!({"text":"unexpected takeover"})
+        "/shell/exec",
+        &json!({"command":"dir","pane_id":pane_id})
     )
     .is_err());
+    assert!(write(&other).is_err());
 }
 
 #[test]

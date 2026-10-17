@@ -196,7 +196,7 @@ agent worktrees (ignore).
 | `worktrees/` (`git`, `service`, `routes`, `proc`, `pr`, `preset`, `folder`) | Separate copies (git worktrees) for isolated runs: diff, merge (`--no-ff`, then closes it), discard (`routes.rs`; `review_worktree` is the MCP-visible route, gated by setting B in `agent_authority/merge.rs`; the direct merge route writes a Merge audit line); `pr.rs`: pull requests and check results through `gh`; `preset.rs`: `<project>/.puppet-master/project.toml` `[worktree]` presets so a copy starts ready; `folder.rs`: the "+" menu's project list and git state. |
 | `canary/` | CLI-update safety: version pins, strict mode (`canary::strict::startup_gate` drops dismiss keys for an untested version), the zero-token canary, unknown-screen capture. |
 | `commands/` | Tauri `invoke` commands (thin wrappers over `PaneRegistry`; registered in `lib.rs`'s `invoke_handler`): `panes.rs`, `mcp.rs` (install/uninstall MCP configs), `agent_models.rs`, `opencode_keys.rs`, `coordination.rs`, `app.rs`; `AppState` in `mod.rs`. |
-| `settings_store.rs`, `app_paths.rs`, `app_lifecycle.rs`, `platform.rs`, `shell_env.rs`, `env_probe.rs`, `project_path.rs`, `startup_timing.rs`, `worker_launch.rs` | Settings mirror; app data dir (`%APPDATA%\com.puppetmaster.app`, port file); install/uninstall metadata; OS helpers; login-shell PATH for GUI launches (`shell_env.rs` also scrubs the launching Claude Code session's `CLAUDECODE`/`CLAUDE_CODE_*` markers so panes start as top-level sessions); tool presence probe for `bridge_health.env`; writable project dir resolution; run-start stage timing; standalone worker window launch (`PUPPET_MASTER_WORKER*` env). |
+| `settings_store.rs`, `app_paths.rs`, `app_lifecycle.rs`, `platform.rs`, `shell_env.rs`, `env_probe.rs`, `project_path.rs`, `path_limit.rs` (the 259-character working-folder limit and `PATH_TOO_LONG`), `startup_timing.rs`, `worker_launch.rs` | Settings mirror; app data dir (`%APPDATA%\com.puppetmaster.app`, port file); install/uninstall metadata; OS helpers; login-shell PATH for GUI launches (`shell_env.rs` also scrubs the launching Claude Code session's `CLAUDECODE`/`CLAUDE_CODE_*` markers so panes start as top-level sessions); tool presence probe for `bridge_health.env`; writable project dir resolution; run-start stage timing; standalone worker window launch (`PUPPET_MASTER_WORKER*` env). |
 
 ### 3.2 `agent_runs/` (the run engine)
 
@@ -471,6 +471,10 @@ JS side: `packages/cli/src/watch.ts`, `watch-args.ts` (`validateWatchFlags`, `WA
   waits are allowed on unregistered handles, released leases and stale controllers
   (`check_run_read_access`, `check_run_wait_access`); waits never change leases. A reconnecting MCP
   can reclaim via `attach_agents(attach_token)`; `PUPPET_MASTER_CLIENT_ID` gives a stable session id.
+  A pane a connection's own `run_agent`/`followup_task` opened is its own for `press_key`,
+  `write_terminal_input` and `answer_prompt` (no `take_over`; `lineage::pane_started_by`, used in
+  `authorize.rs`). Panes the person opened or another agent started, and `shell_exec` into an agent
+  pane, still need `take_over`.
   Shell panes are only writable via `shell_exec` in shell/both mode (`MODE_MISMATCH`).
 - **`answer_prompt` pre-keystroke validation**: the caller must name the prompt id it read
   (`pane_prompt/mod.rs::prompt_id_for`, command-based, NOT a hash of the whole screen); the guard
@@ -669,6 +673,7 @@ validation unless noted.
 - `INVALID_AGENT_TYPE` - unknown agent type - `operations/create.rs`, `bridge/`.
 - `INVALID_AGENT_HANDLE(S)` - malformed handle(s) - `agent_runs/routes/`, `operations/`.
 - `INVALID_PROJECT_PATH` / `PROJECT_PATH_REQUIRED` - bad/missing project dir - `agent_runs/headless/`, `operations/`, `bridge/`.
+- `PATH_TOO_LONG` - the working folder is longer than 259 characters, so Windows cannot start a program in it; raised before any spawn (`path_limit.rs`: `project_path::prepare_project_path_coded`, `worktrees::create`, `bridge/pane_util.rs`, `agent_runs/headless/process.rs`) and for a raw spawn error 267/206 near the limit.
 - `INVALID_IDEMPOTENCY_KEY`, `INVALID_LOCK`, `INVALID_ACCEPTANCE_CRITERIA`, `INVALID_OPERATION_ID`, `INVALID_OPERATION_RESULT`, `INVALID_CWD`, `INVALID_COMMAND` - field validation - `operations/`, `bridge/`, `shell_exec.rs`.
 - `AGENT_ID_REQUIRED`, `PANE_ID_REQUIRED`, `PANE_REQUIRED`, `SESSION_REQUIRED` - missing identifiers; `SESSION_REQUIRED` = no MCP session header (`mcp_sessions/authorize.rs`, `bridge/`).
 

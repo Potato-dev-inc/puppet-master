@@ -4,6 +4,7 @@ use super::access::{check_run_access, check_run_read_access, check_run_wait_acce
 use super::handles::denied;
 use super::identity::mode_for;
 use super::leases::session_controls_pane;
+use super::lineage::pane_started_by;
 use super::state::{lock_state, PaneKind};
 use crate::operations::OperationError;
 use crate::tool_registry::{self, McpMode, ToolSafety};
@@ -249,7 +250,15 @@ pub fn authorize(
                     }
                 }
             }
-            let pane = match lock_state().panes.get(pane_id).cloned() {
+            let (pane, started_here) = {
+                let state = lock_state();
+                let pane = state.panes.get(pane_id).cloned();
+                let started_here = pane
+                    .as_ref()
+                    .is_some_and(|pane| pane_started_by(&state, session_id, pane));
+                (pane, started_here)
+            };
+            let pane = match pane {
                 Some(pane) => pane,
                 None if tool.name == "run_agent" => {
                     // UI panes are adopted inside bind_existing_worker (take_over_pane grant=true).
@@ -261,8 +270,14 @@ pub fn authorize(
                     ));
                 }
             };
+            // A pane this connection's own run_agent / followup_task opened is its own: it may
+            // press keys, type and answer a prompt in it without a take_over. Panes the person
+            // opened, or another agent started, still need take_over (and the consent gate), and
+            // every other terminal control (shell_exec) keeps its explicit take_over.
+            let own_run_pane = started_here
+                && matches!(tool.name, "press_key" | "write_terminal_input" | "answer_prompt");
             let agent_requires_takeover =
-                pane.kind == PaneKind::Agent && !pane.explicitly_taken_over;
+                pane.kind == PaneKind::Agent && !pane.explicitly_taken_over && !own_run_pane;
             if agent_requires_takeover && tool.name != "run_agent" {
                 return Err(denied(
                     "agent panes are read-only to terminal controls until explicitly taken over",

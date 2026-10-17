@@ -69,7 +69,23 @@ pub fn app_data_dir_for(profile: Option<&str>) -> PathBuf {
     app_data_root().join(app_id_for(profile))
 }
 
+/// Dev-only (`dev-fake-tui`): the end-to-end harness roots app data in its own per-process folder, so
+/// test processes running side by side never share an audit log, settings or agent definitions.
+#[cfg(feature = "dev-fake-tui")]
+static E2E_DATA_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Dev-only (`dev-fake-tui`): root app data at `root`. Must run before anything reads a path; a
+/// second call is ignored.
+#[cfg(feature = "dev-fake-tui")]
+pub fn set_data_root_for_e2e(root: PathBuf) {
+    let _ = E2E_DATA_ROOT.set(root);
+}
+
 fn app_data_root() -> PathBuf {
+    #[cfg(feature = "dev-fake-tui")]
+    if let Some(root) = E2E_DATA_ROOT.get() {
+        return root.clone();
+    }
     let home = crate::project_path::home_dir().unwrap_or_else(|| PathBuf::from("."));
     #[cfg(target_os = "macos")]
     {

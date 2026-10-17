@@ -93,9 +93,9 @@ pub fn run_agent(
         .as_deref()
         .filter(|path| !path.trim().is_empty())
         .map(std::path::Path::new)
-        .map(crate::project_path::prepare_project_path)
+        .map(crate::project_path::prepare_project_path_coded)
         .transpose()
-        .map_err(|err| OperationError::new("INVALID_PROJECT_PATH", err, false))?
+        .map_err(crate::project_path::PrepareError::into_operation_error)?
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_default();
     if !project_path.is_empty() {
@@ -451,7 +451,13 @@ pub fn run_agent(
                 if budgeted {
                     crate::budgets::discard(&project_path, &handle);
                 }
-                error.context = serde_json::json!({"isolation": "worktree", "project_path": project_path});
+                match error.context.as_object_mut() {
+                    Some(context) => {
+                        context.insert("isolation".into(), "worktree".into());
+                        context.insert("project_path".into(), project_path.clone().into());
+                    }
+                    None => error.context = serde_json::json!({"isolation": "worktree", "project_path": project_path}),
+                }
                 return Err(error);
             }
         }
